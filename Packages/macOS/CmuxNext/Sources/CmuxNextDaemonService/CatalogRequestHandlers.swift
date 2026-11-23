@@ -52,6 +52,18 @@ public struct CatalogRequestHandlers {
         installListSources(registry)
     }
 
+    /// The question a destructive catalog request row asks before a keyboard, menu or palette
+    /// run (the App's `DestructiveConfirmation` falls back to it): the row's own title, with a
+    /// button that names the action. Nil for a row that names no request or is not destructive,
+    /// so no destructive request row can run unasked because no hand-written question lists it.
+    public static func confirmation(for descriptor: ActionDescriptor, request: ActionCatalogRequest? = nil)
+        -> (title: String, body: String, button: String)? {
+        guard descriptor.isDestructive, (request ?? descriptor.catalogRequest) != nil else { return nil }
+        var button = descriptor.title
+        while button.hasSuffix("…") || button.hasSuffix(".") { button.removeLast() }
+        return (descriptor.title, CatalogRequestStrings.destructiveBody, button)
+    }
+
     /// Why `invocation` may not send a catalog request, nil when it may.
     static func refusal(_ invocation: ActionInvocation) -> String? {
         invocation.origin == .remote ? CatalogRequestStrings.remote : nil
@@ -232,15 +244,20 @@ public struct CatalogRequestHandlers {
 struct CatalogRequestStrings {
     static var remote: String {
         String(localized: "catalogRequest.remote", defaultValue: "this action does not run from another device",
-               table: "CatalogRequests", bundle: .module)
+               table: "CatalogRequests", bundle: .localizedModule)
     }
 
     static var notConnected: String {
         String(localized: "catalogRequest.notConnected", defaultValue: "the service this action needs is not connected",
-               table: "CatalogRequests", bundle: .module)
+               table: "CatalogRequests", bundle: .localizedModule)
     }
 
     static var noPane: String {
-        String(localized: "catalogRequest.noPane", defaultValue: "No pane is focused.", table: "CatalogRequests", bundle: .module)
+        String(localized: "catalogRequest.noPane", defaultValue: "Click a tab first, then try again.", table: "CatalogRequests", bundle: .localizedModule)
+    }
+
+    static var destructiveBody: String {
+        String(localized: "catalogRequest.destructiveBody", defaultValue: "This can't be undone.",
+               table: "CatalogRequests", bundle: .localizedModule)
     }
 }

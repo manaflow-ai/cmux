@@ -43,7 +43,7 @@ const READ_WINDOW: usize = 4;
 const UPLOAD_WINDOW: usize = 2;
 /// Ctrl-C presses after which `exec` stops waiting for the command.
 const INTERRUPTS_BEFORE_GIVING_UP: u32 = 3;
-const EXIT_TRANSPORT: i32 = 255;
+pub(super) const EXIT_TRANSPORT: i32 = 255;
 const EXIT_INTERRUPTED: i32 = 130;
 const EXIT_BROKEN_PIPE: i32 = 141;
 const DEFAULT_TERMINAL: (u16, u16) = (80, 24);
@@ -283,7 +283,7 @@ fn sha256_hex(bytes: &[u8]) -> String {
     Sha256::digest(bytes).iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
-async fn open_root(client: &WorkspaceClient) -> anyhow::Result<WorkspaceId> {
+pub(super) async fn open_root(client: &WorkspaceClient) -> anyhow::Result<WorkspaceId> {
     match client.request(WorkspaceRequest::OpenWorkspace { root: "/".into() }).await? {
         WorkspaceResponse::Workspace { id, .. } => Ok(id),
         _ => Err(unexpected("open-workspace")),
@@ -323,7 +323,7 @@ fn exec(args: &[String]) -> anyhow::Result<i32> {
     let runtime = tokio_runtime()?;
     let result = runtime.block_on(async {
         let client = WorkspaceClient::connect(connected.runtime.multiplexer().clone()).await?;
-        exec_on(client, parsed).await
+        exec_on(client, parsed, None).await
     });
     // The command's status is the answer; a slow or failed teardown after it
     // does not change what the command did.
@@ -357,7 +357,14 @@ impl Drop for RawMode {
     }
 }
 
-async fn exec_on(client: Arc<WorkspaceClient>, parsed: ExecArgs) -> anyhow::Result<i32> {
+/// Runs `parsed` on `client`'s machine with its output streamed here.
+/// `first_output` (`cmux spill --timings`) is set when the first byte of
+/// stdout or stderr arrives.
+pub(super) async fn exec_on(
+    client: Arc<WorkspaceClient>,
+    parsed: ExecArgs,
+    first_output: Option<&std::sync::OnceLock<Instant>>,
+) -> anyhow::Result<i32> {
     let workspace = open_root(&client).await?;
     let io = if parsed.tty {
         let (cols, rows) = local_terminal_size();
@@ -396,7 +403,7 @@ async fn exec_on(client: Arc<WorkspaceClient>, parsed: ExecArgs) -> anyhow::Resu
         std::future::pending::<anyhow::Result<i32>>().await
     };
     tokio::select! {
-        status = stream_process(&client, spawned, parsed.tty) => status,
+        status = stream_process(&client, spawned, parsed.tty, first_output) => status,
         status = input => status,
     }
 }
@@ -485,6 +492,7 @@ async fn stream_process(
     client: &WorkspaceClient,
     spawned: SpawnedProcess,
     tty: bool,
+    first_output: Option<&std::sync::OnceLock<Instant>>,
 ) -> anyhow::Result<i32> {
     let process = spawned.process;
     let mut interrupt = signal(SignalKind::interrupt())?;
@@ -500,6 +508,11 @@ async fn stream_process(
                     Some(RpcEvent { event, .. }) => event,
                     None => return final_status(wait_exit(client, process).await?, lost),
                 };
+                if let (Some(first), ProcessEvent::Stdout { .. } | ProcessEvent::Stderr { .. }) =
+                    (first_output, &event)
+                {
+                    let _ = first.set(Instant::now());
+                }
                 let written = match &event {
                     ProcessEvent::Stdout { data, .. } => write_output(&mut stdout.lock(), data),
                     ProcessEvent::Stderr { data, .. } => write_output(&mut stderr.lock(), data),
@@ -572,7 +585,7 @@ async fn wait_exit(client: &WorkspaceClient, process: ProcessId) -> anyhow::Resu
 
 /// Runs a short helper command (stdin closed) to completion and returns its
 /// status and stderr. Stdout is dropped, or written to `stdout` when given.
-async fn run_remote(
+pub(super) async fn run_remote(
     client: &WorkspaceClient,
     workspace: &WorkspaceId,
     argv: Vec<String>,
@@ -635,7 +648,9 @@ fn check_step(step: &str, (status, stderr): (i32, String)) -> anyhow::Result<()>
 
 pub(super) fn run_cp(args: &[String]) -> anyhow::Result<()> {
     let parsed = parse_cp_args(args)?;
-    let flags = parse_connect_flags(&parsed.connect)?;
+    let mut flags = parse_connect_flags(&parsed.connect)?;
+    // A refusal that ends the connect is a JSON line too.
+    flags.json |= parsed.json;
     let connected = start_connected(flags)?;
     let runtime = tokio_runtime()?;
     let result = runtime.block_on(async {

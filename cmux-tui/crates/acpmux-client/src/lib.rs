@@ -2,6 +2,7 @@
 
 pub mod chat;
 pub mod ffi;
+pub mod page;
 pub mod tokio_list;
 pub mod wire;
 
@@ -193,6 +194,9 @@ enum PagePurpose {
     User,
     MirrorWalk,
     Wanted,
+    /// A page asked under its own sid with no sub, for the relay (row 8b): answered once,
+    /// never sent again on a reconnect.
+    Relay,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -253,10 +257,10 @@ pub struct SkipCounters {
 }
 
 struct QueuedChange<T> {
-    change: Change<T>,
-    sid: Option<String>,
-    bytes: u64,
-    charge: bool,
+    pub(crate) change: Change<T>,
+    pub(crate) sid: Option<String>,
+    pub(crate) bytes: u64,
+    pub(crate) charge: bool,
 }
 
 impl<T> Client<T>
@@ -428,13 +432,31 @@ where
         self.send.pop_front()
     }
     pub fn next_change(&mut self) -> Option<Change<T>> {
-        let queued = self.changes.pop_front()?;
+        let queued = self.next_change_uncredited()?;
+        self.acknowledge_change(&queued);
+        Some(queued.change)
+    }
+
+    /// Removes one change without returning credit to the daemon. The page driver uses this to
+    /// hold a bounded batch until the page acknowledges it. Legacy callers should continue to
+    /// use [`Self::next_change`], which takes the change immediately.
+    pub(crate) fn next_change_uncredited(&mut self) -> Option<QueuedChange<T>> {
+        self.changes.pop_front()
+    }
+
+    /// Returns credit for a change previously removed with [`Self::next_change_uncredited`].
+    pub(crate) fn acknowledge_change(&mut self, queued: &QueuedChange<T>) {
         if queued.charge
             && let Some(sid) = queued.sid.as_deref()
         {
             self.charge_frame_now(Some(sid), queued.bytes);
         }
-        Some(queued.change)
+    }
+
+    /// Whether the handle has a queued protocol change. The page driver uses this to avoid
+    /// treating an empty batch as a page event.
+    pub(crate) fn has_queued_changes(&self) -> bool {
+        !self.changes.is_empty()
     }
 
     pub fn received(&mut self, bytes: &[u8]) -> usize {
@@ -752,6 +774,33 @@ where
             self.queue_request(Request::Page(page))?;
         }
         Ok(())
+    }
+
+    /// A page with no held sub, under its own `sid`, asked once: what a peer link answers for
+    /// `all` and `keys` (decision 266), sent by the relay (row 8b). Its answer is one
+    /// [`Change::Page`] or [`Change::Error`] for that sid, applied to no sub and to no index. A
+    /// reconnect drops it unanswered, and it is not sent again.
+    pub fn relay_page(&mut self, page: Page) -> Result<(), FrameError> {
+        if !wire::identifier_fits(&page.sid) {
+            return Err(FrameError::InvalidLength(page.sid.len()));
+        }
+        if self.phase != Phase::Ready {
+            return Err(FrameError::Refused("a relayed page needs a ready v2 connection"));
+        }
+        if self.pages.contains_key(&page.sid) || self.subscriptions.contains_key(&page.sid) {
+            return Err(FrameError::RequestInFlight);
+        }
+        let frame = Frame::json(FrameKind::Request, &Request::Page(page.clone()))?;
+        self.pages.insert(
+            page.sid,
+            PageState { request: None, purpose: PagePurpose::Relay, ..PageState::default() },
+        );
+        self.send.push_back(frame.encode());
+        Ok(())
+    }
+
+    fn is_relay_page(&self, sid: &str) -> bool {
+        self.pages.get(sid).is_some_and(|state| matches!(state.purpose, PagePurpose::Relay))
     }
 
     fn queue_request(&mut self, request: Request) -> Result<(), FrameError> {
@@ -1373,6 +1422,17 @@ where
                     .decode_json::<Value>()
                     .ok()
                     .and_then(|value| value.get("sid").and_then(Value::as_str).map(str::to_owned));
+                if let Some(sid) = sid_hint.as_deref()
+                    && self.is_relay_page(sid)
+                {
+                    let Ok(page) = frame.decode_json::<PageResult<T>>() else {
+                        self.protocol_error("malformed page");
+                        return;
+                    };
+                    self.pages.remove(sid);
+                    self.push_change(Change::Page(page), None, frame_bytes, false);
+                    return;
+                }
                 if sid_hint.as_deref().is_some_and(|sid| !self.subscriptions.contains_key(sid)) {
                     // An unheld page cannot be applied to any current
                     // subscription. Skip it before generic decoding, since a
@@ -1468,6 +1528,8 @@ where
                         }
                     }
                     PagePurpose::MirrorWalk => self.accept_mirror_walk_page(page, frame_bytes),
+                    // A relay page is answered above, before the sub check.
+                    PagePurpose::Relay => {}
                     PagePurpose::Wanted => self.accept_wanted_page(
                         page,
                         frame_bytes,
@@ -1504,6 +1566,25 @@ where
                     return;
                 };
                 let sid = value.get("sid").and_then(Value::as_str).map(str::to_owned);
+                if value.get("method").and_then(Value::as_str) == Some("page")
+                    && let Some(sid) = sid.as_deref()
+                    && self.is_relay_page(sid)
+                {
+                    self.pages.remove(sid);
+                    let code = value.get("code").and_then(Value::as_str).unwrap_or("error");
+                    self.push_change(
+                        Change::Error {
+                            method: "page".into(),
+                            sid: Some(sid.to_owned()),
+                            id: None,
+                            code: code.to_owned(),
+                        },
+                        None,
+                        frame_bytes,
+                        false,
+                    );
+                    return;
+                }
                 if sid.as_deref().is_some_and(|sid| !self.subscriptions.contains_key(sid)) {
                     self.skips.unheld_sid = self.skips.unheld_sid.saturating_add(1);
                 }
@@ -2269,6 +2350,75 @@ mod tests {
         let mut c = Client::<Value>::new(["list"]);
         c.connected();
         assert!(std::str::from_utf8(&c.take_send().unwrap()).unwrap().contains("_acpmux/v2"));
+    }
+
+    /// A relayed page (row 8b) needs a ready connection, is sent once under its own sid, and
+    /// its answer or error comes back as one change for that sid with no sub; a reconnect drops
+    /// it and does not send it again.
+    #[test]
+    fn a_relayed_page_is_sent_once_and_answered_without_a_sub() {
+        let mut client = Client::<Value>::connected_v2();
+        let page = || Page::new("relay-1", "list", wire::PageSide::After, 0);
+        assert!(matches!(client.relay_page(page()), Err(FrameError::Refused(_))));
+        let hello = Frame::json(
+            FrameKind::Hello,
+            &wire::HelloReply { daemon_id: "d".into(), limits: Limits::default() },
+        )
+        .unwrap()
+        .encode();
+        client.received(&hello);
+        while client.take_send().is_some() {}
+        client.relay_page(page()).unwrap();
+        assert!(matches!(client.relay_page(page()), Err(FrameError::RequestInFlight)));
+        let sent = Frame::from_encoded(&client.take_send().unwrap()).unwrap();
+        let sent: Value = sent.decode_json().unwrap();
+        assert_eq!(sent["method"], "page");
+        assert_eq!(sent["params"]["sid"], "relay-1");
+        assert!(client.take_send().is_none());
+        let answer = Frame::json(
+            FrameKind::Page,
+            &serde_json::json!({"sid":"relay-1","rows":[{"chatId":"a"}],"hasBefore":false,"hasAfter":true}),
+        )
+        .unwrap()
+        .encode();
+        assert_eq!(client.received(&answer), answer.len());
+        match client.next_change() {
+            Some(Change::Page(result)) => {
+                assert_eq!(result.sid, "relay-1");
+                assert_eq!(result.rows.len(), 1);
+            }
+            other => panic!("{other:?}"),
+        }
+        // Answered: the sid is free again, and a second answer for it is skipped.
+        client.received(&answer);
+        assert!(client.next_change().is_none());
+        client.relay_page(Page::new("relay-2", "list", wire::PageSide::After, 0)).unwrap();
+        let error = Frame::json(
+            FrameKind::Error,
+            &serde_json::json!({"method":"page","sid":"relay-2","code":"busy","message":"full"}),
+        )
+        .unwrap()
+        .encode();
+        client.received(&error);
+        assert_eq!(
+            client.next_change(),
+            Some(Change::Error {
+                method: "page".into(),
+                sid: Some("relay-2".into()),
+                id: None,
+                code: "busy".into(),
+            })
+        );
+        client.relay_page(Page::new("relay-3", "list", wire::PageSide::After, 0)).unwrap();
+        client.disconnected();
+        client.connected();
+        let resent = std::iter::from_fn(|| client.take_send())
+            .filter_map(|bytes| Frame::from_encoded(&bytes).ok())
+            .filter(|frame| frame.payload().windows(7).any(|w| w == b"relay-3"))
+            .count();
+        assert_eq!(resent, 0, "a relayed page is not sent again");
+        client.received(&hello);
+        assert!(client.relay_page(Page::new("relay-3", "list", wire::PageSide::After, 0)).is_ok());
     }
 
     #[test]
@@ -3602,6 +3752,10 @@ tail"#;
     }
 
     #[test]
+    #[cfg_attr(
+        miri,
+        ignore = "500 held rows of safe code, over 10 minutes under Miri; no FFI call"
+    )]
     fn mirror_parent_refresh_batches_only_its_held_children() {
         for total in [20, 500] {
             let mut client = Client::<Value>::connected_v2();
@@ -3663,6 +3817,7 @@ tail"#;
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "4,096 keys of safe code, over 10 minutes under Miri; no FFI call")]
     fn caller_wanted_keys_have_priority_over_internal_parents() {
         let mut client = ready_mirror();
         {

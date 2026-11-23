@@ -26,7 +26,8 @@ impl Reader {
         // SAFETY: live reader, writable line.
         let rc = unsafe { cmux_rd_line_reader_next(self.0, &mut line) };
         assert!(rc == 0 || rc == 1, "rc {rc}");
-        (rc == 1).then(|| json_of(&line))
+        // SAFETY: `line` was just filled by a successful next on this live reader.
+        (rc == 1).then(|| unsafe { json_of(&line) })
     }
 }
 
@@ -37,24 +38,32 @@ impl Drop for Reader {
     }
 }
 
-fn text(ptr: *const u8, len: usize) -> serde_json::Value {
-    // SAFETY: the reader's bytes, valid until the next call on it.
+/// # Safety
+/// `ptr..ptr+len` is readable (NULL only when `len` is 0) for this call.
+unsafe fn text(ptr: *const u8, len: usize) -> serde_json::Value {
+    // SAFETY: guaranteed by this function's contract.
     let bytes = unsafe { bytes_in(ptr, len) }.expect("text");
     serde_json::Value::String(String::from_utf8(bytes.to_vec()).expect("utf-8"))
 }
 
 /// A `CmuxRdLine` in the vectors' `want` JSON shape (what a C caller sees).
-fn json_of(line: &CmuxRdLine) -> serde_json::Value {
+///
+/// # Safety
+/// `line` was filled by `cmux_rd_line_reader_next` on a live reader with no call on it
+/// since, so each field its bits name points to that many readable items.
+unsafe fn json_of(line: &CmuxRdLine) -> serde_json::Value {
     let has = |bit: u32| line.fields & bit != 0;
     let mut out = serde_json::Map::new();
     if has(CMUX_RD_LINE_FALLBACK_WEBRTC) {
         out.insert("fallback_webrtc".into(), true.into());
     }
     if has(CMUX_RD_LINE_KEY) {
-        out.insert("key".into(), text(line.key, line.key_len));
+        // SAFETY: `key` holds `key_len` bytes, by this function's contract.
+        out.insert("key".into(), unsafe { text(line.key, line.key_len) });
     }
     if has(CMUX_RD_LINE_CANDIDATE) {
-        out.insert("candidate".into(), text(line.candidate, line.candidate_len));
+        // SAFETY: `candidate` holds `candidate_len` bytes, by this function's contract.
+        out.insert("candidate".into(), unsafe { text(line.candidate, line.candidate_len) });
     }
     for (bit, name) in [
         (CMUX_RD_LINE_CANDIDATES_DONE, "candidates_done"),
@@ -66,11 +75,13 @@ fn json_of(line: &CmuxRdLine) -> serde_json::Value {
         }
     }
     if has(CMUX_RD_LINE_ENDED) {
-        out.insert("ended".into(), text(line.ended, line.ended_len));
+        // SAFETY: `ended` holds `ended_len` bytes, by this function's contract.
+        out.insert("ended".into(), unsafe { text(line.ended, line.ended_len) });
     }
     if has(CMUX_RD_LINE_PATH) {
         let kind = if has(CMUX_RD_LINE_PATH_KIND) {
-            text(line.path_kind, line.path_kind_len)
+            // SAFETY: `path_kind` holds `path_kind_len` bytes, by this function's contract.
+            unsafe { text(line.path_kind, line.path_kind_len) }
         } else {
             serde_json::Value::Null
         };
@@ -96,7 +107,8 @@ fn json_of(line: &CmuxRdLine) -> serde_json::Value {
         out.insert("current".into(), line.current.into());
     }
     if has(CMUX_RD_LINE_ERROR) {
-        out.insert("error".into(), text(line.error, line.error_len));
+        // SAFETY: `error` holds `error_len` bytes, by this function's contract.
+        out.insert("error".into(), unsafe { text(line.error, line.error_len) });
     }
     out.into()
 }
@@ -192,7 +204,8 @@ fn a_panic_poisons_only_that_reader() {
     let other = Reader::new();
     let hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(|_| {}));
-    let rc = with_reader(reader.0, |_| panic!("boom"));
+    // SAFETY: a live reader from cmux_rd_line_reader_new; this test is its only user.
+    let rc = unsafe { with_reader(reader.0, |_| panic!("boom")) };
     std::panic::set_hook(hook);
     assert_eq!(rc, CMUX_RD_ERR_PANIC);
     assert_eq!(reader.push(b"{}\n"), CMUX_RD_ERR_PANIC);

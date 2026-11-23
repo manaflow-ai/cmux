@@ -26,6 +26,8 @@ export const AGENT_LIMITS = {
 export interface AgentBudget {
   readonly maxVms: number;
   readonly maxUsdPerHour: number;
+  /** Who holds the budget, as an over-cap refusal names it ("team key tk-lanes"); absent: "agent key". */
+  readonly holder?: string;
 }
 
 /**

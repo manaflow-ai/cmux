@@ -3,6 +3,7 @@ public import AppKit
 import CmuxHomeCore
 import CmuxHomeRender
 import CmuxAgentQuestion
+import Foundation
 #if DEBUG
 public import MessagesLabHome
 #endif
@@ -159,6 +160,13 @@ public final class HomeNativeFixture {
     /// notice (``HomeFeedRow``, `source`/`title`; default "cmux updated to nightly 4295228") in the
     /// shown conversation, as the app does for the default Chief.
     public func debugDrive(_ action: String, _ params: [String: String]) -> [String: String]? {
+        #if DEBUG
+        if action == "hover_media" { return ["ok": String(view?.transcript.debugHoverMedia(Int(params["index"] ?? "0") ?? 0) ?? false)] }
+        #endif
+        if action == "fixture_media" {
+            // {mine, missing: "true" | "false"}: the Chief's PNG and two poster-less MP4s, my wide picture, a missing one.
+            return ["ok": String(debugChiefMedia(mine: params["mine"] != "false", missing: params["missing"] != "false"))]
+        }
         guard action == "feed_row" else { return nil }
         guard let shown else { return ["ok": "false", "error": "the fixture conversation is not shown yet"] }
         store.setFeedRows([HomeFeedRow(id: "debug-feed-row", source: params["source"] ?? "cmux",
@@ -227,6 +235,41 @@ public final class HomeNativeFixture {
         return true
     }
 
+    /// The Chief's media message as it sent it in the real chat (2026-11-16, msg 36844): words, a wide PNG and two
+    /// MP4s with no poster and no pixel size (the Chief's `send` stores neither); then, with `mine`, a wide picture of
+    /// mine (2256 x 454) and, with `missing`, a picture whose bytes the owner does not have (its preview cannot be had:
+    /// a file card after HomeMedia's tries). For Before/After captures of the media layout. False before it shows.
+    public func debugChiefMedia(mine: Bool, missing: Bool) -> Bool {
+        guard let shown else { return false }
+        let source = self.source
+        // task-owner: a few mock uploads and posts; ends when they are published
+        Task {
+            guard let files = try? await HomeFixtureMedia.chiefMedia() else { return }
+            func upload(_ url: URL, mime: String, width: Int?, height: Int?) async -> AttachmentRef? {
+                guard let (hash, count) = await HomeFixtureMedia.digest(url) else { return nil }
+                let ref = AttachmentRef(hash: hash, name: url.lastPathComponent, mimeType: mime, byteCount: count, width: width, height: height)
+                return try? await source.upload(AttachmentUpload(conversation: shown.conversation, fileURL: url, ref: ref, progress: { _ in }))
+            }
+            var parts: [MessagePart] = [.text("Mouseup fade 100%: frames 2 and 3, before (left) and after (right).")]
+            if let ref = await upload(files.shot, mime: "image/png", width: 1760, height: 880) { parts.append(.attachment(ref)) }
+            for video in files.videos {
+                if let ref = await upload(video, mime: "video/mp4", width: nil, height: nil) { parts.append(.attachment(ref)) }
+            }
+            _ = await source.post(parts, from: shown.chief, in: shown.conversation, key: .make())
+            let me = await source.me.id
+            if mine, let ref = await upload(files.wide, mime: "image/png", width: 2256, height: 454) {
+                _ = await source.post([.attachment(ref), .text("we should get rid of the prompt to switch to chrome")],
+                                      from: me, in: shown.conversation, key: .make())
+            }
+            if missing {
+                let gone = AttachmentRef(hash: String(repeating: "0", count: 64), name: "Screenshot that was never uploaded.png",
+                                         mimeType: "image/png", byteCount: 107_824, width: 2256, height: 454)
+                _ = await source.post([.attachment(gone)], from: me, in: shown.conversation, key: .make())
+            }
+        }
+        return true
+    }
+
     /// Holds the fixture's activity state for matching light/dark captures.
     /// No agent runs and no timer is installed; closing the fixture stops its store.
     public func debugTyping(_ on: Bool) -> Bool {
@@ -272,8 +315,10 @@ public final class HomeNativeFixture {
     /// one message; each next step adds one, as a live run does (0: all at once).
     /// With `queued`, the run is one working agent and three told while the Chief's cap was full (queued, with no
     /// session or workspace yet; user 2026-11-07, msg 23835).
+    /// With `ago` S, the run began S seconds ago, so its working agents' pills show how long they have worked; each
+    /// agent's session began 2, 3, 4… minutes after it (as the Chief's lanes say), and its pill counts from there.
     public func debugAgentMessages(notes: Bool = false, open: Bool = false, group: Bool = false, step: Int = 0, pill: String? = nil,
-                                   queued: Bool = false) -> Bool {
+                                   queued: Bool = false, ago: TimeInterval = 0) -> Bool {
         guard let shown else { return false }
         if let pill {
             guard let view else { return false }
@@ -292,21 +337,21 @@ public final class HomeNativeFixture {
             store.toggleAgentMessages(group, in: shown.conversation)
             return true
         }
-        if queued { return postAgentRun(Self.agentQueue, notes: false, team: group ? true : nil, step: 0, queued: true) }
-        return postAgentRun(notes ? Self.agentNotes : Self.agentMessages, notes: notes, team: group ? true : nil, step: step)
+        if queued { return postAgentRun(Self.agentQueue, notes: false, team: group ? true : nil, step: 0, queued: true, ago: ago) }
+        return postAgentRun(notes ? Self.agentNotes : Self.agentMessages, notes: notes, team: group ? true : nil, step: step, ago: ago)
     }
 
     /// Posts my question, the Chief's reply and a run of `all` (its first `step` messages; 0: all), in the
     /// team chat (`team` true), the Chief's own chat (false) or the one shown (nil); then with `expanded`
     /// opens or closes every fold of the run. False before the conversation shows.
     private func postAgentRun(_ all: [(peer: String, outgoing: Bool, text: String)], notes: Bool, team: Bool?, step: Int,
-                              expanded: Bool? = nil, queued: Bool = false) -> Bool {
+                              expanded: Bool? = nil, queued: Bool = false, ago: TimeInterval = 0) -> Bool {
         guard let shown else { return false }
         let source = self.source
         // Step 2 and on grow the last run; anything else starts a new one.
         let continuing = step > 1 ? lastAgentRun.flatMap { $0.notes == notes ? $0.turn : nil } : nil
         let turn = continuing ?? IdempotencyKey("debug-agent-messages-\(UUID().uuidString)")
-        if continuing == nil { agentRunStart = Date() }
+        if continuing == nil { agentRunStart = Date().addingTimeInterval(-ago) }
         lastAgentRun = (turn, notes)
         let start = agentRunStart
         let count = step > 0 ? min(step, all.count) : all.count
@@ -332,6 +377,13 @@ public final class HomeNativeFixture {
                                    answers: [], revision: revision, messages: messages)
             await source.streamLive(.run(HomeLiveRunChange(conversation: target.conversation, author: target.chief, run: turn.rawValue,
                                                            turn: turn, status: count < all.count ? "running" : "done", agentRun: run)))
+            if ago > 0 {
+                // Each agent's session began a while after the Chief told it (spawn, then the queue), as the Chief's lanes
+                // say: its pill counts from there (user 2026-11-20), not from the tell.
+                let starts = Dictionary(all.enumerated().map { ($1.peer, start.addingTimeInterval(Double(120 + 60 * $0))) },
+                                        uniquingKeysWith: min)
+                self?.store.agentsStarted(Set(starts.keys), startedAt: starts)
+            }
             if let expanded { _ = self?.debugAgentFolds(expanded: expanded) }
         }
         return true

@@ -88,8 +88,9 @@ impl Mux {
         if let Some(name) = name.as_deref() {
             Self::validate_workspace_name(name)?;
         }
-        // Read before the state lock: `surface_notifications` locks state.
-        let mut notifications = self.tree_decorations();
+        // Read before the state lock (it locks state). The delta serializes the new empty
+        // workspace only: no surface of the session.
+        let mut notifications = self.tree_decorations_of_new_empty_workspace();
         let reloads_presentation = mark.shows_in_tree();
         let mut registry = self.workspace_registry.lock().unwrap();
         let mut state = self.lock_state_pinned(&registry).unwrap();
@@ -413,6 +414,9 @@ impl Mux {
         if selector_candidates.len() > 1 {
             fingerprint.set("selector_fallbacks", json!(&selector_candidates[1..]));
         }
+        // This creation does not go through `commit_resource_topology_operation`, so an agent's split or new
+        // pane marks the views here, as that function does.
+        let agent_layout = self.mark_agent_layout_change(&mutation.actor, operation);
         let commit = self.resource_correlated_creation_operation(
             operation,
             selector_candidates,
@@ -420,7 +424,11 @@ impl Mux {
             None,
             mutation,
             &fingerprint,
-        )?;
+        );
+        if let Some(marks) = &agent_layout {
+            self.settle_agent_layout_marks(marks, operation, &commit);
+        }
+        let commit = commit?;
         if !commit.replayed {
             self.emit_resource_topology_legacy_events(operation, &commit);
         }
@@ -428,8 +436,32 @@ impl Mux {
         Ok((surface, commit.replayed))
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub(in crate::mux) fn commit_resource_topology_operation(
+        self: &Arc<Self>,
+        operation: ResourceOperation,
+        selectors: ResourceSelectors,
+        fields: Map<String, Value>,
+        expected_revision: Option<u64>,
+        mutation: &WorkspaceMutation,
+    ) -> anyhow::Result<ResourcePatchCommit> {
+        // An agent's layout change marks the views it can make smaller before the commit: a view's report can
+        // arrive before the commit returns.
+        let agent_layout = self.mark_agent_layout_change(&mutation.actor, operation);
+        let result = self.commit_unmarked_topology_operation(
+            operation,
+            selectors,
+            fields,
+            expected_revision,
+            mutation,
+        );
+        if let Some(marks) = &agent_layout {
+            self.settle_agent_layout_marks(marks, operation, &result);
+        }
+        result
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn commit_unmarked_topology_operation(
         self: &Arc<Self>,
         operation: ResourceOperation,
         selectors: ResourceSelectors,
@@ -460,7 +492,6 @@ impl Mux {
         {
             selectors.pane = Some(pane.as_str().to_string());
         }
-        let agent_layout = self.mark_agent_layout_change(&mutation.actor, operation);
         let commit = match operation {
             ResourceOperation::WorkspaceFocus => {
                 self.resource_focus_workspace(selectors, expected_revision, mutation, &fingerprint)?
@@ -587,9 +618,6 @@ impl Mux {
             )?,
             _ => anyhow::bail!("unsupported topology operation {}", operation_name(operation)),
         };
-        if let Some(at) = agent_layout {
-            self.narrow_agent_layout_marks(at, &commit.result);
-        }
         Ok(commit)
     }
 

@@ -3,8 +3,7 @@
 // dim. A pointer over a dot shows its name over it; a pick shows the picked name for a moment, then
 // fades it. Keyboard focus keeps the name visible until blur. Native radios carry the names and fill each dot's
 // hit target, larger than the dot. The row never changes size or place, so nothing shifts. The
-// composer's look dots (newtab/PageDots.tsx, LookSwitch.tsx; Leo 2026-10-22) are the same dots
-// (DotSwitch) over other options. The accent dot is the shared sliding indicator (ui/motion,
+// accent dot is the shared sliding indicator (ui/motion,
 // useSlidingIndicator): placed with no motion in its first frame, it slides on transform over the
 // scale's standard step (180 ms) on a pick, from where it is drawn if a pick interrupts a slide, and
 // is placed at once with Reduce Motion, motion off or a hidden page.
@@ -43,7 +42,7 @@ export function StyleSwitch({
   );
 }
 
-/// The dots over any options: the page's styles (StyleSwitch), or its and a chat's composer looks.
+/// The dots for picking among page styles.
 export function DotSwitch<Option extends string>({
   options,
   current,
@@ -51,10 +50,9 @@ export function DotSwitch<Option extends string>({
   name,
   radioName,
   className = "nt-style",
-  nameAside = false,
   onPick,
   onCancel,
-  onPointerPick = () => onCancel(),
+  onPointerPick,
   travel = "ease",
 }: {
   options: readonly Option[];
@@ -66,8 +64,6 @@ export function DotSwitch<Option extends string>({
   /// The radios' group name; unset, one of the switch's own.
   radioName?: string;
   className?: string;
-  /// The name shows after the row, not over the dot (a chat's bottom area has no room over it).
-  nameAside?: boolean;
   onPick(option: Option): void;
   /// Escape or Return in the group.
   onCancel(): void;
@@ -103,11 +99,8 @@ export function DotSwitch<Option extends string>({
 
   useLayoutEffect(() => {
     const option = shown && group.current?.querySelector<HTMLElement>(`[data-style="${shown}"]`);
-    if (option && label.current)
-      label.current.style.left = nameAside
-        ? `${group.current!.offsetWidth}px`
-        : `${option.offsetLeft + option.offsetWidth / 2}px`;
-  }, [shown, nameAside]);
+    if (option && label.current) label.current.style.left = `${option.offsetLeft + option.offsetWidth / 2}px`;
+  }, [shown]);
 
   return (
     <ChoiceGroup label={groupLabel} className={className} onSubmit={onCancel} onCancel={onCancel}>
@@ -173,7 +166,9 @@ export function DotSwitch<Option extends string>({
                 // from Classic) has focused its field: arrow keys keep moving through the styles; a
                 // click goes back to the field.
                 const view = input.ownerDocument.defaultView;
-                view?.requestAnimationFrame(() => (fromKeys ? input.focus() : onPointerPick(view)));
+                view?.requestAnimationFrame(() =>
+                  fromKeys ? input.focus() : onPointerPick ? onPointerPick(view) : onCancel(),
+                );
               }}
             />
           </label>

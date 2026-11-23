@@ -36,6 +36,27 @@ use zeroize::Zeroizing;
 
 const CONNECT_BOUND: Duration = Duration::from_secs(10);
 const MAX_BRIDGES: usize = 64;
+/// How long a restart waits for its own closed UDP socket to free the port.
+const REBIND_BOUND: Duration = Duration::from_secs(5);
+
+/// Binds `local` again after the old mesh closed its socket there. The port can stay taken
+/// for a moment after the close: a child this process is starting holds a copy of every open
+/// socket from its fork until its exec, longer on a loaded machine. So `AddrInUse` is retried
+/// until [`REBIND_BOUND`]; any other error, or one that outlasts it, is the restart's error.
+async fn rebind(local: SocketAddr) -> std::io::Result<UdpSocket> {
+    let deadline = tokio::time::Instant::now() + REBIND_BOUND;
+    loop {
+        match UdpSocket::bind(local).await {
+            Err(error)
+                if error.kind() == std::io::ErrorKind::AddrInUse
+                    && tokio::time::Instant::now() < deadline =>
+            {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+            bound => return bound,
+        }
+    }
+}
 
 /// Static interface settings. `address` is virtual: it creates no system route.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -83,7 +104,7 @@ pub(crate) type KeyUser =
 /// (`mesh_node_key::record_link_home`), else `<daemon state dir>/link` by this process's
 /// environment.
 pub(crate) fn link_state_dir() -> Option<PathBuf> {
-    crate::cli::mesh_node_key::recorded_link_dir(&crate::config::home()).or_else(env_link_state_dir)
+    crate::mesh_node_key::recorded_link_dir(&crate::config::home()).or_else(env_link_state_dir)
 }
 
 /// `<daemon state dir>/link` by this process's environment.
@@ -140,7 +161,7 @@ impl Transport {
             return Ok(None);
         };
         let target = local_websocket(websocket)?;
-        if crate::cli::mesh_node_key::link_serves_node_key(link_dir, state_dir) {
+        if crate::mesh_node_key::link_serves_node_key(link_dir, state_dir) {
             tracing::info!(
                 "WireGuard transport off: the cmux link holds this machine's WireGuard key; peers with a link route use the link, the others their URL or ssh"
             );
@@ -176,7 +197,7 @@ impl Transport {
         check_service(settings)?;
         let websocket = local_websocket(websocket)?;
         let local = socket.local_addr()?;
-        let (_, private_key) = crate::cli::mesh_node_key::load_or_create_held(state_dir, &key)?;
+        let (_, private_key) = crate::mesh_node_key::load_or_create_held(state_dir, &key)?;
         let mesh = WgMesh::start(mesh_config(private_key, settings.address), socket)?;
         let mut routes = BTreeMap::new();
         let mut peers: BTreeMap<[u8; 32], WgPeer> = BTreeMap::new();
@@ -308,7 +329,7 @@ impl Transport {
         if let Some(old) = mesh.take() {
             old.shutdown().await;
         }
-        let socket = UdpSocket::bind(self.local).await.context("bind WireGuard UDP again")?;
+        let socket = rebind(self.local).await.context("bind WireGuard UDP again")?;
         let fresh = WgMesh::start(mesh_config(private_key, self.service), socket)?;
         for peer in &self.peers {
             fresh.add_peer(peer.clone()).await?;
@@ -364,11 +385,11 @@ impl Transport {
             let home = state_dir.to_path_buf();
             let wanted = tokio::task::spawn_blocking(move || {
                 let link_dir =
-                    crate::cli::mesh_node_key::recorded_link_dir(&home).or_else(env_link_state_dir);
+                    crate::mesh_node_key::recorded_link_dir(&home).or_else(env_link_state_dir);
                 // Cheap first (two reads); the full check (with the clone check) only then.
                 link_dir.as_deref().is_some_and(|dir| {
                     dir.join("config.json").is_file()
-                        && crate::cli::mesh_node_key::link_serves_node_key(Some(dir), &home)
+                        && crate::mesh_node_key::link_serves_node_key(Some(dir), &home)
                 })
             })
             .await

@@ -33,12 +33,12 @@
    veil's 42%). It was the text at 13%, a gray over any theme (Leo 2026-11-02: "why is the update
    thing unthemed"). Reduce Transparency still makes it opaque (glass.css's surface): the same
    selector again, later, so it outranks the plain fill. */
-:root:not([data-glass="lens"], [data-glass="spectrum"]):not([data-reduce-transparency]) .wn-card:not(.wn-updated) {
+:root:not([data-glass="lens"], [data-glass="spectrum"]):not([data-reduce-transparency], [data-glass="off"]) .wn-card:not(.wn-updated) {
   --glass-tint: color-mix(in srgb, var(--glass-surface) 42%, transparent);
   --glass-backdrop: none;
 }
 @media (prefers-reduced-transparency: reduce) {
-  :root:not([data-glass="lens"], [data-glass="spectrum"]):not([data-reduce-transparency]) .wn-card:not(.wn-updated) {
+  :root:not([data-glass="lens"], [data-glass="spectrum"]):not([data-reduce-transparency], [data-glass="off"]) .wn-card:not(.wn-updated) {
     --glass-tint: var(--glass-surface);
   }
 }
@@ -87,16 +87,22 @@
   .wn-copy-version { transition: none; }
 }
 .wn-card-close {
+  /* In the card's corner, concentric with it (Lawrence 2026-11-15: the x was not concentric with the card's
+     corner): its center on the corner's center, the same inset from the top and the side (at least 2px), its hover
+     the card's corner less that inset. */
+  --wn-close-half: 9px; /* half the x's side */
+  --wn-card-corner: var(--cmux-sidebar-card-radius, 10px);
+  --concentric-padding: max(2px, calc(var(--wn-card-corner) - var(--wn-close-half)));
   position: absolute;
-  top: 7px;
-  right: 8px;
+  top: var(--concentric-padding);
+  right: var(--concentric-padding);
   display: grid;
   place-items: center;
   width: 18px;
   height: 18px;
   padding: 0;
   border: 0;
-  border-radius: 9px;
+  border-radius: min(var(--wn-close-half), calc(var(--wn-card-corner) - var(--concentric-padding)));
   background: transparent;
   color: var(--page-text-3);
   cursor: default;
@@ -354,7 +360,7 @@
 }
 /* Reduce Transparency: the composer's solid surface, as the composer's. */
 /* glass-opaque-allow: the Reduce Transparency fill only */
-:root[data-reduce-transparency] :is(.wn-card.wn-updated, .wn-card[data-decoration="doodle"]) {
+:root:is([data-reduce-transparency], [data-glass="off"]) :is(.wn-card.wn-updated, .wn-card[data-decoration="doodle"]) {
   background: var(--composer-material-solid);
   -webkit-backdrop-filter: none;
   backdrop-filter: none;

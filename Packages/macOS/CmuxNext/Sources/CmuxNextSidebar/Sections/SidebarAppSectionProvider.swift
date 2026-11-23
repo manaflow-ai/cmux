@@ -21,9 +21,13 @@ public protocol SidebarAppSectionProvider: AnyObject {
     /// This window's own workspace list (`cmux.sidebar/1`, opt-in), drawn in place of the built-in
     /// list while it is drawn; nil keeps the built-in list.
     var workspaceList: (any SidebarListReplacement)? { get }
+    /// App sections the provider draws that the layout document does not hold (the widget area),
+    /// shown at the end of the band below the list.
+    var providedSections: [LayoutSection] { get }
 }
 
 public extension SidebarAppSectionProvider {
     func release(_ contribution: String) {}
     var workspaceList: (any SidebarListReplacement)? { nil }
+    var providedSections: [LayoutSection] { [] }
 }

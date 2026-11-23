@@ -48,7 +48,7 @@ final class QuitFailureAlert {
     }
 
     var spec: CmuxDialogSpec {
-        CmuxDialogSpec(title: QuitStrings.failedTitle, lines: body,
+        CmuxDialogSpec(usesTransientMaterial: true, title: QuitStrings.failedTitle, lines: body,
                        buttons: [CmuxDialogButton(id: Self.quitAnywayID, title: QuitStrings.quitAnyway, role: .cancel),
                                  CmuxDialogButton(id: Self.retryID, title: QuitStrings.retry, role: .default)],
                        identifier: "cmux.dialog.quitFailure")

@@ -158,12 +158,14 @@ public actor DeviceHubClient {
         try await call("GET", "/v1/me", as: HubMe.self)
     }
 
-    /// Registers or updates this device, signed by the key it registers.
+    /// Registers or updates this device, signed by the key it registers, with the Mac it runs on
+    /// (`machine`, ``DeviceMachine``): the hub reads the host's answers about this Mac across every
+    /// device id it has (each tagged build, each renewed identity, cmux Remote's and the app's).
     public func registerDevice(name: String, platform: DevicePlatform) async throws -> HubDevice {
-        struct Body: Encodable { var id, name: String; var platform: DevicePlatform; var signingKey, agreementKey: String }
+        struct Body: Encodable { var id, name: String; var platform: DevicePlatform; var signingKey, agreementKey: String; var machine: String? }
         let identity = signer.identity
         let body = Body(id: identity.id, name: name, platform: platform, signingKey: identity.signingKey,
-                        agreementKey: identity.agreementKey)
+                        agreementKey: identity.agreementKey, machine: DeviceMachine.current.id)
         return try await call("POST", "/v1/devices", body: body, as: DeviceAnswer.self).device
     }
 

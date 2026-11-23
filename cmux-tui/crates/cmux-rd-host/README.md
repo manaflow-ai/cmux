@@ -17,7 +17,7 @@ cmux-rd testapp --display :99 --workload marker|text|motion|idle
 ## macOS host
 
 ```
-cmux-rd host --owner USER --token-fd N [--display main|INDEX] [--max-fps N (default: the display's refresh rate, else 60)] [--profile high|baseline]
+cmux-rd host --owner USER --token-fd N [--display main|INDEX] [--max-fps N (default: the display's refresh rate, else 60)] [--profile high|baseline] [--encode-profile standard|ultra]
 ```
 
 The codec is always `videotoolbox`, fed the captured IOSurface with no copy. The process, or
@@ -27,37 +27,135 @@ marker app (`scripts/mac-marker`, build with `swiftc -O`) on a test Mac; `cmux-r
 from another Mac then measures latency (`--snapshot FILE.ppm` keeps the newest decoded frame).
 Build on a fleet Mac: `cargo build --release --no-default-features --features bench`.
 
+For transport, encoder and controller measurements without any grant, a bench build of
+`cmux-rd host` or `cmux-rd serve` takes `--source synthetic|synthetic-still|synthetic-tick
+[--synthetic-size WxH] [--synthetic-scene bars|text|noise|churn]` (default 1920x1080 bars, fitted to `--max-width`): it streams a generated
+NV12 picture with the marker at 0,0 through the same VideoToolbox and send path, and a
+viewer's key press, click or scroll bumps the marker instead of reaching the Mac.
+`synthetic` moves bars every frame, `synthetic-still` sends a frame only when input bumps
+the marker, and `synthetic-tick` also counts every frame (the fps probe). Flat bars compress
+to almost nothing; `text` (dense glyphs scrolling 4 px a frame) and `noise` (grain-textured
+bars) translate, which an encoder predicts cheaply; `churn` (the grain at a new random
+offset every frame) is new content every frame. The two-Mac
+harness runs it over ssh with no rig and no marker app:
+`scripts/screen-share-vs.py run --source synthetic --stacks cmux --via ssh --host A --viewer B
+--host-ip IP --bin cmux-rd` (key trials use `synthetic-still`, fps trials `synthetic-tick`).
+
+### Before and after numbers: the budget table
+
+Every screen-share change quotes its before and after from one command, which runs cmux and
+macOS Screen Sharing on the same motion scene between two Macs and prints the stage budget table
+(Input, Screen, Capture, Encode, Send, Network, Reassembly, Decode, Present, Total, each p50/p95),
+received Mbps and motion quality (a frame score and the text error against the source):
+
+```
+# tools/ built at your head (no compiling on the Macs); repeat at the merge base for "before"
+cmux-ci run --class exclusive --measurement --label measure \
+  --script scripts/measure/screen-stream-eval.sh --ref "$(git rev-parse HEAD)" \
+  --arg=tools-only=1 --artifact artifacts/screen-stream-eval/tools.tar.gz
+tar -xzf tools.tar.gz
+scripts/screen-share-vs.py run --host SHARED_MAC --viewer VIEWING_MAC --host-ip SHARED_MAC_LAN_IP \
+  --tools ./tools --label after --cua-vnc PATH/cua-vnc \
+  --vnc-user USER --vnc-password-file PATH_ON_VIEWING_MAC --out after.jsonl
+scripts/screen-share-vs.py compare before.jsonl after.jsonl
+```
+
+`--host-arg=ARG` adds a `cmux-rd serve` flag and `--viewer-arg=ARG` a `cmux-rd bench` flag, each
+repeatable and in the `=` form (the value starts with `-`). Only an allowlist passes
+(`--resolution-ladder`, `--max-qp N`, `--max-kbps N`; `--caps LIST`); anything else
+is refused. Both lists go into every output line and the table headers, so `compare` shows what
+differed. A head run with the resolution ladder on:
+
+```
+scripts/screen-share-vs.py run ... --label ladder --out ladder.jsonl \
+  --host-arg=--resolution-ladder --host-arg=--max-qp=40 --host-arg=--max-kbps=1000 \
+  --viewer-arg=--caps=video.scaled
+```
+
+The shared Mac runs the rig (`screen-share-vs.py rig`) inside an app that holds Screen Recording
+and Accessibility. The Apple leg is a headless RFB client: it never opens Screen Sharing.app or
+any window. A row that cannot be measured yet prints null with its reason under the table; the
+script's docstring maps each row to today's timing log and to the per-frame stage ledger.
+
 ## Linux desktop host (shared with cmux on a Mac)
 
 A Linux desktop joins the person's devices and shows up on the Mac's Screen Sharing page
 like a shared Mac. On the desktop, as the user who is signed in to its graphical session:
 
 ```
-cmux-rd linux-host enable --stack-token-file ~/.config/cmux/stack-token [--allow-control]
+cmux-rd linux-host enable [--view-only]
 install -Dm644 systemd/cmux-screen-host.service ~/.config/systemd/user/cmux-screen-host.service
 systemctl --user daemon-reload && systemctl --user enable --now cmux-screen-host.service
 ```
 
-- `enable` signs in once with a cmux access token (a file only this user can read, mode 0600,
-  or `-` for stdin; it is not stored), creates this desktop's device keys in
+- `enable` signs in once: it prints a sign-in link (and opens it when the desktop has a
+  display), which you can open in any browser, on this machine or another; once you confirm,
+  it continues. `--stack-token-file PATH` (a file only this user can read, mode 0600, or `-`
+  for stdin) passes a cmux access token instead. No token is stored. It creates this desktop's device keys in
   `~/.config/cmux/screen-host/` (0700; files 0600), registers it as a `linux` device, anchors
-  it and turns sharing on. The anchor lets the host renew its own session with its device key
-  for 30 days; after that, `share on --stack-token-file ...` again.
-- Consent is the Mac's: a viewer the person allowed on the hub (View or Full Control) is
-  served; anyone else's request waits for the person. `cmux-rd linux-host requests` lists
-  them (also logged: `journalctl --user -u cmux-screen-host`), `approve SESSION [--always]
-  [--scope view|full]` or `deny SESSION` answers. The host never answers one by itself.
-  Control is off unless `enable --allow-control`; a View session applies no input.
+  it, downloads Cisco's OpenH264 into the per-user data directory (the encoder, never bundled;
+  the file `cmux-rd openh264-install` writes) and turns sharing on. The anchor lets the host renew its own session with its device key
+  for 30 days; after that, `share on` again (it signs in the same way).
+- Consent: this desktop joined your own account, so your devices view and control it with no
+  prompt here (the hub serves a device of the same account at once; `enable --view-only` keeps
+  control off). A viewer you set to Ask on the hub still asks: `cmux-rd linux-host requests` lists
+  those requests (also logged: `journalctl --user -u cmux-screen-host`), `approve SESSION [--always]
+  [--scope view|full]` or `deny SESSION` answers. The host never answers one by itself. A View
+  session applies no input. On Wayland, `enable` asks the ScreenCast portal for its grant once and
+  keeps the restore token, so later sessions start with no portal dialog.
 - The unit is a user unit: it must run in the seat0 session's user manager, with that
   session's D-Bus and `DISPLAY`/`XAUTHORITY`/`XDG_SESSION_TYPE` (see the unit file).
 - Capture: X11 sessions stream the X screen (`--display`, else `$DISPLAY`, else `:0`;
   `--xauthority` or `XAUTHORITY`). A Wayland session (`XDG_SESSION_TYPE=wayland`) uses the
-  portal backend (xdg-desktop-portal ScreenCast and PipeWire); until that backend is built in,
-  its sessions end with "portal capture not built in". `--capture x11|portal` overrides.
+  portal backend (xdg-desktop-portal ScreenCast and PipeWire, feature `portal`); a build
+  without it ends those sessions with "portal capture not built in". `--capture x11|portal`
+  overrides.
+- Wayland grant: `enable` asks the portal once, while the person joining is at the screen
+  (its dialog), and saves the restore token in `~/.config/cmux/screen-host/`; every later
+  share restores it with no dialog. Unless `--view-only`, it asks for a RemoteDesktop
+  session (keyboard and pointer too) where the portal can keep that grant (RemoteDesktop
+  version 2 or later), so control works on Wayland; otherwise the desktop is shared view
+  only. A grant the person revoked makes the next share show the dialog once, then it is
+  saved again. `cmux-rd linux-host grant [--control]` makes the grant again by itself.
+- Machine join: `cmux-rd linux-host enable --non-interactive` is the one command the join
+  runs after the acpmux join, often over ssh. It takes no account token and opens no
+  browser: no person's credential is kept on a joined machine. It finds the desktop
+  through logind and sets up capture. A Wayland desktop gets the one grant above (the
+  dialog stays up a minute at most), and "this desktop's screen-share portal can't
+  remember a grant; each share will ask once on this machine" or "view only: this desktop
+  has no remote-input portal" when its portal cannot keep one. With no graphical session
+  it sets up an Xvfb display cmux owns (`cmux-screen-display.service`, :99 or the next free
+  one) and says "no graphical session on this machine; shares use a virtual display at :N,
+  started when one is needed". The host starts it for a share or `linux-host display`
+  (an app launch), and stops it after 10 minutes with no share and no app window on it.
+  A desktop still enabled (anchored), or a machine joined to cmux, gets the host unit
+  installed, enabled and started, with lingering for a virtual display. A joined machine
+  signs itself in with its machine credential (`$ACPMUX_HOME/machine-credential.json`, the home of the acpmux that runs it,
+  `POST /v1/auth/machine`), registers, and turns sharing on, so nobody does anything on it.
+  Any other machine prints one `not_installed:` line. It never fails the join.
 - Viewers: cmux on a Mac (cmux.rd/1). The iPhone's WebRTC viewer is not served by this host
   yet; its session ends with that reason.
 - Relays the person added by hand are sealed to the device's agreement key and not opened
   yet: the host uses the hub's ICE servers.
+
+## Windows PC on the device hub (lists and captures; viewing is next)
+
+A Windows PC joins the person's devices as a `windows` device with the same hub client as
+the Linux host (`src/screen_host/`). In the signed-in user's session (not a service):
+
+```powershell
+cmux-rd windows-host enable --stack-token-file $env:APPDATA\cmux\stack-token
+schtasks /Create /SC ONLOGON /TN cmux-screen-host /TR "C:\path\cmux-rd.exe windows-host run"
+cmux-rd windows-host status
+```
+
+- Keys and account in `%APPDATA%\cmux\screen-host\`, run state in
+  `%LOCALAPPDATA%\cmux\screen-host\run\`; `run` holds the hub socket (online) and records a
+  capture of this desktop (GDI) that `status` prints.
+- It serves no session yet: `cmux-rd serve` and the secure link have no Windows port, so the
+  host leaves sharing off (`share on` says why) and closes any session the hub hands it. The
+  plan, capture and input backends, and what Windows itself blocks (UAC, lock screen):
+  `docs/device-hub/windows-host.md`.
 
 ## Build
 
@@ -145,6 +243,54 @@ This crate is its own Cargo workspace (excluded from the cmux-tui workspace) bec
 builds C code: openh264 from source (bench builds), and x264 only with `--features x264`. Build it on Linux (a Testbox or a
 VM), never on a Mac: `cargo build --release`.
 
+### Stage ledger: where each frame's milliseconds go (`cmux.rd-stage-ledger/1`)
+
+Decision D8 of cmuxterm-hq `docs/design/screen-share-under-100ms.md`. A viewer that offers
+cap `ledger` (and `clock`, so its times convert to the host's) gets, after each frame's last
+shard, a `FrameTimes` datagram (kind 12, cmux-rd-proto `frame_times.rs`) with the host's times
+for that frame: display time (ScreenCaptureKit's, 0 where the capture backend has none), encode
+start, bitstream ready, first and last datagram handed to the carrier. The viewer adds first
+shard, last shard (the frame became decodable), released, decoded and presented
+(cmux-rd-core `ledger.rs`). A viewer that does not offer the cap gets nothing new.
+
+`cmux-rd bench` prints the run's table as `stage_ledger` in its report line, and the app logs
+it every 5 s (`remote-view-rd`, "stage ledger: ..."). One JSON object, all times in ms on the
+host's clock:
+
+```json
+{"schema":"cmux.rd-stage-ledger/1","clock":"host monotonic","frames":N,"frames_with_host_times":N,
+ "offset_us":-1234,"received_mbps":14.2,
+ "stages":[{"stage":"Capture","from":"display time","to":"encode start","budget_ms":8.000,
+            "n":N,"p50_ms":3.1,"p95_ms":6.0,"reason":null}, ...],
+ "display_to_decoded":{"n":N,"p50_ms":..,"p95_ms":..}}
+```
+
+`stages` always has these twelve rows, in order: Input, Screen, Capture, Encode, Send,
+Network, Transport, Recovery, Reassembly, Decode, Present, Total. They are the ten rows of the
+design's budget table plus Network split in two right after it: Transport + Recovery = Network
+for every frame. A row with no samples has `n: 0`, null percentiles and a `reason`:
+
+| Stage | From, to | Filled by |
+| --- | --- | --- |
+| Input | viewer key down to host inject | the fleet harness (observer input receipt + host `inject_us`) |
+| Screen | inject to display time | the fleet harness (host `inject_us` + `shown_us`) |
+| Capture | display time to encode start | host |
+| Encode | encode start to bitstream ready | host |
+| Send | bitstream ready to last datagram sent | host |
+| Network | last datagram sent to last shard received | host + viewer (needs the clock offset) |
+| Transport | first datagram sent to first shard received: the path's one-way delay | host + viewer (needs the clock offset) |
+| Recovery | arrival spread (first to last shard) minus send spread (first to last datagram): time lost to retransmits, waiting for parity, jitter and queueing; can be negative when the path squeezes the burst | host + viewer (one clock each) |
+| Reassembly | last shard to frame released | viewer |
+| Decode | released to decoded | viewer |
+| Present | decoded to on glass (drawable presented time) | the app; `cmux-rd bench` has no renderer |
+| Total | display time to presented | the app; the bench reports `display_to_decoded` instead |
+
+Send ends when the last datagram is handed to the carrier: on a link carrier that is the link
+thread's queue, not the socket. `CMUX_RD_TIMING_LOG` lines carry the same host times per frame
+(`release_us` is the gate's release, `capture_us` the frame's `t_capture_us`, `encode_start_us`,
+`encoded_us`, `first_sent_us`, `sent_us`), for the harness to join with its observer's input and
+presented-marker receipts.
+
 ## Release
 
 `.github/workflows/cmux-rd-release.yml` publishes a GitHub release `cmux-rd-vX.Y.Z` (tag on
@@ -191,6 +337,17 @@ the glibc 2.31 floor. The archive holds `bin/cmux-rd`, `LICENSE` (GPL-3.0-or-lat
   NVENC, and VideoToolbox on macOS hosts) are later implementations of the same trait.
 - `--profile high` (default) is for the macOS pane's VideoToolbox decoder; the Linux bench
   decoder (openh264) needs `--profile baseline` on the host (scripts/loopback-bench.sh sets it).
+- `--encode-profile ultra` (`host` and `serve`; opt-in, standard is the default) stops saving
+  bandwidth on a fat link: frames at the viewer's rate (else the display's refresh) up to 120 fps,
+  a 150 Mbps ceiling unless `--max-kbps` names one. On VideoToolbox it holds frame rate first:
+  it runs the regular hardware encoder instead of the low-latency one (whose realtime encoder
+  refuses DataRateLimits and drops frames instead), and each frame gets one frame interval's
+  share of the target (DataRateLimits) but never more than 3 bits per pixel (about 0.78 MB at
+  1080p), with no QP ceiling and no QP floor (`CMUX_RD_VT_ULTRA_MIN_QP` sets one), so extra
+  rate buys fps before per-frame quality. A keyframe alone gets QP 30 or more. One frame
+  interval after the screen goes still, one refinement frame takes up to four frame budgets.
+  H.264 level 5.2 still bounds the frame rate at large sizes
+  (`mac::encoder_fps`): a 4K display encodes at most about 64 fps in H.264.
 
 ## Upstream media (development)
 
@@ -327,3 +484,20 @@ readback). Stage distributions include startup; sample vectors cap at 8192.
 Duration is bounded to 2–30 seconds, sockets have timeouts, and the host and
 viewer each have a deadline. Keep this harness and motion source unchanged
 when comparing before/after optimization results.
+
+The Windows host prefers DXGI Desktop Duplication and falls back to GDI if the
+primary output cannot be duplicated or access is lost. `--capture gdi` and
+`--capture dxgi` select a backend explicitly; forced DXGI fails by HRESULT rather
+than measuring GDI under the DXGI name. The workflow runs both through the same
+loopback harness and motion source. JSON `capture_details` identifies the backend,
+fallback reason, acquired frames and copied bytes.
+
+Duplication retains one CPU BGRA surface and one staging texture. It copies dirty
+rectangles and move destinations from the complete current desktop texture,
+respects row pitch, and uses a full copy for initialization or fragmented damage.
+It avoids full-frame hashing. Encoding still converts the full frame, so no
+unchanged-region conversion claim is made. An unchanged acquisition reuses the
+last surface when feedback requests a frame. Memory is bounded to a 256 MiB CPU
+surface plus the matching staging texture and at most 1 MiB metadata per list.
+The existing capture surface excludes a separately supplied hardware cursor;
+this preserves the GDI BitBlt behavior. Rotated outputs retain the GDI path.

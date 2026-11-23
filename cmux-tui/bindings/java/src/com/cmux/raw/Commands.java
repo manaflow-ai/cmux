@@ -14,7 +14,7 @@ public final class Commands {
     public static final CommandMetadata ADD_SCREENS_TO_SCREEN_GROUP = new CommandMetadata("add-screens-to-screen-group", Authority.CONTROL, 12, "screen-groups-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata ADD_TABS_TO_TAB_GROUP = new CommandMetadata("add-tabs-to-tab-group", Authority.CONTROL, 12, "tab-groups-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata APPLY_LAYOUT = new CommandMetadata("apply-layout", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
-    public static final CommandMetadata ATTACH_SURFACE = new CommandMetadata("attach-surface", Authority.FRONTEND, 5, null, StreamKind.ATTACH, Map.ofEntries(Map.entry("mode", 7L)), Map.ofEntries(Map.entry("cols", "attach-initial-size"), Map.entry("expected_generation", "attach-identity-v1"), Map.entry("expected_terminal_id", "attach-identity-v1"), Map.entry("output_coalesce_ms", "attach-output-coalesce-v1"), Map.entry("replay_history_rows", "attach-replay-history-rows-v1"), Map.entry("replay_history_start", "attach-replay-history-window-v1"), Map.entry("rows", "attach-initial-size"), Map.entry("snapshot", "terminal-snapshot-v1"), Map.entry("snapshot_images", "terminal-snapshot-images-v1"), Map.entry("snapshot_local_history", "terminal-snapshot-local-history-v1"), Map.entry("snapshot_version", "terminal-snapshot-v1"), Map.entry("viewer_backlog_bytes", "terminal-snapshot-v1")));
+    public static final CommandMetadata ATTACH_SURFACE = new CommandMetadata("attach-surface", Authority.FRONTEND, 5, null, StreamKind.ATTACH, Map.ofEntries(Map.entry("mode", 7L)), Map.ofEntries(Map.entry("cols", "attach-initial-size"), Map.entry("expected_generation", "attach-identity-v1"), Map.entry("expected_terminal_id", "attach-identity-v1"), Map.entry("hybrid_frame", "agent-cli-hybrid-v1"), Map.entry("hybrid_stream", "agent-cli-hybrid-v1"), Map.entry("output_coalesce_ms", "attach-output-coalesce-v1"), Map.entry("replay_history_rows", "attach-replay-history-rows-v1"), Map.entry("replay_history_start", "attach-replay-history-window-v1"), Map.entry("resume_generation", "terminal-resume-v1"), Map.entry("resume_offset", "terminal-resume-v1"), Map.entry("rows", "attach-initial-size"), Map.entry("snapshot", "terminal-snapshot-v1"), Map.entry("snapshot_images", "terminal-snapshot-images-v1"), Map.entry("snapshot_local_history", "terminal-snapshot-local-history-v1"), Map.entry("snapshot_version", "terminal-snapshot-v1"), Map.entry("viewer_backlog_bytes", "terminal-snapshot-v1")));
     public static final CommandMetadata BIND_CONVERSATION_TAB_SESSION = new CommandMetadata("bind-conversation-tab-session", Authority.CONTROL, 12, "agent-session-tabs-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata BROWSER_ACTIVATE = new CommandMetadata("browser-activate", Authority.FRONTEND, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata BROWSER_BACK = new CommandMetadata("browser-back", Authority.FRONTEND, 6, null, StreamKind.NONE, Map.of(), Map.of());
@@ -76,6 +76,9 @@ public final class Commands {
     public static final CommandMetadata CLOUD_SESSION_CLEAR = new CommandMetadata("cloud-session-clear", Authority.LOCAL_ADMIN, 12, "cloud-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOUD_SESSION_SET = new CommandMetadata("cloud-session-set", Authority.LOCAL_ADMIN, 12, "cloud-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOUD_SESSION_STATUS = new CommandMetadata("cloud-session-status", Authority.LOCAL_ADMIN, 12, "cloud-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata COMPUTER_USE_APPROVALS = new CommandMetadata("computer-use-approvals", Authority.LOCAL_ADMIN, 12, "computer-use-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata COMPUTER_USE_CONFIG = new CommandMetadata("computer-use-config", Authority.LOCAL_ADMIN, 12, "computer-use-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata COMPUTER_USE_ENDPOINT = new CommandMetadata("computer-use-endpoint", Authority.LOCAL_ADMIN, 12, "computer-use-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CONVERSATION_AGENT_TOKEN = new CommandMetadata("conversation-agent-token", Authority.LOCAL_ADMIN, 12, "local-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CONVERSATION_ATTACHMENT_LINK = new CommandMetadata("conversation-attachment-link", Authority.LOCAL_ADMIN, 12, "ws-attachments-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CONVERSATION_ATTACHMENT_READ = new CommandMetadata("conversation-attachment-read", Authority.LOCAL_ADMIN, 12, "local-attachments-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -94,6 +97,8 @@ public final class Commands {
     public static final CommandMetadata CONVERSATION_RUN = new CommandMetadata("conversation-run", Authority.LOCAL_ADMIN, 12, "conversation-runs-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CONVERSATION_RUN_APPEND = new CommandMetadata("conversation-run-append", Authority.LOCAL_ADMIN, 12, "conversation-runs-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CONVERSATION_RUNS = new CommandMetadata("conversation-runs", Authority.LOCAL_ADMIN, 12, "conversation-runs-v1", StreamKind.NONE, Map.of(), Map.ofEntries(Map.entry("answers", "conversation-run-answers-v1")));
+    public static final CommandMetadata CONVERSATION_SCHEDULED_LIST = new CommandMetadata("conversation-scheduled-list", Authority.LOCAL_ADMIN, 12, "conversation-scheduled-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata CONVERSATION_SCHEDULED_OP = new CommandMetadata("conversation-scheduled-op", Authority.LOCAL_ADMIN, 12, "conversation-scheduled-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CONVERSATION_SEARCH = new CommandMetadata("conversation-search", Authority.LOCAL_ADMIN, 12, "conversation-search-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CONVERSATION_SNAPSHOT = new CommandMetadata("conversation-snapshot", Authority.LOCAL_ADMIN, 12, "local-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CONVERSATION_THREAD = new CommandMetadata("conversation-thread", Authority.LOCAL_ADMIN, 12, "conversation-thread-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -119,12 +124,14 @@ public final class Commands {
     public static final CommandMetadata DELETE_WORKSPACE_GROUP = new CommandMetadata("delete-workspace-group", Authority.CONTROL, 12, "workspace-groups-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata DETACH_ATTACHED_VIEW = new CommandMetadata("detach-attached-view", Authority.FRONTEND, 10, "view-attachment-detach-v1", StreamKind.NONE, Map.ofEntries(Map.entry("view", 12L)), Map.ofEntries(Map.entry("view", "shared-sizing-v1")));
     public static final CommandMetadata DETACH_CLIENT = new CommandMetadata("detach-client", Authority.CONTROL, 6, null, StreamKind.NONE, Map.ofEntries(Map.entry("by", 12L), Map.entry("surface", 12L)), Map.ofEntries(Map.entry("by", "shared-sizing-v1"), Map.entry("surface", "shared-sizing-v1")));
+    public static final CommandMetadata DEVICE_SETUP = new CommandMetadata("device-setup", Authority.LOCAL_ADMIN, 12, "device-setup-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata EXPORT_LAYOUT = new CommandMetadata("export-layout", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata FEED_LOCAL_HANDOFF_ABORT = new CommandMetadata("feed-local-handoff-abort", Authority.LOCAL_ADMIN, 12, "feed-local-owner-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata FEED_LOCAL_HANDOFF_BEGIN = new CommandMetadata("feed-local-handoff-begin", Authority.LOCAL_ADMIN, 12, "feed-local-owner-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata FEED_LOCAL_HANDOFF_DONE = new CommandMetadata("feed-local-handoff-done", Authority.LOCAL_ADMIN, 12, "feed-local-owner-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata FEED_LOCAL_LIST = new CommandMetadata("feed-local-list", Authority.CONTROL, 12, "feed-local-owner-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata FEED_LOCAL_READ = new CommandMetadata("feed-local-read", Authority.CONTROL, 12, "feed-local-owner-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata FLOAT_PANE = new CommandMetadata("float-pane", Authority.CONTROL, 12, "floating-panes-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata FOCUS_DIRECTION = new CommandMetadata("focus-direction", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata FOCUS_PANE = new CommandMetadata("focus-pane", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata FORGET_SESSION = new CommandMetadata("forget-session", Authority.CONTROL, 12, "profiles-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -180,14 +187,14 @@ public final class Commands {
     public static final CommandMetadata MOVE_WORKSPACE_GROUP = new CommandMetadata("move-workspace-group", Authority.CONTROL, 12, "workspace-groups-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata MOVE_WORKSPACE_TO_GROUP = new CommandMetadata("move-workspace-to-group", Authority.CONTROL, 12, "workspace-groups-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata NEW_BROWSER_TAB = new CommandMetadata("new-browser-tab", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
-    public static final CommandMetadata NEW_CONVERSATION_TAB = new CommandMetadata("new-conversation-tab", Authority.CONTROL, 12, "conversation-tabs-v1", StreamKind.NONE, Map.of(), Map.ofEntries(Map.entry("agent_session", "agent-session-tabs-v1"), Map.entry("page", "page-tabs-v1"), Map.entry("route", "page-tab-route-v1"), Map.entry("split", "conversation-tab-split-v1"), Map.entry("transaction", "conversation-tab-transaction-v1")));
-    public static final CommandMetadata NEW_FRONTEND_BROWSER_TAB = new CommandMetadata("new-frontend-browser-tab", Authority.CONTROL, 12, "frontend-browser-tabs-v1", StreamKind.NONE, Map.of(), Map.ofEntries(Map.entry("split", "frontend-browser-tab-split-v1"), Map.entry("workspace", "frontend-browser-tab-workspace-v1")));
+    public static final CommandMetadata NEW_CONVERSATION_TAB = new CommandMetadata("new-conversation-tab", Authority.CONTROL, 12, "conversation-tabs-v1", StreamKind.NONE, Map.of(), Map.ofEntries(Map.entry("agent_session", "agent-session-tabs-v1"), Map.entry("page", "page-tabs-v1"), Map.entry("place", "tab-create-place-v1"), Map.entry("route", "page-tab-route-v1"), Map.entry("split", "conversation-tab-split-v1"), Map.entry("transaction", "conversation-tab-transaction-v1")));
+    public static final CommandMetadata NEW_FRONTEND_BROWSER_TAB = new CommandMetadata("new-frontend-browser-tab", Authority.CONTROL, 12, "frontend-browser-tabs-v1", StreamKind.NONE, Map.of(), Map.ofEntries(Map.entry("place", "tab-create-place-v1"), Map.entry("split", "frontend-browser-tab-split-v1"), Map.entry("transaction", "tab-create-place-v1"), Map.entry("workspace", "frontend-browser-tab-workspace-v1")));
     public static final CommandMetadata NEW_PANE = new CommandMetadata("new-pane", Authority.CONTROL, 9, null, StreamKind.NONE, Map.ofEntries(Map.entry("cwd", 12L), Map.entry("env", 12L), Map.entry("keep", 12L), Map.entry("pane_id", 12L), Map.entry("shell_args", 12L), Map.entry("tab_id", 12L), Map.entry("terminal_id", 12L)), Map.ofEntries(Map.entry("cwd", "terminal-placement-env-v1"), Map.entry("env", "terminal-placement-env-v1"), Map.entry("keep", "terminal-reap-v1"), Map.entry("pane_id", "split-client-keys-v1"), Map.entry("shell_args", "terminal-shell-args-v1"), Map.entry("tab_id", "split-client-keys-v1"), Map.entry("terminal_id", "terminal-placement-env-v1")));
     public static final CommandMetadata NEW_PANE_RIGHT = new CommandMetadata("new-pane-right", Authority.CONTROL, 9, "viewport-splits-v1", StreamKind.NONE, Map.ofEntries(Map.entry("cwd", 12L), Map.entry("env", 12L), Map.entry("keep", 12L), Map.entry("kind", 12L), Map.entry("pane_id", 12L), Map.entry("shell_args", 12L), Map.entry("side", 12L), Map.entry("tab_id", 12L), Map.entry("terminal_id", 12L), Map.entry("url", 12L)), Map.ofEntries(Map.entry("cwd", "terminal-placement-env-v1"), Map.entry("env", "terminal-placement-env-v1"), Map.entry("keep", "terminal-reap-v1"), Map.entry("kind", "pane-browser-kind-v1"), Map.entry("pane_id", "split-client-keys-v1"), Map.entry("shell_args", "terminal-shell-args-v1"), Map.entry("side", "column-left-v1"), Map.entry("tab_id", "split-client-keys-v1"), Map.entry("terminal_id", "terminal-placement-env-v1"), Map.entry("url", "pane-browser-kind-v1")));
     public static final CommandMetadata NEW_REMOTE_TERMINAL_TAB = new CommandMetadata("new-remote-terminal-tab", Authority.CONTROL, 12, "remote-terminal-tabs-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata NEW_ROW = new CommandMetadata("new-row", Authority.CONTROL, 12, "rows-v1", StreamKind.NONE, Map.of(), Map.ofEntries(Map.entry("pane_id", "row-client-keys-v1"), Map.entry("tab_id", "row-client-keys-v1")));
     public static final CommandMetadata NEW_SCREEN = new CommandMetadata("new-screen", Authority.CONTROL, 5, null, StreamKind.NONE, Map.ofEntries(Map.entry("env", 12L), Map.entry("shell_args", 12L), Map.entry("terminal_id", 12L)), Map.ofEntries(Map.entry("env", "screen-terminal-env-v1"), Map.entry("shell_args", "screen-terminal-env-v1"), Map.entry("terminal_id", "screen-terminal-env-v1")));
-    public static final CommandMetadata NEW_TAB = new CommandMetadata("new-tab", Authority.CONTROL, 5, null, StreamKind.NONE, Map.ofEntries(Map.entry("env", 12L), Map.entry("keep", 12L), Map.entry("shell_args", 12L), Map.entry("terminal_id", 12L)), Map.ofEntries(Map.entry("env", "terminal-env-v1"), Map.entry("keep", "terminal-reap-v1"), Map.entry("shell_args", "terminal-shell-args-v1"), Map.entry("terminal_id", "terminal-placement-env-v1")));
+    public static final CommandMetadata NEW_TAB = new CommandMetadata("new-tab", Authority.CONTROL, 5, null, StreamKind.NONE, Map.ofEntries(Map.entry("env", 12L), Map.entry("keep", 12L), Map.entry("place", 12L), Map.entry("shell_args", 12L), Map.entry("terminal_id", 12L), Map.entry("transaction", 12L)), Map.ofEntries(Map.entry("env", "terminal-env-v1"), Map.entry("keep", "terminal-reap-v1"), Map.entry("place", "tab-create-place-v1"), Map.entry("shell_args", "terminal-shell-args-v1"), Map.entry("terminal_id", "terminal-placement-env-v1"), Map.entry("transaction", "tab-create-place-v1")));
     public static final CommandMetadata NEW_WORKSPACE = new CommandMetadata("new-workspace", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata NOTE_SIZE_ACTIVITY = new CommandMetadata("note-size-activity", Authority.CONTROL, 12, "shared-sizing-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata NOTIFY = new CommandMetadata("notify", Authority.CONTROL, 6, null, StreamKind.NONE, Map.ofEntries(Map.entry("source", 12L)), Map.ofEntries(Map.entry("source", "notification-source-v1")));
@@ -202,6 +209,7 @@ public final class Commands {
     public static final CommandMetadata PUT_BLOB = new CommandMetadata("put-blob", Authority.CONTROL, 12, "icon-assets-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata PUT_FRONTEND_PROJECTION = new CommandMetadata("put-frontend-projection", Authority.CONTROL, 7, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata PUT_SESSION = new CommandMetadata("put-session", Authority.CONTROL, 12, "profiles-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata QUICK_TERMINAL = new CommandMetadata("quick-terminal", Authority.CONTROL, 12, "quick-terminal-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata READ_SCREEN = new CommandMetadata("read-screen", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata READ_SCROLLBACK = new CommandMetadata("read-scrollback", Authority.CONTROL, 7, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata REATTACH_VIEW = new CommandMetadata("reattach-view", Authority.CONTROL, 12, "sizing-view-detach-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -236,7 +244,7 @@ public final class Commands {
     public static final CommandMetadata SELECT_SCREEN = new CommandMetadata("select-screen", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SELECT_TAB = new CommandMetadata("select-tab", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SELECT_WORKSPACE = new CommandMetadata("select-workspace", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
-    public static final CommandMetadata SEND = new CommandMetadata("send", Authority.CONTROL, 5, null, StreamKind.NONE, Map.ofEntries(Map.entry("paste", 7L)), Map.ofEntries(Map.entry("expect_agent", "send-expect-agent-v1"), Map.entry("expect_foreground", "send-expect-foreground-v1"), Map.entry("submit", "send-expect-agent-v1"), Map.entry("terminal_id", "terminal-input-while-creating-v1")));
+    public static final CommandMetadata SEND = new CommandMetadata("send", Authority.CONTROL, 5, null, StreamKind.NONE, Map.ofEntries(Map.entry("paste", 7L)), Map.ofEntries(Map.entry("expect_agent", "send-expect-agent-v1"), Map.entry("expect_foreground", "send-expect-foreground-v1"), Map.entry("key", "send-key-v1"), Map.entry("submit", "send-expect-agent-v1"), Map.entry("terminal_id", "terminal-input-while-creating-v1")));
     public static final CommandMetadata SEND_KEY = new CommandMetadata("send-key", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SERVER_STATS = new CommandMetadata("server-stats", Authority.LOCAL_ADMIN, 12, "server-stats-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SET_ATTACH_VISIBILITY = new CommandMetadata("set-attach-visibility", Authority.FRONTEND, 12, "attach-visibility-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -271,7 +279,7 @@ public final class Commands {
     public static final CommandMetadata SHELL_READ = new CommandMetadata("shell-read", Authority.CONTROL, 12, "shell-runs-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SHELL_RUN = new CommandMetadata("shell-run", Authority.CONTROL, 12, "shell-runs-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SHELL_STOP = new CommandMetadata("shell-stop", Authority.CONTROL, 12, "shell-runs-v1", StreamKind.NONE, Map.of(), Map.of());
-    public static final CommandMetadata SHUTDOWN_DAEMON = new CommandMetadata("shutdown-daemon", Authority.LOCAL_ADMIN, 9, null, StreamKind.NONE, Map.ofEntries(Map.entry("end_terminals", 12L), Map.entry("force", 10L), Map.entry("keep_layout", 12L), Map.entry("restart", 12L)), Map.ofEntries(Map.entry("end_terminals", "terminal-reap-v1"), Map.entry("force", "daemon-handoff-force-v1"), Map.entry("keep_layout", "end-terminals-keep-layout-v1")));
+    public static final CommandMetadata SHUTDOWN_DAEMON = new CommandMetadata("shutdown-daemon", Authority.LOCAL_ADMIN, 9, null, StreamKind.NONE, Map.ofEntries(Map.entry("end_terminals", 12L), Map.entry("force", 10L), Map.entry("if_idle", 12L), Map.entry("keep_layout", 12L), Map.entry("restart", 12L)), Map.ofEntries(Map.entry("end_terminals", "terminal-reap-v1"), Map.entry("force", "daemon-handoff-force-v1"), Map.entry("if_idle", "daemon-stop-if-idle-v1"), Map.entry("keep_layout", "end-terminals-keep-layout-v1")));
     public static final CommandMetadata SIDEBAR_PLUGIN = new CommandMetadata("sidebar-plugin", Authority.FRONTEND, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SNAPSHOT_REQUEST = new CommandMetadata("snapshot-request", Authority.FRONTEND, 12, "terminal-snapshot-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SPLIT = new CommandMetadata("split", Authority.CONTROL, 5, null, StreamKind.NONE, Map.ofEntries(Map.entry("around", 12L), Map.entry("before", 12L), Map.entry("cwd", 12L), Map.entry("env", 12L), Map.entry("keep", 12L), Map.entry("kind", 12L), Map.entry("pane_id", 12L), Map.entry("shell_args", 12L), Map.entry("split_id", 12L), Map.entry("tab_id", 12L), Map.entry("terminal_id", 12L), Map.entry("url", 12L)), Map.ofEntries(Map.entry("around", "split-around-v1"), Map.entry("before", "split-before-v1"), Map.entry("cwd", "terminal-env-v1"), Map.entry("env", "terminal-env-v1"), Map.entry("keep", "terminal-reap-v1"), Map.entry("kind", "pane-browser-kind-v1"), Map.entry("pane_id", "split-client-keys-v1"), Map.entry("shell_args", "terminal-shell-args-v1"), Map.entry("split_id", "split-client-split-id-v1"), Map.entry("tab_id", "split-client-keys-v1"), Map.entry("terminal_id", "terminal-placement-env-v1"), Map.entry("url", "pane-browser-kind-v1")));
@@ -382,6 +390,9 @@ public final class Commands {
         values.put("cloud-session-clear", CLOUD_SESSION_CLEAR);
         values.put("cloud-session-set", CLOUD_SESSION_SET);
         values.put("cloud-session-status", CLOUD_SESSION_STATUS);
+        values.put("computer-use-approvals", COMPUTER_USE_APPROVALS);
+        values.put("computer-use-config", COMPUTER_USE_CONFIG);
+        values.put("computer-use-endpoint", COMPUTER_USE_ENDPOINT);
         values.put("conversation-agent-token", CONVERSATION_AGENT_TOKEN);
         values.put("conversation-attachment-link", CONVERSATION_ATTACHMENT_LINK);
         values.put("conversation-attachment-read", CONVERSATION_ATTACHMENT_READ);
@@ -400,6 +411,8 @@ public final class Commands {
         values.put("conversation-run", CONVERSATION_RUN);
         values.put("conversation-run-append", CONVERSATION_RUN_APPEND);
         values.put("conversation-runs", CONVERSATION_RUNS);
+        values.put("conversation-scheduled-list", CONVERSATION_SCHEDULED_LIST);
+        values.put("conversation-scheduled-op", CONVERSATION_SCHEDULED_OP);
         values.put("conversation-search", CONVERSATION_SEARCH);
         values.put("conversation-snapshot", CONVERSATION_SNAPSHOT);
         values.put("conversation-thread", CONVERSATION_THREAD);
@@ -425,12 +438,14 @@ public final class Commands {
         values.put("delete-workspace-group", DELETE_WORKSPACE_GROUP);
         values.put("detach-attached-view", DETACH_ATTACHED_VIEW);
         values.put("detach-client", DETACH_CLIENT);
+        values.put("device-setup", DEVICE_SETUP);
         values.put("export-layout", EXPORT_LAYOUT);
         values.put("feed-local-handoff-abort", FEED_LOCAL_HANDOFF_ABORT);
         values.put("feed-local-handoff-begin", FEED_LOCAL_HANDOFF_BEGIN);
         values.put("feed-local-handoff-done", FEED_LOCAL_HANDOFF_DONE);
         values.put("feed-local-list", FEED_LOCAL_LIST);
         values.put("feed-local-read", FEED_LOCAL_READ);
+        values.put("float-pane", FLOAT_PANE);
         values.put("focus-direction", FOCUS_DIRECTION);
         values.put("focus-pane", FOCUS_PANE);
         values.put("forget-session", FORGET_SESSION);
@@ -508,6 +523,7 @@ public final class Commands {
         values.put("put-blob", PUT_BLOB);
         values.put("put-frontend-projection", PUT_FRONTEND_PROJECTION);
         values.put("put-session", PUT_SESSION);
+        values.put("quick-terminal", QUICK_TERMINAL);
         values.put("read-screen", READ_SCREEN);
         values.put("read-scrollback", READ_SCROLLBACK);
         values.put("reattach-view", REATTACH_VIEW);

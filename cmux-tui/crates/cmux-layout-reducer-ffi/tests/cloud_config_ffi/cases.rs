@@ -61,6 +61,27 @@ fn the_configuration_is_made_from_the_runtime_selection() {
 }
 
 #[test]
+fn the_install_token_lease_answers_here() {
+    let (code, renew) = call(
+        c"cloud_auth_install_token_lease",
+        &json!({"nowMs": 400_000, "held": {"mintedMs": 0, "expiresMs": 540_000}, "mint": null}),
+    );
+    assert_eq!(code, OK);
+    assert_eq!(renew["useHeld"], true);
+    assert_eq!(renew["startMint"], true);
+    assert_eq!(renew["state"]["state"], "renewing");
+    let (_, stalled) = call(
+        c"cloud_auth_install_token_lease",
+        &json!({"nowMs": 20_000, "held": null, "mint": {"startedMs": 0, "step": "POST /v1/auth/token"}}),
+    );
+    assert_eq!(stalled["cancelMint"], true);
+    assert_eq!(stalled["refusal"]["code"], "credential.minting");
+    assert_eq!(stalled["state"]["state"], "mint_stalled");
+    let (code, _) = call(c"cloud_auth_install_token_lease", &json!({"held": 1}));
+    assert_eq!(code, ERR_INVALID);
+}
+
+#[test]
 fn launch_sign_in_and_identity_rules_answer_here() {
     let (_, launch) = call(
         c"cloud_auth_launch_sign_in",
@@ -257,6 +278,42 @@ fn the_device_identity_items_answer_here() {
 }
 
 #[test]
+fn the_device_list_answers_here() {
+    let (code, listed) = call(
+        c"cloud_identity_device_list",
+        &json!({"this": {"id": "nightly"},
+                "devices": [{"id": "dev", "name": "Desk Mac", "platform": "macos"},
+                            {"id": "nightly", "name": "Desk Mac", "platform": "macos"},
+                            {"id": "air", "name": "Laptop", "platform": "macos", "online": true}]}),
+    );
+    assert_eq!(code, OK);
+    assert_eq!(
+        listed,
+        json!({"thisDevice": ["nightly", "dev"], "others": [{"id": "air", "ids": ["air"]}]})
+    );
+}
+
+#[test]
+fn the_device_discovery_answers_here() {
+    let (code, finding) = call(
+        c"cloud_identity_device_discovery",
+        &json!({"status": "ready", "connection": "connecting", "listed": false, "shown": 0}),
+    );
+    assert_eq!(code, OK);
+    assert_eq!(finding, json!({"state": "finding"}));
+    let (_, failed) = call(
+        c"cloud_identity_device_discovery",
+        &json!({"status": "ready", "connection": "connected", "listError": "HTTP 500", "shown": 0}),
+    );
+    assert_eq!(failed, json!({"state": "failed", "reason": "list", "detail": "HTTP 500"}));
+    let (_, none) = call(
+        c"cloud_identity_device_discovery",
+        &json!({"status": "ready", "connection": "connected", "listed": true, "shown": 0}),
+    );
+    assert_eq!(none, json!({"state": "none"}));
+}
+
+#[test]
 fn an_unknown_op_or_a_bad_request_is_refused() {
     assert_eq!(call(c"cloud_config_nope", &json!({})).0, ERR_INVALID);
     assert_eq!(call(c"cloud_config_from_selection", &json!({"isDebugBuild": "no"})).0, ERR_INVALID);
@@ -278,4 +335,41 @@ fn capture_auth_invalid_lease_refuses_before_platform_io() {
     assert_eq!(reply["result"]["code"], "invalid_lease");
     assert_eq!(reply["result"]["ok"], false);
     assert_eq!(reply["result"]["verifiedAbsent"], false);
+}
+
+#[test]
+fn the_no_callback_sign_in_answers_here() {
+    let project = json!({"stackBaseUrl": "https://api.stack-auth.com", "projectId": "p", "publishableClientKey": "k"});
+    let (code, start) = call(c"cloud_auth_cli_sign_in_start", &project);
+    assert_eq!(code, OK);
+    assert_eq!(start["call"]["url"], "https://api.stack-auth.com/api/v1/auth/cli");
+    assert_eq!(start["pollIntervalMs"], 2_000);
+    let (_, started) = call(
+        c"cloud_auth_cli_sign_in_read_start",
+        &json!({"status": 200, "body": r#"{"polling_code":"pc","login_code":"lc","expires_at":"x"}"#,
+                "authWebOrigin": "https://cmux.com"}),
+    );
+    assert_eq!(started["kind"], "started");
+    assert_eq!(started["confirmUrl"], "https://cmux.com/handler/cli-auth-confirm?login_code=lc");
+    let (_, poll) =
+        call(c"cloud_auth_cli_sign_in_poll", &json!({"project": project, "pollingCode": "pc"}));
+    assert_eq!(poll["call"]["url"], "https://api.stack-auth.com/api/v1/auth/cli/poll");
+    let (_, polled) = call(
+        c"cloud_auth_cli_sign_in_read_poll",
+        &json!({"status": 200, "body": r#"{"status":"success","refresh_token":"rt"}"#}),
+    );
+    assert_eq!(polled, json!({"kind": "signedIn", "refreshToken": "rt"}));
+    let (_, token) =
+        call(c"cloud_auth_cli_sign_in_token", &json!({"project": project, "refreshToken": "rt"}));
+    assert_eq!(
+        token["call"]["url"],
+        "https://api.stack-auth.com/api/v1/auth/sessions/current/refresh"
+    );
+    let (_, tokens) = call(
+        c"cloud_auth_cli_sign_in_read_token",
+        &json!({"status": 200, "body": r#"{"access_token":"at"}"#, "refreshToken": "rt"}),
+    );
+    assert_eq!(tokens, json!({"kind": "tokens", "accessToken": "at", "refreshToken": "rt"}));
+    let (code, _) = call(c"cloud_auth_cli_sign_in_read_poll", &json!({"status": "x"}));
+    assert_eq!(code, ERR_INVALID);
 }

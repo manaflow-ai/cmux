@@ -13,6 +13,7 @@ import { FileSearchLoading } from "./FileSearchLoading";
 import { useScrollEdges } from "../../ui/scrollEdges";
 
 /// How long typing settles before the palette asks again.
+// motion-allow: a typing debounce
 const SEARCH_DEBOUNCE_MS = 80;
 
 type State =

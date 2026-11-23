@@ -25,17 +25,33 @@
 //! (include/cmux_daemon_launch.h).
 //! `health` is the app health model: which part is stuck, its repairs and the
 //! status indicator's snapshot (cmux-health-core, include/cmux_health.h).
+//! `launch_image` is each window's last committed frame for the launch's first
+//! frame (cmux-launch-image, include/cmux_launch_image.h).
 //! `sdk` is the daemon client the `cmux` CLI uses (the cmux SDK), as a C ABI
 //! (cmux-sdk-ffi, include/cmux_sdk_ffi.h): the app reaches the daemon through it.
 //! `terminal_prediction` is predictive local echo for a terminal whose shell runs
 //! on another machine (cmux-terminal-prediction, include/cmux_terminal_prediction.h).
 
+//! `wallpaper` is cmux-wallpaper's C ABI: live wallpapers (the program check and
+//! its Metal translation, the scheduler, the Frame packer; include/cmux_wallpaper_ffi.h).
+//! `files_lister` is the client of cmux-tui's `__files-lister` child, the DEV
+//! build's Files pane reader (include/cmux_files_lister.h).
+//! `system_calendar` is the `system_calendar.*` app ops' params, window and
+//! answer (include/cmux_system_calendar.h); EventKit stays in the app.
 //! `agent_client` is the no-I/O agent list client (acpmux-client,
 //! include/acpmux_client.h); the app owns and drives its byte connection.
 
+/// cbindgen:ignore
+pub mod files_lister;
 pub mod hover;
 pub mod motion;
+/// cbindgen:ignore
+pub mod system_calendar;
 pub mod terminal_selection;
+/// cbindgen:ignore
+/// Live wallpapers: its own header (include/cmux_wallpaper_ffi.h, cbindgen-wallpaper.toml),
+/// so it stays out of cmux_motion_ffi.h.
+pub mod wallpaper;
 
 pub use acpmux_client::ffi as agent_client;
 pub use cmux_action_catalog::ffi as action_catalog;
@@ -44,6 +60,9 @@ pub use cmux_cookie_sync::ffi as cookie_sync;
 pub use cmux_daemon_conn_core::ffi as daemon_conn;
 pub use cmux_daemon_launch_core::ffi as daemon_launch;
 pub use cmux_health_core::ffi as health;
+pub use cmux_launch_image::ffi as launch_image;
+pub use cmux_launch_record;
+pub use cmux_launch_shell::ffi as launch_shell;
 pub use cmux_layout_reducer_ffi as layout_reducer;
 pub use cmux_palette_ranker::ffi as palette_ranker;
 pub use cmux_rd_ffi as rd;

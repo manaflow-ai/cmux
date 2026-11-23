@@ -5,18 +5,18 @@ public import Observation
 
 /// Loads `~/.config/cmux/cmux-next.json`, applies it to `DesignSettings` and the
 /// action registry, and re-applies on every change to the file (kernel file
-/// events, no polling). Writes go through `file` and come back through the
-/// watcher, so the file stays the single source of truth.
+/// events, no polling). Writes go through `file` to the daemon's settings owner (`writer`) and come
+/// back through the watcher, so the file stays the single source of truth.
 ///
 /// App entry point:
 /// ```swift
-/// let settings = SettingsController(registry: registry)
+/// let settings = SettingsController(writer: SettingsEditSender(daemon.settingsFile.edit(json:file:)), registry: registry)
 /// settings.start()   // loads once, then watches
 /// ```
 @MainActor
 @Observable
 public final class SettingsController {
-    /// Serialized, off-main file access (also backs `settings.get/set`).
+    /// Serialized, off-main file reads and the writes it sends to the writer (also backs `settings.get/set`).
     @ObservationIgnored public let file: CmuxConfigFile
     /// Diagnostics from the last load: bad values, unknown action IDs,
     /// unsupported chords, and shortcut conflicts.
@@ -70,6 +70,8 @@ public final class SettingsController {
     @ObservationIgnored fileprivate var lastGoodThemeFile: ThemeFileInput?
 
     @ObservationIgnored let applier: SettingsApplier
+    /// The active theme file's own font files, registered while it applies.
+    @ObservationIgnored let themeFonts = ThemeFonts()
     @ObservationIgnored private var diagnosticToasts: SettingsDiagnosticToasts?
     @ObservationIgnored private var watcher: ConfigFileWatcher?
     /// Watches the active theme file and the themes folder (`ThemeFileSetting`).
@@ -89,6 +91,8 @@ public final class SettingsController {
     @ObservationIgnored private var loadHooks: [@MainActor () -> Void] = []
     /// The launch's read (`readAtLaunch`), adopted by the first load.
     @ObservationIgnored private var launchRead: LaunchRead?
+    /// Writes `appearance.fontSmoothing` to the app's defaults on each load (the app's controller only).
+    @ObservationIgnored private let appliesFontSmoothing: Bool
     /// Writes `setSetting` validated and made, by dotted key (tests check
     /// that palette actions write through it).
     @ObservationIgnored var validatedWrites: [String: Int] = [:]
@@ -113,7 +117,9 @@ public final class SettingsController {
         let source: String?
     }
 
+    /// `writer` takes every write of the file (the app: the home daemon's settings owner); nil refuses them.
     public init(
+        writer: (any SettingsFileWriter)? = nil,
         registry: ActionRegistry,
         design: DesignSettings = .shared,
         fileURL: URL = CmuxConfigFile.defaultURL(),
@@ -122,8 +128,9 @@ public final class SettingsController {
         launch: LaunchRead? = nil,
         buildDefaults: SettingsBuildDefaults? = nil
     ) {
-        self.file = CmuxConfigFile(url: fileURL)
+        self.file = CmuxConfigFile(url: fileURL, writer: writer)
         self.launchRead = launch
+        self.appliesFontSmoothing = launch?.appliesFontSmoothing ?? false
         self.buildDefaults = buildDefaults ?? launch?.buildDefaults ?? .none
         self.applier = SettingsApplier(design: design, registry: registry)
         self.managedReader = managedReader
@@ -136,7 +143,10 @@ public final class SettingsController {
     /// Themes says so (`rotateFavoriteThemeAtLaunch`); tests leave it off.
     /// A launch that made the settings file from nothing (``readAtLaunch(file:buildDefaults:)``) starts
     /// the window on Glass (`startFreshInstallOnGlass`).
-    public func start(announcingDiagnostics: Bool = false, rotatingFavoriteThemes: Bool = false) {
+    /// `untilWritable` returns once the writer can take a write (the app: the home daemon is live);
+    /// those two launch writes wait for it (``launchWrite(after:_:)``). Nil: they go at once.
+    public func start(announcingDiagnostics: Bool = false, rotatingFavoriteThemes: Bool = false,
+                      untilWritable: (@MainActor @Sendable () async -> Void)? = nil) {
         guard watcher == nil else { return }
         if announcingDiagnostics, diagnosticToasts == nil {
             let toasts = SettingsDiagnosticToasts(registry: applier.registry)
@@ -152,9 +162,27 @@ public final class SettingsController {
         watchThemeFiles(named: ThemeFileSetting.name(in: snapshot.root))
         let freshInstall = launchRead?.createdEmptyFile == true // loadNow lets the launch read go
         if loadCount == 0 { loadNow() } else { requestReload() }
-        if rotatingFavoriteThemes { rotateFavoriteThemeAtLaunch(root: snapshot.root) }
+        if rotatingFavoriteThemes { rotateFavoriteThemeAtLaunch(root: snapshot.root, untilWritable: untilWritable) }
         // A task, so it reads the Ghostty blur after the launch that called this set its reader.
-        if freshInstall { Task { [weak self] in try? await self?.startFreshInstallOnGlass() } }
+        if freshInstall {
+            Task { [weak self] in
+                guard let self else { return }
+                try? await Self.launchWrite(after: untilWritable) { try await self.startFreshInstallOnGlass() }
+            }
+        }
+    }
+
+    /// Runs a launch write once `untilWritable` returns, and once more after it returns again when
+    /// the writer was gone by then (``SettingsWriterDisconnected``: nothing was written).
+    static func launchWrite(after untilWritable: (@MainActor @Sendable () async -> Void)?,
+                            _ body: @MainActor () async throws -> Void) async throws {
+        await untilWritable?()
+        do {
+            try await body()
+        } catch is SettingsWriterDisconnected {
+            await untilWritable?()
+            try await body()
+        }
     }
 
     public func stop() {
@@ -368,15 +396,24 @@ public final class SettingsController {
         let buildDefaults: SettingsBuildDefaults
         /// This launch made the settings file from nothing (`CmuxConfigFile.LaunchFile`): a fresh install.
         var createdEmptyFile = false
+        /// The app's own launch read: each load writes `appearance.fontSmoothing` to the app's defaults.
+        var appliesFontSmoothing = false
         public var snapshot: CmuxConfigSnapshot { loaded.snapshot }
     }
 
     /// ``readAtLaunch(fileURL:managedReader:buildDefaults:)`` of the launch's file, remembering whether
     /// the launch made it from nothing, so ``start(announcingDiagnostics:rotatingFavoriteThemes:)``
     /// starts a fresh install's window on Glass.
+    ///
+    /// It also applies `appearance.fontSmoothing` to the app's defaults (``ProcessFontSmoothing/apply(_:to:)``):
+    /// the app calls this before its first window, and AppKit fixes its text weight at its first text draw.
+    /// A controller made with this read writes the setting again on each change, so the next launch
+    /// starts with it (part of the process reads the saved value before this runs).
     public static func readAtLaunch(file: CmuxConfigFile.LaunchFile, buildDefaults: SettingsBuildDefaults = .none) -> LaunchRead {
         var read = readAtLaunch(fileURL: file.url, buildDefaults: buildDefaults)
         read.createdEmptyFile = file.createdEmpty
+        read.appliesFontSmoothing = true
+        ProcessFontSmoothing.apply(read.snapshot.fontSmoothing, to: .standard)
         return read
     }
 
@@ -410,7 +447,7 @@ public final class SettingsController {
             let parsed = try JSONC.parse(source)
             if case .object = parsed { root = parsed } else { problem = "root is not an object" }
         } catch {
-            problem = String(describing: error)
+            problem = JSONC.problem(error, in: source)
         }
         // Managed layers always merge, over the last good file when this one
         // is unreadable, so MDM forced values apply even while the user's
@@ -421,9 +458,12 @@ public final class SettingsController {
         let themes = ThemeFilesRead(effective.root, configDirectory: configDirectory, managed: Set(effective.managedKeys.keys),
                                     lastGood: lastGoodTheme, listing: listingThemes)
         effective.root = themes.applied
+        // The sidebar look fills only what every layer above leaves unset (SidebarLookPreset).
+        effective.root = SidebarLookPreset.filling(effective.root)
         var snapshot = CmuxConfigSnapshot.parse(
             effective.root, validDensities: valid.densities, validMetrics: valid.metrics, configDirectory: configDirectory
         )
+        snapshot.themeDensity = themes.density
         if let problem { snapshot.diagnostics.insert(SettingsDiagnostic(kind: .unreadableFile, path: "", message: problem), at: 0) }
         snapshot.diagnostics += effective.diagnostics + themes.diagnostics
         var inputs = LoadInputs(source: source, managed: managed, team: team)
@@ -440,7 +480,15 @@ public final class SettingsController {
             // A file change ends a preview: the loaded values apply.
             previewingKey = nil
             previewSnapshot = nil
+            // The look's own font files first, so the families it names resolve as it applies.
+            themeFonts.use(loaded.themes.overlay?.fontFiles ?? [])
             diagnostics = applier.apply(loaded.snapshot)
+            // For the next launch: AppKit keeps this launch's text weight (ProcessFontSmoothing).
+            // The chrome text cmux draws itself (the sidebar, tabs) takes the new weight now, as
+            // web pages do (https://github.com/manaflow-ai/cmux/issues/44844).
+            if appliesFontSmoothing {
+                ProcessFontSmoothing.applyLive(loaded.snapshot.fontSmoothing)
+            }
             let effective = loaded.effective
             snapshot = loaded.snapshot
             themeFile = loaded.themes.overlay
@@ -477,6 +525,8 @@ extension SettingsController {
         /// The root with the theme file applied.
         let applied: JSONValue
         let overlay: ThemeFileOverlay?
+        /// The file's own density, unless a managed layer or the person's own density row (an exception) holds it.
+        let density: DensityTokens?
         let activeSource: String?
         /// The text the applied overlay was read from: the active file's, or its last good text while
         /// the file does not parse. Nil when no file applies.
@@ -502,6 +552,7 @@ extension SettingsController {
             let settingPath = ThemeFileSetting.configPath.joined(separator: ".")
             guard let name = ThemeFileSetting.name(in: root) else {
                 overlay = nil
+                density = nil
                 activeSource = nil
                 goodSource = nil
                 applied = root
@@ -526,12 +577,24 @@ extension SettingsController {
             }
             goodSource = good
             self.overlay = overlay
-            applied = overlay.applied(to: root, managed: managed)
+            // The keys the person changed over the file keep their own value (#44894).
+            let exceptions = ThemeFileExceptionsSetting.keys(in: root)
+            applied = overlay.applied(to: root, managed: managed.union(exceptions))
             // Each row the file sets says where its value comes from.
             let file = "\(ThemeFileSetting.folderName)/\(name).\(ThemeFileSetting.fileExtension)"
-            diagnostics = overlay.diagnostics + overlay.values.map { $0.path.joined(separator: ".") }
+            // The file's own density is over both density rows, unless the person changed one over the file.
+            density = overlay.density(under: managed.union(exceptions))
+            let densityRows = density == nil ? [] : [DensitySetting.configPath, CustomDensitySelectionSetting.configPath]
+                .filter { path in !overlay.values.contains { $0.path == path } }.map { $0.joined(separator: ".") }
+            diagnostics = overlay.diagnostics + (overlay.values.map { $0.path.joined(separator: ".") } + densityRows)
                 .filter { id in !managed.contains { $0 == id || id.hasPrefix($0 + ".") || $0.hasPrefix(id + ".") } }
-                .map { SettingsDiagnostic(kind: .setByThemeFile, path: $0, message: "set by the theme file; change it there, or unset Theme File", file: file) }
+                .map { id in
+                    exceptions.contains(id)
+                        ? SettingsDiagnostic(kind: .overThemeFile, path: id,
+                                             message: "your value applies over the theme file's; Reset returns to the file's", file: file)
+                        : SettingsDiagnostic(kind: .setByThemeFile, path: id,
+                                             message: "set by the theme file; a change here applies over it", file: file)
+                }
         }
     }
 

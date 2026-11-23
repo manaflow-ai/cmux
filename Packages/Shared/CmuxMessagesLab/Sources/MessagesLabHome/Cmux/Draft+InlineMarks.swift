@@ -51,10 +51,31 @@ extension Draft {
     }
 
     static func stripMarks(_ s: String) -> String {
-        guard s.unicodeScalars.contains(mark) else { return s }
+        guard containsMark(s) else { return s }
         var out = String.UnicodeScalarView()
         out.append(contentsOf: s.unicodeScalars.lazy.filter { $0 != mark })
         return String(out)
+    }
+
+    /// Whether `s` holds an attachment mark: a byte search of its UTF-8 (U+FFFC is EF BF BC) when
+    /// it is native, so the draft without marks (every key's case) is not walked scalar by scalar
+    /// (`plainText` on every key, HomeComposerKeyCostTests).
+    static func containsMark(_ s: String) -> Bool {
+        let found: Bool? = s.utf8.withContiguousStorageIfAvailable { bytes in
+            guard let base = bytes.baseAddress, bytes.count >= 3 else { return false }
+            return markUTF8.withUnsafeBytes { memmem(base, bytes.count, $0.baseAddress, 3) != nil }
+        }
+        return found ?? s.unicodeScalars.contains(mark)
+    }
+    private static let markUTF8: [UInt8] = [0xEF, 0xBF, 0xBC]
+
+    /// Whether `s` has text to send: a character other than white space and the attachment marks.
+    /// It stops at the first one, so a key in a long draft does not walk the draft (the send
+    /// button asks on every key; `trimmingCharacters` copied the draft without its marks, then
+    /// trimmed it).
+    static func hasSendableText(_ s: String) -> Bool {
+        let blank = CharacterSet.whitespacesAndNewlines
+        return s.unicodeScalars.contains { $0 != mark && !blank.contains($0) }
     }
 
     /// The UTF-16 offsets of the marks, in order.

@@ -1,6 +1,7 @@
 public import CmuxNextCompat
 public import Foundation
 public import Observation
+import os
 
 /// The signed-in user's devices as this app sees them: who is online, who
 /// shares Mac Screen, permissions, relays, requests waiting for an answer,
@@ -23,6 +24,15 @@ public final class DeviceHub {
     public private(set) var connection: DeviceHubSocket.State = .disconnected
     public private(set) var me: HubMe?
     public private(set) var devices: [HubDevice] = []
+    /// A device-list read succeeded since sign-in. `ready` only means this device is registered: the list
+    /// comes after the socket connects, so an empty `devices` before it says nothing (ask-6a79af928f).
+    public private(set) var devicesListed = false
+    /// Why the last device-list read failed; nil once a read succeeds.
+    public private(set) var devicesListError: DeviceHubError?
+    /// Socket states and device-list reads, so a quiet Your Devices can be read from the log (ask-6a79af928f).
+    @ObservationIgnored private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "device-hub")
+    /// Verified Mac destinations for native screen actions, observed with the device list.
+    public var macScreenAvailability: [String: Bool] { HubDevice.macScreenAvailability(in: devices) }
     /// Permissions by host id (`GET /v1/permissions?host=`); this device's are fetched on every refresh.
     public private(set) var permissions: [String: [HubPermission]] = [:]
     public private(set) var relays: [HubRelay] = []
@@ -56,6 +66,10 @@ public final class DeviceHub {
     @ObservationIgnored let now: @Sendable () -> Date
     /// Makes a new identity when the hub refuses this one (`device_removed`, `device_key_mismatch`).
     @ObservationIgnored let renewIdentity: (@Sendable () throws -> DeviceIdentity)?
+    /// False when another process owns this device: the acpmux daemon's share host registers it
+    /// (with its join's settings) and holds its sign-in, so this hub neither registers it
+    /// (``start()``) nor signs it out (``signOut(ending:reason:)``). Set before ``start()``.
+    @ObservationIgnored public var ownsDevice = true
     @ObservationIgnored private var socketTask: Task<Void, Never>?
     /// Relays this device saved that no listing has shown yet (kept from pruning).
     @ObservationIgnored var savedNotListed: Set<String> = []
@@ -93,12 +107,34 @@ public final class DeviceHub {
 
     public var identity: DeviceIdentity { client.identity }
     public var thisDevice: HubDevice? { devices.first { $0.id == identity.id } }
-    /// The user's other devices.
-    public var otherDevices: [HubDevice] { devices.filter { $0.id != identity.id } }
+    /// The user's other devices, one per physical device (``DeviceList``): this Mac's other builds and
+    /// a Mac's stale records are not listed again (Leo, 2026-11-16: the same Mac listed two and three times).
+    public var otherDevices: [HubDevice] {
+        let byID = Dictionary(devices.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        return deviceList.others.compactMap { byID[$0.id] }
+    }
 
-    /// What `viewer` may do on `host`'s screen; `ask` when no permission is stored.
+    /// Every hub record of the device `id` lists as (``otherDevices``), `id` first; just `id` when unknown.
+    public func recordIDs(of id: String) -> [String] {
+        deviceList.others.first { $0.ids.contains(id) }?.ids ?? [id]
+    }
+
+    /// ``DeviceList`` of ``devices``, asked of Rust again only when the records or this identity change.
+    var deviceList: DeviceList {
+        let key = DeviceListKey(thisID: identity.id, name: deviceName, devices: devices)
+        if let cached = deviceListCache, cached.key == key { return cached.list }
+        let list = DeviceList.make(thisID: identity.id, thisName: deviceName, platform: platform, devices: devices)
+        deviceListCache = (key, list)
+        return list
+    }
+
+    struct DeviceListKey: Equatable { var thisID: String, name: String, devices: [HubDevice] }
+    @ObservationIgnored private var deviceListCache: (key: DeviceListKey, list: DeviceList)?
+
+    /// What `viewer` may do on `host`'s screen; `full` when no permission is stored (the hub's default
+    /// for the account's own devices, PROTOCOL.md).
     public func scope(host: String, viewer: String) -> DeviceScope {
-        permissions[host]?.first { $0.viewerId == viewer }?.scope ?? .ask
+        permissions[host]?.first { $0.viewerId == viewer }?.scope ?? .full
     }
 
     // MARK: Lifecycle
@@ -110,9 +146,10 @@ public final class DeviceHub {
         generation += 1
         let run = generation
         status = .starting
+        devicesListError = nil
         do {
             do {
-                _ = try await client.registerDevice(name: deviceName, platform: platform)
+                if ownsDevice { _ = try await client.registerDevice(name: deviceName, platform: platform) }
             } catch let error as DeviceHubError where (error.code == .deviceRemoved || error.code == .deviceKeyMismatch) && renewIdentity != nil {
                 // This id was removed (or holds another key): register as a new device, once.
                 guard run == generation, let renewIdentity else { return }
@@ -172,6 +209,8 @@ public final class DeviceHub {
         connection = .disconnected
         me = nil
         devices = []
+        devicesListed = false
+        devicesListError = nil
         permissions = [:]
         relays = []
         openedSecrets = [:]
@@ -197,6 +236,7 @@ public final class DeviceHub {
         switch event {
         case let .state(state):
             connection = state
+            logger.info("device hub socket: \(String(describing: state), privacy: .public)")
             if state == .connected {
                 // Back on the hub: whatever changed while away (a relaunched host's history) is read again.
                 pushCount += 1
@@ -224,7 +264,7 @@ public final class DeviceHub {
             pendingRequests.removeAll { $0.id == ticket.sessionId }
             tickets[ticket.sessionId] = ticket
             onSessionPush?(push)
-        case let .sessionDenied(id), let .sessionRevoked(id, _), let .sessionEnded(id, _):
+        case let .sessionDenied(id), let .sessionRevoked(id, _), let .sessionEnded(id, _, _):
             pendingRequests.removeAll { $0.id == id }
             tickets[id] = nil
             onSessionPush?(push)
@@ -256,9 +296,20 @@ public final class DeviceHub {
     }
 
     public func refreshDevices() async {
-        await load { try await $0.devices() } into: { hub, value in
-            hub.devices = value
-            hub.forgetPermissions(notListedIn: Set(value.map(\.id)))
+        let run = generation
+        do {
+            let value = try await client.devices()
+            guard run == generation else { return }
+            devices = value
+            devicesListed = true
+            devicesListError = nil
+            logger.info("device hub list read: \(value.count, privacy: .public) devices")
+            forgetPermissions(notListedIn: Set(value.map(\.id)))
+        } catch {
+            guard run == generation else { return }
+            fail(error)
+            devicesListError = lastError
+            logger.error("device hub list read failed: \(self.lastError?.description ?? "\(error)", privacy: .public)")
         }
     }
 
@@ -343,6 +394,11 @@ public final class DeviceHub {
         try await perform { try await $0.requestSession(host: host, scope: scope) }
     }
 
+    /// From this device as viewer: a fresh viewer ticket for an approved or live session.
+    public func reattachSession(_ id: String) async throws -> SessionTicket {
+        try await perform { try await $0.reattachSession(id) }
+    }
+
     /// From this device as host: answers a request.
     public func decide(_ request: SessionRequest, decision: SessionDecision, scope: SessionScope) async throws {
         _ = try await perform { try await $0.decide(session: request.id, decision: decision, scope: scope) }
@@ -354,6 +410,18 @@ public final class DeviceHub {
     public func signOutDevice() async throws {
         try await perform { try await $0.signOutDevice() }
         tickets = [:]
+    }
+
+    /// This app signs out: a device it owns is signed out (``signOutDevice()``); when that fails, or
+    /// another process owns the device (``ownsDevice``: its shares go on under the join), only `ids`,
+    /// this app's own sessions, end with `reason`. Then ``stopAndWait()``.
+    public func signOut(ending ids: Set<String>, reason: String) async {
+        if ownsDevice, (try? await signOutDevice()) != nil { return }
+        await withTaskGroup(of: Void.self) { group in
+            for id in ids {
+                group.addTask { try? await self.endSession(id, reason: reason) }
+            }
+        }
     }
 
     public func endSession(_ id: String, reason: String) async throws {
@@ -393,6 +461,8 @@ public final class DeviceHub {
         let current = try await perform { try await $0.devices() }
         guard run == generation else { throw DeviceHubError.transport("device hub stopped") }
         devices = current
+        devicesListed = true
+        devicesListError = nil
         let sealed: [String: String]
         do { sealed = try RelaySealing.seal(secret, relayID: id, for: current) } catch {
             throw DeviceHubError.identity("sealing the relay secret: \(error)")

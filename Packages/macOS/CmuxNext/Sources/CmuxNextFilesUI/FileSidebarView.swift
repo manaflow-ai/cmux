@@ -12,7 +12,7 @@ import CmuxNextFiles
 @MainActor
 final class FileSidebarView: NSObject, NSTableViewDataSource, NSTableViewDelegate {
     let view: NSView
-    private let scroll = NSScrollView()
+    private let scroll = OverlayScrollView()
     private let table = FileTableView()
     private let actions: FileSidebarActions
     private var rows: [FileSidebarRow] = []

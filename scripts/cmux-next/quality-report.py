@@ -29,6 +29,11 @@ So the nightly tracks three numbers over time, each from the source that already
                             were over it, and the stage with the largest p50. From the history that
                             scripts/ci/nightly_speed.py keeps in the cmuxterm-hq issue SPEED_TITLE (GH_TOKEN with
                             issues read on cmuxterm-hq).
+  v2_home                   hq#11702: whether the v2 gate home wrote its god-vs-small rows (--v2-home-exit,
+                            --v2-home-stderr, --v2-home-output). When it wrote nothing or exited non-zero, the
+                            report's first line says so with the home's error line, and the sticky's history row
+                            records it; cmuxterm-hq NOW reads that for quality.v2_home_blind_h (goal
+                            v2-gate-home-reports), which wakes the goal's owner once per flip.
 
 And the crash section of the report: crashes and hangs of the last --hours, by signature, new or returning,
 NIGHTLY or DEV. From Sentry when its API answers (SENTRY_AUTH_TOKEN with event:read and org:read); else from
@@ -38,9 +43,12 @@ cmuxterm-hq). The section says which source answered and why the other did not.
 
     quality-report.py report [--hours 24] [--perf-state state.json] [--god-small FILE] [--anim-coverage FILE]
                              [--ci-branches feat-cmux-next,main] [--ci-commits 50] [--ci-repo manaflow-ai/cmux] [--speed]
-                             [--first-user-journey RESULTS.json]... --json OUT [--md OUT] [--public-md OUT]
+                             [--first-user-journey RESULTS.json]... [--v2-home-exit N --v2-home-stderr FILE
+                             --v2-home-output FILE --v2-home-seconds N --v2-home-limit N] --json OUT [--md OUT]
     quality-report.py fetch-journey --repo OWNER/NAME --workflow FILE.yml --artifact NAME --dir DIR [--tries 5]
     quality-report.py sticky --report OUT.json --md OUT.md [--repo manaflow-ai/cmuxterm-hq]
+    quality-report.py done-today [--repo manaflow-ai/cmuxterm-hq]
+    quality-report.py merge-god-small --out FILE INPUT.json...
 
 `report` writes the metrics JSON (--json), the full report with signature names (--md, for the private sticky
 issue) and the numbers only (--public-md, for this public repository's step summary). `sticky` puts the report in
@@ -48,8 +56,11 @@ the one open cmuxterm-hq issue titled STICKY_TITLE (opening it the first time) a
 it, so the three numbers can be read over time in one place. A source that cannot be read leaves its metric null
 with a `why`; nothing here fails a build. Input slots that other checks fill, by shape:
 
-  --god-small      {"rows": [{"name": str, "small_p95": num, "god_p95": num}, ...]} (or a bare list of those rows;
-                   `small`/`god` are accepted for the two numbers, and a given `ratio` is used as is)
+  --god-small      {"rows": [{"name": str, "small_p95": num, "god_p95": num}, ...], "errors": [str, ...]} (or a
+                   bare list of those rows; `small`/`god` are accepted for the two numbers, and a given `ratio` is
+                   used as is). `errors` are the v2 gate home's lines it could not place on a row; the report lists
+                   them. `merge-god-small` merges the v2 home's and the degenerate lab's inputs into one, rows and
+                   errors both.
   --anim-coverage  {"coverage": 0..1} or {"covered": int, "total": int} (`animated` for total is accepted)
   --first-user-journey  {"schema": 1, "surface": "web"|"mac"|"ios", "generated_at", "build", "run_url",
                    "cells": [{"cell", "harness", "state", "outcome": "pass"|"red"|"needs-account"|"skip", "steps",
@@ -99,6 +110,8 @@ SPEED_HISTORY_Z_RE = re.compile(r"<!-- nightly-speed-history-z: (.*?) -->", re.S
 SPEED_INFLATE_CAP = 4_000_000
 SPEED_BUDGET_MIN = 30.0
 GOD_SMALL_LIMIT = 1.2
+V2_HOME_ERROR_MAX = 300  # characters of the gate home's error line kept in the report
+V2_HOME_UNFINISHED = -1  # the exit the workflow pre-writes, so a home killed by its timeout reads as unfinished
 TOP_SIGNATURES = 15
 # Interaction rows of the perf cron: latencies a person waits on. Background and shape rows (idle CPU, long-task
 # totals, slopes, heap) are not interaction latencies and stay out of this metric.
@@ -443,11 +456,32 @@ def interaction_p95(state: Any, why: Optional[str]) -> Dict[str, Any]:
             "why": None if rows else "the perf cron state has no interaction rows"}
 
 
+def god_small_errors(doc: Any) -> List[str]:
+    """The input's `errors`: the v2 gate home's lines that no row holds (an unknown row name)."""
+    raw = doc.get("errors") if isinstance(doc, dict) else None
+    return [e for e in raw if isinstance(e, str)] if isinstance(raw, list) else []
+
+
+def merge_god_small(paths: List[str]) -> Dict[str, Any]:
+    """One --god-small input from several (the v2 gate home's, the degenerate lab's): every input's rows and
+    `errors`, in order. A home error reached the report only through its last stderr line before this."""
+    rows: List[Any] = []
+    errors: List[str] = []
+    for path in paths:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+        raw = data.get("rows") if isinstance(data, dict) else data
+        rows += raw if isinstance(raw, list) else []
+        errors += god_small_errors(data)
+    return {"rows": rows, "errors": errors}
+
+
 def god_vs_small(doc: Any, why: Optional[str]) -> Dict[str, Any]:
     raw = doc.get("rows") if isinstance(doc, dict) else doc
+    errors = god_small_errors(doc)
     if not isinstance(raw, list):
         return {"source": None, "limit": GOD_SMALL_LIMIT, "rows": [], "failing": [], "worst_ratio": None,
-                "why": why or "the god-vs-small input has no rows"}
+                "errors": errors, "why": why or "the god-vs-small input has no rows"}
     rows = []
     failing = []
     for r in raw:
@@ -471,8 +505,69 @@ def god_vs_small(doc: Any, why: Optional[str]) -> Dict[str, Any]:
             failing.append(name)
     ratios = [r["ratio"] for r in rows if isinstance(r["ratio"], (int, float))]
     return {"source": "god-vs-small", "limit": GOD_SMALL_LIMIT, "rows": rows,
-            "failing": failing,
+            "failing": failing, "errors": errors,
             "worst_ratio": max(ratios) if ratios else None, "why": None if rows else "the god-vs-small input has no rows"}
+
+
+def v2_home(exit_code: Optional[int], stderr_text: Optional[str], output_path: Optional[str],
+            seconds: Optional[float] = None, limit: Optional[float] = None) -> Dict[str, Any]:
+    """Whether the v2 gate home (`cargo bench --profile gate -p acpmux --bench v2`) wrote its god-vs-small rows.
+
+    hq#11702: cmux#43403 (2026-11-15) added a gate line the home could not read; the home exited 2 before it wrote
+    anything, the steps around it are continue-on-error, and the report said only "no input given" for nights. So
+    the report names it in its first lines: `status` is "wrote" (exit 0 and a non-empty output), "exited N" (it
+    wrote, but exited non-zero) or "no report" (no output), with the home's own error line. No exit given means the
+    step did not run (`status` None)."""
+    base = {"seconds": seconds, "limit": limit}
+    if exit_code is None:
+        return {"status": None, "exit": None, "error": None, "why": "the gate home was not run", **base}
+    wrote = bool(output_path) and os.path.isfile(output_path) and os.path.getsize(output_path) > 0
+    if exit_code == 0 and wrote:
+        return {"status": "wrote", "exit": 0, "error": None, "why": None, **base}
+    lines = [line.strip() for line in (stderr_text or "").splitlines() if line.strip()]
+    own = [line for line in lines if line.startswith("v2 bench:")]  # the home's own error lines
+    error = own[-1] if own else (lines[-1] if lines else None)
+    if exit_code == 124:
+        if limit and limit > 0:
+            minutes = limit / 60
+            minute_text = str(int(minutes)) if minutes.is_integer() else f"{minutes:.1f}"
+            error = f"the gate home ran past {minute_text} minutes"
+        else:
+            error = "the gate home ran past its timeout"
+        if lines:
+            error += f"; last line: {error if not lines else lines[-1]}"
+    elif exit_code == V2_HOME_UNFINISHED:
+        error = "the gate home did not finish (killed or timed out)" + (f"; last line: {error}" if error else "")
+    elif error is None:
+        error = "it printed no error"
+    if len(error) > V2_HOME_ERROR_MAX:
+        error = error[:V2_HOME_ERROR_MAX - 3] + "..."
+    return {"status": f"exited {exit_code}" if wrote else "no report", "exit": exit_code, "error": error,
+            "why": None, **base}
+
+
+def v2_home_timing(h: Dict[str, Any]) -> Optional[str]:
+    seconds, limit = h.get("seconds"), h.get("limit")
+    if not isinstance(seconds, (int, float)) or not isinstance(limit, (int, float)) or limit <= 0:
+        return None
+    if seconds <= limit * 0.7:
+        return None
+    minutes = limit / 60
+    minute_text = str(int(minutes)) if minutes.is_integer() else f"{minutes:.1f}"
+    return f"elapsed {seconds:g}s, over 70% of the {minute_text}-minute limit"
+
+
+def v2_home_line(h: Dict[str, Any]) -> Optional[str]:
+    """The report's first line for a failed home or one that ran close to its limit."""
+    if h.get("status") is None:
+        return None
+    timing = v2_home_timing(h)
+    suffix = f" ({timing})" if timing else ""
+    if h.get("status") == "wrote":
+        return f"**v2 gate home timing:** {timing}" if timing else None
+    if h["status"] == "no report":
+        return f"**v2 gates: no report.** The gate home wrote nothing (exit {h['exit']}): {h['error']}{suffix}"
+    return f"**v2 gates: the gate home exited {h['exit']}** after writing its rows: {h['error']}{suffix}"
 
 
 def anim_coverage(doc: Any, why: Optional[str]) -> Dict[str, Any]:
@@ -777,7 +872,8 @@ def build_report(hours: int, t: dt.datetime, sentry_token: Optional[str], perf_s
                  ci_branches: Optional[List[str]] = None, ci_commits: int = CI_COMMITS, ci_repo: str = CI_REPO,
                  ci_history: Optional[Callable] = None,
                  speed_history: Optional[Callable[[], Dict[str, Any]]] = None,
-                 journey_paths: Optional[List[str]] = None) -> Dict[str, Any]:
+                 journey_paths: Optional[List[str]] = None,
+                 v2_home_state: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     since = t - dt.timedelta(hours=hours)
     get = sentry_getter or (lambda path, params: sentry_get(path, params, sentry_token or ""))
     sentry_why = None if sentry_token or sentry_getter else "no SENTRY_AUTH_TOKEN"
@@ -816,6 +912,7 @@ def build_report(hours: int, t: dt.datetime, sentry_token: Optional[str], perf_s
             "crash_free_session_rate": crash_free, "crashes": crashes,
             "interaction_p95_ms": interaction_p95(state, state_why),
             "god_vs_small": god_vs_small(god, god_why),
+            "v2_home": v2_home_state or v2_home(None, None, None),
             "animation_token_coverage": anim_coverage(anim, anim_why),
             "ci_health": ci_health(ci_branches or [], ci_commits, ci_repo, ci_history),
             "nightly_speed": nightly_speed(speed_doc, speed_why, since),
@@ -841,6 +938,16 @@ def public_report(r: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
+def read_text(path: Optional[str]) -> Optional[str]:
+    if not path:
+        return None
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            return f.read()
+    except OSError:
+        return None
+
+
 def pct(v: Optional[float]) -> str:
     return "n/a" if v is None else f"{v * 100:.2f}%"
 
@@ -863,6 +970,7 @@ def headline(r: Dict[str, Any], public: bool = False) -> Dict[str, str]:
                             if p["rows"] else f"n/a ({p['why']})"),
         "God vs small": (f"worst {g['worst_ratio']}x (limit {g['limit']}x), {len(g['failing'])} over"
                          if g["rows"] else f"n/a ({g['why']})"),
+        "v2 gate home": v2_home_cell(r.get("v2_home") or {}),
         "Animation token coverage": pct(a["value"]) if a["value"] is not None else f"n/a ({a['why']})",
         "CI checks green on base": (f"{pct(ci['green_share'])} of {ci['checks']} checks, newest run on "
                                     + ", ".join(b for b, v in ci["branches"].items() if "why" not in v) if ci.get("green_share") is not None else f"n/a ({ci.get('why')})"),
@@ -876,6 +984,12 @@ def headline(r: Dict[str, Any], public: bool = False) -> Dict[str, str]:
     }
 
 
+def v2_home_cell(h: Dict[str, Any]) -> str:
+    if h.get("status") is None:
+        return f"n/a ({h.get('why') or 'not in this report'})"
+    return h["status"] if h["status"] == "wrote" else f"{h['status']} (exit {h['exit']}: {h['error']})"
+
+
 def speed_line(sp: Dict[str, Any]) -> str:
     if sp.get("p50_min") is None:
         return f"n/a ({sp.get('why')})"
@@ -887,7 +1001,11 @@ def speed_line(sp: Dict[str, Any]) -> str:
 
 
 def render_markdown(r: Dict[str, Any], public: bool) -> str:
-    out = [f"## cmux NEXT quality, {r['window_hours']} h to {r['generated_at']}", "", "| Metric | Value |", "| --- | --- |"]
+    out = [f"## cmux NEXT quality, {r['window_hours']} h to {r['generated_at']}", ""]
+    first = v2_home_line(r.get("v2_home") or {})
+    if first:
+        out += [first, ""]
+    out += ["| Metric | Value |", "| --- | --- |"]
     out += [f"| {k} | {v} |" for k, v in headline(r, public).items()]
     cr = r["crashes"]
     if cr.get("source") == "hang-watch" and cr.get("sentry_why"):
@@ -921,6 +1039,9 @@ def render_markdown(r: Dict[str, Any], public: bool) -> str:
     if failed:
         out += ["", "God-vs-small rows failed: " + ", ".join(
             f"`{row['name']}`" + (f" ({row['reason']})" if row.get("reason") else "") for row in failed)]
+    if g.get("errors"):
+        out += ["", "God-vs-small errors (lines the v2 gate home placed on no row): "
+                + "; ".join(g["errors"])]
     out += ci_markdown(r.get("ci_health") or {})
     out += journey_markdown(r.get("first_user_journey") or {}, public)
     return "\n".join(out) + "\n"
@@ -981,17 +1102,28 @@ def history_row(r: Dict[str, Any]) -> Dict[str, Any]:
             "ci_green": (r.get("ci_health") or {}).get("green_share"), "ci_flake": (r.get("ci_health") or {}).get("flake_rate"),
             "speed_p95": (r.get("nightly_speed") or {}).get("p95_min"),
             "journey_red": (r.get("first_user_journey") or {}).get("red_cells"),
-            "journey_cells": (r.get("first_user_journey") or {}).get("cells")}
+            "journey_cells": (r.get("first_user_journey") or {}).get("cells"),
+            # cmuxterm-hq NOW reads this for quality.v2_home_blind_h, the hours since a night's gate home wrote.
+            "v2_home": (r.get("v2_home") or {}).get("status")}
+
+
+def sticky_history(old_body: str) -> List[Dict[str, Any]]:
+    m = HISTORY_RE.search(old_body or "")
+    try:
+        history = json.loads(m.group(1)) if m else []
+    except (TypeError, ValueError):
+        history = []
+    return [h for h in history if isinstance(h, dict)] if isinstance(history, list) else []
+
+
+def sticky_done_today(old_body: str, today: str) -> bool:
+    return any(h.get("at") == today and h.get("v2_home") == "wrote" for h in sticky_history(old_body))
 
 
 def sticky_body(r: Dict[str, Any], md: str, old_body: str) -> str:
     """The sticky issue's body: the newest report, then one row per night (newest first), the rows also kept as JSON
     in a comment so the next night appends to them."""
-    m = HISTORY_RE.search(old_body or "")
-    try:
-        history = json.loads(m.group(1)) if m else []
-    except ValueError:
-        history = []
+    history = sticky_history(old_body)
     row = history_row(r)
     history = [h for h in history if isinstance(h, dict) and h.get("at") != row["at"]] + [row]
     history = history[-HISTORY_KEEP:]
@@ -1001,7 +1133,9 @@ def sticky_body(r: Dict[str, Any], md: str, old_body: str) -> str:
         crashes = "n/a" if h.get("crashes") is None else f"{h['crashes']} ({h.get('nightly') or 0}/{h.get('dev') or 0}, {h.get('crash_source')})"
         lines.append(f"| {h['at']} | {pct(h.get('crash_free'))} | {crashes} | {h.get('new_sigs') if h.get('new_sigs') is not None else 'n/a'} | "
                      f"{h.get('worst_p95_ms') if h.get('worst_p95_ms') is not None else 'n/a'} | {h.get('over_budget')} | "
-                     f"{h.get('god_ratio') if h.get('god_ratio') is not None else 'n/a'} | {pct(h.get('anim'))} | "
+                     f"{h.get('god_ratio') if h.get('god_ratio') is not None else 'n/a'}"
+                     f"{'' if h.get('v2_home') in (None, 'wrote') else ' (v2 home: ' + str(h['v2_home']) + ')'} | "
+                     f"{pct(h.get('anim'))} | "
                      f"{pct(h.get('ci_green'))} | {pct(h.get('ci_flake'))} | "
                      f"{h.get('speed_p95') if h.get('speed_p95') is not None else 'n/a'} | "
                      f"{'n/a' if h.get('journey_red') is None else str(h['journey_red']) + '/' + str(h.get('journey_cells'))} |")
@@ -1016,6 +1150,13 @@ def write_sticky(r: Dict[str, Any], md: str, repo: str, run: Callable = subproce
     if found.returncode != 0:
         raise SourceError(f"gh could not list {repo} issues: {(found.stderr or found.stdout).strip()[-200:]}")
     own = [i for i in json.loads(found.stdout or "[]") if i.get("title") == STICKY_TITLE and STICKY_MARK in (i.get("body") or "")]
+    if own:
+        old_body = own[0].get("body") or ""
+        row = history_row(r)
+        if any(h.get("at") == row["at"] and h.get("v2_home") == "wrote" for h in sticky_history(old_body)) \
+                and row.get("v2_home") != "wrote":
+            print(f"quality-report: kept the sticky's {row['at']} written v2 home row; this run did not write it")
+            return f"#{own[0]['number']}"
     body = sticky_body(r, md, own[0]["body"] if own else "")
     if own:
         cmd = ["gh", "issue", "edit", str(own[0]["number"]), "--repo", repo, "--body-file", "-"]
@@ -1025,6 +1166,15 @@ def write_sticky(r: Dict[str, Any], md: str, repo: str, run: Callable = subproce
     if done.returncode != 0:
         raise SourceError(f"gh could not write the sticky issue: {(done.stderr or done.stdout).strip()[-200:]}")
     return f"#{own[0]['number']}" if own else (done.stdout or "").strip()
+
+
+def sticky_done_from_repo(repo: str, today: str, run: Callable = subprocess.run) -> bool:
+    found = run(["gh", "issue", "list", "--repo", repo, "--state", "open", "--search", f'"{STICKY_TITLE}" in:title',
+                 "--json", "number,title,body", "--limit", "10"], capture_output=True, text=True, timeout=60)
+    if found.returncode != 0:
+        raise SourceError(f"gh could not list {repo} issues: {(found.stderr or found.stdout).strip()[-200:]}")
+    own = [i for i in json.loads(found.stdout or "[]") if i.get("title") == STICKY_TITLE and STICKY_MARK in (i.get("body") or "")]
+    return bool(own and sticky_done_today(own[0].get("body") or "", today))
 
 
 def fetch_journey(repo: str, workflow: str, artifact: str, dest: str, run: Callable = subprocess.run,
@@ -1050,6 +1200,11 @@ def main(argv: Optional[List[str]] = None) -> int:
     rep.add_argument("--hours", type=int, default=24)
     rep.add_argument("--perf-state", help="perf-cron state.json (perf-cron.py fetch-state)")
     rep.add_argument("--god-small", help="the god-vs-small gate's JSON")
+    rep.add_argument("--v2-home-exit", type=int, help="the v2 gate home's exit code (-1: it did not finish)")
+    rep.add_argument("--v2-home-stderr", help="the v2 gate home's stderr, for its error line")
+    rep.add_argument("--v2-home-output", help="the file the v2 gate home was asked to write")
+    rep.add_argument("--v2-home-seconds", type=float, help="seconds spent in the v2 gate home")
+    rep.add_argument("--v2-home-limit", type=float, help="the v2 gate home's timeout in seconds")
     rep.add_argument("--anim-coverage", help="the animation token coverage JSON")
     rep.add_argument("--ci-branches", default="", help="comma-separated base branches for the CI health section")
     rep.add_argument("--ci-commits", type=int, default=CI_COMMITS, help="commits read per branch")
@@ -1065,13 +1220,22 @@ def main(argv: Optional[List[str]] = None) -> int:
     st.add_argument("--report", required=True)
     st.add_argument("--md", required=True)
     st.add_argument("--repo", default=HQ_REPO)
+    done = sub.add_parser("done-today", help="say whether today's sticky row has a written v2 gate home")
+    done.add_argument("--repo", default=HQ_REPO)
     fj = sub.add_parser("fetch-journey", help="download a first-user journey surface's newest results artifact")
     fj.add_argument("--repo", required=True)
     fj.add_argument("--workflow", required=True)
     fj.add_argument("--artifact", required=True)
     fj.add_argument("--dir", required=True)
     fj.add_argument("--tries", type=int, default=5, help="finished runs looked at, newest first")
+    mg = sub.add_parser("merge-god-small", help="merge god-vs-small inputs, rows and errors, into one")
+    mg.add_argument("--out", required=True)
+    mg.add_argument("inputs", nargs="+")
     args = ap.parse_args(argv)
+    if args.cmd == "merge-god-small":
+        with open(args.out, "w", encoding="utf-8") as f:
+            json.dump(merge_god_small(args.inputs), f)
+        return 0
     if args.cmd == "fetch-journey":
         try:
             print(f"quality-report: {args.artifact} from run {fetch_journey(args.repo, args.workflow, args.artifact, args.dir, tries=args.tries)}")
@@ -1085,7 +1249,9 @@ def main(argv: Optional[List[str]] = None) -> int:
                          args.god_small, args.anim_coverage, ci_branches=branches, ci_commits=args.ci_commits,
                          ci_repo=args.ci_repo, ci_history=gh_ci_history if branches else None,
                          speed_history=gh_speed_history if args.speed else None,
-                         journey_paths=args.first_user_journey)
+                         journey_paths=args.first_user_journey,
+                         v2_home_state=v2_home(args.v2_home_exit, read_text(args.v2_home_stderr), args.v2_home_output,
+                                               args.v2_home_seconds, args.v2_home_limit))
         for path, doc in ((args.json, r), (args.public_json, public_report(r) if args.public_json else None)):
             if path:
                 with open(path, "w", encoding="utf-8") as f:
@@ -1096,6 +1262,14 @@ def main(argv: Optional[List[str]] = None) -> int:
                 with open(path, "w", encoding="utf-8") as f:
                     f.write(render_markdown(r, public))
         print(json.dumps(headline(r, public=True), indent=2))  # the job log is public
+        return 0
+    if args.cmd == "done-today":
+        try:
+            value = sticky_done_from_repo(args.repo, now_utc().date().isoformat())
+        except (OSError, SourceError, TypeError, ValueError) as e:
+            print(f"quality-report: today's sticky row could not be read: {e}", file=sys.stderr)
+            value = False
+        print("true" if value else "false")
         return 0
     with open(args.report, encoding="utf-8") as f:
         r = json.load(f)

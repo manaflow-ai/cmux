@@ -130,8 +130,9 @@ pub(super) struct CaughtUp {
 }
 
 /// Folds every committed record after the module's cursor, or until
-/// `deadline`, one page per turn, then saves the agent fold when it moved
-/// (merged.rs `save`).
+/// `deadline`, one page per turn, then saves the agent fold when a save is
+/// due (merged.rs `save`: each page until the first reach of the journal
+/// head, then by a stride of sequences).
 pub(super) fn catch_up(mux: &Mux, deadline: Option<Instant>) -> anyhow::Result<CaughtUp> {
     let mut changed = Vec::new();
     let complete = loop {
@@ -150,6 +151,7 @@ pub(super) fn catch_up(mux: &Mux, deadline: Option<Instant>) -> anyhow::Result<C
         };
         if scanned <= cursor {
             mux.history.save(mux);
+            mux.history.reached_head();
             break true;
         }
         for kind in mux.history.fold(cursor, scanned, &records) {

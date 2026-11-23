@@ -17,6 +17,11 @@ whose private-store writer, hashing and typed projection this reuses. On top of 
 - A Worker console line keeps its fields only when its `msg` is exactly one of PLATFORM_MSGS, the constant msg
   literals of cmux-platform's src/server; ids print as `h:` plus a sha256 prefix.
 - Service, id and needles come from the dispatch event file, never from step env (echoed in the public log).
+- The id `window` reads no one's lines: it counts the whole window's events by minute, kind, entrypoint, outcome,
+  method, route, status, script version (hashed) and allowlisted msg with its typed token fields, every id dropped.
+  An id-scoped read keeps nothing when the platform's own request events name no id (most do not): cmux-platform#1442,
+  2026-11-16, ten scoped reads kept 0 of 105-208 events while journeys failed with 503 owner.unreachable, 502
+  vm_unavailable and ECONNRESET, and only the window's outcomes could say which side failed.
 
   python3 -I cmux-platform-prod-logs.py --from 2026-11-11T13:20:00Z --minutes 30 --from-event "$GITHUB_EVENT_PATH" < token
   python3 -I cmux-platform-prod-logs.py --from ... --service cmux-platform-production --id vm_x --needles "spare" < token
@@ -39,7 +44,12 @@ _spec = importlib.util.spec_from_file_location(
 base = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(base)
 
-SERVICES = ("cmux-platform-production", "cmux-platform-staging")
+# cmux-vm's Workers (workers/cmux-vm, the VM API in front of the VM provider) live in the same account: the platform
+# binds cmux-vm-staging by script name. cmux-platform#1442: the platform logged `cloud provider call failed` in bursts
+# and only cmux-vm's own lines say which provider operation failed with which status. Its lines name no machine or
+# team, so a cmux-vm service reads only `window`.
+VM_SERVICES = ("cmux-vm-production", "cmux-vm-staging")
+SERVICES = ("cmux-platform-production", "cmux-platform-staging") + VM_SERVICES
 PAGES = base.PAGES
 MAX_ROWS = base.MAX_ROWS
 ID_INPUT = re.compile(r"^(vm|team)_[A-Za-z0-9_-]{1,64}$")
@@ -131,6 +141,7 @@ PLATFORM_MSGS = frozenset({
     "cloud.record.unknown",
     "cloud.room.failed",
     "cloud.spare.claimed",
+    "cloud.spare.gateway_read",
     "cloud.spare.ready_failed",
     "cloud.spare.ready_told",
     "cloud.spare.restarting",
@@ -217,6 +228,8 @@ PLATFORM_MSGS = frozenset({
     "mesh.device.intent_pending",
     "mesh.device.mesh_unknown",
     "mesh.device.unavailable",
+    # A team hub call that threw before answering 503 mesh.unavailable: its kind and error type (cmux-platform#1660).
+    "mesh.hub.unavailable",
     "mesh.node.detached",
     "native network target",
     "outbox dead letters replayed",
@@ -282,7 +295,11 @@ INT, TOKEN, ID = base.INT, base.TOKEN, base.ID
 PUBLIC_FIELDS = {"team": ID, "teamId": ID, "machine": ID, "machineId": ID, "vm": ID, "vmId": ID, "user": ID,
                  "outcome": TOKEN, "code": TOKEN, "type": TOKEN, "step": TOKEN, "op": TOKEN, "kind": TOKEN,
                  "site": TOKEN, "phase": TOKEN, "status": INT, "attempts": INT, "fails": INT, "ms": INT,
-                 "spares": INT, "wanted": INT, "live": INT, "total": INT}
+                 "spares": INT, "wanted": INT, "live": INT, "total": INT, "failure": TOKEN, "reason": TOKEN,
+                 "mode": TOKEN}
+# Booleans a kept line may keep, only as true or false (cloud.spare.gateway_read, cmux-platform#1629: what a spare
+# claim's gateway check read: the shared route, a gateway host here, and whether the team's creates lack a rule).
+PUBLIC_BOOLS = ("lacks", "shared", "host")
 
 
 def public_log(j):
@@ -298,8 +315,86 @@ def public_log(j):
             v = base.typed(kind, j[k])
             if v is not None:
                 out[k] = v
+    for k in PUBLIC_BOOLS:
+        if isinstance(j.get(k), bool):
+            out[k] = j[k]
+    # A gateway mode the claim could not read is null on the line; kept as "null", told apart from no field.
+    if msg == "cloud.spare.gateway_read" and "mode" in j and j["mode"] is None:
+        out["mode"] = "null"
     if "error" in j:
         out["error"] = True
+    return out, None
+
+
+# cmux-vm logs through Effect's default logger, one text line per call (workers/cmux-vm src/upstream/live.ts):
+#   timestamp=2026-11-16T13:55:01.000Z level=WARN fiber=#12 message="cmux-vm upstream call failed" operation=startVm status=503
+# VM_MSGS are its exact `Effect.logWarning("...")` literals in workers/cmux-vm/src. A kept line keeps only its msg,
+# level, operation (a code-defined camelCase name), status (an HTTP status, or `none`: no answer, a timeout or a
+# dropped connection) and code; every other key, a cause included, is dropped.
+VM_MSGS = frozenset({
+    "cmux-vm dependency unavailable",
+    "cmux-vm store query failed",
+    "cmux-vm upstream call failed",
+    "cmux-vm upstream response unreadable",
+})
+VM_LEVELS = frozenset({"DEBUG", "INFO", "WARN", "ERROR", "FATAL"})
+VM_OPERATION = re.compile(r"^[A-Za-z][A-Za-z0-9_.]{0,47}$")
+VM_STATUS = re.compile(r"^[1-5][0-9]{2}$")
+LOGFMT_PAIR = re.compile(r'(?:^|\s)([A-Za-z][A-Za-z0-9_]{0,31})=("(?:[^"\\]|\\.)*"|[^\s"=]*)')
+# Fixed route words of cmux-vm's paths (workers/cmux-vm/openapi.json) that base.ROUTE_SEGMENTS lacks, so
+# `/v1/vms/*/pause` counts as that route and not as `/v1/vms/*/*`. Any other segment still prints hashed.
+VM_ROUTE_SEGMENTS = frozenset({
+    "acl", "address", "agent-keys", "api-keys", "cancel", "client-sessions", "device-enrollments", "device-intents",
+    "enrollment-codes", "fork", "healthz", "https-proxies", "mesh-creations", "overlay-server-enrollments", "pause",
+    "peers", "public-egress", "receiver-policy", "resize", "resume", "revoke", "rotate-key", "snapshot-creations",
+    "snapshots", "stop", "terminal", "terminals", "tunnel", "tunnels", "vm-images",
+})
+
+
+def public_path(url):
+    """base.public_path, with VM_ROUTE_SEGMENTS printed as route words too."""
+    p = base.public_path(url)
+    if p is None:
+        return None
+    raw = re.match(r"^[a-z]+://[^/?#]+(/[^?#]*)", url) if isinstance(url, str) else None
+    raw_segs = (raw.group(1) if raw else url.split("?")[0].split("#")[0]).split("/")[1:][:12]
+    segs = p.split("/")[1:]
+    return "/" + "/".join(r if r in VM_ROUTE_SEGMENTS else s for s, r in zip(segs, raw_segs))
+
+
+def vm_text_line(e):
+    """The event's Effect text line (`... message=...`), if it has one."""
+    for cand in (base.dig(e, "$metadata", "message"), base.dig(e, "message"), base.dig(e, "source", "message"),
+                 base.dig(e, "source")):
+        if isinstance(cand, str) and " message=" in cand:
+            return cand
+    return None
+
+
+def vm_log(text):
+    """(fields, why) for a cmux-vm Effect text line: fields only for a VM_MSGS msg, else None and the drop reason."""
+    pairs = {}
+    for key, value in LOGFMT_PAIR.findall(text):
+        if key in pairs:
+            return None, "ambiguous"
+        pairs[key] = re.sub(r"\\(.)", r"\1", value[1:-1]) if value.startswith('"') else value
+    msg = pairs.get("message")
+    if msg not in VM_MSGS:
+        return None, "unlisted"
+    out = {"msg": msg}
+    if pairs.get("level") in VM_LEVELS:
+        out["level"] = pairs["level"].lower()
+    operation = pairs.get("operation")
+    if operation is not None and VM_OPERATION.match(operation) and not base.ID_LIKE.search(operation):
+        out["operation"] = operation
+    status = pairs.get("status")
+    if status == "none":
+        out["status"] = "none"
+    elif status is not None and VM_STATUS.match(status):
+        out["status"] = int(status)
+    code = base.typed(TOKEN, pairs.get("code"))
+    if code is not None:
+        out["code"] = code
     return out, None
 
 
@@ -321,15 +416,16 @@ def line(e, counts=None):
     if isinstance(req, dict):
         if req.get("method") in base.METHODS:
             rec["method"] = req["method"]
-        p = base.public_path(req.get("url"))
+        p = public_path(req.get("url"))
         if p:
             rec["path"] = p
     status = base.typed(INT, dig(ev, "response", "status"))
     if status is not None:
         rec["status"] = status
     j = base.console_line(e)
-    if j is not None:
-        log, why = public_log(j)
+    text = vm_text_line(e) if j is None else None
+    if j is not None or text is not None:
+        log, why = public_log(j) if j is not None else vm_log(text)
         if log is not None:
             rec["log"] = log
         else:
@@ -363,6 +459,10 @@ def belongs_to(event, ident):
         if isinstance(candidate, str):
             try:
                 candidate = json.loads(candidate, object_pairs_hook=unique_identity_fields)
+            except json.JSONDecodeError:
+                # Workers Logs puts a JSON line's msg text in $metadata.message and the parsed line in source: plain
+                # text names no identity, as console_line skips it. Before this every production id read kept 0.
+                continue
             except ValueError:
                 return False
         if isinstance(candidate, dict):
@@ -380,17 +480,58 @@ def publish(events, needles, ident):
     rows = [line(e, counts) for e in events]
     rows.sort(key=lambda r: r.pop("_ts", 0))
     rows = [r for r in rows if base.matches(r, needles)]
-    # events_scanned: the window's events before the id filter; events_in_window: the ones this id owns.
+    # events_scanned: the events the query returned for the id (its needle) before the exact id filter;
+    # events_in_window: the ones this id owns.
     head = {"needles": [base.tag(n) for n in needles], "events_scanned": scanned, "events_in_window": len(events),
             "kept_any": bool(rows),
             "rows_cut": len(rows) > MAX_ROWS, **counts}
     return head, rows[:MAX_ROWS]
 
 
-def query(token, service, frm, to, offset=None):
+WINDOW = "window"
+# The fields a window total groups by: no id, no time finer than a minute, no free text.
+TOTAL_KEYS = ("kind", "entry", "outcome", "method", "path", "status")
+
+
+def window_totals(events, needles):
+    """(header, rows) for the private store: counts of the window's events by minute and typed shape, ids dropped."""
+    if not needles:
+        raise ValueError("needles: at least one search term is required")
+    counts = {}
+    totals = {}
+    for e in events:
+        rec = line(e, counts)
+        when = rec.get("t", "?")
+        key = {"m": when[:5] if when != "?" else "?"}
+        for k in TOTAL_KEYS:
+            if k in rec:
+                key[k] = rec[k]
+        if "path" in key:
+            # A hashed segment (an id) groups as `*`: the route counts, never whose it was.
+            key["path"] = "/".join("*" if seg.startswith("h:") else seg for seg in key["path"].split("/"))
+        version = base.dig(e, "$workers", "scriptVersion", "id")
+        if isinstance(version, str) and version:
+            key["version"] = base.tag(version)
+        log = rec.get("log")
+        if log is not None:
+            key["log"] = {k: v for k, v in log.items() if PUBLIC_FIELDS.get(k) != ID}
+        k = json.dumps(key, sort_keys=True)
+        totals[k] = totals.get(k, 0) + 1
+    rows = [{**json.loads(k), "n": n} for k, n in sorted(totals.items())]
+    rows = [r for r in rows if base.matches(r, needles)]
+    head = {"needles": [base.tag(n) for n in needles], "events_scanned": len(events), "kept_any": bool(rows),
+            "rows_cut": len(rows) > MAX_ROWS, **counts}
+    return head, rows[:MAX_ROWS]
+
+
+def query(token, service, frm, to, offset=None, needle=None):
     body = {"queryId": f"cmux-platform-prod-logs-{int(time.time())}", "timeframe": {"from": frm, "to": to},
             "view": "events", "limit": 1000,
             "parameters": {"filters": [{"key": "$metadata.service", "operation": "eq", "type": "string", "value": service}]}}
+    if needle:
+        # The id itself, matched server-side: a service-only read of a busy hour fills PAGES pages with other
+        # ids' lines and never reaches this one's (hq#13055, hq#13057: 20000 scanned, 0 in window).
+        body["parameters"]["needle"] = {"value": needle, "isRegex": False, "matchCase": True}
     if offset:
         body["offset"] = offset
     req = urllib.request.Request(
@@ -427,9 +568,11 @@ def main():
     if service not in SERVICES:
         sys.exit("service: one of " + ", ".join(SERVICES))
     ident = given(args.ident, "id")
-    kind = id_kind(ident)
+    kind = WINDOW if ident == WINDOW else id_kind(ident)
+    if service in VM_SERVICES and kind != WINDOW:
+        sys.exit("id: cmux-vm's lines name no machine or team; read it with `window`")
     if kind is None:
-        sys.exit("id: an exact vm_ or team_ id is required")
+        sys.exit("id: an exact vm_ or team_ id, or `window`, is required")
     needles = [n.strip() for n in given(args.needles, "needles").split(",") if n.strip()]
     if not needles:
         sys.exit("needles: at least one search term is required")
@@ -445,7 +588,8 @@ def main():
     token = sys.stdin.readline().strip()
     events, offset, pages, complete = [], None, 0, False
     while pages < PAGES:
-        got = base.dig(query(token, service, frm, to, offset), "result", "events", "events") or []
+        got = base.dig(query(token, service, frm, to, offset, needle=None if kind == WINDOW else ident),
+                       "result", "events", "events") or []
         events += got
         pages += 1
         if len(got) < 1000:
@@ -455,9 +599,9 @@ def main():
         if not offset:
             complete = True
             break
-    head, rows = publish(events, needles, ident)
+    head, rows = window_totals(events, needles) if kind == WINDOW else publish(events, needles, ident)
     pointer = base.private_upload(private_token, {
-        "service": service, "id_kind": kind, "id": base.tag(ident), "window_utc": [args.frm, minutes],
+        "service": service, "id_kind": kind, "id": WINDOW if kind == WINDOW else base.tag(ident), "window_utc": [args.frm, minutes],
         "truncated": not complete, **head}, rows)
     print(json.dumps({"row_count": len(rows), "pointer": pointer}))
     return 0

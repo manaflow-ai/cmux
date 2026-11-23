@@ -91,12 +91,18 @@ export interface HeadingTarget {
   pos: number;
 }
 
+/** Each document's headings (`headingTargets`): every anchor link asks, and a walk per link made a file of many links quadratic. */
+const targetsByDoc = new WeakMap<ProseNode, readonly HeadingTarget[]>();
+
 /** Every heading of a document with its GitHub anchor, in order. */
-export function headingTargets(doc: ProseNode): HeadingTarget[] {
+export function headingTargets(doc: ProseNode): readonly HeadingTarget[] {
+  const cached = targetsByDoc.get(doc);
+  if (cached) return cached;
   const slugger = new Slugger();
   const out: HeadingTarget[] = [];
   doc.descendants((node, pos) => {
-    if (node.type.name !== "heading") return true;
+    // A paragraph holds no heading: its text is not walked.
+    if (node.type.name !== "heading") return !node.isTextblock;
     out.push({
       slug: slugger.slug(node.textContent),
       text: node.textContent,
@@ -105,6 +111,7 @@ export function headingTargets(doc: ProseNode): HeadingTarget[] {
     });
     return false;
   });
+  targetsByDoc.set(doc, out);
   return out;
 }
 
@@ -185,10 +192,10 @@ export class LinkResolver {
   }
 }
 
-/** Relative link paths in a document (link marks and images), for `LinkResolver.request`. */
-export function relativeLinkPaths(doc: ProseNode): Set<string> {
+/** Relative link paths in a document, or between two positions (link marks and images), for `LinkResolver.request`. */
+export function relativeLinkPaths(doc: ProseNode, from = 0, to = doc.content.size): Set<string> {
   const paths = new Set<string>();
-  doc.descendants((node) => {
+  doc.nodesBetween(from, to, (node) => {
     for (const mark of node.marks) {
       if (mark.type.name !== "link") continue;
       const link = parseLink(String(mark.attrs.href ?? ""));

@@ -294,11 +294,8 @@ async fn stopped(shape: acpmux::god_fixture::Shape, dishonest_credit: bool) -> S
         let frame = receive(&mut slow).await;
         let payload: serde_json::Value = frame.decode_json().unwrap();
         let sid = payload.get("sid").and_then(|s| s.as_str()).unwrap().to_owned();
-        if frame.kind == FrameKind::Error {
-            // A credit already in flight when a drop happened is correlated and harmless.
-            assert_eq!(payload.get("code"), Some(&json!("unknown_sid")));
-            continue;
-        }
+        // A credit in flight when the connection dropped its sid is answered with nothing.
+        assert_ne!(frame.kind, FrameKind::Error, "{payload}");
         if frame.kind == FrameKind::Dropped {
             assert_eq!(sid, "slow");
             result.drops += 1;

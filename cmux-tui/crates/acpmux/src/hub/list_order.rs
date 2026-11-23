@@ -123,8 +123,6 @@ impl Hub {
             .collect()
     }
 
-    /// How many times the order sorted every chat (its first read, a cursor the log could not
-    /// follow, a count that did not match): a gate's timed read must be none of those.
     /// Sorts the order if it is not sorted yet, else patches it: the daemon's start task does it
     /// first, before any log is read (`daemon.rs`), and the load pass again once every log is
     /// read (`log_load.rs`), where it patches what the logs moved.
@@ -147,15 +145,8 @@ impl Hub {
         *order = Order::default();
     }
 
-    /// Tells chat `id`'s row changed, as a change no record carries does: the order's next read
-    /// patches it.
-    #[cfg(test)]
-    pub(crate) fn tell_row_for_test(&self, id: &str) {
-        if let Some(session) = self.session_by_id(id) {
-            self.events.row_changed(&session);
-        }
-    }
-
+    /// How many times the order sorted every chat (its first read, a cursor the log could not
+    /// follow, a count that did not match): a gate's timed read must be none of those.
     #[cfg(test)]
     pub(crate) fn list_order_rebuilds_for_test(&self) -> u64 {
         self.list_order.0.lock().unwrap_or_else(|e| e.into_inner()).rebuilds

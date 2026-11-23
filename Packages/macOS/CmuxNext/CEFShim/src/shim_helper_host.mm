@@ -20,6 +20,20 @@ int cmux_shim_browser_set_embedder_active(int browser_id, int active) {
   return fork_api().browser_set_embedder_active(browser_id, active ? 1 : 0);
 }
 
+// Fork API 35 (draw on input); the caller checks the fork's API version first.
+int cmux_shim_browser_set_draw_on_input(int browser_id, int enabled) {
+  if (!fork_api().browser_set_draw_on_input) return 0;
+  return fork_api().browser_set_draw_on_input(browser_id, enabled ? 1 : 0) == 1 ? 1 : 0;
+}
+
+// Fork API 35: frames draw on input drew for a key on this page, -1 without the call. A bench reads it to
+// tell a live mode from an inert one: an engine below API 35 has no call at all, so a toggle that reads on
+// measures the same path as off (cmux#45709 shipped against a pin at API 33).
+int cmux_shim_draw_on_input_key_frames(int browser_id) {
+  if (!fork_api().draw_on_input_key_frames) return -1;
+  return fork_api().draw_on_input_key_frames(browser_id);
+}
+
 int cmux_shim_post_user_input_task(void (*fn)(void* context), void* context) {
   if (!fork_api().post_user_input_task) return 0;
   return fork_api().post_user_input_task(fn, context);

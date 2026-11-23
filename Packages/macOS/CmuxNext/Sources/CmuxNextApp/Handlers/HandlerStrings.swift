@@ -5,6 +5,6 @@ import Foundation
 /// too (CLI, logs) and live in `RefusalStrings` (Resources/Refusals.xcstrings).
 enum HandlerStrings {
     static var noOtherPanes: String {
-        String(localized: "handlers.refusal.noOtherPanes", defaultValue: "there are no other panes to close", table: "Handlers", bundle: .module)
+        String(localized: "handlers.refusal.noOtherPanes", defaultValue: "there are no other panes to close", table: "Handlers", bundle: .module.inAppLanguage)
     }
 }

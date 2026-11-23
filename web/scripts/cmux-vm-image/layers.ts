@@ -25,7 +25,7 @@ import { DEVBOX_WORK_HOME } from "../../services/vms/images/workUser";
 import { CURRENT_BIN, STORE_DIR } from "./lock";
 
 /** Lock programs that belong to the app layer; every other program belongs to the agents layer. */
-export const APP_PROGRAMS = ["cmux-tui", "cmux-tui-hook"] as const;
+export const APP_PROGRAMS = ["cmux-tui", "cmux-tui-hook", "optchat-chief"] as const;
 
 export type LayerName = "system" | "agents";
 
@@ -127,6 +127,16 @@ const sha = (...parts: string[]) => {
 export function layerKeys(lockText: string, flags: readonly string[], inputTree: string): Record<LayerName, string> {
   const system = sha("cmux-vm-system-v1", systemLockText(lockText), `flags ${[...flags].sort().join(" ")}`, inputTree);
   return { system, agents: sha("cmux-vm-agents-v1", system, agentProgramsText(lockText)) };
+}
+
+/**
+ * The image's `inputs_sha256`: a digest of every input but the app layer's (cmux-tui and its hook), which is the
+ * agents key. Both bakes record it (bake.ts bakeInputsSha256), so one lock, flags and input tree give one value
+ * whichever bake made the image; cmux-platform compares it to tell a roll that changed only cmux-tui (a spare
+ * stays claimable) from one that changed the OS, packages or agent programs (a spare is stale).
+ */
+export function imageInputsSha256(lockText: string, flags: readonly string[], inputTree: string): string {
+  return layerKeys(lockText, flags, inputTree).agents;
 }
 
 /** Longest snapshot label kept (the provider's display name contract). */
