@@ -148,6 +148,31 @@ pub enum CircuitService {
     CmuxTuiSession,
 }
 
+/// Which of a pair's two kept circuits a stream rides (RFD 0039 cut 5, H13): a cheap read never
+/// waits behind bulk bytes in one circuit's TCP. A plain port pipe (`remote.pipe`: ssh, scp,
+/// rsync, a forwarded port) is bulk; the acpmux and cmux-tui session services are cheap.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum CircuitLane {
+    Cheap,
+    Bulk,
+}
+
+impl CircuitLane {
+    pub fn of(service: CircuitService) -> Self {
+        match service {
+            CircuitService::CmuxTui { .. } => Self::Bulk,
+            CircuitService::Acpmux | CircuitService::CmuxTuiSession => Self::Cheap,
+        }
+    }
+
+    pub(crate) fn name(self) -> &'static str {
+        match self {
+            Self::Cheap => "kept",
+            Self::Bulk => "kept bulk",
+        }
+    }
+}
+
 /// The `target` a hello gives [`CircuitService::CmuxTuiSession`].
 pub const SESSION_TARGET: &str = "session";
 
@@ -273,6 +298,15 @@ pub trait Tickets: Send + Sync + 'static {
     async fn register(&self) -> Result<CarrierAnswer, String>;
     /// A Connect ticket for the slot of the machine whose hub `daemonId` is `peer`.
     async fn connect(&self, peer: &str) -> Result<CarrierAnswer, String>;
+    /// A Connect ticket asked now, never a kept one: after the relay refused one.
+    async fn connect_fresh(&self, peer: &str) -> Result<CarrierAnswer, String> {
+        self.connect(peer).await
+    }
+    /// Connect tickets for every machine the Register ticket lets in, pre-minted by the platform
+    /// (RFD 0039 cut 5); `None` from a platform that mints none.
+    async fn connects(&self) -> Result<Option<Vec<CarrierAnswer>>, String> {
+        Ok(None)
+    }
     /// What a log may say of where the tickets come from: the hub's origin, never a token.
     fn shown(&self) -> String {
         "the hub".into()
@@ -393,7 +427,12 @@ enum KeptOpen {
 
 /// One machine's hub carrier: its key, its ticket source and its peer routes.
 pub struct HubCarrier {
+    /// Connect asks go through [`Self::ticket_cache`]; Register asks pass straight through.
     tickets: Arc<dyn Tickets>,
+    /// One Connect ticket per far machine, kept and renewed off the dial path (cut 5).
+    ticket_cache: Arc<tickets::TicketCache>,
+    /// Whether the pre-mint loop ([`tickets::TicketCache::premint_until`]) runs.
+    preminting: std::sync::atomic::AtomicBool,
     /// The node key as a Noise static key; [`Self::rekey`] puts the next one in.
     identity: RwLock<StaticIdentity>,
     /// How many times [`Self::rekey`] ran; the serve loop registers again when it moves.
@@ -434,8 +473,11 @@ pub type HubStream = tokio::io::DuplexStream;
 impl HubCarrier {
     /// A carrier with `private_key` (the node key) as its Noise static key.
     pub fn new(tickets: Arc<dyn Tickets>, private_key: [u8; 32], timings: Timings) -> Arc<Self> {
+        let ticket_cache = tickets::TicketCache::new(tickets);
         Arc::new(Self {
-            tickets,
+            tickets: Arc::new(tickets::CachedTickets(ticket_cache.clone())),
+            ticket_cache,
+            preminting: std::sync::atomic::AtomicBool::new(false),
             identity: RwLock::new(StaticIdentity::from_private(private_key)),
             generation: AtomicU64::new(0),
             rekeyed: tokio::sync::Notify::new(),
@@ -462,8 +504,11 @@ impl HubCarrier {
         timings: Timings,
         check: KeyCheck,
     ) -> Arc<Self> {
+        let ticket_cache = tickets::TicketCache::new(tickets);
         Arc::new(Self {
-            tickets,
+            tickets: Arc::new(tickets::CachedTickets(ticket_cache.clone())),
+            ticket_cache,
+            preminting: std::sync::atomic::AtomicBool::new(false),
             identity: RwLock::new(StaticIdentity::from_private(private_key)),
             generation: AtomicU64::new(0),
             rekeyed: tokio::sync::Notify::new(),
@@ -509,6 +554,7 @@ impl HubCarrier {
         drop(identity);
         // The far machines pinned the old key: its kept circuits go with it.
         self.kept.clear();
+        self.ticket_cache.clear();
         self.generation.fetch_add(1, Ordering::SeqCst);
         self.rekeyed.notify_one();
         Ok(())
@@ -572,10 +618,21 @@ impl HubCarrier {
     /// it reached it (or fails with its refusal). A named service rides the machine's kept
     /// circuit as a new stream when the machine serves one (`hub_carrier_mux.rs`): one relay
     /// round trip once the circuit is open, else a plain circuit of its own.
+    /// It rides the kept circuit of the service's [`CircuitLane`].
     pub async fn dial_service(
         &self,
         daemon: &str,
         service: CircuitService,
+    ) -> Result<HubStream, String> {
+        self.dial_service_on(daemon, service, CircuitLane::of(service)).await
+    }
+
+    /// [`Self::dial_service`] on the kept circuit of `lane`, whatever the service's own lane.
+    pub async fn dial_service_on(
+        &self,
+        daemon: &str,
+        service: CircuitService,
+        lane: CircuitLane,
     ) -> Result<HubStream, String> {
         if !self.key_current() {
             return Err("the node key was replaced; this carrier is stopped".into());
@@ -585,7 +642,7 @@ impl HubCarrier {
             stages.log(daemon, "plain");
             return Ok(self.carry_plain(secure));
         };
-        match self.kept_open(daemon, hello.clone()).await {
+        match self.kept_open(daemon, lane, hello.clone()).await {
             KeptOpen::Stream(stream) => return Ok(stream),
             KeptOpen::Refused(refusal) => return Err(refusal.to_string()),
             KeptOpen::Failed(e) => return Err(e),
@@ -647,10 +704,10 @@ impl HubCarrier {
         ours
     }
 
-    /// A stream on the kept circuit to `daemon`, opening that circuit first if there is none.
-    /// A circuit that fails under the open is dropped and opened again, once.
-    async fn kept_open(&self, daemon: &str, hello: Bytes) -> KeptOpen {
-        let slot = self.kept.slot(daemon);
+    /// A stream on the `lane` kept circuit to `daemon`, opening that circuit first if there is
+    /// none. A circuit that fails under the open is dropped and opened again, once.
+    async fn kept_open(&self, daemon: &str, lane: CircuitLane, hello: Bytes) -> KeptOpen {
+        let slot = self.kept.slot(daemon, lane);
         let mut why = String::new();
         for _ in 0..2 {
             let mux = {
@@ -677,7 +734,7 @@ impl HubCarrier {
                             tokio::time::timeout(wait, said)
                         );
                         stages.answer = asked.elapsed();
-                        stages.log(daemon, "kept");
+                        stages.log(daemon, lane.name());
                         match said {
                             Ok(Ok(Ok(()))) => {
                                 self.stats.kept_circuits.fetch_add(1, Ordering::Relaxed);
@@ -751,21 +808,26 @@ impl HubCarrier {
         self.serves_kept.store(on, Ordering::SeqCst);
     }
 
-    /// Whether a kept circuit to `daemon` is open now, and how many streams ride it.
+    /// Whether a kept circuit to `daemon` is open now, and how many streams ride its kept
+    /// circuits (the cheap one and the bulk one).
     pub fn kept_streams(&self, daemon: &str) -> Option<usize> {
-        self.kept.live(daemon).map(|mux| mux.streams())
+        let live = self.kept.live(daemon);
+        (!live.is_empty()).then(|| live.iter().map(|mux| mux.streams()).sum())
+    }
+
+    /// How many kept circuits to `daemon` are open now (at most one per lane).
+    pub fn kept_circuits(&self, daemon: &str) -> usize {
+        self.kept.live(daemon).len()
     }
 
     /// Cut the kept circuit to `daemon` under its streams, as a relay drop would (tests, and a
     /// caller that knows the path changed).
     pub async fn cut_kept(&self, daemon: &str) -> bool {
-        match self.kept.live(daemon) {
-            Some(mux) => {
-                mux.close().await;
-                true
-            }
-            None => false,
+        let live = self.kept.live(daemon);
+        for mux in &live {
+            mux.close().await;
         }
+        !live.is_empty()
     }
 
     /// One relay circuit to `daemon` with the Noise handshake done, its key pinned to the
@@ -780,7 +842,7 @@ impl HubCarrier {
         // the hub has no carrier for it at all ([`ticket_refusal`]).
         let answer = self.tickets.connect(daemon).await.map_err(|e| {
             if e.contains("machine.not_found") {
-                ticket_refusal(e)
+                ticket_refusal(daemon, e)
             } else {
                 format!(
                     "{} no relay ticket: {e}",
@@ -806,7 +868,8 @@ impl HubCarrier {
             async move {
                 match first {
                     Some(ticket) => Ok(ticket.to_string()),
-                    None => tickets.connect(&peer).await.map(|a| a.ticket),
+                    // The relay refused the ticket in hand (or wants another): a fresh one.
+                    None => tickets.connect_fresh(&peer).await.map(|a| a.ticket),
                 }
             }
         });
@@ -958,6 +1021,13 @@ impl HubCarrier {
             }
         };
         set_allowed(&allowed, &answer.peers);
+        // Registered: from here the peers' Connect tickets are kept ready (cut 5), once per carrier.
+        if !self.preminting.swap(true, Ordering::SeqCst) {
+            tickets::scope().spawn_named(
+                "hub carrier ticket pre-mint",
+                self.ticket_cache.clone().premint_until(Arc::downgrade(&self.alive)),
+            );
+        }
         let first = Arc::new(Mutex::new(Some(Zeroizing::new(answer.ticket.clone()))));
         let credentials = {
             let tickets = self.tickets.clone();
@@ -1401,23 +1471,28 @@ pub(crate) fn carrier_not_serving(waited: Duration) -> String {
 }
 
 /// A refused connect ticket, as the dialer words it: the hub's `machine.not_found` is
-/// [`not_a_teammate_machine`]; any other refusal keeps its text.
-pub(crate) fn ticket_refusal(text: String) -> String {
-    if text.contains("machine.not_found") { not_a_teammate_machine() } else { text }
+/// [`not_a_teammate_machine`], named for the machine `daemon`; any other refusal keeps its text.
+pub(crate) fn ticket_refusal(daemon: &str, text: String) -> String {
+    if text.contains("machine.not_found") { not_a_teammate_machine(daemon) } else { text }
 }
 
 /// The hub's connect ticket answers `machine.not_found` for any key that is not one of the
 /// caller's person's live machines joined in the caller's own team (cmux-platform
 /// `server/mesh/MeshCarrier.ts`: rows of `caller.team` minted by `caller.user`). Whether the far
 /// carrier serves does not enter into it: a machine joined in another team of the same person
-/// registers and serves on its own slot and still answers this, so the words name the team.
-pub(crate) fn not_a_teammate_machine() -> String {
-    "the hub knows no live machine of yours with that key in this machine's team: it is not \
-     joined, its join was revoked or expired, or it is joined in another of your teams (the hub \
-     carrier only connects machines joined in the same team). Compare teamId in `acpmux machine \
-     join --status --json` on both machines; `acpmux machine doctor --here` names the team and \
-     how to move a join. (carrier.not_serving)"
-        .to_owned()
+/// registers and serves on its own slot and still answers this, so the words name the machine
+/// and the team. The fix is on that machine (join it, in this team), and the reason
+/// (`machine.not_joined`) is one the CLI ends on at once
+/// ([`cmux_remote::provider::TERMINAL_REFUSALS`]) instead of redialing into its timeout.
+pub(crate) fn not_a_teammate_machine(daemon: &str) -> String {
+    format!(
+        "{daemon} is not joined to your hub in this machine's team: it never joined, its join \
+         was revoked or expired, or it is joined in another of your teams (the hub carrier only \
+         connects machines joined in the same team). On that machine, join it (`cmux machine add \
+         --cloud-token-stdin` / sign in to the cmux app), then retry. Compare teamId in `acpmux \
+         machine join --status --json` on both machines; `acpmux machine doctor --here` names \
+         the team and how to move a join. (machine.not_joined)"
+    )
 }
 
 /// A relay's refusal of a dial, as the dialer words it: the relay's `slot-offline` (no daemon
@@ -1445,6 +1520,10 @@ impl Tickets for PlatformTickets {
 
     async fn connect(&self, peer: &str) -> Result<CarrierAnswer, String> {
         self.hub.carrier(Some(peer)).await
+    }
+
+    async fn connects(&self) -> Result<Option<Vec<CarrierAnswer>>, String> {
+        self.hub.carrier_connects().await
     }
 
     fn shown(&self) -> String {
@@ -1708,6 +1787,9 @@ pub fn stop_kept(hub: &crate::hub::Hub) -> bool {
 
 #[path = "hub_carrier_serve_reason.rs"]
 mod serve_reason;
+
+#[path = "hub_carrier_tickets.rs"]
+pub mod tickets;
 
 #[path = "hub_carrier_mux.rs"]
 mod mux;
