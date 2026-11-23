@@ -26,6 +26,9 @@
 //! `owner.acpmux_keyed_start` takes the person key as raw bytes beside the request (exactly
 //! `args.key_length` of them), so the key is never part of a JSON value here.
 //!
+//! [`auto_sessions`] is not a call of [`perform`]: it is Auto mode's store as the owner, a typed
+//! client (`cmux_auto_session::AutoCloud`) the acpmux daemon holds while a chat has Auto on.
+//!
 //! `owner.turn_checkpoint`, `owner.turn_rewind` and `owner.turns` are a Cloud chat's "back to
 //! before this turn": whole-machine turn checkpoints on cmux-platform (`turns.rs`).
 //!
@@ -47,6 +50,7 @@
 
 #![cfg(unix)]
 
+pub mod auto_sessions;
 pub mod background;
 mod chat;
 pub mod chief_machine;
