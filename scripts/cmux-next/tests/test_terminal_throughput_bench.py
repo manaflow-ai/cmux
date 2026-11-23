@@ -23,6 +23,20 @@ class Payload(unittest.TestCase):
             self.assertEqual(tput.write_payload(path, 3), 3 * tput.MB)
             self.assertEqual(os.path.getsize(path), 3 * tput.MB)
 
+    def test_the_sgr_block_changes_color_on_every_character(self):
+        a = tput.sgr_payload_block()
+        self.assertEqual(a, tput.sgr_payload_block())
+        text = a.decode()
+        visible = tput.re.sub(r"\x1b\[[0-9;]*m", "", text)
+        self.assertNotIn("\x1b", visible, "no escape byte is itself wrapped in a color change")
+        self.assertEqual(text.count("\x1b[38;5;"), len(visible.replace("\n", "")))
+
+    def test_the_sgr_file_is_exactly_the_asked_size(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "p")
+            self.assertEqual(tput.write_payload(path, 2, "sgr"), 2 * tput.MB)
+            self.assertEqual(os.path.getsize(path), 2 * tput.MB)
+
 
 class Rows(unittest.TestCase):
     def test_both_rates_and_their_ratio(self):
@@ -31,6 +45,11 @@ class Rows(unittest.TestCase):
         self.assertEqual(rows["terminal.throughput.ghostty_mb_s"]["unit"], "MB/s")
         self.assertEqual(rows["terminal.throughput.ratio"]["p95"], 0.5)
         self.assertTrue(all(r["budget"] is None for r in rows.values()), "reporting only")
+
+    def test_the_sgr_arm_has_its_own_row_names(self):
+        names = [r["name"] for r in tput.report_rows(150.0, 300.0, None, tput.ROW_PREFIX["sgr"])]
+        self.assertEqual(names, ["terminal.throughput_sgr.next_mb_s", "terminal.throughput_sgr.ghostty_mb_s",
+                                 "terminal.throughput_sgr.ratio"])
 
     def test_no_ratio_without_ghostty(self):
         self.assertEqual([r["name"] for r in tput.report_rows(150.0, None)], ["terminal.throughput.next_mb_s"])
