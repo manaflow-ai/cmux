@@ -25,6 +25,8 @@ const EXTRA_KEYS: &[&str] = &[
     "preview",
     "subagentsRunning",
     "subagentNames",
+    "recentSubagents",
+    "subagentsSeen",
     "commandsRunning",
     // What it waits on that wakes it by itself (`background_waits.rs`): the working shelf.
     "backgroundWaits",
