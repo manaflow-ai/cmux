@@ -137,13 +137,43 @@ final class EventInspectorEdgeUITests: XCTestCase {
         edgeShot(app, "burst-2-held")
         edgeNote(lines.joined(separator: "\n"), "burst-frames")
         XCTAssertLessThanOrEqual(worst, RowFrames.shiftBar, "the row being read moved \(worst) pt during the burst")
-        XCTAssertTrue(pill.label.contains("2,000") || pill.label.contains("2000"),
-                      "the pill counts the 2000 new records: '\(pill.label)'")
+        // The pill counts what its tap will show: the burst's records still kept. The journal
+        // keeps its newest 500 (EVT-13), so a 2000-record burst shows as the newest that fit,
+        // never more than came. Read once the count holds still (the burst has ended).
+        var count = Self.number(in: pill.label)
+        for _ in 0..<20 {
+            _ = XCTWaiter().wait(for: [XCTestExpectation(description: "the count settles")], timeout: 0.5)
+            let now = Self.number(in: pill.label)
+            if now == count { break }
+            count = now
+        }
+        let held = try XCTUnwrap(count, "the pill shows a count: '\(pill.label)'")
+        XCTAssertTrue(held > 0 && held <= 2000, "the pill counts at most the burst's 2000 records: '\(pill.label)'")
         pill.tap()
         let newest = seqRow(app, 2500)
         XCTAssertTrue(newest.waitForExistence(timeout: 10) && pill.waitForNonExistence(timeout: 10),
                       "the pill lands the burst and shows the newest record\n\(app.debugDescription)")
         edgeShot(app, "burst-3-newest")
+        // What landed is what the pill said: the journal's kept count (the header's "N events",
+        // the cap's one source) is the pill's number, every kept record being one of the burst's.
+        for _ in 0..<4 where header(app).isEmpty { app.swipeDown() }
+        let line = header(app)
+        let kept = try XCTUnwrap(Self.number(in: line), "the count header shows: '\(line)'\n\(app.debugDescription)")
+        XCTAssertEqual(held, kept, "the pill said \(held) new events; the list shows \(kept) ('\(line)')")
+        if held < 2000 { XCTAssertTrue(line.contains("dropped"), "the records the cap let go are counted: '\(line)'") }
+        edgeNote("pill \(held), header '\(line)'", "burst-landed")
+        edgeShot(app, "burst-4-header")
+    }
+
+    /// The first whole number in a label ("1,234 new events" -> 1234; grouping marks ignored).
+    static func number(in label: String) -> Int? {
+        var digits = ""
+        for character in label {
+            if character.isNumber { digits.append(character) }
+            else if !digits.isEmpty, [",", ".", "\u{202F}", "\u{00A0}", "'", " "].contains(character) { continue }
+            else if !digits.isEmpty { break }
+        }
+        return Int(digits)
     }
 
     /// EVT-7 at the top (the common path: the inspector opens there): a reader at the top when
