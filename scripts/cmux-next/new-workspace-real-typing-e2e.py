@@ -24,7 +24,8 @@ Three arms of Cmd-N (bench_arms.py), each reported with p50/p95/p99/max of the k
   quick  two quick presses (`--quick N`, default 5): Cmd-N, at once Cmd-N again, then the text into the second
          workspace's page, with no wait for the spare to refill
   cold   cold, no wait (`--cold-nowait N`, default 3): a relaunch, then Cmd-N and the text as soon as the app answers
-         with a window, with no launch-settle wait (the `--cold` runs keep their 2 s settle and are reported apart)
+         with a window, with no launch-settle wait (the `--cold` runs keep their launch settle, a ready spare page and
+         a still focus report, and are reported apart)
 
 The HEADLINE is the WORST arm (a missed run first, else the highest p95, then the highest max), printed as
 `HEADLINE new-workspace-typing/cmdn lost_keys = <arm> arm ...`; the warm arm alone never stands for the bench.
@@ -38,6 +39,7 @@ import argparse, json, os, re, socket, subprocess, sys, tempfile, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # bench_arms, also under `python3 -I`
 import bench_arms  # noqa: E402
+from state_wait import wait_stable, wait_until  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -183,7 +185,20 @@ def launch(settle=True):
         return
     # The first window shows its first workspace before the first Cmd-N.
     wait(lambda: (rpc("debug.focus") or {}).get("windows"), 20)
-    time.sleep(2)  # test harness: launch work settles (a cold run still has no spare page used yet)
+    # Launch work settled: the New Tab spare page is loaded (a cold run still has used none) and focus is still.
+    wait_until(lambda: [s for s in (rpc("debug.new_tab", {"action": "state"}) or {}).get("spares", []) if s.get("ready")],
+               "a loaded New Tab spare after launch", timeout=20, interval=0.1, raise_on_timeout=False)
+    settle_focus("the focus report after launch")
+
+
+def settle_focus(what):
+    """Until the focus report (key window, first responders) reads the same several times."""
+    wait_stable(lambda: rpc("debug.focus") or {}, what, timeout=10, interval=0.1, reads=4, raise_on_timeout=False)
+
+
+def terminal_has_keyboard():
+    return any("TerminalSurfaceView" in str((w.get("appkit") or {}).get("first_responder"))
+               for w in (rpc("debug.focus") or {}).get("windows") or [] if isinstance(w, dict))
 
 
 def lost_keys(row):
@@ -214,7 +229,9 @@ def focus_terminal_tab():
     """A terminal tab in the focused pane, so the next New Tab really opens a page (not measured)."""
     print("  setup newSurface:", rpc("action.run", {"action": "newSurface", "args": {}, "focus": True}), flush=True)
     made = wait(lambda: field_text() is None, 5)
-    time.sleep(1)  # test harness: the terminal takes the keyboard
+    # The terminal takes the keyboard: a window's first responder is the terminal view.
+    if not wait_until(terminal_has_keyboard, "the new terminal as first responder", timeout=10, interval=0.05, raise_on_timeout=False):
+        print("  setup: no terminal became first responder in 10 s", flush=True)
     return made is not None
 
 
@@ -229,7 +246,7 @@ def fresh_page_workspace():
     before = focused_tab()
     print("  setup Cmd-N:", rpc("debug.key", {"key": "n", "modifiers": ["command"]}), flush=True)
     made = wait(lambda: focused_tab() not in (None, before) and field_text() == "", 8)
-    time.sleep(1)  # test harness: the page settles
+    settle_focus("the new page's focus")
     return made is not None
 
 

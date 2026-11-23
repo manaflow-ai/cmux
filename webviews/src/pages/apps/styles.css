@@ -1148,7 +1148,7 @@ code {
 }
 
 /* "cmux · Developer Tools · Free": a middle dot between the meta line's parts. */
-.apps-listing-meta > * + *::before {
+.apps-listing-meta > :not(:first-child)::before {
   content: "·";
   margin-inline-end: 8px;
   color: var(--page-text-3);
