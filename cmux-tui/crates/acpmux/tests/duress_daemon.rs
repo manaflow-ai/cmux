@@ -742,7 +742,7 @@ impl Daemon {
             Some(high) => {
                 let mut c = Command::new("/usr/bin/systemd-run");
                 c.args(["--user", "--scope", "--quiet", "-p", &format!("MemoryHigh={high}"), "--"])
-                    .arg(daemon_env::bin());
+                    .arg(pinned_bin());
                 daemon_env::apply(&mut c, scratch, daemon_env::Agents::StandIn, &[]);
                 for key in ["XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS"] {
                     if let Ok(v) = std::env::var(key) {
@@ -751,7 +751,7 @@ impl Daemon {
                 }
                 c
             }
-            None => daemon_env::command(scratch, daemon_env::Agents::StandIn, &[]),
+            None => daemon_env::command_at(pinned_bin(), scratch, daemon_env::Agents::StandIn, &[]),
         };
         // The daemon logs to its stdout (`log_sink.rs`): both go to a file in the scratch folder,
         // off the home, so a full home (the disk leg) still leaves its log readable.
@@ -872,7 +872,8 @@ struct Ran {
 
 impl Cli {
     fn run(&self, args: &[&str]) -> Ran {
-        let mut cmd = daemon_env::command(&self.scratch, daemon_env::Agents::StandIn, &[]);
+        let mut cmd =
+            daemon_env::command_at(pinned_bin(), &self.scratch, daemon_env::Agents::StandIn, &[]);
         cmd.args(args)
             .env("ACPMUX_HOME", &self.home)
             .env("ACPMUX_SOCKET", &self.socket)
@@ -1907,6 +1908,25 @@ async fn leg(name: &str, k: &Knobs) -> LegOut {
     let _ = external.wait();
     drop(scratch_dir);
     LegOut { row, removal_errors }
+}
+
+/// The binary under test, copied once into a folder this run owns. On a shared runner another
+/// job's cargo build replaces `target/release/acpmux` mid-run, and the daemon swaps itself to
+/// the new build ("update: ... was replaced"): round 2's peercut and all legs measured a handover
+/// to some other build, not the build under test.
+static PINNED: std::sync::OnceLock<(daemon_env::Scratch, PathBuf)> = std::sync::OnceLock::new();
+
+fn pinned_bin() -> &'static Path {
+    &PINNED
+        .get_or_init(|| {
+            let dir = daemon_env::Scratch::new("duress-bin");
+            let copy = dir.path().join("acpmux");
+            std::fs::copy(daemon_env::bin(), &copy).expect("copy the acpmux binary");
+            std::fs::set_permissions(&copy, std::os::unix::fs::PermissionsExt::from_mode(0o755))
+                .unwrap();
+            (dir, copy)
+        })
+        .1
 }
 
 /// Whether `systemd-run --user --scope -p MemoryHigh=` works here, or why not.
