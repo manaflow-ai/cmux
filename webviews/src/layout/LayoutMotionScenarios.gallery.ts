@@ -86,12 +86,14 @@ const trace = (ctx: PlayContext, label: string, frames = 24) => {
   let frame = 0;
   const log = (when: string) => {
     const scroller = doc.querySelector<HTMLElement>(".acpmux-scroll");
-    const rows = [...doc.querySelectorAll<HTMLElement>("[data-row-id]")]
-      .filter((row) => /motion-(7|8)-/.test(row.dataset.rowId ?? ""))
-      .map((row) => {
-        const box = row.getBoundingClientRect();
-        return `${row.dataset.rowId}:${box.top.toFixed(1)}/${box.height.toFixed(1)}`;
-      });
+    const nodes = [...doc.querySelectorAll<HTMLElement>("[data-row-id]")];
+    // The snapshot fixtures' last two turns (`motion-7`, `motion-8`); a seeded mock chat names its
+    // rows otherwise (`user-354`), so there take the top of the mounted window and the end.
+    const picked = nodes.filter((row) => /motion-(7|8)-/.test(row.dataset.rowId ?? ""));
+    const rows = (picked.length > 0 ? picked : [...nodes.slice(0, 3), ...nodes.slice(-5)]).map((row) => {
+      const box = row.getBoundingClientRect();
+      return `${row.dataset.rowId}:${box.top.toFixed(1)}/${box.height.toFixed(1)}`;
+    });
     console.log(
       `motion-trace ${label} f${frame}${when} t${view.performance.now().toFixed(0)} w${scroller?.clientWidth} st${scroller?.scrollTop.toFixed(1)} sh${scroller?.scrollHeight} ${rows.join(" ")}`,
     );
@@ -348,6 +350,7 @@ export default agentPaneEntry({
             "  - Use the new one",
           ].join("\n"),
         });
+        (ctx.document.defaultView as unknown as { cmuxMotionTrace?: boolean }).cmuxMotionTrace = true;
         trace(ctx, "turn-end-ask", 40);
         await endingTurn(ctx, debug);
       },

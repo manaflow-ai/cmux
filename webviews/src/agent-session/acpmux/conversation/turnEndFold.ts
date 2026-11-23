@@ -407,6 +407,16 @@ export function playTurnEnd(
   // pulled". The judge reads boxes after transforms, so these moves need declaring; a box that moved
   // because the layout under it changed is not in here and is flagged. One map entry while it plays.
   const played: Element[] = [];
+  // Except a row above everything the swap changed that the fold carries *up* (`risen`). The fold
+  // plays whatever the layout hands it, so declaring every box it animates declared the jump too: a
+  // turn that appended a row at its end lifted every row above it, and the fold slid them there
+  // gracefully, so the judge saw a declared move and the gate read 0 (measured on the judged
+  // scenario, base: the rows above rose 208 px, every frame of it marked targeted by this
+  // declaration). Coming *down* is the fold's own doing -- its work folds away and "everything above
+  // it comes down to meet the folded line" -- and stays declared; rising means the end added height
+  // under rows that were already drawn, which is the thing the contract forbids ("No row above it
+  // moves"), whether or not the fold made it pretty. `strict` and the scope are unchanged.
+  const risen = new Set<Element>();
   fold.release = declareMove({
     event: "turn-end",
     scope: "targets",
@@ -461,7 +471,11 @@ export function playTurnEnd(
       lead > 0 ? (timing.fill === "forwards" || timing.fill === "both" ? "both" : "backwards") : timing.fill;
     const animation = node.animate(keyframes, { duration: ms, easing, ...timing, delay, ...(fill && { fill }) });
     fold.animations.add(animation);
-    if (!played.includes(node)) played.push(node);
+    // A row the fold carries up from above everything the swap changed is played, never declared.
+    if (risen.has(node)) {
+      const at = played.indexOf(node);
+      if (at >= 0) played.splice(at, 1);
+    } else if (!played.includes(node)) played.push(node);
     return animation;
   };
   /// A copy's ink going to 0 on the exit's clock, `offset` ms into it (a stagger's step). A copy whose
@@ -553,6 +567,14 @@ export function playTurnEnd(
     // Translate, clip and opacity never change a height, so these are the heights the loop read.
     const heights = boxes.length ? boxes.slice(0, nodes.length).map((box) => box.height) : nodes.map(heightOf);
     const copyHeights = boxes.length ? boxes.slice(nodes.length).map((box) => box.height) : copies.map(heightOf);
+    // The top of everything the swap changed: the highest row it took away (where it was drawn) or
+    // added (where it lands). What sits whole above this line is not the turn's; the fold may carry
+    // it down as the work folds away, and may not carry it up (`risen`).
+    let changedTop = Number.POSITIVE_INFINITY;
+    for (const row of gone) changedTop = Math.min(changedTop, row.top);
+    nodes.forEach((node, index) => {
+      if (!was.has(node.dataset.rowId!)) changedTop = Math.min(changedTop, tops[index]!);
+    });
     turnEndFoldPerf.passes += 1;
     turnEndFoldPerf.rowsRead += nodes.length + copies.length;
     turnEndFoldPerf.mostRowsRead = Math.max(turnEndFoldPerf.mostRowsRead, nodes.length + copies.length);
@@ -727,6 +749,11 @@ export function playTurnEnd(
       // clock, so keeping their start and end ordered keeps every frame ordered too.
       if (clip >= 0.5 || node.classList.contains(`acpmux-${WORKED}`))
         covers.push({ top: from, bottom: tops[index]! + height });
+      // Whole-box above everything the swap changed, and the fold is carrying it up: played, not
+      // declared (`risen`), so the judge reads it as the shift it is. A row that came down with the
+      // work folding away, or one inside the turn, is the fold's own motion and stays declared.
+      if (Number.isFinite(changedTop) && from + height <= changedTop + 0.5 && delta > 0.5) risen.add(node);
+      else risen.delete(node);
       if (Math.abs(delta) < 0.5 && clip < 0.5 && !moving.has(node)) return;
       restart(node, moving, { delta, fades: false, animations: [], clip }, () => [
         [{ translate: `0 ${delta}px` }, { translate: "0 0" }],
