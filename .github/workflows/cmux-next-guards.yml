@@ -1235,6 +1235,12 @@ jobs:
         if: ${{ success() && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-crash-class-fast-gate ')) }}
         run: python3 tests/test_crash_class_fast_gate.py
 
+      # RFD 0038 (customizations across updates): host ops the web calls change only with a web ABI bump.
+      - name: The web ABI fast gate fails on host ops changed without a bump
+        id: tt-web-abi-gate
+        if: ${{ success() && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-web-abi-gate ')) }}
+        run: python3 tests/test_web_abi_gate.py
+
       - name: The localization debt ratchet
         id: tt-localization-catalog
         if: ${{ success() && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-localization-catalog ')) }}
