@@ -274,6 +274,13 @@ fn instructions(tools: &Value) -> Option<String> {
     (!parts.is_empty()).then(|| parts.join(" "))
 }
 
+/// The instructions [`served`] gives with the env [`crate::tool_env`] reads: its tool allowlist
+/// decides them (the artifact tools add none), so they are known without the server.
+pub(crate) fn env_instructions() -> Option<String> {
+    let allow = crate::tool_env::var(crate::agent_tools::MCP_TOOLS_ENV);
+    instructions(&allowed(tools_with_artifacts(false), allow.as_deref()))
+}
+
 /// Runs the server on stdin and stdout.
 pub async fn run() -> Result<()> {
     // Read once: a sign-in or `artifacts.enabled` change reaches the next chat's server.
@@ -650,8 +657,9 @@ pub(crate) async fn ls_via(
     match listed {
         Ok(mut all) => {
             // The other machines' sessions a host with no peer to them lists through its send
-            // relay (`cli/send_relay.rs` lsArgv), as `acpmux ls` does.
-            let far = crate::cli::send_relay::relay_rows(true).await;
+            // relay (`cli/send_relay.rs` lsArgv), as `acpmux ls` does: by the far budget, else
+            // the last good listing's rows, marked stale (`cli/ls_far.rs`).
+            let far = crate::cli::ls_far::relay_rows().await;
             if !far.is_empty()
                 && let Some(rows) = all.get_mut("sessions").and_then(Value::as_array_mut)
             {

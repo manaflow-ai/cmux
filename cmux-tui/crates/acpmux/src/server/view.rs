@@ -126,10 +126,14 @@ pub(super) fn subscribe_local(hub: &Hub, conn: &Conn, s: &crate::hub::Session) {
     let mut subs = conn.subs.lock().unwrap_or_else(|e| e.into_inner());
     match subs.get_mut(&s.id) {
         None => {
+            // A lap catches this ACP subscription up from here too (`stream_cursor.rs`); a
+            // later prompt keeps the cursor where its stream stands.
+            conn.stream_cursors.start(&s.id, s.meta().last_seq);
             subs.insert(s.id.clone(), SubOpts::default());
             hub.attach_count(s, 1, true);
         }
         Some(opts) if opts.remote => {
+            conn.stream_cursors.start(&s.id, s.meta().last_seq);
             opts.remote = false;
             hub.attach_count(s, 1, !opts.hidden);
             conn.message_notices

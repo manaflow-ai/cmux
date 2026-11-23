@@ -31,7 +31,8 @@ extension PageWebView {
     /// An off-screen parking view's alpha (``PageOffscreenParking``) does not count either:
     /// a prewarmed page waits there to paint before it is adopted. Nor does any ancestor's alpha
     /// once the page lies wholly outside its window's content (``liesOutsideWindowContent``): its
-    /// child window shows nothing there, and a hidden page drew a held chat only when its paint hold gave up (an adopted spare, HQ#5914).
+    /// child window shows nothing there, and a hidden page drew a held chat only when its paint
+    /// hold gave up (an adopted spare, HQ#5914).
     /// A page out of sight (outside the window's content, or in an off-screen parking) is visible only
     /// while it has to draw there (``drawsAway``, `PageWebView+AwayDrawing`), then hidden like a chat
     /// behind another tab, so it can be frozen and released (CMUX-571).
@@ -121,6 +122,7 @@ extension PageWebView {
 
     /// Loads `url` (a document of this page) in whichever engine shows it.
     func loadDocument(_ url: URL) {
+        documentStarted()
         if let chromiumSession {
             chromiumSession.questionKeys?.invalidate()
             navigateChromium(chromiumSession) { $0.load(url) }
@@ -133,6 +135,9 @@ extension PageWebView {
 
     /// Reloads the document in whichever engine shows it.
     func reloadPage() {
+        // At once, before WebKit's provisional start or Chromium's bridge: health must not read the
+        // crash this reload answers, or the old document's silence, as a page to repair.
+        documentStarted()
         chromiumSession?.questionKeys?.invalidate()
         if let chromiumSession { navigateChromium(chromiumSession) { $0.reload() } } else { webView.reload() }
     }

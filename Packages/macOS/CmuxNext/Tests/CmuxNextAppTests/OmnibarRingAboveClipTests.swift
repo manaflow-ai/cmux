@@ -137,12 +137,15 @@ import Testing
         let stripHeight = PaneChromeMetrics.current.resolvedStripHeight(scale: window.backingScaleFactor)
         let strip = TabStripView(model: TabStripModel(tabs: (0..<2).map { TabItem(id: TabID("t\($0)"), title: "Tab \($0)") },
                                                       selectedID: TabID("t1")))
-        strip.frame = NSRect(x: 0, y: size.height - stripHeight, width: size.width, height: stripHeight)
+        // In the window's top row the main pane's card, and so its strip, starts under the window's lit rim
+        // (`WindowTitlebar.topRowStripCardTop`, the concentric default), as the app lays it out.
+        let cardTop = topRow ? WindowTitlebar.topRowStripCardTop(in: window) : 0
+        strip.frame = NSRect(x: 0, y: size.height - cardTop - stripHeight, width: size.width, height: stripHeight)
         root.addSubview(strip)
         let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com")))
         let chrome = BrowserChromeView(tab: tab)
         chrome.meetsTabStrip = true // the strip sits right above the toolbar, as the pane says
-        chrome.frame = NSRect(x: 0, y: 0, width: size.width, height: size.height - stripHeight)
+        chrome.frame = NSRect(x: 0, y: 0, width: size.width, height: size.height - cardTop - stripHeight)
         root.addSubview(chrome)
         root.layoutSubtreeIfNeeded()
         strip.layoutSubtreeIfNeeded()
