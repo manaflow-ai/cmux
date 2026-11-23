@@ -53,8 +53,8 @@ extension NotificationCenterService {
         if press.dragged || Self.beyondDragDistance(up, press.screenLocation) { return }
         // A click: the hold ends here, also for a tab the click closed (no tab left to read); it goes into the pressed pane, whose ring blinks out.
         viewHolds.remove(press.tab)
-        guard let target = press.target, target.isCurrent else { return } // a request that replaced the pressed one stays
-        if let pane = press.pane, press.content?.layoutModel.enterAttention(pane, click: true) == true {} else { interacted(.click, target: target) }
+        guard let target = press.target, target.isCurrent else { return } // a newer request stays; going in reads the shown tab, so only while it is the one pressed
+        if let pane = press.pane, press.content?.panes[pane]?.stripModel.selectedID?.rawValue == target.tab.id, press.content?.layoutModel.enterAttention(pane, click: true) == true {} else { interacted(.click, target: target) }
     }
 
     /// The person's next input after a move (a key-down; a press calls it too): every hold ends,

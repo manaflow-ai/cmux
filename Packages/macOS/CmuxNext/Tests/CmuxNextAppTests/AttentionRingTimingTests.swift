@@ -239,6 +239,32 @@ struct AttentionRingTimingTests {
         #expect(tab.attention?.requestID == String(repeating: "b", count: 32), "request B was cleared")
     }
 
+    /// A press on tab A, and while it is down a key selects tab B in the same pane: the mouse-up is a click on A. It
+    /// reads A only, never B, the tab the pane shows by then (going into the pane would read B).
+    @Test func aClickReleasedAfterAnotherTabWasSelectedReadsOnlyThePressedTab() async throws {
+        let fixture = try await Self.open(active: true, hiddenUnread: true)
+        defer { fixture.close() }
+        let content = try #require(fixture.controller.content)
+        let paneModel = try #require(fixture.a.screens.first?.panes.first)
+        let shown = try #require(paneModel.tabs.first)
+        let unread = try #require(paneModel.tabs.first { $0.hasUnread }, "a has no unread tab behind the shown one")
+        let pane = LayoutPaneID(paneModel.id)
+        let model = content.layoutModel
+        let strip = try #require(content.panes[pane], "a's pane has no controller")
+        content.contentView.layoutSubtreeIfNeeded()
+        let view = strip.view.stripView
+        try #require(view.window === fixture.window && !view.isHiddenOrHasHiddenAncestor && view.bounds.width > 0, "the pane shows no tab strip")
+        let point = view.convert(NSPoint(x: view.bounds.midX, y: view.bounds.midY), to: nil)
+        #expect(strip.stripModel.selectedID?.rawValue == shown.id)
+
+        let notifications = fixture.services.notifications
+        notifications.noteMouseDown(in: fixture.window, at: point, synthetic: true)
+        strip.stripModel.selectedID = StripTabID(unread.id) // a key selects B while the press on A is down
+        notifications.noteMouseUp(in: fixture.window, at: point)
+        #expect(!model.attentionReadByEntry.contains(pane), "releasing a press on A went into the pane, reading B")
+        #expect(unread.showsUnread, "releasing a press on tab A read tab B")
+    }
+
     /// Case 4: a tab behind the shown one is unread (its blue dot shows on the strip; its pane draws no ring, the shown
     /// tab is read). Clicking it shows it in the focused pane: the pane flashes the ring once and it blinks out, as going
     /// into a ringing pane does. Before, the tab was read on sight the moment it showed, so no ring was ever drawn to blink.
