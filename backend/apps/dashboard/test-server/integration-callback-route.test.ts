@@ -167,4 +167,40 @@ test("any other callback renders the page", () => {
   expect(integrationAppHandoffResponse(`${base}?state=${token({ ret: "cmux://workspace/ws_" + "0".repeat(32) })}&code=abc`)).toBeUndefined()
   expect(integrationAppHandoffResponse(`${base}?state=${token({ ret: "https://evil.example/integration/complete" })}&code=abc`)).toBeUndefined()
   expect(integrationAppHandoffResponse(`${base}?code=abc`)).toBeUndefined()
+  // Only `<an app scheme>://integration/complete` itself is an app handoff: nothing after it, no other scheme.
+  for (const ret of [
+    "cmux://integration/complete/x",
+    "cmux://integration/completeX",
+    "cmux://integration/complete?next=https://evil.example",
+    "CMUX://integration/complete",
+    "cmuxx://integration/complete",
+    "javascript://integration/complete",
+    `cmux-dev-${"a".repeat(41)}://integration/complete`,
+  ])
+    expect(integrationAppHandoffResponse(`${base}?state=${token({ ret })}&code=abc`)).toBeUndefined()
+})
+
+test("the link carries only what GitHub sends: an installation id that is not a number is dropped", () => {
+  const state = token({ ret: "cmux://integration/complete" })
+  const answer = integrationAppHandoffResponse(`https://console.cmux.dev/integrations/callback?state=${state}&code=abc&installation_id=42%0d%0aX-Injected:1&extra=1`)
+  expect(Object.fromEntries(new URL(answer!.headers.get("Location")!).searchParams)).toEqual({ state, code: "abc" })
+})
+
+test("the route itself answers the provider's redirect: the 302 for an app's connect, the page for any other (#46018)", async () => {
+  // The production 500 was the route's wiring, not the helper: this holds the GET handler on the route.
+  const { Route } = await import("../src/routes/integrations/callback")
+  const get = (Route.options.server as { handlers: { GET: (ctx: { request: Request; next: () => unknown }) => unknown } }).handlers.GET
+  const base = "https://console.cmux.dev/integrations/callback"
+  const page = new Response("page")
+  let rendered = 0
+  const next = () => {
+    rendered += 1
+    return page
+  }
+  const handoff = (await get({ request: new Request(`${base}?state=${token({ ret: "cmux-nightly://integration/complete" })}&code=abc`), next })) as Response
+  expect(handoff.status).toBe(302)
+  expect(handoff.headers.get("Location")!.startsWith("cmux-nightly://integration/complete?state=")).toBe(true)
+  expect(rendered).toBe(0)
+  expect(await get({ request: new Request(`${base}?state=${token({ team: "team_0123456789abcdef0123" })}&code=abc`), next })).toBe(page)
+  expect(rendered).toBe(1)
 })
