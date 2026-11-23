@@ -356,7 +356,14 @@ impl OpenedDesktop {
     pub fn open(cfg: &SessionCfg, cursor: bool) -> Res<Self> {
         let open_us = now_us();
         let (desktop, frames) = crate::desktop::open(cfg, cursor)?;
-        Ok(Self { desktop, frames, cursor, profile: cfg.profile.clone(), open_us, ready_us: now_us() })
+        Ok(Self {
+            desktop,
+            frames,
+            cursor,
+            profile: cfg.profile.clone(),
+            open_us,
+            ready_us: now_us(),
+        })
     }
 }
 
