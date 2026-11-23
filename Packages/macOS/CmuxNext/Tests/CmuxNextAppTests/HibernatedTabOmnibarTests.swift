@@ -50,7 +50,7 @@ import Testing
         defer { wake.rig.close() }
         _ = try await wake.show()
         let page = try #require(wake.made)
-        // Another host: the resting bar shows the host alone (OmnibarCutsTests).
+        // Another host, so the check tells the new page from the asleep one by its host too.
         let next = try #require(URL(string: "https://next.example.org/next"))
         let id = page.makeNavigationID()
         page.simulate(.started(id, url: next))

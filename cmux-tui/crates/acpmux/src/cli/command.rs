@@ -29,13 +29,18 @@ pub struct MoveSessionsArgs {
     /// Every open chat here that is between turns.
     #[arg(long, conflicts_with = "sessions")]
     pub all_idle: bool,
-    /// Stop a running turn instead of refusing the move.
+    /// Stop a running turn at once, even mid tool call. Without it a running turn moves with
+    /// the chat: the move waits for its tool call in flight to end, and the turn goes on there.
     #[arg(long, conflicts_with = "after_turn")]
     pub interrupt: bool,
     /// Let a running turn end on its own, then move: nothing is stopped or refused while it
     /// runs, and prompts sent meanwhile move with the chat.
     #[arg(long)]
     pub after_turn: bool,
+    /// With --after-turn: the longest the move waits for a running turn to end, in seconds;
+    /// past it the move gives up (non-zero), naming the chat and the step.
+    #[arg(long, value_name = "SECS", default_value_t = 600)]
+    pub timeout: u64,
     /// Move a chat whose checkout has uncommitted changes; they stay on this machine.
     #[arg(long)]
     pub leave_dirty: bool,
@@ -56,6 +61,12 @@ pub struct MoveSessionsArgs {
     /// chats. With it, `--machine local` brings them here.
     #[arg(long, value_name = "MACHINE")]
     pub from: Option<String>,
+    /// Start the chats on the machine from this machine's copy of them, for a machine that does
+    /// not answer: their transcript (the newest records kept here) and name, in a new chat
+    /// there. Name each as MACHINE/CHAT, or pass --from MACHINE. The chat on the dead machine is
+    /// left as it is.
+    #[arg(long, conflicts_with_all = ["all_idle", "interrupt", "after_turn", "carry_changes", "leave_dirty"])]
+    pub from_snapshot: bool,
 }
 
 #[derive(Parser)]
@@ -343,7 +354,7 @@ pub enum Command {
     /// Send a prompt and stream the reply until the turn ends.
     #[command(
         aliases = aliases::SEND,
-        after_help = "A name several live sessions share is refused with the exact command for each.\n\nFrom an agent session, message other sessions with the `send` tool of the `acpmux` MCP server instead of this command in a shell: one call batches several (`messages: [{to, text}, {to, file}]`) or a tag, with one result row each, and the chat draws it as message cards."
+        after_help = "A send that returns once handed off (--no-wait, an agent's send) prints one stable first line, `sent STATE id=ID to=TARGET`, where STATE is queued (in the outbox or behind the target's turn), held (in an idle receiver's inbox, read with its next turn), delivered or steered (into its running turn); the lines after it are for people. --json prints {\"ok\":true,\"state\":STATE,\"id\":ID,...}. Scripts and retry loops check the exit code, never the text.\n\nExit codes: 0 sent (every STATE above, or the reply of a send that waits), 1 any other failure, 2 usage, 3 timeout (the prompt may have been accepted: resend with --prompt-id), 4 no such session, 5 a permission refused (--on-permission fail), 7 the target refused the message at once and nothing was delivered.\n\nA name several live sessions share is refused with the exact command for each.\n\nFrom an agent session, message other sessions with the `send` tool of the `acpmux` MCP server instead of this command in a shell: one call batches several (`messages: [{to, text}, {to, file}]`) or a tag, with one result row each, and the chat draws it as message cards."
     )]
     Send {
         /// The session: a name, `HOST/NAME`, an id or an id prefix. A bare name or prefix names
@@ -628,6 +639,10 @@ pub enum Command {
     /// tidy (one group per name in a space; a dry run unless --apply).
     #[command(subcommand)]
     Group(crate::cli::group::GroupCmd),
+    /// Accounts the agents here run on: sign in (again or a new one, GitHub too), sign out,
+    /// switch the default, remove, list, and which providers are ready.
+    #[command(subcommand)]
+    Account(crate::cli::account::AccountCmd),
     /// Everything else about one session: info, cancel, stop, rename, fork, set, allow, deny, answer, export, import, tail, queue.
     #[command(subcommand, aliases = aliases::SESSION)]
     Session(SessionCmd),
@@ -765,6 +780,8 @@ pub enum Command {
     },
     #[command(hide = true)]
     RestartAgent { session: String },
+    #[command(hide = true)]
+    RouteDeath { facts: PathBuf },
     #[command(hide = true)]
     PauseAgent { session: String },
     #[command(hide = true)]
@@ -1242,6 +1259,16 @@ pub enum SessionCmd {
     /// It then runs the installed version and gets a new caller token (after
     /// a daemon restart left it the earlier daemon's).
     Restart { session: String },
+    /// Decide what happens next to a session that died while it owned work: restart it in
+    /// place, move it, start its host, start it again on a healthy host, start a successor,
+    /// wait, or hand its work off. Reads FACTS (a JSON file, `-` for stdin: its host, how it
+    /// died, what was tried, which hosts admit one more session) and prints one JSON step,
+    /// `{"step": "restart"|"move"|"successor"|...}`. Runs nothing; the caller runs the step
+    /// (`session restart`, `session move`) and asks again on its next pass.
+    Route {
+        #[arg(long, value_name = "FILE")]
+        facts: PathBuf,
+    },
     /// Rename a session.
     Rename {
         session: String,
@@ -1738,6 +1765,7 @@ pub fn flatten(c: Command) -> Command {
                 Command::Kill { session, purge, condition }
             }
             SessionCmd::Restart { session } => Command::RestartAgent { session },
+            SessionCmd::Route { facts } => Command::RouteDeath { facts },
             SessionCmd::Pause { session } => Command::PauseAgent { session },
             SessionCmd::Wake { session } => Command::WakeAgent { session },
             SessionCmd::Rename { session, new_name, handle } => {
