@@ -143,14 +143,14 @@ if [[ "$suite" == arena || "$suite" == latency ]]; then
   [[ ",$arms," == *,cu-fast,* ]] && specs+=("cu-fast=${cu_fast:-$(pin arena engines cu-fast)}")
   [[ ",$arms," == *,cu-rewrite,* ]] && specs+=("cu-rewrite=${cu_rewrite:-$(pin arena engines cu-rewrite)}")
   [[ ",$arms," == *,chief-desktop,* ]] && specs+=("chief-desktop=${chief_desktop:-$(pin arena engines chief-desktop)}")
-  (( ${#specs[@]} )) && bash "$here/arena/build-engines.sh" "$engines_out" "$lume_home/arena/cache" "${specs[@]}" 2>&1 | tee "$out/engines.log"
+  (( ${#specs[@]} )) && bash "$here/arena/build-engines.sh" "$engines_out" "$lume_home/arena/cache" ${specs[@]+"${specs[@]}"} 2>&1 | tee "$out/engines.log"
 fi
 
 note "STAGE lume"
 lume_sum=$(pin lume sha256)
 lume_tgz="$lume_home/bin/$lume_sum.tar.gz"
 if [[ ! -s "$lume_tgz" ]]; then
-  curl -fsSL --retry 3 -o "$lume_tgz.part" "$(pin lume url)" && mv "$lume_tgz.part" "$lume_tgz"
+  curl -fsSL --retry 3 --retry-all-errors -o "$lume_tgz.part" "$(pin lume url)" && mv "$lume_tgz.part" "$lume_tgz"
 fi
 if [[ "$(shasum -a 256 "$lume_tgz" 2>/dev/null | awk '{print $1}')" != "$lume_sum" ]]; then
   rm -f "$lume_tgz"
@@ -357,7 +357,7 @@ if [[ "$suite" == route || "$suite" == bench-v2 || "$suite" == arena ]]; then
   cc_version=$(pin "${cc_pin[@]}" version) cc_sum=$(pin "${cc_pin[@]}" sha256)
   cc_bin="$lume_home/bin/claude-$cc_sum"
   if [[ "$(shasum -a 256 "$cc_bin" 2>/dev/null | awk '{print $1}')" != "$cc_sum" ]]; then
-    curl -fsSL --retry 3 -o "$cc_bin.part" "$(pin "${cc_pin[@]}" url)" && mv "$cc_bin.part" "$cc_bin"
+    curl -fsSL --retry 3 --retry-all-errors -o "$cc_bin.part" "$(pin "${cc_pin[@]}" url)" && mv "$cc_bin.part" "$cc_bin"
   fi
   [[ "$(shasum -a 256 "$cc_bin" 2>/dev/null | awk '{print $1}')" == "$cc_sum" ]] || { rm -f "$cc_bin"; finish "could not fetch the pinned Claude Code"; exit 4; }
   guest 'sudo -n mkdir -p /opt/homebrew/bin && sudo -n chown "$(id -un)" /opt/homebrew/bin && cat >/opt/homebrew/bin/claude && chmod 755 /opt/homebrew/bin/claude' <"$cc_bin" ||
@@ -393,7 +393,7 @@ if [[ "$suite" == route || "$suite" == bench-v2 || "$suite" == arena ]]; then
     codex_sum=$(pin arena codex sha256)
     codex_tgz="$lume_home/bin/codex-$codex_sum.tar.gz"
     if [[ "$(shasum -a 256 "$codex_tgz" 2>/dev/null | awk '{print $1}')" != "$codex_sum" ]]; then
-      curl -fsSL --retry 3 -o "$codex_tgz.part" "$(pin arena codex url)" && mv "$codex_tgz.part" "$codex_tgz"
+      curl -fsSL --retry 3 --retry-all-errors -o "$codex_tgz.part" "$(pin arena codex url)" && mv "$codex_tgz.part" "$codex_tgz"
     fi
     [[ "$(shasum -a 256 "$codex_tgz" 2>/dev/null | awk '{print $1}')" == "$codex_sum" ]] || { rm -f "$codex_tgz"; finish "could not fetch the pinned Codex"; exit 4; }
     # codex finds its code-mode host next to itself, as npm lays them out.

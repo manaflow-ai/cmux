@@ -39,15 +39,25 @@ function testFiles(): string[] {
   );
 }
 
-test("every test file that deletes DOM globals settles React first", () => {
-  const files = testFiles();
-  expect(files.length).toBeGreaterThan(100);
-  const offenders = files.flatMap((name) => {
-    const finding = teardownFinding(readFileSync(resolve(webviews, name), "utf8"));
-    return finding ? [`${name}: ${finding}`] : [];
-  });
-  expect(offenders).toEqual([]);
+// One test per offending file, named by the file. Pull requests excuse a red that is red on the base by
+// its test name, so a single test listing every offender let a new offender (draftSettleHold.test.tsx,
+// #43591) hide behind an old one (failed-send-keeps-prompt.test.ts, #43462) for the whole base red.
+// With a test per file a new offender is a new red name (handbook: excuse-key-drops-identity).
+const files = testFiles();
+const offenders = files.flatMap((name) => {
+  const finding = teardownFinding(readFileSync(resolve(webviews, name), "utf8"));
+  return finding ? [{ name, finding }] : [];
 });
+
+test("every test file that deletes DOM globals settles React first", () => {
+  expect(files.length).toBeGreaterThan(100);
+});
+
+for (const { name, finding } of offenders) {
+  test(`settles React before teardown > ${name}`, () => {
+    expect(`${name}: ${finding}`).toBe(`${name}: settles React before teardown`);
+  });
+}
 
 test("the rule flags a hand-rolled teardown and passes the helper", () => {
   const install = 'const dom = new JSDOM("<!doctype html>");\n';

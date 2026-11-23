@@ -16,6 +16,6 @@ extension MotionGate {
     public func agentCursorGlideDuration(_ natural: TimeInterval, in window: NSWindow?) -> TimeInterval? {
         guard animatesMovement(in: window), natural > 0 else { return nil }
         let short = min(natural * MotionTunables.agentCursorGlideScale.value, MotionTunables.agentCursorGlideMax.value)
-        return short * speed.timeScale
+        return policy.scaled(short)
     }
 }

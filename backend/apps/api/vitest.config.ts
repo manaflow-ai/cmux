@@ -43,6 +43,13 @@ export default defineConfig({
     // over 3x headroom over the slowest case without its own timeout. It hides nothing: the slow-tests reporter lists
     // every case over 2 s, and a case over 2 s alone has a slow part to fix (fixed waits, serial setup, big fixtures).
     testTimeout: 20_000,
+    // A Durable Object's background work (the owner outbox's delivery retries, a signup Chief's provision) can still
+    // run when vitest closes a finished file's worker. Its next console line or module resolve then rejects with
+    // vitest's own EnvironmentTeardownError ("Closing rpc while \"resolve\" was pending"), which vitest counted as an
+    // unhandled error and failed a run whose every test passed (backend jobs 134087878865, 134224548433,
+    // 134263123253 on 2026-11-17: 220/220 files passed, exit 1). It is raised by the pool's teardown, after the
+    // file's last test, so it can never be a test's result; every other unhandled error still fails the run.
+    onUnhandledError: (error) => error.name !== "EnvironmentTeardownError",
     // An explicit list drops the reporter vitest adds on GitHub Actions (failure annotations), so it is named here.
     reporters: ["default", "./test/setup/slow-tests-reporter.ts", ...(process.env.GITHUB_ACTIONS === "true" ? ["github-actions"] : [])]
   },

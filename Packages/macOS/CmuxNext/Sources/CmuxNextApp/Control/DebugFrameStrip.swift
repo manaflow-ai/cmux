@@ -13,8 +13,8 @@ import CmuxNextWakeups
 /// `drag_new`, `mouse` with `mouse`: `debug.mouse`'s params, such as a click on a sidebar row, sent on its event path, or
 /// `agent_click` with `click`: `debug.agent_pane click`'s params, a real click on an element of a chat's page, found before
 /// the recording starts). `content: "rightmost"` judges the rightmost pane's content area instead of the focused pane's. `repeat` (default 1) sends the key that many times, `repeat_interval_ms` (default 40)
-/// apart, inside one recording (a fast selection burst retargets moves in flight). Frames are read off the main actor back to back for `duration_ms` (default 700) after
-/// the key, and some before it (`above`: ``FrameStripRecording``, ScreenCaptureKit without the Screen Recording grant; `capture` in the report). `sent_host_s` is the input's host time (CACurrentMediaTime). The report: ``NSWindow/frameStripReport(_:sentAt:sentTime:content:strip:panes:tolerance:jump:dir:)`` (`blank` counts a frame where any shown pane's content area goes blank, `blank_panes` per frame); motion knobs: ``MotionFrameProgress``.
+/// apart, inside one recording (a fast selection burst retargets moves in flight); a later key is due from the time the first key went in, before its own work (``FrameStripKeyRepeat``). Frames are read off the main actor back to back for `duration_ms` (default 700) after
+/// the key, and some before it (`above`: ``FrameStripRecording``, ScreenCaptureKit without the Screen Recording grant; `capture` in the report). `sent_host_s` is the input's host time (CACurrentMediaTime). The report's times count from the END of the key's or gesture's own work; `before_send_ms` is how long before that zero the key or gesture went in (none for `agent_click`, whose zero is its press). The report: ``NSWindow/frameStripReport(_:sentAt:sentTime:content:strip:panes:tolerance:jump:dir:)`` (`blank` counts a frame where any shown pane's content area goes blank, `blank_panes` per frame); motion knobs: ``MotionFrameProgress``.
 @MainActor
 enum DebugFrameStrip {
     static func run(_ params: [String: JSONValue], _ controller: WindowController, _ services: AppServices) async -> JSONValue {
@@ -48,7 +48,7 @@ enum DebugFrameStrip {
         let paneRects = { () -> [CGRect] in params["content"]?.stringValue == "none" || crop != nil ? [] : window.frameStripUnitRects(of: controller.content?.shownPanes.map { $0.view.contentHost as NSView } ?? []) }, panesBefore = paneRects() // Every shown pane's content area, at the key and at the report: a split, close or side panel can blank an unfocused one.
         let sent: JSONValue
         var firstSent: (ms: Double, time: CFTimeInterval)? // When the first key went in (a burst's later keys come after it).
-        let preSend = CACurrentMediaTime() // `sent_host_s`: before the key or gesture is dispatched, so its own work counts
+        let (preSend, beforeSend) = (CACurrentMediaTime(), ContinuousClock.now) // `sent_host_s`: before the key or gesture is dispatched, so its own work counts
         if params["gesture"]?.stringValue == "plus", let pane = controller.content?.focusedPane {
             pane.stripModel.send(.newTab(after: nil))
             sent = .string("plus")
@@ -71,11 +71,11 @@ enum DebugFrameStrip {
             firstSent = (BenchSpans.ms(.now - start), CACurrentMediaTime())
             let count = max(1, Int(params["repeat"]?.doubleValue ?? 1))
             if count > 1 {
-                let interval = max(1, Int(params["repeat_interval_ms"]?.doubleValue ?? 40))
+                let keys = FrameStripKeyRepeat(intervalMilliseconds: params["repeat_interval_ms"]?.doubleValue)
                 let gap = DemandTimer(owner: "debug.frame_strip.repeat")
-                for _ in 1..<count {
+                for index in 1..<count {
                     await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
-                        gap.schedule(after: .milliseconds(interval)) { @MainActor in done.resume() }
+                        gap.schedule(after: keys.delay(beforeKey: index, elapsed: ContinuousClock.now - beforeSend)) { @MainActor in done.resume() }
                     }
                     _ = DebugKey.send(keyParams, services: services)
                 }
@@ -91,7 +91,7 @@ enum DebugFrameStrip {
                                                          strip: crop != nil ? nil : pane?.view.stripView, panes: (panesBefore, paneRects()), tolerance: tolerance, jump: params["jump"]?.doubleValue, dir: dir),
               case .object(var fields)? = JSONValue(foundation: report)
         else { return .object(["error": .string("no frames"), "key": sent]) }
-        (fields["key"], fields["sent_host_s"]) = (sent, .number(agentClick == nil ? preSend : sentTime)) // sent_host_s: a trace's t0_s clock (split-scale-bench.py)
+        (fields["key"], fields["sent_host_s"], fields["before_send_ms"]) = (sent, .number(agentClick == nil ? preSend : sentTime), agentClick == nil ? .number(((sentAt - BenchSpans.ms(beforeSend - start)) * 10).rounded() / 10) : nil) // sent_host_s: a trace's t0_s clock (split-scale-bench.py); before_send_ms: the key's or gesture's own work, which ends at the report's zero
         if case let .object(extra)? = JSONValue(foundation: recorded) { fields.merge(extra) { own, _ in own } }
         fields["spans"] = .array(spans.map { .object(["name": .string($0.name), "ms": .number(($0.start - sentAt).rounded()), "duration_ms": .number($0.milliseconds)]) })
         return .object(fields)
@@ -100,7 +100,7 @@ enum DebugFrameStrip {
 
 extension WorkspaceContentController {
     /// The shown panes in the window, whose content areas a frame strip judges for blank frames.
-    var shownPanes: [PaneController] { layoutModel.screens.flatMap(\.layout.panes).compactMap { panes[$0] }.filter { $0.view.window != nil && !$0.view.isHiddenOrHasHiddenAncestor } }
+    var shownPanes: [PaneController] { layoutModel.screens.flatMap(\.panes).compactMap { panes[$0] }.filter { $0.view.window != nil && !$0.view.isHiddenOrHasHiddenAncestor } }
     /// The shown pane whose right edge is farthest right in the window (the right column's), for a frame strip of a
     /// right-side open that may leave the focus in the chat.
     var rightmostPane: PaneController? {

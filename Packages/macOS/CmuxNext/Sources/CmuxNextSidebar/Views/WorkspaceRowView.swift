@@ -31,6 +31,22 @@ final class WorkspaceRowView: SidebarRowView {
     /// when the same workspace's work finishes (`configureBadges`), never on a first configure or a
     /// row the pool hands to another workspace (cleared in `prepareForReuse`).
     var shownBadges: (workspace: WorkspaceID, states: [StatusIndicatorState])?
+    /// The state a waiting row's glow stands in for, and its halo (WorkspaceRowView+NeedsYouGlow).
+    var needsYouTone: StatusIndicatorState?, needsYouGlowLayer: CALayer?
+    /// The glow cleared the marks (`hideMarksForNeedsYouGlow`): the layout brings them back once it stops.
+    var marksHiddenForGlow = false
+    /// The window is on screen and not covered, as the list tracks it for the rows' indicators
+    /// (`SidebarListView.setWindowVisible`): the glow breathes only then.
+    var isNeedsYouWindowVisible = true {
+        didSet { if isNeedsYouWindowVisible != oldValue { updateNeedsYouGlowMotion() } }
+    }
+    /// `experiments.agentBadges` (WorkspaceRowView+AgentPill): the setting this row drew with, the pill it shows (nil:
+    /// none) and for which workspace (a pill cross-fades only when the same workspace's state changes). The views are
+    /// made the first time the experiment is on; off, the row has neither.
+    var agentBadges = AgentBadgesExperiment.off
+    var agentPill: SidebarAgentPill?
+    var shownAgentPill: (workspace: WorkspaceID, pill: SidebarAgentPill?)?
+    var agentPillView: SidebarAgentPillView?, agentBeamView: SidebarAgentBeamView?
     /// The agents acting in the workspace (`sidebar.presenceDots`, cx-gg84).
     let presenceDots = PresenceDotsView()
     /// An agent driving the screen or a browser in the workspace (`sidebar.driveIndicator`), shown with the dots off.
@@ -38,6 +54,8 @@ final class WorkspaceRowView: SidebarRowView {
     /// A muted workspace (`notifications.mutedWorkspaces`): a quiet bell-slash
     /// in the trailing cluster, in the tertiary text color; hidden otherwise.
     let mutedMark = DecorativeImageView()
+    /// A workspace on a Cloud machine (``WorkspaceRowContent/runsInCloud``): a small muted cloud in the trailing status cluster.
+    let cloudMark = DecorativeImageView()
     /// A runaway agent chat in the workspace (`SidebarWorkspace.usageWarnings`: no autocompact
     /// cap, a huge context, a storm of subagents): a small warning triangle in the trailing
     /// cluster, apart from the working spinner; its tooltip says each rule and the number.
@@ -89,6 +107,8 @@ final class WorkspaceRowView: SidebarRowView {
     var iconKind: WorkspaceIcon?
     /// The workspace color as a leading rail or a full fill (`WorkspaceRowView+Color`).
     var rowColor: (color: GroupColor, style: WorkspaceColorIndicatorStyle)?, colorRail = NSView()
+    /// How a `leftRail` row draws its color (`WorkspaceRowContent.railLook`).
+    var railLook = WorkspaceRailLook.standard
     /// Selected but not active (the active row paints the selection fill).
     var isSecondarySelected = false {
         didSet {
@@ -159,10 +179,13 @@ final class WorkspaceRowView: SidebarRowView {
         mutedMark.imageScaling = .scaleProportionallyDown
         mutedMark.isHidden = true
         mutedMark.setAccessibilityElement(false)
+        cloudMark.imageScaling = .scaleProportionallyDown
+        cloudMark.isHidden = true
+        cloudMark.setAccessibilityElement(false) // the row's label says Cloud
         usageWarningMark.imageScaling = .scaleProportionallyDown
         usageWarningMark.isHidden = true
         usageWarningMark.setAccessibilityElement(false)
-        [icon, title, subtitle, timeLabel, metaLabel, activity, agentMark, mutedMark, usageWarningMark, badge, rowBadge, presenceDots, driveIndicator, tabCount, prBadge, placeholderBar, statusBlock,
+        [icon, title, subtitle, timeLabel, metaLabel, activity, agentMark, mutedMark, cloudMark, usageWarningMark, badge, rowBadge, presenceDots, driveIndicator, tabCount, prBadge, placeholderBar, statusBlock,
          treeLine, pullRequests, keycap, rollUp].forEach(addSubview)
         setUpSessionTree()
         tabCount.isHidden = true
@@ -233,6 +256,14 @@ final class WorkspaceRowView: SidebarRowView {
         placeholderBar.layer?.removeAllAnimations()
         placeholderBar.alphaValue = 1
         shownBadges = nil
+        shownAgentPill = nil
+    }
+
+    /// A row made or parked while its window is covered starts from the window's own state, as a row's
+    /// indicators do; the list keeps it current after that (`SidebarListView.setWindowVisible`).
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if let window { isNeedsYouWindowVisible = window.occlusionState.contains(.visible) }
     }
 
     private struct Content: Hashable {
@@ -243,6 +274,9 @@ final class WorkspaceRowView: SidebarRowView {
         var agentMark: SidebarAgentMarkVariant, presenceDots: Bool, driveIndicator: SidebarDriveIndicatorVariant
         var rowBadge: SidebarRowBadgeStyle, stackLimit: Int
         var rowTitle: SidebarRowTitleMode, rowTitleSingleChat: Bool
+        var agentBadges: AgentBadgesExperiment
+        /// The badge or glow (`notifications.attention.mark`) and the glow's breath (WorkspaceRowView+NeedsYouGlow).
+        var needsYouMark = DesignSettings.shared.attention.mark, animatesLoops = Motion.indicators.animatesLoops
         var row: WorkspaceRowContent?
     }
 
@@ -254,6 +288,7 @@ final class WorkspaceRowView: SidebarRowView {
             fontSize: SidebarStyle.titleFont.pointSize, iconSize: SidebarStyle.leadingGlyphSide,
             agentMark: tunables.agentMark, presenceDots: tunables.presenceDots, driveIndicator: tunables.driveIndicator, rowBadge: badgeStyle ?? tunables.rowBadge, stackLimit: tunables.stackCap.limit,
             rowTitle: tunables.rowTitle, rowTitleSingleChat: tunables.rowTitleSingleChat,
+            agentBadges: tunables.agentBadges,
             row: row.content
         )
         guard needsConfigure(content) else { return }
@@ -272,6 +307,12 @@ final class WorkspaceRowView: SidebarRowView {
         // agent brand with it: a row without the user's icon or a favicon stays text only, and
         // its corner badge sits in the trailing slot (`layoutColumnMark`).
         let badgesLead = content.rowBadge != .trailing && !isShowingPlaceholder
+        // `experiments.agentBadges`: the row's one status pill stands in for its status mark (the badge, the status
+        // glyph, an agent mark in the status's place); nil (off, idle, failed) keeps the shipped mark.
+        let pill = content.agentBadges.showsPills && !isPlaceholderRow && !isShowingPlaceholder ? SidebarAgentPill.of(ws) : nil
+        // The leading slot is the row's own icon and its state only, never where it runs: a Cloud row's cloud is a
+        // small muted mark in the trailing status cluster (Leo 2026-11-22: "im not sure we want the cloud icon at the
+        // left. it makes it stick out in a slight eyesore-y way. compared to the local ones which have no icon").
         icon.configure(icon: shown.icon)
         iconKind = shown.icon
         configureColor(shown)
@@ -312,13 +353,13 @@ final class WorkspaceRowView: SidebarRowView {
         (isExpanded, timeText) = (shown.expanded, trailingText)
         timeLabel.setString(trailingText ?? "")
         metaLabel.setString(shown.meta ?? "")
-        activity.configure(badgesLead ? .idle : shown.activity, style: badgesLead ? nil : ws.activityStyle)
+        activity.configure(badgesLead || pill != nil ? .idle : shown.activity, style: badgesLead || pill != nil ? nil : ws.activityStyle)
         activityState = shown.activity
         agentMarkVariant = content.agentMark
         let markImage = Self.agentMarkImage(ws, variant: agentMarkVariant, placeholder: isShowingPlaceholder)
         agentMarkFallbackColor = isShowingPlaceholder ? nil : Self.agentMarkFallbackColor(ws, variant: agentMarkVariant)
         agentMark.image = markImage
-        agentMark.isHidden = markImage == nil
+        agentMark.isHidden = markImage == nil || (pill != nil && agentMarkVariant == .replacesStatus)
         badge.configure(badgesLead ? .none : ws.unread)
         // An agent driving the screen or a browser has its own mark, dots or not; the dots show the rest.
         presenceDots.configure(content.presenceDots && !isShowingPlaceholder ? ws.presence.filter { $0.drive == nil } : [])
@@ -326,14 +367,14 @@ final class WorkspaceRowView: SidebarRowView {
         mutedMark.image = ws.muted && !isShowingPlaceholder
             ? NSImage.icon(symbol: "bell.slash", size: .iconRowSize(forLabelPointSize: SidebarStyle.indicatorSize - Metrics.space1)) : nil
         mutedMark.isHidden = mutedMark.image == nil
-        // The bell-slash alone does not say what is muted: notifications, not the tabs' sound
-        // (the row's accessibility label says it too).
-        mutedMark.themedToolTip = mutedMark.isHidden ? nil : Strings.notificationsMuted
+        cloudMark.image = shown.runsInCloud && !isShowingPlaceholder ? NSImage.icon(.cloud, size: SidebarStyle.indicatorSize) : nil
+        cloudMark.isHidden = cloudMark.image == nil
+        // The bell-slash alone does not say what is muted: notifications, not the tabs' sound. The row's hover card
+        // and its accessibility label say it (a1315's cut 3: rows carry no tooltips).
         // acpmux's own lines name the rule and the number ("90 subagents started in the last hour, above 40").
         usageWarningMark.image = ws.usageWarnings.isEmpty || isShowingPlaceholder ? nil
             : NSImage.icon(symbol: "exclamationmark.triangle.fill", size: .iconRowSize(forLabelPointSize: SidebarStyle.indicatorSize - Metrics.space1))
         usageWarningMark.isHidden = usageWarningMark.image == nil
-        usageWarningMark.themedToolTip = usageWarningMark.isHidden ? nil : ws.usageWarnings.joined(separator: "\n")
         audio = isShowingPlaceholder ? nil : ws.audio
         if audio != nil { _ = audioSlot.control(in: self) }
         audioSlot.made.map(applyAudio)
@@ -348,7 +389,12 @@ final class WorkspaceRowView: SidebarRowView {
         statusHeight = statusBlock.isHidden ? 0 : SidebarLayoutMetrics.standard.statusHeight(shown)
         rowBadgeStyle = content.rowBadge
         configureBadges(ws, shown: shown, style: content.rowBadge, stackLimit: content.stackLimit)
-        themedToolTip = nil // the workspace hover card shows the cwd (and CPU and memory)
+        if pill != nil {
+            shownBadges = (ws.id, [])
+            rowBadge.configure([], look: .plain)
+        }
+        configureAgentBadges(ws.id, experiment: content.agentBadges, pill: pill)
+        themedToolTip = nil // the workspace hover card shows the cwd (and CPU and memory); a row has no tooltip
         // A placeholder says nothing; its section header says it connects.
         setAccessibilityElement(!isShowingPlaceholder)
         setAccessibilityRole(.row)
@@ -356,7 +402,8 @@ final class WorkspaceRowView: SidebarRowView {
         applyControlIdentifiers()
         setAccessibilityLabel(accessibilityText(ws, content: shown,
                                                 title: shown.subagentOf.map(Strings.subagentOf)
-                                                    ?? ws.spokenRowTitle(content.rowTitle, inheritsSingleChat: content.rowTitleSingleChat)))
+                                                    ?? ws.spokenRowTitle(content.rowTitle, inheritsSingleChat: content.rowTitleSingleChat))
+                                + (pill.map { ", " + $0.title } ?? ""))
         needsLayout = true
         needsDisplay = true
     }

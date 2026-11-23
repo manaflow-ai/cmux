@@ -9,7 +9,7 @@ import type { QuickFamily, QuickModel } from "./quickModelMenuModel";
 import { authText, type SessionAuth } from "./sessionAuth";
 import { translate } from "./i18n";
 import { settleReact } from "../../../test/support/domTeardown";
-import { modelMenuHeight, setModelMenuHeight } from "./modelMenuWidth";
+import { modelMenuHeight, modelMenuWidth, setModelMenuHeight, setModelMenuWidth } from "./modelMenuWidth";
 
 let QuickModelColumns: typeof import("./QuickModelColumns").QuickModelColumns;
 
@@ -26,6 +26,8 @@ function installDom(): HTMLElement {
   const requestAnimationFrame = (callback: FrameRequestCallback) =>
     setTimeout(() => callback(Date.now()), 0) as unknown as number;
   const cancelAnimationFrame = (handle: number) => clearTimeout(handle);
+  dom.window.requestAnimationFrame = requestAnimationFrame;
+  dom.window.cancelAnimationFrame = cancelAnimationFrame;
   for (const key of [
     "window",
     "document",
@@ -34,6 +36,7 @@ function installDom(): HTMLElement {
     "HTMLElement",
     "Element",
     "KeyboardEvent",
+    "MutationObserver",
     "getComputedStyle",
     "requestAnimationFrame",
     "cancelAnimationFrame",
@@ -48,6 +51,7 @@ function installDom(): HTMLElement {
     HTMLElement: dom.window.HTMLElement,
     Element: dom.window.Element,
     KeyboardEvent: dom.window.KeyboardEvent,
+    MutationObserver: dom.window.MutationObserver,
     getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
     requestAnimationFrame,
     cancelAnimationFrame,
@@ -74,6 +78,8 @@ afterEach(async () => {
   }
   saved.clear();
   fakeLayout = undefined;
+  setModelMenuWidth(undefined);
+  setModelMenuHeight(undefined);
 });
 
 async function settle() {
@@ -136,11 +142,13 @@ function Harness({
   list,
   startEffort,
   auth,
+  session = {},
 }: {
   calls: Calls;
   list: QuickFamily[];
   startEffort: string;
   auth?: SessionAuth;
+  session?: Session;
 }) {
   const [open, setOpen] = useState(false);
   const [effort, setEffort] = useState(startEffort);
@@ -169,7 +177,7 @@ function Harness({
       chip={{ "data-menu": "model", label: "Model", title: "Model" }}
       menu={{
         models: [],
-        current: "claude-Opus",
+        ...(session.current === null ? {} : { current: session.current ?? "claude-Opus" }),
         onModel() {},
         inlineEffort: true,
         ...(auth
@@ -200,7 +208,7 @@ function Harness({
         },
         // The session reports Fast later: the switch must show the pick before it does.
         fast: {
-          checked: false,
+          checked: session.fastOn === true,
           onChange(on) {
             calls.fast.push(on);
           },
@@ -238,13 +246,23 @@ function Harness({
   );
 }
 
-async function openMenu(list: QuickFamily[] = [claude, codex, gemini], startEffort = "medium", auth?: SessionAuth) {
+/// The chat the menu opens on: its running model (null: the session has named none yet) and its Fast.
+type Session = { current?: string | null; fastOn?: boolean };
+
+async function openMenu(
+  list: QuickFamily[] = [claude, codex, gemini],
+  startEffort = "medium",
+  auth?: SessionAuth,
+  session: Session = {},
+) {
   const container = installDom();
   QuickModelColumns ??= (await import("./QuickModelColumns")).QuickModelColumns;
   const calls: Calls = { picks: [], efforts: [], fast: [], added: [], open: false, logins: 0, refreshes: 0 };
   await act(async () => {
     root = createRoot(container);
-    root.render(<Harness calls={calls} list={list} startEffort={startEffort} {...(auth ? { auth } : {})} />);
+    root.render(
+      <Harness calls={calls} list={list} startEffort={startEffort} session={session} {...(auth ? { auth } : {})} />,
+    );
   });
   await act(async () => container.querySelector<HTMLButtonElement>("button[data-menu='model']")!.click());
   await settle();
@@ -276,14 +294,17 @@ const click = async (node: HTMLElement) => {
   await settle();
 };
 
-test("the Starred tab is always first; an empty one shows a blank avatar with no badge", async () => {
+// First-run cuts (2026-11-21): a corner with no account to show draws nothing, not an empty person
+// ring. The rail's fill still runs up through it.
+test("the Starred tab is always first; an empty one draws no avatar in the corner", async () => {
   await openMenu();
   expect(tabs()[0]!.getAttribute("aria-label")).toBe("Starred");
   await click(tabs()[0]!);
   expect(popup().querySelector(".acpmux-cols-note")?.textContent).toBe("No starred models");
   const corner = popup().querySelector(".acpmux-cols-corner")!;
-  expect(corner.querySelector("[data-blank]")).not.toBeNull();
-  expect(corner.querySelector(".acpmux-cols-avatar-badge")).toBeNull();
+  expect(corner).not.toBeNull();
+  expect(corner.querySelector(".acpmux-cols-profile")).toBeNull();
+  expect(corner.querySelector(".acpmux-cols-avatar")).toBeNull();
   expect(corner.querySelector("button")).toBeNull();
 });
 
@@ -324,6 +345,136 @@ test("the models column is one plain list, Legacy models last, and Reasoning hea
   expect(tune().querySelector("[role=radio]")?.closest(".acpmux-cols-tune-scroll")).not.toBeNull();
   expect(fastSwitch().closest(".acpmux-cols-tune-foot")).not.toBeNull();
   expect(fastSwitch().closest(".acpmux-cols-tune-scroll")).toBeNull();
+});
+
+for (const [fontSize, room] of [
+  [13, 900],
+  [20, 900],
+  [20, 300],
+  [13, 300],
+] as const) {
+  test(`a width drag stops at 270px within ${room}px of room at ${fontSize}px type`, async () => {
+    fakeLayout = (window) => {
+      const column = window.document.getElementById("root")!;
+      column.classList.add("acpmux-main");
+      column.getBoundingClientRect = () => ({ left: 0, right: room + 10, width: room + 10 }) as DOMRect;
+      Object.defineProperty(window, "innerWidth", { value: 1200 });
+    };
+    await openMenu();
+    const menu = popup();
+    menu.style.fontSize = `${fontSize}px`;
+    menu.style.setProperty("--acpmux-cols-min-width", "28.5em");
+    menu.getBoundingClientRect = () => ({ left: 5, right: 705, width: 700 }) as DOMRect;
+    menu.parentElement!.getBoundingClientRect = () => ({ left: 5 }) as DOMRect;
+    const grip = menu.querySelector<HTMLElement>(".acpmux-cols-resize")!;
+    const direction = grip.dataset.edge === "start" ? -1 : 1;
+    // The chip-aligned edge stays pinned; only the opposite edge moves.
+    if (direction === -1)
+      menu.getBoundingClientRect = () => ({ left: room - 695, right: room + 5, width: 700 }) as DOMRect;
+    await act(async () => {
+      grip.dispatchEvent(new dom!.window.MouseEvent("pointerdown", { bubbles: true, button: 0, clientX: 500 }));
+      grip.dispatchEvent(new dom!.window.MouseEvent("pointermove", { clientX: 500 - direction * 1000 }));
+      grip.dispatchEvent(new dom!.window.MouseEvent("pointerup", { clientX: 500 - direction * 1000 }));
+    });
+    const minimum = Math.min(room, 270);
+    expect(menu.style.width).toContain(`${minimum}px`);
+    expect(modelMenuWidth()).toBe(minimum);
+    expect(modelMenuHeight()).toBeUndefined();
+    expect(menu.style.minWidth).toContain(`${room}px`);
+    await click(document.querySelector<HTMLButtonElement>("button[data-menu='model']")!);
+    await click(document.querySelector<HTMLButtonElement>("button[data-menu='model']")!);
+    expect(popup().style.minWidth).toContain(`${room}px`);
+    await click(tab("Codex"));
+    expect(popup().style.minWidth).toContain(`${room}px`);
+  });
+}
+
+for (const fromEnd of [false, true]) {
+  for (const fromTop of [false, true]) {
+    test(`the corner resizes both axes and resets them (end ${fromEnd}, top ${fromTop})`, async () => {
+      fakeLayout = (window) => {
+        const root = window.document.getElementById("root")!;
+        if (fromEnd) {
+          root.style.display = "flex";
+          root.style.justifyContent = "flex-end";
+          root.getBoundingClientRect = () => ({ left: 0, right: 900, width: 900 }) as DOMRect;
+        }
+        const box = window.HTMLElement.prototype.getBoundingClientRect;
+        window.HTMLElement.prototype.getBoundingClientRect = function () {
+          if (this.matches("button[data-menu='model']")) {
+            const top = fromTop ? 500 : 20;
+            return { left: 200, right: 600, top, bottom: top + 20, width: 400, height: 20 } as DOMRect;
+          }
+          return box.call(this);
+        };
+      };
+      await openMenu();
+      const menu = popup();
+      const frame = menu.querySelector<HTMLElement>(".acpmux-cols-frame")!;
+      menu.getBoundingClientRect = () =>
+        ({
+          left: 200,
+          right: 600,
+          top: 100,
+          bottom: 400,
+          width: 400,
+          height: Number.parseFloat(frame.style.height) || 300,
+        }) as DOMRect;
+      frame.getBoundingClientRect = () => ({ height: 300 }) as DOMRect;
+      menu.parentElement!.getBoundingClientRect = () => ({ left: 200, top: 100 }) as DOMRect;
+      const grip = menu.querySelector<HTMLElement>(".acpmux-cols-resize-corner")!;
+      expect(grip).not.toBeNull();
+      expect(grip.dataset.edge).toBe(fromEnd ? "start" : "end");
+      expect(grip.dataset.side).toBe(fromTop ? "top" : "bottom");
+      const drag = async (delta: number, end: "pointerup" | "pointercancel") => {
+        await act(async () => {
+          grip.dispatchEvent(
+            new dom!.window.MouseEvent("pointerdown", { bubbles: true, button: 0, clientX: 500, clientY: 500 }),
+          );
+          grip.dispatchEvent(
+            new dom!.window.MouseEvent("pointermove", {
+              clientX: 500 + delta * (fromEnd ? -1 : 1),
+              clientY: 500 + delta * (fromTop ? -1 : 1),
+            }),
+          );
+          grip.dispatchEvent(new dom!.window.MouseEvent(end));
+        });
+      };
+      await drag(60, "pointerup");
+      expect(modelMenuWidth()).toBe(460);
+      expect(modelMenuHeight()).toBe(360);
+      expect(grip.hasAttribute("data-dragging")).toBe(false);
+      await drag(-1000, "pointercancel");
+      expect(modelMenuWidth()).toBe(270);
+      expect(modelMenuHeight()).toBe(160);
+      await act(async () =>
+        grip.dispatchEvent(new dom!.window.MouseEvent("pointermove", { clientX: 2000, clientY: 2000 })),
+      );
+      expect(modelMenuWidth()).toBe(270);
+      expect(modelMenuHeight()).toBe(160);
+      await act(async () => grip.dispatchEvent(new dom!.window.MouseEvent("dblclick", { bubbles: true })));
+      expect(modelMenuWidth()).toBeUndefined();
+      expect(modelMenuHeight()).toBeUndefined();
+    });
+  }
+}
+
+test("the height edge changes only height", async () => {
+  await openMenu();
+  const menu = popup();
+  const frame = menu.querySelector<HTMLElement>(".acpmux-cols-frame")!;
+  menu.getBoundingClientRect = () => ({ left: 5, right: 405, top: 5, bottom: 305, width: 400, height: 300 }) as DOMRect;
+  frame.getBoundingClientRect = () => ({ height: 300 }) as DOMRect;
+  menu.parentElement!.getBoundingClientRect = () => ({ left: 5, top: 5 }) as DOMRect;
+  const grip = menu.querySelector<HTMLElement>(".acpmux-cols-resize-y")!;
+  const direction = grip.dataset.edge === "top" ? -1 : 1;
+  await act(async () => {
+    grip.dispatchEvent(new dom!.window.MouseEvent("pointerdown", { bubbles: true, button: 0, clientY: 500 }));
+    grip.dispatchEvent(new dom!.window.MouseEvent("pointermove", { clientY: 500 + direction * 60 }));
+    grip.dispatchEvent(new dom!.window.MouseEvent("pointerup"));
+  });
+  expect(modelMenuHeight()).toBe(360);
+  expect(modelMenuWidth()).toBeUndefined();
 });
 
 test("a kept height sizes the menu, and a double-click on the edge away from the chip goes back", async () => {
@@ -466,17 +617,94 @@ test("arrows move the highlight without landing; Return lands it and closes", as
 
 const chip = () => document.querySelector<HTMLButtonElement>("button[data-menu='model']")!;
 
-test("a click on a model lands it at once and keeps the menu open", async () => {
+// https://github.com/manaflow-ai/cmux/issues/50998: "the model picker should not disappear until i click
+// outside of it... even as i adjust the model or the reasoning or the account... or fast". Every control
+// in the menu keeps it open; a press outside it or Escape closes it.
+test("a click on a model lands it and keeps the menu open", async () => {
   const calls = await openMenu();
   await click(tab("Codex"));
   await click(row("Sol"));
-  expect(row("Sol").getAttribute("aria-selected")).toBe("true");
   expect(calls.open).toBe(true);
   expect(calls.picks.map((pick) => pick.id)).toEqual(["codex-Sol"]);
-  // A close lands nothing more.
+  expect(row("Sol").getAttribute("aria-selected")).toBe("true");
+  // The chip closes it; the close lands nothing more.
   await click(chip());
   expect(calls.open).toBe(false);
   expect(calls.picks).toHaveLength(1);
+});
+
+test("a click on a level lands it and keeps the menu open", async () => {
+  const calls = await openMenu();
+  await click([...tune().querySelectorAll<HTMLElement>("[role=radio]")].find((node) => node.textContent === "High")!);
+  expect(calls.efforts).toEqual(["high"]);
+  expect(calls.open).toBe(true);
+  expect(levels().find((level) => level.checked)?.name).toBe("High");
+});
+
+test("a click on a level of another model lands both and keeps the menu open", async () => {
+  const calls = await openMenu();
+  await click(tab("Codex"));
+  // The arrows show Astra's levels without landing it; a click on one lands Astra at that level.
+  await press("ArrowDown");
+  expect(calls.picks).toHaveLength(0);
+  await click([...tune().querySelectorAll<HTMLElement>("[role=radio]")].find((node) => node.textContent === "High")!);
+  expect(calls.picks.map((pick) => [pick.id, pick.effort])).toEqual([["codex-Astra", "high"]]);
+  expect(calls.open).toBe(true);
+});
+
+test("the Fast switch flips in place and keeps the menu open", async () => {
+  const calls = await openMenu();
+  await click(fastSwitch());
+  expect(calls.fast).toEqual([true]);
+  expect(calls.open).toBe(true);
+});
+
+test("a model, a level, Fast, a star, the search and a rail tab in one opening all keep it open", async () => {
+  const calls = await openMenu();
+  await click(tab("Codex"));
+  await click(row("Sol"));
+  await click([...tune().querySelectorAll<HTMLElement>("[role=radio]")].find((node) => node.textContent === "High")!);
+  await click(fastSwitch());
+  await click(row("Sol").querySelector<HTMLElement>(".acpmux-cols-star")!);
+  await click(tab("Claude"));
+  await search("op");
+  await search("");
+  expect(calls.open).toBe(true);
+  expect(calls.picks.map((pick) => [pick.id, pick.effort, !!pick.fast])).toEqual([
+    ["codex-Sol", "low", false],
+    ["codex-Sol", "high", false],
+    ["codex-Sol", "high", true],
+  ]);
+  // Escape closes it.
+  await press("Escape");
+  expect(calls.open).toBe(false);
+});
+
+test("a level picked on one model carries to the next model clicked, and a click again on a pick keeps it", async () => {
+  const calls = await openMenu();
+  await click(tab("Codex"));
+  await click(row("Sol"));
+  const high = [...tune().querySelectorAll<HTMLElement>("[role=radio]")].find((node) => node.textContent === "High")!;
+  await click(high);
+  // Sol again: it keeps High, and nothing lands again.
+  await click(row("Sol"));
+  expect(calls.picks).toHaveLength(2);
+  expect(levels().find((level) => level.checked)?.name).toBe("High");
+  // Astra has High: it takes the level just picked, not the chat's Medium or its own default.
+  await click(row("Astra"));
+  expect(levels().find((level) => level.checked)?.name).toBe("High");
+  expect(calls.picks.at(-1)).toMatchObject({ id: "codex-Astra", effort: "high" });
+  expect(calls.open).toBe(true);
+});
+
+test("the running model clicked after another pick in the same opening lands it back", async () => {
+  const calls = await openMenu();
+  await click(tab("Codex"));
+  await click(row("Sol"));
+  await click(tab("Claude"));
+  await click(row("Opus"));
+  expect(calls.picks.map((pick) => pick.id)).toEqual(["codex-Sol", "claude-Opus"]);
+  expect(calls.open).toBe(true);
 });
 
 test("a picked model keeps the chat's level when it has it, else takes its recommended one", async () => {
@@ -496,16 +724,63 @@ test("a picked model keeps the chat's level when it has it, else takes its recom
   expect(calls.picks[1]).toMatchObject({ id: "codex-Astra", effort: "medium" });
 });
 
-test("a level picked on one model carries to the next model clicked", async () => {
-  const calls = await openMenu();
+// #48444: "i switch the reasoning and then it switches my model in the picker". Model, level and
+// Fast are independent: a level never lands a model the person did not pick, and a model pick keeps
+// the chat's level (or the nearest one it has) and its Fast.
+test("a chat whose session names no model yet sends a level to the session, never the first row's model", async () => {
+  const calls = await openMenu(undefined, "medium", undefined, { current: null });
+  expect(row("Opus").hasAttribute("data-hl")).toBe(false);
+  expect(levels().find((level) => level.checked)?.name).toBe("Medium");
+  await click([...tune().querySelectorAll<HTMLElement>("[role=radio]")].find((node) => node.textContent === "High")!);
+  expect(calls.efforts).toEqual(["high"]);
+  expect(calls.picks).toHaveLength(0);
+});
+
+test("a picked model without the chat's level takes the nearest one, not its own default", async () => {
+  const terra = model("codex", "Terra", { efforts: ["low", "medium"], defaultEffort: "low" });
+  const calls = await openMenu([claude, { ...codex, models: [...codex.models, terra] }, gemini], "high");
   await click(tab("Codex"));
+  await click(row("Terra"));
+  expect(calls.picks[0]).toMatchObject({ id: "codex-Terra", effort: "medium" });
+});
+
+test("a picked model keeps the chat's Fast where it runs Fast", async () => {
+  const calls = await openMenu(undefined, "medium", undefined, { fastOn: true });
+  await click(tab("Codex"));
+  // Sol runs Fast: its column shows the chat's Fast, and the pick lands it with Fast on.
+  expect(fastSwitch().getAttribute("aria-checked")).toBe("true");
   await click(row("Sol"));
-  const high = [...tune().querySelectorAll<HTMLElement>("[role=radio]")].find((node) => node.textContent === "High")!;
-  await click(high);
-  // Astra has High: it takes the level just picked, not the chat's Medium or its own default.
+  expect(calls.picks[0]).toMatchObject({ id: "codex-Sol", fast: true });
+  // Astra has no Fast: it lands without it.
   await click(row("Astra"));
-  expect(levels().find((level) => level.checked)?.name).toBe("High");
-  expect(calls.picks.at(-1)).toMatchObject({ id: "codex-Astra", effort: "high" });
+  expect(calls.picks[1]!.id).toBe("codex-Astra");
+  expect(calls.picks[1]!.fast).toBeFalsy();
+  // Neither pick touched the session's own Fast or level.
+  expect(calls.fast).toEqual([]);
+  expect(calls.efforts).toEqual([]);
+});
+
+// Review of #48444: Fast switched off on a model only shown landed that model and left Fast on.
+test("Fast off on a model only shown lands nothing, and its pick lands it with the chat's Fast off", async () => {
+  const sonnet = model("claude", "Sonnet", { efforts: ["low", "medium", "high"], canFast: true });
+  const calls = await openMenu(
+    [{ ...claude, models: [...claude.models, sonnet] }, codex, gemini],
+    "medium",
+    undefined,
+    { fastOn: true },
+  );
+  await press("ArrowDown");
+  await press("ArrowDown");
+  expect(row("Sonnet").hasAttribute("data-hl")).toBe(true);
+  expect(fastSwitch().getAttribute("aria-checked")).toBe("true");
+  await click(fastSwitch());
+  expect(fastSwitch().getAttribute("aria-checked")).toBe("false");
+  expect(calls.picks).toHaveLength(0);
+  expect(calls.fast).toEqual([]);
+  await click(row("Sonnet"));
+  expect(calls.picks).toHaveLength(1);
+  expect(calls.picks[0]!.fast).toBeFalsy();
+  expect(calls.fast).toEqual([false]);
 });
 
 test("a chat on Ultracode carries Extra High to a model that has it", async () => {
@@ -563,9 +838,10 @@ test("another model, then a level, then Fast each land at once, the level kept w
     ["codex-Sol", "high", false],
     ["codex-Sol", "high", true],
   ]);
-  // Return on the picked model only closes: it lands nothing again.
+  // Return on the picked model lands nothing again, and the menu stays open.
   await press("Enter");
   expect(calls.picks).toHaveLength(3);
+  expect(calls.open).toBe(true);
 });
 
 test("a tab without the running model shows its first model's catalog levels", async () => {
@@ -612,6 +888,25 @@ test("the chat's tab with no row for the running model still shows the session's
   expect(fastSwitch()).not.toBeNull();
 });
 
+// Leo 2026-11-20 (ask-e8a6bcbb62): "when i tried toggling on fast ... it turned it to terra for some
+// reason!!!! model picked got [messed] up". His Codex chat ran a model its tab did not list, so the
+// tab's first model (GPT-6.1 Terra) stood in for it and Fast landed that model.
+test("the chat's tab listing other models but not the running one toggles the session's Fast", async () => {
+  const calls = await openMenu([
+    { ...claude, models: [model("claude", "Sonnet", { canFast: true })], more: [] },
+    codex,
+  ]);
+  expect(row("Sonnet").hasAttribute("data-hl")).toBe(false);
+  expect(row("Sonnet").getAttribute("aria-selected")).not.toBe("true");
+  expect(levels().find((level) => level.checked)?.name).toBe("Medium");
+  await click(fastSwitch());
+  expect(calls.fast).toEqual([true]);
+  await click([...tune().querySelectorAll<HTMLElement>("[role=radio]")].find((node) => node.textContent === "High")!);
+  expect(calls.efforts).toEqual(["high"]);
+  await press("Enter");
+  expect(calls.picks).toHaveLength(0);
+});
+
 test("the account card lists only the other accounts, then Add account…", async () => {
   const calls = await openMenu();
   await click(popup().querySelector<HTMLElement>(".acpmux-cols-profile")!);
@@ -629,12 +924,28 @@ test("the account card lists only the other accounts, then Add account…", asyn
   expect(calls.added).toHaveLength(0);
 });
 
-test("a harness this Mac does not have shows a blank avatar", async () => {
+test("an account switch folds the card back to the avatar and keeps the menu open (#50998)", async () => {
+  const calls = await openMenu();
+  await click(popup().querySelector<HTMLElement>(".acpmux-cols-profile")!);
+  const card = popup().querySelector<HTMLElement>(".acpmux-cols-card")!;
+  const work = [...card.querySelectorAll<HTMLElement>("[role=button]")].find((node) =>
+    node.textContent?.includes("Work key"),
+  )!;
+  await click(work);
+  expect(calls.open).toBe(true);
+  expect(popup().querySelector(".acpmux-cols-card")).toBeNull();
+  expect(popup().querySelector(".acpmux-cols-profile")?.getAttribute("aria-expanded")).toBe("false");
+});
+
+test("a harness this Mac does not have draws no avatar in the corner", async () => {
   await openMenu();
   await click(tab("Gemini"));
   const corner = popup().querySelector(".acpmux-cols-corner")!;
-  expect(corner.querySelector("[data-blank]")).not.toBeNull();
-  expect(corner.querySelector(".acpmux-cols-avatar-badge")).toBeNull();
+  expect(corner.querySelector(".acpmux-cols-profile")).toBeNull();
+  expect(corner.querySelector(".acpmux-cols-avatar")).toBeNull();
+  // Back on the chat's harness, the account switcher is there (Leo 2026-10-29: it stays).
+  await click(tab("Claude"));
+  expect(popup().querySelector("button.acpmux-cols-profile")).not.toBeNull();
 });
 
 test("Escape clears a search before it closes the menu", async () => {
@@ -714,20 +1025,20 @@ async function search(text: string) {
   await settle();
 }
 const local = { host: null, login: { kind: "terminal" as const, command: "claude /login", host: null } };
-const SIGN_IN_AGAIN = translate("turn.signInAgain");
+const SIGN_IN_CLAUDE = translate("auth.fix.signInTo", { name: "Claude Code" });
 const CHECK_AGAIN = translate("harnesses.checkAgain");
 const cases: { name: string; auth: SessionAuth; words: string; actions: string[] }[] = [
   {
     name: "an expired local login",
     auth: { state: "expired", source: "authCheck", evidenceAt: 1, harness: "Claude Code", ...local },
-    words: translate("turn.authExpired"),
-    actions: [SIGN_IN_AGAIN, CHECK_AGAIN],
+    words: translate("auth.login.expired", { agent: "Claude Code" }),
+    actions: [SIGN_IN_CLAUDE, CHECK_AGAIN],
   },
   {
     name: "a turn that found it signed out",
     auth: { state: "signedOut", source: "turn", evidenceAt: 1, harness: "Claude Code", ...local },
-    words: translate("harness.signedOut", { agent: "Claude Code" }),
-    actions: [SIGN_IN_AGAIN, CHECK_AGAIN],
+    words: translate("auth.login.signedOut", { agent: "Claude Code" }),
+    actions: [SIGN_IN_CLAUDE, CHECK_AGAIN],
   },
   {
     // The strongest false-ready case: a route login is no local terminal login.
@@ -752,7 +1063,7 @@ const cases: { name: string; auth: SessionAuth; words: string; actions: string[]
       host: "studio-mac",
       login: { kind: "terminal", command: "claude /login", host: "studio-mac" },
     },
-    words: "studio-mac: claude /login",
+    words: "On studio-mac, run claude /login.",
     actions: [CHECK_AGAIN],
   },
   {
@@ -779,7 +1090,7 @@ for (const { name, auth, words, actions } of cases)
     await click(check);
     expect(calls.refreshes).toBe(1);
     expect(calls.open).toBe(true);
-    const signIn = [...authRow()!.querySelectorAll("button")].find((button) => button.textContent === SIGN_IN_AGAIN);
+    const signIn = [...authRow()!.querySelectorAll("button")].find((button) => button.textContent === SIGN_IN_CLAUDE);
     if (signIn) {
       await click(signIn);
       expect(calls.logins).toBe(1);
@@ -797,7 +1108,7 @@ test("an unknown verdict draws no readiness row, before or during a search", asy
 test("a harness this Mac does not have keeps its Install row beside the chat's readiness", async () => {
   await openMenu(undefined, undefined, cases[0]!.auth);
   await click(tab("Gemini"));
-  expect(authRow()?.textContent).toContain(translate("turn.authExpired"));
+  expect(authRow()?.textContent).toContain(translate("auth.login.expired", { agent: "Claude Code" }));
   expect(
     [...popup().querySelectorAll("[role=listbox] [role=button]")].some(
       (row) => row.textContent === translate("harnesses.install"),

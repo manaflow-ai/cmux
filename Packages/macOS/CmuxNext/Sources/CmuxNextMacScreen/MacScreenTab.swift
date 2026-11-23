@@ -1,3 +1,4 @@
+import CmuxNextDesign
 public import AppKit
 
 /// One Mac Screen page tab (`MacScreenPages`): the home page, or one paired
@@ -32,21 +33,22 @@ public final class MacScreenTab {
     func showHome(_ home: NSView) {
         clear()
         self.home = home
-        view.fill(with: home, focus: home)
+        view.fill(with: home, focus: { [weak home] in home })
     }
 
     /// Shows `pane` (a record whose Mac is read), ending what showed before.
     func install(_ pane: MacScreenPane) {
         clear()
         self.pane = pane
-        view.fill(with: pane.view, focus: pane.focusTarget)
+        // Asked each time: the pane's target changes with its state (a card's button, the strip's, the screen).
+        view.fill(with: pane.view, focus: { [weak pane] in pane?.focusTarget })
         if view.isShown { pane.resume() }
     }
 
     /// Nothing yet.
     func showLoading() {
         clear()
-        view.fill(with: nil, focus: nil)
+        view.fill(with: nil, focus: { nil })
     }
 
     func rename(_ name: String) { pane?.model.name = name }
@@ -70,7 +72,8 @@ public final class MacScreenTabView: NSView {
     public var onVisibilityChange: ((Bool) -> Void)?
     public private(set) var isShown = false
     private weak var content: NSView?
-    private weak var keyTarget: NSView?
+    /// The view that takes the keyboard, resolved when asked (nil: the tab view itself).
+    private var keyTarget: @MainActor () -> NSView? = { nil }
 
     public init() {
         super.init(frame: .zero)
@@ -80,11 +83,11 @@ public final class MacScreenTabView: NSView {
     public required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     /// The view that takes the keyboard when the tab is focused.
-    public var focusTarget: NSView { keyTarget ?? self }
+    public var focusTarget: NSView { keyTarget() ?? self }
 
     public override var acceptsFirstResponder: Bool { true }
 
-    func fill(with view: NSView?, focus: NSView?) {
+    func fill(with view: NSView?, focus: @escaping @MainActor () -> NSView?) {
         let hadKeyboard = window.map { window in
             (window.firstResponder as? NSView).map { $0 === self || $0.isDescendant(of: self) } ?? false
         } ?? false
@@ -97,7 +100,7 @@ public final class MacScreenTabView: NSView {
             addSubview(view)
         }
         // The tab had the keyboard (a focused tab whose screen just came in): its input surface takes it.
-        if hadKeyboard { window?.makeFirstResponder(focusTarget) }
+        if hadKeyboard { FocusRoute(.system, "a Mac screen tab refilled").moveKeyboard(in: window, to: focusTarget) }
     }
 
     public override func viewDidMoveToWindow() {

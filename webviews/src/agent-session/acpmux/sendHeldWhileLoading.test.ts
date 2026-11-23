@@ -88,6 +88,69 @@ test("a prompt the pane could not hand acpmux while it loads is sent again under
   }
 });
 
+test("a prompt sent while the agent's machine reboots waits past every deadline and goes once it is back", async () => {
+  // Leo, 2026-11-12, after a reboot of the machine hosting the agent: "try what? no, it should just
+  // automatically do stuff". The pane holds the prompt for as long as acpmux is away, longer than the
+  // no-answer deadline that used to fail it, and sends it once, under its id, when acpmux answers.
+  const { AcpmuxDirectClient, deliveryTiming } = await import("./direct");
+  const { MockAcpmuxSocket, mockHost } = await import("./mock");
+  type Hooks = { answer: (method: string, params: any) => Promise<unknown> };
+  const timing = { ...deliveryTiming };
+  // The no-answer deadlines, shortened: the outage below runs several times past them.
+  Object.assign(deliveryTiming, { failMs: 150, localFailMs: 150, slowMs: 50 });
+  const away = 1_200;
+  const start = Date.now();
+  const prompts: string[] = [];
+  let ran = 0;
+  class RebootingHost extends MockAcpmuxSocket {
+    constructor() {
+      super(() => Promise.resolve());
+      const hooks = this as unknown as Hooks;
+      const answer = hooks.answer.bind(this);
+      hooks.answer = (method, params) => {
+        if (method !== "session/prompt") return answer(method, params);
+        prompts.push(String(params?._meta?.acpmux?.promptId));
+        if (Date.now() - start < away)
+          return Promise.reject(
+            Object.assign(new Error("The agent connection is not open."), { code: "native.not_connected" }),
+          );
+        ran += 1;
+        return answer(method, params);
+      };
+    }
+  }
+  let rows: Row[] = [];
+  let everFailed = false;
+  const client = await AcpmuxDirectClient.connect(
+    mockHost,
+    (snapshot) => {
+      rows = snapshot.rows as Row[];
+      const row = rows.find((candidate) => candidate.kind === "user" && candidate.text === "after reboot");
+      if (row?.failed || row?.delivery?.state === "failed") everFailed = true;
+    },
+    undefined,
+    () => new RebootingHost() as unknown as WebSocket,
+  );
+  try {
+    const outcome = await client.send("after reboot", [], "reboot-prompt").then(
+      () => "sent",
+      (error: unknown) => error,
+    );
+    expect(outcome).toBe("sent");
+    expect(Date.now() - start).toBeGreaterThanOrEqual(away);
+    // Asked again every so often, never a tight loop, and run exactly once.
+    expect(prompts.length).toBeGreaterThan(2);
+    expect(new Set(prompts)).toEqual(new Set(["reboot-prompt"]));
+    expect(ran).toBe(1);
+    expect(everFailed).toBe(false);
+    const row = rows.find((candidate) => candidate.kind === "user" && candidate.text === "after reboot");
+    expect(row?.failed).not.toBe(true);
+  } finally {
+    Object.assign(deliveryTiming, timing);
+    client.close?.();
+  }
+});
+
 test("a prompt that waits out the host's deadline stays as a failed row with Retry, never gone", async () => {
   const { AcpmuxDirectClient, deliveryTiming } = await import("./direct");
   const { MockAcpmuxSocket, mockHost } = await import("./mock");

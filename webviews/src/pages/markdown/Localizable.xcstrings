@@ -3426,6 +3426,138 @@
         }
       }
     },
+    "diagram.unavailable": {
+      "comment": "Reason after 'The diagram could not be rendered.' when the diagram renderer failed to load",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The diagram renderer did not load."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم يتم تحميل أداة عرض المخططات."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Alat za prikaz dijagrama se nije učitao."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Diagramværktøjet blev ikke indlæst."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Diagramm-Renderer wurde nicht geladen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El motor de diagramas no se cargó."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le moteur de rendu des diagrammes ne s’est pas chargé."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il motore dei diagrammi non è stato caricato."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "図の描画エンジンを読み込めませんでした。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កម្មវិធីបង្ហាញដ្យាក្រាមមិនបានផ្ទុកទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "다이어그램 렌더러를 불러오지 못했습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Diagramverktøyet ble ikke lastet inn."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mechanizm rysowania diagramów się nie załadował."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O renderizador de diagramas não carregou."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Модуль отрисовки диаграмм не загрузился."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ตัวแสดงผลแผนภาพโหลดไม่สำเร็จ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Diyagram oluşturucu yüklenmedi."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Модуль малювання діаграм не завантажився."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trình hiển thị sơ đồ không tải được."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "图表渲染器未能加载。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "圖表繪製器未能載入。"
+          }
+        }
+      }
+    },
     "link.broken": {
       "comment": "Hover card: the link's target file does not exist",
       "extractionState": "manual",
@@ -12436,13 +12568,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Type a width such as 120, 120ch or 1600pt. Up and Down change it by 1, Shift by 10. Drag the label to scrub."
+            "value": "Type a width such as 120, 120ch or 1600pt."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "اكتب عرضًا مثل 120 أو 120ch أو 1600pt. يغيّره السهمان لأعلى ولأسفل بمقدار 1، ومع Shift بمقدار 10. اسحب التسمية لتغييره."
+            "value": "اكتب عرضًا مثل 120 أو 120ch أو 1600pt."
           }
         },
         "bs": {
@@ -12454,7 +12586,7 @@
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Skriv en bredde som 120, 120ch eller 1600pt. Op og Ned ændrer den med 1, med Skift med 10. Træk i etiketten for at justere."
+            "value": "Skriv en bredde som 120, 120ch eller 1600pt."
           }
         },
         "de": {
@@ -12466,43 +12598,43 @@
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Escribe un ancho como 120, 120ch o 1600pt. Arriba y Abajo lo cambian en 1; con Mayúsculas, en 10. Arrastra la etiqueta para ajustarlo."
+            "value": "Escribe un ancho como 120, 120ch o 1600pt."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tapez une largeur comme 120, 120ch ou 1600pt. Haut et Bas la changent de 1, avec Maj de 10. Faites glisser l’étiquette pour l’ajuster."
+            "value": "Tapez une largeur comme 120, 120ch ou 1600pt."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Digita una larghezza come 120, 120ch o 1600pt. Su e Giù la cambiano di 1, con Maiusc di 10. Trascina l’etichetta per regolarla."
+            "value": "Digita una larghezza come 120, 120ch o 1600pt."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "120、120ch、1600pt のように幅を入力します。上下キーで 1、Shift を押しながらで 10 ずつ変わります。ラベルをドラッグして調整できます。"
+            "value": "120、120ch、1600pt のように幅を入力します。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "វាយទទឹង ដូចជា 120, 120ch ឬ 1600pt។ ឡើង និងចុះ ប្ដូរ 1 ហើយជាមួយ Shift ប្ដូរ 10។ អូសស្លាកដើម្បីកែ។"
+            "value": "វាយទទឹង ដូចជា 120, 120ch ឬ 1600pt។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "120, 120ch, 1600pt처럼 너비를 입력하세요. 위/아래 키로 1씩, Shift와 함께 10씩 바뀝니다. 레이블을 드래그해 조절할 수 있습니다."
+            "value": "120, 120ch, 1600pt처럼 너비를 입력하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Skriv en bredde som 120, 120ch eller 1600pt. Opp og Ned endrer den med 1, med Shift med 10. Dra etiketten for å justere."
+            "value": "Skriv en bredde som 120, 120ch eller 1600pt."
           }
         },
         "pl": {
@@ -12514,13 +12646,13 @@
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Digite uma largura como 120, 120ch ou 1600pt. Para cima e Para baixo mudam em 1; com Shift, em 10. Arraste o rótulo para ajustar."
+            "value": "Digite uma largura como 120, 120ch ou 1600pt."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Введите ширину, например 120, 120ch или 1600pt. Вверх и Вниз меняют её на 1, с Shift на 10. Потяните подпись, чтобы изменить."
+            "value": "Введите ширину, например 120, 120ch или 1600pt."
           }
         },
         "th": {
@@ -12532,31 +12664,31 @@
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "120, 120ch veya 1600pt gibi bir genişlik yazın. Yukarı ve Aşağı 1, Shift ile 10 değiştirir. Ayarlamak için etiketi sürükleyin."
+            "value": "120, 120ch veya 1600pt gibi bir genişlik yazın."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Введіть ширину, наприклад 120, 120ch або 1600pt. Угору й Униз змінюють її на 1, із Shift на 10. Потягніть підпис, щоб змінити."
+            "value": "Введіть ширину, наприклад 120, 120ch або 1600pt."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nhập độ rộng như 120, 120ch hoặc 1600pt. Lên và Xuống đổi 1, giữ Shift đổi 10. Kéo nhãn để chỉnh."
+            "value": "Nhập độ rộng như 120, 120ch hoặc 1600pt."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "输入宽度，例如 120、120ch 或 1600pt。上下键每次改 1，按住 Shift 改 10。拖动标签可调整。"
+            "value": "输入宽度，例如 120、120ch 或 1600pt。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "輸入寬度，例如 120、120ch 或 1600pt。上下鍵每次改 1，按住 Shift 改 10。拖移標籤可調整。"
+            "value": "輸入寬度，例如 120、120ch 或 1600pt。"
           }
         }
       }

@@ -153,8 +153,12 @@ pub fn permission_options(request: &Value) -> Vec<NotifyOption> {
 
 /// The last non-empty lines of `text`, each cleaned and cut.
 pub fn tail(text: &str) -> Vec<String> {
-    let lines: Vec<String> =
-        text.lines().map(|l| text_label(l, LINE_MAX)).filter(|l| !l.is_empty()).collect();
+    // The preview is the agent's Markdown: each line says its words (a table once, by its titles), then is redacted.
+    let lines: Vec<String> = cmux_message_preview::lines(text, &cmux_message_preview::Words::english())
+        .iter()
+        .map(|l| text_label(l, LINE_MAX))
+        .filter(|l| !l.is_empty())
+        .collect();
     lines[lines.len().saturating_sub(MAX_TAIL)..].to_vec()
 }
 

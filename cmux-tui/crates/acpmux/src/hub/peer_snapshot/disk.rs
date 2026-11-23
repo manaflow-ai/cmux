@@ -19,11 +19,11 @@ pub(super) type Key = (String, String);
 pub(super) type Writer = fn(&Path, &[u8]) -> Result<()>;
 
 /// An id longer than this is not kept: its hex name must fit a file name (255 bytes) with the
-/// temporary suffix `config::write_atomic` gives it, `.tmp-<u32 pid>-<u64 counter>` (36 bytes).
+/// temporary suffix `config::write_atomic` gives it, `.tmp-<u32 pid>` (15 bytes).
 const ID_BYTES: usize = 100;
 /// The longest temporary suffix `config::write_atomic` puts in place of `.json`.
 #[cfg(test)]
-const TMP_SUFFIX_BYTES: usize = ".tmp-".len() + 10 + "-".len() + 20;
+const TMP_SUFFIX_BYTES: usize = ".tmp-".len() + 10;
 const EXT: &str = "json";
 
 #[derive(Default, Clone, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
@@ -45,6 +45,9 @@ pub(super) struct Head {
     pub captured_at: u64,
     pub from_start: bool,
     pub summary: Value,
+    /// The prompt before the retained run. Optional so older files still open unchanged.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub turn_opener: Option<Value>,
 }
 
 fn is_zero(n: &u64) -> bool {
@@ -148,8 +151,13 @@ fn open(path: &Path) -> Result<Option<std::fs::File>> {
 }
 
 fn head_of(line: &str, key: &Key) -> Result<Head> {
-    let head: Head = serde_json::from_str(line).context("the head line does not parse")?;
+    let mut head: Head = serde_json::from_str(line).context("the head line does not parse")?;
     anyhow::ensure!(head.peer == key.0 && head.session_id == key.1, "another session's copy");
+    head.turn_opener = head.turn_opener.filter(|r| {
+        super::starts_turn(r)
+            && super::of_session(r, key)
+            && seq_of(r).is_some_and(|s| s < head.first_seq)
+    });
     Ok(head)
 }
 

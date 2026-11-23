@@ -1,4 +1,5 @@
 import CmuxConversationCore
+import enum CmuxMobileModel.UserFacingError
 import Foundation
 
 /// The Mac Chief while the Mac is offline or asleep: its cloud copy
@@ -164,7 +165,7 @@ public final class ChiefReplicaBackend: ConversationBackend, @unchecked Sendable
             do {
                 try await socket.send(.string(try ChiefCloudBackend.Core.text(frame)))
             } catch {
-                throw ConversationBackendError(code: -1, message: error.localizedDescription)
+                throw ConversationBackendError(code: -1, message: UserFacingError.message(error, fallback: "Couldn't send. Try again."))
             }
             let outcome: Outcome
             if let known = early.removeValue(forKey: key) {
@@ -215,9 +216,7 @@ public final class ChiefReplicaBackend: ConversationBackend, @unchecked Sendable
 
         private func connectOnce() async -> Bool {
             guard let url = socketURL(), let token = try? await http.token(forceRefresh: false) else { return false }
-            var request = URLRequest(url: url)
-            request.setValue("Bearer \(token)", forHTTPHeaderField: "authorization")
-            request.setValue("cmux.wire.v1", forHTTPHeaderField: "Sec-WebSocket-Protocol")
+            guard let request = try? http.socketRequest(url, token: token) else { return false }
             let task = http.session.webSocketTask(with: request)
             socket = task
             task.resume()

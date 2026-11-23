@@ -163,7 +163,7 @@ import Testing
         channels.rowTools = [.messages: ChiefPaneTools(chief: ChiefSidebar(lanes: AgentLaneStore()), registry: registry)]
         #expect(channels.paneMoreMenuItems().isEmpty)
         let standard = ActionRegistry.standard()
-        let toolbar = PaneToolbar(registry: { standard }, newTabMenu: { nil }, contentMenu: { dock.paneMoreMenuItems() })
+        let toolbar = PaneToolbar(registry: { standard }, contentMenu: { dock.paneMoreMenuItems() })
         toolbar.update(target: "tab0", kind: .other)
         let menu = try #require(toolbar.view.moreMenu?())
         let ids = menu.items.prefix(ChiefPaneTools.actions.count).compactMap { $0.identifier?.rawValue }

@@ -832,7 +832,9 @@ async fn stream_prompt_once(
 pub(crate) async fn plain_attach(client: Arc<Client>, id: &str) -> Result<()> {
     let mut notes =
         client.notifications().await.ok_or_else(|| anyhow!("notifications already taken"))?;
-    let v = client.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 200})).await?;
+    // Shown in the person's terminal: an open (`server/requests.rs` `attach_shows`).
+    let page = json!({"sessionId": id, "limit": 200, "visible": true});
+    let v = client.request(method::MUX_ATTACH, page).await?;
     let mut t = Transcript::default();
     for e in v.get("events").and_then(Value::as_array).cloned().unwrap_or_default() {
         t.apply_event(&e);
@@ -1266,7 +1268,7 @@ pub(crate) async fn turn_reply(
     Ok(reply_of_turn(&events, turn))
 }
 
-fn page_events(page: &Value) -> (Vec<Value>, bool) {
+pub(crate) fn page_events(page: &Value) -> (Vec<Value>, bool) {
     let events = page.get("events").and_then(Value::as_array).cloned().unwrap_or_default();
     (events, page.get("hasMore").and_then(Value::as_bool).unwrap_or(false))
 }
@@ -1295,35 +1297,6 @@ async fn paged_events(client: &Arc<Client>, query: Value, first: &str) -> Result
         }
         more = has_more;
         events.splice(0..0, older);
-    }
-    Ok(events)
-}
-
-/// Up to `limit` events of a chat after seq `after`, oldest first, a page of at most 100000 at a
-/// time.
-pub(crate) async fn events_after(
-    client: &Arc<Client>,
-    id: &str,
-    mut after: u64,
-    limit: usize,
-) -> Result<Vec<Value>> {
-    let mut events = Vec::new();
-    while events.len() < limit {
-        let v = client
-            .request(
-                method::MUX_EVENTS,
-                json!({"sessionId": id, "afterSeq": after, "limit": (limit - events.len()).min(100_000)}),
-            )
-            .await?;
-        let (page, more) = page_events(&v);
-        let Some(last) = page.last().and_then(|e| e.get("seq")).and_then(Value::as_u64) else {
-            break;
-        };
-        after = last;
-        events.extend(page);
-        if !more {
-            break;
-        }
     }
     Ok(events)
 }
@@ -1564,7 +1537,13 @@ mod prompt_tests {
         }
         assert_eq!(last_replies(&client, &id, 1).await.unwrap(), vec!["the reply".to_owned()]);
         // `session tail --since`: every event after the cursor, through the newest.
-        let after = events_after(&client, &id, 0, 100000).await.unwrap();
+        let mut after = Vec::new();
+        crate::cli::session_tail::stream_after(&client, &id, 0, None, |page| {
+            after.extend(page);
+            Ok(crate::cli::session_tail::Flow::Go)
+        })
+        .await
+        .unwrap();
         assert_eq!(after.last().unwrap()["seq"], session.meta().last_seq);
         assert!(after.len() > 13, "{} events", after.len());
         drop(dir);

@@ -204,4 +204,84 @@ struct CloudCredentialRelayRefusalTests {
         #expect(on.ok == true)
         #expect(await asked.machines == ["vm_1"])
     }
+
+    /// How many install-token mints a relay call started (the live relay's `session` mints for its team too).
+    actor Mints {
+        var count = 0
+        func add() { count += 1 }
+    }
+
+    /// A relay whose `token` runs `mint` and whose `session` mints like the live one; `post` throws `postError` when set.
+    static func mintingRelay(_ sent: Sent, _ mints: Mints, postError: URLError? = nil,
+                             mint: @escaping @Sendable () async throws -> String) -> CloudCredentialRelay {
+        CloudCredentialRelay(
+            post: { path, body, _ in
+                await sent.add(path, body)
+                if let postError { throw postError }
+                return (200, Data(#"{"op":"cloud.machine.list","value":{"machines":[]},"revision":"1","stream":"s"}"#.utf8))
+            },
+            token: { await mints.add(); return try await mint() },
+            invalidate: {},
+            session: {
+                await mints.add()
+                return CloudCredentialRelay.Session(signedIn: true, team: (try? await mint()).map { _ in "team_test" })
+            },
+            signedIn: { true },
+            allowedOps: { await CloudCredentialRelay.bundledServedOps() })
+    }
+
+    /// One relayed op mints once: its signed-in check never mints (production's 30 s answer was two mints in a row).
+    @Test func aRelayedOpMintsOnce() async throws {
+        let (sent, mints) = (Sent(), Mints())
+        let result = try await Self.answer(try Self.line(id: 20, op: "cloud.machine.list"),
+                                           relay: Self.mintingRelay(sent, mints) { "install-token-for-test" })
+        #expect(result.ok == true)
+        #expect(await mints.count == 1)
+        #expect(await sent.calls.count == 1)
+    }
+
+    /// A failed mint answers that the mint failed and why (here a URL timeout), not "the cmux API did not answer",
+    /// and sends nothing to the Worker.
+    @Test func aFailedMintNamesTheMintAndItsError() async throws {
+        let (sent, mints) = (Sent(), Mints())
+        let relay = Self.mintingRelay(sent, mints) { throw URLError(.timedOut) }
+        let result = try await Self.answer(try Self.line(id: 21, op: "cloud.machine.list"), relay: relay)
+        #expect(result.ok == false)
+        #expect(result.body["code"]?.stringValue == "credential.mint_failed")
+        let message = try #require(result.body["message"]?.stringValue)
+        #expect(message.contains("install token") && message.contains("URLError -1001"), "\(message)")
+        #expect(!message.contains("install-token-for-test"))
+        #expect(await mints.count == 1)
+        #expect(await sent.calls.isEmpty)
+    }
+
+    /// A POST with no answer names the path it sent and the URL error.
+    @Test func aFailedPostNamesItsPathAndError() async throws {
+        let (sent, mints) = (Sent(), Mints())
+        let relay = Self.mintingRelay(sent, mints, postError: URLError(.notConnectedToInternet)) { "install-token-for-test" }
+        let result = try await Self.answer(try Self.line(id: 22, op: "cloud.machine.list"), relay: relay)
+        #expect(result.body["code"]?.stringValue == "owner.unreachable")
+        let message = try #require(result.body["message"]?.stringValue)
+        #expect(message.contains("POST /v1/read") && message.contains("URLError -1009"), "\(message)")
+        #expect(!message.contains("install-token-for-test"))
+    }
+
+    /// A mint that outlasts the relay's deadline (one that ignores cancellation, as a shared in-flight mint does) still
+    /// answers inside it, `owner.timed_out` naming the step, so the daemon's 30 s provider deadline never hits.
+    @Test func aStuckMintAnswersInsideTheDeadlineNamingItsStep() async throws {
+        let (sent, mints) = (Sent(), Mints())
+        var relay = Self.mintingRelay(sent, mints) {
+            // Ignores cancellation, as a waiter on a shared in-flight mint does: an unstructured task's value.
+            await Task.detached { try? await Task.sleep(for: .seconds(3)) }.value
+            return "install-token-for-test"
+        }
+        relay.deadline = .milliseconds(200)
+        // The mint succeeds after 3 s, so an answer that waited for it would be a success, not owner.timed_out.
+        let result = try await Self.answer(try Self.line(id: 23, op: "cloud.machine.list"), relay: relay)
+        #expect(result.body["code"]?.stringValue == "owner.timed_out")
+        #expect(result.body["retryable"]?.boolValue == true)
+        let message = try #require(result.body["message"]?.stringValue)
+        #expect(message.contains("minting the install token"), "\(message)")
+        #expect(await sent.calls.isEmpty)
+    }
 }

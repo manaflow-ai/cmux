@@ -104,6 +104,24 @@ Draws windows in the plain theme color.
 
 It changes only what is drawn. Your `appearance.*` values and workspace and pane pictures stay as they are, and turning it off brings them back. Change it in **Settings > Appearance > Window Background** or with `cmux settings set ui.reducedBackgrounds true`.
 
+## `appearance.fontSmoothing`
+
+How text draws in cmux's own controls (tab titles, the sidebar, the command palette, menus, toasts, dialogs) and in its web pages (chat, Settings, New Tab). It follows the CSS `-webkit-font-smoothing` values.
+
+```json
+{
+  "appearance": { "fontSmoothing": "auto" }
+}
+```
+
+- `"auto"` (default): no override. Native controls use the Mac's own font smoothing (or none, if you turned it off for every app with `defaults -currentHost write -g AppleFontSmoothing -int 0`), and each web page keeps its own CSS. This is the look cmux had before the setting existed.
+- `"antialiased"`: thin, grayscale strokes everywhere, the look of `-webkit-font-smoothing: antialiased`. Small or dim text gets lighter: about 15% less ink for dark text on light, about 27% less for light text on dark, more so on a 1x display.
+- `"subpixel"`: the heavier macOS font smoothing everywhere, the look of `-webkit-font-smoothing: subpixel-antialiased`, even if smoothing is off for every app.
+
+`"system"`, the earlier name, still reads as `"auto"`.
+
+Web pages, tab titles and the sidebar change at once. Other native controls change after cmux restarts: macOS fixes an app's text weight when the app first draws text. Terminal text is not changed; it keeps Ghostty's `font-thicken`. Change it in **Settings > Appearance > Density and Motion** or with `cmux settings set appearance.fontSmoothing subpixel`.
+
 ## `app.windowTitleTemplate`
 
 Opt-in template for the macOS `NSWindow.title`. Leave it unset or set it to an empty string to keep the default behavior, where the title follows the active workspace title or current directory.
@@ -242,7 +260,7 @@ Option-click on the + (a tab of the selected tab's kind) goes to the same place.
 
 ## `tabs.newTabTemplate`
 
-The layout of the New Tab page. On every template but `minimal`, the template dots under the page switch it in place and save the choice here.
+The layout of the New Tab page. On `classic`, the template dots under the page switch it in place and save the choice here.
 
 ```json
 {
@@ -251,15 +269,33 @@ The layout of the New Tab page. On every template but `minimal`, the template do
 ```
 
 - `minimal` (the default): the composer, with its folder and machine, and nothing else.
-- `cards`: one rounded field with the Search and Ask switch (Tab switches), the project and agent chips under it, and three recent chats as tall cards.
-- `default`: one field with agent rows, recent chats as cards, and Tools.
-- `composer`: one large prompt field, with nothing else.
-- `threads`: the field and the recent chats as a list.
-- `console`: a monospace field with a `>` prompt and the recent chats as lines.
 - `classic`: the Terminal, Browser and Agent switch.
-- `terminal`: the `cards` screen. New Tab never opens a terminal by itself; pick one on the page or use New Terminal Tab.
+- `terminal`: the `minimal` page. New Tab never opens a terminal by itself; pick one on the page or use New Terminal Tab.
 
-Cmd-T and the + button always open the New Tab page. Change the template in **Settings > General > Tabs** or with `cmux settings set tabs.newTabTemplate console`.
+Cmd-T and the + button always open the New Tab page. Change the template in **Settings > General > Tabs** or with `cmux settings set tabs.newTabTemplate classic`.
+
+The Cards, Default, Threads and Console pages no longer ship as templates: each is now a New Tab page you build and edit yourself with [`tabs.newTabApp`](#tabsnewtabapp). Start from its folder in `skills/cmux-customization/templates/` (`newtab-cards`, `newtab-calm`, `newtab-threads`, `newtab-console`): copy it to `~/.config/cmux/customize`, then run `cmux settings set tabs.newTabApp local/customize`. A config that still names `cards`, `default`, `threads`, `console` or the older `composer` shows `minimal`.
+
+## `tabs.newTabApp`
+
+An extension that draws the whole New Tab page, by its app id. The extension implements
+`cmux.newtab/1` (see `cmux-tui/crates/cmux-extension-sdk/README.md`). Unset (the default), cmux
+draws its own page, as above.
+
+```json
+{
+  "tabs": { "newTabApp": "local/showcase-newtab" }
+}
+```
+
+- The page shows only the extension's view: its greeting, buttons and lists, in the app's look.
+- If the extension is not installed, is hidden or disabled, or its view fails, cmux draws its own page.
+- Go back to cmux's own page with `cmux settings reset tabs.newTabApp`.
+- The change applies to the next New Tab page. The native New Tab page (`tabs.nativeNewTabPage`)
+  does not use it.
+
+Change it in **Settings > General > Tabs**, in the command palette, or with
+`cmux settings set tabs.newTabApp local/showcase-newtab`.
 
 ## `app.forkConversationDefaultDestination`
 
@@ -618,6 +654,7 @@ A binding you set yourself for either action stays when you pick a choice. Rebin
 | Option+Cmd+[ / ] | Previous / Next Space (also; not in the code editor) | `space.previous` / `space.next` |
 | Ctrl+Option+Cmd+1…9 | Select Space 1…9 (9 is the last) | `space.selectByNumber` |
 | Ctrl+Option+1…9 | Select Space 1…9 (the Number Keys default) | `space.selectByNumber` |
+| Ctrl+Option+Cmd+N | New Space | `space.new` |
 | Shift+Cmd+N | New Window, on a new space | `newWindow` |
 
 Ctrl+Cmd+Left / Right resize the focused pane (Ghostty's `resize_split`) and Ctrl+Cmd+1…9 focus pane 1…9, so the space keys add Option. macOS keeps Ctrl+arrows and Ctrl+digits for Mission Control. Rebinding an action (Settings > Keyboard Shortcuts or `shortcuts.bindings["space.next"]`) replaces all its default keys; `null` removes them. Every space action is also in the command palette (Shift+Cmd+P), the `cmux space …` CLI and MCP: for example `cmux space next`, `cmux space select-1-9 --index 2` and `cmux space open-in-new-window --space <space>`.
@@ -657,17 +694,17 @@ Turn it on in Settings > General > Start Agent from Any App. Its key is a separa
 
 ## Background mode and `app.hideDockIconWithoutWindows`
 
-When you close the last cmux window, cmux keeps running, and so do your terminals and agents. By default it then leaves the Dock and the app switcher (Cmd-Tab). The cmux menu bar item (`app.showMenuBarIcon`, below) stays as the way back; with that item off, a smaller menu bar item shows instead, with Show cmux, New Window, Settings and Quit. Opening any window brings the Dock icon back: the menu bar item, opening cmux again from Finder or Spotlight, a notification, a link, or the `cmux` CLI. To keep the Dock icon while no window is open:
+When you close the last cmux window, cmux keeps running, and so do your terminals and agents. By default its Dock icon stays, so a click on it opens a window again. To have cmux leave the Dock and the app switcher (Cmd-Tab) while no window is open, turn it on:
 
 ```json
 {
   "app": {
-    "hideDockIconWithoutWindows": false
+    "hideDockIconWithoutWindows": true
   }
 }
 ```
 
-Or turn off Settings > General > Hide Dock Icon When No Windows Are Open.
+Or turn on Settings > General > Hide Dock Icon When No Windows Are Open. The cmux menu bar item (`app.showMenuBarIcon`, below) then stays as the way back; with that item off, a smaller menu bar item shows instead, with Show cmux, New Window, Settings and Quit. Opening any window brings the Dock icon back: the menu bar item, opening cmux again from Finder or Spotlight, a notification, a link, or the `cmux` CLI.
 
 ## The menu bar item and `app.showMenuBarIcon`
 
@@ -905,8 +942,9 @@ cmux also posts a notification when a workspace's status first reaches done, and
 
 ## `mcp.enabled` and agent sessions
 
-Agent sessions that cmux starts through acpmux get the `cmux-cua` Computer Use MCP server
-and, for Claude Code, the skills `cmux:cmux-browser` and `cmux:cmux-cua`. With
+Agent sessions that cmux starts through acpmux get the cmux Computer Use MCP server
+(`cmux-computer-use`, [docs/computer-use/README.md](computer-use/README.md)) and, for Claude
+Code, the skills `cmux:cmux-browser` and `cmux:cmux-cua`. With
 `"mcp": {"enabled": true}` they also get the `cmux` MCP server with the browser REPL tools.
 To turn all of these off, set the environment variable `ACPMUX_AGENT_TOOLS=0` for the acpmux
 daemon (or in one acpmux profile's `env`). A Claude profile that passes
@@ -1052,7 +1090,7 @@ shows the same keys.
     "omnibar": {
       "remoteSuggestions": true,
       "inlineAutocomplete": true,
-      "maxRows": 8,
+      "maxRows": 6,
       "calculator": true,
       "showFullURLs": false,
       "glass": "off",
@@ -1082,7 +1120,7 @@ shows the same keys.
 - `omnibar.inlineAutocomplete`: complete the typed text to a site's address in the field
   when the text is the start of the host and you typed that address before or visited it
   at least 4 times. Default: `true`.
-- `omnibar.maxRows`: suggestion rows shown, `3` to `15`. Default: `8`.
+- `omnibar.maxRows`: suggestion rows shown, `3` to `15`. Default: `6`.
 - `omnibar.showFullURLs`: show the whole address, with `https://` and `www.`, when you are not
   editing it (Chrome's "Always Show Full URLs"; the address bar's right-click menu toggles it).
   Default: `false`.

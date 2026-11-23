@@ -132,6 +132,15 @@ int rb_shim_set_screen(int width_dip, int height_dip, double scale);
 int rb_shim_open_tab(int request, const char* url, int width_dip,
                      int height_dip);
 void rb_shim_close_tab(int browser_id);
+// A shared host (one process, many tabs): sets the virtual screen and resizes
+// only `browser_id`'s window (-1: none yet).
+int rb_shim_set_tab_screen(int browser_id, int width_dip, int height_dip,
+                           double scale);
+// rb_shim_open_tab in a request context of its own whose cache (cookies,
+// storage, HTTP cache) is `cache_dir`, a directory under rb_shim_run's
+// cache_dir.
+int rb_shim_open_tab_in(int request, const char* url, int width_dip,
+                        int height_dip, const char* cache_dir);
 
 int rb_shim_capture(int browser_id, int on, int min_period_us);
 int rb_shim_capture_refresh(int browser_id);

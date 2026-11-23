@@ -201,6 +201,9 @@ fn cloud_repo_recovery_strips_wire_fields_and_access_denial_names_org() {
     assert_eq!(error["code"], "repo.no_access");
     assert_eq!(error["org"], "org");
     assert_eq!(error["install_url"], "https://github.com/install");
+    assert_eq!(error["retry"]["action"], "cloud.repo.add");
+    assert_eq!(error["retry"]["args"]["repo"], "private");
+    assert!(error["retry"].get("wait_action").is_none());
 }
 
 #[test]

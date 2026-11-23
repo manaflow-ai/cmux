@@ -1,9 +1,10 @@
-//! `git.diff`, `git.status`, `git.branches`, `git.files.search` and `git.files.list`: read-only
+//! `git.diff`, `git.fingerprint`, `git.status`, `git.branches`, `git.files.search` and `git.files.list`: read-only
 //! git reads of the repository a path or a terminal's working directory is in. The session host answers them
 //! without store state; a connection's request runs git on the daemon's git lane
 //! (`server/git_lane.rs`), never on the connection's reader thread,
 //! bounded by a deadline and output limits. `git.status` reads the refs only
-//! (`cmux_git::head`), not the work tree. `git.checkpoint.*` captures
+//! (`cmux_git::head`), not the work tree. `git.fingerprint` says if a diff is
+//! still current without making it (`fingerprint`). `git.checkpoint.*` captures
 //! immutable checkpoints through a separate write runner (`checkpoint`).
 //! `git.commit` and `git.push` are the user's own actions and run git in the
 //! user's environment (`user_run`), keyed in the mutation ledger
@@ -26,12 +27,16 @@ mod diff;
 mod diff_comments;
 mod diff_pages;
 mod files;
+#[cfg(all(test, unix))]
+mod files_stress_tests;
+mod fingerprint;
 mod journal;
 mod list;
 mod mutation;
 mod push;
 mod target;
 mod user_run;
+mod work_tree_entry;
 mod worktree;
 mod worktree_apply;
 mod worktree_include;
@@ -65,6 +70,9 @@ pub(crate) const FILES_SEARCH_CAPABILITY: &str = "git-files-search-v1";
 
 /// Advertised in identify: the session host answers `git.files.list`.
 pub(crate) const FILES_LIST_CAPABILITY: &str = "git-files-list-v1";
+
+/// Advertised in identify: the session host answers `git.fingerprint`.
+pub(crate) const FINGERPRINT_CAPABILITY: &str = "git-fingerprint-v1";
 
 /// Advertised in identify: the session host owns `diff.comments.list`,
 /// `save` and `delete`.
@@ -103,6 +111,7 @@ pub(crate) fn handles(operation: ResourceOperation) -> bool {
             | ResourceOperation::GitBranches
             | ResourceOperation::GitFilesSearch
             | ResourceOperation::GitFilesList
+            | ResourceOperation::GitFingerprint
             | ResourceOperation::GitCommit
             | ResourceOperation::GitPush
             | ResourceOperation::GitWorktreeCreate
@@ -139,18 +148,30 @@ pub(crate) fn dispatch(
         ResourceOperation::GitBranches => "git.branches",
         ResourceOperation::GitFilesSearch => "git.files.search",
         ResourceOperation::GitFilesList => "git.files.list",
+        ResourceOperation::GitFingerprint => "git.fingerprint",
         other => unreachable!("git_ops does not handle {other:?}"),
     };
     let directory = target::directory(mux, &request, operation)?;
     if operation == "git.status" {
-        return status(&directory);
+        let github = request.fields.get("github").and_then(Value::as_bool).unwrap_or(false);
+        return status(&directory, github);
+    }
+    if operation == "git.fingerprint" {
+        return fingerprint::read(&directory, &request.fields);
+    }
+    if operation == "git.files.list" {
+        // A folder in no repository still lists, from the disk: git only adds to a file tree.
+        return match Repository::open(&directory) {
+            Ok(repository) => list::list(&repository, &directory, &request.fields),
+            Err(OpenError::NotARepository) => list::list_folder(&directory, &request.fields),
+            Err(error) => Err(open_failed(operation, &directory, error)),
+        };
     }
     let repository = open_repository(&directory, operation)?;
     match operation {
         "git.diff" => diff::read(&repository, &request.fields),
         "git.branches" => branches(&repository, &request.fields),
-        "git.files.search" => files::search(&repository, &directory, &request.fields),
-        _ => list::list(&repository, &directory, &request.fields),
+        _ => files::search(&repository, &directory, &request.fields),
     }
 }
 
@@ -169,8 +190,10 @@ fn open_failed(operation: &'static str, directory: &Path, error: OpenError) -> R
 /// What HEAD of the checkout `directory` is in is on. A view that shows a
 /// branch asks this often and a person waits for it, so it comes from the
 /// refs (`cmux_git::head`): no run looks at the work tree's files, whose
-/// count would set the cost.
-fn status(directory: &Path) -> Result<Value, ResourceError> {
+/// count would set the cost. `github` adds `github_repo`, the `owner/name`
+/// of the upstream's remote (else `origin`) on github.com: one more git run,
+/// so only a caller that asks pays it.
+fn status(directory: &Path, github: bool) -> Result<Value, ResourceError> {
     const OPERATION: &str = "git.status";
     let repository =
         Checkout::open(directory).map_err(|error| open_failed(OPERATION, directory, error))?;
@@ -186,6 +209,16 @@ fn status(directory: &Path) -> Result<Value, ResourceError> {
     }
     if let Some(head) = headers.head {
         value.set("head", json!(head));
+    }
+    if github {
+        let remote = headers
+            .upstream
+            .as_deref()
+            .and_then(|upstream| upstream.split_once('/'))
+            .map_or("origin", |(remote, _)| remote);
+        if let Some(repo) = repository.github_repo(remote) {
+            value.set("github_repo", json!(repo));
+        }
     }
     if let Some(upstream) = headers.upstream {
         value.set("upstream", json!(upstream));

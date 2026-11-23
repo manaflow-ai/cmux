@@ -26,3 +26,14 @@
 .tooltip-gallery-control {
   font-size: var(--text-body);
 }
+
+.tooltip-gallery-tokens {
+  color: var(--cmux-text-tertiary, color-mix(in srgb, CanvasText 50%, transparent));
+  font-size: var(--text-detail);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The trigger at the window's right edge (#22693). */
+.tooltip-gallery-stage.is-edge {
+  place-items: center end;
+}

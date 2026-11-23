@@ -170,7 +170,8 @@ pub(super) fn sidebar_layout_for_state(
                 < MIN_CONTENT_WIDTH
                     .saturating_add(MIN_RAIL_WIDTH.saturating_mul(retained_count as u16))
         {
-            specs[collapsed_count].collapsed = true;
+            let Some(spec) = specs.get_mut(collapsed_count) else { break };
+            spec.collapsed = true;
             collapsed_count += 1;
             retained_count -= 1;
         }

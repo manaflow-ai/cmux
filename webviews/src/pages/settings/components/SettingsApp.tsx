@@ -8,11 +8,11 @@ import { rowsByKey } from "../schema";
 import { t } from "../strings";
 import { filterRows } from "../search";
 import { managedOf, valueOf } from "../store";
-import { ReadOnlyBanner } from "./ReadOnlyBanner";
+import { ReadOnlyNotice } from "./ReadOnlyBanner";
 import { SearchField } from "./SearchField";
+import { TryOnSlot } from "./TryOnBar";
 import { SearchResults } from "./SearchResults";
 import { SectionList } from "./SectionList";
-import { personalizationPartOf } from "./PersonalizationCard";
 import { ScrollArea } from "../../../ui/ScrollArea";
 import { whenPageShown } from "../../shared/paintGate";
 
@@ -71,11 +71,7 @@ export function SettingsApp() {
   const reveal = useCallback(
     (key: string) => {
       const row = rowsByKey.get(key);
-      // A key Personalization draws opens its part there: no other page draws it.
-      const part = personalizationPartOf(key);
-      // Personalization opens the part that draws the key, and the key's row takes focus there.
-      if (part) go("personalization", key);
-      else if (row) go(homes.get(key)?.category ?? row.section, key);
+      if (row) go(homes.get(key)?.category ?? row.section, key);
     },
     [go],
   );
@@ -130,10 +126,17 @@ export function SettingsApp() {
       revision: state.revision,
     })[0]?.rows[0];
     if (first) reveal(first.key);
+    // Nothing matches: Return asks cmux for it, as the row under "No settings match." does.
+    else if (query.trim()) void store.askCmux(query);
   };
 
   return (
-    <div className="settings" ref={keyboardRef} data-section-switched={switched ? "" : undefined}>
+    <div
+      className="settings"
+      ref={keyboardRef}
+      data-section-switched={switched ? "" : undefined}
+      data-page-shown={pageShown ? "" : undefined}
+    >
       <aside className="sidebar">
         <h2 className="sidebar-title">{t("settingsPage.title")}</h2>
         <SearchField query={query} onQuery={setQuery} onSubmit={submit} />
@@ -144,18 +147,9 @@ export function SettingsApp() {
         </ScrollArea>
       </aside>
       <main className="content" ref={content}>
-        <div className="scroll-edge" aria-hidden="true">
-          <span />
-          <span />
-          <span />
-          <span />
-        </div>
         <div className="column">
-          {!state.connected ? (
-            <ReadOnlyBanner />
-          ) : state.loaded && !state.readable ? (
-            <ReadOnlyBanner reason="loadFailed" />
-          ) : null}
+          <ReadOnlyNotice connected={state.connected} loaded={state.loaded} readable={state.readable} />
+          <TryOnSlot />
           {searching ? <SearchResults query={shownQuery} /> : <Outlet />}
         </div>
       </main>

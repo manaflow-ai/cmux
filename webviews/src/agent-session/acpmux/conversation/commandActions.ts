@@ -25,8 +25,10 @@ import {
   stages,
   substitutions,
   unwrap,
+  type Loop,
   type Stage,
 } from "./shellSteps";
+import { commandFolder } from "./commandFolder";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 
@@ -39,9 +41,12 @@ export type CommandAction = {
   files?: string[];
   /// Steps after the named one, left unnamed.
   more?: boolean;
+  /// Named by reading a loop's passes (`for f in …; do cat "$f"; done`): a call's description, the
+  /// model's word for the whole loop, comes first (`commandSaid`).
+  loop?: boolean;
 };
 
-type Act = Omit<CommandAction, "more">;
+type Act = Omit<CommandAction, "more" | "loop">;
 
 // ---------------------------------------------------------------------------------------------
 // Steps and stages (shellSteps.ts).
@@ -146,16 +151,20 @@ const RUNS_INSIDE = /\$\(|`|[<>]\(/;
 
 /// The step that names the command (shellSteps.ts `mainStep`) and whether steps follow it. A
 /// step that is only an assignment names the command its `$(…)` runs: `K=$(pin.sh key | tail -1)`
-/// ran pin.sh. `vars` holds what the assignments before it name (`V=$(ls *.mov)`: `*.mov`).
+/// ran pin.sh. `vars` holds what the assignments before it name (`V=$(ls *.mov)`: `*.mov`), a hint
+/// only; `values` holds the ones whose value the line itself spells out (`F=docs/a.md`), whole.
 function mainStep(command: string): {
   step: string;
   more: boolean;
   vars: Map<string, string[]>;
+  values: Map<string, string>;
   bodies: string[];
+  loops: Loop[];
 } {
-  let { step, more, before, bodies } = workingStep(command);
+  let { step, more, before, bodies, loops } = workingStep(command);
   const vars = new Map<string, string[]>();
-  for (const earlier of before) if (isAssignmentOnly(earlier)) assigned(earlier, vars);
+  const values = new Map<string, string>();
+  for (const earlier of before) if (isAssignmentOnly(earlier)) assigned(earlier, vars, values);
   for (let depth = 0; depth < 4 && isAssignmentOnly(step); depth += 1) {
     const inner = shellWords(step).flatMap((word) => (word === "|" ? [] : (substitutions(word.raw) ?? [])))[0];
     if (!inner) break;
@@ -165,17 +174,19 @@ function mainStep(command: string): {
     more ||= found.more;
     bodies = found.bodies;
   }
-  return { step, more, vars, bodies };
+  return { step, more, vars, values, bodies, loops };
 }
 
 /// The files an assignment's value names: a path (`F=a/b.json`), or the paths the command in its
-/// `$(…)` names (`V=$(ls "…/0/"*.mov)`).
-function assigned(step: string, vars: Map<string, string[]>) {
+/// `$(…)` names (`V=$(ls "…/0/"*.mov)`). Only a value typed out in full is a known value: what a
+/// `$(…)` prints is not the files it names (`F=$(cat pointer.txt)` holds what pointer.txt says).
+function assigned(step: string, vars: Map<string, string[]>, values: Map<string, string>) {
   for (const word of shellWords(step)) {
     if (word === "|") continue;
     const at = word.text.indexOf("=");
     const name = word.text.slice(0, at);
     const inner = substitutions(word.raw)?.[0];
+    values.delete(name);
     if (inner !== undefined) {
       const first = stages(workingStep(inner).step)[0];
       const args = first ? unwrap(first.words.map((part) => part.text)).slice(1) : [];
@@ -183,19 +194,33 @@ function assigned(step: string, vars: Map<string, string[]>) {
     } else {
       const value = word.text.slice(at + 1);
       if (isPathlike(value)) vars.set(name, [baseName(value)]);
+      // `F=$HOME/a`, `F=*.md`, `F=\`…\``: the shell's to fill in, not the line's.
+      if (value && !/[$`*?[]/.test(word.raw.slice(word.raw.indexOf("=") + 1))) values.set(name, value);
     }
   }
 }
 
-/// The command as a row draws it when the table does not name it: its first step, without output
-/// redirects and the filters piped after it ("make -j8 2>&1 | tail -20" is "make -j8"). The opened
-/// Shell block keeps the whole line.
+/// A line of several steps as a row draws it: its first line (a heredoc's body never runs into the
+/// row) without its leading `cd`, whitespace one space, and "…" attached when lines follow.
+function wholeLine(command: string): string {
+  const [first = "", ...rest] = commandFolder(command).rest.trim().split("\n");
+  // A heredoc's marker starts text that is not the command (`python3 - <<'PY'`): the line ends there.
+  const marker = first.search(/(?<!<)<<-?(?!<)\s*['"]?[A-Za-z_]+/);
+  const line = (marker >= 0 ? first.slice(0, marker) : first).replace(/\s+/g, " ").trim();
+  return marker >= 0 || rest.some((part) => part.trim()) ? `${line}…` : line;
+}
+
+/// The command as a row draws it when the table does not name it: its one step without output
+/// redirects and the filters piped after it ("make -j8 2>&1 | tail -20" is "make -j8"). A line of
+/// several steps reads whole (its leading `cd` left out, whitespace one space), as the Codex app
+/// draws it: the row's CSS ellipsis cuts what does not fit, and no "…" stands for steps it hid
+/// (Lucas, 2026-11-14: "the ... is fine as long as the text runs out of screen").
 export function cleanCommand(command: string): string {
   const { step, more } = mainStep(command);
+  if (more) return wholeLine(command);
   const parts = stages(step);
   while (parts.length > 1 && isFilter(parts.at(-1)!)) parts.pop();
-  const line = parts.map((stage, index) => shownWords(stage, index === 0).join(" ")).join(" | ") || step;
-  return more ? `${line} …` : line;
+  return parts.map((stage, index) => shownWords(stage, index === 0).join(" ")).join(" | ") || step;
 }
 
 /// A stage's words as a row draws them: the first stage without the assignments and wrappers
@@ -237,7 +262,7 @@ function firstLine(raw: string): string {
     .split("\n")
     .map((part) => part.trim())
     .find(Boolean);
-  return `${quote}${line ?? ""} …${quote}`;
+  return `${quote}${line ?? ""}…${quote}`;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -310,9 +335,7 @@ export function inlineScript(command: string): { language: string; file?: string
 export function scriptSaid(t: Translate, command: string, running = false): string | undefined {
   const noun = scriptNoun(t, command);
   if (!noun) return undefined;
-  const more = noun.endsWith(" …");
-  const text = t(running ? "tools.runningCommand" : "tools.ranCommand", { command: more ? noun.slice(0, -2) : noun });
-  return more ? `${text} …` : text;
+  return t(running ? "tools.runningCommand" : "tools.ranCommand", { command: noun });
 }
 
 /// The live line's words for a script, without its verb (Thinking.tsx adds "Running"/"Ran").
@@ -322,7 +345,8 @@ export function scriptNoun(t: Translate, command: string): string | undefined {
   const noun = script.file
     ? t("command.scriptOn", { language: script.language, file: script.file })
     : t("command.script", { language: script.language });
-  return script.more ? `${noun} …` : noun;
+  // Steps after the script: the line reads whole ("Ran <line>"), never a script name and "…".
+  return script.more ? undefined : noun;
 }
 
 /// `cat > notes.md <<'EOF'`, `tee notes.md <<EOF`: a heredoc or here-string written to one file,
@@ -450,7 +474,11 @@ const read = (files: readonly string[]): Act | undefined =>
     ? undefined
     : files.length === 1
       ? { key: "command.read", values: { file: baseName(files[0]!) }, files: [...files] }
-      : { key: "tools.read.other", values: { n: files.length }, files: [...files] };
+      : {
+          key: "command.readFiles",
+          values: { n: files.length, files: [...new Set(files.map(baseName))].join(", ") },
+          files: [...files],
+        };
 
 const search = (pattern: string | undefined): Act | undefined =>
   pattern
@@ -1004,7 +1032,7 @@ function fromTo(key: StringKey, args: string[]): Act | undefined {
 
 /// What a command did, from the table; undefined for anything it does not list.
 export function commandAction(command: string): CommandAction | undefined {
-  const { step, more } = mainStep(command);
+  const { step, more, loops, values } = mainStep(command);
   // The first stage names the step only when nothing else in it changes anything: no write to a
   // file, no code run inside a word, and only stages after it that trim what it printed (`curl … |
   // bash` ran what it fetched and `cat a | tee b` wrote b, so those read as their line).
@@ -1020,14 +1048,154 @@ export function commandAction(command: string): CommandAction | undefined {
   const [program, ...args] = words;
   if (!program) return undefined;
   const rule = own(PROGRAMS, baseName(program));
-  const act = rule?.(args);
-  return act && { ...act, ...(more ? { more } : {}) };
+  if (!rule) return undefined;
+  // Each argument as typed, for the variables it reads: `'$x'` in single quotes is no variable.
+  const raws = first.words.slice(first.words.length - args.length).map((word) => word.raw);
+  const act = expanded(rule, args, raws, loops, values);
+  const loop = act !== undefined && loops.some((each) => each.name !== undefined);
+  return act && { ...act, ...(more ? { more } : {}), ...(loop ? { loop } : {}) };
+}
+
+/// `$name` and `${name}` in a label's text: a name the step could not read, as `expandWord` leaves it.
+const VARIABLE = /\$\{?([A-Za-z_]\w*)\}?/g;
+
+/// A word as the shell reads it: unquoted, each `$name` and `${name}` outside single quotes and
+/// not after a backslash filled in by `value` (left as `$name` when it gives none). A `${…}` that
+/// is more than a name (`${F:-x}`, `${#F}`, `${F%.md}`) is in `odd`: the line cannot say what it
+/// expands to, so it is left whole as `$F`, never cut to a `${F` ("Read a.md:-x}").
+function expandWord(
+  raw: string,
+  value: (name: string) => string | undefined = () => undefined,
+): { text: string; names: string[]; odd: string[] } {
+  let text = "";
+  const names: string[] = [];
+  const odd: string[] = [];
+  let quoted = false;
+  for (let i = 0; i < raw.length; i += 1) {
+    const c = raw[i]!;
+    if (c === "\\" && i + 1 < raw.length) {
+      const next = raw[i + 1]!;
+      // Inside double quotes a backslash escapes only `$`, a backtick, `"`, `\` and a newline.
+      if (!quoted || '$`"\\\n'.includes(next)) {
+        text += next;
+        i += 1;
+        continue;
+      }
+    } else if (c === "'" && !quoted) {
+      const end = raw.indexOf("'", i + 1);
+      const stop = end < 0 ? raw.length : end;
+      text += raw.slice(i + 1, stop);
+      i = stop;
+      continue;
+    } else if (c === '"') {
+      quoted = !quoted;
+      continue;
+    } else if (c === "$" && raw[i + 1] === "{") {
+      const close = raw.indexOf("}", i + 2);
+      const inside = raw.slice(i + 2, close < 0 ? raw.length : close);
+      const name = /^[#!]?([A-Za-z_]\w*)/.exec(inside)?.[1];
+      if (name) {
+        const plain = inside === name;
+        (plain ? names : odd).push(name);
+        text += (plain ? value(name) : undefined) ?? `$${name}`;
+        i = close < 0 ? raw.length : close;
+        continue;
+      }
+    } else if (c === "$") {
+      const name = /^[A-Za-z_]\w*/.exec(raw.slice(i + 1))?.[0];
+      if (name) {
+        names.push(name);
+        text += value(name) ?? `$${name}`;
+        i += name.length;
+        continue;
+      }
+    }
+    text += c;
+  }
+  return { text, names, odd };
+}
+
+/// A read whose files include one it cannot name reads as its count: "Read 1 file", "Read 3 files".
+const countedRead = (files: string[]): Act =>
+  files.length === 1
+    ? { key: "tools.read.one", files }
+    : { key: "tools.read.other", values: { n: files.length }, files };
+
+const isCountedRead = (act: Act) => act.key === "tools.read.one" || act.key === "tools.read.other";
+
+/// What a rule names once the variables in its words read as their values: a loop's (`for f in a.md
+/// b.md; do git show main:$f; done` read 2 files, "Read 2 files (a.md, b.md)"), or a value an
+/// assignment before the step typed out (`F=a/b.json; cat "$F"`). A variable it cannot read (set from
+/// a `$(…)`, a loop over a glob, from the environment, a `${F:-x}`) leaves the row unnamed, so a
+/// label never shows a `$f` (Leo, 2026-11-21, on "Read $f": "this is not a good enough tool call
+/// heading that we have derived"); the call's description or its line names it instead (`commandSaid`).
+function expanded(
+  rule: Rule,
+  args: string[],
+  raws: readonly string[],
+  loops: readonly Loop[],
+  values: ReadonlyMap<string, string>,
+): Act | undefined {
+  const parsed = raws.map((raw) => expandWord(raw));
+  const reads = parsed.map((each) => [...each.names, ...each.odd]);
+  const names = new Set(reads.flat());
+  if (names.size === 0) return rule(args);
+  const odd = new Set(parsed.flatMap((each) => each.odd));
+  const fixed = new Map<string, string>();
+  // A name this step cannot read (`H=$(…)`, a glob loop's): fine where the label never shows it
+  // (`--match-head-commit $H`), never where it does ("Read $f").
+  const unread = new Set<string>();
+  let loop: { name: string; values: string[] } | undefined;
+  for (const name of names) {
+    if (odd.has(name)) {
+      unread.add(name);
+      continue;
+    }
+    // The innermost loop of that name is the one its step reads.
+    const bound = [...loops].reverse().find((each) => each.name === name);
+    if (bound) {
+      if (!bound.values?.length) unread.add(name);
+      else if (loop) return undefined;
+      else loop = { name, values: bound.values };
+      continue;
+    }
+    const value = values.get(name);
+    if (value !== undefined) fixed.set(name, value);
+    else unread.add(name);
+  }
+  const fill = (pass?: string) =>
+    args.map((arg, at) =>
+      reads[at]!.length ? expandWord(raws[at]!, (name) => (name === loop?.name ? pass : fixed.get(name))).text : arg,
+    );
+  const hides = (text: string) => [...text.matchAll(VARIABLE)].some((match) => unread.has(match[1]!));
+  const shown = (act: Act | undefined): Act | undefined => {
+    // Only what the label says matters: `cat "$H/README.md"` still reads "Read README.md".
+    if (!act || !unread.size || !hides(JSON.stringify(act.values ?? {}))) return act;
+    // Files read through a name set earlier (`cat "$OUT"`) still count: "Read 1 file". A loop's
+    // name it cannot read (`for f in *.md`) leaves the count unknown, so the row reads unnamed.
+    const loopName = [...unread].some((name) => loops.some((each) => each.name === name));
+    const reads = act.key === "command.read" || act.key === "command.readFiles";
+    if (loopName || !reads || !act.files?.length) return undefined;
+    return countedRead(act.files);
+  };
+  if (!loop) return shown(rule(fill()));
+  const acts = loop.values.map((value) => shown(rule(fill(value))));
+  if (acts.some((act) => act === undefined)) return undefined;
+  const all = acts as Act[];
+  if (all.every((act) => act.files?.length)) {
+    const files = [...new Set(all.flatMap((act) => act.files!))];
+    // A pass that read a file it could not name (`cat "$f" "$OUT"`) keeps the whole loop a count:
+    // its names never come back as a file ("Read 3 files (a.md, $OUT, b.md)").
+    return all.some(isCountedRead) ? countedRead(files) : read(files);
+  }
+  // Every pass did the same thing (`for i in 1 2 3; do git status; done`): it reads once.
+  const one = JSON.stringify({ key: all[0]!.key, values: all[0]!.values });
+  return all.every((act) => JSON.stringify({ key: act.key, values: act.values }) === one) ? all[0] : undefined;
 }
 
 /// An action in the reader's language: "Searched memory for “x”", "Staged all changes …".
 export function actionText(t: Translate, action: CommandAction): string {
-  const text = t(action.key, action.values ?? {});
-  return action.more ? `${text} …` : text;
+  return t(action.key, action.values ?? {});
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1063,10 +1231,12 @@ export function commandSaid(t: Translate, tool: Tool, look: CommandLabelLook = c
   if (running(tool)) return scriptSaid(t, command, true);
   const action = failed(tool) ? undefined : commandAction(command);
   if (look === "description" && description) return description;
+  // The table names one step: a line with more steps after it reads whole, never as its first. A
+  // loop the table read pass by pass is a compound command: its description says it first.
+  const named = action && !action.more && !(action.loop && description) ? action : undefined;
   if (look === "description")
-    return action ? actionText(t, action) : (pipelineSaid(t, command) ?? scriptSaid(t, command));
-  // A compound command's first step is all the table names; a description says what the whole did.
-  if (action && !(action.more && description)) return actionText(t, action);
+    return named ? actionText(t, named) : (pipelineSaid(t, command) ?? scriptSaid(t, command));
+  if (named) return actionText(t, named);
   return description ?? pipelineSaid(t, command) ?? scriptSaid(t, command);
 }
 
@@ -1079,7 +1249,7 @@ function pipelineSaid(t: Translate, command: string): string | undefined {
   const text = summary.files.length
     ? t("command.ranOn", { command: summary.programs, target: summary.files.join(", ") })
     : t("tools.ranCommand", { command: summary.programs });
-  return summary.more ? `${text} …` : text;
+  return summary.more ? undefined : text;
 }
 
 /// The line a command row draws when nothing names it, "Ran <line>": a finished call's without the

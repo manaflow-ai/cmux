@@ -28,9 +28,14 @@ Usage:
   web-ota-pointer.py verify --pointer POINTER --keys KEYS [--channel C] [--purpose P [--allow-expired]]
       print the payload
   web-ota-pointer.py newer --pointer NEW --keys KEYS [--current CURRENT]  exit 0 when NEW moves forward
+      [--tree-key K --current-tree-key K2]  exit 3 (keep) when K == K2: the same source tree
   web-ota-pointer.py same-build --pointer NEW --current CURRENT --keys KEYS
-      exit 0 when CURRENT is a signed file of the same build (all but published_at and expires_at
-      equal), 1 otherwise: a write-once file someone published with other contents
+      exit 0 when CURRENT is a signed file of the same build (all but published_at and expires_at, and
+      for a Linux release file sequence and version, equal), 1 otherwise: a write-once file someone
+      published with other contents
+  web-ota-pointer.py sequence --pointer CURRENT --keys KEYS --channel C
+      print the Linux release file's sequence (the stamp in its version for a phase-1 file), 0 when none
+      verifies; newer refuses a Linux release pointer that would not raise it
 
 Signing and verifying run openssl (3.0 or newer: `pkeyutl -rawin` with ed25519).
 """
@@ -57,6 +62,10 @@ LINUX_RELEASE = "cmux-linux-release"
 FILES = "https://files.cmux.com/cmux-tui/"
 # The fields a re-sign of one build changes; same-build ignores them.
 SIGNING_TIME_FIELDS = ("published_at", "expires_at")
+LINUX_RELEASE_SIGNING_FIELDS = ("sequence", "version")
+# `newer --tree-key`: a published file of the same source tree is kept only while it has this long
+# to live (the Cloud machine file lives 30 days, cmux-machine-channel.py LIFETIME).
+TREE_KEEP_MIN_SECONDS = 7 * 24 * 3600
 
 
 def fail(message):
@@ -208,6 +217,20 @@ LINUX_RELEASE_TARGETS = ("x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu"
                          "x86_64-unknown-linux-musl", "aarch64-unknown-linux-musl")
 
 
+# scripts/ci/cmux-machine-channel.py LINUX_RELEASE_NAMES: the binaries a release file may carry, each at its
+# own published name. cmux-tui and cmux-tui-hook are in every file (phase 1); the rest since phase 1b.
+LINUX_RELEASE_NAMES = ("cmux-tui", "cmux-tui-hook", "cmux-tui-acpmux", "cmux-tui-app-host",
+                       "cmux-tui-agent-screen-detection")
+
+
+def release_sequence(value):
+    """A verified Linux release payload's publish order: its `sequence`, or for a phase-1 file the stamp
+    in its version (check_linux_release holds the two to that form)."""
+    if "sequence" in value:
+        return value["sequence"]
+    return int(value["version"].split("+", 1)[1].split(".", 1)[0])
+
+
 def check_linux_release(path, value):
     """The shape of a Linux release payload; Refused on anything an installer must not act on."""
     commit = value.get("commit")
@@ -219,6 +242,14 @@ def check_linux_release(path, value):
     if not isinstance(value.get("channel"), str) or not value["channel"]:
         raise Refused(f"{path}: no channel")
     stamp = time.strftime("%Y%m%d%H%M%S", time.gmtime(value["committed_at"]))
+    # Phase 1b: `sequence` orders the files (the publish time, YYYYMMDDHHMMSS, raised above the channel's
+    # current one) and the version carries it. A phase-1 file has none: its version carries the commit
+    # time's stamp, which is never above a later file's sequence (a publish never precedes its commit).
+    if "sequence" in value:
+        sequence = value["sequence"]
+        if not is_int(sequence) or not 10**13 <= sequence < 10**14 or sequence < int(stamp):
+            raise Refused(f"{path}: bad sequence {sequence!r} (YYYYMMDDHHMMSS, not before the commit's {stamp})")
+        stamp = str(sequence)
     version = value.get("version")
     if not isinstance(version, str) or not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+\+" + stamp + r"\." + commit[:12],
                                                          version):
@@ -244,7 +275,7 @@ def check_linux_release(path, value):
             rest = url[len(prefix):] if isinstance(url, str) and url.startswith(prefix) else ""
             if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._+-]*", rest):
                 raise Refused(f"{path}: {target} {name}: the url {url!r} is not under {prefix}")
-            if name in ("cmux-tui", "cmux-tui-hook") and rest != f"{name}-{target}":
+            if name in LINUX_RELEASE_NAMES and rest != f"{name}-{target}":
                 raise Refused(f"{path}: {target} {name}: the url is not {prefix}{name}-{target}")
             if not re.fullmatch(r"[0-9a-f]{64}", str(entry.get("sha256") or "")):
                 raise Refused(f"{path}: {target} {name}: bad sha256 {entry.get('sha256')!r}")
@@ -271,7 +302,14 @@ def main(argv):
     n.add_argument("--pointer", required=True)
     n.add_argument("--keys", required=True)
     n.add_argument("--current")
-    b = sub.add_parser("same-build")
+    n.add_argument("--tree-key", help="the source tree key of NEW's commit (cmux_tui_tree_key.py)")
+    n.add_argument("--current-tree-key", help="the source tree key of CURRENT's commit; equal to --tree-key: keep")
+    q = sub.add_parser("sequence", help="print the sequence of the Linux release file at --pointer, 0 when none "
+                                        "verifies (missing, unsigned, another purpose): the next signer's floor - 1")
+    q.add_argument("--pointer", required=True)
+    q.add_argument("--keys", required=True)
+    q.add_argument("--channel", required=True)
+    b =sub.add_parser("same-build")
     for name in ("--pointer", "--current", "--keys"):
         b.add_argument(name, required=True)
     args = parser.parse_args(argv[1:])
@@ -314,15 +352,46 @@ def run(args):
         if same_key or new["committed_at"] <= current["committed_at"]:
             print(f"the published pointer ({current['commit'][:12]}) is current; keeping it", file=sys.stderr)
             return SKIP
+        # A Linux release pointer never moves to a lower or equal sequence: an installer refuses a lower one
+        # than it installed, so the channel would freeze for it. The signer asks for the current one + 1
+        # (--min-sequence); a run that lost the race to a newer sequence leaves the channel to the next push.
+        if purpose == LINUX_RELEASE and release_sequence(new) <= release_sequence(current):
+            print(f"the published pointer ({current['commit'][:12]}) has sequence {release_sequence(current)}, "
+                  f"not below this file's {release_sequence(new)}; keeping it", file=sys.stderr)
+            return SKIP
+        # The same source tree (cmux_tui_tree_key.py, a hash of every build input) is the same code:
+        # a newer commit that changed nothing the build reads (a push that adopts an earlier commit's
+        # published tree), or the fat build of the commit whose thin build the channel names, keeps the
+        # published pointer, so no machine updates to identical code. Only while
+        # the published file has more than TREE_KEEP_MIN_SECONDS to live: a machine refuses an
+        # expired file, so a channel that sat on one tree that long is re-signed by the next push.
+        if args.tree_key and args.tree_key == args.current_tree_key:
+            left = current.get("expires_at", float("inf")) - time.time()
+            if left > TREE_KEEP_MIN_SECONDS:
+                print(f"the published pointer ({current['commit'][:12]}) has the same tree {args.tree_key[:12]}; "
+                      "keeping it", file=sys.stderr)
+                return SKIP
+            print(f"the published pointer has the same tree but expires in {int(left)} s; re-signing it",
+                  file=sys.stderr)
+    elif args.command == "sequence":
+        try:
+            value = verified_payload(args.pointer, load_keys(args.keys), args.channel, LINUX_RELEASE,
+                                     check_expiry=False)
+            print(release_sequence(value))
+        except (Refused, OSError) as error:
+            print(f"no current sequence: {error}", file=sys.stderr)
+            print(0)
     elif args.command == "same-build":
         keys = load_keys(args.keys)
         new = verified_payload(args.pointer, keys)
         purpose = new.get("purpose")
         current = verified_payload(args.current, keys, purpose=purpose, check_expiry=False)
-        build = lambda value: {k: v for k, v in value.items() if k not in SIGNING_TIME_FIELDS}
+        # A Linux release file's sequence and the version that carries it are the signing run's too.
+        skip = SIGNING_TIME_FIELDS + (LINUX_RELEASE_SIGNING_FIELDS if purpose == LINUX_RELEASE else ())
+        build = lambda value: {k: v for k, v in value.items() if k not in skip}
         if build(new) != build(current):
             changed = sorted(k for k in set(new) | set(current)
-                             if k not in SIGNING_TIME_FIELDS and new.get(k) != current.get(k))
+                             if k not in skip and new.get(k) != current.get(k))
             fail(f"{args.current} is a different build than {args.pointer} (fields {', '.join(changed)})")
         print(f"{args.current} already holds this build ({current.get('commit', '')[:12]})", file=sys.stderr)
     return 0

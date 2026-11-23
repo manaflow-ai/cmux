@@ -6,18 +6,27 @@ import CmuxNextDesign
 nonisolated enum RenamedSettingKeys {
     /// The old key `path` replaced, if any.
     static func legacyPath(for path: [String]) -> [String]? {
+        // A retired key with `replaced_by` (schemas/settings/retired-keys.json), e.g. the
+        // `remote.ultraMode` toggle `remote.ultra` replaced.
+        if let replaced = SettingsSchema.replacedKeys[path] { return replaced.old }
         // `appearance.background` replaced the paintings-only `appearance.backdropArt`
         // (BackdropSelectionSetting reads it when `appearance.background` is absent).
         if path == BackdropSelectionSetting.configPath { return BackdropArtSetting.configPath }
         // `agentPane.display.sessionInfo.placement` replaced `agentPane.display.inspector.placement`, the
         // panel's old name (Leo, 2026-11-01: "WHY THE F***ING HAS IT STILL BEEN CALLED INSPECTOR").
         if path == AgentPaneDisplaySettingsSchema.sessionInfoPlacementPath { return AgentPaneDisplaySettingsSchema.legacySessionInfoPlacementPath }
+        // `computerUse.mode` replaced the on/off switch `computerUse.enabled` (cmux Computer Use,
+        // 2026-11-05): an old `"enabled": false` reads as mode "off" until the person picks a mode.
+        if path == ComputerUseSettings.modePath { return ComputerUseSettings.enabledPath }
         return WorkspaceRowSetting.legacyPath(for: path)
     }
 
     /// The old key's value as the new row shows it: what the app applies from it.
     static func legacyValue(for path: [String], in root: JSONValue) -> JSONValue? {
         guard let legacy = legacyPath(for: path), let value = root.value(at: legacy) else { return nil }
+        if legacy == ComputerUseSettings.enabledPath { return ComputerUseSettings.legacyMode(value) }
+        // As the retired-keys table maps it; any other old value is the row's default.
+        if let replaced = SettingsSchema.replacedKeys[path] { return replaced.values[value] }
         guard legacy == BackdropArtSetting.configPath else { return value }
         // As BackdropArtSetting parses it: a bundled work (a retired id names its stand-in), else
         // nothing is painted, which the background row calls none.

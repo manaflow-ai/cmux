@@ -32,11 +32,11 @@ public nonisolated enum ChromeTunables {
         "chrome.tabContentLeadingInset", .tabs, "Tab content inset",
         help: "Inset of a tab's icon from its pill's leading edge. Default: the icon's ink as far from the edge as from the pill's top and bottom (6 at compact density).",
         range: 0...24, step: 0.5, unit: .points, code: "ChromeTunables.tabContentLeadingInset") { Metrics.tabIconEvenLeadingInset }
-    // @intent familiar first (Lawrence 2026-10-14): the cx-ag5.12 tight strip (26 pt strip, 22 pt
-    // tabs, icon 4 pt from its title) is opt-in, off by default; it moves to Labs.
+    // @intent familiar first (Lawrence 2026-10-14): the cx-ag5.12 tight strip (icon 4 pt from its title; its 22 pt
+    // tabs are capped at the density's row since Compact took Helium's 20 pt rows, 2026-11-13) is opt-in, off by default.
     public static let compactTabs = Tunable<Bool>.toggle(
         "chrome.tabs.compact", .tabs, "Compact tabs",
-        help: "A tighter tab strip at compact density: 26 pt strip, 22 pt tabs, the icon 4 pt from its title. Off: 28, 24 and 6.",
+        help: "A tighter tab strip at compact density: the icon 4 pt from its title (off: 6), tabs never taller than the density's 20 pt rows.",
         default: false, code: "ChromeTunables.compactTabs")
     /// Native content-supplied controls in the shared tab row; off while the migration series lands.
     public static let nativeRowTools = Tunable<Bool>.toggle(
@@ -88,8 +88,8 @@ public nonisolated enum DesignTunables {
         MotionTunables.all + MetricTunables.metrics.map(\.descriptor) + ChromeTunables.fixed + [Borders.tunable.descriptor] + FocusIndicatorTunables.all
             + StatusIndicatorTunables.all + [LaunchMarkStyle.tunable.descriptor, AttentionHighlightLook.tunable.descriptor, GlassLensMode.tunable.descriptor, TopRowLineLook.tunable.descriptor,
                CornerFlush.tunable.descriptor, TabCornerCurve.tunable.descriptor] + MotionTunables.launchDelays.map(\.descriptor)
-            + ChromeTunables.mainPane + [ChromeTunables.dividerStrength.descriptor] + TerminalDragTunables.all + frameOwnerTunables
-            + ThemeDecorations.tunables + CmuxToastTunables.all
+            + ChromeTunables.mainPane + [ChromeTunables.dividerStrength.descriptor, ChromeTunables.tabRowDivider.descriptor] + TerminalDragTunables.all + frameOwnerTunables
+            + ThemeDecorations.tunables + CmuxToastTunables.all + FloatingPaneTunables.all
     }
 
     #if DEBUG || CMUX_BENCH_HOOKS

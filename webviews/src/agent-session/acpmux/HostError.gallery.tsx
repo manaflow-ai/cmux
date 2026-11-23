@@ -1,9 +1,16 @@
 // l10n-allow-file: gallery fixtures, not shipped UI.
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
 import { Spinner } from "./conversation/icons";
-import { HostError, HostUnavailableLine, HostWaitingLine } from "./HostError";
+import {
+  type ConnectionChipVariant,
+  HostError,
+  HostLineSlot,
+  HostRecoveringLine,
+  HostUnavailableLine,
+  HostWaitingLine,
+} from "./HostError";
 
 type Props = {
   message: string;
@@ -27,7 +34,64 @@ type Props = {
   alternate?: "before" | "one-line" | "disclosure";
   /// The waiting line above the failure line it turns into, to compare their rows.
   pair?: boolean;
+  /// The pane asks again by itself (HostUnavailableLine `selfRetrying`); false: a failure asking
+  /// again cannot clear (a chat too large to open), which keeps its message and action.
+  selfRetrying?: boolean;
+  /// Alternates the gallery weighs for a long outage the pane recovers from by itself (the
+  /// machine hosting the agent rebooting, Leo 2026-11-12), not shipped: the machine named
+  /// (`named`), the time waited (`timed`), or the line before this change (`before`).
+  outage?: "named" | "timed" | "before";
+  /// The connection chip (HostError.tsx ConnectionChip) as a lost link past the 10 s bound draws it
+  /// over a mock transcript and composer: `chip` is shipped, `dot` and `corner` are the alternates;
+  /// `restoring` is the host's "Restoring sessions" as a chip.
+  chip?: ConnectionChipVariant | "restoring";
 };
+
+/// The pane's dock around the host line: three transcript rows above, the composer under. The slot sits
+/// between them, so a chip over it shows where the line is drawn and that the rows never move.
+function MockDock({ children, slotted }: { children: ReactNode; slotted: boolean }) {
+  return (
+    <div className="acpmux-dock" style={{ width: "100%" }}>
+      {[0.9, 0.7, 0.5].map((width) => (
+        <p key={width} style={{ margin: "0 16px 8px", opacity: 0.7, width: `${width * 70}%` }}>
+          A line of the chat above the composer
+        </p>
+      ))}
+      {slotted ? <HostLineSlot>{children}</HostLineSlot> : children}
+      <div
+        style={{
+          height: 44,
+          margin: "0 16px",
+          border: "1px solid color-mix(in srgb, currentColor 18%, transparent)",
+          borderRadius: 12,
+        }}
+      />
+    </div>
+  );
+}
+
+/// The gallery's unshipped long-outage alternates, drawn with the shipped classes.
+function AlternateOutage({ kind }: { kind: NonNullable<Props["outage"]> }) {
+  if (kind === "before")
+    return (
+      <div className="acpmux-host-line-group" role="alert">
+        <div className="acpmux-host-line">
+          <p className="acpmux-host-line-message">Couldn't connect to the agent.</p>
+          <button type="button">Retry</button>
+        </div>
+        <div className="acpmux-host-line">
+          <p className="acpmux-host-line-note">
+            cmux is still running, and your chats are kept. It keeps retrying on its own.
+          </p>
+        </div>
+      </div>
+    );
+  return (
+    <output className="acpmux-host-line">
+      <p className="acpmux-host-line-message">{kind === "named" ? "Reconnecting to box…" : "Reconnecting… 2:41"}</p>
+    </output>
+  );
+}
 
 /// The gallery's unshipped waiting-line alternates, drawn with the shipped classes.
 function AlternateWaiting({ kind, waited }: { kind: NonNullable<Props["alternate"]>; waited: string }) {
@@ -79,45 +143,62 @@ function GalleryHostError({
   waitedMs,
   alternate,
   pair,
+  selfRetrying,
+  outage,
+  chip,
 }: Props) {
   const [retrying, setRetrying] = useState(initialRetrying);
   const [restarting, setRestarting] = useState(false);
+  // What the pane draws out of flow goes in the slot; the alternates and the before lines are rows.
+  const slotted = !pair && !outage && !alternate && !connecting && !harness;
   return (
     <div className="acpmux-shell" data-host-error-fixture>
-      {pair ? (
-        <div style={{ display: "flex", flexDirection: "column", width: "100%" }}>
-          <HostWaitingLine since={0} now={waitedMs ?? 95_000} onRestart={() => undefined} />
-          <HostUnavailableLine message={message} detail={detail} onRetry={() => undefined} />
-        </div>
-      ) : alternate ? (
-        <AlternateWaiting kind={alternate} waited="1:35" />
-      ) : connecting ? (
-        <output className="acpmux-host-line" aria-live="polite">
-          {connecting === "spinner" && <Spinner size={14} loading />}
-          <span className="acpmux-host-line-message">{message}</span>
-        </output>
-      ) : waitedMs !== undefined ? (
-        <HostWaitingLine since={0} now={waitedMs} restarting={restarting} onRestart={() => setRestarting(true)} />
-      ) : harness ? (
-        <HostError
-          message={message}
-          hint={harness.hint}
-          action={harness.action}
-          retrying={retrying}
-          onRetry={() => setRetrying(true)}
-        />
-      ) : (
-        shown && (
-          <HostUnavailableLine
-            message={message}
-            detail={detail}
-            retrying={retrying}
-            onRetry={withRetry ? () => setRetrying(true) : undefined}
-            restarting={restarting}
-            onRestart={withRestart ? () => setRestarting(true) : undefined}
+      <MockDock slotted={slotted}>
+        {chip ? (
+          <HostRecoveringLine
+            relinkingSince={0}
+            restoring={chip === "restoring" ? { waitedMs: 12_000, at: 0 } : undefined}
+            now={12_000}
+            variant={chip === "restoring" ? undefined : chip}
           />
-        )
-      )}
+        ) : pair ? (
+          <div style={{ display: "flex", flexDirection: "column", width: "100%" }}>
+            <HostWaitingLine since={0} now={waitedMs ?? 95_000} onRestart={() => undefined} />
+            <HostUnavailableLine message={message} detail={detail} onRetry={() => undefined} />
+          </div>
+        ) : outage ? (
+          <AlternateOutage kind={outage} />
+        ) : alternate ? (
+          <AlternateWaiting kind={alternate} waited="1:35" />
+        ) : connecting ? (
+          <output className="acpmux-host-line" aria-live="polite">
+            {connecting === "spinner" && <Spinner size={14} loading />}
+            <span className="acpmux-host-line-message">{message}</span>
+          </output>
+        ) : waitedMs !== undefined ? (
+          <HostWaitingLine since={0} now={waitedMs} restarting={restarting} onRestart={() => setRestarting(true)} />
+        ) : harness ? (
+          <HostError
+            message={message}
+            hint={harness.hint}
+            action={harness.action}
+            retrying={retrying}
+            onRetry={() => setRetrying(true)}
+          />
+        ) : (
+          shown && (
+            <HostUnavailableLine
+              message={message}
+              detail={detail}
+              retrying={retrying}
+              onRetry={withRetry ? () => setRetrying(true) : undefined}
+              restarting={restarting}
+              onRestart={withRestart ? () => setRestarting(true) : undefined}
+              selfRetrying={selfRetrying}
+            />
+          )
+        )}
+      </MockDock>
     </div>
   );
 }
@@ -158,7 +239,7 @@ export default componentEntry<Props>({
   id: "agent-pane.host-error",
   title: "Agent host error",
   area: "Agent pane",
-  height: 210,
+  height: 250,
   widths: { narrow: 360, normal: 520, wide: 720 },
   anchors: [{ selector: "[data-host-error-fixture]" }],
   covers: [
@@ -178,28 +259,64 @@ export default componentEntry<Props>({
       },
       note: "While acpmux starts, restarts or is handed off by an update, the pane shows nothing: no card, no spinner, no button. The composer stays usable.",
     },
+    // Leo, 2026-11-12, after the machine hosting the agent rebooted: "the recovery needs to be a lot
+    // better and it shouldn't talk so much bullshit"; "try what? no, it should just automatically
+    // do stuff". Picked: "automatic", one quiet line however long the outage, no button.
+    // Leo, 2026-11-21: "these messages should not be pushing up the text... a small unobtrusive thing
+    // somewhere without needing to block any content ... as a symbol or short thing, not a sentence.
+    // stop layout shifting". Picked: "chip".
+    chip: {
+      props: { message: "", initialRetrying: false, withRetry: false, chip: "chip" },
+      note: "Picked. A link down past 10 s: a dot and one word over the composer's top edge, out of flow, so the rows above never move (noLayoutShift.test.tsx). Nothing before 10 s.",
+    },
+    "chip-dot": {
+      props: { message: "", initialRetrying: false, withRetry: false, chip: "dot" },
+      note: "Alternate, not shipped: only the dot (its words are the label and tooltip). Least to look at, but a symbol alone is easy to miss and asks to be learned.",
+    },
+    "chip-corner": {
+      props: { message: "", initialRetrying: false, withRetry: false, chip: "corner" },
+      note: "Alternate, not shipped: the chip fixed in the pane's top end corner, away from the composer. Never over the text being read, but far from where the person is typing.",
+    },
+    "chip-restoring": {
+      props: { message: "", initialRetrying: false, withRetry: false, chip: "restoring" },
+      note: "The host's Restoring sessions, with its clock, as the same chip.",
+    },
     automatic: {
       props: {
-        message: "acpmux did not answer in time.",
+        message: "Couldn't connect to the agent.",
         initialRetrying: false,
-        withRetry: false,
+        withRetry: true,
       },
-      note: "A recovery still failing after 25 s: one line in the host's words, no recovery steps.",
+      note: "Picked. A recovery still failing after 25 s (a machine rebooting, an agent service starting): only Reconnecting…, the line a short reconnect shows. No Retry, no Details, no reassurance; a message sent meanwhile waits in the composer and goes once the agent is back.",
+    },
+    "outage-named": {
+      props: { message: "", initialRetrying: false, withRetry: false, outage: "named" },
+      note: "Alternate, not shipped: names the machine. Truthful, but a chat's machine is not what the person is waiting on, and the name is long on narrow widths.",
+    },
+    "outage-timed": {
+      props: { message: "", initialRetrying: false, withRetry: false, outage: "timed" },
+      note: "Alternate, not shipped: a running clock. Makes a wait the person cannot shorten feel longer.",
+    },
+    "outage-before": {
+      props: { message: "", initialRetrying: false, withRetry: false, outage: "before" },
+      note: 'Before, not shipped: the failure in the host\'s words, Retry, and two reassurance sentences under it. Leo: "try what?"',
     },
     retry: {
       props: {
-        message: "acpmux did not answer in time.",
+        message: "Update cmux to open this chat, then Retry.",
         initialRetrying: false,
         withRetry: true,
+        selfRetrying: false,
       },
       play: retry,
-      note: "The late line's one small action asks again now.",
+      note: "A failure asking again cannot clear keeps its one small action, which asks again now.",
     },
     retrying: {
       props: {
-        message: "acpmux did not answer in time.",
+        message: "Update cmux to open this chat, then Retry.",
         initialRetrying: true,
         withRetry: true,
+        selfRetrying: false,
       },
     },
     long: {
@@ -208,6 +325,7 @@ export default componentEntry<Props>({
           "cmux cannot reach acpmux: it exited before it was ready. Its log is at /Users/someone/Library/Application Support/com.cmuxterm.app.next/acpmux/daemon.log.",
         initialRetrying: false,
         withRetry: true,
+        selfRetrying: false,
       },
       note: "A long reason is cut to the one line; the whole text is its tooltip.",
     },
@@ -246,16 +364,22 @@ export default componentEntry<Props>({
       props: { message: "Connecting to box…", connecting: "spinner", initialRetrying: false, withRetry: false },
       note: "Alternate, not shipped: a spinner and a muted line. Draws the eye to a wait the person cannot shorten.",
     },
-    // The machine is still unreachable after two minutes: the person may act. One plain line, Retry,
-    // and acpmux's own words only behind Details. Picked: "peer-gone".
+    // The machine is still unreachable after two minutes (rebooting, Leo 2026-11-12): the pane keeps
+    // asking by itself, so the line is only Reconnecting…. Picked: "peer-gone".
     "peer-gone": {
       props: { message: "Can't reach box.", detail: PEER_WORDS, initialRetrying: false, withRetry: true },
-      note: "Picked. A machine unreachable for two minutes: one plain line with Retry; acpmux's own words only behind Details.",
+      note: "Picked. A machine unreachable for two minutes: only Reconnecting…; acpmux's words and Retry never show, since the pane asks again by itself.",
     },
     "peer-gone-details": {
-      props: { message: "Can't reach box.", detail: PEER_WORDS, initialRetrying: false, withRetry: true },
+      props: {
+        message: "Can't reach box.",
+        detail: PEER_WORDS,
+        initialRetrying: false,
+        withRetry: true,
+        selfRetrying: false,
+      },
       play: details,
-      note: "The picked line with Details open: acpmux's own words, muted, under the line.",
+      note: "Before, not shipped: the plain line with Retry and Details open, acpmux's own words under it.",
     },
     "peer-gone-offline": {
       props: { message: "box is offline.", detail: PEER_WORDS, initialRetrying: false, withRetry: true },
@@ -272,9 +396,10 @@ export default componentEntry<Props>({
     },
     "too-large": {
       props: {
-        message: "This chat is too large for this version of cmux to open. Update cmux, then Retry.",
+        message: "Update cmux to open this chat, then Retry.",
         initialRetrying: false,
         withRetry: true,
+        selfRetrying: false,
       },
       note: 'acpmux refused the chat\'s open as larger than one message (message.too_large, an acpmux before #28754): said at once in plain words, never the byte count, and the pane does not ask again on its own; Retry still asks (Leo, 2026-10-31: "this is completely hardlocked bc of message size").',
     },
@@ -283,7 +408,7 @@ export default componentEntry<Props>({
     // be restarting it?" The line now answers both in its own words. Picked: "waiting".
     waiting: {
       props: { message: "", initialRetrying: false, withRetry: false, waitedMs: 95_000 },
-      note: "Picked. acpmux is slow to answer (a loaded Mac): after 25 s the line says how long, and a muted row under it says cmux is still running, the chats are kept and it keeps retrying. Restart agent service is quiet text after the time, where the failure line has Retry: optional, never a filled button.",
+      note: "Picked. acpmux is slow to answer (a loaded Mac): after 25 s the line says how long, nothing under it (Leo 2026-11-12: no reassurance paragraphs). Restart agent service is quiet text after the time: optional, never a filled button.",
     },
     "waiting-restart": {
       props: { message: "", initialRetrying: false, withRetry: false, waitedMs: 95_000 },
@@ -310,7 +435,7 @@ export default componentEntry<Props>({
         withRetry: true,
         pair: true,
       },
-      note: "The waiting line above the failure line it turns into: the same two rows at the same heights, so the change moves nothing above the composer. The raw error stays behind Details.",
+      note: "The waiting line above the line a late recovery turns into: each one row, so the change moves nothing above the composer. The raw error never shows.",
     },
     enable: {
       props: {

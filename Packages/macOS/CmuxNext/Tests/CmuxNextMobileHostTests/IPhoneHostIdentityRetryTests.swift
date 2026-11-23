@@ -34,7 +34,7 @@ import Testing
         let host = IPhoneHostService(loginKeychain: LoginKeychain(), pairedStore: MobileHostPairedStore(seal: MobileHostMemoryPairingSeal()))
         host.identityRetryClock = clock
         host.dependencies = .init(executable: URL(fileURLWithPath: "/nonexistent/cmux-mobile-host"),
-                                  baseURL: URL(string: "https://mobile.invalid")!, stackProjectID: "test",
+                                  baseURL: URL(string: "https://mobile.invalid")!, stackProjectID: "test", buildSpace: .nightly,
                                   stateDirectory: directory, accessToken: { _ in throw CancellationError() },
                                   daemonSocket: { "/nonexistent/daemon.sock" }, acpmux: { nil }, fileRoots: { [] },
                                   computerName: { "Mac" }, macIdentity: { try reads.read($0) })

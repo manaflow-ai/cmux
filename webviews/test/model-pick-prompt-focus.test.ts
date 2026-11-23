@@ -20,6 +20,7 @@ import {
   highlightOtherModel,
   finishModelClick,
 } from "./support/compactModelMenu";
+import { COMPOSER_MD, MODEL_PICKER } from "../src/agent-session/acpmux/composerSelectors";
 
 await requireBrowserLane("model-pick-prompt-focus.test.ts", async () => {
   setDefaultTimeout(280_000);
@@ -53,7 +54,7 @@ await requireBrowserLane("model-pick-prompt-focus.test.ts", async () => {
       name: "chat composer",
       entry: "agent-pane.composer",
       variant: "quiet-chips",
-      prompt: ".acpmux-composer-box .acpmux-md",
+      prompt: COMPOSER_MD,
     },
     { name: "New Tab composer", entry: "agent-pane.new-tab", variant: "reasoning-chip", prompt: ".nt-field" },
   ];
@@ -79,7 +80,7 @@ await requireBrowserLane("model-pick-prompt-focus.test.ts", async () => {
     await vite?.close();
   });
 
-  const MODEL = ".acpmux-model .acpmux-picker-button";
+  const MODEL = MODEL_PICKER;
   const QUICK = COMPACT_MODEL_MENU;
   const QUICK_ROW = OTHER_MODEL_ROW;
 

@@ -47,18 +47,49 @@ export const defaultSyntaxPalettes: Record<"light" | "dark", Record<string, stri
 export const SYNTAX_MIN_CONTRAST = 3;
 
 /// The color for the first palette slot that has one (host palette, then the default palette),
-/// blended toward `foreground` just enough to reach `minimumContrast` against `background`.
+/// blended toward `foreground` just enough to reach `minimumContrast` against every one of
+/// `backgrounds` (one opaque theme color, or a see-through window's tint over each desktop it may
+/// show, appearance.ts `syntaxBackdrops`).
 export function syntaxPaletteColor(
   palette: Record<string, string | undefined>,
   slots: readonly number[],
   type: "light" | "dark",
-  background: string,
+  backgrounds: string | readonly string[],
   foreground: string,
   minimumContrast = SYNTAX_MIN_CONTRAST,
 ): string {
   const hostColor = slots.map((slot) => palette[String(slot)]).find(isColorString);
   const color = hostColor ?? slots.map((slot) => defaultSyntaxPalettes[type][String(slot)]).find(isColorString);
-  return color == null ? foreground : withMinimumContrast(color, background, foreground, minimumContrast);
+  return color == null ? foreground : withMinimumContrastOn(color, [backgrounds].flat(), foreground, minimumContrast);
+}
+
+/// How much of the plain text's own contrast a code color must keep where the text itself reads
+/// under `SYNTAX_MIN_CONTRAST` (a faint see-through tint over a light desktop): asking more would
+/// turn every hue into the text color.
+const SYNTAX_SHARE_OF_TEXT = 2 / 3;
+
+/// `color` unchanged when it reaches the floor on every one of `backgrounds`; otherwise the least
+/// blend toward `toward` that does. The floor is `minimumContrast`, or, on backgrounds where `toward`
+/// (the text color) itself reads fainter, ``SYNTAX_SHARE_OF_TEXT`` of what the text gets there.
+export function withMinimumContrastOn(
+  color: string,
+  backgrounds: readonly string[],
+  toward: string,
+  minimumContrast: number,
+): string {
+  const rgb = parseHex(color);
+  const target = parseHex(toward);
+  const grounds = backgrounds.map(parseHex).filter((ground): ground is RGB => ground != null);
+  if (rgb == null || target == null || grounds.length === 0) return color.trim();
+  const floors = grounds.map((ground) => Math.min(minimumContrast, contrast(target, ground) * SYNTAX_SHARE_OF_TEXT));
+  const reads = (candidate: RGB) => grounds.every((ground, index) => contrast(candidate, ground) >= floors[index]!);
+  if (reads(rgb)) return toHex(rgb);
+  for (let step = 1; step <= 20; step++) {
+    // Measured as the hex it becomes, so rounding never drops it below the floor.
+    const mixed = parseHex(toHex(mix(rgb, target, step / 20))) ?? target;
+    if (reads(mixed)) return toHex(mixed);
+  }
+  return toHex(target);
 }
 
 /// `color` unchanged when it reaches `minimumContrast` on `background`; otherwise the least

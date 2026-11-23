@@ -172,7 +172,7 @@ fn process_runs(pid: i64) -> bool {
 }
 
 /// The executable a process runs, where the platform says.
-fn process_executable(pid: i64) -> Option<PathBuf> {
+pub(super) fn process_executable(pid: i64) -> Option<PathBuf> {
     #[cfg(target_os = "linux")]
     {
         std::fs::read_link(format!("/proc/{pid}/exe")).ok()

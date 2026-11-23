@@ -42,6 +42,8 @@ final class AgentPageChats {
     /// The app's Cloud account sign-in, awaited by an inline first-send recovery card, and whether it is signed in now.
     var cloudSignIn: (@MainActor () async -> Bool)?
     var cloudSignedIn: (@MainActor () -> Bool)?
+    var cloudSetUp: (@MainActor (CloudSetup.Action, String) async -> Bool)?
+    var gitHub: AgentPaneGitHub? // the new chat folder picker's GitHub section (``AgentPaneGitHub``)
     /// Another machine picked for a Cloud chat whose first send has not run (``CloudStartChat``'s repick), given the pane.
     var cloudRepick: (@MainActor (AgentPaneView?, AgentPaneCloudRepick) async -> [String: Any])?
     /// The chats Cloud starts opened, by their tab's key, for this run of the App: a repick moves only one
@@ -128,6 +130,8 @@ final class AgentPageChats {
         }
         view.model.onCloudSignIn = cloudSignIn
         view.model.onCloudSignedIn = cloudSignedIn
+        view.model.onCloudSetUp = cloudSetUp
+        view.useGitHub(gitHub)
         if let run = cloudRepick {
             view.model.onCloudRepickChat = { @MainActor [weak view] (repick: AgentPaneCloudRepick) async -> [String: Any] in
                 await run(view, repick)
@@ -148,13 +152,15 @@ final class AgentPageChats {
         tabs.pageChats.cloudStart = CloudStartChat.runner(tabs, services: services)
         tabs.pageChats.cloudSignIn = { [weak services] in await services?.cloud.auth.signInEndedOnCancel() ?? false }
         tabs.pageChats.cloudSignedIn = { [weak services] in services?.cloud.auth.isSignedIn ?? false }
+        CloudStartChat.wireSetup(services)
+        tabs.pageChats.cloudSetUp = { [weak services] action, family in await services?.cloud.setup.setUp(action, family: family) ?? false }
         tabs.pageChats.cloudRepick = CloudStartChat.repickRunner(tabs, services: services)
+        tabs.pageChats.gitHub = .live(CloudGitHubPicker(auth: services.cloud.auth, identity: services.cloud.installIdentity)) { LinkRouter.shared.open($0) }
         tabs.pageChats.cloudReservation = { [weak services] request in
             guard let services else { return AgentPaneReply.failure(code: "cloud_disabled", message: "cloud_disabled") }
             if !request.release, services.cloud.mayCallCloud { CloudStartChat.warmSpare(services); Task { await services.cloud.capability.prefetch(services.cloud.installIdentity) } } // never awaited (task-owner: fire and forget): Send's gesture ticket waits only on the reserve; the pre-approval while they type
             return await request.run(allowed: !services.registry.disabledFeatures.contains(.cloud) && services.cloud.mayCallCloud, binary: services.cloud.move.cli,
-                                     configuration: services.cloud.configuration, auth: services.cloud.auth, install: { try await services.cloud.installIdentity.installToken() },
-                                     reserved: { CloudStartChat.warmSpare(services, claimed: $0) }) // the reserve's own machine gets the login copy (never awaited)
+                                     configuration: services.cloud.configuration, auth: services.cloud.auth, install: { try await services.cloud.installIdentity.installToken() }) { [weak services] in services?.cloud.spareReadiness.prime($0, dials: true) } // no login copy onto the reserve's machine (its agents reach models through its edge); keyed, linked and dialed before Send
         }
         tabs.pageChats.cloudEnvironment = { [weak services] request in
             guard let services else { return AgentPaneReply.failure(code: "cloud_disabled", message: "cloud_disabled") }
