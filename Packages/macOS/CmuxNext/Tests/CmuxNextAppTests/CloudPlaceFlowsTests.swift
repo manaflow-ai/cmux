@@ -330,4 +330,37 @@ import Testing
         let plain = try #require(place.placeJSON(session: "s", onCloud: false, cloudName: nil).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] })
         #expect(plain["blocked"] == nil && plain["holders"] == nil)
     }
+
+    /// A hybrid start's state rides on `place.start` as Rust answers it, read once per drivers' folder change (RFD 0078).
+    @Test func placeCarriesTheHybridStart() throws {
+        let defaults = UserDefaults(suiteName: "CloudPlaceFlowsTests.\(UUID().uuidString)")!
+        let calls = Calls()
+        let place = CloudPlaceFlows(defaults: defaults, core: { operation, request in
+            guard operation == "cloud_hybrid_start" else { return nil }
+            calls.add()
+            let ask = try? JSONSerialization.jsonObject(with: request) as? [String: Any]
+            return ask?["session"] as? String == "s" ? Data(#"{"start":{"cloud":"booting","sinceMs":5}}"#.utf8) : Data("{}".utf8)
+        }, clock: { 1 })
+        #expect(place.placeJSON(session: "s", onCloud: false, cloudName: nil).flatMap(Self.start) == nil) // no state folder: no read
+        #expect(calls.count == 0)
+        let sessions = FileManager.default.temporaryDirectory.appending(path: "hybrid-\(UUID().uuidString)/sessions")
+        defer { place.watchStarts(state: nil) }
+        let start = try #require(place.placeJSON(session: "s", onCloud: false, cloudName: nil, starts: sessions).flatMap(Self.start))
+        #expect(start["cloud"] as? String == "booting")
+        #expect(start["sinceMs"] as? Int == 5)
+        _ = place.placeJSON(session: "s", onCloud: false, cloudName: nil)
+        #expect(calls.count == 1) // the same revision reads once
+        #expect(place.placeJSON(session: "t", onCloud: false, cloudName: nil).flatMap(Self.start) == nil) // no hybrid start: no key
+    }
+
+    final class Calls: @unchecked Sendable {
+        private let lock = NSLock()
+        private var n = 0
+        var count: Int { lock.withLock { n } }
+        func add() { lock.withLock { n += 1 } }
+    }
+
+    private static func start(_ data: Data) -> [String: Any]? {
+        (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["start"] as? [String: Any]
+    }
 }
