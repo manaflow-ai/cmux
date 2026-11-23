@@ -86,6 +86,7 @@ class InstallGitHooksTests(unittest.TestCase):
             "scripts/webviews_bun_version.py",
             "scripts/check-webviews-bun-version.sh",
             *self.installed_sources(),
+            *self.copied_input_files(),
         ):
             source, target = SOURCE / relative, root / relative
             if not source.exists():
@@ -105,6 +106,20 @@ class InstallGitHooksTests(unittest.TestCase):
         """
         text = (SOURCE / INSTALLER).read_text(encoding="utf-8")
         return sorted(set(re.findall(r"^\s*install\s+-m\s+\d+\s+(scripts/\S+)", text, re.MULTILINE)))
+
+    @staticmethod
+    def copied_input_files():
+        """Every file (not folder) scripts/git-hooks/checks-copy-inputs names, by its source path.
+
+        a37b6194810 named scripts/ci/generated_files_guard.py and ci_process_tree.py there, the fixture never
+        copied them, and every pull request's hook tests failed on "No such file"; reading the list keeps the two
+        in step. Folders stay out: the fixture copies the few scripts/cmux-next files it needs by name.
+        """
+        path = SOURCE / "scripts/git-hooks/checks-copy-inputs"
+        if not path.exists():
+            return []
+        entries = (line.strip().split(" -> ")[0].strip() for line in path.read_text(encoding="utf-8").splitlines())
+        return sorted({entry for entry in entries if entry and not entry.startswith("#") and not entry.endswith("/")})
 
     def git(self, *args, check=True):
         return subprocess.run(["git", "-C", str(self.repo), *args], env=self.env,
