@@ -3082,6 +3082,8 @@ class Orphan:
     job_id: int | None = None
     # find_superseded_queued(): cancelled only once its pull request's head has moved on.
     superseded_only: bool = False
+    # Every job of the run queued with no runner past the orphan age asked for a macOS runner (is_macos_job()).
+    mac_wait_only: bool = False
 
 
 def find_orphans(
@@ -3138,6 +3140,9 @@ def find_orphans(
                 found = Orphan(run, evidence, str(job.get("name") or ""), queued_at, running,
                                job.get("id") if isinstance(job.get("id"), int) else None)
         if found is not None:
+            waiting = [job for job in jobs if never_assigned(job)]
+            if waiting and all(is_macos_job(job) for job in waiting):
+                found = dataclasses.replace(found, mac_wait_only=True)
             orphans.append(found)
             continue
         created = parse_time(run.get("created_at"))
@@ -3591,6 +3596,34 @@ class OrphanDecision:
     note: str = ""
 
 
+# --- a base tier run waiting for a Mac keeps its place -----------------------------------------------------------
+# 2026-11-22: base tier run 45066513743's `cmux-next generated files` job waited 2h23m with no runner on
+# glaeda-gui-std-xcode-26.6 while 6 newer jobs there got one, and the orphan pass cancelled it at 22:57:18Z (sweep
+# 45079169808). Its re-run waited for the next sweep, and every sweep for the next 45 minutes stopped before
+# sweeping (a fresh snapshot, then a spent GITHUB_TOKEN budget), so it was never re-run. A job waiting for a runner
+# burns no minutes, and a cancel plus a new run only restarts its wait at the back of the Mac queue. The base tier
+# kick already keeps such a run in place (cmux#50856, scripts/ci/cmux_next_base_tier.py KEEP_QUEUED). So the
+# orphan pass now keeps a `cmux-next base tier · <sha>` dispatch whose only waiting jobs wait for a Mac runner: the
+# summary lists it as kept, with its evidence and age, and it is never cancelled or re-dispatched. The repository
+# variable CMUX_NEXT_BASE_TIER_KEEP_QUEUED = '0' (the same off switch as the kick's) cancels it again.
+BASE_TIER_KIND = "cmux-next base tier"
+BASE_TIER_PATH = ".github/workflows/cmux-next.yml"
+BASE_TIER_BRANCH = "feat-cmux-next"
+
+
+def keep_waiting_base_tier(env: Mapping[str, str] | None = None) -> bool:
+    """CMUX_NEXT_BASE_TIER_KEEP_QUEUED: on unless '0'."""
+    return ((os.environ if env is None else env).get("CMUX_NEXT_BASE_TIER_KEEP_QUEUED") or "").strip() != "0"
+
+
+def waiting_base_tier(orphan: Orphan) -> bool:
+    """A base tier dispatch whose only jobs waiting with no runner wait for a Mac runner."""
+    run = orphan.run
+    return (orphan.job_name is not None and orphan.mac_wait_only and run.get("event") == "workflow_dispatch"
+            and run.get("path") == BASE_TIER_PATH and run.get("head_branch") == BASE_TIER_BRANCH
+            and dispatch_kind(run) == BASE_TIER_KIND)
+
+
 def build_orphan_plan(
     orphans: Sequence[Orphan],
     prs_by_branch: Mapping[str, Sequence[Mapping[str, Any]]],
@@ -3598,8 +3631,12 @@ def build_orphan_plan(
     max_cancels: int,
     exclude_ids: set[int],
     now: dt.datetime,
+    keep_base_tier: bool | None = None,
 ) -> list[OrphanDecision]:
     """Which orphans to cancel this sweep, under their own cap.
+
+    A base tier run waiting for a Mac runner (waiting_base_tier()) is kept and reported, unless KEEP_BASE_TIER
+    (default: keep_waiting_base_tier()) is off.
 
     Lost assignments go first, oldest first: they are the ones holding a
     pull request's required check or a concurrency group today. Runs stuck in
@@ -3627,12 +3664,19 @@ def build_orphan_plan(
         offset = int(now.timestamp() // 600) % len(ghosts)
         ghosts = ghosts[offset:] + ghosts[:offset]
 
+    if keep_base_tier is None:
+        keep_base_tier = keep_waiting_base_tier()
     cancels = 0
     for orphan in lost + ghosts:
         run = orphan.run
         protected = orphan_protected_reason(run)
         if protected:
             decisions.append(OrphanDecision(orphan, "skip", f"{protected}; left for a human"))
+            continue
+        if keep_base_tier and waiting_base_tier(orphan):
+            decisions.append(OrphanDecision(orphan, "skip", "starved base tier run waiting for a Mac runner; it "
+                                            "keeps its place and burns nothing while it waits "
+                                            "(CMUX_NEXT_BASE_TIER_KEEP_QUEUED=0 cancels it)"))
             continue
         if orphan.running_jobs:
             # Siblings still running are output someone may read, and
