@@ -13,6 +13,16 @@ import UIKit
         #expect(SlashSuggestionsBound(ceiling: 120, bottom: 420).maxHeight == 300)
     }
 
+    /// Leo, 2026-11-22: "there's like a secondary animation that shifts as it recalculates to
+    /// shrink stuff". The bound comes from the card, laid out before the list exists, so the
+    /// list's first frame already has its final height: never the fallback, then the room.
+    @Test func theCardTopGivesTheRoomBeforeTheListIsLaidOut() {
+        let bound = SlashSuggestionsBound(ceiling: 120, cardTop: 428, gap: 8)
+        #expect(bound.bottom == 420)
+        #expect(bound.maxHeight == 300)
+        #expect(bound.maxHeight != SlashSuggestionsBound.fallbackHeight)
+    }
+
     @Test func neverLessThanOneRow() {
         // Landscape with the keyboard up: less room than a row.
         #expect(SlashSuggestionsBound(ceiling: 120, bottom: 140).maxHeight == SlashSuggestionsBound.minRowHeight)
