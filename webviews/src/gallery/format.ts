@@ -43,6 +43,7 @@ import type {
   HostLists,
   IntegrationsState,
   KeysState,
+  HubState,
   SharesState,
   TailnetState,
   ModelsState,
@@ -80,6 +81,8 @@ export type SettingsPageVariant = VariantBase & {
   doctorTreatment?: DoctorTreatment;
   /** Settings > Keys fixture state (requests and keys); default the mock's. */
   keys?: KeysState;
+  /** Settings > Integrations fixture state; default the mock's (a waiting Stripe refund). */
+  hub?: HubState;
   /** Settings > Server > This Mac on Your Tailnet fixture state (null: no tailnet); default signed out. */
   tailnet?: TailnetState | null;
   /** Settings > Models fixture state (null: a host without the part); default the mock's Mac logins. */
