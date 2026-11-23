@@ -171,6 +171,7 @@ class StandIn(http.server.ThreadingHTTPServer):
         self.cv = threading.Condition()
         self.requests = 0
         self.foreign: dict[str, int] = {}  # user texts no bench prompt sent -> times seen
+        self.markers: dict[str, int] = {}  # Claude Code's own "[Request interrupted ...]" texts
         self.answered: list[str] = []      # what each main request was answered with
         self.hold_after_step = 0           # hold the answer to this step's result until released
         self.held = False                  # a request is being held now
@@ -199,6 +200,8 @@ class StandIn(http.server.ThreadingHTTPServer):
         if not any(t.get("name") == "Bash" for t in body.get("tools") or []):
             return "side", text_events("ok")
         msgs = body.get("messages") or []
+        if msgs and any((b.get("text") or "").startswith("[SUGGESTION MODE") for b in blocks_of(msgs[-1])):
+            return "side", text_events("ok")  # Claude Code's next-prompt suggestion, not the turn
         last_prompt, at = None, -1
         for i, m in enumerate(msgs):
             if m.get("role") != "user":
@@ -208,8 +211,9 @@ class StandIn(http.server.ThreadingHTTPServer):
                 if b.get("type") == "text" and t.startswith(PREFIX):
                     last_prompt, at = t, i
                 elif b.get("type") == "text" and t.strip() and not t.lstrip().startswith("<system-reminder>"):
+                    seen = self.markers if t.startswith("[Request interrupted") else self.foreign
                     with self.cv:
-                        self.foreign[t[:2000]] = self.foreign.get(t[:2000], 0) + 1
+                        seen[t[:2000]] = seen.get(t[:2000], 0) + 1
         if last_prompt is None:
             return "none", text_events("ok")
         kind = last_prompt[len(PREFIX):].split()[0]
@@ -376,12 +380,15 @@ def scrubbed_env(scratch: str, name: str, stand_url: str) -> dict:
         if k.startswith(("ANTHROPIC_", "OPENAI_", "CLAUDE_CODE_", "CMUX_", "ACPMUX_", "CODEX_")) or k == "CLAUDECODE":
             env.pop(k)
     root = os.path.join(scratch, name)
-    for d in ("home", "claude-config", "xdg-config", "acpmux"):
-        os.makedirs(os.path.join(root, d), exist_ok=True)
+    private_dir(root)
+    for d in ("home", "xdg-config", "acpmux"):
+        private_dir(os.path.join(root, d))
     env.update({
         "HOME": os.path.join(root, "home"), "XDG_CONFIG_HOME": os.path.join(root, "xdg-config"),
         "ANTHROPIC_BASE_URL": stand_url, "ANTHROPIC_API_KEY": "sk-ant-bench-placeholder",
-        "CLAUDE_CONFIG_DIR": os.path.join(root, "claude-config"), "DISABLE_AUTOUPDATER": "1",
+        # No CLAUDE_CONFIG_DIR: a move carries Claude Code's transcript from HOME/.claude only
+        # (native.rs `locate`), as on a person's machine.
+        "DISABLE_AUTOUPDATER": "1",
         "DISABLE_TELEMETRY": "1", "DISABLE_ERROR_REPORTING": "1",
         "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1", "DISABLE_AUTO_COMPACT": "1",
         "ANTHROPIC_MODEL": MODEL, "ANTHROPIC_SMALL_FAST_MODEL": MODEL,
@@ -520,27 +527,37 @@ def move(src: Rpc, dst: Rpc, sid: str, cwd: str, interrupt: bool, dst_sock: str)
 
 
 OUTPUT_KINDS = {"agent_message_chunk", "agent_thought_chunk", "tool_call", "tool_call_update"}
+# What a chat "accepts": the agent's output and a person's prompt. Bookkeeping the daemon writes on
+# its own (usage_stats, titles, status) is not the chat answering anyone.
+ACCEPTED_SRC = OUTPUT_KINDS | {"user_message", "turn_started"}
+ACCEPTED_DST = {"user_message", "turn_started"}
 
 
 def event_times(src: Rpc, dst: Rpc, sid: str, tsid: str) -> dict:
-    """freeze_ms and first_output_ms from the daemons' own logs (`at`, ms since the epoch)."""
+    """From the daemons' own logs (`at`, ms since the epoch, one machine's clock):
+    freeze_ms        the source's last accepted event (agent output, or a prompt taken) before its
+                     `transfer_out` -> the target's first prompt taken (`user_message` /
+                     `turn_started`: the continuation, or the probe a person sends) after
+                     `transferred_in`
+    first_output_ms  the same start -> the target's first agent output (text or a tool call)"""
     out = events(src, sid, kinds=["transfer_out"])
     if not out:
         return {"freeze_ms": None, "first_output_ms": None, "freeze_note": "no transfer_out on the source"}
     seq = out[-1]["seq"]
-    before = [e for e in events(src, sid, beforeSeq=seq, limit=50) if e.get("seq", 0) < seq]
-    last_src = max((e["at"] for e in before), default=None)
+    before = [e for e in events(src, sid, beforeSeq=seq, limit=400)
+              if e.get("seq", 0) < seq and e.get("kind") in ACCEPTED_SRC]
     landed = events(dst, tsid, kinds=["transferred_in"])
-    if not landed or last_src is None:
+    if not landed or not before:
         return {"freeze_ms": None, "first_output_ms": None, "freeze_note": "no transferred_in on the target"}
-    after = events(dst, tsid, afterSeq=landed[-1]["seq"], limit=2000)
-    first = next((e for e in after if e.get("dir") != "mux"), after[0] if after else None)
-    first_out = next((e for e in after if e.get("kind") in OUTPUT_KINDS), None)
+    last = before[-1]
+    after = events(dst, tsid, afterSeq=landed[-1]["seq"], limit=5000)
+    first = next((e for e in after if e.get("kind") in ACCEPTED_DST), None)
+    first_out = next((e for e in after if e.get("kind") in OUTPUT_KINDS and e.get("dir") == "in"), None)
     return {
-        "freeze_ms": None if first is None else first["at"] - last_src,
-        "first_output_ms": None if first_out is None else first_out["at"] - last_src,
-        "freeze_from": before[-1].get("kind") if before else None,
-        "freeze_to": None if first is None else first.get("kind"),
+        "freeze_ms": None if first is None else first["at"] - last["at"],
+        "first_output_ms": None if first_out is None else first_out["at"] - last["at"],
+        "freeze_from": last.get("kind"), "freeze_to": None if first is None else first.get("kind"),
+        "transferred_in_after_ms": landed[-1]["at"] - last["at"],
     }
 
 
@@ -574,8 +591,9 @@ def build_session(side: Side, size_mb: float, log) -> tuple[str, str, int]:
     while size < size_mb * 1e6:
         i += 1
         turn(side.rpc, sid, f"{PREFIX}FILL {i}", timeout=900)
-        size = tree_bytes(side.env["ACPMUX_HOME"], side.env["CLAUDE_CONFIG_DIR"])
-        log(f"fill {i}: store {size / 1e6:.1f} MB ({time.perf_counter() - t0:.0f}s)")
+        size = tree_bytes(os.path.join(side.env["ACPMUX_HOME"], "sessions"),
+                          os.path.join(side.env["HOME"], ".claude", "projects"))
+        log(f"fill {i}: chat store (acpmux sessions + Claude transcript) {size / 1e6:.1f} MB ({time.perf_counter() - t0:.0f}s)")
     return sid, cwd, size
 
 
@@ -585,6 +603,18 @@ def marks_reruns(marks: str) -> int:
     except FileNotFoundError:
         return 0
     return len(lines) - len(set(lines))
+
+
+def fifo_writer(fifo: str) -> dict:
+    """Opens `fifo` for writing on a thread; `opened` is set once a reader has it open."""
+    out = {"opened": threading.Event(), "fd": None}
+
+    def run():
+        out["fd"] = os.open(fifo, os.O_WRONLY)
+        out["opened"].set()
+
+    threading.Thread(target=run, daemon=True).start()
+    return out
 
 
 def unblock(fifo: str):
@@ -600,7 +630,7 @@ def unblock(fifo: str):
 
 def run_move(kind: str, args, scratch: str, log) -> dict:
     run_dir = os.path.join(scratch, kind)
-    os.makedirs(run_dir)
+    private_dir(run_dir)
     marks, fifo = os.path.join(run_dir, "marks"), os.path.join(run_dir, "fifo")
     os.mkfifo(fifo)
     fill = int(args.fill_mb * 1e6)
@@ -624,16 +654,17 @@ def run_move(kind: str, args, scratch: str, log) -> dict:
             if kind == "turn":
                 src.stand.wait_for(lambda: src.stand.held, 300, "held step-2 request")
             else:
-                # Step 2's Bash call is running: Claude Code reported it in progress.
-                src.stand.wait_for(lambda: "step-2" in src.stand.answered, 300, "step-2 tool call")
-                src.rpc.wait(lambda m: m.get("method") == "session/update"
-                             and (m["params"].get("update") or {}).get("sessionUpdate") in ("tool_call", "tool_call_update")
-                             and (m["params"]["update"].get("status") in ("in_progress", "pending")),
-                             300, mark, "step-2 in progress")
+                # Step 2's Bash call runs: its `cat FIFO` opened the FIFO, which is the moment this
+                # blocking open for writing returns. The fd stays open (the call stays blocked)
+                # until the move is done.
+                writer = fifo_writer(fifo)
+                if not writer["opened"].wait(300):
+                    raise TimeoutError("step 2's Bash call never started")
         r = move(src.rpc, dst.rpc, sid, dst_cwd, interrupt, dst.daemon.sock)
         # The source's stale model request and blocked step end now; nothing on the source runs on.
         src.stand.release.set()
-        unblock(fifo)
+        if kind == "interrupt":
+            os.close(writer["fd"])
         tsid = r.pop("target_session")
         t_fin = r.pop("_t_finished")
         if kind == "idle":
@@ -648,6 +679,7 @@ def run_move(kind: str, args, scratch: str, log) -> dict:
             "move": kind, "cut": "interrupt" if interrupt else ("tool-boundary" if kind != "idle" else "idle"),
             "store_bytes_on_disk": store, "turn_finished": finished,
             "continuation_msgs": len(dst.stand.foreign),
+            "interrupt_markers": len(dst.stand.markers),
             "rerun_tool_calls": marks_reruns(marks),
             "target_answers": dst.stand.answered[before_target:][:12],
         })
@@ -661,6 +693,12 @@ def run_move(kind: str, args, scratch: str, log) -> dict:
                 s.close()
             except Exception as e:  # teardown never hides the run's own result
                 log(f"teardown {s.stand.side}: {e}")
+
+
+def private_dir(path: str):
+    """The daemon refuses a state root under a directory others may write (umask 002 hosts)."""
+    os.makedirs(path, exist_ok=True)
+    os.chmod(path, 0o700)
 
 
 def main():
@@ -679,7 +717,7 @@ def main():
     args.acpmux = os.path.abspath(args.acpmux)
     log = lambda s: print(f"[hmb] {s}", file=sys.stderr, flush=True)
     scratch = args.keep or tempfile.mkdtemp(prefix="hmb-", dir="/tmp")
-    os.makedirs(scratch, exist_ok=True)
+    private_dir(scratch)
     version = subprocess.run([args.acpmux, "--version"], capture_output=True, text=True).stdout.strip()
     failed = False
     try:
