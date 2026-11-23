@@ -29,20 +29,7 @@ impl Opened {
 }
 
 pub(super) async fn open(target: &Target, remote: &RemoteDaemon) -> Result<Opened> {
-    // This machine as the target (`--machine local`): its own daemon, no forward.
-    let (forward, dst) = if target.ssh.is_empty() {
-        (None, Client::connect(Path::new(&remote.socket)).await?)
-    } else {
-        let forward = Forward::open(&target.ssh, &remote.socket).await?;
-        let dst = Client::connect(&forward.local).await?;
-        (Some(forward), dst)
-    };
-    let init = dst
-        .request(
-            method::INITIALIZE,
-            json!({"protocolVersion": 1, "clientInfo": {"name": "acpmux-move"}}),
-        )
-        .await?;
+    let (forward, dst, init) = super::transfer::connect_target(&target.ssh, &remote.socket).await?;
     Ok(Opened { forward, dst, init })
 }
 

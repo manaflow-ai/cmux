@@ -22,7 +22,9 @@
 //!    the most free takes it with a warning. Each host passed over is printed with why. Chats
 //!    in one checkout go to one host.
 //! 3. The chat is frozen here (`transfer_begin`), so nothing changes its folder or history
-//!    while the rest is made; any step below that fails gives it back (`transfer_abort`).
+//!    while the rest is made; any step below that fails gives it back (`transfer_abort`). When
+//!    both daemons list pre-copy, its history is staged on the target first, with no freeze, and
+//!    the freeze moves only what followed (`transfer::precopy`, `hub/transfer_precopy.rs`).
 //! 4. The folder (`plan_folder`, planned again now that the chat is frozen): a checkout's branch
 //!    is pushed to `origin` (never forced) and becomes a fresh worktree of that branch on the
 //!    target (`wt new` there when it has `wt`, else a fresh clone of its own under
@@ -108,15 +110,17 @@ async fn begin_waiting(
     name: &str,
     watch: Option<Value>,
     args: &MoveArgs,
+    staged: Option<&super::transfer::Staged>,
 ) -> Result<super::transfer::Begun> {
     // Neither flag: a running turn moves with the chat, between its tool calls.
     if !args.interrupt && !args.after_turn {
-        let live = super::transfer::begin_move_live(src, id, watch, super::transfer::TOOL_WAIT);
+        let live =
+            super::transfer::begin_move_live(src, id, watch, super::transfer::TOOL_WAIT, staged);
         return waiting(name, "freezing the chat for its move", live).await;
     }
     let running = (args.interrupt, args.after_turn);
     let bound = args.after_turn.then_some(args.turn_timeout);
-    let begin = super::transfer::begin_move(src, id, watch, running, bound);
+    let begin = super::transfer::begin_move(src, id, watch, running, bound, staged);
     let Some(bound) = bound else {
         return waiting(name, "freezing the chat for its move", begin).await;
     };
@@ -628,14 +632,29 @@ async fn move_steps(
         Source::Peer { .. } => None,
     };
     let name = o.name.clone();
-    let begun = begin_waiting(src, &id, &name, watch, args).await?;
+    // The target's daemon is the one asked above, before the freeze: the chat's history is staged
+    // there first when both daemons can (`transfer::precopy`), so the freeze moves only what
+    // follows.
+    let target_ask::Opened { forward, dst, init: dst_init } = opened;
+    let staged = waiting(
+        &name,
+        "copying its history to the target",
+        super::transfer::precopy(src, &dst, &dst_init, &id),
+    )
+    .await;
+    let begun = match begin_waiting(src, &id, &name, watch.clone(), args, staged.as_ref()).await {
+        // The log changed under the prefix (a compaction): given back, and moved in full.
+        Err(e) if super::transfer::refused_diverged(&e) => {
+            begin_waiting(src, &id, &name, watch, args, None).await?
+        }
+        begun => begun?,
+    };
     let prepared = waiting(
         &name,
         "making its folder on the target",
         prepare(&cwd, &home, &target, &remote, args, source, o),
     )
     .await;
-    let target_ask::Opened { forward, dst, init: dst_init } = opened;
     let record = match prepared {
         Ok(record) => record,
         Err(e) => {

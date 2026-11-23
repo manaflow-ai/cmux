@@ -41,7 +41,12 @@ import { subscribeIconFamily } from "./icons/iconPack";
 import { cmuxLinkLook } from "./chips/cmuxLinkLook.experiment";
 import { experimentArm } from "../../experiments/experiment";
 import type { SlashNames, SlashTrigger } from "./slashCommands";
-import { MINIMAL_SCROLLER_ATTRIBUTE, SETTLING_SCROLLER_ATTRIBUTE } from "../../scrollers";
+import {
+  MINIMAL_SCROLLER_ATTRIBUTE,
+  SETTLING_SCROLLER_ATTRIBUTE,
+  SHOWN_SCROLLER_ATTRIBUTE,
+  followShownScrollerFade,
+} from "../../scrollers";
 import {
   Editor,
   defaultValueCtx,
@@ -921,8 +926,13 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
       else dom.setAttribute(name, attribute);
   };
   // Written only when it changes: each write is an attribute mutation, and this runs on every edit.
+  // A draft of blank lines (Shift+Enter in an empty prompt) is not empty: the placeholder stayed on
+  // the first line while the caret went down the lines under it (Leo 2026-11-22: "the caret gets
+  // shot down past the composer as it goes"). More than one block hides it too.
   const showPlaceholder = (markdown: string) => {
-    const hide = markdown !== "";
+    const doc = view.current?.state.doc;
+    const hide =
+      markdown !== "" || (doc !== undefined && (doc.childCount > 1 || (doc.firstChild?.content.size ?? 0) > 0));
     if (empty.current && empty.current.hidden !== hide) empty.current.hidden = hide;
   };
 
@@ -1622,6 +1632,9 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
         : undefined,
     [],
   );
+  // Its thumb fades in while the draft scrolls and out at rest, as the transcript's does (scrollers.ts
+  // SHOWN_SCROLLER_ATTRIBUTE; Leo 2026-11-22: "the thumb only appears when it's relevant").
+  useEffect(() => (wrapper.current ? followShownScrollerFade(wrapper.current) : undefined), []);
   // In the composer's box, its scrollbar runs down the box's right edge, clear of the actions
   // (composerScrollLane.ts).
   useEffect(
@@ -1854,9 +1867,10 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
   return (
     <div
       className={`acpmux-md-field ${className ?? ""}`}
-      // A long draft's thin scrollbar (scrollers.ts): kept while it overflows, or under the fade
-      // shown while it scrolls and while the pointer is near its edge.
-      {...{ [MINIMAL_SCROLLER_ATTRIBUTE]: "" }}
+      // A long draft's thin scrollbar (scrollers.ts): the transcript's shown scroller, its lane always
+      // reserved and its thumb shown only while the draft scrolls or the pointer is near its lane; the
+      // minimal scroller's inset track and no thumb while the field settles.
+      {...{ [SHOWN_SCROLLER_ATTRIBUTE]: "", [MINIMAL_SCROLLER_ATTRIBUTE]: "" }}
       style={{ "--acpmux-md-fade-band": `${FADE_BAND_PX}px` } as React.CSSProperties}
       ref={(element: MarkdownFieldElement | null) => {
         wrapper.current = element;
