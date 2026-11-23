@@ -568,6 +568,8 @@ class LinuxReleasePoint(unittest.TestCase):
     def test_a_retry_after_the_release_file_gives_the_channel_that_file(self):
         # The first run wrote the per-commit file and stopped before the channel; the retry signs another
         # sequence (and so another version). The channel must name the version the commit's file holds.
+        if type(self) is not LinuxReleasePoint:
+            self.skipTest("a Linux release file's sequence")
         self.assert_ok(self.point(self.payload(sequence=20261109080000)))
         first = self.served(self.RELEASE)
         (self.r2 / self.POINTER).unlink()
