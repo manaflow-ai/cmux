@@ -174,11 +174,15 @@ impl ScaleUp {
     }
 
     /// The daemon's own, running real providers.
-    pub(crate) fn daemon() -> &'static ScaleUp {
-        static ONE: OnceLock<ScaleUp> = OnceLock::new();
-        ONE.get_or_init(|| {
-            ScaleUp::new(Arc::new(|p, bound| Box::pin(run_provider(p, bound))), COOLDOWN)
-        })
+    /// Only the run state is the daemon's one copy (so every create shares the one run and
+    /// its cooldown); the runner is made here, never held in a static a test could replace.
+    pub(crate) fn daemon() -> ScaleUp {
+        static STATE: OnceLock<Arc<StdMutex<State>>> = OnceLock::new();
+        ScaleUp {
+            state: STATE.get_or_init(Arc::default).clone(),
+            runner: Arc::new(|p, bound| Box::pin(run_provider(p, bound))),
+            cooldown: COOLDOWN,
+        }
     }
 
     /// Starts `plan` on `owner` (the Hub's scope: its close ends the run)
