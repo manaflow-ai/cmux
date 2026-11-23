@@ -153,7 +153,9 @@ fn kind_schema(row: &Row) -> Value {
             // `system:<absolute path>` (a macOS wallpaper), `file:<absolute path>`
             // or `folder:<absolute path>` (not `/` alone), or a `youtube:` video.
             let path = json!({ "type": "string", "pattern": "^((system|file):/|folder:/.)" });
-            return json!({ "anyOf": [choice(choices), path, youtube(), shader()] });
+            // `live:<id>` or `live:<extension>/<id>` (a live wallpaper).
+            let live = json!({ "type": "string", "pattern": super::backdrop::LIVE_PATTERN });
+            return json!({ "anyOf": [choice(choices), path, live, youtube(), shader()] });
         }
         Validation::Domain(DomainKind::BackdropPicture) => return picture(),
         Validation::Domain(DomainKind::BackdropSchedule) => {
@@ -174,6 +176,26 @@ fn kind_schema(row: &Row) -> Value {
                 "type": "object",
                 "properties": { "rotate": rotate, "folder": folder, "off": off },
                 "additionalProperties": false,
+            });
+        }
+        Validation::Domain(DomainKind::BackdropPlacement) => {
+            return json!({
+                "type": "object",
+                "propertyNames": { "pattern": "\\S" },
+                "additionalProperties": {
+                    "type": "string",
+                    "pattern": "^[ \\t]*(fill|fit|center|stretch)([ \\t]+[0-9.]+[ \\t]+[0-9.]+([ \\t]+[0-9.]+)?)?[ \\t]*$",
+                },
+            });
+        }
+        Validation::Domain(DomainKind::BackdropRecents) => {
+            let listed = json!({ "type": "string", "enum": super::backdrop::selection_choices() });
+            let path = json!({ "type": "string", "pattern": "^((system|file):/|folder:/.)" });
+            return json!({
+                "type": "array",
+                "maxItems": super::backdrop::RECENTS_CAP,
+                "uniqueItems": true,
+                "items": { "anyOf": [listed, path, youtube()] },
             });
         }
         Validation::Domain(DomainKind::ChatRoots) => {
