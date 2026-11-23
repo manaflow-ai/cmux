@@ -15,8 +15,10 @@ impl Coordinator {
         after: AfterTeams,
         fx: &mut Vec<Effect>,
     ) {
-        self.active_team_refresh_count += 1;
+        self.team_read_counter = self.team_read_counter.wrapping_add(1);
+        self.pending_team_reads.insert(self.team_read_counter);
         fx.push(Effect::RefreshTeams(TeamRefreshTicket {
+            id: self.team_read_counter,
             generation,
             mutation_generation: self.team_mutation_generation,
             list_generation: self.team_list_generation,
@@ -31,7 +33,12 @@ impl Coordinator {
         result: Result<TeamList, AuthFailure>,
         fx: &mut Vec<Effect>,
     ) {
-        self.active_team_refresh_count = self.active_team_refresh_count.saturating_sub(1);
+        // Each read is answered once: a repeated answer (or one for a read
+        // this coordinator never issued) would end another read's in-flight
+        // count and apply its list or hook twice.
+        if !self.pending_team_reads.remove(&ticket.id) {
+            return;
+        }
         let current = ticket.generation == self.session_generation;
         match result {
             Ok(list) if current => {

@@ -7,6 +7,8 @@
 #     --arg=brain=hermes|openclaw|default --arg=claude_url=http://HOST:PORT \
 #     [--arg=brain_url=http://HOST:PORT] [--arg=model=M] [--arg=claude=X.Y.Z] \
 #     [--arg=responsive=trivial,lookup] [--arg=runs=5] --timeout 7200
+# A failed check keeps the brain homes' logs in artifacts/brain-logs.tgz (submit with
+# --artifact artifacts/brain-logs.tgz; get them with `cmux-ci artifact --failed JOB OUT`).
 # runs=N (1-10): N proofs in a row, each on a new scratch Chief home; prints one BRAIN-PASSRATE
 # line per check (passes/N) and exits 1 when any check failed in any run.
 # responsive=CLASSES: after the proof, one round of measure/responsive.py (the
@@ -102,7 +104,12 @@ if [[ "$brain" == hermes ]]; then
   # the way its developer setup runs it. Its lock supports only Python 3.14 (uv installs it here).
   git clone -q --filter=blob:none https://github.com/NousResearch/hermes-agent "$work/hermes-src"
   git -C "$work/hermes-src" checkout -q "$hermes_commit"
-  (cd "$work/hermes-src" && "$work/uv-aarch64-apple-darwin/uv" sync -q --frozen --python 3.14 --extra acp)
+  # `mcp` too: its pyproject sets uv default-groups = [] and the acp extra has no MCP client, so
+  # without it Hermes skips every session MCP server and logs that only at debug level (the cmux
+  # tool check failed 10 of 10 runs, cmux-ci steps 63b0626cfa4b and 21d276d75848). The official
+  # installer installs [all], which includes mcp.
+  (cd "$work/hermes-src" && "$work/uv-aarch64-apple-darwin/uv" sync -q --frozen --python 3.14 --extra acp --extra mcp)
+  "$work/hermes-src/.venv/bin/python" -c "import mcp" || { echo "BRAIN hermes has no MCP client (import mcp failed)" >&2; exit 1; }
   ln -s "$work/hermes-src/.venv/bin/hermes" "$work/home/.local/bin/hermes"
   echo "BRAIN-BIN hermes $("$work/home/.local/bin/hermes" --version 2>&1 | head -1)"
   "$work/home/.local/bin/hermes" acp --check || { echo "BRAIN hermes acp --check failed" >&2; exit 1; }
@@ -147,11 +154,17 @@ status=0
 for n in $(seq 1 "$runs"); do
   rs=0
   python3 Native/OptChat/optchat-chief/measure/chief_driver.py --scenario brain \
-    --out "$work/run-$n" --bins "$work/bin" --turn-timeout 900 \
+    --out "$work/run-$n" --bins "$work/bin" --turn-timeout 900 --keep-brain-logs "$PWD/artifacts/brain-logs/run-$n" \
     --engine-harness "$engine_harness" --engine-model "$model" --brain-base-url "$brain_url" ${fallback_flag[@]+"${fallback_flag[@]}"} \
     --env "ANTHROPIC_BASE_URL=$claude_url" --env "ANTHROPIC_API_KEY=sk-ant-placeholder-the-router-signs" \
     --env "CLAUDE_CONFIG_DIR=$work/home/.claude" --env "DISABLE_AUTOUPDATER=1" > "$work/driver-$n.log" 2>&1 &
   driver_pid=$!
+  # One line a minute while the driver runs: its output goes to a file, and the controller stops a
+  # measurement after 45 min with no log line (cmux-ci step 4bd3963570e5, 5 runs of about 12 min).
+  while kill -0 "$driver_pid" 2>/dev/null; do
+    echo "BRAIN-RUN $n of $runs: running, last: $(grep -E '\] BRAIN' "$work/driver-$n.log" | tail -1 | cut -c1-120)"
+    wait_s=0; while [[ $wait_s -lt 60 ]] && kill -0 "$driver_pid" 2>/dev/null; do sleep 5; wait_s=$((wait_s + 5)); done
+  done
   wait "$driver_pid" || rs=$?
   driver_pid=""
   echo "BRAIN-RUN $n of $runs: driver exit $rs"
@@ -163,6 +176,12 @@ for n in $(seq 1 "$runs"); do
     status=1
   fi
 done
+# A step's artifact is one regular file (a folder is not uploaded): the kept brain logs go into
+# artifacts/brain-logs.tgz. `cmux-ci artifact --failed JOB OUT` downloads it for a failed step.
+# The file exists on a pass too (an empty folder then): a declared --artifact that is missing
+# fails the step (cmux-ci step c20dd02bb8d8, 40 of 40 checks passed).
+mkdir -p artifacts/brain-logs
+tar -czf artifacts/brain-logs.tgz -C artifacts brain-logs && echo "BRAIN logs: artifacts/brain-logs.tgz"
 # Pass rate per check over the runs (a check missing from a run's log counts as a failure).
 cat "$work"/driver-*.log | python3 -I -c '
 import re, sys

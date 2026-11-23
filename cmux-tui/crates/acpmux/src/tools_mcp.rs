@@ -45,6 +45,25 @@ pub const SERVERS: [(&str, &str); 5] = [
     (crate::acpmux_mcp_names::SERVER_NAME, "acpmux-mcp"),
 ];
 
+/// A server env key: `1` when the harness already has the server's instructions in its system
+/// prompt (a Claude Code chat acpmux starts, `agent_tools::AgentTools::instructions_in_prompt`).
+/// `initialize` then gives none, so the chat never reads them twice: Claude Code puts MCP
+/// instructions after its last cached system block, so each new chat wrote them to the prompt
+/// cache again, while the appended system prompt is the prefix every chat shares.
+pub const INSTRUCTIONS_IN_PROMPT_ENV: &str = "ACPMUX_MCP_INSTRUCTIONS_IN_PROMPT";
+
+/// The instructions server `name` of [`SERVERS`] gives at `initialize` with the env
+/// [`crate::tool_env`] reads (the acpmux server's depend on its tool allowlist), whatever
+/// [`INSTRUCTIONS_IN_PROMPT_ENV`] says. None for a server without any, or not one of these.
+pub(crate) fn instructions_of(name: &str) -> Option<String> {
+    match name {
+        crate::offer_mcp::SERVER_NAME => Some(crate::offer_mcp::INSTRUCTIONS.to_owned()),
+        crate::subsession_mcp::SERVER_NAME => Some(crate::subsession_mcp::instructions()),
+        crate::acpmux_mcp_names::SERVER_NAME => crate::acpmux_mcp::env_instructions(),
+        _ => None,
+    }
+}
+
 /// Whether server `name` run as `args` is one of [`SERVERS`] as acpmux runs it: its own
 /// command word last.
 pub fn owns(name: &str, args: &[String]) -> bool {
@@ -162,6 +181,9 @@ where
 {
     let session =
         crate::tool_env::var(session_env).ok_or_else(|| anyhow!("{session_env} is not set"))?;
+    // Already in the harness's system prompt: said once ([`INSTRUCTIONS_IN_PROMPT_ENV`]).
+    let instructions = instructions
+        .filter(|_| crate::tool_env::var(INSTRUCTIONS_IN_PROMPT_ENV).as_deref() != Some("1"));
     let daemon = daemon.clone();
     let call = boxed(move |session, params| {
         let (daemon, call) = (daemon.clone(), call.clone());
@@ -300,8 +322,15 @@ pub(crate) fn answer(servers: &[Served], message: &Value) -> Answer {
         }
         "tools/list" => Answer::Now(response(&id, json!({"tools": served.tools}))),
         _ => {
+            // An argument under another name than the schema's (`session` for `name`) is
+            // read as the schema's, and the result says so (`mcp_args.rs`).
+            let renamed = crate::mcp_args::normalize(&served.tools, &mut params);
             let call = (served.call)(served.session.clone(), params);
-            Answer::Call(Box::pin(async move { response(&id, call.await) }))
+            Answer::Call(Box::pin(async move {
+                let mut result = call.await;
+                crate::mcp_args::tell(&mut result, &renamed);
+                response(&id, result)
+            }))
         }
     }
 }
@@ -341,6 +370,48 @@ mod tests {
         // A process of one server needs no name.
         let one = [server("cmux-forum")];
         assert_eq!(pick(&one, &mut json!({})).unwrap().name, "cmux-forum");
+    }
+
+    /// A server whose instructions are already in the harness's system prompt gives none at
+    /// `initialize`; otherwise it gives exactly what that prompt would carry (`instructions_of`).
+    #[test]
+    fn a_server_leaves_out_instructions_already_in_the_system_prompt() {
+        let env = |flag: bool| {
+            let mut env: std::collections::HashMap<String, String> = [
+                crate::offer_mcp::SESSION_ENV,
+                crate::subsession_mcp::SESSION_ENV,
+                crate::acpmux_mcp_names::SESSION_ENV,
+            ]
+            .into_iter()
+            .map(|k| (k.to_owned(), "s".to_owned()))
+            .collect();
+            if flag {
+                env.insert(INSTRUCTIONS_IN_PROMPT_ENV.to_owned(), "1".to_owned());
+            }
+            env
+        };
+        let makers: [fn(&Arc<Daemon>) -> Result<Served>; 2] =
+            [crate::offer_mcp::served, crate::subsession_mcp::served];
+        for make in makers {
+            let given = crate::tool_env::sync_scope(env(false), || {
+                let served = make(&Arc::default()).unwrap();
+                (served.instructions, instructions_of(served.name))
+            });
+            assert!(given.0.is_some());
+            assert_eq!(given.0, given.1);
+            let left_out =
+                crate::tool_env::sync_scope(env(true), || make(&Arc::default()).unwrap());
+            assert_eq!(left_out.instructions, None, "{}", left_out.name);
+        }
+        // The acpmux server's follow its tool allowlist: none without the tools they name.
+        let only_send = std::collections::HashMap::from([(
+            crate::agent_tools::MCP_TOOLS_ENV.to_owned(),
+            "acpmux_send".to_owned(),
+        )]);
+        let name = crate::acpmux_mcp_names::SERVER_NAME;
+        assert_eq!(crate::tool_env::sync_scope(only_send, || instructions_of(name)), None);
+        let all = crate::tool_env::sync_scope(Default::default(), || instructions_of(name));
+        assert!(all.is_some_and(|t| t.contains("bg_start")));
     }
 
     #[test]

@@ -72,7 +72,8 @@ export const BUNDLED_FAMILY: Record<BundledChatFont, string> = {
   hanken: "cmux Hanken Grotesk",
   atkinson: "cmux Atkinson Hyperlegible Next",
 };
-const isBundled = (font: ChatUiFont): font is BundledChatFont => font in BUNDLED_FAMILY;
+export const isBundledChatFont = (font: ChatUiFont): font is BundledChatFont => font in BUNDLED_FAMILY;
+const isBundled = isBundledChatFont;
 
 /// The system font's stack, desktop.css's `--font-ui`.
 const SYSTEM = "-apple-system, BlinkMacSystemFont, system-ui, sans-serif";

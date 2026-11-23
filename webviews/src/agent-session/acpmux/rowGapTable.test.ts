@@ -73,21 +73,24 @@ const draw = (table: GapTable): string => {
 const SHIPPED = `
 from \\ to   prompt   reply  footer  worked     run    peer  bgTask   group   bgRun bgReply  bgLine
 prompt          32      32      32      32      32      32      32      32      32      32      32
-reply           32      24       8      16      16      16      16      16      32      32      16
+reply           32      24       8      24      16      24      16      16      32      32      16
 footer          32      24      24      24      24      24       8      24      24      32       8
-worked          32       0       0       0       0       0       0       0       0       0       0
+worked          32       0       0       0       0      16       0       0       0       0       0
 run             32      16       8      16       0       0       0       0       0      32       0
 peer            32      16       8      16       0       0       0       0       0      32       0
 bgTask          32      16       8      16       0       0       0       0       0      32       0
 group           32      16       8      16       0       0       0       0       0      32       0
 bgRun           32      16       8      16       0       0       0       0       0      16       0
-bgReply         32      24       8      16      16      16      16      16      16      24      16
+bgReply         32      24       8      24      16      24      16      16      16      24      16
 bgLine          32      16       8      16       0       0       0       0       0      32       0`.trim();
 
 // Leo's captures: "Sent to", another agent's line and "Worked for" ran together (run/peer -> worked was 0), and a
 // blank band stood between a closed or opened group and the background turn's rows under it (any line -> bgRun was
 // 32). The rule: one-line rows of a run sit flush on the 22 pitch, whichever turn made them; "Worked for", a turn's
 // header, stands the run gap over a run; the turn and block gaps stay around prose, prompts and footers.
+// A reply over "Worked for" or another agent's line (not a steer) is the turn before's last reply over the turn that
+// line opened: the block gap, as under a footer (transcriptGrid.ts MARK_TOPS_TURN; Leo, 2026-11-21: "it is noticeably
+// bad when you start a new working for whatever and there is no space before").
 test("the shipped gap table: every adjacent kind pair", () => {
   expect(draw(under("shipped", gapTable))).toBe(SHIPPED);
 });

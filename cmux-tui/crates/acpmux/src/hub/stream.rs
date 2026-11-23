@@ -102,6 +102,11 @@ fn has_text(content: &Value) -> bool {
     }
 }
 
+/// The characters of `text` that are not whitespace: what a reply said (`unstored_turn_worked`).
+fn visible_chars(text: &str) -> usize {
+    text.chars().filter(|c| !c.is_whitespace()).count()
+}
+
 /// This daemon run's mark in every reply segment id (`reply_segment`): segment numbers start
 /// again after a restart, and an id minted before it must never name a reply minted after.
 fn segment_boot() -> &'static str {
@@ -206,6 +211,9 @@ impl Hub {
             .flatten();
         {
             let mut st = session.stream.lock().unwrap();
+            if matches!(kind, "agent_thought_chunk" | "tool_call" | "plan") {
+                st.agent_worked = true;
+            }
             match kind {
                 "agent_message_chunk" => {
                     let id = update.get("messageId").and_then(Value::as_str);
@@ -306,6 +314,7 @@ impl Hub {
             return;
         };
         let mut st = session.stream.lock().unwrap();
+        st.reply_chars = st.reply_chars.saturating_add(visible_chars(text));
         if st.trailing_overflow {
             return;
         }
@@ -317,6 +326,19 @@ impl Hub {
         }
         st.trailing_text.push_str(text);
         st.trailing_seqs.push(rec.seq);
+    }
+
+    /// Whether a turn that failed with `error` did work (`SessionMeta::claude_unstored_work`):
+    /// its agent thought, planned or called a tool, or streamed reply text other than `error`
+    /// itself (a harness that streamed its error as a message, `turn_error_fields`).
+    pub(super) fn unstored_turn_worked(&self, session: &Session, error: &str) -> bool {
+        let st = session.stream.lock().unwrap_or_else(|e| e.into_inner());
+        let echoed = !st.trailing_overflow
+            && !st.trailing_seqs.is_empty()
+            && !error.trim().is_empty()
+            && st.trailing_text.trim() == error.trim();
+        let echo = if echoed { visible_chars(&st.trailing_text) } else { 0 };
+        st.agent_worked || st.reply_chars > echo
     }
 
     /// Forget per-turn stream state when a turn starts.

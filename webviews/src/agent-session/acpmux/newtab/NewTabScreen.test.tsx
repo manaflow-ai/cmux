@@ -3,7 +3,6 @@ import { act, StrictMode, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { noChat, session } from "../../../gallery/fixtures/acpmux";
-import { showsFirstRunStarters } from "./FirstRunStarters";
 import { translateNewTab } from "./strings";
 import { ClosedList } from "./ClosedList";
 import { NewTabScreen } from "./NewTabScreen";
@@ -16,7 +15,7 @@ import type { MarkdownFieldElement } from "../MarkdownField";
 import { proseMirrorGlobals } from "../promptFieldTesting";
 import { inlineToken, type ComposerAttachment } from "../attachments";
 import { translate } from "../i18n";
-import { CMUX_PASS_THROUGH } from "../cmuxCommands";
+import { CMUX_PASS_THROUGH, CmuxCommandRefused } from "../cmuxCommands";
 import { seedLastPicks } from "../lastPick";
 import { EMPTY_OMNIBAR } from "../omnibar";
 import { CloudTypingPrewarm, CLOUD_TYPING_PREWARM_REFRESH_MS, cloudTypingMachineID } from "../cloudTypingPrewarm";
@@ -25,6 +24,7 @@ import { setNativeHost } from "../native";
 import { resetToastAvoidanceReports } from "../toastAvoidance";
 import { settleReact } from "../../../../test/support/domTeardown";
 import { Popover } from "../../../ui/Popover";
+import { noteReplaced } from "../sessionIndex";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -439,7 +439,7 @@ test("in the stage layout the composer card at the page's foot is what the app's
     await act(async () => root!.render(<NewTabScreen {...firstRunProps} />));
     await nextTurns();
     expect(container.querySelector('[data-layout="stage"] .nt-composer')).toBeTruthy();
-    expect(reports.at(-1)).toEqual([{ left: 40, top: 620, right: 860, bottom: 710 }]);
+    expect(reports.at(-1)).toEqual([{ left: 40, top: 620, right: 860, bottom: 710, zoom: 1 }]);
     // The page goes: the toasts stop avoiding a composer that left.
     act(() => root!.unmount());
     root = undefined;
@@ -580,74 +580,22 @@ test("a fresh New Tab exposes the no-project path in its environment card", asyn
   expect(container.querySelector('.nt-env .nt-stage-row[aria-pressed="true"]')).toBeTruthy();
 });
 
-test("first run: the starters show only once acpmux answered with an agent and no chat exists", () => {
-  expect(showsFirstRunStarters(noChat([]), { allChats: false })).toBe(true);
-  // Before acpmux answers, an empty chat list proves nothing about a first run.
-  expect(showsFirstRunStarters(noChat([], { catalog: [] }), { allChats: false })).toBe(false);
-  expect(showsFirstRunStarters(noChat([session({ sessionId: "s1" })]), { allChats: false })).toBe(false);
-  expect(showsFirstRunStarters(noChat([]), { allChats: true })).toBe(false);
-  // A cached catalog can come before the chats are listed: no starters until they are.
-  expect(showsFirstRunStarters(noChat([]), { allChats: false, chatsPending: true })).toBe(false);
-  // Chats the host indexed on this device show as recent chats: that Mac is not on a first run.
-  expect(showsFirstRunStarters(noChat([]), { allChats: false, deviceChats: 2 })).toBe(false);
-});
-
-test("while the chats are still being listed, New Tab draws no starters", async () => {
+// First-run cuts (Lawrence 2026-11-20, "drastically simplify"; David Beyer 2026-11-20: "make the initial
+// experience beautiful and simple"): a first run's New Tab is the composer and its chips, with no "Try
+// one" starter rows under it. The placeholder already says what to type.
+test("a first run's New Tab draws the composer alone: no starter rows under it", async () => {
   await act(async () => {
-    root!.render(<NewTabScreen {...firstRunProps} template="minimal" snapshot={noChat([])} chatsPending />);
+    root!.render(<NewTabScreen {...firstRunProps} template="minimal" snapshot={noChat([])} />);
   });
   await promptField();
   expect(container.querySelector(".nt-starters")).toBeNull();
-});
-
-test("a starter picked in shell mode leaves shell mode, so Return asks the agent", async () => {
-  let shellRuns = 0;
-  await act(async () => {
-    root!.render(
-      <NewTabScreen {...firstRunProps} template="minimal" snapshot={noChat([])} onShell={() => void shellRuns++} />,
-    );
-  });
-  const field = await typePrompt("!");
-  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
-  expect(container.querySelector(".nt-screen[data-shell]")).toBeTruthy();
-  const fix = container.querySelector<HTMLButtonElement>('.nt-starter[data-starter="fix"]')!;
-  await act(async () => fix.click());
-  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
-  expect(container.querySelector(".nt-screen[data-shell]")).toBeNull();
-  expect(promptValue(field)).toBe(translateNewTab("starters.fix"));
-  await press(field, "Enter");
-  expect(shellRuns).toBe(0);
-});
-
-test("a first-run starter fills the composer, sends nothing, and the rows stay while it is edited", async () => {
-  let asked = 0;
-  await act(async () => {
-    root!.render(
-      <NewTabScreen {...firstRunProps} template="minimal" snapshot={noChat([])} onAsk={() => void asked++} />,
-    );
-  });
-  const field = await promptField();
-  const rows = [...container.querySelectorAll<HTMLButtonElement>(".nt-starters .nt-starter")];
-  expect(rows.map((row) => row.textContent)).toEqual([
-    translateNewTab("starters.explain"),
-    translateNewTab("starters.fix"),
-    translateNewTab("starters.review"),
-  ]);
-  await act(async () => rows[1]!.click());
-  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
-  expect(promptValue(field)).toBe(translateNewTab("starters.fix"));
-  expect(asked).toBe(0);
-  expect(container.querySelectorAll(".nt-starters .nt-starter")).toHaveLength(3);
-});
-
-test("with a chat on this Mac, New Tab draws no starters", async () => {
-  await act(async () => {
-    root!.render(
-      <NewTabScreen {...firstRunProps} template="minimal" snapshot={noChat([session({ sessionId: "s1" })])} />,
-    );
-  });
-  await promptField();
-  expect(container.querySelector(".nt-starters")).toBeNull();
+  // Nothing follows the composer on the page: no rows of prompts to try under it.
+  const composer = container.querySelector(".nt-composer")!;
+  expect(composer).not.toBeNull();
+  let next = composer.nextElementSibling;
+  while (next && next.textContent?.trim() === "") next = next.nextElementSibling;
+  expect(next).toBeNull();
+  expect(container.textContent).not.toContain("Try one");
 });
 
 test("No folder, then a remote machine with a folder: location and send name that folder", async () => {
@@ -1885,34 +1833,6 @@ test("Open in Profile…: a search no profile is named makes one with that name;
   expect(made).toEqual([["https://example.com", "Client X"]]);
 });
 
-test("a first-run starter picked in the profile search leaves it, so Return asks the agent", async () => {
-  const made: unknown[] = [];
-  let asked = 0;
-  await act(async () => {
-    root!.render(
-      <NewTabScreen
-        {...firstRunProps}
-        template="minimal"
-        snapshot={noChat([])}
-        omnibar={profileOmnibar}
-        onAsk={() => void asked++}
-        onOpenInProfile={(url, id) => made.push([url, id])}
-        onOpenInNewProfile={(url, name) => made.push([url, name])}
-      />,
-    );
-  });
-  const field = await typePrompt("example.com");
-  await press(field, "ArrowDown");
-  await press(field, "Enter");
-  const fix = container.querySelector<HTMLButtonElement>('.nt-starter[data-starter="fix"]')!;
-  await act(async () => fix.click());
-  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
-  expect(promptValue(field)).toBe(translateNewTab("starters.fix"));
-  await press(field, "Enter");
-  expect(made).toEqual([]);
-  expect(asked).toBe(1);
-});
-
 test("Open in New Profile from the address's rows makes a profile with the default name", async () => {
   const made: [string, string | undefined][] = [];
   await act(async () => {
@@ -2363,4 +2283,89 @@ test("a key in the New Tab field renders the chips no more", async () => {
     renders.length - before,
     `chips rendered again for 4 keys, props that changed: ${JSON.stringify(changed)}`,
   ).toBe(0);
+});
+
+// User 2026-11-20: "resuming claude sessions needs to 'just work'". `/resume <id>` in the New Tab field
+// offered `file:///resume%20<id>` on top; a click on it opened a file tab, and a refused resume said "This
+// command requires an active chat" instead of why. The Resume row leads; Return and a click on it run the
+// one /resume path, and its refusal says what the app said.
+test("/resume <id> resumes through the cmux command, by Return or the Resume row, and a refusal says why", async () => {
+  const id = "3224ed6e-c1e0-4741-bc35-60295c2878fb";
+  const commands: unknown[][] = [];
+  const opens: unknown[] = [];
+  const asks: unknown[] = [];
+  let answer: () => Promise<void> = () => Promise.resolve();
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        {...firstRunProps}
+        snapshot={noChat()}
+        onAsk={(...args) => void asks.push(args)}
+        onOpen={(url: string) => void opens.push(url)}
+        onCmuxCommand={(command, args) => (commands.push([command.action, args]), answer())}
+      />,
+    );
+  });
+  let field = await typePrompt(`/resume ${id}`);
+  const rows = [...document.querySelectorAll<HTMLElement>(".nt-row")];
+  expect(rows[0]?.dataset.type).toBe("resume");
+  expect(rows.some((row) => row.textContent?.includes("file://"))).toBe(false);
+  await press(field, "Enter");
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(commands).toEqual([["resume", id]]);
+  // A pasted session id: its Resume row, clicked, runs the same command.
+  field = await typePrompt(id);
+  const resume = document.querySelector<HTMLElement>('.nt-row[data-type="resume"]')!;
+  await act(async () =>
+    resume.dispatchEvent(new dom!.window.MouseEvent("mousedown", { bubbles: true, cancelable: true })),
+  );
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(commands).toEqual([
+    ["resume", id],
+    ["resume", id],
+  ]);
+  // No chat has the id: the page says the app's reason and keeps what was typed.
+  const unknown = "deadbeef-0000-4000-8000-000000000000";
+  answer = () => Promise.reject(new CmuxCommandRefused(`No chat on this Mac has the session ${unknown}.`));
+  field = await typePrompt(`/resume ${unknown}`);
+  await press(field, "Enter");
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(container.textContent).toContain(`No chat on this Mac has the session ${unknown}.`);
+  expect(container.textContent).not.toContain(translate("composer.cmuxUnavailable"));
+  expect(promptValue(field)).toBe(`/resume ${unknown}`);
+  expect(opens).toEqual([]);
+  expect(asks).toEqual([]);
+});
+
+// Leo, 2026-11-18: "Why should non visible thing even affect the renderer thread anyways?" Minimal
+// (an unset template) draws no chat list, so another chat's event must not make it read every chat:
+// counted field reads, not time, so a busy runner cannot fail it.
+test("a Minimal page reads only the changed chat when another chat changes", async () => {
+  let reads = 0;
+  const counted = (fields: Parameters<typeof session>[0]) =>
+    new Proxy(session(fields), {
+      get(target, key, receiver) {
+        if (key !== "sessionId") reads++;
+        return Reflect.get(target, key, receiver);
+      },
+    });
+  const sessions = Array.from({ length: 2_000 }, (_, index) =>
+    counted({
+      sessionId: `s${index}`,
+      cwd: `/Users/me/code/p${index % 40}`,
+      updatedAt: 1_000 + index,
+      ...(index % 4 === 1 ? { spawnedBy: `s${index - 1}` } : {}),
+    }),
+  );
+  await act(async () =>
+    root!.render(<NewTabScreen {...firstRunProps} template="minimal" snapshot={noChat(sessions)} />),
+  );
+  await promptField();
+  const next = sessions.slice();
+  next[1_500] = counted({ sessionId: "s1500", cwd: "/Users/me/code/p20", updatedAt: 1_000 + 1_500, title: "Renamed" });
+  noteReplaced(sessions, next, [1_500]);
+  reads = 0;
+  await act(async () => root!.render(<NewTabScreen {...firstRunProps} template="minimal" snapshot={noChat(next)} />));
+  // A pass over the list reads thousands; the page's own lists read the one changed chat.
+  expect(reads).toBeLessThan(400);
 });

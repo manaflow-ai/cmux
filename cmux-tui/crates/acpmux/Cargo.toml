@@ -20,6 +20,11 @@ path = "src/main.rs"
 name = "v2"
 harness = false
 
+# A turn's cost by stage with a stand-in model that answers at once (benches/turn_overhead.rs).
+[[bench]]
+name = "turn_overhead"
+harness = false
+
 [features]
 default = ["build-id"]
 # The stamped build id (acpmux-build-id) as the default of `hub::build()`.
@@ -85,8 +90,12 @@ cmux-config.workspace = true
 # NEXT Cloud's generated client: the join's hub calls (redeem, credentials/self).
 cmux-build-space.workspace = true
 cmux-cloud-client.workspace = true
+# The `cmux.wire/1` op trait the earned-access record read implements (`hub/earned_events.rs`).
+cmux-cloud-wire.workspace = true
 # Each deployment's device hub origin, for the share host's machine sign-in (`share_host/`).
 cmux-cloud-environment.workspace = true
+# A browser's own email-code sign-in on the web listener (`server/web_device.rs`).
+cmux-stack-auth.workspace = true
 # The event log's journal (R-DURABILITY S2; always on).
 cmux-journal.workspace = true
 cmux-chat-index.workspace = true
@@ -107,9 +116,13 @@ cmux-sdk = { path = "../../bindings/rust", default-features = false, features = 
 cmux-transport = { path = "../cmux-transport" }
 # Where the running cmux link registers its socket (`peer_carriers.rs`).
 cmux-tui-platform.workspace = true
+# SKILL.md frontmatter, read as YAML (`agent_guidance::frontmatter`), shared with `cmux agent-config skills`.
+cmux-agent-customize.workspace = true
 cmux-file-lock.workspace = true
 cmux-supervise-core.workspace = true
 cmux-git.workspace = true
+# The trusted session-flag hook a Codex start at a repository head gets (src/codex_repo_gate.rs).
+cmux-tui-hooks.workspace = true
 cmux-worktree-care.workspace = true
 cmux-wg.workspace = true
 anyhow = "1"
@@ -121,6 +134,7 @@ cmux-device-kind.workspace = true
 cmux-unix-socket.workspace = true
 cmux-panic-log.workspace = true
 cmux-usage-patterns.workspace = true
+cmux-usage-share.workspace = true
 # What package installs a shell call runs (`hub/tool_installs.rs`).
 cmux-command-class.workspace = true
 clap = { version = "4.5", features = ["derive"] }
@@ -240,6 +254,8 @@ turmoil = "0.7.2"
 # The native relay the hub carrier's integration test runs in process (tests/hub_carrier.rs).
 cmux-relay = { path = "../cmux-relay" }
 axum.workspace = true
+# The Remote and Cloud fault harness (tests/rc_faults.rs: disk-full mid-turn).
+cmux-fault.workspace = true
 # WireGuard's construction hash, which the hub carrier's Noise hash must equal (tests/hub_carrier.rs).
 blake2 = "0.10"
 # A Codex state database for the Codex desktop bridge's tests (`codex_desktop_tests.rs`).

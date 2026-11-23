@@ -650,7 +650,7 @@ fn hz_to_fps(hz: f64) -> Option<u32> {
     (hz.is_finite() && hz >= 1.0).then(|| (hz.round() as u32).min(MAX_REFRESH_FPS))
 }
 
-/// The refresh rate of the display `which` names (`main` or an index, as [`Capture::start`] picks
+/// The refresh rate of the display `which` names (`main`, an index or `id:<n>`, as [`Capture::start`] picks
 /// it), else [`FALLBACK_FPS`] when it reads 0 or the display list is not available.
 pub fn refresh_fps(which: &str) -> u32 {
     let Ok((content, displays)) = shareable_displays() else { return FALLBACK_FPS };
@@ -681,9 +681,10 @@ extern "C" fn shareable_content_done(
     }
 }
 
-/// The displays ScreenCaptureKit offers, as (SCDisplay retained, display id), left to right.
-/// Empty, or an error, when Screen Recording is not allowed.
-fn shareable_displays() -> Res<(Id, Vec<(Id, u32)>)> {
+/// What ScreenCaptureKit can capture now, as a retained SCShareableContent the caller releases
+/// (also the Computer Use screenshots, `super::cu_host`). An error when Screen Recording is not
+/// allowed.
+pub(super) fn shareable_content() -> Res<Id> {
     sys::load()?;
     let _pool = AutoreleasePool::new();
     let (tx, rx) = sync_channel::<ContentAnswer>(1);
@@ -701,6 +702,14 @@ fn shareable_displays() -> Res<(Id, Vec<(Id, u32)>)> {
         .recv_timeout(ANSWER_TIMEOUT)
         .map_err(|_| "screen capture did not answer (is Screen Recording allowed?)")?
         .map_err(|e| format!("screen capture is not allowed or failed: {e}"))?;
+    Ok(content)
+}
+
+/// The displays ScreenCaptureKit offers, as (SCDisplay retained, display id), left to right.
+/// Empty, or an error, when Screen Recording is not allowed.
+fn shareable_displays() -> Res<(Id, Vec<(Id, u32)>)> {
+    let content = shareable_content()?;
+    let _pool = AutoreleasePool::new();
     let list = sys::send_id(content, c"displays");
     // SAFETY: -[NSArray count] and -objectAtIndex: on the displays array.
     let count = unsafe { msg::<unsafe extern "C" fn(Id, Sel) -> usize>()(list, sel(c"count")) };
@@ -729,15 +738,20 @@ fn release_all(content: Id, displays: &[(Id, u32)]) {
     sys::release(content);
 }
 
+/// Every display's streamed size, the index `which` picks, and every display's CGDirectDisplayID.
+pub type Displays = (Vec<(u32, u32)>, usize, Vec<u32>);
+
 /// Every display's streamed size (native pixels fitted to the decoder, as a session
-/// captures it), left to right, and the index of the main (menu bar) display. Only `serve` (the
-/// `link` feature) asks.
+/// captures it), left to right, the index of the display `which` picks (as [`Capture::start`]
+/// picks it), and every display's CGDirectDisplayID in the same order. Only `serve` (the `link`
+/// feature) asks.
 #[cfg_attr(not(feature = "link"), allow(dead_code))]
-pub fn displays() -> Res<(Vec<(u32, u32)>, usize)> {
+pub fn displays(which: &str) -> Res<Displays> {
     let (content, displays) = shareable_displays()?;
+    let ids: Vec<u32> = displays.iter().map(|d| d.1).collect();
     // SAFETY: CGMainDisplayID has no preconditions.
     let main = unsafe { cg::CGMainDisplayID() };
-    let current = displays.iter().position(|d| d.1 == main).unwrap_or(0);
+    let current = super::display_pick::pick_index(&ids, main, which).unwrap_or(0);
     let sizes = displays
         .iter()
         .map(|&(_, id)| {
@@ -746,41 +760,38 @@ pub fn displays() -> Res<(Vec<(u32, u32)>, usize)> {
         })
         .collect();
     release_all(content, &displays);
-    Ok((sizes, current))
+    Ok((sizes, current, ids))
 }
 
-/// `main` (the menu bar display) or a display's index counted left to right.
+/// `main` (the menu bar display), a display's index counted left to right, or `id:<n>`, the
+/// display whose CGDirectDisplayID is n (a run's virtual display, from a screen link).
 fn pick(displays: &[(Id, u32)], which: &str) -> Res<(Id, u32)> {
-    if which == "main" {
-        // SAFETY: CGMainDisplayID has no preconditions.
-        let main = unsafe { cg::CGMainDisplayID() };
-        return displays
-            .iter()
-            .find(|d| d.1 == main)
-            .or(displays.first())
-            .copied()
-            .ok_or_else(|| "no display to capture (is Screen Recording allowed?)".into());
-    }
-    let index: usize =
-        which.parse().map_err(|_| format!("--display {which}: use main or an index"))?;
-    displays.get(index).copied().ok_or_else(|| format!("no display {index}").into())
+    let ids: Vec<u32> = displays.iter().map(|d| d.1).collect();
+    // SAFETY: CGMainDisplayID has no preconditions.
+    let main = unsafe { cg::CGMainDisplayID() };
+    let index = super::display_pick::pick_index(&ids, main, which)?;
+    Ok(displays[index])
 }
 
-/// How long ago, in µs, the mach absolute time `then` was. The Mach timebase and clock calls are
+/// The mach timebase (numerator, denominator: ns a tick). The Mach timebase and clock calls are
 /// deprecated in favour of the `mach2` crate, which cmux-rd-host does not depend on; they are not
 /// defective.
 #[allow(deprecated)]
-fn mach_age_us(then: u64) -> u64 {
-    static BASE: OnceLock<(u64, u64)> = OnceLock::new();
-    let (numer, denom) = *BASE.get_or_init(|| {
+fn mach_timebase() -> (u32, u32) {
+    static BASE: OnceLock<(u32, u32)> = OnceLock::new();
+    *BASE.get_or_init(|| {
         let mut base = libc::mach_timebase_info { numer: 1, denom: 1 };
         // SAFETY: mach_timebase_info writes into a valid struct.
         unsafe { libc::mach_timebase_info(&mut base) };
-        (u64::from(base.numer), u64::from(base.denom.max(1)))
-    });
+        (base.numer, base.denom.max(1))
+    })
+}
+
+/// The mach clock now (see [`mach_timebase`] for the deprecation).
+#[allow(deprecated)]
+fn mach_now() -> u64 {
     // SAFETY: mach_absolute_time has no preconditions.
-    let ticks = unsafe { libc::mach_absolute_time() }.saturating_sub(then);
-    (u128::from(ticks) * u128::from(numer) / u128::from(denom) / 1000) as u64
+    unsafe { libc::mach_absolute_time() }
 }
 
 /// The CoreFoundation number at `key` in `dictionary`, as an i64.
@@ -839,10 +850,15 @@ extern "C" fn did_output(
                 }
             }
         }
+        // Both clocks read together: the display time (mach absolute time: the vsync the window
+        // server composited this frame for, usually still ahead when the frame arrives here)
+        // moves onto the protocol clock by its distance from `mach`, ahead or behind.
+        let mach = mach_now();
         let arrived = crate::clock::now_ns() / 1000;
-        // The display time is in mach absolute time: its age now, taken off the protocol clock.
-        let shown = number(info, sck::SCStreamFrameInfoDisplayTime())
-            .map(|display| arrived.saturating_sub(mach_age_us(display as u64)));
+        let shown = number(info, sck::SCStreamFrameInfoDisplayTime()).map(|display| {
+            let (numer, denom) = mach_timebase();
+            crate::clock::mach_to_protocol_us(arrived, mach, display as u64, numer, denom)
+        });
         let frame = (!buffer.is_null()).then(|| PixelBuffer(Retained::retain(buffer.cast_const())));
         #[cfg(feature = "bench")]
         let (counter, nonce) = sink.marker.map_or((None, None), |marker| {
@@ -961,6 +977,8 @@ extern "C" fn capture_stopped(block: *mut Block<SyncSender<()>>, _error: Id) {
 }
 
 impl Capture {
+    /// A capture that draws the cursor, for the bench's observer (`observe.rs`, its one caller).
+    #[cfg(feature = "bench")]
     pub fn start(which: &str, fps: u32, max_width: Option<u32>) -> Res<Self> {
         Self::start_with_marker(which, fps, max_width, true, None)
     }

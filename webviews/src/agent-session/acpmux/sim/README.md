@@ -81,6 +81,27 @@ records) draws 74 rows and 9 `a-head-gap` violations sanitized, and 77 rows and 
 Some of the pane's text parsing (an incoming message's sender, a background task's summary) reads words the
 sanitizer replaces. Compare the two with `--replay DIR` and `--replay DIR --sanitize OUT` when it matters.
 
+## Sweep every chat on a machine
+
+```sh
+bun scripts/chat-sim.ts --sweep ~/.acpmux/sessions --jobs 4
+```
+
+This replays every chat in the folder, each in its own process and `--jobs` at a time. It prints one line per
+violation class: the rule and its detail, with the row ids, turn numbers and times taken out and the gaps kept.
+Each line also gives how many rows broke it, in how many chats, and one chat and step to replay. Classes found
+in many chats come first. A lane VM's 278 chats (7.4 GB of records) take about 20 minutes at 4 jobs.
+
+The first sweep (2026-11-22) found these classes:
+
+- Another agent's message opening a turn sat 16 px under the last reply of the turn before (37 chats). Fixed:
+  transcriptGrid.ts `MARK_TOPS_TURN`.
+- Three classes of simulator false positives, now read as the pane means them:
+  - A steer, a message that comes in while the turn runs, was counted as a new turn.
+  - "Working for" drawn over the message that opened its turn had no rule of its own.
+  - Codex messages folded under "Worked for" while the final answer streamed. That fold is by design, and its
+    verdict is now `final-answer`.
+
 ## Write a scenario
 
 ```ts
@@ -134,7 +155,7 @@ One JSON object per step:
     {
       "rule": "a-head-gap",
       "rowId": "working-user-22",
-      "detail": "working heads turn 2 0px under its opening user (want >= 24)"
+      "detail": "working heads turn 2 0px under its opening user (want >= 16)"
     }
   ],
   "rows": [

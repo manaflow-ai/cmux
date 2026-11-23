@@ -12,7 +12,7 @@
 import { AcpmuxDirectClient, type EventRecord } from "../direct";
 import { turnViewFrom, type TurnView } from "../conversation/turns";
 import { layoutConversation, type AcpmuxRow, type AcpmuxSnapshot, type ConversationLayout } from "../model";
-import { TRANSCRIPT_BLOCK_GAP, TRANSCRIPT_TURN_GAP } from "../transcriptGrid";
+import { ROW_GAP_LOOKS, TRANSCRIPT_BLOCK_GAP, TRANSCRIPT_TURN_GAP } from "../transcriptGrid";
 import type { SimScenario, SimStep } from "./script";
 
 /** One drawn row as a probe sees it. */
@@ -50,8 +50,10 @@ export type FoldEvent = {
   /** ms of virtual time from the fold to its turn's end event (`turn_result`): > 0 means mid-turn. */
   beforeTurnEndMs?: number;
   /** `turn-end`: at or after its turn's end; `sibling`: a later row of the same running turn closed a finished run
-   *  (the `runs` arm of live-turn-work, by design); `violation`: anything else mid-turn. */
-  verdict: "turn-end" | "sibling" | "remapped" | "violation";
+   *  (the `runs` arm of live-turn-work, by design); `final-answer`: the turn's final answer (Codex's
+   *  `final_answer` phase) began, which starts the turn's folded look before its `turn_result` (turns.ts,
+   *  by design); `violation`: anything else mid-turn. */
+  verdict: "turn-end" | "sibling" | "remapped" | "final-answer" | "violation";
 };
 
 export type Violation = {
@@ -141,9 +143,16 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
   const turnEnds = new Map<number, number>();
   {
     let turn = 0;
+    let ended = true;
     for (const event of [...scenario.events].sort((a, b) => a.seq - b.seq)) {
-      if (event.kind === "user_message" && isTurnPrompt(event)) turn += 1;
-      if (event.kind === "turn_result" && !turnEnds.has(turn)) turnEnds.set(turn, event.at);
+      if (event.kind === "user_message" && isTurnPrompt(event) && ended) {
+        turn += 1;
+        ended = false;
+      }
+      if (event.kind === "turn_result") {
+        if (!turnEnds.has(turn)) turnEnds.set(turn, event.at);
+        ended = true;
+      }
     }
   }
   const first = scenario.steps[0]?.at ?? 0;
@@ -177,7 +186,9 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
     const step = scenario.steps[index]!;
     if (step.type === "event") {
       const event = bySeq.get(step.seq);
-      if (event?.kind === "user_message" && isTurnPrompt(event)) {
+      // A message that comes in while the turn runs steers it (turns.ts draws it inside that turn's
+      // work); only one after the turn ended opens a turn.
+      if (event?.kind === "user_message" && isTurnPrompt(event) && turnEnded) {
         turn += 1;
         turnEnded = false;
       }
@@ -211,7 +222,7 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
       },
       last,
     );
-    shaped = view === last ? 0 : view.rows.length - view.reusedRows;
+    shaped = view === last ? 0 : view.rows.length - (view.reusedRows ?? 0);
     last = view;
     const rows = view.rows;
     const layout = layoutConversation(rows, width, cache, LINE, undefined, previous);
@@ -281,17 +292,34 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
       // A person's prompt takes the turn gap; another agent's line (a notice, a message) the block gap
       // under the turn before (transcriptSpacing.ts footer-to-received, by design).
       const want = probe.received ? TRANSCRIPT_BLOCK_GAP : TRANSCRIPT_TURN_GAP;
+      // The turn's "Working for" (or "Worked for") line drawn over the message that opened it (turns.ts
+      // `shapeLiveTurn`): that line is the turn's top, so it stands the gap under the turn before.
+      if (probe.opens && (above.id === `working-${probe.id}` || above.id === `worked-${probe.id}`)) {
+        const before = (above as RowProbe & { above?: RowProbe }).above;
+        const headGap = above.drawnGap ?? above.gap;
+        if (before && headGap < want - 0.5)
+          flag(
+            "a-turn-gap",
+            above.id,
+            `${above.kind} over ${probe.kind} opens turn ${probe.turn} ${headGap}px under ${before.kind} ${before.id} (want >= ${want})`,
+          );
+        continue;
+      }
       if (probe.opens && above.turn !== probe.turn && gap < want - 0.5)
         flag(
           "a-turn-gap",
           probe.id,
           `${probe.kind} opens turn ${probe.turn} ${gap}px under ${above.kind} ${above.id} (want >= ${want})`,
         );
-      if (probe.head && above.opens && gap < TRANSCRIPT_BLOCK_GAP - 0.5)
+      // A turn's head (Thinking, Working for) under the line that opened it: the block gap under a person's
+      // prompt; under another agent's notice or message, the gap "Worked for" stands under any one-line row
+      // (transcriptGrid.ts ROW_GAP_LOOKS.shipped.workedAfterLine, #48591).
+      const headWant = above.received ? ROW_GAP_LOOKS.shipped.workedAfterLine : TRANSCRIPT_BLOCK_GAP;
+      if (probe.head && above.opens && gap < headWant - 0.5)
         flag(
           "a-head-gap",
           probe.id,
-          `${probe.kind} heads turn ${probe.turn} ${gap}px under its opening ${above.kind} (want >= ${TRANSCRIPT_BLOCK_GAP})`,
+          `${probe.kind} heads turn ${probe.turn} ${gap}px under its opening ${above.kind} (want >= ${headWant})`,
         );
     }
 
@@ -325,7 +353,11 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
           was.row.kind === "assistant" &&
           !!was.row.text &&
           rows.some((row) => row.kind === "assistant" && row.text === was.row.text);
+        // The turn's final answer is streaming: its commentary folds under "Worked for" as the answer
+        // starts, not at turn_result (turns.ts "The final answer starts the folded presentation").
+        const answering = rows.some((row) => rowTurn.get(row.id) === own && row.assistantPhase === "final_answer");
         if (remapped) verdict = "remapped";
+        else if (answering) verdict = "final-answer";
         else if (was.row.kind !== "assistant" && laterSibling) verdict = "sibling";
         else verdict = "violation";
       }
@@ -479,5 +511,6 @@ export function summarize(result: SimResult): string {
   for (const fold of result.folds)
     if (fold.verdict === "sibling") sibling.set(fold.kind, (sibling.get(fold.kind) ?? 0) + 1);
   const siblings = [...sibling].map(([kind, count]) => `${kind}=${count}`).join(" ") || "none";
+  // l10n-allow: simulator report for a terminal, not shipped UI
   return `${result.scenario}: ${result.steps} steps, ${result.rows} rows drawn (${result.recordRows} before folding), ${Math.round(result.virtualMs / 1000)} s simulated in ${result.wallMs} ms; violations ${rules}; mid-turn sibling folds ${siblings}`;
 }

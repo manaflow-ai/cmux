@@ -205,6 +205,40 @@ test("Update all is the one default button; with one row, its Update is", async 
   expect(defaults()[0]!.textContent).toBe("Update");
 });
 
+// a1315 (UI simplification lead, Lawrence: "drastically simplify all parts of the UI"): with one
+// outdated agent there is no heading (its Update is the whole footer); a row's Update shows on hover
+// or focus only, beside a filled Update all; a failed row is one red line, its mark's space empty.
+test("one outdated agent is one row, no heading; row Updates wait for hover beside Update all", async () => {
+  const view = await mount([codex]);
+  expect(view.container.querySelector(".acpmux-harness-updates-head")).toBeNull();
+  expect(view.container.textContent).toBe("CodexUpdate");
+  // The section still says what it is to assistive tech; no tooltip covers the row on hover.
+  const section = view.container.querySelector("section")!;
+  expect(section.getAttribute("aria-label")).toBe("Harness updates available");
+  expect(section.hasAttribute("title")).toBe(false);
+  // The lone row's Update is always shown: it is the default.
+  expect(view.rowOf("codex")!.querySelector(".acpmux-harness-update-run")!.hasAttribute("data-reveal")).toBe(false);
+
+  await view.draw([codex, opencode]);
+  expect(view.container.querySelector(".acpmux-harness-updates-head")?.textContent).toBe(
+    "Harness updates availableUpdate all",
+  );
+  for (const id of ["codex", "opencode"])
+    expect(view.rowOf(id)!.querySelector(".acpmux-harness-update-run")!.hasAttribute("data-reveal")).toBe(true);
+});
+
+test("a failed row is one red line: no mark, its Try Again on hover", async () => {
+  const view = await mount([codex, opencode]);
+  await view.click(view.rowOf("codex")!.querySelector(".acpmux-harness-update-run"));
+  await act(async () => view.calls[0]!.resolve({ ok: false, error: "npm error code EACCES" }));
+  const failed = view.rowOf("codex")!;
+  expect(failed.getAttribute("data-phase")).toBe("failed");
+  expect(failed.querySelector("svg")).toBeNull();
+  expect(failed.querySelector(".agent-mark-empty")).not.toBeNull();
+  expect(failed.textContent).toBe("Couldn't update Codex.Try Again");
+  expect(failed.querySelector(".acpmux-harness-update-run")!.hasAttribute("data-reveal")).toBe(true);
+});
+
 test("the chat's own offer leads, then the others; each Update runs its own update", async () => {
   const ran: string[] = [];
   const offer: UpdateOffer = {

@@ -117,6 +117,7 @@ impl MacDesktop {
         self.require_input()?;
         match delivery {
             Delivery::Foreground => {
+                super::refuse_if_locked("foreground input")?;
                 self.raise(t)?;
                 Ok(Route::Hid)
             }
@@ -183,6 +184,7 @@ impl MacDesktop {
     fn key_route(&self, t: &Target, delivery: Delivery) -> DResult<Route> {
         self.require_input()?;
         if delivery == Delivery::Foreground {
+            super::refuse_if_locked("foreground input")?;
             self.raise(t)?;
             // Raising does not prove the window takes keys: an app-modal alert,
             // a sheet or a floating panel of the app can stay its key window,
@@ -3017,6 +3019,23 @@ pub(super) fn scroll(
     let mut out = ActionOutcome::delivered(route.name()).at(at).showing("scroll");
     out.expect = d.keep_check(check);
     Ok(out)
+}
+
+pub(super) fn move_pointer(
+    d: &MacDesktop,
+    target: &PointerTarget,
+    delivery: Delivery,
+) -> DResult<ActionOutcome> {
+    let t = d.target(target.window_id())?;
+    let at = match target {
+        PointerTarget::Point { point, .. } => d.point_in(&t, *point)?,
+        PointerTarget::Element { element_id, .. } => d.element_center(&t, element_id)?,
+    };
+    // Background: the window must be on screen (pointer_route refuses
+    // otherwise); foreground raises it and posts at the HID tap.
+    let route = d.pointer_route(&t, delivery)?;
+    unprimed(route, |p| input::move_to(p, at))?;
+    Ok(ActionOutcome::delivered(route.name()).at(at))
 }
 
 pub(super) fn drag(

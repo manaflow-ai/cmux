@@ -94,6 +94,7 @@ enum AppActions {
         DevToolsHandlers.bind(into: registry, context: context)
         HintHandlers.bind(into: registry, context: context)
         MusicHandlers.bind(into: registry, context: context)
+        context.services.keyRouter.keyModes.bind(into: registry)
         VoiceRoomHandlers.bind(into: registry, context: context)
         NowPlayingCardHandlers.bind(into: registry, context: context)
         PictureInPictureHandlers.bind(into: registry, context: context)
@@ -116,6 +117,7 @@ enum AppActions {
         bindAttentionPalette(into: registry, context: context)
         AgentHandlers.bind(into: registry, context: context)
         AgentChatMenuHandlers.bind(into: registry, context: context)
+        AgentChatMenuHandlers.bindEditors(into: registry, context: context)
         AgentConfigurationHandlers.bind(into: registry, context: context)
         AgentChatKeyHandlers.bind(into: registry, context: context)
         CloudHandlers.bind(into: registry, context: context)
@@ -128,7 +130,6 @@ enum AppActions {
         RemoteGroupHandlers.bind(into: registry, context: context)
         SidebarScreenIntentActions.bindViewScreen(into: registry) { [weak services] in services?.windows.active.map { window in (sections: window.sidebar.model.sections, handle: { @MainActor intent in window.sidebar.handle(intent) }) } }
         ChiefMoveHandlers.bind(into: registry, context: context)
-        ChiefMemoryImportHandlers.bind(into: registry, context: context)
         RemoteBrowserPages.bind(into: registry, context: context)
         ResourceHandlers.bind(into: registry, context: context)
         LinkHandlers.bind(into: registry, context: context)
@@ -198,6 +199,8 @@ enum AppActions {
             do {
                 let scripted = registry.isCapturingRefusal
                 let origin = try QuitOrigin(for: invocation, scripted: scripted)
+                // Cmd-Q's first press only warns (`app.warnBeforeQuitShortcut`); the menu, Dock and scripts quit.
+                if !scripted, origin == .interactive, services.quit.holdsShortcutQuit(invocation) { return }
                 // A scripted quit saves unsaved documents first and refuses,
                 // naming them, when a save fails (R96 quit hook).
                 guard scripted, !services.quit.unsaved.unsaved().isEmpty else { return services.quit.requestQuit(origin) }

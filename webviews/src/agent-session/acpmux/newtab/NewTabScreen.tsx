@@ -26,7 +26,16 @@ import { EMPTY_OMNIBAR, stepSelection, type OmnibarContext } from "../omnibar";
 import { ComposerContext } from "../ComposerContext";
 import { OnNewTab } from "../newTabComposer";
 import type { Project } from "../ProjectChooser";
-import { firstProject, homePath, isAgentHome, mostRecentProject, projectLabel, sessionMark } from "../sessionList";
+import {
+  firstProject,
+  homePath,
+  isAgentHome,
+  projectLabel,
+  sessionMark,
+  SessionsBy,
+  FolderRecency,
+  isTemporaryFolder,
+} from "../sessionList";
 import { leaders } from "../leads";
 import { WorktreeFailure } from "../startFolder";
 import { NewProjectName, NewProjectFailure, NewProjectUnsupported } from "./NewProjectName";
@@ -53,9 +62,10 @@ import {
   withoutInlineTokens,
   type ComposerAttachment,
   type DroppedKind,
-  type LinkItem,
+  type KnownPaths,
 } from "../attachments";
 import { composerCommand } from "../cmuxCommands";
+import { shownResumeReference } from "../resumeCommand";
 import { customizeMessage, newChatRunsElsewhere } from "../customizeCommand";
 import type { UploadResult } from "../cloudUploads";
 import { AttachmentStrip } from "../composer/attachmentIntake";
@@ -75,11 +85,11 @@ import { Spinner } from "../conversation/icons";
 import { useNewTabChipModel, useNewTabStart } from "./chipDefaults";
 import { useChipPick } from "../lastPick";
 import { useDeviceChats } from "./deviceChats";
-import { listingWanted, omnibarFolders } from "./launchRows";
+import { listingWanted, omnibarFolders, omnibarFolder } from "./launchRows";
 import { type CompleteFolder, useFolderListing } from "./omnibarReads";
 import { useRecentlyClosed } from "./recentlyClosed";
 import { initialRecentProject } from "./recentProject";
-import { rememberedStartedProject } from "./startedProject";
+import { startedProjectChoices } from "./startedProject";
 import {
   canonicalAddress,
   defaultSelection,
@@ -101,7 +111,6 @@ import { SuggestionGlyph, rowGlyphName } from "./RowGlyph";
 import { Icon } from "../icons/Icon";
 import { useNoEntryMotion } from "./noEntryMotion";
 import { EnvironmentCard, SuggestionsCard } from "./StageCards";
-import { FirstRunStarters, showsFirstRunStarters, type FirstRunStarterLook } from "./FirstRunStarters";
 import { type NewTabTranslate, useNt } from "./strings";
 import { DEFAULT_NEW_TAB_TEMPLATE, screenSections, screenTemplate, type ScreenTemplate } from "./templates";
 import { useT } from "../i18n";
@@ -122,6 +131,8 @@ import { useRowFit } from "../composerRowFit";
 import { useMenuPressGuard } from "../menuPressGuard";
 import { useMinuteClock } from "../clock";
 import { usePasteAnywhere } from "../composer/pasteAnywhere";
+import { focusRoute } from "../../../ui/focusRoute";
+import { HelpSheet } from "../HelpSheet";
 import { SlashMenu } from "../SlashMenu";
 import { ComposerListAnchor, ComposerListLayer } from "../backdropLayer";
 import {
@@ -337,9 +348,6 @@ type Props = NewTabScreenActions & {
   focusField?: boolean;
   /// Which screen template draws the page (newtab/templates.ts); Minimal when unset.
   template?: ScreenTemplate;
-  /// How the first-run starters under the composer look (FirstRunStarters.tsx); the gallery's
-  /// variants set it, the app leaves it unset (rows).
-  starterLook?: FirstRunStarterLook;
   /// How the rows under the field rank (screenModel.ts SuggestionOrder); unset is the default.
   suggestionOrder?: SuggestionOrder;
   /// false: Show All Chats on New Tab is off (`sidebar.showChats`): the recent chats show where
@@ -359,7 +367,7 @@ type Props = NewTabScreenActions & {
   dictation?: Dictation;
   /// On this Mac: where the files of the person's drop or paste are, so a folder or a file no prompt
   /// block takes goes with the first prompt as a link to it (the page has no upload to save one).
-  localPaths?(kind: DroppedKind, files: File[]): Promise<LinkItem[] | undefined>;
+  localPaths?(kind: DroppedKind, files: File[], gestureAt?: number): Promise<KnownPaths | undefined>;
   /// Saves files chosen from the New Tab plus menu when the session has no chat upload yet.
   upload?(files: File[]): Promise<UploadResult>;
   /// A fix-from-link request failed while the New Tab remains mounted.
@@ -402,6 +410,10 @@ const ChipsSlot = React.memo(function ChipsSlot({
 /// How long the folder chip holds its place for a daemon that has not listed the chats yet.
 const RESERVE_MS = 2_000;
 const NO_DEVICE_CHATS: ReturnType<typeof useDeviceChats> = [];
+/// Stable empties for the composer's lists: a new `[]` on each render made its machine and folder
+/// lists again from every listed chat.
+const NO_PEERS: string[] = [];
+const NO_PROJECTS: Project[] = [];
 
 /// The new tab screen, variant B (plans/cmux-next/new-tab.md): the project and model pickers on
 /// top, then one field that reads what is typed (`!` a shell command, an address, or a prompt for
@@ -479,37 +491,50 @@ export function NewTabScreen(props: Props) {
     setMachine({ peer: props.startMachine });
   }, [props.startMachine]);
   const folderless = !props.cwd || props.cwd === home || isAgentHome(props.cwd);
-  const startsRecent = !picked && folderless && !props.startCwd;
+  // A temporary folder (the tab beside a scratch chat or terminal in /tmp, which the app also proposes
+  // as the start folder) gives way to the folder used last, when one is known (cmux#49610). With
+  // none known it stays the page's folder, as before: a project can live under /tmp.
+  const temporary = !picked && (props.startCwd ? isTemporaryFolder(props.startCwd) : isTemporaryFolder(props.cwd));
+  const mayStartRecent = !picked && (folderless || temporary) && (!props.startCwd || temporary);
+  // This Mac's chat folders, newest first, kept as the chats change (sessionList.ts
+  // `FolderRecency`): a chat working moves its folder up without every chat being sorted again.
+  const [recency] = useState(() => new FolderRecency());
+  const recentFolders = useMemo(() => recency.of(snapshot.sessions), [recency, snapshot.sessions]);
   const candidate = useMemo(
-    () => (startsRecent ? mostRecentProject(snapshot.sessions, home, props.knownProjects) : undefined),
-    [startsRecent, snapshot.sessions, home, props.knownProjects],
+    () => (mayStartRecent ? firstProject(recentFolders, home, props.knownProjects) : undefined),
+    [mayStartRecent, recentFolders, home, props.knownProjects],
   );
   // Decided once, as the page mounts (Leo 2026-10-19: the first frame showed "Choose folder", then
   // flipped to the recent project): the newest in the chats the page already has, else the newest a
   // page of this run heard (newtab/recentProject.ts). A chat updating elsewhere must not move the
   // chip while the user types, so the first one found stays.
   const [latched, setLatched] = useState<string | undefined>(() =>
-    startsRecent ? initialRecentProject(snapshot.sessions, home, props.knownProjects) : undefined,
+    mayStartRecent ? initialRecentProject(snapshot.sessions, home, props.knownProjects) : undefined,
   );
   // Before the host's project list lands, a chat folder counts; once it lands, one it does not
   // list (removed, deleted) gives way to the newest it lists.
   const known = props.knownProjects?.length ? props.knownProjects : undefined;
+  // The one dropped gives way to the next this page knows that the list still has (a kept folder of
+  // this run, cmux#51272), never to a blank chip while the chats are still to come.
   if (
     latched !== undefined &&
     (props.knownProjects === null || (known && !known.some((path) => path.replace(/(.)\/+$/, "$1") === latched)))
   )
-    setLatched(undefined);
+    setLatched(initialRecentProject(snapshot.sessions, home, props.knownProjects));
   else if (latched === undefined && candidate !== undefined && (props.knownProjects === undefined || known))
     setLatched(candidate);
   // The project of the chat the person last picked and started wins over the newest chat's folder
   // (Leo 2026-10-21): chats agents start move that one. Not on another machine's page (no `home`),
-  // and only a folder the host's project list still has. Read once, as the page mounts.
-  const [startedProject] = useState(() => rememberedStartedProject() ?? props.startedProject);
+  // and only a folder the host's project list still has: this run's copy, else the app's (cmux#51272).
+  // Read once, as the page mounts.
+  const [startedChoices] = useState(() => startedProjectChoices(props.startedProject));
   const started =
-    startsRecent && home && startedProject
-      ? firstProject([startedProject.replace(/(.)\/+$/, "$1")], home, props.knownProjects)
+    mayStartRecent && home && startedChoices.length > 0
+      ? firstProject(startedChoices, home, props.knownProjects)
       : undefined;
-  const recent = startsRecent ? (started ?? latched ?? candidate) : undefined;
+  const found = mayStartRecent ? (started ?? latched ?? candidate) : undefined;
+  const startsRecent = mayStartRecent && (!temporary || found !== undefined);
+  const recent = startsRecent ? found : undefined;
   // Nothing knows the recent project yet (the run's first page, before its daemon lists the chats):
   // the folder chip keeps its place but names nothing, rather than "Choose folder" and then the
   // project. A daemon that has not answered in RESERVE_MS shows the chip as it is.
@@ -607,11 +632,14 @@ export function NewTabScreen(props: Props) {
   const holdForAttachments = useSendWhenAttached(unsettled);
   /// Where the chat would start, as picked now (set below, once every pick is read).
   const elsewhere = useRef(false);
+  /// `/help`'s sheet, drawn where the `/` list draws (HelpSheet.tsx), as in the chat composer.
+  const [helpOpen, setHelpOpen] = useState(false);
   const command = useNewTabCommand(
     text,
     setText,
     {
       ...props,
+      onHelp: () => setHelpOpen(true),
       importSandboxed: props.importSandboxed || props.runMode?.mode === "sandboxed",
       startsElsewhere: () => elsewhere.current,
     },
@@ -1054,10 +1082,11 @@ export function NewTabScreen(props: Props) {
   // The omnibar's agent sources (launchRows.ts): the folders and agents it starts. A typed path's
   // folder listing answers later (omnibarReads.ts), never in the keystroke's turn.
   const barText = touched && !shell && !commandTyping && !profilePick ? typed : "";
-  const barFolders = useMemo(
-    () => omnibarFolders(props.projects, snapshot.sessions),
-    [props.projects, snapshot.sessions],
-  );
+  // The chats' folders newest first, kept as the chats change (sessionList.ts `FolderRecency`):
+  // another chat working sorts no chat again.
+  const [barRecency] = useState(() => new FolderRecency(omnibarFolder));
+  const barRecent = useMemo(() => barRecency.of(snapshot.sessions), [barRecency, snapshot.sessions]);
+  const barFolders = useMemo(() => omnibarFolders(props.projects, barRecent), [props.projects, barRecent]);
   const barAgents = useMemo(
     () =>
       // A saved environment or New project picks where the chat starts (askChat), so a start in
@@ -1394,6 +1423,10 @@ export function NewTabScreen(props: Props) {
       case "run":
         touch();
         return props.onShell(row.command);
+      case "resume":
+        // The chat composer's `/resume <ref>` (resumeCommand.ts): its refusal shows under the field.
+        touch();
+        return void command.intercept(`/resume ${row.ref}`, harness);
     }
   };
   /// Open in Profile…: the field empties to search the profiles; the rows list them all.
@@ -1876,9 +1909,16 @@ export function NewTabScreen(props: Props) {
   };
   // This Mac's chats and the chats on acpmux's machines (their folders there): a Cloud chat's host
   // that acpmux does not list is no place a chat can start from this page.
+  // Filtered again only when where a chat runs changed (`SessionsBy` over what the composer's
+  // machine and folder lists read): another chat's status or title leaves the same array, so the
+  // composer reads none of them again.
+  const [startablePlaces] = useState(
+    () => new SessionsBy((session) => [session.cwd, session.peer, session.hostKind, session.host]),
+  );
+  const placedChats = useMemo(() => startablePlaces.of(snapshot.sessions), [startablePlaces, snapshot.sessions]);
   const startableSessions = useMemo(
-    () => snapshot.sessions.filter((session) => session.peer || session.hostKind !== "cloud"),
-    [snapshot.sessions],
+    () => placedChats.filter((session) => session.peer || session.hostKind !== "cloud"),
+    [placedChats],
   );
   /// A New Worktree that failed; `retry`, when the same ask can go again from the notice (a saved
   /// environment's send goes again from the field, where its prompt stays).
@@ -2070,7 +2110,7 @@ export function NewTabScreen(props: Props) {
         // Every machine acpmux lists (`_acpmux/status`), as the chat composer lists them: a pick
         // starts the chat there (screenActions onAsk with its `peer`).
         sessions={startableSessions}
-        peers={snapshot.peers ?? []}
+        peers={snapshot.peers ?? NO_PEERS}
         {...(snapshot.peerKinds ? { peerKinds: snapshot.peerKinds } : {})}
         {...(snapshot.peerConnected ? { peerConnected: snapshot.peerConnected } : {})}
         {...(snapshot.peerStates ? { peerStates: snapshot.peerStates } : {})}
@@ -2080,7 +2120,7 @@ export function NewTabScreen(props: Props) {
         onComputer={(computer) => pickMachine(computer === "local" ? undefined : { peer: computer })}
         {...(props.onCloudMachinePicked ? { onCloudMachinePicked: props.onCloudMachinePicked } : {})}
         {...(props.machineName ? { localName: props.machineName } : {})}
-        projectChoices={props.projects ?? []}
+        projectChoices={props.projects ?? NO_PROJECTS}
         onProject={(cwd, peer) => (peer ? pickMachine({ peer, folder: cwd }) : pickProject(cwd))}
         onNoProject={() => pickProject(undefined)}
         noProject={none && !newProject}
@@ -2389,6 +2429,26 @@ export function NewTabScreen(props: Props) {
               </ComposerListLayer>
             </ComposerListAnchor>
           )}
+          {helpOpen && !commandsOpen && (
+            <ComposerListAnchor box={box} inert={props.cloudStarting === true}>
+              <ComposerListLayer>
+                <HelpSheet
+                  commands={snapshot.commands}
+                  onInsert={(picked) => {
+                    setHelpOpen(false);
+                    setText(applyCommand("", 0, picked).text);
+                    requestAnimationFrame(() =>
+                      focusRoute(field.current, "person", "/help picked a command: the field"),
+                    );
+                  }}
+                  onClose={() => {
+                    setHelpOpen(false);
+                    focusRoute(field.current, "person", "/help closed: the field");
+                  }}
+                />
+              </ComposerListLayer>
+            </ComposerListAnchor>
+          )}
           {/* A press anywhere on the field's row (its padding, the glyph) focuses the field, as a
             browser's address bar does; the text itself keeps its own press (caret, selection).
             Cursor rule (cx-d0d.80): the I-beam only over the text, the arrow elsewhere. */}
@@ -2564,24 +2624,6 @@ export function NewTabScreen(props: Props) {
       </div>
     </PromptFocusProvider>
   );
-  // First run (no chats on this Mac or its peers yet): three things to ask, under the composer. A
-  // pick fills the composer and sends nothing; the first chat takes them away for good.
-  const pickStarter = (prompt: string) => {
-    // A starter is words for the agent: a field left in shell mode (a typed `!`) would run it, and
-    // one left in the profile search (Open in Profile…) would name a profile after it.
-    setShell(false);
-    setProfilePick(undefined);
-    edit(prompt);
-    requestAnimationFrame(() => {
-      field.current?.focus();
-      field.current?.setCaret(field.current.plainText().length);
-    });
-  };
-  const starters = showsFirstRunStarters(snapshot, {
-    allChats,
-    chatsPending: props.chatsPending === true,
-    deviceChats: pushed.length,
-  }) && <FirstRunStarters {...(props.starterLook ? { look: props.starterLook } : {})} onPick={pickStarter} />;
   // The stage's cards: the project card and the suggested actions, side by side in one column.
   const stageCards = (
     <div className="nt-stage-cards">
@@ -2627,7 +2669,6 @@ export function NewTabScreen(props: Props) {
             {playerAndLists}
           </div>
           {composerCard}
-          {starters}
           {props.notice}
           {environmentPanel}
         </>
@@ -2637,7 +2678,6 @@ export function NewTabScreen(props: Props) {
                 where it always sat (screen.css .nt-composer-room). */}
           {minimal && <div className="nt-composer-room" />}
           {composerCard}
-          {starters}
           {props.notice}
           {environmentPanel}
           {widgetGrid}
@@ -2855,6 +2895,8 @@ function rowTitle(nt: NewTabTranslate, row: ScreenRow): string {
       return nt("row.launch", { agent: row.agent, folder: homePath(row.folder) });
     case "run":
       return nt("row.runInTerminal");
+    case "resume":
+      return nt("row.resumeChat");
   }
 }
 
@@ -2895,6 +2937,8 @@ function rowDetail(row: ScreenRow): string | undefined {
     case "newProfile":
     case "profile":
       return shortHost(row.url);
+    case "resume":
+      return shownResumeReference(row.ref);
     default:
       return undefined;
   }

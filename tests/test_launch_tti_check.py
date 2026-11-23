@@ -76,6 +76,46 @@ class TerminalReadingTests(unittest.TestCase):
         self.assertEqual({"premain_ms": None, "ours_ms": None}, tti.split(1070.0, None))
 
 
+class InAppPathTests(unittest.TestCase):
+    """A runner without the PostEvent grant (post_access false) still measures the terminal: the app types its own key
+    at its first frame (CMUX_NEXT_LAUNCH_TYPE_PROBE=1) and its launch marks time the key's echo."""
+
+    MARKS = {"main_start": 210.0, "first_window_frame_committed": 640.0, "terminal.probe_key_typed": 641.0,
+             "terminal_input_accepted": 655.5, "terminal_echo": 702.3}
+
+    def test_no_grant_types_in_the_app_and_a_grant_posts(self):
+        self.assertEqual("in_app", tti.input_path(False))
+        self.assertEqual("posted", tti.input_path(True))
+        self.assertEqual("in_app", tti.input_path(True, "in_app"))
+        self.assertEqual("posted", tti.input_path(False, "posted"))
+        env = tti.launch_env({"HOME": "/h"}, Path("/p.csv"), "in_app")
+        self.assertEqual("1", env[tti.TYPE_PROBE_VARIABLE])
+        self.assertEqual("/p.csv", env["CMUX_NEXT_TYPING_PROBE"])
+        self.assertNotIn(tti.TYPE_PROBE_VARIABLE, tti.launch_env({"HOME": "/h"}, Path("/p.csv"), "posted"))
+
+    def test_no_grant_terminal_round_is_measured_from_the_marks(self):
+        reading = tti.in_app_terminal_reading(self.MARKS)
+        self.assertEqual({"accepted_ms": 655.5, "input_ms": 702.3}, reading)
+        row = {"post_access": False, "input": "in_app", **reading}
+        self.assertEqual([], tti.round_failures("terminal", "in_app", row, self.MARKS, 30))
+
+    def test_no_key_window_fails_the_round_and_says_so(self):
+        marks = {"first_window_frame_committed": 640.0, "terminal.probe_no_key_window": 641.0}
+        row = {"post_access": False, **tti.in_app_terminal_reading(marks)}
+        self.assertIsNone(row["input_ms"])
+        [why] = tti.round_failures("terminal", "in_app", row, marks, 30)
+        self.assertIn("probe_no_key_window", why)
+
+    def test_chat_without_the_composer_mark_fails_nothing_on_either_path(self):
+        for path in ("posted", "in_app"):
+            row = {"post_access": path == "posted", "input_ms": None, "no_mark": True}
+            self.assertEqual([], tti.round_failures("chat", path, row, {}, 30))
+
+    def test_posted_path_without_the_grant_still_fails(self):
+        row = {"post_access": False, "input_ms": None}
+        self.assertTrue(any("may not post keys" in f for f in tti.round_failures("terminal", "posted", row, {}, 30)))
+
+
 class InputMarkTests(unittest.TestCase):
     def test_the_mark_is_decided_from_the_bundles_page_scripts(self):
         import tempfile

@@ -4,29 +4,21 @@
 // OnboardingModel and answers `state`, pushes `changed` with the whole state after every model
 // change, and runs each gesture on the model. Text the page shows is its own (Localizable.xcstrings
 // next to this file); the host sends values, never sentences.
+import type { AccountFamily, AccountRowWire, AccountRunParams, AccountRunReply } from "../shared/signIn/accountSignIn";
 
 /** The one tool a window shows; it never changes for a window. */
-/** `agentTools` asks whether cmux may add its MCP server (Computer Use included) to the person's coding agents. */
 /** `makeItYours` is a new person's one setup screen: how they work, the density and a background (cmux#48416). */
-export type OnboardingStep = "agents" | "importData" | "computerUse" | "agentTools" | "makeItYours";
+export type OnboardingStep = "agents" | "importData" | "computerUse" | "makeItYours";
 
 /** What the footer's filled button says (OnboardingModel.primaryTitle). */
-export type PrimaryAction =
-  | "continue"
-  | "done"
-  | "detecting"
-  | "findBrowsers"
-  | "import"
-  | "beginImporting"
-  | "addTools";
+export type PrimaryAction = "continue" | "done" | "detecting" | "findBrowsers" | "import" | "beginImporting";
 
 export interface OnboardingFooter {
   primary: PrimaryAction;
   /** False while browser detection runs (the button stays, disabled). */
   primaryEnabled: boolean;
-  /** Skip, Skip Importing on the Keychain explainer, Not Now on cmux Tools until answered, or
-   * `none` (cmux Tools answered: only Done is left). */
-  skip: "skip" | "skipImporting" | "notNow" | "none";
+  /** Skip, or Skip Importing on the Keychain explainer. */
+  skip: "skip" | "skipImporting";
   /** Back shows over the import explainers (the progress bar is up). */
   showsBack: boolean;
   backEnabled: boolean;
@@ -77,12 +69,21 @@ export interface AgentsState {
 
 // MARK: Import from Browser
 
-export type ImportDataKind = "bookmarks" | "history" | "openTabs" | "cookies" | "searchEngines" | "passwords";
+export type ImportDataKind =
+  | "bookmarks"
+  | "history"
+  | "openTabs"
+  | "extensions"
+  | "cookies"
+  | "searchEngines"
+  | "passwords";
 
 export interface ImportCounts {
   bookmarks: number;
   history: number;
   openTabs: number;
+  /** Extensions read (store ones open their page in the profile, unpacked ones are copied). Older hosts leave it out. */
+  extensions?: number;
   cookies: number;
   passwords: number;
   searchEngines: number;
@@ -204,34 +205,6 @@ export interface ComputerUseState {
   comebacks: number;
 }
 
-// MARK: cmux Tools
-
-/** One coding agent and whether its own config gives it cmux's tools (`cmux setup mcp`):
- * `ready` (none yet), `added`, `terminals` (a DEV build leaves its config alone and gives it cmux's
- * tools in its own terminals), `conflict` (another server named cmux is the person's) or `failed`. */
-export interface AgentToolsRow {
-  id: string;
-  /** The product's own name ("Claude Code"): never translated. */
-  name: string;
-  /** `terminals`: started in cmux, it gets cmux's tools; `ready`: not yet (the answer is not on). */
-  state: "ready" | "terminals" | "failed";
-}
-
-export interface AgentToolsState {
-  /** The coding agents found on this Mac; the page draws each one's mark from its id. */
-  rows: AgentToolsRow[];
-  /** The first read answered (an empty list then says none was found). */
-  loaded: boolean;
-  /** `agents.cmuxMcp` now: `ask` until the person answers. */
-  choice: "ask" | "on" | "off";
-  /** Turn On writes the answer and reads the agents again. */
-  applying: boolean;
-  /** The answer could not be saved. */
-  failed: boolean;
-  /** The person answered in this window. */
-  answered: boolean;
-}
-
 // MARK: Make cmux Yours
 
 /** GUI-first (recommended: chats, browsers and terminals side by side, Cmd-T the New Tab page) or
@@ -258,6 +231,24 @@ export interface MakeItYoursState {
   loaded: boolean;
 }
 
+// MARK: Sign-in (logins done right)
+
+/** Where one provider stands, as the daemon decides it: the page never re-derives installed or
+ * ready, it only lays its own moments over this (installing from `agents`, a sign-in in progress
+ * from the shared controller, shared/signIn/useAccountSignIn.ts). */
+export interface SignInReadinessProvider {
+  family: AccountFamily;
+  state: "notInstalled" | "signInRequired" | "ready";
+  /** Ready: the signed-in account. */
+  account?: string;
+  /** The provider's account label, when the daemon has one. */
+  label?: string;
+}
+
+export interface SignInReadiness {
+  providers: SignInReadinessProvider[];
+}
+
 // MARK: The page
 
 export interface OnboardingState {
@@ -266,10 +257,14 @@ export interface OnboardingState {
   agents: AgentsState | null;
   importer: ImportState | null;
   computerUse: ComputerUseState | null;
-  /** The cmux Tools step's state; null on the other steps (absent from older hosts). */
-  agentTools?: AgentToolsState | null;
   /** Make cmux Yours' state; null on the other steps (absent from older hosts). */
   makeItYours?: MakeItYoursState | null;
+  /** The in-place sign-in's accounts, the same rows Settings reads (`accounts.signInAccounts`);
+   * absent from older hosts. */
+  signInAccounts?: AccountRowWire[] | null;
+  /** Each provider's readiness (GitHub, ChatGPT, Claude); absent from older hosts, and then the
+   * agents step is as it was. */
+  signInReadiness?: SignInReadiness | null;
 }
 
 /** Ops the page calls: [params, result]. Every gesture answers `{}` and the change comes back on
@@ -286,6 +281,9 @@ export interface OnboardingOps {
   "cmux.onboarding.back": [Record<string, never>, unknown];
   "cmux.onboarding.agents.signIn": [{ id: string }, unknown];
   "cmux.onboarding.agents.install": [{ id: string }, unknown];
+  /** One in-place sign-in gesture: the same actions (ACCOUNT_ACTIONS) and replies as
+   * `cmux.settings.accounts.run`. Unlike the other gestures it answers with the daemon's reply. */
+  "cmux.onboarding.accounts.run": [AccountRunParams, AccountRunReply];
   "cmux.onboarding.import.toggleProfile": [{ id: string }, unknown];
   "cmux.onboarding.import.toggleKind": [{ kind: ImportDataKind }, unknown];
   "cmux.onboarding.import.toggleKeepInSync": [Record<string, never>, unknown];
@@ -317,6 +315,7 @@ export const OPS = {
   back: "cmux.onboarding.back",
   signIn: "cmux.onboarding.agents.signIn",
   install: "cmux.onboarding.agents.install",
+  accountsRun: "cmux.onboarding.accounts.run",
   toggleProfile: "cmux.onboarding.import.toggleProfile",
   toggleKind: "cmux.onboarding.import.toggleKind",
   toggleKeepInSync: "cmux.onboarding.import.toggleKeepInSync",

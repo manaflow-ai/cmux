@@ -27,7 +27,8 @@ class App:
     def topology(self):
         return {"loaded": True, "windows": [{"id": w, "workspaces": list(ids)} for w, ids in self.windows.items()],
                 "workspaces": [{"id": w} for w in self.workspaces] + [{"id": f"home_{w}"} for w in self.homes],
-                "focus": {"window": self.active, "workspace": self.windows[self.active][-1], "tab": "tab_1"}}
+                "focus": {"window": self.active, "workspace": self.windows[self.active][-1], "tab": "tab_1"},
+                "panes": [{"tabs": [{"id": "tab_1", "page": "home-dock" if self.home else "terminal"}]}]}
 
     def create(self):
         workspace = f"ws_{len(self.workspaces) + 1}"
@@ -88,6 +89,22 @@ class SeedTests(unittest.TestCase):
                 self.assertEqual(len(app.windows), windows)
                 self.assertEqual(json.loads(front.read_text())["top_page"], "home")
                 self.assertTrue(app.quit)
+
+    def test_front_home_is_read_as_home_by_the_judge(self):
+        """The seed's front file is what run1 must reopen: Home docked in the workspace is Home, not that workspace's tab."""
+        with tempfile.TemporaryDirectory() as temp:
+            app = App()
+            front = Path(temp) / "front.json"
+            code, row = self.run_seed(app, "--windows", "1", "--total-workspaces", "120", "--front-out", str(front))
+            self.assertEqual(code, 0, row)
+            written = json.loads(front.read_text())
+            self.assertEqual((written["home"], written["page"]), (True, "home-dock"))
+            judge = importlib.util.spec_from_file_location("summary", Path(__file__).resolve().parents[1] / "launch-ready-summary.py")
+            summary = importlib.util.module_from_spec(judge)
+            judge.loader.exec_module(summary)
+            run = {"home": True, "page": "home-dock", "workspace": written["workspace"], "tab": written["tab"]}
+            self.assertEqual(summary.key(written), summary.key(run))
+            self.assertIsNone(summary.judge({"front": run, "marks": {}}, "last", written))
 
     def test_front_tab_leaves_the_last_terminal_in_front(self):
         with tempfile.TemporaryDirectory() as temp:

@@ -1,12 +1,17 @@
 {
   "about": "Workflows a push to feat-cmux-next starts that no pull request into it can reach (tests/test_ci_post_merge_checks.py). kind check: a verdict about the code, to move onto pull requests. kind publish: a deploy, a publish, a bot or a probe of a live system.",
   "merge_tier": {
-    "about": "CI v2 merge tiers (cmuxterm-hq docs/rfd/0013-ci-v2.md). With switch on, merge_hold and next-autoland do not wait for a queued or running check of a post_merge workflow on a pull request into feat-cmux-next; a finished red of one still holds the merge. Each one also runs after the merge (after_merge), where the base-red watch names the owner of a red, who reverts or fixes forward. switch off: every check holds the merge until it finishes, as before. Flipping the switch is Leo's call.",
-    "switch": "off",
+    "about": "CI v2 merge tiers (cmuxterm-hq docs/rfd/0013-ci-v2.md). With switch on, merge_hold and next-autoland do not wait for a queued or running check of a post_merge workflow on a pull request into feat-cmux-next; a finished red of one still holds the merge. Each one also runs after the merge (after_merge), where the base-red watch names the owner of a red, who reverts or fixes forward. switch off: every check holds the merge until it finishes, as before. Switched on 2026-11-21 under Leo's \"id rather we simply cut shit now and revisit later\"; revert that one line to switch off.",
+    "switch": "on",
     "post_merge": {
+      "cmux-tui-spec.yml": {
+        "workflow": "cmux-tui spec inventory",
+        "after_merge": "push to feat-cmux-next, same paths; every job a pull request runs (changes, acpmux tests) also runs on the push",
+        "why": "the last check on 13 of 233 pull requests, done p90 59 min after the push with job queue p90 68 min and job runtime p90 11 min (cmuxterm-hq docs/rfd/0045-landing-tail.md, 290 merged PRs 2026-11-19 to 11-22)"
+      },
       "gallery-health.yml": {
         "workflow": "gallery health",
-        "after_merge": "push to feat-cmux-next, same paths",
+        "after_merge": "the post-merge batch runs suite gallery-health, same paths",
         "why": "renders gallery states; a display check no ruleset requires, base reds already warn"
       },
       "cmux-next-media.yml": {
@@ -18,6 +23,46 @@
         "workflow": "cmux-next hot verify",
         "after_merge": "pull_request closed looks at the merge commit",
         "why": "the look posts screenshots and a video; its header says advisory, never gates a merge"
+      },
+      "rust-workspaces.yml": {
+        "workflow": "rust workspaces",
+        "after_merge": "the post-merge batch (.github/post-merge-batch.json suite rust-workspaces)",
+        "why": "a suite of .github/post-merge-batch.json; done p90 196 min after the push, over 30 min on 45 of 161 pull requests (cmuxterm-hq docs/rfd/0045-landing-tail.md)"
+      },
+      "cmux-tui-windows-check.yml": {
+        "workflow": "cmux-tui Windows check",
+        "after_merge": "the post-merge batch (.github/post-merge-batch.json suite cmux-tui-windows-check)",
+        "why": "a suite of .github/post-merge-batch.json; runs on scarce Windows runners (cmuxterm-hq docs/rfd/0045-landing-tail.md)"
+      },
+      "cmux-tui-sdks.yml": {
+        "workflow": "cmux-tui SDKs",
+        "after_merge": "push to feat-cmux-next, same paths",
+        "why": "runs again on the push to feat-cmux-next for the same paths (cmuxterm-hq docs/rfd/0045-landing-tail.md)"
+      },
+      "test-ios.yml": {
+        "workflow": "iOS simulator tests",
+        "after_merge": "push to feat-cmux-next",
+        "why": "runs again on the push to feat-cmux-next, on simulator Macs (cmuxterm-hq docs/rfd/0045-landing-tail.md)"
+      },
+      "signing-keychain-macos.yml": {
+        "workflow": "Signing keychain (macOS)",
+        "after_merge": "push to feat-cmux-next, same paths",
+        "why": "runs again on the push to feat-cmux-next for the same paths, on an owned Mac (cmuxterm-hq docs/rfd/0045-landing-tail.md)"
+      },
+      "cmux-next-react-doctor.yml": {
+        "workflow": "cmux-next React Doctor",
+        "after_merge": "push to feat-cmux-next",
+        "why": "runs again on the push to feat-cmux-next; done p90 52 min after the push for a one-minute job, over 30 min on 38 of 236 pull requests (cmuxterm-hq docs/rfd/0045-landing-tail.md)"
+      },
+      "cmux-next-tab-switch.yml": {
+        "workflow": "cmux-next tab switch (advisory)",
+        "after_merge": "push to feat-cmux-next, same paths",
+        "why": "advisory timing on display Macs; merge_hold already skips it by its (advisory) name, listed so the tier is the whole answer (cmuxterm-hq docs/rfd/0045-landing-tail.md)"
+      },
+      "gallery-advisory.yml": {
+        "workflow": "gallery visual evidence (advisory)",
+        "after_merge": "push to feat-cmux-next, same paths",
+        "why": "advisory renders; merge_hold already skips it by its (advisory) name, listed so the tier is the whole answer (cmuxterm-hq docs/rfd/0045-landing-tail.md)"
       }
     }
   },
@@ -37,6 +82,10 @@
     "cloud-machine-count-probe.yml": {
       "kind": "publish",
       "why": "a probe of live staging machines, not of the change"
+    },
+    "cloud-surge-proof.yml": {
+      "kind": "publish",
+      "why": "a proof run of Cloud Surge on live development machines, not of the change"
     },
     "cloud-vm-image-roll.yml": {
       "kind": "publish",
@@ -82,6 +131,10 @@
       "kind": "publish",
       "why": "a bot that regenerates files on the base"
     },
+    "cmux-next-head-compile.yml": {
+      "kind": "check",
+      "why": "compiles the head the merges make together; each pull request compiles only its own merge with the base it saw"
+    },
     "cmux-next-package-deps-heal.yml": {
       "kind": "publish",
       "why": "a bot that heals package dependency pins on the base"
@@ -90,9 +143,9 @@
       "kind": "publish",
       "why": "a probe of upstream security advisories that keeps one issue open, not a verdict about the change"
     },
-    "cmux-next-tip-test-compile.yml": {
+    "cmux-next-tab-switch.yml": {
       "kind": "check",
-      "why": "compiles the Swift test targets at the tip; the pull request compile is a separate advisory job"
+      "why": "advisory tab-switch timing on display Macs runs once per in-scope merge, not per pull request (#48493)"
     },
     "cmux-next-web-bundle-publish.yml": {
       "kind": "publish",
@@ -101,10 +154,6 @@
     "cmux-next-web-lint.yml": {
       "kind": "check",
       "why": "web lint fails here on push; cmux-next-fast-gates.yml re-creates it for pull requests"
-    },
-    "cmux-next-web.yml": {
-      "kind": "check",
-      "why": "the base's web verdict, coalesced; pull requests get theirs from ci.yml's copy of the jobs"
     },
     "cmux-tui-artifacts.yml": {
       "kind": "check",

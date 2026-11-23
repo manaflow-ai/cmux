@@ -15,9 +15,12 @@
 //!
 //! `run_wait` is a `bg_start` the server writes: one blocking `glaeda-gh wait` (the machine's one
 //! GitHub poller, which waits on PR events where GitHub grants them), else `gh run watch` or `gh pr checks
-//! --watch`, under the daemon, then the failed jobs read once, and the outcome printed last, which
+//! --watch` (one per target for every chat on the machine, `SHARED_WATCH`), under the daemon, then the failed jobs read once, and the outcome printed last, which
 //! the task's summary is (`resultLine`), so the chat wakes once with "... passed" or "... failed:
-//! JOB, JOB". A machine with no `gh` is refused before a task starts.
+//! JOB, JOB". A machine with no `gh` is refused before a task starts. Given a background task's id
+//! (`{"id": "bg-...", "timeoutSeconds": 900}`, as agents call it to wait for a task), it blocks
+//! until the task ends or the bound passes (at most [`TASK_WAIT_MAX`], a longer one clamped and
+//! said so), then answers as `bg_output` does.
 //!
 //! Own tasks first (incident 2026-11-14: a subagent listed every task of its chat and stopped
 //! all ten running ones, none its own): `bg_list` lists the tasks its caller started (that
@@ -62,9 +65,11 @@ pub(super) fn tools() -> Vec<Value> {
             "inputSchema": {"type": "object", "properties": {"id": id, "description": description,
                 "force_other_owner": {"type": "boolean", "description": "Stop it even though another subagent or the lead started it. Only when its owner asked you to or is gone; never as cleanup (default false)."}},
                 "required": ["id"]}}),
-        json!({"name": "run_wait", "description": "Wait for a GitHub Actions run, or a pull request's checks, in the background, and get one message in this chat when it is done: passed, or failed with the failed jobs named. Returns at once with a background task id (bg_output reads it meanwhile). Use it instead of polling CI yourself. Needs the gh CLI; waits through glaeda-gh (one shared poller, GitHub's PR events) when it is installed.",
+        json!({"name": "run_wait", "description": "Wait for a GitHub Actions run, or a pull request's checks, in the background, and get one message in this chat when it is done: passed, or failed with the failed jobs named. Returns at once with a background task id (bg_output reads it meanwhile). Use it instead of polling CI yourself. Needs the gh CLI; waits through glaeda-gh (one shared poller, GitHub's PR events) when it is installed, else through one gh watch per pull request or run that every chat on the machine shares. Given a background task's id (bg-...) and timeoutSeconds instead, it blocks until that task ends or the timeout passes (at most 1800 s; a longer one is clamped and the result says so), then answers as bg_output does.",
             "inputSchema": {"type": "object", "properties": {
                 "repo": {"type": "string", "description": "OWNER/REPO."},
+                "id": {"type": "string", "description": "Instead of repo: a background task's id (bg-...) to wait for, with timeoutSeconds."},
+                "timeoutSeconds": {"type": "number", "minimum": 0, "description": "With id: how long to block for the task to end (at most 1800). Without it the task is read at once."},
                 "run": {"type": "integer", "minimum": 1, "description": "The Actions run id to wait for."},
                 "pr": {"type": "integer", "minimum": 1, "description": "The pull request whose checks to wait for (instead of run)."},
                 "sha": {"type": "string", "description": "With pr: the head commit the checks must be for; a pull request whose head is another commit, before or after the wait, fails."},
@@ -84,6 +89,38 @@ pub(crate) async fn call(daemon: &Arc<Client>, session: &str, name: &str, args: 
         _ => return error_result("arguments must be an object".to_owned()),
     };
     params.set("sessionId", json!(session));
+    // A background task's id given to run_wait (`{"id": "bg-..."}`): run_wait waits for GitHub,
+    // and a bg task's end already comes as a message, so read it as bg_output does and say so.
+    // With a timeout (`{"id": "bg-...", "timeoutSeconds": 900}`), it first blocks until the task
+    // ends or the bound passes (`TaskWait`), and says which.
+    let mut note = None;
+    let mut waited = None;
+    let name = match bg_task_given_to_run_wait(name, &params) {
+        Some(task) => {
+            let bound = match TaskWait::of(&params) {
+                Ok(bound) => bound,
+                Err(why) => return error_result(why),
+            };
+            let sub = params.get("callerSubagent").cloned();
+            params = json!({"sessionId": session, "id": task});
+            if let Some(sub) = sub {
+                params.set("callerSubagent", sub);
+            }
+            note = Some(match bound {
+                None => format!(
+                    "run_wait waits for a GitHub run or pull request (repo with run or pr); {task} is a background task, whose end comes to this chat as one message, so there is nothing to wait on. Its output so far, as bg_output {{\"id\": \"{task}\"}} reads it:"
+                ),
+                Some(bound) => {
+                    let waited_for = bound.wait(daemon, &params).await;
+                    let line = bound.line(&task, waited_for);
+                    waited = Some((bound, waited_for));
+                    line
+                }
+            });
+            "bg_output"
+        }
+        None => name,
+    };
     if name == "run_wait" {
         let wait = match RunWait::of(&params) {
             Ok(wait) => wait,
@@ -156,6 +193,13 @@ pub(crate) async fn call(daemon: &Arc<Client>, session: &str, name: &str, args: 
             structured.set("summary", json!(line));
             structured.set("status", json!(status));
             let mut text = format!("{line}\n{}", summary(name, &structured)).trim_end().to_owned();
+            if let Some(note) = &note {
+                text = format!("{note}\n{text}");
+                structured.set("redirectedFrom", json!("run_wait"));
+            }
+            if let Some((bound, waited)) = &waited {
+                structured.set("wait", bound.view(*waited));
+            }
             if by_subagent && name == "bg_start" && structured.get("notify") == Some(&json!(true)) {
                 text.push_str(&format!("\n{SUBAGENT_END}"));
                 // Claude Code shows the structured result, not the text, when there is one.
@@ -163,7 +207,121 @@ pub(crate) async fn call(daemon: &Arc<Client>, session: &str, name: &str, args: 
             }
             ok(text, structured)
         }
-        Err(e) => refusal(e),
+        Err(e) => match &note {
+            Some(note) => error_result(format!("{note}\n{e:#}")),
+            None => refusal(e),
+        },
+    }
+}
+
+/// The background task id a `run_wait` call gives instead of a repo: a `bg-` value under
+/// `id`, `task`, `taskId`, `task_id` or `run`.
+fn bg_task_given_to_run_wait(name: &str, params: &Value) -> Option<String> {
+    if name != "run_wait" || params.get("repo").is_some_and(|r| !r.is_null()) {
+        return None;
+    }
+    ["id", "task", "taskId", "task_id", "run"].iter().find_map(|k| {
+        let v = params.get(*k)?.as_str()?.trim();
+        v.starts_with("bg-").then(|| v.to_owned())
+    })
+}
+
+/// The most a `run_wait` on a background task blocks (`timeoutSeconds`); a longer bound is
+/// clamped to it, and the result says so.
+const TASK_WAIT_MAX: std::time::Duration = std::time::Duration::from_secs(1800);
+/// The first and the longest pause between two reads of the task's state while it runs.
+const TASK_LOOK_FIRST: std::time::Duration = std::time::Duration::from_millis(100);
+const TASK_LOOK_MAX: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// How long a `run_wait` given a background task blocks for it to end: the bound the call gave
+/// under `timeoutSeconds`, `timeout` or `timeout_seconds` (seconds, a number or a numeric
+/// string), clamped to [`TASK_WAIT_MAX`].
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct TaskWait {
+    /// The seconds the call asked for.
+    asked: f64,
+    /// What it waits: `asked`, or [`TASK_WAIT_MAX`] when that is less.
+    bound: std::time::Duration,
+}
+
+impl TaskWait {
+    /// The call's bound; `None` when it gives none (or 0), so the task is read at once.
+    fn of(params: &Value) -> Result<Option<Self>, String> {
+        let Some((key, v)) = ["timeoutSeconds", "timeout", "timeout_seconds"]
+            .iter()
+            .find_map(|k| params.get(*k).filter(|v| !v.is_null()).map(|v| (*k, v)))
+        else {
+            return Ok(None);
+        };
+        let asked = match v {
+            Value::String(s) => s.trim().trim_end_matches('s').parse::<f64>().ok(),
+            v => v.as_f64(),
+        };
+        let asked = asked
+            .filter(|a| a.is_finite() && *a >= 0.0)
+            .ok_or_else(|| format!("{key} must be a number of seconds, 0 or more (it was {v})"))?;
+        if asked == 0.0 {
+            return Ok(None);
+        }
+        let bound = std::time::Duration::from_secs_f64(asked).min(TASK_WAIT_MAX);
+        Ok(Some(Self { asked, bound }))
+    }
+
+    fn clamped(&self) -> bool {
+        std::time::Duration::from_secs_f64(self.asked) > self.bound
+    }
+
+    /// Blocks until the task `params` names is no longer running or the bound passes: how long
+    /// it waited, and whether it timed out with the task still running. A read the daemon
+    /// refuses (no such task) ends the wait at once: the read after it says why.
+    async fn wait(&self, daemon: &Arc<Client>, params: &Value) -> (std::time::Duration, bool) {
+        let start = tokio::time::Instant::now();
+        let deadline = start + self.bound;
+        let mut look = params.clone();
+        look.set("maxBytes", json!(1));
+        let mut pause = TASK_LOOK_FIRST;
+        loop {
+            let running = match daemon.request(method::MUX_BG_OUTPUT, look.clone()).await {
+                Ok(r) => r.get("state").and_then(Value::as_str) == Some("running"),
+                Err(_) => return (start.elapsed(), false),
+            };
+            let now = tokio::time::Instant::now();
+            if !running || now >= deadline {
+                return (now - start, running);
+            }
+            tokio::time::sleep(pause.min(deadline - now)).await;
+            pause = (pause * 2).min(TASK_LOOK_MAX);
+        }
+    }
+
+    /// The line the result starts with: how the wait ended, and a clamp when there was one.
+    fn line(&self, task: &str, (waited, timed_out): (std::time::Duration, bool)) -> String {
+        let clamp = if self.clamped() {
+            format!(
+                " (you asked for {} s; clamped to the most, {} s)",
+                self.asked,
+                TASK_WAIT_MAX.as_secs()
+            )
+        } else {
+            String::new()
+        };
+        let (secs, bound) = (waited.as_secs_f64(), self.bound.as_secs_f64());
+        if timed_out {
+            format!(
+                "{task} is a background task; timed out after waiting {bound:.0} s{clamp} and it is still running. Its output so far, as bg_output reads it:"
+            )
+        } else {
+            format!(
+                "{task} is a background task; it is not running after a wait of {secs:.1} s of {bound:.0} s{clamp}. Its output, as bg_output reads it:"
+            )
+        }
+    }
+
+    /// The result's `wait`: what was asked, what was waited, and whether it clamped or timed out.
+    fn view(&self, (waited, timed_out): (std::time::Duration, bool)) -> Value {
+        json!({"askedSeconds": self.asked, "boundSeconds": self.bound.as_secs_f64(),
+            "clamped": self.clamped(), "waitedSeconds": waited.as_secs_f64(),
+            "timedOut": timed_out})
     }
 }
 
@@ -196,8 +354,11 @@ fn outcome(name: &str, r: &Value) -> (String, &'static str) {
         return (line, "ok");
     }
     let plural = if tasks.len() == 1 { "" } else { "s" };
+    // Every task of the caller's, counted before the page's state filter, offset and limit
+    // (`bg_list::Page::apply` takes the page after this line is built), so the line says so:
+    // a reader took "1 running" for the page's own count and read 29 exited tasks as running.
     let line = format!(
-        "{} background task{plural}: {running} running, {ok} ok, {failed} failed{others}",
+        "{} background task{plural} in all, not only the page below: {running} running, {ok} ok, {failed} failed{others}",
         tasks.len()
     );
     let status = if running > 0 {
@@ -255,8 +416,12 @@ mod tests {
         let task =
             |state: &str, code: i64| json!({"state": state, "exitCode": code, "command": "c"});
         let r = json!({"tasks": [task("running", 0), task("exited", 0), task("exited", 1)]});
-        let line = "3 background tasks: 1 running, 1 ok, 1 failed".to_owned();
+        let line = "3 background tasks in all, not only the page below: 1 running, 1 ok, 1 failed"
+            .to_owned();
         assert_eq!(outcome("bg_list", &r), (line, "running"));
+        // The counts are the whole list's, never the page's (`bg_list::Page::apply` pages after
+        // this line is built), and the line says which.
+        assert!(outcome("bg_list", &r).0.contains("in all, not only the page below"));
         let done = json!({"tasks": [task("exited", 0), task("exited", 1)]});
         assert_eq!(outcome("bg_list", &done).1, "failed");
         assert_eq!(
@@ -270,6 +435,31 @@ mod tests {
         ));
         let none = json!({"tasks": [], "otherOwners": 1});
         assert!(outcome("bg_list", &none).0.starts_with("No background tasks of yours; 1 more"));
+    }
+
+    /// A bg task's wait bound comes from timeoutSeconds, timeout or timeout_seconds, as a number
+    /// or a numeric string; 0 or none reads at once, a bound past the most is clamped and says so,
+    /// and anything else is refused.
+    #[test]
+    fn a_task_waits_bound_is_read_and_clamped() {
+        let of = |v: Value| TaskWait::of(&v);
+        let b = of(json!({"id": "bg-1", "timeoutSeconds": 900})).unwrap().unwrap();
+        assert_eq!((b.bound.as_secs(), b.clamped()), (900, false));
+        assert_eq!(of(json!({"timeout": "60"})).unwrap().unwrap().bound.as_secs(), 60);
+        assert_eq!(of(json!({"timeout_seconds": 1.5})).unwrap().unwrap().bound.as_millis(), 1500);
+        assert_eq!(of(json!({"id": "bg-1"})).unwrap(), None);
+        assert_eq!(of(json!({"timeoutSeconds": 0})).unwrap(), None);
+        let long = of(json!({"timeoutSeconds": 7200})).unwrap().unwrap();
+        assert_eq!((long.bound, long.clamped()), (TASK_WAIT_MAX, true));
+        let timed_out = long.line("bg-1", (TASK_WAIT_MAX, true));
+        assert!(timed_out.contains("timed out after waiting 1800 s"), "{timed_out}");
+        assert!(
+            timed_out.contains("you asked for 7200 s; clamped to the most, 1800 s"),
+            "{timed_out}"
+        );
+        assert_eq!(long.view((TASK_WAIT_MAX, true))["clamped"], true);
+        assert!(of(json!({"timeoutSeconds": -1})).unwrap_err().contains("timeoutSeconds must be"));
+        assert!(of(json!({"timeout": "soon"})).is_err());
     }
 
     /// A call names a repo and a run or a pull request (with an optional sha); anything else is
@@ -316,7 +506,7 @@ case "$*" in
   "run view"*"--json jobs"*) echo "build, lint" ;;
   "pr view"*) echo 0123456789abcdef0123456789abcdef01234567 ;;
   "pr checks"*--watch*) exit 0 ;;
-  "pr checks"*) echo "" ;;
+  "pr checks"*) echo "lint" ;;
 esac
 "#,
             calls.display()
@@ -332,6 +522,7 @@ esac
                 .arg("-c")
                 .arg(script)
                 .env("PATH", &path)
+                .env("ACPMUX_RUN_WAIT_SHARE", dir.path().join("share"))
                 .output()
                 .unwrap();
             let text = String::from_utf8_lossy(&out.stdout).into_owned();
@@ -344,8 +535,11 @@ esac
             "{all}"
         );
         assert!(all.contains("failed jobs: build, lint"), "{all}");
-        let (code, last, _) = run(json!({"repo": "o/r", "pr": 3, "sha": "0123456789abcdef"}));
-        assert_eq!((code, last.as_str()), (Some(0), "Checks of o/r#3 passed"));
+        // A passing wait names no failed checks, even when gh still lists a superseded run's cancelled
+        // check ("lint" here): cmux#50630's own wait printed six of those above its "passed".
+        let (code, last, all) = run(json!({"repo": "o/r", "pr": 3, "sha": "0123456789abcdef"}));
+        assert_eq!((code, last.as_str()), (Some(0), "Checks of o/r#3 passed"), "{all}");
+        assert!(!all.contains("failed checks"), "{all}");
         let (code, last, _) = run(json!({"repo": "o/r", "pr": 3, "sha": "fedcba9"}));
         assert_eq!(code, Some(2));
         assert!(last.contains("its head is 0123456789abcdef"), "{last}");
@@ -397,6 +591,7 @@ esac
                 .arg("-c")
                 .arg(RunWait::of(&args).unwrap().script())
                 .env("PATH", &path)
+                .env("ACPMUX_RUN_WAIT_SHARE", dir.path().join("share"))
                 .output()
                 .unwrap();
             let text = String::from_utf8_lossy(&out.stdout).into_owned();
@@ -428,6 +623,170 @@ esac
         let (code, _, calls) = run(json!({"repo": "o/r", "run": 7}), "3");
         assert_eq!(code, Some(0), "{calls}");
         assert!(calls.contains("gh run watch 7 --repo o/r"), "{calls}");
+    }
+
+    /// A head read the shared quota refused with its reset time ("until HH:MMZ", gh-quota exit 3)
+    /// sleeps until that reset and reads again instead of failing the wait; a reset already passed
+    /// reads again after 60 s; a refusal naming no reset still fails at once, naming the refusal.
+    #[cfg(unix)]
+    #[test]
+    fn run_wait_head_read_waits_out_a_quota_refusal() {
+        let dir = cmux_unix_socket::short_test_dir("run-wait-quota");
+        let calls = dir.path().join("calls");
+        let refusal = dir.path().join("refusal");
+        let refused = dir.path().join("refused");
+        let gh = format!(
+            r#"#!/bin/sh
+echo "gh $*" >> '{calls}'
+case "$*" in
+  "pr view"*)
+    if [ -s '{refusal}' ] && [ ! -e '{refused}' ]; then
+      : > '{refused}'; cat '{refusal}' >&2; exit 3
+    fi
+    echo 0123456789abcdef0123456789abcdef01234567 ;;
+  *) echo "" ;;
+esac
+"#,
+            calls = calls.display(),
+            refusal = refusal.display(),
+            refused = refused.display()
+        );
+        let glaeda = format!("#!/bin/sh\necho \"glaeda-gh $*\" >> '{}'\nexit 0\n", calls.display());
+        let sleep = format!("#!/bin/sh\necho \"sleep $*\" >> '{}'\n", calls.display());
+        use std::os::unix::fs::PermissionsExt;
+        for (name, body) in [("gh", gh), ("glaeda-gh", glaeda), ("sleep", sleep)] {
+            let file = dir.path().join(name);
+            std::fs::write(&file, body).unwrap();
+            std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let path = format!("{}:/usr/bin:/bin", dir.path().display());
+        let run = |text: &str| {
+            std::fs::write(&refusal, text).unwrap();
+            let _ = std::fs::remove_file(&refused);
+            let _ = std::fs::remove_file(&calls);
+            let out = std::process::Command::new("sh")
+                .arg("-c")
+                .arg(
+                    RunWait::of(&json!({"repo": "o/r", "pr": 3, "sha": "0123456789abcdef"}))
+                        .unwrap()
+                        .script(),
+                )
+                .env("PATH", &path)
+                .env("ACPMUX_RUN_WAIT_SHARE", dir.path().join("share"))
+                .output()
+                .unwrap();
+            let text = String::from_utf8_lossy(&out.stdout).into_owned();
+            let calls = std::fs::read_to_string(&calls).unwrap_or_default();
+            (out.status.code(), text.lines().last().unwrap_or_default().to_owned(), calls)
+        };
+        let sleeps = |calls: &str| -> Vec<u64> {
+            calls.lines().filter_map(|l| l.strip_prefix("sleep ")?.trim().parse().ok()).collect()
+        };
+        // A reset two minutes from now, in the refusal's own UTC "HH:MMZ" form.
+        let utc = |minutes_ahead: i64| {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs() as i64;
+            let minute = (now % 86400 / 60 + minutes_ahead).rem_euclid(1440);
+            format!("{:02}:{:02}Z", minute / 60, minute % 60)
+        };
+        let ahead = format!(
+            "gh-quota: refused: GitHub's REST rate limit is spent for read-pool until {} (reset)",
+            utc(2)
+        );
+        let (code, last, calls) = run(&ahead);
+        assert_eq!((code, last.as_str()), (Some(0), "Checks of o/r#3 passed"), "{calls}");
+        let slept = sleeps(&calls);
+        assert!(slept.len() == 1 && (60..=140).contains(&slept[0]), "{calls}");
+        assert!(calls.contains("glaeda-gh wait pr o/r#3 --sha 0123456789abcdef"), "{calls}");
+
+        let passed = format!(
+            "gh-quota: refused: GitHub's REST rate limit is spent for read-pool until {} (reset)",
+            utc(-2)
+        );
+        let (code, last, calls) = run(&passed);
+        assert_eq!((code, last.as_str()), (Some(0), "Checks of o/r#3 passed"), "{calls}");
+        assert_eq!(sleeps(&calls), vec![60], "{calls}");
+
+        let (code, last, calls) = run("lane-gh: refused: retry after 30 s");
+        assert_eq!((code, last.as_str()), (Some(0), "Checks of o/r#3 passed"), "{calls}");
+        assert_eq!(sleeps(&calls), vec![35], "{calls}");
+
+        let (code, last, calls) = run("gh-quota: refused: a jobs sweep is forbidden");
+        assert_eq!(code, Some(2), "{calls}");
+        assert_eq!(
+            last,
+            "Checks of o/r#3 failed: its head could not be read (gh-quota: refused: a jobs sweep is forbidden)"
+        );
+        assert!(sleeps(&calls).is_empty() && !calls.contains("glaeda-gh"), "{calls}");
+    }
+
+    /// With no glaeda-gh, chats waiting for the same pull request share one `gh` watch: the second
+    /// waiter makes no GitHub call and takes the first's outcome; a lock left by a waiter that died is
+    /// taken over, so that wait still polls once and ends on its outcome.
+    #[cfg(unix)]
+    #[test]
+    fn run_wait_without_glaeda_gh_shares_one_gh_watch_per_target() {
+        let dir = cmux_unix_socket::short_test_dir("run-wait-share");
+        let calls = dir.path().join("calls");
+        let gh = format!(
+            r#"#!/bin/sh
+echo "gh $*" >> '{calls}'
+case "$*" in
+  "pr checks"*--watch*) /bin/sleep 2; exit 1 ;;
+  "pr checks"*) echo "build" ;;
+  *) echo "" ;;
+esac
+"#,
+            calls = calls.display()
+        );
+        let file = dir.path().join("gh");
+        std::fs::write(&file, gh).unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let share = dir.path().join("share");
+        let path = format!("{}:/usr/bin:/bin", dir.path().display());
+        let script = RunWait::of(&json!({"repo": "o/r", "pr": 3})).unwrap().script();
+        let spawn = || {
+            std::process::Command::new("sh")
+                .arg("-c")
+                .arg(&script)
+                .env("PATH", &path)
+                .env("ACPMUX_RUN_WAIT_SHARE", &share)
+                .stdout(std::process::Stdio::piped())
+                .spawn()
+                .unwrap()
+        };
+        let last = |child: std::process::Child| {
+            let out = child.wait_with_output().unwrap();
+            let text = String::from_utf8_lossy(&out.stdout).into_owned();
+            (out.status.code(), text.lines().last().unwrap_or_default().to_owned())
+        };
+        let first = spawn();
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        let second = spawn();
+        for child in [first, second] {
+            assert_eq!(last(child), (Some(1), "Checks of o/r#3 failed: build".to_owned()));
+        }
+        let text = std::fs::read_to_string(&calls).unwrap();
+        assert_eq!(text.matches("--watch").count(), 1, "one watch for both waiters: {text}");
+
+        // A leader that died: its lock names a pid that no longer runs.
+        let mut gone = std::process::Command::new("true").spawn().unwrap();
+        gone.wait().unwrap();
+        let name = std::process::Command::new("sh")
+            .arg("-c")
+            .arg("printf '%s' 'pr o/r#3' | cksum | tr -c '0-9\\n' -")
+            .output()
+            .unwrap();
+        let name = String::from_utf8_lossy(&name.stdout).trim().to_owned();
+        std::os::unix::fs::symlink(gone.id().to_string(), share.join(format!("{name}.lock")))
+            .unwrap();
+        std::fs::remove_file(&calls).unwrap();
+        assert_eq!(last(spawn()), (Some(1), "Checks of o/r#3 failed: build".to_owned()));
+        let text = std::fs::read_to_string(&calls).unwrap();
+        assert_eq!(text.matches("--watch").count(), 1, "the stale lock was taken over: {text}");
     }
 
     /// A task that prints its outcome last is summed up by that line once it ended.
@@ -520,9 +879,10 @@ impl RunWait {
             Target::Run(run) => {
                 let name = format!("Actions run {run} in {repo}");
                 lines.push(glaeda_wait(&format!("run {repo}/{run}")));
-                lines.push(format!("case $rc in 3|64) gh run watch {run} --repo {repo} --exit-status --interval {GH_INTERVAL_S} >/dev/null 2>&1; rc=$? ;; esac"));
+                lines.push(SHARED_WATCH.to_owned());
+                lines.push(format!("case $rc in 3|64) shared_watch \"run {repo}/{run}\" gh run watch {run} --repo {repo} --exit-status --interval {GH_INTERVAL_S} ;; esac"));
                 lines.push(format!("gh run view {run} --repo {repo} --json conclusion,url --jq '\"conclusion: \" + (.conclusion // \"none\") + \"  \" + .url'"));
-                lines.push(format!("failed=$(gh run view {run} --repo {repo} --json jobs --jq '[.jobs[] | select(.conclusion == \"failure\" or .conclusion == \"cancelled\" or .conclusion == \"timed_out\") | .name] | join(\", \")' 2>/dev/null)"));
+                lines.push(format!("failed=; [ $rc -eq 0 ] || failed=$(gh run view {run} --repo {repo} --json jobs --jq '[.jobs[] | select(.conclusion == \"failure\" or .conclusion == \"cancelled\" or .conclusion == \"timed_out\") | .name] | join(\", \")' 2>/dev/null)"));
                 lines.push("[ -n \"$failed\" ] && echo \"failed jobs: $failed\"".to_owned());
                 lines.push(format!("if [ $rc -eq 0 ]; then echo \"{name} passed\"; else echo \"{name} failed${{failed:+: $failed}}${{why:+ ($why)}}\"; fi"));
             }
@@ -531,17 +891,24 @@ impl RunWait {
                 let head =
                     format!("gh pr view {number} --repo {repo} --json headRefOid --jq .headRefOid");
                 if let Some(sha) = sha {
-                    lines.push(format!("head=$({head}) || {{ echo \"{name} failed: its head could not be read\"; exit 2; }}"));
+                    lines.push(head_reader(&head));
+                    lines.push(format!("read_head || {{ echo \"{name} failed: its head could not be read${{refusal:+ ($refusal)}}\"; exit 2; }}"));
                     lines.push(format!("case \"$head\" in {sha}*) ;; *) echo \"{name} failed: its head is $head, not {sha}\"; exit 2;; esac"));
                 }
                 let pin = if sha.is_some() { " --sha \"$head\"" } else { "" };
                 lines.push(glaeda_wait(&format!("pr {repo}#{number}{pin}")));
-                lines.push(format!("case $rc in 3|64) gh pr checks {number} --repo {repo} --watch --fail-fast --interval {GH_INTERVAL_S} >/dev/null 2>&1; rc=$? ;; esac"));
-                lines.push(format!("failed=$(gh pr checks {number} --repo {repo} --json name,bucket --jq '[.[] | select(.bucket == \"fail\" or .bucket == \"cancel\") | .name] | join(\", \")' 2>/dev/null)"));
+                lines.push(SHARED_WATCH.to_owned());
+                let key = if sha.is_some() {
+                    format!("pr {repo}#{number} $head")
+                } else {
+                    format!("pr {repo}#{number}")
+                };
+                lines.push(format!("case $rc in 3|64) shared_watch \"{key}\" gh pr checks {number} --repo {repo} --watch --fail-fast --interval {GH_INTERVAL_S} ;; esac"));
+                lines.push(format!("failed=; [ $rc -eq 0 ] || failed=$(gh pr checks {number} --repo {repo} --json name,bucket --jq '[.[] | select(.bucket == \"fail\" or .bucket == \"cancel\") | .name] | join(\", \")' 2>/dev/null)"));
                 lines.push("[ -n \"$failed\" ] && echo \"failed checks: $failed\"".to_owned());
                 if let Some(sha) = sha {
-                    lines.push(format!("now=$({head})"));
-                    lines.push(format!("case \"$now\" in {sha}*) ;; *) echo \"{name} failed: its head moved to $now while it was waited for\"; exit 2;; esac"));
+                    lines.push(format!("read_head || {{ echo \"{name} failed: its head could not be read after the wait${{refusal:+ ($refusal)}}\"; exit 2; }}"));
+                    lines.push(format!("case \"$head\" in {sha}*) ;; *) echo \"{name} failed: its head moved to $head while it was waited for\"; exit 2;; esac"));
                 }
                 lines.push(format!("if [ $rc -eq 0 ]; then echo \"{name} passed\"; else echo \"{name} failed${{failed:+: $failed}}${{why:+ ($why)}}\"; fi"));
             }
@@ -569,6 +936,76 @@ fn glaeda_wait(target: &str) -> String {
         "if command -v glaeda-gh >/dev/null 2>&1; then glaeda-gh wait {target} --timeout 21600 >/dev/null 2>&1; rc=$?; else rc=3; fi\n\
          case $rc in 2) why='timed out after 6 h' ;; 4) why='conflicts with its base' ;; 6) why='no check ever reported' ;; 7) why='inconclusive' ;; esac"
     )
+}
+
+/// `shared_watch KEY CMD...`: the `gh` watch of a machine with no glaeda-gh (or one whose daemon is
+/// down), shared by every chat on the machine that waits for the same KEY (`run OWNER/REPO/ID`, or
+/// `pr OWNER/REPO#N [HEAD]`). The first waiter takes the lock, a symlink whose target is its pid
+/// (`ln -s` makes it atomically or fails), runs CMD, and writes its exit code with the time it
+/// ended; every other waiter reads GitHub not at all, checks every 5 s that the lock's pid lives,
+/// and takes the outcome once it is newer than its own start. A waiter whose leader died (stopped,
+/// killed, the machine slept) removes the stale lock and becomes the leader, so a wait is never
+/// less reliable than its own poll. This is glaeda-gh's one-poller-per-machine for a paying user or
+/// a teammate who never installed it (Leo, ask-922dfe5e36: "we need to be able to make sure
+/// arbitrary paying users/teammates can properly use it with the way that we properly use it"):
+/// ten sessions waiting on one pull request spent ten logins' worth of polls on one login before.
+/// The folder is `ACPMUX_RUN_WAIT_SHARE` (tests), else this user's own under `TMPDIR`.
+const SHARED_WATCH: &str = r#"shared_watch() {
+  key=$1; shift
+  share=${ACPMUX_RUN_WAIT_SHARE:-${TMPDIR:-/tmp}/acpmux-run-wait-$(id -u)}
+  mkdir -p "$share" 2>/dev/null && chmod 700 "$share" 2>/dev/null
+  name=$(printf '%s' "$key" | cksum | tr -c '0-9\n' -)
+  lock="$share/$name.lock"; out="$share/$name.rc"; since=$(date +%s)
+  while :; do
+    if ln -s "$$" "$lock" 2>/dev/null; then
+      "$@" >/dev/null 2>&1; rc=$?
+      printf '%s %s\n' "$(date +%s)" "$rc" > "$out.$$" && mv -f "$out.$$" "$out"
+      rm -f "$lock"; return 0
+    fi
+    pid=$(readlink "$lock" 2>/dev/null)
+    if [ -n "$pid" ] && ! kill -0 "$pid" 2>/dev/null; then rm -f "$lock"; continue; fi
+    sleep 5
+    if [ -f "$out" ] && read t r < "$out" && [ "$t" -gt "$since" ] 2>/dev/null; then rc=$r; return 0; fi
+  done
+}"#;
+
+/// How long a refused head read waits at most for the quota to come back: the wait's own bound.
+const HEAD_READ_DEADLINE_S: u64 = 21600;
+
+/// `read_head`: sets `head` from READ (the `gh pr view` of the pinned pull request). A read the
+/// shared quota refused with its reset time (gh-quota exit 3, "... spent for read-pool until
+/// 06:26Z (reset)", or the broker's "retry after N s") sleeps until that reset and reads again,
+/// within the wait's own 6 h bound, instead of ending the wait on a false failure (cmuxterm-hq#16309
+/// and #16265 twice in 10 minutes, 2026-11-21). Any other refusal, or a reset past the bound, returns
+/// false with `refusal` set to the read's last stderr line. A reset time already passed (the quota's
+/// reset slips) reads again after 60 s.
+fn head_reader(read: &str) -> String {
+    r#"deadline=$(( $(date +%s) + DEADLINE ))
+gh_err=$(mktemp 2>/dev/null || echo "${TMPDIR:-/tmp}/run-wait-$$.err")
+trap 'rm -f "$gh_err"' EXIT
+read_head() {
+  while :; do
+    refusal=
+    head=$(READ 2>"$gh_err") && [ -n "$head" ] && return 0
+    refusal=$(grep -v '^[[:space:]]*$' "$gh_err" | tail -n 1)
+    t=$(grep -oE 'until [0-9]{1,2}:[0-9]{2}Z' "$gh_err" | tail -n 1 | tr -dc '0-9:')
+    now_s=$(date +%s)
+    if [ -n "$t" ]; then
+      h=$(echo "${t%%:*}" | sed 's/^0*//'); m=$(echo "${t##*:}" | sed 's/^0*//')
+      s=$(( ( ${h:-0} * 3600 + ${m:-0} * 60 - now_s % 86400 + 86400 ) % 86400 + 15 ))
+      [ "$s" -gt 43200 ] && s=60
+    else
+      n=$(grep -oE 'retry after [0-9]+ ?s' "$gh_err" | tail -n 1 | tr -dc '0-9')
+      [ -n "$n" ] || return 1
+      s=$(( n + 5 ))
+    fi
+    [ $(( now_s + s )) -lt "$deadline" ] || return 1
+    echo "run_wait: the head read was refused ($refusal); reading again in ${s}s, after the reset"
+    sleep "$s"
+  done
+}"#
+    .replace("DEADLINE", &HEAD_READ_DEADLINE_S.to_string())
+    .replace("READ", read)
 }
 
 /// Whether an executable named `name` is on this process's PATH (true when it has none).

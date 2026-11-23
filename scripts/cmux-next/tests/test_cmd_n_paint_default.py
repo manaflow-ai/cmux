@@ -36,6 +36,46 @@ RUN = ("import runpy, sys, time\n"
        "runpy.run_path(sys.argv[0], run_name='__main__')\n")
 
 
+# A run of the driver's own launch (`--app`) in which no app starts: `subprocess.Popen` prints the names of the
+# app's variables in the launch's environment and ends the run. The screen mode's steps before its launch (the
+# bundle's last run, the tag's saved session) do not run here: they read and move a Mac's files.
+LAUNCH = ("import json, os, runpy, subprocess, sys, time, types\n"
+          "time.sleep = lambda seconds: None\n"
+          "sys.argv = sys.argv[1:]\n"
+          "sys.path.insert(0, os.path.dirname(os.path.abspath(sys.argv[0])))\n"
+          "if '--screen' in sys.argv:\n"
+          "    import new_surface_screen\n"
+          "    new_surface_screen.fresh_session = lambda *asked: None\n"
+          "    end = types.SimpleNamespace(last=lambda: None, set_aside=lambda: None, own=None, launch_fault=lambda pid: None)\n"
+          "    sys.modules['run_end_record'] = types.SimpleNamespace(RunEnd=lambda app: end)\n"
+          "def popen(command, env=None, **more):\n"
+          "    print('LAUNCH-ENV ' + json.dumps(sorted(name for name in env if name.startswith('CMUX_NEXT_'))), flush=True)\n"
+          "    raise SystemExit(7)\n"
+          "subprocess.Popen = popen\n"
+          "runpy.run_path(sys.argv[0], run_name='__main__')\n")
+
+
+def launched_with(arguments, files):
+    """The driver's exit status and the names of the app's `CMUX_NEXT_` variables in the launch that it makes for a
+    bundle (`LAUNCH`), from a scratch folder that is also the run's home and its folder for temporary files. With
+    no such line: the last lines that the driver wrote."""
+    scratch = tempfile.mkdtemp(prefix="cmd-n-paint-launch-")
+    try:
+        only, binary = os.path.join(scratch, "driver"), Path(scratch, "cmux DEV launch-test.app", "Contents", "MacOS", "cmux DEV launch-test")
+        os.mkdir(only)
+        for name in files:
+            shutil.copy(os.path.join(str(HERE.parent), name), only)
+        binary.parent.mkdir(parents=True)
+        binary.write_text("")
+        done = subprocess.run([sys.executable, "-I", "-c", LAUNCH, os.path.join("driver", NEEDED[0]), "--app", str(binary.parents[2]),
+                               "--tag", f"launch-test-{os.getpid()}", "--out", "out", *arguments], cwd=scratch, capture_output=True,
+                              text=True, timeout=120, check=False, env={**os.environ, "HOME": scratch, "TMPDIR": scratch})
+        said = [line for line in done.stdout.splitlines() if line.startswith("LAUNCH-ENV ")]
+        return done.returncode, json.loads(said[0][len("LAUNCH-ENV "):]) if said else (done.stdout + done.stderr).splitlines()[-3:]
+    finally:
+        shutil.rmtree(scratch, ignore_errors=True)
+
+
 def frame(index, **bad):
     return {"ms": 17.0 * index, "file": f"frame-{index:03d}.png", "outside_vs_before": 0.01, "outside_vs_final": 0.0,
             "content_vs_before": 0.3, "content_vs_final": 0.0, "intermediate": False, "blank": False,
@@ -45,11 +85,11 @@ def frame(index, **bad):
 class App:
     """The app's side of the socket. `bad` is the case with bad frames: its 2nd recording has a frame between the two
     pictures and took no spare, its 5th fails, its 8th has a blank frame. `window`: the app lists one window (with no
-    pane), and it becomes active, with that window as its key window, when `debug.window.focus` asks with `activate`."""
+    pane), it is active with that window as its key window, and its list of windows has that one window, shown."""
 
     def __init__(self, path, bad, window=False):
         self.bad, self.calls, self.openings, self.strips = bad, [], [], 0
-        self.window, self.active = window, False
+        self.window, self.active = window, window
         self.server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self.server.bind(path)
         self.server.listen(8)
@@ -79,8 +119,11 @@ class App:
         if self.window and method == "debug.focus":
             return {"ok": True, "result": {"app_active": self.active, "windows": [{"id": "window-1", "is_key": self.active}]}}
         if self.window and method == "debug.window.focus":
-            self.active = params.get("activate") is True
             return {"ok": True, "result": {"key": "window-1" if self.active else None, "front": "window-1"}}
+        if self.window and method == "debug.window_list":
+            return {"ok": True, "result": {"windows": [{
+                "id": 41, "kind": "main", "title": "a title", "frame": {"x": 40.0, "y": 230.0, "width": 1200.0, "height": 900.0},
+                "visible": True, "parent": None, "class": "ShellWindow", "key": self.active, "occluded": False, "miniaturized": False}]}}
         if method == "debug.new_tab" and action == "state":
             return {"ok": True, "result": {"spares": [{"ready": True}], "openings": list(self.openings)}}
         if method == "debug.new_tab" and action == "frame_strip":
@@ -155,16 +198,33 @@ class DefaultPathTests(unittest.TestCase):
         mode = (*NEEDED, *SCREEN_MODE)
         got = outcome(str(HERE.parent), ["--screen", "--runs", "1", "--keys", "n", "--page-watch", "0"], bad=False, files=mode, window=True)
         self.assertEqual((got["exit"], got["stderr"]), (0, []))
-        # One ask for the active app, before the first recording.
+        # One ask for the window in front, with no activation, before the first recording.
         asked = [index for index, call in enumerate(got["calls"]) if '"debug.window.focus"' in call]
-        self.assertEqual([json.loads(got["calls"][index])[1] for index in asked], [{"window": "window-1", "activate": True}])
+        self.assertEqual([json.loads(got["calls"][index])[1] for index in asked], [{"window": "window-1"}])
         self.assertLess(asked[0], next(index for index, call in enumerate(got["calls"]) if '"frame_strip"' in call))
+        # 2 reads of the app's windows: before the first recording and after the last one.
+        strips = [index for index, call in enumerate(got["calls"]) if '"frame_strip"' in call]
+        reads = [index for index, call in enumerate(got["calls"]) if '"debug.window_list"' in call]
+        self.assertEqual((len(reads), reads[0] < strips[0], reads[-1] > strips[-1]), (2, True, True))
+        self.assertEqual((json.loads(got["report"])["window"]["same"], json.loads(got["report"])["key_window_form"]), (True, "shell"))
         self.assertEqual(got["stdout"][-1], "NEW-SURFACE-SCREEN report only: 2 rows, 2 INVALID, 0 pictures kept")
         strips = [json.loads(call)[1] for call in got["calls"] if '"frame_strip"' in call]
         self.assertEqual([(s["above"], s["duration_ms"], s.get("repeat"), s.get("repeat_interval_ms")) for s in strips],
                          [(True, 2000, None, None), (True, 2100.0, 2, 100.0)])
         self.assertEqual([row["invalid"][0].split(":")[0] for row in json.loads(got["report"])["rows"]], ["capture", "capture"])
         self.assertNotIn("PASS", "".join(got["stdout"]))
+
+    def test_the_launch_of_each_mode_has_the_variable_that_takes_no_keyboard(self):
+        # An app with `CMUX_NEXT_NO_ACTIVATE=1` takes no keyboard of a person at the Mac, and only such an app reads
+        # the 2 variables that place its window (`CMUX_NEXT_TEST_WINDOW_SCREEN`, `CMUX_NEXT_TEST_WINDOW_FRAME`).
+        # Each mode's launch has the 3, also the screen mode's.
+        wanted = ("CMUX_NEXT_NO_ACTIVATE", "CMUX_NEXT_SOCKET_MODE", "CMUX_NEXT_TEST_WINDOW_SCREEN", "CMUX_NEXT_TEST_WINDOW_FRAME")
+        for arguments, files in (([], NEEDED), (["--screen", "--keys", "n", "--page-watch", "0"], (*NEEDED, *SCREEN_MODE)),
+                                 (["--screen", "--keys", "t,w,n", "--gaps", "0", "--close-cases", "idle,hold", "--key-tabs", "6,84",
+                                   "--page-watch", "0"], (*NEEDED, *SCREEN_MODE))):
+            with self.subTest(arguments=arguments):
+                code, names = launched_with(arguments, files)
+                self.assertEqual((code, [name in names for name in wanted]), (7, [True] * 4), names)
 
     def test_screen_takes_12_runs_of_a_case(self):
         # 12 runs of 2 keys, alone and after a key, are 72 openings in the run and 2 at most in one recording. The
