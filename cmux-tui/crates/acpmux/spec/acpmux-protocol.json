@@ -1727,6 +1727,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/transfer_base",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/transfer_begin",
       "params": true,
       "result": true
@@ -1751,6 +1757,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/transfer_prepare",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/transfer_read",
       "params": true,
       "result": true
@@ -1758,6 +1770,18 @@
     {
       "kind": "request",
       "name": "_acpmux/transfer_receive",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/transfer_stage",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/transfer_stage_finish",
       "params": true,
       "result": true
     },
@@ -2393,6 +2417,18 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/machine_join_ssh",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/machine_candidates",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/machine_leave_if_auto",
       "params": true,
       "result": true
@@ -2565,6 +2601,11 @@
       "params": true
     },
     {
+      "kind": "notification",
+      "name": "_acpmux/machine_join_progress",
+      "params": true
+    },
+    {
       "kind": "client_local",
       "name": "_acpmux/disconnected",
       "params": true
@@ -2587,7 +2628,8 @@
         "_meta": {
           "$ref": "#/types/RequestMeta"
         },
-        "loginId": true
+        "loginId": true,
+        "sessionId": true
       },
       "type": "object"
     },
@@ -2598,7 +2640,8 @@
           "$ref": "#/types/RequestMeta"
         },
         "code": true,
-        "loginId": true
+        "loginId": true,
+        "sessionId": true
       },
       "type": "object"
     },
@@ -2610,7 +2653,8 @@
         },
         "account": true,
         "family": true,
-        "name": true
+        "name": true,
+        "sessionId": true
       },
       "type": "object"
     },
@@ -2869,6 +2913,43 @@
       },
       "type": "object"
     },
+    "ApprovedPlan": {
+      "description": "The plan the person last approved in a chat (`hub/plan_build.rs` `approved_plan`): Claude\nCode's ExitPlanMode, or a Grok, Cursor or Gemini plan approval, answered with an allow. The\npane keeps it in sight while the agent builds it (Leo's feature map, 2026-11-23: \"plan pane\nthat stays during the build\"); a newer approval replaces it.",
+      "properties": {
+        "at": {
+          "description": "When it was approved, Unix ms.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "edited": {
+          "description": "The person edited the plan before approving it.",
+          "type": "boolean"
+        },
+        "markdown": {
+          "description": "The plan as approved, Markdown: the person's edit when they made one.",
+          "type": "string"
+        },
+        "permissionId": {
+          "description": "The plan approval it answered.",
+          "type": "string"
+        },
+        "turn": {
+          "description": "The chat's turn count when it was approved.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "markdown",
+        "edited",
+        "permissionId",
+        "turn",
+        "at"
+      ],
+      "type": "object"
+    },
     "ApproverDecision": {
       "additionalProperties": false,
       "description": "`{approver, expiresAt, signature}`: ECDSA P-256 / SHA-256, raw `r || s` as\nlowercase hex, over the approver's message for this exact answer.",
@@ -2966,6 +3047,13 @@
             "null"
           ]
         },
+        "omitTimeBreakdown": {
+          "description": "True from a client that never draws the breakdown (the phone): the reply's `session`\nleaves `timeBreakdown` out whatever its version (`server/requests/time_breakdown_gate.rs`).",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "sessionId": {
           "type": "string"
         },
@@ -2973,6 +3061,13 @@
           "description": "Answer from the chat's settled view first (`settled-attach-v1`,\n`server/requests/settled_attach.rs`): a read, falling back to a plain page.",
           "type": [
             "boolean",
+            "null"
+          ]
+        },
+        "timeBreakdownVersion": {
+          "description": "The `timeBreakdownVersion` of the breakdown copy this client holds (from an earlier\nattach): while the chat's copy is the same, the reply's `session` leaves `timeBreakdown`\nout (`server/requests/time_breakdown_gate.rs`). Absent, or another version: sent whole.",
+          "type": [
+            "string",
             "null"
           ]
         },
@@ -3035,6 +3130,13 @@
         "session": {
           "$ref": "#/types/SessionDetail"
         },
+        "timeBreakdownVersion": {
+          "description": "The version of the session's `timeBreakdown` copy (a hash of it); null when it has none.\nSent back as the attach's `timeBreakdownVersion`, the next reply leaves an unchanged copy\nout of `session`. An older acpmux leaves it out.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "turnOpener": {
           "anyOf": [
             {
@@ -3055,6 +3157,7 @@
         "presence",
         "readThrough",
         "session",
+        "timeBreakdownVersion",
         "turnOpener"
       ],
       "type": "object"
@@ -4577,6 +4680,13 @@
     },
     "MessageSender": {
       "properties": {
+        "displayName": {
+          "description": "The sender's given name (`session_handle.rs`), shown first: \"Mango · HOST/NAME\".",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "host": {
           "type": [
             "string",
@@ -6341,6 +6451,17 @@
             "null"
           ]
         },
+        "approvedPlan": {
+          "anyOf": [
+            {
+              "$ref": "#/types/ApprovedPlan"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The plan the person last approved in this chat (`hub/plan_build.rs`), which the pane keeps\nin sight while the agent builds it. Absent until one, and from a peer on an older acpmux."
+        },
         "attached": {
           "description": "Attached clients.",
           "format": "uint64",
@@ -6390,6 +6511,13 @@
           "format": "uint32",
           "minimum": 0,
           "type": "integer"
+        },
+        "displayName": {
+          "description": "The name every human-visible surface shows for it (tab, sidebar row, lists, chat header,\nnotices, a message's sender): its handle when one was given (`acpmux rename @ Mango\n--handle`), absent otherwise (a derived handle is no name a person chose; show `name`).\nIts former names and handles are `formerNames` (\"Mango (fka claude-sr2-coord-old)\").",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "effort": {
           "description": "The harness's current reasoning effort, when it reports one.\nAdditive for older clients and peers.",
@@ -6463,6 +6591,17 @@
         "hasDraft": {
           "description": "Its composer holds typed text not sent yet (`composerDraft`, non-blank): an app update\nthat installs when idle (`updates.installWhenIdle`) waits for it. Absent otherwise, and from\na peer on an older acpmux.",
           "type": "boolean"
+        },
+        "icon": {
+          "anyOf": [
+            {
+              "$ref": "#/types/SessionIcon"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The icon it set (`session_icon.rs`), drawn like a harness `iconSpec`; absent draws the\nharness mark."
         },
         "indicator": {
           "anyOf": [
@@ -7043,6 +7182,110 @@
       ],
       "type": "object"
     },
+    "SessionIcon": {
+      "description": "The icon clients draw for one chat.",
+      "oneOf": [
+        {
+          "description": "An agent mark id from design/agent-icons (`claude`, `gemini`, ...).",
+          "properties": {
+            "brand": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "brand",
+              "type": "string"
+            },
+            "source": {
+              "default": "session",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "brand"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "One emoji.",
+          "properties": {
+            "kind": {
+              "const": "emoji",
+              "type": "string"
+            },
+            "source": {
+              "default": "session",
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "text"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "An SF Symbol; `text` and `hue` are the monogram a client that cannot draw it shows.",
+          "properties": {
+            "hue": {
+              "format": "uint16",
+              "maximum": 65535,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "kind": {
+              "const": "symbol",
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "source": {
+              "default": "session",
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "name",
+            "text",
+            "hue"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "An SVG, PNG, ICO or JPEG, base64, so a page draws it with no file or network access.",
+          "properties": {
+            "data": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "image",
+              "type": "string"
+            },
+            "mime": {
+              "type": "string"
+            },
+            "source": {
+              "default": "session",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "mime",
+            "data"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "SessionNewParams": {
       "additionalProperties": false,
       "properties": {
@@ -7122,6 +7365,17 @@
             "null"
           ]
         },
+        "approvedPlan": {
+          "anyOf": [
+            {
+              "$ref": "#/types/ApprovedPlan"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The plan the person last approved in this chat (`hub/plan_build.rs`), which the pane keeps\nin sight while the agent builds it. Absent until one, and from a peer on an older acpmux."
+        },
         "attached": {
           "description": "Attached clients.",
           "format": "uint64",
@@ -7170,6 +7424,13 @@
           "format": "uint32",
           "minimum": 0,
           "type": "integer"
+        },
+        "displayName": {
+          "description": "The name every human-visible surface shows for it (tab, sidebar row, lists, chat header,\nnotices, a message's sender): its handle when one was given (`acpmux rename @ Mango\n--handle`), absent otherwise (a derived handle is no name a person chose; show `name`).\nIts former names and handles are `formerNames` (\"Mango (fka claude-sr2-coord-old)\").",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "effort": {
           "description": "The harness's current reasoning effort, when it reports one.\nAdditive for older clients and peers.",
@@ -7243,6 +7504,17 @@
         "hasDraft": {
           "description": "Its composer holds typed text not sent yet (`composerDraft`, non-blank): an app update\nthat installs when idle (`updates.installWhenIdle`) waits for it. Absent otherwise, and from\na peer on an older acpmux.",
           "type": "boolean"
+        },
+        "icon": {
+          "anyOf": [
+            {
+              "$ref": "#/types/SessionIcon"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The icon it set (`session_icon.rs`), drawn like a harness `iconSpec`; absent draws the\nharness mark."
         },
         "indicator": {
           "anyOf": [
@@ -8554,6 +8826,29 @@
             "null"
           ]
         },
+        "tokensByModel1h": {
+          "additionalProperties": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "tokensByModelPreviousUtcHour": {
+          "additionalProperties": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "description": "Tokens per call model in the completed UTC hour preceding the hour of updatedAt.",
+          "type": [
+            "object",
+            "null"
+          ]
+        },
         "updatedAt": {
           "description": "Unix ms of the read these come from.",
           "format": "uint64",
@@ -8576,6 +8871,8 @@
         "subagents24h",
         "subagentsLive",
         "tokens24h",
+        "tokensByModel1h",
+        "tokensByModelPreviousUtcHour",
         "updatedAt"
       ],
       "type": "object"
