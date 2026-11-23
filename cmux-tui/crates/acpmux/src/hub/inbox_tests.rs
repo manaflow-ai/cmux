@@ -966,7 +966,8 @@ fn only_the_persons_own_prompt_makes_a_turn_theirs() {
     assert!(persons_prompt(None, Some(&json!({"kind": "something_else"}))));
     assert!(!persons_prompt(Some("lane-a"), None));
     let retry = super::super::subagent_retry::PROVENANCE_KIND;
-    for kind in [NOTICE_KIND, "inbox_digest", "auto_resume", retry] {
+    let resume = super::super::subagent_resume::PROVENANCE_KIND;
+    for kind in [NOTICE_KIND, "inbox_digest", "auto_resume", retry, resume] {
         assert!(!persons_prompt(None, Some(&json!({"kind": kind}))), "{kind}");
     }
     let cap = json!({"kind": super::super::turn_cap::NOTICE_KIND});
@@ -1317,6 +1318,46 @@ async fn a_triage_record_lowers_the_held_count_by_the_messages_it_decides() {
     hub.persist_surge_triage(&session, json!({"batchId":"b2","items":[{"promptId":"m3"}]}), 0)
         .unwrap();
     assert_eq!(hub.inbox_threads(&session)["surge"], json!({"held":0,"needYou":0}));
+}
+
+/// The listing's held count is the journal's undecided messages, not the running counter: a
+/// record the counter missed still lowers it, and the bar's snapshot follows (Leo, 2026-11-22:
+/// "not only do you allegedly have 100 held messages").
+#[tokio::test]
+async fn the_held_count_is_the_journals_undecided_messages_not_a_drifted_counter() {
+    let (hub, session) = hub_with_chat("held-drift");
+    for (seq, at, kind) in [(1, 10_000, "turn_started"), (2, 40_000, "turn_result")] {
+        let msg = json!({"turnSeq":1,"turnId":"finished","status":"completed"});
+        session.time_breakdown.lock().unwrap().record(&EventRecord {
+            seq,
+            at,
+            kind: kind.into(),
+            dir: "mux".into(),
+            msg,
+            host_seq: None,
+        });
+    }
+    let opts = PromptOptions {
+        agent: Some("runner".into()),
+        class: Some(PromptClass::Fyi),
+        ..Default::default()
+    };
+    let body = [json!({"type":"text","text":"runner queued"})];
+    assert!(hub.hold_surge_message(&session, "first", "cli", &body, &opts).unwrap().is_none());
+    for id in ["m1", "m2", "m3"] {
+        assert!(hub.hold_surge_message(&session, id, "cli", &body, &opts).unwrap().is_some());
+    }
+    // A record written past the counter (as an older daemon, or a fork's copy, leaves it).
+    hub.append(
+        &session,
+        "mux",
+        "inbox_triaged",
+        json!({"items":[{"promptId":"m1"},{"promptId":"m2"}]}),
+    );
+    assert_eq!(hub.inbox_threads(&session)["surge"]["held"], 1);
+    // The settled count is the one the next snapshot builds on.
+    assert!(hub.hold_surge_message(&session, "m4", "cli", &body, &opts).unwrap().is_some());
+    assert_eq!(hub.inbox_threads(&session)["surge"]["held"], 2);
 }
 
 /// With the surge preview on, a FYI tool notice of severity `fire` wakes an idle chat outside any surge once the wake
