@@ -753,6 +753,10 @@ fn turn_tools_send_splits_a_long_reply_without_a_resend() {
         posted.len() >= 2,
         "one tool call posts multiple parts: {posted:?}"
     );
+    assert!(
+        posted.iter().any(|(key, _, _, _)| key.contains(":part-")),
+        "split parts keep distinct idempotency keys: {posted:?}"
+    );
     assert!(posted.iter().all(|(_, parts, _, _)| {
         chief_kernel::replies::reply_words(&texts(parts)) <= chief_kernel::replies::REPLY_MAX_WORDS
     }));

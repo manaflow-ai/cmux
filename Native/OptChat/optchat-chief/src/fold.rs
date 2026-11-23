@@ -364,7 +364,7 @@ impl TurnFold {
                     self.ended = Some(Ended {
                         error: Some(detail),
                     });
-                } else if !self.response_had_tool {
+                } else if !self.response_had_tool && !self.awaits_permission() {
                     self.natural_end = true;
                     self.ended = Some(Ended { error: None });
                 }
