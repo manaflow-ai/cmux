@@ -33,6 +33,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | tui-idle | `tui-idle-ram.sh` (`tui-idle-ram.py`, `dhat-top.py`) on Linux CI | The idle cmux-tui daemon's anonymous PSS, PSS, threads, binary sections and (dhat=1) Rust heap at commits. |
 | chat-size | `chat-size-sweep.sh` on the Linux fleet | Real daemon open, pages at three depths, first token, prompt index and RSS at 1 MB, 100 MB, 1 GB and 4 GB, with ratios and a Markdown table. |
 | agent-turn | `cargo bench -p acpmux --bench turn_overhead` (`benches/turn_overhead.rs`) on Linux CI | One agent turn through a real acpmux daemon with a stand-in model that answers at once: send, harness, store, deliver, render, turn, shown (median and p95 over 100 turns). |
+| cloud-turn | `cargo bench -p acpmux --features hub-carrier --bench turn_overhead -- --route local`, then `--route relay` (`benches/turn_overhead.rs`, `turn_overhead/relay.rs`) on Linux CI | The agent-turn turns with the chat crossing a real relay on loopback (the Cloud carrier's relay, its client and the Noise link), beside the local route from the same binary: the same stages plus relay_in, relay_out and a pane attach (connect, handshake, first frame). |
 | daemon-latency | `tui-idle-ram.sh runs=0 latency=1` (`cmux-tui/scripts/bench-daemon-latency.py`, acpmux `start_under_load_bench`) on Linux CI | bin/cmux hot paths at commits in alternating rounds: daemon requests, the CLI end to end, acpmux send to first token (cold and warm). One run per commit, so `compare` matches the sides. |
 | acpmux-watch-bytes | acpmux `hub/stream_tell_tests.rs` (cargo, Linux CI) | Bytes one acpmux watcher is sent while 20 chats stream and the list is read 60 times. |
 | typing | `webviews/bench/composer-typing.bench.ts` (load modes L0-L3, Chromium and WebKit) on Linux CI | Composer keydown-to-paint p95/p99 and key integrity under idle, stream, ten streaming documents and a 100k-row stream. |
@@ -143,7 +144,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `pane-overflow-fade.sh` | Native presentation-layer measurement of the pane overflow fade. | - | 2026-10-28 | active |
 | `pane-overflow-bundle-setup.py` | Keeps historical bundle installs from deleting tracked placeholder docs. | - | 2026-10-26 | active |
 | `fullscreen-transition.sh` | Full screen enter and leave: lag, layout passes, resizes. | fullscreen-lag | 2026-10-27 | active |
-| `edit-repaint.sh` | Edit to repaint for cmux-next.json edits and customize saves (section, rows, pane), a palette command and a key binding. | - | 2026-11-19 | active |
+| `edit-repaint.sh` | Edit to repaint for cmux-next.json edits and customize saves (section, rows, pane, and a section card's `.glass` level), a palette command and a key binding. | - | 2026-11-23 | active |
 | `replay-build-bench.sh` | terminal VT replay build time, one text layout against two. | - | 2026-11-01 | active |
 | `pane-main-profile.sh` | One Instruments profile of the pane's 20 MB prompt bench. | - | 2026-10-05 | stale |
 | `pane-native-transport.sh` | Agent pane native transport against the page-world WebSocket. | - | 2026-11-07 | active |
