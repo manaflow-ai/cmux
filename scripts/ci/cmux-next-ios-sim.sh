@@ -233,7 +233,7 @@ cmux_next_require_fleet cmux-next-ios-sim.sh "xcodebuild and an iOS simulator" "
 mode="${1:-build}"
 # The simulator's options, taken out of the arguments before each mode reads its own, so they go
 # after any MODE that boots a simulator, in any order (each at most once):
-#   device=NAME      that iPhone (or iPad mini: an unfolded foldable's stand-in) device type instead of the default (the first of ios_sim_runtime.py's
+#   device=NAME      that iPhone device type instead of the default (the first of ios_sim_runtime.py's
 #                    PHONES): its name ("iPhone 16e"), the same with commas for spaces
 #                    (device=iPhone,16e: fleet step arguments hold no spaces) or its identifier's last
 #                    part (device=iPhone-SE-3rd-generation, for a name with parentheses). Every
@@ -257,7 +257,7 @@ if [[ $# -gt 1 ]]; then
         sim_device="${arg#device=}"
         device_pattern='^[A-Za-z0-9][A-Za-z0-9 ,._()-]*$'
         [[ "$sim_device" =~ $device_pattern ]] ||
-          { echo "cmux-next-ios-sim.sh: device= wants an iPhone (or iPad mini) device type name, e.g. device=iPhone,16e, got '$sim_device'" >&2; exit 2; } ;;
+          { echo "cmux-next-ios-sim.sh: device= wants an iPhone device type name, e.g. device=iPhone,16e, got '$sim_device'" >&2; exit 2; } ;;
       reducemotion=1) reduce_motion=1 ;;
       reducemotion=*) echo "cmux-next-ios-sim.sh: reducemotion takes only reducemotion=1, got '$arg'" >&2; exit 2 ;;
       *) sim_rest+=("$arg") ;;
