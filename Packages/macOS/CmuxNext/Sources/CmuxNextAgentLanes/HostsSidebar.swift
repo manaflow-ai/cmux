@@ -239,7 +239,8 @@ public final class HostsSidebar {
             case .deleted: return "Deleted"
             }
         }
-        if machine.isConnecting { return "Connecting…" }
+        // The activity indicator already conveys an in-flight connection. Keep the caption
+        // bounded to a settled state so the sidebar never shows an unbounded status line.
         return machine.isConnected ? "Connected" : "Offline"
     }
 }
