@@ -825,40 +825,67 @@ class LocalGapTests(unittest.TestCase):
         self.assertIn("local_gap=git_oldest_after", SCRIPT.read_text(encoding="utf-8"))
 
 
-class GhApiReadFallback(unittest.TestCase):
-    """Ticks 44931403939, 44931656964 and 44931849241 (2026-11-21) failed the run listing with only
-    CalledProcessError(1, ...) logged and waited: about 12 min of a 23.7 min gap between builds."""
+class GhApiSpareTokenTests(unittest.TestCase):
+    """gh_api: a refused read goes out once more on SPARE_READ_TOKEN, and a refusal names gh's words."""
 
     @staticmethod
-    def refused(cmd, **kwargs):
-        raise subprocess.CalledProcessError(1, cmd, output="", stderr="gh: HTTP 403: API rate limit exceeded for installation\n")
+    def public_refused(path):
+        raise OSError("HTTP Error 403")
 
-    def test_a_failed_gh_read_is_read_from_the_public_api(self):
+    @staticmethod
+    def unexpected(path):
+        raise AssertionError("public API read after a good gh read")
+
+    def runner(self, answers):
+        calls = []
+
+        def run(argv, capture_output, text, env, timeout=None):
+            calls.append((env or {}).get("GH_TOKEN", "job"))
+            code, out, err = answers.pop(0)
+            return subprocess.CompletedProcess(argv, code, out, err)
+        return run, calls
+
+    def test_a_refused_read_is_read_on_the_spare_token(self):
+        run, calls = self.runner([(1, "", "HTTP 403: API rate limit exceeded"), (0, '{"ok": 1}', "")])
+        self.assertEqual(rolling.gh_api("repos/o/r/actions/runs", env={"SPARE_READ_TOKEN": "s"}, run=run, public_get=self.unexpected), {"ok": 1})
+        self.assertEqual(calls, ["job", "s"])
+
+    def test_no_spare_fails_once_with_gh_s_words(self):
+        run, calls = self.runner([(1, "", "HTTP 403: API rate limit exceeded\n")])
+        with self.assertRaises(subprocess.CalledProcessError) as caught:
+            rolling.gh_api("repos/o/r/actions/runs", env={}, run=run, public_get=self.public_refused)
+        self.assertEqual(calls, ["job"])
+        self.assertIn("API rate limit exceeded", repr(caught.exception))
+
+    def test_both_refused_names_the_spare_s_refusal(self):
+        run, calls = self.runner([(1, "", "HTTP 403: rate limit"), (1, "", "HTTP 404: Not Found")])
+        with self.assertRaises(subprocess.CalledProcessError) as caught:
+            rolling.gh_api("repos/o/r/actions/runs", env={"SPARE_READ_TOKEN": "s"}, run=run, public_get=self.public_refused)
+        self.assertEqual(calls, ["job", "s"])
+        self.assertIn("404", repr(caught.exception))
+
+    def test_a_good_read_never_touches_the_spare(self):
+        run, calls = self.runner([(0, "[]", "")])
+        self.assertEqual(rolling.gh_api("repos/o/r/x", env={"SPARE_READ_TOKEN": "s"}, run=run, public_get=self.unexpected), [])
+        self.assertEqual(calls, ["job"])
+
+    def test_every_token_refused_reads_the_public_api(self):
+        """Ticks 44931403939, 44931656964 and 44931849241 (2026-11-21) failed the run listing and waited: about
+        12 min of a 23.7 min gap between builds."""
+        run, calls = self.runner([(1, "", "HTTP 403: rate limit"), (1, "", "HTTP 403: rate limit")])
         asked = []
         got = rolling.gh_api("repos/o/r/actions/workflows/nightly.yml/runs?branch=nightly-next&per_page=50",
-                             run=self.refused, public_get=lambda path: asked.append(path) or {"workflow_runs": []})
+                             env={"SPARE_READ_TOKEN": "s"}, run=run,
+                             public_get=lambda path: asked.append(path) or {"workflow_runs": []})
         self.assertEqual(got, {"workflow_runs": []})
+        self.assertEqual(calls, ["job", "s"])
         self.assertEqual(asked, ["repos/o/r/actions/workflows/nightly.yml/runs?branch=nightly-next&per_page=50"])
 
-    def test_a_read_both_refuse_names_gh_stderr(self):
-        def refused_too(path):
-            raise OSError("HTTP Error 403")
-        with self.assertRaises(RuntimeError) as caught:
-            rolling.gh_api("repos/o/r/x", run=self.refused, public_get=refused_too)
-        self.assertIn("HTTP 403: API rate limit exceeded for installation", str(caught.exception))
-
     def test_a_hung_gh_read_is_bounded_and_falls_back(self):
-        def hung(cmd, **kwargs):
-            self.assertEqual(kwargs.get("timeout"), rolling.GH_API_SECONDS)
-            raise subprocess.TimeoutExpired(cmd, kwargs["timeout"])
-        self.assertEqual(rolling.gh_api("repos/o/r/x", run=hung, public_get=lambda path: {"ok": 1}), {"ok": 1})
-
-    def test_a_good_gh_read_reads_nothing_more(self):
-        def answered(cmd, **kwargs):
-            return subprocess.CompletedProcess(cmd, 0, stdout='{"ok": 1}', stderr="")
-        def unexpected(path):
-            raise AssertionError("public API read after a good gh read")
-        self.assertEqual(rolling.gh_api("repos/o/r/x", run=answered, public_get=unexpected), {"ok": 1})
+        def hung(argv, capture_output, text, env, timeout=None):
+            self.assertEqual(timeout, rolling.GH_API_SECONDS)
+            raise subprocess.TimeoutExpired(argv, timeout)
+        self.assertEqual(rolling.gh_api("repos/o/r/x", env={}, run=hung, public_get=lambda path: {"ok": 1}), {"ok": 1})
 
 
 if __name__ == "__main__":

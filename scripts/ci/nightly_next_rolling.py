@@ -436,7 +436,7 @@ PUBLIC_API = "https://api.github.com/"
 
 def public_api_get(path: str, timeout: float = 30):
     """GET `path` from the public REST API with no token. The repository is public, so this reads the same answer
-    from another quota (the address's own) when the job token's is spent."""
+    from another quota (the address's own) when every token's is spent."""
     request = urllib.request.Request(PUBLIC_API + path, headers={
         "Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28",
         "User-Agent": "cmux-nightly-next-rolling"})
@@ -444,28 +444,44 @@ def public_api_get(path: str, timeout: float = 30):
         return json.loads(response.read())
 
 
-def gh_api(path: str, run=subprocess.run, public_get=public_api_get):
-    """One read through `gh api` (the job's token), then, when that fails, the same path from the public API.
+class GhRefused(subprocess.CalledProcessError):
+    """A failed `gh api`, whose repr (the rolling rule's warnings) carries what gh said."""
 
-    Ticks 44931403939, 44931656964 and 44931849241 (2026-11-21 17:42-17:48Z) each failed the nightly-next run
-    listing and waited, with only CalledProcessError(1, ...) in the log: gh's stderr was dropped, so the cause was
-    lost, and the 23.7 min gap between two builds that afternoon spent about 12 min there. The error now carries
-    gh's last stderr line, and a failed gh read is tried once on the public API before the caller waits."""
-    try:
-        out = run(["gh", "api", path], check=True, capture_output=True, text=True, timeout=GH_API_SECONDS).stdout
-        return json.loads(out)
-    except subprocess.CalledProcessError as error:
-        lines = [line for line in (error.stderr or "").splitlines() if line.strip()]
-        why = f"gh api exited {error.returncode}: {lines[-1].strip()[:200] if lines else 'no stderr'}"
-    except subprocess.TimeoutExpired:
-        why = f"gh api took more than {GH_API_SECONDS} s"
-    except (OSError, ValueError) as error:
-        why = f"gh api failed: {error!r}"
-    print(f"{path}: {why}; reading it from the public API")
+    def __repr__(self) -> str:
+        return f"gh api {self.cmd[-1]} exited {self.returncode}: {self.stderr}"
+
+
+def gh_api(path: str, env=None, run=subprocess.run, public_get=public_api_get):
+    """One `gh api` GET with the job's token. Refused, it goes out once more on SPARE_READ_TOKEN (a read-only
+    App token with a budget of its own, the tick's), so a dry job token does not cost the tick its answer: ticks
+    45118875109 and 45119653528 (2026-11-23 05:39 and 05:44Z) could not list the running builds while both
+    builds' nightly-next-one had ended, and the promotion waited until 05:52. A refusal carries gh's own words.
+
+    Every token refused (or no spare), the same path is read once from the public API with no token: ticks
+    44931403939, 44931656964 and 44931849241 (2026-11-21 17:42-17:48Z) failed the run listing and waited, about
+    12 min of a 23.7 min gap between two builds. Each gh read is bounded by GH_API_SECONDS."""
+    env = os.environ if env is None else env
+    tokens = [None, env["SPARE_READ_TOKEN"]] if env.get("SPARE_READ_TOKEN") else [None]
+    refused = None
+    for index, token in enumerate(tokens):
+        child = None if token is None else {**env, "GH_TOKEN": token}
+        try:
+            done = run(["gh", "api", path], capture_output=True, text=True, env=child, timeout=GH_API_SECONDS)
+        except subprocess.TimeoutExpired:
+            done = subprocess.CompletedProcess(["gh", "api", path], 124, "", f"gh api took more than {GH_API_SECONDS} s")
+        if done.returncode == 0:
+            if index:
+                print(f"gh api {path.split('?')[0]}: the job's token was refused; read on the spare token")
+            return json.loads(done.stdout)
+        said = " ".join((done.stderr or "").split())[-300:]
+        refused = GhRefused(done.returncode, ["gh", "api", path], done.stdout, said)
+        if index + 1 < len(tokens):
+            print(f"gh api {path.split('?')[0]} was refused ({said}); reading it on the spare token")
+    print(f"gh api {path.split('?')[0]}: every token was refused ({refused.stderr}); reading it from the public API")
     try:
         return public_get(path)
-    except Exception as error:  # noqa: BLE001 - both reads failed: the caller decides what an unread answer means
-        raise RuntimeError(f"{why}; the public API too: {error!r}") from None
+    except Exception:  # noqa: BLE001 - every read failed: the caller decides what an unread answer means
+        raise refused from None
 
 
 def evaluate(now: dt.datetime, repo: str, tip: str, api=gh_api,
