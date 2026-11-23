@@ -567,6 +567,9 @@ def main():
     ap.add_argument("--rollback-twice", action="store_true",
                     help="with --rollback: go back once more, and record which build that picks (it must not go "
                          "forward to the build just left)")
+    ap.add_argument("--click-delay", type=float, default=0,
+                    help="with --click-at-stage: click this many seconds after the update staged (a person who "
+                         "installs right away; Leo's NIGHTLY: 3)")
     ap.add_argument("--scenario", choices=SCENARIOS,
                     help="the palette's Attempt Update: up-to-date (the feed offers v1 itself) -> the up to date card; "
                          "update -> checking or downloading, then the staged update card (Restart to Update); "
@@ -650,6 +653,9 @@ def main():
         if a.notes:
             v1_harness["contentKey"] = public_key
         i1 = plist_set(v1, {"SUPublicEDKey": public_key, "CFBundleVersion": str(base)}, v1_harness)
+        # The updater log (UpdateLogFile): only what this run appends is read back (the launch pre-warm's lines).
+        updater_log = os.path.join(os.environ["HOME"], "Library/Logs/cmux-next", i1["CFBundleIdentifier"] + "-updater.log")
+        updater_log_start = os.path.getsize(updater_log) if os.path.exists(updater_log) else 0
         v2_extra = {}
         if a.required_update:
             # v2 is a newer version, which v1's organization requires.
@@ -810,6 +816,11 @@ def main():
             # A person clicks seconds or hours after the card appears; the staging work is done by then.
             kept = marks.wait(lambda rows: first(rows, "keep_previous_end", pid=v1_pid), 120)
             log("staging work done" if kept else "staging work still running after 120 s; clicking anyway")
+        elif a.click_delay:
+            # A person who installs right away (Leo's NIGHTLY: staged 22:07:57Z, clicked 22:08:00Z).
+            wait_until = staged["unix_ms"] / 1000 + a.click_delay
+            time.sleep(max(0.0, wait_until - time.time()))
+            log(f"clicking {a.click_delay} s after the update staged")
         if a.notes:
             # The notes load after staging (one fetch, verified); read until they count, 10 s at most.
             deadline = time.monotonic() + 10
@@ -922,6 +933,8 @@ def main():
             raise SystemExit("the relaunched app showed no window")
         # The later launch marks arrive within a few seconds; read what came.
         marks.wait(lambda rows: all(first(rows, m, not_pid=v1_pid) for m in RESTORED_MARKS), 20)
+        # Home's first page (launch.home.first_page): the post-update launch's own end, when Home is the page it opens.
+        marks.wait(lambda rows: first(rows, "launch.home.first_page", not_pid=v1_pid), 20)
         rows = marks.read()
         v2_pid = next(r["pid"] for r in rows if r["pid"] != v1_pid)
         remember_app(v2_pid)
@@ -972,7 +985,8 @@ def main():
                                                      "feedback_state", "feedback_frame", "feedback_frame.stalled",
                                                      "feedback_frame_2", "feedback_frame_2.stalled",
                                                      "windows_*", "keep_previous_start", "keep_previous_end", "will_relaunch",
-                                                     "main_window_closed.*", "main_window_closed.remaining_0", "will_terminate"]},
+                                                     "main_window_closed.*", "main_window_closed.remaining_0", "will_terminate",
+                                                     "prewarm_wait_start", "prewarm_wait_end.done", "prewarm_wait_end.partial"]},
             "click_to_v1_exit_ms": t_exit * 1000 - click,
             # How the click decided: from a read made before it (read_ahead) or by reading the feed (feed_read).
             "click_decided": next((r["name"].split(".", 1)[1] for r in rows if r["pid"] == v1_pid
@@ -980,8 +994,16 @@ def main():
             # Appcast reads (--feed-latency-ms) that started between the click and v1's exit: the click's own.
             "click_feed_reads": [round(r["start_ms"] - click) for r in read_feed_reads(feed_reads)
                                  if click <= r["start_ms"] <= t_exit * 1000] if a.feed_latency_ms else None,
-            "click_to_v2": {n: at(n, v2_pid) for n in ["process_start", "updater_created"] + RESTORED_MARKS},
+            "click_to_v2": {n: at(n, v2_pid) for n in ["process_start", "updater_created"] + RESTORED_MARKS
+                            + ["launch.home.first_page"]},
         }
+        try:
+            with open(updater_log, "rb") as f:
+                f.seek(updater_log_start)
+                appended = f.read().decode("utf-8", "replace").splitlines()
+        except OSError:
+            appended = []
+        result["prewarm_log"] = [line for line in appended if "launch pre-warm" in line]
         result["timeline"] = timeline
         result["rows"] = rows
         result["v2_marks"] = sorted({r["name"] for r in rows if r["pid"] == v2_pid and not r["name"].startswith("launch.")})

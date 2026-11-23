@@ -376,6 +376,7 @@ fn planned(
         bases: Vec::new(),
         bundle_bytes: exported.bundle_bytes,
         unchanged: false,
+        lfs_attributes: Vec::new(),
     }
 }
 
@@ -458,11 +459,17 @@ fn as_seed(bundle: &Path) -> anyhow::Result<()> {
         while let Some(found) =
             header.get(at..).and_then(|rest| rest.windows(from.len()).position(|w| w == from))
         {
-            let start = at + found;
-            if let Some(slot) = header.get_mut(start..start + TO.len()) {
+            // Offsets into the header: an overflow is an error, never a wrapped or clamped index.
+            let Some(start) = at.checked_add(found) else {
+                anyhow::bail!("the first machine's bundle header is too long to rename its refs");
+            };
+            let Some(end) = start.checked_add(TO.len()) else {
+                anyhow::bail!("the first machine's bundle header is too long to rename its refs");
+            };
+            if let Some(slot) = header.get_mut(start..end) {
                 slot.copy_from_slice(TO);
             }
-            at = start + TO.len();
+            at = end;
         }
     }
     file.rewind()?;
@@ -495,3 +502,7 @@ pub(in crate::link) fn land(
     record::forget(&key, &side)?;
     Ok(true)
 }
+
+#[cfg(test)]
+#[path = "hop_tests.rs"]
+mod tests;

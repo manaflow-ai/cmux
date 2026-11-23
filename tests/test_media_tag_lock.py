@@ -22,6 +22,9 @@ from pathlib import Path
 
 import yaml
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import workflow_jobs  # noqa: E402
+
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts/ci/media_tag_lock.py"
 WORKFLOW = Path(__file__).resolve().parents[1] / ".github/workflows/cmux-next-media.yml"
 
@@ -173,10 +176,11 @@ class MediaTagLockTests(unittest.TestCase):
         self.assertFalse(self.free("ci-media-slot1"))
 
     def test_the_workflow_tours_in_a_claimed_slot(self) -> None:
-        workflow = yaml.safe_load(WORKFLOW.read_text())
+        workflow = workflow_jobs.document(WORKFLOW)
         tour = workflow["jobs"]["tour"]
-        self.assertNotIn("TOUR_TAG", tour["env"], "the tag comes from the slot, not from the pull request")
-        self.assertIn("CMUX_MEDIA_TOUR_SLOTS", tour["env"])
+        env = workflow_jobs.effective_env(workflow, tour)
+        self.assertNotIn("TOUR_TAG", env, "the tag comes from the slot, not from the pull request")
+        self.assertIn("CMUX_MEDIA_TOUR_SLOTS", env)
         runs = "\n".join(step.get("run", "") for step in tour["steps"])
         self.assertRegex(runs, r'media_tag_lock\.py"? claim --slots "\$CMUX_MEDIA_TOUR_SLOTS" --github-env "\$GITHUB_ENV"')
         self.assertNotIn(" hold --tag", runs, "a tour never waits for a tag")

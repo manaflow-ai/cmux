@@ -69,7 +69,7 @@ const rows = () => [
     { id: "system-rows-run" },
   ),
   row("compaction", 2, { compaction: { state: "failed", inferred: true } }),
-  // The stretch ended with its summary while the chat works on: under the shipped live-turn-work
+  // The stretch ended with its summary while the chat works on: under the live-turn-work
   // `line` a stretch still running draws none of its runs, only the live line (turns.ts `codexRuns`).
   summary(1.9, { status: "completed", durationMs: 9_000, toolCount: 3 }),
 ];

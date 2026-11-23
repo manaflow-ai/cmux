@@ -1329,6 +1329,236 @@ public func FfiConverterTypeChannelHandle_lower(_ value: ChannelHandle) -> UInt6
 
 
 /**
+ * One viewer's follow camera.
+ */
+public protocol FollowCameraProtocol: AnyObject, Sendable {
+    
+    /**
+     * Moves time to `now_us` and returns the crop: once per display frame.
+     */
+    func advance(nowUs: UInt64)  -> FollowRect
+    
+    /**
+     * The person took the camera: hold `rect` (and its size).
+     */
+    func manual(rect: FollowRect) 
+    
+    func mode()  -> FollowCameraMode
+    
+    /**
+     * One message of the `focus` channel (a JSON event), received at
+     * `now_us` on the phone's clock. Its own `t_us` (the Mac's clock) is
+     * replaced by `now_us`. A message that is not an event is refused and
+     * changes nothing.
+     */
+    func pushJson(line: String, nowUs: UInt64) throws 
+    
+    /**
+     * Hands the camera back: it pans from where the person left it.
+     */
+    func resume() 
+    
+    /**
+     * The shared screen's size (`x` and `y` are 0).
+     */
+    func source()  -> FollowRect
+    
+}
+/**
+ * One viewer's follow camera.
+ */
+open class FollowCamera: FollowCameraProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_cmux_mobile_link_ffi_fn_clone_followcamera(self.handle, $0) }
+    }
+    /**
+     * A crop of `aspect` (width over height) over a screen of `source_w` x
+     * `source_h` pixels: the largest rect of `aspect` the screen holds,
+     * divided by `zoom` (at least 1), centred. The viewer picks both: a
+     * portrait crop as wide as reads well (its height then the full screen,
+     * shown letterboxed) or, zoomed further, its own shape. `reduce_motion`
+     * (the system's Reduce Motion) cuts to each new framing instead of
+     * panning.
+     */
+public convenience init(aspect: Double, zoom: Double, sourceW: Double, sourceH: Double, reduceMotion: Bool) {
+    let handle =
+        try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_constructor_followcamera_new(
+        FfiConverterDouble.lower(aspect),
+        FfiConverterDouble.lower(zoom),
+        FfiConverterDouble.lower(sourceW),
+        FfiConverterDouble.lower(sourceH),
+        FfiConverterBool.lower(reduceMotion),$0
+    )
+}
+    self.init(unsafeFromHandle: handle)
+}
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_cmux_mobile_link_ffi_fn_free_followcamera(handle, $0) }
+    }
+
+    
+
+    
+    /**
+     * Moves time to `now_us` and returns the crop: once per display frame.
+     */
+open func advance(nowUs: UInt64) -> FollowRect  {
+    return try!  FfiConverterTypeFollowRect_lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_followcamera_advance(
+            self.uniffiCloneHandle(),
+        FfiConverterUInt64.lower(nowUs),$0
+    )
+})
+}
+    
+    /**
+     * The person took the camera: hold `rect` (and its size).
+     */
+open func manual(rect: FollowRect)  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_followcamera_manual(
+            self.uniffiCloneHandle(),
+        FfiConverterTypeFollowRect_lower(rect),$0
+    )
+}
+}
+    
+open func mode() -> FollowCameraMode  {
+    return try!  FfiConverterTypeFollowCameraMode_lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_followcamera_mode(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * One message of the `focus` channel (a JSON event), received at
+     * `now_us` on the phone's clock. Its own `t_us` (the Mac's clock) is
+     * replaced by `now_us`. A message that is not an event is refused and
+     * changes nothing.
+     */
+open func pushJson(line: String, nowUs: UInt64)throws   {try rustCallWithError(FfiConverterTypeCmuxMobileError_lift) {
+    uniffi_cmux_mobile_link_ffi_fn_method_followcamera_push_json(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(line),
+        FfiConverterUInt64.lower(nowUs),$0
+    )
+}
+}
+    
+    /**
+     * Hands the camera back: it pans from where the person left it.
+     */
+open func resume()  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_followcamera_resume(
+            self.uniffiCloneHandle(),$0
+    )
+}
+}
+    
+    /**
+     * The shared screen's size (`x` and `y` are 0).
+     */
+open func source() -> FollowRect  {
+    return try!  FfiConverterTypeFollowRect_lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_followcamera_source(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFollowCamera: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = FollowCamera
+
+    public static func lift(_ handle: UInt64) throws -> FollowCamera {
+        return FollowCamera(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: FollowCamera) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FollowCamera {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: FollowCamera, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFollowCamera_lift(_ handle: UInt64) throws -> FollowCamera {
+    return try FfiConverterTypeFollowCamera.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFollowCamera_lower(_ value: FollowCamera) -> UInt64 {
+    return FfiConverterTypeFollowCamera.lower(value)
+}
+
+
+
+
+
+
+/**
  * A connected link to one Mac.
  */
 public protocol LinkHandleProtocol: AnyObject, Sendable {
@@ -1414,6 +1644,13 @@ public protocol LinkHandleProtocol: AnyObject, Sendable {
     func probe(timeoutMs: UInt32) async throws  -> UInt32?
     
     /**
+     * Milliseconds since the link last received any frame from the Mac.
+     * Any frame proves the link alive as a probe's pong would, so the app's
+     * heartbeat probes only a link quiet for a whole beat.
+     */
+    func receivedAgoMs()  -> UInt64
+    
+    /**
      * The latest WireGuard roam of this link (`network_changed`,
      * `roam_reasserted`, `roam_first_packet`, `roam_direct` or `roam_turn`,
      * ...), in milliseconds since the network changed; empty before any.
@@ -1426,6 +1663,13 @@ public protocol LinkHandleProtocol: AnyObject, Sendable {
      * Marks recorded later (the first ping, `first_pong`) appear as they come.
      */
     func timings()  -> [TimingMark]
+    
+    /**
+     * Milliseconds since the link last received a frame other than a ping
+     * or a pong. With Align Keepalives on, the heartbeat probes a link with
+     * no traffic for a whole beat on the keepalive beat.
+     */
+    func trafficAgoMs()  -> UInt64
     
     func transport()  -> Transport
     
@@ -1713,6 +1957,19 @@ open func probe(timeoutMs: UInt32)async throws  -> UInt32?  {
 }
     
     /**
+     * Milliseconds since the link last received any frame from the Mac.
+     * Any frame proves the link alive as a probe's pong would, so the app's
+     * heartbeat probes only a link quiet for a whole beat.
+     */
+open func receivedAgoMs() -> UInt64  {
+    return try!  FfiConverterUInt64.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_linkhandle_received_ago_ms(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
      * The latest WireGuard roam of this link (`network_changed`,
      * `roam_reasserted`, `roam_first_packet`, `roam_direct` or `roam_turn`,
      * ...), in milliseconds since the network changed; empty before any.
@@ -1733,6 +1990,19 @@ open func roamTimings() -> [TimingMark]  {
 open func timings() -> [TimingMark]  {
     return try!  FfiConverterSequenceTypeTimingMark.lift(try! rustCall() {
     uniffi_cmux_mobile_link_ffi_fn_method_linkhandle_timings(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * Milliseconds since the link last received a frame other than a ping
+     * or a pong. With Align Keepalives on, the heartbeat probes a link with
+     * no traffic for a whole beat on the keepalive beat.
+     */
+open func trafficAgoMs() -> UInt64  {
+    return try!  FfiConverterUInt64.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_linkhandle_traffic_ago_ms(
             self.uniffiCloneHandle(),$0
     )
 })
@@ -2371,6 +2641,301 @@ public func FfiConverterTypeTerminalPrediction_lower(_ value: TerminalPrediction
 
 
 
+
+
+public protocol TerminalProjectionProtocol: AnyObject, Sendable {
+    
+    /**
+     * The program's bytes. `paint` false: taken, painted at the next feed.
+     */
+    func feed(bytes: Data, paint: Bool)  -> [ProjectionSegment]
+    
+    func isAlternate()  -> Bool
+    
+    /**
+     * The reader reached the oldest row the surface holds: `host_rows` more
+     * of the scrollback, as a reset. Empty when the surface has all of it.
+     */
+    func loadOlder(hostRows: UInt32)  -> [ProjectionSegment]
+    
+    /**
+     * Mac scrollback rows older than what the surface holds (a viewport
+     * change paints a window: the screen and two phone screens above it).
+     */
+    func olderRows()  -> UInt64
+    
+    /**
+     * Paints what changed since the last paint.
+     */
+    func paint()  -> [ProjectionSegment]
+    
+    /**
+     * The next paint starts the surface over.
+     */
+    func requestReset() 
+    
+    /**
+     * The Mac's PTY grid changed (its replay follows).
+     */
+    func setHostGrid(cols: UInt32, rows: UInt32) 
+    
+    /**
+     * Where the reader is: phone rows from the end of the surface's
+     * document to the top of the rows read (0: at the bottom). A viewport
+     * change keeps those lines in the window it paints.
+     */
+    func setReaderRowsFromEnd(rows: UInt32) 
+    
+    /**
+     * The phone's grid; a change repaints at once.
+     */
+    func setViewport(cols: UInt32, rows: UInt32)  -> [ProjectionSegment]
+    
+    func stats()  -> ProjectionStats
+    
+    /**
+     * Answers for the program (cursor and size reports in Mac cells).
+     */
+    func takeReplies()  -> Data
+    
+}
+open class TerminalProjection: TerminalProjectionProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_cmux_mobile_link_ffi_fn_clone_terminalprojection(self.handle, $0) }
+    }
+    /**
+     * A projection of a Mac terminal of `host_cols` x `host_rows`.
+     */
+public convenience init(hostCols: UInt32, hostRows: UInt32) {
+    let handle =
+        try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_constructor_terminalprojection_new(
+        FfiConverterUInt32.lower(hostCols),
+        FfiConverterUInt32.lower(hostRows),$0
+    )
+}
+    self.init(unsafeFromHandle: handle)
+}
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_cmux_mobile_link_ffi_fn_free_terminalprojection(handle, $0) }
+    }
+
+    
+
+    
+    /**
+     * The program's bytes. `paint` false: taken, painted at the next feed.
+     */
+open func feed(bytes: Data, paint: Bool) -> [ProjectionSegment]  {
+    return try!  FfiConverterSequenceTypeProjectionSegment.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_terminalprojection_feed(
+            self.uniffiCloneHandle(),
+        FfiConverterData.lower(bytes),
+        FfiConverterBool.lower(paint),$0
+    )
+})
+}
+    
+open func isAlternate() -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_terminalprojection_is_alternate(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * The reader reached the oldest row the surface holds: `host_rows` more
+     * of the scrollback, as a reset. Empty when the surface has all of it.
+     */
+open func loadOlder(hostRows: UInt32) -> [ProjectionSegment]  {
+    return try!  FfiConverterSequenceTypeProjectionSegment.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_terminalprojection_load_older(
+            self.uniffiCloneHandle(),
+        FfiConverterUInt32.lower(hostRows),$0
+    )
+})
+}
+    
+    /**
+     * Mac scrollback rows older than what the surface holds (a viewport
+     * change paints a window: the screen and two phone screens above it).
+     */
+open func olderRows() -> UInt64  {
+    return try!  FfiConverterUInt64.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_terminalprojection_older_rows(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * Paints what changed since the last paint.
+     */
+open func paint() -> [ProjectionSegment]  {
+    return try!  FfiConverterSequenceTypeProjectionSegment.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_terminalprojection_paint(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * The next paint starts the surface over.
+     */
+open func requestReset()  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_terminalprojection_request_reset(
+            self.uniffiCloneHandle(),$0
+    )
+}
+}
+    
+    /**
+     * The Mac's PTY grid changed (its replay follows).
+     */
+open func setHostGrid(cols: UInt32, rows: UInt32)  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_terminalprojection_set_host_grid(
+            self.uniffiCloneHandle(),
+        FfiConverterUInt32.lower(cols),
+        FfiConverterUInt32.lower(rows),$0
+    )
+}
+}
+    
+    /**
+     * Where the reader is: phone rows from the end of the surface's
+     * document to the top of the rows read (0: at the bottom). A viewport
+     * change keeps those lines in the window it paints.
+     */
+open func setReaderRowsFromEnd(rows: UInt32)  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_terminalprojection_set_reader_rows_from_end(
+            self.uniffiCloneHandle(),
+        FfiConverterUInt32.lower(rows),$0
+    )
+}
+}
+    
+    /**
+     * The phone's grid; a change repaints at once.
+     */
+open func setViewport(cols: UInt32, rows: UInt32) -> [ProjectionSegment]  {
+    return try!  FfiConverterSequenceTypeProjectionSegment.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_terminalprojection_set_viewport(
+            self.uniffiCloneHandle(),
+        FfiConverterUInt32.lower(cols),
+        FfiConverterUInt32.lower(rows),$0
+    )
+})
+}
+    
+open func stats() -> ProjectionStats  {
+    return try!  FfiConverterTypeProjectionStats_lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_terminalprojection_stats(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * Answers for the program (cursor and size reports in Mac cells).
+     */
+open func takeReplies() -> Data  {
+    return try!  FfiConverterData.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_terminalprojection_take_replies(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeTerminalProjection: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = TerminalProjection
+
+    public static func lift(_ handle: UInt64) throws -> TerminalProjection {
+        return TerminalProjection(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: TerminalProjection) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> TerminalProjection {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: TerminalProjection, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTerminalProjection_lift(_ handle: UInt64) throws -> TerminalProjection {
+    return try FfiConverterTypeTerminalProjection.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTerminalProjection_lower(_ value: TerminalProjection) -> UInt64 {
+    return FfiConverterTypeTerminalProjection.lower(value)
+}
+
+
+
+
 /**
  * One complete video frame.
  */
@@ -2723,11 +3288,13 @@ public struct ConnectOptions: Equatable, Hashable {
      */
     public var noWebrtcMedia: Bool
     /**
-     * WireGuard: the person's "Ultra mode on cellular" setting. On, a dial
-     * made while the network is cellular (`set_cellular_path`) sends
-     * repair data, about 2-3x the bytes, so a lossy network costs no time.
+     * WireGuard: the person's Settings > Transport > Ultra Mode, as the app
+     * stores it: `"off"`, `"auto"` (the default: no extra data on a clean
+     * link, repair data once packets are lost, capped while
+     * `set_cellular_path` says cellular) or `"always"` (repair data on
+     * every datagram, about 2-3x the bytes).
      */
-    public var ultraOnCellular: Bool
+    public var ultra: String
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
@@ -2752,15 +3319,17 @@ public struct ConnectOptions: Equatable, Hashable {
          * rides RTP inside the tunnel (the "WireGuard only" comparison).
          */noWebrtcMedia: Bool = false, 
         /**
-         * WireGuard: the person's "Ultra mode on cellular" setting. On, a dial
-         * made while the network is cellular (`set_cellular_path`) sends
-         * repair data, about 2-3x the bytes, so a lossy network costs no time.
-         */ultraOnCellular: Bool = false) {
+         * WireGuard: the person's Settings > Transport > Ultra Mode, as the app
+         * stores it: `"off"`, `"auto"` (the default: no extra data on a clean
+         * link, repair data once packets are lost, capped while
+         * `set_cellular_path` says cellular) or `"always"` (repair data on
+         * every datagram, about 2-3x the bytes).
+         */ultra: String = "auto") {
         self.relayOnly = relayOnly
         self.blockUdp = blockUdp
         self.noVideoLane = noVideoLane
         self.noWebrtcMedia = noWebrtcMedia
-        self.ultraOnCellular = ultraOnCellular
+        self.ultra = ultra
     }
 
     
@@ -2783,7 +3352,7 @@ public struct FfiConverterTypeConnectOptions: FfiConverterRustBuffer {
                 blockUdp: FfiConverterBool.read(from: &buf), 
                 noVideoLane: FfiConverterBool.read(from: &buf), 
                 noWebrtcMedia: FfiConverterBool.read(from: &buf), 
-                ultraOnCellular: FfiConverterBool.read(from: &buf)
+                ultra: FfiConverterString.read(from: &buf)
         )
     }
 
@@ -2792,7 +3361,7 @@ public struct FfiConverterTypeConnectOptions: FfiConverterRustBuffer {
         FfiConverterBool.write(value.blockUdp, into: &buf)
         FfiConverterBool.write(value.noVideoLane, into: &buf)
         FfiConverterBool.write(value.noWebrtcMedia, into: &buf)
-        FfiConverterBool.write(value.ultraOnCellular, into: &buf)
+        FfiConverterString.write(value.ultra, into: &buf)
     }
 }
 
@@ -2809,6 +3378,71 @@ public func FfiConverterTypeConnectOptions_lift(_ buf: RustBuffer) throws -> Con
 #endif
 public func FfiConverterTypeConnectOptions_lower(_ value: ConnectOptions) -> RustBuffer {
     return FfiConverterTypeConnectOptions.lower(value)
+}
+
+
+/**
+ * A rect in the shared screen's pixels, origin top left.
+ */
+public struct FollowRect: Equatable, Hashable {
+    public var x: Double
+    public var y: Double
+    public var w: Double
+    public var h: Double
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(x: Double, y: Double, w: Double, h: Double) {
+        self.x = x
+        self.y = y
+        self.w = w
+        self.h = h
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FollowRect: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFollowRect: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FollowRect {
+        return
+            try FollowRect(
+                x: FfiConverterDouble.read(from: &buf), 
+                y: FfiConverterDouble.read(from: &buf), 
+                w: FfiConverterDouble.read(from: &buf), 
+                h: FfiConverterDouble.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FollowRect, into buf: inout [UInt8]) {
+        FfiConverterDouble.write(value.x, into: &buf)
+        FfiConverterDouble.write(value.y, into: &buf)
+        FfiConverterDouble.write(value.w, into: &buf)
+        FfiConverterDouble.write(value.h, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFollowRect_lift(_ buf: RustBuffer) throws -> FollowRect {
+    return try FfiConverterTypeFollowRect.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFollowRect_lower(_ value: FollowRect) -> RustBuffer {
+    return FfiConverterTypeFollowRect.lower(value)
 }
 
 
@@ -3064,6 +3698,458 @@ public func FfiConverterTypePredictionLayout_lift(_ buf: RustBuffer) throws -> P
 #endif
 public func FfiConverterTypePredictionLayout_lower(_ value: PredictionLayout) -> RustBuffer {
     return FfiConverterTypePredictionLayout.lower(value)
+}
+
+
+/**
+ * Bytes painted and surface resets, for the sizing log and benches.
+ */
+public struct ProjectionStats: Equatable, Hashable {
+    public var bytesOut: UInt64
+    public var resets: UInt64
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(bytesOut: UInt64, resets: UInt64) {
+        self.bytesOut = bytesOut
+        self.resets = resets
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension ProjectionStats: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeProjectionStats: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ProjectionStats {
+        return
+            try ProjectionStats(
+                bytesOut: FfiConverterUInt64.read(from: &buf), 
+                resets: FfiConverterUInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ProjectionStats, into buf: inout [UInt8]) {
+        FfiConverterUInt64.write(value.bytesOut, into: &buf)
+        FfiConverterUInt64.write(value.resets, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeProjectionStats_lift(_ buf: RustBuffer) throws -> ProjectionStats {
+    return try FfiConverterTypeProjectionStats.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeProjectionStats_lower(_ value: ProjectionStats) -> RustBuffer {
+    return FfiConverterTypeProjectionStats.lower(value)
+}
+
+
+/**
+ * One of the Mac's acpmux chats (`_acpmux/sessions`), as far as the pairing needs it.
+ */
+public struct TerminalChatCandidate: Equatable, Hashable {
+    /**
+     * The acpmux session id.
+     */
+    public var sessionId: String
+    /**
+     * Its harness (`claude`, `codex`, a profile of one).
+     */
+    public var harness: String
+    /**
+     * The harness's own session id it resumes or watches (`agentSessionId`).
+     */
+    public var agentSessionId: String?
+    /**
+     * A View Only chat (`watching`): it follows the transcript the terminal writes.
+     */
+    public var watching: Bool
+    /**
+     * Its status (`closed` chats are skipped).
+     */
+    public var status: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The acpmux session id.
+         */sessionId: String, 
+        /**
+         * Its harness (`claude`, `codex`, a profile of one).
+         */harness: String, 
+        /**
+         * The harness's own session id it resumes or watches (`agentSessionId`).
+         */agentSessionId: String?, 
+        /**
+         * A View Only chat (`watching`): it follows the transcript the terminal writes.
+         */watching: Bool, 
+        /**
+         * Its status (`closed` chats are skipped).
+         */status: String) {
+        self.sessionId = sessionId
+        self.harness = harness
+        self.agentSessionId = agentSessionId
+        self.watching = watching
+        self.status = status
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension TerminalChatCandidate: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeTerminalChatCandidate: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> TerminalChatCandidate {
+        return
+            try TerminalChatCandidate(
+                sessionId: FfiConverterString.read(from: &buf), 
+                harness: FfiConverterString.read(from: &buf), 
+                agentSessionId: FfiConverterOptionString.read(from: &buf), 
+                watching: FfiConverterBool.read(from: &buf), 
+                status: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: TerminalChatCandidate, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.sessionId, into: &buf)
+        FfiConverterString.write(value.harness, into: &buf)
+        FfiConverterOptionString.write(value.agentSessionId, into: &buf)
+        FfiConverterBool.write(value.watching, into: &buf)
+        FfiConverterString.write(value.status, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTerminalChatCandidate_lift(_ buf: RustBuffer) throws -> TerminalChatCandidate {
+    return try FfiConverterTypeTerminalChatCandidate.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTerminalChatCandidate_lower(_ value: TerminalChatCandidate) -> RustBuffer {
+    return FfiConverterTypeTerminalChatCandidate.lower(value)
+}
+
+
+/**
+ * What a tab offers.
+ */
+public struct TerminalChatFaces: Equatable, Hashable {
+    /**
+     * The tab offers its page menu's Show Chat / Show Terminal row: both faces work.
+     */
+    public var offered: Bool
+    /**
+     * The face the tab opens on when the person chose none: the tab's own kind (a
+     * terminal on its terminal, a chat on its chat).
+     */
+    public var defaultFace: TabFace
+    /**
+     * Whether each face can show: both on a pair, else only `default_face`.
+     */
+    public var chatEnabled: Bool
+    public var terminalEnabled: Bool
+    /**
+     * The acpmux harness (`claude` or `codex`) and the harness's session id of the pair.
+     */
+    public var harness: String?
+    public var session: String?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The tab offers its page menu's Show Chat / Show Terminal row: both faces work.
+         */offered: Bool, 
+        /**
+         * The face the tab opens on when the person chose none: the tab's own kind (a
+         * terminal on its terminal, a chat on its chat).
+         */defaultFace: TabFace, 
+        /**
+         * Whether each face can show: both on a pair, else only `default_face`.
+         */chatEnabled: Bool, terminalEnabled: Bool, 
+        /**
+         * The acpmux harness (`claude` or `codex`) and the harness's session id of the pair.
+         */harness: String?, session: String?) {
+        self.offered = offered
+        self.defaultFace = defaultFace
+        self.chatEnabled = chatEnabled
+        self.terminalEnabled = terminalEnabled
+        self.harness = harness
+        self.session = session
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension TerminalChatFaces: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeTerminalChatFaces: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> TerminalChatFaces {
+        return
+            try TerminalChatFaces(
+                offered: FfiConverterBool.read(from: &buf), 
+                defaultFace: FfiConverterTypeTabFace.read(from: &buf), 
+                chatEnabled: FfiConverterBool.read(from: &buf), 
+                terminalEnabled: FfiConverterBool.read(from: &buf), 
+                harness: FfiConverterOptionString.read(from: &buf), 
+                session: FfiConverterOptionString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: TerminalChatFaces, into buf: inout [UInt8]) {
+        FfiConverterBool.write(value.offered, into: &buf)
+        FfiConverterTypeTabFace.write(value.defaultFace, into: &buf)
+        FfiConverterBool.write(value.chatEnabled, into: &buf)
+        FfiConverterBool.write(value.terminalEnabled, into: &buf)
+        FfiConverterOptionString.write(value.harness, into: &buf)
+        FfiConverterOptionString.write(value.session, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTerminalChatFaces_lift(_ buf: RustBuffer) throws -> TerminalChatFaces {
+    return try FfiConverterTypeTerminalChatFaces.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTerminalChatFaces_lower(_ value: TerminalChatFaces) -> RustBuffer {
+    return FfiConverterTypeTerminalChatFaces.lower(value)
+}
+
+
+/**
+ * The facts of one tab, as the phone reads them.
+ */
+public struct TerminalChatFacts: Equatable, Hashable {
+    /**
+     * The person turned Terminal and Chat on in Settings (off by default). Off, no tab
+     * offers the toggle: every tab shows only its own kind.
+     */
+    public var toggleOn: Bool
+    /**
+     * A terminal tab: `agent` and `session` are its agent's report (the hook's agent and
+     * `agent_session_id`).
+     */
+    public var terminal: Bool
+    /**
+     * An agent chat tab: `agent` is its harness and `session` the harness session its
+     * acpmux chat resumes or watches (acpmux `agentSessionId`), if any.
+     */
+    public var chat: Bool
+    public var agent: String?
+    public var session: String?
+    /**
+     * A chat: a terminal tab the phone lists reports `session`.
+     */
+    public var running: Bool
+    /**
+     * A terminal: no chat of the Mac shows `session`, and the Mac's acpmux refused to
+     * make a View Only one for the phone (`remote.adopt_refused`: a remote device adopts
+     * no local session). The tab is only a terminal.
+     */
+    public var chatRefused: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The person turned Terminal and Chat on in Settings (off by default). Off, no tab
+         * offers the toggle: every tab shows only its own kind.
+         */toggleOn: Bool, 
+        /**
+         * A terminal tab: `agent` and `session` are its agent's report (the hook's agent and
+         * `agent_session_id`).
+         */terminal: Bool, 
+        /**
+         * An agent chat tab: `agent` is its harness and `session` the harness session its
+         * acpmux chat resumes or watches (acpmux `agentSessionId`), if any.
+         */chat: Bool, agent: String?, session: String?, 
+        /**
+         * A chat: a terminal tab the phone lists reports `session`.
+         */running: Bool, 
+        /**
+         * A terminal: no chat of the Mac shows `session`, and the Mac's acpmux refused to
+         * make a View Only one for the phone (`remote.adopt_refused`: a remote device adopts
+         * no local session). The tab is only a terminal.
+         */chatRefused: Bool) {
+        self.toggleOn = toggleOn
+        self.terminal = terminal
+        self.chat = chat
+        self.agent = agent
+        self.session = session
+        self.running = running
+        self.chatRefused = chatRefused
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension TerminalChatFacts: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeTerminalChatFacts: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> TerminalChatFacts {
+        return
+            try TerminalChatFacts(
+                toggleOn: FfiConverterBool.read(from: &buf), 
+                terminal: FfiConverterBool.read(from: &buf), 
+                chat: FfiConverterBool.read(from: &buf), 
+                agent: FfiConverterOptionString.read(from: &buf), 
+                session: FfiConverterOptionString.read(from: &buf), 
+                running: FfiConverterBool.read(from: &buf), 
+                chatRefused: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: TerminalChatFacts, into buf: inout [UInt8]) {
+        FfiConverterBool.write(value.toggleOn, into: &buf)
+        FfiConverterBool.write(value.terminal, into: &buf)
+        FfiConverterBool.write(value.chat, into: &buf)
+        FfiConverterOptionString.write(value.agent, into: &buf)
+        FfiConverterOptionString.write(value.session, into: &buf)
+        FfiConverterBool.write(value.running, into: &buf)
+        FfiConverterBool.write(value.chatRefused, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTerminalChatFacts_lift(_ buf: RustBuffer) throws -> TerminalChatFacts {
+    return try FfiConverterTypeTerminalChatFacts.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTerminalChatFacts_lower(_ value: TerminalChatFacts) -> RustBuffer {
+    return FfiConverterTypeTerminalChatFacts.lower(value)
+}
+
+
+/**
+ * Which chat a terminal tab's chat face shows, and what the phone keeps of it on disk
+ * ([`terminal_chat_pairing`]).
+ */
+public struct TerminalChatPairing: Equatable, Hashable {
+    /**
+     * The acpmux chat the face shows; None: none yet (the phone asks the Mac for one).
+     */
+    public var chat: String?
+    /**
+     * The phone keeps `chat` as the tab's pairing (it is new, or another than the kept one).
+     */
+    public var keep: Bool
+    /**
+     * The kept pairing is stale (the Mac closed or dropped that chat): the phone forgets it.
+     */
+    public var forget: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The acpmux chat the face shows; None: none yet (the phone asks the Mac for one).
+         */chat: String?, 
+        /**
+         * The phone keeps `chat` as the tab's pairing (it is new, or another than the kept one).
+         */keep: Bool, 
+        /**
+         * The kept pairing is stale (the Mac closed or dropped that chat): the phone forgets it.
+         */forget: Bool) {
+        self.chat = chat
+        self.keep = keep
+        self.forget = forget
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension TerminalChatPairing: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeTerminalChatPairing: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> TerminalChatPairing {
+        return
+            try TerminalChatPairing(
+                chat: FfiConverterOptionString.read(from: &buf), 
+                keep: FfiConverterBool.read(from: &buf), 
+                forget: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: TerminalChatPairing, into buf: inout [UInt8]) {
+        FfiConverterOptionString.write(value.chat, into: &buf)
+        FfiConverterBool.write(value.keep, into: &buf)
+        FfiConverterBool.write(value.forget, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTerminalChatPairing_lift(_ buf: RustBuffer) throws -> TerminalChatPairing {
+    return try FfiConverterTypeTerminalChatPairing.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTerminalChatPairing_lower(_ value: TerminalChatPairing) -> RustBuffer {
+    return FfiConverterTypeTerminalChatPairing.lower(value)
 }
 
 
@@ -3328,9 +4414,79 @@ public func FfiConverterTypeCmuxMobileError_lower(_ value: CmuxMobileError) -> R
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 /**
+ * Who moves the crop: the camera, or the person (a pinch or a drag).
+ */
+
+public enum FollowCameraMode: Equatable, Hashable {
+    
+    case follow
+    case manual
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension FollowCameraMode: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFollowCameraMode: FfiConverterRustBuffer {
+    typealias SwiftType = FollowCameraMode
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FollowCameraMode {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .follow
+        
+        case 2: return .manual
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: FollowCameraMode, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .follow:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .manual:
+            writeInt(&buf, Int32(2))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFollowCameraMode_lift(_ buf: RustBuffer) throws -> FollowCameraMode {
+    return try FfiConverterTypeFollowCameraMode.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFollowCameraMode_lower(_ value: FollowCameraMode) -> RustBuffer {
+    return FfiConverterTypeFollowCameraMode.lower(value)
+}
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
  * Link state events, in order: `Connecting`, then `Connected` (or
  * `Disconnected` when the dial fails), then any number of `PathChanged`,
- * `Rtt` and `Media`, then one `Disconnected`.
+ * `Rtt`, `Media` and `Suspect`, then one `Disconnected`.
  */
 
 public enum LinkEvent: Equatable, Hashable {
@@ -3349,6 +4505,17 @@ public enum LinkEvent: Equatable, Hashable {
     case media(state: MediaState
     )
     case disconnected(reason: String
+    )
+    /**
+     * The link heard nothing for `silent_millis` after a ping
+     * (`Link::suspect_state`): a dead or silent Mac, a dead network, a
+     * blackout. The link stays open and probes every second; the next
+     * `Rtt` says it answered again, and it closes (`Disconnected`) only
+     * after its keepalive timeout (45 s), so a blackout it survives keeps
+     * the session. Last in the enum so the other variants keep their
+     * numbers in the bindings.
+     */
+    case suspect(silentMillis: UInt32
     )
 
 
@@ -3389,6 +4556,9 @@ public struct FfiConverterTypeLinkEvent: FfiConverterRustBuffer {
         case 6: return .disconnected(reason: try FfiConverterString.read(from: &buf)
         )
         
+        case 7: return .suspect(silentMillis: try FfiConverterUInt32.read(from: &buf)
+        )
+        
         default: throw UniffiInternalError.unexpectedEnumCase
         }
     }
@@ -3427,6 +4597,11 @@ public struct FfiConverterTypeLinkEvent: FfiConverterRustBuffer {
             writeInt(&buf, Int32(6))
             FfiConverterString.write(reason, into: &buf)
             
+        
+        case let .suspect(silentMillis):
+            writeInt(&buf, Int32(7))
+            FfiConverterUInt32.write(silentMillis, into: &buf)
+            
         }
     }
 }
@@ -3444,6 +4619,92 @@ public func FfiConverterTypeLinkEvent_lift(_ buf: RustBuffer) throws -> LinkEven
 #endif
 public func FfiConverterTypeLinkEvent_lower(_ value: LinkEvent) -> RustBuffer {
     return FfiConverterTypeLinkEvent.lower(value)
+}
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * Where a web link opened on the phone goes.
+ */
+
+public enum LinkOpenSide: Equatable, Hashable {
+    
+    /**
+     * A public address: the phone's own browser.
+     */
+    case phone
+    /**
+     * An address only the Mac can reach: a browser tab on the Mac.
+     */
+    case mac
+    /**
+     * Not a web page (`javascript:`, `file:`, an app's scheme, no host).
+     */
+    case notWeb
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension LinkOpenSide: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeLinkOpenSide: FfiConverterRustBuffer {
+    typealias SwiftType = LinkOpenSide
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> LinkOpenSide {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .phone
+        
+        case 2: return .mac
+        
+        case 3: return .notWeb
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: LinkOpenSide, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .phone:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .mac:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .notWeb:
+            writeInt(&buf, Int32(3))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLinkOpenSide_lift(_ buf: RustBuffer) throws -> LinkOpenSide {
+    return try FfiConverterTypeLinkOpenSide.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLinkOpenSide_lower(_ value: LinkOpenSide) -> RustBuffer {
+    return FfiConverterTypeLinkOpenSide.lower(value)
 }
 
 
@@ -3640,6 +4901,278 @@ public func FfiConverterTypeMediaState_lift(_ buf: RustBuffer) throws -> MediaSt
 #endif
 public func FfiConverterTypeMediaState_lower(_ value: MediaState) -> RustBuffer {
     return FfiConverterTypeMediaState.lower(value)
+}
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * What a feed gives the phone's surface, in order.
+ */
+
+public enum ProjectionSegment: Equatable, Hashable {
+    
+    /**
+     * Bytes for the surface as it is.
+     */
+    case paint(bytes: Data
+    )
+    /**
+     * The surface starts over (`ESC c`, sent by the caller), then these bytes.
+     */
+    case reset(bytes: Data
+    )
+    /**
+     * The program switched to (true) or from the alternate screen here.
+     */
+    case alternate(on: Bool
+    )
+    /**
+     * The alternate screen's bytes, unchanged.
+     */
+    case raw(bytes: Data
+    )
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension ProjectionSegment: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeProjectionSegment: FfiConverterRustBuffer {
+    typealias SwiftType = ProjectionSegment
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ProjectionSegment {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .paint(bytes: try FfiConverterData.read(from: &buf)
+        )
+        
+        case 2: return .reset(bytes: try FfiConverterData.read(from: &buf)
+        )
+        
+        case 3: return .alternate(on: try FfiConverterBool.read(from: &buf)
+        )
+        
+        case 4: return .raw(bytes: try FfiConverterData.read(from: &buf)
+        )
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: ProjectionSegment, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case let .paint(bytes):
+            writeInt(&buf, Int32(1))
+            FfiConverterData.write(bytes, into: &buf)
+            
+        
+        case let .reset(bytes):
+            writeInt(&buf, Int32(2))
+            FfiConverterData.write(bytes, into: &buf)
+            
+        
+        case let .alternate(on):
+            writeInt(&buf, Int32(3))
+            FfiConverterBool.write(on, into: &buf)
+            
+        
+        case let .raw(bytes):
+            writeInt(&buf, Int32(4))
+            FfiConverterData.write(bytes, into: &buf)
+            
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeProjectionSegment_lift(_ buf: RustBuffer) throws -> ProjectionSegment {
+    return try FfiConverterTypeProjectionSegment.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeProjectionSegment_lower(_ value: ProjectionSegment) -> RustBuffer {
+    return FfiConverterTypeProjectionSegment.lower(value)
+}
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * One face of a terminal and chat pair.
+ */
+
+public enum TabFace: Equatable, Hashable {
+    
+    case terminal
+    case chat
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension TabFace: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeTabFace: FfiConverterRustBuffer {
+    typealias SwiftType = TabFace
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> TabFace {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .terminal
+        
+        case 2: return .chat
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: TabFace, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .terminal:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .chat:
+            writeInt(&buf, Int32(2))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTabFace_lift(_ buf: RustBuffer) throws -> TabFace {
+    return try FfiConverterTypeTabFace.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTabFace_lower(_ value: TabFace) -> RustBuffer {
+    return FfiConverterTypeTabFace.lower(value)
+}
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * What a tap on face `to` does.
+ */
+
+public enum TerminalChatSwap: Equatable, Hashable {
+    
+    /**
+     * Nothing: that face shows already, or the tab offers no toggle.
+     */
+    case stay
+    /**
+     * The tab shows `face`. Both faces stay built, so this is a flag flip with no reload.
+     */
+    case show(face: TabFace
+    )
+    /**
+     * A chat's terminal face is the terminal tab running its session: that tab shows, on
+     * its terminal face (the Mac's Toggle reveals that terminal too).
+     */
+    case revealTerminal(harness: String, session: String
+    )
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension TerminalChatSwap: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeTerminalChatSwap: FfiConverterRustBuffer {
+    typealias SwiftType = TerminalChatSwap
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> TerminalChatSwap {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .stay
+        
+        case 2: return .show(face: try FfiConverterTypeTabFace.read(from: &buf)
+        )
+        
+        case 3: return .revealTerminal(harness: try FfiConverterString.read(from: &buf), session: try FfiConverterString.read(from: &buf)
+        )
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: TerminalChatSwap, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .stay:
+            writeInt(&buf, Int32(1))
+        
+        
+        case let .show(face):
+            writeInt(&buf, Int32(2))
+            FfiConverterTypeTabFace.write(face, into: &buf)
+            
+        
+        case let .revealTerminal(harness,session):
+            writeInt(&buf, Int32(3))
+            FfiConverterString.write(harness, into: &buf)
+            FfiConverterString.write(session, into: &buf)
+            
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTerminalChatSwap_lift(_ buf: RustBuffer) throws -> TerminalChatSwap {
+    return try FfiConverterTypeTerminalChatSwap.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTerminalChatSwap_lower(_ value: TerminalChatSwap) -> RustBuffer {
+    return FfiConverterTypeTerminalChatSwap.lower(value)
 }
 
 
@@ -4008,6 +5541,31 @@ fileprivate struct FfiConverterSequenceTypePredictedGlyph: FfiConverterRustBuffe
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeTerminalChatCandidate: FfiConverterRustBuffer {
+    typealias SwiftType = [TerminalChatCandidate]
+
+    public static func write(_ value: [TerminalChatCandidate], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeTerminalChatCandidate.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [TerminalChatCandidate] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [TerminalChatCandidate]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeTerminalChatCandidate.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeTimingMark: FfiConverterRustBuffer {
     typealias SwiftType = [TimingMark]
 
@@ -4025,6 +5583,31 @@ fileprivate struct FfiConverterSequenceTypeTimingMark: FfiConverterRustBuffer {
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeTimingMark.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeProjectionSegment: FfiConverterRustBuffer {
+    typealias SwiftType = [ProjectionSegment]
+
+    public static func write(_ value: [ProjectionSegment], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeProjectionSegment.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [ProjectionSegment] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [ProjectionSegment]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeProjectionSegment.read(from: &buf))
         }
         return seq
     }
@@ -4124,6 +5707,18 @@ public func connectWithOptions(baseUrl: String, token: String, teamId: String, d
         )
 }
 /**
+ * Milliseconds from now until the next keepalive beat of `period_ms`, for
+ * the app's own timers (presence, Cloud Chief, the link heartbeat), so
+ * they share the Rust keepalives' instants.
+ */
+public func keepaliveBeatDelayMs(periodMs: UInt64) -> UInt64  {
+    return try!  FfiConverterUInt64.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_keepalive_beat_delay_ms(
+        FfiConverterUInt64.lower(periodMs),$0
+    )
+})
+}
+/**
  * The device's network changed or came back (iOS `NWPathMonitor`): every
  * WireGuard link moves onto the new network at once without a redial, and
  * the signaling socket is checked (and replaced when dead) so signaling
@@ -4186,15 +5781,41 @@ public func resetWarmState()async   {
         )
 }
 /**
+ * A dev build's cloud data space, `dev:<slug>` (Swift `CMUXBuildSpace`),
+ * set once at launch by the app's composition root before any `connect`
+ * or `prewarm`: every `GET /v1/ice` and signaling upgrade then carries
+ * `x-cmux-build-space`. `None`, or a value that is not `dev:<slug>`, sends
+ * no header (nightly, TestFlight and App Store builds never call it with a
+ * value). A change takes effect for the next socket opened; a socket opened
+ * in another space is not reused.
+ */
+public func setBuildSpace(value: String?)  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_set_build_space(
+        FfiConverterOptionString.lower(value),$0
+    )
+}
+}
+/**
  * The device's network is cellular now, or not (iOS `NWPathMonitor`,
  * `NWPath.usesInterfaceType(.cellular)`; every path update, the first one
- * too). WireGuard dials made from now on turn ultra mode on when this is
- * true and their `ConnectOptions::ultra_on_cellular` is set; a live link
- * keeps its mode until it redials.
+ * too). Every WireGuard link in Auto (`ConnectOptions::ultra`) reads it
+ * live: on cellular its repair data stays within its data bytes.
  */
 public func setCellularPath(cellular: Bool)  {try! rustCall() {
     uniffi_cmux_mobile_link_ffi_fn_func_set_cellular_path(
         FfiConverterBool.lower(cellular),$0
+    )
+}
+}
+/**
+ * Settings → Transport → Align Keepalives (off by default): every
+ * keepalive of the phone goes out on the same beats
+ * (`cmux_mobile_link::keepalive`). Read by each dial and by the signaling
+ * socket's next keepalive tick.
+ */
+public func setKeepaliveAlignment(on: Bool)  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_set_keepalive_alignment(
+        FfiConverterBool.lower(on),$0
     )
 }
 }
@@ -4242,6 +5863,87 @@ public func classicCleanupVersion() -> Int64  {
     )
 })
 }
+/**
+ * Which device opens `url`, a link the person opened on the phone.
+ */
+public func linkOpenSide(url: String) -> LinkOpenSide  {
+    return try!  FfiConverterTypeLinkOpenSide_lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_link_open_side(
+        FfiConverterString.lower(url),$0
+    )
+})
+}
+/**
+ * The faces `facts`' tab offers.
+ */
+public func terminalChatFaces(facts: TerminalChatFacts) -> TerminalChatFaces  {
+    return try!  FfiConverterTypeTerminalChatFaces_lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_terminal_chat_faces(
+        FfiConverterTypeTerminalChatFacts_lower(facts),$0
+    )
+})
+}
+/**
+ * The acpmux harness (`claude` or `codex`) an agent or chat harness names, a profile
+ * (`claude-cr`) as its family; None for one acpmux does not adopt.
+ */
+public func terminalChatHarness(agent: String) -> String?  {
+    return try!  FfiConverterOptionString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_terminal_chat_harness(
+        FfiConverterString.lower(agent),$0
+    )
+})
+}
+/**
+ * The chat terminal `harness` session `session` shows, and the pairing the phone keeps
+ * for a relaunch with the Mac out of reach (Leo, 2026-11-14: less reliant on the Mac and on
+ * the network; a relaunch offline draws the chat's kept turns at once).
+ *
+ * In order: the Mac's own chat of the session ([`terminal_chat_session`] over `chats`), then
+ * the chat this phone had the Mac open (`opened`), then the `kept` pairing. A kept chat the
+ * Mac's list shows closed, watching another session or of another harness is stale; so is
+ * one missing from a whole list (`listed_whole`: every chat of the Mac is in `chats`).
+ * Offline the list is empty and not whole, so the kept chat shows.
+ */
+public func terminalChatPairing(chats: [TerminalChatCandidate], listedWhole: Bool, harness: String, session: String, opened: String?, kept: String?) -> TerminalChatPairing  {
+    return try!  FfiConverterTypeTerminalChatPairing_lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_terminal_chat_pairing(
+        FfiConverterSequenceTypeTerminalChatCandidate.lower(chats),
+        FfiConverterBool.lower(listedWhole),
+        FfiConverterString.lower(harness),
+        FfiConverterString.lower(session),
+        FfiConverterOptionString.lower(opened),
+        FfiConverterOptionString.lower(kept),$0
+    )
+})
+}
+/**
+ * The chat among `chats` that already shows `harness` session `session`, if any: a View
+ * Only chat first (it follows the terminal), else one that resumed it and is not closed.
+ * acpmux would answer an adopt of the session with the same chat
+ * (`hub/adoption.rs` `adopted_session`); this spares the phone that round trip.
+ */
+public func terminalChatSession(chats: [TerminalChatCandidate], harness: String, session: String) -> String?  {
+    return try!  FfiConverterOptionString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_terminal_chat_session(
+        FfiConverterSequenceTypeTerminalChatCandidate.lower(chats),
+        FfiConverterString.lower(harness),
+        FfiConverterString.lower(session),$0
+    )
+})
+}
+/**
+ * What a tap on face `to` does on a tab showing `shown`.
+ */
+public func terminalChatSwap(facts: TerminalChatFacts, shown: TabFace, to: TabFace) -> TerminalChatSwap  {
+    return try!  FfiConverterTypeTerminalChatSwap_lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_terminal_chat_swap(
+        FfiConverterTypeTerminalChatFacts_lower(facts),
+        FfiConverterTypeTabFace_lower(shown),
+        FfiConverterTypeTabFace_lower(to),$0
+    )
+})
+}
 
 private enum InitializationResult {
     case ok
@@ -4267,6 +5969,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_func_connect_with_options() != 39046) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_keepalive_beat_delay_ms() != 42732) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_network_changed() != 41080) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -4276,7 +5981,13 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_func_reset_warm_state() != 25219) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_func_set_cellular_path() != 64638) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_set_build_space() != 53497) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_set_cellular_path() != 4068) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_set_keepalive_alignment() != 23404) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_classic_cleanup_due() != 41191) {
@@ -4289,6 +6000,24 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_classic_cleanup_version() != 33020) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_link_open_side() != 2441) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_terminal_chat_faces() != 48000) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_terminal_chat_harness() != 55721) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_terminal_chat_pairing() != 6333) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_terminal_chat_session() != 14930) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_terminal_chat_swap() != 57193) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_channelhandle_close() != 40361) {
@@ -4342,10 +6071,16 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_probe() != 33821) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_received_ago_ms() != 55134) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_roam_timings() != 26202) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_timings() != 339) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_traffic_ago_ms() != 41941) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_transport() != 62295) {
@@ -4390,6 +6125,24 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_method_browserstream_stats() != 19072) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_followcamera_advance() != 2575) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_followcamera_manual() != 41672) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_followcamera_mode() != 38203) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_followcamera_push_json() != 58022) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_followcamera_resume() != 43594) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_followcamera_source() != 22030) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprediction_echo_latency_us() != 57421) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -4429,7 +6182,46 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprediction_tick() != 43253) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_feed() != 63739) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_is_alternate() != 62553) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_load_older() != 3182) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_older_rows() != 21444) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_paint() != 61759) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_request_reset() != 536) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_set_host_grid() != 62931) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_set_reader_rows_from_end() != 42508) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_set_viewport() != 49630) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_stats() != 44562) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_take_replies() != 21867) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_constructor_followcamera_new() != 52189) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_constructor_terminalprediction_new() != 21303) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_constructor_terminalprojection_new() != 52508) {
         return InitializationResult.apiChecksumMismatch
     }
 

@@ -309,7 +309,12 @@ export class StackTeamSync {
       return schedule(deps.sql, ev, attempt, Date.now()) ? "team_missing_recheck" : "team_missing_dropped"
     }
     // A cmux VM personal tenant is a private Stack team behind one personal owner: never a cmux team (team-vm-api-personal.ts).
-    if (team.vm_personal_tenant === true) return "vm_personal_tenant_ignored"
+    // A tenant made before its create marked it for clients too is marked now (CMUX-380), so the person's sign-in
+    // client stops offering it as a team; a failed mark leaves it ignored, and the next sync tries again.
+    if (team.vm_personal_tenant === true) {
+      if (team.vm_personal_tenant_visible === true || !stack.markVmPersonalTenantVisible) return "vm_personal_tenant_ignored"
+      return (await stack.markVmPersonalTenantVisible(ev.stack_team).catch(() => false)) ? "vm_personal_tenant_marked" : "vm_personal_tenant_ignored"
+    }
     const missing = () => (schedule(deps.sql, ev, attempt, Date.now()) ? "team_missing_recheck" : "team_missing_dropped")
     // Members are read before the mirror commit: a team not mirrored here yet whose Stack members are all
     // anonymous is a cmux.com visitor's sign-up personal team (StackMember.anonymous) and is never mirrored.
@@ -333,7 +338,7 @@ export class StackTeamSync {
     if (mirrored) return mirrored
     // The team's paid plan for the model router (inference/plan.ts): web billing's write to the
     // team metadata sends team.updated, so this copy follows a purchase or a lapse at once.
-    storePlan(deps.sql, team.plan, readAt)
+    storePlan(deps.sql, team.plan, readAt, team.next_plan ?? null, team.chief_addon ?? null)
     // Stack sends no membership event for a team's creator or a sign-up personal team: a team event mirrors Stack's member list.
     if (listed !== undefined) return this.syncMembers(deps, listed, commit) ?? "team_mirrored"
     const user = userIdFor(deps.stackProjectId, ev.stack_user!)

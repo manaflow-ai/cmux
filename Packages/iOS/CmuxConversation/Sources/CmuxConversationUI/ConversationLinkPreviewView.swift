@@ -194,6 +194,7 @@ final class ConversationLinkPreviewView: UIView {
         let color = UIColor(red: caption.r, green: caption.g, blue: caption.b, alpha: 1)
         Self.tintCache[url] = color
         tint = color
+        // motion: allow crossfade, the Reduce Motion form
         UIView.transition(with: self, duration: 0.2, options: [.transitionCrossDissolve, .allowUserInteraction]) {
             self.applyColors()
         }

@@ -14,9 +14,13 @@
 //! file each [`super::TAIL_FLUSH_INTERVAL`] (`tail.rs`), and a snapshot is
 //! written at most once per [`super::SNAPSHOT_INTERVAL`] while the content
 //! changes, at once for a terminal this daemon has no snapshot of (a new
-//! generation), after a resize, when the tail passes its cap (at most once
-//! per [`super::TAIL_COMPACT_SPACING`] while it stays under
-//! [`super::TAIL_FLOOD_MAX_BYTES`]), and at quit.
+//! generation), after a resize and when the tail passes its cap (at most
+//! once per [`super::TAIL_COMPACT_SPACING`] while it stays under
+//! [`super::TAIL_FLOOD_MAX_BYTES`]). The tail files written since their
+//! last sync are synced together every [`super::TAIL_SYNC_INTERVAL`]
+//! (`sync_due_tails`). At quit the tail takes the last bytes
+//! (synced), and a snapshot is written only where the tail cannot carry
+//! them, a terminal on the alternate screen included (`quit_pass_tests.rs`).
 //! The snapshot records the stream offset its screen ends at, read under
 //! the parser lock with no parsed chunk in flight, so the tail continues it
 //! byte for byte; then the tail file goes.
@@ -25,6 +29,7 @@
 //! `CMUXSNAP1\n` + one JSON line (`generation`, `stream_end`, `cols`, `rows`,
 //! `written_at_ms`) + gzip of the replay bytes.
 
+use std::collections::HashSet;
 use std::fs;
 use std::hash::{Hash, Hasher};
 use std::io::{Read, Write};
@@ -136,6 +141,20 @@ fn write_pass_at(mux: &Mux, store: &OutputStore, policy: PersistencePolicy, quit
             digests.push((log, None));
             continue;
         }
+        // A flood the next snapshot covers, and that snapshot is not due: no
+        // capture (it reads the screen under the parser lock), no tail write.
+        if tail && !quitting && plan.flooded && !plan.compaction_spaced && plan.retry_wait.is_none()
+        {
+            let wait = {
+                let mut state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
+                state.pending = Vec::new();
+                state.pending_start = state.next_offset();
+                state.compaction_wait().max(super::TAIL_FLUSH_INTERVAL)
+            };
+            store.mark_log_dirty_after(&log, wait);
+            digests.push((log, None));
+            continue;
+        }
         let mut attempt = 0;
         let captured = loop {
             attempt += 1;
@@ -168,7 +187,9 @@ fn write_pass_at(mux: &Mux, store: &OutputStore, policy: PersistencePolicy, quit
                 };
                 let upload = terminal.kitty_upload_in_progress();
                 let seen = Seen { digest, settled, end, size: Some(size), upload };
-                if !plan.wants_snapshot(digest, size, size_settled, full, tail, quitting) {
+                let alternate = terminal.active_screen() != ghostty_vt::Screen::Primary;
+                let screen = ScreenNow { digest, size, alternate };
+                if !plan.wants_snapshot(screen, size_settled, full, tail, quitting) {
                     return Some((seen, size, Capture::None));
                 }
                 if !settled {
@@ -286,6 +307,34 @@ fn write_pass_at(mux: &Mux, store: &OutputStore, policy: PersistencePolicy, quit
     if wrote {
         enforce_total(directory, SUFFIX, snapshot_total_cap(policy));
     }
+    if tail {
+        sync_due_tails(store, directory);
+    }
+}
+
+/// The end of a write pass in snapshot mode. Once
+/// [`super::TAIL_SYNC_INTERVAL`] has passed since the first tail write after
+/// the last sync, every tail file written since is synced, in this one pass
+/// (`tail::sync_ordered`). Before that, the writer is asked for the pass
+/// that does it (each turn of the writer forgets the request of the last
+/// one), so the sync runs whether or not a terminal prints again, and a
+/// session whose tails are all synced wakes nothing.
+///
+/// No pass but the quit pass syncs a tail in [`flush_tail`]: one fsync per
+/// printing terminal per second made the writer thread the daemon's top
+/// file system caller (`tail_sync_tests.rs`). A kill of every process needs
+/// no sync, so what it loses does not change.
+fn sync_due_tails(store: &OutputStore, directory: &Path) {
+    let Some(wait) = store.tail_sync_wait() else { return };
+    if !wait.is_zero() {
+        store.writer.mark_dirty(wait);
+        return;
+    }
+    for log in store.take_unsynced_tails() {
+        if super::tail::sync_ordered(directory, &log.terminal_id) {
+            store.count_tail_sync();
+        }
+    }
 }
 
 /// Tries of one terminal's capture while a parsed chunk is in flight.
@@ -327,7 +376,12 @@ struct Plan {
     tail_bytes: u64,
     /// A tail-cap compaction may be written now (its spacing has passed).
     compaction_spaced: bool,
+    /// A flood the next snapshot covers (`LogState::flooded`).
+    flooded: bool,
     pending: usize,
+    /// The digest of the last stored byte (`LogState::tail_digest`): pending
+    /// bytes under a screen of this digest are held redraws.
+    tail_digest: Option<u64>,
     /// The tail file continues the stored snapshot up to the unwritten bytes.
     tail_continues: bool,
     /// Snapshot mode: the time left in a write backoff.
@@ -346,7 +400,9 @@ impl Plan {
             force: state.force_snapshot,
             tail_bytes: state.tail_bytes,
             compaction_spaced: state.compaction_wait().is_zero(),
+            flooded: state.flooded,
             pending: state.pending.len(),
+            tail_digest: state.tail_digest,
             tail_continues: state.snapshot_generation.as_deref() == Some(&*state.generation)
                 && state.tail_end == Some(state.pending_start),
             retry_wait: state.retry_wait(),
@@ -357,13 +413,13 @@ impl Plan {
     /// `size_settled`: the terminal's size has held for `RESIZE_SETTLE`.
     fn wants_snapshot(
         &self,
-        digest: u64,
-        size: (u16, u16),
+        screen: ScreenNow,
         size_settled: bool,
         full: bool,
         tail: bool,
         quitting: bool,
     ) -> bool {
+        let ScreenNow { digest, size, alternate } = screen;
         let changed = self.snapshot_digest != Some(digest);
         if !tail {
             // Full mode: at most once per interval, at once at quit.
@@ -372,19 +428,40 @@ impl Plan {
         // Snapshot mode: the tail continues only a snapshot of this
         // generation and size that this daemon wrote; it is compacted at the
         // interval, when it grows past its cap (once per spacing, at once
-        // past the flood cap), when unchanged redraws pile up in memory, and
-        // at quit. Never during a write backoff, except
+        // past the flood cap) and when unchanged redraws pile up in memory.
+        // Never during a write backoff, except
         // at quit and at a journal checkpoint (`write_now`, at most every
         // checkpoint interval): the last or a rare chance.
         if self.retry_wait.is_some() && !quitting {
             return false;
         }
         let new_generation = self.snapshot_generation.as_deref() != Some(&*self.generation);
+        if quitting {
+            // At quit the tail takes the unwritten bytes whenever it can: no
+            // daemon answers until the next one adopts the hosts, and that
+            // daemon reads a snapshot and its tail alike. A snapshot is only
+            // for what the tail cannot carry (no snapshot of this generation
+            // from this daemon, a new size, a cap); compaction waits for the
+            // next daemon (quit_pass_tests.rs). Nor a terminal on the
+            // alternate screen: a build before ed6ab5728d8c (2026-11-10), an
+            // update rolled back, rebuilds a snapshot plus a tail that ends
+            // there without the primary screen and its scrollback; this
+            // build's snapshot keeps both, and that build replays it as is.
+            let carries = self.tail_continues
+                && !self.flooded
+                && !new_generation
+                && !alternate
+                && self.snapshot_size == Some(size)
+                && self.tail_bytes < super::TAIL_HARD_MAX_BYTES
+                && self.pending <= super::TAIL_MAX_UNWRITTEN_BYTES;
+            return self.force
+                || (!carries && (changed || self.pending > 0 || self.tail_bytes > 0));
+        }
         // A resized terminal waits until its new size holds (a divider drag
         // writes one snapshot at its end, not one per pass), whatever else
-        // asks for one; quit does not wait.
+        // asks for one.
         let resized = !new_generation && self.snapshot_size != Some(size);
-        if resized && !size_settled && !quitting {
+        if resized && !size_settled {
             return false;
         }
         self.force
@@ -392,10 +469,23 @@ impl Plan {
             || resized
             || (changed && self.interval_due)
             || (self.tail_bytes >= super::TAIL_MAX_BYTES && self.compaction_spaced)
-            || self.tail_bytes >= super::TAIL_FLOOD_MAX_BYTES
-            || self.pending >= super::TAIL_IDLE_BYTES
-            || (quitting && (changed || self.pending > 0 || self.tail_bytes > 0))
+            || (self.flooded && self.compaction_spaced)
+            // Held redraws past the idle cap only: a flood's pending bytes
+            // change the screen and go to the tail (then to the flood hold),
+            // not to a snapshot at every pass.
+            || (self.pending >= super::TAIL_IDLE_BYTES && self.tail_digest == Some(digest))
     }
+}
+
+/// What a pass read of a terminal's screen under its parser lock.
+#[derive(Clone, Copy)]
+struct ScreenNow {
+    /// [`content_digest`] of the screen.
+    digest: u64,
+    /// Columns and rows.
+    size: (u16, u16),
+    /// The alternate screen is active (a full-screen program).
+    alternate: bool,
 }
 
 /// The result of one log's capture under its parser lock.
@@ -449,7 +539,12 @@ fn snapshot_written(
     // written are in neither file: the next pass writes another snapshot.
     // So are a stream gap's (a host reconnect replaced the screen after the
     // capture; the offset does not move for it).
-    state.force_snapshot = tail && (state.pending_start > stream_end || state.gaps != gaps);
+    // A flood hold keeps no bytes: the stream moves on past every snapshot's
+    // end, and the next snapshot (after its spacing) covers them.
+    let held = tail && state.flooded && state.pending_start > stream_end;
+    state.flooded = held;
+    state.force_snapshot =
+        tail && ((state.pending_start > stream_end && !held) || state.gaps != gaps);
     if !tail {
         drop(state);
         // The snapshot covers a tail file left from snapshot mode. Off the
@@ -492,8 +587,9 @@ fn flush_tail_now(
 /// Snapshot mode: append the terminal's unwritten bytes to its tail, unless
 /// they only redraw content already stored (the digest the capture saw is
 /// the one of the last stored byte: cursor redraws of an idle TUI wait in
-/// memory, up to [`super::TAIL_IDLE_BYTES`], then a snapshot replaces them),
-/// and fsync the tail at most every [`super::TAIL_SYNC_INTERVAL`].
+/// memory, up to [`super::TAIL_IDLE_BYTES`], then a snapshot replaces them).
+/// The quit pass fsyncs the tail here; any other pass leaves the sync to
+/// [`sync_due_tails`].
 fn flush_tail(
     store: &OutputStore,
     directory: &Path,
@@ -503,8 +599,9 @@ fn flush_tail(
 ) {
     let job = {
         let mut state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
-        let sync_due =
-            state.tail_synced_at.is_none_or(|at| at.elapsed() >= super::TAIL_SYNC_INTERVAL);
+        // At quit the last bytes are synced now: no later pass syncs them.
+        // Any other pass only writes; `sync_due_tails` syncs.
+        let sync_due = quitting;
         // An unfinished Kitty upload's bytes change nothing the digest sees
         // but are content: never held as redraws.
         let redraw = state.tail_digest == Some(seen.digest) && !seen.upload;
@@ -532,17 +629,26 @@ fn flush_tail(
                 }
                 return;
             }
-            if state.tail_unsynced {
-                if sync_due {
-                    state.tail_unsynced = false;
-                    state.tail_synced_at = Some(Instant::now());
-                    drop(state);
-                    super::tail::sync(directory, &log.terminal_id);
-                } else {
-                    drop(state);
-                    store.mark_log_dirty(log);
-                }
+            if state.tail_unsynced && sync_due {
+                state.tail_unsynced = false;
+                drop(state);
+                store.count_tail_sync();
+                super::tail::sync(directory, &log.terminal_id);
             }
+            return;
+        }
+        // A flood past the tail's flood cap inside one compaction spacing:
+        // writing it (gzip of every byte) only to compact it away a moment
+        // later is the cost of the flood. The snapshot, once its spacing has
+        // passed, covers it.
+        if !quitting
+            && state.tail_bytes + state.pending.len() as u64 >= super::TAIL_FLOOD_MAX_BYTES
+            && !state.compaction_wait().is_zero()
+        {
+            state.start_flood_hold();
+            let wait = state.compaction_wait().max(super::TAIL_FLUSH_INTERVAL);
+            drop(state);
+            store.mark_log_dirty_after(log, wait);
             return;
         }
         // The tail continues a snapshot of this generation and size only (a
@@ -578,6 +684,9 @@ fn flush_tail(
     let (generation, base, start, bytes, sync) = job;
     let result =
         super::tail::append(directory, &log.terminal_id, &generation, base, start, &bytes, sync);
+    if sync && result.is_ok() {
+        store.count_tail_sync();
+    }
     let mut state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
     let ours = state.generation == generation
         && state.pending_start == start
@@ -598,14 +707,12 @@ fn flush_tail(
             let exact = seen.settled && !seen.upload && seen.end == state.pending_start;
             state.tail_digest = exact.then_some(seen.digest);
             let more = !state.pending.is_empty() || !exact;
-            if sync {
-                state.tail_synced_at = Some(Instant::now());
-                state.tail_unsynced = false;
-            } else {
-                state.tail_unsynced = true;
-            }
+            state.tail_unsynced = !sync;
             drop(state);
-            if more || !sync {
+            if !sync {
+                store.tail_written();
+            }
+            if more {
                 store.mark_log_dirty(log);
             }
         }
@@ -711,8 +818,24 @@ fn write(
     Ok(())
 }
 
+#[cfg(test)]
+thread_local! {
+    /// What the calling thread read from the store's directory: (lists of the directory through [`list`], reads
+    /// of a snapshot header). The count tests of the start read it: counts, no clock.
+    pub(super) static DISK_READS: std::cell::Cell<(usize, usize)> = const { std::cell::Cell::new((0, 0)) };
+}
+
+/// The entries of the store's directory, for a pass over the snapshot files.
+pub(super) fn list(directory: &Path) -> std::io::Result<fs::ReadDir> {
+    #[cfg(test)]
+    DISK_READS.with(|reads| reads.set((reads.get().0 + 1, reads.get().1)));
+    fs::read_dir(directory)
+}
+
 /// The header line of a snapshot file (it is short; the replay follows).
 pub(super) fn read_header(file: &Path) -> Option<serde_json::Value> {
+    #[cfg(test)]
+    DISK_READS.with(|reads| reads.set((reads.get().0, reads.get().1 + 1)));
     let mut reader = std::io::BufReader::new(fs::File::open(file).ok()?);
     let mut magic = [0_u8; MAGIC.len()];
     reader.read_exact(&mut magic).ok()?;
@@ -722,23 +845,42 @@ pub(super) fn read_header(file: &Path) -> Option<serde_json::Value> {
     serde_json::from_slice(line.strip_suffix(b"\n")?).ok()
 }
 
-/// The stream end each snapshot recorded, by terminal: (generation, end).
-pub(super) fn stream_ends(
+/// One snapshot file as [`scan`] read it: its terminal and its header.
+#[derive(Debug)]
+pub(super) struct Scanned {
+    pub(super) terminal_id: TerminalPublicId,
+    pub(super) header: serde_json::Value,
+    entry: fs::DirEntry,
+}
+
+impl Scanned {
+    /// The size of the file on disk.
+    pub(super) fn bytes(&self) -> Option<u64> {
+        Some(self.entry.metadata().ok()?.len())
+    }
+}
+
+/// One list of the directory and one read of the header of each snapshot file whose terminal is `wanted`. A
+/// file with no readable header is not in it. The count: the entries of the directory that the list gave.
+pub(super) fn scan(
     directory: &Path,
-) -> std::collections::HashMap<TerminalPublicId, (String, u64)> {
-    let Ok(entries) = fs::read_dir(directory) else { return Default::default() };
-    entries
+    wanted: impl Fn(&TerminalPublicId) -> bool,
+) -> (usize, Vec<Scanned>) {
+    let Ok(entries) = list(directory) else { return (0, Vec::new()) };
+    let mut listed = 0_usize;
+    let scanned = entries
         .flatten()
+        .inspect(|_| listed += 1)
         .filter_map(|entry| {
             let path = entry.path();
             (path.extension()? == SUFFIX).then_some(())?;
             let terminal_id = TerminalPublicId::parse(path.file_stem()?.to_str()?).ok()?;
+            wanted(&terminal_id).then_some(())?;
             let header = read_header(&path)?;
-            let generation = header.get("generation")?.as_str()?.to_owned();
-            let end = header.get("stream_end")?.as_u64()?;
-            Some((terminal_id, (generation, end)))
+            Some(Scanned { terminal_id, header, entry })
         })
-        .collect()
+        .collect();
+    (listed, scanned)
 }
 
 /// The terminal's last snapshot, the generation it belongs to and the stream
@@ -778,11 +920,32 @@ pub(super) fn read(
     ))
 }
 
-/// Remove files the policy does not allow: everything in memory mode, and
-/// the files of terminals that are no longer in the session otherwise.
+/// The writer's prune (a mode change, a forgotten terminal, once a day): [`remove_unowned`], then the parked trim.
 pub(super) fn prune(mux: &Mux, store: &OutputStore, policy: PersistencePolicy) {
     let Some(directory) = store.directory() else { return };
-    let Ok(entries) = fs::read_dir(directory) else { return };
+    let Some(parked) = remove_unowned(mux, store, directory, policy) else { return };
+    let now_ms = crate::workspace_registry::unix_epoch_ms().unwrap_or(0);
+    super::parked_trim::run(
+        directory,
+        &parked,
+        now_ms,
+        policy.parked_max_total_bytes,
+        policy.min_free_disk_bytes,
+    );
+}
+
+/// Remove files the policy does not allow: everything in memory mode, and
+/// the files of terminals that are no longer in the session otherwise.
+/// Returns the parked terminals of the session, for the parked trim; `None`
+/// when no trim follows (memory mode, a directory or a registry that cannot
+/// be read).
+pub(super) fn remove_unowned(
+    mux: &Mux,
+    store: &OutputStore,
+    directory: &Path,
+    policy: PersistencePolicy,
+) -> Option<HashSet<TerminalPublicId>> {
+    let entries = list(directory).ok()?;
     if policy.mode == PersistenceMode::Memory {
         let mut removed = 0_usize;
         for entry in entries.flatten() {
@@ -798,14 +961,14 @@ pub(super) fn prune(mux: &Mux, store: &OutputStore, policy: PersistencePolicy) {
                  terminal.persistence.mode is memory"
             );
         }
-        return;
+        return None;
     }
     let live = mux
         .workspace_registry
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
-        .live_terminal_public_ids();
-    let Ok(live) = live else { return };
+        .live_terminal_public_ids()
+        .ok()?;
     for entry in entries.flatten() {
         let name = entry.file_name();
         let Some(name) = name.to_str() else { continue };
@@ -823,15 +986,7 @@ pub(super) fn prune(mux: &Mux, store: &OutputStore, policy: PersistencePolicy) {
         store.full.forget_all();
     }
     // Parked: a kept tab and no running shell (after a daemon restart too).
-    let parked = mux.parked_terminal_ids(live);
-    let now_ms = crate::workspace_registry::unix_epoch_ms().unwrap_or(0);
-    super::parked_trim::run(
-        directory,
-        &parked,
-        now_ms,
-        policy.parked_max_total_bytes,
-        policy.min_free_disk_bytes,
-    );
+    Some(mux.parked_terminal_ids(live))
 }
 
 /// Delete the oldest files with `suffix` until their total is at most `cap`.
@@ -863,3 +1018,11 @@ pub(super) fn enforce_total(directory: &Path, suffix: &str, cap: u64) {
 #[cfg(test)]
 #[path = "snapshot_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "quit_pass_tests.rs"]
+mod quit_pass_tests;
+
+#[cfg(test)]
+#[path = "tail_sync_tests.rs"]
+mod tail_sync_tests;

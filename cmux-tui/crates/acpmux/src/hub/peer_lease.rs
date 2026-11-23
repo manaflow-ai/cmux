@@ -228,7 +228,11 @@ mod tests {
         let (lease, _) =
             hub.lease_peer("vm", "ws://127.0.0.1:9", "t".into(), None, false, &cfg).unwrap();
         let row = json!({"sessionId": "m1", "name": "lane", "status": "idle", "updatedAt": 5});
-        hub.apply_peer_notice("vm", lease.generation, crate::peer::PeerNotice::Sessions(vec![row]));
+        hub.apply_peer_notice(
+            "vm",
+            lease.generation,
+            crate::peer::PeerNotice::sessions_from_values(vec![row]),
+        );
         hub.add_peer("vm", "ws://127.0.0.1:8", None, None, false).await.unwrap();
         assert!(!hub.is_leased("vm"));
         assert!(hub.remote_sessions().is_empty(), "{:?}", hub.remote_sessions());
@@ -250,7 +254,11 @@ mod tests {
         let (lease, _) =
             hub.lease_peer("vm", "ws://127.0.0.1:9", "t".into(), None, false, &cfg).unwrap();
         let row = json!({"sessionId": "m1", "name": "lane", "status": "idle", "updatedAt": 5});
-        hub.apply_peer_notice("vm", lease.generation, crate::peer::PeerNotice::Sessions(vec![row]));
+        hub.apply_peer_notice(
+            "vm",
+            lease.generation,
+            crate::peer::PeerNotice::sessions_from_values(vec![row]),
+        );
         assert_eq!(hub.remote_sessions().len(), 1);
         assert!(!dir.path().join("peers/vm.json").exists(), "a lease saved its sessions");
         hub.end_peer_lease(&lease);
@@ -286,7 +294,11 @@ mod tests {
         let (lease, _) =
             hub.lease_peer("vm", "ws://127.0.0.1:9", "t".into(), None, false, &cfg).unwrap();
         hub.add_peer("vm", "ws://127.0.0.1:8", None, None, false).await.unwrap();
-        hub.apply_peer_notice("vm", lease.generation, PeerNotice::Sessions(vec![row.clone()]));
+        hub.apply_peer_notice(
+            "vm",
+            lease.generation,
+            PeerNotice::sessions_from_values(vec![row.clone()]),
+        );
         hub.apply_peer_notice("vm", lease.generation, changed());
         assert_clean("saved peer took over");
 
@@ -294,7 +306,11 @@ mod tests {
         let (lease, _) =
             hub.lease_peer("vm2", "ws://127.0.0.1:9", "t".into(), None, false, &cfg).unwrap();
         hub.end_peer_lease(&lease);
-        hub.apply_peer_notice("vm2", lease.generation, PeerNotice::Sessions(vec![row.clone()]));
+        hub.apply_peer_notice(
+            "vm2",
+            lease.generation,
+            PeerNotice::sessions_from_values(vec![row.clone()]),
+        );
         hub.apply_peer_notice("vm2", lease.generation, changed());
         assert_clean("lease ended");
 
@@ -302,7 +318,11 @@ mod tests {
         hub.add_peer("box", "ws://127.0.0.1:7", None, None, false).await.unwrap();
         let generation = hub.peer_by_name("box").unwrap().generation;
         hub.remove_peer("box").await.unwrap();
-        hub.apply_peer_notice("box", generation, PeerNotice::Sessions(vec![row.clone()]));
+        hub.apply_peer_notice(
+            "box",
+            generation,
+            PeerNotice::sessions_from_values(vec![row.clone()]),
+        );
         hub.apply_peer_notice("box", generation, changed());
         assert_clean("peer removed");
     }

@@ -118,7 +118,7 @@ impl QueryHost {
 
     fn resize(&self, cols: u16, rows: u16, cell_pixels: (u16, u16)) {
         let (response, resized) = sync_channel(1);
-        let command = ParserCommand::Resize {
+        let command = ParserCommand::Resize(Box::new(ParserResize {
             cols,
             rows,
             cell_pixels,
@@ -127,7 +127,7 @@ impl QueryHost {
             targeted_ack: None,
             pty_previous: None,
             response,
-        };
+        }));
         self.host.parser_commands.send(command).unwrap();
         let _ = resized.recv_timeout(REPLY_BOUND).expect("the parser applied the resize");
     }

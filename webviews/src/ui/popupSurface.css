@@ -2,8 +2,23 @@
    one subtle shadow, and a short open that grows from the trigger's side. Sizes and motion only;
    each surface keeps its own theme colors. ui.css imports this; the agent pane, which does not
    load ui.css, ships it ahead of its own stylesheets (build-agent-pane-web.sh). */
+/* A scrolling list's designed height (popupHost.ts naturalHeight) as a length the browser computes:
+   a cap written in rows (`calc(8 * var(--ui-row-height) + ...)`, the `/` menu's) reads back as px,
+   not as its unresolved text, which parsed as no cap and stood the `/` list below New Tab's box. */
+@property --popup-scroll-cap {
+  syntax: "<length> | none";
+  inherits: true;
+  initial-value: none;
+}
 :root {
-  --ui-popup-radius: 8px;
+  /* One px at the interface scale (Text Size; ui/interfaceScale.ts). A floating surface's frame (a
+     popover's or card's width, a chip's height, a gap a clamp reckons with) is
+     `calc(N * var(--ui-px, 1px))`, never a bare px: the type tokens grow with Text Size, and a frame
+     that does not clips its own label (Leo 2026-11-12: "it doesn't follow").
+     test/floating-ui-follows-text-size.test.ts holds the floating surfaces to it. */
+  --ui-px: calc(1px * var(--cmux-interface-scale, 1));
+  /* The design scale's popup radius (schemas/design-scale namedRadii popup), the native GlassMenu's too. */
+  --ui-popup-radius: var(--ds-radius-popup, 8px);
   --ui-popup-padding: calc(var(--ds-space-1) * var(--cmux-interface-scale, 1));
   /* The raised step of the shared elevation scale (`--elevation-2`, pages/shared/desktop.css; the
      native PopupStyle.elevation2) and a hairline edge: one
@@ -22,12 +37,12 @@
      inset, never less than 4): 8 - 4 = 4. A select on AppKit's menu lines keeps its 5 and 5 (ui.css). */
   --ui-row-radius: max(4px, calc(var(--ui-popup-radius) - var(--ui-popup-padding, 4px)));
   --ui-row-padding-inline: calc(var(--ds-space-2) * var(--cmux-interface-scale, 1));
-  /* The fade-in a dialog, its backdrop, a tooltip and the find pill take. A popup or menu has none:
-     it opens in one frame (below). The motion scale's steps (pages/shared/desktop.css); the literal
-     is the same step, for a page without it. */
+  /* The fade-in a dialog and the find pill take. A popup, a menu, a tooltip and a hover card have
+     none: they open and close in one frame (below, and pages/shared/desktop.css). The motion scale's
+     steps (pages/shared/desktop.css); the literal is the same step, for a page without it. */
   --ui-popup-open: var(--cmux-motion-micro, 120ms);
-  /* The close: a fade, in every motion setting (the native fadeOut token). */
-  --ui-popup-close: var(--cmux-motion-quick, 80ms);
+  /* A dialog's and its backdrop's close: a fade, in every motion setting (the native fadeOut token). */
+  --ui-dialog-close: var(--cmux-motion-quick, 80ms);
   /* A dialog's grow-in: a critically damped spring's shape (the native `appear` spring), no overshoot. */
   --ui-dialog-ease: cubic-bezier(0.2, 0.9, 0.3, 1);
   /* The dialog's grow-in and its backdrop's fade-in take the standard step. A New Tab sets it to 0s
@@ -49,18 +64,19 @@
   outline: none;
 }
 
-/* A popup or menu opens in one frame and fades only as it closes (Leo 2026-10-24: "When you open
-   it up, no animation. When you close it, animation for closing... No fade in ever for any of
-   these."). No open animation, no starting style, no transition into the open state, under every
-   motion setting: Menu, Popover, Select, Combobox, ContextMenu and the agent pane's own menus and
-   popovers (the header's ... menu, the PR and needs-you popovers, the composer's pickers).
-   Panels that slide in from an edge (presence, data-enter), dialogs and tooltips keep their own
-   motion. test/popover-instant-open.test.ts and popover-instant-open-pane.test.ts hold this.
-   It fades out when it closes (POLISH: no flash; a closed menu vanished in one frame): Base UI keeps
-   it mounted while it carries data-ending-style, until the fade ends. */
-:where(.ui-popup) {
-  transition: opacity var(--ui-popup-close) ease-in;
-}
+/* A popup or menu opens and closes in one frame (Leo 2026-10-24: "When you open it up, no
+   animation... No fade in ever for any of these."; 2026-11-11, of the context window card: "the
+   fade-in, the fade-out, is just so stupid... It just looks so bad when it's so slow like this. It's
+   just sluggish."). No open animation, no starting style, no transition into or out of the open
+   state, under every motion setting: Menu, Popover, Select, Combobox, ContextMenu and the agent
+   pane's own menus and popovers (the header's ... menu, the PR and needs-you popovers, the
+   composer's pickers). Panels that slide in from an edge (presence, data-enter) and dialogs keep
+   their own motion. test/popover-instant-open.test.ts and popover-instant-open-pane.test.ts hold
+   this.
+   A closing popup draws nothing from the frame its close starts (data-ending-style): its content,
+   its glass and its backdrop are all at opacity 0, so no trace of it stays where it was while Base
+   UI unmounts it, a frame later (popover-close-trace.test.ts). Opacity, not visibility: focus
+   inside it stays put until Base UI hands it back to the trigger. */
 :where(.ui-popup[data-ending-style]) {
   opacity: 0;
 }
@@ -93,7 +109,7 @@
   scale: 0.98;
 }
 :where(.ui-dialog, .ui-backdrop)[data-ending-style] {
-  transition-duration: var(--ui-popup-close);
+  transition-duration: var(--ui-dialog-close);
 }
 :where(:root[data-cmux-motion="reduced"] .ui-dialog)[data-starting-style],
 :where(:root[data-cmux-motion="reduced"] .ui-dialog)[data-ending-style] {
@@ -128,6 +144,12 @@
   /* glass-opaque-allow: the Reduce Transparency fill only (glass.css applies it under that setting) */
   --glass-opaque: var(--surface-popup);
 }
+/* A floating glass surface that is not a .ui-popup (a toolbar, a preview, a suggestion list) falls
+   back to the same opaque popup surface under Reduce Transparency. */
+.ui-glass.ui-glass-transient {
+  /* glass-opaque-allow: the Reduce Transparency fill only (glass.css applies it under that setting) */
+  --glass-opaque: var(--surface-popup);
+}
 
 /* The shipped agent pane loads this shared surface sheet without ui.css. Keep modal layers here
    too, so a dialog portals above the pane instead of becoming a flow child that pushes its
@@ -153,17 +175,28 @@
    the buttons are weird"). Every dialog a page draws itself is the shared glass (.ui-glass) with
    .ui-glass-floats, so in a see-through Chromium page the theme surface lies under its tint and the
    page's text fades instead of reading through it (glass.css, "CHROMIUM OVER THE WINDOW GLASS"). This
-   one rule gives it the sheet role's veil, corner radius and depth (the surface-roles block in
-   glass.css), as the native dialog card has (pages/overlay/dialog). A dialog's own class sets only its
+   one rule gives it the shared transient veil with the sheet role's corner radius and depth (the
+   surface-roles block in glass.css), as the native dialog card has (CmuxDialogCardSurface). A dialog's own class sets only its
    size and layout; its controls are the shared Button, Input and Select (ui/controls.css). Reduce
    Transparency: the opaque popup surface (glass.css applies --glass-opaque). */
+/* Concentric with its buttons (Lawrence 2026-11-15: "all dialogs needs concentric padding with buttons
+   inside"): a dialog's corner is the button corner plus the padding between its edge and its buttons, the
+   same padding on every side. A dialog whose padding is not the default sets --ui-dialog-padding on its
+   popup and pads with it (scripts/cmux-next/check-concentric-containers.py). */
 .ui-dialog.ui-glass {
-  --glass-tint: var(--surface-sheet-veil);
+  --ui-dialog-padding: var(--ds-space-5);
+  --glass-tint: var(--transient-surface-veil);
+  --glass-backdrop: blur(var(--ds-transient-web-blur)) saturate(var(--ds-transient-web-saturation));
   --glass-elevation: var(--elevation-2);
   /* glass-opaque-allow: the Reduce Transparency fill only (glass.css applies it under that setting) */
   --glass-opaque: var(--surface-popup);
-  border-radius: var(--surface-sheet-radius);
+  border-radius: calc(var(--ds-radius-control) + var(--ui-dialog-padding));
   background: var(--glass-tint);
+}
+/* A quick-open palette (the ledger's) is a dialog but floats like a popup: it takes the popup tint, not
+   the sheet veil, so the page's text never ghosts through its search row. */
+.ui-dialog.ui-glass.ui-glass-transient {
+  --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-transient-web-tint), transparent);
 }
 
 /* Menu sections and separators look the same in every host (dogfood 2026-10-09: the agent pane's reasoning menu drew
@@ -276,7 +309,9 @@
    pane does not load ui.css and that menu named no class of the pane's; the composer model menu's
    submenu chevrons drew nothing for the same reason). Zero-specificity copies of ui.css's menu rules,
    so a ui.css host draws exactly what it drew, and a menu, row, check or chevron that names no look of
-   its own still gets this one; a feature's own rules still win. A host maps --ui-row to its row wash. */
+   its own still gets this one; a feature's own rules still win. A host maps --ui-row to its row wash;
+   a host that maps none gets the native menu's highlighted row (the theme's hover fill, GlassMenu's
+   PopupRowView), ui.css's. */
 :where(.ui-popup.ui-menu) {
   padding: var(--ui-popup-padding);
   font-family: var(--font-ui);
@@ -298,13 +333,28 @@
   outline: none;
 }
 :where(.ui-menu-item[data-highlighted]) {
-  background: var(--ui-row, color-mix(in srgb, currentColor 10%, transparent));
+  background: var(--ui-row, var(--cmux-hover, color-mix(in srgb, currentColor 5%, transparent)));
+}
+/* Pressed (the pointer down on it, or a host's data-pressed): the pressed fill, as a native row's. */
+:where(.ui-menu-item[data-highlighted]:is(:active, [data-pressed])) {
+  background: var(--ui-row-pressed, var(--cmux-pressed, color-mix(in srgb, currentColor 12%, transparent)));
 }
 :where(.ui-menu-check) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   line-height: 1;
+}
+/* The drawn checkmark (MenuCheckGlyph): AppKit's menu check, a 12 box on the 14 icon grid, its
+   stroke at the menu text's weight. */
+:where(.ui-menu-check-glyph) {
+  width: 12px;
+  height: 12px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 :where(.ui-submenu-chevron) {
   margin-inline-start: auto;
@@ -414,6 +464,8 @@
 /* Pinned combobox actions live outside the scrolling results. This sheet is loaded by the agent
    pane as well as ui.css hosts, so the buttons use the same compact menu shape in both. */
 .ui-combobox-pinned-list { display: flex; flex-direction: column; min-height: 0; }
+/* Combobox `listEnd`: keeps its height as the scrolling list gives up room. */
+.ui-combobox-list-end { flex: none; }
 .ui-combobox-pinned { flex: none; margin-bottom: 4px; padding-bottom: 4px; }
 .ui-combobox-pinned[data-placement="bottom"] { margin: 4px 0 0; padding: 4px 0 0; }
 .ui-combobox-scroll { min-height: 0; }
@@ -424,6 +476,23 @@
    composer's location menu, which must not open onto the chat) is not held to the room on that
    side: it may cover its own anchor, so it fits the window less the edge margins. */
 .ui-popup[data-popup-shift] { --available-height: calc(100vh - 16px); }
+
+/* Keep the popup's tint, rim and exterior shadow outside the row mask. A constrained
+   flex child takes the same available content height; the shell keeps its existing padding. */
+.ui-popup.ui-glass.ui-popup-scroll-shell {
+  display: flex;
+  flex-direction: column;
+  overflow: visible;
+}
+.ui-popup-scroll {
+  min-width: 0;
+  min-height: 0;
+  overflow: visible;
+  overscroll-behavior: contain;
+}
+/* A fitted menu keeps its submenu's pointer bridge outside the viewport. Only actual
+   overflow needs a clipping scrollport; rounding-sized spill stays fully readable. */
+.ui-popup-scroll:is([data-fade-top], [data-fade-bottom]) { overflow: auto; }
 
 /* Shared scroll-edge fade: rows soften only at edges with more content. The tracker
    disconnects its observers and passive scroll listener when the surface unmounts. */
@@ -460,4 +529,12 @@
 :root[data-reduce-transparency] .ui-scroll-edge-fade:is([data-fade-top], [data-fade-bottom]) {
   -webkit-mask-image: none;
   mask-image: none;
+}
+
+/* A select's options never run past the room on its side: a long list scrolls inside. Here, not in
+   ui.css, so the agent pane (which loads this sheet and not ui.css) scrolls its selects too: the
+   Share dialog's pickers. */
+.ui-menu.ui-select-popup {
+  max-height: min(420px, var(--available-height, 420px));
+  overflow-y: auto;
 }

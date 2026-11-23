@@ -9,6 +9,7 @@ import { JSDOM } from "jsdom";
 import { translate } from "../i18n";
 import { RepoRecoveryCard } from "./RepoRecoveryCard";
 import type { RepoRecovery } from "./repoRecoveryCardModel";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -39,6 +40,7 @@ function installDom(): HTMLElement {
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   opened.length = 0;
@@ -154,4 +156,19 @@ test("the retried attach still needing GitHub goes back to Check again, not to a
   const card = await render({ code: "repo.needs_github", installUrl: url, retry }, request);
   await click(card, translate("cloudRepository.connect"));
   expect(card.textContent).toContain(translate("cloudRepository.notConnectedYet"));
+});
+
+test("no access: Install opens GitHub with no wait, and Try again adds the same repository here once access is granted", async () => {
+  const again = { action: "cloud.repo.add", args: { session: "s", repo: "acme/demo" } };
+  const { calls, request } = host({ "cloud.repo.add": [{ state: "done", repo: "acme/demo" }] });
+  const card = await render({ code: "repo.no_access", org: "acme", installUrl: url, retry: again }, request);
+  await click(card, translate("cloudRepository.installOn", { target: "acme" }));
+  expect(opened).toEqual([url]);
+  // GitHub is connected already: nothing to wait on, and nothing runs before the person comes back.
+  expect(calls).toEqual([]);
+  await click(card, translate("cloudRepository.tryAgain"));
+  expect(calls).toEqual([{ method: "cloud.repo.add", params: again.args }]);
+  expect(card.querySelector(".cv-repo-recovery__chip")?.textContent).toBe(
+    translate("cloudRepository.attachedRepo", { repo: "acme/demo" }),
+  );
 });

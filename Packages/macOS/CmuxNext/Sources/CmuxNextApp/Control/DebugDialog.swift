@@ -2,8 +2,11 @@ import CmuxNextCloudUI
 import AppKit
 import CmuxNextAgentPane
 import CmuxNextDesign
+import CmuxNextImportCards
+import CmuxNextMacScreen
 import CmuxNextMobileHost
 import CmuxNextOnboarding
+import CmuxNextServer
 import CmuxNextSessionTransfer
 import CmuxNextCloud
 import CmuxNextSettings
@@ -13,7 +16,8 @@ import CmuxNextSettings
 /// same center path a click takes.
 /// - `{}` lists the open dialogs (id, title, lines, origin, scope, visible,
 ///   buttons, field values, frame in window coordinates).
-/// - `{open: "confirm" | "text" | "credentials" | "save" | "choice" | "sessionMove" | "sessionMoveEnd" | "cloudCreateBefore" | "cloudWorkspaceEmpty" | "cloudWorkspaceRepository" | "cloudWorkspaceTeam" | "cloudWorkspaceSized" | "cloudWorkspaceCompact" | "cloudWorkspaceActions" | "cloudCredentials" | "cloudSetupGitHub" (app: ready | not_connected | not_configured | unknown | device),
+/// - `{open: "classicImport" | "classicImportManual" | "classicImportCautions" | "classicImportBefore" | "classicImportCountTitle" | "classicImportList"}` (`CmuxDialogSpec.classicImportGallery`).
+/// - `{open: "confirm" | "text" | "credentials" | "save" | "choice" | "sessionMove" | "sessionMoveEnd" | "cloudCreateBefore" | "cloudWorkspaceEmpty" | "cloudWorkspaceRepository" | "cloudWorkspaceSized" | "cloudWorkspaceCompact" | "cloudWorkspaceActions" | "cloudSetupGitHub" (app: ready | not_connected | not_configured | unknown | device),
 ///   scope: "window" | "app", origin?}`
 ///   shows a fixture (screenshots, latency) and returns its id.
 /// - `{id?, set: {field: string | bool}}`, `{id?, key: "return" | "escape" | "tab" | "shift-tab" | "cmd-<c>"}`,
@@ -21,17 +25,19 @@ import CmuxNextSettings
 ///   (default: the newest visible one).
 @MainActor
 enum DebugDialog {
-    /// Dialogs only the user answers: a clipboard read (CLIPBOARD-READ-BROKER), the Enable
-    /// harness sheet (a folder's program would run with the user's rights), the Cloud machine create confirmation (a spend
-    /// the person approves, cx-t2rz), a browser pairing (it admits a client to the whole daemon, cx-hnmbt.2), an iPhone pairing,
-    /// an ssh:// link from another app (it connects to a host a web page chose), and a cmux://session
-    /// link's new tab (any page or app can open the link), and a guest link an agent or script asked for
-    /// (it exposes the chat's transcript, #30263).
-    static let userOnly: Set<String> = [ClipboardReadStrings.identifier, AgentShareConsentSheet.identifier, AgentPaneView.harnessEnableIdentifier, CloudPresenter.createConfirmIdentifier, CloudPresenter.environmentConfirmIdentifier, CloudPresenter.credentialRecoveryIdentifier, CloudPresenter.firstLoginIdentifier, CloudLoginCopyConsent.identifier, CloudChangeRequest.identifier, CloudCodexSignInConsent.identifier, CloudPresenter.codexDeviceCodeIdentifier,
-                                        CloudWorkspaceSetupWizard.credentialDialogIdentifier, DaemonPairingStrings.identifier, IPhoneHostService.pairDialogIdentifier, IPhoneHostService.phoneAccessDialogIdentifier, ExternalLinkGate.sshDialogIdentifier,
-                                        SessionLinkGate.dialogIdentifier]
+    /// Dialogs only the user answers: a clipboard read (CLIPBOARD-READ-BROKER), the Enable harness sheet (a folder's program would
+    /// run with the user's rights), the Cloud machine create confirmation (a spend the person approves, cx-t2rz), a browser pairing
+    /// (it admits a client to the whole daemon, cx-hnmbt.2), an iPhone pairing, an ssh:// link from another app (it connects to a host
+    /// a web page chose), a cmux://session link's new tab (any page or app can open the link), a guest link an agent or script asked
+    /// for (it exposes the chat's transcript, #30263), and cmux Remote's `remote.confirm` (its Allow may sign a share approval).
+    static let userOnly: Set<String> = Set([ClipboardReadStrings.identifier, AgentShareConsentSheet.identifier, AgentPaneView.harnessEnableIdentifier, CloudPresenter.createConfirmIdentifier, CloudPresenter.environmentConfirmIdentifier, CloudChangeRequest.identifier,
+                                            DaemonPairingStrings.identifier, IPhoneHostService.pairDialogIdentifier, ExternalLinkGate.sshDialogIdentifier,
+                                            SessionLinkGate.dialogIdentifier, CmuxRemoteActionEnvironment.confirmIdentifier]).union(CmuxRemoteActionEnvironment.setupIdentifiers)
 
     static func run(_ params: [String: JSONValue], _ services: AppServices) -> JSONValue {
+        #if DEBUG  // `{serverCard: "addServer" | "pairInvite" | "addMachine", state}`: the native server cards from fixtures.
+        if let card = params["serverCard"]?.stringValue { return ["shown": .bool(ServerCardsDebug.show(card: card, state: params["state"]?.stringValue ?? "", over: NSApp.mainWindow) { PairingQRCode().pngData(for: $0) })] }
+        #endif
         let center = CmuxDialogCenter.shared
         var result: [String: JSONValue] = [:]
         if let fixture = params["open"]?.stringValue {
@@ -149,21 +155,8 @@ enum DebugDialog {
         return .object(object)
     }
 
-    /// Debug-only fixtures (English only: they never ship).
-    private static func codexRecoveryFixture(body: String) -> CmuxDialogSpec {
-        CmuxDialogSpec(title: "Set up Codex on paint?",
-            lines: [body, "This replaces Codex's login on this VM and restarts this chat before retrying its failed prompt."],
-            buttons: [.cancel("Cancel"), CmuxDialogButton(id: "transfer", title: "Transfer and restart", role: .default)],
-            identifier: CloudPresenter.credentialRecoveryIdentifier)
-    }
-
     private static func fixtures(origin: String?) -> [String: CmuxDialogSpec] {
         [
-            // Inert native auth fixtures: no account, VM, browser, or credentials are accessed.
-            "cloudCodexDevice": AgentPaneCloudAsker.spec(CloudPresenter.codexDeviceAsk(CloudCodexLoginPrompt(
-                verificationURL: URL(string: "https://example.com/device") ?? URL(fileURLWithPath: "/"), userCode: "DEMO-CODE"))),
-            "cloudCodexRecovery": codexRecoveryFixture(body: CloudPresenter.codexBrokerDisclosure),
-            "cloudCodexRecoveryBefore": codexRecoveryFixture(body: "cmux will start a fresh Codex device login in a visible local terminal for this VM. Codex refresh credentials are never copied between VMs; Codex requires a separate sign-in for each VM."),
             "confirm": CmuxDialogSpec(title: "Close Workspace “api”?", lines: ["vim and npm are still running."],
                                       buttons: [.cancel(), CmuxDialogButton(id: "close", title: "Close", role: .destructive)],
                                       identifier: "cmux.dialog.fixture.confirm"),
@@ -181,6 +174,12 @@ enum DebugDialog {
                                    buttons: [CmuxDialogButton(id: "dont-save", title: "Don't Save", role: .destructive, key: "d"),
                                              .cancel(), CmuxDialogButton(id: "save", title: "Save", role: .default)],
                                    identifier: "cmux.dialog.fixture.save"),
+            // A long message (an import preview) scrolls in a bounded box, so the buttons stay on screen.
+            "long": CmuxDialogSpec(title: "Import 24 Workspaces?",
+                                   lines: ["These workspaces come from the file you picked:"]
+                                       + (1...24).map { "• project-\($0) in ~/code/project-\($0)" },
+                                   buttons: [.cancel(), CmuxDialogButton(id: "import", title: "Import", role: .default)],
+                                   identifier: "cmux.dialog.fixture.long"),
             "choice": CmuxDialogSpec(title: "Choose a Region", fields: [
                 .choice(id: "region", label: nil, options: [CmuxDialogOption(label: "US West", value: "us-west"),
                                                             CmuxDialogOption(label: "EU Central", value: "eu-central")],
@@ -191,7 +190,6 @@ enum DebugDialog {
             // Gallery variants keep the setup surface reviewable without provisioning a VM.
             "cloudWorkspaceEmpty": CloudWorkspaceSetupWizard.setupDialogSpec(source: .empty),
             "cloudWorkspaceRepository": CloudWorkspaceSetupWizard.setupDialogSpec(source: .repository, repository: "octo/paint"),
-            "cloudWorkspaceTeam": CloudWorkspaceSetupWizard.setupDialogSpec(availability: .teamMachine, source: .empty),
             // The plan's sizes; only the 8 GB size has a listed machine, so only it shows a rate.
             "cloudWorkspaceSized": CloudWorkspaceSetupWizard.setupDialogSpec(source: .empty, sizes: [
                 .init(memoryMb: 4096, vcpus: 2), .init(memoryMb: 8192, vcpus: 4, hourlyRateUsd: 0.26), .init(memoryMb: 16384, vcpus: 8),
@@ -222,11 +220,10 @@ enum DebugDialog {
                     CmuxDialogButton(id: "repository", title: "From repository", role: .normal),
                 ],
                 identifier: "cmux.dialog.cloud.workspaceActions"),
-            "cloudCredentials": CloudWorkspaceSetupWizard.credentialDialogSpec(machine: "paint", account: "Personal account"),
             // Move Sessions from Another cmux Build (session.moveFromBuild), with no other build running.
             "sessionMove": SessionMoveSelection(peers: [moveFixturePeer]).dialog,
             "sessionMoveEnd": SessionMoveSelection.endTerminalsDialog(for: ["~/code/app"]),
-        ]
+        ].merging(CmuxDialogSpec.classicImportGallery) { first, _ in first }
     }
 
     /// A build with a chat, an agent, an idle terminal, a busy one and one that did not say.

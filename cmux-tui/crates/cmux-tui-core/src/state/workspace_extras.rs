@@ -50,7 +50,8 @@ const NAME: &str = "SELECT entry.value, w.name_source, w.name_revision
 
 /// `workspace-created-by-v1`: no row for a workspace made before it. The creator's public id is
 /// NULL when the row names no creator or when that workspace does not live.
-const CREATED_BY: &str = "SELECT entry.value, c.kind, c.session, creator.public_id
+const CREATED_BY: &str = "SELECT entry.value, c.kind, c.session, creator.public_id,
+       c.session_name, c.host, c.purpose
      FROM json_each(?1) AS entry
      CROSS JOIN resource_workspaces AS rw ON rw.public_id = entry.value
      CROSS JOIN workspace_created_by AS c ON c.workspace_key = rw.workspace_key
@@ -85,7 +86,7 @@ fn read(
     extras: &mut Extras,
     mut add: impl FnMut(&Row<'_>, &mut Map<String, Value>) -> anyhow::Result<()>,
 ) -> anyhow::Result<()> {
-    let mut statement = connection.prepare(sql)?;
+    let mut statement = connection.prepare_cached(sql)?;
     let mut rows = statement.query([ids])?;
     while let Some(row) = rows.next()? {
         let id = row.get::<_, String>(0)?;
@@ -146,6 +147,11 @@ pub(crate) fn workspace_extras(connection: &Connection, ids: &[&str]) -> anyhow:
             row.get::<_, String>(1)?,
             row.get::<_, Option<String>>(3)?,
             row.get::<_, Option<String>>(2)?,
+            super::created_by::Detail {
+                session_name: row.get(4)?,
+                host: row.get(5)?,
+                purpose: row.get(6)?,
+            },
         );
         fields.insert("created_by".into(), created_by);
         Ok(())

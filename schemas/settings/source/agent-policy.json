@@ -22,20 +22,21 @@
     {
       "agent": "settable",
       "keys": [
+        "agentPane.links.openCitationsInEditor",
         "window.titlebar"
-      ]
-    },
-    {
-      "agent": "settable",
-      "why": "Whether a chat shows the live view of the app its agent uses: looks only.",
-      "keys": [
-        "computerUse.livePreview"
       ]
     },
     {
       "agent": "settable",
       "keys": [
         "shortcuts.showModifierHoldHints"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "Whether the window offers the Customize Inspector and right-click Customize…: looks only, and off is the default.",
+      "keys": [
+        "customize.fromTheApp"
       ]
     },
     {
@@ -62,6 +63,8 @@
         "sidebar.textSize",
         "sidebar.detailedStatusIcons",
         "sidebar.showTimestamps",
+        "sidebar.settleFinished",
+        "sidebar.showAutomaticSessions",
         "sidebar.showColors",
         "sidebar.showLocalMachine",
         "workspaceColors.indicatorStyle"
@@ -88,6 +91,7 @@
         "sidebar.stepping",
         "sidebar.steppingWraps",
         "sidebar.side",
+        "sidebar.look",
         "sidebar.style",
         "sidebar.spacesPosition",
         "sidebar.spacesVisibility",
@@ -98,7 +102,8 @@
       "agent": "settable",
       "why": "Which New Tab page draws; a look switch, ends no work.",
       "keys": [
-        "tabs.nativeNewTabPage"
+        "tabs.nativeNewTabPage",
+        "tabs.newTabApp"
       ]
     },
     {
@@ -136,8 +141,23 @@
     },
     {
       "agent": "settable",
+      "why": "Cmd-Q's warning against an accidental quit; a quit keeps every session either way.",
       "keys": [
-        "tabs.overflow"
+        "app.warnBeforeQuitShortcut"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "The language cmux's own text is in; ends no work.",
+      "keys": [
+        "app.language"
+      ]
+    },
+    {
+      "agent": "settable",
+      "keys": [
+        "tabs.overflow",
+        "tabs.shellIconTheme"
       ]
     },
     {
@@ -196,7 +216,8 @@
         "layout.minimumPaneHeight",
         "appearance.theme",
         "appearance.appTheme",
-        "appearance.accent"
+        "appearance.accent",
+        "appearance.selection"
       ]
     },
     {
@@ -223,7 +244,8 @@
       "agent": "settable",
       "why": "The theme file whose look applies (looks only)",
       "keys": [
-        "appearance.themeFile"
+        "appearance.themeFile",
+        "appearance.themeFileExceptions"
       ]
     },
     {
@@ -250,7 +272,15 @@
         "appearance.inactiveWindowDim",
         "appearance.wallpaperTint",
         "appearance.background",
-        "appearance.backgroundRotation"
+        "appearance.backgroundRotation",
+        "appearance.backgroundLight",
+        "appearance.backgroundDark",
+        "appearance.backgroundSchedule",
+        "appearance.backgroundDynamic",
+        "appearance.backgroundLocation",
+        "appearance.backgroundMemory",
+        "appearance.backgroundPlacement",
+        "appearance.backgroundRecents"
       ]
     },
     {
@@ -266,6 +296,7 @@
       "keys": [
         "appearance.paneBackgrounds",
         "ui.reducedBackgrounds",
+        "appearance.agentGlow",
         "appearance.experimentalControls",
         "app.uiScale",
         "appearance.glassTransparency",
@@ -275,10 +306,17 @@
         "appearance.customDensity",
         "appearance.customDensities",
         "appearance.metrics.chromeFontSize",
+        "appearance.fontSmoothing",
         "appearance.interfaceScale",
         "appearance.borders",
+        "appearance.liquidGlass",
+        "appearance.previousGlass",
         "appearance.sidebarSurface",
         "appearance.chromeStyle",
+        "appearance.titleAreaTone",
+        "appearance.titleAreaContrast",
+        "appearance.twoTone",
+        "appearance.cornerFlush",
         "appearance.focusIndicator",
         "focus.inactiveTabStyle",
         "ui.animationSpeed",
@@ -366,17 +404,6 @@
         "sidebar.nowPlaying.enabled",
         "tabs.newTabNowPlaying",
         "media.pictureInPicture.enabled",
-        "tabs.newTabWidgets.greeting",
-        "tabs.newTabWidgets.projects",
-        "tabs.newTabWidgets.actions",
-        "tabs.newTabWidgets.chats",
-        "tabs.newTabWidgets.styleDots",
-        "tabs.newTabWidgets.order",
-        "tabs.newTabWidgets.machines",
-        "tabs.newTabWidgets.clock",
-        "tabs.newTabWidgets.timer",
-        "tabs.newTabWidgets.warmGreeting",
-        "tabs.newTabWidgets.quote",
         "sidebar.showProjects",
         "sidebar.showSpaces",
         "sidebar.showProfileControl",
@@ -386,13 +413,15 @@
         "sidebar.chromeGroups",
         "sidebar.sideBySide",
         "sidebar.groupBy",
+        "sidebar.nav",
         "sidebar.priorityView.enabled",
         "sidebar.priorityView.shown",
         "browser.defaultEngine",
         "browser.siteEngines",
         "browser.newTabPage",
         "browser.showBookmarksBar",
-        "browser.vimKeys"
+        "browser.vimKeys",
+        "browser.showLoadingBar"
       ]
     },
     {
@@ -417,6 +446,9 @@
         "notifications.sources.agent.dismissal",
         "notifications.sources.terminal.dismissal",
         "notifications.sources.cli.dismissal",
+        "notifications.delivery.permissionRequest",
+        "notifications.delivery.question",
+        "notifications.delivery.taskComplete",
         "notifications.desktop",
         "notifications.sound",
         "notifications.quietHours",
@@ -437,6 +469,7 @@
         "notifications.attention.flashOnTyping",
         "notifications.attention.showOnTab",
         "notifications.attention.showOnSidebar",
+        "notifications.attention.mark",
         "notifications.attention.moveToTop",
         "notifications.attention.moveToTopOnAgentFinish"
       ]
@@ -452,6 +485,31 @@
       "agent": "settable",
       "keys": [
         "labs.previewFeatures"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "The live-tree preview changes how the person's shared editing workflow is presented; only the person turns it on.",
+      "keys": [
+        "labs.liveTree"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "Experiments are taste prototypes of how a surface looks (looks only), each off by default.",
+      "keys": [
+        "experiments.glassToolbarGroups",
+        "experiments.composerV2",
+        "experiments.agentBadges",
+        "experiments.agentBadgesBeam",
+        "experiments.toastsV2"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "Extension chat widgets draw installed extensions' cards in agent chat; only the person turns them on.",
+      "keys": [
+        "experiments.chatWidgets"
       ]
     },
     {
@@ -471,18 +529,12 @@
     },
     {
       "agent": "settable",
-      "why": "Where the docked Chief sits, how the floating one looks and where its links open (layout choices, like pane placement).",
+      "why": "Whether the Chief stays docked as a side panel, where the docked Chief sits, how the floating one looks and where its links open (layout choices, like pane placement).",
       "keys": [
+        "home.chiefDock.sidePanel",
         "home.chiefDock.edge",
         "home.chiefPanel.style",
         "home.chiefDock.openBeside"
-      ]
-    },
-    {
-      "agent": "userOnly",
-      "why": "On, opening the floating Chief gives it a look at the person's screen; only the person turns it on.",
-      "keys": [
-        "home.chiefPanel.seesScreen"
       ]
     },
     {
@@ -496,7 +548,16 @@
       "agent": "settable",
       "why": "Start New Chats In (This Mac or Cloud): the person asks an agent to set it (Leo, 2026-10-31); a new chat's composer can still change it for that chat.",
       "keys": [
-        "agentPane.newChatsIn"
+        "agentPane.newChatsIn",
+        "agentPane.sessionWorktrees"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "The composer's look and where an empty chat's composer sits: layout choices a profile or the person's agent may set, like the chat's other looks.",
+      "keys": [
+        "agentPane.composerLook",
+        "agentPane.emptyChatComposerPosition"
       ]
     },
     {
@@ -734,6 +795,7 @@
         "agentPane.display.fullWidth",
         "agentPane.display.vscodeMinimap",
         "agentPane.display.pinnedPlan",
+        "agentPane.display.finishSound",
         "agentPane.display.trayTucked",
         "agentPane.display.trayHandle",
         "agentPane.display.unreadBanner",
@@ -742,6 +804,9 @@
         "agentPane.display.senderIcon.corner",
         "agentPane.display.font.preset",
         "agentPane.display.font.ui",
+        "agentPane.display.font.uiFamily",
+        "agentPane.display.font.proseFamily",
+        "agentPane.display.font.faces",
         "agentPane.display.font.size",
         "agentPane.display.font.lineHeight",
         "agentPane.display.code.family",
@@ -751,11 +816,19 @@
         "agentPane.display.minimap",
         "agentPane.display.transcriptView",
         "agentPane.display.presentation",
+        "agentPane.display.transcriptLook",
+        "agentPane.display.transcriptTokens",
         "agentPane.display.promptCoach",
         "agentPane.display.statusVerbs.mode",
         "agentPane.display.statusVerbs.custom",
+        "agentPane.display.thinking.shimmer",
+        "agentPane.display.thinking.shimmerPeriod",
+        "agentPane.display.thinking.shimmerBand",
+        "agentPane.display.thinking.jumpButton",
         "agentPane.display.harnessPlacement",
         "agentPane.display.rail.side",
+        "agentPane.display.rail.show",
+        "agentPane.display.rail.control",
         "agentPane.display.commandLabels"
       ]
     },
@@ -884,6 +957,7 @@
         "appearance.metrics.dividerThickness",
         "appearance.metrics.dividerHitWidth",
         "appearance.metrics.titlebarHeight",
+        "appearance.metrics.sidebarRowHeight",
         "browser.toolbar.back",
         "browser.toolbar.forward",
         "browser.toolbar.reload",
@@ -940,14 +1014,6 @@
     },
     {
       "agent": "privacy",
-      "why": "The person's consent to copy their own Claude login to their own Cloud machines: only theirs to give.",
-      "keys": [
-        "cloud.useMyClaudeLoginOnMyCloudMachines",
-        "cloud.useMyCodexLoginOnMyCloudMachines"
-      ]
-    },
-    {
-      "agent": "privacy",
       "keys": [
         "agents.chats.roots",
         "agents.chats.discovery"
@@ -974,10 +1040,25 @@
     },
     {
       "agent": "settable",
-      "why": "Whether old chats' logs are compressed on disk, and after how long: lossless (opening a chat brings its log back), a local disk policy as agents.hiddenChats.discard is for memory.",
+      "why": "Whether old chats' logs are compressed on disk, and after how long: lossless (opening a chat brings its log back), a local disk policy.",
       "keys": [
         "agents.chats.coldArchive",
         "agents.chats.coldArchiveAfterDays"
+      ]
+    },
+    {
+      "agent": "destructive",
+      "why": "Machine cleanup removes worktrees and build caches from this Mac's disk: only the person turns it on or off.",
+      "keys": [
+        "worktrees.autoCleanup",
+        "worktrees.cleanBuildCaches"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "Whether inactive chats are archived on their own, and after how long: reversible (Unarchive brings a chat back), it only moves chats off the lists.",
+      "keys": [
+        "agents.chats.archiveInactive"
       ]
     },
     {
@@ -1010,14 +1091,6 @@
         "workspaces.freeing.idleMinutes",
         "workspaces.freeing.agents",
         "workspaces.freeing.runningCommands"
-      ]
-    },
-    {
-      "agent": "settable",
-      "why": "Whether hidden agent chats give back their memory: a lossless local memory policy, as browser.hibernation.",
-      "keys": [
-        "agents.hiddenChats.discard",
-        "agents.hiddenChats.discardAfterMinutes"
       ]
     },
     {
@@ -1074,14 +1147,6 @@
         "feed.github.enabled",
         "feed.github.pollIntervalSeconds",
         "browser.remoteLocalhost"
-      ]
-    },
-    {
-      "agent": "network",
-      "why": "The weather widget asks Open-Meteo (and names a city) only once the person turns it on.",
-      "keys": [
-        "tabs.newTabWidgets.weather",
-        "tabs.newTabWidgets.weatherCity"
       ]
     },
     {
@@ -1277,9 +1342,23 @@
     },
     {
       "agent": "userOnly",
+      "why": "Whether new nonpersistent Cloud agent machines opt into the Mac pause/resume experiment: the person decides this lifecycle change.",
+      "keys": [
+        "labs.pauseAgentMachines"
+      ]
+    },
+    {
+      "agent": "userOnly",
       "why": "On, a live code build loads Swift patches into the running app: only the person turns that on.",
       "keys": [
         "labs.liveCode"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "On, Settings shows and edits Claude Code's and Codex's own settings, MCP servers, skills, commands and hooks in their own config files: only the person turns that on.",
+      "keys": [
+        "labs.agentCustomization"
       ]
     },
     {
@@ -1345,6 +1424,14 @@
       ]
     },
     {
+      "agent": "userOnly",
+      "why": "On, cmux restarts into a downloaded update by itself once idle: the person's call.",
+      "keys": [
+        "updates.installWhenIdle",
+        "updates.installWhenIdleMinutes"
+      ]
+    },
+    {
       "agent": "network",
       "keys": [
         "announcements.fetch"
@@ -1358,10 +1445,24 @@
       ]
     },
     {
+      "agent": "privacy",
+      "why": "Whether this computer counts how the person uses cmux: the person's choice only.",
+      "keys": [
+        "diagnostics.usagePatterns"
+      ]
+    },
+    {
       "agent": "userOnly",
       "why": "What a new chat may do without asking: an agent must not widen its own approvals.",
       "keys": [
         "agents.defaultPermissionMode"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "Whether cmux adds its tools to the person's own coding agents (their config files and each terminal launch): the onboarding step asks the person, and only the person answers; an agent must not grant itself or other agents cmux's tools.",
+      "keys": [
+        "agents.cmuxMcp"
       ]
     },
     {
@@ -1373,10 +1474,18 @@
     },
     {
       "agent": "userOnly",
-      "why": "On, cmux starts a helper that sees and controls other apps; only the person turns it on.",
+      "why": "Computer Use: what agents may do with the person's apps. An agent must never widen (or even change) its own access, so every computerUse.* key is the person's alone.",
       "keys": [
-        "computerUse.enabled",
-        "computerUse.driver"
+        "computerUse.mode",
+        "computerUse.deniedApps",
+        "computerUse.allowOwnMachines",
+        "computerUse.pauseOnTakeover",
+        "computerUse.allowForeground",
+        "computerUse.showCursor",
+        "computerUse.cursorTag",
+        "computerUse.settle",
+        "computerUse.livePreview",
+        "computerUse.menus"
       ]
     },
     {
@@ -1466,6 +1575,13 @@
       ]
     },
     {
+      "agent": "network",
+      "why": "Whether new chats get the person's saved MCP servers opens their connected services (Linear, Slack and others) to agents: the person's call.",
+      "keys": [
+        "agents.mcpServers.enabled"
+      ]
+    },
+    {
       "agent": "userOnly",
       "why": "Compacting on a timer spends the person's usage (one model call each): their call.",
       "keys": [
@@ -1487,14 +1603,6 @@
       "why": "Which hosts an ssh:// link from another app connects to without asking: only the person trusts a host, so a page or an agent cannot add one and skip the confirmation.",
       "keys": [
         "ssh.linkAllowedHosts"
-      ]
-    },
-    {
-      "agent": "network",
-      "why": "What reaches this Mac from outside and what leaves it: only the person opens phone access.",
-      "keys": [
-        "phone.allowConnections",
-        "phone.startSessions"
       ]
     },
     {
@@ -1535,6 +1643,20 @@
     },
     {
       "agent": "userOnly",
+      "why": "It decides whether an agent may start viewing the person's own screens without their click; an agent never loosens it.",
+      "keys": [
+        "macScreen.onlyPersonStartsViewing"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "It is the person's standing yes to Share This Mac; an agent that could set it would approve its own share request. cmux Remote: the person's call.",
+      "keys": [
+        "macScreen.shareWithoutAsking"
+      ]
+    },
+    {
+      "agent": "userOnly",
       "why": "cmux Remote: the person's call.",
       "keys": [
         "remote.endSharingOnQuit"
@@ -1542,9 +1664,16 @@
     },
     {
       "agent": "userOnly",
-      "why": "Spends about 2 to 3 times the data on every remote connection; only the person turns it on.",
+      "why": "Always spends about 2 to 3 times the data on every remote connection, and Off gives up loss protection; only the person picks it.",
       "keys": [
-        "remote.ultraMode"
+        "remote.ultra"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "Ultra spends up to 150 Mbps on every Screen Sharing session this Mac views; only the person picks it.",
+      "keys": [
+        "remote.screenSharingProfile"
       ]
     },
     {
@@ -1641,7 +1770,15 @@
       "agent": "privacy",
       "why": "The person decides whether cmux reads verification emails.",
       "keys": [
-        "browser.verificationAutofill.enabled"
+        "browser.verificationAutofill.enabled",
+        "browser.verificationAutofill.accounts"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "Which of the person's own connections a thread may move to when one runs out: it adds no connection and spends nothing past a connection's own limit.",
+      "keys": [
+        "models.spreadUsage"
       ]
     }
   ]

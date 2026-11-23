@@ -37,8 +37,12 @@ public nonisolated struct ChromiumHostConfiguration: Sendable, Equatable {
                           environment: [String: String]) -> [String] {
         // The host refuses a fork without layer hosting, so the switch set is the one for
         // the resize-sync fork API (no AsyncLiveResize).
-        let switches = CEFSwitches.current(forkAPIVersion: CEFSwitches.resizeSyncForkAPI,
-                                           bundleIdentifier: bundleIdentifier, environment: environment).arguments
+        var switchSet = CEFSwitches.current(forkAPIVersion: CEFSwitches.resizeSyncForkAPI,
+                                            bundleIdentifier: bundleIdentifier, environment: environment)
+        // The host is its own app with its own data and sets no keychain item of its own: on the real keychain its
+        // Chromium would read the shared "Chromium Safe Storage" item and macOS would ask (CEFKeychainItem).
+        switchSet.useMockKeychain = true
+        let switches = switchSet.arguments
             // The host runs Chromium's own message loop: there is no external pump pass to slice.
             .filter { !$0.hasPrefix("cmux-pump-time-slice-us=") }
             // Chromium's code-sign clone copies the main bundle (here the small host app)

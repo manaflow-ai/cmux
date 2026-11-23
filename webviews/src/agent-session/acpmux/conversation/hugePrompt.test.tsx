@@ -4,6 +4,7 @@
 // one literal text node (no Markdown, no link scan, no <wbr> per separator), collapsed it draws only
 // its head, and the row estimate is its collapsed lines without lexing or measuring the text.
 import { expect, test } from "bun:test";
+import { settleReact } from "../../../../test/support/domTeardown";
 import { renderToStaticMarkup } from "react-dom/server";
 import { PromptText, PromptTyped } from "./PromptText";
 import { InlinePromptContent } from "./InlinePromptContent";
@@ -162,6 +163,7 @@ test("a huge prompt whose drawn head measures short stays collapsed, never flipp
     expect(renders).toBeLessThan(10);
   } finally {
     act(() => root.unmount());
+    await settleReact();
     for (const [key, value] of saved) {
       if (value === undefined) delete scope[key];
       else scope[key] = value;

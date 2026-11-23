@@ -44,11 +44,15 @@ public struct WorkspaceSpawn: Sendable {
     /// workspace while it is still empty and releases its window's claim.
     public var onFirstTerminal: (@Sendable (DaemonConnection, CreateTerminalResult) async throws -> Void)?
     /// The workspace's only tab is this browser tab, made by the create itself on a daemon that serves
-    /// `workspace-first-tab-v1` (one request, no terminal at any point); ``onFirstBrowser`` then works on
+    /// `workspace-first-tab-v1` (one request, no terminal at any point); ``onBrowserTab`` then works on
     /// the tab. An older daemon gets the terminal and ``onFirstTerminal``.
     public var firstBrowser: WorkspaceFirstBrowserTab?
-    /// Work on the tab ``firstBrowser`` made, after the create; a failure is the create's.
-    public var onFirstBrowser: (@Sendable (DaemonConnection, NewFrontendBrowserTabRequest.Response) async throws -> Void)?
+    /// The browser tabs after ``firstBrowser``, in order, each sent to the new workspace itself (no terminal hosts them).
+    public var moreBrowsers: [WorkspaceFirstBrowserTab] = []
+    /// Whether the tabs of ``moreBrowsers`` stay in the background (`activate: false`); nil: the daemon has no such field.
+    public var moreBrowsersActivate: Bool?
+    /// Work on each browser tab the create made (its index: 0 is ``firstBrowser``); a failure is the create's.
+    public var onBrowserTab: (@Sendable (DaemonConnection, Int, NewFrontendBrowserTabRequest.Response) async throws -> Void)?
 
     public init(cwd: String? = nil, name: String? = nil, command: String? = nil, env: [String: String] = [:], keep: Bool = false,
                 profile: ProfileID? = nil, newTabPage: Bool = false, key: WorkspaceKey? = nil) {

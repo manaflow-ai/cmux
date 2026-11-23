@@ -10,9 +10,50 @@ import Testing
 /// group, the group's own header view stays at the top of the visible rows on the gallery's `veil` until the group's last
 /// row pushes it up. At rest it draws as before. Clicking it collapses the group with the header left where it is, at
 /// its own place at the top. The scroll costs the same through a group of 3,000 as through one of 30 (`SIDEBAR-STICKY`).
+/// The sidebar has it off (Leo, 2026-11-12: "it doesn't look congruent with the regular look. so we can prob just have it
+/// back?"): a header scrolls away with its rows. These tests turn it on (`sticky`).
 @MainActor @Suite(.serialized, .timeLimit(.minutes(4)))
 struct SidebarStickyHeaderTests {
     static let group = GroupID("sb-g0")
+
+    /// A bench with sticky headers on.
+    static func sticky(_ bench: SidebarScrollBench) -> SidebarScrollBench {
+        bench.list.sticksHeaders = true
+        return bench
+    }
+
+    @Test func theSidebarsHeadersScrollAwayWithTheirRows() throws {
+        let bench = SidebarScrollBench(count: 300, shape: .oneGroup)
+        defer { bench.close() }
+        #expect(!bench.list.sticksHeaders)
+        // At the top the header is on screen. Just past it, it is above the visible rows and still a realized row. At 400
+        // and 2,000 pt its place is above the rows that the list keeps. Then back at the top.
+        let past = try #require(bench.list.displayed.row(for: .group(Self.group)), "the group's header is listed").maxY + 8
+        var realized = 0, away = 0
+        for (step, y) in [0, past, 400, 2_000, 0].enumerated() {
+            _ = bench.frame(to: y)
+            #expect(bench.list.stuckHeader == nil && bench.list.stuckVeil.isHidden && !bench.sidebar.edgeFade.holdsTopEdge)
+            let row = try #require(bench.list.displayed.row(for: .group(Self.group)), "the group's header is listed")
+            let place = bench.list.frame(for: row)
+            let view = bench.list.rowViews[.group(Self.group)]
+            // A header is a row as the others are: it has a view while its place is in the rows that the list realizes
+            // (`realizationRect`), and none past the prune margin (`pruneOffscreen`). Between the two it can have one.
+            let range = bench.list.realizationRect()
+            if place.intersects(range) {
+                realized += 1
+                #expect(view != nil, "a header in the realized rows has a view (y \(y))")
+            } else if !place.intersects(range.insetBy(dx: 0, dy: -SidebarStyle.pruneMargin)) {
+                away += 1
+                #expect(view == nil, "a header that scrolled away keeps no view (y \(y))")
+            }
+            if let view { #expect(view.frame == place, "at its own place (y \(y))") }
+            if y == 0 { #expect(place.intersects(bench.clip.bounds), "at the top the header is on screen") }
+            // Just past the header: its view went up with its row, out of the visible rows. A stuck header's view would be
+            // at the visible top.
+            if step == 1, let view { #expect(!view.frame.intersects(bench.clip.bounds), "just past the header, its view is above the visible rows") }
+        }
+        #expect(realized == 3 && away == 2, "a view at the top, just past it and back at the top; none at 400 and 2,000: realized \(realized), away \(away)")
+    }
 
     static func top(_ bench: SidebarScrollBench) -> CGFloat { bench.clip.bounds.minY + bench.list.stickyTopInset }
 
@@ -23,7 +64,7 @@ struct SidebarStickyHeaderTests {
     }
 
     @Test func aLongGroupsHeaderStaysAtTheTopWhileItsRowsScrollUnderIt() throws {
-        let bench = SidebarScrollBench(count: 300, shape: .oneGroup)
+        let bench = Self.sticky(SidebarScrollBench(count: 300, shape: .oneGroup))
         defer { bench.close() }
         let sidebar = bench.sidebar
         // At rest: its own place, no veil, the top fade as before.
@@ -63,7 +104,7 @@ struct SidebarStickyHeaderTests {
 
     @Test func theRowAfterTheGroupPushesTheStuckHeaderUp() throws {
         // Groups of eight first (`mixed`): the first group's last member, then the next group's header.
-        let bench = SidebarScrollBench(count: 60, height: 400)
+        let bench = Self.sticky(SidebarScrollBench(count: 60, height: 400))
         defer { bench.close() }
         let rows = bench.list.displayed.rows
         let header = try #require(bench.list.displayed.row(for: .group(Self.group)))
@@ -81,7 +122,7 @@ struct SidebarStickyHeaderTests {
 
     @Test func collapsingTheStuckGroupLeavesItsHeaderAtItsOwnPlaceAtTheTop() throws {
         // Rows below the group, so the collapsed list still scrolls to the header's place.
-        let bench = SidebarScrollBench(count: 600, shape: .openGroupThenLoose(members: 300))
+        let bench = Self.sticky(SidebarScrollBench(count: 600, shape: .openGroupThenLoose(members: 300)))
         defer { bench.close() }
         _ = bench.frame(to: 3_000)
         let before = try Self.header(bench)
@@ -101,7 +142,7 @@ struct SidebarStickyHeaderTests {
     }
 
     @Test func aRowRevealedUnderTheStuckHeaderComesOutBelowIt() throws {
-        let bench = SidebarScrollBench(count: 300, shape: .oneGroup)
+        let bench = Self.sticky(SidebarScrollBench(count: 300, shape: .oneGroup))
         defer { bench.close() }
         _ = bench.frame(to: 2_000)
         let header = try Self.header(bench).row
@@ -117,7 +158,7 @@ struct SidebarStickyHeaderTests {
     }
 
     @Test func underReduceTransparencyTheVeilIsTheOpaqueSidebarToneWithNoBlur() throws {
-        let bench = SidebarScrollBench(count: 300, shape: .oneGroup)
+        let bench = Self.sticky(SidebarScrollBench(count: 300, shape: .oneGroup))
         defer { bench.close() }
         _ = bench.frame(to: 2_000)
         let veil = bench.list.stuckVeil

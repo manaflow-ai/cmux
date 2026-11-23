@@ -6,6 +6,7 @@ import {
   useRouteAuthSwitch,
   readSessionAuth,
 } from "../src/agent-session/acpmux/sessionAuth";
+import { settleReact } from "./support/domTeardown";
 
 test("pre-send recovery distinguishes first login from an expired or failed login", () => {
   for (const [state, source, label] of [
@@ -151,6 +152,7 @@ test("route coordinator holds through RPC and auth, ignoring stale account compl
   await act(async () => controls!.settleRoute("B", false));
   expect(controls!.routeChanging).toBeUndefined();
   await act(async () => root.unmount());
+  await settleReact();
   if (oldWindow === undefined) delete scope.window;
   else scope.window = oldWindow;
   if (oldDocument === undefined) delete scope.document;

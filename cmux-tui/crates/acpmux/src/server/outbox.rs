@@ -22,11 +22,17 @@
 //! stays here and is tried again as before. A post whose answer was lost may have reached the
 //! hub, so that delivery is tried again only through the relay, never on the peer's link too.
 //!
+//! An `ssh://` peer's machine is also reached by a plain ssh login while its link is down
+//! (`ssh_carry.rs`): from the second attempt that finds the link down, the far CLI's own
+//! `send --no-wait` takes the message under the delivery's prompt id. Taken there, the delivery
+//! is delivered, pinned to no link, so a reconnect never sends it again.
+//!
 //! `send_status {deliveryId, waitMs?}` answers the delivery's state, after waiting up to
 //! `waitMs` (at most [`MAX_STATUS_WAIT_MS`]) for it to settle. A target no one here resolves goes
 //! to the mesh hub when the relay is on, and its status is the hub's receipt (`mesh_send.rs`).
 
 use crate::no_panic::JsonExt;
+use std::collections::HashMap;
 use std::time::Duration;
 
 use super::*;
@@ -48,10 +54,42 @@ pub(super) enum Next {
     /// The target's machine answered that it has no such session: failed at once, never tried
     /// again (a name that is no session's stays so; `hub/no_session.rs`).
     NoSession,
+    /// The session the attempt named (`sessionCreatedAt`) is not the one under that id now (it
+    /// was purged and made again): a first delivery reads the session again and tries again; a
+    /// delivery again of a prompt that session took fails (`hub/open_delivery.rs`).
+    Stale,
+    /// The chat moved to another daemon (`transfer.moved`, its `movedTo`): nothing ran here, and
+    /// the delivery follows it to this `HOST/SESSION` at once (`follow_move`).
+    Moved(String),
+    /// The chat moved to a sibling daemon on this machine (`session transfer --to SOCKET`:
+    /// `movedTo {socket, sessionId}`, no host), which no `HOST/SESSION` reaches: the delivery is
+    /// handed to that daemon's own outbox (`hand_to_socket`).
+    MovedToSocket { socket: String, session: String },
+    /// The chat is being moved right now (`transfer.moving`): tried again after
+    /// [`MOVING_RETRY`], without spending a retry delay, until the move commits (then
+    /// [`Next::Moved`]) or aborts (then it runs here).
+    Moving,
 }
+
+/// How long a delivery to a chat in the middle of a move waits before it tries again. A move
+/// freezes the chat only while its bundle is copied, so a short fixed wait keeps the message
+/// right behind the chat instead of minutes behind it on the back-off.
+const MOVING_RETRY: Duration = Duration::from_millis(250);
+
+/// How long a delivery tries a chat mid-move every [`MOVING_RETRY`]. A move that takes longer
+/// (a large bundle on a slow link, a stuck client its watch has not ended yet) is tried on the
+/// usual back-off from then on.
+const MOVING_FAST_FOR: Duration = Duration::from_secs(120);
+
+/// How many moves one delivery follows in a row before it fails: a chat moving in a loop
+/// (`movedTo` chains that point back) must not keep a message bouncing for its whole day.
+const MAX_MOVES_FOLLOWED: u32 = 16;
 
 /// How long one attempt waits for the target's acceptance.
 const ATTEMPT_WAIT: Duration = Duration::from_secs(120);
+/// How often a delivery held behind another (`Delivery::waits_behind`) looks again when no
+/// outbox change woke it.
+const AFTER_RECHECK: Duration = Duration::from_secs(5);
 /// The longest a `send_status` waits for a delivery to settle.
 const MAX_STATUS_WAIT_MS: u64 = 10_000;
 
@@ -82,7 +120,7 @@ pub(super) async fn handle(
     // validation before posting them.
     if target.starts_with('@') {
         if let Some(mesh) = hub.mesh.get() {
-            return super::mesh_send::send(hub, conn, mesh, &request, &target).await;
+            return super::mesh_send::send(hub, conn, &mesh, &request, &target).await;
         }
         return Err(RpcError::invalid_params("team messaging requires a configured mesh relay")
             .with_data(json!({"reason": "team_messaging_unavailable", "address": target})));
@@ -100,7 +138,7 @@ pub(super) async fn handle(
         if let Some(mesh) = hub.mesh.get()
             && hub.mesh_may_route(&target)
         {
-            return super::mesh_send::send(hub, conn, mesh, &request, &target).await;
+            return super::mesh_send::send(hub, conn, &mesh, &request, &target).await;
         }
         // The machine is reachable and has no such session: refused now, never queued, with the
         // closest names there so the sender can pick one (`hub/no_session.rs`).
@@ -141,6 +179,9 @@ pub(super) async fn handle(
         attempts: 0,
         never_sent: true,
         relay_post: None,
+        open_on_peer: false,
+        pin: None,
+        proof: None,
         error: None,
         accepted: None,
         created_at: now,
@@ -179,6 +220,23 @@ pub(super) async fn handle(
     // The same prompt id again: the first delivery, already on its way.
     if delivery.id == new.id {
         spawn(hub.clone(), delivery.id.clone());
+    } else if handed_away(&delivery) {
+        // A sibling daemon hands back a message this one handed it (`hand_to_socket`): its chat
+        // moved back here before the sibling delivered it. Nothing ran it on either side (each
+        // refused it as moved), so it opens again and is delivered here, where the chat is now.
+        // Before, the hand-back read the first delivery's `delivered` and the message was lost.
+        if let Some(path) = kept {
+            forget_attachments(path).await;
+        }
+        hub.outbox.update_saved(&delivery.id, |d| {
+            d.state = State::Queued;
+            d.accepted = None;
+            d.pin = None;
+            d.error = Some("handed back here: its chat moved back".into());
+        });
+        spawn(hub.clone(), delivery.id.clone());
+        let delivery = hub.outbox.get(&delivery.id).unwrap_or(delivery);
+        return Ok(delivery.status());
     } else {
         if let Some(path) = kept {
             forget_attachments(path).await;
@@ -249,6 +307,9 @@ pub(super) async fn remember_forward(
         attempts: 0,
         never_sent: false,
         relay_post: None,
+        open_on_peer: false,
+        pin: None,
+        proof: None,
         error: None,
         accepted: None,
         created_at: now,
@@ -454,9 +515,9 @@ async fn status(hub: &Arc<Hub>, conn: &Arc<Conn>, params: &Value) -> Result<Valu
     let id = str_param(params, "deliveryId")
         .ok_or_else(|| RpcError::invalid_params("deliveryId is required"))?;
     if id.starts_with(super::mesh_send::PREFIX)
-        && let Some(mesh) = hub.mesh.get()
+        && let Some(reply) = super::mesh_relay::read::mesh_status(hub, conn, id).await
     {
-        return super::mesh_send::status(hub, conn, mesh, id).await;
+        return reply;
     }
     let status = outbox_status(hub, id, params).await?;
     match hub.outbox.get(id) {
@@ -500,7 +561,7 @@ async fn relayed_status(
     let (Some(relay), Some(mesh)) = (relayed.and_then(Value::as_str), hub.mesh.get()) else {
         return own;
     };
-    match super::mesh_send::status(hub, conn, mesh, relay).await {
+    match super::mesh_send::status(hub, conn, &mesh, relay).await {
         Ok(mut status) => {
             // What `acpmux send` reads of an acceptance: whether it steered, and the session.
             if let (Some(accepted), Some(kept)) = (
@@ -547,14 +608,29 @@ fn spawn(hub: Arc<Hub>, id: String) {
 
 async fn deliver(hub: &Arc<Hub>, id: &str) {
     let mut delays = RETRY_DELAYS_SECS.iter();
+    // How many moves of its chat this delivery followed (`Next::Moved`).
+    let mut moves_followed = 0u32;
+    // When it first found its chat mid-move (`Next::Moving`).
+    let mut moving_since: Option<std::time::Instant> = None;
     loop {
         let Some(delivery) = hub.outbox.get(id) else { return };
         if delivery.settled() {
             return;
         }
+        // The owner's copy wrote its prompt's records: the peer took it, and it is never sent
+        // again (a resend could run it twice); it stays open on them (`hub/open_delivery.rs`).
+        if delivery.proof.is_some() && delivery.pin.is_some() {
+            hub.outbox.update(id, |d| {
+                if !d.settled() {
+                    let (pin, answer) = (d.pin.clone(), json!({"proven": true}));
+                    crate::hub::open_delivery::accepted(d, pin, answer);
+                }
+            });
+            return;
+        }
         // Past its day (a restart resumes old ones too): failed, never sent this late.
         if expired(&delivery, crate::store::now_ms()) {
-            hub.outbox.update(id, |d| {
+            let saved = hub.outbox.update_saved(id, |d| {
                 if !d.settled() {
                     d.state = State::Failed;
                     let last =
@@ -563,10 +639,20 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
                     crate::attach::strip(&mut d.request);
                 }
             });
-            if let Some(path) = hub.outbox.attachments_path(&delivery) {
+            // Its bytes go once the file says it failed: a restart reads it open otherwise.
+            if saved && let Some(path) = hub.outbox.attachments_path(&delivery) {
                 forget_attachments(path).await;
             }
             return;
+        }
+        // Behind an earlier message to the same session (`AFTER_KEY`): it waits for that one to
+        // settle, woken by every outbox change and looking again at least every few seconds.
+        let changed = hub.outbox.changed.notified();
+        tokio::pin!(changed);
+        changed.as_mut().enable();
+        if delivery.waits_behind(&hub.outbox).is_some() {
+            let _ = tokio::time::timeout(AFTER_RECHECK, changed).await;
+            continue;
         }
         // Armed before the attempt: `notify_waiters` wakes only waits that exist, so a peer
         // ready while the attempt runs or its failure is saved still ends the retry wait.
@@ -574,7 +660,10 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
         tokio::pin!(ready);
         ready.as_mut().enable();
         let attempt = delivery.attempts + 1;
-        hub.outbox.update(id, |d| {
+        // Saved as maybe sent, and with its pin, before the attempt may reach the peer
+        // (below): an attempt whose state is not on disk does not go (review of #37284 at
+        // a088585e: a failed save was logged, and the attempt went).
+        let mut saved = hub.outbox.update_saved(id, |d| {
             if !d.settled() {
                 start_attempt(d, attempt);
             }
@@ -583,6 +672,10 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
             return;
         }
         let mut request = delivery.request.clone();
+        // Ordering for this outbox alone: the receiver never sees it.
+        if let Some(mux) = request.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) {
+            mux.remove(crate::hub::outbox::AFTER_KEY);
+        }
         // A later attempt asks for the first one's outcome when the target took it already.
         if attempt > 1
             && let Some(mux) = request.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut)
@@ -591,7 +684,27 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
         }
         // Whether the peer's link, if this attempt used it, took nothing (`Delivery::never_sent`).
         let mut link_unsent = true;
-        let outcome = if request.pointer("/_meta/acpmux/forwardProjection").is_some() {
+        // The ssh carrier took it (`ssh_carry.rs`): delivered on no link, so open on none.
+        let mut by_ssh = false;
+        // The peer's session the delivery goes to: read before its first attempt, kept on the
+        // delivery before the attempt goes (a crash mid-attempt keeps it), and the same for every
+        // later one once an attempt may have reached the peer, so nothing read after that (a link
+        // replaced, the session purged and made again) changes where it goes or what is recorded
+        // (`open_delivery.rs`). An attempt that reached nothing lets it go (below).
+        let projection = request.pointer("/_meta/acpmux/forwardProjection").is_some();
+        let fresh_pin = delivery.pin.is_none();
+        let pin = if projection {
+            None
+        } else {
+            delivery.pin.clone().or_else(|| crate::hub::open_delivery::pin(hub, &delivery.target))
+        };
+        if fresh_pin && pin.is_some() {
+            saved &= hub.outbox.update_saved(id, |d| d.pin.clone_from(&pin));
+        }
+        let outcome = if !saved {
+            // Nothing went on the link.
+            Err(("the outbox could not be saved; tried again".to_owned(), Next::Retry))
+        } else if request.pointer("/_meta/acpmux/forwardProjection").is_some() {
             // A projection reconciles with the receiver's log; it never uses the link to send.
             link_unsent = false;
             tokio::time::timeout(ATTEMPT_WAIT, reconcile_forward(hub, &delivery))
@@ -608,9 +721,33 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
                 Err((why, Next::Retry))
             })
         } else {
+            crate::hub::open_delivery::name_generation(&mut request, pin.as_ref());
             let caller = Caller::of(&delivery);
-            let outcome = attempt_once(hub, caller, request, Origin::Local).await;
+            let mut outcome = attempt_once(hub, caller, request, Origin::Local).await;
             link_unsent = matches!(outcome, Err((_, Next::Unsent)));
+            // The link is still down on a later attempt: an ssh peer's machine is tried over a
+            // plain ssh login (`ssh_carry.rs`). Taken there, it is delivered and never sent
+            // again; one that may have reached it is tried again only as a resend of the same
+            // prompt id, never through the mesh relay.
+            if link_unsent
+                && attempt >= super::ssh_carry::CARRY_FROM_ATTEMPT
+                && let Some(carry) = super::ssh_carry::carry(hub, &delivery).await
+            {
+                let error = outcome.err().map(|(e, _)| e).unwrap_or_default();
+                outcome = match carry {
+                    super::ssh_carry::Carry::Taken(answer) => {
+                        by_ssh = true;
+                        Ok(answer)
+                    }
+                    super::ssh_carry::Carry::Maybe(why) => {
+                        link_unsent = false;
+                        Err((format!("{error}; ssh carry: {why}"), Next::Retry))
+                    }
+                    super::ssh_carry::Carry::NotTaken(why) => {
+                        Err((format!("{error}; ssh carry: {why}"), Next::Unsent))
+                    }
+                };
+            }
             match outcome {
                 // Nothing has reached the target: the mesh relay carries it when it can.
                 Err((error, Next::Unsent)) if delivery.never_sent => {
@@ -625,14 +762,23 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
         };
         match outcome {
             Ok(accepted) => {
-                hub.outbox.update(id, |d| {
-                    d.state = State::Delivered;
-                    d.error = None;
-                    d.accepted = Some(accepted);
-                    // Settled: its record keeps no attachment bytes (`attach.rs`).
-                    crate::attach::strip(&mut d.request);
+                // A peer's session may lose it with the machine's disk until the owner's copy of
+                // that session holds it (`hub/open_delivery.rs`): open until then. One the ssh
+                // carrier took is the far daemon's own delivery now: no link sends it again.
+                let pin = if by_ssh { None } else { pin };
+                let open = pin.is_some();
+                let saved = hub.outbox.update_saved(id, |d| {
+                    crate::hub::open_delivery::accepted(d, pin, accepted);
+                    // Settled: its record keeps no attachment bytes (`attach.rs`). One open on
+                    // its peer keeps them until it closes: a delivery again sends them too.
+                    if !open {
+                        crate::attach::strip(&mut d.request);
+                    }
                 });
-                if let Some(path) = hub.outbox.attachments_path(&delivery) {
+                if saved
+                    && !open
+                    && let Some(path) = hub.outbox.attachments_path(&delivery)
+                {
                     forget_attachments(path).await;
                 }
                 return;
@@ -652,16 +798,77 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
                         let (text, _) = hub.no_session_text(&delivery.target);
                         (format!("{NO_SESSION_PREFIX}{text}"), Next::NoSession)
                     }
+                    // Purged and made again since the attempt read it. A first attempt reached
+                    // nothing: read again, and tried. A later one may have been taken by the
+                    // session that is gone: it never runs in the new one; failed, saying why.
+                    Next::Stale if fresh_pin => {
+                        hub.outbox.update(id, |d| d.pin = None);
+                        (error, Next::Retry)
+                    }
+                    Next::Stale => (error, Next::Fail),
+                    // The chat moved away before this prompt ran: it goes where the chat went,
+                    // now, under the same prompt id (the new daemon runs it once). One that
+                    // followed too many moves fails, saying where it last went.
+                    Next::Moved(to) => {
+                        if follow_move(hub, id, &to, moves_followed) {
+                            moves_followed += 1;
+                            continue;
+                        }
+                        let why = format!("{error}; followed {moves_followed} moves, last to {to}");
+                        (why, Next::Fail)
+                    }
+                    // Moved to a sibling daemon here: its outbox takes the delivery over. A
+                    // daemon that does not answer is tried again on the back-off.
+                    Next::MovedToSocket { socket, session } => {
+                        match hand_to_socket(&delivery, &socket, &session).await {
+                            // Its attachment files stay: the request the sibling took may name
+                            // them, and the settled sweep removes them with the record.
+                            Ok(accepted) => {
+                                hub.outbox.update_saved(id, |d| {
+                                    crate::hub::open_delivery::accepted(d, None, accepted);
+                                });
+                                return;
+                            }
+                            Err(why) => (format!("{error}; {why}"), Next::Retry),
+                        }
+                    }
+                    // Mid-move: tried again shortly, on no back-off, while the delivery's day
+                    // lasts (`expired`, above).
+                    Next::Moving
+                        if moving_since.get_or_insert_with(std::time::Instant::now).elapsed()
+                            > MOVING_FAST_FOR =>
+                    {
+                        (error, Next::Retry)
+                    }
+                    Next::Moving => {
+                        hub.outbox.update(id, |d| {
+                            if !d.settled() {
+                                d.state = State::Queued;
+                                d.error = Some(error.clone());
+                            }
+                        });
+                        tokio::time::sleep(MOVING_RETRY).await;
+                        continue;
+                    }
                     next => (error, next),
                 };
                 let delay = matches!(next, Next::Retry | Next::Unsent)
                     .then(|| retry_delay(&mut delays, &delivery, crate::store::now_ms()))
                     .flatten();
+                // A pin is the generation an attempt may have reached. While none reached the
+                // peer (nothing went on its link, no relay holds it), none is kept: the next
+                // attempt reads the session as the peer lists it then, so a session the peer made
+                // again meanwhile is not failed as stale for an attempt it never saw (review of
+                // #37284 at c4a6f4e7, F3).
+                let drop_pin = !hub.at_c4a6();
                 hub.outbox.update(id, |d| {
                     if d.settled() {
                         return;
                     }
                     d.never_sent = delivery.never_sent && link_unsent;
+                    if drop_pin && d.never_sent && d.relay_post.is_none() {
+                        d.pin = None;
+                    }
                     d.state = match (next, delay) {
                         (Next::Held, _) => State::Held,
                         (_, Some(_)) if d.projection_only() => State::Held,
@@ -699,6 +906,161 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
                 }
             }
         }
+    }
+}
+
+/// Peer `peer`'s link `link` is ready, and its journals took back what this daemon kept of them
+/// (`hub/peer_snapshot/restore.rs`; `ends`: where each journal ends now, session: generation and
+/// `lastSeq`). Every delivery to it that is still open (`hub/open_delivery.rs` `step`) is, oldest
+/// first: failed when it lapsed or its session is another generation there; closed when its
+/// proof is held there; left open when proven and not seen held yet (never sent again); else
+/// sent again as a resend of its own prompt id to its pinned generation (a machine that kept it
+/// answers with its first outcome; one that lost it with its disk runs it now, once; a refused
+/// one fails it, saying why). All of them go on this link, in batches of [`REDELIVER_BATCH`],
+/// while it is up; the next link goes on after the last one reached, so none waits behind the
+/// others for good. One task per call; each resend waits at most [`ATTEMPT_WAIT`]. `since`: where
+/// each kept copy's open deliveries' proofs begin, as the link's restore read it (`Store::ahead`);
+/// a proven delivery whose copy is not kept is sent again (`od::unproven`).
+pub(crate) fn redeliver_open(
+    hub: &Arc<Hub>,
+    peer: &str,
+    link: (u64, u64),
+    ends: HashMap<String, (u64, u64)>,
+    since: crate::hub::open_delivery::Since,
+) {
+    let open: Vec<Delivery> = hub
+        .outbox
+        .open_on_peers()
+        .into_iter()
+        .filter(|d| d.pin.as_ref().is_some_and(|p| p.peer == peer))
+        .collect();
+    if open.is_empty() {
+        return;
+    }
+    let scope = &hub.scope;
+    let (hub, peer) = (hub.clone(), peer.to_owned());
+    scope.spawn_until_cancelled("peer-redeliver-open", async move {
+        let on_link = || hub.peer_on_link(&peer, link);
+        let from = cursor(&hub).get(&peer).cloned();
+        let one = |d: Delivery| {
+            let (hub, peer, ends, since) = (hub.clone(), peer.clone(), &ends, &since);
+            async move {
+                redeliver_one(&hub, &d, link, (ends, since)).await;
+                cursor(&hub).insert(peer, (d.created_at, d.id.clone()));
+            }
+        };
+        redeliver_all(open, from, on_link, one).await;
+    });
+}
+
+fn cursor(hub: &Hub) -> std::sync::MutexGuard<'_, HashMap<String, (u64, String)>> {
+    hub.outbox.redelivered_to.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// The open deliveries of one link go in batches of this many; between batches the link is read
+/// again and the runtime gets the thread.
+const REDELIVER_BATCH: usize = 256;
+
+/// Runs `one` on each of `open` (oldest first), starting after `from` (the one a link before
+/// reached last, by sent time and id) and coming round to it, in batches of
+/// [`REDELIVER_BATCH`], while `on_link` holds. Answers how many it ran.
+async fn redeliver_all<F, Fut>(
+    mut open: Vec<Delivery>,
+    from: Option<(u64, String)>,
+    on_link: impl Fn() -> bool,
+    mut one: F,
+) -> usize
+where
+    F: FnMut(Delivery) -> Fut,
+    Fut: std::future::Future<Output = ()>,
+{
+    open.sort_by(|a, b| (a.created_at, &a.id).cmp(&(b.created_at, &b.id)));
+    let after = from.map_or(0, |(at, id)| {
+        open.iter().position(|d| (d.created_at, d.id.as_str()) > (at, id.as_str())).unwrap_or(0)
+    });
+    open.rotate_left(after);
+    let mut ran = 0;
+    for batch in open.chunks(REDELIVER_BATCH) {
+        for d in batch {
+            if !on_link() {
+                return ran;
+            }
+            one(d.clone()).await;
+            ran += 1;
+        }
+        tokio::task::yield_now().await;
+    }
+    ran
+}
+
+/// One open delivery of a link's redelivery (`redeliver_open`).
+async fn redeliver_one(
+    hub: &Arc<Hub>,
+    d: &Delivery,
+    link: (u64, u64),
+    (ends, since): (&HashMap<String, (u64, u64)>, &crate::hub::open_delivery::Since),
+) {
+    use crate::hub::open_delivery::{self as od, Again, Step};
+    let now = crate::store::now_ms();
+    let Some(pin) = d.pin.clone() else { return };
+    let mut step = od::step_after_restore(d, (now, link), (ends, since), hub.at_27f3());
+    if step == Step::Check {
+        step = od::checked(hub.proof_held(d, link).await);
+    }
+    match step {
+        Step::Lapse => {
+            let lapsed = crate::hub::outbox::OPEN_LAPSED.to_owned();
+            close_open(hub, d, |d| d.fail_open(lapsed)).await;
+        }
+        Step::Stale => {
+            tracing::warn!(delivery = %d.id, "a proven delivery's session is another generation now");
+            close_open(hub, d, |d| d.fail_open(od::STALE.to_owned())).await;
+        }
+        Step::Lost => {
+            tracing::warn!(delivery = %d.id, "a proven delivery's machine holds another history");
+            close_open(hub, d, |d| d.fail_open(od::LOST.to_owned())).await;
+        }
+        Step::Release => close_open(hub, d, od::release).await,
+        Step::Wait | Step::Check => {}
+        Step::Again | Step::Unproven => {
+            if step == Step::Unproven {
+                // Proven by records no restore gave back and no journal holds (review of #37284
+                // at 27f3761b, F1): delivered again, as one never proven.
+                tracing::warn!(delivery = %d.id, "a proof no machine holds; delivered again");
+                hub.outbox.update(&d.id, od::unprove);
+            }
+            // To the pinned session, by its id, never by the name it was sent to (review of
+            // #37284 at 4bce04df, F2).
+            let request = od::again_request(d, &pin);
+            let again = match attempt_once(hub, Caller::of(d), request, Origin::Local).await {
+                Ok(answer) => Again::Taken(answer),
+                Err((error, Next::Fail | Next::NoSession | Next::Stale)) => Again::Refused(error),
+                Err(_) => Again::Unknown,
+            };
+            if let Again::Refused(error) = &again {
+                tracing::warn!(delivery = %d.id, "a delivery again was refused: {error}");
+            }
+            let mut settled = false;
+            hub.outbox.update(&d.id, |d| settled = od::after_again(d, again));
+            if settled {
+                close_open(hub, d, |_| {}).await;
+            }
+        }
+    }
+}
+
+/// Closes open delivery `d` with `f`: settled now, its record keeps no attachment bytes, and
+/// the ones kept beside the outbox go.
+async fn close_open(hub: &Arc<Hub>, d: &Delivery, f: impl FnOnce(&mut Delivery)) {
+    let saved = hub.outbox.update_saved(&d.id, |d| {
+        f(d);
+        crate::attach::strip(&mut d.request);
+    });
+    // The bytes go only once the file says it closed (review of #37284 at a088585e): a restart
+    // that reads it open sends it again, or checks its proof again, with them. A file left
+    // without its delivery's bytes' owner is swept at the next open (`Outbox::open`).
+    if saved && let Some(path) = hub.outbox.attachments_path(d) {
+        forget_attachments(path).await;
     }
 }
 
@@ -772,7 +1134,7 @@ fn start_attempt(d: &mut Delivery, attempt: u32) {
 
 /// Deletes a settled delivery's kept attachments.
 async fn forget_attachments(path: std::path::PathBuf) {
-    let _ = tokio::task::spawn_blocking(move || std::fs::remove_file(path)).await;
+    let _ = tokio::task::spawn_blocking(move || crate::home_fs::remove_file(path)).await;
 }
 
 /// The session a kept send is delivered as (`Delivery::caller`, `Delivery::unproven_caller`): one
@@ -904,6 +1266,23 @@ pub(super) async fn attempt_once(
 /// peer or a timeout is tried again.
 fn next(e: &RpcError) -> Next {
     let data = e.data.as_ref();
+    if let Some(to) = data.and_then(|d| d.get("movedTo")).filter(|to| to.is_object()) {
+        let session = to.get("sessionId").and_then(Value::as_str).filter(|s| !s.is_empty());
+        let socket = to.get("socket").and_then(Value::as_str).filter(|s| s.starts_with('/'));
+        let host = to.get("host").and_then(Value::as_str).filter(|h| !h.is_empty());
+        match (session, host, socket) {
+            (Some(session), Some(host), _) => return Next::Moved(format!("{host}/{session}")),
+            (Some(session), None, Some(socket)) => {
+                let (socket, session) = (socket.to_owned(), session.to_owned());
+                return Next::MovedToSocket { socket, session };
+            }
+            (Some(session), None, None) => return Next::Moved(session.to_owned()),
+            _ => {}
+        }
+    }
+    if e.message.starts_with("transfer.moving") {
+        return Next::Moving;
+    }
     if data.and_then(|d| d.get("held")).and_then(Value::as_bool) == Some(true) {
         return Next::Held;
     }
@@ -911,6 +1290,9 @@ fn next(e: &RpcError) -> Next {
     // The peer's link took nothing (`peer_link::unreachable_error`): the request was not sent.
     if reason == "peer_unreachable" {
         return Next::Unsent;
+    }
+    if reason == "stale_generation" {
+        return Next::Stale;
     }
     // No such session on the target's machine: a not-found answer (this daemon's for a peer
     // that lists none, or the peer's own), which every later attempt would give again.
@@ -926,6 +1308,92 @@ fn next(e: &RpcError) -> Next {
         Some(false) => Next::Fail,
         None if e.code != RpcError::invalid_params("").code => Next::Retry,
         None => Next::Fail,
+    }
+}
+
+/// Hands delivery `delivery` to the sibling daemon at `socket` that its chat moved to (as
+/// `session`): that daemon's own `send_queue`, under the same prompt id, so its outbox owns it
+/// from here (a second hand-off of the same prompt id is the first delivery there, never a
+/// second run). Its answer, the delivery's status there, is this delivery's acceptance. Never
+/// this daemon's own socket: a chat that moved here is no move away.
+async fn hand_to_socket(delivery: &Delivery, socket: &str, session: &str) -> Result<Value, String> {
+    let path = std::path::Path::new(socket);
+    let own = crate::config::socket_path();
+    let canonical = |p: &std::path::Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_owned());
+    if canonical(path) == canonical(&own) {
+        return Err("the chat's move names this daemon's own socket".into());
+    }
+    let client = crate::client::Client::connect_without_caller(path)
+        .await
+        .map_err(|e| format!("the daemon at {socket} does not answer: {e}"))?;
+    let init = json!({"protocolVersion": 1, "clientInfo": {"name": "acpmux-outbox"}});
+    client.request(method::INITIALIZE, init).await.map_err(|e| e.to_string())?;
+    let mut request = delivery.request.clone();
+    request.set("sessionId", json!(session));
+    let status = client
+        .request(method::MUX_SEND_QUEUE, json!({"request": request}))
+        .await
+        .map_err(|e| format!("the daemon at {socket} did not take it: {e}"))?;
+    Ok(json!({"handedTo": {"socket": socket, "sessionId": session}, "status": status}))
+}
+
+/// Points delivery `id` at where its chat moved (`to`, `HOST/SESSION`): its target and its
+/// request's `sessionId`, with its pin dropped (the pin named the copy that moved away). The
+/// moved-away copy refused the prompt before it ran, so the delivery has reached no one and the
+/// mesh relay may carry it if the new machine's link is down. False when the delivery already
+/// followed [`MAX_MOVES_FOLLOWED`] moves, or could not be saved.
+fn follow_move(hub: &Hub, id: &str, to: &str, followed: u32) -> bool {
+    if followed >= MAX_MOVES_FOLLOWED {
+        return false;
+    }
+    hub.outbox.update_saved(id, |d| {
+        if d.settled() {
+            return;
+        }
+        tracing::info!(delivery = %d.id, from = %d.target, to, "outbox: following a moved chat");
+        d.target = to.to_owned();
+        d.request.set("sessionId", json!(to));
+        d.pin = None;
+        d.never_sent = true;
+        d.state = State::Queued;
+        d.error = Some(format!("the chat moved; following it to {to}"));
+    })
+}
+
+/// Whether `d` settled by handing its message to a sibling daemon its chat moved to
+/// (`hand_to_socket`), so a hand-back of the same prompt id reopens it rather than reading it as
+/// delivered.
+fn handed_away(d: &Delivery) -> bool {
+    d.state == State::Delivered && d.accepted.as_ref().is_some_and(|a| a.get("handedTo").is_some())
+}
+
+#[cfg(test)]
+mod moved_next_tests {
+    use super::*;
+
+    /// What `transfer_out.rs` `moved_error` answers.
+    fn moved_error(to: &Value) -> RpcError {
+        RpcError::new(-32000, "transfer.moved: this chat moved; it runs there, never here")
+            .with_data(json!({"movedTo": to}))
+    }
+
+    /// A moved chat's refusal names where it went, and the delivery goes there; a chat in the
+    /// middle of a move is tried again soon, and neither is a refusal that fails the delivery.
+    #[test]
+    fn a_moved_chat_is_followed_and_a_moving_one_is_waited_for() {
+        let to = json!({"host": "gcp-1", "sessionId": "m1", "cwd": "/w"});
+        let moved = moved_error(&to);
+        assert_eq!(next(&moved), Next::Moved("gcp-1/m1".into()));
+        let here = moved_error(&json!({"sessionId": "m2"}));
+        assert_eq!(next(&here), Next::Moved("m2".into()));
+        let sibling = moved_error(&json!({"socket": "/tmp/dev.sock", "sessionId": "m3"}));
+        let handed = Next::MovedToSocket { socket: "/tmp/dev.sock".into(), session: "m3".into() };
+        assert_eq!(next(&sibling), handed);
+        let nowhere = moved_error(&json!({"host": "gcp-1"}));
+        assert_eq!(next(&nowhere), Next::Retry);
+        let moving =
+            RpcError::new(-32000, "transfer.moving: this chat is being moved to another daemon");
+        assert_eq!(next(&moving), Next::Moving);
     }
 }
 
@@ -951,7 +1419,7 @@ mod no_session_next_tests {
 mod retry_delay_tests {
     use super::*;
 
-    fn delivery(created_at: u64, projection: bool) -> Delivery {
+    pub(super) fn delivery(created_at: u64, projection: bool) -> Delivery {
         let mut request = json!({"sessionId": "gone/lane", "_meta": {"acpmux": {"promptId": "p"}}});
         if projection {
             request["_meta"]["acpmux"]["forwardProjection"] = json!({"text": "x"});
@@ -967,6 +1435,9 @@ mod retry_delay_tests {
             attempts: 0,
             never_sent: true,
             relay_post: None,
+            open_on_peer: false,
+            pin: None,
+            proof: None,
             error: None,
             accepted: None,
             created_at,
@@ -1020,6 +1491,63 @@ mod retry_delay_tests {
         assert!(!expired(&d, 1_000 + RETRY_FOR_MS - 1));
         assert!(expired(&d, 1_000 + RETRY_FOR_MS));
         assert!(!expired(&delivery(1_000, true), 1_000 + 10 * RETRY_FOR_MS));
+    }
+}
+
+#[cfg(test)]
+mod redeliver_tests {
+    use super::*;
+    use std::cell::{Cell, RefCell};
+
+    fn open(n: usize) -> Vec<Delivery> {
+        (0..n)
+            .map(|i| {
+                let mut d = retry_delay_tests::delivery(1_000 + i as u64, false);
+                d.id = format!("d{i:04}");
+                d.open_on_peer = true;
+                d
+            })
+            .collect()
+    }
+
+    /// Review of #37284 at 0c98c292, F3: more open deliveries than one batch, none of them
+    /// captured by a copy, all go on one link, oldest first, each once; a link that drops midway
+    /// leaves the rest to the next one, which starts where it stopped and comes round.
+    #[tokio::test]
+    async fn every_open_delivery_goes_on_one_link_in_batches_and_the_next_link_goes_on() {
+        let n = 3 * REDELIVER_BATCH + 7;
+        let sent = RefCell::new(Vec::new());
+        let one = |d: Delivery| {
+            sent.borrow_mut().push(d.id);
+            async {}
+        };
+        assert_eq!(redeliver_all(open(n), None, || true, one).await, n);
+        let ids: Vec<String> = open(n).into_iter().map(|d| d.id).collect();
+        assert_eq!(*sent.borrow(), ids, "each once, oldest first");
+
+        // A link that drops after 300 of them; the next starts after the last one reached.
+        sent.borrow_mut().clear();
+        let left = Cell::new(300_usize);
+        let up = || {
+            let up = left.get() > 0;
+            left.set(left.get().saturating_sub(1));
+            up
+        };
+        let one = |d: Delivery| {
+            sent.borrow_mut().push(d.id);
+            async {}
+        };
+        assert_eq!(redeliver_all(open(n), None, up, one).await, 300);
+        let reached = open(n).into_iter().nth(299).map(|d| (d.created_at, d.id)).unwrap();
+        sent.borrow_mut().clear();
+        let one = |d: Delivery| {
+            sent.borrow_mut().push(d.id);
+            async {}
+        };
+        assert_eq!(redeliver_all(open(n), Some(reached), || true, one).await, n);
+        let mut expected = ids.clone();
+        expected.rotate_left(300);
+        assert_eq!(*sent.borrow(), expected, "the next link starts after the one reached");
     }
 }
 

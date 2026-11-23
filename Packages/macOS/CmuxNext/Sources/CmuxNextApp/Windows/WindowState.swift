@@ -28,6 +28,7 @@ final class WindowState: CloseSelectionWindow {
         didSet { if workspaceID != oldValue { noteShown(workspaceID, after: oldValue); onShownChange?(workspaceID, oldValue) } }
     }
     @ObservationIgnored var onShownChange: ((String?, String?) -> Void)? // each change of `workspaceID` (new, old): the close-selection rule's feed
+    @ObservationIgnored var onProfileChange: (() -> Void)? // the window entered another space: its shared workspaces follow (`WindowManager.spaceDidChange`)
     /// The workspaces shown side by side, `workspaceID` focused among them (Debug Settings `sidebar.multiView`,
     /// `WindowController.arrangeOnScreen`); nil shows `workspaceID` alone. Persisted in the record.
     var viewSet: WorkspaceViewSet?
@@ -154,20 +155,22 @@ extension WindowState {
     /// profile it leaves.
     func enterProfile(_ profile: ProfileID) {
         if let workspaceID { profileWorkspaces[profileID] = workspaceID }
+        let changed = profileID != profile
         profileID = profile
         profileRecency.removeAll { $0 == profile }
         profileRecency.insert(profile, at: 0)
+        if changed { onProfileChange?() }
     }
 }
 
 extension WindowState {
-    /// Shows `id` (nil: the empty state): the window leaves its top page.
+    /// Shows `id` (nil: the empty state): the window leaves its top page unless `keepsPage` (one in place of a workspace that left).
     /// Unless `keepsCreation` (a repair, or the creation's own workspace,
     /// kept until it is mirrored), another workspace also ends the window's
     /// Cloud creation view; the creation goes on in its sidebar row.
-    func showWorkspace(_ id: String?, keepsCreation: Bool = true) {
+    func showWorkspace(_ id: String?, keepsCreation: Bool = true, keepsPage: Bool = false) {
         workspaceID = id
-        if id != nil { page = nil }
+        if id != nil, !keepsPage { page = nil }
         if !keepsCreation, id != nil { cloudCreation = nil }
     }
 

@@ -14,6 +14,7 @@ import { JSDOM } from "jsdom";
 import * as i18n from "../i18n";
 import type { AcpmuxPermission, AcpmuxPlanEntry } from "../model";
 import type { AgentQuestion } from "../question/model";
+import { teardownDom } from "../../../../test/support/domTeardown";
 
 let cardRenders = 0;
 const realUseT = i18n.useT;
@@ -52,12 +53,8 @@ beforeAll(() => {
   });
 });
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 const answered: AgentQuestion = {

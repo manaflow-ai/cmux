@@ -10,7 +10,7 @@ use cmux_tui_core::resource::{
 use serde_json::{Map, Value, json};
 
 use super::{GlobalArgs, UsageError};
-use flags::{BOOLEAN_FLAGS, usage, validate_one_of};
+use flags::{BOOLEAN_FLAGS, SWITCH_OR_VALUE_FLAGS, usage, validate_one_of};
 
 mod agent_focus;
 #[cfg(unix)]
@@ -115,8 +115,12 @@ impl Selectors {
     ) -> Result<(), UsageError> {
         validate_selector(scope, prefix, value)?;
         if !matches!(Selector::parse(value), Ok(Selector::Id(_))) {
+            // `focused` is the object the person looks at, so its implied
+            // parents are the focused ones too, not the caller's
+            // (resolve.rs `focused_scopes`).
+            let parent = if value == "focused" { "focused" } else { "current" };
             for ancestor in structural_ancestors(scope) {
-                self.values.entry(ancestor).or_insert_with(|| "current".into());
+                self.values.entry(ancestor).or_insert_with(|| parent.into());
             }
         }
         self.values.insert(scope, value.to_string());
@@ -290,7 +294,7 @@ fn parse_server(
 }
 
 /// `server stop` and `session <name> stop`: `[--force] [--end-terminals]
-/// [--restore-wait-seconds <n>]`. The wait for an owner that still restores
+/// [--if-idle] [--restore-wait-seconds <n>]`. The wait for an owner that still restores
 /// defaults to the bound `server ensure` gives a restore
 /// (`local_owner::RESTORE_DEADLINE`), and is at most an hour.
 fn stop_action(flags: &mut Flags) -> Result<super::lifecycle::ServerAction, UsageError> {
@@ -298,6 +302,7 @@ fn stop_action(flags: &mut Flags) -> Result<super::lifecycle::ServerAction, Usag
         restore_wait: restore_wait(flags)?,
         force: flags.boolean("force"),
         end_terminals: flags.boolean("end-terminals"),
+        if_idle: flags.boolean("if-idle"),
     })
 }
 
@@ -365,7 +370,9 @@ fn tokenize(args: &[String]) -> Result<Tokens, UsageError> {
             if name.is_empty() {
                 return Err(UsageError::new("empty flag name"));
             }
-            let flag_value = if is_boolean_flag(name) {
+            let switch = inline.is_none()
+                && flag_takes_no_value(name, args.get(index + 1).map(String::as_str));
+            let flag_value = if is_boolean_flag(name) || switch {
                 if inline.is_some() {
                     return Err(UsageError::new(format!("--{name} does not take a value")));
                 }
@@ -455,6 +462,14 @@ fn insert_creation_command(
 
 pub(super) fn is_boolean_flag(name: &str) -> bool {
     BOOLEAN_FLAGS.contains(&name)
+}
+
+/// Whether `--name` followed by `next` (the next argument, if any) is a flag
+/// without a value: a boolean flag, or a [`SWITCH_OR_VALUE_FLAGS`] one with no
+/// value word after it.
+pub(super) fn flag_takes_no_value(name: &str, next: Option<&str>) -> bool {
+    is_boolean_flag(name)
+        || (SWITCH_OR_VALUE_FLAGS.contains(&name) && next.is_none_or(|next| next.starts_with("--")))
 }
 
 fn parse_session(
@@ -878,6 +893,20 @@ fn parse_pane_strings(
             if let Some(ratio) = flags.take("ratio") {
                 insert_ratio(&mut params, "ratio", "--ratio", ratio)?;
             }
+            if flags.values.contains_key("fit") {
+                if flags.take("fit").is_some() {
+                    return Err(UsageError::new("--fit does not take a value"));
+                }
+                if direction != "right" {
+                    return Err(UsageError::new("--fit requires --right"));
+                }
+                if flags.values.contains_key("viewport-width") || params.contains_key("ratio") {
+                    return Err(UsageError::new(
+                        "--fit shares the window; drop --viewport-width and --ratio",
+                    ));
+                }
+                params.insert("fit".into(), Value::Bool(true));
+            }
             if let Some(viewport_width) = flags.take("viewport-width") {
                 if direction != "right" {
                     return Err(UsageError::new("--viewport-width requires --right"));
@@ -1002,7 +1031,9 @@ fn parse_tab_strings(
         ["group", rest @ ..] => state::parse_tab_group(rest, flags),
         ["list"] => {
             add_optional_parent_selectors(selectors, flags, &["workspace", "screen", "pane"])?;
+            let created_by = list_filter::take_created_by(flags)?;
             request(ResourceOperation::TabList, selectors, flags, Map::new())
+                .map(|plan| plan.filtered(ListFilter { created_by, ..ListFilter::default() }))
         }
         ["create"] => Err(UsageError::new("tab create needs terminal or browser")),
         [selector, "show"] => {
@@ -1016,6 +1047,7 @@ fn parse_tab_strings(
             insert_creation_command(&mut params, argv, flags)?;
             add_optional_parent_selectors(selectors, flags, &["workspace", "screen", "pane"])?;
             add_size(&mut params, flags)?;
+            insert_purpose(&mut params, flags);
             request(ResourceOperation::TabCreateTerminal, selectors, flags, params)
         }
         ["create", "browser"] => {
@@ -1029,6 +1061,7 @@ fn parse_tab_strings(
             browser::insert_engine(&mut params, flags)?;
             add_optional_parent_selectors(selectors, flags, &["workspace", "screen", "pane"])?;
             add_pixel_size(&mut params, flags)?;
+            insert_purpose(&mut params, flags);
             request(ResourceOperation::TabCreateBrowser, selectors, flags, params)
         }
         [selector, "rename"] => {

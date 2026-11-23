@@ -6,6 +6,7 @@
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { ComposerAttachment } from "../src/agent-session/acpmux/attachments";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -224,7 +225,7 @@ try {
     });
     const failed = host.querySelector(".acpmux-attachment-failed")!;
     expect(failed.classList.contains("acpmux-attachment-image")).toBe(true);
-    expect(failed.querySelector(".acpmux-attachment-failed-name")).toBeNull();
+    expect(failed.textContent).not.toContain(chip.name);
     expect(failed.querySelector(".acpmux-attachment-retry")).not.toBeNull();
   });
 
@@ -525,6 +526,33 @@ try {
     expect(calls.filter((call) => call.method === "video.transcript")).toHaveLength(1);
   });
 
+  // Leo, 2026-11-18: "dragging and dropping attachments of any size should never take time to load.
+  // It should just be able to show you the thing". The host answers the poster first (`more`); the
+  // key frames and probes follow from `video.probes`, then the picked frames, and the speech stays.
+  test("a poster answered first shows at once; its key frames and probes follow, then the picked frames", async () => {
+    const cells = btoa(String.fromCharCode(...new Uint8Array(24 * 24).fill(9)));
+    const probes = [0, 1, 2, 3].map((index) => ({ atMs: 1000 + index * 5000, cells }));
+    await render([video()]);
+    await act(async () => calls[0]!.answer({ ...INFO, frames: [], probes: [], more: true }));
+    expect(host.querySelector(".acpmux-attachment-video img")?.getAttribute("src")).toBe(POSTER);
+    expect(state?.reading).toBe(1);
+    const rest = calls.find((call) => call.method === "video.probes")!;
+    expect(rest.params).toEqual({ src: PATH });
+    await act(async () => calls.find((call) => call.method === "video.transcript")!.answer(SPEECH));
+    expect(state?.reading).toBe(1);
+    await act(async () => rest.answer({ frames: INFO.frames, probes }));
+    expect(state?.attachments[0]?.video?.frames).toEqual(INFO.frames);
+    expect(state?.attachments[0]?.transcript).toEqual(SPEECH);
+    const asked = calls.find((call) => call.method === "video.frames")!;
+    const times = asked.params.times as number[];
+    await act(async () => asked.answer({ frames: times.map((atMs) => ({ atMs, data: "/9j/DD==" })) }));
+    expect(state?.reading).toBe(0);
+    expect(state?.attachments[0]?.video?.picked).toBe(true);
+    expect(state?.attachments[0]?.transcript).toEqual(SPEECH);
+    expect(calls.filter((call) => call.method === "video.probes")).toHaveLength(1);
+    expect(calls.filter((call) => call.method === "video.transcript")).toHaveLength(1);
+  });
+
   test("an older host that has no video.frames keeps the answer's four frames, and the send goes", async () => {
     const still = btoa("\u0000\u0000\u0000\u0000");
     const probes = [0, 1, 2].map((index) => ({ atMs: 1000 + index * 1000, cells: still }));
@@ -581,13 +609,9 @@ try {
     }
   });
 } finally {
-  afterAll(() => {
+  afterAll(async () => {
     setChipHost(undefined);
     act(() => root.unmount());
-    dom.window.close();
-    for (const [key, had, value] of saved) {
-      if (had) scope[key] = value;
-      else delete scope[key];
-    }
+    await teardownDom(saved, { window: dom.window, scope });
   });
 }

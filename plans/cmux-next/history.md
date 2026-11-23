@@ -187,15 +187,16 @@ history (`browserBack`'s command), anywhere else they run `focusHistoryBack` /
 `focusHistoryForward`; a remote desktop in control mode keeps them for its
 host.
 
-The swipe is built over Chromium pages (`CEFSwipeNavigation`): a two-finger
-horizontal swipe goes Back or Forward in the page's history when the page
-cannot scroll that way. The page answers a probe for the scroller under the
-fingers, and for whether a script took the wheels (a carousel), so a gesture the
-page would scroll stays the page's. AppKit tracks the swipe
-(`trackSwipeEvent`); an accent pill with an arrow slides in from that edge, and
-with no page that way it rubber-bands and nothing happens. It needs macOS's
-"Swipe between pages". Not built: the swipe over agent chats and internal pages (no horizontal
-scroll answer from them yet; the side buttons cover their Back), and over
+The swipe over Chromium pages is Chromium's own (its history swiper, which
+Chrome style runs through `ChromeRenderWidgetHostViewMacDelegate`): it starts
+only when the renderer did not take the gesture (a scroller, a script carousel
+or `overscroll-behavior-x` keeps it), draws Chrome's round arrow at the page's
+edge, and navigates on release. cmux adds no swipe of its own there: a
+second handler (`CEFSwipeNavigation` and its accent pill, removed 2026-11-11)
+showed two arrows on every swipe and could navigate twice. It needs macOS's
+"Swipe between pages". A gesture the layout takes (Command + scroll) never
+reaches the page, so it never swipes. cmux pages swipe through
+`PageSwipeForwarder` (webviews/src/swipeNavigation). Not built: the swipe over
 WebKit pages.
 
 ### 4.2b One Back: page history first, then the trail (Leo 2026-10-06)

@@ -87,4 +87,15 @@ import Testing
         rig.window.cancelOperation(nil)
         #expect(!rig.window.isVisible)
     }
+
+    /// A person's app hides the panel when they switch away; an app that refuses activation
+    /// (`CMUX_NEXT_NO_ACTIVATE`, the capture tours) is never active, so the panel stays up there.
+    @Test(arguments: [false, true])
+    func thePanelHidesOnDeactivateOnlyInAnAppThatActivates(noActivate: Bool) throws {
+        let saved = WindowPlacement.noActivate
+        WindowPlacement.noActivate = noActivate
+        defer { WindowPlacement.noActivate = saved }
+        let rig = try rig()
+        #expect(rig.window.hidesOnDeactivate == !noActivate)
+    }
 }

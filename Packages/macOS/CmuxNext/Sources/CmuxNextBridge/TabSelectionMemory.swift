@@ -1,5 +1,5 @@
 import CmuxNextCompat
-import CmuxNextDaemon
+public import CmuxNextDaemon
 import CmuxNextDesign
 public import CmuxNextTabs
 public import Observation
@@ -22,6 +22,8 @@ public final class TabSelectionMemory {
     private let focused = ObservedMap<String, String>()
     /// The order `resolve` last saw per pane (for the neighbor after a close); never observed.
     @ObservationIgnored private var lastOrder: [String: [String]] = [:]
+    /// Each pane's grouped tabs to their group as of its last ``resolve``: a closed tab's group, which the close rule reads.
+    @ObservationIgnored private var lastGroups: [String: [String: String]] = [:]
     /// Bumped by every selection change in any pane: for a reader that follows
     /// all of this window's selections (one read, no walk of the panes).
     public private(set) var revision: UInt64 = 0
@@ -73,9 +75,15 @@ public final class TabSelectionMemory {
 
     /// Selects `tab`, which this window just made in `pane`, now that the pane lists it (`tabs`). `replaced`: the
     /// tab whose place it took (what a New Tab page turned into); else the selected tab when that is a creation's
-    /// stand-in `tabs` no longer lists. The close-selection rule keeps the two as one item.
-    public func selectMade(_ tab: String, in pane: String, inPlaceOf replaced: String?, tabs: [String]) {
-        let standIn = replaced ?? selected[pane].flatMap { old in ProvisionalTab.isProvisional(old) && !tabs.contains(old) ? old : nil }
+    /// stand-in `tabs` no longer lists and the store's record of its creation names no other tab (`standIn`, as for
+    /// `resolve`). The close-selection rule keeps the two as one item. A stand-in that became another tab that
+    /// `tabs` lists is that tab before the selection moves: a new tab made from that tab gets it as its opener.
+    public func selectMade(_ tab: String, in pane: String, inPlaceOf replaced: String?, tabs: [String],
+                           standIn fate: (String) -> StandInFate = { _ in .ended }) {
+        _ = closeRule.standIns(of: pane, lists: tabs, fate: fate)
+        let standIn = replaced ?? selected[pane].flatMap { old in
+            ProvisionalTab.isProvisional(old) && !tabs.contains(old) && (fate(old).tab ?? tab) == tab ? old : nil
+        }
         set(tab, in: pane, standIn: standIn)
     }
 
@@ -110,21 +118,45 @@ public final class TabSelectionMemory {
     /// close-selection rule; a member of a collapsed group in `hidden` is
     /// skipped while a shown tab survives). `closing`: the tabs a pending close hides
     /// (`DaemonStore.closingTabIDs`); asked only when a tab with an opener relation is no longer listed.
-    public func resolve(pane: String, tabs: [String], defaultIndex: Int, hidden: Set<String> = [],
-                        replaced: [StripTabID: StripTabID] = [:], closing: () -> Set<String> = { [] }) -> String? {
+    /// `standIn`: what became of a creation's stand-in tab that `tabs` no longer lists, by the store's record of the
+    /// creation. The stand-in and the tab it became are one item: the tab keeps the stand-in's opener relations, and
+    /// a pane that selects the stand-in selects its tab, with no pick of a close. While that tab is in the records and
+    /// `tabs` does not list it yet, the result is the stand-in: nothing closed. Asked only for a stand-in that has
+    /// an opener relation or is selected.
+    public func resolve(pane: String, tabs: [String], defaultIndex: Int, hidden: Set<String> = [], groups: [String: String] = [:],
+                        replaced: [StripTabID: StripTabID] = [:], closing: () -> Set<String> = { [] },
+                        standIn fate: (String) -> StandInFate = { _ in .ended }) -> String? {
+        let earlierGroups = lastGroups[pane] ?? [:]
+        lastGroups[pane] = groups.isEmpty ? nil : groups
         closeRule.adopt(replaced)
+        // A stand-in that `tabs` no longer lists: its tab takes its place in the rule's state, or it waits for its tab.
+        let waiting = closeRule.standIns(of: pane, lists: tabs, fate: fate)
         // Before the pick: a tab whose pending close was committed since the last call leaves the rule's state.
-        if !closeRule.isEmpty { closeRule.settle(pane, lists: tabs, before: lastOrder[pane] ?? [], closing: closing) }
+        if !closeRule.isEmpty { closeRule.settle(pane, lists: tabs, before: lastOrder[pane] ?? [], waiting: waiting, closing: closing) }
         // After the pick: a tab the pane no longer lists (closed, or moved away) leaves it; one a pending close hides stays.
-        defer { lastOrder[pane] = tabs; closeRule.settle(pane, lists: tabs, closing: closing) }
+        // `order`: the order that the next call reads, which is the order before while the selected stand-in waits for its tab.
+        var order = tabs
+        defer { lastOrder[pane] = order; closeRule.settle(pane, lists: tabs, waiting: waiting, closing: closing) }
         guard !tabs.isEmpty else {
             set(nil, in: pane)
             return nil
         }
         if let current = selected[pane] {
             if tabs.contains(current) { return current }
+            if ProvisionalTab.isProvisional(current), let tab = fate(current).tab {
+                // The selected stand-in became a tab that the pane lists: no tab closed, the selection stays on the item.
+                if tabs.contains(tab) {
+                    set(tab, in: pane, standIn: current)
+                    return tab
+                }
+                // Its tab is in the records and `tabs` does not list it yet: no tab closed. The selection stays on the
+                // stand-in, and so does its place in the order: for its tab, or for a close's pick if the tab leaves first.
+                order = lastOrder[pane] ?? tabs
+                return current
+            }
             if let old = lastOrder[pane], old.contains(current) {
-                let pick = closeRule.successor(of: current, old: old, tabs: tabs, hidden: hidden) ?? tabs[0]
+                let pick = closeRule.successor(of: current, old: old, tabs: tabs, hidden: hidden,
+                                               groups: earlierGroups.merging(groups) { _, now in now }) ?? tabs[0]
                 closeRule.closeSelects { set(pick, in: pane) } // the close's own move: the rule does not hear of it
                 return pick
             }
@@ -139,6 +171,7 @@ public final class TabSelectionMemory {
         for pane in selected.keys where !livePanes.contains(pane) { set(nil, in: pane) }
         selected.compact { livePanes.contains($0) }
         lastOrder = lastOrder.filter { livePanes.contains($0.key) }
+        lastGroups = lastGroups.filter { livePanes.contains($0.key) }
         closeRule.prune(livePanes: livePanes)
     }
 }

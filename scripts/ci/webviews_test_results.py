@@ -3,6 +3,7 @@
 
     webviews_test_results.py SUMMARY OUT.json     # write {name: passed}
     webviews_test_results.py --failed-files OUT.json  # print the files with a red, one a line
+    webviews_test_results.py --mark-unreached FILES OUT.json  # name in OUT.json the FILES it has no result for
 
 SUMMARY has a `RESULT FILE LOG` line per file. A failed file lists each of its `(fail)` tests as
 `FILE > TEST: false`; a complete failed file also lists its explicit `(pass)` tests as true. A file that timed out, or failed without naming a test (it did not load),
@@ -14,6 +15,9 @@ since the base reruns the file once, alone, too.
 With CMUX_WEB_TEST_STATES set, it also writes {file: {"result": PASS, FAIL or TIMEOUT, "completed": bool}} there:
 "completed" when the file's (last) run reached bun's closing `Ran N tests across M files.` line, so a FAIL that
 names only some tests says the rest passed. The bisect's probes read it (web_coalesce.py) for tests with no explicit result.
+CMUX_WEB_TEST_RETRY_SKIPPED names a file (run-webviews-tests.sh writes it) listing, one a line, the red files whose
+retry was due but never ran to its end (a budget, the deadline or the retry cap stopped it). Such a file's log holds
+only its first run, whose tally says nothing about a retry, so it is never "completed" (#34017).
 """
 from __future__ import annotations
 
@@ -142,8 +146,19 @@ def _completed(log: Path) -> bool:
     return bool(TALLY.search(last))
 
 
+def _retry_skipped() -> set[str]:
+    path = os.environ.get("CMUX_WEB_TEST_RETRY_SKIPPED")
+    if not path:
+        return set()
+    try:
+        return {line for line in Path(path).read_text(encoding="utf-8").splitlines() if line}
+    except OSError:
+        return set()
+
+
 def states(summary: Path) -> dict[str, dict]:
     out: dict[str, dict] = {}
+    skipped = _retry_skipped()
     for line in summary.read_text(encoding="utf-8").splitlines():
         parts = line.split(" ", 2)
         if len(parts) != 3:
@@ -153,12 +168,37 @@ def states(summary: Path) -> dict[str, dict]:
             completed = result == "PASS" or (result == "FAIL" and _completed(Path(log)))
         except OSError:
             completed = False
+        if file in skipped and result != "PASS":
+            out[file] = {"result": result, "completed": False, "retry": "skipped"}
+            continue
         out[file] = {"result": result, "completed": completed}
     return out
 
 
 def failed_files(results: dict[str, bool]) -> list[str]:
-    return sorted({name.split(" > ", 1)[0] for name, ok in results.items() if not ok})
+    return sorted({name.split(" > ", 1)[0] for name, ok in results.items() if not name.startswith("_cmux_") and not ok})
+
+
+def mark_unreached(files: Path, out: Path) -> list[str]:
+    """Record in OUT (`_cmux_unreached`) each file of FILES that OUT has no result for, and return them.
+
+    A replay cut by CMUX_WEB_TEST_STOP_AT (react-apps-base-check's first base replay) leaves the files it did not reach
+    out of its results. guards_new_reds.py would read such a file's absence from a finished replay as "not red on the
+    base" and charge its head reds to the change; named here, they are "base result unavailable" instead. Unreadable
+    results are left alone (guards_new_reds.py already treats a base it cannot read as unavailable)."""
+    try:
+        results = json.loads(out.read_text(encoding="utf-8"))
+        wanted = [line.strip() for line in files.read_text(encoding="utf-8").splitlines() if line.strip()]
+    except (OSError, ValueError):
+        return []
+    if not isinstance(results, dict):
+        return []
+    reached = {name.split(" > ", 1)[0] for name in results if not name.startswith("_cmux_")}
+    unreached = sorted({file for file in wanted if file not in reached})
+    if unreached:
+        results["_cmux_unreached"] = sorted(set(results.get("_cmux_unreached") or []) | set(unreached))
+        out.write_text(json.dumps(results, indent=1, sort_keys=True) + "\n", encoding="utf-8")
+    return unreached
 
 
 def tap_observations(summary: Path, *, log_dir: Path | None = None):
@@ -254,6 +294,13 @@ def main(argv: list[str]) -> int:
         return 0
     if len(argv) == 2 and argv[0] == "--failed-files":
         print("\n".join(failed_files(json.loads(Path(argv[1]).read_text(encoding="utf-8")))))
+        return 0
+    if len(argv) == 3 and argv[0] == "--mark-unreached":
+        unreached = mark_unreached(Path(argv[1]), Path(argv[2]))
+        if unreached:
+            print(f"the replay did not reach {len(unreached)} files (no base result):")
+            for file in unreached:
+                print(f"  {file}")
         return 0
     if len(argv) != 2:
         print(__doc__, file=sys.stderr)

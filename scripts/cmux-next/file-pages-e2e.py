@@ -15,6 +15,8 @@ keeps cmux-tui, acpmux and their hosts running after a quit, and they hold PTYs.
 Usage: file-pages-e2e.py --tag <tag> [--app <path to cmux DEV <tag>.app>] [--out DIR]
 """
 import argparse, glob, hashlib, json, os, signal, socket, subprocess, sys, tempfile, time
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -185,13 +187,13 @@ try:
            "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1300,850"}
     app = subprocess.Popen([BINARY], env=env, stdout=open(os.path.join(SCRATCH, "app.log"), "a"),
                            stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, cwd=FIXTURE)
-    print(f"launched pid {app.pid}", flush=True)
+    safe_print(f"launched pid {app.pid}", flush=True)
     if not wait("the tagged app comes up", lambda: os.path.exists(SOCKET) and (rpc("debug.surfaces") or {}).get("windows"), 90):
         sys.exit("FAIL the tagged app did not come up")
     time.sleep(2)  # test harness: let the window settle
     # A workspace with a terminal in the fixture (its git root is the workspace root, so saves are allowed).
     made = rpc("action.run", {"action": "workspace new", "args": {"cwd": FIXTURE, "focus": True}, "origin": "script"})
-    print(f"workspace new in the fixture: {json.dumps(made)[:300]}", flush=True)
+    safe_print(f"workspace new in the fixture: {json.dumps(made)[:300]}", flush=True)
     focus = wait("a terminal has the keyboard", lambda: (lambda f: f if "terminal" in json.dumps(f) else None)(rpc("debug.focus") or {}), 20)
     expect("the terminal has the keyboard", focus is not None, json.dumps(rpc("debug.focus"))[:300])
     time.sleep(2)  # test harness: the shell starts
@@ -244,27 +246,27 @@ try:
     started = time.time()
     open_file(BIG)
     state = wait("the large file renders", lambda: (lambda s: s if "export const value" in (s.get("text") or "") else None)(page_state("cmux.editor")), 60) or {}
-    print(f"large file shown after {time.time() - started:.1f} s", flush=True)
+    safe_print(f"large file shown after {time.time() - started:.1f} s", flush=True)
     expect("Open File... opens big.ts (10 MB) in the editor page", bool(state), json.dumps(page_state("cmux.editor"))[:400])
     snapshot("editor-large")
     snapshot("editor-large-page", page="cmux.editor")
 
-    print("FAILURES: " + ", ".join(failures) if failures else "ok: every step passed", flush=True)
+    safe_print("FAILURES: " + ", ".join(failures) if failures else "ok: every step passed", flush=True)
 finally:
     if app and app.poll() is None:
-        print(f"debug.quit: {rpc('debug.quit', {'open': True})}", flush=True)
+        safe_print(f"debug.quit: {rpc('debug.quit', {'open': True})}", flush=True)
         time.sleep(1)  # test harness: the quit sheet, if any
         sheet = rpc("debug.quit") or {}
         if sheet.get("asking"):
-            print(f"debug.quit press: {rpc('debug.quit', {'press': 'quit'})}", flush=True)
+            safe_print(f"debug.quit press: {rpc('debug.quit', {'press': 'quit'})}", flush=True)
         try:
             app.wait(timeout=20)
-            print(f"quit {app.pid} exit {app.returncode}", flush=True)
+            safe_print(f"quit {app.pid} exit {app.returncode}", flush=True)
         except subprocess.TimeoutExpired:
             app.send_signal(signal.SIGKILL)  # the PID launched above, never a pattern
-            print(f"killed {app.pid} (did not quit)", flush=True)
+            safe_print(f"killed {app.pid} (did not quit)", flush=True)
     if app and app.returncode not in (None, 0):
-        print(open(os.path.join(SCRATCH, "app.log")).read()[-3000:])
+        safe_print(open(os.path.join(SCRATCH, "app.log")).read()[-3000:])
     TEARDOWN.end()
-    print(f"PTYs open before: {PTYS_BEFORE}, after: {pty_count()}", flush=True)
+    safe_print(f"PTYs open before: {PTYS_BEFORE}, after: {pty_count()}", flush=True)
 sys.exit(1 if failures else 0)

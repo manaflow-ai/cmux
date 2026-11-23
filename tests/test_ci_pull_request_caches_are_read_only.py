@@ -11,14 +11,17 @@ local cache-restore and cache-save actions choose the store.
 from __future__ import annotations
 
 import sys
-import os
 import json
+import os
 import subprocess
 from pathlib import Path
 
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "tests"))
+import workflow_jobs  # noqa: E402
+
 RESTORE = ("actions/cache/restore@", "./.github/actions/cache-restore")
 CACHE = ("actions/cache", "./.github/actions/cache-")
 
@@ -31,6 +34,13 @@ def cache_steps(workflow: str) -> list[tuple[str, dict]]:
             if str(step.get("uses", "")).startswith(CACHE):
                 found.append((job_name, step))
     return found
+
+
+def reads_secret_prefix(value: object, *prefixes: str) -> bool:
+    """value reads a secret whose name starts with one of prefixes, in any form GitHub accepts, or every secret
+    at once (tests/workflow_jobs.py)."""
+    names = workflow_jobs.secret_names(value)
+    return workflow_jobs.ALL_SECRETS in names or any(name.startswith(prefixes) for name in names)
 
 
 def main() -> int:
@@ -79,7 +89,8 @@ def main() -> int:
                 failures.append(f"{path.name} {job_name}: '{step.get('name')}' must read the R2 store nightly.yml seeds: ./.github/actions/cache-restore with an r2 backend")
             else:
                 # r2-cache.sh treats a missing public URL as a miss, silently.
-                scopes = (step.get("env"), workflow["jobs"][job_name].get("env"), workflow.get("env"))
+                # The step's env, then the env the job's steps start from (the workflow's, then the job's).
+                scopes = (step.get("env"), workflow_jobs.effective_env(workflow, workflow["jobs"][job_name]))
                 if not any("CI_CACHE_R2_PUBLIC_URL" in (scope or {}) for scope in scopes):
                     failures.append(f"{path.name} {job_name}: '{step.get('name')}' has no CI_CACHE_R2_PUBLIC_URL, so its R2 restore always misses")
 
@@ -153,13 +164,15 @@ def main() -> int:
     # Bucket credentials never reach pull-request code in either CI workflow.
     for workflow_name in ("ci.yml", "ci-macos.yml"):
         ci_text = (ROOT / ".github/workflows" / workflow_name).read_text(encoding="utf-8")
-        if "CF_R2_" in ci_text or "secrets.CI_CACHE_R2_" in ci_text:
+        ci_jobs = workflow_jobs.jobs(ci_text)
+        if "CF_R2_" in ci_text or reads_secret_prefix(ci_text, "CI_CACHE_R2_") \
+                or any(reads_secret_prefix(job, "CI_CACHE_R2_") for job in ci_jobs.values()):
             failures.append(f"{workflow_name} must not reference the R2 bucket credentials")
     for job_name, step in cache_steps("nightly.yml"):
         for name, value in (step.get("env") or {}).items():
-            if "secrets.CF_R2_" in str(value):
+            if reads_secret_prefix(value, "CF_R2_"):
                 failures.append(f"nightly.yml {job_name}: cache writes must use dedicated CI_CACHE_R2_* credentials, never release credentials")
-            if "secrets.CI_CACHE_R2_" in str(value) and "== 'r2' &&" not in str(value):
+            if reads_secret_prefix(value, "CI_CACHE_R2_") and "== 'r2' &&" not in str(value):
                 failures.append(f"nightly.yml {job_name}: {name} must be empty unless the run saves to R2")
 
     # The write credentials live in the ci-cache-writer environment, whose
@@ -172,23 +185,26 @@ def main() -> int:
     # enters it only on main.
     signing_writer = "${{ github.ref == 'refs/heads/main' && 'release' || '' }}"
     next_writer = "${{ github.ref == 'refs/heads/feat-cmux-next' && 'next-cache-writer' || '' }}"
-    signing_secret = ("secrets.IOS_", "secrets.ASC_API_", "secrets.APPLE_")
+    signing_secret = ("IOS_", "ASC_API_", "APPLE_")
     writers = 0
     for path in sorted((ROOT / ".github/workflows").glob("*.yml")):
         document = yaml.safe_load(path.read_text(encoding="utf-8"))
         for job_name, job in (document.get("jobs") or {}).items():
-            if "secrets.CI_CACHE_R2_" not in json.dumps(job):
+            if not reads_secret_prefix(job, "CI_CACHE_R2_"):
                 continue
             writers += 1
-            if job.get("environment") == writer:
+            environment = workflow_jobs.resolve(job).environment  # a string environment is {"name": it}
+            if environment == {"name": writer}:
                 continue
-            if job.get("environment") == signing_writer and any(name in json.dumps(job) for name in signing_secret):
+            # Only a named signing secret exempts the job: reading every secret at once is no signing exemption.
+            if environment == {"name": signing_writer} and any(
+                    name.startswith(signing_secret) for name in workflow_jobs.secret_names(job)):
                 continue
             # cmux NEXT writes its own bucket through its own environment, whose
             # deployment branches are feat-cmux-next only; it never names main's
             # bucket (cmux-next-fast-tier-seed.yml).
-            if job.get("environment") == next_writer:
-                bucket = (job.get("env") or {}).get("CI_CACHE_R2_BUCKET") or (document.get("env") or {}).get("CI_CACHE_R2_BUCKET")
+            if environment == {"name": next_writer}:
+                bucket = workflow_jobs.effective_env(document, job).get("CI_CACHE_R2_BUCKET")
                 if bucket == "cmux-ci-cache-next" and "vars.CI_CACHE_R2_BUCKET" not in path.read_text(encoding="utf-8"):
                     continue
                 failures.append(f"{path.name} {job_name}: a next-cache-writer job must write only the cmux-ci-cache-next bucket")

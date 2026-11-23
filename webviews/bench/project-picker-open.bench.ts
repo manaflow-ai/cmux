@@ -13,7 +13,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { chromium } from "playwright";
+import { chromium } from "./browsers";
 import { reactWithCompiler } from "../reactCompiler.mjs";
 
 const ROUNDS = Number(process.argv[2] ?? 5);
@@ -51,9 +51,6 @@ const statics = Bun.serve({
   },
 });
 const browser = await chromium.launch({
-  ...(process.env.CMUX_CHROME_HEADLESS_SHELL
-    ? { executablePath: process.env.CMUX_CHROME_HEADLESS_SHELL }
-    : { channel: "chrome" }),
   headless: true,
 });
 

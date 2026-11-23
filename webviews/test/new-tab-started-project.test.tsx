@@ -12,6 +12,7 @@ import { noChat, session } from "../src/gallery/fixtures/acpmux";
 import { EMPTY_OMNIBAR } from "../src/agent-session/acpmux/omnibar";
 import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
 import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
+import { teardownDom } from "./support/domTeardown";
 
 const HOME = "/Users/you";
 const PICKED = "/Users/you/src/atlas";
@@ -78,12 +79,9 @@ beforeAll(() => {
 
 beforeEach(() => stored.clear());
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root?.unmount());
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 const noop = () => {};
@@ -129,7 +127,13 @@ async function startChat(
 /// A fresh New Tab page (no folder of its own) over `sessions`: its chip and the folder Enter asks in.
 async function newTab(
   sessions: ReturnType<typeof session>[],
-  fields: { knownProjects?: string[] | null; startedProject?: string; home?: string | undefined } = {},
+  fields: {
+    knownProjects?: string[] | null;
+    startedProject?: string;
+    home?: string | undefined;
+    cwd?: string;
+    startCwd?: string;
+  } = {},
 ) {
   const { createRoot } = await import("react-dom/client");
   const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
@@ -312,6 +316,65 @@ test("a project list that answered empty accepts no chat or started folder", asy
   const classic = await classicTab({ home: HOME, cwd: HOME, knownProjects: null, startedProject: PICKED });
   expect(classic.chip).not.toContain("atlas");
   expect(classic.folder).toBe(HOME);
+});
+
+// cmux#49610 (screenshot: the New Tab composer read "tmp"): harness and script chats run in the
+// system's temp folders, and the newest of them, or the tab beside one, set the next composer's
+// folder. A temporary folder is never a project: every New Tab starts on the folder used last.
+const SCRATCH = [
+  session({ sessionId: "scratch-1", cwd: "/private/tmp", updatedAt: minutesAgo(1) }),
+  session({ sessionId: "scratch-2", cwd: "/tmp/claude-501/run", updatedAt: minutesAgo(1) }),
+  session({ sessionId: "scratch-3", cwd: "/private/var/folders/xy/T/job", updatedAt: minutesAgo(1) }),
+];
+
+test("a chat in a temporary folder never becomes the next New Tab's folder", async () => {
+  const { isTemporaryFolder, mostRecentProject } = await import("../src/agent-session/acpmux/sessionList");
+  for (const scratch of SCRATCH) expect(isTemporaryFolder(scratch.cwd)).toBe(true);
+  expect(isTemporaryFolder("/Users/you/src/tmp")).toBe(false);
+  expect(isTemporaryFolder("/tmpfiles")).toBe(false);
+  // The newest chats are scratch chats: the newest project chat's folder is the fallback.
+  expect(mostRecentProject([theirs, ...SCRATCH], HOME)).toBe(PICKED);
+
+  // With nothing started from a composer, the page starts on the newest project chat, not "tmp".
+  const fallback = await newTab([theirs, ...SCRATCH]);
+  expect(fallback.chip).not.toContain("tmp");
+  expect(fallback.folder).toBe(PICKED);
+
+  // A send from a composer in /tmp leaves the folder used last as the default.
+  await startChat(PICKED);
+  const sent = await startChat("/private/tmp");
+  expect(sent.some(([method, params]) => method === "newTab.remember" && "started" in (params as object))).toBe(false);
+  expect((await newTab([theirs, ...SCRATCH])).folder).toBe(PICKED);
+  // Nor does a stale temp folder the app kept from before this fix.
+  stored.clear();
+  expect((await newTab([theirs, ...SCRATCH], { startedProject: "/private/tmp" })).folder).toBe(PICKED);
+});
+
+test("a New Tab opened beside a tab in a temporary folder starts on the folder used last", async () => {
+  await startChat(PICKED);
+  for (const cwd of ["/private/tmp", "/tmp/claude-501/run"]) {
+    const page = await newTab([theirs, ...SCRATCH], { cwd });
+    expect(page.chip).not.toContain("tmp");
+    expect(page.chip).toContain("atlas");
+    expect(page.folder).toBe(PICKED);
+  }
+  // The app's start folder for a page beside a /tmp tab is that /tmp folder: it does not win either.
+  const hosted = await newTab([theirs, ...SCRATCH], { cwd: "/private/tmp", startCwd: "/private/tmp" });
+  expect(hosted.chip).toContain("atlas");
+  expect(hosted.folder).toBe(PICKED);
+  // A project start folder from the app still wins over the folder used last.
+  expect((await newTab([theirs, ...SCRATCH], { startCwd: "/Users/you/src/billing" })).chip).not.toContain("atlas");
+  // With no folder used last known, a /tmp folder stays the page's folder (a project can live there).
+  stored.clear();
+  const alone = await newTab([], { cwd: "/tmp/real/work/uploader", startCwd: "/tmp/real/work/uploader" });
+  expect(alone.chip).toContain("uploader");
+  await startChat(PICKED);
+  // A real project folder the tab has is still the page's own.
+  expect((await newTab([theirs, ...SCRATCH], { cwd: "/Users/you/src/billing" })).folder).toBe("/Users/you/src/billing");
+  // The classic page too.
+  const classic = await classicTab({ home: HOME, cwd: "/private/tmp" });
+  expect(classic.chip).toContain("atlas");
+  expect(classic.folder).toBe(PICKED);
 });
 
 test("classic New Tab: a second Add folder… while the host's panel is open asks nothing, and its pick lands", async () => {

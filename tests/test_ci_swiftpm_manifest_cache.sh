@@ -9,7 +9,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../scripts/cmux-next/tests/lib/git-fixtur
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SCRIPT="$ROOT/scripts/ci/swiftpm-manifest-cache.sh"
 TMP_DIR="$(mktemp -d)"
-trap 'rm -rf "$TMP_DIR"' EXIT
+git_fixture_trap_exit 'rm -rf "$TMP_DIR"'
 
 mkdir -p "$TMP_DIR/bin" "$TMP_DIR/home"
 cat > "$TMP_DIR/bin/xcodebuild" <<'STUB'

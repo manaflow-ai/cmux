@@ -2,7 +2,7 @@
 // selected row. React reads it through `useSyncExternalStore`; each change makes a new state object,
 // so a component given the state as an argument redraws with it.
 import type { PageClient } from "../shared/pageClient";
-import { keptSelection, killableRow, nextOrder, sortRows } from "./model";
+import { keptRows, keptSelection, killableRow, nextOrder, sortRows } from "./model";
 import { TaskManagerOps, type SortKey, type SortOrder, type TaskManagerRow, type TaskManagerSnapshot } from "./types";
 
 export interface TaskManagerState {
@@ -70,7 +70,8 @@ export class TaskManagerStore {
    * (another window's click moves it here too); a host without it leaves the page's own, kept
    * while its process is listed.
    */
-  replace(snapshot: TaskManagerSnapshot) {
+  replace(sample: TaskManagerSnapshot) {
+    const snapshot = { ...sample, rows: keptRows(this.state.snapshot.rows, sample.rows) };
     const authoritative = snapshot.selected !== undefined;
     const selected = keptSelection(authoritative ? (snapshot.selected ?? null) : this.state.selected, snapshot.rows);
     const lost = !authoritative && selected !== this.state.selected;

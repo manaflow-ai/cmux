@@ -88,16 +88,15 @@ final class AcpmuxPermissionFeedBridge {
     private(set) var posted: [String: Posted] = [:]
     /// Permission ids being posted or posted (one item per prompt).
     private var postedPermissions: Set<String> = []
+    /// `_acpmux/permission_pending` notices handled to the end (posted or skipped): a test's wait before it reads ``posted``.
+    private(set) var pendingNoticesHandled = 0
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "acpmux.feed-bridge")
 
     init(environment: AcpmuxEnvironment, owner: @escaping Owner, isSignedIn: @escaping @MainActor () -> Bool,
          ownInstall: @escaping @Sendable () async -> String?,
          presenceKeys: @escaping PresenceKeys, pendingReads: AcpmuxPendingReads = .feed) {
-        (self.environment, self.pendingReads) = (environment, pendingReads)
-        self.owner = owner
-        self.isSignedIn = isSignedIn
-        self.ownInstall = ownInstall
-        self.presenceKeys = presenceKeys
+        (self.environment, self.pendingReads, self.owner) = (environment, pendingReads, owner)
+        (self.isSignedIn, self.ownInstall, self.presenceKeys) = (isSignedIn, ownInstall, presenceKeys)
     }
 
     /// Starts the watch (idempotent).
@@ -196,13 +195,13 @@ final class AcpmuxPermissionFeedBridge {
         guard let method = message["method"] as? String, let params = message["params"] as? [String: Any] else { return }
         switch method {
         case "_acpmux/permission_pending":
-            guard let session = params["sessionId"] as? String, let permission = params["permissionId"] as? String,
+            guard let session = AcpmuxPendingReads.sessionKey(params), let permission = params["permissionId"] as? String,
                   let request = params["request"] as? [String: Any] else { return }
-            Task { await self.post(session: session, permission: permission, request: request) }
+            Task { await self.post(session: session, permission: permission, request: request); self.pendingNoticesHandled += 1 }
         case "_acpmux/session_changed":
             let kind = params["kind"] as? String
             if kind == "permission_decision" || kind == "permission_resolved",
-               let session = params["sessionId"] as? String {
+               let session = AcpmuxPendingReads.sessionKey(params) {
                 Task { await self.withdrawResolved(in: session) }
             }
         default:
@@ -245,14 +244,14 @@ final class AcpmuxPermissionFeedBridge {
             || redacted || (summary?.truncated ?? false)
         var action: [String: Any] = [
             "type": kind == "execute" ? "command" : kind == "edit" || kind == "delete" || kind == "move" ? "edit" : "tool",
-            "summary": (title.isEmpty ? String(localized: "feed.bridge.summary", defaultValue: "An agent asks to run a tool", bundle: .module) : title).acpmuxCut(500),
+            "summary": (title.isEmpty ? String(localized: "feed.bridge.summary", defaultValue: "An agent asks to run a tool", bundle: .module.inAppLanguage) : title).acpmuxCut(500),
         ]
         if !kind.isEmpty { action["tool"] = kind.acpmuxCut(200) }
         if let command, !command.isEmpty { action["command"] = command.acpmuxCut(8000) }
         if let summary { action["input"] = summary.fields }
         if truncated { action["truncated"] = true }
         let key = "acpmux:\(permission)"
-        let heading = String(localized: "feed.bridge.title", defaultValue: "Allow \((title.isEmpty ? kind : title).acpmuxCut(120))?", bundle: .module)
+        let heading = String(localized: "feed.bridge.title", defaultValue: "Allow \((title.isEmpty ? kind : title).acpmuxCut(120))?", bundle: .module.inAppLanguage)
         var params: [String: Any] = [
             "type": "request",
             "kind": "approve",
@@ -262,7 +261,7 @@ final class AcpmuxPermissionFeedBridge {
             "context": ["host": String(host.prefix(128)), "acp_session": String(session.prefix(128))],
             "dedupe_key": String(key.prefix(200)),
             "thread": String("acpmux:\(session)".prefix(200)),
-            "poster": ["label": String(localized: "feed.bridge.poster", defaultValue: "Agent", bundle: .module)],
+            "poster": ["label": String(localized: "feed.bridge.poster", defaultValue: "Agent", bundle: .module.inAppLanguage)],
         ]
         if let command, !command.isEmpty { params["body"] = command.acpmuxCut(4096) }
         return ["op": "feed.post", "params": params, "idempotency_key": String(key.prefix(200)), "origin": "script"]
@@ -279,11 +278,11 @@ final class AcpmuxPermissionFeedBridge {
         let text = (firstItem?["prompt"] as? String ?? asked?["question"] as? String ?? call["title"] as? String ?? "")
             .secretsScrubbed.acpmuxVisible.acpmuxCut(160)
         let agent = (normalized?["agent"] as? String).map { $0.acpmuxVisible.acpmuxCut(60) }.flatMap { $0.isEmpty ? nil : $0 }
-            ?? String(localized: "feed.bridge.question.agent", defaultValue: "An agent", bundle: .module)
+            ?? String(localized: "feed.bridge.question.agent", defaultValue: "An agent", bundle: .module.inAppLanguage)
         let key = "acpmux:\(permission)"
         let heading = text.isEmpty
-            ? String(localized: "feed.bridge.question.untitled", defaultValue: "\(agent) asks a question", bundle: .module)
-            : String(localized: "feed.bridge.question.title", defaultValue: "\(agent) asks: \(text)", bundle: .module)
+            ? String(localized: "feed.bridge.question.untitled", defaultValue: "\(agent) asks a question", bundle: .module.inAppLanguage)
+            : String(localized: "feed.bridge.question.title", defaultValue: "\(agent) asks: \(text)", bundle: .module.inAppLanguage)
         let params: [String: Any] = [
             "type": "notice",
             "kind": "notice",
@@ -295,7 +294,7 @@ final class AcpmuxPermissionFeedBridge {
             "context": ["host": String(host.prefix(128)), "acp_session": String(session.prefix(128))],
             "dedupe_key": String(key.prefix(200)),
             "thread": String("acpmux:\(session)".prefix(200)),
-            "poster": ["label": String(localized: "feed.bridge.poster", defaultValue: "Agent", bundle: .module)],
+            "poster": ["label": String(localized: "feed.bridge.poster", defaultValue: "Agent", bundle: .module.inAppLanguage)],
         ]
         return ["op": "feed.post", "params": params, "idempotency_key": String(key.prefix(200)), "origin": "script"]
     }

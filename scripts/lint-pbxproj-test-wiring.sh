@@ -253,7 +253,7 @@ for entry in ${allowed[@]+"${allowed[@]}"}; do
 done
 if [ "${#stale[@]}" -gt 0 ]; then
   echo "lint-pbxproj-test-wiring: ${#stale[@]} stale allowlist entr(y/ies) in $ALLOWLIST; remove them:"
-  for entry in "${stale[@]}"; do
+  for entry in ${stale[@]+"${stale[@]}"}; do
     echo "  - $entry"
   done
   exit 1
@@ -265,7 +265,7 @@ if [ "${#missing[@]}" -eq 0 ]; then
 fi
 
 echo "lint-pbxproj-test-wiring: ${#missing[@]} Swift file(s) not a member of the $TARGET_NAME target's Sources build phase (uuid=$tests_sources_uuid) in cmux.xcodeproj/project.pbxproj"
-for entry in "${missing[@]}"; do
+for entry in ${missing[@]+"${missing[@]}"}; do
   echo "  - $entry"
 done
 echo ""

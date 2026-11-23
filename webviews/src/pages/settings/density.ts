@@ -28,16 +28,135 @@ export const SPACING_RANGE = { min: 0.5, max: 2 } as const;
 export const FONT_RANGE = { min: 9, max: 20 } as const;
 
 /** Default's chrome body text in points: the ChatGPT and Codex desktop apps' size. */
-const DEFAULT_BODY_POINTS = 13;
+const DEFAULT_BODY_POINTS = 14;
+
+/** Swift `DensityTokens.half`: the nearest half point. */
+const half = (value: number) => Math.round(value * 2) / 2;
+
+// Keep the exported preset payload equal to Swift DensityPreset.reference.
+const REFERENCE_TOKENS: Record<string, number> = {
+  sidebarRowHeight: 28,
+  browserRowHeight: 30,
+  browserRowGap: 3,
+  tabStripHeight: 36,
+  tabTitleSize: 14,
+  sidebarTitleSize: 14,
+  chatEditorMin: 35,
+  sidebarRowInset: 6,
+  sidebarContentInset: 7,
+  sidebarLineBoxBaseline: 1,
+  sidebarIconColumn: 16.5,
+  sidebarIconGap: 7,
+  tabIconSize: 16.5,
+  tabIconTitleGap: 7,
+  tabGap: 3,
+  tabMaxWidth: 201,
+  rowCornerRadius: 9,
+  tabCornerRadius: 9,
+  omnibarCornerRadius: 8 / 0.9,
+  omnibarPopupCornerRadius: 12,
+  omnibarPopupRowCornerRadius: 8,
+  toolbarGlyphSize: 14 / 0.9 / 0.617,
+  omnibarHeight: 28 / 0.9,
+  omnibarFontSize: (10 - 0.31) / 0.70459 / 0.9,
+  omnibarLineBoxBaseline: 1,
+  omnibarButtonSpacing: 3,
+  omnibarEdgeInset: 2,
+  omnibarFieldTrailingGap: 5,
+  omnibarTrailingPadding: 8,
+  omnibarTrailingIconSize: 18,
+  omnibarIconViewSize: 25,
+  omnibarIconSize: 12 / 0.9 / 0.697,
+  // Swift `DensityPreset.referenceTokens`: Compact's puzzle draws 16 pt of ink, its star 12 pt.
+  omnibarExtensionsGlyphSize: 27 / 0.9,
+  omnibarMoreGlyphSize: 20 / 0.9,
+  omnibarIconLeading: 2,
+  omnibarTextGap: 5,
+  omnibarPopupTopOutset: 3,
+  omnibarPopupSideOutset: 7,
+  omnibarPopupRowGap: 2,
+  omnibarPopupBottomPadding: 4,
+};
+
+const CHROME_OMNIBAR_HEIGHT = 34;
+const CHROME_TOOLBAR_GAP = 6;
+const DEFAULT_STRIP_PADDING = 5;
+const DEFAULT_OMNIBAR_CAP_HEIGHT = 11;
+const DEFAULT_STAR_PLATE_SIZE = 28;
+/** Swift `DensityPreset.starGlyphSides`: the half-point star sides that draw whole rows at 2x. */
+const STAR_GLYPH_SIDES: Record<string, number> = {
+  ultraCompact: 21,
+  compact: 23.5,
+  cozy: 28,
+  comfortable: 29.5,
+  spacious: 32,
+};
+
+/** Swift `DensityPreset.isOmnibarToken`: every `omnibar*` size and the toolbar glyphs beside the bar. */
+const omnibarTokens = (tokens: Record<string, number>) =>
+  Object.fromEntries(Object.entries(tokens).filter(([key]) => key.startsWith("omnibar") || key === "toolbarGlyphSize"));
+
+/** A built-in as Swift `DensityPreset.tokens` makes it: Default's level, spacing and body text times one factor,
+ *  and the owner's row height exact (Lucas 2026-11-16: 24, 28, 30, 32 and 36 pt rows). */
+function preset(id: string, name: string, nameKey: string, factor: number, row: number): Density & { nameKey: string } {
+  const tokens = Object.fromEntries(
+    Object.entries(REFERENCE_TOKENS).map(([key, value]) => [key, half(value * factor)]),
+  );
+  for (const key of ["tabTitleSize", "sidebarTitleSize", "omnibarFontSize"])
+    tokens[key] = REFERENCE_TOKENS[key]! * factor;
+  tokens.sidebarLineBoxBaseline = 1;
+  tokens.omnibarLineBoxBaseline = 1;
+  tokens.densityScale = factor;
+  tokens.composerZoom = factor;
+  tokens.sidebarRowHeight = row - half(2 * factor);
+  tokens.browserRowHeight = row;
+  tokens.tabStripHeight = row + 2 * half(3 * factor);
+  // Default and the densities above it take Default's Chrome spacing times their factor (Swift `DensityPreset`): the strip
+  // padding (Default's 5 pt) and the omnibar row's gap (Chrome's 6 pt). Ultra-compact and Compact keep 3 pt times theirs.
+  if (factor >= 1) {
+    // Spacious's half-point bar takes half-point gaps (Swift `DensityPreset.spaciousGapNudge`).
+    const nudge = id === "spacious" ? 0.5 : 0;
+    tokens.browserRowGap = half(DEFAULT_STRIP_PADDING * factor) + nudge;
+    tokens.tabStripHeight = row + 2 * tokens.browserRowGap;
+    tokens.omnibarRowGap = half(CHROME_TOOLBAR_GAP * factor) + nudge;
+  }
+  // Compact's tabs sit a point further from the omnibar than their strip padding (Swift `DensityPreset`, `tabToOmnibarGap`).
+  if (id === "compact") tokens.tabToOmnibarGap = half(3 * factor) + 1;
+  // Default's omnibar is Compact's (Swift `DensityPreset.omnibarScaleFactor`), on Chrome's 34 pt bar
+  // (Swift `DensityPreset.chromeOmnibarHeight`) rounded at Helium's 8 on 28.
+  if (id === "cozy") {
+    Object.assign(tokens, omnibarTokens(preset("compact", "", "", 0.9, 28).tokens!));
+    // Its toolbar buttons and star plate keep Compact's padding (Swift `DensityPreset`): Compact's 28 pt buttons, a 28 pt plate.
+    tokens.omnibarButtonSize = tokens.omnibarHeight!;
+    tokens.omnibarStarPlateSize = DEFAULT_STAR_PLATE_SIZE;
+    tokens.omnibarHeight = CHROME_OMNIBAR_HEIGHT;
+    tokens.omnibarCornerRadius = half((CHROME_OMNIBAR_HEIGHT * 8) / 28);
+    // Its URL capitals are 11 pt, a point over Compact's (Swift `DensityPreset.defaultOmnibarCapHeight`).
+    tokens.omnibarFontSize = (DEFAULT_OMNIBAR_CAP_HEIGHT - 0.31) / 0.70459;
+    // Its search glyph is a little taller than Compact's: Compact's box plus a point (Swift `DensityPreset`).
+    tokens.omnibarIconSize = tokens.omnibarIconSize! + 1;
+  }
+  // Each built-in's bookmark star side (Swift `DensityPreset.starGlyphSides`).
+  if (STAR_GLYPH_SIDES[id] !== undefined) tokens.omnibarStarGlyphSize = STAR_GLYPH_SIDES[id]!;
+  return {
+    id,
+    name,
+    nameKey,
+    level: Math.round(((0.5 + 3) * factor - 3) * 1000) / 1000,
+    spacing: factor,
+    fontSize: Math.round(DEFAULT_BODY_POINTS * factor * 1000) / 1000,
+    tokens,
+  };
+}
 
 /** The built-ins, densest first (Swift `DensityPreset`); `name` is the catalog key of the
- * localized name. Default keeps the id `cozy` so saved files still name it. */
+ * localized name. Default keeps the id `cozy` so saved files still name it. Each is Default times one factor. */
 export const PRESETS: ReadonlyArray<Density & { nameKey: string }> = [
-  { id: "ultraCompact", name: "Ultra-compact", nameKey: "settings.choice.ultraCompact", level: -0.5, spacing: 0.75 },
-  { id: "compact", name: "Compact", nameKey: "settings.choice.compact", level: 0 },
-  { id: "cozy", name: "Default", nameKey: "settings.choice.default", level: 0.5, fontSize: DEFAULT_BODY_POINTS },
-  { id: "comfortable", name: "Comfortable", nameKey: "settings.choice.comfortable", level: 1.25, spacing: 1.1 },
-  { id: "spacious", name: "Spacious", nameKey: "settings.choice.spacious", level: 2.25, spacing: 1.35 },
+  preset("ultraCompact", "Ultra-compact", "settings.choice.ultraCompact", 0.8, 24),
+  preset("compact", "Compact", "settings.choice.compact", 0.9, 28),
+  preset("cozy", "Default", "settings.choice.default", 1, 30),
+  preset("comfortable", "Comfortable", "settings.choice.comfortable", 1.1, 32),
+  preset("spacious", "Spacious", "settings.choice.spacious", 1.2, 36),
 ];
 /** The density when appearance.density is unset (Swift `DensitySetting.fallback`). */
 export const DEFAULT_DENSITY = "cozy";
@@ -53,7 +172,6 @@ export const PAIRS = {
 const BODY = [12, 13] as const;
 const CAPTION = [10.5, 11] as const;
 
-const half = (value: number) => Math.round(value * 2) / 2;
 /** The icon scale glyph boxes sit on (Swift `DensityTokens.iconScale`, design/grid.md). */
 export const ICON_SCALE = [12, 14, 16, 20, 24] as const;
 /** Swift `resolveGlyph`: the level's point on the nearest icon-scale step; a tie goes down below
@@ -79,22 +197,65 @@ export type Resolved = {
   inset: number;
 };
 
+/** The fill native sidebar rows add to a preset copy's stored base height. */
+export function densityRowFill(density: Density): number {
+  return density.tokens?.densityScale === undefined ? 0 : half(2 * (density.spacing ?? 1));
+}
+
+/** Map displayed sizes to the tokens read by the native sidebar and tab strip. */
+export function setExactMetric(density: Density, name: keyof typeof PAIRS, value: number): Density {
+  const tokens = { ...density.tokens, [name]: value };
+  if (name === "sidebarRowHeight") tokens.sidebarRowHeight = Math.max(0, value - densityRowFill(density));
+  if (name === "itemCornerRadius") {
+    tokens.rowCornerRadius = value;
+    tokens.tabCornerRadius = value;
+  }
+  if (name === "iconSize") {
+    tokens.tabIconSize = value;
+    // Native workspace glyph scale divides by the column, even when a zero-size icon is hidden.
+    tokens.sidebarIconColumn = Math.max(1, value);
+  }
+  return { ...density, tokens };
+}
+
 /** The sizes `density` draws (Swift `DensityTokens`): exact tokens win, else the level's point. */
 export function resolve(density: Density): Resolved {
   const level = density.level;
-  const metric = (name: keyof typeof PAIRS) => density.tokens?.[name] ?? at(PAIRS[name], level, Math.round);
+  const factor = density.tokens?.densityScale;
+  const metric = (name: keyof typeof PAIRS) =>
+    density.tokens?.[name] ??
+    (factor === undefined ? at(PAIRS[name], level, Math.round) : half(at(PAIRS[name], 0.5, Math.round) * factor));
   const levelBody = at(BODY, level, half);
   const text = (pair: readonly [number, number]) => {
+    if (factor !== undefined) {
+      const reference = half((at(pair, 0.5, half) * DEFAULT_BODY_POINTS) / at(BODY, 0.5, half));
+      return reference * (density.fontSize === undefined ? factor : density.fontSize / DEFAULT_BODY_POINTS);
+    }
     const size = at(pair, level, half);
     return density.fontSize === undefined ? size : half((size * density.fontSize) / levelBody);
   };
   const spacing = density.spacing ?? 1;
+  // A tab is the density's row unless the density sets its own (Swift `Metrics.tabHeight`, tabs follow rows); a strip
+  // without its own height grows by as much as the tab outgrows the level's tab (Swift `Metrics.tabStripHeight`).
+  const rowHeight = metric("sidebarRowHeight") + densityRowFill(density);
+  const tabHeight = density.tokens?.tabHeight ?? density.tokens?.browserRowHeight ?? rowHeight;
+  const levelStrip =
+    at(PAIRS.tabStripHeight, level, Math.round) + Math.max(0, tabHeight - at(PAIRS.tabHeight, level, Math.round));
   return {
-    sidebarRowHeight: metric("sidebarRowHeight"),
-    tabHeight: metric("tabHeight"),
-    tabStripHeight: metric("tabStripHeight"),
-    itemCornerRadius: metric("itemCornerRadius"),
-    iconSize: density.tokens?.iconSize ?? glyph(PAIRS.iconSize, level),
+    sidebarRowHeight: rowHeight,
+    tabHeight,
+    tabStripHeight:
+      density.tokens?.browserRowGap === undefined
+        ? (density.tokens?.tabStripHeight ?? levelStrip)
+        : tabHeight + 2 * density.tokens.browserRowGap,
+    // A row's corner is Chrome's tab corner on its height, 8 on 30 (Swift `chromeRowCornerRadius`), so every
+    // density rounds alike.
+    itemCornerRadius:
+      density.tokens?.rowCornerRadius ?? density.tokens?.itemCornerRadius ?? Math.round((rowHeight * 8) / 30),
+    iconSize:
+      density.tokens?.tabIconSize ??
+      density.tokens?.iconSize ??
+      (factor === undefined ? glyph(PAIRS.iconSize, level) : half(glyph(PAIRS.iconSize, 0.5) * factor)),
     body: density.fontSize ?? levelBody,
     caption: text(CAPTION),
     inset: spacing === 1 ? 6 : half(6 * spacing),
@@ -169,5 +330,9 @@ export function parseExport(text: string, existing: ReadonlyArray<Density>): Den
   }
   const [density] = customDensities([value]);
   if (!density || density.name.trim() === "") return null;
-  return { ...density, id: uniqueID(density.id, existing) };
+  return {
+    ...density,
+    id: uniqueID(density.id, existing),
+    basedOn: PRESETS.some((preset) => preset.id === density.id) ? density.id : density.basedOn,
+  };
 }

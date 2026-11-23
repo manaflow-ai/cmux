@@ -194,8 +194,103 @@ pub(crate) fn decorate_changes(connection: &Connection, changes: &mut Value) -> 
     Ok(())
 }
 
-/// Decorate the workspace, screen, and tab arrays of a session snapshot.
+/// Add the state fields of each of `workspaces` in place: what [`decorate_value`] adds to each,
+/// with the 7 statements of [`workspace_extras`] for the whole list, not 7 for each workspace
+/// (`workspace.list` and the session snapshot: 2e5a10e4 made the one-workspace read those same 7
+/// statements with one id, so a list of N workspaces ran 7 x N).
+pub(crate) fn decorate_workspaces(
+    connection: &Connection,
+    workspaces: &mut [Value],
+) -> anyhow::Result<()> {
+    let extras = {
+        let ids = workspaces
+            .iter()
+            .filter_map(|workspace| workspace.get("id")?.as_str())
+            .collect::<Vec<_>>();
+        workspace_extras(connection, &ids)?
+    };
+    for workspace in workspaces {
+        let fields = workspace.get("id").and_then(Value::as_str).and_then(|id| extras.get(id));
+        if let Some(fields) = fields.cloned() {
+            merge_extra(workspace, fields);
+        }
+    }
+    Ok(())
+}
+
+/// Every `screen_presentation` and `screen_group_members` row, by screen id, as
+/// [`screen_extra`] reads them for one screen. `screen_id` is the primary key of both tables, so a
+/// screen has at most one row in each, and the fields are those of [`screen_extra`].
+fn session_screen_extras(
+    connection: &Connection,
+) -> anyhow::Result<HashMap<String, Map<String, Value>>> {
+    let mut extras = HashMap::<String, Map<String, Value>>::new();
+    let mut statement = connection
+        .prepare_cached("SELECT screen_id, pinned, color, icon FROM screen_presentation")?;
+    let mut rows = statement.query([])?;
+    while let Some(row) = rows.next()? {
+        let fields = extras.entry(row.get::<_, String>(0)?).or_default();
+        if row.get::<_, i64>(1)? != 0 {
+            fields.insert("pinned".into(), json!(true));
+        }
+        if let Some(color) = row.get::<_, Option<String>>(2)? {
+            fields.insert("color".into(), json!(color));
+        }
+        if let Some(icon) = row.get::<_, Option<String>>(3)? {
+            fields.insert("icon".into(), json!(icon));
+        }
+    }
+    let mut statement = connection.prepare_cached(
+        "SELECT m.screen_id, m.group_id
+         FROM screen_group_members AS m
+         JOIN screen_groups AS g ON g.group_id = m.group_id",
+    )?;
+    let mut rows = statement.query([])?;
+    while let Some(row) = rows.next()? {
+        let group = row.get::<_, String>(1)?;
+        extras
+            .entry(row.get::<_, String>(0)?)
+            .or_default()
+            .insert("screen_group_id".into(), json!(group));
+    }
+    Ok(extras)
+}
+
+/// Decorate the workspace, screen, and tab arrays of a session snapshot: each value gets what
+/// [`decorate_value`] gives it, with a fixed number of statements for the whole session
+/// ([`decorate_workspaces`], two screen statements, [`decorate_session_tabs`]) in place of
+/// statements for each value. Run it in the read transaction that loaded the values.
 pub(crate) fn decorate_snapshot(
+    connection: &Connection,
+    snapshot: &mut Value,
+) -> anyhow::Result<()> {
+    if let Some(workspaces) = snapshot["workspaces"].as_array_mut() {
+        decorate_workspaces(connection, workspaces)?;
+    }
+    if let Some(screens) = snapshot["screens"].as_array_mut()
+        && !screens.is_empty()
+    {
+        let extras = session_screen_extras(connection)?;
+        for screen in screens {
+            let fields =
+                screen.get("id").and_then(Value::as_str).and_then(|id| extras.get(id)).cloned();
+            if let Some(fields) = fields {
+                merge_extra(screen, fields);
+            }
+        }
+    }
+    if let Some(tabs) = snapshot["tabs"].as_array_mut()
+        && !tabs.is_empty()
+    {
+        decorate_session_tabs(connection, tabs)?;
+    }
+    Ok(())
+}
+
+/// The snapshot decoration before the bulk reads: [`decorate_value`] on each value (test
+/// reference for the equality check of [`decorate_snapshot`]).
+#[cfg(test)]
+pub(crate) fn decorate_snapshot_one_by_one(
     connection: &Connection,
     snapshot: &mut Value,
 ) -> anyhow::Result<()> {

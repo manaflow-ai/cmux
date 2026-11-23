@@ -55,6 +55,15 @@ itself and this conversation.
   Markdown link, nothing is charged until they pay, never say you bought anything, once per ask.
 - The local Chief keeps the `paid-plans` skill (`cmux billing checkout`, through the Mac app and
   cmux.com).
+- After payment (#25574): the link names the Chief and conversation that sent it (signed), the session
+  carries them in metadata and returns to `/v1/billing/plan/done?session_id=...`. The return page and
+  the signed webhook (`/v1/hooks/stripe/credits`, checkout.session.completed) share `grantPlanSession`:
+  a paid test-mode session at the plan's price becomes the team's test plan grant in TeamDO
+  (`test_plan_session`, one row per session, marked revoked, never deleted), once per session. `inferencePlan` honors it off production only, so the job gate,
+  the model router and Cloud machines see the plan on their next read (no restart).
+  customer.subscription.deleted marks it revoked. The Chief's conversation gets one "[billing] ... is on"
+  note (`plan:<session>`) that starts a turn: it says the plan is on in one line and redoes the add.
+- User-facing copy names no vendor (return pages, the skill's example reply, both prompts; evals check).
 
 ## 4. Proof (2026-10-25)
 
@@ -71,8 +80,8 @@ change (3 of 3 failed: no `auto_` action, no `chiefJob` RPC), green after:
 
 ## 5. Open
 
-- Paying a test-mode checkout grants no plan. The live plan comes from web billing (cmuxPlan). A live
-  key, real prices or a grant from this link need Lawrence's OK.
+- A paid test-mode checkout grants a test plan off production only. The live plan comes from web
+  billing (cmuxPlan). A live key, real prices or a live grant from this link need Lawrence's OK.
 - The local (Mac) Chief has no `chief-auto`: its jobs need the Cloud Chief, or a paired install token
   calling `automation.create` with a `chief` body for the Cloud Chief's conversation.
 - No staging run through the deployed Worker yet (needs a deploy; the Worker change is additive).

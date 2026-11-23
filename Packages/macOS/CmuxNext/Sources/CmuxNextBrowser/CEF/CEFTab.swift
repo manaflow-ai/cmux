@@ -35,7 +35,19 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     @ObservationIgnored public private(set) var browserID: Int32?
     /// Set once by `markAgentDriven`; saved passwords do not fill in this tab.
     @ObservationIgnored public internal(set) var isAgentDriven = false
+    /// The fork refuses this page's WebAuthn now (CMUX_WEBAUTHN_MODE_REFUSE, set by ``applyWebAuthnRefusal()`` or
+    /// copied by the fork from an opener that had it), until the person takes the page (``allowWebAuthnForPerson()``).
+    @ObservationIgnored var webAuthnRefused = false
+    /// Passkey hand-offs whose trigger runs now (``handOverWebAuthn(during:)``): their click is the person's.
+    @ObservationIgnored var webAuthnHandOvers = 0
+    /// An agent acted in the page (``markAgentDriven()``) since the person last took it (their input or a hand-off):
+    /// its WebAuthn is refused then. An agent's reads (``markAgentReading()``) leave it as it is.
+    @ObservationIgnored var webAuthnAgentActs = false
+    /// An extension's popup window shown over a pane (`CEFPaneHost+PopupWindows`): its host holds the window.
+    public var isExtensionWindow: Bool { host.popupWindow != nil }
     @ObservationIgnored var passwordFill = PasswordFillState()
+    /// The current omnibox edit's texts and matches, sent to the predictor (CEFTab+OmniboxPreload).
+    @ObservationIgnored var omniboxRegistrations: [OmniboxPendingLearns.Registration] = []
     /// The browser host's raw DevTools relay of this page.
     @ObservationIgnored public private(set) lazy var agentRelay = CEFAgentRelay(tab: self)
     /// Files an agent offered this page's next file chooser; Chromium sends choosers to the app while one
@@ -104,13 +116,26 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     @ObservationIgnored var loadSinceCreation: URL?
     /// Focus cmux asked for while the page could not take it (no browser yet, or not shown):
     /// granted once the page shows (``grantPendingFocusIfShown()``).
-    @ObservationIgnored var pendingFocus = false
+    @ObservationIgnored var pendingFocus = false {
+        didSet {
+            guard pendingFocus != oldValue else { return }
+            if pendingFocus { pendingFocusSince = .now } else if let since = pendingFocusSince {
+                // How long the ask waited (a key typed meanwhile is held, ``BrowserTab/pageReady``): read from the input journal.
+                let waited = ContinuousClock.now - since
+                host.lifecycleTrace.record(id, "focus-wait ms=\(Int((waited / .milliseconds(1)).rounded())) loaded=\(hasDocument)")
+            }
+        }
+    }
+    /// When ``pendingFocus`` last became true.
+    @ObservationIgnored private var pendingFocusSince: ContinuousClock.Instant?
     /// The page's view became shown in this main-thread turn (``pageDidAppear()``): it takes no key focus before the turn's frame commits.
     @ObservationIgnored var appearedThisTurn = false
     /// True while cmux's own `SetFocus(true)` runs (`chromiumRequestsFocus`).
     @ObservationIgnored var isGrantingFocus = false
     /// The app's key window (``CEFKeyWindows``): a grant reads it and may move it.
     @ObservationIgnored var keyWindows = CEFKeyWindows.appKit
+    /// The page window a grant of this page left with the keys (``grantFocus(_:)``); nil once the page lost the focus.
+    @ObservationIgnored weak var keyedPageWindow: NSWindow?
     /// Navigation state to restore once the browser exists (created with
     /// an empty URL so its history starts empty).
     @ObservationIgnored var pendingRestore: String?
@@ -242,7 +267,14 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// The next emulation run clears this session's metrics first (after DevTools device mode).
     @ObservationIgnored var deviceEmulationNeedsReset = false
     @ObservationIgnored var faviconTask: Task<Void, Never>?
+    /// Chromium reported the committed document's favicon (`CEFTab+DocumentFavicon`).
+    @ObservationIgnored var faviconReported = false
+    /// The read of a document's icon list when Chromium reported none for it (#42435).
+    @ObservationIgnored var documentFaviconRead: Task<Void, Never>?
     @ObservationIgnored private(set) var isClosed = false
+    /// The browser went with the engine's stop for quit (``browserDidClose(closesTab:)`` false), not by
+    /// itself: a cmux page on it is not reopened elsewhere and reports no crash (`PageChromiumEvent.engineStopped`).
+    @ObservationIgnored public private(set) var browserEndedForQuit = false
     @ObservationIgnored private var isOccluded = false { didSet { if !isOccluded { runtime.extensionActionReads.tabShown(self) } } }
     /// The pane window this tab belongs to. A popup starts in its opener's
     /// Chromium window but belongs to its own popup host from adoption on;
@@ -255,6 +287,10 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// The pane host of a background tab an agent drives from a window of its own (`CEFPaneHost+AgentHosts`):
     /// the tab goes back there when its pane shows it.
     @ObservationIgnored weak var homeHost: CEFPaneHost?
+    /// The App pane that shows this tab next (`willShow(inPane:)`): its view joins that pane's Chromium window when it appears.
+    @ObservationIgnored var shownPane: BrowserPaneID?
+    /// The host this tab left for a pane host whose window it waits for (`CEFPaneHost.move`): it goes back there if the fork cannot move it in.
+    @ObservationIgnored weak var regroupedFrom: CEFPaneHost?
     /// The fork could not move this tab into an agent window: it stays in its pane's window from then on.
     @ObservationIgnored var agentWindowRefused = false
     @ObservationIgnored unowned let runtime: CEFRuntime
@@ -301,7 +337,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
 
     /// The page can take keys from now on: Chromium created its browser and stopped loading with a real document loaded
     /// (or an error page). Before that a key reached the empty document a restore then replaced, a page whose script
-    /// had not run, or a document the next navigation of the same load replaced. Once per browser.
+    /// had not run, or a document the next navigation of the same load replaced. Once per browser, and again each time
+    /// a focus ask that waited for the page to show is granted (``grantPendingFocusIfShown()``).
     @ObservationIgnored public var onReadyForKeys: (@MainActor () -> Void)?
     /// ``onReadyForKeys`` was reported for this browser.
     @ObservationIgnored var hasDocument = false
@@ -380,6 +417,9 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         // The page the person waits for: the next spare is made once it arrived (`CEFArrivingPages`).
         if navigates, host.visibleTab === self, !isAgentDriven { runtime.arriving.began(id) }
         CEFAgentURLGuard.applyShimGuard(self)
+        // Before any load: an agent tab's page never reaches a passkey ceremony. A new browser starts allowed.
+        webAuthnRefused = false
+        applyWebAuthnRefusal()
         // An address committed during creation replaces the page creation was started with (and an
         // agent tab's deferred load of that page): it is the tab's one navigation.
         let committed = loadSinceCreation
@@ -471,6 +511,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         runtime.arriving.ended(id)
         paintAsk?.cancel()
         paintAsk = nil
+        // Set before the relay ends: a cmux page reads it in its end (`CEFPageChromiumPage`).
+        if !closesTab { browserEndedForQuit = true }
         agentRelay.browserEnded()
         findRequests.cancel()
         dismissPrompts()
@@ -492,6 +534,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
             // Stays when the fork cannot move it home or its pane's window is gone: shown from its own window.
             host.returnHome(self)
         }
+        // A pane's web tabs share its Chromium window: the ones it does not show are Chromium background tabs.
+        if !parked, let shownPane { host.regroup(self, into: shownPane) }
         // A tab that could not move out went home: presenting it there would take the pane's page window.
         if parked, host.visibleTab != nil, host.visibleTab !== self, !host.holdsOwnTab { return }
         host.present(self, in: view)
@@ -535,6 +579,10 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         runtime.recordRendererExit(exit, tab: self, pressure: pressure, reloads: owed)
         if owed, host.visibleTab === self, !isOccluded { reloadOwedAfterExit() }
     }
+
+    /// The App shows this tab in its pane `pane` next (before it binds the tab's page there): the tab joins that
+    /// pane's Chromium window when its view appears (`CEFPaneHost.regroup`), so the pane's other tabs are background tabs.
+    public func willShow(inPane pane: BrowserPaneID) { shownPane = pane }
 
     func contentDidDisappear() {
         host.conceal(self)
@@ -643,6 +691,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         // Never activate a hidden page's window (see `attach`): a hidden page keeps the ask until it shows.
         let canTake = shown && pageWindowHostHasArea && !appearedThisTurn
         pendingFocus = focused && (!canTake || browserID == nil)
+        if !focused { keyedPageWindow = nil }
         guard !focused || canTake, let browserID else { return }
         if focused { grantFocus(browserID) } else { runtime.shim?.setFocus(browserID, 0) }
     }
@@ -655,8 +704,12 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// thread never left that turn (NIGHTLY 1.0.0-nightly.4093446036501). The ancestors' own
     /// `isHidden` is read, not `isHiddenOrHasHiddenAncestor`: AppKit updates that flag view by view
     /// during the same walk, so a view the walk has not reached yet still reads as not hidden.
+    /// A page parked in an agent render window (off every screen, a background tab an agent drives)
+    /// is not shown: a grant there made its page window key and took the keys from the terminal the
+    /// person typed in (NIGHTLY, 2026-11-16). Its ask waits until a pane shows it.
     var isShown: Bool {
-        guard host.visibleTab === self, !isOccluded, container.window != nil else { return false }
+        guard host.visibleTab === self, !isOccluded, let window = container.window,
+              window.identifier != .agentRenderWindow else { return false }
         return !sequence(first: container as NSView, next: \.superview).contains { $0.isHidden }
     }
 
@@ -672,6 +725,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         pendingFocus = false
         host.lifecycleTrace.record(id, "focus(pending) granted")
         grantFocus(browserID)
+        // The page has the keys now: a key hold that waited for the grant ends (``BrowserTab/pageReady``).
+        if !pendingFocus, hasDocument { onReadyForKeys?() }
     }
 
     /// Shows the page window (and a docked DevTools) at once, or hides it by
@@ -681,8 +736,13 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// could land on a page shown again meanwhile).
     public func setContentVisible(_ visible: Bool) {
         host.lifecycleTrace.record(id, "visible(\(visible)) was=\(!isOccluded) shown=\(host.visibleTab === self)")
+        // A page view syncs its visibility when it is parked or taken back (`PageWebView.setChromiumVisibility`): its
+        // page window leaves the window while the view lies outside it (`CEFLayerHosting.isParkedAway`).
+        if host.visibleTab === self { host.hostView.layerHosting.placementChanged() }
         guard visible == isOccluded else { return }
         isOccluded = !visible
+        // A hidden cmux page gets cheaper 10 s later: Chromium's memory purge, nothing reloaded (CEFHiddenPageTrim).
+        if !visible, CEFPageRendererGC.isCmuxPage(state.url) { runtime.hiddenPageTrim.pageHidden() }
         // A hidden page has no pointer over it (Chrome hides the bubble of a background tab).
         if !visible, linkStatus != nil { linkStatus = nil }
         // Show at once; a hide waits for the end of the turn (CEFPaneHost.setNeedsHostVisibility). A page whose view
@@ -722,6 +782,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         settleTimer.cancel()
         devToolsController.openTimer.cancel()
         faviconTask?.cancel()
+        documentFaviconRead?.cancel()
         dismissPrompts()
         if let browserID {
             runtime.shim?.close(browserID)

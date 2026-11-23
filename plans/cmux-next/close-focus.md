@@ -260,8 +260,12 @@ Tabs in a pane and workspaces in a window's sidebar follow the same rule after a
 - R0: closing an item that is not selected never moves the selection.
 - R1: closing the selected item selects, first match: an item it opened (the first after it,
   else the nearest before it), an item its opener opened, its opener, else the next item, and
-  the previous one only when it was the last. No group or section is read (decision 2026-11-10:
-  Chrome 156 as observed gives the next tab, whatever its group; the callers pass no group map).
+  the previous one only when it was the last. A pane's tabs read their group first, as Chromium's
+  `DetermineNewSelectedIndex` does (its fourth preference, read 2026-11-11): after the opener, the
+  tab right after the closed one in its group, else the one right before it in its group (G1). This
+  replaces the 2026-11-10 decision "no group is read", which the source contradicts for the last tab
+  of a group (Lawrence via Chief 2026-11-11: match Chrome inside groups). A window's workspaces still
+  pass no group or section map.
 - R2: a new item the person makes (Cmd-T, the plus button, New Workspace) keeps the item he came
   from as its opener. Its lifetime follows where it is put (below): after the selected item, until
   R3 or R4 ends it, as a link's tab; at the end or the start, until the selection leaves the new

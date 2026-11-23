@@ -209,7 +209,7 @@
   height: auto;
   justify-content: flex-start;
   padding: 0 0 0 var(--ds-space-2);
-  border-radius: var(--ds-radius-popup);
+  border-radius: var(--ds-radius-control);
 }
 .acpmux-bg__name.ui-btn:disabled,
 .acpmux-bg__task-open.ui-btn:disabled {
@@ -301,7 +301,7 @@
   height: auto;
   min-height: var(--ds-control-row);
   padding: 0 var(--ds-space-2);
-  border-radius: var(--ds-radius-popup);
+  border-radius: var(--ds-radius-control);
   color: var(--agent-muted);
 }
 .acpmux-bg__fold.ui-btn {
@@ -335,7 +335,7 @@
   height: auto;
   min-height: var(--ds-control-row);
   padding: 0 var(--ds-space-2);
-  border-radius: var(--ds-radius-popup);
+  border-radius: var(--ds-radius-control);
   color: var(--agent-muted);
 }
 /* The list's two headings, "Running N" and "Finished N" (BackgroundTasksPanel.tsx `panelSections`),

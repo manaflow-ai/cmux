@@ -90,6 +90,9 @@ pub const TRANSCRIPT_MUX_KINDS: &[&str] = &[
     // A line from outside any chat, such as cmux Cloud's after it resized the machine
     // (`server/host_notice.rs`).
     "host_notice",
+    // A model name read as its catalog id, or a turn retried under it (`model_alias.rs`).
+    "model_rewrite",
+    "model_reroute",
     "forked",
     "imported",
     "session_offer",
@@ -109,6 +112,10 @@ pub const TRANSCRIPT_MUX_KINDS: &[&str] = &[
     // A model race snapshot updates the parent's compare view and must travel with transcript
     // subscriptions, including reconnect paging.
     "race",
+    // The chat's plan usage limits, whole, after a harness report changed them
+    // (`permissions.rs` `USAGE_LIMITS_KIND`): the composer's plan ring. A v1 attach is already at
+    // a remote cmux-tui's 8 kinds, so it reaches an open pane with `transcript`, as `race` does.
+    "usage_limits",
 ];
 
 /// Which records a page or a live event stream carries. `kinds` entries are
@@ -130,6 +137,9 @@ pub struct EventFilter {
     /// time it is asked. A durable watch on a peer chat asked for the same 1 MB record every
     /// few seconds for good (2026-11-10). The stub keeps the record's seq, dir and kind.
     record_max: Option<usize>,
+    /// A tool call record past this many bytes goes with its output cut to its head
+    /// (`_acpmux/events` `toolOutputMaxBytes`, `hub/tool_output_cut.rs`): the phone's pages.
+    tool_output_max: Option<usize>,
     /// A durable watch's `match` text (`_acpmux/events` `match`): a stub of a reply chunk says
     /// whether its whole text held it, since the stub no longer holds that text.
     pattern: Option<String>,
@@ -177,6 +187,29 @@ impl EventFilter {
     pub fn stubbing_over(mut self, bytes: Option<usize>) -> Self {
         self.record_max = bytes;
         self
+    }
+
+    /// Tool call records over `bytes` go with their output cut (``tool_output_cut``); `None`
+    /// sends every record's output whole.
+    pub fn cutting_tool_output(mut self, bytes: Option<usize>) -> Self {
+        self.tool_output_max = bytes.filter(|b| *b > 0);
+        self
+    }
+
+    /// `rec` (of `bytes`, when known) as the page carries it: its tool output cut when the
+    /// reader asked for that, then a stub when it is still past `over`.
+    fn shape(
+        &self,
+        rec: EventRecord,
+        bytes: Option<usize>,
+        over: Option<usize>,
+    ) -> (EventRecord, usize) {
+        let bytes = bytes.unwrap_or_else(|| record_bytes(&rec));
+        let (rec, bytes) = match self.tool_output_max {
+            Some(max) => super::tool_output_cut::cut_tool_output(rec, bytes, max),
+            None => (rec, bytes),
+        };
+        fit_sized(rec, bytes, over, self.pattern.as_deref())
     }
 
     /// The text a stubbed reply chunk is checked for (``stub_msg``); `None` or blank: none.
@@ -298,10 +331,14 @@ fn transcript_may_match(dir: &[u8], kind: &[u8]) -> bool {
     match dir {
         b"mux" => TRANSCRIPT_MUX_KINDS.iter().any(|k| k.as_bytes() == kind),
         // A live agent update's kind is its `sessionUpdate` (hub/tap.rs); a raw
-        // harness line keeps its `claude.` method and a reply is `response`.
+        // harness line keeps its `claude.` or `codex.` method (`codex_app_server::tap_kind`)
+        // and a reply is `response`. A Codex chat's raw app-server lines (a resumed thread's
+        // `codex.response` is its whole history) were parsed whole and dropped: the newest
+        // page of a long Codex chat parsed 84 to 148 MB of them for 200 records.
         b"in" => {
             !kind.ends_with(b".replay")
                 && !kind.starts_with(b"claude.")
+                && !kind.starts_with(b"codex.")
                 && kind != b"response"
                 && !NON_TRANSCRIPT_UPDATES.iter().any(|k| k.as_bytes() == kind)
         }
@@ -319,7 +356,7 @@ fn is_wire(rec: &EventRecord) -> bool {
 /// `sessionId` the page adds. An agent names its own kinds, and a kind of 169 NULs is 1 KiB
 /// of JSON: 14,000 such records counted by the kind's length passed as a 4 MiB page and were
 /// more than one message.
-fn record_bytes(rec: &EventRecord) -> usize {
+pub(super) fn record_bytes(rec: &EventRecord) -> usize {
     serde_json::to_string(rec).map_or(0, |json| json.len()) + 120
 }
 
@@ -346,15 +383,9 @@ pub fn page_bytes(params: &Value) -> usize {
 /// reply around it.
 pub const MAX_RECORD_BYTES: usize = crate::rpc::MAX_MESSAGE_BYTES - (1 << 20);
 
-/// A record past `over` (no message can carry it, or past the caller's `recordMaxBytes`) goes as
-/// a stub with its kind and seq: what it left out, and how much (``stub_msg``). Also returns
-/// what the record adds to the page.
-fn fit(rec: EventRecord, over: Option<usize>, pattern: Option<&str>) -> (EventRecord, usize) {
-    let bytes = record_bytes(&rec);
-    fit_sized(rec, bytes, over, pattern)
-}
-
-/// [`fit`] for a record whose bytes are known.
+/// A record (of `bytes`) past `over` (no message can carry it, or past the caller's
+/// `recordMaxBytes`) goes as a stub with its kind and seq: what it left out, and how much
+/// (``stub_msg``). Also returns what the record adds to the page.
 fn fit_sized(
     mut rec: EventRecord,
     bytes: usize,
@@ -650,7 +681,6 @@ impl Hub {
         let before = before.unwrap_or(u64::MAX);
         let bounded = max_bytes.is_some();
         let over = filter.stub_over(bounded);
-        let pattern = filter.pattern.as_deref();
         // An ask in the log reads as acpmux shows it now (`Hub::display_logged`).
         let session = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned();
         let mut page = EventPage::default();
@@ -679,7 +709,7 @@ impl Hub {
                 }
                 let mut rec = rec;
                 self.display_logged(session.as_deref(), &mut rec);
-                let (rec, rec_bytes) = fit(rec, over, pattern);
+                let (rec, rec_bytes) = filter.shape(rec, None, over);
                 if full(rec_bytes, found) {
                     page.has_more = true;
                     return false;
@@ -739,10 +769,7 @@ impl Hub {
             if !matches {
                 return true;
             }
-            let (rec, rec_bytes) = match sized {
-                Some(bytes) => fit_sized(rec, bytes, over, pattern),
-                None => fit(rec, over, pattern),
-            };
+            let (rec, rec_bytes) = filter.shape(rec, sized, over);
             let moot_bytes = moot.and_then(|slot| found.get(slot)?.as_ref()).map_or(0, |(_, b)| *b);
             let kept = held + 1 - usize::from(moot.is_some());
             let size = bytes + rec_bytes - moot_bytes;

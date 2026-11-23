@@ -55,8 +55,12 @@ await requireBrowserLane("composer-field-menu.test.ts", async () => {
       );
     });
     await page.waitForSelector(".ui-context-menu [role=menuitem]");
+    // A checked row draws its check (MenuCheckGlyph, an SVG with no text): "✓" marks it here.
     return page.$$eval(".ui-context-menu [role=menuitem], .ui-context-menu [role=menuitemcheckbox]", (rows) =>
-      rows.map((row) => `${row.textContent?.trim()}${row.hasAttribute("disabled") ? " (off)" : ""}`),
+      rows.map(
+        (row) =>
+          `${row.querySelector(".ui-menu-check-glyph") ? "✓" : ""}${row.textContent?.trim()}${row.hasAttribute("disabled") ? " (off)" : ""}`,
+      ),
     );
   };
   const pick = async (page: Page, label: string) => {

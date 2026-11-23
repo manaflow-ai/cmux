@@ -73,7 +73,10 @@ test("the active team is one menu row; choosing another team runs selectTeam and
   expect(section().querySelector('input[type="radio"]')).toBeNull();
   expect(button().textContent).toBe("Personal");
   expect(button().getAttribute("aria-haspopup")).toBe("menu");
-  expect(button().getAttribute("aria-labelledby")).toBe(section().querySelector(".row-title")!.id);
+  // Named by the row title and then the value it shows, so VoiceOver hears "Active Team, Personal".
+  const [titleId, valueId] = button().getAttribute("aria-labelledby")!.split(" ");
+  expect(titleId).toBe(section().querySelector(".row-title")!.id);
+  expect(page.container.ownerDocument.getElementById(valueId!)?.textContent).toBe("Personal");
   expect(button().disabled).toBe(false);
   // Opening it lists every team, the active one checked.
   await act(async () => button().click());

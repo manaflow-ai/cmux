@@ -13,12 +13,13 @@ import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/mode
 import { layoutConversation } from "../src/agent-session/acpmux/model";
 import { ToolRows } from "../src/agent-session/acpmux/conversation/TurnRows";
 import { mainToolRunCategory } from "../src/agent-session/acpmux/conversation/toolRunSummary";
-import { turnFoldFor, turnView } from "../src/agent-session/acpmux/conversation/turns";
+import { turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { configureToolRunLook } from "../src/agent-session/acpmux/toolRunLook";
 import { isEditRow } from "../src/agent-session/acpmux/turnChanges/sessionRows";
+import { teardownDom } from "./support/domTeardown";
 
 // This file covers the `runs` arm of liveTurnWork.experiment.ts: a running turn keeps its finished
-// runs in sight until it ends. The shipped `line` arm (one live line, as chatgpt.com draws a running
+// runs in sight until it ends. The `line` arm (one live line, as chatgpt.com draws a running
 // turn) is covered by live-turn-one-line.test.ts.
 const liveTurnArmsBefore = globalThis.cmuxExperiments;
 beforeAll(() => {
@@ -46,12 +47,9 @@ beforeAll(() => {
   host = window.document.querySelector<HTMLElement>("#root")!;
 });
 
-afterAll(() => {
+afterAll(async () => {
   configureToolRunLook(undefined);
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 const call = (id: string, kind: string, extra: Record<string, unknown> = {}): AcpmuxActivity => ({
@@ -89,20 +87,6 @@ const live = (work: AcpmuxActivity[]) => [
   row("now", "activity", { items: [command("git status"), command("bun test", { status: "in_progress" })] }),
 ];
 const shaped = (work: AcpmuxActivity[]) => turnView(live(work), new Set(), { working: true });
-/// The same turn ended, its "Worked for" opened: there each run folds into its line (turns.ts
-/// shapeTurn). A running turn folds nothing (Leo, 2026-11-08: "you only do the overarching fold at
-/// the very end"), so the line is the ended turn's.
-const folded = (work: AcpmuxActivity[]) => {
-  const rows = [
-    ...live(work),
-    said("done"),
-    row("end", "turnSummary", { status: "completed", durationMs: 9_000, toolCount: work.length + 2 }),
-  ];
-  return turnView(rows, new Set([turnFoldFor(rows, 0)!]), { agentFamily: "codex" });
-};
-/// The run's line in the ended turn: a run that edited folds under an id of its own (turns.ts FOLDED).
-const foldedRun = (work: AcpmuxActivity[]) =>
-  folded(work).find((entry) => entry.id === "work" || entry.id === "work:fold")!;
 // Tags to spaces, then one space per gap: a row's verb sits in its own element (ToolVerb.tsx).
 const words = (entry: AcpmuxRow) =>
   renderToStaticMarkup(<ToolRows row={entry} />)
@@ -120,7 +104,7 @@ const mixed = [
 ];
 
 test("a run between two messages is one line naming its work in the order it came, edits too", () => {
-  const work = foldedRun(mixed);
+  const work = shaped(mixed).find((entry) => entry.id === "work")!;
   expect(work.foldRun).toBe(true);
   expect(toggles(work)).toBe(1);
   expect(words(work)).toContain("Edited 2 files, ran a command, and performed 2 other actions");
@@ -128,27 +112,8 @@ test("a run between two messages is one line naming its work in the order it cam
   expect(words(work)).not.toContain("bun test net");
 });
 
-test("while the turn runs, a run keeps its calls in sight and a note between runs keeps its row", () => {
-  const drawn = turnView(
-    [
-      ...live(mixed).slice(0, 3),
-      row("note", "assistant", { text: "Short note." }),
-      row("more", "activity", { items: [read("src/more.ts")] }),
-      row("now2", "activity", { items: [command("bun test", { status: "in_progress" })] }),
-    ],
-    new Set(),
-    { working: true },
-  );
-  const work = drawn.find((entry) => entry.id === "work")!;
-  expect(work.foldRun).toBe(false);
-  expect(toggles(work)).toBeGreaterThan(1);
-  expect(words(work)).toContain("Read src/client.ts");
-  // The note is not folded into the run before it: the rows stay as they streamed.
-  expect(drawn.map((entry) => entry.id)).toEqual(expect.arrayContaining(["work", "note", "more"]));
-});
-
 test("the app routes a folded mixed run to tool rows and estimates one summary line", () => {
-  const work = foldedRun(mixed);
+  const work = shaped(mixed).find((entry) => entry.id === "work")!;
   expect(work.foldRun).toBe(true);
   expect(isEditRow(work)).toBe(false);
   // One 22px line (design/chat-transcript.md "One-line row pitch", #29965).
@@ -168,7 +133,7 @@ test("opened, the line shows the rows it holds as they draw on their own", async
   const { resetTranscriptDisclosure } =
     await import("../src/agent-session/acpmux/conversation/transcriptDisclosureModel");
   resetTranscriptDisclosure();
-  const work = foldedRun(mixed);
+  const work = shaped(mixed).find((entry) => entry.id === "work")!;
   const root: Root = createRoot(host);
   await act(async () => root.render(<ToolRows row={work} sessionId="collapsed" />));
   const line = host.querySelector<HTMLButtonElement>(".cv-tools > .cv-tool.is-toggle")!;
@@ -197,7 +162,7 @@ test("a call still running in an earlier run keeps the line's glyph, never a spi
 });
 
 test("a failed call is counted on the collapsed line", () => {
-  const work = foldedRun([...mixed, command("bun run lint", { exitCode: 1 })]);
+  const work = shaped([...mixed, command("bun run lint", { exitCode: 1 })]).find((entry) => entry.id === "work")!;
   expect(toggles(work)).toBe(1);
   expect(words(work)).toContain("1 failed");
 });
@@ -278,7 +243,7 @@ test("an edit waiting for its permission next to finished edits keeps its row", 
 });
 
 test("the gallery's quieter versions dim the line", () => {
-  const work = foldedRun([read("a.ts"), command("ls"), command("pwd")]);
+  const work = shaped([read("a.ts"), command("ls"), command("pwd")]).find((entry) => entry.id === "work")!;
   const line = () =>
     renderToStaticMarkup(<ToolRows row={work} />).match(/<button[^>]*class="cv-tool is-toggle[^"]*"/)![0];
   expect(line()).toContain("is-strong");

@@ -21,19 +21,21 @@ type Step = PapercutStep;
 
 /// `extra` steps follow the chat's last turn (inside the running turn when `running`); `lead` steps
 /// come first, before the first turn; `session` adds to or replaces the chat's summary fields (a
-/// queue, say).
+/// queue, say). `answer` writes turn n's reply (it should start `Answer n:`, which the lanes wait for).
 export function papercutEvents({
   turns,
   running,
   extra = [],
   lead = [],
   session: fields = {},
+  answer = (n) => `Answer ${n}: the checks on the merged head are green.`,
 }: {
   turns: number;
   running: boolean;
   extra?: Step[];
   lead?: Step[];
   session?: Record<string, unknown>;
+  answer?: (n: number) => string;
 }) {
   const steps: Step[] = [];
   let clock = START;
@@ -47,7 +49,7 @@ export function papercutEvents({
       "agent_message_chunk",
       update({
         sessionUpdate: "agent_message_chunk",
-        content: { type: "text", text: `Answer ${n}: the checks on the merged head are green.` },
+        content: { type: "text", text: answer(n) },
       }),
       clock,
     ]);
@@ -130,12 +132,22 @@ export async function papercutPane(
     otherSessions?: Array<{ sessionId: string; cwd: string }>;
     /// Test-only Vite plugins, kept optional so existing papercut lanes stay unchanged.
     vitePlugins?: PluginOption[];
+    /// Delay older-history replies to exercise the native scroll path while a page is in flight.
+    historyDelayMs?: number;
+    /// Older pages (`_acpmux/events` with `beforeSeq`) honor the asked `limit` and `maxBytes` as acpmux
+    /// does (`hub/paging.rs`), instead of the `attachPage` size: a scroll-up bench reads the page sizes
+    /// the pane asks for (direct.ts OLDER_PAGE_RECORDS, OLDER_PAGE_BYTES).
+    askedPageSize?: boolean;
+    /// Answer `_acpmux/events` reads forward from `afterSeq` (a reconnect's hole read) with the
+    /// records after it. Unset, they are answered empty.
+    forwardReads?: boolean;
   },
 ) {
   const { createServer } = await import("vite");
   const webviews = path.resolve(import.meta.dir, "../..");
   const { events, session } = papercutEvents(options);
   const methods: string[] = [];
+  const history = { requests: [] as (number | undefined)[], inFlight: 0, maxInFlight: 0 };
   const sockets = new Set<{ close(code?: number, reason?: string): void }>();
   const sessions = [session, ...(options.otherSessions ?? []).map((other) => ({ ...session, ...other }))];
   const answer = (method: string, params?: Record<string, any>): unknown => {
@@ -167,6 +179,14 @@ export async function papercutPane(
       }
       case "_acpmux/events": {
         const before = typeof params?.beforeSeq === "number" ? params.beforeSeq : undefined;
+        // A read forward from `afterSeq` (a reconnect bridging what it holds to the attach's page):
+        // oldest first, at most `limit`, as acpmux answers it. Only with `forwardReads`, so the lanes
+        // written against the empty answer keep it.
+        if (options.forwardReads && before === undefined && typeof params?.afterSeq === "number") {
+          const newer = events.filter((event) => event.seq > params.afterSeq);
+          const limit = Number(params?.limit) || 5_000;
+          return { events: newer.slice(0, limit), hasMore: newer.length > limit, lastSeq: events.length };
+        }
         if (!options.attachPage || before === undefined) return { events: [], hasMore: false, lastSeq: events.length };
         // The prompt index (`hub/paging.rs` `prompt_index`): every prompt before `beforeSeq`, in one
         // reply. Answered as a page instead, the rail and the room above the rows read a long chat
@@ -180,6 +200,20 @@ export async function papercutPane(
             lastSeq: events.length,
           };
         const end = Math.max(0, before - 1);
+        if (options.askedPageSize) {
+          // Newest first back from `beforeSeq`, to `limit` records or `maxBytes` of them (at least one).
+          const limit = Number(params?.limit) || options.attachPage;
+          const maxBytes = Number(params?.maxBytes) || Infinity;
+          let start = end;
+          let bytes = 0;
+          while (start > 0 && end - start < limit) {
+            const size = JSON.stringify(events[start - 1]).length;
+            if (end - start > 0 && bytes + size > maxBytes) break;
+            bytes += size;
+            start -= 1;
+          }
+          return { events: events.slice(start, end), hasMore: start > 0, lastSeq: events.length };
+        }
         const start = Math.max(0, end - Math.min(options.attachPage, Number(params?.limit) || options.attachPage));
         return { events: events.slice(start, end), hasMore: start > 0, lastSeq: events.length };
       }
@@ -189,6 +223,8 @@ export async function papercutPane(
   };
   /// Every `session/prompt` the page sent, with its params (`_meta.acpmux.promptId`).
   const prompts: Record<string, any>[] = [];
+  /// While `ms` is over 0, every reply is sent that many ms late (`slowReplies.ms = 8000`).
+  const slowReplies = { ms: 0 };
   let socket: { send(data: string): void; close(): void } | undefined;
   /// An acpmux record, appended to the log (a later attach replays it) and sent to the attached page.
   const record = (kind: string, msg: Record<string, unknown>, dir = "mux") => {
@@ -196,6 +232,12 @@ export async function papercutPane(
     events.push(event);
     (session as { lastSeq: number }).lastSeq = event.seq;
     socket?.send(JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/event", params: event }));
+  };
+  /// `count` records appended to the log and sent to no page (they land while the pages are away).
+  const recordAway = (count: number, kind: string, msg: Record<string, unknown>, dir = "mux") => {
+    for (let n = 0; n < count; n++)
+      events.push({ sessionId: PAPERCUT_CHAT, seq: events.length + 1, at: Date.now(), dir, kind, msg });
+    (session as { lastSeq: number }).lastSeq = events.length;
   };
   /// The connection drops (acpmux restarted): the page connects again and reads the log again.
   const drop = () => {
@@ -207,6 +249,20 @@ export async function papercutPane(
   const count = (method: string) => methods.filter((sent) => sent === method).length;
   const sent = (method: string, after: number) =>
     count(method) > after ? Promise.resolve() : new Promise<void>((done) => void waiters.push({ method, after, done }));
+  /// Requests whose replies the stand-in holds, as a busy acpmux does: `stall(methods)` holds each
+  /// later request of those methods unanswered, and `stall([])` answers every held one, in order.
+  const stalled = { methods: new Set<string>(), held: [] as (() => void)[] };
+  const stall = (methods: string[]) => {
+    stalled.methods = new Set(methods);
+    if (methods.length) return;
+    for (const reply of stalled.held.splice(0)) {
+      try {
+        reply();
+      } catch {
+        // The page's socket closed meanwhile: its reconnect asks again.
+      }
+    }
+  };
   const daemon = Bun.serve({
     port: 0,
     hostname: "127.0.0.1",
@@ -223,6 +279,9 @@ export async function papercutPane(
       message(ws, raw) {
         const message = JSON.parse(String(raw)) as { id?: number; method: string; params?: Record<string, any> };
         methods.push(message.method);
+        if (message.method === "_acpmux/events") {
+          history.requests.push(typeof message.params?.beforeSeq === "number" ? message.params.beforeSeq : undefined);
+        }
         for (const waiter of waiters.filter((one) => one.method === message.method && count(one.method) > one.after)) {
           waiters.splice(waiters.indexOf(waiter), 1);
           waiter.done();
@@ -230,15 +289,31 @@ export async function papercutPane(
         socket = ws;
         if (message.method === "session/prompt") prompts.push(message.params ?? {});
         if (message.id !== undefined) {
-          const reply = JSON.stringify({
-            jsonrpc: "2.0",
-            id: message.id,
-            result: answer(message.method, message.params),
-          });
-          if (message.method === "_acpmux/events" && options.eventsLatencyMs)
+          const reply = () =>
+            ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method, message.params) }));
+          const slow = slowReplies.ms;
+          if (stalled.methods.has(message.method)) stalled.held.push(reply);
+          else if (slow > 0) {
+            // A slow acpmux (5–12 s replies, Leo 2026-11-18): every answer lands that late.
+            // fixed-wait: the daemon's latency is the condition under test.
+            setTimeout(reply, slow);
+          } else if (message.method === "_acpmux/events" && options.historyDelayMs) {
+            history.inFlight += 1;
+            history.maxInFlight = Math.max(history.maxInFlight, history.inFlight);
+            setTimeout(() => {
+              history.inFlight -= 1;
+              reply();
+            }, options.historyDelayMs);
+          } else if (message.method === "_acpmux/events" && options.eventsLatencyMs) {
+            // The page as it stood when asked, sent after the latency.
+            const answered = JSON.stringify({
+              jsonrpc: "2.0",
+              id: message.id,
+              result: answer(message.method, message.params),
+            });
             // fixed-wait: the page read's latency is the condition under test.
-            setTimeout(() => ws.send(reply), options.eventsLatencyMs);
-          else ws.send(reply);
+            setTimeout(() => ws.send(answered), options.eventsLatencyMs);
+          } else reply();
         }
       },
     },
@@ -332,7 +407,10 @@ export async function papercutPane(
     await stopPages();
     await daemon.stop(true);
   };
-  return { open, close, methods, prompts, record, drop, sent };
+  /// The chat's page address, for a page this helper does not open (support/frames120.ts's 120 Hz one).
+  const address = () =>
+    `http://127.0.0.1:${pagePort}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&session=${PAPERCUT_CHAT}`;
+  return { open, close, methods, prompts, record, recordAway, drop, sent, address, history, stall, slowReplies };
 }
 
 /// Settings > Agent Chat > Session Info: Push always (or back to the default), as the host's `display`

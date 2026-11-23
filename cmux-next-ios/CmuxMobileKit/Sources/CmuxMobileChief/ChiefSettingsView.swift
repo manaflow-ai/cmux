@@ -458,7 +458,7 @@ public struct ChiefSettingsView: View {
         if let backend = error as? ConversationBackendError, backend.code == -1 { return backend.message }
         // No answer from the Mac is not Chief refusing (the old copy blamed Chief for a dropped link).
         switch ChiefEngineProblem(error) {
-        case .macUnreachable: return String(localized: "Your Mac didn't answer. Check that it's on and connected, then try again.")
+        case .macUnreachable: return String(localized: "Can't reach your Mac. Make sure it's awake and connected, then try again.")
         case .chiefBusy: return String(localized: "mobile.chief.busy", defaultValue: "Chief is busy. Try again.", bundle: .module)
         default: break
         }
@@ -591,7 +591,7 @@ struct ChiefQuickAction: View {
             .frame(width: ChiefInfoGeometry.quickActionSize, height: ChiefInfoGeometry.quickActionSize)
             .contentShape(.circle)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cmuxPressFillCircle)
         .disabled(!enabled)
         .accessibilityLabel(title)
         .accessibilityValue(busy ? Text("In progress") : Text(""))

@@ -1,0 +1,68 @@
+{
+  "name": "First-user journey, web: the onboarding page (agents, import, computer use) clicked through on its mock host",
+  "cell": "web/onboarding",
+  "think_ms": 3000,
+  "lease": {},
+  "steps": [
+    {
+      "name": "open onboarding: the agents step (Claude signed in, Codex not, Gemini expired, OpenCode unchecked)",
+      "tool": "desktop_open_url",
+      "args": {"url": "http://127.0.0.1:4291/gallery/src/pages/onboarding/index.html?mock", "wait_ms": 3000},
+      "expect_text": ["Sign In to Your Agents", "Claude Code", "Signed in", "Codex", "Not signed in", "Gemini CLI", "Sign-in expired", "Sign-in not checked"]
+    },
+    {
+      "name": "click Sign In on Codex: the page says where to finish",
+      "tool": "desktop_click",
+      "args": {"x": 1184, "y": 318},
+      "expect_text": ["Finish signing in in the terminal tab"]
+    },
+    {
+      "name": "the install offers matrix: not installed, installing, failed (gallery stage)",
+      "tool": "desktop_open_url",
+      "args": {"url": "http://127.0.0.1:4291/gallery/frame.html?entry=pages.onboarding&variant=agents-install", "wait_ms": 3000},
+      "expect_text": ["Not installed", "Install", "Installing", "npm exited with status 1", "Try Again", "Setup guide"]
+    },
+    {
+      "name": "open the import step, nothing looked for yet",
+      "tool": "desktop_open_url",
+      "args": {"url": "http://127.0.0.1:4291/gallery/src/pages/onboarding/index.html?mock=importData", "wait_ms": 3000},
+      "expect_text": ["Import from Browsers", "Not looked for yet", "Find Browsers"]
+    },
+    {
+      "name": "press Return (Find Browsers): browsers found",
+      "tool": "desktop_press_key",
+      "args": {"key": "Return"},
+      "expect_text": ["Bring over your browsing from", "needs Full Disk Access", "Allow Access"]
+    },
+    {
+      "name": "press Return (Import): imported",
+      "tool": "desktop_press_key",
+      "args": {"key": "Return"},
+      "expect_text": ["Imported", "Bookmarks", "History"]
+    },
+    {
+      "name": "open the computer use step",
+      "tool": "desktop_open_url",
+      "args": {"url": "http://127.0.0.1:4291/gallery/src/pages/onboarding/index.html?mock=computerUse", "wait_ms": 3000},
+      "expect_text": ["Turn On Computer Use", "Accessibility", "Screenshots", "Allow", "Not Now"]
+    },
+    {
+      "name": "click Allow on Accessibility",
+      "tool": "desktop_click",
+      "args": {"x": 1190, "y": 340},
+      "expect_text": ["Done"]
+    },
+    {
+      "name": "click Allow on Screenshots: Computer Use is ready",
+      "tool": "desktop_click",
+      "args": {"x": 1192, "y": 436},
+      "expect_text": ["Computer Use is ready", "Done"]
+    },
+    {
+      "name": "a plain screenshot after thinking (resume only)",
+      "tool": "desktop_screenshot",
+      "args": {},
+      "expect_text": ["Computer Use is ready"]
+    }
+  ]
+}

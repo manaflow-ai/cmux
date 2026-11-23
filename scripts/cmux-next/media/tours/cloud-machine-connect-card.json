@@ -1,0 +1,7 @@
+{
+  "title": "Cloud machine Connect card: a Cloud desktop tab another action opened, before anything connects",
+  "steps": [
+    {"title": "Launch", "wait": 2},
+    {"title": "A Cloud machine's desktop tab opened by a script: the Connect card", "rpc": {"method": "debug.remote_view", "params": {"action": "open", "url": "cmux://remote-view?host=chat-800dd580cab0487c&target=virtual&mode=view&via=cloud"}}, "wait": 2, "optional": "debug.remote_view is DEBUG only"}
+  ]
+}

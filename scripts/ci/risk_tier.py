@@ -11,7 +11,7 @@ The policy, and the regression audit behind every rule, is docs/ci/risk-tiers.md
           trust), stored-data migrations, release, signing, notarization and the updater, the
           pre-push hook's trust boundary, the risk gate itself, code that adds a delete of user data, and a workflow that adds a
           pull_request_target or workflow_run trigger. Read for
-          a review verdict on the head: an independent review's `Review (<reviewer>): SHIP at <full
+          a review verdict on the head: a review's `Review (<reviewer>): SHIP at <full
           head sha>` line in the description or leading a comment, an approving review on the head
           commit, or `risk:human-ok` from a maintainer. A BLOCK or FIX on the head, or no verdict yet,
           is a warning: the lander refuses a BLOCK, and risk-tier.yml turns red only on a takeback.
@@ -34,6 +34,7 @@ import fnmatch
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 import time
@@ -50,25 +51,28 @@ OLD_LABELS = ("risk:medium",)
 HUMAN_OK_LABEL = "risk:human-ok"
 # The earlier name for the same maintainer sign-off; still honored.
 WAIVED_LABEL = "risk:waived"
-# An independent review's verdict on the exact head, on a comment's first line: "Review (subagent, correctness
-# first): SHIP at <full head sha>", the form next_autoland.py and merge_audit.py read. This is the one copy of the
-# grammar and of when a receipt counts; defaults_guard.py imports it from here. It stays in this file because
-# risk-tier.yml runs from main and checks out only scripts/ci/risk_tier.py from the base (#36941 split it into a
-# module and every `risk evidence` run failed on the import). A self-review doesn't count. Every agent posts as the
-# pull request author's account, so a SHIP from that account counts only as
-#     Review (<reviewer agent id>, started by <agent id>): SHIP at <full head sha>
-# with an `Author-agent: <agent id>` line in the description and neither id that author agent (cmux-ad m25 item 7;
-# on #36311 the author agent's own subagent posted `Review (claude-review-subagent): SHIP at ...` from the author's
-# account). A receipt from another account keeps the older rule. A BLOCK always counts: an unverified receipt can
-# make a gate red, never green. The newest verdict naming the head decides, so a later BLOCK beats an earlier SHIP.
-# The same line also counts anywhere in the description (outside <!-- comments -->), where it ranks below every
-# comment.
+# A review's verdict on the exact head, on a comment's first line: "Review (subagent, correctness first): SHIP at
+# <full head sha>", the form next_autoland.py and merge_audit.py read. This is the one copy of the grammar and of
+# when a receipt counts; defaults_guard.py imports it from here. It stays in this file because risk-tier.yml runs
+# from main and checks out only scripts/ci/risk_tier.py from the base (#36941 split it into a module and every
+# `risk evidence` run failed on the import). A SHIP from any reviewer counts, whatever its model family and
+# whoever started it, the pull request's own agent included (Leo, 2026-11-14, on "need a review from a model
+# family other than": "this is no longer a requirement"). The `started by` and `Author-agent:` forms below are
+# still parsed, for the summary and older callers, but no longer refuse a SHIP. A BLOCK always counts. The newest
+# verdict naming the head decides, so a later BLOCK beats an earlier SHIP. The same line also counts anywhere in
+# the description (outside <!-- comments -->), where it ranks below every comment.
 RECEIPT = re.compile(r"^\W*(?:independent\s+)?review\s*\(([^)\n]*)\)\s*:\W*(ship|block|fix|not ship|hold)(?![\w-])",
                      re.I)
 # "<reviewer agent id>, started by <agent id>": the last comma-separated part of the label names the starter.
 STARTED_BY = re.compile(r"^(?P<reviewer>.*\S)\s*,\s*started\s+by\s+(?P<starter>\S.*?)\s*$", re.I)
 # "Author-agent: <agent id>" on a line of its own, optionally as a list item, quote or bold label.
 AUTHOR_AGENT = re.compile(r"^[\s>*_`-]*author-agent[*_`]*\s*:[\s*_`]*(?P<id>[^\s*`]+)", re.I | re.M)
+# The aid in the `Agent session:` footer `agent-identity footer` writes at the end of every lane PR body
+# (`[...](https://cmux.com/deeplink/agent?id=aid-<20 hex>)`) names the author agent too. leo-workspace
+# tools/review_model.py reads both forms; reading only Author-agent here refused #42066's review-service SHIP
+# (the body carried the footer alone) after land-judge and router-review had both read it as independent.
+FOOTER_AGENT = re.compile(r"^[\s>*_`-]*agent session[*_`]*\s*:[^\n]*?[?&]id=(?P<id>aid-[0-9a-f]{20})(?![0-9a-f])",
+                          re.I | re.M)
 HTML_COMMENT = re.compile(r"<!--.*?-->", re.S)
 
 
@@ -85,9 +89,9 @@ class Receipt:
 
 
 def parse(line: str, head: str) -> Receipt | None:
-    """The receipt on `line` when it names the full `head` sha and its label does not say self, else None."""
+    """The receipt on `line` when it names the full `head` sha, else None. A self-review counts like any other."""
     match = RECEIPT.match(line or "")
-    if not head or not match or head not in line or "self" in match.group(1).lower():
+    if not head or not match or head not in line:
         return None
     label = match.group(1).strip()
     started = STARTED_BY.match(label)
@@ -101,8 +105,12 @@ def norm(agent: str | None) -> str:
 
 
 def author_agents(body: str | None) -> set[str]:
-    """Every `Author-agent: <id>` the description names outside <!-- comments -->, normalized."""
-    return {norm(m.group("id")) for m in AUTHOR_AGENT.finditer(HTML_COMMENT.sub("", body or ""))} - {""}
+    """Every agent the description names as its author outside <!-- comments -->, normalized: each
+    `Author-agent: <id>` and each `Agent session:` footer's aid."""
+    body = HTML_COMMENT.sub("", body or "")
+    named = {norm(m.group("id")) for m in AUTHOR_AGENT.finditer(body)}
+    named |= {m.group("id").lower() for m in FOOTER_AGENT.finditer(body)}
+    return named - {""}
 
 
 def same_account(login: str | None, author: str | None) -> bool:
@@ -112,17 +120,9 @@ def same_account(login: str | None, author: str | None) -> bool:
 
 
 def refusal(receipt: Receipt, same: bool, agents: set[str]) -> str | None:
-    """Why `receipt` does not count, or None when it does. Only a SHIP from the author's own account is refused."""
-    if receipt.verdict != "ship" or not same:
-        return None
-    if not agents:
-        return "a SHIP from the author's account, and the description has no `Author-agent: <agent id>` line"
-    if not receipt.reviewer or not receipt.starter:
-        return "a SHIP from the author's account must say `Review (<reviewer agent id>, started by <agent id>)`"
-    if norm(receipt.reviewer) in agents:
-        return f"the reviewer {receipt.reviewer} is the pull request's author agent"
-    if norm(receipt.starter) in agents:
-        return f"the reviewer was started by {receipt.starter}, the pull request's author agent"
+    """Why `receipt` does not count, or None when it does. Always None now: a SHIP counts from any family and from
+    the pull request's own agent (Leo, 2026-11-14: "this is no longer a requirement"), and a BLOCK always counted.
+    Kept with this signature because main's defaults guard calls it on the base's copy of this file."""
     return None
 
 
@@ -190,7 +190,7 @@ RULES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("high", "socket or relay access policy", (
         NEXT + "CmuxNextControl/ControlAuthorizer.swift", NEXT + "CmuxNextControl/ControlPeer*.swift",
         NEXT + "CmuxNextControl/CheckedAccess.swift", NEXT + "CmuxNextControl/ControlSocketPath.swift",
-        NEXT + "CmuxNextWakeups/UnixSocketPeer.swift", "*/CmuxCuaHelperCore/PeerInspector.swift",
+        NEXT + "CmuxNextWakeups/UnixSocketPeer.swift",
         "cmux-tui/crates/*relay*/*", "cmux-tui/relays/*", "cmux-tui/crates/cmux-tui-core/src/server/remote_relay/*",
         "services/iroh-relay-minter/*", "web/services/relay/*", "daemon/remote/cmd/cmuxd-remote/*peer*",
         r"re:(?i)relay[-_]?(command[-_]?)?polic", r"re:(?i)(socket|control)[-_]?(access|auth)",
@@ -198,30 +198,21 @@ RULES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     # Who answers or connects on a local socket or XPC service, and which code may run, decided by
     # the peer's uid, executable or code signature: the Chief's acpmux peer check and its
     # kernel-signature rule for a moved acpmux (code_signature.rs), the app's acpmux server peer
-    # check, cmux-link's caller and containing-app checks, the Computer Use helper's admission rule,
-    # state and control pipe (where the app's admission values arrive), host check and the two
-    # socket servers that call them, the app's check of the helper on that socket, the requirement
-    # or cdhash, the acpmux daemon and executable and the per-launch secret the app gives the helper
-    # for acpmux bridges, which acpmux executable the app runs and trusts (its team-signature
-    # refusal, and the DEBUG override), the requirement of the helper the app or acpmux may
-    # launch (Swift, Rust and shell copies) and the check of its staged copy, the root server
+    # check, cmux-link's caller and containing-app checks, which acpmux executable the app runs and trusts (its team-signature
+    # refusal, and the DEBUG override), who the Computer Use worker's agent socket admits
+    # (cmux-computer-use server.rs: same uid, then the per-launch secret), the root server
     # helper's XPC requirements (its clients', and the app's of it), and the signature checks of a
     # downloaded browser runtime. A wrong time or anchor here lets another process take the socket
     # (#29072 changed which time a signing chain is valid at and graded normal).
     ("high", "peer identity or code-signature trust", (
         "Native/OptChat/optchat-chief/src/acpmux_peer.rs", NEXT + "CmuxNextAgentPane/AcpmuxServerPeer.swift",
         "cmux-tui/crates/cmux-link/src/caller.rs", "cmux-tui/crates/cmux-link/src/caller_macos.rs",
-        "cmux-tui/crates/cmux-link/src/app_caller.rs", "*/CmuxCuaHelperCore/HostVerifier.swift",
-        NEXT + "CmuxNextAgentActivity/CuaHelperIdentity.swift", "*/CmuxCuaHelperCore/Admission.swift",
-        "*/CmuxCuaHelperCore/AdmissionState.swift", "*/CmuxCuaHelperCore/HelperController.swift",
-        "*/CmuxCuaHelperCore/HelperSocketServer.swift", "*/CmuxCuaHelperCore/HostConsentServer.swift",
-        NEXT + "CmuxNextComputerUse/ComputerUseHelperV2+Secret.swift", NEXT + "CmuxNextApp/AgentTabs+PaneSource.swift",
+        "cmux-tui/crates/cmux-link/src/app_caller.rs",
+        NEXT + "CmuxNextApp/AgentTabs+PaneSource.swift",
         NEXT + "CmuxNextAgentPane/AcpmuxEnvironment+Resolve.swift",
         NEXT + "CmuxNextAgentPane/AcpmuxEnvironment+DebugOverride.swift",
-        "cmux-tui/crates/acpmux/src/agent_tools/cua_helper.rs", "scripts/cmux-cua-helper-trust.sh",
-        NEXT + "CmuxNextComputerUse/ComputerUseHelperStaging.swift",
-        NEXT + "CmuxNextComputerUse/ComputerUseHelperV2HostLink.swift",
-        NEXT + "CmuxNextComputerUse/ComputerUseHelperV2+Admission.swift",
+        # The Computer Use worker socket's admission (same uid, then the per-launch secret).
+        "cmux-tui/crates/cmux-computer-use/src/server.rs",
         NEXT + "CmuxNextServerHelper/ServerHelperListener.swift", NEXT + "CmuxNextServerHelper/ServerHelperProtocol.swift",
         NEXT + "CmuxNextApp/Server/ServerHelperClient.swift",
         # A file named for a code-signature check: code_signature.rs, *CodeSignatureChecker.swift.
@@ -279,7 +270,8 @@ RULES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     # (scripts/cmux-next/check-*.py, guardrails.py, the package check scripts, run-check-pieces.py) stay normal.
     ("high", "the pre-push hook's trust boundary", (
         "scripts/web_lint_prepush.py", "scripts/cmux-next/prepush-gate.py", "scripts/cmux-next/push_range.py",
-        "scripts/git-hooks/pre-push",
+        "scripts/git-hooks/pre-push", "scripts/git-hooks/hook_python.sh",
+        "scripts/git-hooks/merge_python.sh",
         "scripts/git-hooks/post-merge", "scripts/git-hooks/refresh_checks.py", "scripts/install-git-hooks.sh",
     )),
     # The gate grades every other pull request, so a change to it gets a person.
@@ -667,11 +659,9 @@ def classify(files: list[str], patches: dict[str, str] | None = None, sources: d
     return Grade(TIERS[rank], reasons)
 
 
-SIGN_OFF_HOW = (f"a line `Review (<reviewer>): SHIP at <full head sha>` from an independent review, in the "
-                f"description or leading a comment (from the author's own account it must be `Review (<reviewer "
-                f"agent id>, started by <agent id>)`, neither of them the description's `Author-agent: <agent id>`; "
-                f"an author lane gets one with `router-review OWNER/REPO N --request`, which cmux-bot posts), "
-                f"an approving review from someone other than the author, or "
+SIGN_OFF_HOW = (f"a line `Review (<reviewer>): SHIP at <full head sha>` from a review by any model family or agent, "
+                f"the pull request's own included, in the description or leading a comment (`router-review OWNER/REPO N "
+                f"--request` gets one, which cmux-bot posts), an approving review from someone other than the author, or "
                 f"`{HUMAN_OK_LABEL}` added by a maintainer (agents never add it)")
 
 
@@ -698,7 +688,7 @@ def missing_evidence(tier: str, human_ok: bool = False, body: str = "",
 
 def takeback_fix(numbers: list[int]) -> str:
     """What clears an unowned takeback of NUMBERS, the lines to paste with their numbers filled in. The summary and
-    the check's error annotation (risk-tier.yml, through `takes_back_fix`) both say it: merge_hold and the lander
+    the check's error annotation (risk-tier.yml, through `takes_back_fix`) both say it: land-judge and the lander
     quote the annotation, so a refused revert names the line without anyone opening the job summary (a revert is
     the fast route; on cmux#41154 the refusal said only "the job summary says how")."""
     lines = " and ".join(f"`Takes back #{n}: <why>`" for n in numbers)
@@ -716,7 +706,7 @@ def pending_review(tier: str, human_ok: bool = False, blocked: bool = False) -> 
     """The warning for a high pull request with no verdict on its head yet ("" when it needs none)."""
     if tier != "high" or human_ok or blocked:
         return ""
-    return f"no review verdict on the head commit yet. Land after an independent review passes: {SIGN_OFF_HOW}"
+    return f"no review verdict on the head commit yet. Land after a review passes: {SIGN_OFF_HOW}"
 
 
 def strip_comments(body: str) -> str:
@@ -728,15 +718,30 @@ def gh_json(*args: str):
     return json.loads(out) if out.strip() else None
 
 
+# What GitHub answers when this run's API budget is gone, in gh's own words (`gh api` prints the message on
+# stderr and exits 1). A rate limit is not a verdict on the pull request, and no amount of retrying inside this
+# job outlasts an hourly reset, so the retry stops at once and the reason goes on the log: on 2026-11-22 the
+# "risk evidence" job on #50881 printed nothing but "CalledProcessError ... returned non-zero exit status 1"
+# because gh's stderr was captured and dropped, so neither a reader nor base_red_excuse.py could tell that red
+# apart from a graded one (the budget line later in the same log read used=5000).
+GH_RATE_LIMITED = re.compile(r"rate limit|secondary rate|abuse detection", re.I)
+
+
 def gh_run(args: list[str], attempts: int = 3) -> str:
-    """stdout of a gh call, retried so one transient API error doesn't turn the check red."""
+    """stdout of a gh call, retried so one transient API error doesn't turn the check red. A failure that ends
+    the retries names itself on stderr: the exception alone says only "exit status 1"."""
     for attempt in range(attempts):
-        try:
-            return subprocess.run(args, check=True, capture_output=True, text=True).stdout
-        except subprocess.CalledProcessError:
-            if attempt == attempts - 1:
-                raise
-            time.sleep(2 * (attempt + 1))
+        done = subprocess.run(args, capture_output=True, text=True)
+        if done.returncode == 0:
+            return done.stdout
+        why = (done.stderr or done.stdout or "").strip()
+        limited = bool(GH_RATE_LIMITED.search(why))
+        if limited or attempt == attempts - 1:
+            print(f"{shlex.join(args)} exited {done.returncode}"
+                  f"{' (GitHub rate limit: not a verdict on this pull request)' if limited else ''}"
+                  f"{chr(10) + why if why else ''}", file=sys.stderr, flush=True)
+            raise subprocess.CalledProcessError(done.returncode, args, output=done.stdout, stderr=done.stderr)
+        time.sleep(2 * (attempt + 1))
     return ""
 
 
@@ -860,6 +865,30 @@ def undoes(pr_patch: str, commit_patch: str, added_elsewhere: frozenset[str] = f
     return len(commit_removed & back) / len(commit_removed) >= 0.5
 
 
+def prefetch_blobs(repo_dir: str, base_sha: str, paths: list[str], timeout: float) -> None:
+    """In a blobless history (risk-tier.yml fetches the base with --filter=blob:none: 16 MB in 5 s instead of
+    681 MB in 115 s, 11-21), fetch every version of `paths` the blame and `git show` below read, in one round
+    trip. Without it each version is its own lazy fetch: 52 s to blame 40 lines of cmux-next.yml, against 2 s
+    with it. Best effort: in a full history, or when the fetch fails, the blame falls back to lazy fetches."""
+    try:
+        promisors = subprocess.run(["git", "-C", repo_dir, "config", "--get-regexp", r"^remote\..*\.promisor$"],
+                                   capture_output=True, text=True, timeout=10).stdout.split()
+        remote = next((key[len("remote."):-len(".promisor")] for key in promisors[::2]), None)
+        if not remote or not paths:
+            return
+        env = {**os.environ, "GIT_NO_LAZY_FETCH": "1"}
+        raw = subprocess.run(["git", "-C", repo_dir, "log", "--format=", "--raw", "--no-abbrev", "--no-renames",
+                              base_sha, "--", *paths], capture_output=True, text=True, env=env, timeout=timeout).stdout
+        oids = {field for line in raw.splitlines() if line.startswith(":") for field in line.split()[2:4]}
+        oids.discard("0" * 40)
+        if oids:
+            subprocess.run(["git", "-C", repo_dir, "-c", "fetch.negotiationAlgorithm=noop", "fetch", "-q", "--no-tags",
+                            "--no-write-fetch-head", "--recurse-submodules=no", "--filter=blob:none", "--stdin", remote],
+                           input="\n".join(sorted(oids)) + "\n", capture_output=True, text=True, timeout=timeout)
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+
 def recent_reverts(entries: list[dict], repo_dir: str, base_sha: str, own: int,
                    now: float | None = None, unread: list[str] | None = None,
                    budget: float = REVERT_BUDGET_SECONDS) -> dict[int, list[str]]:
@@ -873,6 +902,11 @@ def recent_reverts(entries: list[dict], repo_dir: str, base_sha: str, own: int,
     found: dict[int, list[str]] = {}
     added_anywhere = frozenset(line for e in entries for line in diff_lines(e.get("patch") or "")[1])
     deadline = time.monotonic() + budget
+    blamed = [entry.get("previous_filename") or entry["filename"] for entry in entries[:MAX_BLAME_FILES]
+              if deleted_ranges(entry.get("patch") or "") and entry.get("status") != "added"
+              and not any(matches(entry.get("previous_filename") or entry["filename"], g) for g in GENERATED)]
+    if budget > 0:
+        prefetch_blobs(repo_dir, base_sha, blamed, timeout=max(1, budget / 3))
     for entry in entries[:MAX_BLAME_FILES]:
         path = entry.get("previous_filename") or entry["filename"]
         remaining = deadline - time.monotonic()
@@ -1044,6 +1078,9 @@ def pr_mode(args: argparse.Namespace) -> int:
         with Path(args.github_output).open("a") as out:
             out.write(f"tier={grade.tier}\nlabel={LABELS[grade.tier]}\n")
             out.write(f"ready={'false' if missing else 'true'}\n")
+            # risk-tier.yml grades again on GITHUB_TOKEN only when this is true: a refused sign-off read is the one
+            # held verdict another token can change (tests/test_risk_tier.py).
+            out.write(f"signoff_unread={'true' if unread else 'false'}\n")
             # Only an unowned takeback keeps the check red (risk-tier.yml): it is a stale-base squash
             # quietly reverting a merged change. A BLOCK on the head is the lander's to refuse.
             unowned = unowned_takebacks(pr.get("body") or "", list(undone))

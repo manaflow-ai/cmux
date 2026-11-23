@@ -18,7 +18,7 @@
           },
           "help": {
             "key": "settings.home.server.help",
-            "text": "Direct messages and group chats use cmux Cloud by default. A self-hosted server is reached over Tailscale by its MagicDNS name, for example http://mini.tail1234.ts.net:7320. No password is sent: the server knows you by your Tailscale login."
+            "text": "Self-hosted: a Tailscale MagicDNS address, such as http://mini.tail1234.ts.net:7320."
           },
           "kind": "choice_or_url",
           "choices": [
@@ -63,7 +63,7 @@
           },
           "help": {
             "key": "settings.home.chiefBubbleStyle.help",
-            "text": "iMessage shows your messages in blue and the Chief's in gray. Theme uses your theme's accent and surface colors."
+            "text": "iMessage: blue and gray. Theme: your theme's colors."
           },
           "kind": "choice",
           "choices": [
@@ -108,7 +108,7 @@
           },
           "help": {
             "key": "settings.home.feedInChief.help",
-            "text": "Feed notices, such as updates and pull requests, appear among your main Chief's messages. Only you see them; the Chief does not read them."
+            "text": "Feed notices show among the Chief's messages. The Chief does not read them."
           },
           "kind": "toggle",
           "default": true,
@@ -132,7 +132,7 @@
           },
           "help": {
             "key": "settings.home.bubbleColors.help",
-            "text": "Every chat starts with these colors. Right-click a chat and choose Chat Colors to set its own. Unset text colors are picked to stay readable."
+            "text": "Right-click a chat and choose Chat Colors to set its own."
           },
           "kind": "color",
           "default": null,
@@ -163,7 +163,7 @@
           },
           "help": {
             "key": "settings.home.bubbleColors.help",
-            "text": "Every chat starts with these colors. Right-click a chat and choose Chat Colors to set its own. Unset text colors are picked to stay readable."
+            "text": "Right-click a chat and choose Chat Colors to set its own."
           },
           "kind": "color",
           "default": null,
@@ -194,7 +194,7 @@
           },
           "help": {
             "key": "settings.home.bubbleColors.help",
-            "text": "Every chat starts with these colors. Right-click a chat and choose Chat Colors to set its own. Unset text colors are picked to stay readable."
+            "text": "Right-click a chat and choose Chat Colors to set its own."
           },
           "kind": "color",
           "default": null,
@@ -225,7 +225,7 @@
           },
           "help": {
             "key": "settings.home.bubbleColors.help",
-            "text": "Every chat starts with these colors. Right-click a chat and choose Chat Colors to set its own. Unset text colors are picked to stay readable."
+            "text": "Right-click a chat and choose Chat Colors to set its own."
           },
           "kind": "color",
           "default": null,
@@ -300,7 +300,7 @@
           },
           "help": {
             "key": "settings.home.channelsEnabled.help",
-            "text": "Show Channels below Home in the sidebar. You can also turn it on or off from the command palette."
+            "text": "Show Channels below Home in the sidebar."
           },
           "kind": "toggle",
           "default": false,
@@ -332,7 +332,7 @@
           },
           "help": {
             "key": "settings.home.chiefPetEnabled.help",
-            "text": "A small Chief floats over every app and shows agent events above it. Drag it anywhere; click it to message the Chief or reply to a session. While it shows, ⌃⌥⌘C opens its reply box from any app."
+            "text": "A small Chief over every app shows agent events. ⌃⌥⌘C opens its reply box."
           },
           "kind": "toggle",
           "default": false,
@@ -500,8 +500,38 @@
         "key": "settings.group.chiefDock",
         "text": "Chief Dock"
       },
-      "note": "The Chief panel (user 2026-11-06): the edge the Chief docks at when the person docks it, and whether a link clicked in the Chief opens its workspace with the Chief floating over it.",
+      "note": "The Chief panel (user 2026-11-06): whether every window keeps it as a side panel, the edge the Chief docks at when the person docks it, and whether a link clicked in the Chief opens its workspace with the Chief floating over it.",
       "rows": [
+        {
+          "key": "home.chiefDock.sidePanel",
+          "note": "On: every window keeps the Chief docked as a side panel at the Dock Edge beside the workspace it shows (never over Home), and the sidebar's Chief row opens it there. Off by default: the Chief floats only on Cmd-I (David Beyer's feedback, 2026-11-20).",
+          "title": {
+            "key": "settings.home.chiefDockSidePanel",
+            "text": "Chief in Side Panel"
+          },
+          "help": {
+            "key": "settings.home.chiefDockSidePanel.help",
+            "text": "Keeps the Chief docked beside every workspace. Cmd-I hides or shows it."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "chief",
+            "dock",
+            "side",
+            "panel",
+            "sidebar",
+            "pane",
+            "window",
+            "docked",
+            "always",
+            "home"
+          ],
+          "swift_owner": {
+            "type": "ChiefDockSetting",
+            "prefixed": true
+          }
+        },
         {
           "key": "home.chiefDock.edge",
           "note": "Left: most people keep the Chief on the left.",
@@ -511,7 +541,7 @@
           },
           "help": {
             "key": "settings.home.chiefDockEdge.help",
-            "text": "The window edge the Chief goes to when you dock it. The rest of the window shows the workspace you pick."
+            "text": "The window edge the Chief docks to."
           },
           "kind": "choice",
           "choices": [
@@ -571,7 +601,7 @@
           },
           "help": {
             "key": "settings.home.chiefPanelStyle.help",
-            "text": "How the Chief looks when it floats over a workspace. Compose Bar, Pill and Bubble stay small until you click them, then show the whole chat. Drag any style by its grip."
+            "text": "How the Chief looks floating over a workspace. Drag any style by its grip."
           },
           "kind": "choice",
           "choices": [
@@ -644,47 +674,18 @@
           }
         },
         {
-          "key": "home.chiefPanel.seesScreen",
-          "note": "On: the eye in the panel shows it, and a click turns it off (user 2026-11-07, default picked by the Chief).",
-          "title": {
-            "key": "settings.home.chiefPanelSeesScreen",
-            "text": "Chief Sees Your Screen When It Opens"
-          },
-          "help": {
-            "key": "settings.home.chiefPanelSeesScreen.help",
-            "text": "Opening the floating Chief gives it one look at the screen behind cmux and the window in front, so you can ask about what you see. It uses the Computer Use helper's Screen Recording permission and never asks for it. The eye in the panel turns it off. It looks only while Computer Use is on."
-          },
-          "kind": "toggle",
-          "default": true,
-          "keywords": [
-            "chief",
-            "screen",
-            "see",
-            "context",
-            "screenshot",
-            "eye",
-            "floating",
-            "privacy",
-            "home"
-          ],
-          "swift_owner": {
-            "type": "ChiefDockSetting",
-            "prefixed": true
-          }
-        },
-        {
           "key": "home.chiefDock.openBeside",
-          "note": "On: a link clicked in the Chief opens its workspace with the Chief floating over it.",
+          "note": "On: a link clicked in the Chief opens its workspace with the Chief floating over it. Off by default (cmux#45889): a link opens only its target.",
           "title": {
             "key": "settings.home.chiefDockOpenBeside",
             "text": "Show Chief When Opening Workspaces"
           },
           "help": {
             "key": "settings.home.chiefDockOpenBeside.help",
-            "text": "A workspace, tab or agent link clicked in the Chief opens that workspace with the Chief floating over it. Press Esc or Cmd-I to hide it."
+            "text": "Links in the Chief open their workspace with the Chief over it. Esc hides it."
           },
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "keywords": [
             "chief",
             "dock",
@@ -719,7 +720,7 @@
           },
           "help": {
             "key": "settings.home.chiefEngine.help",
-            "text": "Which Chief Home opens. Auto uses this Mac's Chief while it runs here, else the Hosted Chief in the cloud."
+            "text": "Auto uses this Mac's Chief while it runs, else the Hosted Chief."
           },
           "kind": "choice",
           "choices": [

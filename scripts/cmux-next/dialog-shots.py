@@ -13,6 +13,8 @@ Run it on a fleet GUI host (cmux-lawrence-2), never on a laptop in use.
 Exit 1 on a failed check.
 """
 import argparse, glob, json, os, signal, subprocess, sys, tempfile, time
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -74,7 +76,7 @@ env = {**BASE_ENV, "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "autom
        "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1100,720"}
 log = open(os.path.join(SCRATCH, "app.log"), "a")
 app = subprocess.Popen([BINARY], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
-print(f"launched pid {app.pid} (log {SCRATCH}/app.log)")
+safe_print(f"launched pid {app.pid} (log {SCRATCH}/app.log)")
 try:
     if not wait(lambda: os.path.exists(SOCKET) and rpc("debug.surfaces").get("windows"), 90, 0.5):
         sys.exit("tagged app did not come up")

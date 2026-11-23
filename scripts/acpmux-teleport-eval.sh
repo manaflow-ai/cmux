@@ -76,7 +76,7 @@ for p in peers:
     # generated chat name and code word.
     local args=() a
     for a in "$@"; do [[ "$a" == "$name" ]] && a="$where/$name"; args+=("$a"); done
-    ssh -o BatchMode=yes "$ssh" "PATH=\$HOME/.local/bin:\$PATH acpmux $(printf '%q ' "${args[@]}")"
+    ssh -o BatchMode=yes "$ssh" "PATH=\$HOME/.local/bin:\$PATH acpmux $(printf '%q ' ${args[@]+"${args[@]}"})"
   fi
 }
 
@@ -114,9 +114,9 @@ echo "chat $name ($harness) in $dir, code word $word${note_word:+, note word $no
 prev=local
 for m in "$@"; do
   if [[ "$prev" == local ]]; then
-    move=("$ACPMUX" --json session move "$name" --machine "$m" "${flags[@]}")
+    move=("$ACPMUX" --json session move "$name" --machine "$m" ${flags[@]+"${flags[@]}"})
   else
-    move=("$ACPMUX" --json session move "$name" --from "$prev" --machine "$m" "${flags[@]}")
+    move=("$ACPMUX" --json session move "$name" --from "$prev" --machine "$m" ${flags[@]+"${flags[@]}"})
   fi
   running=""
   if [[ -n "$INTERRUPT" ]]; then

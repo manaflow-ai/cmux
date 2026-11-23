@@ -2,9 +2,20 @@
 
 use super::*;
 
+#[cfg(test)]
+thread_local! {
+    /// Tests: every append on this thread is refused, as a journal whose backlog is full refuses.
+    pub(crate) static REFUSE_APPENDS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// Tests: this store reads as one that cannot write a fork's history, so a fork copies the
+    /// chat's records (`hub/fork.rs`) instead of referencing them.
+    pub(crate) static COPY_FORKS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
 #[derive(Default)]
 pub struct MemoryStore {
     inner: Mutex<HashMap<String, (SessionMeta, Vec<EventRecord>)>>,
+    /// Each chat's held tool output bodies, by slot (`Store::keep_held`).
+    held: Mutex<HashMap<String, BTreeMap<String, Vec<u8>>>>,
 }
 
 impl Store for MemoryStore {
@@ -22,6 +33,10 @@ impl Store for MemoryStore {
         Ok(())
     }
     fn append(&self, id: &str, record: &EventRecord) -> Result<()> {
+        #[cfg(test)]
+        if REFUSE_APPENDS.with(std::cell::Cell::get) {
+            anyhow::bail!("refused (test)");
+        }
         let mut g = self.inner.lock_or_recover();
         if let Some((_, events)) = g.get_mut(id) {
             events.push(record.clone());
@@ -32,6 +47,13 @@ impl Store for MemoryStore {
             }
         }
         Ok(())
+    }
+    fn truncate_after(&self, id: &str, after: u64) -> Result<bool> {
+        let mut g = self.inner.lock_or_recover();
+        if let Some((_, events)) = g.get_mut(id) {
+            events.retain(|e| e.seq <= after);
+        }
+        Ok(true)
     }
     fn events(&self, id: &str, after: u64, limit: usize) -> Result<Vec<EventRecord>> {
         let g = self.inner.lock_or_recover();
@@ -83,13 +105,40 @@ impl Store for MemoryStore {
         }
     }
     fn writes_history(&self) -> bool {
+        #[cfg(test)]
+        if COPY_FORKS.with(std::cell::Cell::get) {
+            return false;
+        }
         true
     }
     fn history_writer(&self, id: &str) -> Result<Option<Box<dyn HistoryWriter + '_>>> {
         Ok(Some(Box::new(MemoryHistory { store: self, id: id.to_owned(), records: Vec::new() })))
     }
+    /// Kept while the store is: a hub opened again on the same store (a restart, in a test) reads
+    /// them. Never for a chat the store does not hold, as a deleted chat's folder is not made again.
+    fn keep_held(&self, id: &str, slot: &str, held: Option<&[u8]>) -> Result<()> {
+        anyhow::ensure!(super::deferred::is_slot(slot), "{slot:?} names no held slot");
+        match held {
+            Some(bytes) => {
+                anyhow::ensure!(self.inner.lock_or_recover().contains_key(id), "no chat {id}");
+                let mut held = self.held.lock_or_recover();
+                held.entry(id.to_owned()).or_default().insert(slot.to_owned(), bytes.to_vec());
+            }
+            None => {
+                if let Some(slots) = self.held.lock_or_recover().get_mut(id) {
+                    slots.remove(slot);
+                }
+            }
+        }
+        Ok(())
+    }
+    fn kept_held(&self, id: &str) -> Result<Vec<(String, Vec<u8>)>> {
+        let held = self.held.lock_or_recover();
+        Ok(held.get(id).map(|slots| slots.clone().into_iter().collect()).unwrap_or_default())
+    }
     fn delete(&self, id: &str) -> Result<()> {
         self.inner.lock_or_recover().remove(id);
+        self.held.lock_or_recover().remove(id);
         Ok(())
     }
 }

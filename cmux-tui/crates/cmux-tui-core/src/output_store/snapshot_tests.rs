@@ -148,8 +148,7 @@ fn a_failing_disk_does_not_retry_the_snapshot_on_the_next_pass() {
         false,
     );
     let wants = Plan::of(&log, std::time::Duration::from_secs(30)).wants_snapshot(
-        2,
-        (80, 24),
+        super::ScreenNow { digest: 2, size: (80, 24), alternate: false },
         true,
         false,
         true,
@@ -417,7 +416,7 @@ fn a_reconnect_during_a_snapshot_write_still_asks_for_a_snapshot() {
     let log = store.logs.lock().unwrap().get(&id).cloned().unwrap();
     // The pass captured the old screen at offset 10; the reconnect replaces
     // the terminal before the pass records its snapshot.
-    store.stream_gap(&id);
+    store.stream_gap(&id, &generation);
     snapshot_written(
         &directory,
         &log,
@@ -565,8 +564,7 @@ fn a_flood_compacts_its_tail_at_most_once_a_second() {
     }
     let wants = |log: &TerminalLog| {
         Plan::of(log, super::super::SNAPSHOT_INTERVAL).wants_snapshot(
-            2,
-            (80, 24),
+            super::ScreenNow { digest: 2, size: (80, 24), alternate: false },
             true,
             false,
             true,
@@ -582,12 +580,53 @@ fn a_flood_compacts_its_tail_at_most_once_a_second() {
     );
     log.state.lock().unwrap().snapshot_at = Instant::now().checked_sub(spacing);
     assert!(wants(&log), "a tail past its cap was not compacted after a second");
+}
+
+/// A flood writes 16 MiB of tail inside one compaction spacing (a flood at
+/// 100 MB/s does in 160 ms). Compacting at once for it meant a snapshot (the
+/// screen replayed under the parser lock, gzipped, two fsyncs) about six
+/// times a second, plus a gzip of every flood byte into a tail the next
+/// snapshot deleted. The flood's bytes now go neither to the tail nor wait
+/// in memory; the snapshot comes when its spacing has passed.
+#[test]
+fn a_flood_inside_the_spacing_neither_snapshots_nor_writes_its_tail() {
+    use std::time::{Duration, Instant};
+    let directory = directory("flood-hold");
+    let store = OutputStore::new(None);
+    let log = log(&vec![b'x'; 1024 * 1024]);
     {
         let mut state = log.state.lock().unwrap();
+        state.snapshot_digest = Some(1);
         state.snapshot_at = Some(Instant::now());
-        state.tail_bytes = 16 * 1024 * 1024;
+        state.tail_bytes = super::super::TAIL_FLOOD_MAX_BYTES;
     }
-    assert!(wants(&log), "a 16 MiB tail waited for its compaction");
+    let wants = |log: &TerminalLog| {
+        Plan::of(log, super::super::SNAPSHOT_INTERVAL).wants_snapshot(
+            super::ScreenNow { digest: 2, size: (80, 24), alternate: false },
+            true,
+            false,
+            true,
+            false,
+        )
+    };
+    assert!(!wants(&log), "a flood past 16 MiB of tail snapshotted inside the spacing");
+    flush_tail(
+        &store,
+        &directory,
+        &log,
+        Seen { digest: 2, settled: true, end: 1024 * 1024, size: None, upload: false },
+        false,
+    );
+    let stored = super::super::tail::bytes_after(&directory, &log.terminal_id, "g", 0);
+    let _ = std::fs::remove_dir_all(&directory);
+    assert!(stored.is_empty(), "the flood's {} bytes were gzipped into the tail", stored.len());
+    assert!(
+        log.state.lock().unwrap().pending.is_empty(),
+        "the flood's bytes waited in memory for a snapshot that covers them"
+    );
+    // Its spacing passed: the snapshot that covers the flood is written.
+    log.state.lock().unwrap().snapshot_at = Instant::now().checked_sub(Duration::from_secs(1));
+    assert!(wants(&log), "the snapshot that covers a flood was not written after the spacing");
 }
 
 /// What one snapshot-mode compaction costs under the terminal's parser lock

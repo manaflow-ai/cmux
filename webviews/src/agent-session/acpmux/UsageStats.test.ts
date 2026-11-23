@@ -13,6 +13,32 @@ test("the context reads against the autocompact window under the model's (Leo: 4
   expect(compactingUsage(usage, stats({}))).toEqual({ used: 213_100, size: 400_000 });
 });
 
+test("a reopened chat reads persisted context counts before a live usage event arrives", () => {
+  expect(compactingUsage(undefined, stats({ contextTokens: 160_000, contextWindow: 1_000_000 }))).toEqual({
+    used: 160_000,
+    size: 400_000,
+  });
+});
+
+test("a reported context breakdown supplies the reading when live and saved usage are absent", () => {
+  expect(compactingUsage(undefined, undefined, { totalTokens: 85_000, maxTokens: 200_000 })).toEqual({
+    used: 85_000,
+    size: 200_000,
+  });
+});
+
+test("a live reading, including zero after a reset, wins over older stored counts", () => {
+  const live = { used: 0, size: 200_000, setup: 0 };
+  expect(compactingUsage(live, stats({ contextTokens: 160_000, contextWindow: 1_000_000 }))).toBe(live);
+});
+
+test("missing or invalid source counts stay unknown instead of becoming a synthetic zero", () => {
+  expect(compactingUsage(undefined, stats({ contextWindow: 200_000 }))).toBeUndefined();
+  expect(compactingUsage(undefined, stats({ contextTokens: 30_000 }))).toBeUndefined();
+  expect(compactingUsage(undefined, stats({ contextTokens: NaN, contextWindow: 200_000 }))).toBeUndefined();
+  expect(compactingUsage(undefined, undefined, { maxTokens: 200_000 })).toBeUndefined();
+});
+
 test("no smaller cap keeps the model's window, the same object", () => {
   const usage = { used: 50_000, size: 200_000, setup: 9_000 };
   expect(compactingUsage(usage, stats({}))).toBe(usage);

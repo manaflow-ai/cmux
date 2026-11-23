@@ -24,7 +24,11 @@ extension UpdaterService {
             behind.start(willQuit: willQuit, declined: declined, inFront: inFront)
         }
         onNextQuitRefused = { [weak services] action in services?.quit.onQuitRefused = action }
-        relaunchBlockers = { [weak self, weak services, activity = UpdateAgentActivity(environment: QuitAgents.environment(services))] in services.map { activity.applying(to: $0.machines.local.currentRelaunchBlockers(quietInput: self?.idleInstallQuiet)) } ?? .daemonUnavailable }
+        let activity = UpdateAgentActivity(environment: QuitAgents.environment(services))
+        relaunchBlockers = { [weak self, weak services, activity] in services.map { activity.applying(to: $0.machines.local.currentRelaunchBlockers(quietInput: self?.idleInstallQuiet)) } ?? .daemonUnavailable }
+        // Before the settings apply (`apply(_:)`): Update When Idle installs nothing without its gate (UpdateIdleGate).
+        let idle = UpdateIdleGate(activity: activity, daemon: services.machines.local) { [weak services] in services?.agentTabs.unsentDrafts.count }
+        useIdleGate { idle.hold(idleMinutes: $0, lastInput: $1)?.rawValue }
         // The windows leave the screen when Sparkle commits to the relaunch,
         // not at the click (`UpdateWindowHandoff`); a failed install brings them back.
         let handoff = UpdateWindowHandoff(unsaved: services.quitUnsaved)
@@ -84,18 +88,7 @@ extension UpdaterService {
         settingsObservation?.cancel()
         // The update card's Automatic Updates box and the tip card's Never Show Tips write the
         // same settings as Settings (UPDATE-CARD); the change returns through the observation below.
-        writeSetting = { [weak self, weak settings] setting, on in
-            guard let settings else { return }
-            let log = self?.log, path = setting == .tips ? SidebarSectionsSetting.tipsPath : UpdatesSettings.downloadAutomaticallyPath
-            // task-owner: one settings write that ends by itself; nothing to cancel.
-            Task { @MainActor in
-                do {
-                    try await settings.setSetting(at: path, to: .bool(on), by: .user)
-                } catch {
-                    log?.append("\(path.joined(separator: ".")) not written: \(error)")
-                }
-            }
-        }
+        writesSettings(to: settings)
         settingsObservation = Task { [weak self, weak settings] in
             guard let settings else { return }
             await settings.waitForLoad(atLeast: 1)
@@ -123,6 +116,7 @@ extension UpdaterService {
         if self.preferences != preferences { self.preferences = preferences }
         configure(checkAutomatically: updates.checkAutomatically, checkInterval: updates.checkIntervalSeconds,
                   downloadAutomatically: updates.downloadAutomatically,
-                  metered: UpdateMeteredMode(rawValue: updates.meteredNetwork.rawValue) ?? .deferLowData, ring: updates.channel.rawValue, idleInstall: (updates.idleInstallMaxWaitSeconds, updates.idleInstallQuietSeconds))
+                  metered: UpdateMeteredMode(rawValue: updates.meteredNetwork.rawValue) ?? .deferLowData, ring: updates.channel.rawValue, idleInstall: (updates.idleInstallMaxWaitSeconds, updates.idleInstallQuietSeconds),
+                  installWhenIdleMinutes: updates.installWhenIdle ? updates.installWhenIdleMinutes : nil)
     }
 }

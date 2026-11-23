@@ -5,7 +5,7 @@ use super::*;
 
 /// `env_remove` keeps a key from the child even when the spawning process
 /// has it, so a terminal child never inherits what the daemon carries
-/// (cmux#22585: `TERM_PROGRAM_VERSION`, [`UNSET_IN_TERMINAL_CHILDREN`]). The
+/// (incognito markers, `shell_integration::keys_to_unset_in_child`). The
 /// PTY child prints its own value, so this measures the spawned environment,
 /// not the builder.
 ///

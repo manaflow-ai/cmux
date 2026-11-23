@@ -149,7 +149,7 @@ fn nanos(at: std::io::Result<std::time::SystemTime>) -> u64 {
 
 /// The identity of the folder at `dir`; `None` when there is none.
 pub(super) fn folder_id(dir: &Path) -> std::io::Result<Option<FolderId>> {
-    match std::fs::symlink_metadata(dir) {
+    match crate::home_fs::symlink_metadata(dir) {
         Ok(meta) => Ok(Some(FolderId { ino: file_id(&meta), birth_ns: nanos(meta.created()) })),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(error) => Err(error),
@@ -241,7 +241,7 @@ fn journaled_image(dir: &Path, journal: u64) -> Option<(Lsn, Vec<u8>)> {
 /// The stamp of `dir`'s `session.json` for a save's record: one `lstat`, no read. `None` when
 /// there is none, or when it does not stat (a file there at the replay then counts as moved on).
 fn saw_file(dir: &Path) -> Option<FileStamp> {
-    std::fs::symlink_metadata(dir.join("session.json")).ok().map(|meta| FileStamp::of(&meta))
+    crate::home_fs::symlink_metadata(dir.join("session.json")).ok().map(|meta| FileStamp::of(&meta))
 }
 
 /// The newest image of a chat that its `session.json` does not hold yet.
@@ -538,13 +538,14 @@ fn write_session_json(
     lsn: Lsn,
     journal: u64,
 ) -> Result<()> {
-    static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let path = dir.join("session.json");
     // Through the folder this daemon holds (`home_fs`): a home replaced after the check never
     // gets the file.
     crate::config::refuse_lost_home(&path)?;
-    let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let tmp = path.with_extension(format!("tmp-{}-{n}", std::process::id()));
+    // One name per file and process (`dead_temps`: each new name is one more path fseventsd
+    // keeps); this process's writers of it take turns.
+    let tmp = path.with_extension(format!("tmp-{}", std::process::id()));
+    let turn = crate::dead_temps::hold(&tmp);
     let written = (|| -> Result<()> {
         let mut file = crate::home_fs::OpenOptions::new()
             .write(true)
@@ -567,6 +568,8 @@ fn write_session_json(
     if written.is_err() {
         let _ = crate::home_fs::remove_file(&tmp);
     }
+    drop(turn);
+    crate::dead_temps::remove_beside(&path);
     written
 }
 
@@ -654,7 +657,7 @@ impl Inner {
         // The large fields go to the parts file, only when they changed (`store/meta_parts.rs`),
         // before the record: the record's image is the rest. A new chat's folder is made below,
         // and its parts file after the record.
-        let parts = match std::fs::symlink_metadata(&dir) {
+        let parts = match crate::home_fs::symlink_metadata(&dir) {
             Ok(_) => {
                 let _open = self.local.writable()?;
                 Some(self.local.parts.write(&dir, meta)?)
@@ -672,9 +675,11 @@ impl Inner {
         let fields = raw_fields(&image)?;
         let mut order = self.order.lock_or_recover();
         drop(self.local.writable()?);
-        // Checked before the folder is made: a refused save makes nothing.
-        self.journal
-            .check_append(meta_payload_len(&meta.id, saw, &image))
+        // Reserved before the folder is made: a refused save makes nothing, and the record is
+        // taken once it is (log appends of other chats fill the queue meanwhile, off this lock).
+        let room = self
+            .journal
+            .reserve(meta_payload_len(&meta.id, saw, &image))
             .map_err(JournalStore::journal_error)?;
         let made = folder_id(&dir)?.is_none();
         if made {
@@ -723,16 +728,16 @@ impl Inner {
         // change (a prompt) does not sync a burst of drafts in its own turn.
         let append = || {
             if kept {
-                self.journal.append_kept(kind, &payload)
+                room.append_kept(kind, &payload)
             } else {
-                self.journal.append(kind, Class::Ack, &payload)
+                room.append(kind, Class::Ack, &payload)
             }
             .map_err(JournalStore::journal_error)
         };
         // A new folder's record is held back from the gate until the folder's entry is synced.
         let lsn = if made { self.new_folders.append_made(append)? } else { append()? };
-        shown.store(lsn, std::sync::atomic::Ordering::SeqCst);
-        order.applied = lsn;
+        shown.fetch_max(lsn, std::sync::atomic::Ordering::SeqCst);
+        order.applied = order.applied.max(lsn);
         order.bytes = order.bytes.saturating_add(u64::try_from(payload.len()).unwrap_or(u64::MAX));
         order.metas.insert(meta.id.clone(), Pending { lsn, meta: meta.clone(), folder });
         let (names, hashes) = shape(&fields);

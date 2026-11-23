@@ -41,17 +41,17 @@
   min-width: var(--cv-context-copy);
   height: var(--cv-context-copy);
   padding: 0 var(--ds-space-1);
-  border-radius: 6px;
+  border-radius: var(--ds-radius-control);
   cursor: default;
   font-size: var(--text-detail);
   letter-spacing: var(--text-detail--letter-spacing);
 }
 .cv-card-copy__button:hover {
   color: var(--cv-text);
-  background: color-mix(in srgb, var(--cv-text) 7%, transparent);
+  background: var(--ds-surface-hover);
 }
 .cv-card-copy__button:active {
-  background: color-mix(in srgb, var(--cv-text) 11%, transparent);
+  background: var(--ds-color-pressed);
 }
 .cv-card-copy__button:focus-visible {
   outline: 2px solid var(--agent-accent-soft);

@@ -1,4 +1,6 @@
 import AppKit
+import CmuxNextActions
+import CmuxNextBridge
 import CmuxNextAgentPane
 import CmuxNextBrowser
 import CmuxNextBrowserHost
@@ -50,8 +52,8 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding, Agent
     var swapDrag: PaneSwapDrag?
     /// The acting agent's name tag (`PaneContentView+AgentTag`).
     let agentTag = AgentPresenceTagView()
-    /// A zoomed pane's Exit Zoom button at the content's top-right (`PaneContentView+AgentTag`).
-    private(set) lazy var zoomIndicator = PaneZoomIndicatorView(model: stripView.model)
+    /// A zoomed pane's Exit Zoom button at the content's top-right (`PaneContentView+AgentTag`), made at its first zoom.
+    var zoomIndicator: PaneZoomIndicatorView?
     private var agentTagObservation: Task<Void, Never>?
     /// No strip: the person hid this pane's tab bar (``PaneTabBar``).
     var hidesStrip = false {
@@ -90,9 +92,9 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding, Agent
     var bandPins: [NSLayoutConstraint] = []
     /// Whether the strip is pinned to a browser's header band.
     var isBandActive: Bool { !bandPins.isEmpty }
-    private var reportedChrome: (header: CGFloat, footer: CGFloat, framed: Bool) = (-1, -1, true)
+    private var reportedChrome: (header: CGFloat, footer: CGFloat, leading: CGFloat, framed: Bool) = (-1, -1, -1, true)
     /// The outgoing view kept while the shown one has not painted (`PaneContentView+PaintHold`).
-    let paintHold = PanePaintHold(owner: "pane.paint-hold")
+    let paintHold = PanePaintHold(owner: "pane.paint-hold"), stripHold = PaneStripHold(owner: "pane.strip-hold")
     /// The strip the hold's outgoing view showed under, kept until the swap.
     var holdKeepsStrip = false
     /// An agent page's last image under the content at launch (`PaneContentView+LaunchImage`).
@@ -185,20 +187,23 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding, Agent
             stripView.frame = NSRect(x: 0, y: onTop ? 0 : bounds.height - shown, width: bounds.width - slot, height: shown)
             toolbar?.view.frame = NSRect(x: bounds.width - tools, y: stripView.frame.minY, width: tools, height: shown)
         }
+        // A toolbar row under the strip (a browser's omnibar) or content sharing the tab row (the docked Home, msg 31502): no divider.
+        stripView.meetsToolbar = onTop && !isBandActive && shown > 0 && (rowTools > 0 || (visibleContent as? any ToolbarEdgeHosting)?.showsToolbarRowAtTop == true)
+        (visibleContent as? any ToolbarEdgeHosting)?.meetsTabStrip = onTop && !isBandActive && shown > 0 && (visibleContent as? any ToolbarEdgeHosting)?.showsToolbarRowAtTop == true
         var hostFrame = isBandActive || rowTools > 0 ? bounds : NSRect(x: 0, y: onTop ? stripHeight : 0, width: bounds.width, height: contentHeight)
+        contentHost.paintsRestingGround = rowTools <= 0
         let listWidth = layoutVerticalList()
         if listWidth > 0 { (hostFrame.origin.x, hostFrame.size.width) = (hostFrame.minX + listWidth, max(0, hostFrame.width - listWidth)) }
-        reportHeaderIfChanged()
         let hostChanged = contentHost.frame != hostFrame
-        if hostChanged { contentHost.frame = hostFrame }
+        if hostChanged { contentHost.frame = hostFrame; paintHold.placeKept() } // a kept outgoing view stays where it shows until the swap
+        reportHeaderIfChanged() // after the host's frame: its leading edge is the list's width
         if launchImageView != nil, !held, let shown = launchImageSizes.first, shown != .zero, !launchImageSizes.contains(where: { abs($0.width - contentHost.bounds.width) <= 2 && abs($0.height - contentHost.bounds.height) <= 2 }) {
             // A move cover owns the clear callback that reveals the page on its next frame. A resize drops old-size pixels, but
             // not a grow to the image's own size (±2 pt of pixel rounding): a restored chat's tools joining the tab row (Leo 10-24).
             clearLaunchImage(invokeCallback: launchImageInvokesResizeCallback)
             launchImageInvokesResizeCallback = true
         }
-        // After the host frame: a strip pinned to a browser's band reads its
-        // frame from constraints that depend on the host frame.
+        // Lay out the browser's band after the host frame its constraints depend on.
         super.layout()
         toolbar?.view.refreshCorner() // "…"'s hover spans the strip's frame, set above or by the band's constraints
         // Restored terminal views are attached while the pane is still at
@@ -309,7 +314,7 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding, Agent
     }
 
     private func reportHeaderIfChanged() {
-        let chrome = (header: paneHeaderHeight, footer: paneFooterHeight, framed: paneFramesContent)
+        let chrome = (header: paneHeaderHeight, footer: paneFooterHeight, leading: contentHost.frame.minX, framed: paneFramesContent)
         guard chrome != reportedChrome else { return }
         reportedChrome = chrome
         onPaneHeaderHeightChange?()
@@ -328,19 +333,17 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding, Agent
     func show(_ view: NSView?) -> NSView? {
         let previous = content
         guard previous !== view || (view != nil && !hostsContent && !(view?.staysParked(awayFrom: self) ?? false)) else { return previous }
-        tabSwitchMark("show")
-        defer { tabSwitchMark("shown") }
+        Self.tabSwitchMark("show")
+        defer { Self.tabSwitchMark("shown") }
         // Another pane may have reparented `previous` already (a moved tab):
         // only a view still installed here is removed.
         let hosted = previous.flatMap { $0.superview === contentHost ? $0 : nil }
-        // An agent page draws nothing until it paints: what this pane showed
-        // stays until then (`beginPaintHold`), not an empty pane. Not a
-        // browser whose header band the strip leaves now (its header would
-        // jump while it stays). While an earlier switch waits, what shows is
-        // the content it keeps.
+        // An agent page draws nothing until it paints: what this pane showed stays until then
+        // (`beginPaintHold`), not an empty pane. Not a browser whose header band the strip leaves
+        // now (its header would jump while it stays). While an earlier switch waits, what shows is the content it keeps.
         let kept = paintHold.kept.flatMap { $0.superview === contentHost ? $0 : nil }
         let shown = kept ?? hosted
-        let holds = !isBandActive && holdsForFirstPaint(view, replacing: shown)
+        let holds = !isBandActive && PanePaintHold.holds(view, replacing: shown)
         // The strip's band pins end before the browser leaves (R109).
         if hosted !== view { releaseBand() }
         if holds, kept != nil {
@@ -375,6 +378,7 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding, Agent
             }
         }
         content = view
+        stripHold.follow(view, strip: stripView, first: previous == nil && view is InternalPageView) // a new pane's tab shows with its page
         refreshNativeToolOwner()
         // After the incoming view is in: a browser that leaves stays parked
         // here, and the keyboard it held goes to what shows now.
@@ -468,7 +472,21 @@ extension PaneContentView: TitlebarPressDeciding {
 /// Tab switch timeline marks (cx-asb1): wall-clock ms, so a bench can line
 /// them up with the page's own clock. Debug level: nothing is written unless
 /// a `log stream --level debug` reads category "tab-switch".
-private let tabSwitchLog = Logger(subsystem: "com.cmuxterm.app.next", category: "tab-switch")
-private func tabSwitchMark(_ name: String) {
-    tabSwitchLog.debug("tab-switch \(name, privacy: .public) \(Date().timeIntervalSince1970 * 1_000, format: .fixed(precision: 3), privacy: .public)")
+private extension PaneContentView {
+    static let tabSwitchLog = Logger(subsystem: "com.cmuxterm.app.next", category: "tab-switch")
+    static func tabSwitchMark(_ name: String) { tabSwitchLog.debug("tab-switch \(name, privacy: .public) \(Date().timeIntervalSince1970 * 1_000, format: .fixed(precision: 3), privacy: .public)") }
+}
+
+extension PaneSwapDrag {
+    /// A pane's drag: a drop runs Swap with Session with the pane under the pointer, the swap's one path (shown in the drop's turn).
+    convenience init(pane: PaneController) {
+        self.init(strip: pane.view.stripView, pane: pane.layoutPaneID, layout: { [weak pane] in pane?.workspace?.layoutView },
+                  dragKey: { [weak pane] in pane?.pane.tabs.first?.id },
+                  move: { [weak pane] target in if let pane { TabMoves.movePane(pane, to: target) } },
+                  swap: { [weak pane] _, to in
+                      guard let pane, let other = pane.workspace?.panes[to] else { return }
+                      let swap = ActionInvocation(target: ActionTargetRef(kind: .pane, id: pane.paneKey), arguments: ["pane": .target(ActionTargetRef(kind: .pane, id: other.paneKey))])
+                      _ = pane.services.registry.perform("palette.swapWithSession", invocation: swap.onMachine(pane.daemon.machineID))
+                  })
+    }
 }

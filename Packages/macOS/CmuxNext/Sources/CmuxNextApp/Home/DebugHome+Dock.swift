@@ -10,7 +10,7 @@ extension DebugHome {
     /// Null while the dock tab has no view yet (or classic Home).
     static func dock(services: AppServices) -> CmuxNextSettings.JSONValue {
         guard let view = HomeDockTab.view(services) else { return .null }
-        let transcript = view.messages?.host.flatMap { HomePageTab.transcript(in: $0) }
+        let transcript = view.messages?.host.flatMap { HomeNativeTranscriptView.first(in: $0) }
         let height = view.window?.contentView?.bounds.height ?? 0
         let dockFrame = view.window.map { _ -> CGRect in
             let frame = view.convert(view.bounds, to: nil)

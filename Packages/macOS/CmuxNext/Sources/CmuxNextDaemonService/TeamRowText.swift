@@ -18,9 +18,15 @@ import CmuxNextCompat
         subtitle = row.plan.map { "\(who) · \(CloudStrings.teamPlan(Self.planName($0)))" } ?? who
     }
 
-    /// A plan id as its product name ("pro" is "Pro"): the id the server wrote, capitalized.
+    /// A plan id as its product name ("pro" is "Pro"): the id the server wrote, capitalized; cmux NEXT's own plans by
+    /// their names ("next_pro" is "NEXT Pro").
     static func planName(_ id: String) -> String {
-        id.prefix(1).uppercased() + id.dropFirst()
+        switch id {
+        case "next_plus": "NEXT Plus"
+        case "next_pro": "NEXT Pro"
+        case "next_max": "NEXT Max"
+        default: id.prefix(1).uppercased() + id.dropFirst()
+        }
     }
 
     /// The account's teams as the values of Switch Active Team's `team` argument.
@@ -43,7 +49,8 @@ import CmuxNextCompat
         return auth.activeTeam.rows.map { AgentPaneCloudMachines.Team(id: $0.id, name: $0.title, personal: $0.kind == .personal) }
     }
 
-    /// The active team as the Machines section's Cloud header names it (`MachineSectionPageProvider` `cloudTeam`).
+    /// The active team for the Machines section's snapshot (`MachineSectionPageProvider` `cloudTeam`); its Cloud
+    /// header says only Cloud for now (cmux issue 45695).
     public static func machinesTeam(_ auth: CloudAuth) -> (name: String, personal: Bool)? {
         paneTeam(auth).map { ($0.name, $0.personal) }
     }

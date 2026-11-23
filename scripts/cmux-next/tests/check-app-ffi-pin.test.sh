@@ -19,7 +19,7 @@ script="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/check-app-ffi-pin.sh"
 # The script reads the pin only through scripts/ci/app_ffi_pin.py, so the scratch tree carries it too.
 pin_reader="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../ci" && pwd)/app_ffi_pin.py"
 tmp="$(mktemp -d)"
-trap 'rm -rf "$tmp"' EXIT
+git_fixture_trap_exit 'rm -rf "$tmp"'
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@example.com GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@example.com
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
@@ -46,13 +46,15 @@ git -C "$repo" init -q
 git -C "$repo" add -A
 git -C "$repo" commit -qm sources
 pinned="$(git -C "$repo" rev-parse HEAD)"
-cat > "$repo/Packages/macOS/CmuxNext/Package.swift" <<EOF
-let appFFI: Target = .binaryTarget(
-    name: "CCmuxAppFFI",
-    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-$pinned/CCmuxAppFFI.xcframework.zip",
-    checksum: "$(printf '0%.0s' {1..64})"
-)
-EOF
+python3 - "$pin_reader" "$repo/Packages/macOS/CmuxNext" "$pinned" <<'PY'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("app_ffi_pin", sys.argv[1])
+pin = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(pin)
+package, sha = sys.argv[2], sys.argv[3]
+open(f"{package}/Package.swift", "w").write("import Foundation\nimport PackageDescription\n\n" + pin.loader("0" * 64))
+open(f"{package}/app-ffi-pin.json", "w").write(pin.render(sha, "0" * 64))
+PY
 git -C "$repo" add -A
 git -C "$repo" commit -qm pin
 
@@ -135,13 +137,35 @@ fi
   || fail "the stale report does not give the step A / step B rule: $out"
 [[ "$out" == *"docs/ci/app-ffi-release.md"* ]] || fail "the stale report does not point to the doc: $out"
 
-# A pin outside the canonical block fails closed, naming the reader's reason.
+# A pin file off its one format, or a manifest with a pin of its own, fails
+# closed, naming the reader's reason.
 git -C "$repo" checkout -q HEAD~1
-sed -i.bak 's/^let appFFI: Target = //' "$repo/Packages/macOS/CmuxNext/Package.swift"
+pin_json="$repo/Packages/macOS/CmuxNext/app-ffi-pin.json"
+sed -i.bak 's/", "checksum"/",  "checksum"/' "$pin_json"
 if out="$(cd "$repo" && bash scripts/cmux-next/check-app-ffi-pin.sh 2>&1)"; then
-  fail "a non-canonical pin passed: $out"
+  fail "a pin file off its format passed: $out"
 fi
-[[ "$out" == *"no canonical cmux-app-ffi pin"* ]] || fail "the non-canonical report does not say so: $out"
+[[ "$out" == *"no canonical cmux-app-ffi pin"* ]] || fail "the pin file report does not say so: $out"
+mv "$pin_json.bak" "$pin_json"
+manifest="$repo/Packages/macOS/CmuxNext/Package.swift"
+# A pin file whose checksum Package.swift's checksum line does not repeat: a
+# re-pin that left the manifest text (SwiftPM's manifest cache key) alone.
+cp "$manifest" "$manifest.bak"
+sed -i.tmp "s/^\/\/ app-ffi-pin-checksum: 0\{64\}$/\/\/ app-ffi-pin-checksum: $(printf '1%.0s' {1..64})/" "$manifest"
+rm -f "$manifest.tmp"
+grep -q "^// app-ffi-pin-checksum: 1\{64\}$" "$manifest" || fail "the test did not move the checksum line"
+if out="$(cd "$repo" && bash scripts/cmux-next/check-app-ffi-pin.sh 2>&1)"; then
+  fail "a checksum line off the pin file's checksum passed: $out"
+fi
+[[ "$out" == *"is not Packages/macOS/CmuxNext/app-ffi-pin.json's checksum"* ]] \
+  || fail "the checksum line report does not say so: $out"
+mv "$manifest.bak" "$manifest"
+echo '// url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-x"' \
+  >> "$repo/Packages/macOS/CmuxNext/Package.swift"
+if out="$(cd "$repo" && bash scripts/cmux-next/check-app-ffi-pin.sh 2>&1)"; then
+  fail "a manifest with a pin of its own passed: $out"
+fi
+[[ "$out" == *"does not read the pin through its one loader block"* ]] || fail "the manifest report does not say so: $out"
 
 # A json.py beside the pin reader does not change the verdict. Without -I it
 # is imported first: this one prints a pin naming HEAD, so the stale sources
@@ -158,13 +182,13 @@ fi
 [[ "$out" == *"cmux-remote-browser"* ]] || fail "a scripts/ci/json.py changed the stale report: $out"
 rm -f "$repo/scripts/ci/json.py"
 
-# The --base read (the base's Package.swift through the pin reader) is isolated
+# The --base read (the base's app-ffi-pin.json through the pin reader) is isolated
 # too. The base pins the current sources ($rb) and the change moves the pin
 # back to the stale $pinned: its own red. A json.py that reads every pin as
 # $pinned would make it base drift, which passes.
-pin_to() { # pin_to SHA MESSAGE
-  sed -i.bak -E "s/cmux-app-ffi-[0-9a-f]{40}/cmux-app-ffi-$1/" "$repo/Packages/macOS/CmuxNext/Package.swift"
-  rm -f "$repo/Packages/macOS/CmuxNext/Package.swift.bak"
+pin_to() { # pin_to SHA MESSAGE: the pin file's release only (the checksum, so the loader's line, stays)
+  sed -i.bak -E "s/cmux-app-ffi-[0-9a-f]{40}/cmux-app-ffi-$1/" "$repo/Packages/macOS/CmuxNext/app-ffi-pin.json"
+  rm -f "$repo/Packages/macOS/CmuxNext/app-ffi-pin.json.bak"
   git -C "$repo" commit -qam "$2"
 }
 pin_to "$rb" base
@@ -181,7 +205,7 @@ fi
 rm -f "$repo/scripts/ci/json.py"
 
 # --tree DIR: a copy of the check outside the repository judges the tree at DIR
-# (its Package.swift, its FFI inputs, its history) and reads the pin only with
+# (its pin file and Package.swift, its FFI inputs, its history) and reads the pin only with
 # its own reader, never the tree's. cmux-next.yml runs the base's copy so on a
 # pull request's tree.
 code="$tmp/code"
@@ -208,9 +232,8 @@ fi
 git -C "$repo" checkout -q -f "$rb"
 
 # The JSON pin (cmux#37645): app-ffi-pin.json beside a Package.swift that holds
-# only its loader block, read through app_ffi_pin.py's read_pin_file and
-# check_loader. The base's copy of the check judges a pull request that moves
-# the pin to that form, so the check reads both forms, at HEAD and at --base.
+# only its loader block, read through app_ffi_pin.py's read and check_manifest,
+# at HEAD and at --base, also when the rest of Package.swift changes.
 json_pin() { # json_pin MESSAGE: rewrite the tree's pin into the JSON form for $pinned, and commit
   python3 -I - "$pin_reader" "$pinned" "$zeros" "$repo/Packages/macOS/CmuxNext" <<'PY'
 import importlib.util
@@ -220,7 +243,7 @@ spec = importlib.util.spec_from_file_location("app_ffi_pin", sys.argv[1])
 pin = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(pin)
 folder = Path(sys.argv[4])
-(folder / "app-ffi-pin.json").write_text(pin.render_pin_file(sys.argv[2], sys.argv[3]))
+(folder / "app-ffi-pin.json").write_text(pin.render(sys.argv[2], sys.argv[3]))
 (folder / "Package.swift").write_text("import Foundation\n\n" + pin.loader(sys.argv[3]) + "\nlet package = 0\n")
 PY
   git -C "$repo" add -A

@@ -70,6 +70,12 @@ impl Owner {
             .arg(&self.socket)
             .env("CMUX_TUI_STATE_DIR", self.dir.join("state"))
             .env("CMUX_TUI_CONFIG", self.dir.join("config.json"));
+        // Command rows come from shell integration's OSC 133 marks. On macOS the
+        // runner's login shell may be Apple's /bin/bash 3.2, which gets no
+        // integration (shell_integration.rs `is_apple_bash`), so its terminals
+        // record nothing: the daemon's terminals use zsh, as on a person's Mac.
+        #[cfg(target_os = "macos")]
+        command.env("SHELL", "/bin/zsh");
         command
     }
 

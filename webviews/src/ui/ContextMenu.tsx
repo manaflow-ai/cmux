@@ -13,6 +13,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { cx } from "./cx";
+import { MenuCheckGlyph } from "./MenuCheckGlyph";
 import { useScrollEdges } from "./scrollEdges";
 import { hasNativeMenuPick, nativeMenu, pickedId, type NativeMenuRow } from "./nativeMenu";
 import { useEscapingPopup, type AnchorBox } from "./popupHost";
@@ -20,6 +21,7 @@ import { usePopupHost } from "./UiProvider";
 import { useNativePopup, type NativePopupDescription } from "./nativePopup";
 import type { NativePopupEvent } from "./popupProtocol";
 import { popupAction } from "./popupDescriptors";
+import { trackHeldMenuRelease } from "./pressRelease";
 
 /** An action in the standalone context menu. */
 export interface ContextMenuItem {
@@ -130,6 +132,8 @@ export function ContextMenu({
   const returnFocus = useRef<HTMLElement | null>(null);
   const popupTarget = useRef<HTMLElement | null>(null);
   const nativeRequest = useRef(0);
+  // Follows the press a right-click opened the menu on, to its release (pressRelease.ts).
+  const heldPress = useRef<(() => void) | null>(null);
   const menu = useRef<HTMLDivElement | null>(null);
   const host = usePopupHost();
   const nativePopup = useNativePopup({
@@ -162,14 +166,14 @@ export function ContextMenu({
   const edges = useScrollEdges();
   const attach = useCallback(
     (node: HTMLDivElement | null) => {
-      edges(node);
       menu.current = node;
       if (host) setShown(node);
     },
-    [host, edges],
+    [host],
   );
   useEffect(
     () => () => {
+      heldPress.current?.();
       nativeRequest.current += 1;
       popupTarget.current?.removeAttribute("data-popup-open");
       popupTarget.current = null;
@@ -305,6 +309,21 @@ export function ContextMenu({
     opener?.setAttribute("data-popup-open", "");
     returnFocus.current = opener;
     const at = { x: event.clientX, y: event.clientY };
+    // A Mac sends contextmenu on the press: while it is held, dragging onto a row of the page-drawn
+    // menu and releasing picks it, as in a Mac context menu (Lawrence via Leo, 2026-11-17). When the
+    // App draws the menu, its panel follows the press itself (NativePopupHost).
+    heldPress.current?.();
+    heldPress.current =
+      (event.buttons & 3) !== 0
+        ? trackHeldMenuRelease(
+            event.currentTarget.ownerDocument,
+            event,
+            () => menu.current,
+            () => {
+              if (menu.current) close(true);
+            },
+          )
+        : null;
     if (native && nativePopup.available) {
       setNativeAnchor({
         getBoundingClientRect: () => ({ left: at.x, right: at.x, top: at.y, bottom: at.y }),
@@ -371,7 +390,7 @@ export function ContextMenu({
             >
               <div
                 ref={attach}
-                className={cx("ui-popup ui-glass ui-context-menu ui-scroll-edge-fade", popupClassName)}
+                className={cx("ui-popup ui-glass ui-context-menu ui-popup-scroll-shell", popupClassName)}
                 role="menu"
                 // The App's menu glass under the page, as ui/Menu's popups (ui/glass/hostGlass.ts).
                 data-host-glass="menu"
@@ -394,43 +413,45 @@ export function ContextMenu({
                   onKeyDown(event);
                 }}
               >
-                {items.map((item) => (
-                  <div key={item.id} role="none">
-                    {item.separatorBefore ? <hr className="ui-separator" /> : null}
-                    <button
-                      type="button"
-                      role={item.checked === undefined ? "menuitem" : "menuitemcheckbox"}
-                      aria-checked={item.checked}
-                      className={cx("ui-menu-item", item.destructive && "ui-menu-item-destructive")}
-                      disabled={item.disabled}
-                      aria-label={item.ariaLabel ?? (typeof item.label === "string" ? item.label : undefined)}
-                      onPointerEnter={() => !item.disabled && setActive(Math.max(0, enabled.indexOf(item)))}
-                      data-highlighted={enabled[active] === item ? "" : undefined}
-                      onClick={() => run(item)}
-                    >
-                      {/* A text label truncates with its full text as a tooltip; a composed label
+                <div ref={edges} className="ui-popup-scroll ui-scroll-edge-fade">
+                  {items.map((item) => (
+                    <div key={item.id} role="none">
+                      {item.separatorBefore ? <hr className="ui-separator" /> : null}
+                      <button
+                        type="button"
+                        role={item.checked === undefined ? "menuitem" : "menuitemcheckbox"}
+                        aria-checked={item.checked}
+                        className={cx("ui-menu-item", item.destructive && "ui-menu-item-destructive")}
+                        disabled={item.disabled}
+                        aria-label={item.ariaLabel ?? (typeof item.label === "string" ? item.label : undefined)}
+                        onPointerEnter={() => !item.disabled && setActive(Math.max(0, enabled.indexOf(item)))}
+                        data-highlighted={enabled[active] === item ? "" : undefined}
+                        onClick={() => run(item)}
+                      >
+                        {/* A text label truncates with its full text as a tooltip; a composed label
                           (text plus a shortcut) keeps its own flex layout. */}
-                      {/* A toggle's check sits on the menu's state column and an icon in the
+                        {/* A toggle's check sits on the menu's state column and an icon in the
                           14 box at the leading (popupSurface.css, "EVERY MENU ON ONE GRID"), so
                           checked, unchecked and plain rows start their text on one line. */}
-                      {item.checked !== undefined ? (
-                        <span className="ui-menu-check" aria-hidden="true">
-                          {item.checked ? "✓" : null}
-                        </span>
-                      ) : null}
-                      {item.icon ? (
-                        <span className="ui-menu-icon" aria-hidden="true">
-                          {item.icon}
-                        </span>
-                      ) : null}
-                      {typeof item.label === "string" ? (
-                        <span className="ui-menu-label">{item.label}</span>
-                      ) : (
-                        item.label
-                      )}
-                    </button>
-                  </div>
-                ))}
+                        {item.checked !== undefined ? (
+                          <span className="ui-menu-check" aria-hidden="true">
+                            {item.checked ? <MenuCheckGlyph /> : null}
+                          </span>
+                        ) : null}
+                        {item.icon ? (
+                          <span className="ui-menu-icon" aria-hidden="true">
+                            {item.icon}
+                          </span>
+                        ) : null}
+                        {typeof item.label === "string" ? (
+                          <span className="ui-menu-label">{item.label}</span>
+                        ) : (
+                          item.label
+                        )}
+                      </button>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>,
             document.body,

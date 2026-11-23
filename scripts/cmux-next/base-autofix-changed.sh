@@ -14,8 +14,8 @@
 # committed, and a held settings export fails its run, so the next run's SINCE still covers it.
 #
 # A re-pin of CCmuxAppFFI adds the pseudo path Packages/macOS/CmuxNext/Package.swift#CCmuxAppFFI
-# (base-autofix-ffi-pin.sh): the action exports are written from the pinned Rust catalog, so the pin
-# is their input, while the rest of Package.swift is not.
+# (base-autofix-ffi-pin.sh, which compares app-ffi-pin.json): the action exports are written from the
+# pinned Rust catalog, so the pin is their input, while the rest of Package.swift is not.
 #
 # Usage: scripts/cmux-next/base-autofix-changed.sh SINCE   (run in the checkout)
 set -euo pipefail
@@ -36,7 +36,7 @@ git -C "$scratch" -c core.alternateRefsCommand=true fetch --quiet --no-tags --de
   || { echo "cannot fetch ${since:0:12}" >&2; exit 1; }
 names="$(git -C "$scratch" diff --name-only --no-renames "$since" "$head")"
 [[ -z "$names" ]] || printf '%s\n' "$names"
-if grep -qx 'Packages/macOS/CmuxNext/Package\.swift' <<<"$names"; then
+if grep -qxE 'Packages/macOS/CmuxNext/(Package\.swift|app-ffi-pin\.json)' <<<"$names"; then
   (cd "$scratch" && bash "$here/base-autofix-ffi-pin.sh" "$since" "$head" \
     "$(git -C "$root" remote get-url origin)")
 fi

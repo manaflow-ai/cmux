@@ -30,6 +30,24 @@ final class PaletteKeycapsView: NSView {
         return NSSize(width: widths.reduce(0, +) + Metrics.space1 * CGFloat(keycaps.count - 1), height: PaletteLayout.keycapSize)
     }
 
+    /// Where `cap` draws in `rect` (flipped), on the pixel grid. Its ink is centered left to right. Up and
+    /// down, a symbol key (↩ ⇥ ⌘ ⌥ ⇧ ⌫, arrows) centers its own ink: centered by its line box, ↩ and ⇥ drew
+    /// below the middle of the cap and of the text beside it (#48512). Letters, digits and punctuation
+    /// center the font's capitals instead, so "," "'" "." and "_" keep their height on the line.
+    private func baseline(of cap: String, in rect: NSRect) -> NSPoint {
+        let font = Typography.shortcut
+        let unbounded = NSSize(width: CGFloat.greatestFiniteMagnitude, height: .greatestFiniteMagnitude)
+        // Measured from the baseline, y up.
+        let ink = (cap as NSString).boundingRect(with: unbounded, options: [.usesDeviceMetrics], attributes: attributes)
+        let isSymbol = !cap.isEmpty && cap.unicodeScalars.allSatisfy {
+            $0.properties.generalCategory == .otherSymbol || $0.properties.generalCategory == .mathSymbol
+        }
+        let y = isSymbol && !ink.isEmpty ? rect.midY + ink.midY : rect.midY + font.capHeight / 2
+        let x = ink.isEmpty ? rect.midX - (cap as NSString).size(withAttributes: attributes).width / 2 : rect.midX - ink.midX
+        let scale = window?.backingScaleFactor ?? 2
+        return NSPoint(x: (x * scale).rounded() / scale, y: (y * scale).rounded() / scale)
+    }
+
     override func draw(_ dirtyRect: NSRect) {
         var x: CGFloat = 0
         let size = PaletteLayout.keycapSize
@@ -41,8 +59,7 @@ final class PaletteKeycapsView: NSView {
                 Palette.hoverFill.setFill()
                 NSBezierPath(roundedRect: rect, xRadius: PaletteLayout.keycapCornerRadius, yRadius: PaletteLayout.keycapCornerRadius).fill()
                 let text = cap as NSString
-                let textSize = text.size(withAttributes: attributes)
-                text.draw(at: NSPoint(x: rect.midX - textSize.width / 2, y: rect.midY - textSize.height / 2), withAttributes: attributes)
+                text.draw(with: NSRect(origin: baseline(of: cap, in: rect), size: .zero), options: [], attributes: attributes)
                 x += width + Metrics.space1
             }
         }
@@ -54,7 +71,7 @@ final class PaletteKeycapsView: NSView {
 /// clears at once (`ChromeHover.fade`); selection, reuse and redraws paint
 /// at once.
 final class PaletteTableRowView: NSTableRowView {
-    private let fill = CALayer()
+    let fill = CALayer()
     private var fadesNextFill = false
 
     override func prepareForReuse() {
@@ -100,6 +117,8 @@ final class PaletteTableRowView: NSTableRowView {
     override func layout() {
         super.layout()
         fill.frame = bounds.insetBy(dx: PaletteLayout.listInset, dy: 0)
+        // Read again here, so a density change while the palette is open reshapes a reused row.
+        fill.cornerRadius = PaletteLayout.rowCornerRadius
     }
 
     override func drawBackground(in dirtyRect: NSRect) {
@@ -140,6 +159,8 @@ final class PaletteRowCell: NSTableCellView {
         super.init(frame: frame)
         identifier = Self.identifier
         icon.imageScaling = .scaleProportionallyDown
+        // Its text's right end is the row's right edge, where a key would end.
+        accessory.alignment = .right
         subtitle.lineBreakMode = .byTruncatingMiddle
         [icon, swatch, title, subtitle, accessory, toggleBadge, keycaps].forEach(addSubview)
     }
@@ -228,7 +249,8 @@ final class PaletteRowCell: NSTableCellView {
         let box = PaletteLayout.iconBox
         icon.frame = NSRect(x: padding, y: midY - box / 2, width: box, height: box)
         swatch.frame = icon.frame.insetBy(dx: 1, dy: 1)
-        var right = bounds.maxX - padding
+        // Keys and kind labels end on the panel's one right edge, the field's hint's too.
+        var right = bounds.maxX - PaletteLayout.trailingInset
         if !keycaps.isHidden {
             let size = keycaps.intrinsicContentSize
             right -= size.width
@@ -243,9 +265,10 @@ final class PaletteRowCell: NSTableCellView {
         }
         if !accessory.isHidden {
             let width = min(PaletteText.fittingWidth(accessory), bounds.width / 4)
-            right -= width
-            accessory.frame = centered(x: right, width: width, field: accessory)
-            right -= Metrics.space4
+            // The cell draws its text inset from the frame; the frame goes past the edge by that inset.
+            let inset = PaletteText.textInset(accessory)
+            accessory.frame = centered(x: right + inset - width, width: width, field: accessory)
+            right -= width - inset + Metrics.space4
         }
         let left = icon.frame.maxX + Metrics.space4
         let available = max(0, right - left)

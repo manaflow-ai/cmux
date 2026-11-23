@@ -18,7 +18,12 @@ import Testing
                                         accessToken: { _ in "t" })
         controller.endpoint = { LinkEndpoint(baseURL: URL(string: "https://api.example")!, teamID: "team-1", deviceID: "d", macDeviceID: $0) }
         controller.send(.target(LinkMachine.Target(macID: "mac-42", name: "Mac", isOnline: true)))
-        for _ in 0..<200 { if case .waiting = controller.phase { break }; await Task.yield() }
+        // A count of yields is no deadline: on a busy runner 200 reschedules can pass before the dial fails.
+        var deadline = AwakeDeadline(.seconds(10))
+        while deadline.hasTimeLeft() {
+            if case .waiting = controller.phase { break }
+            try? await Task.sleep(for: .milliseconds(5)) // test: polls the phase until a deadline
+        }
         await telemetry.flush()
         return journal.records()
     }
@@ -33,7 +38,7 @@ import Testing
         #expect(failed.fields["error_code"] == .code("timeout"))
         #expect(failed.detail?.contains("timeout") == true)
         let waiting = try #require(records.last { $0.name == "phase" && $0.fields["phase"] == .code("waiting") })
-        #expect(waiting.fields["reason"] == .text("the Mac didn't answer in time"))
+        #expect(waiting.fields["reason"] == .text(LinkError.timeoutReason))
     }
 
     @Test func everyoneSeesTheFailureWithoutIdentifiers() async throws {

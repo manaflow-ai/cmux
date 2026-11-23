@@ -71,6 +71,7 @@ final class BubbleBackgroundView: UIView {
 
     /// Fades the fill in from `color` (a scheduled bubble turning sent).
     func animateFill(from color: UIColor, duration: CFTimeInterval) {
+        // motion: allow crossfade, the Reduce Motion form
         let fade = CABasicAnimation(keyPath: "fillColor")
         fade.fromValue = color.resolvedColor(with: traitCollection).cgColor
         fade.toValue = shapeLayer.fillColor
@@ -170,7 +171,11 @@ final class BubbleBackgroundView: UIView {
     /// and on iOS 26 the block's completion never fires.
     /// Laid out in a rotation, that left the rotation unfinished, so turning
     /// back to portrait kept the window landscape-sized.
+    ///
+    /// None under Reduce Motion: the outline, its gradient mask and the
+    /// material mask take the new shape at once (the path morph is spatial).
     private func outlineAnimation() -> CABasicAnimation? {
+        guard !UIView.reducesMotion else { return nil }
         for key in (layer.animationKeys() ?? []).reversed() {
             if let animation = layer.animation(forKey: key) as? CABasicAnimation,
                animation.keyPath == "bounds.size" || animation.keyPath == "bounds" {

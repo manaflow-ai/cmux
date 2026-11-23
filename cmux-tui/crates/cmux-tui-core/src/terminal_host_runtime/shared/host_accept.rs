@@ -12,62 +12,50 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
+use crate::backoff::Backoff;
+
 use super::super::sys::{self, HostStream};
 use super::host_serve::serve_client;
 use super::host_shared::HostShared;
 
 /// The first wait after a failed accept; it doubles up to [`MAX_BACKOFF`].
+/// Longer than a remote listener's (10 ms to 250 ms): a terminal host is one
+/// process per terminal, so a host short of descriptors waits more.
 const FIRST_BACKOFF: Duration = Duration::from_millis(20);
 const MAX_BACKOFF: Duration = Duration::from_secs(1);
 
-/// The accept loop's wait after an error.
-pub(crate) struct AcceptBackoff {
-    next: Duration,
-    /// Errors since the last accepted client, for the one log line per streak.
-    failures: u64,
+/// The accept loop's spacing after an error; `reset` once a client is handed off.
+pub(crate) fn accept_backoff() -> Backoff {
+    Backoff::new(FIRST_BACKOFF, MAX_BACKOFF).with_jitter(0.0)
 }
 
-impl AcceptBackoff {
-    pub(crate) fn new() -> Self {
-        Self { next: FIRST_BACKOFF, failures: 0 }
+/// Note `error` (one log line per streak) and wait until the next backoff
+/// passes or the waker reports a lifecycle change (terminal exit, last
+/// client stream closed), which the loop checks next.
+pub(crate) fn wait_after_error(backoff: &mut Backoff, shared: &HostShared, error: &std::io::Error) {
+    if backoff.attempts() == 0 {
+        eprintln!("terminal-host: accepting a client failed; retrying: {error}");
     }
-
-    /// A client was handed off: the next error starts a new streak.
-    pub(crate) fn reset(&mut self) {
-        self.next = FIRST_BACKOFF;
-        self.failures = 0;
-    }
-
-    /// Note `error` and wait until the backoff passes or the waker reports a
-    /// lifecycle change (terminal exit, last client stream closed), which the
-    /// loop checks next.
-    pub(crate) fn after_error(&mut self, shared: &HostShared, error: &std::io::Error) {
-        self.failures += 1;
-        if self.failures == 1 {
-            eprintln!("terminal-host: accepting a client failed; retrying: {error}");
+    let deadline = Instant::now() + backoff.next_delay();
+    loop {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            break;
         }
-        let deadline = Instant::now() + self.next;
-        loop {
-            let remaining = deadline.saturating_duration_since(Instant::now());
-            if remaining.is_zero() {
+        match shared.accept_waker.wait_readable(remaining) {
+            Ok(true) => {
+                shared.accept_waker.drain();
                 break;
             }
-            match shared.accept_waker.wait_readable(remaining) {
-                Ok(true) => {
-                    shared.accept_waker.drain();
-                    break;
-                }
-                Ok(false) => break,
-                Err(error) if error.kind() != std::io::ErrorKind::Interrupted => {
-                    // `poll` itself failed: wait out the backoff without the waker,
-                    // so a lasting failure cannot spin.
-                    thread::sleep(remaining);
-                    break;
-                }
-                Err(_) => {}
+            Ok(false) => break,
+            Err(error) if error.kind() != std::io::ErrorKind::Interrupted => {
+                // `poll` itself failed: wait out the backoff without the waker,
+                // so a lasting failure cannot spin.
+                thread::sleep(remaining);
+                break;
             }
+            Err(_) => {}
         }
-        self.next = (self.next * 2).min(MAX_BACKOFF);
     }
 }
 

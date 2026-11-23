@@ -10,6 +10,7 @@ import { act } from "react";
 import type { Root } from "react-dom/client";
 import { translatorFor } from "../src/agent-session/acpmux/i18n";
 import { DEFAULT_CHAT_DISPLAY, MINIMAL_MODE_KEY, resolveChatDisplay } from "../src/agent-session/acpmux/chatDisplay";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -54,11 +55,8 @@ afterEach(() => {
   root = undefined;
   setChatDisplay({});
 });
-afterAll(() => {
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { scope });
 });
 
 const t = translatorFor("en");

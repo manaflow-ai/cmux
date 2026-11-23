@@ -91,16 +91,6 @@ import Testing
         #expect(Self.store(root, full: Counter(), key: nil).list(teams: false).first?.storeSchemas == nil)
     }
 
-    /// With no kept build offered, Go back downloads the feed's previous build: the question says
-    /// that, not that cmux reopens a kept build (cmux#41013 review).
-    @MainActor @Test func theQuestionSaysWhatGoBackDoes() {
-        #expect(UpdateDropBack.confirmation(nil).body == UpdaterStrings.goBackDownloadBody)
-        let feed = RevertTarget(build: "90", version: "1.0.0-nightly.90", date: nil, kept: false)
-        #expect(UpdateDropBack.confirmation(feed).body == UpdaterStrings.goBackDownloadBody)
-        let kept = RevertTarget(build: "90", version: "1.0.0-nightly.90", date: nil, kept: true)
-        #expect(UpdateDropBack.confirmation(kept).body == UpdaterStrings.rollbackConfirmBody)
-    }
-
     /// A rollback whose quit was refused puts the running build back (RollbackSwap.undo). The kept build sat
     /// in the app's place meanwhile, so undo checks every file again before it seals and signs it; one
     /// changed then keeps no record, and a later Go back checks it in full (cmux#41013 review).

@@ -8,8 +8,12 @@ import Foundation
 ///
 /// Leaving the page (back, another tab, the grid, a sheet) releases after
 /// `delay`, so switching away and back quickly never resizes the Mac's pane
-/// twice; the app going to the background releases at once. Coming back
-/// claims at once.
+/// twice. The app going to the background (another app, the lock screen)
+/// releases at once, so the Mac's pane gets its own size back (Leo,
+/// 2026-11-12: "if I do completely switch away, I want to be gone"). Coming
+/// back claims at once; the page from before holds until the reclaim's
+/// replay, so the Mac's wider grid is never painted
+/// (`TerminalViewController.appActiveChanged`).
 public struct TerminalSizeClaimDebounce<Instant: InstantProtocol>: Sendable where Instant.Duration == Duration {
     public static var defaultDelay: Duration { .seconds(1) }
 
@@ -41,6 +45,8 @@ public struct TerminalSizeClaimDebounce<Instant: InstantProtocol>: Sendable wher
             releaseAt = nil
             return (nil, nil)
         }
+        // The page left (or a sheet covers it): `delay`. The app left the
+        // foreground: now.
         let at = appActive ? (releaseAt ?? now.advanced(by: delay)) : now
         guard now < at else {
             releaseAt = nil

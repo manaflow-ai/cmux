@@ -7,15 +7,20 @@ import Foundation
 /// only in DEBUG builds with mock content on.
 public final class ChiefOfflineBackend: ConversationBackend, Sendable {
     public let reason: String
+    /// The conversation as this phone knows it (its name and who is in it), so a conversation
+    /// opened while its Mac is away still shows its header instead of a blank one.
+    public let info: ConversationInfo?
 
-    public init(reason: String = "Chief isn't connected to a Mac") {
+    public init(reason: String = "Chief isn't connected to a Mac", info: ConversationInfo? = nil) {
         self.reason = reason
+        self.info = info
     }
 
     private var error: ConversationBackendError { ConversationBackendError(code: -1, message: reason) }
 
     public func events() -> AsyncStream<ConversationBackendEvent> {
         let (stream, continuation) = AsyncStream<ConversationBackendEvent>.makeStream(bufferingPolicy: .unbounded)
+        if let info { continuation.yield(.conversationChanged(info)) }
         continuation.yield(.disconnected(reason: reason))
         return stream
     }

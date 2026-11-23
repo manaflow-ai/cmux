@@ -43,6 +43,8 @@ nonisolated struct CEFFrameworkPrefetch: Sendable {
         /// Time inside `cef_load_library`: how long dyld's loader lock was
         /// held for the framework (``noteMapped(_:)``).
         var map: Duration = .zero
+        /// The binary ``readBinary(_:)`` read (it reads each one once).
+        var binaryPath: String?
     }
 
     /// The last read in this process (`debug.cef`).
@@ -63,8 +65,18 @@ nonisolated struct CEFFrameworkPrefetch: Sendable {
 
     /// Reads the framework binary into the file cache (call off the main
     /// thread, before `cef_load_library`), so the map that follows holds
-    /// dyld's loader lock only for cached pages.
+    /// dyld's loader lock only for cached pages. Once per binary per process:
+    /// the load task reads it before it waits for the first frame, and
+    /// `CEFRuntime.loadLibrary` asks again before it maps.
     static func readBinary(_ layout: CEFRuntimeLayout) {
+        let path = layout.frameworkBinary.path
+        let first = lastReport.withLock { report in
+            if report == nil { report = Report() }
+            guard report?.binaryPath != path else { return false }
+            report?.binaryPath = path
+            return true
+        }
+        guard first else { return }
         let clock = ContinuousClock()
         let started = clock.now
         let binary = read([layout.frameworkBinary])

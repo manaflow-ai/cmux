@@ -5,8 +5,8 @@
 // really display properly or even show that there's a horizontal scrollbar i think it's cut off").
 // Unwrapped, an edit's diff (Pierre's code rows, in a shadow root) and a command's output keep a
 // thin thumb on no track under their lines at rest, in the shared thumb color (scrollers.ts
-// SIDEWAYS_ATTRIBUTE), on a lane no taller than the thin scroller's. A block cut to its eight-line
-// preview ends with that lane, clear of the preview's bottom fade. Nothing over a block shows a
+// SIDEWAYS_ATTRIBUTE), on a lane no taller than the thin scroller's. A block past eight lines,
+// scrolling in its eight-line box, ends with that lane, clear of the box's bottom fade. Nothing over a block shows a
 // resize cursor (the same ask: "the cursor hover that turns into the resizing cursor").
 //
 // The lane never moves the transcript and is never an empty tail (Codex review of #23967): a diff
@@ -105,8 +105,8 @@ await requireBrowserLane("transcript-block-sideways-scrollbar.test.ts", async ()
   ];
   /// Cut call outputs: eight whole lines and the lane under them.
   const cutCalls: Block[] = [outputCut];
-  /// Wrapped diffs, cut and whole.
-  const wrapped: Block[] = [diff("edit-long-line-prose", true), diff("edit-preview-open", false)];
+  /// Wrapped diffs past eight lines, each scrolling in its box: at its start and scrolled to its end.
+  const wrapped: Block[] = [diff("edit-long-line-prose", true), diff("edit-preview-scrolled", true)];
 
   const webviews = path.resolve(import.meta.dir, "..");
   const { createServer } = await import("vite");

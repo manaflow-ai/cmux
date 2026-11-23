@@ -20,6 +20,7 @@ import argparse, glob, http.server, json, os, plistlib, subprocess, sys, tempfil
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown  # noqa: E402
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -199,7 +200,7 @@ try:
     reports.clear()
     launch()
     tabs = rpc("browser.page.tabs", {"all": True}).get("tabs") or []
-    print("note: tabs after relaunch", [(t.get("id"), t.get("url")) for t in tabs], flush=True)
+    safe_print("note: tabs after relaunch", [(t.get("id"), t.get("url")) for t in tabs], flush=True)
     for engine in ENGINES:
         tab = next((t for t in tabs if f"/b-{engine}-{RUN}" in (t.get("url") or "")), None)
         check(tab is not None, f"{engine}: the tab comes back at B ({tabs})")

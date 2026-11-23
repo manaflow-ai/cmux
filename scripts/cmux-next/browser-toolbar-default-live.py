@@ -21,6 +21,7 @@ import argparse, glob, json, os, plistlib, socket, subprocess, sys, tempfile, ti
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown  # noqa: E402
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag")
@@ -148,10 +149,10 @@ try:
     if not windows():
         rpc("action.run", {"action": "newWindow", "origin": "script"})
     wait_for(lambda: windows(), "a window", 60)
-    print("open a WebKit tab", rpc("action.run", {"action": "openBrowser.webkit", "args": {"url": URL}, "focus": True}), flush=True)
+    safe_print("open a WebKit tab", rpc("action.run", {"action": "openBrowser.webkit", "args": {"url": URL}, "focus": True}), flush=True)
     wait_for(lambda: "omnibar" in (toolbar().get("frames") or {}), "a browser toolbar", 90)
     report = toolbar()
-    print("default toolbar", json.dumps(report.get("frames")), flush=True)
+    safe_print("default toolbar", json.dumps(report.get("frames")), flush=True)
     check(buttons() == ["overflow"], f"default: only More after the address bar: {buttons()}")
     check(not report.get("shows_extensions_button"), "default: no Extensions button with no pinned extension")
     check(all(k in report.get("frames", {}) for k in ("back", "forward", "reload", "omnibar")), "default: Back, Forward, Reload and the address bar")

@@ -6,7 +6,7 @@ import CmuxNextIcons
 /// toolbar row (Back, Reload, an address field, Extensions, DevTools, ⋮), laid out by a
 /// ``TabBarPlaygroundTrailingSpec``. A faint line marks each row's last control center, so a gallery
 /// shows whether the two ⋮ share one column.
-final class TabBarPlaygroundTrailingRows: NSView {
+final class TabBarPlaygroundTrailingRows: NSView, TabBarPlaygroundRow {
     private let spec: TabBarPlaygroundTrailingSpec
     private let strip: TabStripView
     private let tabBarButtons: [TitlebarBandButton]
@@ -19,7 +19,7 @@ final class TabBarPlaygroundTrailingRows: NSView {
         self.spec = spec
         self.strip = strip
         strip.dragsWindowFromEmptySpace = false
-        let plus = TitlebarBandButton(symbol: "plus")
+        let plus = TitlebarBandButton(symbol: "plus") // plus-button-allow: a Debug prototype of an older candidate
         let chevron = TitlebarBandButton(symbol: "chevron.down")
         chevron.symbolPointSize = { Metrics.smallIconSize - Metrics.space1 }
         tabBarButtons = [plus, chevron] + (spec.tabBarMore.map { [Self.iconButton($0, size: spec.tabBarMoreSize)] } ?? [])

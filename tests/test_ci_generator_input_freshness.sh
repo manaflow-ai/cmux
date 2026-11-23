@@ -8,7 +8,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../scripts/cmux-next/tests/lib/git-fixtur
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 checker="$root/scripts/cmux-next/check-generator-inputs.sh"
 repo="$(mktemp -d "${TMPDIR:-/tmp}/cmux-generator-freshness.XXXXXX")"
-trap 'rm -rf "$repo"' EXIT
+git_fixture_trap_exit 'rm -rf "$repo"'
 
 git -C "$repo" init -q -b base
 git -C "$repo" config user.name fixture
@@ -95,3 +95,19 @@ for path in web/scripts/export-docs-shortcuts.ts; do
   grep -qF "$path (merge snapshot kept the PR side)" "$repo/red.log"
   printf '%s\n' "red: stale $path refused"
 done
+
+# A PR stacked on another PR whose squash then landed on base carries the same
+# generator input as base: the merge equals both sides and is not stale.
+git -C "$repo" checkout -qb squash-base "$pr"
+git -C "$repo" checkout -q base
+git -C "$repo" checkout -qb landed base
+printf '// stacked\n' > "$repo/Packages/macOS/CmuxNext/Sources/Stacked.swift"
+git -C "$repo" add . && git -C "$repo" commit -qm 'base PR squash-merged'
+landed="$(git -C "$repo" rev-parse HEAD)"
+git -C "$repo" checkout -q squash-base
+printf '// stacked\n' > "$repo/Packages/macOS/CmuxNext/Sources/Stacked.swift"
+git -C "$repo" add . && git -C "$repo" commit -qm 'stacked PR carries the base PR commit'
+git -C "$repo" merge -q --no-edit landed >/dev/null 2>&1 || { echo 'expected a clean merge of the same content' >&2; exit 1; }
+stacked="$(git -C "$repo" rev-parse HEAD)"
+(cd "$repo" && "$checker" --base-ref "$landed" --merge-ref "$stacked")
+printf '%s\n' 'green: stacked PR equal to the landed base input'

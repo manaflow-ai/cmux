@@ -14,7 +14,7 @@ ROOT_DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
 AREAS="$ROOT_DIR/scripts/cmux-next/autofix-areas.sh"
 APPLY="$ROOT_DIR/scripts/cmux-next/pr-autofix-apply.sh"
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/cmux-pr-autofix.XXXXXX")"
-trap 'rm -rf "$tmp"' EXIT
+git_fixture_trap_exit 'rm -rf "$tmp"'
 fail() { echo "FAIL: $*" >&2; cat "$tmp/out" >&2 2>/dev/null || true; exit 1; }
 
 area() { # changed path -> the actions area's value
@@ -28,6 +28,12 @@ for path in Packages/macOS/CmuxNext/Sources/CmuxNextActions/ActionCatalog.swift 
   [[ "$(area "$path")" == true ]] || fail "a change to $path must regenerate the action exports"
 done
 [[ "$(area webviews/src/main.tsx)" == false ]] || fail "a webviews change must not start the Mac export job"
+settings() { printf '%s\n' "$1" | bash "$AREAS" | sed -n 's/^settings=//p'; }
+for path in schemas/settings/source/sidebar.json schemas/settings/generator/sidebar.json schemas/settings/retired-keys.json \
+  scripts/cmux-next/autofix-areas.sh; do
+  [[ "$(settings "$path")" == true ]] || fail "a change to $path must regenerate the settings exports"
+done
+[[ "$(settings webviews/src/main.tsx)" == false ]] || fail "a webviews change must not start the Mac settings export"
 [[ "$(bash "$AREAS" --all | sed -n 's/^actions=//p')" == true ]] || fail "--all must include the action exports"
 capabilities() { printf '%s\n' "$1" | bash "$AREAS" | sed -n 's/^capabilities=//p'; }
 for path in Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/DaemonEndpoint.swift \

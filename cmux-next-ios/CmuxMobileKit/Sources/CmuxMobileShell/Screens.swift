@@ -41,12 +41,18 @@ struct HomeScreen: View {
         NavigationStack(path: $shell.homePath) {
             ConversationsHome(store: shell.store, macFilter: shell.macFilter,
                               reconnect: shell.live.map { live in { macID in await live.reconnectFeed(macID: macID) } },
-                              selectMac: shell.live.map { live in { live.select(macID: $0) } }, open: { route in
+                              selectMac: shell.live.map { live in { live.select(macID: $0) } },
+                              inviteToTeam: { email in
+                                  guard let team = shell.store.activeTeam else { return }
+                                  shell.sendInvite(email: email, to: team)
+                              }, open: { route in
                 if let chief = route.chiefRoute {
                     shell.homePath.append(chief)
                 } else if case let .agent(destination) = route {
                     shell.homePath.append(destination)
                 } else if case let .mac(conversation) = route {
+                    shell.homePath.append(conversation)
+                } else if case let .cloud(conversation) = route {
                     shell.homePath.append(conversation)
                 }
             }) {
@@ -81,7 +87,7 @@ struct WorkspacesScreen: View {
                     MacLinking(link: { live.select(macID: $0) }, canLink: { live.canLink(macID: $0) },
                                isLinkTarget: { live.isLinked(macID: $0) })
                 },
-                refresh: shell.live.map { live in { await live.refreshWorkspaces() } },
+                refresh: shell.live.map { live in { await live.refreshWorkspaces() } } ?? Self.rigRefresh,
                 retryLoad: { await shell.retryWorkspaces() },
                 switchTeam: { shell.switchTeam(to: $0) },
                 openAccount: {
@@ -100,8 +106,18 @@ struct WorkspacesScreen: View {
                     // WorkspacesList owns the title and the Mac chip row.
                     SidebarToolbarItem(sidebar: shell.sidebar)
                 }
-                .cmuxMobileBanner(shell.banner, retry: shell.live.map { _ in { shell.bannerAction() } })
+                .cmuxMobileBanner(shell.banner, retry: shell.bannerHasAction ? { shell.bannerAction() } : nil)
         }
+    }
+
+    /// Mock mode has no live refresh; the pull-to-refresh rig gives the list one
+    /// (`CMUX_MOBILE_LIST_REFRESH_SECONDS`, DEBUG and Demo builds only).
+    private static var rigRefresh: (() async -> Void)? {
+        #if DEBUG
+        ListStressSettings.shared.refreshSeconds.map { seconds in { try? await Task.sleep(for: .seconds(seconds)) } }
+        #else
+        nil
+        #endif
     }
 }
 

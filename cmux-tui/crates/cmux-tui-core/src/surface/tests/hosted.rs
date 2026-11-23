@@ -1313,7 +1313,7 @@ fn the_creating_input_flush_keeps_input_that_may_have_been_written() {
     let pty = surface.as_pty().expect("a terminal");
     let terminal_id = surface.terminal_host_identity().expect("a hosted terminal").terminal_id;
     let generation =
-        mux.begin_creating_input(&terminal_id).expect("no live terminal has the id yet");
+        mux.begin_creating_input(&terminal_id, 7).expect("no live terminal has the id yet");
     let given_back = Arc::new(Mutex::new(Vec::new()));
     for bytes in [&b"a"[..], &b"b"[..]] {
         let given_back = given_back.clone();
@@ -1342,6 +1342,56 @@ fn the_creating_input_flush_keeps_input_that_may_have_been_written() {
         vec![b"k".to_vec(), b"a".to_vec()],
         "the input the flush kept reached the host once"
     );
+}
+
+/// #41387 review, should-fix 1: the creator cancels the creation's input while the flush is in a write that then
+/// fails. The terminal stays live, so the id must still refuse input for the expiry time: before, the failed write
+/// removed the cancelled entry, and a key sent late by the id was written to the live terminal. The creator's
+/// bytes that the flush did not write are dropped, not given back.
+#[cfg(unix)]
+#[test]
+fn a_failed_write_of_a_cancelled_creating_input_keeps_the_refusal_of_its_id() {
+    let (mux, surface, _host) =
+        hosted_typing_surface("hosted-input-port-cancel-write-failed", true);
+    let pty = surface.as_pty().expect("a terminal");
+    let terminal_id = surface.terminal_host_identity().expect("a hosted terminal").terminal_id;
+    let generation =
+        mux.begin_creating_input(&terminal_id, 7).expect("no live terminal has the id yet");
+    let given_back = Arc::new(Mutex::new(Vec::new()));
+    let notice = |given_back: &Arc<Mutex<Vec<u8>>>| -> crate::mux::creating_input::UnclaimedNotice {
+        let given_back = given_back.clone();
+        Arc::new(move |_terminal: &str, bytes: &[u8], _reason: &str| {
+            given_back.lock().unwrap().extend_from_slice(bytes);
+        })
+    };
+    for bytes in [&b"a"[..], &b"b"[..]] {
+        mux.write_terminal_input(&terminal_id, 7, bytes, false, notice(&given_back))
+            .expect("queued while creating");
+    }
+    mux.insert_surface_runtime_for_test(surface.clone());
+    let resume = running_paused_writer(&surface, pty);
+    pty.input_port.set_reply_wait_for_test(Duration::from_secs(2));
+    let taken = pty.input_port.accepted_for_test();
+    std::thread::scope(|scope| {
+        // The flush writes "a": the paused writer holds it, and the flush's wait for it ends in a failed write.
+        let flush = scope.spawn(|| mux.finish_creating_input(&terminal_id, generation, None));
+        wait_until("the flush is in its write", || pty.input_port.accepted_for_test() > taken);
+        assert!(mux.cancel_creating_input(&terminal_id, 7), "the creator's cancel was refused");
+        flush.join().expect("the flush ended");
+    });
+    assert!(
+        given_back.lock().unwrap().is_empty(),
+        "the creator's bytes went back to it after its cancel"
+    );
+    let late = mux
+        .write_terminal_input(&terminal_id, 7, b"c", false, notice(&given_back))
+        .expect_err("input by the id of a cancelled creation was taken after a failed write");
+    assert_eq!(
+        crate::mux::creating_input::error_code(&late).as_deref(),
+        Some("input.cancelled"),
+        "{late:#}"
+    );
+    drop(resume);
 }
 
 /// R-DAEMON-STATE S1.6c (#35082 review 2, should-do 1): a write that waits out a lost host connection fails as soon

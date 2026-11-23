@@ -16,6 +16,7 @@ import {
   signsInByPage,
   takesApiKey,
 } from "../src/agent-session/acpmux/cloudAgentLogin";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -63,13 +64,9 @@ type TurnActions = import("../src/agent-session/acpmux/conversation/turnActions"
 const host = dom.window.document.getElementById("root")!;
 const root = createRoot(host);
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root.unmount());
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 const PROMPT = "Run the sidebar tests and fix what fails";
@@ -347,14 +344,6 @@ test("no sign-in where acpmux lacks agent_login, or on another failure", async (
   expect(button("Sign in to Claude")).toBeUndefined();
 });
 
-test("in DEV the credential transfer stays beside the sign-in", async () => {
-  const { client } = mockClient();
-  const { signIn } = signInFor(client);
-  await render({ route: cloudRoute, cloudSignIn: signIn, transferCloudCredentials: async () => undefined });
-  expect(button("Sign in to Claude")).toBeDefined();
-  expect(button("Set up Claude Code credentials")).toBeDefined();
-});
-
 test("Claude: one click starts the login and opens its page; paste the code, finish, send again", async () => {
   const opened: string[] = [];
   const { client, calls, sent } = mockClient({
@@ -480,13 +469,10 @@ test("Cursor: one click opens its page, the card waits for the approve with no c
 });
 
 // A team Cloud machine takes no personal login (the start skipped it: `guest-not-owner`, guest `team`):
-// the card says so, Switch model leads, Use an API key stays, and neither Sign in to Claude nor a
-// login transfer (which ends in "Personal credentials can only be transferred to a Cloud machine you
-// own") is offered, by hand or automatically.
+// the card says so, Switch model leads, Use an API key stays, and Sign in to Claude is not offered.
 test("a team Cloud machine's sign-in failure names it and offers Switch model and Use an API key", async () => {
   const { client } = mockClient();
   const { signIn } = signInFor(client);
-  const transfers: unknown[][] = [];
   const team = { ...cloudRoute, teamMachine: true };
   const rejected = "The provider rejected Claude Code's credentials on this Cloud machine (HTTP 401).";
   await render(
@@ -494,22 +480,40 @@ test("a team Cloud machine's sign-in failure names it and offers Switch model an
       route: team,
       cloudSignIn: signIn,
       switchModel: () => undefined,
-      transferCloudCredentials: async (...args: unknown[]) => void transfers.push(args),
     },
     rejected,
   );
   await flush();
   expect(host.querySelector(".cv-turn-error__cause")!.textContent).toContain(
-    "Claude Code on this team Cloud machine has no sign-in it can use. cmux doesn’t pass personal logins to shared team machines.",
+    "Claude Code has no sign-in on this team Cloud machine. Personal logins stay off shared machines.",
   );
   expect(labels().slice(0, 2)).toEqual(["Switch model", "Use an API key"]);
   expect(button("Switch model")!.classList.contains("cv-turn-error__primary")).toBe(true);
   expect(button("Sign in to Claude")).toBeUndefined();
-  expect(button("Set up Claude Code credentials")).toBeUndefined();
-  expect(transfers).toEqual([]);
   // An owner machine's card is as it was.
   await render({ route: cloudRoute, cloudSignIn: signIn, switchModel: () => undefined }, rejected);
   expect(labels().slice(0, 3)).toEqual(["Sign in to Claude", "Use an API key", "Switch model"]);
+});
+
+test("a team Cloud machine with no team account for the agent offers Use an API key there, saved on the machine", async () => {
+  const { client, calls } = mockClient();
+  const { signIn } = signInFor(client);
+  const team = { ...cloudRoute, teamMachine: true };
+  const missing = "Codex needs a team account on this machine: run cr add codex to add one";
+  await render({ route: team, cloudSignIn: signIn, switchModel: () => undefined }, missing);
+  await flush();
+  expect(host.querySelector(".cv-turn-error")?.getAttribute("data-failure-kind")).toBe("no-team-account");
+  // The team's own way stays the card's words; the API key is the click that goes on now, never a personal sign-in.
+  expect(host.querySelector(".cv-turn-error__cause")!.textContent).toContain("cr add codex");
+  expect(labels()).toContain("Use an API key");
+  expect(button("Sign in to Claude")).toBeUndefined();
+  await act(async () => button("Use an API key")!.click());
+  const field = host.querySelector<HTMLInputElement>('input[type="password"]');
+  expect(field).not.toBeNull();
+  expect(calls).toEqual([]);
+  // A chat with no sign-in on its machine keeps the card's words alone.
+  await render({ route: team, switchModel: () => undefined }, missing);
+  expect(button("Use an API key")).toBeUndefined();
 });
 
 test("API key: a password field, saved on the machine, then Send again", async () => {

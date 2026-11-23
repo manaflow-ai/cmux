@@ -10,6 +10,7 @@ import { noChat } from "../src/gallery/fixtures/acpmux";
 import { EMPTY_OMNIBAR } from "../src/agent-session/acpmux/omnibar";
 import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
 import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -56,12 +57,9 @@ beforeAll(() => {
   host = window.document.getElementById("root")!;
 });
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root?.unmount());
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 const noop = () => {};
@@ -142,9 +140,9 @@ test("Cmd-Return asks even when a row the arrows picked leads", async () => {
   expect(calls).toEqual([["ask", "claude", "reddit-scraper", undefined, "claude-opus-5-5"]]);
 });
 
-test("the Ask row shows Cmd-Return's keycap when another row leads", async () => {
+test("the Ask row has no action hint when another row leads", async () => {
   await render([]);
   await type("reddit");
   const ask = rows().find((row) => label(row) === "Ask Claude Code")!;
-  expect(ask.querySelector(".nt-row-action kbd")?.textContent).toBe("⌘↵");
+  expect(ask.querySelector("kbd")).toBeNull();
 });

@@ -32,13 +32,23 @@ pub(crate) type ClientGone = Arc<dyn Fn(&str) + Send + Sync>;
 
 /// Largest read from, or write to, a client at once.
 const CHUNK: usize = 64 * 1024;
-/// Longest socket path most platforms accept (`sun_path` is 104 on macOS).
-const MAX_SOCKET_PATH: usize = 100;
 
 struct Relay {
     path: PathBuf,
     stopped: Arc<AtomicBool>,
     client: Arc<Mutex<Option<UnixStream>>>,
+}
+
+/// The socket of `channel` in `dir`, or in a per-user temporary directory
+/// when that path is past the portable socket path limit.
+fn socket_path(dir: &Path, channel: &str) -> PathBuf {
+    let name = format!("{}.sock", channel.trim_start_matches("link-"));
+    let path = dir.join(&name);
+    if path.as_os_str().len() <= cmux_unix_socket::PORTABLE_MAX_PATH_BYTES {
+        return path;
+    }
+    let uid = crate::platform::effective_uid();
+    std::env::temp_dir().join(format!("cmux-tl-{uid}")).join(&name)
 }
 
 /// The running relays, by channel.
@@ -59,12 +69,7 @@ impl RelaySet {
         emit: Emit,
         gone: ClientGone,
     ) -> io::Result<PathBuf> {
-        let name = format!("{}.sock", channel.trim_start_matches("link-"));
-        let mut path = dir.join(&name);
-        if path.as_os_str().len() > MAX_SOCKET_PATH {
-            let uid = crate::platform::effective_uid();
-            path = std::env::temp_dir().join(format!("cmux-tl-{uid}")).join(&name);
-        }
+        let path = socket_path(dir, channel);
         let Some(parent) = path.parent() else {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
@@ -203,3 +208,7 @@ impl Accept {
         });
     }
 }
+
+#[cfg(test)]
+#[path = "relay_tests.rs"]
+mod tests;

@@ -70,8 +70,7 @@ pub(super) fn hold(home: &Path) -> Result<(), &'static str> {
     crate::config::private_state_dir(home).map_err(|_| "vault.state_write_failed")?;
     #[cfg(unix)]
     {
-        use std::os::unix::fs::OpenOptionsExt as _;
-        std::fs::OpenOptions::new()
+        crate::home_fs::OpenOptions::new()
             .write(true)
             .create(true)
             .truncate(false)
@@ -82,11 +81,11 @@ pub(super) fn hold(home: &Path) -> Result<(), &'static str> {
             .map_err(|_| "vault.state_write_failed")
     }
     #[cfg(not(unix))]
-    std::fs::write(hold_path(home), b"").map_err(|_| "vault.state_write_failed")
+    crate::home_fs::write(hold_path(home), b"").map_err(|_| "vault.state_write_failed")
 }
 
 pub(super) fn release(home: &Path) {
-    let _ = std::fs::remove_file(hold_path(home));
+    let _ = crate::home_fs::remove_file(hold_path(home));
 }
 
 /// Save `state`. The one rule for the hold: it is lifted only by a durable
@@ -517,7 +516,7 @@ pub fn forget(home: &Path, store: &dyn SecretStore) -> Result<Outcome, Failure> 
     };
     // The state file goes only once no item is left in any store.
     if outcome.failed.is_empty() && state.os_pending.is_empty() {
-        match std::fs::remove_file(state_path(home)) {
+        match crate::home_fs::remove_file(state_path(home)) {
             Ok(()) => {
                 release(home);
                 Ok(outcome)

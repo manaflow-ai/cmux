@@ -42,7 +42,7 @@ import Testing
         let items = (0..<2).map { TabItem(id: TabID("t\($0)"), title: "Chat \($0)") }
         let pane = PaneContentView(stripModel: TabStripModel(tabs: items), reveal: LaunchReveal(deadline: .zero))
         let registry = ActionRegistry.standard()
-        let toolbar = PaneToolbar(registry: { registry }, newTabMenu: { nil })
+        let toolbar = PaneToolbar(registry: { registry })
         // The chat is selected (kind nil: no "…"); `paneKinds` is what the pane's other tabs offer.
         toolbar.update(target: "t0", kind: nil, paneKinds: paneKinds)
         pane.toolbar = toolbar

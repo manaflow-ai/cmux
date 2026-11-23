@@ -19,12 +19,15 @@ public nonisolated struct SidebarRowTokens: Equatable, Sendable {
         /// The body and caption text sizes (`Typography.body`, `Typography.caption`).
         public var body: CGFloat
         public var caption: CGFloat
-        /// The app is at Default density (`appearance.density` cozy), the Codex desktop app's size (#37274), so the
-        /// sidebar's own Compact rows take the Codex sidebar's geometry (``matchesCodex``).
+        /// The density uses Default's list fill gain, including scaled presets.
         public var isCodexDensity: Bool
+        /// The density's `rowCornerRadius` token (`Metrics.chromeRowCornerRadius(height:)`): one list row corner at
+        /// every height; nil keeps Chrome's ratio.
+        public var rowCornerRadius: CGFloat?
 
         public init(rowHeight: CGFloat, space1: CGFloat, space2: CGFloat, space3: CGFloat, space4: CGFloat,
-                    cornerRadius: CGFloat, body: CGFloat, caption: CGFloat, isCodexDensity: Bool = false) {
+                    cornerRadius: CGFloat, body: CGFloat, caption: CGFloat, isCodexDensity: Bool = false,
+                    rowCornerRadius: CGFloat? = nil) {
             self.rowHeight = rowHeight
             self.space1 = space1
             self.space2 = space2
@@ -34,6 +37,7 @@ public nonisolated struct SidebarRowTokens: Equatable, Sendable {
             self.body = body
             self.caption = caption
             self.isCodexDensity = isCodexDensity
+            self.rowCornerRadius = rowCornerRadius
         }
     }
 
@@ -49,9 +53,22 @@ public nonisolated struct SidebarRowTokens: Equatable, Sendable {
 
     public var isComfortable: Bool { density == .comfortable }
     /// A comfortable row's extra height, plus the text size's.
-    public var extraHeight: CGFloat { (isComfortable ? base.space2 : 0) + textSize.rowStep }
-    /// A one-line workspace row, group header or band row.
-    public var rowHeight: CGFloat { base.rowHeight + extraHeight }
+    public var extraHeight: CGFloat { Self.extraHeight(density: density, textSize: textSize, space2: base.space2) }
+
+    /// The rule behind ``extraHeight``, on its inputs alone: `Metrics.chromeRowHeight` reads it
+    /// without building the whole token set, whose corner radius depends on the tab height.
+    /// - Parameters:
+    ///   - density: `sidebar.density`.
+    ///   - textSize: `sidebar.textSize`.
+    ///   - space2: The density's `space2`, a comfortable row's extra height.
+    /// - Returns: The height a one-line row adds to the app density's row.
+    public static func extraHeight(density: SidebarDensity, textSize: SidebarTextSize, space2: CGFloat) -> CGFloat {
+        (density == .comfortable ? space2 : 0) + textSize.rowStep
+    }
+    /// A one-line workspace row, including the fill that grows into its gap.
+    public var rowHeight: CGFloat {
+        base.rowHeight + extraHeight + Self.listFillGain(isCodexDensity: base.isCodexDensity, density: density, space1: base.space1)
+    }
     /// The tokens of the bands above the list (Home, pinned rows) and of the workspace hover card: at
     /// Expanded, Comfortable's, since Expanded keeps the app's one-line row and grows only the list's
     /// workspace rows by a detail line (pinned rows were too short, Lawrence 2026-11-04). Compact and
@@ -62,24 +79,29 @@ public nonisolated struct SidebarRowTokens: Equatable, Sendable {
     /// Rows inset from the sidebar edge (and, outside ``matchesCodex``, their content from the row edge).
     public var horizontalInset: CGFloat { isComfortable ? base.space4 : base.space3 }
 
-    /// The sidebar's list and band rows draw the Codex desktop sidebar's rows
-    /// (https://github.com/manaflow-ai/cmux/issues/39956, measured in https://github.com/manaflow-ai/cmux/issues/28793): the app at
-    /// Default density and the sidebar at its own default, Compact. Codex stacks 30 px rows with no gap
-    /// (`--height-token-nav-row`), pads their content 8 px from the fill (`--padding-row-x`) inside a 6 px outer
-    /// inset, and rounds the fill 10 px (`--radius-token-row`). Every other density keeps its own rows, so
-    /// `appearance.density`, `sidebar.density` and the metric overrides still pick them.
+    /// Default's list fill geometry at the sidebar's Compact setting.
     public var matchesCodex: Bool { base.isCodexDensity && density == .compact }
-    /// A list or band row's height: the row and the gap under it as one fill when ``matchesCodex``, so the pitch
-    /// stays the row step and the fill grows into the gap (28 + 2 = 30 at Default).
-    public var listRowHeight: CGFloat { rowHeight + (matchesCodex ? base.space1 : 0) }
-    /// The gap between list rows: none when ``matchesCodex`` (Codex's rows touch), else `space1`.
-    public var rowGap: CGFloat { matchesCodex ? 0 : base.space1 }
+    /// The visible height shared by workspace and band rows, including the list fill gain.
+    public var listRowHeight: CGFloat { rowHeight }
+    /// The rule behind ``listRowHeight``'s growth into the gap, on its inputs alone: `Metrics.chromeRowHeight`
+    /// reads it without building the whole token set.
+    /// - Parameters:
+    ///   - isCodexDensity: The density uses Default's list fill (``Base/isCodexDensity``).
+    ///   - density: `sidebar.density`.
+    ///   - space1: The density's `space1`, the gap a ``matchesCodex`` row fills.
+    /// - Returns: The height the fill adds to the base row and sidebar settings.
+    public static func listFillGain(isCodexDensity: Bool, density: SidebarDensity, space1: CGFloat) -> CGFloat {
+        isCodexDensity && density == .compact ? space1 : 0
+    }
+    /// The gap between list rows keeps adjacent hover and selection fills apart.
+    public var rowGap: CGFloat { base.space1 }
     /// A row's content (icon, title, trailing marks) from its fill's edge: `space4` (8 pt) when ``matchesCodex``,
     /// else the outer inset.
     public var contentInset: CGFloat { matchesCodex ? base.space4 : horizontalInset }
-    /// The row fill's corner when ``matchesCodex``: a third of the row (10 on 30, Codex's ratio); nil keeps the tab
-    /// pill's radius.
-    public var codexCornerRadius: CGFloat? { matchesCodex ? (listRowHeight / 3).rounded() : nil }
+    /// The list row fill's corner, as the sidebar draws it (the tab's): Chrome's tab corner on the row, 8 on 30
+    /// (`kVerticalTabCornerRadius` on `kVerticalTabHeight`; Lawrence 2026-11-11, "same roundness as chrome"). Pages
+    /// that share the sidebar row geometry read it (``rowCSSVariables(pageZoom:)``).
+    public var listRowCornerRadius: CGFloat { base.rowCornerRadius.map { min($0, listRowHeight / 2) } ?? (listRowHeight * 8 / 28).rounded() }
     /// A row title's and a detail line's text size.
     public var titleSize: CGFloat { base.body + textSize.textStep }
     public var captionSize: CGFloat { base.caption + textSize.textStep }
@@ -96,13 +118,34 @@ public nonisolated struct SidebarRowTokens: Equatable, Sendable {
             closeSide: rowHeight - 2 * base.space2)
     }
 
+    /// The gap between two list rows as the sidebar stacks them: ``rowGap`` at every density
+    /// (`SidebarDensityTokens.rowSpacing`, plans/cmux-next/sidebar-owner.md "2 pt between list rows").
+    public var listRowGap: CGFloat { rowGap }
+
+    /// A list row's height, corner, content inset, title size and gap as `--cmux-sidebar-row-*` CSS
+    /// px of a page zoomed by `pageZoom`: pages whose rows match the sidebar's (Settings) read them. The values
+    /// are the list row's (``listRowHeight``, ``listRowCornerRadius``, ``contentInset``, ``titleSize``,
+    /// ``listRowGap``), so a page row is the sidebar's row at every density (Lucas 2026-11-13).
+    public func rowCSSVariables(pageZoom: CGFloat) -> [String: String] {
+        let zoom = max(pageZoom, 0.01)
+        return [
+            "--cmux-sidebar-row-height": SidebarCardMetrics.px(listRowHeight / zoom),
+            "--cmux-sidebar-row-radius": SidebarCardMetrics.px(listRowCornerRadius / zoom),
+            "--cmux-sidebar-row-inset": SidebarCardMetrics.px(contentInset / zoom),
+            "--cmux-sidebar-row-font-size": SidebarCardMetrics.px(titleSize / zoom),
+            "--cmux-sidebar-row-gap": SidebarCardMetrics.px(listRowGap / zoom),
+        ]
+    }
+
     /// The app's tokens now (`Metrics`, `Typography`) under the sidebar's settings.
-    @MainActor public static var current: SidebarRowTokens {
+    @MainActor public static var current: SidebarRowTokens { Metrics.memo.sidebarRow.value { uncachedCurrent } }
+    @MainActor private static var uncachedCurrent: SidebarRowTokens {
         let sections = DesignSettings.shared.sidebarSections
         let base = Base(rowHeight: Metrics.sidebarRowHeight, space1: Metrics.space1, space2: Metrics.space2,
-                        space3: Metrics.space3, space4: Metrics.space4, cornerRadius: Metrics.itemCornerRadius,
-                        body: Typography.body.pointSize, caption: Typography.caption.pointSize,
-                        isCodexDensity: Metrics.tokens.id == DensityPreset.cozy.rawValue)
+                        space3: Metrics.space3, space4: Metrics.space4, cornerRadius: Metrics.buttonCornerRadius,
+                        body: Typography.sidebarTitle.pointSize, caption: Typography.caption.pointSize,
+                        isCodexDensity: Metrics.tokens.usesDefaultRowFill,
+                        rowCornerRadius: Metrics.tokens.tokens["rowCornerRadius"].map { Metrics.scale(CGFloat($0)) })
         return SidebarRowTokens(density: sections.density, textSize: sections.textSize, base: base)
     }
 }

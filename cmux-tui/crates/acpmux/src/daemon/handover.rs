@@ -146,7 +146,13 @@ async fn ask_holder(socket: &Path, home: &Path, pid: u32) -> Ask {
     }
     // A closed connection is a holder already stopping, as for `take_over_holder`; any other
     // error is a refusal, and there is nothing more to ask.
-    match client.request(crate::rpc::method::MUX_SHUTDOWN, json!({})).await {
+    match client
+        .request(
+            crate::rpc::method::MUX_SHUTDOWN,
+            json!({"reason": "handover: holder asked to hand over"}),
+        )
+        .await
+    {
         Ok(_) => Ask::Accepted,
         Err(_) if client.is_closed() => Ask::Accepted,
         Err(_) => Ask::Stop,

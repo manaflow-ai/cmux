@@ -24,6 +24,7 @@ import { NeedsYouPanel, type NeedsYouActions } from "../src/agent-session/acpmux
 import { needsYouMode, sideQuestionPrompt } from "../src/agent-session/acpmux/needsYou/needsYouModel";
 import { askContext, CONTEXT_TURNS, turnsBefore } from "../src/agent-session/acpmux/needsYou/context";
 import { NativeError } from "../src/agent-session/acpmux/nativeError";
+import { settleReact } from "./support/domTeardown";
 
 const options: AcpmuxPermission["options"] = [
   { id: "allow", name: "Allow", kind: "allow_once", allow: true },
@@ -522,6 +523,7 @@ function installDom(): HTMLElement {
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

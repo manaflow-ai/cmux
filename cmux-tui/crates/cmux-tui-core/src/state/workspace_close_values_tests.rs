@@ -66,8 +66,8 @@ fn seed_the_fold(mux: &Arc<Mux>) {
     mux.mark_resource_effect_executing(key, operation, &fingerprint).unwrap();
     mux.commit_full_resource_effect_projection(key, operation, &fingerprint, json!({})).unwrap();
     assert!(
-        mux.workspace_registry.lock().unwrap().public_fold_seeded(),
-        "the full projection did not seed the fold"
+        mux.workspace_registry.lock().unwrap().public_fold_complete_for_test(),
+        "the full projection did not make the fold complete"
     );
 }
 
@@ -129,10 +129,10 @@ fn close_and_compare(mux: &Arc<Mux>, id: &str, what: &str) -> BTreeMap<String, V
                 "{what}: the journal's value of {public_id}, then the rows'"
             );
         }
-        assert_eq!(
-            fold.get(public_id),
-            Some(&rows),
-            "{what}: the fold's value of {public_id}, then the rows'"
+        // The fold keeps digests of its values.
+        assert!(
+            fold.get(public_id).is_some_and(|held| held.is(&rows)),
+            "{what}: the fold does not hold the rows' value of {public_id}: {rows}"
         );
     }
     stated

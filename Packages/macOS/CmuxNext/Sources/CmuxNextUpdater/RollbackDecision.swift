@@ -100,8 +100,8 @@ extension RollbackRefusal {
             UpdaterStrings.rollbackNothingOlder
         case .predatesRollback(let kept):
             UpdaterStrings.rollbackPredates(kept.shortVersion)
-        case .storeTooNew(let store, let stored, let readable, let kept):
-            UpdaterStrings.rollbackStoreTooNew(kept.shortVersion, store, stored, readable)
+        case .storeTooNew(let store, _, _, let kept):
+            UpdaterStrings.rollbackStoreTooNew(kept.shortVersion, store)
         case .unknownStore(let store, let kept):
             UpdaterStrings.rollbackUnknownStore(kept.shortVersion, store)
         case .signature(let kept):

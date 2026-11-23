@@ -355,16 +355,25 @@ fn many_file_commands_in_one_read_share_one_budget() {
     let path = temp_file(dir.path(), "big.png", &data);
     let command = file_command("a=T,f=100,t=f", &path);
     let input: Vec<u8> = std::iter::repeat_n(command.clone(), 200).flatten().collect();
-    let mut rewriter =
-        KittyMediaRewriter::with_limits(Limits { max_file_bytes: 100_000, ..Limits::default() });
+    let limits = Limits { max_file_bytes: 100_000, ..Limits::default() };
+    // What one command alone becomes: the image as base64 and the framing of each chunk. It is
+    // measured, not estimated: an estimate of the framing is right only for one length of the
+    // temp file's path (the old one held under a Mac's /var/folders and was 4 bytes short
+    // under /tmp).
+    let mut one = Vec::new();
+    KittyMediaRewriter::with_limits(limits).rewrite(&command, &mut one);
+    let mut rewriter = KittyMediaRewriter::with_limits(limits);
     let mut out = Vec::new();
     rewriter.rewrite(&input, &mut out);
-    let one_image = data.len() / 3 * 4 + 4 * 64;
-    assert!(
-        out.len() <= one_image + input.len(),
+    // The first command is rewritten; the other 199 are the bytes that came in.
+    let later = out.strip_prefix(one.as_slice());
+    assert_eq!(
+        later.map(<[u8]>::len),
+        Some(input.len() - command.len()),
         "one read of 200 commands grew to {} bytes",
         out.len()
     );
+    assert!(later == input.get(command.len()..), "the later commands pass through unchanged");
     assert_eq!(rewriter.rewritten_commands(), 1);
     assert_eq!(rewriter.last_refusal(), Some(&MediaRefusal::TooLarge));
 

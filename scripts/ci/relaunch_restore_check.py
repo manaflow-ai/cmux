@@ -55,6 +55,15 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'cmux-next'))
+try:
+    from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
+except ImportError:  # a copy of this script outside scripts/: the same helper (scripts/cmux-next/safe_log.py)
+    def safe_print(*args, **kwargs):
+        try:
+            print(*args, **kwargs)
+        except (BrokenPipeError, OSError, ValueError):
+            pass
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
@@ -475,7 +484,7 @@ def round_once(n: int, process, inst: Instance, app: Path, env: dict, before: di
     row["front_before"] = front(inst.topology())
     if failed:
         row["failures"] = [failed]
-        print("L5-ROUND " + json.dumps(row, default=str), flush=True)
+        safe_print("L5-ROUND " + json.dumps(row, default=str), flush=True)
         return row, process
     asked = time.monotonic()
     reply = call(inst.sock, "action.run", {"action": "quitKeepSessions"}, timeout=10)
@@ -572,7 +581,7 @@ def round_once(n: int, process, inst: Instance, app: Path, env: dict, before: di
         after = state(inst)
         if "chat" in after:
             before["chat"] = after["chat"]
-    print("L5-ROUND " + json.dumps(row, default=str), flush=True)
+    safe_print("L5-ROUND " + json.dumps(row, default=str), flush=True)
     return row, process
 
 
@@ -624,7 +633,7 @@ def check(args) -> int:
 
     smoke.AFTER_RENDER = journey
     def prepare(env):
-        ui.login_keychain(env)
+        smoke.login_keychain(env)  # this smoke's own CannotRun, which its main reports (ui loads its own copy)
         # Before the launch: the app's acpmux reads the harness folder when it starts, and on a NIGHTLY
         # `cmux harness reload` after the launch did not reach it ("unknown harness l5fake", nightly 4191131679101).
         write_harness(env["HOME"], args.fake_agent)

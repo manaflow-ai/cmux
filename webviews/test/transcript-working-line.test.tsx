@@ -13,6 +13,7 @@ import { ActivityLine } from "../src/agent-session/acpmux/conversation/ActivityL
 import { pageClocks } from "../src/ui/pageClock";
 import { Thinking } from "../src/agent-session/acpmux/conversation/Thinking";
 import { translate } from "../src/agent-session/acpmux/i18n";
+import { settleReact } from "./support/domTeardown";
 
 let at = 0;
 const row = (id: string, kind: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
@@ -85,7 +86,7 @@ test("a running command keeps only its static terminal mark", () => {
   expect(html).not.toContain("cv-spinner");
 });
 
-test("live activity lines share the page's one second and rest while the page is hidden", () => {
+test("live activity lines share the page's one second and rest while the page is hidden", async () => {
   const scope = globalThis as Record<string, unknown>;
   const keys = ["window", "document", "IS_REACT_ACT_ENVIRONMENT", "setInterval"];
   const saved = keys.map((key) => [key, scope[key]] as const);
@@ -127,6 +128,7 @@ test("live activity lines share the page's one second and rest while the page is
     expect(pageClocks(dom.window.document)).toMatchObject({ running: 0, subscribers: 5 });
   } finally {
     act(() => root.unmount());
+    await settleReact();
     dom.window.close();
     for (const [key, value] of saved) {
       if (value === undefined) delete scope[key];
@@ -136,21 +138,20 @@ test("live activity lines share the page's one second and rest while the page is
   expect(pageClocks(dom.window.document)).toEqual({ running: 0, subscribers: 0, items: [] });
 });
 
-test("no dots loop on the running line; only the word Thinking shimmers, in the theme accent", async () => {
+test("no dots loop on the running line; only the word Thinking shimmers, in the theme foreground", async () => {
   const css = await Bun.file(
     new URL("../src/agent-session/acpmux/conversation/conversation.css", import.meta.url),
   ).text();
   expect(css).not.toContain("cv-thinking-sweep");
   expect(css).not.toMatch(/cv-working-mark|cv-working-dot|cv-activity__dots|cv-activity-dot/);
-  // The sweep runs only with motion allowed and the status look not static, on the shared clock's
-  // keyframes (two transform loops, ShimmerText.tsx), its lit words mixed from the theme accent
-  // (never a literal color). working-loops-compositor.test.tsx checks the loops in the engines.
+  // The base layers rest outside the mask; a cadence class starts each compositor-only sweep.
   const rule = (selector: string) =>
     css.match(new RegExp(`:root:not\\(\\[data-status-indicators="static"\\]\\) \\${selector} \\{([^}]*)\\}`));
   const band = rule(".cv-shimmer__band");
   const lit = rule(".cv-shimmer__lit");
-  expect(band![1]).toContain("animation: cmux-shimmer-band");
-  expect(lit![1]).toContain("animation: cmux-shimmer-lit");
-  expect(lit![1]).toContain("var(--agent-accent");
+  expect(band![1]).toContain("transform: translateX(-50%)");
+  expect(css).toContain("animation: cmux-cadenced-shimmer-band var(--cv-shimmer-sweep-duration)");
+  expect(css).toContain("animation: cmux-cadenced-shimmer-lit var(--cv-shimmer-sweep-duration)");
+  expect(lit![1]).toContain("color: var(--cv-text)");
   expect(lit![1]).not.toMatch(/#[0-9a-f]{3,8}\b|rgb\(|orange/i);
 });

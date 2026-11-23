@@ -1,5 +1,5 @@
 // Gallery plays for a chat that still works and holds a stretch that already ended with its summary.
-// Under the shipped live-turn-work `line` a running stretch draws none of its finished runs, only
+// Under the live-turn-work `line` a running stretch draws none of its finished runs, only
 // the live line (turns.ts `codexRuns`, liveTurnWork.experiment.ts), so a variant that shows finished
 // work puts it in an ended stretch, which folds under its "Worked for" line as an ended turn does.
 import type { PlayContext } from "../../../gallery/play";

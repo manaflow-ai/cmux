@@ -43,7 +43,7 @@ test("a theme search that matches nothing says so", async () => {
 
 test("a setting's summary and a folder's path show their text with no tooltip repeating it", async () => {
   page = await renderPage({
-    path: "/settings/general",
+    path: "/settings/chat",
     mock: {
       values: { "agents.chats.roots": ["/opt/user"] },
       chatFolders: [

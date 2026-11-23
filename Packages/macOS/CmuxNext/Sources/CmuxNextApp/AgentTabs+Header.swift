@@ -37,7 +37,7 @@ extension AgentTabStore {
             guard let self else { return }; AgentSidePanes.chat(chat).open(fork, chat: resolve(provisional, machine: scoped.machine), hooks: .init(pane: { [weak self] in self?.locateScoped(self?.resolvedKey(AgentTabKey(machine: scoped.machine, key: $0)) ?? AgentTabKey(machine: scoped.machine, key: $0)).map { "\(ObjectIdentifier($0.daemon).hashValue):\($0.pane.rawValue)" } }, column: { [weak self] in self?.rightColumnScoped(self?.resolvedKey(AgentTabKey(machine: scoped.machine, key: $0)) ?? AgentTabKey(machine: scoped.machine, key: $0)) ?? .init() }) { [weak self] _, _, created, finished in // openOnRight decides again in its turn (RightColumnTurns)
                 self?.openOnRight(of: provisional, machine: scoped.machine, splitRight: AgentSidePanes.chat(chat).takeSplitRight(fork), open: { [weak self] pane, daemon, split in guard let self else { throw CancellationError() }; return try open(in: pane, of: daemon, session: fork, split: split) }, created: { key, _ in created(key) }, finished: { _ in finished() }) ?? false })
         }, openRight: { [weak self] session in guard let self else { return false }; return self.openRightScoped?(self.resolvedKey(scoped), session, nil) ?? false
-        }, openTab: { [weak self] session, destination in self?.openFork(session, at: destination, beside: provisional, machine: scoped.machine) ?? false }, openSubagent: { [weak self] in self?.openSubagent($1, of: $0, focus: $2, beside: provisional, machine: scoped.machine) ?? false }, showsSubagent: { [weak self] title, tone, keepingTitle in guard let self else { return }; SubagentTabTitles.shared.show(title, inTab: resolve(provisional, machine: scoped.machine), tone: tone, keepingTitle: keepingTitle) }, showsSubagentFacts: { [weak self] facts in guard let self else { return }; SubagentTabTitles.shared.showFacts(facts, inTab: resolve(provisional, machine: scoped.machine)) }, openProcess: { [weak self] viewer in guard let self else { return false }; return openProcess?(resolve(provisional, machine: scoped.machine), viewer) ?? false }, newChat: { [weak self] in self?.openNewTabColumn(beside: provisional, machine: scoped.machine, cwd: $0, split: false) ?? false }, sideTabs: { [weak self] in
+        }, openTab: { [weak self] session, destination in self?.openFork(session, at: destination, beside: provisional, machine: scoped.machine) ?? false }, openSubagent: { [weak self] in self?.openSubagent($1, of: $0, focus: $2, beside: provisional, machine: scoped.machine) ?? false }, showsSubagent: { [weak self] title, tone, keepingTitle, mark in guard let self else { return }; SubagentTabTitles.shared.show(title, inTab: resolve(provisional, machine: scoped.machine), tone: tone, keepingTitle: keepingTitle, mark: mark) }, showsSubagentFacts: { [weak self] facts in guard let self else { return }; SubagentTabTitles.shared.showFacts(facts, inTab: resolve(provisional, machine: scoped.machine)) }, openProcess: { [weak self] viewer in guard let self else { return false }; return openProcess?(resolve(provisional, machine: scoped.machine), viewer) ?? false }, newChat: { [weak self] in self?.openNewTabColumn(beside: provisional, machine: scoped.machine, cwd: $0, split: false) ?? false }, sideTabs: { [weak self] in
             guard let self else { return nil }
             let chat = resolve(provisional, machine: scoped.machine)
             return toggles.sideTabs(chat: chat, store: record(for: self.resolvedKey(scoped))?.store, actions: actions) { [weak self] in
@@ -50,7 +50,7 @@ extension AgentTabStore {
             else { toggles.open(id, cwd: nil, url: url, chat: chat, store: store, actions: actions) }
         }, saveQuickActions: { [weak self] list in
             await self?.customization.saveQuickActions(list) ?? false
-        }, moveToFloatingChat: { [weak self] session in actions.moveToFloatingChat(session, via: self?.moveToFloatingChat) }, refreshPullRequest: pullRequest.askAgain, showSession: { [weak self] session in guard let self, let shown = tab(showing: session, host: self.record(for: self.resolvedKey(scoped))?.record.host, where: { self.subagentTabIsBeside(self.resolve(provisional, machine: scoped.machine), $0, machine: scoped.machine) }) else { return false }; _ = actionRegistry?.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: shown), origin: .user).onMachine(scoped.machine)); return true }, jumpToSession: { [weak self] session in guard let self, let shown = tab(showing: session, host: self.record(for: self.resolvedKey(scoped))?.record.host) else { return false }; _ = actionRegistry?.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: shown), origin: .user).onMachine(scoped.machine)); return true }, hasTab: { [weak self] session in guard let self else { return false }; return tab(showing: session, host: self.record(for: self.resolvedKey(scoped))?.record.host) != nil }, isFamily: { [weak self] session, chat in self?.turns.isFamily(session, of: chat) ?? false }, moveTargets: { [weak self] in
+        }, moveToFloatingChat: { [weak self] session in actions.moveToFloatingChat(session, via: self?.moveToFloatingChat) }, refreshPullRequest: pullRequest.askAgain, showSession: { [weak self] session in guard let self, let shown = tab(showing: session, host: self.record(for: self.resolvedKey(scoped))?.record.host, where: { key, _ in self.subagentTabIsBeside(self.resolve(provisional, machine: scoped.machine), key, machine: scoped.machine) }) else { return false }; _ = actionRegistry?.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: shown), origin: .user).onMachine(scoped.machine)); return true }, jumpToSession: { [weak self] session in guard let self, let shown = tab(showing: session, host: self.record(for: self.resolvedKey(scoped))?.record.host) else { return false }; _ = actionRegistry?.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: shown), origin: .user).onMachine(scoped.machine)); return true }, hasTab: { [weak self] session in guard let self else { return false }; return tab(showing: session, host: self.record(for: self.resolvedKey(scoped))?.record.host) != nil }, isFamily: { [weak self] session, chat in self?.turns.isFamily(session, of: chat) ?? false }, moveTargets: { [weak self] in
             guard let self else { return [] }
             return self.machineTargets(self.resolvedKey(scoped))
         }, moveToMachine: { [weak self] machine, session in
@@ -63,6 +63,9 @@ extension AgentTabStore {
         }, showsChat: { [weak self] session in
             guard let self else { return false }
             return AgentPaneMoveTarget.tabStillShows(self.session(of: self.resolve(provisional, machine: scoped.machine), machine: scoped.machine), requested: session)
+        }, switchesToTerminal: { [weak self] in
+            guard let self else { return false }
+            return offersTerminalSwitch?(resolvedKey(scoped)) ?? false
         }) // an opened session's tab (on the chat's acpmux host, a Chief chat's `chief:<id>`) is shown only beside the chat (its pane or right column), never in another workspace; a chat opens only its family (startedBy)
         // Changes with the chat's turn (D1, D2), or the turn's own patch where no git source holds it:
         // the diff beside the chat offers the turn as Last turn, or shows only the patch.
@@ -153,11 +156,13 @@ extension AgentTabStore {
     func openBeside(_ provisional: String, machine: String? = nil, in paneKey: String? = nil, split: Bool = true, direction: String = "right", origin: ActionOrigin = .user, main: String? = nil, open: AgentTabOpen, created: (@MainActor (String) -> Void)? = nil, finished: (@MainActor (_ moved: Bool) -> Void)? = nil) -> Bool {
         let scoped = tabKey(provisional, machine: machine)
         if split, let main, let placed = openInMainPaneScoped(resolvedKey(AgentTabKey(machine: scoped.machine, key: main)), origin == .user, { try open($0, $1, nil) }, created, finished) { return placed }
+        if split, paneKey == nil, direction == "right", chatInAgentDockScoped(resolvedKey(scoped)) { return withoutActuallyEscaping(open) { openFork(nil, at: .columnRight, beside: provisional, machine: scoped.machine, open: $0, created: created, finished: finished) } } // the agent chat dock takes no split right (`dock-column-agent-chat`): a new column right of it (#46926)
         let located = if let paneKey { locatePaneScoped(resolvedKey(scoped), paneKey) } else { locateScoped(resolvedKey(scoped)) }
         guard let (pane, daemon) = located else { return false }
         let inSplit = split ? SplitDirection(splitFirst: direction, served: daemon.supports(DaemonCapability.conversationTabSplit.rawValue)) : nil
-        guard let pending = try? open(pane, daemon, inSplit) else { return false }
-        if inSplit != nil { return openInSplit(pending, beside: resolvedKey(scoped), origin: origin, created: created, finished: finished) }
+        let sizing = inSplit.flatMap { holdSplitSizing(pane, daemon, $0) } // its chain's even sizing in this frame, as Cmd-D's: never a half that moves again
+        guard let pending = try? open(pane, daemon, inSplit) else { sizing?(false); return false }
+        if inSplit != nil { return openInSplit(pending, beside: resolvedKey(scoped), origin: origin, sizing: sizing, created: created, finished: finished) }
         guard split || created != nil else { return true }
         if !split, paneKey != nil || origin == .user { selectInPaneScoped(AgentTabKey(machine: daemon.machineID, key: pending.key)); if origin == .user { _ = showSplitScoped(resolvedKey(scoped), pending.key, true) } }
         // task-owner: one tab creation, then one move (or, not `split`, one focus) of that tab
@@ -171,11 +176,12 @@ extension AgentTabStore {
     }
 
     /// `pending`'s tab in its new split, shown in this turn (``showSplit``) as a link's is; the turn ends once the store lists it, with no move.
-    private func openInSplit(_ pending: AgentTabPending, beside chat: AgentTabKey, origin: ActionOrigin, created: (@MainActor (String) -> Void)?,
-                             finished: (@MainActor (_ moved: Bool) -> Void)?) -> Bool {
+    private func openInSplit(_ pending: AgentTabPending, beside chat: AgentTabKey, origin: ActionOrigin, sizing: (@MainActor (Bool) -> Void)? = nil,
+                             created: (@MainActor (String) -> Void)?, finished: (@MainActor (_ moved: Bool) -> Void)?) -> Bool {
         let landed = showSplitScoped(chat, pending.key, origin == .user) // an unfocused (script) open leaves focus where it is
         Task { [weak self] in // task-owner: one tab creation in its split
-            guard let tab = try? await pending.value(), let self, await TabMirror.reaches(tab.key, in: { self.locateScoped(AgentTabKey(machine: chat.machine, key: $0)) }) else { finished?(false); return }
+            let tab = try? await pending.value(); sizing?(tab != nil) // the store made the split (or refused it): its sizing is sent (or dropped)
+            guard let tab, let self, await TabMirror.reaches(tab.key, in: { self.locateScoped(AgentTabKey(machine: chat.machine, key: $0)) }) else { finished?(false); return }
             landed(tab.surface)
             created?(tab.key)
             finished?(true)

@@ -3,6 +3,14 @@
 out of a reload log (not an earlier build's receipt), the edit adds one stored property inside HomeHostView, and a
 run refuses a source file with local edits; a SIGTERM during a reload unwinds and ends the reload's process
 group, SIGKILLing a member that ignores SIGTERM."""
+# tests/git_fixture_env.py, loaded by path (`python3 -I` puts no script folder on sys.path): it drops inherited
+# GIT_DIR / GIT_INDEX_FILE / GIT_CONFIG redirects and turns off git's background maintenance in temp repos.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), '..', '..', '..', 'tests', "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 import importlib.util, json, os, signal, subprocess, sys, tempfile, time
 from pathlib import Path
 

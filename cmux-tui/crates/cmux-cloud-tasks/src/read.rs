@@ -1,4 +1,4 @@
-//! How one wait's answer reads: a sandboxed Run's snapshot (`GET /api/runs/:id/wait`) and a
+//! How one wait's answer reads: a sandboxed Run's snapshot (the daemon's `cloud.runs.wait`) and a
 //! hand-off's `{handoff}` (`GET /v1/handoffs/:id/wait`), plus what a Run's card keeps of it.
 
 use serde_json::{Map, Value};

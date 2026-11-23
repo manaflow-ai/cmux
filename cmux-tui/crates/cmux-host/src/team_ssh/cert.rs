@@ -2,7 +2,8 @@
 //! PAM variable sshd sets (one `<method> <details>` line per successful
 //! authentication method; a public key line is `publickey <type> <base64>`).
 
-use super::b64;
+use base64::Engine;
+use base64::engine::general_purpose::STANDARD;
 
 /// One certificate a session authenticated with.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -76,7 +77,7 @@ pub fn session_certs(auth_info: &str) -> Result<Vec<SessionCert>, String> {
         if !kind.ends_with("-cert-v01@openssh.com") {
             continue;
         }
-        let blob = b64::decode(body).ok_or("certificate is not base64")?;
+        let blob = STANDARD.decode(body).ok().ok_or("certificate is not base64")?;
         let (serial, key_id) =
             parse_blob(kind, &blob).ok_or_else(|| format!("unsupported certificate {kind}"))?;
         certs.push(SessionCert { line: format!("{kind} {body}"), serial, key_id });

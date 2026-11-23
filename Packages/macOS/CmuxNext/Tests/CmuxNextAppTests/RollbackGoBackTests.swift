@@ -190,7 +190,7 @@ import Testing
         let waiter = root.appending(path: "waiter.sh"), opened = root.appending(path: "opened")
         try Data("#!/bin/sh\necho $$\nexec /bin/sleep 600\n".utf8).write(to: waiter)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: waiter.path)
-        let command = RollbackSwap.relaunchCommand(pid: 1, app: opened, waiter: waiter.path, opener: "/usr/bin/touch")
+        let command = RollbackSwap.relaunchCommand(pid: 1, app: opened, waiter: waiter.path, opener: "/usr/bin/touch", openOptions: [])
         let helper = Process(), out = Pipe()
         helper.executableURL = URL(fileURLWithPath: command[0])
         helper.arguments = Array(command.dropFirst())

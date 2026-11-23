@@ -322,6 +322,29 @@ pub(crate) fn workspaces_json(state: &State, notifications: &TreeDecorations) ->
     value
 }
 
+/// [`workspaces_json`] with only the workspaces at `indices` of `state.workspaces`, in that
+/// order, and `total`, how many the client may see (`list-workspaces` `limit`). Builds only
+/// those rows.
+pub(crate) fn workspaces_json_at(
+    state: &State,
+    notifications: &TreeDecorations,
+    indices: &[usize],
+    total: usize,
+) -> Value {
+    let short_ids = ShortIds::of(state);
+    json!({
+        "workspace_revision": state.workspace_revision,
+        "pane_revision": state.pane_revision,
+        "groups": workspace_groups_json(&notifications.presentation),
+        "workspaces": indices.iter().filter_map(|index| {
+            state.workspaces.get(*index).map(|workspace| {
+                workspace_json(state, workspace, *index, &short_ids, notifications)
+            })
+        }).collect::<Vec<_>>(),
+        "total": total,
+    })
+}
+
 pub(super) fn tree_short_ids(state: &State) -> HashMap<u64, String> {
     let ids = state
         .workspaces
@@ -386,6 +409,7 @@ fn workspace_json(
         "marked_unread": presentation.is_some_and(|presentation| presentation.marked_unread),
         "kind": home::raw_workspace_kind(&notifications.presentation, &workspace.key),
         "app": home::raw_workspace_app(&notifications.presentation, &workspace.key),
+        "recovered": home::raw_workspace_recovered(state, workspace, &notifications.presentation),
         "unread_count": workspace_unread_count(state, workspace, notifications),
         "active": index == state.active_workspace,
         "screen_groups": screen_groups.iter().map(screen_group_run_json).collect::<Vec<_>>(),

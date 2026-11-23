@@ -48,6 +48,11 @@ export type ComposerAttachment = {
   transcript?: VideoTranscript;
   /** The app it came from, as the host said (composer/attachmentSources.ts); none when unknown. */
   source?: AttachmentSource;
+  /**
+   * A browser pick's element crop (designSelection.ts), base64 without the data: prefix: the one
+   * chip carries it, and it goes as an image block right after the chip's text.
+   */
+  shot?: { mimeType: string; data: string };
 };
 
 /// The app an attachment came from (AttachmentSource.swift): its name ("Google Chrome",
@@ -556,8 +561,14 @@ export function orderedDraftParts(
   return parts;
 }
 
+/// A browser pick's crop as the image block after its text (designSelection.ts); none for others.
+function shotBlocks(attachment: ComposerAttachment): PromptBlock[] {
+  const shot = attachment.kind === "text" ? attachment.shot : undefined;
+  return shot ? [{ type: "image", mimeType: shot.mimeType, data: shot.data, name: `${attachment.name}.png` }] : [];
+}
+
 export function attachmentBlocks(attachment: ComposerAttachment): PromptBlock[] {
-  const blocks: PromptBlock[] = [];
+  const blocks: PromptBlock[] = shotBlocks(attachment);
   if (attachment.kind === "image" && attachment.data)
     blocks.push({ type: "image", mimeType: attachment.mimeType, data: attachment.data, name: attachment.name });
   else if (attachment.kind === "document" && attachment.data)
@@ -604,6 +615,7 @@ export function promptBlocks(
     if (part.attachment.kind === "text") {
       const body = promptText("", [part.attachment]);
       if (body) blocks.push({ type: "text", text: body });
+      blocks.push(...shotBlocks(part.attachment));
     } else if (part.attachment.kind === "pasted" && part.attachment.text) {
       blocks.push({ type: "text", text: part.attachment.text, _meta: { cmux: { pasted: true } } });
     } else blocks.push(...attachmentBlocks(part.attachment));
@@ -613,11 +625,15 @@ export function promptBlocks(
 
 /// A file or folder on this computer that a link chip names (``linkAttachment``).
 export type LinkItem = { path: string; folder: boolean };
+/// The host's paths for a gesture's files, by index: a file it named no path for has none.
+export type KnownPaths = readonly (LinkItem | undefined)[];
 
 /// How files came in from the person's own gesture, for the host's record of where they are
 /// (`chat.attach.dropped`): a drop on the page, a paste, or the person's pick in the composer's
-/// file input (+ > Attach files), which a chat on this Mac links in place as it does a drop.
-export type DroppedKind = "drop" | "paste" | "choose";
+/// file input (+ > Attach files), which a chat on this Mac links in place as it does a drop, or
+/// files another app sent to the chat (`external`: the Send to cmux Chat service, an image opened
+/// with cmux), which the page takes from the host as a drop's (composer/externalAttach.ts).
+export type DroppedKind = "drop" | "paste" | "choose" | "external";
 /// The gesture whose source the host is asked for (`chat.attach.source`): the same gestures.
 export type SourceKind = DroppedKind;
 
@@ -780,6 +796,52 @@ function fenceLanguage(name: string): string {
 /// The files in a drop or paste.
 export function filesFrom(transfer: DataTransfer | null): File[] {
   return transfer ? [...transfer.files] : [];
+}
+
+/// How long a gesture's chips may wait for its twins' bytes (filesOnce): one frame.
+const TWIN_READ_MS = 16;
+
+/// A paste's or drop's files with each set of bytes once. A screenshot tool that copies both the
+/// saved file and its picture hands WebKit one image twice, and each became a chip, an upload and
+/// an image in the sent prompt (Leo, 2026-11-06: "Why am I seeing that, like the app is trying to
+/// attach doubled up screenshots?"). Only images: two other files with the same bytes (an empty
+/// `__init__.py` and `py.typed`, a file and its renamed copy) are two files the person meant, and
+/// a drop's paths are matched to its files by count. Only images of one type and size can be the
+/// same, so only those are read: any other gesture answers in its own task, as its chips must, and
+/// a read that takes past a frame keeps every file rather than hold the chips.
+export function filesOnce(files: File[], wait = TWIN_READ_MS): File[] | Promise<File[]> {
+  const groups = new Map<string, number[]>();
+  files.forEach((file, index) => {
+    if (!file.type.startsWith("image/")) return;
+    const key = `${file.type}\n${file.size}`;
+    groups.set(key, [...(groups.get(key) ?? []), index]);
+  });
+  const twins = [...groups.values()].filter((group) => group.length > 1);
+  if (!twins.length) return files;
+  const read = (index: number) => files[index]!.arrayBuffer().then((buffer) => new Uint8Array(buffer));
+  const once = Promise.all(twins.map((group) => Promise.all(group.map(read)))).then(
+    (bytes) => {
+      const dropped = new Set<number>();
+      twins.forEach((group, at) =>
+        group.forEach((index, member) => {
+          if (bytes[at]!.slice(0, member).some((earlier) => sameBytes(earlier, bytes[at]![member]!)))
+            dropped.add(index);
+        }),
+      );
+      return files.filter((_, index) => !dropped.has(index));
+    },
+    // A file that can't be read is the reader's to refuse: none is dropped here.
+    () => files,
+  );
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<File[]>((resolve) => (timer = setTimeout(() => resolve(files), wait)));
+  return Promise.race([once, late]).finally(() => clearTimeout(timer));
+}
+
+function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
+  if (a.length !== b.length) return false;
+  for (let index = 0; index < a.length; index++) if (a[index] !== b[index]) return false;
+  return true;
 }
 
 /// Whether a paste of files carries no text but their own names: files copied in a file manager

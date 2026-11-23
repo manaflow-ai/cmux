@@ -64,6 +64,8 @@ import Testing
         let op: String?
         let permission: String?
         let afterAnswer: Bool
+        /// A post's `thread` (`acpmux:<session key>`); nil for another op.
+        var thread: String?
     }
 
     /// The bridge's feed calls, and a bounded wait for the first.
@@ -71,15 +73,25 @@ import Testing
         private(set) var all: [Post] = []
         private var waiter: CheckedContinuation<Void, Never>?
 
-        func add(op: String?, permission: String?, afterAnswer: Bool) {
-            all.append(Post(op: op, permission: permission, afterAnswer: afterAnswer))
+        func add(op: String?, permission: String?, afterAnswer: Bool, thread: String? = nil) {
+            all.append(Post(op: op, permission: permission, afterAnswer: afterAnswer, thread: thread))
             waiter?.resume()
             waiter = nil
         }
 
         /// Returns once a call is made, or after `limit` on the wall clock.
         func first(within limit: Duration) async {
-            guard all.isEmpty else { return }
+            await count(1, within: limit)
+        }
+
+        /// Returns once `count` calls are made, or after `limit` on the wall clock.
+        func count(_ count: Int, within limit: Duration) async {
+            while all.count < count, await next(within: limit) {}
+        }
+
+        /// Returns true once another call is made, false after `limit` on the wall clock.
+        private func next(within limit: Duration) async -> Bool {
+            let before = all.count
             let timer = Task { @MainActor in
                 // A cancelled timer (its wait already ended) must not end the next wait.
                 guard (try? await Task.sleep(for: limit)) != nil else { return }
@@ -88,6 +100,7 @@ import Testing
             }
             await withCheckedContinuation { waiter = $0 }
             timer.cancel()
+            return all.count > before
         }
     }
 
@@ -127,7 +140,7 @@ import Testing
     }
 
     /// The test process is the server peer the bridge's line checks for: the fake runs in it.
-    private static func environment(_ socket: String) throws -> AcpmuxEnvironment {
+    static func environment(_ socket: String) throws -> AcpmuxEnvironment {
         var buffer = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
         try #require(proc_pidpath(getpid(), &buffer, UInt32(buffer.count)) > 0)
         let executable = URL(fileURLWithPath: String(cString: buffer)).resolvingSymlinksInPath()
@@ -191,21 +204,30 @@ import Testing
             reply(["jsonrpc": "2.0", "id": 3, "result": ["sessions": [Any]()]])
         }
 
-        /// Answers every held `_acpmux/info` with the session's one prompt.
-        func answerInfo() {
+        /// The prompt request the peer session holds.
+        static var request: [String: Any] {
+            [
+                "sessionId": "acp_peer_late",
+                "toolCall": ["toolCallId": "call-1", "title": "Run make", "kind": "execute", "rawInput": ["command": "make"]],
+                "options": [["optionId": "allow", "kind": "allow_once", "name": "Allow"]],
+            ]
+        }
+
+        /// Answers every held `_acpmux/info` with `pending` (default: the session's one prompt).
+        func answerInfo(pending: [[String: Any]] = [["permissionId": "perm-late", "request": LateAcpmux.request]]) {
             let ids: [Any] = lock.withLock {
                 isAnswered = true
                 defer { heldInfo = [] }
                 return heldInfo
             }
-            let request: [String: Any] = [
-                "sessionId": "acp_peer_late",
-                "toolCall": ["toolCallId": "call-1", "title": "Run make", "kind": "execute", "rawInput": ["command": "make"]],
-                "options": [["optionId": "allow", "kind": "allow_once", "name": "Allow"]],
-            ]
             for id in ids {
-                reply(["jsonrpc": "2.0", "id": id, "result": ["pending": [["permissionId": "perm-late", "request": request]]]])
+                reply(["jsonrpc": "2.0", "id": id, "result": ["pending": pending]])
             }
+        }
+
+        /// Sends the bridge a notification, as acpmux sends a watcher one.
+        func notify(_ method: String, _ params: [String: Any]) {
+            reply(["jsonrpc": "2.0", "method": method, "params": params])
         }
 
         func stop() {

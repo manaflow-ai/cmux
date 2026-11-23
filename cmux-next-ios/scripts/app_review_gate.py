@@ -9,7 +9,9 @@ Two subcommands:
           tree, and (when given) the exact .app or .ipa to be submitted:
           Info.plist purpose strings (from project.yml, which xcodegen turns
           into the plist), entitlements, extensions, binary symbols, external
-          purchase links, account deletion, Sign in with Apple in the shipping
+          purchase links, the subscription rules (Restore Purchases, the 3.1.2
+          renewal terms and Terms link, review notes that say where the plans
+          are), account deletion, Sign in with Apple in the shipping
           configuration, App Store Connect processing rules
           (scripts/cmux-next/check-app-store-rules.py), URLs (with
           --check-urls), and the rejection-history coverage check (every past
@@ -17,11 +19,19 @@ Two subcommands:
 
   report  Merge lint JSON, xcresult test outcomes and `asc validate` JSON into
           one ranked Markdown list (blocking first). Exit 1 when anything
-          blocks. This is the list nothing is submitted past.
+          blocks. This is the list nothing is submitted past. With
+          --known-blockers (a push or pull request), exit 1 only when a
+          blocker is new: one not in known-blockers.json, the app's blockers
+          at the time it was written, each owned by a fix in flight.
 
-The NEXT app sells nothing (no StoreKit), so there are no plan, subscription or
-restore rules; an outside purchase link is still a 3.1.1 rejection, so that one
-stays.
+The NEXT app sells cmux Go, Pro and Max as auto-renewable App Store
+subscriptions (Packages/iOS/CmuxMobileBilling: Settings > Plan opens the plans
+screen). When the judged sources use StoreKit, the subscription rules apply:
+Restore Purchases (3.1.1), the renewal terms with Terms of Use and Privacy
+Policy links on the plans screen and a Terms link in the store listing (3.1.2),
+and review notes that say where the plans are and how to restore (2.1(b), the
+2026-11-07 "could not locate the in-app purchases"). An outside purchase link is
+a 3.1.1 rejection whether or not the app sells anything.
 
 Standard library only; runs on Linux (metadata, source, URLs, plist and
 Mach-O string scans) and macOS (adds codesign/otool when present).
@@ -32,6 +42,11 @@ Usage:
   cmux-next-ios/scripts/app_review_gate.py report --lint lint.json \
       [--xcresult-json tests.json ...] [--asc-validate asc.json] [--out report.md]
   cmux-next-ios/scripts/app_review_gate.py version --source-root .   # the version asc validates
+
+Lanes: appstore (the AppStore configuration, com.cmux.app), internal (cmux
+INTERNAL's TestFlight builds; the lighter checks) and internal-submission
+(cmux INTERNAL, dev.cmux.app.internal, judged as an App Store submission with
+every appstore check).
 """
 
 from __future__ import annotations
@@ -72,30 +87,90 @@ IOS_SOURCE_DIRS = (
     "cmux-next-ios/NotificationContent",
     "cmux-next-ios/NotificationService",
     "Packages/iOS/CmuxConversation/Sources",
+    # Settings > Plan and the plans screen: the App Store subscriptions.
+    "Packages/iOS/CmuxMobileBilling/Sources",
 )
 LOCALIZABLE_GLOB = "cmux-next-ios/CmuxMobileKit/Sources/*/Resources/Localizable.xcstrings"
+# The purpose-string check reads every Swift file the app links, not only the
+# folders above: the kit's local packages (Packages/iOS/*, Packages/Shared/*)
+# and theirs, found from the `.package(path:)` lines of each Package.swift and
+# the `packages:` paths in project.yml. A privacy API that moved into a shared
+# package (the microphone in CmuxChiefVoiceCore, the camera in CmuxScreenKit,
+# dictation in CmuxMobileSupport) is still the app's prompt.
+LINKED_PACKAGE_ROOTS = ("cmux-next-ios/CmuxMobileKit",)
+PACKAGE_PATH_RE = re.compile(r'\.package\(\s*(?:name:\s*"[^"]*",\s*)?path:\s*"([^"]+)"')
+PROJECT_PACKAGE_PATH_RE = re.compile(r"^\s{4}path:\s*(\.\./Packages/\S+|CmuxMobileKit)\s*$", re.M)
 # The NEXT app's App Store review package (metadata, screenshots, reviewer
 # notes) and the rejection history live beside the app.
 REVIEW_DIR = "cmux-next-ios/AppStoreReview"
+# Every bundle Apple scans needs a privacy manifest that declares the
+# required-reason APIs linked into it (ITMS-91053 refuses the upload otherwise).
+# The app's manifest covers every source the lint reads; each extension's covers
+# its own folder.
+PRIVACY_MANIFESTS = {
+    "cmux-next-ios/App/PrivacyInfo.xcprivacy": None,
+    "cmux-next-ios/NotificationContent/PrivacyInfo.xcprivacy": "cmux-next-ios/NotificationContent",
+    "cmux-next-ios/NotificationService/PrivacyInfo.xcprivacy": "cmux-next-ios/NotificationService",
+}
+# https://developer.apple.com/documentation/bundleresources/describing-use-of-required-reason-api
+REQUIRED_REASON_APIS = {
+    "NSPrivacyAccessedAPICategoryUserDefaults": r"\bUserDefaults\b|@AppStorage\b|NSUserDefaults",
+    "NSPrivacyAccessedAPICategoryFileTimestamp":
+        r"\b(creationDate|modificationDate|contentModificationDate|fileModificationDate)(Key)?\b|\b(f|l)?stat\(|getattrlist",
+    "NSPrivacyAccessedAPICategorySystemBootTime": r"\bsystemUptime\b|mach_absolute_time\(",
+    "NSPrivacyAccessedAPICategoryDiskSpace":
+        r"volume(Available|Total)Capacity|systemFreeSize|systemSize\b|\bstatv?fs\(",
+    "NSPrivacyAccessedAPICategoryActiveKeyboards": r"activeInputModes",
+}
 METADATA_DIR = "cmux-next-ios/AppStoreReview/metadata"
 SCREENSHOTS_DIR = "cmux-next-ios/AppStoreReview/screenshots/en-US"
 HISTORY_FILE = "cmux-next-ios/AppStoreReview/rejection-history.json"
+# The App Review notes App Store Connect gets (asc_review_package.py sync-notes).
+REVIEW_NOTES = "cmux-next-ios/AppStoreReview/review-notes-asc.txt"
+# cmux INTERNAL's record gets its own notes (asc_review_package.py --config
+# TestFlight sync-notes): its build sells nothing, so they promise no purchase.
+REVIEW_NOTES_BY_LANE = {"internal-submission": "cmux-next-ios/AppStoreReview/review-notes-asc-internal.txt"}
+# The app's own list of bundles whose App Store record has no subscriptions
+# (CmuxMobileBilling's BillingPurchaseAvailability): their plans screen is
+# read-only, with no purchase, restore, manage or renewal-terms control.
+APPS_WITHOUT_SUBSCRIPTIONS = re.compile(r"\bappsWithoutSubscriptions\s*:\s*Set<String>\s*=\s*\[([^\]]*)\]")
+# Blockers the app already had when pushes and pull requests started failing on
+# new ones; a fix removes its entry, and nothing is ever added to dodge a red.
+KNOWN_BLOCKERS_FILE = "cmux-next-ios/AppStoreReview/known-blockers.json"
 # The public App Store build: project.yml's AppStore configuration, bundle
 # com.cmux.app (the record the classic app used; NEXT replaces it as an update).
 APPSTORE_CONFIG = "AppStore"
 APPSTORE_BUNDLE_ID = "com.cmux.app"
 # Each lane's shipping configuration and the bundle its binary must carry: the
 # appstore lane is the public app, the internal lane TestFlight's cmux INTERNAL.
-LANE_CONFIG = {"appstore": APPSTORE_CONFIG, "internal": "TestFlight"}
-LANE_BUNDLE_ID = {"appstore": APPSTORE_BUNDLE_ID, "internal": "dev.cmux.app.internal"}
+# internal-submission is cmux INTERNAL's build judged as an App Store
+# submission (Leo, 2026-11-22: "i NEED this shit on THE FUCKING APP STORE"):
+# the TestFlight configuration and bundle, held to the appstore lane's
+# strictness (configuration and bundle in project.yml, signed entitlements,
+# the VPN API, asc validate). The ordinary internal lane stays as it was.
+LANE_CONFIG = {"appstore": APPSTORE_CONFIG, "internal": "TestFlight", "internal-submission": "TestFlight"}
+LANE_BUNDLE_ID = {"appstore": APPSTORE_BUNDLE_ID, "internal": "dev.cmux.app.internal",
+                  "internal-submission": "dev.cmux.app.internal"}
+# The lanes whose build goes to App Review: every check applies.
+SUBMISSION_LANES = frozenset({"appstore", "internal-submission"})
+LANES = ("appstore", "internal", "internal-submission")
 # The App Store distribution configurations (AppStore, TestFlight,
 # TestFlightStaging) sign with these; project.yml says so.
 APPSTORE_ENTITLEMENTS = (
     "cmux-next-ios/App/CmuxMobileApp-TestFlight.entitlements",
     "cmux-next-ios/App/CmuxMobileApp-TestFlight-Group.entitlements",
+    # The same sets with the universal links (CMUX_MOBILE_ASSOCIATED_DOMAINS=YES).
+    "cmux-next-ios/App/CmuxMobileApp-TestFlight-Links.entitlements",
+    "cmux-next-ios/App/CmuxMobileApp-TestFlight-Links-Group.entitlements",
 )
 UITEST_DIR = "cmux-next-ios/UITests"
 STORE_RULES = "scripts/cmux-next/check-app-store-rules.py"
+
+
+def apps_without_subscriptions(texts: dict[Path, str]) -> set[str]:
+    """The bundle ids the app's sources list in appsWithoutSubscriptions."""
+    return {bundle for text in texts.values() for match in APPS_WITHOUT_SUBSCRIPTIONS.finditer(text)
+            for bundle in re.findall(r'"([\w.-]+)"', match.group(1))}
 
 
 @dataclasses.dataclass
@@ -114,6 +189,8 @@ class Lint:
     def __init__(self, root: Path, lane: str) -> None:
         self.root = root
         self.lane = lane
+        # A build headed for App Review (appstore, internal-submission) gets every check.
+        self.strict = lane in SUBMISSION_LANES
         self.findings: list[Finding] = []
         self.checked: list[str] = []
         self._texts: dict[Path, str] | None = None
@@ -136,9 +213,40 @@ class Lint:
 
     # ------------------------------------------------------------------ files
 
-    def swift_files(self) -> Iterable[Path]:
-        for rel in IOS_SOURCE_DIRS:
-            base = self.root / rel
+    def linked_package_dirs(self) -> list[Path]:
+        """Every local Swift package the app links, transitively."""
+        roots = [self.root / rel for rel in LINKED_PACKAGE_ROOTS]
+        project = self.root / PROJECT_YML
+        if project.is_file():
+            for rel in PROJECT_PACKAGE_PATH_RE.findall(project.read_text(errors="ignore")):
+                roots.append((self.root / APP_DIR / rel).resolve())
+        seen: list[Path] = []
+        queue = [r.resolve() for r in roots]
+        while queue:
+            pkg = queue.pop(0)
+            if pkg in seen or not (pkg / "Package.swift").is_file():
+                continue
+            seen.append(pkg)
+            text = (pkg / "Package.swift").read_text(errors="ignore")
+            for rel in PACKAGE_PATH_RE.findall(text):
+                queue.append((pkg / rel).resolve())
+        return seen
+
+    def linked_texts(self) -> dict[Path, str]:
+        """The app's own folders plus every linked package's Sources."""
+        out = dict(self.texts())
+        dirs = [pkg / "Sources" for pkg in self.linked_package_dirs()]
+        for path in self.swift_files(dirs):
+            if path not in out:
+                try:
+                    out[path] = path.read_text(errors="ignore")
+                except OSError:
+                    continue
+        return out
+
+    def swift_files(self, dirs: Iterable[Path] | None = None) -> Iterable[Path]:
+        bases = list(dirs) if dirs is not None else [self.root / rel for rel in IOS_SOURCE_DIRS]
+        for base in bases:
             if not base.is_dir():
                 continue
             for path in base.rglob("*.swift"):
@@ -164,14 +272,17 @@ class Lint:
 
     # --------------------------------------------------------------- metadata
 
-    def metadata(self) -> dict[str, dict]:
+    def metadata(self, report: bool = True) -> dict[str, dict]:
+        """Every metadata JSON file; a file that does not parse is a finding
+        when `report` (check_metadata reports it once; later readers skip it)."""
         out: dict[str, dict] = {}
         base = self.root / METADATA_DIR
         for path in sorted(base.rglob("*.json")):
             try:
                 out[self.rel(path)] = json.loads(path.read_text())
             except (OSError, json.JSONDecodeError) as exc:
-                self.add("metadata.parse", "2.3", "blocker", f"metadata file does not parse: {exc}", self.rel(path))
+                if report:
+                    self.add("metadata.parse", "2.3", "blocker", f"metadata file does not parse: {exc}", self.rel(path))
         return out
 
     def check_metadata(self) -> list[tuple[str, str, str]]:
@@ -214,7 +325,15 @@ class Lint:
             self.add("metadata.support-url", "1.5", "blocker", "no supportUrl in the version metadata", METADATA_DIR)
         if not has_privacy:
             self.add("metadata.privacy-url", "5.1.1", "blocker", "no privacyPolicyUrl in the app-info metadata", METADATA_DIR)
-        for family in ("iphone", "ipad"):
+        # App Store Connect asks for iPad screenshots only when the app runs
+        # natively on iPad ("Required if app runs on iPad"). An iPhone-only app
+        # (TARGETED_DEVICE_FAMILY "1") runs on iPad in compatibility mode with
+        # no iPad screenshots listed, so the ipad folder is required only when
+        # the app target's device families include 2 (iPad).
+        families = ["iphone"]
+        if "2" in app_device_families(self.root):
+            families.append("ipad")
+        for family in families:
             shots = self.root / SCREENSHOTS_DIR / family
             count = len([p for p in shots.glob("*") if p.suffix.lower() in (".png", ".jpg", ".jpeg")]) if shots.is_dir() else 0
             if count == 0:
@@ -238,21 +357,24 @@ class Lint:
         return False
 
     def check_appstore_config(self) -> None:
-        """The appstore lane judges the public build: project.yml must define
-        the AppStore configuration with bundle com.cmux.app."""
+        """A submission lane judges the build App Review gets: project.yml must
+        define the lane's configuration with its bundle (appstore: AppStore,
+        com.cmux.app; internal-submission: TestFlight, dev.cmux.app.internal)."""
         self.ran("appstore-config")
+        name = LANE_CONFIG.get(self.lane, APPSTORE_CONFIG)
+        want = LANE_BUNDLE_ID.get(self.lane, APPSTORE_BUNDLE_ID)
         text = (self.root / PROJECT_YML).read_text(errors="ignore")
-        block = config_block(text, APPSTORE_CONFIG)
-        if not re.search(rf"^  {APPSTORE_CONFIG}:\s*release\b", text, re.M) or block is None:
+        block = config_block(text, name)
+        if not re.search(rf"^  {name}:\s*release\b", text, re.M) or block is None:
             self.add("appstore.config-missing", "2.1", "blocker",
-                     f"{PROJECT_YML} has no {APPSTORE_CONFIG} configuration, so there is no public App Store build "
-                     f"(bundle {APPSTORE_BUNDLE_ID}) to judge", PROJECT_YML)
+                     f"{PROJECT_YML} has no {name} configuration, so there is no App Store build "
+                     f"(bundle {want}) to judge", PROJECT_YML)
             return
         bundle = re.search(r"^\s*CMUX_MOBILE_APP_BUNDLE_ID:\s*\"?([\w.]+)", block, re.M)
-        if not bundle or bundle.group(1) != APPSTORE_BUNDLE_ID:
+        if not bundle or bundle.group(1) != want:
             self.add("appstore.bundle-id", "2.1", "blocker",
-                     f"the {APPSTORE_CONFIG} configuration's bundle is {bundle.group(1) if bundle else 'unset'!s}, "
-                     f"not {APPSTORE_BUNDLE_ID}", PROJECT_YML)
+                     f"the {name} configuration's bundle is {bundle.group(1) if bundle else 'unset'!s}, "
+                     f"not {want}", PROJECT_YML)
 
     def check_sources(self) -> list[tuple[str, str, str]]:
         self.ran("sources")
@@ -283,6 +405,9 @@ class Lint:
                              f"external purchase or billing route in an iOS source: {external.search(line).group(0)}",
                              f"{self.rel(path)}:{lineno}")
 
+        # 3.1.1 / 3.1.2 / 2.1(b): what an app that sells subscriptions owes the reviewer.
+        self.check_subscriptions(texts)
+
         # 2.5.2: no downloaded or interpreted executable code.
         exec_patterns = {
             r"\bdlopen\(": "dlopen",
@@ -306,7 +431,7 @@ class Lint:
                 window = text[max(0, match.start() - 4000):match.start()]
                 guarded = "CMUX_MOBILE_PRODUCTION" in window or "#if DEBUG" in window
                 if not guarded:
-                    self.add("api.vpn-source", "2.5.1", "warning" if self.lane == "appstore" else "info",
+                    self.add("api.vpn-source", "2.5.1", "warning" if self.strict else "info",
                              f"{match.group(0)} used in the NEXT app; the system VPN API cost a rejection before and the App Store binary must not contain it",
                              f"{self.rel(path)}:{lineno}")
 
@@ -323,6 +448,20 @@ class Lint:
                 value = (((entry or {}).get("localizations") or {}).get("en") or {}).get("stringUnit", {}).get("value", key)
                 if isinstance(value, str) and bad.search(value):
                     self.add("copy.placeholder", "2.1", "blocker", f"user-facing string looks unfinished: {value[:80]!r}", f"{self.rel(loc)} [{key}]")
+
+        # 2.1 (completeness): a raw Swift error dump in user-facing text ("LinkError(code: ...)",
+        # "The operation couldn't be completed. (... error 1.)"). Display sites use
+        # UserFacingError.message(_:); logs and telemetry keep the raw error.
+        raw_error = re.compile(r"\?\?\s*String\(describing:\s*error\)")
+        log_line = re.compile(r"\blog\.|Log\.|Logger\(|privacy:|telemetry|detail:")
+        for path, text in texts.items():
+            for lineno, line in enumerate(text.splitlines(), 1):
+                stripped = line.lstrip()
+                if stripped.startswith("//") or not raw_error.search(line) or log_line.search(line):
+                    continue
+                self.add("ux.raw-error", "2.1", "warning",
+                         "an error shown as String(describing:) reads as a Swift dump; use UserFacingError.message(_:)",
+                         f"{self.rel(path)}:{lineno}")
 
         # URLs the app opens.
         url_literal = re.compile(r"\"(https://[^\"\\\s]+)\"")
@@ -348,6 +487,70 @@ class Lint:
         return host.endswith((".ts.net", ".internal", ".local", "apple.com", "icloud.com", "googleapis.com",
                               ".workers.dev", ".vercel.app", "sentry.io"))
 
+    def check_subscriptions(self, texts: dict[Path, str]) -> None:
+        """An app that sells through StoreKit must let a user restore (3.1.1),
+        show the renewal terms with Terms of Use and Privacy Policy links where
+        it sells (3.1.2), link its Terms in the store listing (3.1.2), and tell
+        the reviewer where the plans are (2.1(b): on 2026-11-07 App Review
+        could not locate the in-app purchases). Nothing applies to an app
+        without StoreKit."""
+        storekit = [path for path, text in texts.items()
+                    if re.search(r"^\s*import StoreKit\b", text, re.M)]
+        if not storekit:
+            return
+        self.ran("subscriptions")
+        notes_rel = REVIEW_NOTES_BY_LANE.get(self.lane, REVIEW_NOTES)
+        notes_path = self.root / notes_rel
+        notes = notes_path.read_text(errors="ignore") if notes_path.is_file() else ""
+        notes = "\n".join(line for line in notes.splitlines() if not line.startswith("##"))
+        bundle = LANE_BUNDLE_ID.get(self.lane, APPSTORE_BUNDLE_ID)
+        if self.strict and bundle in apps_without_subscriptions(texts):
+            # The app itself offers no purchase in this bundle, so the reviewer
+            # must not be sent looking for one (2.1): the notes name the "Plan"
+            # row and promise no Subscribe, Restore Purchases, Manage
+            # Subscription or Sandbox purchase, and the selling rules do not apply.
+            promised = sorted(set(re.findall(r'"Subscribe"|"Restore Purchases"|"Manage Subscription"|\bSandbox\b', notes)))
+            problems = [f"promises {', '.join(promised)}"] if promised else []
+            if '"Plan"' not in notes:
+                problems.append('never names "Plan"')
+            if problems:
+                self.add("iap.review-notes", "2.1(b)", "blocker",
+                         f"the review notes ({notes_rel}) {'; '.join(problems)}, but {bundle} offers no purchase "
+                         "(appsWithoutSubscriptions): Settings > \"Plan\" shows the current plan read-only", notes_rel)
+            return
+        joined = "\n".join(texts.values())
+        where = self.rel(storekit[0])
+        if not re.search(r"\"Restore Purchases\"", joined) or not re.search(r"\bAppStore\.sync\(\)", joined):
+            self.add("iap.restore", "3.1.1", "blocker",
+                     "the app sells through StoreKit but has no \"Restore Purchases\" control that runs AppStore.sync()", where)
+        missing = [label for label, pattern in (
+            ("the auto-renewal terms", r"renew automatically|auto-renew"),
+            ("a Terms of Use link", r"cmux\.com/terms-of-service"),
+            ("a Privacy Policy link", r"cmux\.com/privacy-policy"),
+        ) if not re.search(pattern, joined)]
+        if missing:
+            self.add("iap.disclosure", "3.1.2", "blocker",
+                     f"the app sells subscriptions but its sources lack {', '.join(missing)}", where)
+        if not re.search(r"manageSubscriptionsSheet|showManageSubscriptions", joined):
+            self.add("iap.manage", "3.1.2", "warning",
+                     "no in-app way to manage the subscription (manageSubscriptionsSheet)", where)
+        descriptions = [body.get("description", "") for body in self.metadata(report=False).values() if isinstance(body, dict)]
+        if descriptions and not any(re.search(r"terms-of-service|/terms\b|EULA", d, re.I) for d in descriptions):
+            self.add("metadata.subscription-terms", "3.1.2", "blocker",
+                     "the app sells subscriptions but no store description links its Terms of Use (EULA)", METADATA_DIR)
+        problems = []
+        if re.search(r"sells? (no|nothing)|no (digital goods|in-app purchases?)|no StoreKit", notes, re.I):
+            problems.append("says the app sells nothing")
+        for label in ('"Plan"', '"Restore Purchases"', '"Manage Subscription"'):
+            if label not in notes:
+                problems.append(f"never names {label}")
+        if not re.search(r"Sandbox", notes):
+            problems.append("does not say purchases are made in the Sandbox")
+        if problems:
+            self.add("iap.review-notes", "2.1(b)", "blocker",
+                     f"the review notes ({notes_rel}) {'; '.join(problems)}: the reviewer must find the subscriptions "
+                     "(Settings > \"Plan\") and Restore Purchases", notes_rel)
+
     def check_apple_sign_in_ships(self) -> None:
         """Debug builds hide the Apple button (CMUX_MOBILE_APPLE_SIGN_IN = NO);
         this lane's shipping configuration (AppStore, or TestFlight for the
@@ -365,8 +568,9 @@ class Lint:
             self.add("signin.apple-shipping", "4.8", "blocker",
                      f"the {name} configuration does not set CMUX_MOBILE_APPLE_SIGN_IN to YES, so the shipped app "
                      "hides Sign in with Apple", PROJECT_YML)
-        ents = [m.group(1) for b in blocks
-                for m in re.finditer(r"^\s*CMUX_MOBILE_ENTITLEMENTS_(?:NO|YES):\s*\"?([\w./-]+)", b, re.M)]
+        ents = [rel for b in blocks
+                for m in re.finditer(r"^\s*CMUX_MOBILE_ENTITLEMENTS_(?:NO|YES):\s*\"?([^\s\"]+)", b, re.M)
+                for rel in entitlement_files(text, m.group(1))]
         if not ents:
             self.add("signin.apple-entitlement", "4.8", "blocker",
                      f"the {name} configuration names no entitlements file, so nothing shows it carries Sign in with Apple",
@@ -442,22 +646,29 @@ class Lint:
             "NSContactsUsageDescription": (r"CNContactStore", "contacts"),
             "NSCalendarsUsageDescription": (r"EKEventStore", "calendars"),
             "NSBluetoothAlwaysUsageDescription": (r"CBCentralManager|CBPeripheralManager", "Bluetooth"),
-            "NSFaceIDUsageDescription": (r"LAContext|evaluatePolicy\(\.deviceOwnerAuthentication", "Face ID"),
+            "NSFaceIDUsageDescription": (r"LAContext|evaluatePolicy\(\.deviceOwnerAuthentication|\.biometry(Any|CurrentSet)\b|kSecAccessControlBiometry", "Face ID"),
             "NSUserTrackingUsageDescription": (r"ATTrackingManager", "tracking"),
             "NSLocalNetworkUsageDescription": (r"NWBrowser|NWListener|NetServiceBrowser|_udp|Bonjour", "local network"),
         }
-        joined = "\n".join(self.texts().values())
+        linked = self.linked_texts()
+        joined = "\n".join(linked.values())
         for key, (pattern, label) in usage.items():
             uses = re.search(pattern, joined) is not None
             value = plist.get(key)
             if uses and not value:
                 self.add("privacy.purpose-string", "5.1.1", "blocker",
                          f"the app uses the {label} API but {key} is missing", where)
-            elif value and (len(value) < 25 or re.fullmatch(r"(?i).*\b(needs?|requires?) (access|permission)\b.*", value)):
+            elif value and (len(value) < 25 or re.fullmatch(r"(?i).*\b(needs?|requires?|wants?) (to )?(access|permission|use)\b.*", value)
+                            or re.fullmatch(r"(?i)\s*(this app|the app|cmux) (uses|accesses|would like)\b.*", value)):
                 self.add("privacy.purpose-string-vague", "5.1.1", "warning",
                          f"{key} is too generic for App Review: {value!r}", where)
-        if "NSLocalNetworkUsageDescription" in plist and not plist.get("NSBonjourServices"):
-            self.add("privacy.bonjour", "5.1.1", "warning", "local network purpose string without NSBonjourServices", where)
+        # NSBonjourServices lists the service types the app browses or
+        # advertises; dialing a LAN address (or a localhost NWListener) needs
+        # only the purpose string, so the key is asked for only when Bonjour is.
+        bonjour = re.search(r"NWBrowser|NetServiceBrowser|NetService\(|NWListener\.Service|\.bonjour(WithTXTRecord)?\(", joined)
+        if bonjour and not plist.get("NSBonjourServices"):
+            self.add("privacy.bonjour", "5.1.1", "blocker",
+                     "the app browses or advertises Bonjour services but NSBonjourServices is missing", where)
         if "ITSAppUsesNonExemptEncryption" not in plist:
             self.add("export.encryption", "2.1", "warning", "ITSAppUsesNonExemptEncryption is not declared", where)
         ats = plist.get("NSAppTransportSecurity") or {}
@@ -466,9 +677,41 @@ class Lint:
         if plist.get("UIRequiredDeviceCapabilities") and "ipad" not in json.dumps(plist).lower():
             pass
 
+    def check_privacy_manifests(self) -> None:
+        """Each bundle's manifest declares every required-reason API its sources use."""
+        self.ran("privacy-manifest")
+        texts = self.texts()
+        for rel, scope in PRIVACY_MANIFESTS.items():
+            path = self.root / rel
+            if not path.is_file():
+                self.add("privacy.manifest", "5.1.2", "blocker", "no privacy manifest for this bundle", rel)
+                continue
+            try:
+                manifest = plistlib.loads(path.read_bytes())
+            except (OSError, plistlib.InvalidFileException) as exc:
+                self.add("privacy.manifest", "5.1.2", "blocker", f"the privacy manifest does not parse: {exc}", rel)
+                continue
+            declared = {entry.get("NSPrivacyAccessedAPIType"): entry.get("NSPrivacyAccessedAPITypeReasons") or []
+                        for entry in manifest.get("NSPrivacyAccessedAPITypes") or []}
+            for category, reasons in declared.items():
+                if not reasons:
+                    self.add("privacy.manifest-reason", "5.1.2", "blocker", f"{category} has no reason code", rel)
+            sources = {p: t for p, t in texts.items() if scope is None or self.rel(p).startswith(scope + "/")}
+            for category, pattern in REQUIRED_REASON_APIS.items():
+                if category in declared:
+                    continue
+                for source, text in sources.items():
+                    match = re.search(pattern, text)
+                    if match:
+                        lineno = text.count("\n", 0, match.start()) + 1
+                        self.add("privacy.required-reason", "5.1.2", "blocker",
+                                 f"{match.group(0)} is a required-reason API ({category}) the manifest does not declare "
+                                 "(ITMS-91053)", f"{self.rel(source)}:{lineno} -> {rel}")
+                        break
+
     def check_entitlements(self, ents: dict, where: str) -> None:
         self.ran("entitlements")
-        if self.lane == "appstore":
+        if self.strict:
             for key in ents:
                 if key.startswith("com.apple.developer.networking.networkextension") or key.startswith("com.apple.developer.networking.vpn"):
                     self.add("entitlement.vpn", "2.5.1", "blocker",
@@ -510,12 +753,15 @@ class Lint:
             self.add("privacy.manifest", "5.1.2", "blocker", "no PrivacyInfo.xcprivacy in the bundle (required-reason APIs)", app.name)
         self.check_entitlements(self.entitlements(app), f"{app.name} (signed entitlements)")
         for appex in sorted((app / "PlugIns").glob("*.appex")) if (app / "PlugIns").is_dir() else []:
+            if not (appex / "PrivacyInfo.xcprivacy").is_file():
+                self.add("privacy.manifest", "5.1.2", "blocker",
+                         "the extension has no PrivacyInfo.xcprivacy (it links required-reason APIs)", appex.name)
             try:
                 ext = plistlib.loads((appex / "Info.plist").read_bytes())
             except (OSError, plistlib.InvalidFileException):
                 continue
             point = (ext.get("NSExtension") or {}).get("NSExtensionPointIdentifier", "")
-            if self.lane == "appstore" and point.startswith("com.apple.networkextension"):
+            if self.strict and point.startswith("com.apple.networkextension"):
                 self.add("binary.vpn-extension", "2.5.1", "blocker", f"{appex.name} is a Network Extension ({point})", appex.name)
             self.check_entitlements(self.entitlements(appex), f"{appex.name} (signed entitlements)")
         executables = [app / info.get("CFBundleExecutable", app.stem)]
@@ -537,7 +783,7 @@ class Lint:
             data = exe.read_bytes()
             for needle, (rule, guideline, severity, label) in needles.items():
                 if needle in data:
-                    if rule == "api.vpn" and self.lane != "appstore":
+                    if rule == "api.vpn" and not self.strict:
                         continue
                     self.add(rule, guideline, severity, f"{exe.name} {label}", self.rel(exe) if exe.is_relative_to(self.root) else str(exe.relative_to(app.parent)))
 
@@ -723,6 +969,61 @@ def fetch(url: str) -> dict:
     }
 
 
+# xcodegen's iOS preset (and Xcode's) is TARGETED_DEVICE_FAMILY "1,2": an app
+# that never sets it runs natively on iPhone and iPad.
+DEFAULT_DEVICE_FAMILIES = frozenset({"1", "2"})
+DEVICE_FAMILY_RE = re.compile(r'^\s*"?TARGETED_DEVICE_FAMILY"?:\s*"?([0-9 ,]*)"?\s*(?:#.*)?$', re.M)
+APP_TARGET = "CmuxMobileApp"
+
+
+def app_device_families(root: Path, target: str = APP_TARGET) -> frozenset[str]:
+    """The device families (1 iPhone, 2 iPad) project.yml builds the app
+    target for: every TARGETED_DEVICE_FAMILY in that target's block, else the
+    project's own settings, else xcodegen's iOS default "1,2"."""
+    project = root / PROJECT_YML
+    if not project.is_file():
+        return DEFAULT_DEVICE_FAMILIES
+    lines = project.read_text(errors="ignore").splitlines()
+    in_target: list[str] = []
+    outside: list[str] = []
+    in_targets = False
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if line.strip() and not line[0].isspace():
+            in_targets = line.rstrip() == "targets:"
+        if in_targets and line.rstrip() == f"  {target}:":
+            i += 1
+            while i < len(lines) and (not lines[i].strip() or lines[i].startswith("   ")):
+                in_target.append(lines[i])
+                i += 1
+            continue
+        if not in_targets:
+            outside.append(line)
+        i += 1
+
+    def families(block: list[str]) -> set[str]:
+        found: set[str] = set()
+        for value in DEVICE_FAMILY_RE.findall("\n".join(block)):
+            found |= {part.strip() for part in value.split(",") if part.strip()}
+        return found
+
+    return frozenset(families(in_target) or families(outside) or DEFAULT_DEVICE_FAMILIES)
+
+
+def entitlement_files(text: str, value: str) -> list[str]:
+    """The entitlements files a CMUX_MOBILE_ENTITLEMENTS_* value can sign with:
+    the path itself, or for a switch such as
+    `$(CMUX_MOBILE_DISTRIBUTION_ENTITLEMENTS_$(CMUX_MOBILE_ASSOCIATED_DOMAINS))`
+    every `<prefix>_NO` / `<prefix>_YES` path project.yml sets, since the build
+    may pick either. A reference that resolves to nothing yields nothing."""
+    switch = re.fullmatch(r"\$\((\w+)_\$\(\w+\)\)", value)
+    if not switch:
+        return [value] if re.fullmatch(r"[\w./-]+", value) else []
+    prefix = re.escape(switch.group(1))
+    return [m.group(1) for m in re.finditer(rf"^\s*{prefix}_(?:NO|YES):\s*\"?([\w./-]+)", text, re.M)]
+
+
 def config_block(text: str, name: str) -> str | None:
     """project.yml's `settings: configs: NAME:` block (indent 4), or None."""
     lines = text.splitlines()
@@ -756,12 +1057,13 @@ def config_blocks(text: str, name: str) -> list[str]:
 
 
 def marketing_version(root: Path, lane: str) -> str:
-    """The version App Store Connect holds for this lane: the AppStore
-    configuration's MARKETING_VERSION for appstore, else the base one."""
+    """The version App Store Connect holds for this lane: a submission lane's
+    configuration's own MARKETING_VERSION (AppStore for appstore, TestFlight
+    for internal-submission) when it sets one, else the base one."""
     text = (root / PROJECT_YML).read_text(errors="ignore")
     pattern = re.compile(r"^\s*MARKETING_VERSION:\s*\"?([0-9][0-9.]*)", re.M)
-    if lane == "appstore":
-        block = config_block(text, APPSTORE_CONFIG)
+    if lane in SUBMISSION_LANES:
+        block = config_block(text, LANE_CONFIG[lane])
         found = pattern.search(block or "")
         if found:
             return found.group(1)
@@ -784,13 +1086,14 @@ def cmd_lint(args: argparse.Namespace) -> int:
     lint = Lint(root, args.lane)
     urls = lint.check_metadata()
     if lint.check_next_app_present():
-        if args.lane == "appstore":
+        if lint.strict:
             lint.check_appstore_config()
         urls += lint.check_sources()
         lint.check_info_plist(lint.project_info(), PROJECT_YML)
+        lint.check_privacy_manifests()
         lint.check_store_rules()
         for rel in APPSTORE_ENTITLEMENTS:
-            if args.lane == "appstore" and (root / rel).is_file():
+            if lint.strict and (root / rel).is_file():
                 lint.check_entitlements(plistlib.loads((root / rel).read_bytes()), rel)
     app = None
     if args.ipa:
@@ -960,6 +1263,35 @@ def xcresult_findings(path: Path) -> list[dict]:
     return out
 
 
+def blocker_key(f: dict) -> str:
+    """A blocker's identity across runs: what failed and where, never the
+    on-screen dump or a line number that moves with every edit."""
+    where = re.sub(r":\d+$", "", str(f.get("where", "")))
+    if f.get("rule") == "uitest.failed":
+        # "AppReviewGateUITests/testX(): detail" -> the test, per device.
+        return f"uitest.failed|{where}|{str(f.get('message', '')).split(': ', 1)[0]}"
+    return f"{f.get('rule', '')}|{where}"
+
+
+def read_known_blockers(path: Path) -> tuple[set[str], list[dict]]:
+    body, unreadable = read_input(path, "known blockers")
+    if body is None:
+        return set(), unreadable
+    try:
+        return {str(entry["key"]) for entry in body["blockers"]}, []
+    except (KeyError, TypeError) as error:
+        return set(), [{"rule": "input.unreadable", "guideline": "2.1", "severity": "blocker", "source": "known blockers",
+                        "message": f"{path.name} has no blockers[].key list ({error})", "where": str(path)}]
+
+
+def ratchet(findings: list[dict], known: set[str]) -> tuple[list[dict], list[str]]:
+    """New blockers (fail this change) and known ones no longer seen (fixed:
+    remove them from known-blockers.json)."""
+    pinned = [f for f in findings if f["severity"] == "blocker"]
+    seen = {blocker_key(f) for f in pinned}
+    return [f for f in pinned if blocker_key(f) not in known], sorted(known - seen)
+
+
 def render(findings: list[dict], lint: dict | None, asc: list[dict] | None, tests: list[str]) -> str:
     findings = sorted(findings, key=lambda f: (SEVERITY_ORDER.get(f["severity"], 9), f.get("guideline", ""), f.get("rule", "")))
     blockers = [f for f in findings if f["severity"] == "blocker"]
@@ -991,20 +1323,25 @@ def render(findings: list[dict], lint: dict | None, asc: list[dict] | None, test
 def cmd_report(args: argparse.Namespace) -> int:
     findings: list[dict] = []
     lint = None
+    lints: list[dict] = []
     for item in args.lint or []:
         body, unreadable = read_input(Path(item), "guideline lint")
         findings += unreadable
         if body is None:
             continue
+        lints.append(body)
         lint = lint or body
         findings += [dict(f, source=f"guideline lint ({body.get('lane')})") for f in body["findings"]]
+    # A submission lane's build is never judged without Apple's own check:
+    # --asc-skipped (a pull request has no release secrets) does not excuse it.
+    submission = any(body.get("lane") == "internal-submission" for body in lints)
     asc = None
     for item in args.asc_validate or []:
         if Path(item).is_file():
             asc = (asc or []) + asc_findings(Path(item))
     if asc:
         findings += asc
-    if asc is None and not args.asc_skipped:
+    if asc is None and (not args.asc_skipped or submission):
         findings.append({"rule": "asc.missing", "guideline": "2.1", "severity": "blocker", "source": "asc validate",
                          "message": "asc validate did not run, so App Store Connect readiness is unknown", "where": ""})
     tests = []
@@ -1016,9 +1353,6 @@ def cmd_report(args: argparse.Namespace) -> int:
         else:
             findings.append({"rule": "uitest.missing", "guideline": "2.1(a)", "severity": "blocker",
                              "source": "reviewer-path suite", "message": f"no test result at {x}: the suite did not run", "where": x})
-    for extra in args.extra or []:
-        body, unreadable = read_input(Path(extra), "agent reviewer pass")
-        findings += unreadable + [dict(f) for f in (body or [])]
     for log in args.suite_log:
         findings += suite_log_findings(Path(log))
     for item in args.suite_status:
@@ -1038,13 +1372,50 @@ def cmd_report(args: argparse.Namespace) -> int:
     if args.expect_lint and lint is None:
         findings.append({"rule": "lint.missing", "guideline": "2.1", "severity": "blocker", "source": "guideline lint",
                          "message": "the guideline lint left no result, so the build is unjudged", "where": ""})
-    for family in args.expect_device:
+    # A family the image has no simulator for leaves {family, skipped: true}
+    # instead of a result; it counts only for an --expect-device-or-skipped
+    # family, never for one that must be walked.
+    skipped: set[str] = set()
+    for item in args.skipped:
+        body, unreadable = read_input(Path(item), "reviewer-path suite")
+        findings += unreadable
+        if isinstance(body, dict) and body.get("skipped") is True:
+            skipped.add(str(body.get("family", "")))
+    for family in args.expect_device + [f for f in args.expect_device_or_skipped if f not in skipped]:
         if family not in tests:
             findings.append({"rule": "uitest.missing", "guideline": "2.1(a)", "severity": "blocker",
                              "source": "reviewer-path suite",
                              "message": f"no {family} suite result reached the report: the reviewer path is unjudged there",
                              "where": family})
+    known: set[str] | None = None
+    if args.known_blockers:
+        known, unreadable = read_known_blockers(Path(args.known_blockers))
+        findings += unreadable
+        if args.proposed_known_blockers:
+            # A pull request is judged on its base's list, and a key it adds
+            # to the list is itself a blocker: pinning the regression it brings
+            # would otherwise pass it.
+            proposed, unreadable = read_known_blockers(Path(args.proposed_known_blockers))
+            findings += unreadable
+            findings += [{"rule": "known-blockers.added", "guideline": "2.1", "severity": "blocker",
+                          "source": "known blockers", "where": key,
+                          "message": f"this change adds {key} to {KNOWN_BLOCKERS_FILE}; fix the blocker instead"}
+                         for key in sorted(proposed - known)]
     md = render(findings, lint, asc, tests)
+    new: list[dict] | None = None
+    if known is not None:
+        new, fixed = ratchet(findings, known)
+        lines = ["", "### New in this change", ""]
+        if new:
+            lines.append(f"**{len(new)} new blocking** (not in `{KNOWN_BLOCKERS_FILE}`): this change makes the app "
+                         "fail App Review where it passed. Fix it; never add it to that file to get past this.")
+            lines += [f"- `{blocker_key(f)}`: {str(f['message'])[:300]}" for f in new]
+        else:
+            lines.append("No new blocker: every blocker above was already known.")
+        if fixed:
+            lines += ["", f"Fixed here or not seen this run (remove from `{KNOWN_BLOCKERS_FILE}` once fixed):"]
+            lines += [f"- `{key}`" for key in fixed]
+        md += "\n".join(lines)
     if args.out:
         Path(args.out).write_text(md + "\n")
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
@@ -1052,6 +1423,8 @@ def cmd_report(args: argparse.Namespace) -> int:
         with open(summary, "a") as fh:
             fh.write(md + "\n")
     print(md)
+    if new is not None:
+        return 1 if new else 0
     return 1 if any(f["severity"] == "blocker" for f in findings) else 0
 
 
@@ -1060,7 +1433,7 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="cmd", required=True)
     lint = sub.add_parser("lint")
     lint.add_argument("--source-root", default=".")
-    lint.add_argument("--lane", choices=("appstore", "internal"), default="appstore")
+    lint.add_argument("--lane", choices=LANES, default="appstore")
     lint.add_argument("--app")
     lint.add_argument("--ipa")
     lint.add_argument("--check-urls", action="store_true")
@@ -1073,7 +1446,6 @@ def main(argv: list[str] | None = None) -> int:
     report.add_argument("--asc-skipped", action="store_true",
                         help="asc validate cannot run for this event (a PR has no release secrets)")
     report.add_argument("--xcresult-json", action="append")
-    report.add_argument("--extra", action="append", help="JSON list of findings from another check")
     report.add_argument("--suite-log", action="append", default=[],
                         help="a suite's xcodebuild log; its GATE-NOTE lines become warnings")
     report.add_argument("--suite-status", action="append", default=[],
@@ -1082,10 +1454,18 @@ def main(argv: list[str] | None = None) -> int:
                         help="a missing --lint result is a blocker: the gate fails closed")
     report.add_argument("--expect-device", action="append", default=[],
                         help="a device family (iphone, ipad) whose suite result must be present")
+    report.add_argument("--expect-device-or-skipped", action="append", default=[],
+                        help="a device family (duo) whose suite result or --skipped marker must be present")
+    report.add_argument("--skipped", action="append", default=[],
+                        help="{family, skipped: true}: the image had no simulator for that family")
+    report.add_argument("--known-blockers",
+                        help="known-blockers.json: fail only on a blocker not listed there (a push or pull request)")
+    report.add_argument("--proposed-known-blockers",
+                        help="the change's own known-blockers.json: every key it adds over --known-blockers blocks")
     report.add_argument("--out")
     version = sub.add_parser("version")
     version.add_argument("--source-root", default=".")
-    version.add_argument("--lane", choices=("appstore", "internal"), default="appstore")
+    version.add_argument("--lane", choices=LANES, default="appstore")
     args = parser.parse_args(argv)
     if args.cmd == "version":
         found = marketing_version(Path(args.source_root), args.lane)

@@ -58,7 +58,7 @@ public struct UpdateDropBack {
             return swapped.target
         } catch {
             updater.buildSwitchProgress = nil
-            updater.revert = RevertProgress(step: .failed, target: build, failure: Self.message(error))
+            updater.revert = RevertProgress(step: .failed, target: build, failure: message(error))
             throw error
         }
     }
@@ -124,7 +124,7 @@ public struct UpdateDropBack {
             updater.log.append("go back: nothing kept older than \(updater.identity.build); downloading \(target)")
             return await updater.switchToBuild(target)
         } catch {
-            return Self.message(error)
+            return message(error)
         }
     }
 
@@ -136,29 +136,16 @@ public struct UpdateDropBack {
             if claimed { try await runClaimed(to: build, stateDirectories: stateDirectories) } else { try await run(to: build, stateDirectories: stateDirectories) }
             return nil
         } catch {
-            return Self.message(error)
+            return message(error)
         }
     }
 
-    static func message(_ error: any Error) -> String {
-        (error as? RollbackRefusal)?.message ?? UpdaterStrings.rollbackSwapFailed(String(describing: error))
-    }
-
-    /// The question asked before a person's rollback runs: `updates.rollback` is destructive (it
-    /// quits and relaunches), so the App's destructive confirmation asks this for the palette and
-    /// the menu. It names the build when one is known ("Go Back to nightly 4288034 from Nov 10?").
-    public static func confirmation(_ target: RevertTarget?) -> (title: String, body: String, button: String) {
-        let title = target.map { UpdaterStrings.goBackConfirmTitle($0.label) } ?? UpdaterStrings.rollbackConfirmTitle
-        // No kept build offered: Go back downloads the feed's previous build (``goBack(stateDirectories:)``),
-        // so the question says so, not that a kept build reopens (cmux#41013 review).
-        let body = target?.kept == true ? UpdaterStrings.rollbackConfirmBody : UpdaterStrings.goBackDownloadBody
-        return (title, body, UpdaterStrings.goBackButton)
-    }
-
-    /// ``confirmation(_:)`` made into the caller's prompt.
-    public static func confirmation<Prompt>(_ target: RevertTarget?, as make: (String, String, String) -> Prompt) -> Prompt {
-        let ask = confirmation(target)
-        return make(ask.title, ask.body, ask.button)
+    /// What the person reads when a rollback fails: a refusal's own message, else the error in plain
+    /// words (``UpdateFailureText``), with the raw error in the update log.
+    func message(_ error: any Error) -> String {
+        if let refusal = error as? RollbackRefusal { return refusal.message }
+        updater.log.append("rollback failed: \(String(describing: error))")
+        return UpdateFailureText.plain(error)
     }
 
     /// The update harness's timeline (DEV harness copies only; a no-op everywhere else).

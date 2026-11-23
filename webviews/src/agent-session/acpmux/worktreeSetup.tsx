@@ -265,11 +265,14 @@ export function setupFacts(run: WorktreeSetupRun, now: number, t: Translate): st
  *  and, once the setup is over, Dismiss. */
 export function WorktreeSetupLine({
   creating = false,
+  cloning,
   view,
   onDismiss,
   defaultOpen = false,
 }: {
   creating?: boolean;
+  /// The GitHub repository (`owner/name`) whose checkout comes first: the line says it gets it ready.
+  cloning?: string;
   view?: SetupView | undefined;
   onDismiss?: () => void;
   defaultOpen?: boolean;
@@ -291,7 +294,9 @@ export function WorktreeSetupLine({
       <output className="acpmux-switch-notice acpmux-worktree-setup acpmux-worktree-creating" data-state="creating">
         <span className="acpmux-worktree-setup__summary">
           <SetupMark status="running" />
-          <span className="acpmux-worktree-setup__label">{t("worktree.creating")}</span>
+          <span className="acpmux-worktree-setup__label">
+            {cloning ? t("worktree.preparingRepo", { repo: cloning }) : t("worktree.creating")}
+          </span>
         </span>
       </output>
     );
@@ -342,10 +347,12 @@ export function WorktreeSetupNotice({
   callNative,
   folder,
   creating,
+  cloning,
 }: {
   callNative: Native;
   folder: string | undefined;
   creating: boolean;
+  cloning?: string;
 }) {
   const start = useWorktreeSetupStart(folder);
   const root = start ? folder : undefined;
@@ -363,6 +370,7 @@ export function WorktreeSetupNotice({
   return (
     <WorktreeSetupLine
       creating={creating && !view}
+      {...(cloning && creating ? { cloning } : {})}
       view={view}
       {...(root ? { onDismiss: () => forgetWorktreeSetup(root) } : {})}
     />

@@ -1,0 +1,194 @@
+import CmuxNextCloud
+import CmuxNextCloudUI
+import CmuxNextDesign
+import Testing
+import Foundation
+
+/// A Cloud chat start whose git seed is refused copies the folder by itself and never asks (2026-11-10:
+/// "instead of this dialog, let's just automatically do it"; 2026-11-13: "instead of asking user to copy the
+/// folder, just do it automatically so that it just works": a start that asked sat on a dialog while its chat
+/// said "Thinking"). Only a copy the machine's disk cannot hold is not made: a silent 12.8 GB copy of
+/// cmuxterm-hq ran a 16 GB machine's disk out and ended in "Broken pipe".
+/// The refusal's words are cmux-tui's (`link seed push --seed-only`, tested in `tests/link_seed.rs`).
+@Suite
+@MainActor
+struct CloudSeedRefusalTests {
+    @Test func theFirstCopyAsksAndOnlyTheConfirmedOneCopies() {
+        let ask = CloudMoveCLI.startChatCopyArguments(key: "k", account: "a/", machine: "vm", socket: "/s", local: "/l", subpath: "",
+                                                     workRoots: ["/home/cmux/work"], acpmuxHome: nil, store: false, onSeedRefusal: .ask)
+        #expect(ask.suffix(2) == ["--on-seed-refusal", "ask"])
+        let copy = CloudMoveCLI.startChatCopyArguments(key: "k", account: "a/", machine: "vm", socket: "/s", local: "/l", subpath: "",
+                                                      workRoots: ["/home/cmux/work"], acpmuxHome: nil, store: true, onSeedRefusal: .copy)
+        #expect(copy.suffix(4) == ["--store", "default", "--on-seed-refusal", "copy"])
+    }
+
+    @Test func onlyASeedRefusalIsOneAndItKeepsCmuxTuisReason() throws {
+        let why = "The machine can't clone this folder: submodule subrouter has uncommitted changes; copying the folder instead would send 36,796 files (12.8 GB)"
+        let refused = try #require(CloudSeedRefusal(CloudMoveCLI.Answer(ok: false, errorCode: "seed_refused", error: why), machine: "cloud-chats-2"))
+        #expect(refused.message == why)
+        #expect(CloudSeedRefusal(CloudMoveCLI.Answer(ok: false, errorCode: "disk_full", error: "full"), machine: "m") == nil)
+        #expect(CloudSeedRefusal(CloudMoveCLI.Answer(ok: true), machine: "m") == nil)
+    }
+
+    /// A machine's room is its disk less what its image and work keep (the floor, never the half-again disk a start
+    /// asks): 4 GiB on the old 16 GB disk, 52 GiB on a 64 GB one; a machine whose size is not known is taken for the
+    /// smallest.
+    @Test func aMachinesRoomFollowsItsDisk() {
+        let gib: Int64 = 1_073_741_824
+        #expect(CloudSeedRefusal.room(diskMb: 16_384) == 4 * gib)
+        #expect(CloudSeedRefusal.room(diskMb: 65_536) == 52 * gib)
+        #expect(CloudSeedRefusal.room(diskMb: nil) == CloudSeedRefusal.room(diskMb: 16_384))
+        #expect(CloudSeedRefusal.room(diskMb: 1_024) == CloudSeedRefusal.leastRoomBytes)
+    }
+
+    private struct Declined: Error, Equatable { let reason: String }
+
+    @Test func aSeedThatIsNotRefusedCopiesOnce() async throws {
+        var asked: [CloudMoveCLI.SeedRefusal] = []
+        let seeded = try await CloudSeedRefusal.copying(machine: "m", diskMb: nil, declined: { Declined(reason: $0.tooLarge) }) { refusal in
+            asked.append(refusal)
+            return (CloudMoveCLI.Answer(ok: true), "seeded")
+        }
+        #expect(seeded.1 == "seeded")
+        #expect(asked == [.ask])
+    }
+
+    /// The person's folder is copied with no question, whatever its size, when the machine's disk holds it:
+    /// 1.9 GB on a 16 GB disk, the 23.2 GB checkout on a 64 GB one, and a folder whose size could not be read.
+    @Test func aRefusedSeedCopiesTheFolderWithoutAsking() async throws {
+        for (bytes, disk): (Int64?, Int?) in [(1_900_000_000, 16_384), (23_200_000_000, 65_536), (nil, nil)] {
+            var asked: [CloudMoveCLI.SeedRefusal] = []
+            let copied = try await CloudSeedRefusal.copying(machine: "m", diskMb: disk, declined: { Declined(reason: $0.tooLarge) }) { refusal in
+                asked.append(refusal)
+                return refusal == .ask
+                    ? (CloudMoveCLI.Answer(ok: false, errorCode: "seed_refused", error: "why", fallbackCode: "no_base", copyBytes: bytes), "")
+                    : (CloudMoveCLI.Answer(ok: true), "copied")
+            }
+            #expect(copied.1 == "copied")
+            #expect(asked == [.ask, .copy])
+        }
+    }
+
+    /// A copy the machine's disk cannot hold is not made, and the start ends with words that name the folder's
+    /// size and the machine instead of waiting on a question.
+    @Test func aCopyTheDiskCannotHoldIsNotMadeAndSaysSo() async throws {
+        var asked: [CloudMoveCLI.SeedRefusal] = []
+        var reason = ""
+        do {
+            _ = try await CloudSeedRefusal.copying(machine: "cloud-chats", diskMb: 16_384, declined: { Declined(reason: $0.tooLarge) }) { refusal in
+                asked.append(refusal)
+                return (CloudMoveCLI.Answer(ok: false, errorCode: "seed_refused", error: "why", fallbackCode: "seed.needs_github", copyBytes: 23_200_000_000), "")
+            }
+            Issue.record("a 23.2 GB copy to a 16 GB disk was made")
+        } catch let declined as Declined { reason = declined.reason }
+        #expect(asked == [.ask], "a 23.2 GB copy to a 16 GB disk was made")
+        #expect(reason.contains("cloud-chats") && reason.contains("23"))
+        #expect(reason != "why", "the start ended with cmux-tui's clone reason, not that the folder does not fit")
+    }
+
+    /// A copy the machine's disk cannot hold grows the disk first (2026-11-18: "a 22 GB folder must just work on Cloud")
+    /// and is then made; a disk grown too little, or not grown, still makes no copy.
+    @Test func aCopyTheDiskCannotHoldGrowsTheDiskThenCopies() async throws {
+        let refusedAnswer = CloudMoveCLI.Answer(ok: false, errorCode: "seed_refused", error: "why", fallbackCode: "not_git", copyBytes: 22_550_000_000)
+        var asked: [CloudMoveCLI.SeedRefusal] = []
+        var grownFor: [Int64?] = []
+        let copied = try await CloudSeedRefusal.copying(machine: "cloud-chats-4", diskMb: 16_384, grow: { refusal in
+            grownFor.append(refusal.copyBytes)
+            return .grown(diskMb: 36_864)
+        }, declined: { Declined(reason: $0.tooLarge) }) { refusal in
+            asked.append(refusal)
+            return refusal == .ask ? (refusedAnswer, "") : (CloudMoveCLI.Answer(ok: true), "copied")
+        }
+        #expect(copied.1 == "copied")
+        #expect(asked == [.ask, .copy])
+        #expect(grownFor == [22_550_000_000])
+        for growth: CloudSeedRefusal.Growth in [.grown(diskMb: 20_480), .notGrown] {
+            asked = []
+            do {
+                _ = try await CloudSeedRefusal.copying(machine: "cloud-chats-4", diskMb: 16_384, grow: { _ in growth },
+                                                       declined: { Declined(reason: $0.tooLarge) }) { refusal in
+                    asked.append(refusal)
+                    return (refusedAnswer, "")
+                }
+                Issue.record("a 22.55 GB copy was made after \(growth)")
+            } catch is Declined {}
+            #expect(asked == [.ask])
+        }
+    }
+
+    /// A folder no disk the plan gives can hold is not copied and the machine is not grown past the plan (2026-11-18:
+    /// "grow the Cloud machine only up to the max size the team's plan allows; if the folder still won't fit, say so
+    /// clearly"): the words name the folder and the plan's largest disk.
+    @Test func aFolderPastThePlanSaysSo() async throws {
+        var reason = ""
+        do {
+            _ = try await CloudSeedRefusal.copying(machine: "cloud-chats-4", diskMb: 16_384, grow: { _ in .pastPlan(.lg) },
+                                                   declined: { Declined(reason: $0.tooLarge) }) { _ in
+                (CloudMoveCLI.Answer(ok: false, errorCode: "seed_refused", error: "why", fallbackCode: "not_git", copyBytes: 200_000_000_000), "")
+            }
+            Issue.record("a 200 GB copy was made past the plan")
+        } catch let declined as Declined { reason = declined.reason }
+        #expect(reason.contains("200") && reason.contains("137"), "\(reason)")
+        #expect(!reason.contains("cloud-chats-4"), "\(reason)")
+    }
+
+    /// Only a repository the machine can't read without the cmux GitHub App says to connect GitHub, and only it carries
+    /// `seed.needs_github` to the page's start card (its Connect GitHub button); a folder that is not git, a submodule's
+    /// local work, commits that are not on GitHub or an unknown reason say only to choose a smaller folder.
+    @Test func onlyARefusalGitHubCanFixSuggestsConnectingIt() throws {
+        func refusal(_ fallback: String?) throws -> CloudSeedRefusal {
+            try #require(CloudSeedRefusal(CloudMoveCLI.Answer(ok: false, errorCode: "seed_refused", error: "why", fallbackCode: fallback,
+                                                              copyBytes: 23_200_000_000), machine: "cloud-chats"))
+        }
+        let needsApp = try refusal("seed.needs_github")
+        #expect(needsApp.gitHubHelps)
+        #expect(needsApp.pageCode == "seed.needs_github")
+        #expect(needsApp.tooLarge.contains("GitHub") && needsApp.tooLarge.contains("cloud-chats"))
+        for fallback in ["not_git", "submodule_local_work", "no_base", "not_github", "no_remote", "unmerged", "seed.clone_failed", nil] {
+            let other = try refusal(fallback)
+            #expect(!other.gitHubHelps, "\(fallback ?? "nil")")
+            #expect(other.pageCode == nil, "\(fallback ?? "nil")")
+            #expect(!other.tooLarge.contains("GitHub") && other.tooLarge.contains("cloud-chats"), "\(fallback ?? "nil")")
+        }
+    }
+
+    /// The refusal names the seed plan's code (`not_git`, `submodule_local_work`, ...) so the log says why.
+    @Test func aRefusedSeedCarriesThePlansFallbackCodeFromTheCLIAnswer() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("cloud-seed-refusal-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let binary = dir.appendingPathComponent("cmux")
+        let line = #"{"ok":false,"error_code":"seed_refused","error":"why","fallback_code":"not_git","copy_files":2,"copy_bytes":5}"#
+        try "#!/bin/sh\necho '\(line)'\nexit 1\n".write(to: binary, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: binary.path)
+        let (answer, _) = try await CloudMoveCLI(binary: binary, timeout: .seconds(20))
+            .startChatCopy(key: "k", account: "a/", machine: "vm", socket: "/s", local: "/l", subpath: "", workRoots: ["/w"], acpmuxHome: nil, onSeedRefusal: .ask)
+        #expect(answer.fallbackCode == "not_git")
+        #expect(answer.copyBytes == 5)
+        #expect(CloudSeedRefusal(answer, machine: "vm")?.fallbackCode == "not_git")
+    }
+
+    /// The room check reads what the copy sends (`copy_bytes` from cmux-tui, a first pass past the copy's limits) against
+    /// the machine made for it: a folder whose `.git` made the whole tree look too big fits once only its sent bytes count,
+    /// and a machine sized `md` for 18 GB holds what an `sm` machine could not.
+    @Test func theCheckComparesWhatIsSentAgainstTheMachineMadeForIt() throws {
+        let gib: Int64 = 1_073_741_824
+        let firstPass = try #require(CloudSeedRefusal(CloudMoveCLI.Answer(ok: false, errorCode: "seed_refused", copyBytes: 256 * 1_048_576), machine: "m"))
+        #expect(firstPass.fits(diskMb: CloudChatSize.sm.diskMb))
+        let sent = try #require(CloudSeedRefusal(CloudMoveCLI.Answer(ok: false, errorCode: "seed_refused", copyBytes: 18 * gib), machine: "m"))
+        #expect(!sent.fits(diskMb: CloudChatSize.sm.diskMb))
+        #expect(sent.fits(diskMb: CloudChatSize.needed(bytes: 18 * gib)?.diskMb))
+    }
+
+    /// A create the plan refuses for its size (the platform's ensure, through cmux-tui) is a size refusal, which the
+    /// start card and `cmux cloud start-session` name with the size and the plan that includes it.
+    @Test func aSizeRefusalIsNamedWithItsSizeAndPlan() throws {
+        #expect(throws: CloudSizeLocked()) { _ = try CloudMoveStrings.checked((CloudMoveCLI.Answer(ok: false, errorCode: "cloud.size.locked"), 0)) }
+        let message = try #require(CloudStartSessionStrings.sizeLocked(CloudSizeLocked(needed: .xl)))
+        #expect(message.contains("xl") && message.contains("16") && message.contains("32") && message.contains("Max"))
+        #expect(CloudStartSessionStrings.sizeLocked(CloudSizeLocked()) == nil)
+        let next = CloudSizeLocked(upgradePlan: "next_max", upgradeNamed: true, needed: .xl)
+        #expect(CloudStartSessionStrings.sizeLocked(next)?.contains("cmux NEXT Max") == true)
+        #expect(CloudStartSessionStrings.sizeLocked(CloudSizeLocked(upgradeNamed: true, needed: .lg))?.contains("Pro") == false)
+    }
+}

@@ -54,17 +54,6 @@ enum ServerWire {
         return .object(entry)
     }
 
-    static func candidate(_ candidate: PairingCandidate) -> JSONValue {
-        var entry: [String: JSONValue] = [
-            "code": .string(candidate.code), "name": .string(candidate.name), "os": .string(candidate.os),
-            "version": .string(candidate.version), "words": .array(candidate.words.map { .string($0) }),
-            "teams": .array(candidate.teams.map { ["id": .string($0.id), "name": .string($0.name)] }),
-            "isChiefBrain": .bool(candidate.isChiefBrain),
-        ]
-        if let region = candidate.region { entry["region"] = .string(region) }
-        return .object(entry)
-    }
-
     private static func time(_ date: Date) -> JSONValue {
         .number((date.timeIntervalSince1970 * 1000).rounded())
     }

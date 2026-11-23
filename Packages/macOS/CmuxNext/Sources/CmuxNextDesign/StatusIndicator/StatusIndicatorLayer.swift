@@ -174,7 +174,11 @@ public final class StatusIndicatorLayer {
         self.plan = plan
         self.config = config
         layer.isHidden = plan.glyph == .none
-        if glyphChanged { rebuild() }
+        if glyphChanged {
+            // A settle still playing belongs to the glyph it was for, also when neither glyph loops.
+            removeSettle()
+            rebuild()
+        }
         applyColors()
         // New loop timing or pulse depth: restart the running animation.
         if configChanged { removeAllAnimations() }
@@ -385,6 +389,8 @@ public final class StatusIndicatorLayer {
     }
 
     private func removeAllAnimations() {
+        // A settle still playing (StatusIndicatorLayer+Settle) must not scale the glyph that replaces it.
+        removeSettle()
         glyphLayer?.removeAllAnimations()
         markLayer?.removeAllAnimations()
         nativeLayer?.removeAllAnimations()

@@ -9,12 +9,20 @@
 import { Lexer, lexer, type Token, walkTokens } from "marked";
 import { turnRows } from "../diff";
 import type { AcpmuxRow, AcpmuxSnapshot } from "../model";
+import { findSession } from "../sessionIndex";
 import { menuPartAt, type MenuPart } from "./menuParts";
 import { retryHelps, sendCause } from "../sendFailure";
 import { withoutSkillDollars } from "../slashCommands";
-import { currentLanguage } from "../i18n";
+import { currentLanguage, type Translate } from "../i18n";
 import { replyMenuTime } from "./relativeTime";
 import { selectionText } from "./chipCopy";
+import { onVisualViewport } from "../../../ui/visualViewportBox";
+import {
+  sendPromptAgainMenu,
+  sendPromptAgainTarget,
+  type SendPromptAgainMenu,
+  type SendPromptAgainState,
+} from "./sendPromptAgain";
 
 export const MESSAGE_MENU_HANDLER = "cmuxAgentContextMenu";
 
@@ -32,6 +40,8 @@ export type MessageMenuTarget = {
   sideChat?: true;
   /// A prompt that was not sent: its row, for Retry (`chat.retryPrompt`).
   retryRowId?: string;
+  /// The latest successful turn can send its original prompt again, optionally on another model.
+  sendPromptAgain?: SendPromptAgainMenu;
   /// The message's web links and images, each once, for Open Link.
   links?: string[];
 };
@@ -52,6 +62,17 @@ export type MessageMenuReport = Partial<MessageMenuTarget> & {
   popupId?: string;
 };
 
+export function withSendPromptAgain(
+  target: MessageMenuTarget | undefined,
+  rowId: string,
+  state: SendPromptAgainState,
+  t: Translate,
+): MessageMenuTarget | undefined {
+  if (sendPromptAgainTarget(state)?.messageId !== rowId) return target;
+  const again = sendPromptAgainMenu(state, t);
+  return again ? { ...(target ?? { text: "" }), sessionId: again.sessionId, sendPromptAgain: again } : target;
+}
+
 /// A native menu action may run after its page report. Require the selected and drawn sessions to
 /// still agree with that report before applying an action to a transcript row.
 export function messageMenuSessionMatches(
@@ -64,18 +85,31 @@ export function messageMenuSessionMatches(
   );
 }
 
-/// Whether acpmux can fork the chat at all here: it serves forks, the pane is connected and the
-/// chat is on this computer (acpmux refuses the rest).
+/// Whether acpmux can fork the chat at all here: it serves forks and the pane is connected. A chat
+/// on another computer forks there: acpmux forwards the fork to that computer (`fork_through.rs`).
 const forkServed = (snapshot: AcpmuxSnapshot) =>
-  Boolean(snapshot.canFork) &&
-  !snapshot.summary?.peer &&
-  snapshot.connection !== "disconnected" &&
-  !snapshot.connection.startsWith("connecting");
+  Boolean(snapshot.canFork) && snapshot.connection !== "disconnected" && !snapshot.connection.startsWith("connecting");
+
+/// Whether a pick of another harness's model can fork the chat onto it in place (forkHold.ts, App.tsx
+/// `chat.switchModel`): acpmux serves forks, and a chat on another computer (a peer's, a Cloud machine's)
+/// too, which acpmux forwards to that machine's daemon. A connection that drops for a moment keeps
+/// the pick; the send then fails and the composer keeps the message. The same daemons that serve
+/// Continue In… (`canHandoff`), the gate a started chat's model menu has had for its harness rail, so
+/// the chats that list other harnesses' models are the ones whose pick of one forks in place.
+export const switchForks = (snapshot: AcpmuxSnapshot) => Boolean(snapshot.canFork && snapshot.canHandoff);
 
 /// Whether a turn can be forked now: acpmux serves the fork (`forkServed`) and no turn is running.
 /// The turn footer's Fork shows on the same rule. The whole chat forks while it works too
 /// (`forkToTarget`).
 export const canFork = (snapshot: AcpmuxSnapshot) => forkServed(snapshot) && !snapshot.isWorking;
+
+/// Whether the Fork under a finished turn's footer or a prompt can show now. Claude and Codex fork
+/// through any finished turn (`forksAnyTurn`), also while a later turn runs: a turn an agent's
+/// message or a background finish started would otherwise hide every earlier turn's Fork until it
+/// ended (Leo, 2026-11-21: "inconsistent forking button appearing that is somehow dependent on
+/// future tool calls?"). Another agent forks only at a chat's end, so it waits for the idle chat.
+export const canForkTurn = (snapshot: AcpmuxSnapshot) =>
+  forkServed(snapshot) && (!snapshot.isWorking || forksAnyTurn(snapshot));
 
 /// Why Fork Conversation from the app (the palette's step, the chat's right-click menu, its
 /// shortcut: `chat.forkTo`) cannot fork the chat now, or undefined when it can: "unavailable" when
@@ -99,7 +133,29 @@ export function forkToTarget(snapshot: AcpmuxSnapshot): { live: true } | { throu
 
 /// Whether every completed turn can be forked: acpmux forks a Claude or Codex chat through any of
 /// them (`hub/fork_at.rs`, cx-yqiv, cx-a7r); other agents fork only at a chat's end.
-export const forksAnyTurn = (family: string | undefined) => family === "claude" || family === "codex";
+/// acpmux says so per chat (`forksAnyTurn` on its session row: the harness cuts a conversation at a
+/// turn, by kind), so a Claude Code profile under its own family name (`claude-sr2`) forks every turn
+/// too; only an older acpmux that does not say is read by family.
+/// A row without the field is unknown (acpmux built it while its configuration was being written,
+/// or it is older): the chat's last known answer stands, else the family's, never a false.
+export function forksAnyTurn(snapshot: Pick<AcpmuxSnapshot, "summary" | "sessions" | "sessionId">): boolean {
+  const id = snapshot.summary?.sessionId ?? snapshot.sessionId;
+  const listed = id ? findSession(snapshot.sessions ?? [], id)?.forksAnyTurn : undefined;
+  if (id && listed !== undefined) knownForksAnyTurn.set(id, listed);
+  return listed ?? (id ? knownForksAnyTurn.get(id) : undefined) ?? familyForksAnyTurn(snapshot.summary?.family);
+}
+
+/// Each chat's last `forksAnyTurn` acpmux gave, for a later row that leaves it out. A boolean per
+/// chat opened in this page.
+const knownForksAnyTurn = new Map<string, boolean>();
+
+/// Tests: forget every remembered answer.
+export function resetKnownForksAnyTurnForTests(): void {
+  knownForksAnyTurn.clear();
+}
+
+/// An older acpmux's answer: only the `claude` and `codex` families fork through any turn.
+export const familyForksAnyTurn = (family: string | undefined) => family === "claude" || family === "codex";
 
 /// Every turn a fork can start from, newest first: its seq and the prompt that began it (on one
 /// line). A steer later in the turn does not rename it, nor does a prompt that failed or is still
@@ -163,9 +219,9 @@ export function messageMenuTarget(
   // still owns the rail chapter marker shown by PinButton.
   const completedTurnSeq = turnRows(snapshot.rows, id).find((candidate) => candidate.kind === "turnSummary")?.seq;
   const forkSeq =
-    canFork(snapshot) &&
+    canForkTurn(snapshot) &&
     completedTurnSeq !== undefined &&
-    (forksAnyTurn(snapshot.summary?.family) || completedTurnSeq === latestForkSeq(snapshot.rows))
+    (forksAnyTurn(snapshot) || completedTurnSeq === latestForkSeq(snapshot.rows))
       ? completedTurnSeq
       : undefined;
   // Assistant bodies mark the turn's summary row in the rail. Prompts keep their own user row.
@@ -317,7 +373,9 @@ export const hasMessageMenuHost = () => menuHandler() !== undefined;
 export function openForkMenu(throughSeq: number, anchor?: Element): boolean {
   const handler = menuHandler();
   if (!handler) return false;
-  const { left, top, right, bottom } = (anchor ?? document.body).getBoundingClientRect();
+  const at = anchor ?? document.body;
+  // Where the anchor shows under a trackpad pinch, so the App's menu opens under it.
+  const { left, top, right, bottom } = onVisualViewport(at.getBoundingClientRect(), at.ownerDocument.defaultView);
   // Its opener stays lit while the destination menu is open, as More's does; the host reports the close.
   clearMessagePopup();
   const popupId = anchor ? crypto.randomUUID() : undefined;
@@ -345,7 +403,10 @@ export function openMessageMenu(rowId: string, anchor: Element): boolean {
   if (!message || !handler) return false;
   reportedImage = undefined;
   reportedPicture = undefined;
-  const { left, top, right, bottom } = anchor.getBoundingClientRect();
+  const { left, top, right, bottom } = onVisualViewport(
+    anchor.getBoundingClientRect(),
+    anchor.ownerDocument.defaultView,
+  );
   clearMessagePopup();
   const popupId = crypto.randomUUID();
   openPopup = { id: popupId, anchor };

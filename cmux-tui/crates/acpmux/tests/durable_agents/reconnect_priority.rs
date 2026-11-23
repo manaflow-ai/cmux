@@ -8,6 +8,11 @@ use super::*;
 async fn a_prompt_reads_its_chat_log_before_waiting_for_adoption() {
     let mut daemon = Daemon::new("priority-prompt", "approve-all");
     let (session, gate) = super::restart_reattach::kept_turn(&mut daemon).await;
+    // Adoption waits until the test releases it, not 3 s: on a loaded gate host the log read
+    // took longer than a fixed window inside the 3 s (the full-run failure "Elapsed").
+    let hold = daemon.home.join("startup-hold");
+    std::fs::write(&hold, b"").unwrap();
+    daemon.env = vec![("ACPMUX_TEST_HOLD_STARTUP".into(), hold.display().to_string())];
     daemon.start();
     let mut prompt = daemon.rpc().await;
     prompt
@@ -18,7 +23,8 @@ async fn a_prompt_reads_its_chat_log_before_waiting_for_adoption() {
         )
         .await;
     let mut info = daemon.rpc().await;
-    tokio::time::timeout(Duration::from_millis(1_500), async {
+    // Short of the hold's 120 s bound: a log read that waits for adoption never ends before it.
+    tokio::time::timeout(Duration::from_secs(100), async {
         let mut ticks = tokio::time::interval(Duration::from_millis(20));
         loop {
             let reply =
@@ -30,11 +36,16 @@ async fn a_prompt_reads_its_chat_log_before_waiting_for_adoption() {
         }
     })
     .await
-    .expect("the prompted log loads during the 3 s adoption hold");
+    .expect("the prompted log loads while adoption is held");
+    // Adoption comes after the hold, so none ran yet whether the start reached it or not; the
+    // wait proves the hold is the start's next step.
+    let reached = daemon.home.join("startup-hold.reached");
+    daemon.wait_event(&session, "the start at the adoption hold", |_| reached.exists());
     assert!(
         !daemon.events(&session).iter().any(|event| event["kind"] == "host_adopted"),
         "the log must load before adoption rather than after its global gate"
     );
+    std::fs::remove_file(&hold).unwrap();
     std::fs::write(gate, b"go").unwrap();
 }
 

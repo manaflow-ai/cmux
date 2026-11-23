@@ -87,6 +87,7 @@ impl CloudTurnClient {
         // race, and prevents rustls' "no crypto provider configured" panic.
         let _ = rustls::crypto::ring::default_provider().install_default();
         let http = reqwest::Client::builder()
+            .default_headers(cmux_build_space::headers()?)
             .redirect(reqwest::redirect::Policy::none())
             .connect_timeout(Duration::from_secs(5))
             .timeout(Duration::from_secs(30))

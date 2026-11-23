@@ -1,30 +1,28 @@
 // The buttons of a message's action row, shared by a prompt's (UserBubble.tsx, PromptActions for
 // the Chief's), another agent's message's (ReceivedActions) and an answer's (TurnRows.tsx TurnFooter), as Claude Code desktop
 // draws them: the message's age ("8 minutes ago"; "Oct 20, 2026, 10:16 PM" above it on hover; MessageTime, the same for a reply), a
-// prompt's read receipt, Copy, Retry, Fork from here (its title and what it does), Pin, Read
+// prompt's read receipt, Copy, Fork from here (its title and what it does), Pin, Read
 // aloud and More (the message's right-click menu), each glyph ROW_ICON px in a 24 px button. The rows show on hover or keyboard focus only,
 // with Claude's fade (conversation.css).
 import { useContext, useRef, useState, type ReactNode } from "react";
-import { PresentationContext } from "./presentationContextModel";
 import { useLabelClock } from "../clock";
 import { usePaneLanguage, useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import type { AcpmuxRow } from "../model";
 import { BookmarkIcon } from "../threadMinimap/BookmarkIcon";
 import { useRowMark } from "../threadMinimap/promptMarks";
-import { AlertCircle, Check, DoubleCheck, Pin, Retry, Speaker, Spinner, StopReading, TurnFork, Undo } from "./icons";
+import { AlertCircle, Check, DoubleCheck, Pin, Speaker, Spinner, StopReading, TurnFork, Undo } from "./icons";
 import { canReadAloud, readAloud, useReadingAloud } from "./readAloud";
-import { exactTime, messageAge, nextMessageAge } from "./relativeTime";
+import { exactTime, messageAge, nextMessageAge, messageAgeWidest } from "./relativeTime";
 import { CopyButton } from "./CopyButton";
 import { copyMarkdownResult } from "../richClipboard";
 import { hasMessageMenuHost, openMessageMenu, openForkMenu } from "./messageMenu";
-import { RetryModelMenu } from "./RetryModelMenu";
 import { RowReplyButton } from "./SelectionReply";
-import { RetryTargetContext, TurnActionsContext, type QueuedActions } from "./turnActions";
-import { retryPlacement } from "./turns";
+import { TurnActionsContext, type QueuedActions } from "./turnActions";
 import { useTranscriptReadOnly } from "./readOnly";
 import { ROW_ICON } from "./messageActionsModel";
-import { resendsAttachments } from "../inlinePrompt";
+import { intl } from "../../../ui/intl";
+import { Described } from "../chips/FactsHoverCard";
 /// The message's age, relative and live ("just now", "8 minutes ago", "yesterday", "Oct 18" past a
 /// week: messageAge), the exact date and time above it on hover, as Claude's. A prompt's, another
 /// agent's and a reply's rows all draw this one label (Leo, 2026-11-08: "the timestamps for the agent
@@ -40,12 +38,14 @@ export function MessageTime({ at, className, detail }: { at: number; className: 
     <time
       className={className}
       dateTime={new Date(at).toISOString()}
-      /* tooltip-allow: the row shows the age; the tooltip gives the exact date and time, as Claude's */ title={exact}
+      /* tooltip-allow: the row shows the age; the tooltip gives the exact date and time, as Claude's */ title={
+        detail ? `${exact} · ${detail}` : exact
+      }
       data-tooltip-side="top"
-      data-tooltip-detail={detail}
-      /* The widest age of its first hour, in this language: the prompt row reserves its width in
-         the real font (conversation.css .cv-user__time::before), so the minute's words change in place. */
-      data-age-widest={messageAge(at, at + 59 * 60_000, language)}
+      /* Every age of its first hour, in this language, one per line: the prompt row reserves the
+         widest in the real font (conversation.css .cv-user__time::before), so the minute's words
+         change in place. */
+      data-age-widest={messageAgeWidest(language)}
     >
       {messageAge(at, now, language)}
     </time>
@@ -57,7 +57,7 @@ export function MessageTime({ at, className, detail }: { at: number; className: 
 /// hover it reveals the exact timestamp"): the same relative age a prompt's row writes, its exact
 /// date and time on hover (Leo, 2026-11-08: "Right now it's just, like in our app, only the user has
 /// that sort of relative time thing. The agent in ours only has the exact timestamp."), with
-/// `detail` (the turn's time and tokens) on the tooltip's second line when given.
+/// `detail` (the turn's time and tokens) after it on the tooltip's one line when given.
 export function ReplyTime({ at, detail }: { at: number; detail?: string }) {
   return <MessageTime at={at} className="cv-turn-time" detail={detail} />;
 }
@@ -97,7 +97,17 @@ export function MessageCopy({ text }: { text: string }) {
 /// Fork from here, with Claude's tooltip: the title, then that this chat stays as it is. The host
 /// operation can take long enough to look inert, so press feedback starts before the promise is
 /// dispatched and a ref closes the same-frame duplicate-click window.
-export function ForkButton({ onFork, throughSeq }: { onFork(): unknown; throughSeq?: number }) {
+/// `unavailable`: why this message cannot be forked (its agent forks only from its latest reply):
+/// the control stays, dimmed, and says so, rather than vanishing from some messages only.
+export function ForkButton({
+  onFork,
+  throughSeq,
+  unavailable,
+}: {
+  onFork(): unknown;
+  throughSeq?: number;
+  unavailable?: string;
+}) {
   const t = useT();
   const inFlight = useRef(false);
   const [state, setState] = useState<"idle" | "pending" | "done" | "failed">("idle");
@@ -139,31 +149,48 @@ export function ForkButton({ onFork, throughSeq }: { onFork(): unknown; throughS
     );
   };
   if (readOnly) return null;
-  return (
-    <button
-      type="button"
-      className="cv-iconbtn cv-iconbtn--compact cv-fork-button"
-      aria-label={label}
-      title={label}
-      aria-busy={state === "pending"}
-      data-fork-state={state}
-      disabled={state === "pending"}
-      data-tooltip-detail={t("turn.forkDetail")}
-      onClick={(event) => {
-        if (event.altKey && throughSeq !== undefined && openForkMenu(throughSeq, event.currentTarget)) return;
-        fork();
-      }}
-    >
-      {state === "pending" ? (
-        <Spinner size={ROW_ICON} loading />
-      ) : state === "done" ? (
-        <Check size={ROW_ICON} />
-      ) : state === "failed" ? (
-        <AlertCircle size={ROW_ICON} />
-      ) : (
+  if (unavailable)
+    return (
+      <button
+        type="button"
+        className="cv-iconbtn cv-iconbtn--compact cv-fork-button"
+        aria-label={`${t("turn.fork")}: ${unavailable}`}
+        title={unavailable}
+        aria-disabled="true"
+        data-fork-state="unavailable"
+      >
         <TurnFork size={ROW_ICON} />
+      </button>
+    );
+  return (
+    <Described text={t("turn.forkDetail")}>
+      {(described) => (
+        <button
+          {...described}
+          type="button"
+          className="cv-iconbtn cv-iconbtn--compact cv-fork-button"
+          aria-label={label}
+          title={label}
+          aria-busy={state === "pending"}
+          data-fork-state={state}
+          disabled={state === "pending"}
+          onClick={(event) => {
+            if (event.altKey && throughSeq !== undefined && openForkMenu(throughSeq, event.currentTarget)) return;
+            fork();
+          }}
+        >
+          {state === "pending" ? (
+            <Spinner size={ROW_ICON} loading />
+          ) : state === "done" ? (
+            <Check size={ROW_ICON} />
+          ) : state === "failed" ? (
+            <AlertCircle size={ROW_ICON} />
+          ) : (
+            <TurnFork size={ROW_ICON} />
+          )}
+        </button>
       )}
-    </button>
+    </Described>
   );
 }
 
@@ -216,6 +243,7 @@ export function RewindButton({ rowId }: { rowId: string }) {
       type="button"
       className="cv-iconbtn cv-iconbtn--compact cv-turn-rewind"
       aria-label={label}
+      // tooltip-allow: an icon button.
       title={label}
       aria-busy={state.kind === "pending"}
       aria-disabled={state.kind === "done" || undefined}
@@ -243,7 +271,7 @@ export function RewindButton({ rowId }: { rowId: string }) {
 
 /// A rewind's time in seconds with one decimal, in the pane's language ("9.4", "9,4").
 export function rewindSeconds(seconds: number, language: string): string {
-  return new Intl.NumberFormat(language, { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(seconds);
+  return intl.NumberFormat(language, { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(seconds);
 }
 
 /// Pins the message (row `rowId`): kept with the chat by acpmux; a pinned prompt also shows in the
@@ -353,49 +381,6 @@ export function ReadReceipt({ row }: { row: AcpmuxRow }) {
   );
 }
 
-/// Retry, and Retry with another model when the harness has several: sends prompt row `rowId`
-/// (`prompt`, as the agent got it) again. Only the Messages view's prompts draw it, sent or queued;
-/// in the transcript the last turn's Retry is its reply footer's (TurnRows.tsx TurnFooter).
-/// `hasAttachment`: the prompt carries attachments that can all go again, so an attachment-only
-/// prompt (no text) still gets Retry.
-/// `held`: the prompt is a steer the agent has not read yet (PendingSteer.tsx's row). Its Retry
-/// stays in the row, as the sent row's does, but cannot be pressed and has no model menu: a resend
-/// while the steer still waits would reach the agent twice (cmux#34613, #34614).
-export function PromptRetry({
-  rowId,
-  prompt,
-  hasAttachment = false,
-  held = false,
-}: {
-  rowId: string;
-  prompt: string;
-  hasAttachment?: boolean;
-  held?: boolean;
-}) {
-  const t = useT();
-  const { retry, retryWith } = useContext(TurnActionsContext);
-  const readOnly = useTranscriptReadOnly();
-  if (!retry || (!prompt && !hasAttachment) || readOnly) return null;
-  return (
-    <span className="cv-message-retry">
-      <button
-        type="button"
-        className="cv-iconbtn cv-iconbtn--compact"
-        aria-label={t("turn.retry")}
-        title={t("turn.retry")}
-        data-tooltip-detail={t("turn.retryLabel")}
-        disabled={held}
-        onClick={() => retry(rowId, prompt)}
-      >
-        <Retry size={ROW_ICON} />
-      </button>
-      {!held && retryWith && retryWith.models.length > 1 && (
-        <RetryModelMenu retryWith={retryWith} onPick={(model) => retryWith.retry(rowId, prompt, model)} />
-      )}
-    </span>
-  );
-}
-
 /// A Chief prompt uses the same exclusive queue controls and normal hover actions as a user prompt.
 export function PromptActions({
   row,
@@ -406,33 +391,14 @@ export function PromptActions({
   text: string;
   pending?: (actions: ReactNode, queued: QueuedActions) => ReactNode;
 }) {
-  // Retry is the last turn's reply footer's (TurnFooter), but the Messages view draws no footer for a
-  // turn that ended well, so its prompts, sent or queued, keep Retry there; and a prompt whose turn's
-  // footer draws none keeps it too (turns.ts retryPlacement).
-  const messagesView = useContext(PresentationContext) === "messages";
-  const retryTarget = useContext(RetryTargetContext);
-  const canResend = Boolean(useContext(TurnActionsContext).retry);
-  const readOnly = useTranscriptReadOnly();
-  const promptRetry =
-    messagesView ||
-    (retryTarget?.promptId === row.id &&
-      retryPlacement(retryTarget, { canRetry: canResend, readOnly, messages: false }) === "prompt");
-  const prompt = row.resend ?? row.text ?? "";
-  // An attachment-only prompt (turns.ts offersRetry) retries when all its attachments can go again.
-  const retryProps = { rowId: row.id, prompt, hasAttachment: resendsAttachments(row) };
   const actions = (
     <MessageFooterRow>
       <MessageTime at={row.at} className="cv-user__time" />
       <MessageCopy text={text} />
-      {promptRetry && <PromptRetry {...retryProps} />}
       <PinButton rowId={row.id} bookmark />
     </MessageFooterRow>
   );
-  return (
-    <div className="cv-user__actions">
-      {pending ? pending(actions, { retry: promptRetry ? <PromptRetry {...retryProps} held /> : null }) : actions}
-    </div>
-  );
+  return <div className="cv-user__actions">{pending ? pending(actions, {}) : actions}</div>;
 }
 
 /// The hover row at the end of a message this agent sent another one (MessageCard.tsx): Copy,

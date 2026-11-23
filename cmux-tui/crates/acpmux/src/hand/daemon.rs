@@ -106,7 +106,9 @@ pub async fn connect() -> Result<(Arc<Client>, bool), HandError> {
             return Ok((client, false));
         }
         // Another key (an earlier hand run): restart it keyed, its agents kept.
-        let _ = client.request(method::MUX_SHUTDOWN, json!({})).await;
+        let _ = client
+            .request(method::MUX_SHUTDOWN, json!({"reason": "hand: restart keyed (another key)"}))
+            .await;
         crate::daemon::wait_for_exit().await;
     }
     start_keyed().await?;

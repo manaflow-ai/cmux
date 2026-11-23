@@ -14,7 +14,9 @@ extension WorkspaceRowView {
                          stackLimit: Int = SidebarRowBadgeStackCap.tunable.defaultValue.limit) {
         let badges = WorkspaceRowBadges(unread: ws.unread, activity: shown.activity, stackLimit: stackLimit,
                                         detailed: shown.detailedStatus || ws.activityFromProgram)
+        needsYouTone = isShowingPlaceholder ? nil : Self.needsYouTone(badges)
         guard style != .trailing, !isShowingPlaceholder else {
+            shownBadges = (ws.id, [])
             rowBadge.configure([], look: .corner)
             return
         }
@@ -28,11 +30,16 @@ extension WorkspaceRowView {
         // when glyphs overlap; a lone glyph is bare (no disc behind the spinner or the unread dot,
         // Lawrence 2026-10-18).
         let states = corner ? badges.first.map { [$0] } ?? [] : badges.stacked
-        rowBadge.configure(states, look: states.count > 1 ? .stack : .plain)
-        rowBadge.themedToolTip = Self.badgeSummary(badges, stacked: !corner)
+        // The same workspace's work just finished: its done glyph settles in once.
+        let previous = shownBadges?.workspace == ws.id ? shownBadges?.states : nil
+        shownBadges = (ws.id, states)
+        let settles = previous.map { WorkspaceRowBadges.settles(from: $0, to: states) } ?? false
+        rowBadge.configure(states, look: states.count > 1 ? .stack : .plain, settles: settles)
+        // What the badges say goes to VoiceOver; the row's hover card shows the same (a1315's cut 3: no tooltip).
+        rowBadge.setAccessibilityHelp(Self.badgeSummary(badges, stacked: !corner))
     }
 
-    /// What the badges say, for the tooltip: the count, then each state, then what the stack left out
+    /// What the badges say, for VoiceOver: the count, then each state, then what the stack left out
     /// (`stacked`; the corner badge shows one glyph and lists every state).
     static func badgeSummary(_ badges: WorkspaceRowBadges, stacked: Bool) -> String? {
         var parts: [String] = []

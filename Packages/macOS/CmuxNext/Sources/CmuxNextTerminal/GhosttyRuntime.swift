@@ -33,6 +33,9 @@ public final class GhosttyRuntime {
     var themeConfigs: [String: GhosttyThemeConfig] = [:]
     /// Bumps on every config change (reload, conditional theme switch).
     public private(set) var configGeneration = 0
+    /// Ghostty's `working-directory` as a folder, read at this ``configGeneration``
+    /// (`refreshConfiguredWorkingDirectory`).
+    var workingDirectoryValue: (generation: Int, folder: String?)?
 
     /// The light/dark scheme last given to Ghostty (the app's appearance).
     public private(set) var isDark = false
@@ -85,6 +88,7 @@ public final class GhosttyRuntime {
         guard let config = Self.loadConfig(diagnostics: &configDiagnostics, opacity: &configuredBackgroundOpacity) else { return }
         mark("config_load")
         self.config = config
+        refreshConfiguredWorkingDirectory()
         // Callbacks reach the runtime through this context, never through
         // `shared`: Ghostty can call back synchronously while `shared` is
         // still being initialized (for example set_color_scheme emits
@@ -144,6 +148,7 @@ public final class GhosttyRuntime {
         // Themed configs were built on the old files; rebuild on demand.
         themeConfigs.removeAll()
         configGeneration += 1
+        refreshConfiguredWorkingDirectory()
         onConfigChange?()
         NotificationCenter.default.post(name: Self.configDidChange, object: self)
     }
@@ -256,10 +261,15 @@ public final class GhosttyRuntime {
         _ = configGet(config, &configured, key: "background-opacity")
         var opacityCells = false
         _ = configGet(config, &opacityCells, key: "background-opacity-cells")
+        var imagePath = ghostty_config_path_s()
+        var imageOpacity: Float = 1
+        _ = configGet(config, &imageOpacity, key: "background-image-opacity")
+        let backgroundImageOpacity = configGet(config, &imagePath, key: "background-image") ? Double(imageOpacity) : nil
         opacity = min(max(configured, 0), 1)
         seeThroughLoaded = seeThroughShown
         if let line = GhosttyRuntimeSurfacePolicy.override(configuredOpacity: opacity, opacityCells: opacityCells,
-                                                           ownerPaintsBackground: Self.terminalBackgroundOverridden || Self.seeThroughShown) {
+                                                           ownerPaintsBackground: Self.terminalBackgroundOverridden || Self.seeThroughShown,
+                                                           backgroundImageOpacity: backgroundImageOpacity) {
             line.withCString { ghostty_config_load_string(config, $0, UInt(line.utf8.count), "cmux-next") }
         }
         ghostty_config_finalize(config)
@@ -440,8 +450,29 @@ nonisolated final class RuntimeCallbackContext: @unchecked Sendable {
 /// a window see-through at full opacity: the host then paints only where the
 /// panes do (`WindowBackdrop.panesPaintBackground`), and the art reads
 /// through the window's one legible tint behind the cells.
+///
+/// A Ghostty `background-image` keeps showing there (user, Nov 17: "we need to make sure custom bgs work properly"):
+/// Ghostty multiplies the image by the background's alpha (`bg_image_fragment`), so at 0 it drew nothing. With an image
+/// the surfaces keep the smallest background alpha Ghostty has (``imageCarrierOpacity``, one step of its 8-bit alpha)
+/// and the image's opacity is raised by the same factor: an opaque image pixel then comes out at
+/// `background-image-opacity * background-opacity`, as Ghostty draws it, and the background color under it adds at
+/// most 1/255.
 nonisolated enum GhosttyRuntimeSurfacePolicy {
-    static func override(configuredOpacity: Double, opacityCells: Bool, ownerPaintsBackground: Bool = false) -> String? {
-        (configuredOpacity < 1 || ownerPaintsBackground) && !opacityCells ? "background-opacity = 0" : nil
+    /// The surfaces' `background-opacity` under a Ghostty background image in a see-through window: 1/255.
+    static let imageCarrierOpacity = 1.0 / 255
+
+    /// The config lines (newline-separated) the surfaces load over the user's config; nil when they load it as it is.
+    ///
+    /// - Parameter configuredOpacity: The resolved `background-opacity` (cmux.json's window Opacity over the files').
+    /// - Parameter opacityCells: The config's `background-opacity-cells`.
+    /// - Parameter ownerPaintsBackground: Whether a terminal host paints the background (an override, or a window
+    ///   see-through around some terminal).
+    /// - Parameter backgroundImageOpacity: The config's `background-image-opacity` when it sets a `background-image`.
+    static func override(configuredOpacity: Double, opacityCells: Bool, ownerPaintsBackground: Bool = false,
+                         backgroundImageOpacity: Double? = nil) -> String? {
+        guard (configuredOpacity < 1 || ownerPaintsBackground) && !opacityCells else { return nil }
+        guard let imageOpacity = backgroundImageOpacity else { return "background-opacity = 0" }
+        let raised = imageOpacity * min(max(configuredOpacity, 0), 1) / imageCarrierOpacity
+        return "background-opacity = \(imageCarrierOpacity)\nbackground-image-opacity = \(raised)"
     }
 }

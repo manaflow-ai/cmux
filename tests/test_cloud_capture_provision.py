@@ -126,19 +126,33 @@ class Provision(unittest.TestCase):
         key, pk, sk = keypair()
         target = provision.TARGETS["journey"]
         with tempfile.TemporaryDirectory() as tmp:
-            out = Path(tmp) / "bundle.json"
+            out = Path(tmp) / "bundles"
             action = provision.provision(stack(fake), out, log=lambda _: None, lib=SODIUM, key_id="42", key=key,
                                          make_password=lambda: PASSWORD, target=target)
-            bundle = json.loads(out.read_text())
+            bundles = [json.loads(path.read_text()) for path in sorted(out.glob("bundle-*.json"))]
         self.assertEqual(action, "created")
         self.assertEqual(fake.users["user-1"]["password"], "capture-password")  # the capture account is untouched
         created = [r for r in fake.requests if r[0] == "POST" and r[1] == "/users"]
         self.assertEqual(created[0][3]["primary_email"], "cmux-cloud-capture-journey@manaflow.dev")
-        self.assertEqual(bundle["repo"], "manaflow-ai/cmux")
-        self.assertEqual(bundle["environment"], "cmux-next-vm-image-dev")
-        self.assertEqual(sorted(bundle["secrets"]), ["CMUX_DOGFOOD_STACK_EMAIL", "CMUX_DOGFOOD_STACK_PASSWORD"])
-        self.assertEqual(open_sealed(bundle["secrets"]["CMUX_DOGFOOD_STACK_PASSWORD"], pk, sk), PASSWORD)
+        self.assertEqual(len(bundles), 2)
+        by_environment = {bundle["environment"]: bundle for bundle in bundles}
+        self.assertEqual(set(by_environment), {"cmux-next-vm-image-dev", "cmux-next-cloud-journey"})
+        self.assertEqual(sorted(by_environment["cmux-next-vm-image-dev"]["secrets"]),
+                         ["CMUX_DOGFOOD_STACK_EMAIL", "CMUX_DOGFOOD_STACK_PASSWORD"])
+        self.assertEqual(sorted(by_environment["cmux-next-cloud-journey"]["secrets"]),
+                         ["CMUX_STAGING_STACK_EMAIL", "CMUX_STAGING_STACK_PASSWORD"])
+        self.assertEqual(open_sealed(by_environment["cmux-next-cloud-journey"]["secrets"]["CMUX_STAGING_STACK_PASSWORD"], pk, sk), PASSWORD)
+        self.assertNotIn("CMUX_DOGFOOD_STACK_EMAIL", by_environment["cmux-next-cloud-journey"]["secrets"])
+        self.assertNotIn("CMUX_DOGFOOD_STACK_PASSWORD", by_environment["cmux-next-cloud-journey"]["secrets"])
         self.assertTrue(provision.GRANT_ONLY_EMAIL.fullmatch(target.email))
+
+    def test_staging_rotation_lists_all_destinations_without_production_names(self):
+        target = provision.TARGETS["journey"]
+        self.assertEqual(
+            [(d.environment, d.email_secret, d.password_secret) for d in target.destinations],
+            [("cmux-next-vm-image-dev", "CMUX_DOGFOOD_STACK_EMAIL", "CMUX_DOGFOOD_STACK_PASSWORD"),
+             ("cmux-next-cloud-journey", "CMUX_STAGING_STACK_EMAIL", "CMUX_STAGING_STACK_PASSWORD")],
+        )
 
     def test_the_guest_target_makes_a_named_second_account_under_its_own_secret_names(self):
         fake = FakeStack([{"id": "user-1", "primary_email": "cmux-cloud-capture-journey@manaflow.dev",
@@ -266,6 +280,36 @@ class Provision(unittest.TestCase):
         self.assertIn("inputs.target == 'production-team'", environment)  # the production project's server key
         grant = text.split("- name: Grant the operator plan only", 1)[1].split("- name:", 1)[0]
         self.assertIn("inputs.target != 'production-team'", grant)
+
+    def test_the_workflow_offers_every_target_and_gives_the_production_key_to_exactly_the_production_ones(self):
+        # The script had `journey` (the staging journey pair, cmux#42626) while the workflow never offered it, so the
+        # one staging rotation nobody could dispatch was the one the journeys needed.
+        text = (ROOT / ".github" / "workflows" / "cloud-capture-provision.yml").read_text()
+        options = next(line for line in text.splitlines() if line.strip().startswith("options:"))
+        offered = {o.strip() for o in options.split("[", 1)[1].rsplit("]", 1)[0].split(",")}
+        self.assertEqual(offered, set(provision.TARGETS))
+        environment = next(line for line in text.splitlines() if line.strip().startswith("environment:"))
+        grant = text.split("- name: Grant the operator plan only", 1)[1].split("- name:", 1)[0]
+        for name, target in provision.TARGETS.items():
+            production = target.project == provision.PRODUCTION_PROJECT_ID
+            self.assertEqual(f"inputs.target == '{name}'" in environment, production, name)
+            if production:
+                self.assertIn(f"inputs.target != '{name}'", grant)
+
+    def test_preclaim_signs_in_with_the_staging_pair_and_keeps_production_names(self):
+        # cmux-next-cloud-journey's CMUX_DOGFOOD_STACK_* is the production account, which staging refuses
+        # (EMAIL_PASSWORD_MISMATCH); cmux-next-vm-image-dev's is the journey target's staging account (TARGETS above).
+        self.assertEqual(provision.TARGETS["journey"].environment, "cmux-next-vm-image-dev")
+        self.assertEqual(provision.TARGETS["journey-production"].environment, "cmux-next-cloud-journey")
+        text = (ROOT / ".github" / "workflows" / "cloud-journey-prod.yml").read_text()
+        job = text.split("\n  preclaim:\n", 1)[1]
+        self.assertIn("      name: cmux-next-vm-image-dev\n", job.split("    steps:", 1)[0])
+        preclaim = job.split("- name: Staging preclaim login burst", 1)[1].split("- name: Upload staging preclaim evidence", 1)[0]
+        self.assertIn("CMUX_STAGING_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}", preclaim)
+        self.assertIn("CMUX_STAGING_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}", preclaim)
+        production = text.split("- name: Cloud journey (prod,", 1)[1].split("- name: ", 1)[0]
+        self.assertIn("CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}", production)
+        self.assertIn("name: cmux-next-cloud-journey", text.split("\n  preclaim:\n", 1)[0])
 
     def test_the_platform_targets_seal_to_cmux_platform_repository_secrets_with_their_own_accounts(self):
         key, pk, sk = keypair()
@@ -836,6 +880,20 @@ class Put(unittest.TestCase):
         sealed_secrets.put(self.BUNDLE, run=run, log=lambda _: None)
         self.assertEqual(calls[1][:5], ["gh", "api", "-X", "PUT", "repos/o/r/environments/env/secrets/A_SECRET"])
         self.assertIn("key_id=42", calls[1])
+
+    def test_a_directory_put_reads_and_stores_every_bundle(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "bundle-01.json").write_text(json.dumps(self.BUNDLE))
+            (root / "bundle-02.json").write_text(json.dumps(self.BUNDLE | {
+                "secrets": {"B_SECRET": self.BUNDLE["secrets"]["A_SECRET"]},
+            }))
+            with mock.patch.object(sealed_secrets, "put") as store:
+                self.assertEqual(sealed_secrets.main(["put", str(root)]), 0)
+            self.assertEqual(store.call_count, 2)
+            self.assertEqual([call.args[0]["secrets"] for call in store.call_args_list],
+                             [{"A_SECRET": self.BUNDLE["secrets"]["A_SECRET"]},
+                              {"B_SECRET": self.BUNDLE["secrets"]["A_SECRET"]}])
 
     def test_a_bundle_with_no_environment_goes_to_the_repository_secrets(self):
         bundle = self.BUNDLE | {"environment": None}

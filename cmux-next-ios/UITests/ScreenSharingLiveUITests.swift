@@ -95,7 +95,7 @@ final class ScreenSharingLiveUITests: XCTestCase {
             }
         }
 
-        // Trackpad mode (trackpad drawer › Viewer Settings › Input): one finger moves the pointer, a tap clicks where it is.
+        // Trackpad mode (Viewer Settings › Input): one finger moves the pointer, a tap clicks where it is.
         openViewerSettings(app)
         let input = app.buttons["Input"].firstMatch
         if input.waitForExistence(timeout: 5) {
@@ -145,13 +145,9 @@ final class ScreenSharingLiveUITests: XCTestCase {
 
     // MARK: Helpers
 
-    /// The viewer settings live in the trackpad drawer (CMUX-14): swipe it up first when it is closed.
+    /// The viewer settings: the top bar's options menu.
     @MainActor
     func openViewerSettings(_ app: XCUIApplication) {
-        if app.otherElements["screen.trackpad.drawer"].value as? String == "closed" {
-            app.descendants(matching: .any)["screen.trackpad.handle"].swipeUp()
-            _ = app.buttons["screen.options"].waitForExistence(timeout: 5)
-        }
         app.buttons["screen.options"].firstMatch.tap()
     }
 

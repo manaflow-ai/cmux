@@ -1,0 +1,1094 @@
+{
+ "title": "Scrollbar grab zone (Lawrence 2026-11-20, msg 42498: \"it is possible for me to hover close, and for the width to change, but after i mousedown and drag, it fails to scroll\"). A 260 pt sidebar with 45 workspaces in a 1100 x 760 window: column by column from 236 to 260 (the sidebar's trailing edge is in debug.layers' sidebar_resize_area_in_window), the pointer on the scroller's knob, then a press and a 240 pt drag down. Before: the knob widens 20 pt from the edge but only a press on the drawn knob drags it, so columns 11 to 20 pt in widen and drag nothing (or drag a row). After: the knob widens exactly where a press grabs it, and every such drag scrolls the list. Record with: cmux-ci capture SHA --state scripts/cmux-next/media/states/scrollbar-grab-zone.json --video",
+ "settings": {
+  "appearance": {
+   "metrics": {
+    "sidebarWidth": 260
+   }
+  }
+ },
+ "steps": [
+  {
+   "title": "Launch",
+   "wait": 3
+  },
+  {
+   "title": "The window at a fixed size",
+   "rpc": {
+    "method": "debug.window_frame",
+    "params": {
+     "frame": [
+      80,
+      80,
+      1100,
+      760
+     ]
+    }
+   },
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "Workspace 1",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Scroll row 01"
+   ],
+   "shot": false,
+   "wait": 0.2
+  },
+  {
+   "title": "Workspace 2",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Scroll row 02"
+   ],
+   "shot": false,
+   "wait": 0.2
+  },
+  {
+   "title": "Workspace 3",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Scroll row 03"
+   ],
+   "shot": false,
+   "wait": 0.2
+  },
+  {
+   "title": "Workspace 4",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Scroll row 04"
+   ],
+   "shot": false,
+   "wait": 0.2
+  },
+  {
+   "title": "Workspace 5",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Scroll row 05"
+   ],
+   "shot": false,
+   "wait": 0.2
+  },
+  {
+   "title": "Workspace 6",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Scroll row 06"
+   ],
+   "shot": false,
+   "wait": 0.2
+  },
+  {
+   "title": "Workspace 7",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Scroll row 07"
+   ],
+   "shot": false,
+   "wait": 0.2
+  },
+  {
+   "title": "Workspace 8",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Scroll row 08"
+   ],
+   "shot": false,
+   "wait": 0.2
+  },
+  {
+   "title": "Workspace 9",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Scroll row 09"
+   ],
+   "shot": false,
+   "wait": 0.2
+  },
+  {
+   "title": "Workspace 10",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Scroll row 10"
+   ],
+   "shot": false,
+   "wait": 0.2
+  },
+  {
+   "title": "Workspace 11",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Scroll row 11"
+   ],
+   "shot": false,
+   "wait": 0.2
+  },
+  {
+   "title": "Workspace 12",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Scroll row 12"
+   ],
+   "shot": false,
+   "wait": 0.2
+  },
+  {
+   "title": "Workspace 13",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Scroll row 13"
+   ],
+   "shot": false,
+   "wait": 0.2
+  },
+  {
+   "title": "Workspace 14",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Scroll row 14"
+   ],
+   "shot": false,
+   "wait": 0.2
+  },
+  {
+   "title": "Workspace 15",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Scroll row 15"
+   ],
+   "shot": false,
+   "wait": 0.2
+  },
+  {
+   "title": "Workspace 16",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Scroll row 16"
+   ],
+   "shot": false,
+   "wait": 0.2
+  },
+  {
+   "title": "Workspace 17",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Scroll row 17"
+   ],
+   "shot": false,
+   "wait": 0.2
+  },
+  {
+   "title": "Workspace 18",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Scroll row 18"
+   ],
+   "shot": false,
+   "wait": 0.2
+  },
+  {
+   "title": "Workspace 19",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Scroll row 19"
+   ],
+   "shot": false,
+   "wait": 0.2
+  },
+  {
+   "title": "Workspace 20",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Scroll row 20"
+   ],
+   "shot": false,
+   "wait": 0.2
+  },
+  {
+   "title": "Workspace 21",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Scroll row 21"
+   ],
+   "shot": false,
+   "wait": 0.2
+  },
+  {
+   "title": "Workspace 22",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Scroll row 22"
+   ],
+   "shot": false,
+   "wait": 0.2
+  },
+  {
+   "title": "Workspace 23",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Scroll row 23"
+   ],
+   "shot": false,
+   "wait": 0.2
+  },
+  {
+   "title": "Workspace 24",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Scroll row 24"
+   ],
+   "shot": false,
+   "wait": 0.2
+  },
+  {
+   "title": "Workspace 25",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Scroll row 25"
+   ],
+   "shot": false,
+   "wait": 0.2
+  },
+  {
+   "title": "Workspace 26",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Scroll row 26"
+   ],
+   "shot": false,
+   "wait": 0.2
+  },
+  {
+   "title": "Workspace 27",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Scroll row 27"
+   ],
+   "shot": false,
+   "wait": 0.2
+  },
+  {
+   "title": "Workspace 28",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Scroll row 28"
+   ],
+   "shot": false,
+   "wait": 0.2
+  },
+  {
+   "title": "Workspace 29",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Scroll row 29"
+   ],
+   "shot": false,
+   "wait": 0.2
+  },
+  {
+   "title": "Workspace 30",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Scroll row 30"
+   ],
+   "shot": false,
+   "wait": 0.2
+  },
+  {
+   "title": "Workspace 31",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Scroll row 31"
+   ],
+   "shot": false,
+   "wait": 0.2
+  },
+  {
+   "title": "Workspace 32",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Scroll row 32"
+   ],
+   "shot": false,
+   "wait": 0.2
+  },
+  {
+   "title": "Workspace 33",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Scroll row 33"
+   ],
+   "shot": false,
+   "wait": 0.2
+  },
+  {
+   "title": "Workspace 34",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Scroll row 34"
+   ],
+   "shot": false,
+   "wait": 0.2
+  },
+  {
+   "title": "Workspace 35",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Scroll row 35"
+   ],
+   "shot": false,
+   "wait": 0.2
+  },
+  {
+   "title": "Workspace 36",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Scroll row 36"
+   ],
+   "shot": false,
+   "wait": 0.2
+  },
+  {
+   "title": "Workspace 37",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Scroll row 37"
+   ],
+   "shot": false,
+   "wait": 0.2
+  },
+  {
+   "title": "Workspace 38",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Scroll row 38"
+   ],
+   "shot": false,
+   "wait": 0.2
+  },
+  {
+   "title": "Workspace 39",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Scroll row 39"
+   ],
+   "shot": false,
+   "wait": 0.2
+  },
+  {
+   "title": "Workspace 40",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Scroll row 40"
+   ],
+   "shot": false,
+   "wait": 0.2
+  },
+  {
+   "title": "Workspace 41",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Scroll row 41"
+   ],
+   "shot": false,
+   "wait": 0.2
+  },
+  {
+   "title": "Workspace 42",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Scroll row 42"
+   ],
+   "shot": false,
+   "wait": 0.2
+  },
+  {
+   "title": "Workspace 43",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Scroll row 43"
+   ],
+   "shot": false,
+   "wait": 0.2
+  },
+  {
+   "title": "Workspace 44",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Scroll row 44"
+   ],
+   "shot": false,
+   "wait": 0.2
+  },
+  {
+   "title": "Workspace 45",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Scroll row 45"
+   ],
+   "shot": false,
+   "wait": 0.2
+  },
+  {
+   "title": "The sidebar's trailing edge (sidebar_resize_area_in_window), for the columns below",
+   "rpc": {
+    "method": "debug.layers"
+   },
+   "wait": 0.5,
+   "shot": false
+  },
+  {
+   "title": "x 236: back to the top",
+   "cmux": [
+    "workspace",
+    "name:Scroll row 01",
+    "focus"
+   ],
+   "wait": 0.8,
+   "shot": false
+  },
+  {
+   "title": "x 236: the pointer on the knob",
+   "rpc": {
+    "method": "debug.mouse",
+    "params": {
+     "action": "hover",
+     "x": 236,
+     "y": 170
+    }
+   },
+   "wait": 0.6,
+   "shot": {
+    "name": "hover-x236"
+   }
+  },
+  {
+   "title": "x 236: press and drag 240 pt down",
+   "rpc": {
+    "method": "debug.mouse",
+    "params": {
+     "action": "drag",
+     "x": 236,
+     "y": 170,
+     "by_x": 0,
+     "by_y": 240,
+     "steps": 24
+    }
+   },
+   "wait": 0.8,
+   "shot": {
+    "name": "drag-x236"
+   }
+  },
+  {
+   "title": "x 238: back to the top",
+   "cmux": [
+    "workspace",
+    "name:Scroll row 01",
+    "focus"
+   ],
+   "wait": 0.8,
+   "shot": false
+  },
+  {
+   "title": "x 238: the pointer on the knob",
+   "rpc": {
+    "method": "debug.mouse",
+    "params": {
+     "action": "hover",
+     "x": 238,
+     "y": 170
+    }
+   },
+   "wait": 0.6,
+   "shot": {
+    "name": "hover-x238"
+   }
+  },
+  {
+   "title": "x 238: press and drag 240 pt down",
+   "rpc": {
+    "method": "debug.mouse",
+    "params": {
+     "action": "drag",
+     "x": 238,
+     "y": 170,
+     "by_x": 0,
+     "by_y": 240,
+     "steps": 24
+    }
+   },
+   "wait": 0.8,
+   "shot": {
+    "name": "drag-x238"
+   }
+  },
+  {
+   "title": "x 240: back to the top",
+   "cmux": [
+    "workspace",
+    "name:Scroll row 01",
+    "focus"
+   ],
+   "wait": 0.8,
+   "shot": false
+  },
+  {
+   "title": "x 240: the pointer on the knob",
+   "rpc": {
+    "method": "debug.mouse",
+    "params": {
+     "action": "hover",
+     "x": 240,
+     "y": 170
+    }
+   },
+   "wait": 0.6,
+   "shot": {
+    "name": "hover-x240"
+   }
+  },
+  {
+   "title": "x 240: press and drag 240 pt down",
+   "rpc": {
+    "method": "debug.mouse",
+    "params": {
+     "action": "drag",
+     "x": 240,
+     "y": 170,
+     "by_x": 0,
+     "by_y": 240,
+     "steps": 24
+    }
+   },
+   "wait": 0.8,
+   "shot": {
+    "name": "drag-x240"
+   }
+  },
+  {
+   "title": "x 242: back to the top",
+   "cmux": [
+    "workspace",
+    "name:Scroll row 01",
+    "focus"
+   ],
+   "wait": 0.8,
+   "shot": false
+  },
+  {
+   "title": "x 242: the pointer on the knob",
+   "rpc": {
+    "method": "debug.mouse",
+    "params": {
+     "action": "hover",
+     "x": 242,
+     "y": 170
+    }
+   },
+   "wait": 0.6,
+   "shot": {
+    "name": "hover-x242"
+   }
+  },
+  {
+   "title": "x 242: press and drag 240 pt down",
+   "rpc": {
+    "method": "debug.mouse",
+    "params": {
+     "action": "drag",
+     "x": 242,
+     "y": 170,
+     "by_x": 0,
+     "by_y": 240,
+     "steps": 24
+    }
+   },
+   "wait": 0.8,
+   "shot": {
+    "name": "drag-x242"
+   }
+  },
+  {
+   "title": "x 244: back to the top",
+   "cmux": [
+    "workspace",
+    "name:Scroll row 01",
+    "focus"
+   ],
+   "wait": 0.8,
+   "shot": false
+  },
+  {
+   "title": "x 244: the pointer on the knob",
+   "rpc": {
+    "method": "debug.mouse",
+    "params": {
+     "action": "hover",
+     "x": 244,
+     "y": 170
+    }
+   },
+   "wait": 0.6,
+   "shot": {
+    "name": "hover-x244"
+   }
+  },
+  {
+   "title": "x 244: press and drag 240 pt down",
+   "rpc": {
+    "method": "debug.mouse",
+    "params": {
+     "action": "drag",
+     "x": 244,
+     "y": 170,
+     "by_x": 0,
+     "by_y": 240,
+     "steps": 24
+    }
+   },
+   "wait": 0.8,
+   "shot": {
+    "name": "drag-x244"
+   }
+  },
+  {
+   "title": "x 246: back to the top",
+   "cmux": [
+    "workspace",
+    "name:Scroll row 01",
+    "focus"
+   ],
+   "wait": 0.8,
+   "shot": false
+  },
+  {
+   "title": "x 246: the pointer on the knob",
+   "rpc": {
+    "method": "debug.mouse",
+    "params": {
+     "action": "hover",
+     "x": 246,
+     "y": 170
+    }
+   },
+   "wait": 0.6,
+   "shot": {
+    "name": "hover-x246"
+   }
+  },
+  {
+   "title": "x 246: press and drag 240 pt down",
+   "rpc": {
+    "method": "debug.mouse",
+    "params": {
+     "action": "drag",
+     "x": 246,
+     "y": 170,
+     "by_x": 0,
+     "by_y": 240,
+     "steps": 24
+    }
+   },
+   "wait": 0.8,
+   "shot": {
+    "name": "drag-x246"
+   }
+  },
+  {
+   "title": "x 248: back to the top",
+   "cmux": [
+    "workspace",
+    "name:Scroll row 01",
+    "focus"
+   ],
+   "wait": 0.8,
+   "shot": false
+  },
+  {
+   "title": "x 248: the pointer on the knob",
+   "rpc": {
+    "method": "debug.mouse",
+    "params": {
+     "action": "hover",
+     "x": 248,
+     "y": 170
+    }
+   },
+   "wait": 0.6,
+   "shot": {
+    "name": "hover-x248"
+   }
+  },
+  {
+   "title": "x 248: press and drag 240 pt down",
+   "rpc": {
+    "method": "debug.mouse",
+    "params": {
+     "action": "drag",
+     "x": 248,
+     "y": 170,
+     "by_x": 0,
+     "by_y": 240,
+     "steps": 24
+    }
+   },
+   "wait": 0.8,
+   "shot": {
+    "name": "drag-x248"
+   }
+  },
+  {
+   "title": "x 250: back to the top",
+   "cmux": [
+    "workspace",
+    "name:Scroll row 01",
+    "focus"
+   ],
+   "wait": 0.8,
+   "shot": false
+  },
+  {
+   "title": "x 250: the pointer on the knob",
+   "rpc": {
+    "method": "debug.mouse",
+    "params": {
+     "action": "hover",
+     "x": 250,
+     "y": 170
+    }
+   },
+   "wait": 0.6,
+   "shot": {
+    "name": "hover-x250"
+   }
+  },
+  {
+   "title": "x 250: press and drag 240 pt down",
+   "rpc": {
+    "method": "debug.mouse",
+    "params": {
+     "action": "drag",
+     "x": 250,
+     "y": 170,
+     "by_x": 0,
+     "by_y": 240,
+     "steps": 24
+    }
+   },
+   "wait": 0.8,
+   "shot": {
+    "name": "drag-x250"
+   }
+  },
+  {
+   "title": "x 252: back to the top",
+   "cmux": [
+    "workspace",
+    "name:Scroll row 01",
+    "focus"
+   ],
+   "wait": 0.8,
+   "shot": false
+  },
+  {
+   "title": "x 252: the pointer on the knob",
+   "rpc": {
+    "method": "debug.mouse",
+    "params": {
+     "action": "hover",
+     "x": 252,
+     "y": 170
+    }
+   },
+   "wait": 0.6,
+   "shot": {
+    "name": "hover-x252"
+   }
+  },
+  {
+   "title": "x 252: press and drag 240 pt down",
+   "rpc": {
+    "method": "debug.mouse",
+    "params": {
+     "action": "drag",
+     "x": 252,
+     "y": 170,
+     "by_x": 0,
+     "by_y": 240,
+     "steps": 24
+    }
+   },
+   "wait": 0.8,
+   "shot": {
+    "name": "drag-x252"
+   }
+  },
+  {
+   "title": "x 254: back to the top",
+   "cmux": [
+    "workspace",
+    "name:Scroll row 01",
+    "focus"
+   ],
+   "wait": 0.8,
+   "shot": false
+  },
+  {
+   "title": "x 254: the pointer on the knob",
+   "rpc": {
+    "method": "debug.mouse",
+    "params": {
+     "action": "hover",
+     "x": 254,
+     "y": 170
+    }
+   },
+   "wait": 0.6,
+   "shot": {
+    "name": "hover-x254"
+   }
+  },
+  {
+   "title": "x 254: press and drag 240 pt down",
+   "rpc": {
+    "method": "debug.mouse",
+    "params": {
+     "action": "drag",
+     "x": 254,
+     "y": 170,
+     "by_x": 0,
+     "by_y": 240,
+     "steps": 24
+    }
+   },
+   "wait": 0.8,
+   "shot": {
+    "name": "drag-x254"
+   }
+  },
+  {
+   "title": "x 256: back to the top",
+   "cmux": [
+    "workspace",
+    "name:Scroll row 01",
+    "focus"
+   ],
+   "wait": 0.8,
+   "shot": false
+  },
+  {
+   "title": "x 256: the pointer on the knob",
+   "rpc": {
+    "method": "debug.mouse",
+    "params": {
+     "action": "hover",
+     "x": 256,
+     "y": 170
+    }
+   },
+   "wait": 0.6,
+   "shot": {
+    "name": "hover-x256"
+   }
+  },
+  {
+   "title": "x 256: press and drag 240 pt down",
+   "rpc": {
+    "method": "debug.mouse",
+    "params": {
+     "action": "drag",
+     "x": 256,
+     "y": 170,
+     "by_x": 0,
+     "by_y": 240,
+     "steps": 24
+    }
+   },
+   "wait": 0.8,
+   "shot": {
+    "name": "drag-x256"
+   }
+  },
+  {
+   "title": "x 258: back to the top",
+   "cmux": [
+    "workspace",
+    "name:Scroll row 01",
+    "focus"
+   ],
+   "wait": 0.8,
+   "shot": false
+  },
+  {
+   "title": "x 258: the pointer on the knob",
+   "rpc": {
+    "method": "debug.mouse",
+    "params": {
+     "action": "hover",
+     "x": 258,
+     "y": 170
+    }
+   },
+   "wait": 0.6,
+   "shot": {
+    "name": "hover-x258"
+   }
+  },
+  {
+   "title": "x 258: press and drag 240 pt down",
+   "rpc": {
+    "method": "debug.mouse",
+    "params": {
+     "action": "drag",
+     "x": 258,
+     "y": 170,
+     "by_x": 0,
+     "by_y": 240,
+     "steps": 24
+    }
+   },
+   "wait": 0.8,
+   "shot": {
+    "name": "drag-x258"
+   }
+  },
+  {
+   "title": "x 260: back to the top",
+   "cmux": [
+    "workspace",
+    "name:Scroll row 01",
+    "focus"
+   ],
+   "wait": 0.8,
+   "shot": false
+  },
+  {
+   "title": "x 260: the pointer on the knob",
+   "rpc": {
+    "method": "debug.mouse",
+    "params": {
+     "action": "hover",
+     "x": 260,
+     "y": 170
+    }
+   },
+   "wait": 0.6,
+   "shot": {
+    "name": "hover-x260"
+   }
+  },
+  {
+   "title": "x 260: press and drag 240 pt down",
+   "rpc": {
+    "method": "debug.mouse",
+    "params": {
+     "action": "drag",
+     "x": 260,
+     "y": 170,
+     "by_x": 0,
+     "by_y": 240,
+     "steps": 24
+    }
+   },
+   "wait": 0.8,
+   "shot": {
+    "name": "drag-x260"
+   }
+  }
+ ]
+}

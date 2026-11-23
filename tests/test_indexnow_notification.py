@@ -11,6 +11,9 @@ import urllib.error
 from datetime import datetime, timezone
 
 ROOT = Path(__file__).resolve().parents[1]
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import workflow_jobs  # noqa: E402
 spec = importlib.util.spec_from_file_location("notify_indexnow", ROOT / "scripts/ci/notify-indexnow.py")
 notify = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = notify
@@ -92,7 +95,9 @@ class IndexNowTests(unittest.TestCase):
 
     def test_workflow_uses_public_shared_configuration_and_no_private_secret(self):
         workflow = (ROOT / ".github/workflows/indexnow.yml").read_text()
-        self.assertNotIn("secrets.", workflow)
+        self.assertEqual(workflow_jobs.secret_names(workflow), set())
+        for name, job in workflow_jobs.jobs(workflow).items():
+            self.assertEqual(workflow_jobs.secret_names(job), set(), name)
         self.assertNotIn("api/cron/indexnow", workflow)
         self.assertIn("web/app/lib/indexnow.ts", workflow)
         self.assertIn("scripts/ci/notify-indexnow.py", workflow)

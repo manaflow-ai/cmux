@@ -1,0 +1,13 @@
+{
+  "manifestVersion": 2,
+  "id": "local/x",
+  "name": "X",
+  "version": "1.0.0",
+  "description": "d",
+  "engines": { "cmux": "^2.0" },
+  "implements": {
+    "cmux.composer.command/1": {
+      "options": { "commands": [{ "name": "x", "insert": "a" }, { "name": "x", "insert": "b" }] }
+    }
+  }
+}

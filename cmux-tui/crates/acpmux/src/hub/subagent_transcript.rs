@@ -570,7 +570,7 @@ mod tests {
         hub.apply_peer_notice(
             "other",
             peer.generation,
-            crate::peer::PeerNotice::Sessions(vec![
+            crate::peer::PeerNotice::sessions_from_values(vec![
                 json!({"sessionId": "remote-parent", "name": "remote-parent", "status": "idle",
                 "agentSessionId": "sibling", "updatedAt": 1}),
             ]),

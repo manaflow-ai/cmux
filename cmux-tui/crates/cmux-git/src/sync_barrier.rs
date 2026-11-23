@@ -20,26 +20,26 @@
 
 use std::fs::{File, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom, Write};
-use std::os::fd::AsRawFd;
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+use cmux_file_lock::{FileLock, Kind, LockError};
 use sha2::{Digest, Sha256};
 
 /// A producer must hold this before its first change, and mark ready only after
 /// every checkout, submodule and LFS operation has completed successfully.
 pub struct Sync {
-    marker: File,
+    marker: FileLock,
     /// The head lock, held until [`Sync::head_ready`].
-    head: Option<File>,
+    head: Option<FileLock>,
     /// The owner lock: this sync marks heads. Released first on drop (below).
-    owner: Option<File>,
+    owner: Option<FileLock>,
 }
 
 /// Shared locks stay held through the caller's write, preventing a new seed
 /// from starting between the readiness check and the actual filesystem write.
-pub struct Ready(Vec<File>);
+pub struct Ready(Vec<FileLock>);
 
 pub enum Probe {
     Ready(Ready),
@@ -117,13 +117,15 @@ fn open(path: &Path, create: bool) -> io::Result<File> {
     Ok(file)
 }
 
-fn lock(file: &File, mode: i32) -> io::Result<bool> {
-    // SAFETY: the descriptor remains live for this call and the lock's lifetime.
-    if unsafe { libc::flock(file.as_raw_fd(), mode | libc::LOCK_NB) } == 0 {
-        return Ok(true);
+/// `kind` on `file` now: the lock, or the file back when another holder has it. Every lock here
+/// is a [`FileLock`], which unlocks before it closes: a child that another thread of this process
+/// forked meanwhile (a git run) keeps no lock through its copy of the descriptor.
+fn try_take(file: File, kind: Kind) -> io::Result<Result<FileLock, File>> {
+    match FileLock::try_take(file, kind) {
+        Ok(lock) => Ok(Ok(lock)),
+        Err(LockError::Busy(file)) => Ok(Err(file)),
+        Err(LockError::Io(error)) => Err(error),
     }
-    let error = io::Error::last_os_error();
-    if error.kind() == io::ErrorKind::WouldBlock { Ok(false) } else { Err(error) }
 }
 
 /// Serializes one folder's first marker with readers that saw no marker yet.
@@ -139,41 +141,36 @@ fn creation_lock(folder: &Path) -> io::Result<File> {
     open(&PathBuf::from(format!("/tmp/cmux-repo-sync-{uid}-{hash}.lock")), true)
 }
 
-fn wait_lock(file: &File, mode: i32) -> io::Result<()> {
-    let deadline = Instant::now() + Duration::from_secs(30);
-    while !lock(file, mode)? {
-        if Instant::now() >= deadline {
-            return Err(io::Error::new(io::ErrorKind::TimedOut, "repository is in use"));
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    Ok(())
+fn wait_take(file: File, kind: Kind) -> io::Result<FileLock> {
+    FileLock::take_within(file, kind, Duration::from_secs(30), Duration::from_millis(10)).map_err(
+        |error| match error {
+            LockError::Busy(_) => io::Error::new(io::ErrorKind::TimedOut, "repository is in use"),
+            LockError::Io(error) => error,
+        },
+    )
 }
 
 impl Sync {
     /// `folder` must have its parent canonicalized by the producer's sandbox.
     pub fn begin(folder: &Path) -> io::Result<Self> {
-        let mut file = open(&marker(folder)?, true)?;
-        if !lock(&file, libc::LOCK_EX)? {
+        let Ok(mut marker) = try_take(open(&marker(folder)?, true)?, Kind::Exclusive)? else {
             return Err(io::Error::new(io::ErrorKind::WouldBlock, "repository is in use"));
-        }
+        };
         // Then the head lock, then the owner lock: a reader takes the head as in place only
         // while the owner lock is held and the head lock free, so until both are taken this
         // sync reads as short of its head. Only the marker's holder takes them, and a reader
         // holds either only for one probe, so these waits are short.
-        let head = open(&head_marker(folder)?, true)?;
-        wait_lock(&head, libc::LOCK_EX)?;
-        let owner = open(&owner_marker(folder)?, true)?;
-        wait_lock(&owner, libc::LOCK_EX)?;
+        let head = wait_take(open(&head_marker(folder)?, true)?, Kind::Exclusive)?;
+        let owner = wait_take(open(&owner_marker(folder)?, true)?, Kind::Exclusive)?;
         // Take the repository lock first: a reader of an existing marker
         // refuses this sync immediately. A reader that preceded the first
         // marker instead holds the creation lease until its write completes.
-        let creating = creation_lock(folder)?;
-        wait_lock(&creating, libc::LOCK_EX)?;
+        let _creating = wait_take(creation_lock(folder)?, Kind::Exclusive)?;
+        let file = marker.file_mut();
         file.write_all(b"0")?;
         file.set_len(1)?;
         file.sync_data()?;
-        Ok(Self { marker: file, head: Some(head), owner: Some(owner) })
+        Ok(Self { marker, head: Some(head), owner: Some(owner) })
     }
 
     /// The head is in place and the rest of the checkout still arrives: a reader
@@ -184,13 +181,13 @@ impl Sync {
     /// starts (a `.claude/settings*.json` with hooks): that start would run it on a
     /// partial checkout.
     pub fn head_ready(&mut self) {
-        // Closing the descriptor releases its flock.
+        // The drop unlocks it.
         self.head = None;
     }
 
     /// A failed durability step leaves the barrier incomplete.
     pub fn complete(mut self) -> io::Result<()> {
-        let file = &mut self.marker;
+        let file = self.marker.file_mut();
         file.seek(SeekFrom::Start(0))?;
         file.write_all(b"1")?;
         if let Err(error) = file.sync_data() {
@@ -234,32 +231,31 @@ pub fn probe(path: &Path) -> io::Result<Probe> {
     let mut held = Vec::new();
     let mut head_only = false;
     for folder in path.ancestors().filter(|folder| folder.parent().is_some()) {
-        let creating = creation_lock(folder)?;
-        wait_lock(&creating, libc::LOCK_SH)?;
-        held.push(creating);
-        let mut file = match open(&marker(folder)?, false) {
+        held.push(wait_take(creation_lock(folder)?, Kind::Shared)?);
+        let file = match open(&marker(folder)?, false) {
             Ok(file) => file,
             Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
             Err(error) => return Err(error),
         };
-        if !lock(&file, libc::LOCK_SH)? {
+        let mut marker = match try_take(file, Kind::Shared)? {
+            Ok(marker) => marker,
             // Syncing; past its head when its producer let go of the head lock. An
             // outer folder still syncing short of its head wins below.
-            match syncing_state(folder, &file)? {
+            Err(file) => match syncing_state(folder, file)? {
                 Syncing::PastHead => {
                     head_only = true;
                     continue;
                 }
                 Syncing::ShortOfHead => return Ok(Probe::Syncing),
                 // The producer ended between the two reads: its byte says how.
-                Syncing::Ended => {}
-            }
-        }
+                Syncing::Ended(marker) => marker,
+            },
+        };
         let mut ready = [0];
-        if file.read(&mut ready)? != 1 || ready[0] != b'1' {
+        if marker.file_mut().read(&mut ready)? != 1 || ready[0] != b'1' {
             return Ok(Probe::Incomplete);
         }
-        held.push(file);
+        held.push(marker);
     }
     if head_only {
         return Ok(Probe::HeadReady);
@@ -271,7 +267,7 @@ enum Syncing {
     PastHead,
     ShortOfHead,
     /// The marker's lock came free: no producer holds it now, and the caller holds it shared.
-    Ended,
+    Ended(FileLock),
 }
 
 /// A folder whose marker was locked: whether its producer is past its head. The head lock is
@@ -281,26 +277,30 @@ enum Syncing {
 /// past its head only if the owner lock is held too. Only the marker's holder takes it, after
 /// its head lock, which it has let go of, and it lets go of the owner lock before the marker;
 /// a producer from before owner locks never takes it.
-fn syncing_state(folder: &Path, marker: &File) -> io::Result<Syncing> {
+fn syncing_state(folder: &Path, marker: File) -> io::Result<Syncing> {
     let head = match open(&head_marker(folder)?, false) {
         Ok(head) => head,
         // A producer from before head locks: it never marks a head.
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Syncing::ShortOfHead),
         Err(error) => return Err(error),
     };
-    // Released when `head` closes at the end of this call.
-    if !lock(&head, libc::LOCK_SH)? {
+    // Held until this call returns.
+    let Ok(_head) = try_take(head, Kind::Shared)? else {
         return Ok(Syncing::ShortOfHead);
-    }
-    if lock(marker, libc::LOCK_SH)? {
-        return Ok(Syncing::Ended);
+    };
+    if let Ok(marker) = try_take(marker, Kind::Shared)? {
+        return Ok(Syncing::Ended(marker));
     }
     let owner = match open(&owner_marker(folder)?, false) {
         Ok(owner) => owner,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Syncing::ShortOfHead),
         Err(error) => return Err(error),
     };
-    if lock(&owner, libc::LOCK_SH)? { Ok(Syncing::ShortOfHead) } else { Ok(Syncing::PastHead) }
+    if try_take(owner, Kind::Shared)?.is_ok() {
+        Ok(Syncing::ShortOfHead)
+    } else {
+        Ok(Syncing::PastHead)
+    }
 }
 
 impl Drop for Sync {
@@ -314,7 +314,7 @@ impl Drop for Sync {
 
 impl Drop for Ready {
     fn drop(&mut self) {
-        // Closing releases each flock. This explicit clear documents that the
+        // Each lock's drop unlocks it. This explicit clear documents that the
         // otherwise opaque field is the lifetime of the write's read lease.
         self.0.clear();
     }
@@ -334,9 +334,10 @@ mod tests {
         let repo = dir.canonicalize().unwrap().join("repo");
         let sync = Sync::begin(&repo).unwrap();
         let marker = open(&marker(&repo).unwrap(), false).unwrap();
-        assert!(!lock(&marker, libc::LOCK_SH).unwrap(), "the reader sees the marker locked");
+        let marker =
+            try_take(marker, Kind::Shared).unwrap().expect_err("the reader sees the marker locked");
         drop(sync);
-        assert!(matches!(syncing_state(&repo, &marker).unwrap(), Syncing::Ended));
+        assert!(matches!(syncing_state(&repo, marker).unwrap(), Syncing::Ended(_)));
         assert!(matches!(probe(&repo).unwrap(), Probe::Incomplete));
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -354,10 +355,46 @@ mod tests {
         sync.complete().unwrap();
         assert!(head_marker(&repo).unwrap().exists() && owner_marker(&repo).unwrap().exists());
         let legacy = open(&marker(&repo).unwrap(), true).unwrap();
-        assert!(lock(&legacy, libc::LOCK_EX).unwrap());
+        let legacy = try_take(legacy, Kind::Exclusive).unwrap().expect("the marker is free");
         assert!(matches!(probe(&repo).unwrap(), Probe::Syncing));
         drop(legacy);
         assert!(matches!(probe(&repo).unwrap(), Probe::Ready(_)));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A sync that ended frees its locks at once, also while a child forked meanwhile (any
+    /// thread of a process that runs git, as the seed job's does) still has copies of its
+    /// descriptors: a lock belongs to the open file description, which a close alone leaves
+    /// held until the child execs or exits. Before, the next reader saw the ended sync as still
+    /// running and the next sync was refused "repository is in use" (LOCK-AUDIT, c-conc's
+    /// symptom: a lock refused after a wait proved it free).
+    #[test]
+    fn an_ended_sync_frees_its_locks_while_a_forked_child_still_has_its_descriptors() {
+        let dir = std::env::temp_dir().join(format!("cmux-sync-forked-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let repo = dir.canonicalize().unwrap().join("repo");
+        let mut sync = Sync::begin(&repo).unwrap();
+        sync.head_ready();
+        // SAFETY: the child calls only pause, which is async-signal-safe, until SIGKILL ends it.
+        let child = unsafe { libc::fork() };
+        assert!(child >= 0, "fork failed");
+        if child == 0 {
+            loop {
+                // SAFETY: as above.
+                unsafe { libc::pause() };
+            }
+        }
+        sync.complete().unwrap();
+        let ready = matches!(probe(&repo), Ok(Probe::Ready(_)));
+        let again = Sync::begin(&repo).map(drop);
+        let mut status = 0;
+        // SAFETY: `child` is this test's own child and `status` outlives the call.
+        unsafe {
+            libc::kill(child, libc::SIGKILL);
+            libc::waitpid(child, &mut status, 0);
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(ready, "an ended sync read as running while a forked child kept its descriptors");
+        again.expect("an ended sync's locks are free while a forked child keeps its descriptors");
     }
 }
