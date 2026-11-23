@@ -5040,7 +5040,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The skills and slash commands Claude Code and Codex load, from their own folders. Edit opens a file in cmux; the switch changes the agent's own setting."
+            "value": "The skills and slash commands Claude Code and Codex load. Edit opens a file in cmux; the switch changes the agent's setting."
           }
         },
         "ar": {
