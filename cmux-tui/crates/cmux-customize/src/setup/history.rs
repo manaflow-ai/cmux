@@ -3,8 +3,9 @@
 //! whole state it changed, never half of it.
 //!
 //! A step keeps the state before and after it: the generation that was
-//! live, the library file (its entries and the base under them) and the
-//! setups' receipts. Undo makes the `before` state live again through a
+//! live, the library file (its entries and the base under them), the
+//! setups' receipts and each setup's views layer (its folder under the
+//! setups folder; the receipts write `layers.json`). Undo makes the `before` state live again through a
 //! generation restore (what was live and differs is kept as a generation of
 //! its own, so a hand edit made since is never lost), then writes the
 //! library and receipts back as they were; redo does the same with `after`.
@@ -12,14 +13,17 @@
 //! setups instead of theme files.
 //!
 //! Extensions are the caller's: an undo names the ones a step installed or
-//! removed, and leaves them as they are.
+//! removed, and leaves them as they are. So are a setup's font files: an
+//! undo leaves `fonts/` as it is.
 //!
 //! The history is `<state dir>/setup-history.json`. One that does not parse
 //! starts over, never fatal.
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
-use super::{Receipt, ReceiptsFile};
+use super::{Receipt, ReceiptsFile, layers};
 use crate::store::Kind;
 use crate::{Customize, Error};
 
@@ -38,6 +42,10 @@ pub struct SetupState {
     /// The installed setups' receipts, newest first.
     #[serde(default)]
     pub receipts: Vec<Receipt>,
+    /// Each receipt's views layer, by folder name: its files, at their
+    /// paths inside the folder.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub layers: BTreeMap<String, BTreeMap<String, String>>,
 }
 
 /// One undoable change.
@@ -101,11 +109,45 @@ impl Customize {
                     .map_err(|_| Error::Setup("library.json is not text".to_owned()))
             })
             .transpose()?;
+        let receipts = self.read_setup_receipts()?.setups;
         Ok(SetupState {
             generation: self.current_generation()?,
             library,
-            receipts: self.read_setup_receipts()?.setups,
+            layers: self.layer_snapshot(&receipts)?,
+            receipts,
         })
+    }
+
+    /// The views layers `receipts` name, as they are on disk.
+    fn layer_snapshot(
+        &self,
+        receipts: &[Receipt],
+    ) -> Result<BTreeMap<String, BTreeMap<String, String>>, Error> {
+        let setups_dir = self.roots().setups_dir();
+        let mut snapshot = BTreeMap::new();
+        for layer in receipts.iter().filter_map(|receipt| receipt.layer.as_deref()) {
+            snapshot.insert(layer.to_owned(), layers::read_layer(&setups_dir, layer)?);
+        }
+        Ok(snapshot)
+    }
+
+    /// Makes the layer folders exactly `target`'s: each one it names as it
+    /// was, and one `now` names that it does not, gone.
+    fn put_layers(
+        &self,
+        now: &BTreeMap<String, BTreeMap<String, String>>,
+        target: &BTreeMap<String, BTreeMap<String, String>>,
+    ) -> Result<(), Error> {
+        let setups_dir = self.roots().setups_dir();
+        for (layer, files) in target {
+            if now.get(layer) != Some(files) {
+                layers::put_layer(&setups_dir, layer, files)?;
+            }
+        }
+        for layer in now.keys().filter(|layer| !target.contains_key(*layer)) {
+            layers::remove_layer(&setups_dir, layer)?;
+        }
+        Ok(())
     }
 
     /// Records a step from `before` to what is live now, dropping the redo
@@ -178,7 +220,8 @@ impl Customize {
         self.put_setup_state_locked(state, label, origin, now_ms)
     }
 
-    /// The generation, library and receipts of `target`, all or nothing.
+    /// The generation, library, layers and receipts of `target`, all or
+    /// nothing.
     fn put_setup_state_locked(
         &self,
         target: &SetupState,
@@ -191,15 +234,18 @@ impl Customize {
         };
         let library = self.library_snapshot()?;
         let receipts = self.read_setup_receipts()?;
+        let layers_now = self.layer_snapshot(&receipts.setups)?;
         let moved = self
             .restore_locked(n, Kind::Autosaved, origin, label, now_ms)
             .and_then(|_| self.library_write_back(target.library.as_ref().map(String::as_bytes)))
+            .and_then(|()| self.put_layers(&layers_now, &target.layers))
             .and_then(|()| {
                 self.write_setup_receipts(&ReceiptsFile { setups: target.receipts.clone() })
             });
         if let Err(error) = moved {
-            // All or nothing: the library and receipts as they were.
+            // All or nothing: the library, layers and receipts as they were.
             let _ = self.library_write_back(library.as_deref());
+            let _ = self.put_layers(&target.layers, &layers_now);
             let _ = self.write_setup_receipts(&receipts);
             return Err(error);
         }

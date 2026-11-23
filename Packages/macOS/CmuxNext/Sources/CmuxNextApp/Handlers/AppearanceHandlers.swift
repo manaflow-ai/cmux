@@ -36,8 +36,7 @@ enum AppearanceHandlers {
         BackdropSelectionSetting.bindFollowDesktop(into: registry, save: save) { [weak services = context.services] in services?.settings?.snapshot.backdropSelection == .desktop }
         SettingChoiceActions.bind(MotionSpeed.allCases, into: registry, id: { "appearance.animationSpeed.\($0.rawValue)" }, path: AnimationSpeedSetting.configPath,
                                   fileValue: { .string($0.rawValue) }, save: save) { context.design.animationSpeed = $0 }
-        AnimationKindsSetting.bindActions(into: registry, design: context.design, save: save)
-        MotionCategoriesSetting.bindActions(into: registry, design: context.design, save: save)
+        AppearanceDesignActions.bind(into: registry, design: context.design, save: save)
         SettingChoiceActions.bind(CenterFocusedColumn.allCases, into: registry, id: { "layout.centerFocusedColumn.\($0 == .onOverflow ? "onOverflow" : $0.rawValue)" },
                                   path: CenterFocusedColumnSetting.configPath, fileValue: { .string($0.rawValue) }, save: save) { context.design.centerFocusedColumn = $0 }
         ChromeStyleSetting.bindActions(into: registry, design: context.design, save: save)

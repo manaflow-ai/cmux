@@ -1,0 +1,82 @@
+{
+  "about": "ci-oops fault isolation (cmuxterm-hq ci-self-heal, part 0d). The units a pull request's CI build may drop when they, and only they, fail to compile: the rest builds and runs, and the job prints one CI_OOPS line per dropped unit (outcome soft_failed) for the follow-up. Everything not listed is core and stays strict. A build that is not a pull_request event, or whose workflow or base is a ship path (nightly, release, promote, stable, publish), never drops anything (scripts/ci/oops/isolate.py allowed()). A new unit says why the product builds and runs without it; tests/test_ci_oops_isolate.py checks each entry.",
+  "units": [
+    {
+      "id": "webview-page:glass-parity",
+      "kind": "webview-page",
+      "name": "glass-parity",
+      "paths": ["webviews/src/pages/glass-parity/**"],
+      "why": "The web half of the Liquid Glass Parity playground (debug.glass_parity, DEV and NIGHTLY only); no other page or shipped view imports it."
+    },
+    {
+      "id": "webview-page:debug-settings",
+      "kind": "webview-page",
+      "name": "debug-settings",
+      "paths": ["webviews/src/pages/debug-settings/**"],
+      "why": "The debug tunables page; a debugging aid that no other page imports."
+    },
+    {
+      "id": "webview-page:chief-usage",
+      "kind": "webview-page",
+      "name": "chief-usage",
+      "paths": ["webviews/src/pages/chief-usage/**"],
+      "why": "The Chief Usage analytics page; a leaf page that no other page imports, opened only from its own action."
+    },
+    {
+      "id": "webview-page:chief-views",
+      "kind": "webview-page",
+      "name": "chief-views",
+      "paths": ["webviews/src/pages/chief-views/**"],
+      "why": "The Chief view gallery page beside the Chief in Home; a leaf page that no other page imports."
+    },
+    {
+      "id": "webview-page:chief-inspector",
+      "kind": "webview-page",
+      "name": "chief-inspector",
+      "paths": ["webviews/src/pages/chief-inspector/**"],
+      "why": "The remote Chief memory inspector page (the inspector compiled into optchat-chief is Native/OptChat/optchat-chief/inspector, built apart); no other page imports it."
+    },
+    {
+      "id": "webview-page:stats",
+      "kind": "webview-page",
+      "name": "stats",
+      "paths": ["webviews/src/pages/stats/**"],
+      "why": "The usage Stats page; a leaf page that no other page imports, opened only from its own action."
+    },
+    {
+      "id": "webview-page:task-manager",
+      "kind": "webview-page",
+      "name": "task-manager",
+      "paths": ["webviews/src/pages/task-manager/**"],
+      "why": "The Task Manager page (CPU and memory per cmux process); a diagnostic leaf page that no other page imports."
+    },
+    {
+      "id": "webview-page:stash",
+      "kind": "webview-page",
+      "name": "stash",
+      "paths": ["webviews/src/pages/stash/**"],
+      "why": "The Stashed Tabs page; a leaf page that no other page imports. Stashed groups live in the daemon, not the page, so a build without it loses no data."
+    },
+    {
+      "id": "gallery",
+      "kind": "gallery",
+      "name": "gallery",
+      "paths": ["webviews/src/gallery/**", "webviews/src/**/*.gallery.ts", "webviews/src/**/*.gallery.tsx"],
+      "why": "The component gallery and its entries (*.gallery.ts(x)): a review and screenshot tool that no app bundle ships, so an entry's type error never reaches a user."
+    },
+    {
+      "id": "cargo-member:cmux-palette-eval",
+      "kind": "cargo-member",
+      "name": "cmux-palette-eval",
+      "workspace": "cmux-tui",
+      "paths": ["cmux-tui/crates/cmux-palette-eval/**"],
+      "why": "The palette ranker's quality eval, speed bench and cases: a test-only workspace member that no other member depends on and no app, daemon or CLI build links (kept outside cmux-palette-ranker so it never touches the app FFI pin)."
+    }
+  ],
+  "not_units": {
+    "changelog page": "Core, not optional: the Updated card and What's New after an update render from it (dozens of updated-card and whats-new tests import it).",
+    "theme packs": "Resources/ghostty/themes and Resources/cmux-themes are data with no compile step: a bad theme file fails a test, not a compile, so there is nothing to drop.",
+    "first-party apps": "first-party-apps/* commit their built dist/main.js and `bun first-party-apps/build.ts --check` gates them together; dropping one app needs build.ts to take a skip list (proposed, not built).",
+    "cargo features": "PR clippy lints default features only, so no optional cargo feature compiles on a pull request today; the sim and iroh-transport feature runs are their own named steps."
+  }
+}

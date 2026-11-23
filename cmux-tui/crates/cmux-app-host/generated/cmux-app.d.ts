@@ -206,11 +206,12 @@ declare namespace Cmux {
   type GitStatusWorktree = { main_root: string }
   type GitWorktreeApplyResult = { main_root: string; files: Array<string> }
   type GitWorktreeCreateResult = { root: string; branch: string; base: string; base_commit: string; main_root?: string; setup: Cmux.GitWorktreeSetupStart }
-  type GitWorktreeRecipe = { setup: string | null; teardown: string | null; run: string | null; include: Array<string>; repository: Cmux.WorktreeRecipe; saved?: Cmux.WorktreeRecipe; files: Array<string>; problems?: Array<string> }
+  type GitWorktreeRecipe = { setup: string | null; teardown: string | null; run: string | null; include: Array<string>; repository: Cmux.WorktreeRecipe; saved?: Cmux.WorktreeRecipe; files: Array<string>; problems?: Array<string>; approval?: Cmux.GitWorktreeSetupApproval }
   type GitWorktreeRemoveResult = { root: string; main_root: string; branch?: string; branch_deleted: boolean; teardown?: Cmux.GitWorktreeTeardown }
+  type GitWorktreeSetupApproval = { fingerprint: string; approved: boolean }
   type GitWorktreeSetupResult = { root: string; main_root?: string; recipe: Cmux.GitWorktreeRecipe; run: Cmux.GitWorktreeSetupRun }
-  type GitWorktreeSetupRun = { state: string; port?: number | null; setup?: string; exit_code?: number | null; include?: Cmux.GitIncludeReport; started_ms?: string; finished_ms?: string; output: string; output_start: string; output_end: string }
-  type GitWorktreeSetupStart = { state: string; port?: number }
+  type GitWorktreeSetupRun = { state: string; port?: number | null; setup?: string; exit_code?: number | null; include?: Cmux.GitIncludeReport; started_ms?: string; finished_ms?: string; output: string; output_start: string; output_end: string; approval?: string }
+  type GitWorktreeSetupStart = { state: string; port?: number; approval?: string }
   type GitWorktreeTeardown = { state: string; exit_code?: number | null; output: string }
   type Grant = { id: Cmux.GrantId; grantee: string; op_classes: Array<Cmux.OpClass>; approval: "none" | "per_call" | "per_session"; expires_at: number | null; revoked_at: number | null; created_from: "install" | "ui" | "automation" | "standing_rule" }
   type GrantId = string
@@ -755,6 +756,12 @@ interface CmuxGlobal {
     pin: CmuxOp<{ machine?: string; session?: string; chat: string; pinned: boolean }, Cmux.MutationResult<Cmux.ChatSummary>>
   }
   chief: {
+    automation: {
+      /** `chief.automation.list` (read, scope `chief:read`) */
+      list: CmuxOp<{ machine?: string; session?: string; chief?: string }, Cmux.JsonValue>
+      /** `chief.automation.update` (mutation, scope `chief:write`) */
+      update: CmuxOp<{ machine?: string; session?: string; chief?: string; automation: string; action: "pause" | "resume" | "delete" | "run" }, Cmux.MutationResult<Cmux.JsonValue>>
+    }
     /** `chief.continue` (mutation, scope `chief:write`) */
     continue: CmuxOp<{ machine?: string; session?: string; chief?: string }, Cmux.MutationResult<Cmux.ChiefContinueResult>>
     /** `chief.create` (mutation, scope `chief:write`): Create a chief (the user's first chief is the default; use the idempotency key chief-default for it). Binds its wake queue and gives it the user's text confirmation level. brain_place (session only) names the paired server that runs its brain. */
@@ -1117,7 +1124,10 @@ interface CmuxGlobal {
       /** `git.worktree.remove` (mutation, scope `git:execute`) */
       remove: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal?: string; path?: string; discard?: boolean }, Cmux.MutationResult<Cmux.GitWorktreeRemoveResult>>
       /** `git.worktree.setup` (read, scope `git:read`) */
-      setup: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal?: string; path?: string; since?: string }, Cmux.GitWorktreeSetupResult>
+      setup: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal?: string; path?: string; since?: string }, Cmux.GitWorktreeSetupResult> & {
+        /** `git.worktree.setup.run` (mutation, scope `git:execute`) */
+        run: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal?: string; path?: string; approve?: string }, Cmux.MutationResult<Cmux.GitWorktreeSetupStart>>
+      }
     }
   }
   github: {
