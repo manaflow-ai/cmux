@@ -1172,6 +1172,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_fast_checks_failover.py
 
+      - name: Validate the fast checks Rust setup carries the pinned cargo-nextest
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_fast_checks_rust_nextest.py
+
       - name: Validate the INTERNAL iOS builder decisions
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ios_internal_builder.py
@@ -1358,6 +1362,10 @@ jobs:
       - name: Validate the R2 cache store script
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: bash tests/test_ci_r2_cache.sh
+
+      - name: Validate the submodule init cache
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: bash tests/test_ci_init_submodule.sh
 
       - name: Validate the R2 cache census
         if: ${{ !cancelled() && matrix.group == 'ci' }}
