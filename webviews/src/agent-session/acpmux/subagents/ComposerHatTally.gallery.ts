@@ -99,6 +99,30 @@ const burst = chat(
   { isWorking: true },
 );
 
+/** Twelve: eight subagents over three harnesses and four commands, the middle of the count matrix. */
+const twelve = chat(
+  [
+    user("Split the review across the harnesses", 14),
+    row(SUBAGENTS, 14, {
+      subagents: Array.from({ length: 8 }, (_, index) =>
+        agent(`Review part ${index + 1}`, 13 - index, "running", {
+          harness: ["claude", "codex", "gemini"][index % 3]!,
+        }),
+      ),
+    }),
+    activity(
+      [
+        command("bun test --watch", "Watch the tests", 12),
+        command("swift build -c release --product App", "Compile the head", 6),
+        command("gh pr checks 34260 --watch", "Wait for the checks", 5),
+        command("gh run watch 41723867191", "Wait for the nightly", 4),
+      ],
+      12,
+    ),
+  ],
+  { isWorking: true },
+);
+
 /** Only finished, fine work: nothing to count, so the header keeps its own. */
 const settled = chat(
   [user("Find the screenshot", 6), row(SUBAGENTS, 6, { subagents: [agent("Find the screenshot", 5, "completed")] })],
@@ -135,7 +159,9 @@ export default agentPaneEntry({
   title: "Composer hat tally: a mark and a count per kind",
   area: "Agent pane",
   height: 360,
-  widths: { narrow: 300 },
+  // The width matrix: every variant (0, 1, 5, 12 and 26 things) at 280, 400 and 900 px; the play checks
+  // the tally's promises in each cell.
+  widths: { narrow: 280, normal: 400, wide: 900 },
   anchors: [{ selector: ".acpmux-composer" }],
   covers: [
     "agent-session/acpmux/subagents/SubagentTray.tsx",
@@ -181,6 +207,15 @@ export default agentPaneEntry({
         tallyHolds(ctx, 3);
       },
       snapshot: burst,
+      experiments: { "subagent-tray-fold-head": "tally" },
+    },
+    twelve: {
+      note: "Eight subagents (3 · 3 · 2 by the Claude, Codex and Gemini marks), a test run, a build and two waits. At 280 px the kinds that do not fit drop whole; the time never clips.",
+      play: async (ctx) => {
+        await ctx.waitFor(() => head(ctx)?.querySelector(".acpmux-running-tray__kinds[data-tally]"));
+        tallyHolds(ctx, 2);
+      },
+      snapshot: twelve,
       experiments: { "subagent-tray-fold-head": "tally" },
     },
     settled: {
