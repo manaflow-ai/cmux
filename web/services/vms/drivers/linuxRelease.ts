@@ -24,7 +24,8 @@ export const LINUX_RELEASE_MAX_BYTES = 256 * 1024;
  * The keys a Linux release file may be signed with: `[id, base64 raw Ed25519 key]`. Phase 1
  * of the design signs with the web update key, so this list equals
  * Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/Resources/web-update-keys.json and
- * cmux-tui's `linux_release::KEYS` (tests/vm-linux-release.test.ts keeps them equal). To
+ * cmux-tui's `linux_release::KEYS` (tests/vm-linux-release.test.ts and
+ * cmux-tui/scripts/linux-release-verify-gen.py --check keep them equal). To
  * rotate, add the next key here and deploy it before CI signs with it.
  */
 export const LINUX_RELEASE_KEYS: readonly (readonly [string, string])[] = [
