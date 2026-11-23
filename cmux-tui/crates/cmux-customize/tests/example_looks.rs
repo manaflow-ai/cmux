@@ -9,7 +9,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use cmux_config::{Domains, Schema, ThemeFile};
-use cmux_customize::setup::{self, Receipt, Reference};
+use cmux_customize::setup::{self, Receipt, Reference, SetupSource};
 use cmux_customize::{Customize, Roots};
 use serde_json::{Value, json};
 
@@ -34,37 +34,21 @@ fn addons() -> Vec<String> {
 const MINE: &str = "{\n  // my settings\n  \"appearance\": { \"accent\": \"blue\" },\n  \"terminal\": { \"fontSize\": 15 }\n}\n";
 
 fn receipt(read: &setup::Setup, installed: &setup::Installed, name: &str) -> Receipt {
-    let reference =
-        Reference::parse(&format!("github.com/manaflow-ai/cmux/examples/looks/{name}")).unwrap();
-    Receipt {
-        id: read.manifest.id.clone(),
-        name: read.manifest.name.clone(),
-        repository: reference.repository(),
-        reference,
-        commit: "a".repeat(40),
-        sha256: read.sha256.clone(),
-        version: read.manifest.version.clone(),
-        generation: installed.applied.as_ref().map(|applied| applied.generation.n),
-        before: installed.before,
-        library: installed.applied.as_ref().and_then(|applied| applied.library.clone()),
-        library_created: installed.library_created,
-        actions: read.actions().clone(),
-        prior_actions: installed.prior_actions.clone(),
-        extensions: Vec::new(),
-        installed_ms: 10,
-    }
+    let reference = Reference::parse(&format!("github.com/manaflow-ai/cmux-{name}-look")).unwrap();
+    Receipt::new(read, installed, SetupSource::Repo { reference }, &"a".repeat(40), Vec::new(), 10)
 }
 
+/// looks.json lists the looks on public surfaces only; every whole look under examples/looks is
+/// indexed by examples/gallery/gallery.json (tests/gallery.rs), so a folder may be in that index
+/// and not this one.
 #[test]
-fn every_folder_is_listed_and_every_listed_addon_is_a_folder() {
-    let mut folders: Vec<String> = fs::read_dir(looks())
-        .unwrap()
-        .map(|entry| entry.unwrap().path())
-        .filter(|path| path.is_dir())
-        .map(|path| path.file_name().unwrap().to_str().unwrap().to_owned())
-        .collect();
-    folders.sort();
-    assert_eq!(folders, addons(), "examples/looks/looks.json and the folders disagree");
+fn every_listed_addon_is_a_whole_look_folder() {
+    for name in addons() {
+        assert!(
+            looks().join(&name).join(setup::SETUP_FILE).is_file(),
+            "examples/looks/looks.json names {name}, which has no examples/looks/{name}/cmux-setup.json"
+        );
+    }
     assert!(
         addons().len() >= 2,
         "at least two looks: one recreating a built-in look, one outside-only"
@@ -151,8 +135,26 @@ fn every_look_installs_as_one_layer_and_comes_off_leaving_yours() {
             "{name}: installs with problems: {:?}",
             status.problems
         );
+        // A look's views (`customize/...`) go to a layer of its own under the setups folder, never
+        // the person's customize folder; everything else lands under config as the look names it.
+        let setups = Roots::under(home.path()).setups_dir();
+        let placed =
+            |path: &str| match (path.strip_prefix("customize/"), installed.layer.as_deref()) {
+                (Some(inner), Some(layer)) => setups.join(layer).join(inner),
+                _ => config(path),
+            };
         for (path, text) in &read.profile.files {
-            assert_eq!(&fs::read_to_string(config(path)).unwrap(), text, "{name}: {path}");
+            if path.starts_with("customize/") {
+                assert!(
+                    !config(path).exists(),
+                    "{name}: {path} went into your own customize folder"
+                );
+            }
+            if path.starts_with("customize/cmux-app") {
+                // The layer's manifest names the layer's own app id; the look's says local/customize.
+                continue;
+            }
+            assert_eq!(&fs::read_to_string(placed(path)).unwrap(), text, "{name}: {path}");
         }
         let settings: Value =
             cmux_config::jsonc::parse(&fs::read_to_string(config("cmux-next.json")).unwrap())
@@ -170,6 +172,7 @@ fn every_look_installs_as_one_layer_and_comes_off_leaving_yours() {
         assert_eq!(settings["appearance"]["accent"], json!("blue"), "{name}: yours is back");
         for path in read.profile.files.keys() {
             assert!(!config(path).exists(), "{name}: {path} outlived the remove");
+            assert!(!placed(path).exists(), "{name}: {path} outlived the remove");
         }
     }
 }

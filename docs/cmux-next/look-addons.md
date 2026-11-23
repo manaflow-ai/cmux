@@ -2,7 +2,7 @@
 
 A look for cmux NEXT (the colors, the chat's type and prompt bubble, the sidebar's rows and hover
 card) can be written entirely outside cmux, as one folder you install and remove in one step. This
-page shows how, with the two looks in [`examples/looks`](../../examples/looks) as the worked example,
+page shows how, with the two looks [Studio](https://github.com/manaflow-ai/cmux-studio-look) and [Paper](https://github.com/manaflow-ai/cmux-paper-look) as the worked example,
 and lists what a look cannot change yet.
 
 ## The four parts
@@ -13,10 +13,10 @@ A look is a [setup](../../examples/looks/studio/cmux-setup.json) (`cmux-setup.js
 | --- | --- | --- | --- |
 | Color | `themes/NAME.json`, picked by `appearance.themeFile` | the terminal and app colors, the sidebar and chat surfaces, borders, glass, density ([theme-recipes.md](theme-recipes.md)) | on save |
 | Type and spacing | `settings` in `cmux-setup.json` | `agentPane.display.font.*`, `agentPane.display.width`, `sidebar.density`, `sidebar.workspaceRow.*` and any other key `cmux settings list` shows as agent-settable | on save |
-| The chat's paint | `agent-pane/theme.css` | only the tokens of `cmux.agentPane.style/1` ([below](#the-chat-stylesheet-cmuxagentpanestyle1)), on `:root` | on save |
+| The chat's paint | `agent-pane/theme.css` | a shared look: only the tokens of `cmux.agentPane.style/1` ([below](#the-chat-stylesheet-cmuxagentpanestyle1)), on `:root`; your own: [any CSS](#your-own-stylesheet-any-css-loading-nothing) | on save |
 | The sidebar | `customize/cmux-app.json` and `customize/main.js` | the hover card (`cmux.hovercard/1`) and row decorations (`cmux.sidebar.rows/1`), [sidebar-customization.md](sidebar-customization.md) | on save |
 
-Install one from its repo with `cmux setup install HOST/OWNER/REPO[/PATH][@REF]` (a look in this repo: `github.com/manaflow-ai/cmux/examples/looks/studio@feat-cmux-next`), take it off with `cmux setup remove ID`. It is
+Install one from its repo with `cmux setup install HOST/OWNER/REPO[/PATH][@REF]` (a look is a small repo of its own, like dotfiles: `cmux setup install github.com/manaflow-ai/cmux-studio-look`), take it off with `cmux setup remove ID`. It is
 one library layer: your own settings stay, and removing it puts back exactly what was there.
 
 ## The chat stylesheet: `cmux.agentPane.style/1`
@@ -29,23 +29,11 @@ change often, so a look sets only these custom properties, on `:root`
 | --- | --- |
 | `--cv-text`, `--cv-text-muted`, `--cv-text-dim` | body, secondary and quietest transcript text |
 | `--cv-link`, `--agent-link` | links in replies, and in the rest of the pane |
-| `--cv-card-fill`, `--cv-card-ring` | every card in the transcript (tool output, code, edited files) and its hairline; unset, each card keeps its own strength |
+| `--cv-card-fill`, `--cv-card-ring` | the card level and its hairline: tool output, edit, error and permission cards, plans, the subagent card (code blocks keep their own fill); unset, the theme's text at 4% and 10% |
 | `--cv-user-bubble-tint`, `--cv-user-bubble-edge` | the prompt bubble's glass tint and its hairline |
 | `--cv-user-bubble-radius` | the prompt bubble's corner |
-| `--cv-user-bubble-text` | the prompt bubble's text, for a filled bubble: its quiet lines take it at 88%, a skill's `/name` and inline code follow it; unset, the transcript's text |
-
-A filled pill, as Codex draws its prompt in dark (`light-dark()` picks a mix per appearance, and
-both ends come from the theme, so it reads over a light theme and a dark one):
-
-```css
-:root {
-  --cv-user-bubble-tint: light-dark(
-    color-mix(in srgb, var(--agent-accent) 78%, var(--agent-text)),
-    color-mix(in srgb, var(--agent-accent) 30%, var(--agent-page-bg))
-  );
-  --cv-user-bubble-text: light-dark(var(--agent-page-bg), var(--agent-text));
-}
-```
+| `--cv-user-bubble-text` | the prompt bubble's text, for a filled bubble (white on a blue pill); its quote and Show more take it at 88%, inline code a wash of it; unset, the transcript's text |
+| `--cv-code-edge-fade` | how far a long code line fades at the card's right edge while more lies past; unset, a hard edge |
 
 ```css
 :root {
@@ -71,6 +59,21 @@ The theme colors (`--agent-text`, `--agent-accent`, `--agent-border` and the res
 from your theme) are set on the page by cmux itself, so a stylesheet cannot override them. Set those
 with the theme file's `colors` and `appearance.surfaces.agentPane`.
 
+## Your own stylesheet: any CSS, loading nothing
+
+Your own `agent-pane/theme.css` (and `markdown/theme.css`, `editor/theme.css`) takes any CSS, any
+selector, applied after the surface's built-in styles and kept last in the page, so it wins at equal
+specificity. Class names still change between releases, so a look you share keeps to the tokens
+above; your own file may style anything.
+
+What it may not do is load something by address (`cmux.stylesheetGuard/1`,
+[`schemas/agent-pane/stylesheet-guard.json`](../../schemas/agent-pane/stylesheet-guard.json)): no
+`@import`, no `url()` other than a `data:` URL, no `image-set()` or `src()`, and no backslash escape
+that could spell one. Comments are no way around it. The chat refuses such a sheet whole and keeps the
+last good one on screen (its `<style id="acpmux-user-theme">` carries `data-refused` with the reason),
+and `cmux customize` (status) names the file and the reason, and an apply or profile that would write such a sheet is refused (one you already have, unchanged, never stops an unrelated change). Inline an image as a
+`data:` URL instead.
+
 ## What keeps this true
 
 - `cmux-customize` `tests/example_looks.rs` installs every look in `examples/looks` on a fresh machine
@@ -92,7 +95,7 @@ with the theme file's `colors` and `appearance.surfaces.agentPane`.
 | --- | --- | --- |
 | The composer's look (Claude or Codex style) | kept in page storage, which a setup cannot set; the composer has no paint tokens | a setting in #43272 or #45843 |
 | One switch for a whole transcript preset | no `agentPane.display.transcriptLook` yet | in progress |
-| The prompt bubble's width | the height estimate assumes 70%, so a stylesheet width would shift rows | a setting the estimate reads: `agentPane.display.transcriptTokens` `{"userMessage.maxWidth": 0.4 to 1}` (#46047, #46258) |
+| The prompt bubble's width | the height estimate assumes 70%, so a stylesheet width would shift rows | needs a setting the estimate reads |
 | Which facts go on which row line | `sidebar.workspaceRow.lines` validates but is not drawn | #42244 |
 | Row decorations from an installed look without replacing your own `customize/` | only the `local/customize` app may decorate rows, and a look's `customize/` files replace yours | needs per-look decoration layers |
 | The chat's theme colors from `agent-pane/theme.css` | the host sets them inline | the theme file is the place for them |
