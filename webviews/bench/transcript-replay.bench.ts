@@ -726,7 +726,11 @@ async function startLive(ctx: Ctx, daemon: Daemon, log: ReplayLog): Promise<Live
       }
       const taskMs = ((await metric(clock, "TaskDuration")) - taskBefore) * 1000;
       const profiled = PROFILE ? ((await cdp.send("Profiler.stop")) as { profile: CpuProfile }).profile : undefined;
-      if (profiled && process.env.RAWDIR) fs.writeFileSync(`${process.env.RAWDIR}/${burst.kind}-${Date.now()}.cpuprofile`, JSON.stringify({ records, profile: profiled }));
+      if (profiled && process.env.RAWDIR)
+        fs.writeFileSync(
+          `${process.env.RAWDIR}/${burst.kind}-${Date.now()}.cpuprofile`,
+          JSON.stringify({ records, profile: profiled }),
+        );
       const allocated =
         PROFILE && ALLOC
           ? ((await cdp.send("HeapProfiler.stopSampling")) as { profile: HeapProfile }).profile
