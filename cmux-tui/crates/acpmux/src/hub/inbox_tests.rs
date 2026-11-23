@@ -87,6 +87,7 @@ fn a_self_declared_label_has_a_distinct_thread_key_and_display() {
                 session_id: Some("dot".into()),
                 harness: Some("codex".into()),
                 relay: None,
+                display_name: None,
             }),
         ),
         Some("other"),
@@ -110,6 +111,7 @@ fn an_authenticated_message_and_reply_keep_name_threads_on_each_side() {
             session_id: Some("dot-session".into()),
             harness: Some("codex".into()),
             relay: None,
+            display_name: None,
         }),
     );
     let sender = thread_sender(Some(&authenticated), "dot");
@@ -821,6 +823,7 @@ fn a_relayed_sender_is_named_plainly_and_its_preview_is_the_message() {
                 machine: "gcp-agent-lane-2".into(),
                 session: Some("lock-proof-routes".into()),
             }),
+            display_name: None,
         }),
     );
     let verified = crate::prompt_provenance::sender_record(Some(&relayed), None, None);

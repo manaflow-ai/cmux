@@ -1034,6 +1034,7 @@ pub async fn deliver(
         session_id: message.from.session_id.clone(),
         harness: None,
         relay: None,
+        display_name: None,
     };
     crate::hub::merge_mux_meta(&mut request, sender.mux_fields());
     // The harness the sender says it came from, for the chat's sender chip: the claim only, so
