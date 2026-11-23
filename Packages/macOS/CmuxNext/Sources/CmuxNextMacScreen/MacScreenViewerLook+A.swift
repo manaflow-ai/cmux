@@ -34,8 +34,9 @@ enum MacScreenLookA {
     static let toolbarHeight: CGFloat = 28
     /// How long a live, idle toolbar stays before it fades out.
     static let idleDelay = Duration.milliseconds(2500)
-    /// How long a stall lasts before the quiet Reconnecting pill shows (a short blip shows nothing).
-    static let outageMarkDelay = Duration.milliseconds(1000)
+    /// How long a stall lasts before the quiet Reconnecting pill shows (a short blip shows nothing): the pill's own
+    /// hold, ``MacScreenPictureMark/reconnectingDelay``.
+    static let outageMarkDelay = MacScreenPictureMark.reconnectingDelay
     /// The pane's top band that brings the toolbar back, at least.
     static let revealHeight: CGFloat = 40
     /// While this Mac controls the picture, only the pane's top edge brings the toolbar back (as a full-screen Mac's
@@ -89,6 +90,8 @@ final class MacScreenViewerOverlay: MacScreenThemedView {
     private let toolbar: MacScreenToolbarView
     private let edge = CALayer()
     private let pill = MacScreenPictureMark()
+    /// The stats panel (``MacScreenQualityReadout/hud``), in the picture's bottom-left corner.
+    private let statsPanel = MacScreenStatsPanel()
     private let hideTimer = DemandTimer(owner: "mac-screen.toolbar-hide")
     private let outageTimer = DemandTimer(owner: "mac-screen.outage-mark")
     private var tracking: NSTrackingArea?
@@ -112,6 +115,8 @@ final class MacScreenViewerOverlay: MacScreenThemedView {
         layer?.addSublayer(edge)
         pill.isHidden = true
         addSubview(pill)
+        statsPanel.isHidden = true
+        addSubview(statsPanel)
         track()
     }
 
@@ -193,6 +198,10 @@ final class MacScreenViewerOverlay: MacScreenThemedView {
                 _ = model.session?.isStalled
                 _ = model.viewOnly
                 _ = model.capturesKeyboard
+                _ = model.qualityReadout
+                _ = model.session?.stats
+                _ = model.session?.preferences.showStats
+                _ = model.session?.frameSize
             }) {
                 guard let self else { return }
                 // The look may have turned auto-hide on or off; taking or giving up control moves the reveal band.
@@ -225,11 +234,26 @@ final class MacScreenViewerOverlay: MacScreenThemedView {
             outageTimer.cancel()
             outageMarkDue = false
         }
+        syncStatsPanel()
         let next = nextMark(style, outage: outage)
         if next != mark {
             mark = next
             needsLayout = true
         }
+    }
+
+    /// The stats panel shows over a live picture while Show Stats is on, in the stats panel readout.
+    private func syncStatsPanel() {
+        guard model.qualityReadout == .hud, model.isLive, model.hasFrame, let session = model.session,
+              session.preferences.showStats else {
+            if !statsPanel.isHidden { statsPanel.isHidden = true }
+            return
+        }
+        // The route is the toolbar's; the panel keeps to the numbers.
+        let rows = MacScreenQualityReadout.rows(session.stats, frameSize: session.frameSize, path: "-")
+        statsPanel.show(rows, strained: MacScreenQualityReadout.isStrained(session.stats))
+        if statsPanel.isHidden { statsPanel.isHidden = false }
+        needsLayout = true
     }
 
     private func nextMark(_ style: MacScreenViewerStyle, outage: Bool) -> Mark {
@@ -287,6 +311,12 @@ final class MacScreenViewerOverlay: MacScreenThemedView {
         edge.cornerCurve = .continuous
         edge.isHidden = mark != .controlling || picture.isEmpty
         CATransaction.commit()
+        if !statsPanel.isHidden, !picture.isEmpty {
+            let size = statsPanel.fittingSize
+            let inset = Metrics.space4
+            statsPanel.frame = CGRect(x: picture.minX + inset, y: picture.maxY - inset - size.height,
+                                      width: size.width, height: size.height).integral
+        }
         switch mark {
         case .none: pill.isHidden = true
         case .controlling: pill.show(.controlling)
