@@ -24,7 +24,7 @@ def row(p95, unit="ms", floor=1.0, budget=None):
     return {"p50": p95, "p95": p95, "unit": unit, "floor": floor, "budget": budget}
 
 
-LINUX_PARTS = ["diff-viewer", "web-ui", "web-ui-scale", "web-ui-growth", "web-ui-god", "infinite-items", "web-ui-million", "web-ui-flat", "web-ui-flat-grown", "web-ui-typing", "web-ui-scroll", "chat-disk", "terminal-scroll", "daemon-restart", "coord-sim", "chat-search"]
+LINUX_PARTS = ["diff-viewer", "web-ui", "web-ui-scale", "web-ui-growth", "web-ui-god", "infinite-items", "web-ui-million", "web-ui-flat", "web-ui-scroll-up", "web-ui-flat-grown", "web-ui-typing", "web-ui-scroll", "chat-disk", "terminal-scroll", "daemon-restart", "coord-sim", "chat-search"]
 FLEET = [n for n in ALL if n not in ("build", *LINUX_PARTS)]
 
 
@@ -1281,6 +1281,17 @@ class WebUiTests(unittest.TestCase):
         self.assertEqual(cron.part_for_row("webui.million_event_chat.short.heap_mb@linux"), "web-ui-million")
         argv, cwd, _ = cron.linux_bench_runs("/r", "web-ui-million")["suite"]
         self.assertEqual(argv, ["bun", "bench/web-ui-suite.ts", "--only", "million-event-chat,million-event-chat-short"])
+        self.assertEqual(cwd, "/r/webviews")
+
+    def test_the_scroll_up_scale_rows_have_their_own_part(self):
+        self.assertTrue(cron.is_linux_part("web-ui-scroll-up"))
+        self.assertEqual(cron.part_for_row("webui.transcript_scroll_up_scale.chromium.wheel.100k.older_page_drawn@linux"),
+                         "web-ui-scroll-up")
+        self.assertEqual(cron.part_for_row("webui.transcript_scroll_up_scale.chromium.wheel.older_page_drawn_scale@linux"),
+                         "web-ui-scroll-up")
+        self.assertEqual(cron.part_for_row("webui.transcript_scroll_up.chromium.interval@linux"), "web-ui")
+        argv, cwd, _ = cron.linux_bench_runs("/r", "web-ui-scroll-up")["suite"]
+        self.assertEqual(argv, ["bun", "bench/web-ui-suite.ts", "--only", "transcript-scroll-up-scale"])
         self.assertEqual(cwd, "/r/webviews")
 
     def test_the_god_part_runs_both_fixtures_and_owns_the_god_rows(self):
