@@ -60,6 +60,7 @@ pub(crate) mod subagent_retry;
 pub(crate) use crate::turn_errors;
 pub(crate) use lane_reports::TAG as REPORTS_TO_TAG;
 pub(crate) use policy_mode::SetRequest;
+pub(crate) use route_switch::is_chief;
 mod audit_entries;
 pub(crate) mod audit_log;
 mod bookmarks;

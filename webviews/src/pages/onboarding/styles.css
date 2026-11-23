@@ -949,15 +949,6 @@
   }
 }
 
-/* cmux Tools: the Agents step's list, its status line, then where Settings keeps the answer. */
-.onb-agent-tools-note {
-  margin-top: auto;
-  color: var(--page-text-3);
-  font-size: var(--text-caption);
-  line-height: var(--text-caption--line-height);
-  letter-spacing: var(--text-caption--letter-spacing);
-}
-
 /* Make cmux Yours (cmux#48416): three groups of native radios in the 300-point body. The radio
    itself is visually hidden (it keeps focus, arrows and the accessibility role); the label draws
    the choice, and a checked choice gets the accent rim. Cards (shipping): the two ways to work side
