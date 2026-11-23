@@ -1,6 +1,8 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "identity.fka": {"comment":"Agent pane: a quiet line after an agent's name giving the newest name it had before a rename (\"formerly known as\"); {name} is that old name","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"سابقًا {name}"}},"bs":{"stringUnit":{"state":"needs_review","value":"ranije {name}"}},"da":{"stringUnit":{"state":"needs_review","value":"tidl. {name}"}},"de":{"stringUnit":{"state":"needs_review","value":"früher {name}"}},"en":{"stringUnit":{"state":"translated","value":"fka {name}"}},"es":{"stringUnit":{"state":"needs_review","value":"antes {name}"}},"fr":{"stringUnit":{"state":"needs_review","value":"anc. {name}"}},"it":{"stringUnit":{"state":"needs_review","value":"già {name}"}},"ja":{"stringUnit":{"state":"needs_review","value":"旧 {name}"}},"km":{"stringUnit":{"state":"needs_review","value":"ពីមុន {name}"}},"ko":{"stringUnit":{"state":"needs_review","value":"구 {name}"}},"nb":{"stringUnit":{"state":"needs_review","value":"tidl. {name}"}},"pl":{"stringUnit":{"state":"needs_review","value":"dawniej {name}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"antes {name}"}},"ru":{"stringUnit":{"state":"needs_review","value":"ранее {name}"}},"th":{"stringUnit":{"state":"needs_review","value":"เดิม {name}"}},"tr":{"stringUnit":{"state":"needs_review","value":"eski adı {name}"}},"uk":{"stringUnit":{"state":"needs_review","value":"раніше {name}"}},"vi":{"stringUnit":{"state":"needs_review","value":"trước là {name}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"曾用名 {name}"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"曾用名 {name}"}}}},
+    "identity.formerly": {"comment":"Agent pane: tooltip on an agent's name listing every name it had before its renames, newest first; {names} is a comma-separated list","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"سابقًا: {names}"}},"bs":{"stringUnit":{"state":"needs_review","value":"Ranije: {names}"}},"da":{"stringUnit":{"state":"needs_review","value":"Tidligere: {names}"}},"de":{"stringUnit":{"state":"needs_review","value":"Früher: {names}"}},"en":{"stringUnit":{"state":"translated","value":"Formerly {names}"}},"es":{"stringUnit":{"state":"needs_review","value":"Antes: {names}"}},"fr":{"stringUnit":{"state":"needs_review","value":"Anciennement : {names}"}},"it":{"stringUnit":{"state":"needs_review","value":"In precedenza: {names}"}},"ja":{"stringUnit":{"state":"needs_review","value":"旧名: {names}"}},"km":{"stringUnit":{"state":"needs_review","value":"ឈ្មោះពីមុន: {names}"}},"ko":{"stringUnit":{"state":"needs_review","value":"이전 이름: {names}"}},"nb":{"stringUnit":{"state":"needs_review","value":"Tidligere: {names}"}},"pl":{"stringUnit":{"state":"needs_review","value":"Dawniej: {names}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Antes: {names}"}},"ru":{"stringUnit":{"state":"needs_review","value":"Ранее: {names}"}},"th":{"stringUnit":{"state":"needs_review","value":"ชื่อเดิม: {names}"}},"tr":{"stringUnit":{"state":"needs_review","value":"Eski adları: {names}"}},"uk":{"stringUnit":{"state":"needs_review","value":"Раніше: {names}"}},"vi":{"stringUnit":{"state":"needs_review","value":"Trước đây: {names}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"曾用名：{names}"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"曾用名：{names}"}}}},
     "transcript.loading": {"comment":"Agent pane: accessible label of the spinner the transcript shows while a chat's messages are still loading (VirtualTranscript.tsx)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"جارٍ تحميل الدردشة…"}},"bs":{"stringUnit":{"state":"needs_review","value":"Učitavanje razgovora…"}},"da":{"stringUnit":{"state":"needs_review","value":"Indlæser chat…"}},"de":{"stringUnit":{"state":"needs_review","value":"Chat wird geladen…"}},"en":{"stringUnit":{"state":"translated","value":"Loading chat…"}},"es":{"stringUnit":{"state":"needs_review","value":"Cargando el chat…"}},"fr":{"stringUnit":{"state":"needs_review","value":"Chargement de la discussion…"}},"it":{"stringUnit":{"state":"needs_review","value":"Caricamento della chat…"}},"ja":{"stringUnit":{"state":"needs_review","value":"チャットを読み込み中…"}},"km":{"stringUnit":{"state":"needs_review","value":"កំពុងផ្ទុកការជជែក…"}},"ko":{"stringUnit":{"state":"needs_review","value":"채팅 불러오는 중…"}},"nb":{"stringUnit":{"state":"needs_review","value":"Laster inn chat…"}},"pl":{"stringUnit":{"state":"needs_review","value":"Wczytywanie czatu…"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Carregando o chat…"}},"ru":{"stringUnit":{"state":"needs_review","value":"Загрузка чата…"}},"th":{"stringUnit":{"state":"needs_review","value":"กำลังโหลดแชต…"}},"tr":{"stringUnit":{"state":"needs_review","value":"Sohbet yükleniyor…"}},"uk":{"stringUnit":{"state":"needs_review","value":"Завантаження чату…"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đang tải cuộc trò chuyện…"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"正在加载对话…"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"正在載入對話…"}}}},
     "transcript.loadingOlder": {"comment":"Agent pane: accessible label of the spinner above a chat's loaded messages while earlier ones load (VirtualTranscript.tsx)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"جارٍ تحميل الرسائل السابقة…"}},"bs":{"stringUnit":{"state":"needs_review","value":"Učitavanje ranijih poruka…"}},"da":{"stringUnit":{"state":"needs_review","value":"Indlæser tidligere beskeder…"}},"de":{"stringUnit":{"state":"needs_review","value":"Frühere Nachrichten werden geladen…"}},"en":{"stringUnit":{"state":"translated","value":"Loading earlier messages…"}},"es":{"stringUnit":{"state":"needs_review","value":"Cargando mensajes anteriores…"}},"fr":{"stringUnit":{"state":"needs_review","value":"Chargement des messages précédents…"}},"it":{"stringUnit":{"state":"needs_review","value":"Caricamento dei messaggi precedenti…"}},"ja":{"stringUnit":{"state":"needs_review","value":"以前のメッセージを読み込み中…"}},"km":{"stringUnit":{"state":"needs_review","value":"កំពុងផ្ទុកសារមុនៗ…"}},"ko":{"stringUnit":{"state":"needs_review","value":"이전 메시지 불러오는 중…"}},"nb":{"stringUnit":{"state":"needs_review","value":"Laster inn tidligere meldinger…"}},"pl":{"stringUnit":{"state":"needs_review","value":"Wczytywanie wcześniejszych wiadomości…"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Carregando mensagens anteriores…"}},"ru":{"stringUnit":{"state":"needs_review","value":"Загрузка предыдущих сообщений…"}},"th":{"stringUnit":{"state":"needs_review","value":"กำลังโหลดข้อความก่อนหน้า…"}},"tr":{"stringUnit":{"state":"needs_review","value":"Önceki mesajlar yükleniyor…"}},"uk":{"stringUnit":{"state":"needs_review","value":"Завантаження попередніх повідомлень…"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đang tải tin nhắn trước đó…"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"正在加载更早的消息…"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"正在載入較早的訊息…"}}}},
     "composer.slashHelp": {"comment":"Composer slash menu: description of cmux's /help command, which opens a searchable sheet of commands, skills and keys.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"عرض كل الأوامر والمهارات والمفاتيح"}},"bs":{"stringUnit":{"state":"needs_review","value":"Prikaži sve naredbe, vještine i tipke"}},"da":{"stringUnit":{"state":"needs_review","value":"Vis alle kommandoer, færdigheder og taster"}},"de":{"stringUnit":{"state":"needs_review","value":"Alle Befehle, Skills und Tasten anzeigen"}},"en":{"stringUnit":{"state":"translated","value":"Show every command, skill and key"}},"es":{"stringUnit":{"state":"needs_review","value":"Ver todos los comandos, skills y teclas"}},"fr":{"stringUnit":{"state":"needs_review","value":"Afficher toutes les commandes, compétences et touches"}},"it":{"stringUnit":{"state":"needs_review","value":"Mostra tutti i comandi, le skill e i tasti"}},"ja":{"stringUnit":{"state":"needs_review","value":"すべてのコマンド、スキル、キーを表示"}},"km":{"stringUnit":{"state":"needs_review","value":"បង្ហាញពាក្យបញ្ជា ជំនាញ និងគ្រាប់ចុចទាំងអស់"}},"ko":{"stringUnit":{"state":"needs_review","value":"모든 명령, 스킬, 키 보기"}},"nb":{"stringUnit":{"state":"needs_review","value":"Vis alle kommandoer, ferdigheter og taster"}},"pl":{"stringUnit":{"state":"needs_review","value":"Pokaż wszystkie polecenia, umiejętności i klawisze"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Ver todos os comandos, skills e teclas"}},"ru":{"stringUnit":{"state":"needs_review","value":"Показать все команды, навыки и клавиши"}},"th":{"stringUnit":{"state":"needs_review","value":"แสดงคำสั่ง สกิล และปุ่มทั้งหมด"}},"tr":{"stringUnit":{"state":"needs_review","value":"Tüm komutları, becerileri ve tuşları göster"}},"uk":{"stringUnit":{"state":"needs_review","value":"Показати всі команди, навички й клавіші"}},"vi":{"stringUnit":{"state":"needs_review","value":"Hiện mọi lệnh, kỹ năng và phím"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"显示所有命令、技能和按键"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"顯示所有指令、技能與按鍵"}}}},
@@ -214127,6 +214129,438 @@
     "sessionInfo.subagent.backPlain": {"comment":"Agent pane: the Inspector's back button on a subagent's panel when what spawned it has no readable name (never its raw session id)","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Back"}},"ar":{"stringUnit":{"state":"needs_review","value":"رجوع"}},"bs":{"stringUnit":{"state":"needs_review","value":"Nazad"}},"da":{"stringUnit":{"state":"needs_review","value":"Tilbage"}},"de":{"stringUnit":{"state":"needs_review","value":"Zurück"}},"es":{"stringUnit":{"state":"needs_review","value":"Atrás"}},"fr":{"stringUnit":{"state":"needs_review","value":"Retour"}},"it":{"stringUnit":{"state":"needs_review","value":"Indietro"}},"ja":{"stringUnit":{"state":"needs_review","value":"戻る"}},"km":{"stringUnit":{"state":"needs_review","value":"ថយក្រោយ"}},"ko":{"stringUnit":{"state":"needs_review","value":"뒤로"}},"nb":{"stringUnit":{"state":"needs_review","value":"Tilbake"}},"pl":{"stringUnit":{"state":"needs_review","value":"Wstecz"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Voltar"}},"ru":{"stringUnit":{"state":"needs_review","value":"Назад"}},"th":{"stringUnit":{"state":"needs_review","value":"ย้อนกลับ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Geri"}},"uk":{"stringUnit":{"state":"needs_review","value":"Назад"}},"vi":{"stringUnit":{"state":"needs_review","value":"Quay lại"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"返回"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"返回"}}}},
     "awayRecap.label": {"comment":"Agent pane: muted lead-in of the session recap row, shown when the person comes back to a chat after 5+ minutes away; the recap text follows it","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"أثناء غيابك"}},"bs":{"stringUnit":{"state":"needs_review","value":"Dok niste bili tu"}},"da":{"stringUnit":{"state":"needs_review","value":"Mens du var væk"}},"de":{"stringUnit":{"state":"needs_review","value":"Während du weg warst"}},"en":{"stringUnit":{"state":"translated","value":"While you were away"}},"es":{"stringUnit":{"state":"needs_review","value":"Mientras no estabas"}},"fr":{"stringUnit":{"state":"needs_review","value":"Pendant votre absence"}},"it":{"stringUnit":{"state":"needs_review","value":"Mentre eri via"}},"ja":{"stringUnit":{"state":"needs_review","value":"離席中のまとめ"}},"km":{"stringUnit":{"state":"needs_review","value":"ពេលអ្នកមិននៅ"}},"ko":{"stringUnit":{"state":"needs_review","value":"자리를 비운 동안"}},"nb":{"stringUnit":{"state":"needs_review","value":"Mens du var borte"}},"pl":{"stringUnit":{"state":"needs_review","value":"Podczas Twojej nieobecności"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Enquanto você esteve fora"}},"ru":{"stringUnit":{"state":"needs_review","value":"Пока вас не было"}},"th":{"stringUnit":{"state":"needs_review","value":"ระหว่างที่คุณไม่อยู่"}},"tr":{"stringUnit":{"state":"needs_review","value":"Siz yokken"}},"uk":{"stringUnit":{"state":"needs_review","value":"Поки вас не було"}},"vi":{"stringUnit":{"state":"needs_review","value":"Trong lúc bạn vắng mặt"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"你离开期间"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"你離開期間"}}}},
     "since.label": {"comment":"Agent pane: the quiet line in a chat's transcript that marks where the person left off when they come back to a chat that kept working","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"جديد منذ آخر نظرة"}},"bs":{"stringUnit":{"state":"needs_review","value":"Novo otkad ste pogledali"}},"da":{"stringUnit":{"state":"needs_review","value":"Nyt siden du kiggede"}},"de":{"stringUnit":{"state":"needs_review","value":"Neu seit deinem letzten Blick"}},"en":{"stringUnit":{"state":"translated","value":"New since you looked"}},"es":{"stringUnit":{"state":"needs_review","value":"Nuevo desde que miraste"}},"fr":{"stringUnit":{"state":"needs_review","value":"Nouveau depuis votre dernière visite"}},"it":{"stringUnit":{"state":"needs_review","value":"Novità dall'ultima occhiata"}},"ja":{"stringUnit":{"state":"needs_review","value":"前回見てからの新着"}},"km":{"stringUnit":{"state":"needs_review","value":"ថ្មីតាំងពីអ្នកបានមើល"}},"ko":{"stringUnit":{"state":"needs_review","value":"마지막으로 본 이후 새 항목"}},"nb":{"stringUnit":{"state":"needs_review","value":"Nytt siden du så"}},"pl":{"stringUnit":{"state":"needs_review","value":"Nowe od ostatniego razu"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Novo desde que você olhou"}},"ru":{"stringUnit":{"state":"needs_review","value":"Новое с вашего прошлого визита"}},"th":{"stringUnit":{"state":"needs_review","value":"ใหม่ตั้งแต่คุณดูล่าสุด"}},"tr":{"stringUnit":{"state":"needs_review","value":"Son baktığınızdan beri yeni"}},"uk":{"stringUnit":{"state":"needs_review","value":"Нове з вашого останнього візиту"}},"vi":{"stringUnit":{"state":"needs_review","value":"Mới kể từ lần bạn xem"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"上次查看后的新内容"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"上次查看後的新內容"}}}},
+    "since.messages": {
+      "comment": "Agent pane: the label at the center of the unread line in a chat's transcript and in its unread banner, counting the messages that arrived while the person was away or scrolled up. {n} is the count, or 999+.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "variations": {
+            "plural": {
+              "zero": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "{n} رسالة جديدة"
+                }
+              },
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "{n} رسالة جديدة"
+                }
+              },
+              "two": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "{n} رسالتان جديدتان"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "{n} رسائل جديدة"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "{n} رسالة جديدة"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "{n} رسالة جديدة"
+                }
+              }
+            }
+          }
+        },
+        "bs": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "{n} nova poruka"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "{n} nove poruke"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "{n} novih poruka"
+                }
+              }
+            }
+          }
+        },
+        "da": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "{n} ny besked"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "{n} nye beskeder"
+                }
+              }
+            }
+          }
+        },
+        "de": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "{n} neue Nachricht"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "{n} neue Nachrichten"
+                }
+              }
+            }
+          }
+        },
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} new message"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} new messages"
+                }
+              }
+            }
+          }
+        },
+        "es": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "{n} mensaje nuevo"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "{n} mensajes nuevos"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "{n} mensajes nuevos"
+                }
+              }
+            }
+          }
+        },
+        "fr": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "{n} nouveau message"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "{n} nouveaux messages"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "{n} nouveaux messages"
+                }
+              }
+            }
+          }
+        },
+        "it": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "{n} nuovo messaggio"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "{n} nuovi messaggi"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "{n} nuovi messaggi"
+                }
+              }
+            }
+          }
+        },
+        "ja": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "{n} 件の新着メッセージ"
+                }
+              }
+            }
+          }
+        },
+        "km": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "សារថ្មី {n}"
+                }
+              }
+            }
+          }
+        },
+        "ko": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "새 메시지 {n}개"
+                }
+              }
+            }
+          }
+        },
+        "nb": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "{n} ny melding"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "{n} nye meldinger"
+                }
+              }
+            }
+          }
+        },
+        "pl": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "{n} nowa wiadomość"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "{n} nowe wiadomości"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "{n} nowych wiadomości"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "{n} nowej wiadomości"
+                }
+              }
+            }
+          }
+        },
+        "pt-BR": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "{n} nova mensagem"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "{n} novas mensagens"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "{n} novas mensagens"
+                }
+              }
+            }
+          }
+        },
+        "ru": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "{n} новое сообщение"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "{n} новых сообщения"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "{n} новых сообщений"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "{n} новых сообщения"
+                }
+              }
+            }
+          }
+        },
+        "th": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "ข้อความใหม่ {n} ข้อความ"
+                }
+              }
+            }
+          }
+        },
+        "tr": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "{n} yeni mesaj"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "{n} yeni mesaj"
+                }
+              }
+            }
+          }
+        },
+        "uk": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "{n} нове повідомлення"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "{n} нові повідомлення"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "{n} нових повідомлень"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "{n} нового повідомлення"
+                }
+              }
+            }
+          }
+        },
+        "vi": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "{n} tin nhắn mới"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hans": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "{n} 条新消息"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hant": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "{n} 則新訊息"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "since.jump": {"comment":"Agent pane: the pill over the transcript that scrolls up to the New since you looked line","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"انتقل إلى الجديد"}},"bs":{"stringUnit":{"state":"needs_review","value":"Idi na novo"}},"da":{"stringUnit":{"state":"needs_review","value":"Gå til nyt"}},"de":{"stringUnit":{"state":"needs_review","value":"Zum Neuen springen"}},"en":{"stringUnit":{"state":"translated","value":"Jump to new"}},"es":{"stringUnit":{"state":"needs_review","value":"Ir a lo nuevo"}},"fr":{"stringUnit":{"state":"needs_review","value":"Aller au nouveau"}},"it":{"stringUnit":{"state":"needs_review","value":"Vai alle novità"}},"ja":{"stringUnit":{"state":"needs_review","value":"新着へ移動"}},"km":{"stringUnit":{"state":"needs_review","value":"ទៅកាន់ថ្មី"}},"ko":{"stringUnit":{"state":"needs_review","value":"새 항목으로 이동"}},"nb":{"stringUnit":{"state":"needs_review","value":"Gå til nytt"}},"pl":{"stringUnit":{"state":"needs_review","value":"Przejdź do nowych"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Ir para o novo"}},"ru":{"stringUnit":{"state":"needs_review","value":"К новому"}},"th":{"stringUnit":{"state":"needs_review","value":"ไปยังรายการใหม่"}},"tr":{"stringUnit":{"state":"needs_review","value":"Yeniye git"}},"uk":{"stringUnit":{"state":"needs_review","value":"До нового"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đến mục mới"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"跳到新内容"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"跳到新內容"}}}},
     "since.turns": {"comment":"Agent pane: after New since you looked, how many agent turns ended while the person was away. {n} is the count.","extractionState":"manual","localizations":{"ar":{"variations":{"plural":{"zero":{"stringUnit":{"state":"needs_review","value":"{n} دورات"}},"one":{"stringUnit":{"state":"needs_review","value":"{n} دورة"}},"two":{"stringUnit":{"state":"needs_review","value":"{n} دورتان"}},"few":{"stringUnit":{"state":"needs_review","value":"{n} دورات"}},"many":{"stringUnit":{"state":"needs_review","value":"{n} دورة"}},"other":{"stringUnit":{"state":"needs_review","value":"{n} دورة"}}}}},"bs":{"variations":{"plural":{"one":{"stringUnit":{"state":"needs_review","value":"{n} potez"}},"few":{"stringUnit":{"state":"needs_review","value":"{n} poteza"}},"other":{"stringUnit":{"state":"needs_review","value":"{n} poteza"}}}}},"da":{"variations":{"plural":{"one":{"stringUnit":{"state":"needs_review","value":"{n} tur"}},"other":{"stringUnit":{"state":"needs_review","value":"{n} ture"}}}}},"de":{"variations":{"plural":{"one":{"stringUnit":{"state":"needs_review","value":"{n} Runde"}},"other":{"stringUnit":{"state":"needs_review","value":"{n} Runden"}}}}},"en":{"variations":{"plural":{"one":{"stringUnit":{"state":"translated","value":"{n} turn"}},"other":{"stringUnit":{"state":"translated","value":"{n} turns"}}}}},"es":{"variations":{"plural":{"one":{"stringUnit":{"state":"needs_review","value":"{n} turno"}},"many":{"stringUnit":{"state":"needs_review","value":"{n} turnos"}},"other":{"stringUnit":{"state":"needs_review","value":"{n} turnos"}}}}},"fr":{"variations":{"plural":{"one":{"stringUnit":{"state":"needs_review","value":"{n} tour"}},"many":{"stringUnit":{"state":"needs_review","value":"{n} tours"}},"other":{"stringUnit":{"state":"needs_review","value":"{n} tours"}}}}},"it":{"variations":{"plural":{"one":{"stringUnit":{"state":"needs_review","value":"{n} turno"}},"many":{"stringUnit":{"state":"needs_review","value":"{n} turni"}},"other":{"stringUnit":{"state":"needs_review","value":"{n} turni"}}}}},"ja":{"variations":{"plural":{"other":{"stringUnit":{"state":"needs_review","value":"{n} ターン"}}}}},"km":{"variations":{"plural":{"other":{"stringUnit":{"state":"needs_review","value":"{n} វេន"}}}}},"ko":{"variations":{"plural":{"other":{"stringUnit":{"state":"needs_review","value":"{n}턴"}}}}},"nb":{"variations":{"plural":{"one":{"stringUnit":{"state":"needs_review","value":"{n} runde"}},"other":{"stringUnit":{"state":"needs_review","value":"{n} runder"}}}}},"pl":{"variations":{"plural":{"one":{"stringUnit":{"state":"needs_review","value":"{n} tura"}},"few":{"stringUnit":{"state":"needs_review","value":"{n} tury"}},"many":{"stringUnit":{"state":"needs_review","value":"{n} tur"}},"other":{"stringUnit":{"state":"needs_review","value":"{n} tury"}}}}},"pt-BR":{"variations":{"plural":{"one":{"stringUnit":{"state":"needs_review","value":"{n} turno"}},"many":{"stringUnit":{"state":"needs_review","value":"{n} turnos"}},"other":{"stringUnit":{"state":"needs_review","value":"{n} turnos"}}}}},"ru":{"variations":{"plural":{"one":{"stringUnit":{"state":"needs_review","value":"{n} ход"}},"few":{"stringUnit":{"state":"needs_review","value":"{n} хода"}},"many":{"stringUnit":{"state":"needs_review","value":"{n} ходов"}},"other":{"stringUnit":{"state":"needs_review","value":"{n} хода"}}}}},"th":{"variations":{"plural":{"other":{"stringUnit":{"state":"needs_review","value":"{n} รอบ"}}}}},"tr":{"variations":{"plural":{"one":{"stringUnit":{"state":"needs_review","value":"{n} tur"}},"other":{"stringUnit":{"state":"needs_review","value":"{n} tur"}}}}},"uk":{"variations":{"plural":{"one":{"stringUnit":{"state":"needs_review","value":"{n} хід"}},"few":{"stringUnit":{"state":"needs_review","value":"{n} ходи"}},"many":{"stringUnit":{"state":"needs_review","value":"{n} ходів"}},"other":{"stringUnit":{"state":"needs_review","value":"{n} ходу"}}}}},"vi":{"variations":{"plural":{"other":{"stringUnit":{"state":"needs_review","value":"{n} lượt"}}}}},"zh-Hans":{"variations":{"plural":{"other":{"stringUnit":{"state":"needs_review","value":"{n} 轮"}}}}},"zh-Hant":{"variations":{"plural":{"other":{"stringUnit":{"state":"needs_review","value":"{n} 輪"}}}}}}},
     "since.bannerCount": {
