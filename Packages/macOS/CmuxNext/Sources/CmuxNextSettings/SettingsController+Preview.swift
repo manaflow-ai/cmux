@@ -48,7 +48,7 @@ extension SettingsController {
                 root = edit(overlay.applied(to: root, managed: held))
                 // A previewed density row shows over the file's own density, as any previewed key over the file.
                 let densityRows = [DensitySetting.configPath, CustomDensitySelectionSetting.configPath]
-                themeDensity = densityRows.contains(descriptor.path) ? nil : overlay.density(under: held)
+                themeDensity = edits.contains { densityRows.contains($0.0.path) } ? nil : overlay.density(under: held)
             }
         }
         var previewed = CmuxConfigSnapshot.parse(root, validDensities: SettingsApplier.validDensities,
