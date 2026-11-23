@@ -16,7 +16,7 @@
 
 use cmux_wallpaper::frame::{ActivityState, FrameInput, PointerState};
 use cmux_wallpaper::schedule::{Decision, ScheduleInput};
-use cmux_wallpaper::{FRAME_FLOATS, Manifest, Player, SCENE_FLOATS, TrailPoint, TrailState};
+use cmux_wallpaper::{Manifest, Player, SCENE_FLOATS, TrailPoint, TrailState};
 use std::ffi::{CString, c_char};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
