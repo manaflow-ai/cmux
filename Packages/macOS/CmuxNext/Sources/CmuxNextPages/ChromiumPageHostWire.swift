@@ -45,6 +45,9 @@ nonisolated struct ChromiumPageHostWire {
         }
     }
 
+    /// What the bridge asks a context to learn who sent its messages (``Sender``).
+    static let senderExpression = "[location.href, window === window.top]"
+
     /// The `Runtime.evaluate` result of `[location.href, window === window.top]`.
     struct Sender: Equatable {
         var url: URL?
