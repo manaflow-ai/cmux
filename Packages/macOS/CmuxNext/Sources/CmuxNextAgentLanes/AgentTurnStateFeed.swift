@@ -98,7 +98,7 @@ public final class AgentTurnStateFeed {
     public var peerStateChanged: (@MainActor (_ peer: String?, _ state: String?) -> Void)?
     /// Window-owned listeners for the same peer-link stream. Each sidebar registers a token so
     /// closing one window cannot overwrite another listener or the legacy device-directory hook.
-    private var peerStateObservers: [String: PeerStateObserver] = [:]
+    private(set) var peerStateObservers: [String: PeerStateObserver] = [:]
 
     public func addPeerStateObserver(_ observer: @escaping PeerStateObserver) -> String {
         let id = UUID().uuidString

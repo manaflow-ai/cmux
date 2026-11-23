@@ -134,15 +134,15 @@ public final class RemoteMachinesSidebar {
     }
 
     /// Creates the app-facing transport adapter without coupling this model to AppServices.
-    public static func host(socketPath: String?, displayName: @escaping (String) -> String?,
+    public static func host(socketPath: @escaping @MainActor @Sendable () -> String?, displayName: @escaping (String) -> String?,
                             open: @escaping (AgentActivityLane) -> Void) -> Host {
         Host(
             peers: {
-                guard let socketPath else { return nil }
+                guard let socketPath = await socketPath() else { return nil }
                 return try? await AcpmuxPeerList(socketPath: socketPath).peers()
             },
             older: { peer, cursor in
-                guard let socketPath else { return nil }
+                guard let socketPath = await socketPath() else { return nil }
                 return try? await AcpmuxSessionPage(socketPath: socketPath).closed(peer: peer, cursor: cursor,
                                                                                   limit: RemoteMachinesSidebar.pageSize)
             },

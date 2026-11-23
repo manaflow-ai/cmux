@@ -40,7 +40,8 @@ struct PeerStatePushTests {
         var first: [String?] = []
         var second: [String?] = []
         let firstID = feed.addPeerStateObserver { peer, _ in first.append(peer) }
-        feed.addPeerStateObserver { peer, _ in second.append(peer) }
+        let secondID = feed.addPeerStateObserver { peer, _ in second.append(peer) }
+        defer { feed.removePeerStateObserver(secondID) }
         feed.handle(.peerState(peer: "joined-box", state: "connected"))
         #expect(first == ["joined-box"] && second == ["joined-box"])
         feed.removePeerStateObserver(firstID)

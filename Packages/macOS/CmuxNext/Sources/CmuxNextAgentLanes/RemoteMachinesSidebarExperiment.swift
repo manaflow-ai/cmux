@@ -11,7 +11,8 @@ import Observation
 @MainActor
 public final class RemoteMachinesSidebarExperiment {
     private let sidebar: RemoteMachinesSidebar
-    private let feed: AgentTurnStateFeed?
+    private let currentFeed: @MainActor @Sendable () -> AgentTurnStateFeed?
+    private var feed: AgentTurnStateFeed?
     private let enabled: @MainActor @Sendable () -> Bool
     private let socketPath: @MainActor @Sendable () -> String?
     private let displayName: (String) -> String?
@@ -23,9 +24,15 @@ public final class RemoteMachinesSidebarExperiment {
                 enabled: @escaping @MainActor @Sendable () -> Bool,
                 socketPath: @escaping @MainActor @Sendable () -> String?,
                 displayName: @escaping (String) -> String?,
-                open: @escaping (Any) -> Void) {
+                open: @escaping (Any) -> Void,
+                currentFeed: @escaping @MainActor @Sendable () -> AgentTurnStateFeed? = {
+                    // The launch window predates ChatsFeed.started. Its first page changes `live`,
+                    // waking this read after the feed is installed, without moving work before the frame.
+                    _ = AgentLaneStore.shared.live
+                    return AgentTurnStateFeed.shared
+                }) {
         self.sidebar = sidebar as! RemoteMachinesSidebar
-        self.feed = AgentTurnStateFeed.shared
+        self.currentFeed = currentFeed
         self.enabled = enabled
         self.socketPath = socketPath
         self.displayName = displayName
@@ -34,19 +41,15 @@ public final class RemoteMachinesSidebarExperiment {
 
     public func start() {
         stop()
-        if let feed {
-            observerID = feed.addPeerStateObserver { [weak sidebar] peer, state in
-                sidebar?.peerStateChanged(peer: peer, state: state)
-            }
-        }
         // main-hop-allow: ObservationStream is MainActor-isolated; this hop only watches the Labs setting and
         // binds or stops the per-window sidebar, with no transport or frame work inside the observer.
         observation = Task { @MainActor [weak self] in
             guard let self else { return }
-            for await on in ObservationStream({ self.enabled() }) {
+            for await (on, feed) in ObservationStream({ (self.enabled(), self.currentFeed()) }) {
                 guard !Task.isCancelled else { return }
+                self.observePeerState(on ? feed : nil)
                 if on {
-                    self.sidebar.bind(host: RemoteMachinesSidebar.host(socketPath: self.socketPath(),
+                    self.sidebar.bind(host: RemoteMachinesSidebar.host(socketPath: self.socketPath,
                                                                          displayName: self.displayName,
                                                                          open: self.open))
                 } else {
@@ -59,8 +62,18 @@ public final class RemoteMachinesSidebarExperiment {
     public func stop() {
         observation?.cancel()
         observation = nil
-        if let observerID, let feed { feed.removePeerStateObserver(observerID) }
-        self.observerID = nil
+        observePeerState(nil)
         sidebar.stop()
+    }
+
+    private func observePeerState(_ next: AgentTurnStateFeed?) {
+        guard feed !== next else { return }
+        if let observerID, let feed { feed.removePeerStateObserver(observerID) }
+        feed = next
+        observerID = next?.addPeerStateObserver { [weak sidebar] peer, state in
+            sidebar?.peerStateChanged(peer: peer, state: state)
+        }
+        // A newly available feed may have emitted its initial peer event before we subscribed.
+        if next != nil { sidebar.peerStateChanged(peer: nil, state: nil) }
     }
 }
