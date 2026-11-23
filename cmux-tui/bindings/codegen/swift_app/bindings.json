@@ -283,6 +283,72 @@
             }
           },
           "response": "EmptyResponse"
+        },
+        "set-divider-visible": {
+          "name": "SetDividerVisibleRequest",
+          "doc": [
+            "A split's divider drawn or not (`split-divider-visibility-v1`): a hidden divider draws no line",
+            "and still drags. The daemon keeps it on the split node, so it persists with the layout."
+          ],
+          "order": [
+            "split",
+            "visible"
+          ],
+          "fields": {
+            "split": {
+              "type": "SplitID"
+            }
+          },
+          "capability": null
+        },
+        "set-viewport-pane-width": {
+          "name": "SetColumnWidthRequest",
+          "doc": [
+            "Column width drag (`viewport-column-resize-v1`)."
+          ],
+          "order": [
+            "pane",
+            "width",
+            "transaction"
+          ],
+          "fields": {
+            "pane": {
+              "type": "PaneID"
+            },
+            "width": {
+              "doc": [
+                "0.1...1.0 of the viewport."
+              ]
+            }
+          },
+          "response": "EmptyResponse",
+          "capability": null
+        },
+        "set-row-heights": {
+          "name": "SetRowHeightsRequest",
+          "doc": [
+            "`set-row-heights` (`rows-v1`): every row of one column at once. `fit`",
+            "requires a sum of exactly 1000."
+          ],
+          "order": [
+            "column",
+            "heights",
+            "fit",
+            "transaction"
+          ],
+          "fields": {
+            "column": {
+              "type": "ColumnID"
+            },
+            "heights": {
+              "type": "[RowHeightValue]"
+            },
+            "fit": {
+              "required": true,
+              "default": "false"
+            }
+          },
+          "response": "EmptyResponse"
         }
       }
     },
@@ -818,6 +884,58 @@
             }
           },
           "response": "ScreenGroupResult"
+        },
+        "update-screen-group": {
+          "name": "UpdateScreenGroupRequest",
+          "order": [
+            "group",
+            "name",
+            "color",
+            "collapsed",
+            "icon"
+          ],
+          "fields": {
+            "group": {
+              "type": "ScreenGroupID"
+            },
+            "icon": {
+              "update": true,
+              "doc": [
+                "`screen-group-icon-v1`: sent only when set; `.clear` sends `null`, which removes it."
+              ]
+            }
+          },
+          "response": "ScreenGroupResult"
+        },
+        "set-screen-metadata": {
+          "name": "SetScreenMetadataRequest",
+          "doc": [
+            "Shared screen color and icon. A field sent as JSON null clears it; an",
+            "omitted field keeps its value."
+          ],
+          "order": [
+            "screen",
+            "color",
+            "icon"
+          ],
+          "fields": {
+            "screen": {
+              "type": "ScreenID"
+            },
+            "color": {
+              "update": true,
+              "doc": [
+                "Palette token `[a-z][a-z0-9-]{0,31}` or `#RRGGBB[AA]`; frontends offer the nine group colors."
+              ]
+            },
+            "icon": {
+              "update": true,
+              "doc": [
+                "SF Symbol name or one emoji grapheme."
+              ]
+            }
+          },
+          "response": "ScreenMetadataResult"
         }
       }
     },
@@ -1015,6 +1133,59 @@
             }
           },
           "response": "TabGroupResult"
+        },
+        "remove-tabs-from-tab-group": {
+          "name": "RemoveTabsFromGroupRequest",
+          "doc": [
+            "Removes tabs from their groups; each lands just after its former group.",
+            "A group left without members disappears."
+          ],
+          "order": [
+            "surfaces",
+            "transaction"
+          ],
+          "fields": {
+            "surfaces": {
+              "type": "[SurfaceID]",
+              "name": "tabs",
+              "doc": [
+                "Wire `surfaces`."
+              ]
+            },
+            "transaction": {
+              "type": "ClientTransactionID"
+            }
+          },
+          "response": "TabGroupResult"
+        },
+        "move-tab-group": {
+          "name": "MoveTabGroupRequest",
+          "doc": [
+            "Reorders a group in its strip or moves it into another pane at `index`."
+          ],
+          "order": [
+            "group",
+            "pane",
+            "index",
+            "transaction"
+          ],
+          "fields": {
+            "group": {
+              "type": "TabGroupID"
+            },
+            "pane": {
+              "required": true,
+              "type": "PaneID"
+            },
+            "index": {
+              "required": true,
+              "type": "Int"
+            },
+            "transaction": {
+              "type": "ClientTransactionID"
+            }
+          },
+          "response": "TabGroupResult"
         }
       }
     },
@@ -1085,6 +1256,68 @@
             }
           },
           "response": "TabMoveResult"
+        },
+        "move-tab-to-workspace": {
+          "name": "MoveTabToWorkspaceRequest",
+          "doc": [
+            "Move into an existing workspace's active pane, or a new workspace when",
+            "`workspace` is nil (`tab-workspace-move-v1`)."
+          ],
+          "order": [
+            "surface",
+            "workspace",
+            "transaction"
+          ],
+          "fields": {
+            "surface": {
+              "type": "SurfaceID"
+            },
+            "workspace": {
+              "type": "WorkspaceHandle"
+            },
+            "transaction": {
+              "type": "ClientTransactionID"
+            }
+          },
+          "response": "TabMoveResult",
+          "capability": null
+        },
+        "move-tab-to-split": {
+          "name": "MoveTabToSplitRespawnRequest",
+          "doc": [
+            "`move-tab-to-split` with `respawn`: one owner op that moves the tab into",
+            "a new pane beside its own pane and spawns `respawn` in the pane it left.",
+            "It can launch a terminal host, so it uses the spawn deadline."
+          ],
+          "protocol": "TerminalSpawningRequest",
+          "order": [
+            "surface",
+            "pane",
+            "edge",
+            "ratio",
+            "respawn",
+            "transaction"
+          ],
+          "fields": {
+            "surface": {
+              "type": "SurfaceID"
+            },
+            "pane": {
+              "type": "PaneID"
+            },
+            "edge": {
+              "type": "PaneEdge"
+            },
+            "respawn": {
+              "required": true,
+              "type": "SplitRespawn"
+            },
+            "transaction": {
+              "type": "ClientTransactionID"
+            }
+          },
+          "response": "TabMoveResult",
+          "capability": "tab-split-respawn-v1"
         }
       }
     },
@@ -1201,6 +1434,68 @@
             "blob"
           ],
           "response": "IconAssetBlob"
+        }
+      }
+    },
+    "Creation": {
+      "requests": {
+        "new-screen": {
+          "name": "NewScreenRequest",
+          "protocol": "TerminalSpawningRequest",
+          "order": [
+            "workspace",
+            "size"
+          ],
+          "fields": {
+            "workspace": {
+              "type": "WorkspaceHandle"
+            }
+          },
+          "groups": {
+            "size": {
+              "type": "CellSize?",
+              "default": "nil",
+              "members": {
+                "cols": "size?.cols",
+                "rows": "size?.rows"
+              }
+            }
+          },
+          "response": "SurfaceCreated"
+        },
+        "new-pane": {
+          "name": "NewPaneRequest",
+          "doc": [
+            "Adds a pane to the pane's column (vertical stack inside a column)."
+          ],
+          "protocol": "TerminalSpawningRequest",
+          "order": [
+            "pane",
+            "options"
+          ],
+          "fields": {
+            "pane": {
+              "type": "PaneID"
+            }
+          },
+          "groups": {
+            "options": {
+              "type": "SpawnOptions",
+              "default": "SpawnOptions()",
+              "wire": [
+                "cwd",
+                "cols",
+                "rows",
+                "env",
+                "keep",
+                "terminal_id",
+                "shell_args",
+                "pane_id",
+                "tab_id"
+              ]
+            }
+          },
+          "response": "SurfaceCreated"
         }
       }
     }

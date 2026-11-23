@@ -31,24 +31,6 @@ public struct SplitRequest: TerminalSpawningRequest {
     }
 }
 
-/// Adds a pane to the pane's column (vertical stack inside a column).
-public struct NewPaneRequest: TerminalSpawningRequest {
-    public typealias Response = SurfaceCreated
-    public static let command = "new-pane"
-    public var pane: PaneID
-    public var options: SpawnOptions
-    public init(pane: PaneID, options: SpawnOptions = SpawnOptions()) {
-        self.pane = pane
-        self.options = options
-    }
-    enum CodingKeys: String, CodingKey { case pane }
-    public func encode(to encoder: any Encoder) throws {
-        var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encode(pane, forKey: .pane)
-        try options.encode(to: encoder)
-    }
-}
-
 /// Adds a new scrolling column to the right (`viewport-splits-v1`).
 public struct NewColumnRequest: TerminalSpawningRequest {
     public typealias Response = SurfaceCreated

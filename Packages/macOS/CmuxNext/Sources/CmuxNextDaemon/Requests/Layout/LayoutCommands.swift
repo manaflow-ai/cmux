@@ -1,33 +1,5 @@
 import Foundation
 
-/// A split's divider drawn or not (`split-divider-visibility-v1`): a hidden divider draws no line
-/// and still drags. The daemon keeps it on the split node, so it persists with the layout.
-public struct SetDividerVisibleRequest: DaemonRequest {
-    public typealias Response = EmptyResponse
-    public static let command = "set-divider-visible"
-    public var split: SplitID
-    public var visible: Bool
-    public init(split: SplitID, visible: Bool) {
-        self.split = split
-        self.visible = visible
-    }
-}
-
-/// Column width drag (`viewport-column-resize-v1`).
-public struct SetColumnWidthRequest: DaemonRequest {
-    public typealias Response = EmptyResponse
-    public static let command = "set-viewport-pane-width"
-    public var pane: PaneID
-    /// 0.1...1.0 of the viewport.
-    public var width: Double
-    public var transaction: UInt64?
-    public init(pane: PaneID, width: Double, transaction: UInt64? = nil) {
-        self.pane = pane
-        self.width = width
-        self.transaction = transaction
-    }
-}
-
 public struct UndoLayoutRequest: DaemonRequest {
     public struct Response: Decodable, Sendable, Equatable {
         public var undone: Bool

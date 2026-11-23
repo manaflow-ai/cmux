@@ -33,26 +33,3 @@ public struct AddTabsToGroupRequest: DaemonRequest {
         try c.encodeIfPresent(transaction, forKey: .transaction)
     }
 }
-
-/// Removes tabs from their groups; each lands just after its former group.
-/// A group left without members disappears.
-public struct RemoveTabsFromGroupRequest: DaemonRequest {
-    public typealias Response = TabGroupResult
-    public static let command = "remove-tabs-from-tab-group"
-    public static let requiredCapability: String? = DaemonCapability.tabGroups.rawValue
-    /// Wire `surfaces`.
-    public var tabs: [SurfaceID]
-    public var transaction: ClientTransactionID?
-
-    public init(tabs: [SurfaceID], transaction: ClientTransactionID? = nil) {
-        self.tabs = tabs
-        self.transaction = transaction
-    }
-
-    enum CodingKeys: String, CodingKey { case surfaces, transaction }
-    public func encode(to encoder: any Encoder) throws {
-        var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encode(tabs, forKey: .surfaces)
-        try c.encodeIfPresent(transaction, forKey: .transaction)
-    }
-}

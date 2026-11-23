@@ -107,21 +107,3 @@ public struct NewTabRequest: TerminalSpawningRequest {
         try options.encode(to: encoder)
     }
 }
-
-public struct NewScreenRequest: TerminalSpawningRequest {
-    public typealias Response = SurfaceCreated
-    public static let command = "new-screen"
-    public var workspace: WorkspaceHandle?
-    public var size: CellSize?
-    public init(workspace: WorkspaceHandle?, size: CellSize? = nil) {
-        self.workspace = workspace
-        self.size = size
-    }
-    enum CodingKeys: String, CodingKey { case workspace, cols, rows }
-    public func encode(to encoder: any Encoder) throws {
-        var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encodeIfPresent(workspace, forKey: .workspace)
-        try c.encodeIfPresent(size?.cols, forKey: .cols)
-        try c.encodeIfPresent(size?.rows, forKey: .rows)
-    }
-}
