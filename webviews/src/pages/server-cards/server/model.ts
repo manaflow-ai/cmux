@@ -1,14 +1,6 @@
-// What the server surfaces derive from the app's status: the code field's shape, the health order,
-// the overall line, the panel's facts, and the Add Server card's buttons and keys. Pure, so the
-// tests pin each rule; the views only draw them.
-import type {
-  AddServerStepName,
-  HealthAlert,
-  HealthSeverity,
-  ServerApprover,
-  ServerSnapshot,
-  ServerStatus,
-} from "./types";
+// What the server surfaces derive from the app's status: the pairing code's shape, the health order,
+// the overall line and the panel's facts. Pure, so the tests pin each rule; the views only draw them.
+import type { HealthAlert, HealthSeverity, ServerSnapshot, ServerStatus } from "./types";
 
 // MARK: - Pairing code
 
@@ -160,77 +152,4 @@ export function panelFacts(snapshot: ServerSnapshot) {
     issues,
     worstIssue: HealthOrdering.worst(issues),
   };
-}
-
-// MARK: - Add Server
-
-export type AddServerAction = "approve" | "retry" | "done" | "cancel";
-
-/** One footer button: what it does, whether Return (`isDefault`) or Escape presses it, and whether it is on. */
-export interface AddServerButton {
-  action: AddServerAction;
-  isDefault: boolean;
-  enabled: boolean;
-}
-
-/** The footer: an Escape button and a Return button, or only Done once the server was added. */
-export function addServerButtons(approver: Pick<ServerApprover, "step" | "canApprove">): AddServerButton[] {
-  if (approver.step === "added") return [{ action: "done", isDefault: true, enabled: true }];
-  const cancel: AddServerButton = { action: "cancel", isDefault: false, enabled: true };
-  const action = approver.step === "approveFailed" ? "retry" : "approve";
-  return [cancel, { action, isDefault: true, enabled: approver.canApprove }];
-}
-
-/** Whether only the person's own click on the button answers it: Approve and Try Again add a
- * server to the person's team, so they are the card panel's native footer (WebCardPanel's
- * PersonControl), never the page's. */
-export function isClickOnly(action: AddServerAction): boolean {
-  return action === "approve" || action === "retry";
-}
-
-/** The button a key presses (Return the default one, Escape the other), when it is on and a key
- * may press it: Return never approves. */
-export function buttonForKey(buttons: readonly AddServerButton[], key: string): AddServerButton | undefined {
-  if (key !== "Enter" && key !== "Escape") return undefined;
-  const button = buttons.find((entry) => entry.isDefault === (key === "Enter"));
-  return button?.enabled && !isClickOnly(button.action) ? button : undefined;
-}
-
-/** The Escape button's title key: Deny once a server is on the card, else Cancel. */
-export function escapeTitleKey(step: AddServerStepName): string {
-  return step === "review" || step === "approving" || step === "approveFailed" ? "approver.deny" : "approver.cancel";
-}
-
-/** The Return button's title key. */
-export function returnTitleKey(step: AddServerStepName): string {
-  switch (step) {
-    case "approving":
-      return "approver.adding";
-    case "approveFailed":
-      return "approver.retry";
-    case "added":
-      return "approver.done";
-    default:
-      return "approver.approve";
-  }
-}
-
-/** A server is on the card: its facts, words and options show. */
-export function showsCandidate(step: AddServerStepName): boolean {
-  return step === "review" || step === "approving" || step === "approveFailed";
-}
-
-/** Which layout shows: the card changes size between layouts, never on a keystroke. */
-export function layoutOf(step: AddServerStepName): "code" | "review" | "failed" | "added" {
-  switch (step) {
-    case "review":
-    case "approving":
-      return "review";
-    case "approveFailed":
-      return "failed";
-    case "added":
-      return "added";
-    default:
-      return "code";
-  }
 }

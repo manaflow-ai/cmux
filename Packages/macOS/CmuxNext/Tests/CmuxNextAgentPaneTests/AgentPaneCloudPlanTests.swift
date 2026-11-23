@@ -81,7 +81,7 @@ struct AgentPaneCloudPlanTests {
 
     @Test func theRefusalsCarryWhatTheCardOffers() throws {
         let required = AgentPaneCloudMachines.Plan.requiredDetails(["teams": [[String: String]](), "canSwitch": false])
-        #expect(required["plans"] as? [String] == ["pro", "max"] && required["canSwitch"] as? Bool == false)
+        #expect(required["plans"] as? [String] == ["next_plus", "next_pro", "next_max"] && required["canSwitch"] as? Bool == false)
 
         let reply = CloudSizeLocked(upgradePlan: "max", upgradeNamed: true, needed: .xl, folderBytes: 123).reply(planMax: nil)
         let error = try #require(reply["error"] as? [String: Any])
@@ -94,7 +94,10 @@ struct AgentPaneCloudPlanTests {
     }
 
     @Test func subscribeTakesProOrMaxOnAClick() async {
-        #expect(AgentPaneRequest(body: ["method": "cloud.plan.subscribe", "params": ["plan": "max"]]) == .cloudPlanSubscribe(plan: "max"))
+        // cmux NEXT's own plans, and the classic ones a server may still name.
+        for plan in ["next_plus", "next_pro", "next_max", "pro", "max"] {
+            #expect(AgentPaneRequest(body: ["method": "cloud.plan.subscribe", "params": ["plan": plan]]) == .cloudPlanSubscribe(plan: plan))
+        }
         for refused: [String: Any] in [["plan": "team"], ["plan": "Pro"], ["plan": 1], [:]] {
             #expect(AgentPaneRequest(body: ["method": "cloud.plan.subscribe", "params": refused]) == .unsupported("cloud.plan.subscribe"))
         }
@@ -122,6 +125,46 @@ struct AgentPaneCloudPlanTests {
         _ = await model.respond(to: .cloudPlanSubscribe(plan: "max"))
         _ = await machines.planReads.read(account: ["u-sub", nil], get)
         #expect(reads == 2)
+    }
+
+    /// The page's plan (`planMax`) picks the size asked for a folder or a repository (``CloudChatSize/planned(bytes:planMax:)``)
+    /// and the disk grown past it (``AgentPaneCloudStart/grownDiskMb``); with no plan known, the size and disk as before.
+    @Test func aStartPastThePlansLargestSizeAsksItGrown() throws {
+        let gib: Int64 = 1_073_741_824
+        var start = try #require(AgentPaneCloudStart(params: ["task": "t", "key": UUID().uuidString, "planMax": "lg"]))
+        #expect(start.planMax == .lg)
+        #expect(AgentPaneCloudStart(params: ["task": "t", "key": UUID().uuidString, "planMax": "huge"])?.planMax == nil)
+        // cmux NEXT Pro, 48 GiB: `lg`, its disk grown to 72 GiB; 60 GiB: `lg` grown to 92.
+        let pro = try start.sized(.passed(bytes: 48 * gib, size: .lg), local: "/tmp/p")
+        #expect(pro.size == .lg && pro.grownDiskMb == 72 * 1_024)
+        #expect(try start.sized(.passed(bytes: 60 * gib, size: .xl), local: "/tmp/p").grownDiskMb == 92 * 1_024)
+        // 100 GiB: `lg` grown to Pro's 128 GiB at most.
+        let capped = try start.sized(.passed(bytes: 100 * gib, size: .xl), local: "/tmp/p")
+        #expect(capped.size == .lg && capped.grownDiskMb == 128 * 1_024)
+        // 120 GiB: past Pro's disk, the size the plan refuses with its upgrade.
+        #expect(try start.sized(.passed(bytes: 120 * gib, size: nil), local: "/tmp/p").size == .xxl)
+        // cmux NEXT Max, 90 GiB: `xl` grown to 136 GiB, never `2xl`; 200 GiB: `2xl` grown to 256.
+        start.planMax = .xxl
+        let onMax = try start.sized(.passed(bytes: 90 * gib, size: .xl), local: "/tmp/p")
+        #expect(onMax.size == .xl && onMax.grownDiskMb == 136 * 1_024)
+        let largest = try start.sized(.passed(bytes: 200 * gib, size: nil), local: "/tmp/p")
+        #expect(largest.size == .xxl && largest.grownDiskMb == 256 * 1_024)
+        #expect(throws: CloudMoveCLI.StartChatPreflightRefusal.self) { try start.sized(.passed(bytes: 245 * gib, size: nil), local: "/tmp/p") }
+        // No plan known: 48 GiB `lg` and 100 GiB `xl`, their own disks, as before; past `xl` too big.
+        start.planMax = nil
+        let unknown = try start.sized(.passed(bytes: 48 * gib, size: .lg), local: "/tmp/p")
+        #expect(unknown.size == .lg && unknown.grownDiskMb == nil)
+        let unknownXl = try start.sized(.passed(bytes: 100 * gib, size: .xl), local: "/tmp/p")
+        #expect(unknownXl.size == .xl && unknownXl.grownDiskMb == nil)
+        #expect(throws: CloudMoveCLI.StartChatPreflightRefusal.self) { try start.sized(.passed(bytes: 117 * gib, size: nil), local: "/tmp/p") }
+        let sizes = AgentPaneGitHubRepoSizes()
+        sizes.note([.init(fullName: "acme/big", isPrivate: true, defaultBranch: nil, sizeKb: 60 * 1_048_576)])
+        start.repository = "acme/big"
+        let natural = try start.sizedForRepository(sizes)
+        #expect(natural.size == .xl && natural.grownDiskMb == nil)
+        start.planMax = .lg
+        let repository = try start.sizedForRepository(sizes)
+        #expect(repository.size == .lg && repository.grownDiskMb == 92 * 1_024)
     }
 
     @Test func aRepositoryStartIsSizedFromTheReposList() throws {

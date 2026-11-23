@@ -37,6 +37,8 @@ public final class DesignSettings {
     public static let shared = DesignSettings()
     /// Every motion-setting change, for hosts outside Observation (``Motion/changes``).
     public let motionChanges = MotionChanges()
+    /// The composite tokens a layout reads many times a frame, kept until an input changes (``TokenMemo``).
+    let tokenMemos = TokenMemos()
 
     /// Intentional Command/Control hold hints (`shortcuts.showModifierHoldHints`).
     public var showModifierHoldHints = true
@@ -44,6 +46,9 @@ public final class DesignSettings {
     public var densityTokens: DensityTokens = .compact
     /// `appearance.customDensities`: the user's own densities, in file order.
     public var customDensities: [DensityTokens] = []
+    /// Whether `densityTokens` is the active theme file's own density (its `"density"` block): then a change to it
+    /// shows but is not saved, since the file would put it back.
+    public var densityFromThemeFile = false
     /// Every density the user can pick: the built-ins, densest first, then the custom ones.
     public var availableDensities: [DensityTokens] { DensityPreset.allCases.map(\.tokens) + customDensities }
     /// The density with `id` among `availableDensities`.
@@ -57,6 +62,8 @@ public final class DesignSettings {
     /// `app.uiScale`, the content/page scale. Chrome uses `interfaceScale`.
     /// Terminal content deliberately remains owned by Ghostty's font size.
     public var uiScale: CGFloat = 1
+    /// `app.language`: the code cmux's own text is in, nil for System; pages get it on every document.
+    public var appLanguage: String?
     /// `appearance.interfaceScale`: the opt-in multiplier for the app chrome. A single token
     /// multiplier drives type, spacing and control heights across native surfaces.
     public var interfaceScale: CGFloat = 1
@@ -137,6 +144,15 @@ public final class DesignSettings {
             NotificationCenter.default.post(name: WindowMaterialView.inactiveDimDidChange, object: nil)
         }
     }
+    /// `appearance.agentGlow`: the backdrop answers the agents (``BackdropAgentGlow``). Off by
+    /// default: it changes the default look. The App's ``agentGlow`` reader starts and stops with it.
+    public var agentGlowEnabled = false
+    /// `appearance.previousGlass`: web pages draw the glass numbers from before the one glass system
+    /// (``WebTheme/glassLevels`` is `previous`). Off by default.
+    public var previousGlass = false
+    /// What every window's backdrop shows of the agents now; ``BackdropAgentGlow/calm`` while
+    /// ``agentGlowEnabled`` is off. Each window backdrop observes it (``BackdropAgentGlowView``).
+    public var agentGlow = BackdropAgentGlow.calm
     /// `appearance.wallpaperTint`: where the desktop shows through the window, its tint takes the
     /// desktop picture's hue (``WallpaperTint``), as macOS tints its own windows. Off until the
     /// setting reaches it (``SettingsApplier``).
@@ -146,6 +162,10 @@ public final class DesignSettings {
             BackdropImageStore.shared.desktop.tintEnabled = wallpaperTint
         }
     }
+    /// `appearance.backgroundPlacement`: where each picture lies, by picture id; a picture with no
+    /// entry is centered and fills (today's look). Every window and pane backdrop observes it
+    /// (`WindowMaterialView.observePlacement`).
+    public var backgroundPlacements: [String: BackdropPlacement] = [:]
     /// The `ui.animations.{newTab,newWorkspace}` kinds on: new tabs by default
     /// (`AnimationKindsSetting.defaultEnabled`), new workspaces off.
     public var enabledAnimations: Set<MotionKind> = [.newTab]
@@ -171,6 +191,8 @@ public final class DesignSettings {
     public var centerFocusedColumn: CenterFocusedColumn = .never
     /// `tabs.overflow`: crowded tab strips shrink their tabs (default) or scroll sooner.
     public var tabOverflow: TabOverflow = .shrink
+    /// `tabs.shellIconTheme`: shell tabs draw the `>_` glyph (default) or their machine's icon.
+    public var tabShellIconTheme: TabShellIconTheme = .default
     /// `tabs.verticalTabs`: every workspace shows its tabs as a vertical list unless it turned them off.
     public var verticalTabs = false
     /// `tabs.verticalTabsExpandOnHover`: a collapsed vertical tab list widens while the pointer is over it.
@@ -187,6 +209,9 @@ public final class DesignSettings {
             if follows != oldValue.groupPalette.followsWallpaper { BackdropImageStore.shared.desktop.samplesForGroups = follows }
         }
     }
+    /// `experiments.agentBadges` and `experiments.agentBadgesBeam` (Settings > Advanced > Experiments): count pills on
+    /// tabs, a status pill (and, `beam`, a running edge light) on sidebar rows; off is the shipped tabs and rows.
+    public var agentBadges: AgentBadgesExperiment = .off
     /// The desktop picture's color (and its bands) while the Wallpaper or Pictorial group palette is chosen; nil under
     /// any other palette or until the first sample lands. Observed, so the sidebar's groups repaint when the picture changes.
     public var groupWallpaperTint: WallpaperTint?
@@ -298,10 +323,24 @@ public final class DesignSettings {
     /// `appearance.borders`: default, or none (no border, hairline or
     /// separator anywhere; `Borders`).
     public var borders: BorderMode = .default
+    /// `appearance.liquidGlass`: whether web pages draw their glass. Off (the default, Lawrence
+    /// 2026-11-19), every web glass surface is solid with a hairline rim (``WebTheme/glass`` is `off`).
+    public var liquidGlass = false
     /// `appearance.fontSmoothing`: what web pages draw with now (``WebTheme``). Chrome text cmux draws
     /// itself follows it too (``ProcessFontSmoothing/chrome``); stock AppKit text keeps the launch's
     /// value (``ProcessFontSmoothing/current``).
     public var fontSmoothing: FontSmoothing = .auto
+    /// `experiments.*` (Settings > Experimental > Experiments, schemas/settings/source/experiments.json):
+    /// each boolean key by its name (`menuStyleV2`), only the ones turned on. ``WebTheme`` sends it to
+    /// every cmux page (`window.cmuxExperimentSettings`; webviews/src/experiments/hostSettings.ts maps
+    /// a name to its experiment's arm); native code reads ``experiment(_:)``. A change repaints, so
+    /// every page gets its theme, and with it the switches, again.
+    public var experiments: [String: Bool] = [:] {
+        didSet { if experiments != oldValue { ThemeScope.app.store.repaintAll() } }
+    }
+
+    /// Whether the `experiments.<name>` switch is on (`DesignSettings.shared.experiment("menuStyleV2")`).
+    public func experiment(_ name: String) -> Bool { experiments[name] == true }
     /// `appearance.sidebarSurface`: the sidebar on the main pane's surface,
     /// or shaded apart from it.
     public var sidebarSurface: SidebarSurface = .same
@@ -321,6 +360,12 @@ public final class DesignSettings {
     /// ``Metrics/titleAreaShadeScale``); a change repaints, as the contrast does.
     public var titleAreaTone: TitleAreaTone = .oneColor {
         didSet { if titleAreaTone != oldValue { ThemeScope.app.store.repaintAll() } }
+    }
+    /// `appearance.cornerFlush`: how the selected tab meets the content card (``CornerFlush``); nil while the key is
+    /// unset, so the default (`flush`, no goo) draws only over the stock chrome (``CornerFlush/current``). A Debug
+    /// Settings pick of `chrome.cornerFlush` still overrides it. A change repaints, as the tone does.
+    public var cornerFlush: CornerFlush? {
+        didSet { if cornerFlush != oldValue { ThemeScope.app.store.repaintAll() } }
     }
     /// `appearance.focusIndicator`: what marks the focused pane.
     public var focusIndicator: FocusIndicator = .tabs
@@ -388,7 +433,7 @@ public final class DesignSettings {
         case .dividerThickness: 0...6
         case .dividerHitWidth: 1...24
         case .panelCornerRadius: 0...20
-        case .chromeFontSize: 10...16
+        case .chromeFontSize: 10...20
         case .tabFontSize: 10...18
         case .titlebarHeight: 24...56
         }

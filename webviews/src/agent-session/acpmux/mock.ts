@@ -15,6 +15,7 @@ import {
   workedTurn,
   WORKED_SESSION,
   type SeedStep,
+  fleetListedSession,
 } from "./mockFixture";
 import { mockGitCommit, mockGitDiff, mockGitPush, mockGitStatus } from "./mockGit";
 import { mockFileSearch } from "./mockFiles";
@@ -61,6 +62,8 @@ type MockAuthGlobals = {
   cmuxAcpmuxMockSlowMs?: number;
   /** bench/update-one.bench.ts: that many more listed sessions beside the fixture's, with no history. */
   cmuxAcpmuxMockListSize?: number;
+  /** `fleet`: those listed sessions shaped as a fleet Mac's rows (mockFixture.ts `fleetListedSession`). */
+  cmuxAcpmuxMockListShape?: "fleet";
 };
 
 // Mock transport: the host answers `ready` with `{transport: "mock"}` when no
@@ -248,7 +251,24 @@ export function mockTurn(prompt: string, turn: number): Step[] {
 
 /// How a load run streams its turn: text deltas of `chunkChars` every `chunkMs`, and a large
 /// tool call (a log or an edit) after every `toolEvery` deltas.
-export type LoadStreamOptions = { seconds: number; chunkChars: number; chunkMs: number; toolEvery: number };
+export type LoadStreamOptions = {
+  seconds: number;
+  chunkChars: number;
+  chunkMs: number;
+  toolEvery: number;
+  /// Assign each text delta a fixed due time. A delayed timer sends one due delta in the next task;
+  /// it never emits a same-task catch-up batch.
+  fixedSchedule?: boolean;
+  toolLinesPerSecond?: number;
+  stopped?: () => boolean;
+  progress?: (counts: {
+    deltas: number;
+    toolLines: number;
+    elapsedMs: number;
+    maxGapMs: number;
+    maxScheduleOffsetMs: number;
+  }) => void;
+};
 
 /// Whether `event` is subagent `id`'s own record (hub/paging.rs `subagent_owns`): an agent update
 /// acpmux tagged with it (`_meta.acpmux.subagent`) or one that starts or changes it (`subagents[].id`).
@@ -360,7 +380,9 @@ export class MockAcpmuxSocket {
       if (entry.status === "running" || entry.permission) this.openTurns.add(entry.sessionId);
     }
     const listSize = Number((globalThis as MockAuthGlobals).cmuxAcpmuxMockListSize ?? 0);
-    for (let index = 0; index < listSize; index += 1) this.sessions.push(listedSession(index, now));
+    const listed =
+      (globalThis as MockAuthGlobals).cmuxAcpmuxMockListShape === "fleet" ? fleetListedSession : listedSession;
+    for (let index = 0; index < listSize; index += 1) this.sessions.push(listed(index, now));
   }
 
   /// One field change of one session (a status dot, unread, a rename, a cost), told the client the way
@@ -419,10 +441,42 @@ export class MockAcpmuxSocket {
       const at = now - (turns - turn) * 60_000;
       for (const step of light ? lightTurn(turn) : loadTurn(turn)) this.record(id, step, at);
     }
-    if (light) this.openWhole.add(id);
+    // Small light fixtures are opened whole so the short composer rows are exact. Large typing
+    // fixtures must use the normal paged attach: the production row store intentionally holds a
+    // bounded window, and one 100k-event whole response never becomes a usable page.
+    if (light && turns < 10_000) this.openWhole.add(id);
     this.sessions.push(created);
     this.deliver({ jsonrpc: "2.0", method: "_acpmux/session_changed", params: { kind: "created", session: created } });
     return id;
+  }
+
+  /// What a seeded session's whole log holds, counted in the log the client pages from (not the client's held
+  /// window): its records, and the rows they make, a prompt, a reply and a turnSummary per light turn
+  /// (loadFixture.ts `lightTurn`). `last_prompt_seq` names the newest prompt row (`user-${seq}`, direct.ts).
+  loadSessionLog(target: string): { records: number; rows: number; last_prompt_seq: number | null } {
+    let records = 0;
+    let rows = 0;
+    let lastPrompt: number | null = null;
+    for (const event of this.events) {
+      if (event.sessionId !== target) continue;
+      records += 1;
+      if (event.dir === "mux" && event.kind === "user_message") {
+        rows += 1;
+        lastPrompt = event.seq;
+      } else if (event.kind === "agent_message_chunk" || (event.dir === "mux" && event.kind === "turn_result"))
+        rows += 1;
+    }
+    return { records, rows, last_prompt_seq: lastPrompt };
+  }
+
+  /// Puts `count` prompts in `target`'s queue, delivered as acpmux's `queued` records for prompts sent
+  /// while a turn runs (the composer typing bench's `--queue`).
+  seedQueue(target: string, count: number): void {
+    for (let index = 0; index < count; index += 1)
+      this.emit(target, {
+        mux: "queued",
+        msg: { promptId: `${target}-queued-${index}`, text: `Queued prompt ${index + 1}` },
+      });
   }
 
   /// Records `updates` into `target`'s log in place of subagent `id`'s own records there, without
@@ -444,21 +498,61 @@ export class MockAcpmuxSocket {
     this.emit(target, { mux: "user_message", msg: { text: `Turn ${turn}: stream a long answer` } });
     this.emit(target, { mux: "turn_started" });
     const reply = streamedReply(turn, 400);
-    const end = performance.now() + options.seconds * 1000;
+    const started = performance.now();
+    const end = started + options.seconds * 1000;
+    const call = `load-stream-tool-${turn}`;
+    if (options.toolLinesPerSecond)
+      this.emit(target, {
+        update: tool(call, "execute", "Stream benchmark output", "in_progress", { rawInput: { command: "benchmark" } }),
+      });
+    let toolLines = 0;
+    let output = "";
+    let previous = started;
+    let maxGapMs = 0;
+    let maxScheduleOffsetMs = 0;
     let at = 0;
     let deltas = 0;
     let tools = 0;
-    while (performance.now() < end && !this.closed) {
-      await this.delay(options.chunkMs);
+    let nextChunkAt = started + options.chunkMs;
+    while (performance.now() < end && !this.closed && !options.stopped?.()) {
+      if (options.fixedSchedule) {
+        const waitMs = nextChunkAt - performance.now();
+        if (waitMs > 0) await this.delay(waitMs);
+      } else await this.delay(options.chunkMs);
+      if (options.stopped?.() || this.closed) break;
+      const now = performance.now();
+      maxGapMs = Math.max(maxGapMs, now - previous);
+      previous = now;
+      if (options.fixedSchedule) {
+        maxScheduleOffsetMs = Math.max(maxScheduleOffsetMs, Math.max(0, now - nextChunkAt));
+        nextChunkAt = started + (deltas + 2) * options.chunkMs;
+      }
       const chunk = reply.slice(at % reply.length, (at % reply.length) + options.chunkChars);
       at += options.chunkChars;
       this.emit(target, { update: text(chunk) });
       deltas += 1;
+      const due = Math.floor(((now - started) * (options.toolLinesPerSecond ?? 0)) / 1000);
+      if (due > toolLines) {
+        output += Array.from({ length: due - toolLines }, (_, index) => `benchmark line ${toolLines + index}\n`).join(
+          "",
+        );
+        toolLines = due;
+        this.emit(target, {
+          update: {
+            sessionUpdate: "tool_call_update",
+            toolCallId: call,
+            status: "in_progress",
+            content: [{ type: "content", content: { type: "text", text: output } }],
+          },
+        });
+      }
+      options.progress?.({ deltas, toolLines, elapsedMs: now - started, maxGapMs, maxScheduleOffsetMs });
       if (options.toolEvery > 0 && deltas % options.toolEvery === 0) {
         this.emit(target, { update: streamedTool(turn, tools) });
         tools += 1;
       }
     }
+    if (options.toolLinesPerSecond) this.emit(target, { update: done(call) });
     this.emit(target, { mux: "turn_result", msg: { status: "completed" } });
     this.touch(target, { status: "idle", indicator: "done" });
     return { deltas, chars: at, tools };
@@ -531,6 +625,48 @@ export class MockAcpmuxSocket {
     this.touch(target, { status: "idle", indicator: "done" });
     if (other) this.touch(other, { indicator: null, status: "idle" });
     return { ticks, sidebar };
+  }
+
+  /// The turn `addLoadTools` left running, by session: its number and how many calls it has.
+  private openToolTurns = new Map<string, { turn: number; calls: number }>();
+
+  /// Adds `count` short tool calls to `target`'s running turn (starting one if none is), each as a busy
+  /// agent's: the call, then `gapMs` later its result, then `gapMs` before the next. No text streams, so
+  /// each call is one new row and every other render is waste. `keepOpen: false` ends the turn after.
+  async addLoadTools(
+    target: string,
+    options: { count: number; gapMs: number; keepOpen: boolean },
+  ): Promise<{ tools: number; events: number }> {
+    let open = this.openToolTurns.get(target);
+    if (!open) {
+      const turn = Number(this.sessions.find((entry) => entry.sessionId === target)?.turnCount ?? 0) + 1;
+      this.touch(target, { turnCount: turn, status: "running", indicator: "working" });
+      this.emit(target, { mux: "user_message", msg: { text: `Turn ${turn}: check every file` } });
+      this.emit(target, { mux: "turn_started" });
+      open = { turn, calls: 0 };
+      this.openToolTurns.set(target, open);
+    }
+    let events = 0;
+    for (let index = 0; index < options.count && !this.closed; index += 1) {
+      const call = `load-tools-${open.turn}-${open.calls}`;
+      const command = `rg -n check src/file${open.calls}.ts`;
+      open.calls += 1;
+      this.emit(target, { update: tool(call, "execute", command, "in_progress", { rawInput: { command } }) });
+      await this.delay(options.gapMs);
+      this.emit(target, {
+        update: done(call, {
+          content: [{ type: "content", content: { type: "text", text: `src/file${index}.ts:1: check\n` } }],
+        }),
+      });
+      events += 2;
+      await this.delay(options.gapMs);
+    }
+    if (!options.keepOpen) {
+      this.openToolTurns.delete(target);
+      this.emit(target, { mux: "turn_result", msg: { status: "completed" } });
+      this.touch(target, { status: "idle", indicator: "done" });
+    }
+    return { tools: options.count, events };
   }
 
   send(raw: string): void {

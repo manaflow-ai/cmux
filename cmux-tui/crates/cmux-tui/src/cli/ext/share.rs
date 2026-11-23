@@ -1,330 +1,479 @@
-//! `cmux ext share [DIR]`: publish an extension folder to a new GitHub
-//! repository of the person's, with their own `gh` login (the one the app's
-//! GitHub features use; never another token). What Ask to build and
-//! Fork and customize end with, on by default: the agent says where it goes,
-//! then runs this unless the person asked to keep it local.
+//! Sharing extensions: `cmux ext add SOURCE` installs one from a git URL, a shared link or a
+//! folder; `cmux ext share [DIR]` prints the link that installs yours; `cmux ext search [QUERY]`
+//! lists the ones people tagged on GitHub (docs/cmux-next/extensions/dev-loop.md, "Share it").
 //!
-//! It makes the manifest the owner's (`id` `OWNER/NAME`, `repository`), puts
-//! the "Get it on cmux" badge in README.md, commits, creates the repository
-//! (`gh repo create --source --push`) with the topic `cmux-extension` that
-//! cmux.com's crawler searches, and prints the extension's cmux.com page.
-//! With no `gh` or no login nothing leaves the machine: the folder stays and
-//! the answer names the one step that connects GitHub.
+//! `ext add` adds no loader: it fetches the source (`source.rs`), then runs the reload
+//! `ext dev --once` runs on the fetched folder (validate with the daemon's own validator, copy into
+//! the local apps folder, wait for the daemon's reload, mount once), records where it came from in
+//! the copy's marker, and asks the person to install it through the existing consent card
+//! (`cmux apps install`). Until they confirm it loads as a preview, as `ext dev` does.
+//!
+//! A fetched extension is never built here: a build would run a stranger's tooling on this Mac
+//! (the packer's macros run code). The repository must hold its built main script, which
+//! `ext share` checks before printing a link.
 
-use cmux_process::{Command, Stdio};
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
+use cmux_cloud_start_core::machine_repo;
 use serde_json::{Value, json};
 
-use super::Field as _;
-use super::remix::{self, BADGE_SVG, run_quiet};
-use super::scaffold;
+use super::dev::{self, Outcome};
+use super::source::{self, Source};
+use super::{DevOptions, Field as _, exit};
+use crate::cli::GlobalArgs;
 
-/// The GitHub topic cmux.com's crawler searches.
+/// The GitHub topic `ext share` asks for and `ext search` lists.
 pub(super) const TOPIC: &str = "cmux-extension";
 
-/// `ext share`'s options.
+// timeout: one search request to GitHub's API; past it the search fails with the reason.
+const SEARCH_TIMEOUT: Duration = Duration::from_secs(20);
+
+/// `ext add`'s options.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct ShareOptions {
-    pub dir: PathBuf,
-    /// `--name`: the repository's name; none is the extension's name.
-    pub name: Option<String>,
-    /// `--private`: a private repository (cmux.com lists only public ones).
-    pub private: bool,
-    /// The `gh` program (`CMUX_EXT_GH` in tests).
-    pub gh: PathBuf,
+pub(in crate::cli) struct AddOptions {
+    pub source: String,
+    /// Ask the person to install it (the consent card) once it loads.
+    pub install: bool,
 }
 
-/// What `ext share` did.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) enum Shared {
-    /// Published: `OWNER/REPO`, and whether the repository already was the folder's.
-    Published { owner: String, repo: String, private: bool, updated: bool },
-    /// GitHub is not connected; the folder is kept. `step` connects it.
-    NotConnected { step: String, reason: String },
+/// Where an added extension came from, as its marker records it.
+fn origin_json(repo: &machine_repo::Repo, fetched: &source::Fetched) -> Value {
+    json!({
+        "url": repo.url(),
+        "ref": fetched.reference,
+        "path": fetched.subdir,
+        "commit": fetched.commit,
+        "link": share_link(repo, &fetched.commit, fetched.subdir.as_deref()),
+    })
 }
 
-/// The README badge for `owner/repo`, exactly as cmux.com documents it.
-pub(super) fn badge(owner: &str, repo: &str) -> String {
-    format!("[![Get it on cmux]({BADGE_SVG})](https://cmux.com/extensions/{owner}/{repo})")
-}
-
-/// `readme` with the badge for `owner/repo` under its first heading (any other badge line goes).
-pub(super) fn with_badge(readme: &str, owner: &str, repo: &str, title: &str) -> String {
-    let badge = badge(owner, repo);
-    let mut lines: Vec<String> =
-        readme.lines().filter(|line| !line.contains(BADGE_SVG)).map(str::to_string).collect();
-    if !lines.iter().any(|line| line.starts_with("# ")) {
-        lines.insert(0, format!("# {title}"));
+/// Adds `origin` to the marker of the copy `ext dev`'s reload made in `folder`.
+pub(super) fn record_origin(folder: &Path, origin: &Value) -> Result<(), String> {
+    let marker = folder.join(dev::MARKER);
+    let mut body: Value = std::fs::read(&marker)
+        .ok()
+        .and_then(|raw| serde_json::from_slice(&raw).ok())
+        .unwrap_or_else(|| json!({}));
+    if let Some(object) = body.as_object_mut() {
+        object.insert("origin".into(), origin.clone());
     }
-    let at = lines.iter().position(|line| line.starts_with("# ")).map_or(0, |i| i + 1);
-    // The blank lines under the heading (the old badge's too) go; one goes on each side of it.
-    while lines.get(at).is_some_and(|line| line.trim().is_empty()) {
-        lines.remove(at);
-    }
-    let rest = at < lines.len();
-    lines.splice(at..at, [String::new(), badge]);
-    if rest {
-        lines.insert(at + 2, String::new());
-    }
-    let mut out = lines.join("\n");
-    out.push('\n');
-    out
+    std::fs::write(&marker, body.to_string())
+        .map_err(|err| format!("cannot write {}: {err}", marker.display()))
 }
 
-impl Shared {
-    pub(super) fn to_json(&self, dir: &Path) -> Value {
-        match self {
-            Shared::Published { owner, repo, private, updated } => json!({
-                "ok": true,
-                "published": true,
-                "updated": updated,
-                "dir": dir,
-                "repository": format!("https://github.com/{owner}/{repo}"),
-                "private": private,
-                "topic": TOPIC,
-                "page": format!("https://cmux.com/extensions/{owner}/{repo}"),
-                "install": format!("cmux://apps/install?repo=github.com/{owner}/{repo}"),
-                "badge": badge(owner, repo),
-                "listed": if *private {
-                    "private: cmux.com lists only public repositories"
-                } else {
-                    "cmux.com lists it once reviewed"
-                },
-            }),
-            Shared::NotConnected { step, reason } => json!({
-                "ok": false,
-                "published": false,
-                "dir": dir,
-                "kept": true,
-                "reason": reason,
-                "connect": step,
-            }),
+/// The origin a copy's marker records, if `ext add` made it.
+pub(super) fn recorded_origin(folder: &Path) -> Option<Value> {
+    let raw = std::fs::read(folder.join(dev::MARKER)).ok()?;
+    let body: Value = serde_json::from_slice(&raw).ok()?;
+    body.get("origin").filter(|origin| origin.is_object()).cloned()
+}
+
+/// The fetched folder and its origin, or the exit code of a failure already printed.
+fn fetch_source(raw: &str, json_out: bool) -> Result<(PathBuf, Option<Value>), i32> {
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let fail = |message: String, code: i32| {
+        if json_out {
+            println!(
+                "{}",
+                json!({ "ok": false, "phase": "fetch", "exitCode": code, "errors": [{ "message": message }] })
+            );
+        } else {
+            eprintln!("cmux: {message}");
         }
-    }
-
-    pub(super) fn text(&self, dir: &Path) -> String {
-        match self {
-            Shared::Published { owner, repo, private, updated } => {
-                let mut out = format!(
-                    "{} https://github.com/{owner}/{repo}{}\npage: https://cmux.com/extensions/{owner}/{repo}{}\n",
-                    if *updated { "pushed to" } else { "published to" },
-                    if *private { " (private)" } else { "" },
-                    if *private {
-                        " (listed only once the repository is public)"
-                    } else {
-                        " (listed once reviewed)"
-                    },
-                );
-                out.push_str(&format!("topic: {TOPIC}\n"));
-                out
-            }
-            Shared::NotConnected { step, reason } => format!(
-                "not published: {reason}. The extension stays in {}.\nTo publish it: {step}, then run cmux ext share again.\n",
-                dir.display()
-            ),
-        }
-    }
-}
-
-fn git(dir: &Path) -> Command {
-    let mut command = Command::new("git");
-    command.arg("-C").arg(dir);
-    command
-}
-
-/// The person's GitHub login through `gh`, or why there is none (with the step that fixes it).
-fn login(gh: &Path) -> Result<String, Shared> {
-    match Command::new(gh).args(["api", "user", "--jq", ".login"]).stdin(Stdio::null()).output() {
-        Err(_) => Err(Shared::NotConnected {
-            step: "install the GitHub CLI (brew install gh) and run gh auth login".into(),
-            reason: "the GitHub CLI (gh) is not installed".into(),
-        }),
-        Ok(out) if !out.status.success() || out.stdout.trim_ascii().is_empty() => {
-            Err(Shared::NotConnected {
-                step: "run gh auth login".into(),
-                reason: "GitHub is not connected".into(),
-            })
-        }
-        Ok(out) => Ok(String::from_utf8_lossy(&out.stdout).trim().to_string()),
-    }
-}
-
-/// The GitHub repository the folder's `origin` already is, as `(owner, repo)`.
-fn origin(dir: &Path) -> Option<(String, String)> {
-    let url = run_quiet(git(dir).args(["config", "--get", "remote.origin.url"])).ok()?;
-    let path = url
-        .strip_prefix("https://github.com/")
-        .or_else(|| url.strip_prefix("git@github.com:"))
-        .or_else(|| url.strip_prefix("ssh://git@github.com/"))?;
-    let path = path.trim_end_matches('/');
-    let path = path.strip_suffix(".git").unwrap_or(path);
-    let (owner, repo) = path.split_once('/')?;
-    Some((owner.to_string(), repo.to_string()))
-}
-
-/// Whether `owner/repo` exists on GitHub.
-fn exists(gh: &Path, slug: &str) -> bool {
-    Command::new(gh)
-        .args(["repo", "view", slug, "--json", "name"])
-        .stdin(Stdio::null())
-        .output()
-        .is_ok_and(|out| out.status.success())
-}
-
-/// Runs `ext share`. An error is a problem with the folder (no manifest, invalid) or a failed
-/// `gh` / `git` step after the login was found.
-pub(super) fn share(options: &ShareOptions) -> Result<Shared, String> {
-    let dir = &options.dir;
-    for file in remix::MANIFESTS {
-        if std::fs::symlink_metadata(dir.join(file)).is_ok_and(|meta| meta.file_type().is_symlink())
-        {
-            return Err(format!(
-                "{file} is a symbolic link; publish a folder whose manifest is a file"
-            ));
-        }
-    }
-    let manifest = remix::manifest_file(dir).ok_or_else(|| {
-        format!("{} has no cmux-app.json: it is not an extension folder", dir.display())
-    })?;
-    let path = dir.join(manifest);
-    let text = std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
-    let parsed: Value = serde_json::from_str(&text).map_err(|e| format!("{manifest}: {e}"))?;
-    let old_id = parsed.field("id").as_str().unwrap_or_default().to_string();
-    let name = match &options.name {
-        Some(name) if scaffold::valid_name(name) => name.clone(),
-        Some(name) => return Err(format!("--name {name}: lowercase letters, digits and '-'")),
-        None => old_id
-            .rsplit_once('/')
-            .map(|(_, name)| name.to_string())
-            .filter(|name| scaffold::valid_name(name))
-            .ok_or_else(|| {
-                format!("{manifest}: id {old_id:?} has no name to publish under; pass --name NAME")
-            })?,
+        code
     };
-
-    let login = match login(&options.gh) {
-        Ok(login) => login,
-        Err(not_connected) => return Ok(not_connected),
-    };
-    // The folder's own repository when it already has one of this login's; else a new name.
-    let (repo, updated) = match origin(dir) {
-        Some((owner, repo)) if owner.eq_ignore_ascii_case(&login) => (repo, true),
-        _ => {
-            let free = std::iter::once(name.clone())
-                .chain((2..100).map(|n| format!("{name}-{n}")))
-                .find(|repo| !exists(&options.gh, &format!("{login}/{repo}")))
-                .ok_or_else(|| {
-                    format!("{login}/{name} and its next names are taken; pass --name")
-                })?;
-            (free, false)
+    match source::parse(raw, &cwd) {
+        Err(message) => Err(fail(message, exit::USAGE)),
+        Ok(Source::Folder(dir)) if dir.is_dir() => Ok((dir, None)),
+        Ok(Source::Folder(dir)) => {
+            Err(fail(format!("{} is not a folder", dir.display()), exit::USAGE))
         }
-    };
-    let publisher = login.to_ascii_lowercase();
-    if publisher == "cmux" {
-        return Err("the publisher cmux is reserved for cmux's own extensions".into());
-    }
-    let url = format!("https://github.com/{login}/{repo}");
-
-    // The manifest and README, the owner's. What they held is kept until the manifest validates,
-    // and put back when it does not, so a refused publish leaves the folder as it was.
-    let readme_path = dir.join("README.md");
-    if std::fs::symlink_metadata(&readme_path).is_ok_and(|meta| meta.file_type().is_symlink()) {
-        return Err(
-            "README.md is a symbolic link; publish a folder whose README.md is a file".into()
-        );
-    }
-    let mut touched = Vec::new();
-    remix::source_files(dir, &mut touched);
-    touched.push(readme_path.clone());
-    let saved: Vec<(PathBuf, Option<Vec<u8>>)> = touched
-        .into_iter()
-        .map(|file| {
-            let bytes = std::fs::read(&file).ok();
-            (file, bytes)
-        })
-        .collect();
-    let restore = || {
-        for (file, bytes) in &saved {
-            let _ = match bytes {
-                Some(bytes) => std::fs::write(file, bytes),
-                None => std::fs::remove_file(file),
+        Ok(Source::Git { repo, tail, subdir }) => {
+            let Some(cache) = source::user_cache() else {
+                return Err(fail(
+                    "HOME is not set, so there is no cache to clone into".into(),
+                    exit::FETCH_FAILED,
+                ));
             };
+            let clone = source::cache_dir(&cache, &repo);
+            if !json_out {
+                eprintln!("fetching {} ...", repo.display());
+            }
+            match source::fetch(&repo.url(), &tail, subdir.as_deref(), &clone) {
+                Ok(fetched) => {
+                    let origin = origin_json(&repo, &fetched);
+                    Ok((fetched.dir, Some(origin)))
+                }
+                Err(message) => Err(fail(message, exit::FETCH_FAILED)),
+            }
         }
-    };
-    let new_id = format!("{publisher}/{name}");
-    if !old_id.is_empty() {
-        remix::rename_id(dir, &old_id, &new_id)?;
     }
-    let text = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
-    let text = remix::with_repository(&text, Some(&url))
-        .ok_or_else(|| format!("{manifest} is not a JSON object"))?;
-    std::fs::write(&path, text).map_err(|e| e.to_string())?;
-    let title = parsed.field("name").as_str().unwrap_or(&name).to_string();
-    let readme = std::fs::read_to_string(&readme_path).unwrap_or_default();
-    std::fs::write(&readme_path, with_badge(&readme, &login, &repo, &title))
-        .map_err(|e| e.to_string())?;
-    let report = cmux_app_manifest::validate_package_file(dir, manifest);
-    let errors: Vec<String> = report
-        .issues
-        .iter()
-        .filter(|issue| issue.severity == cmux_app_manifest::Severity::Error)
-        .map(|issue| {
-            format!(
-                "{}: {} ({})",
-                if issue.path.is_empty() { "/" } else { &issue.path },
-                issue.message,
-                issue.code
-            )
-        })
-        .collect();
-    if !errors.is_empty() {
-        restore();
-        return Err(format!(
-            "{manifest} does not validate, nothing was published or changed: {}",
-            errors.join("; ")
+}
+
+/// `ext add SOURCE`.
+pub(super) fn run_add(
+    global: &GlobalArgs,
+    options: &AddOptions,
+    globals: &[String],
+    json_out: bool,
+) -> i32 {
+    let (dir, origin) = match fetch_source(&options.source, json_out) {
+        Ok(found) => found,
+        Err(code) => return code,
+    };
+    let local = origin.is_none();
+    let dev_options = DevOptions {
+        dir: dir.clone(),
+        once: true,
+        remove_on_exit: false,
+        install: false,
+        build: None,
+        build_timeout: dev::BUILD_TIMEOUT,
+        // A folder of your own builds as `ext dev` builds it; a fetched one never builds.
+        bun: if local { dev::find_bun() } else { None },
+        every_size: false,
+    };
+    let mut outcome = dev::once(global, &dev_options, true);
+    if let (true, Some(folder), Some(origin)) = (outcome.ok(), &outcome.folder, &origin)
+        && let Err(message) = record_origin(folder, origin)
+    {
+        outcome.logs.push(json!({ "level": "warn", "message": message }));
+    }
+    let (text, code) = report(&outcome, &dir, origin.as_ref(), json_out);
+    println!("{text}");
+    if code == exit::OK
+        && !json_out
+        && options.install
+        && outcome.installed == Some(false)
+        && let Some(app) = &outcome.app
+    {
+        return ask_install(app, globals);
+    }
+    code
+}
+
+/// What `ext add` prints and exits with.
+pub(super) fn report(
+    outcome: &Outcome,
+    dir: &Path,
+    origin: Option<&Value>,
+    json_out: bool,
+) -> (String, i32) {
+    let code = outcome.exit_code();
+    if json_out {
+        let mut value = outcome.to_json(dir);
+        if let Some(object) = value.as_object_mut() {
+            object.insert("from".into(), origin.cloned().unwrap_or(Value::Null));
+        }
+        return (value.to_string(), code);
+    }
+    let mut text = outcome.line();
+    if let Some(origin) = origin.filter(|_| outcome.ok()) {
+        let commit = origin.field("commit").as_str().unwrap_or("");
+        text.push_str(&format!(
+            "\nadded {} from {} at {}",
+            outcome.app.as_deref().unwrap_or("the extension"),
+            origin.field("url").as_str().unwrap_or(""),
+            commit.get(..commit.len().min(12)).unwrap_or(commit)
         ));
     }
-
-    // Commit, then the repository.
-    if !dir.join(".git").exists() {
-        run_quiet(git(dir).args(["init", "-q", "-b", "main"]))
-            .or_else(|_| run_quiet(git(dir).args(["init", "-q"])))?;
-    }
-    run_quiet(git(dir).args(["add", "-A"]))?;
-    let staged = !git(dir)
-        .args(["diff", "--cached", "--quiet"])
-        .status()
-        .is_ok_and(|status| status.success());
-    let has_head = run_quiet(git(dir).args(["rev-parse", "--verify", "HEAD"])).is_ok();
-    if staged || !has_head {
-        run_quiet(git(dir).args(["commit", "-q", "-m", &format!("Publish {title}")]))
-            .map_err(|e| format!("git commit: {e} (set git config user.name and user.email)"))?;
-    }
-    let slug = format!("{login}/{repo}");
-    if updated {
-        run_quiet(git(dir).args(["push", "-q", "-u", "origin", "HEAD"]))
-            .map_err(|e| format!("git push: {e}"))?;
-    } else {
-        let mut create = Command::new(&options.gh);
-        create.args([
-            "repo",
-            "create",
-            &slug,
-            if options.private { "--private" } else { "--public" },
-        ]);
-        create.arg("--source").arg(dir).args(["--remote", "origin", "--push"]);
-        let description = parsed
-            .field("tagline")
-            .as_str()
-            .or_else(|| parsed.field("description").as_str())
-            .map(|text| text.chars().take(300).collect::<String>());
-        if let Some(description) = description.filter(|text| !text.is_empty()) {
-            create.args(["--description", &description]);
+    if !outcome.scene.is_empty() {
+        text.push_str("\nrendered:");
+        for line in &outcome.scene {
+            text.push_str("\n  ");
+            text.push_str(line);
         }
-        run_quiet(&mut create).map_err(|e| format!("gh repo create {slug}: {e}"))?;
     }
-    run_quiet(Command::new(&options.gh).args(["repo", "edit", &slug, "--add-topic", TOPIC]))
-        .map_err(|e| format!("published {url}, but adding the topic {TOPIC} failed: {e}"))?;
-    Ok(Shared::Published { owner: login, repo, private: options.private, updated })
+    if outcome.ok() {
+        let app = outcome.app.as_deref().unwrap_or("local/NAME");
+        text.push_str(&format!("\nadd it again to update it; cmux ext remove {app} removes it"));
+    }
+    (text, code)
+}
+
+/// The global words for a child `cmux`, without an output mode (the child prints its own).
+fn child_globals(globals: &[String]) -> Vec<String> {
+    globals
+        .iter()
+        .filter(|word| !matches!(word.as_str(), "--json" | "--jsonl" | "--quiet"))
+        .cloned()
+        .collect()
+}
+
+/// Asks the person to install `app` with the existing consent card, and waits for their answer.
+fn ask_install(app: &str, globals: &[String]) -> i32 {
+    let Ok(exe) = std::env::current_exe() else {
+        println!("next: cmux apps install {app}");
+        return exit::OK;
+    };
+    println!("asking you to install {app} in cmux (until then it loads as a preview)");
+    let mut argv = child_globals(globals);
+    argv.extend(["apps".into(), "install".into(), app.into()]);
+    match cmux_process::Command::new(exe).args(argv).status() {
+        Ok(status) => status.code().unwrap_or(1),
+        Err(_) => {
+            println!("next: cmux apps install {app}");
+            exit::OK
+        }
+    }
+}
+
+/// The link that installs the extension at `commit`: a GitHub folder link, or `URL@COMMIT#PATH`.
+pub(super) fn share_link(repo: &machine_repo::Repo, commit: &str, subdir: Option<&str>) -> String {
+    if repo.is_github() {
+        let mut link = format!("https://github.com/{}/{}/tree/{commit}", repo.owner, repo.name);
+        if let Some(path) = subdir {
+            link.push('/');
+            link.push_str(path);
+        }
+        return link;
+    }
+    let url = repo.url();
+    let mut link = format!("{}@{commit}", url.strip_suffix(".git").unwrap_or(&url));
+    if let Some(path) = subdir {
+        link.push('#');
+        link.push_str(path);
+    }
+    link
+}
+
+/// What keeps a folder from being shared, and notes that do not.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub(super) struct ShareCheck {
+    pub link: Option<String>,
+    pub blocking: Vec<String>,
+    pub notes: Vec<String>,
+}
+
+/// Checks `dir` and makes its link: a valid manifest, in a git repository with an origin that
+/// `ext add` can read, at a commit that is pushed, with the built main script committed.
+pub(super) fn check_share(dir: &Path) -> Result<ShareCheck, Vec<dev::Problem>> {
+    let pkg = dev::load_package(dir)?;
+    let mut check = ShareCheck::default();
+    let git = |args: &[&str]| source::git(Some(dir), args);
+    let Ok(top) = git(&["rev-parse", "--show-toplevel"]) else {
+        check.blocking.push(
+            "not in a git repository: git init, commit, push it to GitHub, then run cmux ext share again".into(),
+        );
+        return Ok(check);
+    };
+    let top = PathBuf::from(top);
+    let here = dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf());
+    let top = top.canonicalize().unwrap_or(top);
+    let subdir = here
+        .strip_prefix(&top)
+        .ok()
+        .map(|rel| rel.to_string_lossy().into_owned())
+        .filter(|rel| !rel.is_empty());
+    let repo = match git(&["remote", "get-url", "origin"]) {
+        Err(_) => {
+            check
+                .blocking
+                .push("no origin remote: push the repository (to GitHub, for search) first".into());
+            None
+        }
+        Ok(origin) => match machine_repo::parse(&origin) {
+            Ok(repo) => Some(repo),
+            Err(_) => {
+                // The origin may carry a login or token (`https://user:token@...`): never print it.
+                check.blocking.push(format!(
+                    "origin {} is not a GitHub repository or an https git URL, so cmux ext add cannot fetch it",
+                    source::redact_login(&origin)
+                ));
+                None
+            }
+        },
+    };
+    let commit = git(&["rev-parse", "HEAD"]).ok();
+    if commit.is_none() {
+        check.blocking.push("no commit yet: commit the extension first".into());
+    }
+    let pushed = git(&["branch", "-r", "--contains", "HEAD"]).is_ok_and(|out| !out.is_empty());
+    if commit.is_some() && !pushed {
+        check
+            .blocking
+            .push("this commit is not pushed: git push, then run cmux ext share again".into());
+    }
+    let main =
+        pkg.manifest.pointer("/runtime/main").and_then(Value::as_str).unwrap_or("dist/main.js");
+    if git(&["ls-files", "--error-unmatch", "--", main]).is_err() {
+        check.blocking.push(format!(
+            "{main} is not committed: an added extension is never built, so commit the built script (cmux ext dev writes it)"
+        ));
+    }
+    if git(&["status", "--porcelain", "--", "."]).is_ok_and(|out| !out.is_empty()) {
+        check
+            .notes
+            .push("there are uncommitted changes here; the link installs the last commit".into());
+    }
+    if repo.as_ref().is_some_and(machine_repo::Repo::is_github) {
+        check.notes.push(format!(
+            "add the topic {TOPIC} to the GitHub repository so cmux ext search lists it"
+        ));
+    }
+    if let (Some(repo), Some(commit)) = (&repo, &commit) {
+        check.link = Some(share_link(repo, commit, subdir.as_deref()));
+    }
+    Ok(check)
+}
+
+/// `ext share [DIR]`.
+pub(super) fn run_share(dir: &Path, json_out: bool) -> i32 {
+    let check = match check_share(dir) {
+        Ok(check) => check,
+        Err(errors) => {
+            let texts: Vec<String> = errors.iter().map(dev::Problem::text).collect();
+            if json_out {
+                println!(
+                    "{}",
+                    json!({ "ok": false, "exitCode": exit::MANIFEST_INVALID, "errors": texts })
+                );
+            } else {
+                eprintln!("manifest invalid:\n  {}", texts.join("\n  "));
+            }
+            return exit::MANIFEST_INVALID;
+        }
+    };
+    let ok = check.blocking.is_empty() && check.link.is_some();
+    let code = if ok { exit::OK } else { exit::NOT_SHAREABLE };
+    if json_out {
+        let add = check.link.as_ref().map(|link| format!("cmux ext add {link}"));
+        println!(
+            "{}",
+            json!({ "ok": ok, "exitCode": code, "link": check.link, "add": add,
+                    "blocking": check.blocking, "notes": check.notes })
+        );
+        return code;
+    }
+    if let Some(link) = &check.link {
+        println!("{link}");
+        println!("anyone installs it with: cmux ext add {link}");
+    }
+    for problem in &check.blocking {
+        println!("not shareable yet: {problem}");
+    }
+    for note in &check.notes {
+        println!("note: {note}");
+    }
+    code
+}
+
+/// The rows of a GitHub repository search answer.
+pub(super) fn search_rows(answer: &Value) -> Vec<Value> {
+    answer
+        .field("items")
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|item| {
+            let name = item.field("full_name").as_str()?;
+            Some(json!({
+                "name": name,
+                "description": item.field("description").as_str().unwrap_or(""),
+                "stars": item.field("stargazers_count").as_u64().unwrap_or(0),
+                "url": item.field("html_url"),
+                "add": format!("cmux ext add {name}"),
+            }))
+        })
+        .collect()
+}
+
+/// The search request's URL.
+pub(super) fn search_url(query: Option<&str>) -> String {
+    let mut q = format!("topic:{TOPIC}");
+    if let Some(words) = query.map(str::trim).filter(|words| !words.is_empty()) {
+        q.push(' ');
+        q.push_str(words);
+    }
+    let params = [("q", q.as_str()), ("sort", "stars"), ("order", "desc"), ("per_page", "30")];
+    url::Url::parse_with_params("https://api.github.com/search/repositories", params)
+        .map(|url| url.to_string())
+        .unwrap_or_default()
+}
+
+/// The search's HTTPS client. reqwest here is rustls without a built-in crypto provider (CLI
+/// startup installs none), so ring is installed first, as every other cmux-tui HTTPS client does
+/// (ignored when one is already installed).
+pub(super) fn search_client() -> Result<reqwest::Client, String> {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    reqwest::Client::builder()
+        .timeout(SEARCH_TIMEOUT)
+        .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))
+        .build()
+        .map_err(|err| err.to_string())
+}
+
+async fn search(query: Option<&str>) -> Result<Value, String> {
+    let client = search_client()?;
+    let mut request = client.get(search_url(query)).header("Accept", "application/vnd.github+json");
+    // A token raises GitHub's search limit (10 a minute without one); never required.
+    let token = ["GH_TOKEN", "GITHUB_TOKEN"]
+        .iter()
+        .find_map(|name| std::env::var(name).ok().filter(|value| !value.is_empty()));
+    if let Some(token) = token {
+        request = request.bearer_auth(token);
+    }
+    let response = request.send().await.map_err(|err| err.to_string())?;
+    let status = response.status();
+    let text = response.text().await.map_err(|err| err.to_string())?;
+    let body: Option<Value> = serde_json::from_str(&text).ok();
+    if !status.is_success() {
+        let said = body.as_ref().and_then(|b| b.field("message").as_str()).unwrap_or("no message");
+        return Err(format!("GitHub answered {status}: {said}"));
+    }
+    body.ok_or_else(|| format!("GitHub answered {status} with no JSON"))
+}
+
+/// `ext search [QUERY]`.
+pub(super) fn run_search(query: Option<&str>, json_out: bool) -> i32 {
+    let answer = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|err| err.to_string())
+        .and_then(|runtime| runtime.block_on(search(query)));
+    let answer = match answer {
+        Ok(answer) => answer,
+        Err(message) => {
+            if json_out {
+                println!(
+                    "{}",
+                    json!({ "ok": false, "exitCode": exit::FETCH_FAILED, "errors": [message] })
+                );
+            } else {
+                eprintln!("cmux: the search failed: {message}");
+            }
+            return exit::FETCH_FAILED;
+        }
+    };
+    let rows = search_rows(&answer);
+    if json_out {
+        println!("{}", json!({ "ok": true, "topic": TOPIC, "extensions": rows }));
+        return exit::OK;
+    }
+    if rows.is_empty() {
+        println!(
+            "no extensions found (they are GitHub repositories with the topic {TOPIC}; cmux ext share says how to add yours)"
+        );
+        return exit::OK;
+    }
+    print!("{}", search_table(&rows));
+    exit::OK
+}
+
+/// The search rows as a table, one extension per two lines: name, stars and description, then
+/// the command that adds it.
+pub(super) fn search_table(rows: &[Value]) -> String {
+    let mut out = String::new();
+    for row in rows {
+        let description: String =
+            row.field("description").as_str().unwrap_or("").chars().take(80).collect();
+        out.push_str(&format!(
+            "{}  ({} stars)  {description}\n    {}\n",
+            row.field("name").as_str().unwrap_or(""),
+            row.field("stars").as_u64().unwrap_or(0),
+            row.field("add").as_str().unwrap_or("")
+        ));
+    }
+    out
 }

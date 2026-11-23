@@ -38,6 +38,27 @@ public struct PaneToolbarItem: Equatable, Sendable {
 /// one has keyboard focus or "…"'s menu is open. Their width is kept while they are faded, so no tab moves when they
 /// appear. A zoomed pane shows "…" lit, with its Exit Zoom button (``zoomButton``) immediately left of it.
 public final class PaneToolbarView: NSView {
+    /// A non-interactive host glass surface behind a native row control. Native controls remain the
+    /// hit target while the experiment borrows the App's shared chrome material.
+    @MainActor private final class NativeGlassSurfaceView: NSView {
+        let surface = Glass.makeHostSurface(level: .chrome)
+
+        override init(frame: NSRect) {
+            super.init(frame: frame)
+            addSubview(surface)
+        }
+
+        @available(*, unavailable)
+        required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+        override func layout() {
+            super.layout()
+            surface.frame = bounds
+        }
+
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    }
+
     /// "…"'s menu; nil or empty offers nothing.
     public var moreMenu: (() -> NSMenu?)?
     /// Runs a pinned button's action (its catalog id).
@@ -69,6 +90,8 @@ public final class PaneToolbarView: NSView {
     public private(set) var buttons: [TitlebarBandButton] = []
     public private(set) var nativeItems: [PaneTabRowTool] = []
     public private(set) var nativeButtons: [TitlebarBandButton] = []
+    private var nativeGlass = false
+    private var nativeGlassSurfaces: [NativeGlassSurfaceView] = []
     /// Each tab's room at the row's trailing end, so its pane's strip ends in one place whichever tab is selected.
     public private(set) var trailingSlots = PaneTrailingSlots()
 #if DEBUG
@@ -93,6 +116,8 @@ public final class PaneToolbarView: NSView {
     override public init(frame: NSRect) {
         super.init(frame: frame)
         moreButton.setAccessibilityIdentifier("cmux.pane.more")
+        zoomButton.roundsAsTabBarControl = true
+        moreButton.drawsPaneGlyph = true
         moreButton.pressMenu = { [weak self] in self?.moreMenu?() }
         // "⋮" stays shown while its menu is up: the pointer leaves the corner for the menu.
         let present = moreButton.presentMenu
@@ -155,15 +180,17 @@ public final class PaneToolbarView: NSView {
     /// - Parameter zoomed: the pane is zoomed: ``zoomButton`` shows left of "…".
     public func show(_ items: [PaneToolbarItem] = [], more: Bool = false, lit: Bool = false, zoomed: Bool = false, reserving: Int = 0,
                      nativeItems: [PaneTabRowTool] = []) {
+        let glassChanged = nativeItems.contains(where: \.glass) != self.nativeGlass
         guard items != self.items || more != hasMore || lit != self.lit || zoomed != self.zoomed || reserving != reservedCount
-            || nativeItems != self.nativeItems else { return }
+            || nativeItems != self.nativeItems || glassChanged else { return }
         reservedCount = reserving
         hasMore = more
         self.lit = lit
+        self.nativeGlass = nativeItems.contains(where: \.glass)
         moreButton.isHidden = !more
         moreButton.state = lit ? .on : .off
         if items != self.items { setButtons(items) }
-        if nativeItems != self.nativeItems { setNativeButtons(nativeItems) }
+        if nativeItems != self.nativeItems || glassChanged { setNativeButtons(nativeItems) }
         self.zoomed = zoomed
         zoomButton.isHidden = !zoomed
         applyTint()
@@ -179,6 +206,7 @@ public final class PaneToolbarView: NSView {
         buttons.forEach { reveal.remove($0); $0.removeFromSuperview() }
         buttons = items.enumerated().map { index, item in
             let button = TitlebarBandButton(symbol: item.symbol)
+            button.roundsAsTabBarControl = true
             button.tag = index
             button.target = self
             button.action = #selector(press(_:))
@@ -205,10 +233,13 @@ public final class PaneToolbarView: NSView {
 
     private func setNativeButtons(_ items: [PaneTabRowTool]) {
         nativeButtons.forEach { reveal.remove($0); $0.removeFromSuperview() }
+        nativeGlassSurfaces.forEach { $0.removeFromSuperview() }
+        nativeGlassSurfaces = []
         // A chat's own menu ("chat-menu") is a tool like the others, last in the row: the bar has no "…" to host it.
         nativeItems = items
         nativeButtons = items.enumerated().map { index, item in
             let button = TitlebarBandButton(symbol: item.symbol, text: item.text)
+            button.roundsAsTabBarControl = true
             button.customImage = Self.packGlyph
             button.tag = index
             button.setAccessibilityLabel(item.label)
@@ -250,6 +281,11 @@ public final class PaneToolbarView: NSView {
                         menuHold = nil
                     }
                 }
+            }
+            if nativeGlass {
+                let surface = NativeGlassSurfaceView(frame: .zero)
+                nativeGlassSurfaces.append(surface)
+                addSubview(surface)
             }
             addSubview(button)
             reveal.add(button)
@@ -486,6 +522,14 @@ public final class PaneToolbarView: NSView {
             let x = cursor - width
             button.isHidden = !fits || x < 0 || (index < items.count && items[index].alwaysVisible && !creationFits)
             button.frame = NSRect(x: max(0, x), y: y, width: max(side, width), height: side)
+            if index >= buttons.count {
+                let nativeIndex = index - buttons.count
+                if nativeGlassSurfaces.indices.contains(nativeIndex) {
+                    let surface = nativeGlassSurfaces[nativeIndex]
+                    surface.frame = button.frame
+                    surface.isHidden = button.isHidden
+                }
+            }
             cursor = x - gap
         }
         applyTint()
@@ -498,11 +542,11 @@ public final class PaneToolbarView: NSView {
         return NSRect(x: max(0, bounds.width - Self.trailingGap - side), y: buttonTop, width: side, height: side)
     }
 
-    /// The ⋮ plate's radius: a tab's roundness on its side, as the + and every other top control round (Lucas
-    /// 2026-11-13: "match the rest like the + for new workspace"); with an outer radius the person set, concentric
+    /// The ⋮ plate's radius: a tab's roundness on its square, as the tab bar's + rounds (``Metrics/tabBarControlCornerRadius(fitting:)``;
+    /// Lucas 2026-11-13: "match the rest like the + for new workspace"); with an outer radius the person set, concentric
     /// with the card's top-trailing corner `inset` points in (Lawrence 2026-11-07: "needs to be concentric").
     static func moreCornerRadius(inset: CGFloat) -> CGFloat {
-        guard Metrics.cornerRadiusIsSet else { return Metrics.buttonCornerRadius }
+        guard Metrics.cornerRadiusIsSet else { return Metrics.tabBarControlCornerRadius() }
         return Metrics.cornerRadius(nestedIn: Metrics.tabStripCardRadius ?? Metrics.corners.outer, inset: inset,
                                     size: CGSize(width: TitlebarBandButton.side, height: TitlebarBandButton.side))
     }

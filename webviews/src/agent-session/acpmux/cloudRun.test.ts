@@ -2,10 +2,12 @@ import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { inlineToken, promptBlocks, type ComposerAttachment } from "./attachments";
+import { setCloudPlanForTest } from "./cloudMachines";
 import type { AcpmuxHostConfig } from "./direct";
 import {
   cloudFolderGrants,
   cloudPageRefusal,
+  pageOnOtherMachine,
   cloudRunsHere,
   cloudSendAfterCheck,
   heldPromptShown,
@@ -14,6 +16,8 @@ import {
   cloudStartKeys,
   cloudStartSaid,
   grantedCloudStart,
+  pickedChatCloudCall,
+  pickOnlyNewChat,
   makeCloudSignInRetry,
   newTabProjectPick,
   oneCloudStart,
@@ -306,6 +310,22 @@ test("a Cloud chat copies its project; with none (or home) it starts in the mach
   expect(cloudStartFolder("/Users/me/src/.cmux-chief")).toEqual({ cwd: "/Users/me/src/.cmux-chief" });
 });
 
+test("a start names the plan's largest size the page read, so the host can grow its disk within the plan", async () => {
+  const calls: Record<string, unknown>[] = [];
+  const send = (start: Parameters<typeof startCloudChat>[1]) =>
+    startCloudChat(async (_method, params) => (calls.push(params), {}), start, "00000000-0000-4000-8000-000000000003");
+  setCloudPlanForTest({ state: "active", id: "next_pro", maxSize: "lg" });
+  try {
+    await send({ task: "hi", home: true });
+    await send({ task: "hi", home: true, planMax: "2xl" });
+    setCloudPlanForTest({ state: "none", id: null, maxSize: "lg" });
+    await send({ task: "hi", home: true });
+  } finally {
+    setCloudPlanForTest();
+  }
+  expect(calls.map((params) => params.planMax)).toEqual(["lg", "2xl", undefined]);
+});
+
 test("a start with no project tells the host home, and never names a folder", async () => {
   const calls: Record<string, unknown>[] = [];
   await startCloudChat(
@@ -542,11 +562,14 @@ test("the pane builds its Cloud start from grantedCloudStart and hands every Clo
   const source = readFileSync(join(import.meta.dir, "App.tsx"), "utf8");
   expect(source).toMatch(/const \[cloudFolderGrant\] = useState\(\(\) => cloudFolderGrants\(\)\);/);
   expect(source).toMatch(
-    /const \[startCloud\] = useState\(\(\) =>\s*grantedCloudStart\(reservedCloudCall\(callNative, cloudReservation\), cloudFolderGrant\),?\s*\);/,
+    /const \[startCloud\] = useState\(\(\) =>\s*grantedCloudStart\(\s*pickedChatCloudCall\(reservedCloudCall\(callNative, cloudReservation\), \(ms\) => harnessSwitch\.pickSession\(ms\)\),\s*cloudFolderGrant,?\s*\),?\s*\);/,
   );
   expect(source).toMatch(/cloudFolderGrant\.granting\(\s*folder\.cwd,\s*pickFolder\(callNative, folder\.cwd/);
-  expect(source).toMatch(/newTabProjectPick\(callNative, sandboxOfferable, cloudFolderGrant\.granting\)/);
+  // The New Tab page's pick is drawn in the pane body (pane/PaneBody.tsx).
+  const body = readFileSync(join(import.meta.dir, "pane", "PaneBody.tsx"), "utf8");
+  expect(body).toMatch(/newTabProjectPick\(callNative, cloudOfferable, cloudFolderGrant\.granting\)/);
   expect(source).not.toMatch(/oneCloudStart\(/);
+  expect(body).not.toMatch(/oneCloudStart\(/);
 });
 
 test("a new chat with Cloud picked reads no sign-in of this Mac's agent; every other local chat does", () => {
@@ -572,4 +595,83 @@ test("a composer's Cloud start copies only the folder its chip names, never one 
   expect(composerCloudStartFolder({ ...local, cwd: "/Users/me/src/paint/" })).toEqual({ cwd: "/Users/me/src/paint" });
   // A folder on another machine is not this Mac's to copy.
   expect(composerCloudStartFolder({ ...local, peer: "build-box", cwd: "/home/me/api" })).toEqual({ home: true });
+});
+
+// cmux#45946: GPT-6.1 Sol picked on a new chat (a harness switch, no chat yet) with Cloud picked. The pick is
+// no chat starting here: Cloud stays offered, and the start names the pick's local session as the one it replaces.
+test("a new chat that holds only an agent or model pick still offers Cloud", () => {
+  const page = { fresh: true, switching: true, selectionPending: false, quick: false };
+  expect(pickOnlyNewChat(page)).toBe(true);
+  expect(pickOnlyNewChat({ ...page, summarySessionId: "" })).toBe(true);
+  // A chat that opened, a chat being opened, a page with no pick, or the floating chat: not this case.
+  expect(pickOnlyNewChat({ ...page, sessionId: "s1" })).toBe(false);
+  expect(pickOnlyNewChat({ ...page, summarySessionId: "s1" })).toBe(false);
+  expect(pickOnlyNewChat({ ...page, selectionPending: true })).toBe(false);
+  expect(pickOnlyNewChat({ ...page, switching: false })).toBe(false);
+  expect(pickOnlyNewChat({ ...page, fresh: false })).toBe(false);
+  expect(pickOnlyNewChat({ ...page, quick: true })).toBe(false);
+});
+
+test("a Cloud start from a page with a pick names the pick's local session as the chat it replaces", async () => {
+  const calls: { method: string; params: Record<string, unknown> }[] = [];
+  const native = async (method: string, params: Record<string, unknown> = {}) => {
+    calls.push({ method, params });
+    return { ok: true };
+  };
+  const waits: number[] = [];
+  const call = pickedChatCloudCall(native, async (ms) => {
+    waits.push(ms);
+    return "codex-session";
+  });
+  await call("cloud.startChat", { key: "k", task: "1+1", harness: "codex", model: "gpt-6.1-sol" });
+  expect(calls.at(-1)).toEqual({
+    method: "cloud.startChat",
+    params: { key: "k", task: "1+1", harness: "codex", model: "gpt-6.1-sol", replacesChat: "codex-session" },
+  });
+  expect(waits).toHaveLength(1);
+  expect(waits[0]).toBeLessThan(30_000);
+  // An empty local chat's start already names its chat; other calls pass through untouched.
+  await call("cloud.startChat", { key: "k2", replacesChat: "empty-chat" });
+  expect(calls.at(-1)?.params.replacesChat).toBe("empty-chat");
+  await call("cloud.reserve", { composeKey: "c" });
+  expect(calls.at(-1)).toEqual({ method: "cloud.reserve", params: { composeKey: "c" } });
+  expect(waits).toHaveLength(1);
+});
+
+test("a Cloud start from a page with no pick goes as it is", async () => {
+  const calls: Record<string, unknown>[] = [];
+  const call = pickedChatCloudCall(
+    async (_method, params = {}) => {
+      calls.push(params);
+      return { ok: true };
+    },
+    async () => undefined,
+  );
+  await call("cloud.startChat", { key: "k", task: "1+1", home: true });
+  expect(calls).toEqual([{ key: "k", task: "1+1", home: true }]);
+});
+
+// cmux#47679: a second Cloud chat in a Cloud chat's workspace (a new tab or split there opens on the Cloud
+// machine) offered Cloud, and Enter sent `cloud.startChat`, which the host refuses from a page on another
+// machine: "Cloud isn't available for this chat", stalled at Clone repository. The new chat runs on that
+// machine already, so Enter starts it in this pane and Cloud is never offered or picked there.
+test("a page whose chat runs on another machine never offers or picks Cloud", () => {
+  expect(pageOnOtherMachine({ cloudMachineID: "m-1" })).toBe(true);
+  expect(pageOnOtherMachine({ origin: "remote" })).toBe(true);
+  expect(pageOnOtherMachine({ origin: "peer" })).toBe(true);
+  expect(pageOnOtherMachine({ summary: { peer: "devbox" } })).toBe(true);
+  expect(pageOnOtherMachine({ summary: { hostKind: "cloud" } })).toBe(true);
+  // This Mac's page: a new chat there may start on Cloud.
+  expect(pageOnOtherMachine({})).toBe(false);
+  expect(pageOnOtherMachine({ origin: "local", summary: { hostKind: "local" } })).toBe(false);
+  expect(pageOnOtherMachine({ origin: "unknown", summary: { peer: "" } })).toBe(false);
+
+  const source = readFileSync(join(import.meta.dir, "App.tsx"), "utf8");
+  expect(source).toMatch(
+    /const onOtherMachinePage = pageOnOtherMachine\(\{ cloudMachineID, origin: snapshot\.origin, summary: snapshot\.summary \}\);/,
+  );
+  expect(source).toMatch(
+    /const cloudOfferable = !onOtherMachinePage && \(sandboxOfferable \|\| emptyLocalChat \|\| pickOnlyChat\);/,
+  );
+  expect(source).toMatch(/const cloudPicked = sandbox\.mode === "cloud" && !onOtherMachinePage && /);
 });

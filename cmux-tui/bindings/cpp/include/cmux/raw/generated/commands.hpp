@@ -107,6 +107,9 @@ public:
     [[nodiscard]] Result<JsonValue> cloud_session_clear(const CloudSessionClearRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> cloud_session_set(const CloudSessionSetRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> cloud_session_status(const CloudSessionStatusRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> computer_use_approvals(const ComputerUseApprovalsRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> computer_use_config(const ComputerUseConfigRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> computer_use_endpoint(const ComputerUseEndpointRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<ConversationAgentTokenResult> conversation_agent_token(const ConversationAgentTokenRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ConversationAttachmentLinkResult> conversation_attachment_link(const ConversationAttachmentLinkRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ConversationAttachmentReadResult> conversation_attachment_read(const ConversationAttachmentReadRequest& request, RequestOptions options = {});
@@ -125,6 +128,8 @@ public:
     [[nodiscard]] Result<ConversationRunResult> conversation_run(const ConversationRunRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ConversationRunAppendResult> conversation_run_append(const ConversationRunAppendRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ConversationRunsResult> conversation_runs(const ConversationRunsRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<ConversationScheduledListResult> conversation_scheduled_list(const ConversationScheduledListRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<ConversationScheduledOpResult> conversation_scheduled_op(const ConversationScheduledOpRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ConversationSearchResult> conversation_search(const ConversationSearchRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ConversationSnapshotResult> conversation_snapshot(const ConversationSnapshotRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ConversationThreadResult> conversation_thread(const ConversationThreadRequest& request, RequestOptions options = {});
@@ -235,6 +240,7 @@ public:
     [[nodiscard]] Result<JsonValue> put_blob(const PutBlobRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<FrontendProjection> put_frontend_projection(const PutFrontendProjectionRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> put_session(const PutSessionRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> quick_terminal(const QuickTerminalRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ReadScreenResult> read_screen(const ReadScreenRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ReadScrollbackResult> read_scrollback(const ReadScrollbackRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ReattachViewResult> reattach_view(const ReattachViewRequest& request, RequestOptions options = {});

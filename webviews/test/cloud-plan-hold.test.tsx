@@ -148,7 +148,7 @@ type Debug = { runMode(mode?: string): { runMode?: string | null; error?: string
 const debug = () => (dom.window as unknown as { cmuxAcpmuxDebug?: Debug }).cmuxAcpmuxDebug!;
 const actions = () => (dom.window as unknown as { cmuxAcpmuxActions?: Record<string, unknown> }).cmuxAcpmuxActions;
 const startCard = () => host.querySelector<HTMLElement>(".acpmux-cloud-start");
-const pricingCard = () => host.querySelector('[data-action="subscribe"][data-plan="pro"]');
+const pricingCard = () => host.querySelector('[data-action="subscribe"][data-plan="next_pro"]');
 
 async function typeAndSend() {
   if (promptField()?.value() !== PROMPT) {

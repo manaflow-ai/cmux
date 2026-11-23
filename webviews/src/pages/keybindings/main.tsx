@@ -3,9 +3,10 @@
 // the in-memory mock provider stands in for the app.
 // DESKTOP-FEEL (R139): the shared desktop layer loads first.
 import "../shared/desktop";
+import "../shared/transientMaterial";
 import { createRoot } from "react-dom/client";
 import { createPageClient, type PageClient } from "../shared/pageClient";
-import { createStrings } from "../shared/i18n";
+import { renderLocalized } from "../shared/localizedRoot";
 import { subscribePageStreams } from "../shared/pageStreams";
 import table from "./generated/strings.json";
 import { KeybindingsPage } from "./KeybindingsPage";
@@ -30,14 +31,16 @@ export function mountKeybindingsPage(root: HTMLElement, client: PageClient | nul
       },
     });
   }
-  const strings = createStrings(table);
-  document.documentElement.lang = strings.language;
-  document.title = strings.t("keybindings.page.title");
   // The recorder popover (KeybindingsPage `Recorder`) portals into the page root.
-  createRoot(root).render(
-    <UiProvider container={root} dir={languageDirection(strings.language)}>
-      <KeybindingsPage store={store} strings={strings} />
-    </UiProvider>,
+  renderLocalized(
+    createRoot(root),
+    table,
+    (strings) => (
+      <UiProvider container={root} dir={languageDirection(strings.language)}>
+        <KeybindingsPage store={store} strings={strings} />
+      </UiProvider>
+    ),
+    (strings) => strings.t("keybindings.page.title"),
   );
   return store;
 }

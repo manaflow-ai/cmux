@@ -6,18 +6,24 @@ import Foundation
 /// or repository, the plan the page reads before Send (`cloudMachine.list`'s `plan`), the start's plan and size refusals
 /// (`cloud_plan_required`, `cloud_size_locked`) and the pricing card's Subscribe (`cloud.plan.subscribe`).
 extension AgentPaneCloudStart {
-    /// This start with the size its folder `local` needs (``CloudMoveCLI/StartChatPreflight``) and the bytes its copy
-    /// sends; throws the preflight's refusal, and `cloud_folder_too_big` for a folder past the largest chat size.
+    /// This start with the size its folder `local` needs (``CloudMoveCLI/StartChatPreflight``) under the page's plan
+    /// (``planMax``, ``CloudChatSize/planned(bytes:planMax:)``) and the bytes its copy sends; throws the preflight's
+    /// refusal, and `cloud_folder_too_big` for a folder too big for a Cloud machine.
     public func sized(_ preflight: CloudMoveCLI.StartChatPreflight, local: String) throws -> Self {
         var sized = self
+        var preflight = preflight
+        if case .passed(let bytes?, _) = preflight {
+            preflight = .passed(bytes: bytes, size: CloudChatSize.planned(bytes: bytes, planMax: planMax))
+        }
         sized.size = try preflight.size(folder: CloudMoveCLI.shownFolder(local))
         if case .passed(let bytes, _) = preflight { sized.folderBytes = bytes }
         return sized
     }
 
     /// This start with the size its GitHub repository needs, from the size the repos list gave it (`size_kb`,
-    /// `sizes`, the App's ``AgentPaneGitHub/sizes``); `sm` when the list named none (or there is no list). A repository
-    /// past the largest chat size is `cloud_folder_too_big`. A start that names no repository is unchanged.
+    /// `sizes`, the App's ``AgentPaneGitHub/sizes``) under the page's plan (``planMax``, as ``sized(_:local:)``); `sm` when
+    /// the list named none (or there is no list). A repository too big for a Cloud machine is `cloud_folder_too_big`. A
+    /// start that names no repository is unchanged.
     @MainActor public func sizedForRepository(_ sizes: AgentPaneGitHubRepoSizes?) throws -> Self {
         guard let repository else { return self }
         let sizeKb = sizes?.sizeKb(of: repository)
@@ -26,13 +32,18 @@ extension AgentPaneCloudStart {
             let bytes = Int64(max(kb, 0)).multipliedReportingOverflow(by: 1024)
             return bytes.overflow ? nil : bytes.partialValue
         }
-        guard let size = CloudChatSize.forRepository(sizeKb: sizeKb) else {
+        let natural = CloudChatSize.forRepository(sizeKb: sizeKb)
+        guard let size = sized.folderBytes.map({ CloudChatSize.planned(bytes: $0, planMax: planMax) }) ?? natural else {
             throw CloudMoveCLI.StartChatPreflightRefusal(message: "\(repository) is too big for a Cloud machine", folder: repository,
                                                          bytes: sized.folderBytes.map(Double.init))
         }
         sized.size = size
         return sized
     }
+
+    /// The disk in MiB its machine's create asks beyond ``size``'s own (``CloudChatSize/grownDiskMb(_:bytes:planMax:)``,
+    /// the same disk cmux-tui's ensure sends as `disk_gib`); nil: the size's own.
+    public var grownDiskMb: Int? { CloudChatSize.grownDiskMb(size, bytes: folderBytes, planMax: planMax) }
 }
 
 /// The sizes the GitHub repos list gave (`github.repos.list`'s rows, `size_kb`), by `owner/name`: a start in a picked
@@ -121,8 +132,11 @@ extension AgentPaneCloudMachines {
 
 /// The start card's plan refusal (webviews CloudStartView.tsx).
 extension AgentPaneCloudMachines.Plan {
-    /// The plans the pricing card offers.
-    public nonisolated static let offered = ["pro", "max"]
+    /// The plans the pricing card offers a team with no plan: cmux NEXT's own, smallest first.
+    public nonisolated static let offered = ["next_plus", "next_pro", "next_max"]
+    /// The plans the cards may name and Subscribe opens: ``offered``, and the classic ones a server may still name
+    /// (``CloudSizeLocked/plans``).
+    public nonisolated static let subscribable = CloudSizeLocked.plans
 
     /// `cloud_plan_required`'s details: the teams (``CloudAuth/planRefusalTeams``) and the plans to subscribe to.
     public nonisolated static func requiredDetails(_ teams: [String: Any]) -> [String: Any] {

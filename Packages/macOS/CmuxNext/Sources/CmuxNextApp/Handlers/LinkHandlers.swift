@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextDaemon
+import CmuxNextMacScreen
 import Foundation
 
 /// cmux:// links: `link.open`, the one resolution path every link takes,
@@ -25,6 +26,8 @@ enum LinkHandlers {
             if let url = URL(string: trimmed), let draft = DeepLink.buildDraft(for: url, linkScheme: services.linkScheme) { // Fork and customize: a new chat, its ask unsent
                 return _ = registry.perform(DeepLink.buildChatAction, invocation: ActionInvocation(arguments: ["draft": .string(draft)], origin: .user))
             }
+            // A screen link (`cmux://mac-screen?device=&display=`, or `https://cmux.com/deeplink/screen?…`): that device's Screen Sharing tab.
+            if let url = URL(string: trimmed), let record = MacScreenRecord(link: url, linkScheme: services.linkScheme) { return services.macScreenTabs.openAddress(record, in: nil, focus: !background) }
             if let url = URL(string: trimmed), let reference = DeepLink.agentReference(url, linkScheme: services.linkScheme) { // a footer's `cmux://agent?id=aid-…`
                 return try DeepLinkNavigator(services: services).openAgentLink(nil, bare: reference, background ? .bringForward : .raise, asking: true)
             }

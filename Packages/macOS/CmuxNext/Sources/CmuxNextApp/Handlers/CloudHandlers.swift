@@ -25,6 +25,7 @@ enum CloudHandlers {
         bindNetworkActions(into: registry, context: context, reason: signedInReason)
         bindDomainActions(into: registry, context: context, reason: signedInReason)
         bindListActions(into: registry, context: context)
+        bindComputerControl(into: registry, context: context)
         CloudStartSession.bind(into: registry, context: context, reason: signedInReason)
         context.services.cloudTeam.bind(into: registry, reason: signedInReason)
         bindCreation(into: registry, context: context, reason: { cloud.unavailableReason })
@@ -139,7 +140,7 @@ enum CloudHandlers {
 
     /// Whether a machine change goes: a person's own run yes; an agent's or a script's once the person allows it (CloudChangeRequest, naming the machine and what was asked; `shown` gets its dialog's id).
     static func allows(_ id: ActionID, _ invocation: ActionInvocation, _ registry: ActionRegistry, _ context: AppActionContext, shown: (@MainActor (Int) -> Void)? = nil) -> @MainActor () async -> Bool {
-        CloudChangeRequest(machine: (try? machine(invocation, context))?.machine.title, asked: invocation.arguments.compactMapValues { $0.stringValue ?? $0.intValue.map(String.init) }).asking(registry.descriptor(for: id)?.title ?? id.rawValue, person: origin(of: invocation) == .user, in: { context.services.windows.active?.window }, shown: shown)
+        CloudChangeRequest(machine: (try? machine(invocation, context))?.machine.title, arguments: invocation.arguments).asking(registry.descriptor(for: id)?.title ?? id.rawValue, person: origin(of: invocation) == .user, in: { context.services.windows.active?.window }, shown: shown)
     }
 
     /// The origin of a connect an invocation starts: `user` only for the
@@ -251,7 +252,7 @@ enum CloudHandlers {
         guard viewer == nil || viewer == "rd", session.machine.opensCarrierDesktop,
               let record = RemoteViewTabRecord(host: session.machineID.lowercased(), target: .virtual, mode: .view, cloudDesktop: true, cloudRd: true)
         else { throw ActionFailure(message: CloudStrings.desktopUnavailable(title)) }
-        openDesktopPane(record, name: CloudStrings.desktopWorkspaceName(title), services)
+        openDesktopPane(record, name: CloudStrings.desktopWorkspaceName(session.machine, chats: session.daemon.store.workspaces.compactMap(\.title)), services)
     }
 
     /// A remote view pane tab for `record` in a new workspace on this Mac's daemon.

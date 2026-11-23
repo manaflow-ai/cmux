@@ -130,11 +130,11 @@ final class NewTabSparePool {
             guard let self else { return nil }
             guard let spare = slot.peek,
                   let window = self.services.keyWindowSource().flatMap(self.mainWindow) ?? self.target else {
-                AgentPaneSpareOutcome.empty.trace()
+                AgentPaneSpareOutcome.empty.trace(into: services.agentTabs.retirer.sources)
                 return nil
             }
             guard spare.model.servesExistingChat else {
-                AgentPaneSpareOutcome.unready.trace()
+                AgentPaneSpareOutcome.unready.trace(into: services.agentTabs.retirer.sources)
                 return nil
             }
             return take(for: window, size: nil, refill: .afterPaint)?.view
@@ -319,7 +319,7 @@ final class NewTabSparePool {
     private let returns = AgentPaneSpareReturns()
     private func refusal(of view: AgentPaneView) -> String? {
         pressured ? "memory pressure" : view.model.neverPooled ? "another machine's page" : !slot.shouldWarm ? "slot full" : view.model.newTab == nil ? "became a chat"
-            : view.model.userTouched ? "touched by \(view.model.touchedBy ?? "?")" : target == nil ? "no target window" : nil
+            : view.model.userTouched ? "touched by \(view.model.touchedBy ?? view.model.hostTouch.by ?? "?")" : target == nil ? "no target window" : nil
     }
     /// A closed tab's page the pool can take back waits for `recycle` in the parking view, inside its window (`AgentPaneSpareReturns`).
     func keepInWindow(_ view: NSView) -> Bool {
@@ -381,7 +381,7 @@ final class NewTabSparePool {
         // Only the launch warm comes early, after the first frame: a `take()` that found nothing
         // (it set `usedThisSession`) must not make a web view in the person's keystroke.
         let launch = !warmedOnce && !usedThisSession
-        if launch, shownChats.holds({ AgentPaneShownChatsWait.loading(services.agentTabs.views.values) }, then: { [weak self] in self?.armWarmTimer() }) { return }
+        if launch, shownChats.holds({ AgentPaneShownChatsWait.loading(services.agentTabs.views.values) + shownChats.home(shown: services.windows.shownWorkspaceIDs.allSatisfy { services.workspace(id: $0).map { $0.kind == "home" } ?? true }) }, then: { [weak self] in self?.armWarmTimer() }) { return } // Home's page too (none shown yet: it may come)
         warmedOnce = warmedOnce || launch
         warmTimer.schedule(after: launch ? Self.openSettle : idleInput) { @MainActor [weak self] in self?.warmNow() }
     }

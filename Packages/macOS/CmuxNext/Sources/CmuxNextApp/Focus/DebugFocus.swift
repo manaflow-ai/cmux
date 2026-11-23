@@ -25,6 +25,7 @@ enum DebugFocus {
             // Windows whose keys wait for a New Tab field (NewTabInputCoordinator); never stays.
             "new_tab_key_log": .array(services.keyRouter.newTabInputCoordinator.log.map(JSONValue.string)),
             "creation_hold_tab_keys": .object(creations.holdEnds.tabKeyCounts.mapValues { .number(Double($0)) }), // since the app started (``CreationHoldLog``)
+            "parked_typing": .object(services.keyRouter.parkedTyping.counts().mapValues { .number(Double($0)) }), // since the app started (``TypingPark``)
             "new_tab_key_holds": .array(services.windows.controllers.filter {
                 services.keyRouter.newTabInputCoordinator.isHolding(in: $0.window)
             }.map { .string($0.state.id) }),
@@ -67,6 +68,7 @@ enum DebugFocus {
         let isKey = window?.isKeyWindow ?? false
         let actual = FocusResponderClassifier.classify(window?.firstResponder, in: controller)
         let layoutFocus = controller.content?.layoutModel.focusedPane?.rawValue
+        let readiness = resolved.pane.flatMap { controller.content?.paneController(key: $0)?.currentContent?.inputReadiness }
         // A top page covers the parked workspace, whose pane the model still names (InputInvariants.world).
         let problems = controller.shownTopPage != nil ? [] : mismatches(state: state, actual: actual, isKey: isKey, layoutFocus: layoutFocus,
                                                                         ghostty: ghostty, controller: controller)
@@ -76,6 +78,11 @@ enum DebugFocus {
             "workspace_name": controller.content.map { .string($0.workspace.displayName) } ?? .null,
             "is_key": .bool(isKey),
             "creation_hold": .bool(creations.isHolding(in: window)),
+            // DOM focus alone does not show whether the native router will queue the page's keys.
+            "page_input": readiness.map { .object([
+                "ready": .bool($0.isReady), "editable_focused": .bool($0.isEditableFocused),
+                "focus_epoch": JSONValue($0.focusEpoch), "command_focus": $0.commandFocus.map(JSONValue.string) ?? .null,
+            ]) } ?? .null,
             "creation_hold_end": creations.lastHoldEnd(in: window).map { .string(String(describing: $0)) } ?? .null,
             "model": .object([
                 "pane": state.pane.map(JSONValue.string) ?? .null,

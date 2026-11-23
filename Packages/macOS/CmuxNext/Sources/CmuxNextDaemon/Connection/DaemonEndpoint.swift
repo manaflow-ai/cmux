@@ -198,6 +198,8 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     case browserHostProvider = "browser-host-provider-v1"
     /// `remote-host-*`: cmux Remote, the daemon's signed host for Computer Use and Screen Sharing (docs/cmux-remote.md).
     case remoteHost = "remote-host-v1"
+    /// `computer-use-*`: cmux Computer Use (the worker's endpoint for acpmux, the person's policy, saved approvals).
+    case computerUse = "computer-use-v1"
     /// `activate` on `new-frontend-browser-tab`: a background tab keeps the pane's active tab.
     case frontendBrowserActivate = "frontend-browser-activate-v1"
     /// `after` on `new-frontend-browser-tab`: a link's tab lands next to its opener.
@@ -400,6 +402,10 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// `agent-session-login`: a Cloud chat's own sign-in on that machine (the failed turn's
     /// sign-in card), as acpmux's `_acpmux/agent_login/*` on the tab's own session.
     case agentSessionLogin = "agent-session-login-v1"
+    /// `agent-session-share-changed` on subscribe: a chat's link shares or invites changed, so an
+    /// open Invite People sheet reads its rows again (a later join, a departure, an expiry). A daemon
+    /// without it leaves the sheet as it was read.
+    case agentSessionShareEvents = "agent-session-share-events-v1"
     /// `agent-session-login` for a new chat with no session yet (an unbound tab of that machine's
     /// store): its agent's sign-in runs on that machine itself, gated there as a start is
     /// (`vm_kind: "owner"` on a Cloud VM). Without it a new chat's failed start says to sign in there.
@@ -418,6 +424,9 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// `agent-session-btw`: the composer's `/btw` on a Cloud chat, as acpmux's inline
     /// `_acpmux/btw` on the tab's own session (owner only).
     case agentSessionBtw = "agent-session-btw-v1"
+    /// `max_bytes` on `agent-session-attach` and `-events`: a chat page's byte budget, passed to
+    /// that machine's acpmux. Without it a page gets acpmux's 1 MiB default (hq#14027).
+    case agentSessionPageBytes = "agent-session-page-bytes-v1"
     /// Page tabs on the store: the `page` source of a conversation tab (App Store, Settings,
     /// Debug Settings), so they move and split like any tab (cmux-tui/spec/commands.md).
     case pageTabs = "page-tabs-v1"
@@ -593,6 +602,9 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// reports already-gone ids as `gone_ids` and skips a tab that left before the commit
     /// (`WorkspaceClose.close` sends every workspace of a daemon in one request then).
     case layoutBulkBare = "layout-bulk-bare-v1"
+    /// `browser_import.read`: the daemon reads another browser's bookmarks, history, tabs, search
+    /// engine and extensions for the browser import (`BrowserImportClient`, the cmux-browser-import crate).
+    case browserImport = "browser-import-v1"
     /// The one-time move from classic cmux: `classic_import.*` (`ClassicImportClient`).
     case classicImport = "classic-import-v1"
     /// `diff.comments.send`: the session host hands a diff tab's review comments to an acpmux
@@ -602,6 +614,13 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// files with no patch. The diff tab asks them every few seconds; a session host without the
     /// read gets no request for it (DiffPageProvider+Git.swift).
     case gitFingerprint = "git-fingerprint-v1"
+    /// `set-layout-sizes`: the values one resize gesture ends with (a key trade's two widths, a drag
+    /// release's widths and ratios) are one commit, every value or none. Without it each value goes
+    /// as its own command under the gesture's transaction (`LayoutSizeCommands`).
+    case layoutSizesBatch = "layout-sizes-batch-v1"
+    /// `language_packs.ensure`: the home daemon downloads the app's pinned pack for the person's
+    /// language on first use, checks its sha256 and unpacks it (`LanguagePacksClient`, CMUX-570).
+    case languagePacks = "language-packs-v1"
 
     /// Which list a capability is in.
     public enum Tier: Sendable {
@@ -629,7 +648,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .splitClientKeys, .splitClientSplitID, .splitAround, .splitDividerVisibility, .splitBefore, .rowClientKeys, .conversationTabSplit, .frontendBrowserTabSplit, .workspaceFirstTab, .frontendBrowserTabWorkspace,
              .terminalInputWhileCreating, .creatingInputCancel, .terminalReap, .resumeCommand, .terminalLastCommand, .terminalReaperActive,
              .endTerminalsKeepLayout, .batchClose, .sendExpectForeground, .closeReason, .closeWorkspaceIfEmpty,
-             .browserHostProvider, .remoteHost, .frontendBrowserActivate, .frontendBrowserInsertAfter, .loopbackForward,
+             .browserHostProvider, .remoteHost, .computerUse, .frontendBrowserActivate, .frontendBrowserInsertAfter, .loopbackForward,
              .browserRuntime, .notificationSource, .terminalShellArgs, .terminalFrontendShellIntegration,
              .launchSnapshot, .profiles, .personalRemoteLocalhost, .sessionIdentity, .remoteTerminalTabs,
              .dockColumns, .edgeDocks, .dockColumnRole, .dockColumnSplitDown, .pinnedDock, .pinnedDockAlone, .rows, .columnMove, .columnLeft, .floatingPanes,
@@ -639,7 +658,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .workspaceKind, .workspaceAgentFolder, .workspaceAgentStart, .conversationTabs, .agentSessionTabs, .closedConversationTabs,
              .agentSessionAttach, .agentSessionFork, .agentSessionSide, .cloudChatRelay, .agentSessionObserve, .agentSessionStart, .agentSessionStartNoCwd, .agentSessionTrust,
              .agentSessionStartKeyedReason, .agentSessionStartVMKind, .agentSessionStartModel, .agentSessionStartPermissionMode, .agentSessionStartMode, .agentSessionTrustVMKind, .agentSessionFolders,
-             .agentSessionChildren, .agentSessionContent, .agentSessionPresence, .agentSessionSettings, .agentSessionLogin, .agentSessionLoginMachine, .agentSessionContext, .agentSessionBtw, .agentSessionSteer, .agentSessionQueueDecision, .agentSessionMember, .pageTabs, .pageTabRoute, .appScreens,
+             .agentSessionChildren, .agentSessionContent, .agentSessionPresence, .agentSessionSettings, .agentSessionLogin, .agentSessionShareEvents, .agentSessionLoginMachine, .agentSessionContext, .agentSessionBtw, .agentSessionPageBytes, .agentSessionSteer, .agentSessionQueueDecision, .agentSessionMember, .pageTabs, .pageTabRoute, .appScreens,
              .conversationSearch, .conversationThreads, .conversationThread, .conversationInboxState, .homeInbox,
              .chiefEvents, .cloudConversations, .cloudHostReplica, .cloudAttachments, .cloudSelfHost,
              .pageCredential, .scopedPageCredential, .wsListen, .wsListenOrigins, .personalMixedOrder,
@@ -652,7 +671,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .terminalClipboardRead, .originClaim, .pageRouter, .sessionJournal,
              .terminalResources, .machineIdentity, .agentCLIAppProvider, .agentCLIAppInvalidation, .appProviderChanged,
              .agentInventoryWatchAdmission, .stash, .stashWorkspaces, .layoutBulk, .layoutBulkBare,
-             .classicImport, .diffCommentsSend, .gitFingerprint:
+             .browserImport, .classicImport, .diffCommentsSend, .gitFingerprint, .layoutSizesBatch, .languagePacks:
             return .optional
         }
     }
@@ -701,21 +720,6 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     }
     private static let notAdvertised: Set<String> = Set(names([.terminalFrontendShellIntegration, .placementShift,
                                                                .sharedSizing, .agentSessionPresence]))
-
-    /// What a connection echoes in `set-client-info`.
-    ///
-    /// - Parameters:
-    ///   - advertised: The capabilities the connection advertises.
-    ///   - resolvesShellIntegration: The connection resolves Ghostty's shell integration itself.
-    ///   - echoesPlacementShift: This build orders sidebar rows from the sidebar document only
-    ///     (the App passes true from its composition root).
-    public static func handshakeCapabilities(_ advertised: [String], resolvesShellIntegration: Bool,
-                                             echoesPlacementShift: Bool = false) -> [String] {
-        // The document path echoes `placement-shift-v1` together with `sidebar-doc-v1`.
-        let document = echoesPlacementShift && advertised.contains(Self.sidebarDoc.rawValue) ? [Self.placementShift.rawValue] : []
-        let shell = resolvesShellIntegration ? [Self.terminalFrontendShellIntegration.rawValue] : []
-        return advertised + shell + document
-    }
 
     private static func names(_ capabilities: [DaemonCapability]) -> [String] { capabilities.map(\.rawValue) }
     private static func names(in tier: Tier) -> [String] { names(allCases.filter { $0.tier == tier }) }

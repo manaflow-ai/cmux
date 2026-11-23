@@ -54,6 +54,7 @@ bounded() {
   echo "AGENT-LOOP setup: $name"
   set -m
   "$@" & pid=$!
+  # sleep-ok: the watchdog's timeout itself (the phase's bound, then 5 s from TERM to KILL)
   ( sleep "$seconds"; kill -TERM -- "-$pid" 2>/dev/null; sleep 5; kill -KILL -- "-$pid" 2>/dev/null ) \
     </dev/null >/dev/null 2>&1 & watchdog=$!
   set +m
@@ -71,7 +72,8 @@ curl -fsSL --proto '=https' --retry 3 --retry-all-errors -A cmux-agent-loop/1 -o
 mkdir -p "$mount"
 hdiutil attach -nobrowse -readonly -noverify -mountpoint "$mount" "$work/in.dmg" >/dev/null || { echo "AGENT-LOOP mount failed"; exit 3; }
 plist="$(ls -d "$mount"/*.app/Contents/Info.plist 2>/dev/null | head -n 1)"
-commit="$(/usr/libexec/PlistBuddy -c 'Print CMUXCommit' "$plist" 2>/dev/null || true)"
+commit=""
+[[ -f "$plist" ]] && commit="$(/usr/libexec/PlistBuddy -c 'Print CMUXCommit' "$plist" 2>/dev/null || true)"
 hdiutil detach "$mount" >/dev/null 2>&1 || hdiutil detach -force "$mount" >/dev/null 2>&1 || true
 rmdir "$mount" 2>/dev/null || true
 # Nightlies stamp the commit's first 7 hex: this checkout resolves it, else GitHub's commit API.

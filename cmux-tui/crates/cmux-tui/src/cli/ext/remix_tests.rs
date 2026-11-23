@@ -10,7 +10,7 @@ use std::process::Command;
 use serde_json::Value;
 
 use super::remix::{self, RemixOptions, SourceRef};
-use super::share::{self, ShareOptions, Shared};
+use super::share_repo::{self as share, ShareOptions, Shared};
 use super::tests::words;
 use super::{Request, parse};
 
@@ -490,4 +490,30 @@ fn share_refuses_a_manifest_that_is_a_link() {
 fn a_scheme_in_capitals_parses_as_the_link_accepts_it() {
     let parsed = SourceRef::parse("HTTPS://github.com/acme/todo@main").unwrap();
     assert_eq!(parsed.repository(), "github.com/acme/todo");
+}
+
+/// `ext share` on a folder already on a remote prints its link (`share.rs`); a folder with no
+/// `origin`, as `ext remix` makes, is the one published to a new repository.
+#[test]
+fn share_publishes_only_a_folder_with_no_origin() {
+    let dir = std::env::temp_dir().join(format!("cmux-share-origin-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    assert!(!super::share_repo::has_origin(&dir), "not a git repository");
+    let git = |args: &[&str]| {
+        assert!(
+            std::process::Command::new("git")
+                .arg("-C")
+                .arg(&dir)
+                .args(args)
+                .status()
+                .unwrap()
+                .success()
+        );
+    };
+    git(&["init", "-q"]);
+    assert!(!super::share_repo::has_origin(&dir), "a repository with no origin");
+    git(&["remote", "add", "origin", "https://github.com/acme/todo.git"]);
+    assert!(super::share_repo::has_origin(&dir));
+    let _ = std::fs::remove_dir_all(&dir);
 }

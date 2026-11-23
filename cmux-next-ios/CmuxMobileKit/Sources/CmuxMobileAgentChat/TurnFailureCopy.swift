@@ -1,3 +1,4 @@
+import CmuxMobileModel
 import Foundation
 
 /// Why a turn failed, in plain words, with the agent's own message kept as the detail.
@@ -32,7 +33,8 @@ public struct TurnFailureCopy: Hashable, Sendable {
         }
         let parts = Self.apiError(raw)
         let kind = Self.kind(raw, parts: parts, harness: harness)
-        let name = [harnessName, harness].compactMap { $0?.isEmpty == false ? $0 : nil }.first ?? "The agent"
+        // The agent by its name ("Claude"), never a raw profile id ("claude-sr") or the session's title.
+        let name = harnessName.flatMap { $0.isEmpty ? nil : $0 } ?? harness.flatMap { $0.isEmpty ? nil : AgentHarnessName.of($0) } ?? "The agent"
         let status = Self.firstMatch(#"\b([45]\d\d)\b"#, in: raw)
         let via = Self.via(raw, harness: harness)
         let sentence: String = switch kind {
@@ -46,7 +48,7 @@ public struct TurnFailureCopy: Hashable, Sendable {
                 : "cmux's model service isn't available here."
         case .modelServiceNotConnected: "cmux's model service isn't connected on the Mac. Open cmux on the Mac, then try again."
         case .modelServiceExpired: "cmux's model service sign-in expired on the Mac. Open cmux on the Mac to renew it."
-        case .modelServiceUnreachable: "cmux's model service didn't answer. Try again in a moment."
+        case .modelServiceUnreachable: "Can't reach cmux's model service right now. Try again in a moment."
         case .rateLimited: "\(name) is rate limited or out of capacity. Try again in a moment, or switch model."
         case .unreachable: via.map { "\(name) could not reach \($0)." } ?? "\(name) could not reach its server."
         case .invalidKey: "\(name) has no valid API key. Check the key its profile uses."

@@ -94,6 +94,8 @@ struct ForkApi {
   // API version 18: profile (Touch ID) passkeys, metadata only.
   int (*profile_passkeys_list)(const char*, void (*)(void*, const char*), void*) = nullptr;
   int (*profile_passkey_delete)(const char*, const char*, void (*)(void*, int), void*) = nullptr;
+  // API version 23: WebAuthn per tab (refuse every request of an agent-driven tab).
+  int (*tab_set_webauthn_mode)(int, int) = nullptr;
   // API version 18: password manager core (shim_password_core.mm).
   int (*password_list)(const char*, void (*)(void*, const char*), void*) = nullptr;
   int (*password_remove)(const char*, const char* const*, int, void (*)(void*, int), void*) = nullptr;
@@ -126,6 +128,10 @@ struct ForkApi {
   int (*browser_drag_target_enter_source)(int, int, int, int, int) = nullptr;
   // API version 25: cmux's own Safe Storage keychain item (cmux_shim_set_keychain_item).
   int (*set_keychain_item)(const char*, const char*) = nullptr;
+  // API version 35: draw on input (a page's key frame without waiting for the next vsync).
+  int (*browser_set_draw_on_input)(int, int) = nullptr;
+  // API version 35: frames that mode drew for a key, so a bench can prove it is live, not inert.
+  int (*draw_on_input_key_frames)(int) = nullptr;
 };
 
 struct Host {
