@@ -58,6 +58,8 @@ pub struct Facts {
     pub paused: bool,
     /// Seconds until a Codex usage limit resets, when it resets within the hour.
     pub reset_in_seconds: Option<f64>,
+    /// When that limit resets (an ISO time), for the wait line; empty prints the minutes left.
+    pub reset_at: String,
     /// A live session that holds its work (`HOST/NAME (PRs ...)`), or empty.
     pub holder: String,
     /// Why this pass may place no more sessions, or empty.
@@ -238,10 +240,14 @@ pub fn route(f: &Facts) -> Route {
     }
     if let Some(reset) = f.reset_in_seconds {
         if !f.host_down && reset > 0.0 {
+            let when = if f.reset_at.is_empty() {
+                format!("in {} min", (reset / 60.0).ceil() as u64)
+            } else {
+                format!("at {}", f.reset_at)
+            };
             return Route::Wait {
                 why: format!(
-                    "waits for its Codex usage limit to reset in {} min, then restarts in place",
-                    (reset / 60.0).ceil() as u64
+                    "waits for its Codex usage limit to reset {when}, then restarts in place"
                 ),
             };
         }
