@@ -83,11 +83,12 @@ async function label(states: string[], language = "en"): Promise<string> {
   }
 }
 
-test("one phrase says how many subagents there are and what is still going", async () => {
-  expect(await label(["running"])).toBe("1 subagent running");
-  expect(await label(["running", "running", "running"])).toBe("3 subagents running");
-  expect(await label(["running", "completed"])).toBe("2 subagents, 1 running");
-  expect(await label(["running", "failed", "completed"])).toBe("3 subagents, 1 running, 1 failed");
+// What runs needs no word (Leo, 2026-11-23: ""running" doesn't need text"): the avatars and the clock say it.
+test("one phrase says how many subagents there are and what needs a look", async () => {
+  expect(await label(["running"])).toBe("1 subagent");
+  expect(await label(["running", "running", "running"])).toBe("3 subagents");
+  expect(await label(["running", "completed"])).toBe("2 subagents");
+  expect(await label(["running", "failed", "completed"])).toBe("3 subagents, 1 failed");
   expect(await label(["completed", "completed"])).toBe("2 subagents done");
   expect(await label(["completed", "failed"])).toBe("2 subagents, 1 failed, 1 done");
 });
@@ -97,12 +98,12 @@ test("one phrase says how many subagents there are and what is still going", asy
 test("cancelled and disconnected subagents count as stopped", async () => {
   expect(await label(["completed", "cancelled", "disconnected"])).toBe("3 subagents, 2 stopped, 1 done");
   expect(await label(["cancelled", "cancelled"])).toBe("2 subagents, 2 stopped");
-  expect(await label(["running", "cancelled"])).toBe("2 subagents, 1 running, 1 stopped");
+  expect(await label(["running", "cancelled"])).toBe("2 subagents, 1 stopped");
 });
 
 test("the count takes the pane language's plural form", async () => {
-  expect(await label(["running"], "ru")).toBe("1 субагент выполняется");
-  expect(await label(["running", "running"], "ru")).toBe("2 субагента выполняются");
-  expect(await label(Array(5).fill("running"), "ru")).toBe("5 субагентов выполняются");
+  expect(await label(["running"], "ru")).toBe("1 субагент");
+  expect(await label(["running", "running"], "ru")).toBe("2 субагента");
+  expect(await label(Array(5).fill("running"), "ru")).toBe("5 субагентов");
   expect(await label(["completed", "completed"], "ja")).toBe("サブエージェント 2 件完了");
 });

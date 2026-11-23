@@ -57,20 +57,20 @@ export function Avatar({ agent, wave }: { agent: Subagent; wave?: number }) {
   );
 }
 
-/// The group's one line (Leo 2026-10-13): "1 subagent running", "3 subagents done", or the count
-/// and what is still going, "2 subagents, 1 running" (and any failed; done ones once none run).
-/// Each count takes the pane language's plural form.
+/// The group's one line (Leo 2026-10-13): "3 subagents" while they run, "3 subagents done", or the
+/// count and what needs a look, "2 subagents, 1 failed" (done ones once none run). What runs needs no
+/// word (Leo, 2026-11-23: ""running" doesn't need text. it can usually just be."): the avatars and the
+/// ticking clock say it. Each count takes the pane language's plural form.
 function groupLabel(t: Translate, language: PaneLanguage, agents: readonly Subagent[]): string {
   const n = agents.length;
   const count = (state: string) => agents.filter((agent) => agent.state === state).length;
   const [runningCount, failed, done] = [count("running"), count("failed"), count("completed")];
   // Stopped by the person (cancelled) or lost by acpmux (disconnected): ended, not failed.
   const stopped = count("cancelled") + count("disconnected");
-  if (n > 0 && runningCount === n) return t("subagents.allRunning", { n });
+  if (n > 0 && runningCount === n) return t("subagents.count", { n });
   if (n > 0 && done === n) return t("subagents.allDone", { n });
   if (n > 0 && failed === n) return t("subagents.allFailed", { n });
   const states = [
-    runningCount > 0 && t("summary.subagents.running", { n: runningCount }),
     failed > 0 && t("summary.subagents.failed", { n: failed }),
     stopped > 0 && t("summary.subagents.stopped", { n: stopped }),
     runningCount === 0 && done > 0 && t("summary.subagents.done", { n: done }),

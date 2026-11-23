@@ -1846,7 +1846,7 @@ export default componentEntry<Props>({
       },
     },
     "subagents-idle": {
-      note: 'Subagents that stopped and wait on background work of their own read Idle, not Running for two hours, and the head counts them as idle ("3 running · 2 idle · 1 done"). Every line is named by its task, never its id. With no started chat running or waiting, no limit line shows.',
+      note: 'Subagents that stopped and wait on background work of their own read Idle, not Running for two hours, and the head counts them as idle (the subagents’ mark and 3, no word for what runs (Leo, 2026-11-23: “running” doesn’t need text), then "2 idle · 1 done"). Every line is named by its task, never its id. With no started chat running or waiting, no limit line shows.',
       props: {
         ...full,
         agents: idleAgents,
@@ -1860,6 +1860,9 @@ export default componentEntry<Props>({
       play: async (ctx) => {
         await ctx.waitFor(() => /2 idle/.test(text(ctx)));
         if (/Started chats:/.test(text(ctx))) throw new Error("A limit line shows with no started chat running");
+        const head = ctx.document.querySelector(".acpmux-session-info-section__value .acpmux-live-count");
+        if (!head || head.textContent !== "3") throw new Error(`the head's live count reads ${head?.textContent}`);
+        if (/\brunning\b/.test(head.parentElement?.textContent ?? "")) throw new Error("the head still says running");
       },
     },
     "subagents-wave": {

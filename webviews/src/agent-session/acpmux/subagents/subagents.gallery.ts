@@ -257,11 +257,13 @@ export default agentPaneEntry({
       snapshot: MIXED,
     },
     running: {
-      note: "Four subagents started together, all still working: the group is open, a line per agent, with no click.",
+      note: 'Four subagents started together, all still working: the group is open, a line per agent, with no click. Its line reads 4 subagents, no word for what runs (Leo, 2026-11-23: "running" doesn\'t need text): the avatars and the ticking clock say it.',
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-subagent").length === AUDIT.length);
         if (ctx.find({ selector: ".cv-subagents" }).getAttribute("aria-expanded") !== "true")
           throw new Error("a group of running agents in a working turn must start open");
+        const line = ctx.find({ selector: ".cv-subagents__title" }).textContent;
+        if (line !== `${AUDIT.length} subagents`) throw new Error(`group line reads ${line}`);
       },
       snapshot: chat(
         [

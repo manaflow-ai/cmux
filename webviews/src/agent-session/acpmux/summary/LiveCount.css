@@ -1,0 +1,13 @@
+/* The live count (LiveCount.tsx): the subagents' mark and the number, on the line's baseline, in the
+   line's own color, no word beside it. */
+.acpmux-live-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  vertical-align: bottom;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.acpmux-live-count > svg {
+  flex: none;
+}
