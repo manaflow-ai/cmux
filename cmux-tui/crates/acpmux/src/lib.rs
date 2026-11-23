@@ -277,6 +277,7 @@ pub mod sent_by;
 pub mod server;
 pub mod session_env;
 mod session_handle;
+pub mod session_icon;
 pub mod session_identity;
 pub mod session_liveness;
 pub mod session_name;
