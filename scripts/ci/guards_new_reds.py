@@ -28,7 +28,7 @@ change's: the base both passed and failed it. cmux#41254 (run 43006460063) was c
 overlap test because attempt 2's one base replay passed it (overlapFrames 0); attempt 3's failed it (overlapFrames 1).
 A file red without naming the test (a timeout) says nothing about it; a missing or unreadable file names nothing.
 Only a first replay that passed the test (by name, or its whole file) makes a later failure a flake: with no first
-result, or a first replay that timed out, the red stays the change's.
+result, or a first replay that timed out before the test, it is never a flake (no first result: unknown).
 ci-web.yml replays the files of the reds a compare would still charge, at most two more times (its base_again).
 
 --new-files prints, one a line, the file of each red this compare would charge to the change (the part of a
@@ -38,11 +38,18 @@ webview test name before " > "), and exits 0. ci-web.yml re-runs those files alo
 charged with that explicitly passed there (or whose whole file passed), alone, is a warning (kind `flaky`), never the change's: the head shard
 retries a red file alone and counts its pass, but only while its retry budget lasts, so a late red on a long
 shard was never retried. #27710 (run 41525196343) went red on three gallery-frame timeouts its head shards had no
-budget left to retry; the base push after it merged passed all three. A file that fails again, or is missing from
-the re-run, stays the change's.
+budget left to retry; the base push after it merged passed all three. A file that fails again stays the change's;
+one the re-run was cut before (its `_cmux_unreached`) is unknown, and one missing from a re-run that wrote no such
+mark stays the change's.
 
 A base result may name the files its replay never reached (`_cmux_unreached`, webviews_test_results.py
 --mark-unreached): a red in one of them has no base result (unknown), even in an otherwise finished replay.
+A test whose base file is `FILE: false` (it timed out, or failed without naming this test) and that the base does not
+name has no base result either: the base never ran it (cmux#51403, feel-plan-tray.test.ts cut at its 120 s limit).
+
+No budget miss charges a red to the change (cmux#51403): a base result may name the files whose further base replays
+(base_again) the job's budget skipped (`_cmux_unjudged`, webviews_test_results.py --mark-unjudged), and the head re-run's
+results the files it was cut before (`_cmux_unreached`); a red that would be the change's in one of them is unknown.
 
 A file-level red (`FILE: false`: the file timed out, or failed without naming a test) that the base has no
 file-level entry for is red on the base too when every test the head names red in that file is red on the base,
@@ -100,14 +107,21 @@ def result_complete(path: str) -> bool:
     return bool(found.get("_cmux_complete", True)) if isinstance(found, dict) else False
 
 
-def unreached_files(path: str) -> set[str]:
-    """The files a cut replay never reached (webviews_test_results.py --mark-unreached): no base result for them."""
+def listed_files(path: str | None, key: str) -> set[str]:
+    """The files a results map names under KEY (webviews_test_results.py: `_cmux_unreached`, `_cmux_unjudged`)."""
+    if not path:
+        return set()
     try:
         found = json.loads(Path(path).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return set()
-    listed = found.get("_cmux_unreached") if isinstance(found, dict) else None
+    listed = found.get(key) if isinstance(found, dict) else None
     return {str(file) for file in listed} if isinstance(listed, list) else set()
+
+
+def unreached_files(path: str | None) -> set[str]:
+    """The files a cut replay never reached (webviews_test_results.py --mark-unreached): no base result for them."""
+    return listed_files(path, "_cmux_unreached")
 
 
 def flaky_names(path: str) -> set[str]:
@@ -212,7 +226,7 @@ def main(argv: list[str]) -> int:
         for step in red_steps(load(argv[1]) or {}):
             print(step)
         return 0
-    label, flaky, tip, new_files, rerun, again = "Guard", set(), False, False, None, []
+    label, flaky, tip, new_files, rerun, again, rerun_path = "Guard", set(), False, False, None, [], None
     while argv and (argv[0] in ("--tip", "--new-files")
                     or (len(argv) > 2 and argv[0] in ("--label", "--flaky", "--head-rerun", "--base-again"))):
         if argv[0] == "--tip":
@@ -228,7 +242,7 @@ def main(argv: list[str]) -> int:
         elif argv[0] == "--base-again":
             again.append(load(argv[1]) or {})
         else:
-            rerun = load(argv[1]) or {}
+            rerun, rerun_path = load(argv[1]) or {}, argv[1]
         argv = argv[2:]
     if len(argv) != (1 if tip else 2):
         print(__doc__, file=sys.stderr)
@@ -255,6 +269,8 @@ def main(argv: list[str]) -> int:
     base = load(argv[1])
     base_complete = result_complete(argv[1])
     unreached = unreached_files(argv[1])
+    # Files whose further base replays (base_again) the job's budget skipped: their reds are not judged.
+    unjudged = listed_files(argv[1], "_cmux_unjudged")
     if base is None:
         # Not on stdout under --new-files: ci-web.yml reads every stdout line there as a file to re-run.
         print(f"no base results in {argv[1]}: every red step is unresolved until the merge gate reads the base run",
@@ -269,6 +285,12 @@ def main(argv: list[str]) -> int:
             return True
         if test_file(step) in unreached:
             # The replay was cut before this file: its absence is no verdict, so the red is unknown, not the change's.
+            return False
+        if " > " in step and base.get(test_file(step)) is False:
+            # The base ran the file but it timed out or failed without naming this test (`FILE: false`; a finished
+            # failed file has no file-level key): the base never ran the test, so it has no verdict on it.
+            # cmux#51403: feel-plan-tray.test.ts hit its 120 s limit on the base after five tests, and the five
+            # head reds after them were charged to the change.
             return False
         if base_complete:
             # A completed replay that has no matching key means this step is new to the base checkout.
@@ -291,6 +313,12 @@ def main(argv: list[str]) -> int:
     flapped = {step for step in comparable if first_passed(step) and any(found.get(step) is False for found in again)}
     new = [step for step in comparable if step not in flaky and step not in flapped]
     flaked = [step for step in comparable if step in flaky or step in flapped]
+    # A budget miss anywhere is no verdict: a red whose file's further base replays the budget skipped, or that the
+    # head re-run (cut at its deadline) never reached, is unknown, never the change's (cmux#51403).
+    rerun_unreached = unreached_files(rerun_path)
+    not_judged = [step for step in new if test_file(step) in unjudged or test_file(step) in rerun_unreached]
+    new = [step for step in new if step not in not_judged]
+    unknown = unknown + not_judged
     if new_files:
         for file in sorted({test_file(step) for step in new}):
             print(file)
