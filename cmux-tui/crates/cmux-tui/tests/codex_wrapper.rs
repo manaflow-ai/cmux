@@ -403,7 +403,7 @@ fn codex_wrapper_injects_into_agents_and_review_sessions() {
     assert!(has_server(&on(&["review", "--uncommitted"])));
 }
 
-/// With the person's yes (`agents.cmuxMcp` on), every new Codex session started in a cmux
+/// With `agents.cmuxMcp` on (the default), every new Codex session started in a cmux
 /// terminal (interactive, with a prompt, `exec`, `review`) gets one MCP server, named `cmux`,
 /// running this build, over a stdio `cmux` entry of the person's own that Codex loads (another
 /// cmux's, user or trusted project). Codex merges the `-c`
