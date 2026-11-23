@@ -28,7 +28,9 @@ pub struct Stat {
 }
 
 impl Stat {
-    #[allow(clippy::unnecessary_cast)]
+    // `stat`'s field types differ by architecture (`st_nlink` is u64 on x86_64, u32 on arm64),
+    // so a cast or conversion one needs is a no-op on the other.
+    #[allow(clippy::unnecessary_cast, clippy::useless_conversion)]
     fn of(st: &libc::stat) -> Self {
         let ns = |secs: i64, nanos: i64| secs.saturating_mul(1_000_000_000).saturating_add(nanos);
         Self {
