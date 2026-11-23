@@ -1,6 +1,6 @@
 // l10n-allow-file: gallery design fixtures for AUTO computers (cmuxterm-hq RFD 0080), not shipped UI.
 // The Where button is RFD 0078's (Hybrid, Only in Cloud, Only on This Mac; Keep running), drawn here
-// unchanged and never showing a size. RFD 0080 adds a status line beside it for what AUTO is doing,
+// unchanged and never showing a size. its one line (cmux#52291 `where`) names the place, and RFD 0080's status replaces it while something happens;
 // and Size, Sleep and Why rows under RFD 0078's rows in its popover. Pure presentation over a typed
 // state; where and how big are decided in Rust (acpmux placement and the server's AutoSize), never here.
 
@@ -90,30 +90,31 @@ function why(state: AutoComputerState): string {
   }
 }
 
-function WhereButton({ mode, keepRunning }: { mode: AutoComputerMode; keepRunning: boolean }) {
-  return (
-    <span className="auto-computer-chip" data-lit={keepRunning || undefined}>
-      <span className="auto-computer-dot" aria-hidden />
-      <span className="auto-computer-label">{MODE_LABEL[mode]}</span>
-      <span className="auto-computer-caret" aria-hidden>
-        ▾
-      </span>
-    </span>
-  );
-}
-
-function StatusLine({ state }: { state: AutoComputerState }) {
+/// RFD 0078's button with its one line beside the name (cmux#52291's `where` slot): at rest it names the
+/// place; while something is happening RFD 0080's status replaces it, so there is never both.
+function WhereButton({
+  state,
+  mode,
+  keepRunning,
+}: {
+  state: AutoComputerState;
+  mode: AutoComputerMode;
+  keepRunning: boolean;
+}) {
   const line = status(state);
-  if (!line) return null;
   return (
-    <span className="auto-computer-status" data-tone={line.tone}>
-      <span className="auto-computer-status-dot" aria-hidden />
-      {line.text}
-      {line.action && (
+    <span className="auto-computer-chip" data-lit={keepRunning || undefined} data-tone={line?.tone}>
+      <span className="auto-computer-dot" aria-hidden />
+      <span className="auto-computer-label">{keepRunning ? "Keep running" : MODE_LABEL[mode]}</span>
+      <span className="auto-computer-where">· {line ? line.text : place(state)}</span>
+      {line?.action && (
         <button type="button" className="auto-computer-action">
           {line.action}
         </button>
       )}
+      <span className="auto-computer-caret" aria-hidden>
+        ▾
+      </span>
     </span>
   );
 }
@@ -186,8 +187,7 @@ function ControlRow({
 }) {
   return (
     <>
-      <StatusLine state={state} />
-      <WhereButton mode={mode} keepRunning={keepRunning} />
+      <WhereButton state={state} mode={mode} keepRunning={keepRunning} />
     </>
   );
 }
@@ -242,12 +242,10 @@ const STYLES = `
 .auto-computer-chip[data-lit]{border-color:var(--agent-accent,#0a84ff);box-shadow:0 0 0 2px color-mix(in srgb,var(--agent-accent,#0a84ff) 25%,transparent)}
 .auto-computer-label{font-weight:600}
 .auto-computer-caret{color:var(--agent-muted);font-size:10px}
-.auto-computer-status{display:inline-flex;align-items:center;gap:6px;color:var(--agent-muted);font-size:var(--text-detail)}
-.auto-computer-status-dot{width:7px;height:7px;border-radius:50%;background:var(--agent-muted)}
-.auto-computer-status[data-tone=busy] .auto-computer-status-dot{background:var(--agent-accent,#0a84ff)}
-.auto-computer-status[data-tone=warn]{color:var(--agent-text)}
-.auto-computer-status[data-tone=warn] .auto-computer-status-dot{background:var(--agent-warning,#f5a623)}
-.auto-computer-status[data-tone=idle] .auto-computer-status-dot{background:transparent;border:1px solid var(--agent-muted)}
+.auto-computer-where{color:var(--agent-muted)}
+.auto-computer-chip[data-tone=busy] .auto-computer-dot{background:var(--agent-accent,#0a84ff)}
+.auto-computer-chip[data-tone=warn] .auto-computer-dot{background:var(--agent-warning,#f5a623)}
+.auto-computer-chip[data-tone=idle] .auto-computer-dot{background:transparent;border:1px solid var(--agent-muted)}
 .auto-computer-action{border:0;background:none;padding:0;color:var(--agent-accent,#0a84ff);font:inherit;cursor:pointer}
 .auto-computer-toggle{width:26px;height:14px;border-radius:7px;background:var(--agent-input-bg);border:1px solid var(--agent-border,rgba(127,127,127,.3))}
 .auto-computer-toggle[data-on]{background:var(--agent-accent,#0a84ff)}
