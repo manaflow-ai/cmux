@@ -88,6 +88,8 @@ mod cloud_environment;
 mod cloud_hands;
 mod cloud_help;
 #[cfg(unix)]
+mod cloud_journey;
+#[cfg(unix)]
 mod cloud_machine_auth;
 #[cfg(unix)]
 mod cloud_machine_io;
@@ -143,6 +145,9 @@ mod frontend_browser;
 mod host_mount;
 mod hosts;
 mod hosts_check;
+mod hosts_edit;
+#[cfg(unix)]
+mod hub;
 #[cfg(unix)]
 mod inference_gateway;
 #[cfg(unix)]
@@ -172,6 +177,8 @@ mod sandbox_run;
 mod start_stages;
 #[cfg(unix)]
 mod vm;
+#[cfg(unix)]
+mod vm_bootstrap;
 #[cfg(unix)]
 mod vm_cleanup;
 mod vm_gcp;
@@ -347,6 +354,7 @@ const PUBLIC_SCOPES: &[&str] = &[
     "space",
     "closed",
     "git",
+    "project",
     "conversation",
     "sidebar",
     "pairing",
@@ -1025,12 +1033,14 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| inference_gateway::run_if_requested(args))
         .or_else(|| inference_setup::run_if_requested(args))
         .or_else(|| inference_gateway_admin::run_route_if_requested(args))
+        .or_else(|| hub::run_if_requested(args))
         .or_else(|| automation::run_if_requested(args))
         .or_else(|| billing::run_if_requested(args))
         .or_else(|| auth_token::run_if_requested(args))
         .or_else(|| auth_token::whoami_if_requested(args))
         .or_else(|| live_code::run_if_requested(args))
         .or_else(|| sandbox_run::run_if_requested(args))
+        .or_else(|| cloud_journey::run_if_requested(args))
         .or_else(|| vm::run_if_requested(args))
         .or_else(|| vnc::run_if_requested(args))
         .or_else(|| cloud_environment::run_if_requested(args))
@@ -1766,6 +1776,7 @@ fn scope_help_with_keys(
         "space" => Cow::Borrowed(scope_help::SPACE_HELP),
         "closed" => Cow::Borrowed(scope_help::CLOSED_HELP),
         "git" => Cow::Borrowed(scope_help::GIT_HELP),
+        "project" => Cow::Borrowed(scope_help::PROJECT_HELP),
         "conversation" => Cow::Borrowed(scope_help::CONVERSATION_HELP),
         "sidebar" => Cow::Borrowed(SIDEBAR_HELP),
         "pairing" => Cow::Borrowed(PAIRING_HELP),
@@ -1840,6 +1851,7 @@ const ROOT_HELP_SCOPES_SUFFIX: &str = "\
   space         List and organize spaces
   closed        List and reopen closed tabs, screens, workspaces
   git           Read a repository's status and changes; capture checkpoints
+  project       A project's own actions from .cmux/actions.json: `cmux project actions`
   status        Show loading indicators for scripts and agents
   setup         Set up cmux from an agent: list tasks, trust, machines, harnesses (JSON)
   sidebar       Manage sidebar views and local plugins
