@@ -139,6 +139,7 @@ mod frontend_browser;
 mod host_mount;
 mod hosts;
 mod hosts_check;
+mod hosts_edit;
 #[cfg(unix)]
 mod inference_gateway;
 #[cfg(unix)]
