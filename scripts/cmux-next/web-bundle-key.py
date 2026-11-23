@@ -32,9 +32,11 @@ import sys
 # catalogs and the settings schema); schemas/settings is imported by the settings page and read
 # by gen-strings.mjs; the xcstrings catalogs feed gen-strings.mjs; the What's New highlights feed
 # gen-feature-tips.mjs (the agent pane's feature tips, build output gen-strings.mjs makes);
-# marked.min.js is inlined into the webviews app's agent-session.html.
+# marked.min.js is inlined into the webviews app's agent-session.html; the acpmux protocol IR is what
+# webviews' postinstall and gen-strings.mjs generate the pane's protocol types from (#50853).
 INPUTS = [
     "webviews",
+    "cmux-tui/crates/acpmux/spec/acpmux-protocol.json",
     "schemas/settings",
     ":(glob)release-notes/next/highlights/*.md",
     "Resources/markdown-viewer/marked.min.js",
