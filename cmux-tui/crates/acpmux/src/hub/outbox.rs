@@ -148,6 +148,16 @@ pub struct Delivery {
     /// (`server/outbox.rs` `redeliver_open`, `open_delivery.rs`).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub open_on_peer: bool,
+    /// How many times a link's redelivery sent this open delivery again (`server/outbox.rs`
+    /// `redeliver_one`), and when it last did: each resend waits twice as long as the one before
+    /// (`open_delivery::resend_due`), so a delivery open for its whole 30 days is sent again at
+    /// most `open_delivery::MAX_RESENDS` times however often its peer's link comes back. Before
+    /// them, a link that came back every few minutes under load sent the same prompt id again on
+    /// every one (2026-11-23, on a loaded host: one prompt sent 38 times, 102,825 sends in 3 h).
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub resends: u32,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub resent_at: u64,
     /// The peer's session it was sent to, read when its attempt started (never after, so a link
     /// replaced meanwhile changes nothing): every attempt names that generation
     /// (`sessionCreatedAt`), and a session purged and made again under the same id refuses it as
@@ -204,6 +214,10 @@ pub struct Proof {
 }
 
 fn is_zero(n: &u64) -> bool {
+    *n == 0
+}
+
+fn is_zero_u32(n: &u32) -> bool {
     *n == 0
 }
 
@@ -531,6 +545,8 @@ impl Outbox {
             state: State::Delivered,
             attempts: 0,
             never_sent: false,
+            resends: 0,
+            resent_at: 0,
             relay_post: None,
             open_on_peer: false,
             pin: None,
@@ -1063,6 +1079,8 @@ mod tests {
             state: State::Queued,
             attempts: 0,
             never_sent: false,
+            resends: 0,
+            resent_at: 0,
             relay_post: None,
             open_on_peer: false,
             pin: None,
@@ -1633,6 +1651,8 @@ mod tests {
             state: State::Queued,
             attempts: 0,
             never_sent: false,
+            resends: 0,
+            resent_at: 0,
             relay_post: None,
             open_on_peer: false,
             pin: None,
