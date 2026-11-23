@@ -88,14 +88,16 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
             // Screenshot rig: CMUX_MOBILE_FEED_SHOT_FILTER=needsYou|finished|errors|all picks the filter;
             // CMUX_MOBILE_FEED_SHOT_CAUGHT_UP=1 marks every open ask done (the "All caught up" state).
             let env = ProcessInfo.processInfo.environment
-            if env["CMUX_MOBILE_FEED_SHOT_CAUGHT_UP"] == "1" {
+            // Once per launch: a later appear (a tab switch) keeps the filter the person picked.
+            if !FeedScreenRig.shotRigApplied, env["CMUX_MOBILE_FEED_SHOT_CAUGHT_UP"] == "1" {
                 for item in store.items where item.needsYou { store.markDone(item.id) }
                 store.clearDone()
             }
-            if let name = env["CMUX_MOBILE_FEED_SHOT_FILTER"],
+            if !FeedScreenRig.shotRigApplied, let name = env["CMUX_MOBILE_FEED_SHOT_FILTER"],
                let filter = FeedFilter.allCases.first(where: { "\($0)".lowercased() == name.lowercased() }) {
                 store.filter = filter
             }
+            FeedScreenRig.shotRigApplied = true
             #endif
             FeedRouting.shared.sendPrompt = { item, text in
                 guard let workspace = appStore.workspaces.first(where: { $0.id == item.workspaceID }),
@@ -275,7 +277,8 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
         var seen = Set<String>()
         var glyphs: [String] = []
         for id in store.unseenNewIDs.suffix(24).reversed() {
-            guard let item = store.item(id: id) else { continue }
+            // Only events the current filter shows: the pill never names an agent the list hides.
+            guard let item = store.item(id: id), !item.isDone, store.filter.matches(item) else { continue }
             let symbol = FeedRowCell.avatarSymbol(item.harness)
             if seen.insert(symbol).inserted { glyphs.append(symbol) }
             if glyphs.count == 3 { break }
@@ -438,6 +441,8 @@ private struct FeedFilterMenu: View {
 @MainActor
 enum FeedScreenRig {
     static let scroller = FeedAutoScroller(config: FeedStressRig.shared.config)
+    /// The screenshot rig's env filter and caught-up state were applied (once per launch).
+    static var shotRigApplied = false
 }
 #endif
 
