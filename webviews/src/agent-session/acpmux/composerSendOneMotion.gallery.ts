@@ -53,7 +53,11 @@ function sample(doc: Document, draft: string): { done: Promise<Sample[]> } {
         // The thinking row's label without its running seconds.
         label: (thinking?.textContent ?? "").slice(0, 30).replace(/\d+s$/, ""),
         text: (doc.querySelector(".acpmux-composer-prompt")?.textContent ?? "").length,
-      });
+        st: Math.round(doc.querySelector<HTMLElement>(".acpmux-scroll")?.scrollTop ?? -1),
+        sh: Math.round(doc.querySelector<HTMLElement>(".acpmux-scroll")?.scrollHeight ?? -1),
+        ch: Math.round(doc.querySelector<HTMLElement>(".acpmux-scroll")?.clientHeight ?? -1),
+        ids: [...doc.querySelectorAll(".acpmux-row.acpmux-user")].slice(-1).map((n) => n.getAttribute("data-row-id")).join(","),
+      } as Sample);
       if (now - start < SAMPLE_MS) win.requestAnimationFrame(tick);
       else resolve(frames);
     };
@@ -132,7 +136,7 @@ function sendOnce(lines: number, busy: boolean, scrolled: boolean) {
 }
 
 const variants: Record<string, AgentPaneVariant> = {};
-for (const lines of [1, 5, 15])
+for (const lines of [1, 5, 15, 30])
   for (const busy of [false, true])
     for (const scrolled of [false, true])
       variants[`${lines}-lines-${busy ? "busy" : "idle"}-${scrolled ? "scrolled-up" : "latest"}`] = {
