@@ -369,7 +369,8 @@ fn keep(dir: &Path, target: &str, bytes: &[u8]) -> Result<()> {
 /// alone and restarts one that is not, so an update stopped between the
 /// install and the restart is finished by the next run (review of #24232). A
 /// build whose daemon was rolled back is marked, so the next run leaves it
-/// alone; when the mark cannot be written, the row says so. Unless `now`, a
+/// alone (a restart that failed before the build was checked is not
+/// marked); when the mark cannot be written, the row says so. Unless `now`, a
 /// daemon an update restarted within the host's restart window (this timer's
 /// or a `host update` from another machine: one stamp on the host) is left
 /// alone, and nothing is installed: the first run after the window brings
@@ -405,7 +406,14 @@ pub(super) fn apply(
     if up.outcome == Outcome::Current && up.build.is_none() {
         up.build = installed.map(str::to_owned);
     }
-    if up.outcome == Outcome::RolledBack {
+    // Only a verdict on the build marks it: its daemon did not answer, or
+    // answered on another build. A restart script that failed (`restartFailed`:
+    // the old daemon was still stopping, the unit was mid-restart) never got
+    // to check the build, so the next run tries it again: three fleet hosts
+    // (2026-11-23) marked a good build rolled back for good on such
+    // a failure and then sat on the old build, every run "waiting for a newer
+    // one". The restart window keeps that retry to once an hour.
+    if up.outcome == Outcome::RolledBack && up.reason.as_deref() != Some("restartFailed") {
         let mark = dir.join(ROLLED_BACK);
         if let Err(e) = crate::home_fs::write(&mark, up.error.as_deref().unwrap_or("")) {
             let why = up.error.take().unwrap_or_default();
