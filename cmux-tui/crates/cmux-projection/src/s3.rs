@@ -113,10 +113,15 @@ fn split(url: &str) -> anyhow::Result<(String, String)> {
 }
 
 fn hmac(key: &[u8], data: &str) -> Vec<u8> {
-    // HMAC takes a key of any length, so `new_from_slice` cannot fail.
-    let mut mac = Hmac::<Sha256>::new_from_slice(key).unwrap_or_else(|_| unreachable!());
-    mac.update(data.as_bytes());
-    mac.finalize().into_bytes().to_vec()
+    // HMAC takes a key of any length, so `new_from_slice` never errs; if it did, the empty
+    // signature would only be refused by the bucket, never sent as a wrong valid one.
+    Hmac::<Sha256>::new_from_slice(key).map_or_else(
+        |_| Vec::new(),
+        |mut mac| {
+            mac.update(data.as_bytes());
+            mac.finalize().into_bytes().to_vec()
+        },
+    )
 }
 
 fn hex(bytes: &[u8]) -> String {
