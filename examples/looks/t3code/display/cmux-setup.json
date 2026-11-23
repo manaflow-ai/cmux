@@ -1,0 +1,25 @@
+{
+  "cmuxSetup": 1,
+  "id": "manaflow-ai/t3code-display",
+  "name": "Conversation display",
+  "description": "A centered 736-point conversation with 14-point text, compact code and quiet user bubbles.",
+  "version": "1.0.0",
+  "license": "MIT",
+  "screenshots": [
+    "screenshots/source.png"
+  ],
+  "cmuxProfile": 1,
+  "settings": {
+    "agentPane.display.width": 736,
+    "agentPane.display.presentation": "messages",
+    "agentPane.display.font.preset": "system",
+    "agentPane.display.font.ui": "system-ui",
+    "agentPane.display.font.size": 14,
+    "agentPane.display.font.lineHeight": 1.625,
+    "agentPane.display.code.scale": 0.925,
+    "agentPane.display.transcriptView": "normal",
+    "agentPane.display.minimap": "off",
+    "agentPane.editedFiles.show": "collapsed",
+    "agentPane.editedFiles.scope": "turn"
+  }
+}
