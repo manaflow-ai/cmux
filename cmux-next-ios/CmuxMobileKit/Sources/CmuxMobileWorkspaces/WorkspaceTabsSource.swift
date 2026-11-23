@@ -1314,6 +1314,9 @@ public final class WorkspaceTabsSource: TabsDataSource {
     }
 
     public func overviewVisibilityChanged(_ visible: Bool) {
+        #if DEBUG
+        TabCardFaceProbe.gridVisible(visible)
+        #endif
         setCardsFollow(shown: visible)
         if !visible {
             gridIdle = false
@@ -1400,7 +1403,11 @@ public final class WorkspaceTabsSource: TabsDataSource {
     /// A browser tab's favicon as the Mac sent it, kept across launches (`MacTabCards`).
     public func icon(for id: TabsKitTab.ID) -> UIImage? {
         guard workspaceTab(id)?.kind == .browser else { return nil }
-        return macCardEntry(id)?.favicon
+        let favicon = macCardEntry(id)?.favicon
+        #if DEBUG
+        TabCardFaceProbe.recordFavicon(shown: favicon != nil, tab: id)
+        #endif
+        return favicon
     }
 
     public func showStaticCard(for id: TabsKitTab.ID) -> Bool {
@@ -2652,12 +2659,12 @@ struct WorkspaceTabCard: View {
                 // A page not shown in this launch has no snapshot of its own: its last-known picture stands in.
                 let lastKnown = source.snapshotEntry(tab.id)?.image
                 if let model = source.nativeBrowser(tab) {
-                    BrowserCard(model: model, insets: insets, lastKnown: lastKnown)
+                    BrowserCard(model: model, insets: insets, lastKnown: lastKnown, tabID: tab.id)
                 } else if let model = source.streamedBrowser(tab) {
                     StreamedBrowserCard(model: model, lastKnown: lastKnown?.cgImage)
                 } else {
                     // The tab's model only if its page was shown: a card never makes a web view.
-                    BrowserCard(model: source.existingBrowser(tab.id), insets: insets, lastKnown: lastKnown)
+                    BrowserCard(model: source.existingBrowser(tab.id), insets: insets, lastKnown: lastKnown, tabID: tab.id)
                 }
             case .simulator:
                 if let model = source.simulator(tab) {

@@ -373,6 +373,8 @@ struct BrowserCard: View {
     var insets: EdgeInsets
     /// The tab's last-known picture (`TabCardSnapshots`): shown until this launch has a snapshot.
     var lastKnown: UIImage?
+    /// The card's tab, for the UI tests' face probe (`TabCardFaceRecord`).
+    var tabID: String?
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -390,6 +392,8 @@ struct BrowserCard: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+        .modifier(TabCardFaceRecord(tabID: tabID,
+                                    face: model?.snapshot != nil ? "snapshot" : lastKnown != nil ? "lastKnown" : "placeholder"))
     }
 }
 #endif

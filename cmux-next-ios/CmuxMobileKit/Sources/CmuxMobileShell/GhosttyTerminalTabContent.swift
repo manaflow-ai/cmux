@@ -513,7 +513,7 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
 
     private func cardView(_ id: String, slot: TerminalTabSlot) -> AnyView {
         if let cached = cardViews[id], cached.slot == ObjectIdentifier(slot) { return cached.view }
-        let view = AnyView(TerminalTabSlotCard(slot: slot, insets: EdgeInsets(top: 62, leading: 0, bottom: 98, trailing: 0)))
+        let view = AnyView(TerminalTabSlotCard(slot: slot, tabID: id, insets: EdgeInsets(top: 62, leading: 0, bottom: 98, trailing: 0)))
         cardViews[id] = (ObjectIdentifier(slot), view)
         return view
     }
@@ -812,11 +812,15 @@ struct TerminalTabSlotPage: View {
 
 struct TerminalTabSlotCard: View {
     let slot: TerminalTabSlot
+    /// For the UI tests' face probe (`TabCardFaceRecord`).
+    let tabID: String
     let insets: EdgeInsets
 
     var body: some View {
-        TerminalTabCard(model: slot.host.model, insets: insets)
+        let card = TerminalTabCard(model: slot.host.model, insets: insets)
+        card
             .id(ObjectIdentifier(slot.host))
+            .modifier(TabCardFaceRecord(tabID: tabID, face: "\(card.content)"))
     }
 }
 #endif
