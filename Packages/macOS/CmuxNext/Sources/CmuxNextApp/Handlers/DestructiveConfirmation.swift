@@ -159,10 +159,11 @@ enum DestructiveConfirmation {
     /// A confirmed answer with "Don't ask again" checked turns the prompt's toggle off.
     /// Returns the dialog's id (`CmuxDialogCenter.dismiss`), nil when nothing was shown.
     @discardableResult
-    static func present(_ prompt: Prompt, in window: NSWindow?, settings: SettingsController? = nil,
+    /// `scope` replaces the window's own (the quit question when the window already shows one).
+    static func present(_ prompt: Prompt, in window: NSWindow?, settings: SettingsController? = nil, scope: CmuxDialogScope? = nil,
                         done: @escaping (Bool) -> Void) -> Int? {
         guard let window else { done(false); return nil }
-        return CmuxDialogCenter.shared.present(spec(prompt), in: .window(window)) { answer in
+        return CmuxDialogCenter.shared.present(spec(prompt), in: scope ?? .window(window)) { answer in
             let confirmed = answer.button == confirmID
             if confirmed, answer.values[suppressID]?.bool == true, let path = prompt.suppresses { turnOff(path, settings) }
             done(confirmed)

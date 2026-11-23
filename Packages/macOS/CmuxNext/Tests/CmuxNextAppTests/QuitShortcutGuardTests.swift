@@ -95,6 +95,21 @@ import Testing
         #expect(!quitGuard.presses.isArmed)
     }
 
+    @Test func holdingAnotherShortcutOnTheSameKeyNeverQuits() throws {
+        var handler: ((NSEvent) -> NSEvent?)?
+        let quitGuard = QuitShortcutGuard(addMonitor: { handler = $0; return "monitor" }, removeMonitor: { _ in })
+        var quits = 0
+        quitGuard.onHeldQuit = { quits += 1 }
+        #expect(quitGuard.press(try Self.key(at: 10)) == .warn)
+        let monitor = try #require(handler)
+        // ⌘⇧Q held after the warning: its repeats pass through and never count as holding ⌘Q.
+        let shifted = try Self.key("Q", at: 11, [.command, .shift], repeat: true)
+        #expect(monitor(shifted) === shifted)
+        #expect(monitor(try Self.key("Q", at: 12, [.command, .shift], repeat: true)) != nil)
+        #expect(quits == 0)
+        #expect(quitGuard.presses.isArmed)
+    }
+
     @Test func aSecondPressQuitsAndRemovesTheMonitor() throws {
         var removed = 0
         let quitGuard = QuitShortcutGuard(addMonitor: { _ in "monitor" }, removeMonitor: { _ in removed += 1 })

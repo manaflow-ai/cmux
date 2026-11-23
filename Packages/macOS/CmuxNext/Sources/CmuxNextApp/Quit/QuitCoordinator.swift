@@ -86,7 +86,9 @@ final class QuitCoordinator {
         let prompt = Self.shortcutPrompt(shortcut)
         let asked = UUID()
         shortcutAsk = asked
-        shortcutQuestion = DestructiveConfirmation.present(prompt, in: window, settings: services.settings) { [weak self] quit in
+        // A dialog the window already shows would queue the question out of sight: it opens in the app's own panel then.
+        let busy = CmuxDialogCenter.shared.dialogBlockingKeys(in: window) != nil
+        shortcutQuestion = DestructiveConfirmation.present(prompt, in: window, settings: services.settings, scope: busy ? .app : nil) { [weak self] quit in
             // A question ended by a second press or a held shortcut (`endShortcutQuestion`) has nothing left to do.
             guard let self, shortcutAsk == asked else { return }
             shortcutAsk = nil

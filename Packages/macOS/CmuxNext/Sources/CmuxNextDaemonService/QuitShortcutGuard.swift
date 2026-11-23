@@ -7,7 +7,7 @@ public import Foundation
 /// holding the keys for ``holdDuration`` or pressing them again while it asks quits. The Quit
 /// menu item, the Dock's Quit, the palette and every scripted quit are deliberate and never
 /// pass through here.
-public struct QuitShortcutPresses: Equatable {
+public nonisolated struct QuitShortcutPresses: Equatable {
     /// How long the first press must be held (its key repeats) to quit.
     public static let holdDuration: TimeInterval = 0.8
 
@@ -71,6 +71,8 @@ public final class QuitShortcutGuard {
     public private(set) var presses = QuitShortcutPresses()
     private var monitor: Any?
     private var armedKeyCode: UInt16?
+    /// The armed press's Command, Shift, Option and Control: a held key with other modifiers is another shortcut.
+    private var armedModifiers: NSEvent.ModifierFlags?
     /// Runs the quit when the held shortcut reaches ``QuitShortcutPresses/holdDuration``.
     public var onHeldQuit: (() -> Void)?
     /// Ends the warning when the guard disarms (a quit, a timeout, the setting off).
@@ -117,14 +119,15 @@ public final class QuitShortcutGuard {
 
     /// Feeds the shortcut's key-down `event`. `.warn`: show the warning; `.quit`: quit now.
     public func press(_ event: NSEvent) -> QuitShortcutPresses.Outcome {
-        press(isRepeat: event.isARepeat, timestamp: event.timestamp, keyCode: event.keyCode)
+        press(isRepeat: event.isARepeat, timestamp: event.timestamp, keyCode: event.keyCode, modifiers: Self.chord(event))
     }
 
-    func press(isRepeat: Bool, timestamp: TimeInterval, keyCode: UInt16) -> QuitShortcutPresses.Outcome {
+    func press(isRepeat: Bool, timestamp: TimeInterval, keyCode: UInt16, modifiers: NSEvent.ModifierFlags) -> QuitShortcutPresses.Outcome {
         let outcome = presses.press(isRepeat: isRepeat, timestamp: timestamp)
         switch outcome {
         case .warn:
             armedKeyCode = keyCode
+            armedModifiers = modifiers
             watchRepeats()
         case .wait:
             break
@@ -138,6 +141,7 @@ public final class QuitShortcutGuard {
     public func disarm() {
         presses.reset()
         armedKeyCode = nil
+        armedModifiers = nil
         if let monitor { removeMonitor(monitor) }
         monitor = nil
         onDisarm?()
@@ -152,10 +156,17 @@ public final class QuitShortcutGuard {
         }
     }
 
-    /// A key-down while armed: the held shortcut's repeats are the guard's; every other key passes.
+    /// A key-down while armed: the held shortcut's repeats are the guard's; every other key passes,
+    /// and so does the same key held with other modifiers (⌘⇧Q is not ⌘Q).
     func repeated(_ event: NSEvent) -> NSEvent? {
-        guard event.isARepeat, event.keyCode == armedKeyCode, Self.isShortcutPress(event) else { return event }
-        if press(isRepeat: true, timestamp: event.timestamp, keyCode: event.keyCode) == .quit { onHeldQuit?() }
+        let chord = Self.chord(event)
+        guard event.isARepeat, event.keyCode == armedKeyCode, chord == armedModifiers, Self.isShortcutPress(event) else { return event }
+        if press(isRepeat: true, timestamp: event.timestamp, keyCode: event.keyCode, modifiers: chord) == .quit { onHeldQuit?() }
         return nil
+    }
+
+    /// The modifiers that make a shortcut (Caps Lock, Fn and the like do not).
+    private nonisolated static func chord(_ event: NSEvent) -> NSEvent.ModifierFlags {
+        event.modifierFlags.intersection([.command, .shift, .option, .control])
     }
 }
