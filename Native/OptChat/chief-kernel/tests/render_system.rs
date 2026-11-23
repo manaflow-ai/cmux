@@ -3,7 +3,7 @@
 //! prompt into the kernel changes no byte, and the Cloud Chief can drop its
 //! own copy (`chief-brain/prompts.ts`).
 
-use chief_kernel::render_system;
+use chief_kernel::{prompt::compactor_system_text, render_system};
 use serde_json::json;
 
 const PERSON: &str = "- Replies: short.\n- Default project is cmux-next.";
@@ -116,6 +116,16 @@ fn bad_input_is_an_error_not_a_prompt() {
         "cli needs its launcher path"
     );
     assert!(render_system("{}", "no-such-engine", "{}").is_err());
+}
+
+#[test]
+fn compactions_are_only_in_the_compactor_prompt() {
+    let chief = render_system("{}", "claude", r#"{"mode": "mcp"}"#).unwrap();
+    assert!(!chief.contains("# Compactions"));
+
+    let compactor = compactor_system_text();
+    assert!(compactor.contains("# Compactions"));
+    assert!(!compactor.contains("# Instructions"));
 }
 
 /// The Cloud Chief on pi-durable (a749, section 13 item 2): the cmux section
