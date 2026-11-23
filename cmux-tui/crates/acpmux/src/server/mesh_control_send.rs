@@ -77,7 +77,10 @@ pub(super) async fn handle(
         Some("start") => {
             let start = start_params(
                 &params["params"],
-                crate::hub::cmux_tools_answer::here(crate::user_settings::text().as_deref()),
+                crate::hub::cmux_tools_answer::here_for(
+                    crate::user_settings::text().as_deref(),
+                    &params["params"],
+                ),
             )?;
             // The person's start level, or a full-access caller's, as a start through an ssh
             // peer carries it (`hub/full_access_children.rs`): the machine serves the relay as a
@@ -102,7 +105,7 @@ pub(super) async fn handle(
     let sender = Sender {
         name: conn.caller().map(|id| hub.session_name(id)),
         session_id: conn.caller().map(str::to_owned),
-        host: Some(crate::pairing::machine_name()),
+        host: Some(crate::pairing::mesh_host()),
         ..Sender::default()
     };
     let relay = MeshControlRelay::new(mesh.clone(), sender);

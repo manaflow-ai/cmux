@@ -204,10 +204,9 @@ class SidebarItemRowView: NSView {
         let words = info.taskProgress.map { Strings.taskProgress(done: $0.done, total: $0.total) }
         let value = [unread, words].compactMap(\.self).joined(separator: ", ")
         setAccessibilityValue(value.isEmpty ? nil : value)
-        // An icon names itself (and its shortcut) in its tooltip; a tile's
-        // caption can truncate, so it keeps the full title.
-        // The profile control draws no name, so its tooltip says who it is: the email.
-        themedToolTip = info.avatar?.toolTip ?? (style.isIconOnly ? info.toolTip : style == .favorite ? info.title : nil)
+        // An icon names itself (and its shortcut) in its tooltip; an item that shows its title has none (a1315's
+        // cut 2). The profile control draws no name, so its tooltip says who it is: the email.
+        themedToolTip = info.avatar?.toolTip ?? info.tooltip ?? (style.isIconOnly ? info.toolTip : nil)
         setAccessibilityLabel(info.accessibilityTitle ?? info.title)
         applyAvatar()
         setAccessibilitySelected(info.isActive || info.isSecondarySelected)
@@ -687,7 +686,6 @@ class SidebarItemRowView: NSView {
     }
 
     // MARK: Pointer
-
 
     /// Activates on press, as the sidebar's rows do; the pressed fill shows
     /// until release.

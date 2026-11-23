@@ -389,7 +389,9 @@ fn restore_one(src: &Path, target: &Path, replace: bool) -> Result<()> {
 fn write_without_mode(src: &Path, dest: &Path) -> Result<()> {
     use std::io::Write;
     let text = std::fs::read(src)?;
-    let file = crate::home_fs::OpenOptions::new().write(true).create_new(true).open(dest)?;
+    // The owner's only, as the agent's own store is: a transcript holds the whole conversation.
+    let file =
+        crate::home_fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(dest)?;
     let mut out = std::io::BufWriter::new(file);
     for line in text.split(|b| *b == b'\n') {
         if let Some(kept) = without_mode(line) {
@@ -573,4 +575,23 @@ pub fn import_opencode_with(cli: &Path, bundle: &Path, meta: &SessionMeta) -> Re
     cmd.arg("import").arg(&file).current_dir(&meta.cwd);
     run_cli(cmd).map_err(|e| anyhow::anyhow!("opencode import: {e}"))?;
     Ok(true)
+}
+
+#[cfg(all(test, unix))]
+mod private_copy_tests {
+    /// A restored transcript is the owner's only, whatever the umask (review F2 on #41462).
+    #[test]
+    fn a_restored_transcript_is_private() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir =
+            std::env::temp_dir().join(format!("acpmux-restore-mode-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let src = dir.join("src.jsonl");
+        std::fs::write(&src, "{\"type\":\"user\"}\n").unwrap();
+        let dest = dir.join("dest.jsonl");
+        super::write_without_mode(&src, &dest).unwrap();
+        let mode = std::fs::metadata(&dest).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600, "mode {mode:o}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

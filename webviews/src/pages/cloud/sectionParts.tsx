@@ -92,6 +92,7 @@ export function PortField({
         aria-label={label}
         disabled={!valid || busy}
         aria-busy={busy}
+        // tooltip-allow: the button is a glyph ("+"), with no words of its own.
         title={busy ? busyLabel : label}
         onClick={() => void submit()}
       >

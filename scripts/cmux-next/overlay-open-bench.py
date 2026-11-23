@@ -25,6 +25,7 @@ import argparse, json, os, sys, time
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from bench_launch import BenchApp  # noqa: E402
+from state_wait import wait_stable, wait_until  # noqa: E402
 
 KINDS = ("icon_picker", "group_editor")
 
@@ -67,8 +68,45 @@ def launch(opts):
     app.launch(timeout=180)
     # The group editor opens on the shown workspace's group (made by a script: no editor opens for it).
     app.rpc("action.run", {"action": "newWorkspaceGroup", "args": {"name": "Bench"}})
-    time.sleep(2)  # bench pacing: the sidebar shows the new group
+    # Until the sidebar lists the new group and its rows hold still.
+    rows = lambda: json.dumps((app.rpc("debug.sidebar_rows") or {}).get("rows"), sort_keys=True, default=str)  # noqa: E731
+    if not wait_until(lambda: '"Bench"' in rows(), "the sidebar's Bench group row", timeout=15, interval=0.1,
+                      raise_on_timeout=False):
+        print("overlay-open: the sidebar never listed the Bench group in 15 s", flush=True)
+    wait_stable(rows, "the sidebar rows after the new group", timeout=10, interval=0.1, reads=4, raise_on_timeout=False)
     return app
+
+
+def app_cpu_pct(app, window=0.5):
+    """The app's main process CPU % over `window` s."""
+    import bench_memory
+    before = bench_memory.usage(app.process.pid)
+    time.sleep(window)  # sleep-ok: the CPU sampling window between the two rusage reads
+    after = bench_memory.usage(app.process.pid)
+    return None if before is None or after is None else 100 * (after[3] - before[3]) / 1e9 / window
+
+
+def wait_quiet(app, what, timeout=30.0, limit_pct=10.0):
+    """Until the app's main process idles (two 0.5 s windows under `limit_pct` CPU): its launch or page work ended."""
+    quiet = [0]
+    def idle():
+        cpu = app_cpu_pct(app)
+        quiet[0] = quiet[0] + 1 if cpu is not None and cpu < limit_pct else 0
+        return quiet[0] >= 2
+    if not wait_until(idle, what, timeout=timeout, interval=0.0, raise_on_timeout=False):
+        print(f"overlay-open: {what}: the app never idled in {timeout:g} s", flush=True)
+
+
+def page_processes(app):
+    import bench_memory
+    return sum(1 for kind, cmd in bench_memory.owned(app.process.pid, app.app).values() if "com.apple.WebKit." in cmd)
+
+
+def wait_fewer_pages(app, than, what, timeout=30.0):
+    """Until fewer WebKit processes than `than` are left (the freed pages' processes exited), then the app idles."""
+    if not wait_until(lambda: page_processes(app) < than, what, timeout=timeout, interval=0.25, raise_on_timeout=False):
+        print(f"overlay-open: {what}: still {page_processes(app)} WebKit processes after {timeout:g} s", flush=True)
+    wait_quiet(app, what)
 
 
 def bench(app, kind, mode, **extra):
@@ -108,7 +146,7 @@ def main(argv=None):
             kind = KINDS[index % 2]
             app = launch(opts)
             try:
-                time.sleep(5)  # bench pacing: past the launch settle
+                wait_quiet(app, "the launch's work")
                 reply = bench(app, kind, "as_is")
                 reply["arm"] = "launch"
                 launch_runs[kind].append(reply)
@@ -120,7 +158,8 @@ def main(argv=None):
 
         app = launch(opts)
         try:
-            time.sleep(opts.settle)  # bench pacing: past the launch settle and its transient
+            # sleep-ok: --settle defines the at-rest memory row (that many s after launch, the same every run).
+            time.sleep(opts.settle)
             report["memory"].append(memory(app, "empty_at_rest"))
             for kind in KINDS:
                 for arm in ("cold", "warm"):
@@ -138,15 +177,20 @@ def main(argv=None):
             # Memory: both pages made, then freed by a release, then made and freed by the idle limit.
             bench(app, "icon_picker", "warm")
             bench(app, "group_editor", "warm")
-            time.sleep(5)
+            # Until both pages' WebKit processes stop changing and the app idles.
+            wait_stable(lambda: page_processes(app), "both pages' WebKit processes", timeout=20, interval=0.5, reads=4,
+                        raise_on_timeout=False)
+            wait_quiet(app, "both pages made")
+            made = page_processes(app)
             report["memory"].append(memory(app, "both_pages_made"))
             app.rpc("debug.overlay_open_bench", {"release": True})
-            time.sleep(10)  # bench pacing: the freed pages' processes wind down
+            wait_fewer_pages(app, made, "the released pages' processes to exit")
             report["memory"].append(memory(app, "after_release"))
             app.rpc("debug.overlay_open_bench", {"idle_limit_s": opts.idle_limit})
             bench(app, "icon_picker", "warm")
             bench(app, "group_editor", "warm")
-            time.sleep(opts.idle_limit + 10)  # bench pacing: past the idle limit and the processes' wind-down
+            time.sleep(opts.idle_limit)  # sleep-ok: the app's own idle-limit timer (--idle-limit s) has to run out
+            wait_fewer_pages(app, made, "the idle-limited pages' processes to exit")
             report["memory"].append(memory(app, "after_idle_limit"))
         finally:
             app.stop()

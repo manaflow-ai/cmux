@@ -1,0 +1,11 @@
+/* Duotone's Markdown viewer: the work tone, with code a step toward the chrome tone and the
+   control corner (8 px). Headings carry no rule: a tone step or space separates, not a line.
+   Only --cmux-md-* custom properties on :root; every color is mixed from the page's own, so this
+   one file reads over the light and the dark theme file alike. */
+:root {
+  --cmux-md-code-background: color-mix(in srgb, var(--page-text) 5%, transparent);
+  --cmux-md-code-radius: 8px;
+  --cmux-md-heading-weight: 600;
+  --cmux-md-heading-rule: none;
+  --cmux-md-quote-border: 2px solid color-mix(in srgb, var(--page-text) 62%, transparent);
+}
