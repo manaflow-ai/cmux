@@ -140,7 +140,7 @@ jobs:
     name: tab switch scope
     # After merge only (see the header): a pull request's run takes no runner.
     if: ${{ github.event_name != 'pull_request' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -273,7 +273,7 @@ jobs:
     name: tab switch (frames, under load)
     needs: [scope, frames]
     if: ${{ !cancelled() && github.event_name != 'pull_request' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
       contents: read

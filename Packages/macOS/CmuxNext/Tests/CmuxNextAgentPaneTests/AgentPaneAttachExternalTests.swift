@@ -215,4 +215,33 @@ struct AgentPaneAttachExternalTests {
         refused.attach([URL(fileURLWithPath: "/tmp/a.png")], claimed: nil, target: nil, openChat: { _ in false }, show: { _ in })
         #expect(!refused.waitsForChat)
     }
+
+    /// Files whose chat never came, or was not made, are not lost: they go with the next files (the
+    /// open door's image after a cold launch, then the service's). A chat opened for files that have
+    /// since gone with a later one takes none.
+    @Test func filesWhoseChatNeverCameGoWithTheNextOnes() {
+        var clock = ContinuousClock.now
+        let route = AgentPaneExternalAttach(now: { clock })
+        var callbacks: [@MainActor (AgentPaneView?) -> Void] = []
+        let open: (@escaping @MainActor (AgentPaneView?) -> Void) -> Bool = { made in
+            callbacks.append(made)
+            return true
+        }
+        let a = URL(fileURLWithPath: "/tmp/shot-open.png"), b = URL(fileURLWithPath: "/tmp/shot-service.png")
+        let c = URL(fileURLWithPath: "/tmp/shot-share.png")
+        route.attach([a], claimed: nil, target: nil, openChat: open, show: { _ in })
+        clock += AgentPaneExternalAttach.openingLimit + .seconds(5)
+        route.attach([b], claimed: nil, target: nil, openChat: open, show: { _ in })
+        #expect(callbacks.count == 2)
+        #expect(route.waitingFiles == [a, b])
+        callbacks[0](nil) // the first chat's late failure leaves the files to the second
+        #expect(route.waitingFiles == [a, b] && route.waitsForChat)
+        callbacks[1](nil) // not made: kept for the next files
+        #expect(!route.waitsForChat && route.waitingFiles == [a, b])
+        route.attach([c], claimed: nil, target: nil, openChat: open, show: { _ in })
+        #expect(callbacks.count == 3 && route.waitingFiles == [a, b, c])
+        let refused = AgentPaneExternalAttach()
+        refused.attach([a], claimed: nil, target: nil, openChat: { _ in false }, show: { _ in })
+        #expect(!refused.waitsForChat && refused.waitingFiles == [a])
+    }
 }
