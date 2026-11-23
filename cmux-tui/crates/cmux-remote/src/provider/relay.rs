@@ -1039,6 +1039,7 @@ impl LinkGroup for RelayLinkGroup {
             .peer_join_wait
             .filter(|_| request.generation == 0)
             .unwrap_or(self.config.control_timeout);
+        let stage_started = Instant::now();
         let allocation = {
             let mut stored_control = self.control.lock().await;
             if self.closed.load(Ordering::Acquire) {
@@ -1105,6 +1106,9 @@ impl LinkGroup for RelayLinkGroup {
                 }
             }
         };
+        if std::env::var_os("CMUX_RELAY_STAGES").is_some() {
+            eprintln!("RELAY-STAGE allocated_ms={}", stage_started.elapsed().as_millis());
+        }
         join_circuit(
             &self.endpoint,
             &self.config.slot,
@@ -1244,9 +1248,11 @@ async fn join_circuit(
     // ceiling large enough for control and enforce the advertised data limit
     // in RelayCircuitLink after the circuit is ready.
     let websocket_message_limit = framing.websocket_message_limit(maximum_frame_bytes);
+    let stage_started = Instant::now();
     let mut socket =
         connect_relay_socket(&circuit_endpoint, Some(&ticket), websocket_message_limit, tls)
             .await?;
+    let stage_socket = stage_started.elapsed();
     send_control(
         &mut socket,
         &RelayControl::Join {
@@ -1286,6 +1292,13 @@ async fn join_circuit(
     })
     .await
     .map_err(|_| relay_carrier_error("relay circuit join timed out"))??;
+    if std::env::var_os("CMUX_RELAY_STAGES").is_some() {
+        eprintln!(
+            "RELAY-STAGE join role={role:?} circuit_socket_ms={} ready_ms={}",
+            stage_socket.as_millis(),
+            stage_started.elapsed().as_millis()
+        );
+    }
     Ok(Box::new(RelayCircuitLink::new_with_framing(
         sanitized_route(endpoint),
         maximum_frame_bytes,
