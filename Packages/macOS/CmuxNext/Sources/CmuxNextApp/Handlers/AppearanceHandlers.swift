@@ -33,6 +33,7 @@ enum AppearanceHandlers {
             context.writeSetting("set \(path.joined(separator: "."))", path, value, reloadOnFailure: true)
             return nil
         }
+        BackdropSelectionSetting.bindFollowDesktop(into: registry, save: save) { [weak services = context.services] in services?.settings?.snapshot.backdropSelection == .desktop }
         SettingChoiceActions.bind(MotionSpeed.allCases, into: registry, id: { "appearance.animationSpeed.\($0.rawValue)" }, path: AnimationSpeedSetting.configPath,
                                   fileValue: { .string($0.rawValue) }, save: save) { context.design.animationSpeed = $0 }
         AnimationKindsSetting.bindActions(into: registry, design: context.design, save: save)
