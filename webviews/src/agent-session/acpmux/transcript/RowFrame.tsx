@@ -2,6 +2,7 @@ import React, { useLayoutEffect, useRef, useState, useEffectEvent, useCallback }
 import { LOAD_FADE_CLASS } from "../../shared/loadFade";
 import { rowFrameStyle } from "../conversation/settledRowSkip";
 import { holdEntranceForFirstFrame } from "../conversation/entranceClock";
+import { markRecapEntrance } from "../conversation/turnEndFold";
 import { type AcpmuxRow, type StatusEdge, rowFrameKey, isLineRow, SINCE_DIVIDER } from "../model";
 import { acpmuxPerf } from "../perf";
 import { useLiveToolRow } from "../liveToolOutput";
@@ -228,6 +229,7 @@ export const RowFrame = React.memo(function RowFrame({
   // at once (conversation/entranceClock.ts). Messages keep their own send clock.
   const holdEntranceOnMount = useEffectEvent(() => {
     if (!entering || messageEntering || !ref.current) return undefined;
+    markRecapEntrance(ref.current);
     return holdEntranceForFirstFrame(ref.current);
   });
   useLayoutEffect(() => holdEntranceOnMount(), []);
