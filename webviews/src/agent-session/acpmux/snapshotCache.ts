@@ -24,25 +24,71 @@ export function emptySnapshot(): AcpmuxSnapshot {
 /// grew with the chat: it is written at most every SNAPSHOT_SAVE_MS, and at once as the page hides
 /// or unloads, so a reload still finds the latest one.
 const SNAPSHOT_SAVE_MS = 250;
+/// The copy is a first paint: the rows in view and a margin, until the client's own page replaces
+/// them. Writing the whole transcript cost time and bytes that grew with the chat (20,000 rows were
+/// 5 MB, past sessionStorage's quota, so the write failed and a stale copy stayed): it keeps the
+/// newest SAVED_ROWS rows, within SAVED_BYTES, and a cut copy says older history is left.
+export const SAVED_ROWS = 200;
+export const SAVED_BYTES = 1024 * 1024;
+const SNAPSHOT_KEY = "cmux.acpmux.snapshot";
 const snapshotSave: {
   next?: AcpmuxSnapshot;
   timer?: ReturnType<typeof setTimeout>;
   hooked?: boolean;
+  /// Set by `clearSnapshot`: this page keeps no copy, until it loads again.
+  dropped?: boolean;
 } = {};
+/// The copy of `snapshot` with its newest `count` rows. The prompt index (`earlierPrompts`) stays
+/// out: typed arrays do not survive JSON, and a reload reads it again.
+function savedCopy(snapshot: AcpmuxSnapshot, count: number): string {
+  const cut = snapshot.rows.length > count;
+  return JSON.stringify({
+    ...snapshot,
+    rows: cut ? snapshot.rows.slice(-count) : snapshot.rows,
+    earlierPrompts: undefined,
+    sessions: savedSessions(snapshot),
+    ...(cut ? { canLoadOlder: true, historyFrom: undefined } : {}),
+  });
+}
 function writeSnapshot(): void {
   clearTimeout(snapshotSave.timer);
   snapshotSave.timer = undefined;
   const next = snapshotSave.next;
   snapshotSave.next = undefined;
   if (!next) return;
+  // Fewer rows until the copy fits the byte bound, then the store's quota; one chat's pasted text
+  // can make a few rows large. A copy that fits nowhere is removed: a stale one would paint a chat
+  // that has moved on.
+  for (let count = SAVED_ROWS; ; count = Math.floor(count / 4)) {
+    try {
+      const value = savedCopy(next, count);
+      if (value.length > SAVED_BYTES && count > 0) continue;
+      sessionStorage.setItem(SNAPSHOT_KEY, value);
+      return;
+    } catch {
+      // Storage full: try a smaller tail.
+    }
+    if (count === 0) break;
+  }
   try {
-    // The prompt index (`earlierPrompts`) stays out: typed arrays do not survive JSON, and a reload reads it again.
-    sessionStorage.setItem(
-      "cmux.acpmux.snapshot",
-      JSON.stringify({ ...next, earlierPrompts: undefined, sessions: savedSessions(next) }),
-    );
+    sessionStorage.removeItem(SNAPSHOT_KEY);
   } catch {
-    // Painting remains live when storage is unavailable or full.
+    // Painting remains live when storage is unavailable.
+  }
+}
+
+/// Drops the reload copy and any write still pending, and keeps none for the rest of this page, so
+/// the next load starts empty and draws from its live client (PaneBoundary: a copy holding the rows
+/// that threw would fail the same way).
+export function clearSnapshot(): void {
+  snapshotSave.dropped = true;
+  clearTimeout(snapshotSave.timer);
+  snapshotSave.timer = undefined;
+  snapshotSave.next = undefined;
+  try {
+    sessionStorage.removeItem(SNAPSHOT_KEY);
+  } catch {
+    // Storage that is unavailable holds no copy to repaint.
   }
 }
 
@@ -101,6 +147,7 @@ export function savedSessions(snapshot: AcpmuxSnapshot): AcpmuxSessionEntry[] {
   return saved;
 }
 export function saveSnapshot(next: AcpmuxSnapshot): void {
+  if (snapshotSave.dropped) return;
   snapshotSave.next = next;
   if (!snapshotSave.hooked && typeof window !== "undefined") {
     snapshotSave.hooked = true;
@@ -112,7 +159,7 @@ export function saveSnapshot(next: AcpmuxSnapshot): void {
 
 export function cachedSnapshot(): AcpmuxSnapshot {
   try {
-    const value = JSON.parse(sessionStorage.getItem("cmux.acpmux.snapshot") ?? "null");
+    const value = JSON.parse(sessionStorage.getItem(SNAPSHOT_KEY) ?? "null");
     if (value?.type === "snapshot" && Array.isArray(value.rows) && Array.isArray(value.sessions)) {
       acpmuxPerf.markAgent("snapshotPaint");
       // `connection`, `drewKeptTail`, `chatRead` and `turnsEnded` are facts about a live client, and this one is
