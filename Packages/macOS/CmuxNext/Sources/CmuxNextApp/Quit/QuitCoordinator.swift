@@ -77,7 +77,8 @@ final class QuitCoordinator {
     /// asks "Quit cmux?" in the active window (Quit, Cancel, "Don't ask again").
     func holdsShortcutQuit(_ invocation: ActionInvocation) -> Bool {
         let enabled = !isQuitting && (services.settings?.snapshot.warnBeforeQuitShortcut ?? CmuxConfigSnapshot.warnBeforeQuitShortcutDefault)
-        return shortcutGuard.holds(invocation, event: services.inputDispatch.event, enabled: enabled) { [weak self] in self?.askShortcutQuit($0) ?? false }
+        return shortcutGuard.holds(invocation, event: services.inputDispatch.event, enabled: enabled,
+                                    qwerty: services.registry.matchesQwertyPositions) { [weak self] in self?.askShortcutQuit($0) ?? false }
     }
 
     /// The question; its "Don't ask again" with Quit turns `app.warnBeforeQuitShortcut` off.

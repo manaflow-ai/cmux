@@ -25,6 +25,8 @@
 //! (include/cmux_daemon_launch.h).
 //! `health` is the app health model: which part is stuck, its repairs and the
 //! status indicator's snapshot (cmux-health-core, include/cmux_health.h).
+//! `launch_image` is each window's last committed frame for the launch's first
+//! frame (cmux-launch-image, include/cmux_launch_image.h).
 //! `sdk` is the daemon client the `cmux` CLI uses (the cmux SDK), as a C ABI
 //! (cmux-sdk-ffi, include/cmux_sdk_ffi.h): the app reaches the daemon through it.
 //! `terminal_prediction` is predictive local echo for a terminal whose shell runs
@@ -55,6 +57,7 @@ pub use cmux_daemon_conn_core::ffi as daemon_conn;
 pub use cmux_daemon_launch_core::ffi as daemon_launch;
 pub use cmux_health_core::ffi as health;
 pub use cmux_keymap::ffi as keymap;
+pub use cmux_launch_image::ffi as launch_image;
 pub use cmux_launch_record;
 pub use cmux_launch_shell::ffi as launch_shell;
 pub use cmux_layout_reducer_ffi as layout_reducer;
