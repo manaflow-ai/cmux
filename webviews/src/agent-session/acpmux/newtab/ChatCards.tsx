@@ -2,7 +2,7 @@ import React, { useRef, useState, type CSSProperties } from "react";
 import { ContextMenu } from "../../../ui/ContextMenu";
 import { pressToOpen } from "../../../ui/pressToOpen";
 import { useT } from "../i18n";
-import { AgentMark } from "../NewTabPage";
+import { AgentMark } from "../tabMarks";
 import { homeCardGlowArm, homeCardTint, type HomeCardGlowArm } from "./homeCardGlow.experiment";
 import { useListMotion } from "./listMotion";
 import type { ChatCard } from "./screenModel";
