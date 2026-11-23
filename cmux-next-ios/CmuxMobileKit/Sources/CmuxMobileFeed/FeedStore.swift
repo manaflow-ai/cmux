@@ -219,11 +219,22 @@ public extension FeedActions {
 @Observable
 public final class FeedStore {
     @ObservationIgnored public weak var actions: (any FeedActions)?
-    public static let shared = FeedStore(
-        items: FeedStore.initialItems(mockContentEnabled: DeveloperOptions.mockContentEnabled),
-        answersLocally: DeveloperOptions.mockContentEnabled,
-        readMarks: .standard
-    )
+    public static let shared: FeedStore = {
+        let store = FeedStore(
+            items: FeedStore.initialItems(mockContentEnabled: DeveloperOptions.mockContentEnabled),
+            answersLocally: DeveloperOptions.mockContentEnabled,
+            readMarks: .standard
+        )
+        #if DEBUG
+        // `-cmux-mobile-feed-filter Finished`: screenshots of one filter (All, Needs you, Finished, Errors).
+        let arguments = ProcessInfo.processInfo.arguments
+        if let index = arguments.firstIndex(of: "-cmux-mobile-feed-filter"), index + 1 < arguments.count,
+           let filter = FeedFilter(rawValue: arguments[index + 1]) {
+            store.filter = filter
+        }
+        #endif
+        return store
+    }()
     /// DEBUG mock content only: with no Mac behind the Feed, answers apply
     /// locally. Otherwise an answer with no `actions` fails on the item.
     @ObservationIgnored public let answersLocally: Bool
