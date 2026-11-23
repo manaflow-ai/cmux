@@ -9,6 +9,12 @@
 //! the App Store's own `cmux apps install` (which shows cmux's card for each),
 //! and keeps a receipt. `remove` undoes it; `update` moves it to the newest
 //! commit of the ref it was installed from. Every verb takes `--json`.
+//!
+//! A look is edited live from a folder on this computer: `install DIR` reads
+//! it in place (no fetch, no push), `--watch` (or `dev DIR`) reapplies it on
+//! every save. `undo` and `redo` walk install, update, remove, swap, variant
+//! and reload steps, each one whole (cmux-customize `setup::history`).
+//! `variant LOOK NAME` picks one of a look's theme files inside its layer.
 
 use cmux_process::Command;
 use std::io::{BufRead, IsTerminal, Write};
@@ -22,12 +28,29 @@ use serde_json::{Value, json};
 
 use super::super::{GlobalArgs, OutputMode, wire};
 
-pub(super) const VERBS: &[&str] = &["install", "update", "remove", "export", "installed"];
+pub(super) const VERBS: &[&str] = &[
+    "install",
+    "update",
+    "remove",
+    "export",
+    "installed",
+    "undo",
+    "redo",
+    "swap",
+    "variant",
+    "dev",
+];
 
 pub(super) const HELP: &str = "\
 Setups: a whole cmux customization in one git repo (theme, sidebar, shortcuts, views, actions, extensions).
 
   cmux setup install HOST/OWNER/REPO[@REF] [--yes]   Fetch it at one commit, show what it changes, apply it
+  cmux setup install DIR [--watch] [--yes]           A look in a folder on this computer, read in place (no push);
+                                                     --watch reapplies it on every save until Ctrl-C
+  cmux setup dev DIR [--yes]                         The same as install DIR --watch
+  cmux setup swap OLD NEW [--yes]                    Install NEW and remove OLD, as one undo step
+  cmux setup variant [LOOK] [NAME]                   List a look's variants (its theme files), or pick NAME in its layer
+  cmux setup undo | redo                             One install, update, remove, swap, variant or live edit back or forward
   cmux setup update [REPO|ID] [--yes]                Move an installed setup to its ref's newest commit
   cmux setup remove [REPO|ID]                        Put back what you had: its layer, actions and extensions
   cmux setup installed                               The installed setups
@@ -40,18 +63,28 @@ A setup repo has cmux-setup.json at its root; its page is cmux.com/setups/OWNER/
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum Request {
-    Install { reference: String, yes: bool },
+    Install { reference: String, yes: bool, watch: bool },
     Update { which: Option<String>, yes: bool },
     Remove { which: Option<String> },
     Installed,
     Export { dir: PathBuf, header: ExportHeader },
+    Undo,
+    Redo,
+    Swap { from: String, to: String, yes: bool },
+    Variant { words: Vec<String> },
 }
 
 pub(super) fn parse(args: &[String]) -> Result<Request, String> {
     let (verb, rest) = args.split_first().ok_or_else(|| HELP.to_owned())?;
     let yes = rest.iter().any(|word| word == "--yes" || word == "-y");
-    let words: Vec<&String> =
-        rest.iter().filter(|word| *word != "--yes" && *word != "-y").collect();
+    let watch = rest.iter().any(|word| word == "--watch");
+    if watch && verb != "install" {
+        return Err(format!("cmux setup {verb}: --watch is for install DIR"));
+    }
+    let words: Vec<&String> = rest
+        .iter()
+        .filter(|word| *word != "--yes" && *word != "-y" && *word != "--watch")
+        .collect();
     let one = |words: &[&String]| -> Result<Option<String>, String> {
         match words {
             [] => Ok(None),
@@ -60,10 +93,31 @@ pub(super) fn parse(args: &[String]) -> Result<Request, String> {
         }
     };
     match verb.as_str() {
-        "install" => match one(&words)? {
-            Some(reference) => Ok(Request::Install { reference, yes }),
-            None => Err("cmux setup install needs a repo: HOST/OWNER/REPO[@REF]".to_owned()),
+        "install" => {
+            match one(&words)? {
+                Some(reference) => Ok(Request::Install { reference, yes, watch }),
+                None => Err("cmux setup install needs a repo (HOST/OWNER/REPO[@REF]) or a folder"
+                    .to_owned()),
+            }
+        }
+        "dev" => match one(&words)? {
+            Some(reference) => Ok(Request::Install { reference, yes, watch: true }),
+            None => Err("cmux setup dev needs a folder that holds cmux-setup.json".to_owned()),
         },
+        "undo" if rest.is_empty() => Ok(Request::Undo),
+        "redo" if rest.is_empty() => Ok(Request::Redo),
+        "swap" => match words.as_slice() {
+            [from, to] if !from.starts_with('-') && !to.starts_with('-') => {
+                Ok(Request::Swap { from: (*from).clone(), to: (*to).clone(), yes })
+            }
+            _ => Err("cmux setup swap needs OLD NEW: an installed setup and the one to put on"
+                .to_owned()),
+        },
+        "variant"
+            if !yes && words.len() <= 2 && words.iter().all(|word| !word.starts_with('-')) =>
+        {
+            Ok(Request::Variant { words: words.into_iter().cloned().collect() })
+        }
         "update" => Ok(Request::Update { which: one(&words)?, yes }),
         "remove" if !yes => Ok(Request::Remove { which: one(&words)? }),
         "installed" if rest.is_empty() => Ok(Request::Installed),
@@ -122,14 +176,39 @@ pub(super) fn run(global: &GlobalArgs, args: &[String]) -> i32 {
         }
     };
     let apps = CliApps { global };
+    let output = global.output;
+    let mut watching = None;
     let answer = match request {
-        Request::Install { reference, yes } => {
-            install(&customize, &apps, global.output, &reference, yes)
+        Request::Install { reference, yes, watch } => {
+            stepped(&customize, "install", &format!("install {reference}"), || {
+                let answer = install(&customize, &apps, output, &reference, yes)?;
+                if watch {
+                    watching = Some(Reference::parse_any(&reference)?);
+                }
+                Ok(answer)
+            })
         }
         Request::Update { which, yes } => {
-            update(&customize, &apps, global.output, which.as_deref(), yes)
+            let label = format!("update {}", which.as_deref().unwrap_or("setup"));
+            stepped(&customize, "update", &label, || {
+                update(&customize, &apps, output, which.as_deref(), yes)
+            })
         }
-        Request::Remove { which } => remove(&customize, &apps, which.as_deref()),
+        Request::Remove { which } => {
+            let label = format!("remove {}", which.as_deref().unwrap_or("setup"));
+            stepped(&customize, "remove", &label, || remove(&customize, &apps, which.as_deref()))
+        }
+        Request::Swap { from, to, yes } => {
+            stepped(&customize, "swap", &format!("swap {from} for {to}"), || {
+                swap(&customize, &apps, output, &from, &to, yes)
+            })
+        }
+        Request::Variant { words } => {
+            let label = format!("variant {}", words.join(" "));
+            stepped(&customize, "variant", &label, || variant(&customize, &words))
+        }
+        Request::Undo => undo_redo(&customize, false),
+        Request::Redo => undo_redo(&customize, true),
         Request::Installed => {
             customize.setups().map(|setups| json!({"setups": setups})).map_err(Failure::from)
         }
@@ -137,11 +216,15 @@ pub(super) fn run(global: &GlobalArgs, args: &[String]) -> i32 {
     };
     match answer {
         Ok(value) => {
-            if global.output == OutputMode::Human {
+            let code = if global.output == OutputMode::Human {
                 println!("{}", human(&value));
                 0
             } else {
                 wire::print_local_success(&value, global.output)
+            };
+            match watching {
+                Some(reference) if code == 0 => watch(&customize, &apps, global.output, &reference),
+                _ => code,
             }
         }
         Err(Failure { code, message, details }) => {
@@ -244,11 +327,39 @@ impl Apps for CliApps<'_> {
 pub(super) struct Checkout {
     dir: PathBuf,
     commit: String,
+    /// A folder on this computer, read in place: never removed.
+    keep: bool,
 }
 
 impl Drop for Checkout {
     fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.dir);
+        if !self.keep {
+            let _ = std::fs::remove_dir_all(&self.dir);
+        }
+    }
+}
+
+/// The setup `reference` names, read: a folder on this computer in place
+/// (its "commit" the first 40 hex of its content hash, so an edit reads as a
+/// new commit and a save with no change as the same one), else fetched.
+fn fetch_read(apps: &dyn Apps, reference: &Reference) -> Result<(Checkout, setup::Setup), Failure> {
+    if let Some(dir) = &reference.dir {
+        let read = setup::read_dir(dir)?;
+        let commit = read.sha256.get(..40).unwrap_or(&read.sha256).to_owned();
+        return Ok((Checkout { dir: dir.clone(), commit, keep: true }, read));
+    }
+    let checkout = apps.fetch(reference)?;
+    let read = setup::read_dir(&setup_dir(&checkout, reference))?;
+    Ok((checkout, read))
+}
+
+/// The owner the id rule checks: the repo's, or for a folder on this
+/// computer the id's own (the folder is yours).
+fn owner_of(reference: &Reference, read: &setup::Setup) -> String {
+    if reference.is_local() {
+        read.manifest.id.split('/').next().unwrap_or_default().to_owned()
+    } else {
+        reference.owner.clone()
     }
 }
 
@@ -292,7 +403,7 @@ fn fetch_from(reference: &Reference, url: &str, config: &[&str]) -> Result<Check
         .map_or(0, |since| since.as_nanos());
     let dir = std::env::temp_dir().join(format!("cmux-setup-{}-{stamp}", std::process::id()));
     std::fs::create_dir_all(&dir).map_err(|error| refused("setup.fetch", error.to_string()))?;
-    let mut checkout = Checkout { dir, commit: String::new() };
+    let mut checkout = Checkout { dir, commit: String::new(), keep: false };
     let wanted = reference.git_ref.as_deref().unwrap_or("HEAD");
     let run = |args: &[&str]| git(&checkout.dir, config, args);
     // A setup in a folder (a look in a monorepo) fetches the commit's trees
@@ -555,14 +666,13 @@ pub(super) fn install(
     text: &str,
     yes: bool,
 ) -> Result<Value, Failure> {
-    let reference = Reference::parse(text)?;
+    let reference = Reference::parse_any(text)?;
     if let Some(receipt) = customize.setup(&reference.key())? {
         // Installed already: this is an update to the named ref.
         return apply_update(customize, apps, output, receipt, Some(reference), yes);
     }
-    let checkout = apps.fetch(&reference)?;
-    let read = setup::read_dir(&setup_dir(&checkout, &reference))?;
-    let plan = customize.plan_setup(&read, &reference.owner, running_version())?;
+    let (checkout, read) = fetch_read(apps, &reference)?;
+    let plan = customize.plan_setup(&read, &owner_of(&reference, &read), running_version())?;
     let extensions = extension_rows(apps, &plan);
     let card = card(&plan, &reference, &checkout.commit, &extensions);
     consent(output, &card, "Install", yes)?;
@@ -675,8 +785,7 @@ fn apply_update(
     yes: bool,
 ) -> Result<Value, Failure> {
     let reference = to.unwrap_or_else(|| receipt.reference.clone());
-    let checkout = apps.fetch(&reference)?;
-    let read = setup::read_dir(&setup_dir(&checkout, &reference))?;
+    let (checkout, read) = fetch_read(apps, &reference)?;
     if checkout.commit == receipt.commit {
         if read.sha256 != receipt.sha256 {
             return Err(refused(
@@ -689,7 +798,7 @@ fn apply_update(
         }
         return Ok(json!({"current": receipt, "updated": false}));
     }
-    let plan = customize.plan_setup(&read, &reference.owner, running_version())?;
+    let plan = customize.plan_setup(&read, &owner_of(&reference, &read), running_version())?;
     let extensions = extension_rows(apps, &plan);
     let card = card(&plan, &reference, &checkout.commit, &extensions);
     consent(output, &card, "Update", yes)?;
@@ -762,6 +871,206 @@ fn export(customize: &Customize, dir: &Path, header: &ExportHeader) -> Result<Va
     }))
 }
 
+/// Runs one verb as one undo step: what was live before, the verb, then the
+/// step from there to what is live now (none when nothing changed). The
+/// answer names the step (`step`), so `cmux setup undo` is the way back.
+fn stepped(
+    customize: &Customize,
+    verb: &str,
+    label: &str,
+    run: impl FnOnce() -> Result<Value, Failure>,
+) -> Result<Value, Failure> {
+    let before = customize.setup_state(now_ms())?;
+    let mut answer = run()?;
+    let step = customize.record_setup_step(verb, label, before, None, now_ms())?;
+    if !step.is_empty()
+        && let Some(object) = answer.as_object_mut()
+    {
+        object.insert("step".to_owned(), json!({"id": step, "verb": verb, "label": label}));
+    }
+    Ok(answer)
+}
+
+/// Puts NEW on in OLD's place: OLD comes off, NEW goes on; when NEW does not
+/// (declined, unreadable, refused), what was live before OLD came off is
+/// back. One undo step (the caller's `stepped`).
+fn swap(
+    customize: &Customize,
+    apps: &dyn Apps,
+    output: OutputMode,
+    from: &str,
+    to: &str,
+    yes: bool,
+) -> Result<Value, Failure> {
+    let old = find(customize, Some(from))?;
+    let before = customize.setup_state(now_ms())?;
+    let removed = remove(customize, apps, Some(&old.reference.key()))?;
+    match install(customize, apps, output, to, yes) {
+        Ok(mut answer) => {
+            if let Some(object) = answer.as_object_mut() {
+                object.insert("swapped".to_owned(), json!({"from": old.id, "removed": removed}));
+                object.remove("undo");
+            }
+            Ok(answer)
+        }
+        Err(error) => {
+            customize.restore_setup_state(
+                &before,
+                &format!("setup swap {from} for {to}: put back"),
+                "cli",
+                now_ms(),
+            )?;
+            Err(error)
+        }
+    }
+}
+
+/// `variant`: lists the only installed look's variants; `variant LOOK`
+/// lists LOOK's (or, when LOOK is not an installed setup, picks it as a
+/// variant of the only one); `variant LOOK NAME` picks NAME in LOOK's layer.
+fn variant(customize: &Customize, words: &[String]) -> Result<Value, Failure> {
+    let (receipt, name) = match words {
+        [] => (find(customize, None)?, None),
+        [one] => match customize.setup(one)? {
+            Some(receipt) => (receipt, None),
+            None => (find(customize, None)?, Some(one.as_str())),
+        },
+        [look, name, ..] => (find(customize, Some(look))?, Some(name.as_str())),
+    };
+    if let Some(name) = name {
+        customize.setup_variant(&receipt, name, "cli", now_ms())?;
+    }
+    let (variants, picked) = customize.setup_variants(&receipt)?;
+    Ok(json!({
+        "variants": {"id": receipt.id, "variants": variants, "picked": picked},
+        "set": name.is_some(),
+    }))
+}
+
+/// One setup step back (`forward`: forward). The extensions the step
+/// installed or removed stay as they are; the answer names them.
+fn undo_redo(customize: &Customize, forward: bool) -> Result<Value, Failure> {
+    let step = if forward {
+        customize.redo_setup("cli", now_ms())?
+    } else {
+        customize.undo_setup("cli", now_ms())?
+    };
+    let apps = |state: &setup::SetupState| -> Vec<String> {
+        state
+            .receipts
+            .iter()
+            .flat_map(|receipt| &receipt.extensions)
+            .filter(|extension| extension.installed_by_setup)
+            .map(|extension| extension.reference.clone())
+            .collect()
+    };
+    let (before, after) = (apps(&step.before), apps(&step.after));
+    let mut extensions: Vec<String> =
+        before.iter().filter(|reference| !after.contains(reference)).cloned().collect();
+    extensions.extend(after.iter().filter(|reference| !before.contains(reference)).cloned());
+    Ok(json!({
+        if forward { "redone" } else { "undone" }: {"id": step.id, "verb": step.verb, "label": step.label},
+        "extensions_left": extensions,
+    }))
+}
+
+/// `install DIR --watch`: every save in DIR reapplies the look (an update
+/// with no question: the folder is yours and you said yes once). All the
+/// reloads of one session are one undo step (the history's `amend`); a save
+/// that does not read keeps the last good look. Ctrl-C ends it.
+fn watch(customize: &Customize, apps: &dyn Apps, output: OutputMode, reference: &Reference) -> i32 {
+    use super::super::pack::{DEBOUNCE, relevant};
+    use notify::Watcher as _;
+    let Some(dir) = reference.dir.clone() else {
+        return failure(
+            output,
+            "setup.not_a_folder",
+            "--watch is for a folder on this computer",
+            Value::Null,
+            1,
+        );
+    };
+    let (send, receive) = std::sync::mpsc::channel::<notify::Result<notify::Event>>();
+    let watched = notify::recommended_watcher(send).and_then(|mut watcher| {
+        watcher.watch(&dir, notify::RecursiveMode::Recursive).map(|()| watcher)
+    });
+    let _watcher = match watched {
+        Ok(watcher) => watcher,
+        Err(error) => {
+            let message = format!("could not watch {}: {error}", dir.display());
+            return failure(output, "io", &message, Value::Null, 1);
+        }
+    };
+    let json = matches!(output, OutputMode::Json | OutputMode::JsonLines);
+    if !json {
+        println!("watching {} (Ctrl-C ends)", dir.display());
+    }
+    let mut session: Option<String> = None;
+    let mut reloads = 0u64;
+    loop {
+        let Ok(first) = receive.recv() else {
+            return failure(output, "io", "the folder watch stopped", Value::Null, 1);
+        };
+        let mut changed = relevant(&first);
+        while let Ok(more) = receive.recv_timeout(DEBOUNCE) {
+            changed |= relevant(&more);
+        }
+        if !changed {
+            continue;
+        }
+        reloads += 1;
+        let started = std::time::Instant::now();
+        let answer = reload(customize, apps, output, reference, session.as_deref());
+        let ms = started.elapsed().as_millis();
+        match answer {
+            Ok((value, step)) => {
+                if !step.is_empty() {
+                    session = Some(step);
+                }
+                let updated = value["updated"] != json!(false);
+                if json {
+                    println!("{}", json!({"reload": reloads, "ms": ms, "updated": updated}));
+                } else if updated {
+                    println!("reloaded in {ms} ms");
+                }
+            }
+            Err(Failure { message, .. }) => {
+                if json {
+                    println!(
+                        "{}",
+                        json!({"reload": reloads, "error": message, "kept": "last good look"})
+                    );
+                } else {
+                    eprintln!("{message}; keeping the last good look");
+                }
+            }
+        }
+    }
+}
+
+/// One live reload of the folder `reference` names: an update to what it
+/// holds now (an install when an undo took it off meanwhile), recorded into
+/// the session's step (`session`), or a new one. Returns the answer and the
+/// step's id.
+pub(super) fn reload(
+    customize: &Customize,
+    apps: &dyn Apps,
+    output: OutputMode,
+    reference: &Reference,
+    session: Option<&str>,
+) -> Result<(Value, String), Failure> {
+    let before = customize.setup_state(now_ms())?;
+    let value = match customize.setup(&reference.key())? {
+        Some(receipt) => {
+            apply_update(customize, apps, output, receipt, Some(reference.clone()), true)?
+        }
+        None => install(customize, apps, output, &reference.key(), true)?,
+    };
+    let label = format!("live edit of {}", reference.key());
+    let step = customize.record_setup_step("reload", &label, before, session, now_ms())?;
+    Ok((value, step))
+}
+
 /// The answer as a person reads it.
 fn human(value: &Value) -> String {
     let value = &inert(value);
@@ -780,8 +1089,13 @@ fn human(value: &Value) -> String {
                 error["error"].as_str().unwrap_or_default()
             ));
         }
+        if let Some(from) = value.pointer("/swapped/from").and_then(Value::as_str) {
+            lines.push(format!("In place of {from}."));
+        }
         if let Some(undo) = value["undo"].as_str() {
-            lines.push(format!("Undo: {undo}"));
+            lines.push(format!("Undo: {undo} (or cmux setup undo)"));
+        } else if value.get("step").is_some() {
+            lines.push("Undo: cmux setup undo".to_owned());
         }
         return lines.join("\n");
     }
@@ -817,6 +1131,39 @@ fn human(value: &Value) -> String {
                     setup["commit"].as_str().unwrap_or_default().get(..12).unwrap_or_default()
                 )
             })
+            .collect::<Vec<_>>()
+            .join("\n");
+    }
+    if let Some(step) = value.get("undone").or_else(|| value.get("redone")) {
+        let mut line = format!(
+            "{} {}.",
+            if value.get("undone").is_some() { "Undid" } else { "Redid" },
+            step["label"].as_str().unwrap_or_default()
+        );
+        if let Some(left) = value["extensions_left"].as_array().filter(|left| !left.is_empty()) {
+            let names: Vec<_> = left.iter().filter_map(Value::as_str).collect();
+            line.push_str(&format!(" Extensions left as they are: {}.", names.join(", ")));
+        }
+        return line;
+    }
+    if let Some(variants) = value.get("variants") {
+        let id = variants["id"].as_str().unwrap_or_default();
+        let picked = variants["picked"].as_str();
+        if value["set"] == json!(true) {
+            return format!("{id} now shows {}. Undo: cmux setup undo", picked.unwrap_or_default());
+        }
+        let names: Vec<_> = variants["variants"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .collect();
+        if names.is_empty() {
+            return format!("{id} ships no variants (no themes/*.json).");
+        }
+        return names
+            .iter()
+            .map(|name| format!("{} {name}", if Some(*name) == picked { "*" } else { " " }))
             .collect::<Vec<_>>()
             .join("\n");
     }

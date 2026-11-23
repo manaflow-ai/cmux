@@ -18,14 +18,17 @@ use crate::{Customize, Error};
 pub const THEME_FILE_KEY: &str = "appearance.themeFile";
 const THEME_FILE_PATH: [&str; 2] = ["appearance", "themeFile"];
 
-/// The theme names a set of file paths holds (`themes/NAME.json`).
+/// The theme names a set of file paths holds (`themes/NAME.json`), sorted.
 fn theme_names(files: &[String]) -> Vec<String> {
-    files
+    let mut names: Vec<String> = files
         .iter()
         .filter_map(|path| path.strip_prefix("themes/")?.strip_suffix(".json"))
         .filter(|name| !name.contains('/'))
         .map(str::to_owned)
-        .collect()
+        .collect();
+    names.sort();
+    names.dedup();
+    names
 }
 
 impl Customize {

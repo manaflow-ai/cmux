@@ -165,6 +165,47 @@ impl Customize {
         self.move_setup_history(true, origin, now_ms)
     }
 
+    /// Makes `state` live again outside the history (a swap whose second
+    /// half failed puts back what was there before its first).
+    pub fn restore_setup_state(
+        &self,
+        state: &SetupState,
+        label: &str,
+        origin: &str,
+        now_ms: u64,
+    ) -> Result<(), Error> {
+        let _lock = self.store().lock()?;
+        self.put_setup_state_locked(state, label, origin, now_ms)
+    }
+
+    /// The generation, library and receipts of `target`, all or nothing.
+    fn put_setup_state_locked(
+        &self,
+        target: &SetupState,
+        label: &str,
+        origin: &str,
+        now_ms: u64,
+    ) -> Result<(), Error> {
+        let Some(n) = target.generation else {
+            return Err(Error::Setup(format!("{label}: no generation was live to go back to")));
+        };
+        let library = self.library_snapshot()?;
+        let receipts = self.read_setup_receipts()?;
+        let moved = self
+            .restore_locked(n, Kind::Autosaved, origin, label, now_ms)
+            .and_then(|_| self.library_write_back(target.library.as_ref().map(String::as_bytes)))
+            .and_then(|()| {
+                self.write_setup_receipts(&ReceiptsFile { setups: target.receipts.clone() })
+            });
+        if let Err(error) = moved {
+            // All or nothing: the library and receipts as they were.
+            let _ = self.library_write_back(library.as_deref());
+            let _ = self.write_setup_receipts(&receipts);
+            return Err(error);
+        }
+        Ok(())
+    }
+
     fn move_setup_history(
         &self,
         forward: bool,
@@ -185,28 +226,13 @@ impl Customize {
         };
         let step = history.steps[index].clone();
         let target = if forward { &step.after } else { &step.before };
-        let Some(n) = target.generation else {
-            return Err(Error::Setup(format!(
-                "{}: no generation was live to go back to",
-                step.label
-            )));
-        };
-        let library = self.library_snapshot()?;
-        let receipts = self.read_setup_receipts()?;
         let word = if forward { "redo" } else { "undo" };
-        let label = format!("setup {word}: {}", step.label);
-        let moved = self
-            .restore_locked(n, Kind::Autosaved, origin, &label, now_ms)
-            .and_then(|_| self.library_write_back(target.library.as_ref().map(String::as_bytes)))
-            .and_then(|()| {
-                self.write_setup_receipts(&ReceiptsFile { setups: target.receipts.clone() })
-            });
-        if let Err(error) = moved {
-            // All or nothing: the library and receipts as they were.
-            let _ = self.library_write_back(library.as_deref());
-            let _ = self.write_setup_receipts(&receipts);
-            return Err(error);
-        }
+        self.put_setup_state_locked(
+            target,
+            &format!("setup {word}: {}", step.label),
+            origin,
+            now_ms,
+        )?;
         history.cursor = if forward { index + 1 } else { index };
         self.write_setup_history(&history)?;
         Ok(step)
