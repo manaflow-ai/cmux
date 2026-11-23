@@ -559,9 +559,9 @@ body {
      geometry without drawing a second border over the glass surface. */
   border: 1px solid transparent;
   border-radius: var(--ds-radius-lg);
-  background: var(--glass-tint, var(--cmux-diff-bg));
-  -webkit-backdrop-filter: var(--surface-blur, none);
-  backdrop-filter: var(--surface-blur, none);
+  /* No tint or blur of its own: .ui-popup.ui-glass is the one menu glass (ui/glass/glass.css GLASS
+     LEVELS). Its own --surface-blur here was the chrome blur, a second, thinner glass than every
+     other menu's (Leo 2026-11-22: "doubled up glass/wack looking glass all over the place"). */
   z-index: 120;
   overflow: hidden;
 }
@@ -2043,9 +2043,7 @@ svg[data-icon-fill] {
      geometry without drawing a second border over the glass surface. */
   border: 1px solid transparent;
   border-radius: var(--ui-popup-radius, var(--ds-radius-lg));
-  background: var(--glass-tint, color-mix(in lab, var(--cmux-diff-bg) 92%, var(--cmux-diff-fg)));
-  -webkit-backdrop-filter: var(--surface-blur, none);
-  backdrop-filter: var(--surface-blur, none);
+  /* The tint and blur are .ui-popup.ui-glass's, the menu level every page's menus share. */
   color: var(--cmux-diff-fg);
 }
 .toolbar-menu-section {
@@ -2297,7 +2295,6 @@ svg[data-icon-fill] {
 /* The base picker popover uses the toolbar menu surface. */
 .base-picker-popover {
   border-radius: var(--ui-popup-radius, var(--ds-radius-lg));
-  background: var(--glass-tint, color-mix(in lab, var(--cmux-diff-bg) 92%, var(--cmux-diff-fg)));
 }
 .base-picker-search {
   padding: 9px 12px;
