@@ -1810,8 +1810,19 @@ export function paneSnapshotEffect({
         // A pick of another harness is a switch: drawn now, started behind it.
         // A new chat without a folder starts in the chat's start folder (startFolder.tsx);
         // a chat with no project (`noProject`) or for a peer gets no start folder.
-        "chat.new": async ({ harness, cwd, peer, deferred, noProject, model, options, continueWithoutFolder }) => {
-          if (noProject === true && continueWithoutFolder === true) {
+        "chat.new": async ({
+          harness,
+          cwd,
+          peer,
+          deferred,
+          noProject,
+          model,
+          options,
+          continueWithoutFolder,
+          continueReadOnly,
+        }) => {
+          const readOnly = continueReadOnly === true;
+          if ((noProject === true && continueWithoutFolder === true) || readOnly) {
             let generation = client.trustGeneration;
             const trustGeneration = trustRevision.current;
             const projectGeneration = continuationProjectGeneration.current;
@@ -1820,18 +1831,35 @@ export function paneSnapshotEffect({
             const intent = switchViewRef.current.intent;
             const selectedHarness = intent?.harness ?? summary?.harness;
             const selectedModel = intent?.config.model ?? summary?.model;
+            // Read-only stays in the declined folder (acpmux hub/restricted.rs); else no folder.
+            const readOnlyFolder = readOnly && typeof summary?.cwd === "string" ? summary.cwd : undefined;
+            if (readOnly && !readOnlyFolder) return;
             // A pending harness switch may still hold prompts behind this folder's trust gate.
             // Recovery is a different start, so retire that intent before taking the draft.
             harnessSwitch.cancel();
             return folderContinuation.run({
-              start: () => client.startSession(selectedHarness, undefined, undefined, undefined, true, selectedModel),
+              start: () =>
+                readOnlyFolder
+                  ? client.startSession(
+                      selectedHarness,
+                      readOnlyFolder,
+                      undefined,
+                      undefined,
+                      false,
+                      selectedModel,
+                      undefined,
+                      true,
+                    )
+                  : client.startSession(selectedHarness, undefined, undefined, undefined, true, selectedModel),
               current: () =>
                 directClient.current === client &&
                 client.trustGeneration === generation &&
                 trustRevision.current === trustGeneration &&
                 composerHandle.current === holder,
               copyText: (id) => writePersistedDraft(id, holder?.draftText() ?? ""),
-              clearFolder: () => setProjectDraft(undefined),
+              clearFolder: () => {
+                if (!readOnlyFolder) setProjectDraft(undefined);
+              },
               discard: (id) => client.discard(id),
               select: async (id) => {
                 holder?.suppressAttachmentCarryFor(summary?.sessionId);

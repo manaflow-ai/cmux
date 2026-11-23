@@ -185,7 +185,12 @@ import { liveToolOutput } from "./liveToolOutput";
 import { remoteComposer } from "./remoteEditing";
 import { Composer, type ComposerHandle, type ComposerWake } from "./Composer";
 import { takeExternalInto } from "./composer/externalAttach";
-import { FolderContinuation, folderContinuationRequest } from "./folderContinuation";
+import {
+  FolderContinuation,
+  folderContinuationRequest,
+  readOnlyContinuationRequest,
+  readOnlyHarness,
+} from "./folderContinuation";
 import type { BrowseRequest } from "./AddProjectPanel";
 import { handBackQuotes, quoteIntoComposer, replayHeldForComposer, restoreComposerDraft } from "./composerRestore";
 import {
@@ -9751,6 +9756,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     if (taken.length) void giveBackTrustHeld.current(taken);
     return callNative<void>("chat.new", folderContinuationRequest);
   }, []);
+  // The same recovery in the declined folder, read-only (folderContinuation.ts).
+  const continueReadOnly = useCallback(() => {
+    const taken = trustHeldNow.current.takeShown();
+    if (taken.length) void giveBackTrustHeld.current(taken);
+    return callNative<void>("chat.new", readOnlyContinuationRequest);
+  }, []);
   const secret = snapshot.secret;
   const hasPermissionGroups = Boolean(
     snapshot.permissionGroups?.supported &&
@@ -9868,6 +9879,18 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               trustAsk.ask.level === "untrusted" &&
               !isAgentHome(trustAsk.ask.cwd)
                 ? continueWithoutFolder
+                : undefined
+            }
+            onContinueReadOnly={
+              healthLocal &&
+              !remoteChat &&
+              Boolean(snapshot.sessionId) &&
+              !directClient.current?.startsOnSend &&
+              readOnlyHarness(snapshot.summary?.family) &&
+              trustAsk.ask?.state === "decided" &&
+              trustAsk.ask.level === "untrusted" &&
+              !isAgentHome(trustAsk.ask.cwd)
+                ? continueReadOnly
                 : undefined
             }
             answers={answersTrust}
