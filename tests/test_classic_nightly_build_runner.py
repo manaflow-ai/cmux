@@ -429,6 +429,9 @@ class Workflow(unittest.TestCase):
         self.assertIn("pick-nightly-app-runner", re.search(r"^    needs: (.+)$", job, re.MULTILINE).group(1))
         self.assertIn("needs.pick-nightly-app-runner.outputs.trusted != 'false' && fromJSON(", runs_on)
         self.assertIn("|| needs.pick-nightly-app-runner.outputs.cloud || 'blacksmith-6vcpu-macos-26' }}", runs_on)
+        # 6 vCPU first, 12 vCPU only as overflow (#39585 F1): with both labels moving, the picker's `cloud` is 6 vCPU.
+        pick = self.job("pick-nightly-app-runner")
+        self.assertIn("          FIRST: 6vcpu\n", pick[pick.index("id: pick"):])
         # A failed or skipped picker never skips the build.
         self.assertRegex(re.search(r"^    if: (.+)$", job, re.MULTILINE).group(1), r"^\"!cancelled\(\) && needs\.decide\.result == 'success'")
 
