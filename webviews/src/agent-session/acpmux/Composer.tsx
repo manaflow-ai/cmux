@@ -529,6 +529,10 @@ type Props = {
   relay?: ComposerRelay;
   /// Set by `relay` for the frame: the draft is the relay's to keep, and no done-when goes with it.
   relayed?: boolean;
+  /// Focus-visible in the card while the prompt is not the shell's: the dock's owner lifts the whole
+  /// stack's edge from it (App.tsx `data-focused` on `.acpmux-dock`, composerStates.css). Called on
+  /// focus and shell changes only.
+  onFocusEdge?(lit: boolean): void;
 };
 
 /// What the prompt holds: its text and the chips placed in it.
@@ -771,6 +775,7 @@ function ComposerFrame({
   onDraftChange,
   attachRefusal,
   relayed = false,
+  onFocusEdge,
 }: Props) {
   acpmuxPerf.render("composer");
   const t = useT();
@@ -808,6 +813,23 @@ function ComposerFrame({
   // A chat New Tab just started: the box glides down from New Tab's place instead of jumping
   // (composer/composerHandover.ts).
   useLayoutEffect(() => glideComposerFromHeld(form.current), []);
+  // Focus-visible in the card, as the card reports it (ComposerBox `onFocusVisible`): the form's
+  // `data-focused` and the dock's edge read it, never a `:has(> .acpmux-composer-box :focus-visible)`
+  // checked again for every node a keystroke inserts (transcript-motion-model step 7). Written to the
+  // DOM, not React state: a focus change renders nothing either.
+  const boxFocused = useRef(false);
+  const focusEdge = useRef(onFocusEdge);
+  const shellOn = useRef(false);
+  const markFocus = useCallback((focused: boolean) => {
+    boxFocused.current = focused;
+    form.current?.toggleAttribute("data-focused", focused);
+    focusEdge.current?.(focused && !shellOn.current);
+  }, []);
+  // The queue's list, as ComposerQueue mounts and unmounts it: the form's `data-queue` (composerStates.css,
+  // composerLocation.css), never a `:has(> .acpmux-composer-queue)`.
+  const markQueue = useCallback((list: HTMLElement | null) => {
+    (list?.parentElement ?? form.current)?.toggleAttribute("data-queue", list !== null);
+  }, []);
   const importInput = useRef<HTMLInputElement>(null);
   // Seed from the handshake before the editor mounts. The relaunch draft and the local cache can
   // arrive in the same render; preferring the host value keeps it visible through initialization.
@@ -2422,6 +2444,14 @@ function ComposerFrame({
       ? undefined
       : t(startLook === "status" ? "composer.cloudStartingStatus" : "composer.cloudStartingPlaceholder");
   const startHoldsSend = cloudStarting && !shell;
+  // The dock's edge lifts for the chat's prompt only, not the shell's; the form's own mark waits for
+  // its ref on the first commit.
+  useLayoutEffect(() => {
+    focusEdge.current = onFocusEdge;
+    shellOn.current = shell;
+    form.current?.toggleAttribute("data-focused", boxFocused.current);
+    onFocusEdge?.(boxFocused.current && !shell);
+  }, [shell, onFocusEdge]);
   // Focus leaving the composer closes the menu and takes back what + wrote.
   const blur = (event: React.FocusEvent<HTMLFormElement>) => {
     if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
@@ -3103,6 +3133,12 @@ function ComposerFrame({
       // but its own events changes its nodes (devkit/perfBudgets.ts `still-surface`).
       data-perf-still="composer"
       data-shell={shell ? "" : undefined}
+      // The parts the composer's own rules read, set where they are drawn, never a `:has()` on the
+      // form (transcript-motion-model step 7): the location strip (ComposerContext, always a
+      // `.acpmux-composer-strip`), and the quiet row (ComposerBox always draws ComposerFoot). The
+      // queue and focus marks are written as they change (`markQueue`, `markFocus`).
+      data-strip={locationVisible ? "" : undefined}
+      data-foot=""
       // Gallery previews can stage the former Codex layout. Studio's look (Settings, opt-in) is that
       // in-box layout with its own sheet over it (composerLook.css data-composer-variant).
       data-composer-look={lookRowInBox(look) ? "codex" : undefined}
@@ -3168,6 +3204,7 @@ function ComposerFrame({
         readImage={queueImage}
         commands={commands}
         onLeave={leaveQueue}
+        onList={markQueue}
       />
       {context}
       {dropHost && (
@@ -3196,6 +3233,7 @@ function ComposerFrame({
           typedAt.current = performance.now();
         }}
         boxRef={setComposerBox}
+        onFocusVisible={markFocus}
         fieldRef={fieldRef}
         field={{
           className: shell

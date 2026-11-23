@@ -127,6 +127,8 @@ type WorktreeError = {
 
 /// What AcpmuxPane's render hands its composer tree: each value as the render worked it out.
 export type PaneComposerDeps = {
+  /// The dock's focus edge (App.tsx `markDockEdge`): the composer reports focus-visible in its card.
+  markDockEdge: (lit: boolean) => void;
   readOnlySubagent: boolean;
   /// The Composer relayed to the subagent a subagent pane shows (Composer.tsx `relay`).
   subagentRelay: ComposerRelay | undefined;
@@ -357,6 +359,7 @@ export type PaneComposerDeps = {
 /// The pane's composer tree: a subagent pane's relayed Composer, or (unless reviewing) the bottom
 /// stack of notices, the hat and the Composer.
 export function drawPaneComposer({
+  markDockEdge,
   readOnlySubagent,
   subagentRelay,
   subagentDraftKey,
@@ -838,6 +841,7 @@ export function drawPaneComposer({
             // A subagent's composer starts from its own draft: another subagent's pane is another composer.
             key={subagentRelay ? subagentDraftKey : undefined}
             relay={subagentRelay}
+            onFocusEdge={markDockEdge}
             cloudStarting={cloudStarting}
             snapshot={composerDrawn}
             guestHarnesses={guestsHere ? composerSnapshot.catalog : undefined}
