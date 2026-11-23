@@ -62,7 +62,7 @@ const landings = (run: SimResult): { label: string; id: string; kind: string; ab
     const pinned = (row: RowProbe) => row.live || row.kind === "plan";
     const old = new Set(was.rows.filter((row) => !pinned(row)).map((row) => row.id));
     const now = step.rows.filter((row) => !pinned(row));
-    const lastOld = now.findLastIndex((row) => old.has(row.id));
+    const lastOld = now.reduce((found, row, at) => (old.has(row.id) ? at : found), -1);
     now.forEach((row, at) => {
       if (!old.has(row.id) && at < lastOld)
         out.push({ label: step.label, id: row.id, kind: row.kind, above: now[lastOld]!.id });
@@ -93,7 +93,8 @@ export const EVERYWHERE: {
       run.traces.flatMap((step) => {
         const rows = rowsOf(step);
         const live = rows.filter((row) => row.live);
-        if (!step.working && live.length) return [`${step.label}: at rest, yet ${live.map((row) => row.id)} is live`];
+        if (!step.working && live.length)
+          return [`${step.label}: at rest, yet ${live.map((row) => row.id).join(", ")} is live`];
         if (live.length > 1) return [`${step.label}: ${live.length} live lines`];
         if (live.length === 1 && rows.at(-1) !== live[0])
           return [`${step.label}: ${live[0]!.id} is live above other rows`];
@@ -380,7 +381,7 @@ export const MAP: MapEntry[] = [
         ...want(footers(rows).length === 1, `${footers(rows).length} turn footers for one turn`),
         ...want(
           order.every((at, index) => at >= 0 && (index === 0 || at > order[index - 1]!)),
-          `steers and the answer are out of order: ${order}`,
+          `steers and the answer are out of order: ${order.join(", ")}`,
         ),
       ];
     },
