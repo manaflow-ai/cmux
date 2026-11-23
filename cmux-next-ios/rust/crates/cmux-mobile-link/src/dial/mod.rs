@@ -99,6 +99,12 @@ impl TransportKind {
     }
 }
 
+/// [`DialOptions::impair_inbound`]'s hook: whether the datagram came through
+/// this side's TURN allocation, where from and its size, to `None` (drop) or
+/// `Some(delay)`.
+#[doc(hidden)]
+pub type ImpairInbound = fn(bool, &std::net::SocketAddr, usize) -> Option<Duration>;
+
 #[derive(Debug, Clone)]
 pub struct DialOptions {
     /// ICE servers (from `GET /v1/ice`). STUN entries also serve WireGuard
@@ -156,7 +162,7 @@ pub struct DialOptions {
     /// `testing::shape_by_profile` (feature `testing`) plays a named phone
     /// link profile.
     #[doc(hidden)]
-    pub impair_inbound: Option<fn(bool, &std::net::SocketAddr, usize) -> Option<Duration>>,
+    pub impair_inbound: Option<ImpairInbound>,
     /// Offer and accept the input lane (PROTOCOL.md "Lanes"): a second
     /// stream for keystrokes and resizes. Off only to measure or test the
     /// single-stream behavior of older peers.
