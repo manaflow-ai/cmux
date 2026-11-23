@@ -717,6 +717,7 @@ impl HubCarrier {
             return Err("the node key was replaced; this carrier is stopped".into());
         }
         let Some(hello) = service_hello(service) else {
+            crate::gauges::bump(&crate::gauges::links().hub_plain_dials);
             let (secure, stages) = self.open_circuit(daemon).await?;
             stages.log(daemon, "plain");
             return Ok(self.carry_plain(secure));
@@ -742,6 +743,7 @@ impl HubCarrier {
         daemon: &str,
         hello: Bytes,
     ) -> Result<Result<cmux_remote::crypto::SecureLink, ServiceRefusal>, String> {
+        crate::gauges::bump(&crate::gauges::links().hub_plain_dials);
         let (secure, mut stages) = self.open_circuit(daemon).await?;
         let answered = Instant::now();
         let answer = Self::ask_service(&secure, hello, self.timings.handshake).await;
@@ -777,7 +779,6 @@ impl HubCarrier {
 
     fn carry_plain(&self, secure: cmux_remote::crypto::SecureLink) -> HubStream {
         self.stats.dials.fetch_add(1, Ordering::Relaxed);
-        crate::gauges::bump(&crate::gauges::links().hub_plain_dials);
         let (ours, theirs) = tokio::io::duplex(DUPLEX_BYTES);
         let stats = self.stats.clone();
         tokio::spawn(async move { pump(Box::new(secure), theirs, &stats).await });
@@ -869,8 +870,8 @@ impl HubCarrier {
         &self,
         daemon: &str,
     ) -> Result<(Arc<mux::Mux>, mux::HelloAnswer, DialStages), String> {
-        let (secure, stages) = self.open_circuit(daemon).await?;
         crate::gauges::bump(&crate::gauges::links().hub_kept_dials);
+        let (secure, stages) = self.open_circuit(daemon).await?;
         secure.send(mux::mux_hello()).await.map_err(|e| e.to_string())?;
         let (mux, said) = mux::start_dialer(
             Box::new(secure),
