@@ -77,7 +77,7 @@ them; the whole kept list follows off the main thread.
 A host without windows refuses the params and the phone reads the whole list, as before.
 
 The god fixtures are degenerate on purpose: Home rows with pins, ~80 Chiefs
-working, one preview in ten a long Markdown reply, six months of dates; the chat
+working, one preview in ten a long Markdown reply, six months of dates; a Home row's words come from a seed of its index alone, so the god list's first screen says what the small list's does and a first-screen ratio judges history, not which previews a seed drew; the chat
 has tool outputs up to 2 MB (logs and diffs), subagents nested 5 deep, 200 image
 parts and six months of timestamps. Its last 2 MB log sits about 60 records
 before the end. The phone's pages ask acpmux to cut a tool output past 64 KiB

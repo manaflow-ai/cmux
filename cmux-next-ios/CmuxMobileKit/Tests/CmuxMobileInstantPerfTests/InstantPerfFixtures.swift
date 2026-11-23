@@ -96,15 +96,22 @@ enum HomeInboxFixture {
     static let now = Date(timeIntervalSince1970: 1_794_268_800)
 
     /// The rows in the owner's order (newest first), as `home-inbox` sends them.
+    ///
+    /// Row `i`'s words (name, unread, preview) come from a generator seeded by `i` alone, so the god
+    /// list's first rows say what the small list's do and the two differ only in what grows with a big
+    /// Mac: the rows past the first screen, the pins, the Chiefs working and the dates' spread. With one
+    /// seed per size, the god list's first window drew longer previews by chance (17,270 B against
+    /// 13,397 B for the same 20 rows), and `home_list_first_screen` read that luck as a 1.47x cost of
+    /// history (nightly run 45000194533, 2026-11-22).
     static func rows(_ size: InstantPerfSize) -> [[String: Any]] {
         let count = rowCount(size)
-        var rng = SeededRandom(seed: size == .small ? 0x484F_4D45_0020 : 0x484F_4D45_5000)
         let stamp = ISO8601DateFormatter()
         stamp.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         let pinned = size == .small ? 4 : 12
         let span: TimeInterval = 180 * 24 * 3600 // six months of activity
         let kinds = ["direct", "channel", "group"]
         return (0..<count).map { index in
+            var rng = SeededRandom(seed: 0x484F_4D45_0000 &+ UInt64(index) &* 0x1_0000_0001)
             var row: [String: Any] = [:]
             row["id"] = "conv-\(size.rawValue)-\(index)"
             row["owner"] = "local"
