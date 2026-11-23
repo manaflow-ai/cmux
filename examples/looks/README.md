@@ -117,6 +117,7 @@ Settings (any key an agent may set; `cmux settings list` prints them all):
 | Chrome | `appearance.chromeStyle`, `appearance.borders`, `appearance.density`, `appearance.metrics.*` (tab and chrome font sizes, column gap, dividers) |
 | The agent chat | `agentPane.display.*` (font, size, line height, code scale, width, minimap), `agentPane.composerRing` |
 | New tab | `tabs.newTabApp` (`local/customize` draws your own page) |
+| Layout and behaviour | `layout.*` (main pane, where links and new terminals open, split sizing, docked columns), `tabs.barPosition`, `tabs.barOrder`, `tabs.toolbarButtons`, `browser.toolbarPosition`, `sidebar.workspacesAsTabs`, `sidebar.sideBySide`, `home.chiefDock.edge`; with `keybindings.json` and `actions`, a keyboard mode or a review layout: [leader](leader), [review-desk](review-desk), [bottom-deck](bottom-deck), [workspace-tabs](workspace-tabs) |
 
 Interfaces a look's `customize/` app can implement (`cmux-tui/crates/cmux-app-host/interfaces/`;
 all are drafts):
