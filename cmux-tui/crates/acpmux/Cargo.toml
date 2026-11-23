@@ -60,6 +60,9 @@ dhat-heap = ["dep:dhat"]
 
 [target.'cfg(unix)'.dependencies]
 signal-hook-registry = "1.4"
+# `acpmux fork-run` (`src/cli/fork_run.rs`): cmux Cloud's fork runs, called with the caller's own
+# Cloud credential.
+cmux-cloud-api.workspace = true
 # The share host (`src/share_host/`): this Mac's device hub device, its hub link and serving one
 # share through the Screen Sharing helper, the same code `cmux-rd linux-host` runs.
 cmux-hub-host.workspace = true
@@ -176,6 +179,7 @@ libc = "0.2"
 notify.workspace = true
 # Session tokens and secrets (the OS generator on every platform).
 getrandom.workspace = true
+glob.workspace = true
 base64 = "0.22"
 bytes.workspace = true
 tempfile = "3"
