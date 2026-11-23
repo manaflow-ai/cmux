@@ -138,6 +138,7 @@ cmux-tui/crates/acpmux/src/login_env.rs	1
 cmux-tui/crates/acpmux/src/mesh_http.rs	1
 cmux-tui/crates/acpmux/src/native.rs	2
 cmux-tui/crates/acpmux/src/parent_watch.rs	2
+cmux-tui/crates/acpmux/src/peer.rs	1
 cmux-tui/crates/acpmux/src/peer_carriers.rs	1
 cmux-tui/crates/acpmux/src/peer_health.rs	1
 cmux-tui/crates/acpmux/src/peer_overlay.rs	1
