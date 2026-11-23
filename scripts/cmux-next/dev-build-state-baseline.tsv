@@ -35,6 +35,7 @@ Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropArtDownloads.swift	1	per 
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropImageStore.swift	1	per build: the folder is named after the bundle id (a DEV build has its own)
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropShader.swift	1	per build: the folder is named after the bundle id (a DEV build has its own)
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/DesktopPicture.swift	1	per build: the folder is named after the bundle id (a DEV build has its own)
+Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Launch/LaunchShell.swift	1	per build: the launch record and image store live in the folder named after the bundle id (a DEV build has its own); Library/Application Support itself is only read for this session's registry id
 Packages/macOS/CmuxNext/Sources/CmuxNextDevices/DeviceMachine.swift	1	shared on purpose: cmux-device-hub/machine.key is the one per-Mac key every build and cmux Remote derive this Mac's device id from (an input of this Mac, never a build's data); a dev build reads the same Mac identity, not nightly's state (base #44039)
 Packages/macOS/CmuxNext/Sources/CmuxNextFiles/MarkdownTableWidths/MarkdownTableWidthRepository.swift	1	per build: the folder is named after the bundle id (a DEV build has its own)
 Packages/macOS/CmuxNext/Sources/CmuxNextFloating/ChiefPet/ChiefAvatarUploads.swift	1	per build: the folder is named after the bundle id (a DEV build has its own)
