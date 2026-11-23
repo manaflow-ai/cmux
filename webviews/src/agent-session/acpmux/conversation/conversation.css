@@ -1899,9 +1899,20 @@
    and show while the pointer is on the card or focus is
    inside it (Leo 2026-11-01, on a tree diagram under "</> Plain text": "could we render this type of
    thing better in cmux-next"). The body starts at the card's inset instead of under a row. */
+/* The actions' 26px box centres on the first line, not on a fixed inset: the body's 13px top plus
+   half a line, less half the box (Leo 2026-11-22, on Wrap and Copy riding above a card's first
+   line: "this is off centered. we cant be having icons off centered"; icon-button-centers.test.ts).
+   `--cv-code-corner-line` is that line's height: the card's code line, or a diagram's 1.15em. */
+.cv-codeblock--corner {
+  --cv-code-corner-line: var(--cv-codeblock-line-height, 20px);
+  --cv-code-corner-top: calc(13px + var(--cv-code-corner-line) / 2 - 13px);
+}
+.cv-codeblock--corner.cv-codeblock--diagram {
+  --cv-code-corner-line: calc(1.15 * var(--cv-codeblock-size, 12px));
+}
 .cv-codeblock--corner .cv-codeblock__header {
   position: absolute;
-  top: 6px;
+  top: var(--cv-code-corner-top);
   right: 6px;
   z-index: var(--layer-raised);
   min-height: 0;
@@ -1961,7 +1972,7 @@
    hover fade), so at rest every line reads to the card's edge. Both the plain lines and Pierre's
    shadow root are inside the body, so one mask covers both. `--cv-code-corner-clear` is the
    actions' footprint from the body's right edge (their 6px inset less the body's 1px);
-   `--cv-code-corner-veil-height` is their bottom below the body's top (6px + 26px - 13px). */
+   `--cv-code-corner-veil-height` is their bottom below the body's top (their top + 26px - 13px). */
 @property --cv-code-corner-veil {
   syntax: "<number>";
   inherits: false;
@@ -1972,7 +1983,7 @@
     var(--cv-code-corner-actions) * 26px + (var(--cv-code-corner-actions) - 1) * var(--cv-code-action-gap) + 5px
   );
   --cv-code-corner-veil-fade: 8px;
-  --cv-code-corner-veil-height: 19px;
+  --cv-code-corner-veil-height: calc(var(--cv-code-corner-top) + 13px);
 }
 /* A mask cuts everything outside the body's border box, and a highlighted card's horizontal
    scrollbar hangs below that box into the card's bottom inset (HighlightedCode.tsx `codeUnsafeCSS`,
@@ -2144,11 +2155,13 @@
 }
 .cv-edit-diff__add {
   flex: none;
-  color: var(--agent-diff-add);
+  /* A tenth toward the text, so the count holds 4.5:1 on a card's fill too (the raw status ink was 4.43:1). */
+  color: color-mix(in srgb, var(--agent-diff-add) 90%, var(--agent-text));
 }
 .cv-edit-diff__del {
   flex: none;
-  color: var(--agent-diff-del);
+  /* A tenth toward the text, so the count holds 4.5:1 on a card's fill too (the raw status ink was 4.43:1). */
+  color: color-mix(in srgb, var(--agent-diff-del) 90%, var(--agent-text));
 }
 /* Wrap lines, then Copy, at the header's end, side by side (--cv-code-action-gap). */
 .cv-iconbtn.cv-edit-diff__wrap {
@@ -4844,7 +4857,9 @@ button.cv-video-frames__frame:focus-visible {
   margin: -3px 0 3px;
   padding-left: var(--cv-tool-text-inset);
   overflow: hidden;
-  color: var(--cv-text-dim);
+  /* The muted ink (solved to 4.5:1 on every fill), not the dim one: dim drew this readable line at 3.84:1
+     light, 4.40:1 dark. */
+  color: var(--cv-text-muted);
   font-size: var(--text-detail);
   line-height: 18px;
   text-overflow: ellipsis;
@@ -4919,7 +4934,9 @@ button.cv-video-frames__frame:focus-visible {
   flex: none;
   align-items: center;
   gap: var(--ds-space-2);
-  color: var(--cv-text-dim);
+  /* The muted ink, not the dim one: a run's time and status are read, and dim drew them at 3.84:1 light,
+     4.40:1 dark. */
+  color: var(--cv-text-muted);
   font-size: calc(var(--cv-font-size) * 12 / 14);
   font-variant-numeric: tabular-nums;
 }
@@ -4930,7 +4947,7 @@ button.cv-video-frames__frame:focus-visible {
    before the status and time, so the approval reads on its row and never as a line of its own. */
 .cv-command__approved {
   white-space: nowrap;
-  color: var(--cv-text-dim);
+  color: var(--cv-text-muted); /* with the meta it sits in: 4.5:1 */
 }
 /* A finished call's check and run time show only while the row is pointed at or focused, as in
    the Codex app: at rest a run reads as its words. A failure keeps its red mark ("exit 1",
@@ -6830,7 +6847,7 @@ a.cv-sha:focus-visible {
     backdrop-filter: none;
   }
 }
-:root[data-reduce-transparency] .acpmux-image-viewer {
+:root:is([data-reduce-transparency], [data-glass="off"]) .acpmux-image-viewer {
   background: var(--cmux-surface-solid, var(--agent-page-bg));
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
@@ -7358,7 +7375,7 @@ a.cv-sha:focus-visible {
    stays legible over them (a gradient, not a drop-shadow filter: no elevation, no extra pass). */
 @media not (prefers-reduced-transparency: reduce) {
   @supports not (-webkit-backdrop-filter: none) {
-    :root:not([data-reduce-transparency]) .acpmux-jump-latest.ui-glass-fisheye .acpmux-jump-latest__arrow {
+    :root:not([data-reduce-transparency], [data-glass="off"]) .acpmux-jump-latest.ui-glass-fisheye .acpmux-jump-latest__arrow {
       width: 20px;
       height: 20px;
       border-radius: 50%;
@@ -7596,8 +7613,29 @@ a.cv-sha:focus-visible {
   line-height: 16px;
 }
 .cv-plan__text {
+  display: flex;
+  flex-direction: column;
   min-width: 0;
   overflow-wrap: anywhere;
+}
+/* A step's first line (PlanList.tsx PlanStep): at most two lines in a card, its chips inline; the
+   rest of its words are its detail, muted and smaller, at most two lines more. */
+.cv-plan__title,
+.cv-plan__detail {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+}
+.cv-plan__detail {
+  margin-top: var(--grid-half-step);
+  color: var(--cv-text-muted);
+  font-size: var(--text-caption);
+  line-height: 14px;
+}
+.cv-plan__title .cv-chip {
+  vertical-align: baseline;
 }
 .cv-plan__mark {
   flex: 0 0 auto;
@@ -7607,7 +7645,7 @@ a.cv-sha:focus-visible {
   width: 12px;
   height: 12px;
   border: 1.5px solid var(--cv-text-muted);
-  margin-top: 2px;
+  margin-top: var(--grid-half-step);
   border-radius: 50%;
   box-sizing: border-box;
 }
@@ -8217,6 +8255,9 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
   /* Small-radius rects, not capsules (agent-pane-no-capsules.test.ts). */
   border-radius: var(--ds-radius-control);
   background: color-mix(in srgb, var(--acpmux-needs-you-mark) 16%, transparent);
+  /* The words in the needs-you ink (the mark toward the text), not the raw mark on its own tint: the
+     raw mark was 2.64:1 in light; the dot keeps the mark's hue. */
+  color: var(--acpmux-needs-you-ink);
   line-height: var(--ds-control-icon);
 }
 /* The ringed dot on the 12px glyph step: an 8px dot in the mark's colour inside a 2px ring of it. */
@@ -8511,6 +8552,13 @@ article.acpmux-row--before-indicator .cv-user:is(:not(:has(.cv-user__pending)), 
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
   }
+}
+/* Liquid Glass off (appearance.liquidGlass): the same solid surface, through its veil, so the hover
+   wash above still draws over a solid fill. */
+:where(:root[data-glass="off"]) .cv-selection-reply {
+  --cv-selection-reply-veil: 100%;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 /* A background task's result the person has not seen (ReactionMark.tsx): a 6px accent dot at the
    row's edge, before its check and time, until the next prompt. It never pulses. */

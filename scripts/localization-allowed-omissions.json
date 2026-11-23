@@ -14,6 +14,158 @@
       }
     }
   },
+  "macScreen.readout.codec": {
+    "source": "Codec",
+    "identityLocales": {
+      "da": {
+        "reason": "Codec is the standard technical term in Danish.",
+        "values": [
+          "Codec"
+        ]
+      },
+      "de": {
+        "reason": "Codec is the standard technical term in German.",
+        "values": [
+          "Codec"
+        ]
+      },
+      "fr": {
+        "reason": "Codec is the standard technical term in French.",
+        "values": [
+          "Codec"
+        ]
+      },
+      "it": {
+        "reason": "Codec is the standard technical term in Italian.",
+        "values": [
+          "Codec"
+        ]
+      },
+      "pt-BR": {
+        "reason": "Codec is the standard technical term in Brazilian Portuguese.",
+        "values": [
+          "Codec"
+        ]
+      }
+    }
+  },
+  "macScreen.readout.mode": {
+    "source": "Mode",
+    "identityLocales": {
+      "fr": {
+        "reason": "Mode is the standard French word for a mode.",
+        "values": [
+          "Mode"
+        ]
+      }
+    }
+  },
+  "macScreen.readout.standard": {
+    "source": "Standard",
+    "identityLocales": {
+      "da": {
+        "reason": "Standard is the standard Danish word for the default quality.",
+        "values": [
+          "Standard"
+        ]
+      },
+      "de": {
+        "reason": "Standard is the standard German word for the default quality.",
+        "values": [
+          "Standard"
+        ]
+      },
+      "fr": {
+        "reason": "Standard is the standard French word for the default quality.",
+        "values": [
+          "Standard"
+        ]
+      },
+      "it": {
+        "reason": "Standard is the standard Italian word for the default quality.",
+        "values": [
+          "Standard"
+        ]
+      },
+      "nb": {
+        "reason": "Standard is the standard Norwegian word for the default quality.",
+        "values": [
+          "Standard"
+        ]
+      }
+    }
+  },
+  "macScreen.readout.ultra": {
+    "source": "Ultra",
+    "identityLocales": {
+      "bs": {
+        "reason": "Ultra is the quality profile's name, kept as is in Bosnian, as video tools label it.",
+        "values": [
+          "Ultra"
+        ]
+      },
+      "da": {
+        "reason": "Ultra is the quality profile's name, kept as is in Danish, as video tools label it.",
+        "values": [
+          "Ultra"
+        ]
+      },
+      "de": {
+        "reason": "Ultra is the quality profile's name, kept as is in German, as video tools label it.",
+        "values": [
+          "Ultra"
+        ]
+      },
+      "es": {
+        "reason": "Ultra is the quality profile's name, kept as is in Spanish, as video tools label it.",
+        "values": [
+          "Ultra"
+        ]
+      },
+      "fr": {
+        "reason": "Ultra is the quality profile's name, kept as is in French, as video tools label it.",
+        "values": [
+          "Ultra"
+        ]
+      },
+      "it": {
+        "reason": "Ultra is the quality profile's name, kept as is in Italian, as video tools label it.",
+        "values": [
+          "Ultra"
+        ]
+      },
+      "nb": {
+        "reason": "Ultra is the quality profile's name, kept as is in Norwegian, as video tools label it.",
+        "values": [
+          "Ultra"
+        ]
+      },
+      "pl": {
+        "reason": "Ultra is the quality profile's name, kept as is in Polish, as video tools label it.",
+        "values": [
+          "Ultra"
+        ]
+      },
+      "pt-BR": {
+        "reason": "Ultra is the quality profile's name, kept as is in Brazilian Portuguese, as video tools label it.",
+        "values": [
+          "Ultra"
+        ]
+      },
+      "tr": {
+        "reason": "Ultra is the quality profile's name, kept as is in Turkish, as video tools label it.",
+        "values": [
+          "Ultra"
+        ]
+      },
+      "vi": {
+        "reason": "Ultra is the quality profile's name, kept as is in Vietnamese, as video tools label it.",
+        "values": [
+          "Ultra"
+        ]
+      }
+    }
+  },
   "settings.choice.groupGradientAurora": {
     "source": "Aurora",
     "identityLocales": {
@@ -6911,6 +7063,10 @@
   "devices.platform.linux": {
     "class": "brand",
     "source": "Linux"
+  },
+  "devices.platform.windows": {
+    "class": "brand",
+    "source": "Windows"
   },
   "devices.platform.ios": {
     "class": "brand",

@@ -101,7 +101,7 @@ jobs:
   # unpublished tree waits up to CMUX_TUI_TREE_WAIT_SECONDS, then fails with
   # the publish command; a release never ships another commit's daemon.
   resolve-release-cmux-tui-client:
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     permissions:
       contents: read
     timeout-minutes: 55
@@ -140,7 +140,7 @@ jobs:
   # no other branch's picker code ever holds it; actions: read is the queue janitor's pool snapshot. A failed pick reads as
   # success, and build-sign-notarize then falls back to Blacksmith 6 vCPU.
   pick-sign-runner:
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     environment:
       name: ci-routing-agent
       deployment: false
@@ -542,7 +542,7 @@ jobs:
 
       # cmux-next ships three helpers beside the app, like nightly-next: the OptChat Chief
       # (bin/optchat-chief), the iPhone host (bin/cmux-mobile-host) and the Screen Sharing helper
-      # (Contents/Library/<app> Screen Sharing.app). They build in the background beside the
+      # (Contents/Library/<app> Helper.app). They build in the background beside the
       # Release build with nightly-next's scripts; "Bundle the OptChat Chief, the iPhone host and
       # the Screen Sharing helper" joins them, and sign-cmux-bundle.sh signs and stamps them.
       - name: Start the OptChat Chief, iPhone host and Screen Sharing helper builds
@@ -685,7 +685,7 @@ jobs:
             echo "bin/$helper architectures: $helper_archs"
             [[ "$helper_archs" == *arm64* && "$helper_archs" == *x86_64* ]]
           done
-          screen_helpers=(build-universal/Build/Products/Release/cmux.app/Contents/Library/*" Screen Sharing.app/Contents/MacOS/cmux-screen-sharing")
+          screen_helpers=(build-universal/Build/Products/Release/cmux.app/Contents/Library/*" Helper.app/Contents/MacOS/cmux-screen-sharing")
           [[ -x "${screen_helpers[0]}" ]] || { echo "no Screen Sharing helper in the app" >&2; exit 1; }
           screen_archs="$(lipo -archs "${screen_helpers[0]}")"
           echo "Screen Sharing helper architectures: $screen_archs"

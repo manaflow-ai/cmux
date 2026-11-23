@@ -1550,6 +1550,9 @@ export type AcpmuxSnapshot = {
     unavailable?: string;
     /** `unavailable` is only a failed model probe (a timeout, a rate limit): the harness may run. */
     probeFailed?: boolean;
+    /** acpmux's `_acpmux/harnesses` named no default harness (default_harness.rs): New Tab starts
+     * on no agent until one is picked. */
+    noDefault?: true;
     pickable?: boolean;
     /** The declared launcher or route kind; routers cannot represent a harness family. */
     kind?: string;
@@ -1600,6 +1603,19 @@ export type AcpmuxSnapshot = {
   promptCount?: number;
   /** The oldest event seq the pane holds: it moves with each older read, even one that drew no row. */
   historyFrom?: number;
+  /**
+   * The chat goes on past the rows: a reader scrolled far up holds a window of the chat, whose newest records
+   * are read again as the view nears the rows' end (direct.ts `loadNewer`), or with the newest page when the
+   * reader goes to the latest message (`returnToLatest`). Absent while the rows reach the chat's end.
+   */
+  canLoadNewer?: boolean;
+  /** The newest event seq the pane holds while `canLoadNewer`: it moves with each newer read. */
+  historyThrough?: number;
+  /**
+   * The chat's prompts newer than the rows while `canLoadNewer`, as `earlierPrompts` are for older ones: the
+   * thread rail keeps their ticks after the held ones.
+   */
+  laterPrompts?: PromptHeads;
   /** The agent's slash commands, for the composer's `/` menu. */
   commands?: SlashCommand[];
   /** A harness switch the pane draws ahead of acpmux (harnessSwitch.ts): starting, applying to

@@ -97,6 +97,8 @@ import {
   type AgentHooksState,
   type AgentConfigAnswer,
   type AgentConfigRun,
+  type AllotmentSet,
+  type AllotmentView,
 } from "./ops";
 
 /** One project of Settings > Agents > Worktree Setup: its folder, name and saved recipe. */
@@ -978,6 +980,21 @@ export class SettingsStore {
     if (verb !== "status") await this.request("cmux.settings.customize.run", { verb });
     const reply = await this.request("cmux.settings.customize.run", { verb: "status" });
     return reply.ok ? (reply.value?.try_on ?? null) : null;
+  }
+
+  /** Settings > Team > Compute: the team's Cloud allotment and the scheduler's proposal; null when
+   * the host has no Compute part or the read failed. */
+  async allotment(): Promise<AllotmentView | null> {
+    const reply = await this.request("cmux.settings.cloud.allotment.get", {});
+    return reply.ok ? reply.value : null;
+  }
+
+  /** Settings > Team > Compute, an admin's one click: the view after it, or the host's refusal text. */
+  async setAllotment(run: AllotmentSet): Promise<{ view: AllotmentView | null; error: string | null }> {
+    const reply = await this.request("cmux.settings.cloud.allotment.set", run);
+    return reply.ok
+      ? { view: reply.value, error: null }
+      : { view: null, error: userMessage(reply.error, SETTINGS_SENTENCES) };
   }
 
   /** Settings > Privacy and Security > Shared Links: this Mac's chat shares; null when the host has

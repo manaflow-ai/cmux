@@ -1,0 +1,24 @@
+{
+  "title": "Terminals over glass at Opacity 1",
+  "settings": {"appearance": {"theme": "Soft Blue", "backgroundBlur": "glass", "backgroundOpacity": 1}},
+  "steps": [
+    {"title": "Launch on Glass, Opacity 1", "wait": 4},
+    {"title": "New workspace", "cmux": ["workspace", "new", "--name", "Glass"]},
+    {"title": "Show the Glass workspace", "cmux": ["workspace", "name:Glass", "focus"], "shot": false},
+    {"title": "Glass, dark theme: terminal ANSI colors", "daemon": true,
+     "cmux": ["workspace", "name:Glass", "screen", "current", "pane", "current", "tab", "current",
+              "terminal", "current", "write", "--text",
+              "clear; echo 'terminal over glass at Opacity 1'; for c in 1 2 3 4 5 6 7; do printf '\\033[3%sm color %s \\033[1m bold \\033[0m' $c $c; done; echo\r"],
+     "wait": 3},
+    {"title": "Split right", "cmux": ["action", "run", "splitRight"], "wait": 2},
+    {"title": "Glass, light theme", "cmux": ["settings", "set", "appearance.theme", "Soft Blue Light"], "wait": 3},
+    {"title": "Clear glass, dark theme", "cmux": ["settings", "set", "appearance.backgroundBlur", "glass-clear"], "wait": 1},
+    {"title": "Clear glass, dark theme (shown)", "cmux": ["settings", "set", "appearance.theme", "Soft Blue"], "wait": 3},
+    {"title": "Glass over a picture", "cmux": ["settings", "set", "appearance.background", "hokusai-great-wave"], "wait": 1},
+    {"title": "Glass over a picture (shown)", "cmux": ["settings", "set", "appearance.backgroundBlur", "glass"], "wait": 4},
+    {"title": "Frosted over a picture, Opacity 0.8", "cmux": ["settings", "set", "appearance.backgroundBlur", "frosted"], "wait": 1},
+    {"title": "Frosted, Opacity 0.8 (shown)", "cmux": ["settings", "set", "appearance.backgroundOpacity", "0.8"], "wait": 3},
+    {"title": "Picture off: translucent, Opacity 0.8", "cmux": ["settings", "set", "appearance.backgroundBlur", "none"], "wait": 1},
+    {"title": "Translucent (shown)", "cmux": ["settings", "unset", "appearance.background"], "wait": 3}
+  ]
+}
