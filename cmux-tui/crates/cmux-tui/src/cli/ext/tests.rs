@@ -30,6 +30,7 @@ pub(super) fn dev_options(dir: &Path) -> DevOptions {
         build: None,
         build_timeout: dev::BUILD_TIMEOUT,
         bun: None,
+        every_size: false,
     }
 }
 
@@ -890,6 +891,11 @@ fn parses_shot_as_one_reload_with_an_out_path() {
     assert_eq!(options.dev.dir, PathBuf::from("."));
     assert!(options.dev.once && !options.dev.install, "one reload, no install card");
     assert_eq!(options.out, None);
+    assert!(!options.record);
+    assert!(!options.dev.every_size, "a plain shot probes one size");
+    let Ok(Request::Shot(options)) = parse(&words("shot --record")) else { panic!("--record") };
+    assert!(options.record);
+    assert!(options.dev.every_size, "--record records each declared widget size");
     let Ok(Request::Shot(options)) = parse(&words("shot ext/x --out a.png --build make")) else {
         panic!("shot with options")
     };
@@ -897,6 +903,13 @@ fn parses_shot_as_one_reload_with_an_out_path() {
     assert_eq!(options.out, Some(PathBuf::from("a.png")));
     assert_eq!(options.dev.build.as_deref(), Some("make"));
     assert_eq!(parse(&words("shot --help")), Ok(Request::Help));
+    assert_eq!(
+        parse(&words("design --listing ext/x")),
+        Ok(Request::DesignListing { dir: PathBuf::from("ext/x") })
+    );
+    for bad in ["design --listing", "design --listing x a.json", "design --listing x --widget"] {
+        assert!(parse(&words(bad)).is_err(), "{bad}");
+    }
     for bad in [
         "shot --out",
         "shot --out -",
@@ -1009,15 +1022,35 @@ fn shot_outlines_what_rendered_and_takes_no_picture_of_a_preview() {
     assert_eq!(outcome.to_json(&dir)["scene"][1], "  Text text=\"Hello from hello\" font=headline");
     // Not installed: it rendered as a preview, which no window shows.
     assert!(!shot::shown(&outcome));
-    let (text, code) = shot::report(&outcome, &dir, None, false);
+    let (text, code) = shot::report(&outcome, &dir, None, None, false);
     assert_eq!(code, exit::SHOT_FAILED);
     assert!(text.contains("rendered cmux.section/1:\n  VStack\n    Text"), "{text}");
     assert!(text.contains("no picture: cmux apps install local/pic"), "{text}");
-    let (json_text, _) = shot::report(&outcome, &dir, None, true);
+    let (json_text, _) = shot::report(&outcome, &dir, None, None, true);
     let json: Value = serde_json::from_str(&json_text).unwrap();
     assert_eq!((json["ok"].clone(), json["phase"].clone()), (json!(false), json!("shot")));
     assert_eq!(json["exitCode"], exit::SHOT_FAILED);
     assert!(json["shot"]["error"].as_str().unwrap().starts_with("no picture"));
+    // `ext shot --json` carries the design check, as `ext dev --once --json` does: the
+    // skill's loop reads it there (`hello_scene` is clean, so an empty list, not a missing key).
+    assert_eq!(json["design"], outcome.to_json(&dir)["design"]);
+    assert_eq!(json["design"], json!([]));
+
+    // `--record`: the scene goes into preview/scenes.json by name, beside the file's others.
+    std::fs::create_dir_all(dir.join("preview")).unwrap();
+    std::fs::write(dir.join("preview/scenes.json"), r#"{"cmux.pane/1":{"ops":[]}}"#).unwrap();
+    let recorded = shot::record(&dir, &outcome);
+    assert_eq!(recorded, Ok(dir.join("preview/scenes.json")));
+    let file: Value =
+        serde_json::from_str(&std::fs::read_to_string(dir.join("preview/scenes.json")).unwrap())
+            .unwrap();
+    assert_eq!(file["cmux.section/1"]["ops"], hello_scene());
+    assert_eq!(file["cmux.pane/1"]["ops"], json!([]));
+    let (text, _) = shot::report(&outcome, &dir, None, Some(&recorded), false);
+    assert!(text.contains("recorded the scene in"), "{text}");
+    let (json_text, _) = shot::report(&outcome, &dir, None, Some(&recorded), true);
+    let json: Value = serde_json::from_str(&json_text).unwrap();
+    assert_eq!(json["recorded"], json!(dir.join("preview/scenes.json")));
 
     // Installed and shown: the picture is reported with where the extension is.
     let fake = FakeDaemon::start(&local, "local/pic", true);
@@ -1025,13 +1058,13 @@ fn shot_outlines_what_rendered_and_takes_no_picture_of_a_preview() {
     assert!(shot::shown(&outcome), "{:?}", outcome.placed);
     let picture =
         Ok(shot::Picture { path: "/tmp/p.png".into(), width: Some(10), height: Some(20) });
-    let (text, code) = shot::report(&outcome, &dir, Some(&picture), false);
+    let (text, code) = shot::report(&outcome, &dir, Some(&picture), None, false);
     assert_eq!(code, exit::OK);
     assert!(
         text.ends_with("picture of the window (10x20): /tmp/p.png; the extension is in the sidebar, bottom region"),
         "{text}"
     );
-    let (json_text, _) = shot::report(&outcome, &dir, Some(&picture), true);
+    let (json_text, _) = shot::report(&outcome, &dir, Some(&picture), None, true);
     let json: Value = serde_json::from_str(&json_text).unwrap();
     assert_eq!((json["ok"].clone(), json["phase"].clone()), (json!(true), json!("done")));
     assert_eq!(json["shot"]["path"], "/tmp/p.png");
@@ -1039,8 +1072,105 @@ fn shot_outlines_what_rendered_and_takes_no_picture_of_a_preview() {
     // A failed load is reported as ext dev reports it: its own exit code, no picture.
     std::fs::write(dir.join("dist/main.js"), "// THROW_AT_INIT\n").unwrap();
     let broken = dev::once(&global(&fake.socket), &dev_options(&dir), false);
-    let (_, code) = shot::report(&broken, &dir, None, false);
+    let (_, code) = shot::report(&broken, &dir, None, None, false);
     assert_eq!(code, exit::LOAD_FAILED);
+}
+
+/// `ext shot --record` that cannot write `preview/scenes.json` says why and exits
+/// RECORD_FAILED, even with a picture taken: a script must not go on with stale scenes.
+#[test]
+fn a_record_that_cannot_be_written_fails_the_shot() {
+    let root = tempfile::tempdir().unwrap();
+    let dir = new_extension(root.path(), "unwritable");
+    let local = root.path().join("state/apps/local");
+    let fake = FakeDaemon::start(&local, "local/unwritable", true);
+    let outcome = dev::once(&global(&fake.socket), &dev_options(&dir), false);
+    assert_eq!(outcome.phase, Phase::Done, "{:?}", outcome.errors);
+    // `preview` is a file, so the folder for scenes.json cannot be made.
+    std::fs::write(dir.join("preview"), "not a folder").unwrap();
+    let recorded = shot::record(&dir, &outcome);
+    let error = recorded.clone().unwrap_err();
+    assert!(error.starts_with("cannot create"), "{error}");
+    let picture =
+        Ok(shot::Picture { path: "/tmp/p.png".into(), width: Some(10), height: Some(20) });
+    let (text, code) = shot::report(&outcome, &dir, Some(&picture), Some(&recorded), false);
+    assert_eq!(code, exit::RECORD_FAILED);
+    assert!(text.contains("not recorded: cannot create"), "{text}");
+    let (json_text, code) = shot::report(&outcome, &dir, Some(&picture), Some(&recorded), true);
+    assert_eq!(code, exit::RECORD_FAILED);
+    let json: Value = serde_json::from_str(&json_text).unwrap();
+    assert_eq!((json["ok"].clone(), json["phase"].clone()), (json!(false), json!("record")));
+    assert_eq!(json["exitCode"], exit::RECORD_FAILED);
+    assert!(json["recorded"]["error"].as_str().unwrap().starts_with("cannot create"));
+    // Nothing drawn to record is a failed record too, not a quiet success.
+    let mut nothing = outcome.clone();
+    nothing.recorded.clear();
+    let recorded = shot::record(&dir, &nothing);
+    assert!(recorded.as_ref().unwrap_err().starts_with("nothing to record"), "{recorded:?}");
+    let (_, code) = shot::report(&nothing, &dir, Some(&picture), Some(&recorded), false);
+    assert_eq!(code, exit::RECORD_FAILED);
+}
+
+/// `ext shot --record` of a widget probes and records each size its manifest declares (and
+/// only those a person can place); a plain reload probes one.
+#[test]
+fn recording_a_widget_records_each_declared_size() {
+    let root = tempfile::tempdir().unwrap();
+    let dir = root.path().join("tile");
+    scaffold::scaffold(&dir, "tile", "widget").unwrap();
+    let path = dir.join("cmux-app.json");
+    let mut manifest: Value =
+        serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    manifest["implements"]["cmux.widget/1"]["options"] =
+        json!({ "sizes": ["small", "medium", "large"] });
+    std::fs::write(&path, serde_json::to_string_pretty(&manifest).unwrap()).unwrap();
+    let local = root.path().join("state/apps/local");
+    let fake = FakeDaemon::start(&local, "local/tile", false);
+    let mounted = |fake: &FakeDaemon| -> Vec<Value> {
+        fake.requests
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|r| r["cmd"] == "apps-mount")
+            .map(|r| r["context"]["size"].clone())
+            .collect()
+    };
+
+    let one = dev::once(&global(&fake.socket), &dev_options(&dir), false);
+    assert_eq!(one.phase, Phase::Done, "{:?}", one.errors);
+    let names: Vec<&str> = one.recorded.iter().map(|(n, _)| n.as_str()).collect();
+    assert_eq!(names.len(), 1, "{names:?}");
+    assert_eq!(mounted(&fake).len(), 1);
+
+    let mut options = dev_options(&dir);
+    options.every_size = true;
+    let every = dev::once(&global(&fake.socket), &options, false);
+    assert_eq!(every.phase, Phase::Done, "{:?}", every.errors);
+    let mut names: Vec<&str> = every.recorded.iter().map(|(n, _)| n.as_str()).collect();
+    names.sort();
+    assert_eq!(names, ["cmux.widget/1 large", "cmux.widget/1 medium", "cmux.widget/1 small"]);
+    let mut sizes: Vec<String> =
+        mounted(&fake).iter().skip(1).map(|size| size.as_str().unwrap_or("").to_string()).collect();
+    sizes.sort();
+    assert_eq!(sizes, ["large", "medium", "small"], "each size mounted once");
+
+    let recorded = shot::record(&dir, &every);
+    assert_eq!(recorded, Ok(dir.join("preview/scenes.json")));
+    let file: Value =
+        serde_json::from_str(&std::fs::read_to_string(dir.join("preview/scenes.json")).unwrap())
+            .unwrap();
+    for size in ["small", "medium", "large"] {
+        assert!(file[format!("cmux.widget/1 {size}")]["ops"].is_array(), "{size}: {file}");
+    }
+    let (text, code) = shot::report(&every, &dir, None, Some(&recorded), false);
+    assert_eq!(code, exit::SHOT_FAILED, "a preview has no picture: {text}");
+    assert!(text.contains("recorded 3 scenes ("), "{text}");
+
+    // A sidebar-only widget cannot be large: that size is not probed.
+    manifest["implements"]["cmux.widget/1"]["options"]["places"] = json!(["sidebar"]);
+    let sizes: Vec<String> =
+        dev::widget_sizes(&manifest).into_iter().map(|(size, _)| size).collect();
+    assert_eq!(sizes, ["small", "medium"]);
 }
 
 // --- ext add / share / search ---------------------------------------------------------------

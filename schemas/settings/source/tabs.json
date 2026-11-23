@@ -676,6 +676,58 @@
           ]
         },
         {
+          "key": "tabs.shellIconTheme",
+          "note": "The icon a shell tab (a terminal running its shell, no agent, no icon of its own) draws in its leading slot (Leo 2026-10-21: \"AND WHERE THE F*** ARE THE ICONS FOR THE F***ING MACHINES\"). default: the >_ kind glyph. machine: the icon of the machine the shell runs on, this Mac's included, so no tab sticks out: its icon in the home session registry (set-session-icon), else its device's SF Symbol, else a Cloud machine's cloud. Off by default: the leading slot stays the kind glyph until the person picks Machines.",
+          "title": {
+            "key": "settings.tabs.shellIconTheme",
+            "text": "Shell Tab Icons"
+          },
+          "help": {
+            "key": "settings.tabs.shellIconTheme.help",
+            "text": "Machines shows each shell tab with the icon of the machine it runs on."
+          },
+          "kind": "choice",
+          "swift_owner": "TabShellIconThemeSetting",
+          "swift_enum": {
+            "name": "TabShellIconTheme",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "choices": [
+            {
+              "value": "default",
+              "title": {
+                "key": "settings.choice.default",
+                "text": "Default"
+              },
+              "note": "The >_ kind glyph."
+            },
+            {
+              "value": "machine",
+              "title": {
+                "key": "settings.choice.tabShellIconThemeMachine",
+                "text": "Machines"
+              },
+              "note": "The machine's icon."
+            }
+          ],
+          "default": "default",
+          "keywords": [
+            "tab",
+            "tabs",
+            "icon",
+            "icons",
+            "shell",
+            "terminal",
+            "machine",
+            "machines",
+            "theme",
+            "ssh",
+            "cloud",
+            "remote"
+          ]
+        },
+        {
           "key": "appearance.metrics.tabMaxWidth",
           "note": "Unset is the density's value; the placeholder is the compact density's.",
           "title": {

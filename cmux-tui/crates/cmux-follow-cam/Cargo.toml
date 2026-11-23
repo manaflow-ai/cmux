@@ -5,11 +5,12 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "Follow camera for screen sharing: picks the focus (caret, pointer, focused window, damage) and moves a portrait crop over a landscape screen. Pure: no I/O, no clock, no UI."
+description = "Follow camera for screen sharing: picks the focus (caret, pointer, focused window, damage) and moves a portrait crop over a landscape screen. The library is pure (no I/O, no clock, no UI); the cmux-follow-cut bin cuts a recording by it through ffmpeg."
 
 [lints]
 workspace = true
 
 [dependencies]
+cmux-process = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
