@@ -47,7 +47,8 @@ pub(crate) struct HomeWindowRead {
     pub rows: Vec<(usize, HomeRow)>,
     /// The whole list's order.
     pub order: Arc<HomeOrder>,
-    /// Whether the order was read from the store (false: the kept one).
+    /// Whether the order was read from the store (false: the kept one). Read by the tests only.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub ordered_now: bool,
 }
 
