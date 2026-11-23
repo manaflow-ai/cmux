@@ -651,7 +651,14 @@ impl ControlHook for MeshControlHook {
             // A read changes nothing, so it needs no ledger: a repeat runs again and answers
             // the session as it is then.
             if op == "read" {
-                return Some(read::answer(hub, message).await);
+                // A rename through the hub is a change: only a sender trusted with a lifecycle op
+                // here may make one (`read::WRITE_METHODS`), never one granted `read` alone.
+                let writes = ["start", "resume", "stop"].iter().any(|op| {
+                    self.allowed
+                        .iter()
+                        .any(|entry| entry.allows(&message.from, own_user.as_deref(), op))
+                });
+                return Some(read::answer(hub, message, writes).await);
             }
             // The ledger keys a result by its sender: the stamped daemon, else the stamped person.
             let sender = match message.from.daemon_id.as_deref().filter(|id| !id.is_empty()) {

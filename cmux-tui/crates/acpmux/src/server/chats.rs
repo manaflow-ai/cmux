@@ -65,6 +65,7 @@ mod offers;
 mod search;
 mod stats;
 mod team_audit;
+pub(crate) use team_audit::usage_upload_loop;
 mod workspace_purge;
 
 use crate::no_panic::JsonExt;

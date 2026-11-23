@@ -482,6 +482,12 @@ pub mod method {
     /// and writes them itself (`claude_inbox_relay.rs`). Local unix socket only.
     pub const MUX_INBOX_RELAY: &str = "_acpmux/inbox_relay";
     pub const MUX_KILL: &str = "_acpmux/kill";
+    /// Hibernate an idle session now: its harness exits, its conversation stays resumable
+    /// (`hub/pause.rs`): `{sessionId}`.
+    pub const MUX_PAUSE: &str = "_acpmux/pause";
+    /// Start a hibernated session's agent now, on its conversation (`hub/pause.rs`):
+    /// `{sessionId}`.
+    pub const MUX_WAKE: &str = "_acpmux/wake";
     pub const MUX_KEEP: &str = "_acpmux/keep";
     pub const MUX_WATCH_TAKE_OVER: &str = "_acpmux/watch_take_over";
     /// A chat hands its Claude Code or Codex conversation to a terminal: once idle, its harness
