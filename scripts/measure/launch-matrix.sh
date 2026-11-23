@@ -5,6 +5,7 @@
 #     [--settle S] [--out DIR] [--profile auto|chromium|home|none] [--state-dir DIR] [--source DMG|ZIP|URL]
 #   scripts/measure/launch-matrix.sh --app PATH --phase before|after [--out DIR]      (the reboot pair)
 #   scripts/measure/launch-matrix.sh --app PATH --growth MINUTES [--out DIR]          (1 h / 8 h idle growth; nohup it)
+#   scripts/measure/launch-matrix.sh --app PATH --seed N --state-dir DIR [--out DIR]   (make large-session's state)
 # --app nightly: the cmux NEXT NIGHTLY the feed offers now (launch-fresh-install.sh's appcast), copied out of its DMG.
 # Per launch the probe (launch-matrix.swift, built here with swiftc) prints LM-RUN; this adds app, scenario, rep, the
 # 1-minute load and the arm's own fields, appends it to OUT/runs.jsonl, and at the end launch-matrix-summary.py prints
@@ -27,7 +28,13 @@
 #   update        a new unquarantined copy of the bundle put over the old path (what an in-place updater leaves),
 #                 its first launch with the app's state kept (the template profile)
 #   large-session launch with the pre-seeded heavy state --state-dir supplies (the caller seeds it: for cmux NEXT,
-#                 launch-ready.sh's session=stress3 workspaces=120), cloned per launch, 3 s after the last quit
+#                 launch-ready.sh's session=stress3 workspaces=120), cloned per launch, 3 s after the last quit;
+#                 a Chromium browser is launched with --restore-last-session, so it reopens the seeded tabs
+# --seed N --state-dir DIR: makes that state. home (cmux NEXT): the app opened on an empty profile and
+# launch-ready-seed.py run on its socket for 3 windows and N workspaces in all (it quits with Keep Sessions).
+# chromium: N local pages written under DIR/pages (no outside site), the app opened on an empty profile with them
+# as N tabs, quit after 20 s, so the profile's last session holds N tabs. none (Safari): refused, it has no profile
+# of its own to seed.
 # first-install and update refuse an app on the sealed system volume (Safari): it has no copy to make.
 # Isolation per launch (--profile, auto by default): chromium (Chrome, Edge, Helium and Electron apps:
 # --user-data-dir and xbench.py's flags), home (cmux NEXT: an empty HOME with its own login keychain, as
@@ -49,12 +56,12 @@ source "$LM_DIR/launch-fresh-install.sh"
 
 lm_main() {
   cd "$LM_DIR/../.." || exit 3
-  local app="" name="" scenarios="warm,cold-quit" reps=3 settle=30 out="" profile=auto state_dir="" source_file="" phase="" growth=""
+  local app="" name="" scenarios="warm,cold-quit" reps=3 settle=30 out="" profile=auto state_dir="" source_file="" phase="" growth="" seed=""
   # cmux-ci passes a step's arguments as key=value (the bench's --arg): the same as --key value.
   local -a flags=()
   for a in "$@"; do
     case "$a" in
-      app=*|name=*|scenario=*|reps=*|settle=*|out=*|profile=*|state-dir=*|source=*|phase=*|growth=*) flags+=("--${a%%=*}" "${a#*=}") ;;
+      app=*|name=*|scenario=*|reps=*|settle=*|out=*|profile=*|state-dir=*|source=*|phase=*|growth=*|seed=*) flags+=("--${a%%=*}" "${a#*=}") ;;
       *) flags+=("$a") ;;
     esac
   done
@@ -72,6 +79,7 @@ lm_main() {
       --source) source_file="$2"; shift 2 ;;
       --phase) phase="$2"; shift 2 ;;
       --growth) growth="$2"; shift 2 ;;
+      --seed) seed="$2"; shift 2 ;;
       *) echo "unknown argument: $1" >&2; exit 2 ;;
     esac
   done
@@ -82,6 +90,7 @@ lm_main() {
     || { echo "--scenario takes warm,cold-quit,evicted,first-install,update,large-session" >&2; exit 2; }
   [[ -z "$phase" || "$phase" == before || "$phase" == after ]] || { echo "--phase takes before or after" >&2; exit 2; }
   [[ -z "$growth" || "$growth" =~ ^[1-9][0-9]*$ ]] || { echo "--growth takes minutes" >&2; exit 2; }
+  [[ -z "$seed" || ( "$seed" =~ ^[1-9][0-9]*$ && -n "$state_dir" ) ]] || { echo "--seed takes a count and needs --state-dir" >&2; exit 2; }
   [[ "$profile" =~ ^(auto|chromium|home|none)$ ]] || { echo "--profile takes auto, chromium, home, none" >&2; exit 2; }
   if [[ "$app" == nightly ]]; then
     name="${name:-cmux-next-nightly}"
@@ -118,6 +127,7 @@ lm_main() {
   fi
   prime || exit 3
   if [[ "$phase" == before ]]; then phase_before; return $?; fi
+  if [[ -n "$seed" ]]; then seed_state "$state_dir" "$seed"; return $?; fi
 
   trap 'sweep_prompts Cancel exit; marker_remove' EXIT
   local list scenario rep rc=0; IFS=, read -r -a list <<<"$scenarios"
@@ -152,7 +162,7 @@ profile_kind() {
 # profile_args DIR: the probe's env=/-- arguments that put the app's state in DIR.
 profile_args() {
   case "$KIND" in
-    chromium) echo "-- --user-data-dir=$1/data --no-first-run --no-default-browser-check --password-store=basic --use-mock-keychain" ;;
+    chromium) echo "-- --user-data-dir=$1/data --no-first-run --no-default-browser-check --password-store=basic --use-mock-keychain${RESTORE:+ --restore-last-session}${EXTRA_ARGS:+ $EXTRA_ARGS}" ;;
     home) echo "env=HOME=$1/h env=CFFIXED_USER_HOME=$1/h env=TMPDIR=$1/t/ env=CMUX_NEXT_SOCKET_PATH=/tmp/cmux-lm-$(id -u).sock env=CMUX_NEXT_SOCKET_MODE=allowAll" ;;
     none) echo "" ;;
   esac
@@ -231,7 +241,7 @@ import json, sys
 r = json.loads(sys.argv[3]); r.update(json.loads(sys.argv[4] or "{}"))
 r.update(app_name=sys.argv[5], scenario=sys.argv[1], rep=int(sys.argv[2]), load=float(sys.argv[6]), profile=sys.argv[7])
 others = [int(p) for p in sys.argv[8].split()]
-if others:  # a copy of the app this run did not start was up (Safari's own, on a shared Mac): the row says so
+if others:  # a copy of the app this run did not start was up (on a shared Mac, Safari): the row says so
     r["other_instance_pids"] = others
 print(json.dumps(r, sort_keys=True))' "$1" "$2" "$3" "${4:-{\}}" "$NAME" "$(load1)" "$KIND" "${LM_OTHERS:-}")"
   echo "LM-RUN $json"
@@ -240,7 +250,7 @@ print(json.dumps(r, sort_keys=True))' "$1" "$2" "$3" "${4:-{\}}" "$NAME" "$(load
 
 # arm SCENARIO REP STATE_DIR SOURCE: one measured launch of the arm.
 arm() {
-  local scenario="$1" rep="$2" state="$3" src="$4" tag="$1-$2" dir extra="{}" target="$APP" json
+  local scenario="$1" rep="$2" state="$3" src="$4" tag="$1-$2" dir extra="{}" target="$APP" json RESTORE=""
   case "$scenario" in
     warm|cold-quit|evicted)
       # A relaunch: one profile per scenario that every rep reopens, as a person's app reopens its own state. A fresh
@@ -254,7 +264,8 @@ arm() {
         evicted) sleep 60; extra="$(evict "$APP")" ;;
       esac ;;
     large-session)
-      dir="$OUT/profiles/$tag"; rm -rf "$dir"; cp -cR "$state" "$dir" 2>/dev/null || cp -R "$state" "$dir"; sleep 3 ;;
+      dir="$OUT/profiles/$tag"; rm -rf "$dir"; cp -cR "$state" "$dir" 2>/dev/null || cp -R "$state" "$dir"; sleep 3
+      [[ "$KIND" == chromium ]] && RESTORE=1 ;;
     update)
       # Our own copy at a fixed path (never the installed bundle): launched once as the old copy, then each rep a new
       # unquarantined copy put over that path.
@@ -341,6 +352,36 @@ install_copy() {
 }
 
 boot_time() { sysctl -n kern.boottime | sed -n 's/.*sec = \([0-9]*\),.*/\1/p'; }
+
+# seed_state DIR N: large-session's state (the header's --seed). Prints LM-SEED.
+seed_state() {
+  local dir="$1" n="$2"
+  [[ "$KIND" == none ]] && { echo "LM-SEED {\"error\": \"profile none: no profile of its own to seed\"}"; return 3; }
+  [[ -e "$dir" ]] && { echo "LM-SEED {\"error\": \"$dir exists; seed a new dir\"}"; return 3; }
+  new_profile "$dir"
+  if [[ "$KIND" == chromium ]]; then
+    local i urls=""
+    mkdir -p "$dir/pages"
+    for ((i = 1; i <= n; i++)); do
+      printf '<!doctype html><title>Page %d</title><h1>Page %d</h1><p>%s</p>\n' "$i" "$i" "$(printf 'local text %.0s' {1..200})" >"$dir/pages/$i.html"
+      urls+=" file://$dir/pages/$i.html"
+    done
+    EXTRA_ARGS="${urls# }" launch seed "$APP" "$dir" 20 >"$OUT/seed.json"; gone "$APP"
+    local tabs; tabs="$(ls "$dir/data/Default/Sessions" 2>/dev/null | wc -l | tr -d ' ')"
+    echo "LM-SEED {\"kind\": \"chromium\", \"tabs\": $n, \"session_files\": $tabs, \"run\": $(cat "$OUT/seed.json")}"
+    [[ "$tabs" -gt 0 ]]
+  else
+    local sock="/tmp/cmux-lm-$(id -u).sock" rc i
+    rm -f "$sock"  # this harness's own socket path, left by an earlier run of ours
+    launch seed "$APP" "$dir" 600 >"$OUT/seed.json" &
+    local held=$!
+    for ((i = 0; i < 600; i++)); do [[ -S "$sock" ]] && break; sleep 0.1; done
+    python3 -I "$LM_DIR/launch-ready-seed.py" "$sock" --windows 3 --total-workspaces "$n" | tee "$OUT/seed.log"; rc=${PIPESTATUS[0]}
+    wait "$held"; gone "$APP"
+    echo "LM-SEED {\"kind\": \"home\", \"workspaces\": $n, \"rc\": $rc}"
+    return "$rc"
+  fi
+}
 
 phase_before() {
   local json; json="$(launch before "$APP" "$(clone_profile before)" 2)"
