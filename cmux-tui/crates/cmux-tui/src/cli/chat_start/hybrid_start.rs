@@ -498,6 +498,37 @@ fn watch_turns(session: String, socket: Option<PathBuf>, send: mpsc::Sender<Msg>
     }
 }
 
+/// The tool event a `session/update` is, with `open` the tool calls still running: a new
+/// `tool_call` starts one, a `tool_call_update` that is `completed` or `failed` ends it. A call
+/// seen twice, or an end of one never seen, is no event.
+pub(super) fn tool_event(
+    update: &Value,
+    open: &mut std::collections::BTreeSet<String>,
+) -> Option<Event> {
+    let update = update.get("update").unwrap_or(update);
+    let id = update.get("toolCallId").and_then(Value::as_str)?;
+    let status = update.get("status").and_then(Value::as_str);
+    let ended = matches!(status, Some("completed" | "failed"));
+    match update.get("sessionUpdate").and_then(Value::as_str)? {
+        "tool_call" if ended => None,
+        "tool_call" => open.insert(id.to_owned()).then_some(Event::ToolStarted),
+        "tool_call_update" if ended => open.remove(id).then_some(Event::ToolEnded),
+        _ => None,
+    }
+}
+
+/// Feeds the chat's tool calls to the driver until its deadline, so a long turn can move at a tool
+/// boundary. A failed follow feeds none: the move waits for the turn's end, as before.
+fn watch_tools(session: String, socket: Option<PathBuf>, send: mpsc::Sender<Msg>, until: Instant) {
+    let mut open = std::collections::BTreeSet::new();
+    let followed = chat::acp::follow_updates(&session, socket.as_deref(), until, |update| {
+        tool_event(update, &mut open).is_none_or(|event| send.send(Msg::Event(event)).is_ok())
+    });
+    if let Err(error) = followed {
+        println!("{}", json!({"log": format!("no tool events: {error}")}));
+    }
+}
+
 impl Live {
     fn new(global: &GlobalArgs, session: &str, target: &str) -> Self {
         let (send, events) = mpsc::channel();
@@ -505,10 +536,12 @@ impl Live {
         let socket = chat::app_acpmux(global);
         let watcher = send.clone();
         let watched = session.to_owned();
+        let (tools, tooled, tool_socket) = (send.clone(), session.to_owned(), socket.clone());
+        let deadline = began + DRIVE_DEADLINE;
         let spawned = std::thread::Builder::new()
             .name("hybrid-start-turns".into())
             .spawn(move || watch_turns(watched, socket, watcher));
-        let threads = match spawned {
+        let mut threads = match spawned {
             Ok(thread) => vec![thread],
             // No turn events: the chat is taken as closed, so nothing moves it.
             Err(_) => {
@@ -516,13 +549,17 @@ impl Live {
                 Vec::new()
             }
         };
+        let followed = std::thread::Builder::new()
+            .name("hybrid-start-tools".into())
+            .spawn(move || watch_tools(tooled, tool_socket, tools, deadline));
+        threads.extend(followed.ok());
         Self {
             global: global.clone(),
             session: session.to_owned(),
             target: target.to_owned(),
             machine: (target != "new").then(|| target.to_owned()),
             began,
-            deadline: began + DRIVE_DEADLINE,
+            deadline,
             send,
             events,
             threads,

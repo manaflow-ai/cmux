@@ -246,3 +246,32 @@ fn a_cached_plan_decides_the_start_only_while_it_grants_it_and_is_fresh() {
     assert_eq!(cached_plan(&cache("pro", now + 1000), now), None);
     assert_eq!(cached_plan(&json!({"plan": "pro"}), now), None);
 }
+
+#[test]
+fn a_session_update_is_a_tool_start_or_end_once_per_call() {
+    let mut open = std::collections::BTreeSet::new();
+    let call = |kind: &str, id: &str, status: &str| json!({"sessionId": "s", "update": {"sessionUpdate": kind, "toolCallId": id, "status": status}});
+    assert_eq!(tool_event(&call("tool_call", "a", "pending"), &mut open), Some(Event::ToolStarted));
+    assert_eq!(tool_event(&call("tool_call", "a", "in_progress"), &mut open), None);
+    assert_eq!(tool_event(&call("tool_call_update", "a", "in_progress"), &mut open), None);
+    assert_eq!(tool_event(&call("tool_call_update", "b", "completed"), &mut open), None);
+    assert_eq!(
+        tool_event(&call("tool_call_update", "a", "completed"), &mut open),
+        Some(Event::ToolEnded)
+    );
+    assert_eq!(tool_event(&call("tool_call_update", "a", "failed"), &mut open), None);
+    let text = json!({"update": {"sessionUpdate": "agent_message_chunk"}});
+    assert_eq!(tool_event(&text, &mut open), None);
+}
+
+#[test]
+fn a_long_first_turn_moves_at_its_next_tool_boundary_once_the_machine_is_ready() {
+    let mut driver = fake(vec![Event::ToolStarted, Event::MachineReady, Event::ToolEnded]);
+    let state = drive(&mut driver);
+    assert_eq!((state.home, state.cloud), (Home::Cloud, Cloud::Live));
+    // Not under the tool: the move runs only after it ended.
+    assert_eq!(
+        driver.did,
+        ["create", "show booting", "show ready", "show moving", "move", "show live"]
+    );
+}
