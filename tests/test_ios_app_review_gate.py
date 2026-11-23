@@ -1054,6 +1054,16 @@ class RealTreeTests(unittest.TestCase):
                              ("-scheme CmuxMobileApp ", workflow)):
             self.assertTrue(needle in text, needle)
 
+    def test_the_walk_builds_for_the_shipped_device_families(self) -> None:
+        # Debug targets iPad too (the foldable harness, #51016); built as-is, the iPad leg ran the app
+        # natively at iPad width, not in the compatibility mode App Review sees, and every
+        # reviewer-path test failed "the shell must show" (gate run 45130666033).
+        workflow = (ROOT / ".github/workflows/ios-review-gate.yml").read_text()
+        build = workflow[workflow.index("- name: Build the app and the gate for testing"):]
+        build = build[:build.index("build-for-testing")]
+        self.assertIn("app_review_gate.py families --source-root ..)", build)
+        self.assertIn('TARGETED_DEVICE_FAMILY="$shipped_families"', build)
+
     def test_every_known_blocker_names_something_that_still_exists(self) -> None:
         # A renamed or deleted test would leave a pin nothing can match.
         known = json.loads((ROOT / gate.KNOWN_BLOCKERS_FILE).read_text())
