@@ -52,6 +52,8 @@ extension SettingsSchema {
         "app.hideDockIconWithoutWindows",
         // The menu bar item; looks only, ends no work.
         "app.showMenuBarIcon",
+        // Cmd-Q's warning against an accidental quit; a quit keeps every session either way.
+        "app.warnBeforeQuitShortcut",
         // The language cmux's own text is in; ends no work.
         "app.language",
         "tabs.overflow", "tabs.shellIconTheme",
