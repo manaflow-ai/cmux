@@ -1,6 +1,28 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "composer.slashHelp": {"comment":"Composer slash menu: description of cmux's /help command, which opens a searchable sheet of commands, skills and keys.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"عرض كل الأوامر والمهارات والمفاتيح"}},"bs":{"stringUnit":{"state":"needs_review","value":"Prikaži sve naredbe, vještine i tipke"}},"da":{"stringUnit":{"state":"needs_review","value":"Vis alle kommandoer, færdigheder og taster"}},"de":{"stringUnit":{"state":"needs_review","value":"Alle Befehle, Skills und Tasten anzeigen"}},"en":{"stringUnit":{"state":"translated","value":"Show every command, skill and key"}},"es":{"stringUnit":{"state":"needs_review","value":"Ver todos los comandos, skills y teclas"}},"fr":{"stringUnit":{"state":"needs_review","value":"Afficher toutes les commandes, compétences et touches"}},"it":{"stringUnit":{"state":"needs_review","value":"Mostra tutti i comandi, le skill e i tasti"}},"ja":{"stringUnit":{"state":"needs_review","value":"すべてのコマンド、スキル、キーを表示"}},"km":{"stringUnit":{"state":"needs_review","value":"បង្ហាញពាក្យបញ្ជា ជំនាញ និងគ្រាប់ចុចទាំងអស់"}},"ko":{"stringUnit":{"state":"needs_review","value":"모든 명령, 스킬, 키 보기"}},"nb":{"stringUnit":{"state":"needs_review","value":"Vis alle kommandoer, ferdigheter og taster"}},"pl":{"stringUnit":{"state":"needs_review","value":"Pokaż wszystkie polecenia, umiejętności i klawisze"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Ver todos os comandos, skills e teclas"}},"ru":{"stringUnit":{"state":"needs_review","value":"Показать все команды, навыки и клавиши"}},"th":{"stringUnit":{"state":"needs_review","value":"แสดงคำสั่ง สกิล และปุ่มทั้งหมด"}},"tr":{"stringUnit":{"state":"needs_review","value":"Tüm komutları, becerileri ve tuşları göster"}},"uk":{"stringUnit":{"state":"needs_review","value":"Показати всі команди, навички й клавіші"}},"vi":{"stringUnit":{"state":"needs_review","value":"Hiện mọi lệnh, kỹ năng và phím"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"显示所有命令、技能和按键"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"顯示所有指令、技能與按鍵"}}}},
+    "help.title": {"comment":"/help sheet: the list's accessible name.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"مساعدة"}},"bs":{"stringUnit":{"state":"needs_review","value":"Pomoć"}},"da":{"stringUnit":{"state":"needs_review","value":"Hjælp"}},"de":{"stringUnit":{"state":"needs_review","value":"Hilfe"}},"en":{"stringUnit":{"state":"translated","value":"Help"}},"es":{"stringUnit":{"state":"needs_review","value":"Ayuda"}},"fr":{"stringUnit":{"state":"needs_review","value":"Aide"}},"it":{"stringUnit":{"state":"needs_review","value":"Aiuto"}},"ja":{"stringUnit":{"state":"needs_review","value":"ヘルプ"}},"km":{"stringUnit":{"state":"needs_review","value":"ជំនួយ"}},"ko":{"stringUnit":{"state":"needs_review","value":"도움말"}},"nb":{"stringUnit":{"state":"needs_review","value":"Hjelp"}},"pl":{"stringUnit":{"state":"needs_review","value":"Pomoc"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Ajuda"}},"ru":{"stringUnit":{"state":"needs_review","value":"Справка"}},"th":{"stringUnit":{"state":"needs_review","value":"ความช่วยเหลือ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Yardım"}},"uk":{"stringUnit":{"state":"needs_review","value":"Довідка"}},"vi":{"stringUnit":{"state":"needs_review","value":"Trợ giúp"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"帮助"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"說明"}}}},
+    "help.search": {"comment":"/help sheet: placeholder and label of its search field.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"ابحث في الأوامر والمهارات والمفاتيح"}},"bs":{"stringUnit":{"state":"needs_review","value":"Pretraži naredbe, vještine i tipke"}},"da":{"stringUnit":{"state":"needs_review","value":"Søg i kommandoer, færdigheder og taster"}},"de":{"stringUnit":{"state":"needs_review","value":"Befehle, Skills und Tasten durchsuchen"}},"en":{"stringUnit":{"state":"translated","value":"Search commands, skills and keys"}},"es":{"stringUnit":{"state":"needs_review","value":"Buscar comandos, skills y teclas"}},"fr":{"stringUnit":{"state":"needs_review","value":"Rechercher des commandes, compétences et touches"}},"it":{"stringUnit":{"state":"needs_review","value":"Cerca comandi, skill e tasti"}},"ja":{"stringUnit":{"state":"needs_review","value":"コマンド、スキル、キーを検索"}},"km":{"stringUnit":{"state":"needs_review","value":"ស្វែងរកពាក្យបញ្ជា ជំនាញ និងគ្រាប់ចុច"}},"ko":{"stringUnit":{"state":"needs_review","value":"명령, 스킬, 키 검색"}},"nb":{"stringUnit":{"state":"needs_review","value":"Søk i kommandoer, ferdigheter og taster"}},"pl":{"stringUnit":{"state":"needs_review","value":"Szukaj poleceń, umiejętności i klawiszy"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Pesquisar comandos, skills e teclas"}},"ru":{"stringUnit":{"state":"needs_review","value":"Поиск команд, навыков и клавиш"}},"th":{"stringUnit":{"state":"needs_review","value":"ค้นหาคำสั่ง สกิล และปุ่ม"}},"tr":{"stringUnit":{"state":"needs_review","value":"Komut, beceri ve tuş ara"}},"uk":{"stringUnit":{"state":"needs_review","value":"Шукати команди, навички й клавіші"}},"vi":{"stringUnit":{"state":"needs_review","value":"Tìm lệnh, kỹ năng và phím"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"搜索命令、技能和按键"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"搜尋指令、技能與按鍵"}}}},
+    "help.none": {"comment":"/help sheet: shown when the search matches nothing.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"لا توجد نتائج مطابقة"}},"bs":{"stringUnit":{"state":"needs_review","value":"Ništa se ne podudara"}},"da":{"stringUnit":{"state":"needs_review","value":"Intet matcher"}},"de":{"stringUnit":{"state":"needs_review","value":"Keine Treffer"}},"en":{"stringUnit":{"state":"translated","value":"Nothing matches"}},"es":{"stringUnit":{"state":"needs_review","value":"Sin coincidencias"}},"fr":{"stringUnit":{"state":"needs_review","value":"Aucun résultat"}},"it":{"stringUnit":{"state":"needs_review","value":"Nessuna corrispondenza"}},"ja":{"stringUnit":{"state":"needs_review","value":"一致するものはありません"}},"km":{"stringUnit":{"state":"needs_review","value":"គ្មានអ្វីត្រូវគ្នា"}},"ko":{"stringUnit":{"state":"needs_review","value":"일치하는 항목 없음"}},"nb":{"stringUnit":{"state":"needs_review","value":"Ingen treff"}},"pl":{"stringUnit":{"state":"needs_review","value":"Brak wyników"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Nada corresponde"}},"ru":{"stringUnit":{"state":"needs_review","value":"Ничего не найдено"}},"th":{"stringUnit":{"state":"needs_review","value":"ไม่พบรายการที่ตรงกัน"}},"tr":{"stringUnit":{"state":"needs_review","value":"Eşleşme yok"}},"uk":{"stringUnit":{"state":"needs_review","value":"Нічого не знайдено"}},"vi":{"stringUnit":{"state":"needs_review","value":"Không có kết quả"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"没有匹配项"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"沒有相符項目"}}}},
+    "help.section.commands": {"comment":"/help sheet: label over the commands group.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"الأوامر"}},"bs":{"stringUnit":{"state":"needs_review","value":"Naredbe"}},"da":{"stringUnit":{"state":"needs_review","value":"Kommandoer"}},"de":{"stringUnit":{"state":"needs_review","value":"Befehle"}},"en":{"stringUnit":{"state":"translated","value":"Commands"}},"es":{"stringUnit":{"state":"needs_review","value":"Comandos"}},"fr":{"stringUnit":{"state":"needs_review","value":"Commandes"}},"it":{"stringUnit":{"state":"needs_review","value":"Comandi"}},"ja":{"stringUnit":{"state":"needs_review","value":"コマンド"}},"km":{"stringUnit":{"state":"needs_review","value":"ពាក្យបញ្ជា"}},"ko":{"stringUnit":{"state":"needs_review","value":"명령"}},"nb":{"stringUnit":{"state":"needs_review","value":"Kommandoer"}},"pl":{"stringUnit":{"state":"needs_review","value":"Polecenia"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Comandos"}},"ru":{"stringUnit":{"state":"needs_review","value":"Команды"}},"th":{"stringUnit":{"state":"needs_review","value":"คำสั่ง"}},"tr":{"stringUnit":{"state":"needs_review","value":"Komutlar"}},"uk":{"stringUnit":{"state":"needs_review","value":"Команди"}},"vi":{"stringUnit":{"state":"needs_review","value":"Lệnh"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"命令"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"指令"}}}},
+    "help.section.skills": {"comment":"/help sheet: label over the skills and prompts group.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"المهارات والموجّهات"}},"bs":{"stringUnit":{"state":"needs_review","value":"Vještine i upiti"}},"da":{"stringUnit":{"state":"needs_review","value":"Færdigheder og prompts"}},"de":{"stringUnit":{"state":"needs_review","value":"Skills und Prompts"}},"en":{"stringUnit":{"state":"translated","value":"Skills and prompts"}},"es":{"stringUnit":{"state":"needs_review","value":"Skills y prompts"}},"fr":{"stringUnit":{"state":"needs_review","value":"Compétences et prompts"}},"it":{"stringUnit":{"state":"needs_review","value":"Skill e prompt"}},"ja":{"stringUnit":{"state":"needs_review","value":"スキルとプロンプト"}},"km":{"stringUnit":{"state":"needs_review","value":"ជំនាញ និងប្រអប់បញ្ចូល"}},"ko":{"stringUnit":{"state":"needs_review","value":"스킬과 프롬프트"}},"nb":{"stringUnit":{"state":"needs_review","value":"Ferdigheter og ledetekster"}},"pl":{"stringUnit":{"state":"needs_review","value":"Umiejętności i prompty"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Skills e prompts"}},"ru":{"stringUnit":{"state":"needs_review","value":"Навыки и промпты"}},"th":{"stringUnit":{"state":"needs_review","value":"สกิลและพรอมต์"}},"tr":{"stringUnit":{"state":"needs_review","value":"Beceriler ve istemler"}},"uk":{"stringUnit":{"state":"needs_review","value":"Навички й промпти"}},"vi":{"stringUnit":{"state":"needs_review","value":"Kỹ năng và lời nhắc"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"技能和提示词"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"技能與提示詞"}}}},
+    "help.section.keys": {"comment":"/help sheet: label over the keyboard keys group.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"المفاتيح"}},"bs":{"stringUnit":{"state":"needs_review","value":"Tipke"}},"da":{"stringUnit":{"state":"needs_review","value":"Taster"}},"de":{"stringUnit":{"state":"needs_review","value":"Tasten"}},"en":{"stringUnit":{"state":"translated","value":"Keys"}},"es":{"stringUnit":{"state":"needs_review","value":"Teclas"}},"fr":{"stringUnit":{"state":"needs_review","value":"Touches"}},"it":{"stringUnit":{"state":"needs_review","value":"Tasti"}},"ja":{"stringUnit":{"state":"needs_review","value":"キー"}},"km":{"stringUnit":{"state":"needs_review","value":"គ្រាប់ចុច"}},"ko":{"stringUnit":{"state":"needs_review","value":"키"}},"nb":{"stringUnit":{"state":"needs_review","value":"Taster"}},"pl":{"stringUnit":{"state":"needs_review","value":"Klawisze"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Teclas"}},"ru":{"stringUnit":{"state":"needs_review","value":"Клавиши"}},"th":{"stringUnit":{"state":"needs_review","value":"ปุ่ม"}},"tr":{"stringUnit":{"state":"needs_review","value":"Tuşlar"}},"uk":{"stringUnit":{"state":"needs_review","value":"Клавіші"}},"vi":{"stringUnit":{"state":"needs_review","value":"Phím"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"按键"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"按鍵"}}}},
+    "help.key.send": {"comment":"/help sheet: what Return does in the composer.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"إرسال، أو توجيه الدور الجاري"}},"bs":{"stringUnit":{"state":"needs_review","value":"Pošalji ili usmjeri tekući potez"}},"da":{"stringUnit":{"state":"needs_review","value":"Send, eller styr den igangværende tur"}},"de":{"stringUnit":{"state":"needs_review","value":"Senden oder den laufenden Zug lenken"}},"en":{"stringUnit":{"state":"translated","value":"Send, or steer the running turn"}},"es":{"stringUnit":{"state":"needs_review","value":"Enviar o guiar el turno en curso"}},"fr":{"stringUnit":{"state":"needs_review","value":"Envoyer, ou orienter le tour en cours"}},"it":{"stringUnit":{"state":"needs_review","value":"Invia o guida il turno in corso"}},"ja":{"stringUnit":{"state":"needs_review","value":"送信、または実行中のターンを誘導"}},"km":{"stringUnit":{"state":"needs_review","value":"ផ្ញើ ឬដឹកនាំវេនដែលកំពុងដំណើរការ"}},"ko":{"stringUnit":{"state":"needs_review","value":"보내기 또는 진행 중인 턴 조정"}},"nb":{"stringUnit":{"state":"needs_review","value":"Send, eller styr den pågående runden"}},"pl":{"stringUnit":{"state":"needs_review","value":"Wyślij lub pokieruj trwającą turą"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Enviar ou orientar o turno em andamento"}},"ru":{"stringUnit":{"state":"needs_review","value":"Отправить или направить текущий ход"}},"th":{"stringUnit":{"state":"needs_review","value":"ส่ง หรือชี้นำเทิร์นที่กำลังทำงาน"}},"tr":{"stringUnit":{"state":"needs_review","value":"Gönder veya süren turu yönlendir"}},"uk":{"stringUnit":{"state":"needs_review","value":"Надіслати або скерувати поточний хід"}},"vi":{"stringUnit":{"state":"needs_review","value":"Gửi, hoặc điều hướng lượt đang chạy"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"发送，或引导进行中的回合"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"傳送，或引導進行中的回合"}}}},
+    "help.key.newline": {"comment":"/help sheet: what Shift-Return does in the composer.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"سطر جديد"}},"bs":{"stringUnit":{"state":"needs_review","value":"Novi red"}},"da":{"stringUnit":{"state":"needs_review","value":"Ny linje"}},"de":{"stringUnit":{"state":"needs_review","value":"Neue Zeile"}},"en":{"stringUnit":{"state":"translated","value":"New line"}},"es":{"stringUnit":{"state":"needs_review","value":"Nueva línea"}},"fr":{"stringUnit":{"state":"needs_review","value":"Nouvelle ligne"}},"it":{"stringUnit":{"state":"needs_review","value":"Nuova riga"}},"ja":{"stringUnit":{"state":"needs_review","value":"改行"}},"km":{"stringUnit":{"state":"needs_review","value":"បន្ទាត់ថ្មី"}},"ko":{"stringUnit":{"state":"needs_review","value":"줄 바꿈"}},"nb":{"stringUnit":{"state":"needs_review","value":"Ny linje"}},"pl":{"stringUnit":{"state":"needs_review","value":"Nowy wiersz"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Nova linha"}},"ru":{"stringUnit":{"state":"needs_review","value":"Новая строка"}},"th":{"stringUnit":{"state":"needs_review","value":"ขึ้นบรรทัดใหม่"}},"tr":{"stringUnit":{"state":"needs_review","value":"Yeni satır"}},"uk":{"stringUnit":{"state":"needs_review","value":"Новий рядок"}},"vi":{"stringUnit":{"state":"needs_review","value":"Dòng mới"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"换行"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"換行"}}}},
+    "help.key.queue": {"comment":"/help sheet: what Command-Return does while a turn runs.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"إضافة إلى الطابور أثناء عمل الوكيل"}},"bs":{"stringUnit":{"state":"needs_review","value":"Stavi u red dok agent radi"}},"da":{"stringUnit":{"state":"needs_review","value":"Sæt i kø, mens agenten arbejder"}},"de":{"stringUnit":{"state":"needs_review","value":"Einreihen, während der Agent arbeitet"}},"en":{"stringUnit":{"state":"translated","value":"Queue while the agent works"}},"es":{"stringUnit":{"state":"needs_review","value":"Poner en cola mientras el agente trabaja"}},"fr":{"stringUnit":{"state":"needs_review","value":"Mettre en file pendant que l’agent travaille"}},"it":{"stringUnit":{"state":"needs_review","value":"Metti in coda mentre l’agente lavora"}},"ja":{"stringUnit":{"state":"needs_review","value":"エージェントの作業中はキューに追加"}},"km":{"stringUnit":{"state":"needs_review","value":"ដាក់ក្នុងជួរ ពេលភ្នាក់ងារកំពុងធ្វើការ"}},"ko":{"stringUnit":{"state":"needs_review","value":"에이전트 작업 중 대기열에 추가"}},"nb":{"stringUnit":{"state":"needs_review","value":"Legg i kø mens agenten jobber"}},"pl":{"stringUnit":{"state":"needs_review","value":"Dodaj do kolejki, gdy agent pracuje"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Enfileirar enquanto o agente trabalha"}},"ru":{"stringUnit":{"state":"needs_review","value":"В очередь, пока агент работает"}},"th":{"stringUnit":{"state":"needs_review","value":"เข้าคิวระหว่างที่เอเจนต์ทำงาน"}},"tr":{"stringUnit":{"state":"needs_review","value":"Ajan çalışırken sıraya ekle"}},"uk":{"stringUnit":{"state":"needs_review","value":"У чергу, поки агент працює"}},"vi":{"stringUnit":{"state":"needs_review","value":"Xếp hàng khi tác tử đang làm việc"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"代理工作时加入队列"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"代理程式工作時加入佇列"}}}},
+    "help.key.side": {"comment":"/help sheet: what Option-Return does: sends the prompt in a side chat.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"إرسال في محادثة جانبية"}},"bs":{"stringUnit":{"state":"needs_review","value":"Pošalji u sporednom chatu"}},"da":{"stringUnit":{"state":"needs_review","value":"Send i en sidechat"}},"de":{"stringUnit":{"state":"needs_review","value":"In einem Nebenchat senden"}},"en":{"stringUnit":{"state":"translated","value":"Send in a side chat"}},"es":{"stringUnit":{"state":"needs_review","value":"Enviar en un chat lateral"}},"fr":{"stringUnit":{"state":"needs_review","value":"Envoyer dans un chat annexe"}},"it":{"stringUnit":{"state":"needs_review","value":"Invia in una chat laterale"}},"ja":{"stringUnit":{"state":"needs_review","value":"サイドチャットで送信"}},"km":{"stringUnit":{"state":"needs_review","value":"ផ្ញើក្នុងការជជែកចំហៀង"}},"ko":{"stringUnit":{"state":"needs_review","value":"사이드 채팅으로 보내기"}},"nb":{"stringUnit":{"state":"needs_review","value":"Send i en sidechat"}},"pl":{"stringUnit":{"state":"needs_review","value":"Wyślij w czacie bocznym"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Enviar em um chat lateral"}},"ru":{"stringUnit":{"state":"needs_review","value":"Отправить в боковом чате"}},"th":{"stringUnit":{"state":"needs_review","value":"ส่งในแชตข้าง"}},"tr":{"stringUnit":{"state":"needs_review","value":"Yan sohbette gönder"}},"uk":{"stringUnit":{"state":"needs_review","value":"Надіслати в бічному чаті"}},"vi":{"stringUnit":{"state":"needs_review","value":"Gửi trong cuộc trò chuyện phụ"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"在侧边聊天中发送"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"在側邊聊天中傳送"}}}},
+    "help.key.suggestion": {"comment":"/help sheet: what Tab does: takes the agent's suggested prompt.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"أخذ الموجّه المقترح"}},"bs":{"stringUnit":{"state":"needs_review","value":"Uzmi predloženi upit"}},"da":{"stringUnit":{"state":"needs_review","value":"Brug den foreslåede prompt"}},"de":{"stringUnit":{"state":"needs_review","value":"Vorgeschlagenen Prompt übernehmen"}},"en":{"stringUnit":{"state":"translated","value":"Take the suggested prompt"}},"es":{"stringUnit":{"state":"needs_review","value":"Usar el prompt sugerido"}},"fr":{"stringUnit":{"state":"needs_review","value":"Prendre le prompt suggéré"}},"it":{"stringUnit":{"state":"needs_review","value":"Usa il prompt suggerito"}},"ja":{"stringUnit":{"state":"needs_review","value":"提案されたプロンプトを使う"}},"km":{"stringUnit":{"state":"needs_review","value":"យកប្រអប់បញ្ចូលដែលបានណែនាំ"}},"ko":{"stringUnit":{"state":"needs_review","value":"제안된 프롬프트 사용"}},"nb":{"stringUnit":{"state":"needs_review","value":"Bruk den foreslåtte ledeteksten"}},"pl":{"stringUnit":{"state":"needs_review","value":"Użyj sugerowanego promptu"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Usar o prompt sugerido"}},"ru":{"stringUnit":{"state":"needs_review","value":"Взять предложенный промпт"}},"th":{"stringUnit":{"state":"needs_review","value":"ใช้พรอมต์ที่แนะนำ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Önerilen istemi al"}},"uk":{"stringUnit":{"state":"needs_review","value":"Узяти запропонований промпт"}},"vi":{"stringUnit":{"state":"needs_review","value":"Dùng lời nhắc được gợi ý"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"采用建议的提示词"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"採用建議的提示詞"}}}},
+    "help.key.stop": {"comment":"/help sheet: what pressing Escape twice does: stops the running turn.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"إيقاف الوكيل"}},"bs":{"stringUnit":{"state":"needs_review","value":"Zaustavi agenta"}},"da":{"stringUnit":{"state":"needs_review","value":"Stop agenten"}},"de":{"stringUnit":{"state":"needs_review","value":"Agent stoppen"}},"en":{"stringUnit":{"state":"translated","value":"Stop the agent"}},"es":{"stringUnit":{"state":"needs_review","value":"Detener al agente"}},"fr":{"stringUnit":{"state":"needs_review","value":"Arrêter l’agent"}},"it":{"stringUnit":{"state":"needs_review","value":"Ferma l’agente"}},"ja":{"stringUnit":{"state":"needs_review","value":"エージェントを停止"}},"km":{"stringUnit":{"state":"needs_review","value":"បញ្ឈប់ភ្នាក់ងារ"}},"ko":{"stringUnit":{"state":"needs_review","value":"에이전트 중지"}},"nb":{"stringUnit":{"state":"needs_review","value":"Stopp agenten"}},"pl":{"stringUnit":{"state":"needs_review","value":"Zatrzymaj agenta"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Parar o agente"}},"ru":{"stringUnit":{"state":"needs_review","value":"Остановить агента"}},"th":{"stringUnit":{"state":"needs_review","value":"หยุดเอเจนต์"}},"tr":{"stringUnit":{"state":"needs_review","value":"Ajanı durdur"}},"uk":{"stringUnit":{"state":"needs_review","value":"Зупинити агента"}},"vi":{"stringUnit":{"state":"needs_review","value":"Dừng tác tử"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"停止代理"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"停止代理程式"}}}},
+    "help.key.history": {"comment":"/help sheet: what Up and Down do in an empty composer: earlier prompts of this chat.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"الموجّهات السابقة"}},"bs":{"stringUnit":{"state":"needs_review","value":"Raniji upiti"}},"da":{"stringUnit":{"state":"needs_review","value":"Tidligere prompts"}},"de":{"stringUnit":{"state":"needs_review","value":"Frühere Prompts"}},"en":{"stringUnit":{"state":"translated","value":"Earlier prompts"}},"es":{"stringUnit":{"state":"needs_review","value":"Prompts anteriores"}},"fr":{"stringUnit":{"state":"needs_review","value":"Prompts précédents"}},"it":{"stringUnit":{"state":"needs_review","value":"Prompt precedenti"}},"ja":{"stringUnit":{"state":"needs_review","value":"以前のプロンプト"}},"km":{"stringUnit":{"state":"needs_review","value":"ប្រអប់បញ្ចូលមុនៗ"}},"ko":{"stringUnit":{"state":"needs_review","value":"이전 프롬프트"}},"nb":{"stringUnit":{"state":"needs_review","value":"Tidligere ledetekster"}},"pl":{"stringUnit":{"state":"needs_review","value":"Wcześniejsze prompty"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Prompts anteriores"}},"ru":{"stringUnit":{"state":"needs_review","value":"Прежние промпты"}},"th":{"stringUnit":{"state":"needs_review","value":"พรอมต์ก่อนหน้า"}},"tr":{"stringUnit":{"state":"needs_review","value":"Önceki istemler"}},"uk":{"stringUnit":{"state":"needs_review","value":"Попередні промпти"}},"vi":{"stringUnit":{"state":"needs_review","value":"Lời nhắc trước đó"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"之前的提示词"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"先前的提示詞"}}}},
+    "help.key.commands": {"comment":"/help sheet: what typing / does: opens the commands list.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"الأوامر والمهارات"}},"bs":{"stringUnit":{"state":"needs_review","value":"Naredbe i vještine"}},"da":{"stringUnit":{"state":"needs_review","value":"Kommandoer og færdigheder"}},"de":{"stringUnit":{"state":"needs_review","value":"Befehle und Skills"}},"en":{"stringUnit":{"state":"translated","value":"Commands and skills"}},"es":{"stringUnit":{"state":"needs_review","value":"Comandos y skills"}},"fr":{"stringUnit":{"state":"needs_review","value":"Commandes et compétences"}},"it":{"stringUnit":{"state":"needs_review","value":"Comandi e skill"}},"ja":{"stringUnit":{"state":"needs_review","value":"コマンドとスキル"}},"km":{"stringUnit":{"state":"needs_review","value":"ពាក្យបញ្ជា និងជំនាញ"}},"ko":{"stringUnit":{"state":"needs_review","value":"명령과 스킬"}},"nb":{"stringUnit":{"state":"needs_review","value":"Kommandoer og ferdigheter"}},"pl":{"stringUnit":{"state":"needs_review","value":"Polecenia i umiejętności"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Comandos e skills"}},"ru":{"stringUnit":{"state":"needs_review","value":"Команды и навыки"}},"th":{"stringUnit":{"state":"needs_review","value":"คำสั่งและสกิล"}},"tr":{"stringUnit":{"state":"needs_review","value":"Komutlar ve beceriler"}},"uk":{"stringUnit":{"state":"needs_review","value":"Команди й навички"}},"vi":{"stringUnit":{"state":"needs_review","value":"Lệnh và kỹ năng"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"命令和技能"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"指令與技能"}}}},
+    "help.key.mention": {"comment":"/help sheet: what typing @ does: mentions a file or chat.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"الإشارة إلى ملف أو محادثة"}},"bs":{"stringUnit":{"state":"needs_review","value":"Spomeni datoteku ili chat"}},"da":{"stringUnit":{"state":"needs_review","value":"Nævn en fil eller chat"}},"de":{"stringUnit":{"state":"needs_review","value":"Datei oder Chat erwähnen"}},"en":{"stringUnit":{"state":"translated","value":"Mention a file or chat"}},"es":{"stringUnit":{"state":"needs_review","value":"Mencionar un archivo o chat"}},"fr":{"stringUnit":{"state":"needs_review","value":"Mentionner un fichier ou un chat"}},"it":{"stringUnit":{"state":"needs_review","value":"Menziona un file o una chat"}},"ja":{"stringUnit":{"state":"needs_review","value":"ファイルやチャットをメンション"}},"km":{"stringUnit":{"state":"needs_review","value":"លើកឡើងឯកសារ ឬការជជែក"}},"ko":{"stringUnit":{"state":"needs_review","value":"파일 또는 채팅 언급"}},"nb":{"stringUnit":{"state":"needs_review","value":"Nevn en fil eller chat"}},"pl":{"stringUnit":{"state":"needs_review","value":"Wspomnij plik lub czat"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Mencionar um arquivo ou chat"}},"ru":{"stringUnit":{"state":"needs_review","value":"Упомянуть файл или чат"}},"th":{"stringUnit":{"state":"needs_review","value":"กล่าวถึงไฟล์หรือแชต"}},"tr":{"stringUnit":{"state":"needs_review","value":"Dosya veya sohbetten bahset"}},"uk":{"stringUnit":{"state":"needs_review","value":"Згадати файл або чат"}},"vi":{"stringUnit":{"state":"needs_review","value":"Nhắc đến tệp hoặc cuộc trò chuyện"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"提及文件或聊天"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"提及檔案或聊天"}}}},
+    "help.key.emoji": {"comment":"/help sheet: what typing : does: opens the emoji list.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"رموز تعبيرية"}},"bs":{"stringUnit":{"state":"needs_review","value":"Emoji"}},"da":{"stringUnit":{"state":"needs_review","value":"Emoji"}},"de":{"stringUnit":{"state":"needs_review","value":"Emoji"}},"en":{"stringUnit":{"state":"translated","value":"Emoji"}},"es":{"stringUnit":{"state":"needs_review","value":"Emoji"}},"fr":{"stringUnit":{"state":"needs_review","value":"Emoji"}},"it":{"stringUnit":{"state":"needs_review","value":"Emoji"}},"ja":{"stringUnit":{"state":"needs_review","value":"絵文字"}},"km":{"stringUnit":{"state":"needs_review","value":"អារម្មណ៍"}},"ko":{"stringUnit":{"state":"needs_review","value":"이모지"}},"nb":{"stringUnit":{"state":"needs_review","value":"Emoji"}},"pl":{"stringUnit":{"state":"needs_review","value":"Emoji"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Emoji"}},"ru":{"stringUnit":{"state":"needs_review","value":"Эмодзи"}},"th":{"stringUnit":{"state":"needs_review","value":"อีโมจิ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Emoji"}},"uk":{"stringUnit":{"state":"needs_review","value":"Емодзі"}},"vi":{"stringUnit":{"state":"needs_review","value":"Biểu tượng cảm xúc"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"表情符号"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"表情符號"}}}},
+    "help.key.shell": {"comment":"/help sheet: what typing ! first does: runs a shell command.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"تشغيل أمر shell"}},"bs":{"stringUnit":{"state":"needs_review","value":"Pokreni shell naredbu"}},"da":{"stringUnit":{"state":"needs_review","value":"Kør en shell-kommando"}},"de":{"stringUnit":{"state":"needs_review","value":"Shell-Befehl ausführen"}},"en":{"stringUnit":{"state":"translated","value":"Run a shell command"}},"es":{"stringUnit":{"state":"needs_review","value":"Ejecutar un comando de shell"}},"fr":{"stringUnit":{"state":"needs_review","value":"Exécuter une commande shell"}},"it":{"stringUnit":{"state":"needs_review","value":"Esegui un comando shell"}},"ja":{"stringUnit":{"state":"needs_review","value":"シェルコマンドを実行"}},"km":{"stringUnit":{"state":"needs_review","value":"ដំណើរការពាក្យបញ្ជា shell"}},"ko":{"stringUnit":{"state":"needs_review","value":"셸 명령 실행"}},"nb":{"stringUnit":{"state":"needs_review","value":"Kjør en shell-kommando"}},"pl":{"stringUnit":{"state":"needs_review","value":"Uruchom polecenie powłoki"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Executar um comando de shell"}},"ru":{"stringUnit":{"state":"needs_review","value":"Выполнить команду оболочки"}},"th":{"stringUnit":{"state":"needs_review","value":"เรียกใช้คำสั่งเชลล์"}},"tr":{"stringUnit":{"state":"needs_review","value":"Kabuk komutu çalıştır"}},"uk":{"stringUnit":{"state":"needs_review","value":"Виконати команду оболонки"}},"vi":{"stringUnit":{"state":"needs_review","value":"Chạy lệnh shell"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"运行 shell 命令"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"執行 shell 指令"}}}},
+    "help.key.attach": {"comment":"/help sheet: what pasting (or dropping a file) does: attaches it.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"الصق الملفات أو أفلتها لإرفاقها"}},"bs":{"stringUnit":{"state":"needs_review","value":"Zalijepi ili ispusti datoteke za prilog"}},"da":{"stringUnit":{"state":"needs_review","value":"Indsæt eller slip filer for at vedhæfte"}},"de":{"stringUnit":{"state":"needs_review","value":"Dateien einfügen oder ablegen zum Anhängen"}},"en":{"stringUnit":{"state":"translated","value":"Paste or drop files to attach"}},"es":{"stringUnit":{"state":"needs_review","value":"Pega o suelta archivos para adjuntarlos"}},"fr":{"stringUnit":{"state":"needs_review","value":"Collez ou déposez des fichiers pour les joindre"}},"it":{"stringUnit":{"state":"needs_review","value":"Incolla o trascina file per allegarli"}},"ja":{"stringUnit":{"state":"needs_review","value":"ペーストかドロップでファイルを添付"}},"km":{"stringUnit":{"state":"needs_review","value":"បិទភ្ជាប់ ឬទម្លាក់ឯកសារ ដើម្បីភ្ជាប់"}},"ko":{"stringUnit":{"state":"needs_review","value":"붙여넣거나 끌어다 놓아 파일 첨부"}},"nb":{"stringUnit":{"state":"needs_review","value":"Lim inn eller slipp filer for å legge ved"}},"pl":{"stringUnit":{"state":"needs_review","value":"Wklej lub upuść pliki, aby je załączyć"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Cole ou solte arquivos para anexar"}},"ru":{"stringUnit":{"state":"needs_review","value":"Вставьте или перетащите файлы, чтобы прикрепить"}},"th":{"stringUnit":{"state":"needs_review","value":"วางหรือลากไฟล์มาเพื่อแนบ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Eklemek için dosya yapıştır veya bırak"}},"uk":{"stringUnit":{"state":"needs_review","value":"Вставте або перетягніть файли, щоб додати"}},"vi":{"stringUnit":{"state":"needs_review","value":"Dán hoặc thả tệp để đính kèm"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"粘贴或拖放文件以附加"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"貼上或拖放檔案以附加"}}}},
+    "help.key.folder": {"comment":"/help sheet: the composer's Choose folder shortcut.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"اختيار مجلد"}},"bs":{"stringUnit":{"state":"needs_review","value":"Odaberi mapu"}},"da":{"stringUnit":{"state":"needs_review","value":"Vælg mappe"}},"de":{"stringUnit":{"state":"needs_review","value":"Ordner wählen"}},"en":{"stringUnit":{"state":"translated","value":"Choose folder"}},"es":{"stringUnit":{"state":"needs_review","value":"Elegir carpeta"}},"fr":{"stringUnit":{"state":"needs_review","value":"Choisir un dossier"}},"it":{"stringUnit":{"state":"needs_review","value":"Scegli cartella"}},"ja":{"stringUnit":{"state":"needs_review","value":"フォルダを選択"}},"km":{"stringUnit":{"state":"needs_review","value":"ជ្រើសថត"}},"ko":{"stringUnit":{"state":"needs_review","value":"폴더 선택"}},"nb":{"stringUnit":{"state":"needs_review","value":"Velg mappe"}},"pl":{"stringUnit":{"state":"needs_review","value":"Wybierz folder"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Escolher pasta"}},"ru":{"stringUnit":{"state":"needs_review","value":"Выбрать папку"}},"th":{"stringUnit":{"state":"needs_review","value":"เลือกโฟลเดอร์"}},"tr":{"stringUnit":{"state":"needs_review","value":"Klasör seç"}},"uk":{"stringUnit":{"state":"needs_review","value":"Вибрати теку"}},"vi":{"stringUnit":{"state":"needs_review","value":"Chọn thư mục"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"选择文件夹"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"選擇檔案夾"}}}},
+    "help.key.dictation": {"comment":"/help sheet: the dictation shortcut.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"إملاء"}},"bs":{"stringUnit":{"state":"needs_review","value":"Diktiraj"}},"da":{"stringUnit":{"state":"needs_review","value":"Diktér"}},"de":{"stringUnit":{"state":"needs_review","value":"Diktieren"}},"en":{"stringUnit":{"state":"translated","value":"Dictate"}},"es":{"stringUnit":{"state":"needs_review","value":"Dictar"}},"fr":{"stringUnit":{"state":"needs_review","value":"Dicter"}},"it":{"stringUnit":{"state":"needs_review","value":"Detta"}},"ja":{"stringUnit":{"state":"needs_review","value":"音声入力"}},"km":{"stringUnit":{"state":"needs_review","value":"និយាយសរសេរ"}},"ko":{"stringUnit":{"state":"needs_review","value":"받아쓰기"}},"nb":{"stringUnit":{"state":"needs_review","value":"Dikter"}},"pl":{"stringUnit":{"state":"needs_review","value":"Dyktuj"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Ditar"}},"ru":{"stringUnit":{"state":"needs_review","value":"Диктовать"}},"th":{"stringUnit":{"state":"needs_review","value":"พิมพ์ด้วยเสียง"}},"tr":{"stringUnit":{"state":"needs_review","value":"Dikte et"}},"uk":{"stringUnit":{"state":"needs_review","value":"Диктувати"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đọc chính tả"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"听写"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"聽寫"}}}},
+    "help.key.newChat": {"comment":"/help sheet: the New chat shortcut.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"محادثة جديدة"}},"bs":{"stringUnit":{"state":"needs_review","value":"Novi chat"}},"da":{"stringUnit":{"state":"needs_review","value":"Ny chat"}},"de":{"stringUnit":{"state":"needs_review","value":"Neuer Chat"}},"en":{"stringUnit":{"state":"translated","value":"New chat"}},"es":{"stringUnit":{"state":"needs_review","value":"Nuevo chat"}},"fr":{"stringUnit":{"state":"needs_review","value":"Nouveau chat"}},"it":{"stringUnit":{"state":"needs_review","value":"Nuova chat"}},"ja":{"stringUnit":{"state":"needs_review","value":"新規チャット"}},"km":{"stringUnit":{"state":"needs_review","value":"ការជជែកថ្មី"}},"ko":{"stringUnit":{"state":"needs_review","value":"새 채팅"}},"nb":{"stringUnit":{"state":"needs_review","value":"Ny chat"}},"pl":{"stringUnit":{"state":"needs_review","value":"Nowy czat"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Novo chat"}},"ru":{"stringUnit":{"state":"needs_review","value":"Новый чат"}},"th":{"stringUnit":{"state":"needs_review","value":"แชตใหม่"}},"tr":{"stringUnit":{"state":"needs_review","value":"Yeni sohbet"}},"uk":{"stringUnit":{"state":"needs_review","value":"Новий чат"}},"vi":{"stringUnit":{"state":"needs_review","value":"Cuộc trò chuyện mới"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"新聊天"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"新聊天"}}}},
     "turn.forkLatestOnly": {
       "comment": "Agent pane: the Fork button's tooltip on an earlier message of a chat whose agent forks only at its end",
       "extractionState": "manual",
@@ -36033,6 +36055,3306 @@
           "stringUnit": {
             "state": "translated",
             "value": "請更新 cmux 以在此查看團隊支出。"
+          }
+        }
+      }
+    },
+    "teamAudit.view": {
+      "comment": "Agent pane: Team spend, label of the switch between Overview, Breakdown and Per PR",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "العرض"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaz"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Visning"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ansicht"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "View"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vista"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vue"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vista"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទិដ្ឋភាព"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "보기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Visning"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Widok"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Visualização"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вид"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "มุมมอง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Görünüm"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вигляд"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chế độ xem"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "视图"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "檢視"
+          }
+        }
+      }
+    },
+    "teamAudit.view.overview": {
+      "comment": "Agent pane: Team spend, the view with a tile per measure and its trend by day",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نظرة عامة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pregled"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Overblik"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Überblick"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Overview"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resumen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vue d’ensemble"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Panoramica"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "概要"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទិដ្ឋភាពទូទៅ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "개요"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oversikt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przegląd"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Visão geral"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Обзор"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ภาพรวม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Genel bakış"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Огляд"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tổng quan"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "概览"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "概覽"
+          }
+        }
+      }
+    },
+    "teamAudit.view.breakdown": {
+      "comment": "Agent pane: Team spend, the view with the table grouped by team, project, person or model",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التفصيل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Raščlamba"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fordeling"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aufschlüsselung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Breakdown"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desglose"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Répartition"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dettaglio"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "内訳"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការបែងចែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "세부 내역"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fordeling"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Podział"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Detalhamento"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Разбивка"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "รายละเอียด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Döküm"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Розбивка"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Phân tích"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "细分"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "細分"
+          }
+        }
+      }
+    },
+    "teamAudit.view.efficiency": {
+      "comment": "Agent pane: Team spend, the view with agent time per landed pull request",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لكل PR"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Po PR-u"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pr. PR"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pro PR"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Per PR"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Por PR"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Par PR"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Per PR"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR ごと"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ក្នុងមួយ PR"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR당"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Per PR"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Na PR"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Por PR"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "На PR"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ต่อ PR"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR başına"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "На PR"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mỗi PR"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每个 PR"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每個 PR"
+          }
+        }
+      }
+    },
+    "teamAudit.group.team": {
+      "comment": "Agent pane: Team spend, group-by option and column heading: one row per team",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الفريق"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tim"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Team"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Team"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Team"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Equipo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Équipe"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Team"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チーム"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ក្រុម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "팀"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Team"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zespół"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Equipe"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Команда"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ทีม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ekip"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Команда"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nhóm"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "团队"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "團隊"
+          }
+        }
+      }
+    },
+    "teamAudit.group.project": {
+      "comment": "Agent pane: Team spend, group-by option and column heading: one row per project (repository)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المشروع"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Projekat"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Projekt"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Projekt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Project"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proyecto"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Projet"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Progetto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロジェクト"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គម្រោង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로젝트"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prosjekt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Projekt"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Projeto"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Проект"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โปรเจกต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proje"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Проєкт"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dự án"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "项目"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "專案"
+          }
+        }
+      }
+    },
+    "teamAudit.total.tokens": {
+      "comment": "Agent pane: Team spend, tile: tokens in and out over the range",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الرموز"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tokeni"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tokens"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tokens"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tokens"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tokens"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jetons"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Token"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トークン"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "តូខឹន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "토큰"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tokens"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tokeny"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tokens"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Токены"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โทเคน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Token"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Токени"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Token"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Token"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Token"
+          }
+        }
+      }
+    },
+    "teamAudit.total.prs": {
+      "comment": "Agent pane: Team spend, tile and column: pull requests landed",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "طلبات الدمج المدمجة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spojeni PR-ovi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Landede PR’er"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gelandete PRs"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PRs landed"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR integrados"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR fusionnées"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR integrate"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マージ済み PR"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR ដែលបានបញ្ចូល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "병합된 PR"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Landede PR-er"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scalone PR"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PRs integrados"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Влитые PR"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR ที่รวมแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Birleşen PR’lar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Злиті PR"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR đã hợp nhất"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已合并 PR"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已合併 PR"
+          }
+        }
+      }
+    },
+    "teamAudit.total.perPr": {
+      "comment": "Agent pane: Team spend, tile and column: agent running time per landed pull request",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "وقت الوكيل لكل PR"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vrijeme agenta po PR-u"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenttid pr. PR"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentenzeit pro PR"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent time per PR"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tiempo de agente por PR"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Temps d’agent par PR"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tempo agente per PR"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR あたりのエージェント時間"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពេលវេលាភ្នាក់ងារក្នុងមួយ PR"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR당 에이전트 시간"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenttid per PR"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Czas agenta na PR"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tempo de agente por PR"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Время агента на PR"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เวลาเอเจนต์ต่อ PR"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR başına ajan süresi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Час агента на PR"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thời gian agent mỗi PR"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每个 PR 的智能体时间"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每個 PR 的代理時間"
+          }
+        }
+      }
+    },
+    "teamAudit.total.costPerPr": {
+      "comment": "Agent pane: Team spend, column: what the spend per landed pull request would take a person, as time",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التكلفة كوقت لكل PR"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trošak kao vrijeme po PR-u"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Omkostning som tid pr. PR"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kosten als Zeit pro PR"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cost as time per PR"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coste en tiempo por PR"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coût en temps par PR"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Costo in tempo per PR"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR あたりの時間換算コスト"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ថ្លៃជាពេលវេលាក្នុងមួយ PR"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR당 시간 환산 비용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kostnad som tid per PR"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koszt w czasie na PR"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Custo em tempo por PR"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Стоимость во времени на PR"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ต้นทุนเป็นเวลาต่อ PR"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR başına süre olarak maliyet"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вартість у часі на PR"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chi phí quy ra thời gian mỗi PR"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每个 PR 的时间成本"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每個 PR 的時間成本"
+          }
+        }
+      }
+    },
+    "teamAudit.total.vmTime": {
+      "comment": "Agent pane: Team spend, tile and column: cloud VM vCPU time",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "وقت الآلة الافتراضية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vrijeme VM-a"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VM-tid"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VM-Zeit"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VM time"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tiempo de VM"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Temps de VM"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tempo VM"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VM 時間"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពេលវេលា VM"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VM 시간"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VM-tid"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Czas VM"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tempo de VM"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Время ВМ"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เวลา VM"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VM süresi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Час ВМ"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thời gian VM"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "虚拟机时间"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "虛擬機時間"
+          }
+        }
+      }
+    },
+    "teamAudit.total.ciTime": {
+      "comment": "Agent pane: Team spend, tile and column: CI runner time",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "وقت CI"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vrijeme CI-ja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CI-tid"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CI-Zeit"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CI time"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tiempo de CI"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Temps de CI"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tempo CI"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CI 時間"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពេលវេលា CI"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CI 시간"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CI-tid"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Czas CI"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tempo de CI"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Время CI"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เวลา CI"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CI süresi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Час CI"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thời gian CI"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CI 时间"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CI 時間"
+          }
+        }
+      }
+    },
+    "teamAudit.trend": {
+      "comment": "Agent pane: Team spend, spoken name of a tile's bar chart; {measure} is the tile's name",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{measure} حسب اليوم"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{measure} po danu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{measure} pr. dag"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{measure} pro Tag"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{measure} by day"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{measure} por día"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{measure} par jour"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{measure} per giorno"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "日別の{measure}"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{measure} តាមថ្ងៃ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "일별 {measure}"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{measure} per dag"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{measure} wg dni"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{measure} por dia"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{measure} по дням"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{measure} รายวัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Güne göre {measure}"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{measure} за днями"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{measure} theo ngày"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按天的{measure}"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按日的{measure}"
+          }
+        }
+      }
+    },
+    "teamAudit.drill": {
+      "comment": "Agent pane: Team spend, spoken name of the path of slices a breakdown drilled into",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الشرائح"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Isječci"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Udsnit"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ausschnitte"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slices"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Segmentos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tranches"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sezioni"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "絞り込み"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្នែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "범위"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utsnitt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wycinki"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recortes"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Срезы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ส่วนย่อย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dilimler"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Зрізи"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lát cắt"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切片"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切片"
+          }
+        }
+      }
+    },
+    "teamAudit.drill.all": {
+      "comment": "Agent pane: Team spend, first crumb of a drill-down: back to every row",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الجميع"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Svi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Everyone"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Todos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tout le monde"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tutti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全員"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទាំងអស់គ្នា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전체"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wszyscy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Todos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Все"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ทุกคน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Herkes"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Усі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mọi người"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "所有人"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "所有人"
+          }
+        }
+      }
+    },
+    "teamAudit.others": {
+      "comment": "Agent pane: Team spend, the row holding people who share below person level, folded together for privacy",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "آخرون"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ostali"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Andre"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Andere"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Others"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otros"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autres"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Altri"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "その他"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្សេងទៀត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기타"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Andre"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pozostali"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Outros"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Другие"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อื่นๆ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diğerleri"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Інші"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Khác"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "其他"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "其他"
+          }
+        }
+      }
+    },
+    "teamAudit.others.people": {
+      "comment": "Agent pane: Team spend, after Others: how many people it folds; {count} is a number",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أشخاص مدمجون للخصوصية: {count}"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Osobe spojene radi privatnosti: {count}"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Personer samlet af hensyn til privatliv: {count}"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aus Datenschutzgründen zusammengefasst: {count}"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "People folded for privacy: {count}"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Personas agrupadas por privacidad: {count}"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Personnes regroupées par confidentialité : {count}"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Persone raggruppate per privacy: {count}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プライバシーのためまとめた人数: {count}"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មនុស្សដែលបានបញ្ចូលគ្នាដើម្បីឯកជនភាព៖ {count}"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "개인정보 보호로 묶인 인원: {count}"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Personer slått sammen av personvernhensyn: {count}"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Osoby zgrupowane dla prywatności: {count}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pessoas agrupadas por privacidade: {count}"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Объединено ради конфиденциальности: {count}"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ผู้ที่รวมไว้เพื่อความเป็นส่วนตัว: {count}"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gizlilik için birleştirilen kişiler: {count}"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Об’єднано задля приватності: {count}"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Số người gộp vì quyền riêng tư: {count}"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "为保护隐私合并的人数：{count}"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "為保護隱私合併的人數：{count}"
+          }
+        }
+      }
+    },
+    "teamAudit.privacy.team": {
+      "comment": "Agent pane: Team spend, note when the team shares per team and project only",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يشارك فريقك حسب الفريق والمشروع: يُدمج الأشخاص في آخرون."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vaš tim dijeli po timu i projektu: osobe se spajaju u Ostali."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dit team deler pr. team og projekt: personer samles under Andre."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dein Team teilt pro Team und Projekt: Personen werden unter Andere zusammengefasst."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your team shares per team and project: people fold into Others."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tu equipo comparte por equipo y proyecto: las personas se agrupan en Otros."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Votre équipe partage par équipe et par projet : les personnes sont regroupées dans Autres."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il tuo team condivide per team e progetto: le persone confluiscono in Altri."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チームはチームとプロジェクト単位で共有しています。個人は「その他」にまとめられます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ក្រុមរបស់អ្នកចែករំលែកតាមក្រុម និងគម្រោង៖ មនុស្សត្រូវបញ្ចូលទៅក្នុង ផ្សេងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "팀이 팀과 프로젝트 단위로 공유합니다. 개인은 기타로 묶입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Teamet ditt deler per team og prosjekt: personer slås sammen under Andre."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Twój zespół udostępnia dane według zespołu i projektu: osoby trafiają do Pozostałych."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sua equipe compartilha por equipe e projeto: as pessoas são agrupadas em Outros."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ваша команда делится данными по командам и проектам: люди объединены в «Другие»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ทีมของคุณแชร์ตามทีมและโปรเจกต์: บุคคลถูกรวมไว้ใน อื่นๆ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ekibiniz ekip ve proje bazında paylaşıyor: kişiler Diğerleri altında toplanır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ваша команда ділиться даними за командами й проєктами: люди об’єднані в «Інші»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nhóm của bạn chia sẻ theo nhóm và dự án: từng người được gộp vào Khác."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的团队按团队和项目共享：个人合并到“其他”。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的團隊按團隊和專案共享：個人合併到「其他」。"
+          }
+        }
+      }
+    },
+    "teamAudit.privacy.org": {
+      "comment": "Agent pane: Team spend, note when the organization shares totals only",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تشارك مؤسستك الإجماليات فقط."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vaša organizacija dijeli samo ukupne iznose."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Din organisation deler kun totaler."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deine Organisation teilt nur Summen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your organization shares totals only."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tu organización solo comparte totales."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Votre organisation ne partage que les totaux."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La tua organizzazione condivide solo i totali."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "組織は合計のみを共有しています。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ស្ថាប័នរបស់អ្នកចែករំលែកតែចំនួនសរុបប៉ុណ្ណោះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "조직이 합계만 공유합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Organisasjonen din deler bare totaler."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Twoja organizacja udostępnia tylko sumy."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sua organização compartilha apenas totais."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ваша организация делится только итогами."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "องค์กรของคุณแชร์เฉพาะยอดรวม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kuruluşunuz yalnızca toplamları paylaşıyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ваша організація ділиться лише підсумками."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tổ chức của bạn chỉ chia sẻ tổng số."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的组织仅共享总计。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的組織僅共享總計。"
+          }
+        }
+      }
+    },
+    "teamAudit.exportMenu": {
+      "comment": "Agent pane: Team spend, menu button: save what the view shows as CSV or JSON",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تصدير"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Izvezi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eksportér"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exportieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Export"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exportar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exporter"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esporta"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "書き出す"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "នាំចេញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "내보내기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eksporter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eksportuj"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exportar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Экспорт"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ส่งออก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dışa aktar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Експорт"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Xuất"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "导出"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "匯出"
+          }
+        }
+      }
+    },
+    "teamAudit.exportJson": {
+      "comment": "Agent pane: Team spend, Export menu item: save the answer on screen as a JSON file",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حفظ JSON"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spremi JSON"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gem JSON"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "JSON sichern"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save JSON"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Guardar JSON"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enregistrer le JSON"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Salva JSON"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "JSON を保存"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រក្សាទុក JSON"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "JSON 저장"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lagre JSON"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zapisz JSON"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Salvar JSON"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сохранить JSON"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บันทึก JSON"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "JSON kaydet"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Зберегти JSON"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lưu JSON"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存 JSON"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "儲存 JSON"
+          }
+        }
+      }
+    },
+    "teamAudit.efficiency.byProject": {
+      "comment": "Agent pane: Team spend, Per PR heading: one row per project",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حسب المشروع"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Po projektu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Efter projekt"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nach Projekt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "By project"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Por proyecto"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Par projet"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Per progetto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロジェクト別"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "តាមគម្រោង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로젝트별"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Etter prosjekt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Według projektu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Por projeto"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "По проектам"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตามโปรเจกต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Projeye göre"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "За проєктами"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Theo dự án"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按项目"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按專案"
+          }
+        }
+      }
+    },
+    "teamAudit.efficiency.byPerson": {
+      "comment": "Agent pane: Team spend, Per PR heading: one row per person",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حسب الشخص"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Po osobi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Efter person"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nach Person"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "By person"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Por persona"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Par personne"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Per persona"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "人別"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "តាមមនុស្ស"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사람별"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Etter person"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Według osoby"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Por pessoa"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "По людям"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตามบุคคล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kişiye göre"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "За людьми"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Theo người"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按人员"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按人員"
+          }
+        }
+      }
+    },
+    "teamAudit.efficiency.outlier": {
+      "comment": "Agent pane: Team spend, Per PR tag on a row far past the team's agent time per PR",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قيمة شاذة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odstupanje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afviger"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ausreißer"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Outlier"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atípico"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atypique"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anomalo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "外れ値"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ខុសប្រក្រតី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이상치"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avvik"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odstający"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atípico"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выброс"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ค่าผิดปกติ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aykırı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Викид"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bất thường"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "异常值"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "異常值"
+          }
+        }
+      }
+    },
+    "teamAudit.efficiency.outlierNote": {
+      "comment": "Agent pane: Team spend, Per PR legend for the outlier mark",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "القيم الشاذة تستغرق ضعف وقت الوكيل لكل PR في الفريق أو أكثر."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odstupanja traju dvostruko više vremena agenta po PR-u od tima ili više."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afvigere bruger dobbelt så meget agenttid pr. PR som teamet eller mere."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ausreißer brauchen doppelt so viel Agentenzeit pro PR wie das Team oder mehr."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Outliers take twice the team's agent time per PR or more."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los atípicos usan el doble del tiempo de agente por PR del equipo o más."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les atypiques prennent au moins deux fois le temps d’agent par PR de l’équipe."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gli anomali richiedono almeno il doppio del tempo agente per PR del team."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "外れ値は、チームの PR あたりのエージェント時間の 2 倍以上かかっています。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការខុសប្រក្រតីប្រើពេលវេលាភ្នាក់ងារក្នុងមួយ PR ទ្វេដងនៃក្រុម ឬច្រើនជាងនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이상치는 팀의 PR당 에이전트 시간의 2배 이상이 걸립니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avvik bruker dobbelt så mye agenttid per PR som teamet eller mer."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odstające zajmują co najmniej dwa razy więcej czasu agenta na PR niż zespół."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os atípicos levam o dobro do tempo de agente por PR da equipe ou mais."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выбросы тратят вдвое больше времени агента на PR, чем команда, или больше."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ค่าผิดปกติใช้เวลาเอเจนต์ต่อ PR เป็นสองเท่าของทีมหรือมากกว่า"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aykırılar, ekibin PR başına ajan süresinin iki katı veya daha fazlasını alır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Викиди витрачають удвічі більше часу агента на PR, ніж команда, або більше."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Giá trị bất thường tốn gấp đôi thời gian agent mỗi PR của nhóm trở lên."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "异常值的每个 PR 智能体时间是团队的两倍或更多。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "異常值的每個 PR 代理時間是團隊的兩倍或更多。"
           }
         }
       }
@@ -322486,6 +325808,270 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "信任 {repo} 儲存庫嗎？"
+          }
+        }
+      }
+    },
+    "trust.continueReadOnly": {
+      "comment": "Folder trust: what the read-only continuation in a declined folder does",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أو اقرأه هنا: يمكن للوكيل قراءة هذا المجلد والبحث فيه، لكن لا يمكنه تعديله أو تشغيل أي شيء يغيّره. تبقى خطافات المشروع وإعداداته وخوادم MCP معطّلة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ili ga čitaj ovdje: agent može čitati i pretraživati ovaj folder, ali ga ne može uređivati niti pokretati išta što ga mijenja. Hookovi, postavke i MCP serveri projekta ostaju isključeni."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eller læs den her: agenten kan læse og søge i denne mappe, men kan ikke redigere den eller køre noget, der ændrer den. Projektets hooks, indstillinger og MCP-servere forbliver slået fra."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oder hier lesen: Der Agent kann diesen Ordner lesen und durchsuchen, ihn aber nicht bearbeiten oder etwas ausführen, das ihn ändert. Projekt-Hooks, Einstellungen und MCP-Server bleiben aus."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Or read it here: the agent can read and search this folder, but cannot edit it or run anything that changes it. Project hooks, settings and MCP servers stay off."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O léela aquí: el agente puede leer y buscar en esta carpeta, pero no puede editarla ni ejecutar nada que la cambie. Los hooks, la configuración y los servidores MCP del proyecto siguen desactivados."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ou lisez-le ici : l’agent peut lire ce dossier et y chercher, mais ne peut ni le modifier ni exécuter quoi que ce soit qui le change. Les hooks, réglages et serveurs MCP du projet restent désactivés."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oppure leggila qui: l’agente può leggere e cercare in questa cartella, ma non può modificarla né eseguire nulla che la cambi. Hook, impostazioni e server MCP del progetto restano disattivati."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "またはここで読む：エージェントはこのフォルダを読み取り・検索できますが、編集したり、変更を加えるものを実行したりはできません。プロジェクトのフック、設定、MCP サーバーはオフのままです。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ឬអាននៅទីនេះ៖ ភ្នាក់ងារអាចអាន និងស្វែងរកក្នុងថតនេះ ប៉ុន្តែមិនអាចកែសម្រួល ឬដំណើរការអ្វីដែលផ្លាស់ប្តូរវាបានទេ។ hooks ការកំណត់ និងម៉ាស៊ីនមេ MCP របស់គម្រោងនៅតែបិទ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "또는 여기서 읽기: 에이전트는 이 폴더를 읽고 검색할 수 있지만 편집하거나 폴더를 바꾸는 작업을 실행할 수는 없습니다. 프로젝트 훅, 설정, MCP 서버는 꺼진 상태로 유지됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eller les den her: agenten kan lese og søke i denne mappen, men kan ikke redigere den eller kjøre noe som endrer den. Prosjektets hooks, innstillinger og MCP-servere forblir av."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Albo czytaj tutaj: agent może czytać i przeszukiwać ten folder, ale nie może go edytować ani uruchamiać niczego, co go zmienia. Hooki, ustawienia i serwery MCP projektu pozostają wyłączone."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ou leia aqui: o agente pode ler e pesquisar esta pasta, mas não pode editá-la nem executar nada que a altere. Os hooks, as configurações e os servidores MCP do projeto continuam desativados."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Или читайте здесь: агент может читать эту папку и искать в ней, но не может её редактировать или запускать то, что её меняет. Хуки, настройки и MCP-серверы проекта остаются выключены."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หรืออ่านที่นี่: เอเจนต์อ่านและค้นหาในโฟลเดอร์นี้ได้ แต่แก้ไขหรือเรียกใช้สิ่งที่เปลี่ยนแปลงโฟลเดอร์ไม่ได้ ฮุก การตั้งค่า และเซิร์ฟเวอร์ MCP ของโปรเจกต์ยังคงปิดอยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ya da burada oku: ajan bu klasörü okuyup içinde arama yapabilir, ancak onu düzenleyemez veya onu değiştiren bir şey çalıştıramaz. Projenin hook’ları, ayarları ve MCP sunucuları kapalı kalır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Або читайте тут: агент може читати цю папку й шукати в ній, але не може її редагувати чи запускати те, що її змінює. Хуки, налаштування та MCP-сервери проєкту залишаються вимкненими."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hoặc đọc tại đây: tác nhân có thể đọc và tìm kiếm trong thư mục này, nhưng không thể chỉnh sửa hay chạy bất cứ thứ gì làm thay đổi nó. Hook, cài đặt và máy chủ MCP của dự án vẫn tắt."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "或在此阅读：代理可以读取和搜索此文件夹，但不能编辑它，也不能运行任何会更改它的内容。项目的钩子、设置和 MCP 服务器保持关闭。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "或在此閱讀：代理可以讀取和搜尋此資料夾，但不能編輯它，也不能執行任何會變更它的內容。專案的鉤子、設定和 MCP 伺服器保持關閉。"
+          }
+        }
+      }
+    },
+    "trust.continueReadOnlyLabel": {
+      "comment": "Folder trust: action to continue in the declined folder, read-only",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "للقراءة فقط هنا"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Samo za čitanje ovdje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skrivebeskyttet her"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hier nur lesen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Read-only here"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo lectura aquí"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lecture seule ici"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sola lettura qui"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ここで読み取り専用"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អានតែប៉ុណ្ណោះនៅទីនេះ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "여기서 읽기 전용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skrivebeskyttet her"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tylko do odczytu tutaj"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Somente leitura aqui"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Только чтение здесь"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อ่านอย่างเดียวที่นี่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Burada salt okunur"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Лише читання тут"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chỉ đọc tại đây"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在此只读"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在此唯讀"
           }
         }
       }

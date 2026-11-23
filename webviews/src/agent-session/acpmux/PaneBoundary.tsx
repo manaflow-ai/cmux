@@ -6,7 +6,7 @@
 // recovers by itself; one that lasts says only "Still loading the agent pane…". The backoff is kept
 // across the reloads (sessionStorage), so a pane that fails on every load reloads at most every
 // 30 s, not once a second.
-import { Component, type ReactNode } from "react";
+import { Component, type ReactNode, type ErrorInfo } from "react";
 import { AUTO_RETRY_FIRST_MS, AUTO_RETRY_MAX_MS, type AutoRetryOptions, useAutoRetry } from "./autoRetry";
 import { useT } from "./i18n";
 import { LASTING_MS } from "../../ui/lasting";
@@ -47,6 +47,16 @@ function writeReloads(reloads: Reloads | undefined): void {
   }
 }
 
+/// The throw that took the pane down, for `debug.agent_pane readiness` (`pane_failure`): a bench or
+/// capture that finds the pane failed names the error instead of timing out on a debug hook that the
+/// failed pane never installed (hq#15602).
+export type PaneFailure = { message: string; stack?: string; componentStack?: string };
+declare global {
+  interface Window {
+    __cmuxPaneFailure?: PaneFailure;
+  }
+}
+
 export class PaneBoundary extends Component<Props, State> {
   state: State = { failed: false };
   private stable: ReturnType<typeof setTimeout> | undefined;
@@ -63,6 +73,15 @@ export class PaneBoundary extends Component<Props, State> {
 
   componentWillUnmount() {
     if (this.stable !== undefined) clearTimeout(this.stable);
+  }
+
+  componentDidCatch(error: unknown, info: ErrorInfo) {
+    window.__cmuxPaneFailure = {
+      message: error instanceof Error ? `${error.name}: ${error.message}` : String(error),
+      ...(error instanceof Error && error.stack ? { stack: error.stack } : {}),
+      ...(info.componentStack ? { componentStack: info.componentStack } : {}),
+    };
+    console.error("agent pane failed to draw", window.__cmuxPaneFailure);
   }
 
   render() {

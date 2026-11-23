@@ -73,6 +73,7 @@ import { focusAfterEscape } from "../../ui/escapeFocus";
 import type { RunModeRows } from "./sandboxRun";
 import { machineLoadWarning, type MachineResources } from "./machineResources";
 import { useComposerSettings } from "./composerSettings";
+import { useConnectionQuiet } from "../../ui/lasting";
 import { repickMachine, type RepickMachine } from "./cloudRepick";
 import { CONTEXT_LABELS, splitForMiddleTruncation } from "./composerContextModel";
 import {
@@ -87,6 +88,7 @@ import {
 } from "./folderlessCloud";
 import { chatComputerId, ownMachineName, routeOnOwnCloud, type ChatPlace } from "./chatMachine";
 import { useMachineCard } from "./MachineCard";
+import { useSameValue } from "./session-info/sameValue";
 /// How a new chat's strip asks where it runs (gallery seam; `where-machine` ships). Leo, 2026-11-03,
 /// on Codex desktop's strip: "chatgpt codex has nicer ways to deal with stuff".
 /// - `where-machine` (Codex desktop): Project | Where (This Mac, Cloud, Other devices) | Machine,
@@ -319,8 +321,8 @@ export function ComposerContext({
   /// chooser; another machine's folders are its listed ones or a typed path.
   extraFolders?: ExtraFolderControl;
   /// Gallery and test seam: the Environment chip's control (CloudEnvironmentChip.tsx). Omitted, a new
-  /// chat's strip reads the account's environments itself while CLOUD_ENVIRONMENTS_ENABLED is on
-  /// (composerSettings.ts `cloudEnvironments`); off, there is no chip.
+  /// chat's strip reads the account's environments itself while CLOUD_ENVIRONMENTS_ENABLED is on (the
+  /// default; composerSettings.ts `cloudEnvironments`); off, there is no chip.
   cloudEnvironment?: CloudEnvironmentControl;
   /// Gallery seam: how the Environment chip's drop-up draws its rows (`list` ships).
   cloudEnvironmentDropUp?: CloudEnvironmentDropUp;
@@ -342,6 +344,12 @@ export function ComposerContext({
   const placeLists = useRef<SessionsBy | null>(null);
   placeLists.current ??= new SessionsBy(placeFields);
   const sessions = placeLists.current.of(listedSessions);
+  // The chat's own place (`placeFields` of its summary): the same object while where it runs is the
+  // same, so the machine and folder lists below are not made again from every listed chat when only
+  // the summary's other fields changed. A New Tab's summary is made anew from each snapshot.
+  const placedSummary = useRef<Summary | undefined>(undefined);
+  if (!samePlace(placedSummary.current, summary)) placedSummary.current = summary;
+  const summaryPlace = placedSummary.current;
   const t = useT();
   const composerSettings = useComposerSettings();
   const newChat = !started && onProject !== undefined;
@@ -361,7 +369,7 @@ export function ComposerContext({
     // not as a lost link; in a new chat a paused one is a pick that resumes it.
     const listed = withCloudSleep(
       availableComputers(
-        summary,
+        summaryPlace,
         sessions,
         peers,
         peerKinds,
@@ -376,11 +384,11 @@ export function ComposerContext({
     );
     if (!newChat) return listed;
     const detail = t(CONTEXT_LABELS.cloud);
-    return withCloudMachines(listed, shownMachines, peers, computerId(summary)).map((row) =>
+    return withCloudMachines(listed, shownMachines, peers, computerId(summaryPlace)).map((row) =>
       isCloudMachineRow(row) ? { ...row, detail } : row,
     );
   }, [
-    summary,
+    summaryPlace,
     sessions,
     peers,
     peerKinds,
@@ -511,8 +519,12 @@ export function ComposerContext({
       ? routeOnOwnCloud(route)
       : peerKinds[selectedComputer] === "cloud" ||
         (selectedComputer === initialComputer && summary?.hostKind === "cloud");
-  const folders = useMemo(() => {
-    const known = availableFolders(summary, sessions, selectedComputer);
+  // The same list while it holds the same folders: it is made again whenever the chat's summary is
+  // (each change of any chat at Leo's scale), and the folder menu groups every folder by its
+  // repository from it (FolderPopover `groupByRepo`), thousands of folders on each New Tab page and
+  // chat (bench/session-scale-typing.bench.ts).
+  const madeFolders = useMemo(() => {
+    const known = availableFolders(summaryPlace, sessions, selectedComputer);
     if (selectedComputer === "local") {
       const seen = new Set(known.map((folder) => folder.id));
       for (const environment of savedFolders) {
@@ -538,7 +550,7 @@ export function ComposerContext({
     }));
     return chatFolderChoices({ known, listed, cloudMachine: machineOnCloud });
   }, [
-    summary,
+    summaryPlace,
     sessions,
     selectedComputer,
     projectChoices,
@@ -548,6 +560,7 @@ export function ComposerContext({
     machineOnCloud,
     routeElsewhere,
   ]);
+  const folders = useSameValue(madeFolders);
   const summaryFolder = summary?.cwd && computerId(summary) === selectedComputer ? summary.cwd : undefined;
   // A chat in its private agent-home folder has no project yet: the row offers a folder instead. So
   // has a folderless Cloud chat in the fresh folder its machine made for it (folderlessCloud.ts).
@@ -853,6 +866,22 @@ export function ComposerContext({
   // carries the machine's dot (MachineCard.tsx).
   const machineCardShown = started && environmentsShown && layout === "combined" && !waiting && !savedPick;
   const { card: machineCardRows, dot: machineDot } = useMachineCard(currentPickerComputer, Boolean(machineCardShown));
+  // The machine chip's live dot keeps its filled look while the machine's link comes up or comes back
+  // on its own, for the shared bound (ui/lasting.ts CONNECTION_QUIET_MS, schemas/notice-timing): a
+  // blip draws no ring and no "Not connected" (Leo, 2026-11-14: "i also want all our connectivity stuff
+  // to shut up and load faster"; 2026-11-16: "obviously if it isn't interactive im not connected").
+  // A refused sign-in or an update the machine needs, and a Cloud machine asleep, show at once. The
+  // whole link word (`peerLinks`) comes first: a daemon folds authFailed, updateRequired and paused
+  // into the older `state` word "offline" (acpmux protocol/peer_state.rs MachineLink::folded).
+  const computerState = (currentComputer ? peerLinks[currentComputer.id]?.link : undefined) ?? currentComputer?.state;
+  const computerDipping =
+    currentComputer !== undefined &&
+    !environmentReady(currentComputer) &&
+    computerState !== "authFailed" &&
+    computerState !== "updateRequired" &&
+    computerState !== "paused" &&
+    computerState !== "resuming";
+  const computerDipSaid = useConnectionQuiet(computerDipping);
   // After the last hook: nothing to show yet draws the bare strip.
   if (!currentComputer && !currentFolder && !projectChoices) return <div className="acpmux-composer-strip" />;
   // What every environment control shares: the list, the pick, setup and Cloud's run mode.
@@ -957,7 +986,7 @@ export function ComposerContext({
     cloudPicked || sandboxPicked || savedPick || waiting || (layout === "where-machine" && localMachine)
       ? undefined
       : currentComputer
-        ? environmentReady(currentComputer)
+        ? environmentReady(currentComputer) || (computerDipping && !computerDipSaid)
         : undefined;
   // A Cloud machine that sleeps (withCloudSleep): paused is the quiet ring, resuming a spinner.
   const machineSleep =
@@ -1394,6 +1423,13 @@ function availableFolders(summary: Summary | undefined, sessions: readonly Sessi
     if (sessionComputer === computer) add(session.cwd);
   }
   return folders;
+}
+
+/// Whether two summaries put their chat in the same place (`placeFields`).
+function samePlace(left: Summary | undefined, right: Summary | undefined): boolean {
+  if (left === right) return true;
+  if (!left || !right) return false;
+  return placeFields(left).every((field, index) => field === placeFields(right)[index]);
 }
 
 function normalizeCwd(cwd?: string): string | undefined {

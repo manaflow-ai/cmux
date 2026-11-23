@@ -720,9 +720,9 @@ def light_side_label(label: str) -> str:
 
 def _family(label: str) -> str:
     """`<class>-xcode-<version>` for any glaeda label naming a class, whatever its role or namespace
-    (side, fast, trusted, nightly, promote, signing, aws), else "". Wider than
-    portable_job_placement.family(), which reads only pool.OWNED_LABEL: the nightly builder's pool
-    (glaeda-trusted-light-xcode-26.6, cmux22) is a light mini, and its queue must hold the light minis too."""
+    (side, fast, trusted, nightly, promote, signing, aws), else "". Wider than pool.OWNED_LABEL alone:
+    the nightly builder's pool (glaeda-trusted-light-xcode-26.6, cmux22) is a light mini, and its queue must
+    hold the light minis too."""
     parts = (label or "").split("-")
     if not parts or parts[0] != "glaeda":
         return ""

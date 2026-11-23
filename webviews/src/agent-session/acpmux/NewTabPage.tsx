@@ -19,7 +19,7 @@ import { BrowseFailure } from "./BrowseFailure";
 import { ErrorDetails } from "./conversation/ErrorDetails";
 import { browseFailureMessage } from "./browseFailureModel";
 import { defaultRow, stepSelection, EMPTY_OMNIBAR, omnibarRows, type OmnibarContext, type OmnibarRow } from "./omnibar";
-import { firstProject, homePath, mostRecentProject, projectLabel } from "./sessionList";
+import { firstProject, homePath, mostRecentProject, projectLabel, isTemporaryFolder } from "./sessionList";
 import { useT } from "./i18n";
 import { isStartableProject, rememberedStartedProject } from "./newtab/startedProject";
 import { useNoEntryMotion } from "./newtab/noEntryMotion";
@@ -200,7 +200,7 @@ export function NewTabPage({
   const [started] = useState(() => (home ? (rememberedStartedProject() ?? startedProject) : undefined));
   const projectCwd =
     picked ??
-    (isStartableProject(cwd) || !home
+    ((isStartableProject(cwd) && !isTemporaryFolder(cwd)) || !home
       ? cwd
       : (firstProject(started ? [started.replace(/(.)\/+$/, "$1")] : [], home, knownProjects) ??
         mostRecentProject(snapshot.sessions, home, knownProjects) ??

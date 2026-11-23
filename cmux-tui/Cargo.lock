@@ -70,6 +70,7 @@ dependencies = [
  "cmux-tui-platform",
  "cmux-unix-socket",
  "cmux-usage-patterns",
+ "cmux-usage-share",
  "cmux-vault-egress",
  "cmux-wg",
  "cmux-worktree-care",
@@ -1563,6 +1564,7 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+ "toml",
 ]
 
 [[package]]
@@ -1713,6 +1715,7 @@ dependencies = [
 name = "cmux-customize"
 version = "0.1.0"
 dependencies = [
+ "cmux-action-catalog",
  "cmux-app-manifest",
  "cmux-config",
  "cmux-file-lock",
@@ -1764,7 +1767,9 @@ dependencies = [
 name = "cmux-daemon-launch-core"
 version = "0.1.0"
 dependencies = [
+ "cmux-cloud-environment",
  "cmux-local-auth",
+ "libc",
  "serde",
  "serde_json",
 ]
@@ -1784,6 +1789,21 @@ dependencies = [
  "libc",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "cmux-duress"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "cmux-agent-cli-render",
+ "cmux-fault",
+ "ghostty-vt",
+ "hex",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "toml",
 ]
 
 [[package]]
@@ -1882,6 +1902,7 @@ dependencies = [
 name = "cmux-follow-cam"
 version = "0.1.0"
 dependencies = [
+ "cmux-process",
  "serde",
  "serde_json",
 ]
@@ -1944,6 +1965,7 @@ dependencies = [
  "base64",
  "cmux-apps",
  "cmux-cloud-environment",
+ "cmux-cloud-start-core",
  "cmux-file-lock",
  "cmux-json",
  "cmux-link",
@@ -2212,6 +2234,7 @@ dependencies = [
  "reqwest",
  "rustls",
  "serde",
+ "serde_json",
  "sha1",
  "sha2 0.10.9",
  "tempfile",
@@ -2461,7 +2484,9 @@ dependencies = [
 name = "cmux-signed-bundle"
 version = "0.1.0"
 dependencies = [
+ "cmux-file-lock",
  "cmux-process",
+ "libc",
  "sha2 0.10.9",
  "tempfile",
 ]
@@ -2592,11 +2617,31 @@ name = "cmux-terminal-prediction"
 version = "0.1.0"
 
 [[package]]
+name = "cmux-terminal-projection"
+version = "0.1.0"
+dependencies = [
+ "ghostty-vt",
+ "unicode-segmentation",
+ "unicode-width",
+]
+
+[[package]]
 name = "cmux-terminal-sizing"
 version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "cmux-theme-pack"
+version = "0.1.0"
+dependencies = [
+ "cmux-config",
+ "cmux-file-lock",
+ "serde",
+ "serde_json",
+ "tempfile",
 ]
 
 [[package]]
@@ -2641,6 +2686,7 @@ dependencies = [
  "cmux-cloud-client",
  "cmux-cloud-config",
  "cmux-cloud-environment",
+ "cmux-cloud-handlers",
  "cmux-cloud-machine",
  "cmux-cloud-start-core",
  "cmux-cloud-wire",
@@ -2649,6 +2695,7 @@ dependencies = [
  "cmux-conversation",
  "cmux-customize",
  "cmux-customize-recipes",
+ "cmux-daemon-launch-core",
  "cmux-device-kind",
  "cmux-fault",
  "cmux-file-lock",
@@ -2656,6 +2703,7 @@ dependencies = [
  "cmux-git",
  "cmux-holder",
  "cmux-host",
+ "cmux-host-budget",
  "cmux-json",
  "cmux-layout-reducer",
  "cmux-link",
@@ -2675,6 +2723,7 @@ dependencies = [
  "cmux-server-core",
  "cmux-signed-bundle",
  "cmux-terminal-client",
+ "cmux-theme-pack",
  "cmux-theme-tokens",
  "cmux-tui-cdp",
  "cmux-tui-core",
@@ -2687,6 +2736,7 @@ dependencies = [
  "cmux-vm",
  "cmux-vm-pool",
  "cmux-vnc",
+ "cmux-web-pieces",
  "cmux-wg",
  "core-foundation 0.10.1",
  "crossbeam-channel",
@@ -2705,6 +2755,7 @@ dependencies = [
  "parking_lot",
  "plist",
  "png",
+ "pulldown-cmark",
  "ratatui",
  "regex",
  "reqwest",
@@ -2983,6 +3034,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-usage-share"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "cmux-config",
+ "getrandom 0.3.4",
+ "hex",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "cmux-vault-egress"
 version = "0.1.0"
 dependencies = [
@@ -3060,6 +3126,17 @@ dependencies = [
  "flate2",
  "getrandom 0.3.4",
  "num-bigint",
+]
+
+[[package]]
+name = "cmux-web-pieces"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "cmux-signed-envelope",
+ "ring",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
