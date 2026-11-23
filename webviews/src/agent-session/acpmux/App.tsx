@@ -182,6 +182,7 @@ import { drawsAsIs, setStreamingRowBlocked, streamingRowBlocked, textOnlyRow } f
 import { liveToolOutput } from "./liveToolOutput";
 import { remoteComposer } from "./remoteEditing";
 import { Composer, type ComposerHandle, type ComposerWake } from "./Composer";
+import { useComposerStatusLine } from "./ComposerStatusLine";
 import { takeExternalInto } from "./composer/externalAttach";
 import {
   FolderContinuation,
@@ -7229,6 +7230,23 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     [composerSnapshot, machineCatalog],
   );
   const composerDrawn = useComposerView(composerOnMachine);
+  // The person's own status line under the composer (Settings > Status Line Command): asked again
+  // when the chat's status, turn count, model or mode changes, never on a timer.
+  const askStatusLine = useCallback(
+    (id: string) => directClient.current?.statusLine(id) ?? Promise.resolve(undefined),
+    [],
+  );
+  const statusLineSummary = snapshot.summary;
+  const statusLine = useComposerStatusLine(
+    askStatusLine,
+    snapshot.sessionId ?? statusLineSummary?.sessionId,
+    [
+      statusLineSummary?.status,
+      statusLineSummary?.turnCount,
+      statusLineSummary?.model,
+      statusLineSummary?.modes?.currentModeId,
+    ].join("|"),
+  );
   useEffect(() => {
     if (!snapshot.sessionId) return;
     setProjectDraft(undefined);
@@ -9924,6 +9942,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             turnQueue={snapshot.queue}
             sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
             placeholder={isSideSession ? t("sideSession.placeholder") : undefined}
+            statusLine={statusLine}
             switching={Boolean(switchView.intent)}
             // An existing chat being restored or opened (no handshake yet, or its session not
             // attached) draws no new chat's folder and environment strip.

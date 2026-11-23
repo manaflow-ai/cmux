@@ -842,6 +842,9 @@ const SECRET_GONE = ["no secret request with that id", "the agent stopped waitin
 /// The capability id an acpmux that keeps a turn's before and after picture of the chat's page names
 /// (`_acpmux/turn_shots`, hub/turn_shots.rs): without it no turn reads its pictures.
 const TURN_SHOTS_CAPABILITY = "turn-shots-v1";
+/// The capability id an acpmux that runs the person's status line command names
+/// (`_acpmux/status_line`, hub/status_line.rs): without it the composer asks for no line.
+const STATUS_LINE_CAPABILITY = "status-line-v1";
 
 /// Whether listed chat `session` is the one `name` names: its name, its short name, or, for a chat
 /// on another machine (listed as `<peer>/<name>`), its bare name, which its messages sign with.
@@ -11875,6 +11878,18 @@ export class AcpmuxDirectClient {
     }
     // l10n-allow: an internal retry signal for TurnShotCache; never shown.
     throw new Error("turn pictures still being taken");
+  }
+  /// Chat `sessionId`'s status line (`_acpmux/status_line`): the first line the command the
+  /// settings name printed, or undefined when none is set, it printed nothing in time, or acpmux
+  /// runs none. acpmux reads the command from the settings file; the page never sends one.
+  async statusLine(sessionId: string): Promise<string | undefined> {
+    if (!sessionId || this.capabilities?.has(STATUS_LINE_CAPABILITY) !== true) return undefined;
+    try {
+      const line = objectValue(await this.request("_acpmux/status_line", { sessionId }))?.line;
+      return typeof line === "string" && line.trim() ? line : undefined;
+    } catch {
+      return undefined;
+    }
   }
   async continueIn(harness: string): Promise<string | undefined> {
     if (!this.handoffSupported || this.turnOpen || this.summaryRuns(this.summary) || this.queue.length > 0) return;
