@@ -43,6 +43,7 @@ import {
   restRoom,
   rowFrameKey,
   SINCE_DIVIDER,
+  layoutGeometry,
 } from "./model";
 import { RowFrameCache } from "./conversation/rowFrameCache";
 import { ThreadMinimap } from "./threadMinimap/ThreadMinimap";
@@ -3814,20 +3815,21 @@ function TranscriptView({
   const followHeld =
     jumpTarget.current !== undefined ||
     (scroller !== null && userScrollIntent(scroller).isHeld() && !followRequest.current?.());
-  // A chat that opens at its latest row (no reader place to reopen at among its rows) is drawn there
-  // in its first commit: the placement pass scrolls it to that end before paint, and drawing that
-  // commit at offset 0 built the transcript's top rows only for the pass to move off them, a second
-  // render of the whole view and a second forced page layout before the first frame (CMUX-571:
-  // commit 1 drew 8 top rows at offset 0, commit 2 the 74 at the end).
-  const opensAtEnd =
-    sessionSwitched &&
-    draggedHeight === undefined &&
-    height > 0 &&
-    layout.totalHeight > height &&
-    !(openAt !== undefined && rows.some((row) => row.id === openAt.rowId));
-  const projectedTop = opensAtEnd
-    ? Math.max(0, layout.totalHeight - height)
-    : sessionSwitched || placedBefore === layout || draggedHeight !== undefined
+  // A chat switched to opens where the placement pass will put it (the open below, `didOpenAtLatest`):
+  // at the row it was left on (`openAt`), else at its latest row, or from the top when it fits. Its
+  // first commit mounts the rows it shows there. Rendered from the top instead, a switch mounted the
+  // chat's first rows, laid them out, placed the view at its end, and rendered and laid out again with
+  // the rows there before its first paint: a second render, commit and forced layout of the whole
+  // transcript (bench/settled-page.bench.ts chat_switch: about half of the switch).
+  const switchedAt = sessionSwitched && openAt ? rows.findIndex((row) => row.id === openAt.rowId) : -1;
+  const switchedLatest = Math.max(0, layout.totalHeight - height);
+  const projectedTop = sessionSwitched
+    ? layout.totalHeight <= height || draggedHeight !== undefined
+      ? undefined
+      : switchedAt < 0
+        ? switchedLatest
+        : Math.min(switchedLatest, layout.geometry.topAt(switchedAt) + openAt!.offset)
+    : placedBefore === layout || draggedHeight !== undefined
       ? undefined
       : followingRef.current
         ? openedAtLatest && !followHeld
@@ -4769,10 +4771,10 @@ function TranscriptView({
         const top = at < 0 ? latest : Math.min(latest, layout.geometry.topAt(at) + openAt!.offset);
         const before = node.scrollTop;
         clearScrollOrigin(node);
-        // At the latest row the end is settled as a following view's is (rounded up, its fraction
-        // kept): a chat that opens at its end is drawn there in its first commit (`opensAtEnd`), so
-        // no second commit's follow pass comes to lift WebKit's floored offset the last pixel.
-        // Written whatever the scroller reads now: its spacer may not be at the new height yet.
+        // At the latest row the end is written as a following view's is (rounded up): floored, it
+        // rested a pixel short of a fractional end until the next following pass put it there, and
+        // a switch that mounts its rows at the end in its first commit has no next pass.
+        // Its fraction is kept, so the follow pass reads the end where it was written.
         if (at < 0) {
           node.scrollTop = Math.ceil(top - 0.01);
           retainScrollOrigin(node, top);
