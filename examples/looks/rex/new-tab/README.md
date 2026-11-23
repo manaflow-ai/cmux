@@ -5,7 +5,7 @@ The New Tab page opens a terminal in the current workspace, creates a workspace 
 ## Install or preview
 
 ```sh
-cmux setup install github.com/manaflow-ai/cmux/examples/looks/rex/new-tab@lane/rex-feature-looks
+cmux setup install github.com/manaflow-ai/cmux/examples/looks/rex/new-tab@feat-cmux-next
 ```
 
 To remove the installed layer, run `cmux setup remove manaflow-ai/rex-new-tab`.

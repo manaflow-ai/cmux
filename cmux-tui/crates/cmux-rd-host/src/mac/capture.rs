@@ -766,6 +766,9 @@ pub fn displays(which: &str) -> Res<Displays> {
 /// `main` (the menu bar display), a display's index counted left to right, or `id:<n>`, the
 /// display whose CGDirectDisplayID is n (a run's virtual display, from a screen link).
 fn pick(displays: &[(Id, u32)], which: &str) -> Res<(Id, u32)> {
+    if displays.is_empty() {
+        return Err(crate::permissions::no_display_here().into());
+    }
     let ids: Vec<u32> = displays.iter().map(|d| d.1).collect();
     // SAFETY: CGMainDisplayID has no preconditions.
     let main = unsafe { cg::CGMainDisplayID() };
@@ -1016,6 +1019,7 @@ impl Capture {
         // meanwhile is applied to this stream once it is there.
         let mut streams = live_streams().lock().unwrap_or_else(|p| p.into_inner());
         let excluded = current_exclusions();
+        crate::permissions::require_screen_recording()?;
         let (content, displays) = shareable_displays()?;
         let picked = pick(&displays, which);
         let result = picked.and_then(|(display, id)| {
@@ -1152,6 +1156,7 @@ impl Capture {
         // replaces the old one in the live list, so a change sent meanwhile reaches it.
         let mut streams = live_streams().lock().unwrap_or_else(|p| p.into_inner());
         let excluded = current_exclusions();
+        crate::permissions::require_screen_recording()?;
         let (content, displays) = shareable_displays()?;
         let wanted = self.restart.display;
         let made = displays
