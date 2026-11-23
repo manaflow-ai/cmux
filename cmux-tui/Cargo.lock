@@ -1374,6 +1374,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-backdrop-gen"
+version = "0.1.0"
+dependencies = [
+ "png",
+]
+
+[[package]]
 name = "cmux-bookmarks-core"
 version = "0.1.0"
 dependencies = [
@@ -2066,6 +2073,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-launch-image"
+version = "0.1.0"
+
+[[package]]
 name = "cmux-layout-reducer"
 version = "0.1.0"
 dependencies = [
@@ -2561,6 +2572,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-tab-snapshots"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+]
+
+[[package]]
 name = "cmux-tailnet"
 version = "0.1.0"
 dependencies = [
@@ -3015,6 +3036,7 @@ name = "cmux-tui-util"
 version = "0.1.0"
 dependencies = [
  "arc-swap",
+ "cmux-config",
  "cmux-tui-platform",
  "getrandom 0.3.4",
  "libc",

@@ -110,6 +110,15 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
+        "session route",
+        &[
+            (
+                "Ask what to do with a dead session: restart, move or a successor",
+                "acpmux session route --facts /tmp/review-27-death.json",
+            ),
+        ],
+    ),
+    (
         "session rename",
         &[
             (
