@@ -65,4 +65,10 @@ import Testing
         first.setMode("auto", of: "s")
         #expect(CloudPlaceFlows(defaults: defaults).mode(of: "s") == "auto")
     }
+
+    @Test func dirtyCountSkipsARenamesSourcePath() {
+        let out = Data(" M a.txt\0R  new.txt\0old.txt\0?? b.txt\0".utf8)
+        #expect(CloudPlaceFlows.dirtyCount(porcelainZ: out) == 3)
+        #expect(CloudPlaceFlows.dirtyCount(porcelainZ: Data()) == 0)
+    }
 }

@@ -199,8 +199,9 @@ struct CloudMove {
         let workspace = services.machines.local.store.workspace(containing: pane.handle)
         // The flow the chat's header draws (``CloudPlaceFlows``): each step below reports itself.
         let place = services.cloud.place
-        place.begin(session: session, toCloud: true, trigger: invocation["trigger"]?.stringValue, from: CloudPlaceFlows.thisMac, to: "",
-                    cargo: CloudPlaceFlows.Cargo.read(tab: tab, session: session, services: services))
+        var cargo = CloudPlaceFlows.Cargo.read(tab: tab, session: session, services: services)
+        cargo.dirtyFiles = await CloudPlaceFlows.dirtyFiles(in: tab.cwd)
+        place.begin(session: session, toCloud: true, trigger: invocation["trigger"]?.stringValue, from: CloudPlaceFlows.thisMac, to: "", cargo: cargo)
         guard let chat = try await chatFolder(tab: tab, workspace: workspace, session: session, invocation: invocation),
               let folder = CloudMoveFolder(chat: chat) else { throw Failure(message: CloudMoveStrings.noFolder) }
         guard !folder.isTooBroad else { throw Failure(message: CloudMoveStrings.homeFolder) }
