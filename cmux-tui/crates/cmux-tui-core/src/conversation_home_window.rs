@@ -48,6 +48,7 @@ pub(crate) struct HomeWindowRead {
     /// The whole list's order.
     pub order: Arc<HomeOrder>,
     /// Whether the order was read from the store (false: the kept one).
+    #[cfg_attr(not(test), expect(dead_code, reason = "read by the window tests only"))]
     pub ordered_now: bool,
 }
 
