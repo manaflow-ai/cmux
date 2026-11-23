@@ -88,7 +88,8 @@ const opened: Step[] = [
 test("user_message(turnId) > turn_started > tool_call: the Working for line has the head gap over it", async () => {
   for (const count of [7, 8]) {
     const { view, gap } = await after(opened, count, true);
-    const line = view.find((row) => row.kind === "working" && !row.below)!;
+    // Since #50242 the running header is the turn's Worked for row in its running phase.
+    const line = view.find((row) => row.kind === "worked" && row.turnPhase === "running")!;
     // Since #49052 "Working for" stands from the turn's start where "Worked for" lands: over the
     // message that opened the turn, under the turn before's footer, with the block gap a footer stands
     // over "Worked for". The message sits under it, where the turn's open fold holds it.
@@ -223,7 +224,7 @@ test("turn_result (ended on work) > user_message(turnId, notice) > turn_started:
     // Once the turn starts, its "Working for" heads it over the notice (#49052), so the block gap
     // under the footer goes to that line, and the notice sits under it.
     const head = count === 7 ? view[at - 1]! : notice;
-    if (count === 7) expect(head.kind).toBe("working");
+    if (count === 7) expect(head.kind === "worked" && head.turnPhase === "running").toBe(true);
     expect(view[view.indexOf(head) - 1]!.kind).toBe("turnSummary");
     expect(gap(head.id)).toBe(TRANSCRIPT_BLOCK_GAP);
   }
