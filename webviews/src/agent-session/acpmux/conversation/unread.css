@@ -24,6 +24,13 @@
   position: relative;
   display: grid;
 }
+/* Its row keeps layout containment alone. Every transcript row clips its paint to its own box
+   (styles.css .acpmux-row, 34 px), and the mark lies past that box, over the gap and on the next
+   row's Worked for line: clipped, "New" never painted there, only the lit divider (which is the
+   next row's) showed. A tool card's row does the same for its card (conversation.css). */
+.acpmux-row.acpmux-sinceDivider {
+  contain: layout;
+}
 .cv-since__menu {
   position: absolute;
   inset-inline: 0;
