@@ -14,13 +14,12 @@
 //   bun scripts/chat-sim.ts --sweep ~/.acpmux/sessions [--jobs 4]   (replay every chat there, grouped)
 //
 // Exit status: 0 with no violations, 1 with any (2: bad arguments).
-import { existsSync, readdirSync, readFileSync, statSync, writeFileSync, appendFileSync } from "node:fs";
-import { join } from "node:path";
-import type { EventRecord } from "../src/agent-session/acpmux/direct";
+import { readFileSync, writeFileSync, appendFileSync } from "node:fs";
 import { runSimulation, summarize, type SimResult } from "../src/agent-session/acpmux/sim/run";
-import { parseRecords, sanitizeRecords } from "../src/agent-session/acpmux/sim/sanitize";
+import { sanitizeRecords } from "../src/agent-session/acpmux/sim/sanitize";
 import { replayScenario, type SimScenario } from "../src/agent-session/acpmux/sim/script";
 import { SCENARIOS, longRun, scenarioNames } from "../src/agent-session/acpmux/sim/scenarios";
+import { cutRecords, readRecords } from "./chat-sim-records";
 
 const args = process.argv.slice(2);
 const flag = (name: string) => args.includes(name);
@@ -39,18 +38,6 @@ function usage(code: number): never {
       .join("\n"),
   );
   process.exit(code);
-}
-
-/** A session directory's records (events/*.ndjson), or one NDJSON file's. */
-function readRecords(path: string): EventRecord[] {
-  if (statSync(path).isDirectory()) {
-    const dir = existsSync(join(path, "events")) ? join(path, "events") : path;
-    return readdirSync(dir)
-      .filter((name) => name.endsWith(".ndjson"))
-      .sort()
-      .flatMap((name) => parseRecords(readFileSync(join(dir, name), "utf8")));
-  }
-  return parseRecords(readFileSync(path, "utf8"));
 }
 
 if (flag("--help") || flag("-h")) usage(0);
@@ -130,7 +117,7 @@ const scenarios: SimScenario[] = [];
 const replay = value("--replay");
 if (replay) {
   const range = { from: number("--from"), to: number("--to"), limit: number("--limit") };
-  const raw = readRecords(replay.replace(/^~/, process.env.HOME ?? "~"));
+  const raw = readRecords(replay);
   const sanitizeTo = value("--sanitize");
   if (sanitizeTo) {
     const clean = sanitizeRecords(raw, range);
@@ -138,9 +125,7 @@ if (replay) {
     console.log(`wrote ${clean.length} sanitized records (of ${raw.length}) to ${sanitizeTo}`);
     scenarios.push(replayScenario(`replay:${sanitizeTo}`, clean));
   } else {
-    const kept = raw
-      .filter((record) => record.seq >= (range.from ?? 0) && record.seq <= (range.to ?? Number.POSITIVE_INFINITY))
-      .slice(0, range.limit ?? Number.POSITIVE_INFINITY);
+    const kept = cutRecords(raw, range);
     scenarios.push(replayScenario(`replay:${replay}`, kept));
   }
 } else if (value("--long")) {

@@ -15,14 +15,15 @@ The simulator plays a chat through the pane's own code on virtual time, with no 
 It runs under plain `bun` (no DOM), so it scales: a 1,800-turn run is 43k steps, 10k+ rows and 40 hours of
 virtual time.
 
-| File                                | What                                                                                                                                                                                                                                                   |
-| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `script.ts`                         | The scenario language: `sim(name, about).prompt(..).think(..).tool(..).say(..).turnEnd()`, plus `incoming` (another agent's notice or message), `background`, `subagent`, `compaction`, `reader` (scrolling), `wait`, and `record` for any raw record. |
-| `scenarios.ts`                      | The named scenarios (`SCENARIOS`) and `longRun(turns)`.                                                                                                                                                                                                |
-| `run.ts`                            | `runSimulation(scenario, options)`: the run, the probes and the rules. `summarize(result)`.                                                                                                                                                            |
-| `sanitize.ts`                       | Makes a recorded chat safe to commit (below).                                                                                                                                                                                                          |
-| `../../../../scripts/chat-sim.ts`   | The command line.                                                                                                                                                                                                                                      |
-| `../../../../test/chat-sim.test.ts` | The tests: every scenario, a sanitized replay, the sanitizer, a long run.                                                                                                                                                                              |
+| File                                    | What                                                                                                                                                                                                                                                   |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `script.ts`                             | The scenario language: `sim(name, about).prompt(..).think(..).tool(..).say(..).turnEnd()`, plus `incoming` (another agent's notice or message), `background`, `subagent`, `compaction`, `reader` (scrolling), `wait`, and `record` for any raw record. |
+| `scenarios.ts`                          | The named scenarios (`SCENARIOS`) and `longRun(turns)`.                                                                                                                                                                                                |
+| `run.ts`                                | `runSimulation(scenario, options)`: the run, the probes and the rules. `summarize(result)`.                                                                                                                                                            |
+| `sanitize.ts`                           | Makes a recorded chat safe to commit (below).                                                                                                                                                                                                          |
+| `../../../../scripts/chat-sim.ts`       | The command line.                                                                                                                                                                                                                                      |
+| `../../../../scripts/chat-sim-watch.ts` | Watch a run in Chrome with motion on: video and screenshots ("Watch it").                                                                                                                                                                              |
+| `../../../../test/chat-sim.test.ts`     | The tests: every scenario, a sanitized replay, the sanitizer, a long run.                                                                                                                                                                              |
 
 ## Run it
 
@@ -58,6 +59,38 @@ CMUX_BROWSER_TESTS=1 CHAT_SIM_DUMP=incoming-notice-turn:30 bun test test/chat-si
 
 It needs Chrome (Linux, a Freestyle VM or CI; never on a Mac). A step costs two frames, so the replay
 (3,561 steps) takes a couple of minutes.
+
+## Watch it
+
+Leo, 2026-11-22: "offline as in it doesnt actually need a proper agent response. it just simulates it. based
+off like my transcript history. that's offline".
+
+`scripts/chat-sim-watch.ts` plays a scenario, a long run or any recorded chat (a fixture or a session
+directory) in headless Chrome with the real `VirtualTranscript`, the pane's CSS and its motion **on**, on
+scaled real time, so streaming text, tool calls, subagents and folds move as they do in the pane. It writes a
+video (`--video`, WebM) and screenshots (`--shots DIR`) at every turn's start and end, at the end, and every
+`--shot-every N` steps, plus `result.json` (steps played, turns, model-rule violations).
+
+```sh
+bun scripts/chat-sim-watch.ts incoming-notice-turn --video /tmp/sim.webm --shots /tmp/sim-shots
+bun scripts/chat-sim-watch.ts --long 3 --speed 2 --video /tmp/long.webm --shots /tmp/long-shots
+bun scripts/chat-sim-watch.ts --replay test/fixtures/chat-sim/replay-lane-session.ndjson --limit 800 --speed 8 --video /tmp/replay.webm
+bun scripts/chat-sim-watch.ts --replay ~/.acpmux/sessions/<id> --from 2000 --to 3000 --shots /tmp/mine
+```
+
+`--speed X` runs virtual time X times faster; `--max-gap MS` (default 1500) caps any one real wait, so an
+idle hour in a transcript does not play as one; `--max-seconds S` (default 600) stops the run there, so a
+huge fixture cannot run forever; `--width`/`--height` size the pane (720 by 900); `--motion off` draws rows at
+rest, as the rule checks do. The page's entry is `window.__chatSim.watch({ name | records, speed, ... })`
+in `test/browser/chat-sim.harness.tsx` (the page is handed the records, so any file works); `run` and `at`
+are unchanged.
+
+Like the browser lane it needs Chrome, so not on a Mac: run it on a Linux VM with Chrome, or through the fleet:
+
+```sh
+cd webviews && bun scripts/chat-sim-watch.ts --long 3 --video /tmp/long.webm --shots /tmp/long-shots   # on the VM
+cmux-ci test --setup playwright --not-tests --artifact webviews/sim-out -- 'cd webviews && bun scripts/chat-sim-watch.ts --long 3 --video sim-out/long.webm --shots sim-out/long'
+```
 
 ## Replay a real chat
 

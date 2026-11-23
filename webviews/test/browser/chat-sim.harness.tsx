@@ -7,13 +7,16 @@
 // returns the result without its per-step trace (`traces` keeps the steps that broke a rule).
 //
 // The page's motion is off (`data-agent-motion=off`), so a box is where its row rests, not a frame of a
-// move. `?width=` sets the pane's width (default 720).
+// move. `?width=` sets the pane's width (default 720). `?motion=on` leaves the pane's motion on, for
+// `window.__chatSim.watch` (scripts/chat-sim-watch.ts): it plays a scenario, or records the page is
+// handed (any fixture), on scaled real time, so a person (or a video) sees the chat stream and fold.
 import { useLayoutEffect, useState } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { VirtualTranscript } from "../../src/agent-session/acpmux/App";
+import type { EventRecord } from "../../src/agent-session/acpmux/direct";
 import type { AcpmuxRow } from "../../src/agent-session/acpmux/model";
-import { runSimulationAsync, type SimResult } from "../../src/agent-session/acpmux/sim/run";
+import { createSimulation, runSimulationAsync, type SimResult } from "../../src/agent-session/acpmux/sim/run";
 import { parseRecords } from "../../src/agent-session/acpmux/sim/sanitize";
 import { replayScenario, type SimScenario } from "../../src/agent-session/acpmux/sim/script";
 import { SCENARIOS, longRun } from "../../src/agent-session/acpmux/sim/scenarios";
@@ -31,8 +34,10 @@ import "../../src/agent-session/acpmux/bottomStack.css";
 import "../../src/agent-session/acpmux/markdownField.css";
 
 const query = new URLSearchParams(location.search);
-document.documentElement.dataset.agentMotion = "off";
-document.documentElement.dataset.cmuxMotion = "off";
+if (query.get("motion") !== "on") {
+  document.documentElement.dataset.agentMotion = "off";
+  document.documentElement.dataset.cmuxMotion = "off";
+}
 
 type PaneState = { rows: readonly AcpmuxRow[]; working: boolean; sends: number };
 let show: (next: PaneState) => void = () => {};
@@ -163,4 +168,126 @@ async function at(name: string, until: number) {
   return dump();
 }
 
-Object.assign(window, { __chatSim: { run, at, dump } });
+export type WatchOptions = {
+  /** A scenario name (as `run` takes), unless `records` is given. */
+  name?: string;
+  /** Records to replay (a fixture the caller read), instead of a named scenario. */
+  records?: EventRecord[];
+  /** Virtual time runs this many times faster than real time (default 1). */
+  speed?: number;
+  /** The longest real wait between two steps, ms (default 1500): an idle hour does not play as one. */
+  maxGapMs?: number;
+  /** The shortest real wait between two steps, ms (default 16): a burst of records still draws frame by frame. */
+  minGapMs?: number;
+  /** Also call `onShot` every this many steps (0: only at turn boundaries and the end). */
+  shotEvery?: number;
+  /** Stop after this many seconds of real time. */
+  maxSeconds?: number;
+};
+
+export type WatchShot = { step: number; label: string; why: "turn-start" | "turn-end" | "every" | "end"; turn: number };
+
+/** What `watch` played. */
+export type WatchResult = {
+  scenario: string;
+  steps: number;
+  played: number;
+  turns: number;
+  shots: number;
+  wallMs: number;
+  virtualMs: number;
+  stoppedEarly: boolean;
+  violations: number;
+};
+
+// fixed-wait: watch plays the scenario on real time for a person or a video; the wait is the playback.
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/** Plays a scenario on scaled real time with the pane's motion as the page has it, drawing each step
+ *  as it comes. At turn starts and ends (and every `shotEvery` steps) it awaits `window.__chatSimShot`
+ *  (the watch command's screenshot hook) when the page has one. */
+async function watch(options: WatchOptions): Promise<WatchResult> {
+  const started = performance.now();
+  // The pane's words, as the app's page head loads them (the rule runs draw the keys, and keep doing so).
+  const strings = (await import("../../src/agent-session/acpmux/generated/strings.json")).default;
+  globalThis.__cmuxPaneStrings = { en: strings.en } as never;
+  const { setPaneLanguage } = await import("../../src/agent-session/acpmux/i18n");
+  setPaneLanguage("en");
+  const scenario = options.records
+    ? replayScenario(options.name ?? "records", options.records)
+    : await scenarioNamed(options.name ?? "replay");
+  const speed = options.speed && options.speed > 0 ? options.speed : 1;
+  const maxGap = options.maxGapMs ?? 1500;
+  const minGap = options.minGapMs ?? 16;
+  const deadline = options.maxSeconds ? started + options.maxSeconds * 1000 : Number.POSITIVE_INFINITY;
+  const shotHook = (window as unknown as { __chatSimShot?: (shot: WatchShot) => Promise<void> }).__chatSimShot;
+  let shots = 0;
+  const shoot = async (shot: WatchShot) => {
+    if (!shotHook) return;
+    shots += 1;
+    await shotHook(shot);
+  };
+  const sim = createSimulation(scenario, { rowsInTraceUpTo: 0 });
+  // The page's clock runs on the scenario's virtual time, so "Working for" and the elapsed counters read
+  // the simulated time, not the hours since the scenario's recorded start.
+  const realNow = Date.now.bind(Date);
+  let virtualAt = scenario.steps[0]?.at ?? realNow();
+  let realAt = performance.now();
+  Date.now = () => Math.round(virtualAt + (performance.now() - realAt) * speed);
+  let sends = 0;
+  let turn = 0;
+  let played = 0;
+  let stoppedEarly = false;
+  let lastAt = scenario.steps[0]?.at ?? 0;
+  for (let index = 0; index < scenario.steps.length; index += 1) {
+    if (performance.now() > deadline) {
+      stoppedEarly = true;
+      break;
+    }
+    const step = scenario.steps[index]!;
+    // fixed-wait: the step's own (scaled) time since the step before: the playback's clock.
+    await sleep(Math.min(maxGap, Math.max(minGap, (step.at - lastAt) / speed)));
+    lastAt = step.at;
+    virtualAt = step.at;
+    realAt = performance.now();
+    const wasEnded = sim.state().turnEnded;
+    const rows = sim.advance(index);
+    played += 1;
+    if (!rows) continue;
+    const state = sim.state();
+    const opened = state.turn !== turn;
+    if (opened) {
+      turn = state.turn;
+      sends += 1;
+    }
+    flushSync(() => show({ rows, working: state.working, sends }));
+    sim.check(index);
+    await frame();
+    const shot = { step: index, label: step.label, turn: state.turn };
+    if (opened) await shoot({ ...shot, why: "turn-start" });
+    else if (state.turnEnded && !wasEnded) {
+      // fixed-wait: let the turn's fold animation play out before the picture.
+      await sleep(Math.min(1200, maxGap));
+      await shoot({ ...shot, why: "turn-end" });
+    } else if (options.shotEvery && index % options.shotEvery === 0 && index < scenario.steps.length - 1)
+      await shoot({ ...shot, why: "every" });
+  }
+  // fixed-wait: let the last fold animation play out before the last picture.
+  await sleep(Math.min(1200, maxGap));
+  await shoot({ step: played - 1, label: "end", turn, why: "end" });
+  Date.now = realNow;
+  const result = sim.result();
+  return {
+    scenario: scenario.name,
+    steps: scenario.steps.length,
+    played,
+    turns: turn,
+    shots,
+    wallMs: Math.round(performance.now() - started),
+    virtualMs: (scenario.steps[Math.max(0, played - 1)]?.at ?? 0) - (scenario.steps[0]?.at ?? 0),
+    stoppedEarly,
+    violations: result.violations.length,
+  };
+}
+
+Object.assign(window, { __chatSim: { run, at, dump, watch } });
