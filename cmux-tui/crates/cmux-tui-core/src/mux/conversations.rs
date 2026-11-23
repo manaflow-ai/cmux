@@ -257,6 +257,31 @@ impl Mux {
         }
     }
 
+    /// `home-inbox` `since`: observes `principal`'s current Home rows in its
+    /// change log (created on first use, its revisions starting at `now_ms`)
+    /// and runs `read` on it under one lock.
+    pub(crate) fn with_home_changes<T>(
+        &self,
+        principal: &str,
+        now_ms: u64,
+        rows: &[cmux_conversation::HomeRow],
+        read: impl FnOnce(&cmux_conversation::HomeChangeLog) -> T,
+    ) -> T {
+        /// The callers whose logs are kept; the app, a page and the phone are a few.
+        const MAX_LOGS: usize = 16;
+        let mut logs =
+            self.conversations.home_changes.lock().unwrap_or_else(PoisonError::into_inner);
+        if !logs.contains_key(principal) && logs.len() >= MAX_LOGS {
+            // A dropped caller's next `since` reads the whole list.
+            logs.clear();
+        }
+        let log = logs
+            .entry(principal.to_owned())
+            .or_insert_with(|| cmux_conversation::HomeChangeLog::new(now_ms));
+        log.observe(rows);
+        read(log)
+    }
+
     /// Everyone typing now, by conversation (one lock for the Home rows).
     pub(crate) fn conversation_typing_all(&self) -> HashMap<String, Vec<String>> {
         let typing = self.conversations.typing.lock().unwrap_or_else(PoisonError::into_inner);

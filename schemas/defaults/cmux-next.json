@@ -909,6 +909,7 @@
     "setting.tabs.newTabTemplate": "minimal",
     "setting.tabs.overflow": "shrink",
     "setting.tabs.plusButton": "hover",
+    "setting.tabs.shellIconTheme": "default",
     "setting.tabs.swapCmdTAndCmdN": false,
     "setting.tabs.toolbarButtons": [],
     "setting.tabs.verticalTabs": false,

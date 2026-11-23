@@ -78,6 +78,11 @@ pub(super) enum Control {
     Reached { from: Option<SocketAddr>, via_turn: bool },
     /// Debug and tests: the socket's network is gone.
     Blackhole,
+    /// Debug and tests: the network goes dark (`true`: nothing this side
+    /// sends leaves and nothing arrives, on its socket or its TURN
+    /// allocation) or comes back on the same socket and addresses
+    /// (`false`), with no roam: an elevator, a tunnel, a dead cell.
+    Dark(bool),
     /// Debug and tests: the TURN allocation's stream to its server dies.
     KillTurn,
 }
@@ -150,6 +155,8 @@ pub(super) struct SessionParts {
     pub keeps_turn: bool,
     /// Fires when the current TURN allocation's stream dies.
     pub turn_dead: Option<watch::Receiver<bool>>,
+    /// The underlay's current plain-UDP destination.
+    pub route_to: Arc<watch::Sender<Option<SocketAddr>>>,
 }
 
 /// One live tunnel, as roaming sees it.
@@ -192,6 +199,7 @@ pub(super) struct Session {
     /// stale).
     roams: std::sync::atomic::AtomicU64,
     closed: AtomicBool,
+    route_to: Arc<watch::Sender<Option<SocketAddr>>>,
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -246,6 +254,7 @@ impl Session {
             path_epoch: Arc::new(watch::channel(0).0),
             roams: std::sync::atomic::AtomicU64::new(0),
             closed: AtomicBool::new(false),
+            route_to: parts.route_to,
         });
         lock(registry()).push(Arc::downgrade(&session));
         if let Some(dead) = turn_dead {
@@ -861,6 +870,14 @@ pub async fn network_changed() -> Vec<(String, Timeline)> {
     futures_util::future::join_all(roams).await
 }
 
+/// Where each live session's plain UDP goes now (sessions on this side's
+/// own TURN allocation, or with no route yet, name none). The Mac's network
+/// watch reads it to tell a change on an interface a session uses from one
+/// on an interface none does (`cmux-mobile-host` netwatch).
+pub fn route_destinations() -> Vec<SocketAddr> {
+    live().iter().filter_map(|session| *session.route_to.borrow()).collect()
+}
+
 /// Move the sessions on `client`'s device that run on another (dead or
 /// replaced) signaling socket onto `client`. Returns how many moved.
 pub fn rehome(client: &SignalingClient) -> usize {
@@ -904,6 +921,21 @@ pub fn simulate_network_loss(session_id: Option<&str>, dialer: bool) -> usize {
     for session in live() {
         if session.dialer == dialer && session_id.is_none_or(|id| id == session.session_id) {
             let _ = session.control.send(Control::Blackhole);
+            hit += 1;
+        }
+    }
+    hit
+}
+
+/// Debug and tests: one side's network (of `session_id`, or of every
+/// session) goes dark or comes back on the same socket and addresses, with
+/// no OS network event ([`Control::Dark`]). Returns how many sessions it hit.
+#[doc(hidden)]
+pub fn simulate_blackout(session_id: Option<&str>, dialer: bool, dark: bool) -> usize {
+    let mut hit = 0;
+    for session in live() {
+        if session.dialer == dialer && session_id.is_none_or(|id| id == session.session_id) {
+            let _ = session.control.send(Control::Dark(dark));
             hit += 1;
         }
     }

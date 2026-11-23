@@ -9,7 +9,10 @@ use serde_json::{Value, json};
 use super::answer::{
     Prefetched, TicketCache, grant_vmk, key_text, parse_answer, read_reply, token_subject,
 };
-use super::client::{Marks, PARK_REDIAL, classify, park_until, pinned_daemon, resume_outcome};
+use super::client::{
+    Marks, PARK_REDIAL, PEER_JOIN_REDIAL, classify, join_stalled, park_until, peer_join_wait,
+    pinned_daemon, resume_outcome,
+};
 use super::contract::{
     Failure, Phase, PhaseTimes, PhasesOf, StdinLine, Step, Vmk, answer_line, connected_line,
     detail_code, failure_line, parse_deadline, phases_line, route_line, served_line, serving_line,
@@ -418,6 +421,23 @@ fn a_parked_link_is_redialed_long_before_the_deadline() {
     assert_eq!(park_until(deadline, now), now + PARK_REDIAL);
     let nearly = now + Duration::from_secs(3);
     assert_eq!(park_until(nearly, now), nearly);
+}
+
+/// A circuit the daemon never joins is given up after [`PEER_JOIN_REDIAL`] on the first
+/// attempt, not the 15 s control timeout; each attempt that stalled at the join doubles the next
+/// one's wait, up to that timeout, so a daemon that is only slow to join still connects.
+#[test]
+fn a_join_the_daemon_never_answers_is_redialed_in_seconds_and_backs_off() {
+    assert_eq!(peer_join_wait(0), PEER_JOIN_REDIAL);
+    assert!(PEER_JOIN_REDIAL <= Duration::from_secs(5), "{PEER_JOIN_REDIAL:?}");
+    assert_eq!(peer_join_wait(1), PEER_JOIN_REDIAL * 2);
+    assert_eq!(peer_join_wait(2), Duration::from_secs(15));
+    assert_eq!(peer_join_wait(40), Duration::from_secs(15));
+    assert!(join_stalled(&Failure::retry(
+        Step::Relay,
+        "link transport failed: relay circuit join timed out"
+    )));
+    assert!(!join_stalled(&Failure::retry(Step::Parked, "relay allocation timed out")));
 }
 
 #[test]
