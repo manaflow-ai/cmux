@@ -9,7 +9,6 @@
 // a field-for-field mapping of them and nothing else in the pane changes.
 import {
   isLineRow,
-  onlyQuietThoughts,
   pathKey,
   SINCE_DIVIDER,
   TURN_RETRY,
@@ -17,6 +16,7 @@ import {
   type AcpmuxFileDiff,
   type AcpmuxPlanEntry,
   type AcpmuxRow,
+  onlyQuietThoughts,
 } from "../model";
 import type { Folds } from "./viewFolds";
 import { continuesTurn, opensTurn } from "../turnStart";
@@ -53,7 +53,7 @@ import { startedTasks, startsTask, TASK_LINE } from "./taskLines";
 import { isWaitingMessage } from "./pendingMessages";
 import { appendLaneNotice } from "./laneNoticeBatches";
 import { agentMessage } from "./agentMessages";
-import { turnCopyParts, turnCallParts, turnCopySaid } from "./turnCopy";
+import { turnCopyParts, turnCopySaid, turnCallParts } from "./turnCopy";
 import { turnEndActions } from "./turnEndActions.experiment";
 import { turnWork } from "./waterfallSpans";
 import { isVisiblyEmptyMessage, isVisiblyEmptyText } from "./visibleMessage";
