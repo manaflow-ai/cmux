@@ -140,6 +140,9 @@ struct MacScreenStateControlTests {
         #expect(idle["connected"]?.boolValue == false && idle["has_frame"]?.boolValue == false)
         #expect(idle["first_frame_ms"] == CmuxNextSettings.JSONValue.null && idle["connect_started_at"] == CmuxNextSettings.JSONValue.null)
         #expect(idle["frame_interval_ms"] == CmuxNextSettings.JSONValue.null)
+        // Nothing asked the hub: the read says so, rather than only "ended" and "no_answer".
+        #expect(idle["hub_phase"]?.stringValue == "idle")
+        #expect(idle["waits_to_show"]?.boolValue == false)
 
         let start = ContinuousClock.now
         session.timings.connectStarted(at: Date(timeIntervalSince1970: 1_700_000_000), start)
@@ -180,6 +183,24 @@ struct MacScreenStateControlTests {
         #expect(try rows(pages, tab: "other").isEmpty)
         pages.tabClosed("a")
         pages.tabClosed("home")
+    }
+
+    /// A device tab holding a scope until it is shown (`macScreen.open --autoconnect` into a tab that
+    /// was never selected) reads `waits_to_show`, and the hub request it then makes reads its phase.
+    @Test func aTabThatWaitsToBeShownSaysSo() throws {
+        let pages = makePages()
+        _ = pages.record(forDevice: deviceID, requesting: .view)
+        pages.prepare("a", record: MacScreenRecord(deviceID: deviceID), byPerson: true)
+        _ = pages.makeView(for: "a")
+        let waiting = try #require(try rows(pages, tab: "a").first)
+        #expect(waiting["hub_phase"]?.stringValue == "idle")
+        #expect(waiting["waits_to_show"]?.boolValue == true)
+        // Shown: the scope goes to the hub (with no hub signed in here, it is refused at once).
+        try #require(pages.tab("a")?.pane).resume()
+        let asked = try #require(try rows(pages, tab: "a").first)
+        #expect(asked["hub_phase"]?.stringValue == "refused")
+        #expect(asked["waits_to_show"]?.boolValue == false)
+        pages.tabClosed("a")
     }
 
     /// The method `cmux app mac-screens` sends is one the app registers in every build.

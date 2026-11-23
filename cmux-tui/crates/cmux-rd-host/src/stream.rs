@@ -73,6 +73,9 @@ pub struct SessionCfg {
     /// After injected input, frames skip the frame-rate cap for a short window
     /// (`--input-frame-now 1`; the engine's `input_frame_now`).
     pub input_frame_now: bool,
+    /// Tail-loss probes wait a round trip, not a fixed 250 ms (`--rtt-tail-probe 1`;
+    /// the engine's `rtt_tail_probe`, design D6). Off by default.
+    pub rtt_tail_probe: bool,
     /// The resolution ladder (design D5, `--resolution-ladder 1`; off by default): below the
     /// bits-per-pixel floor the encoded picture gets smaller, not blurrier.
     pub resolution_ladder: bool,
@@ -440,6 +443,7 @@ impl MediaSession {
                 path: PathKind::ViaCloudRegion,
                 frames_in_flight: cfg.frames_in_flight,
                 input_frame_now: cfg.input_frame_now,
+                rtt_tail_probe: cfg.rtt_tail_probe,
                 resolution_ladder: wants_ladder(cfg.resolution_ladder, negotiated_caps)
                     .then(|| LadderConfig { max_qp: Some(cfg.max_qp), ..LadderConfig::default() }),
                 ..EngineConfig::default()

@@ -523,6 +523,9 @@ fn session_cfg(
         // On by default: the frame that shows an input's effect goes out at once instead of
         // waiting out the frame-rate interval. `--input-frame-now 0` turns it off.
         input_frame_now: opts.flag_or("input-frame-now", true),
+        // Off by default: `--rtt-tail-probe 1` probes a lost newest frame after a round
+        // trip instead of 250 ms (design D6), for measuring before it ships.
+        rtt_tail_probe: opts.flag_or("rtt-tail-probe", false),
         // Off by default: `--resolution-ladder 1` makes the picture smaller, not blurrier,
         // below the bits-per-pixel floor (design D5), with `--max-qp N` as its QP ceiling.
         resolution_ladder: opts.flag_or("resolution-ladder", false),
