@@ -64,14 +64,14 @@ fn a_signed_delivery_over_loopback_starts_one_run() {
     let delivery = [("X-GitHub-Delivery".to_string(), "g-1".to_string())];
     let body = br#"{"ref":"refs/heads/main","after":"abc"}"#;
     let (status, answer) = webhook::send(&addr, &a.id, &secret, body, &delivery).unwrap();
-    assert_eq!((status, answer["status"].as_str()), (202, Some("accepted")));
+    assert_eq!((status, answer.get("status").and_then(|s| s.as_str())), (202, Some("accepted")));
     let (status, answer) = webhook::send(&addr, &a.id, &secret, body, &delivery).unwrap();
-    assert_eq!((status, answer["status"].as_str()), (200, Some("duplicate")));
+    assert_eq!((status, answer.get("status").and_then(|s| s.as_str())), (200, Some("duplicate")));
     let (status, _) = webhook::send(&addr, &a.id, "not-the-secret", body, &[]).unwrap();
     assert_eq!(status, 401);
     let (status, answer) =
         webhook::send(&addr, &a.id, &secret, br#"{"ref":"refs/heads/dev"}"#, &[]).unwrap();
-    assert_eq!((status, answer["status"].as_str()), (200, Some("ignored")));
+    assert_eq!((status, answer.get("status").and_then(|s| s.as_str())), (200, Some("ignored")));
 
     let deadline = Instant::now() + Duration::from_secs(5);
     let mut events = Vec::new();
@@ -81,7 +81,7 @@ fn a_signed_delivery_over_loopback_starts_one_run() {
     }
     assert_eq!(events.len(), 1, "one accepted delivery, one event");
     let mut exec = Recorder::default();
-    let e = &events[0];
+    let e = events.first().unwrap();
     let outcome = start_event(&store, &e.automation, &e.text, &e.key, 10, &mut exec).unwrap();
     let EventOutcome::Started(run) = outcome else { panic!("not started: {outcome:?}") };
     let row = store.run(&a.id, &run).unwrap().unwrap();

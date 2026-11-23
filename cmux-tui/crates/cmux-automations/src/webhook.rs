@@ -483,10 +483,10 @@ pub fn read_request(stream: &mut impl Read) -> Result<Request, ReadError> {
         }
         match stream.read(&mut chunk) {
             Ok(0) | Err(_) => return Err(ReadError::Gone),
-            Ok(n) => buf.extend_from_slice(&chunk[..n]),
+            Ok(n) => buf.extend_from_slice(chunk.get(..n).unwrap_or_default()),
         }
     };
-    let head = std::str::from_utf8(&buf[..head_end])
+    let head = std::str::from_utf8(buf.get(..head_end).unwrap_or_default())
         .map_err(|_| ReadError::Reply(400, "the request head is not UTF-8"))?
         .to_string();
     let mut lines = head.split("\r\n");
@@ -523,9 +523,10 @@ pub fn read_request(stream: &mut impl Read) -> Result<Request, ReadError> {
     }
     while body.len() < length {
         let want = (length - body.len()).min(chunk.len());
-        match stream.read(&mut chunk[..want]) {
+        let Some(window) = chunk.get_mut(..want) else { return Err(ReadError::Gone) };
+        match stream.read(window) {
             Ok(0) | Err(_) => return Err(ReadError::Gone),
-            Ok(n) => body.extend_from_slice(&chunk[..n]),
+            Ok(n) => body.extend_from_slice(chunk.get(..n).unwrap_or_default()),
         }
     }
     Ok(Request { method: method.to_string(), path: path.to_string(), headers, body })

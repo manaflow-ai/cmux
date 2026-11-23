@@ -89,7 +89,9 @@ pub(super) fn json(store: &Store, x: &Automation, with_secret: bool) -> Result<V
         "delivery_headers": webhook::DELIVERY_HEADERS,
     });
     if with_secret {
-        v["secret"] = json!(store.webhook_secret(&x.id)?);
+        if let Some(o) = v.as_object_mut() {
+            o.insert("secret".into(), json!(store.webhook_secret(&x.id)?));
+        }
     }
     Ok(v)
 }
@@ -121,7 +123,11 @@ pub(super) fn after_create(
         return Ok(());
     }
     match out.mode {
-        OutputMode::Json => v["webhook"] = json(store, x, true)?,
+        OutputMode::Json => {
+            if let Some(o) = v.as_object_mut() {
+                o.insert("webhook".into(), json(store, x, true)?);
+            }
+        }
         OutputMode::Quiet => {}
         _ => print(store, x, true)?,
     }
