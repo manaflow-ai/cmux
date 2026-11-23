@@ -145,6 +145,9 @@ try {
     const wrapped = async function (...a) { const t = performance.now(); try { return await fn.apply(this, a); } finally { if (globalThis.__t0) console.log("TRACE hook", pl.name, hook, Math.round(performance.now() - t), "at", Math.round(t - globalThis.__t0)); } };
     try { if (typeof h === "function") pl[hook] = wrapped; else h.handler = wrapped; } catch (e) { console.log("TRACE cannot wrap", pl.name, e.message); }
   }
+  { const env = server.environments?.client; const hot = env?.hot; if (hot) { const orig = hot.send.bind(hot); hot.send = (...a) => { if (globalThis.__t0) console.log("TRACE hotsend", T(), JSON.stringify(a[0]).slice(0, 60)); return orig(...a); }; } }
+  { const origEmit = server.watcher.emit.bind(server.watcher); server.watcher.emit = (ev, ...a) => { const t = performance.now(); const r = origEmit(ev, ...a); if (globalThis.__t0 && (ev === "change" || ev === "all")) console.log("TRACE emit", ev, Math.round(performance.now() - t), "ms sync, listeners", server.watcher.listenerCount(ev)); return r; }; }
+  { let last = performance.now(); setInterval(() => { const now = performance.now(); if (globalThis.__t0 && now - last > 15) console.log("TRACE lag", Math.round(now - last), "at", T()); last = now; }, 5).unref(); }
   await server.listen();
   globalThis.__t0 = 0; const T = () => Math.round(performance.now() - globalThis.__t0);
   server.watcher.on("change", (f) => { if (globalThis.__t0) console.log("TRACE watch", T(), path.basename(f)); });
