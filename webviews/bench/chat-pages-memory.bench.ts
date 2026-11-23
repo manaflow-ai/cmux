@@ -50,6 +50,8 @@ const NOCHAT = process.env.NOCHAT === "1";
 // one page with that many chats mounted (`?mounts=N#sessions=…`, mountModel.tsx and dev-host/host.ts), every one but the
 // newest display:none, and closes the page before it.
 const SHARED = process.env.SHARED === "1";
+// SHARED_HIDE=cv: hidden views use content-visibility:hidden (keeps layout and scroll) instead of display:none.
+const SHARED_HIDE = process.env.SHARED_HIDE === "cv" ? "cv" : "none";
 if (COUNTS.some((n) => !Number.isInteger(n) || n < 1) || !Number.isInteger(TURNS) || TURNS < 1) {
   console.error("usage: bun bench/chat-pages-memory.bench.ts [counts=1,10,30] [turns=100]");
   process.exit(2);
@@ -363,10 +365,14 @@ try {
         [FIRST_TEXT, count] as const,
         { timeout: 300_000, polling: 500 },
       );
-      await page.evaluate(() => {
+      await page.evaluate((mode) => {
         const mounts = [...document.querySelectorAll<HTMLElement>("[data-pane-mount]")];
-        for (const el of mounts.slice(0, -1)) el.style.display = "none";
-      });
+        for (const el of mounts) el.style.cssText = "position:absolute;inset:0";
+        for (const el of mounts.slice(0, -1)) {
+          if (mode === "cv") el.style.contentVisibility = "hidden";
+          else el.style.display = "none";
+        }
+      }, SHARED_HIDE);
       pages.push({ page, cdp: await context.newCDPSession(page) });
     }
     while (!SHARED && pages.length < count) {
@@ -487,6 +493,49 @@ try {
         `chat-pages-memory: a released chat opened again draws its newest reply in p50 ${p50.toFixed(0)} ms, p95 ${p95.toFixed(0)} ms (n=${opens.length})`,
       );
       perfRow({ name: "chat_pages_memory.reopen", p50, p95, unit: "ms" });
+    }
+  }
+  if (SHARED && REOPEN > 0 && pages.length === 1) {
+    // Switch back in the shared document: the visible view hides, a hidden one shows, timed to its second frame.
+    // `atBottom` says whether the transcript is still at its newest reply (instant means no scroll jump).
+    const switches = await pages[0].page.evaluate(
+      async ([mode, n]) => {
+        const mounts = [...document.querySelectorAll<HTMLElement>("[data-pane-mount]")];
+        const hide = (el: HTMLElement, hidden: boolean) => {
+          if (mode === "cv") el.style.contentVisibility = hidden ? "hidden" : "";
+          else el.style.display = hidden ? "none" : "";
+        };
+        const scroller = (root: HTMLElement) =>
+          [...root.querySelectorAll<HTMLElement>("*")]
+            .filter((el) => el.scrollHeight > el.clientHeight + 4 && /auto|scroll/.test(getComputedStyle(el).overflowY))
+            .sort((a, b) => b.scrollHeight - a.scrollHeight)[0];
+        const frame = () => new Promise((resolve) => requestAnimationFrame(resolve));
+        const out: { ms: number; atBottom: boolean }[] = [];
+        let visible = mounts.length - 1;
+        for (let step = 0; step < Math.min(n as number, mounts.length - 1); step++) {
+          const target = step % (mounts.length - 1);
+          const start = performance.now();
+          hide(mounts[visible], true);
+          hide(mounts[target], false);
+          await frame();
+          await frame();
+          const ms = performance.now() - start;
+          const el = scroller(mounts[target]);
+          out.push({ ms, atBottom: !el || el.scrollHeight - el.scrollTop - el.clientHeight < 8 });
+          visible = target;
+        }
+        return out;
+      },
+      [SHARED_HIDE, REOPEN] as const,
+    );
+    if (switches.length) {
+      const ms = switches.map((entry) => entry.ms);
+      const [p50, p95] = [percentile(ms, 0.5), percentile(ms, 0.95)];
+      const kept = switches.filter((entry) => entry.atBottom).length;
+      console.log(
+        `chat-pages-memory: a hidden view (${SHARED_HIDE}) shown again draws in p50 ${p50.toFixed(0)} ms, p95 ${p95.toFixed(0)} ms; ${kept}/${switches.length} kept their scroll at the newest reply`,
+      );
+      perfRow({ name: `chat_pages_memory.shared_reshow.${SHARED_HIDE}`, p50, p95, unit: "ms" });
     }
   }
   if (process.env.HIDDEN === "1" && !RELEASE && hiddenPages.size > 1 && REOPEN > 1) {
