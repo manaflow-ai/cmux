@@ -16,6 +16,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 
 | bench | wraps (script) | what |
 |---|---|---|
+| published-idle | `published-idle-power.sh` (pinned prepared PID, then `--import`) | Process CPU energy, wakeups and footprint including descendants; rejects incomplete windows. |
 | bundle | `bundle-size.sh` (DMG on a fleet Mac), an .app tree, or `--compare-zip URL` | Bundle size by component, against other apps. |
 | launch | `launch-ready.sh` | Dock launch: bounce end, first window, main, first frame, every launch mark. |
 | launch-background | `background-ready.sh` | Show from the background (Cmd-H, windows closed to a menu bar app, quit) against a cold relaunch, and each state's idle cost. |
@@ -25,7 +26,9 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | newtab | `instant-new-surfaces.sh` (default, mode=launch-pairs), `held-new-tab.sh` (mode=held) | New Tab first paint and settled-interactive time. |
 | footprint | read-only probes (`ps`, rusage, `vmmap`) of a running app; `perf-bench.sh` cmux-budget on the fleet | Footprint per process kind. |
 | xbench | `perf-bench.sh` (`scripts/perf-bench/xbench.py`); `--import` reads `results.json` and `scripts/perf-bench/baseline/*.json` | Against other browsers, and the resource budget rows. |
+| rivals | `rivals.sh` (`scripts/perf-bench/rivals.py`) on a fleet Mac, the newest nightly-next DMG | Against Claude, Codex, T3 Code, Rex, Slack, Chrome, Edge, Helium and Safari: first launch of a new install, launch after purge (close to a restart) and warm relaunch to window, CPU and peak RAM per launch, idle RAM ceiling, growth per minute, CPU and wakeups. |
 | idle | `perf-10x-idle.sh` | Idle CPU, wakeups and footprint per process kind. |
+| idle-compare | `idle-energy-compare.sh` (`idle-energy-compare.py`) on a fleet display Mac | cmux NEXT vs Claude Code desktop vs Terminal.app idle: fresh signed-out profiles, a calibration window, then at least 3 interleaved rounds of equal windows per app; CPU energy mW, CPU % and wakeups/s with baseline counters read first (hq#19931). |
 | tui-idle | `tui-idle-ram.sh` (`tui-idle-ram.py`, `dhat-top.py`) on Linux CI | The idle cmux-tui daemon's anonymous PSS, PSS, threads, binary sections and (dhat=1) Rust heap at commits. |
 | chat-size | `chat-size-sweep.sh` on the Linux fleet | Real daemon open, pages at three depths, first token, prompt index and RSS at 1 MB, 100 MB, 1 GB and 4 GB, with ratios and a Markdown table. |
 | agent-turn | `cargo bench -p acpmux --bench turn_overhead` (`benches/turn_overhead.rs`) on Linux CI | One agent turn through a real acpmux daemon with a stand-in model that answers at once: send, harness, store, deliver, render, turn, shown (median and p95 over 100 turns). |

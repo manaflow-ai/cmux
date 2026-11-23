@@ -21,8 +21,11 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
     /// Why Mark All Notifications as Read failed on a Mac, shown once.
     @State private var markFailure: String?
     @State private var rowContext = FeedRowContext(store: FeedStore.shared)
+    /// Bounces the caught-up seal each time that state appears.
+    @State private var caughtUpBounce = 0
     @Environment(AppStore.self) private var appStore
     @Environment(\.openURL) private var openURL
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     #if DEBUG
     private let director = DemoDirector.shared
     #endif
@@ -82,6 +85,19 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
                     DemoDirector.shared.post(.feedScroll(toEvent: event))
                 }
             }
+            // Screenshot rig: CMUX_MOBILE_FEED_SHOT_FILTER=needsYou|finished|errors|all picks the filter;
+            // CMUX_MOBILE_FEED_SHOT_CAUGHT_UP=1 marks every open ask done (the "All caught up" state).
+            let env = ProcessInfo.processInfo.environment
+            // Once per launch: a later appear (a tab switch) keeps the filter the person picked.
+            if !FeedScreenRig.shotRigApplied, env["CMUX_MOBILE_FEED_SHOT_CAUGHT_UP"] == "1" {
+                for item in store.items where item.needsYou { store.markDone(item.id) }
+                store.clearDone()
+            }
+            if !FeedScreenRig.shotRigApplied, let name = env["CMUX_MOBILE_FEED_SHOT_FILTER"],
+               let filter = FeedFilter.allCases.first(where: { "\($0)".lowercased() == name.lowercased() }) {
+                store.filter = filter
+            }
+            FeedScreenRig.shotRigApplied = true
             #endif
             FeedRouting.shared.sendPrompt = { item, text in
                 guard let workspace = appStore.workspaces.first(where: { $0.id == item.workspaceID }),
@@ -217,9 +233,30 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
             Button {
                 list.scrollToTop()
             } label: {
-                Label("\(count) new", systemImage: "arrow.up")
+                HStack(spacing: 8) {
+                    Image(systemName: "arrow.up")
+                    let glyphs = newAgentGlyphs
+                    if !glyphs.isEmpty {
+                        // Who wrote what is waiting above, as a timeline's new-posts pill shows faces: the newest
+                        // distinct agents' glyphs, overlapping, so the pill says whether it is worth a jump.
+                        HStack(spacing: -6) {
+                            ForEach(Array(glyphs.enumerated()), id: \.element) { index, symbol in  // at most 3 distinct symbols
+                                Image(systemName: symbol)
+                                    .font(.system(size: 10, weight: .bold))
+                                    .frame(width: 20, height: 20)
+                                    .background(Color.cmuxMobileSurfaceRaised, in: .circle)
+                                    .overlay(Circle().strokeBorder(Color.cmuxMobileBackground, lineWidth: 1.5))
+                                    .zIndex(Double(glyphs.count - index))
+                            }
+                        }
+                        .accessibilityHidden(true)
+                    }
+                    Text("\(count) new")
+                        .contentTransition(.numericText())
+                }
                     .font(.footnote.weight(.semibold))
-                    .padding(.horizontal, 14)
+                    .padding(.leading, 12)
+                    .padding(.trailing, 14)
                     .frame(height: 36)
                     // The whole capsule takes the tap: a plain button's padding is not hit-testable,
                     // so a tap on the glass around the text fell through to the row under the pill.
@@ -227,10 +264,26 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
             }
             .buttonStyle(.cmuxPressGlass)
             .glassEffect(.regular.interactive(), in: .capsule)
+            .accessibilityLabel("\(count) new events")
             .accessibilityIdentifier("feed.newPill")
             .padding(.top, 8)
             .transition(.offset(y: -12).combined(with: .opacity))
         }
+    }
+
+    /// The glyphs of up to three distinct agents among the events that arrived above the reader,
+    /// newest first.
+    private var newAgentGlyphs: [String] {
+        var seen = Set<String>()
+        var glyphs: [String] = []
+        for id in store.unseenNewIDs.suffix(24).reversed() {
+            // Only events the current filter shows: the pill never names an agent the list hides.
+            guard let item = store.item(id: id), !item.isDone, store.filter.matches(item) else { continue }
+            let symbol = FeedRowCell.avatarSymbol(item.harness)
+            if seen.insert(symbol).inserted { glyphs.append(symbol) }
+            if glyphs.count == 3 { break }
+        }
+        return glyphs
     }
 
     /// No events known yet and the Mac has not answered: not "Nothing yet".
@@ -245,7 +298,41 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
         .accessibilityIdentifier("feed.connecting")
     }
 
+    @ViewBuilder
     private var emptyState: some View {
+        if store.filter == .needsYou {
+            caughtUpState
+        } else {
+            noEventsState
+        }
+    }
+
+    /// Needs you with nothing left: the point of the filter reached, said as such (an inbox's
+    /// "all done"), not "No matching events. Try another filter."
+    private var caughtUpState: some View {
+        VStack(spacing: 6) {
+            Image(systemName: "checkmark.seal.fill")
+                .font(.system(size: 40))
+                .foregroundStyle(Color(uiColor: .systemGreen))
+                .symbolEffect(.bounce, options: .nonRepeating, value: caughtUpBounce)
+                .padding(.bottom, 10)
+                .accessibilityHidden(true)
+            Text("All caught up").font(.headline)
+            Text("Nothing is waiting on you. Questions and approvals show up here.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 300)
+            Button("Show all") { withAnimation(.cmuxMobileSnap.unlessReduceMotion) { store.filter = .all } }
+                .buttonStyle(CmuxMobileCapsuleButtonStyle(.secondary))
+                .padding(.top, 14)
+        }
+        .padding(.top, 160)
+        .accessibilityIdentifier("feed.caughtUp")
+        .onAppear { if !reduceMotion { caughtUpBounce += 1 } }
+    }
+
+    private var noEventsState: some View {
         VStack(spacing: 6) {
             Image(systemName: store.filter == .all ? "bubble.left.and.text.bubble.right" : "line.3.horizontal.decrease")
                 .font(.system(size: 28))
@@ -354,6 +441,8 @@ private struct FeedFilterMenu: View {
 @MainActor
 enum FeedScreenRig {
     static let scroller = FeedAutoScroller(config: FeedStressRig.shared.config)
+    /// The screenshot rig's env filter and caught-up state were applied (once per launch).
+    static var shotRigApplied = false
 }
 #endif
 
