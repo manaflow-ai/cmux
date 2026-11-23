@@ -91,19 +91,7 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     /// splits into the stack moving (the keyboard) and the stack growing (a composer line):
     /// only the move carries a scrolled-up reader's view (`updateInsets`).
     private var insetStackHeight: CGFloat?
-    private var positionedInitially = false {
-        didSet { if positionedInitially { endFirstFrameHoldWhenSettled() } }
-    }
-    /// The view handoff (hq RFD 0082, "The screen is part of the handoff"): the transcript is
-    /// laid out from the kept store while hidden, and shown in one frame once it sits at its
-    /// newest turn. Before, a pushed chat drew its first rows at the top for a frame or two and
-    /// then jumped 2,728 pt to the bottom under the push (WorkspaceEnterExitShiftUITests). Bound:
-    /// never a blank transcript past `firstFrameHoldSeconds`; it shows anyway and says so.
-    private var firstFrameHeld = false
-    private var settleLink: CADisplayLink?
-    private var settledHeight: CGFloat = 0
-    private var firstFrameBound: Task<Void, Never>?
-    static let firstFrameHoldSeconds: Double = 0.5
+    private var positionedInitially = false
     private var shownIdentity: ObjectIdentifier?
     private var keyboardPin: NSLayoutConstraint?
     private var fallbackPin: NSLayoutConstraint?
@@ -237,7 +225,6 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
             if let jump { jumpHost?.rootView = jump }
             positionedInitially = false
             surface.following = true
-            beginFirstFrameHold()
         }
         shownIdentity = identity
         jumpHost?.view.isUserInteractionEnabled = surface.showJump
@@ -287,7 +274,6 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         scrollView.addGestureRecognizer(transcriptTap)
         view.addSubview(scrollView)
         setContentScrollView(scrollView, for: .top)
-        beginFirstFrameHold()
 
         if placement == .external {
             topShelf.isUserInteractionEnabled = false
@@ -600,57 +586,6 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         }
         lastOffsetY = scrollView.contentOffset.y
         updateJump()
-    }
-
-    private func beginFirstFrameHold() {
-        guard !positionedInitially else { return }
-        firstFrameHeld = true
-        scrollView.alpha = 0
-        firstFrameBound?.cancel()
-        firstFrameBound = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .seconds(Self.firstFrameHoldSeconds))
-            guard !Task.isCancelled else { return }
-            self?.endFirstFrameHold(bounded: true)
-        }
-    }
-
-    /// Ready is "first content at final size", not "some content": the list's first layout is
-    /// an estimate, and it re-pins to the bottom as rows take their heights. Show the
-    /// transcript on the first display tick whose content height matches the one before
-    /// (and the offset sits at the bottom), so that re-pin happens while hidden.
-    private func endFirstFrameHoldWhenSettled() {
-        guard firstFrameHeld, settleLink == nil else { return }
-        settledHeight = contentHeight
-        let link = CADisplayLink(target: DisplayLinkProxy { [weak self] in self?.firstFrameTick() },
-                                 selector: #selector(DisplayLinkProxy.tick))
-        link.add(to: .main, forMode: .common)
-        settleLink = link
-    }
-
-    private func firstFrameTick() {
-        guard firstFrameHeld else { stopSettleLink(); return }
-        let height = contentHeight
-        defer { settledHeight = height }
-        guard abs(height - settledHeight) < 0.5, abs(scrollView.contentOffset.y - bottomOffset.y) < 1 else { return }
-        stopSettleLink()
-        endFirstFrameHold(bounded: false)
-    }
-
-    private func stopSettleLink() {
-        settleLink?.invalidate()
-        settleLink = nil
-    }
-
-    private func endFirstFrameHold(bounded: Bool) {
-        guard firstFrameHeld else { return }
-        firstFrameHeld = false
-        stopSettleLink()
-        firstFrameBound?.cancel()
-        firstFrameBound = nil
-        if bounded {
-            print("ChatKeyboardDock: transcript not positioned within \(Self.firstFrameHoldSeconds) s; shown anyway (view handoff bound)")
-        }
-        UIView.performWithoutAnimation { scrollView.alpha = 1 }
     }
 
     /// No turns yet (the empty state shows).
@@ -1457,12 +1392,5 @@ private final class TopFadeView: UIView {
         let color = (ground ?? UIColor(Color.cmuxMobileBackground)).resolvedColor(with: traitCollection)
         gradient.colors = [color.cgColor, color.cgColor, color.withAlphaComponent(0).cgColor]
     }
-}
-
-/// A CADisplayLink keeps its target strongly; this one holds only a closure that captures weakly.
-private final class DisplayLinkProxy: NSObject {
-    private let onTick: () -> Void
-    init(_ onTick: @escaping () -> Void) { self.onTick = onTick }
-    @objc func tick() { onTick() }
 }
 #endif
