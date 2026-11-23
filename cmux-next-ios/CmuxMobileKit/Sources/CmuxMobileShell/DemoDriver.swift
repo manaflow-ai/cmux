@@ -26,7 +26,7 @@ struct DemoDriver {
     let shell: ShellModel
 
     /// The demos `run(_:)` knows.
-    nonisolated static let names: Set<String> = ["drawer", "settings", "settings-bottom", "settings-middle", "states", "retry-workspaces", "retry-first-launch", "retry-first-launch-offline", "retry-first-launch-failed", "retry-refresh-failed", "retry-feed", "retry-terminal", "retry-home-offline", "retry-home-failed", "retry-home-unreachable-empty", "retry-home-asleep-empty", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "chief-settings", "live", "workspace-new", "connect-mac", "connect-mac-no-account", "connect-mac-elsewhere", "relay-only", "approve", "disclosure-chat", "kbd-chat", "offline-send", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty", "ws-terminal-idle", "ws-terminal-reattach", "ws-terminal-composer", "ws-terminal-kbd-toggles", "ws-terminal-armed", "large-preview", "large-preview-low-space", "voice-chat", "voice-terminal", "workspace-open-top-left", "new-message", "new-message-mac-only", "new-message-forward", "live-terminal", "chief-list", "chief-list-placed", "chief-list-cloud-only"]
+    nonisolated static let names: Set<String> = ["drawer", "settings", "settings-bottom", "settings-middle", "states", "retry-workspaces", "retry-first-launch", "retry-first-launch-offline", "retry-first-launch-failed", "retry-refresh-failed", "retry-feed", "retry-terminal", "retry-home-offline", "retry-home-failed", "retry-home-unreachable-empty", "retry-home-asleep-empty", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "chief-settings", "home-showcase", "live", "workspace-new", "connect-mac", "connect-mac-no-account", "connect-mac-elsewhere", "relay-only", "approve", "disclosure-chat", "kbd-chat", "offline-send", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty", "ws-terminal-idle", "ws-terminal-reattach", "ws-terminal-composer", "ws-terminal-kbd-toggles", "ws-terminal-armed", "large-preview", "large-preview-low-space", "voice-chat", "voice-terminal", "workspace-open-top-left", "new-message", "new-message-mac-only", "new-message-forward", "live-terminal", "chief-list", "chief-list-placed", "chief-list-cloud-only", "switcher-retry", "switcher-retry-chat"]
 
     func run(_ name: String) async {
         try? await Task.sleep(for: .seconds(1.2))
@@ -119,6 +119,11 @@ struct DemoDriver {
         case "call-scope": await callScope()
         case "call-scope-home":
             ChiefSources.shared.showDemoCloudChief(named: "Atlas")
+            shell.tab = .home
+        case "home-showcase":
+            // Home with a Mac's conversations and no link, for App Store screenshots (`MacHomeFeed.seedShowcaseRows`).
+            MacHomeFeed.shared.seedShowcaseRows(
+                macID: "mac-studio", chiefConversationID: ChiefSources.shared.mac.conversationID ?? "showcase-chief")
             shell.tab = .home
         case "new-message-forward":
             // A11: Forward from a Chief's select mode opens Home's New Message with the draft
@@ -256,6 +261,22 @@ struct DemoDriver {
             }
             shell.tab = .home
             shell.homePath.append(AgentChatDestination(workspaceID: "ws-cmux", tabID: "t-claude"))
+        case "switcher-retry", "switcher-retry-chat":
+            // The tab grid (or the chat opened from it) on a chat whose last turn failed with
+            // Retry with another model offered (Leo, 2026-11-17: the card drew a yellow
+            // placeholder where that button is). Quick enough for `shots`' 5 s capture.
+            AgentSessionDirectory.shared.makeSource = { summary in
+                var summary = summary
+                summary.status = .idle
+                return FailedLastTurnSource(inner: MockAgentSession(summary: summary, richFirstTurn: false, history: true))
+            }
+            shell.store.requestOpen(tabID: "t-claude", in: "ws-cmux")
+            shell.tab = .workspaces
+            await pause(0.6)
+            guard let ws = shell.store.workspace(id: "ws-cmux") else { return }
+            shell.workspacesPath = [ws]
+            await pause(1.2)
+            if name == "switcher-retry" { WorkspaceDemoDirector.shared.post(.showGrid(true)) }
         case "slow-history-chat":
             // An existing chat whose Mac answers 4 s late (AgentChatLoadingUITests): the chat
             // shows its loading state, never the new-chat screen, until the history lands.
@@ -1334,6 +1355,42 @@ final class DelayedHistorySource: AgentSessionSource {
                 }
             }
             continuation.finish()
+        }
+        return stream
+    }
+
+    func send(_ intent: AgentClientIntent) { inner.send(intent) }
+}
+/// A demo chat whose last turn failed on a rate limit, after the mock's history: the error card
+/// with Retry and Retry with another model (the mock offers three models).
+@MainActor
+final class FailedLastTurnSource: AgentSessionSource {
+    let inner: MockAgentSession
+
+    init(inner: MockAgentSession) {
+        self.inner = inner
+    }
+
+    var summary: AgentSessionSummary { inner.summary }
+
+    func events() -> AsyncStream<AgentSessionEvent> {
+        let (stream, continuation) = AsyncStream<AgentSessionEvent>.makeStream(bufferingPolicy: .unbounded)
+        let inner = inner
+        Task { @MainActor in
+            for await event in inner.events() { continuation.yield(event) }
+            continuation.finish()
+        }
+        Task { @MainActor in
+            // Demo only: after the mock's history has replayed.
+            try? await Task.sleep(for: .milliseconds(400))
+            let at = Date()
+            continuation.yield(.batch([
+                .userMessage(text: "Merge it once the checks are green", promptId: "p-failed", turnId: "t-failed", attachments: [], at: at),
+                .turnStarted(turnId: "t-failed", at: at),
+                .turnResult(turnId: "t-failed", status: .failed,
+                            errorText: #"API Error: 429 {"type":"error","error":{"type":"rate_limit_error","message":"This request would exceed the rate limit."}}"#,
+                            at: at),
+            ]))
         }
         return stream
     }
