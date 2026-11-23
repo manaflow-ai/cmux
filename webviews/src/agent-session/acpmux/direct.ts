@@ -4056,6 +4056,8 @@ export class AcpmuxDirectClient {
   private viewSync: Promise<void> = Promise.resolve();
   /// The selection generation whose attach reply has landed; lag resync waits for it.
   private attachedGeneration = -1;
+  /// How many attach pages this client has laid on the rows (`attachDraws` in the snapshot).
+  private attachDraws = 0;
   private historyExhausted = false;
   /// Whether the transcript follows its latest row (the pane says, `setFollowing`): only then are the oldest held
   /// records let go (`shedOlderHeld`), so nothing the reader has in view or scrolled to ever leaves.
@@ -8447,6 +8449,8 @@ export class AcpmuxDirectClient {
     if (!forward && result?.hasMore === false && !(append && page.some((event) => event.seq < (this.firstSeq ?? 0))))
       this.historyExhausted = true;
     this.attachedGeneration = generation;
+    // The rows this page changed are history: the draw they reach the page in plays no fold.
+    this.attachDraws += 1;
     const pageEnd = page.length > 0 ? Math.max(...page.map((event) => event.seq)) : undefined;
     // Attached while the host leaves the stream out (`hiddenHole`): the chat is whole through the attach's page.
     if (this.hostHidden && this.hiddenHole?.generation !== generation)
@@ -12789,6 +12793,7 @@ export class AcpmuxDirectClient {
       origin: this.origin,
       ...(this.listedSessions ? { listedSessions: true as const } : {}),
       ...(this.drewKeptTail ? { drewKeptTail: true as const } : {}),
+      ...(this.attachDraws > 0 ? { attachDraws: this.attachDraws } : {}),
       ...(this.peerCopy
         ? {
             peerCopy: {

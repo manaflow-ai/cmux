@@ -318,8 +318,12 @@ await requireBrowserLane("agent-pane-older-rows-fade.test.ts", async () => {
     // The daemon is slow now: the reader reaches the top of the loaded rows before the next page lands.
     eventsDelay = 1500;
     try {
+      // The reader's own wheel takes them there: a page reaching a reader who never moved since the
+      // chat opened is history that draws in place (agent-pane-restart-settled-motion.test.ts).
       await page.evaluate(() => {
-        document.querySelector<HTMLElement>(".acpmux-scroll")!.scrollTop = 0;
+        const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+        scroller.dispatchEvent(new WheelEvent("wheel", { deltaY: -1e9, bubbles: true }));
+        scroller.scrollTop = 0;
       });
       await page.waitForFunction(
         () =>

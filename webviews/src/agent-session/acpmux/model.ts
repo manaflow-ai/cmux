@@ -1458,6 +1458,11 @@ export type AcpmuxSnapshot = {
   /// page's first-paint report: a chat read cold fades in over the loading state, this one shows
   /// in one frame (AgentPaneView+Loading.swift).
   drewKeptTail?: true;
+  /// How many attach pages the client has laid on the rows. Each page is the chat as it stood when
+  /// the page was read (an open, a restart, a reconnect), so whatever it changes on screen, such as a
+  /// run that ended or a group that folded while no one watched, is history. The snapshot where the
+  /// count moves draws those changes settled: no fold plays (App.tsx, transcriptView `snapFolds`).
+  attachDraws?: number;
   /// The chat on screen was opened from acpmux's settled view of it (`settled-attach-v1`,
   /// cmuxterm-hq#9655): where that frame ends and the turn ends a fork can go through. The page tells
   /// the host once the frame is drawn (`pane.painted` with `settled: true`).

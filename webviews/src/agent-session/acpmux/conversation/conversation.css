@@ -4103,6 +4103,11 @@ button.cv-thought.is-toggle:is(:focus-visible, :has(> :hover)) > .cv-tool__text,
   .cv-rotor {
   transition: none;
 }
+/* A draw that lays history on the rows (a view switch, an attach page) snaps its folds
+   (transcriptView.ts `snapFolds`), and their chevrons with them. */
+:root[data-cv-folds-snap] .cv-rotor {
+  transition: none;
+}
 /* A collapsible's body (fold.ts sizes it while it opens or closes): its own block, so the body's
    margins stay inside the height the fold animates instead of popping in at its ends. */
 .cv-fold {

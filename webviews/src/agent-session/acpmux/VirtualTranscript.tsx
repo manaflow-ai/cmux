@@ -166,6 +166,7 @@ import {
   type TurnEndCapture,
   type TurnEndFold,
 } from "./conversation/turnEndFold";
+import { foldsSnapping } from "./conversation/transcriptView";
 import { BACKGROUND_TURN } from "./conversation/backgroundTurns";
 import { installGutterSelect, type HeldRow } from "./conversation/gutterSelect";
 import { isEditRow } from "./turnChanges/sessionRows";
@@ -2805,7 +2806,9 @@ function TranscriptView({
       // one smooth motion."
       const sendGaveRoom =
         dockCardRef.current < cardBefore - 0.5 && performance.now() < sendRiseUntil.current && !(sendClockMs(rows) > 0);
-      const ms = Math.abs(delta) < 0.5 || sendGaveRoom ? 0 : foldMs(rows);
+      // A stack an attach page changed (a restart's tray, an ask that came while no one watched) is
+      // history: the rows take their place at once (transcriptView `foldsSnapping`).
+      const ms = Math.abs(delta) < 0.5 || sendGaveRoom || foldsSnapping() ? 0 : foldMs(rows);
       if (!(ms > 0)) return;
       const move = rows.animate([{ translate: `0 ${delta}px` }, { translate: "0 0" }], {
         duration: ms,
@@ -3050,6 +3053,8 @@ function TranscriptView({
   /// The minimap's hook for this commit's settled offset (ThreadMinimap `placed`).
   const minimapPlaced = useRef<((top?: number) => void) | undefined>(undefined);
   const [olderRows] = useState(() => new OlderRowFade(() => ref.current));
+  /// When the reader last moved the transcript themselves (wheel, pointer, touch or key).
+  const readerAt = useRef(Number.NEGATIVE_INFINITY);
   /// The mounted rows' frame elements, kept while what each is drawn from holds (`RowFrameCache`).
   const [rowFrameCache] = useState(() => new RowFrameCache());
   // Row ids are local to a session: one still waiting to fade belongs to the chat that was shown.
@@ -3084,6 +3089,8 @@ function TranscriptView({
   // One per open of a chat: the page's record of it is read here and written only on commit.
   const opened = useMemo(() => openChat(sessionKey), [sessionKey]);
   const chatRowsDrawn = opened.drawn;
+  // The same tick on the page's clock, against which the reader's own input (`readerAt`) is read.
+  const openedTick = useMemo(() => performance.now(), [sessionKey]);
   // A switched chat starts over: its row ids are its own, and may repeat the last chat's.
   // Keyed by frame (model.ts `rowFrameKey`): a row drawn in a frame already on screen is not new.
   if (knownRows.current === null || sessionChanged) {
@@ -3143,7 +3150,14 @@ function TranscriptView({
       // transcript cleared and refilled), draws in place: it is not news and does not fade again.
       if (redrawn) continue;
       if (index < oldFirst) {
-        olderLate = olderLate ?? readerAtLoadedTop(ref.current, olderRoom.current?.room ?? 0);
+        // Late only for a reader who moved up to the loaded top since the chat opened: the page their
+        // own scroll waited on (transcript-animation-rules.md, "caused or watched"). A chat opened at
+        // the end of a short tail (a restart's kept tail, a cold open) sits that near its top with no
+        // input at all, and the pages it reads behind it are history the reader already saw: they
+        // draw in place (Leo, 2026-11-22: "the crazy fucking stupid folding animations somehow replay
+        // even though these messages had already been seen by me").
+        olderLate =
+          olderLate ?? (readerAt.current > openedTick && readerAtLoadedTop(ref.current, olderRoom.current?.room ?? 0));
         if (olderLate) olderRows.add(row.id);
         else if (loadArrival) loadFade.arrive(row.id);
       } else if (loadArrival) loadFade.arrive(row.id);
@@ -4312,8 +4326,6 @@ function TranscriptView({
   /// The rows' going clamped the offset to the shorter tail's end, the bottom, and nothing found
   /// the reader's row again. Only the reader's own input, Jump to latest or a send lets it go.
   const heldPlace = useRef<ScrollAnchor | undefined>(undefined);
-  /// When the reader last moved the transcript themselves (wheel, pointer, touch or key).
-  const readerAt = useRef(Number.NEGATIVE_INFINITY);
   /// The last upward input has not yet been acknowledged by the native scroll event. A tiny real
   /// wheel at the old end must not be mistaken for the browser's clamp window during a layout correction.
   const readerUpPending = useRef(false);

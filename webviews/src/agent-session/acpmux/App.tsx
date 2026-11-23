@@ -688,7 +688,7 @@ import {
 } from "./conversation/runElsewhereModel";
 import { NewestSteerContext, SteerChatContext, takeBackSteer, takesSteersBack } from "./conversation/pendingSteerModel";
 import { chatWaitsOn, WaitingOnContext } from "./conversation/waitingOn";
-import { useTranscriptView, type TranscriptView } from "./conversation/transcriptView";
+import { snapFolds, useTranscriptView, type TranscriptView } from "./conversation/transcriptView";
 import { isWorkedFold, NO_FOLD_TOGGLES, viewFolds, type Folds } from "./conversation/viewFolds";
 import { readWakeFolds, wakeFolds, type PaneFolds } from "./conversation/wakeFolds";
 import {
@@ -6943,6 +6943,17 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const trayAbsentIn = useRef<string | undefined>(undefined);
   if (trayChat.current !== shownSessionId) trayAbsentIn.current = undefined;
   trayChat.current = shownSessionId;
+  // An attach page (a restart, an open, a reconnect) lays the chat as it stood on the rows: what it
+  // changes is history (model.ts `attachDraws`). Its folds snap, and a tray it brings was simply
+  // there: the absence seen before it was a kept tail's, older than the page (Leo, 2026-11-22: "the
+  // crazy fucking stupid folding animations somehow replay even though these messages had already
+  // been seen by me").
+  const attachDrawn = useRef(snapshot.attachDraws ?? 0);
+  if ((snapshot.attachDraws ?? 0) !== attachDrawn.current) {
+    attachDrawn.current = snapshot.attachDraws ?? 0;
+    snapFolds();
+    trayAbsentIn.current = undefined;
+  }
   const trayEnters = shownSessionId !== undefined && trayAbsentIn.current === shownSessionId;
   // Absence counts only once the chat's own rows are read: a partial snapshot during a slow switch
   // would make a tray it already had look new.

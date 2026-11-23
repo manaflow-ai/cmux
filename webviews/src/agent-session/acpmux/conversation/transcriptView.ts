@@ -77,15 +77,38 @@ function onStorage(event: StorageEvent): void {
 
 /// Set while a switch opens or closes the rows on screen: their folds snap instead of playing
 /// (useAnchoredCollapse.ts). Cleared on the next frame, after the switch has drawn.
+/// The chevrons turn on a CSS transition, which starts at the style pass after the draw: the
+/// document carries `SNAP_ATTR` through that pass (conversation.css), so they snap with the folds.
 let switching = false;
+const SNAP_ATTR = "data-cv-folds-snap";
+let snaps = 0;
 function snapNextDraw(): void {
   switching = true;
-  const clear = () => {
+  const root = typeof document === "undefined" ? undefined : document.documentElement;
+  snaps += 1;
+  const mine = snaps;
+  root?.setAttribute(SNAP_ATTR, "");
+  const frame = (run: () => void) =>
+    typeof globalThis.requestAnimationFrame === "function" ? globalThis.requestAnimationFrame(run) : setTimeout(run, 0);
+  frame(() => {
     switching = false;
-  };
-  if (typeof globalThis.requestAnimationFrame === "function") globalThis.requestAnimationFrame(clear);
-  else setTimeout(clear, 0);
+    // The next frame's style pass is past the draw: the chevrons may turn again.
+    frame(() => {
+      if (mine === snaps) root?.removeAttribute(SNAP_ATTR);
+    });
+  });
 }
+
+/// The draw that lays history on the rows (an attach page: a restart, an open, a reconnect) snaps
+/// every fold it opens or closes, as a view switch does: the reader neither caused it nor watched it
+/// happen (docs/design/transcript-animation-rules.md). Called from the render that draws it.
+export const snapFolds = snapNextDraw;
+
+/// Whether the frame drawing now is a snapped draw's (`snapFolds`), through its style and layout
+/// passes: a move read from the layout (a ResizeObserver's, after the frame's first callbacks) skips
+/// its glide then, as the folds do.
+export const foldsSnapping = (): boolean =>
+  switching || (typeof document !== "undefined" && document.documentElement.hasAttribute(SNAP_ATTR));
 
 /// Whether a fold plays now: not while a view switch draws.
 export const foldPlays = (): boolean => !switching;
