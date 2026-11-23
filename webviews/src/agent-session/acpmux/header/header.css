@@ -330,8 +330,11 @@
   color: var(--agent-text);
 }
 
-/* The morph's hover preview (HeaderToolPreview.tsx): what a click opens, under the icon. */
-.acpmux-header-preview {
+/* The morph's hover preview (HeaderToolPreview.tsx): what a click opens, under the icon. It is a
+   hover card (.ui-card.ui-glass): its fill, frost, rim and elevation are the shared hover card glass
+   (ui/glass/glass.css), never a fill of its own; Reduce Transparency makes it the solid popup surface
+   there. The class pair outranks desktop.css's .ui-card insets. */
+.acpmux-header-preview.ui-card {
   position: fixed;
   z-index: var(--layer-tooltip, 1000);
   box-sizing: border-box;
@@ -340,13 +343,13 @@
   max-width: calc(100vw - 16 * var(--ui-px, 1px));
   overflow: hidden;
   padding: calc(8 * var(--ui-px, 1px));
-  border-radius: 8px;
-  background: var(--agent-surface-elevated, Canvas);
+  border-radius: 8px; /* concentric-allow: a non-interactive hover preview (pointer-events none), it holds no buttons */
   color: var(--agent-text);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--agent-text) 14%, transparent);
   font-size: var(--text-caption);
   line-height: 1.3;
   pointer-events: none;
+}
+.acpmux-header-preview {
   animation: acpmux-header-preview-in var(--cmux-motion-micro, 120ms) var(--cmux-ease-out, cubic-bezier(0, 0, 0.58, 1)) both;
 }
 @keyframes acpmux-header-preview-in {
