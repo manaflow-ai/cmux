@@ -2789,6 +2789,10 @@ mod list_pending_tests;
 mod list_web_page_tests;
 
 #[cfg(test)]
+#[path = "inbox_gate_tests.rs"]
+mod inbox_gate_tests;
+
+#[cfg(test)]
 #[path = "ack_latency_bench.rs"]
 mod ack_latency_bench;
 
