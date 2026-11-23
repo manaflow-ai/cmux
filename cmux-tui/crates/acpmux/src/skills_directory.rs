@@ -220,17 +220,6 @@ fn read_object(path: &Path) -> Result<Map<String, Value>> {
     value.as_object().cloned().context("configuration root must be an object")
 }
 
-fn write_object(path: &Path, object: Map<String, Value>) -> Result<()> {
-    if let Some(parent) = path.parent() {
-        ensure_dir(parent)?;
-    }
-    crate::config::write_atomic(
-        path,
-        serde_json::to_vec_pretty(&Value::Object(object))?.as_slice(),
-    )?;
-    Ok(())
-}
-
 fn install_skill(root: &Path, harness: &str, entry: &Entry) -> Result<PathBuf> {
     let base = managed_dir(root, harness, entry)?;
     validate_managed_dir(&base, entry, harness)?;
@@ -291,103 +280,105 @@ fn remove_managed_dir(dir: &Path, entry: &Entry, harness: &str) -> Result<()> {
     Ok(())
 }
 
-fn install_mcp(root: &Path, harness: &str, entry: &Entry) -> Result<PathBuf> {
-    let command = entry.command.clone().unwrap_or_else(|| "npx".to_owned());
-    let mut marker = json!({"command": command, "args": entry.args, "x-cmux-managed": true, "description": entry.description});
-    let path = match harness {
-        "claude" | "pi" => {
-            let path = if harness == "claude" {
-                claude_mcp_path(root)
+/// The env var that marks an MCP server entry as one this directory wrote, set to the entry's
+/// id. It lives in the entry's own `env` (OpenCode: `environment`) because OpenCode's config
+/// schema is strict and Codex's server rows take only known keys: an extra marker key would make
+/// the harness refuse the whole file. The same way `desktop_link.rs` marks its `cmux` entry.
+const OWNER_ENV: &str = "CMUX_SKILLS_DIRECTORY";
+
+fn mcp_servers_key(harness: &str) -> &'static str {
+    if harness == "opencode" { "mcp" } else { "mcpServers" }
+}
+
+fn mcp_env_key(harness: &str) -> &'static str {
+    if harness == "opencode" { "environment" } else { "env" }
+}
+
+fn ours_json(harness: &str, entry: &Entry, server: &Value) -> bool {
+    server.get(mcp_env_key(harness)).and_then(|env| env.get(OWNER_ENV)).and_then(Value::as_str)
+        == Some(entry.id.as_str())
+}
+
+fn ours_toml(entry: &Entry, server: &toml::Value) -> bool {
+    server.get("env").and_then(|env| env.get(OWNER_ENV)).and_then(toml::Value::as_str)
+        == Some(entry.id.as_str())
+}
+
+fn ours_toml_edit(entry: &Entry, server: &toml_edit::Item) -> bool {
+    server.get("env").and_then(|env| env.get(OWNER_ENV)).and_then(toml_edit::Item::as_str)
+        == Some(entry.id.as_str())
+}
+
+fn mcp_command(entry: &Entry) -> String {
+    entry.command.clone().unwrap_or_else(|| "npx".to_owned())
+}
+
+/// The server row in the harness's own shape, with only keys the harness knows.
+fn mcp_json_row(harness: &str, entry: &Entry) -> Value {
+    let owner = json!({ OWNER_ENV: entry.id });
+    if harness == "opencode" {
+        let command: Vec<String> =
+            std::iter::once(mcp_command(entry)).chain(entry.args.iter().cloned()).collect();
+        json!({"type": "local", "command": command, "environment": owner})
+    } else {
+        json!({"command": mcp_command(entry), "args": entry.args, "env": owner})
+    }
+}
+
+/// Install or remove `entry`'s MCP server in `harness`'s config through `desktop_link`'s editors:
+/// the person's key order, TOML comments and any concurrent writer's text stay, Codex's file is
+/// edited under the shared cmux lock, and a same-named entry that is not ours is refused on every
+/// edit round (it may appear while the edit runs).
+fn edit_mcp(root: &Path, harness: &str, entry: &Entry, install: bool) -> Result<PathBuf> {
+    let path = config_path(root, harness)?;
+    let refuse = || anyhow::anyhow!("refusing to change unmanaged MCP server {}", entry.id);
+    if harness == "codex" {
+        crate::desktop_link::edit_toml(&path, |servers: &mut toml_edit::Table| {
+            if servers.get(&entry.id).is_some_and(|row| !ours_toml_edit(entry, row)) {
+                return Err(refuse());
+            }
+            if install {
+                let mut row = toml_edit::Table::new();
+                row.insert("command", toml_edit::value(mcp_command(entry)));
+                let mut args = toml_edit::Array::new();
+                for arg in &entry.args {
+                    args.push(arg.as_str());
+                }
+                row.insert("args", toml_edit::value(args));
+                let mut vars = toml_edit::InlineTable::new();
+                vars.insert(OWNER_ENV, entry.id.as_str().into());
+                row.insert("env", toml_edit::value(vars));
+                servers.insert(&entry.id, toml_edit::Item::Table(row));
             } else {
-                target_root(root, harness)?.join("settings.json")
-            };
-            let mut object = read_object(&path)?;
-            if object
-                .get("mcpServers")
-                .and_then(Value::as_object)
-                .and_then(|servers| servers.get(&entry.id))
-                .is_some_and(|value| {
-                    value.get("x-cmux-managed").and_then(Value::as_bool) != Some(true)
-                })
-            {
-                bail!("refusing to replace unmanaged MCP server {}", entry.id);
+                servers.remove(&entry.id);
             }
-            let servers = object.entry("mcpServers").or_insert_with(|| json!({}));
-            servers
-                .as_object_mut()
-                .context("mcpServers is not an object")?
-                .insert(entry.id.clone(), marker);
-            write_object(&path, object)?;
-            path
-        }
-        "opencode" => {
-            let path = target_root(root, harness)?.join("opencode.json");
-            let mut object = read_object(&path)?;
-            if object
-                .get("mcp")
-                .and_then(Value::as_object)
-                .and_then(|servers| servers.get(&entry.id))
-                .is_some_and(|value| {
-                    value.get("x-cmux-managed").and_then(Value::as_bool) != Some(true)
-                })
-            {
-                bail!("refusing to replace unmanaged MCP server {}", entry.id);
-            }
-            let fields = marker.as_object_mut().context("MCP marker is not an object")?;
-            fields.insert("type".to_owned(), Value::String("local".to_owned()));
-            fields.insert(
-                "command".to_owned(),
-                Value::Array(
-                    std::iter::once(Value::String(command))
-                        .chain(entry.args.iter().cloned().map(Value::String))
-                        .collect(),
-                ),
-            );
-            let servers = object.entry("mcp").or_insert_with(|| json!({}));
-            servers
-                .as_object_mut()
-                .context("mcp is not an object")?
-                .insert(entry.id.clone(), marker);
-            write_object(&path, object)?;
-            path
-        }
-        "codex" => {
-            let path = target_root(root, harness)?.join("config.toml");
-            let mut table = if path.is_file() {
-                fs::read_to_string(&path)?.parse::<toml::Table>().context("parse Codex config")?
-            } else {
-                toml::Table::new()
-            };
-            let servers = table
-                .entry("mcp_servers")
-                .or_insert_with(|| toml::Value::Table(toml::map::Map::new()));
-            let servers = servers.as_table_mut().context("mcp_servers is not a table")?;
-            if servers.get(&entry.id).is_some_and(|value| {
-                value
-                    .as_table()
-                    .and_then(|table| table.get("x_cmux_managed"))
-                    .and_then(toml::Value::as_bool)
-                    != Some(true)
-            }) {
-                bail!("refusing to replace unmanaged MCP server {}", entry.id);
-            }
-            let mut row = toml::map::Map::new();
-            row.insert("command".into(), toml::Value::String(command));
-            row.insert(
-                "args".into(),
-                toml::Value::Array(entry.args.iter().cloned().map(toml::Value::String).collect()),
-            );
-            row.insert("x_cmux_managed".into(), toml::Value::Boolean(true));
-            servers.insert(entry.id.clone(), toml::Value::Table(row));
-            if let Some(parent) = path.parent() {
-                ensure_dir(parent)?;
-            }
-            crate::config::write_atomic(&path, toml::to_string_pretty(&table)?.as_bytes())?;
-            path
-        }
-        _ => bail!("unsupported harness: {harness}"),
-    };
+            Ok(())
+        })?;
+    } else {
+        crate::desktop_link::edit_json(
+            &path,
+            mcp_servers_key(harness),
+            |servers: &mut crate::desktop_link::Ordered<Value>| {
+                if servers.get(&entry.id).is_some_and(|row| !ours_json(harness, entry, row)) {
+                    return Err(refuse());
+                }
+                if install {
+                    servers.insert(&entry.id, mcp_json_row(harness, entry));
+                } else {
+                    servers.remove(&entry.id);
+                }
+                Ok(())
+            },
+        )?;
+    }
     Ok(path)
+}
+
+fn install_mcp(root: &Path, harness: &str, entry: &Entry) -> Result<PathBuf> {
+    match harness {
+        "claude" | "pi" | "opencode" | "codex" => edit_mcp(root, harness, entry, true),
+        _ => bail!("unsupported harness: {harness}"),
+    }
 }
 
 fn validate_install_target(root: &Path, harness: &str, entry: &Entry) -> Result<()> {
@@ -410,22 +401,20 @@ fn validate_install_target(root: &Path, harness: &str, entry: &Entry) -> Result<
                         .get("mcp_servers")
                         .map(|v| v.as_table().context("mcp_servers is not a table"))
                         .transpose()?;
-                    if servers.and_then(|m| m.get(&entry.id)).is_some_and(|v| {
-                        v.get("x_cmux_managed").and_then(toml::Value::as_bool) != Some(true)
-                    }) {
+                    if servers.and_then(|m| m.get(&entry.id)).is_some_and(|v| !ours_toml(entry, v))
+                    {
                         bail!("refusing to replace unmanaged MCP server {}", entry.id);
                     }
                 }
             } else {
                 let object = read_object(&path)?;
-                let key = if harness == "opencode" { "mcp" } else { "mcpServers" };
                 let servers = object
-                    .get(key)
+                    .get(mcp_servers_key(harness))
                     .map(|v| v.as_object().context("MCP server table must be an object"))
                     .transpose()?;
                 if servers
                     .and_then(|m| m.get(&entry.id))
-                    .is_some_and(|v| v.get("x-cmux-managed").and_then(Value::as_bool) != Some(true))
+                    .is_some_and(|v| !ours_json(harness, entry, v))
                 {
                     bail!("refusing to replace unmanaged MCP server {}", entry.id);
                 }
@@ -477,52 +466,31 @@ fn is_installed(root: &Path, harness: &str, entry: &Entry) -> bool {
         "skill" | "plugin" => managed_dir(root, harness, entry)
             .and_then(|dir| validate_managed_dir(&dir, entry, harness))
             .unwrap_or(false),
-        "mcp" => match harness {
-            "codex" => target_root(root, harness)
-                .ok()
-                .and_then(|p| fs::read_to_string(p.join("config.toml")).ok())
-                .and_then(|s| s.parse::<toml::Table>().ok())
-                .and_then(|t| {
-                    t.get("mcp_servers")
-                        .and_then(toml::Value::as_table)
-                        .and_then(|m| m.get(&entry.id))
-                        .and_then(toml::Value::as_table)
-                        .and_then(|m| m.get("x_cmux_managed"))
-                        .and_then(toml::Value::as_bool)
-                })
-                .unwrap_or(false),
-            "opencode" => target_root(root, harness)
-                .ok()
-                .and_then(|p| read_object(&p.join("opencode.json")).ok())
-                .and_then(|o| {
-                    o.get("mcp")
-                        .and_then(Value::as_object)
-                        .and_then(|m| m.get(&entry.id))
-                        .and_then(|v| v.get("x-cmux-managed"))
-                        .and_then(Value::as_bool)
-                })
-                .unwrap_or(false),
-            _ => target_root(root, harness)
-                .ok()
-                .and_then(|p| {
-                    read_object(
-                        &(if harness == "claude" {
-                            claude_mcp_path(root)
-                        } else {
-                            p.join("settings.json")
-                        }),
-                    )
+        "mcp" => {
+            let Ok(path) = config_path(root, harness) else { return false };
+            if harness == "codex" {
+                read_toml_table(&path)
                     .ok()
-                })
-                .and_then(|o| {
-                    o.get("mcpServers")
-                        .and_then(Value::as_object)
-                        .and_then(|m| m.get(&entry.id))
-                        .and_then(|v| v.get("x-cmux-managed"))
-                        .and_then(Value::as_bool)
-                })
-                .unwrap_or(false),
-        },
+                    .flatten()
+                    .and_then(|t| {
+                        t.get("mcp_servers")
+                            .and_then(toml::Value::as_table)
+                            .and_then(|m| m.get(&entry.id))
+                            .map(|v| ours_toml(entry, v))
+                    })
+                    .unwrap_or(false)
+            } else {
+                read_object(&path)
+                    .ok()
+                    .and_then(|o| {
+                        o.get(mcp_servers_key(harness))
+                            .and_then(Value::as_object)
+                            .and_then(|m| m.get(&entry.id))
+                            .map(|v| ours_json(harness, entry, v))
+                    })
+                    .unwrap_or(false)
+            }
+        }
         _ => false,
     }
 }
@@ -583,37 +551,8 @@ pub fn remove(params: &Value, root: Option<&Path>) -> Result<Value> {
                 remove_managed_dir(&dir, &e, harness)?;
             }
             "mcp" => {
-                let path = config_path(&root, harness)?;
-                if harness == "codex" {
-                    if let Some(mut table) = read_toml_table(&path)?
-                        && let Some(servers) =
-                            table.get_mut("mcp_servers").and_then(toml::Value::as_table_mut)
-                        && servers
-                            .get(&e.id)
-                            .and_then(toml::Value::as_table)
-                            .and_then(|m| m.get("x_cmux_managed"))
-                            .and_then(toml::Value::as_bool)
-                            == Some(true)
-                    {
-                        servers.remove(&e.id);
-                        crate::config::write_atomic(
-                            &path,
-                            toml::to_string_pretty(&table)?.as_bytes(),
-                        )?;
-                    }
-                } else if path.is_file() {
-                    let mut object = read_object(&path)?;
-                    let key = if harness == "opencode" { "mcp" } else { "mcpServers" };
-                    if let Some(servers) = object.get_mut(key).and_then(Value::as_object_mut)
-                        && servers
-                            .get(&e.id)
-                            .and_then(|v| v.get("x-cmux-managed"))
-                            .and_then(Value::as_bool)
-                            == Some(true)
-                    {
-                        servers.remove(&e.id);
-                        write_object(&path, object)?;
-                    }
+                if is_installed(&root, harness, &e) {
+                    edit_mcp(&root, harness, &e, false)?;
                 }
             }
             _ => bail!("unsupported entry kind"),
@@ -713,6 +652,74 @@ mod tests {
         fs::write(root.join(".codex/config.toml"), "[invalid").unwrap();
         assert!(remove(&request, Some(root)).is_err());
         assert_eq!(fs::read(root.join(".claude.json")).unwrap(), claude_before);
+    }
+
+    #[test]
+    fn mcp_edits_keep_comments_and_write_only_keys_the_harness_knows() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = private_test_root(&temp);
+        fs::create_dir_all(root.join(".codex")).unwrap();
+        let codex =
+            "# my settings\nmodel = \"o3\" # keep me\n\n[mcp_servers.mine]\ncommand = \"mine\"\n";
+        fs::write(root.join(".codex/config.toml"), codex).unwrap();
+        fs::create_dir_all(root.join(".config/opencode")).unwrap();
+        fs::write(root.join(".config/opencode/opencode.json"), r#"{"theme":"x","$schema":"s"}"#)
+            .unwrap();
+        let request = json!({"id":"filesystem-tools","targets":["claude","codex","opencode"]});
+        install(&request, Some(root)).unwrap();
+
+        let text = fs::read_to_string(root.join(".codex/config.toml")).unwrap();
+        assert!(text.starts_with("# my settings\nmodel = \"o3\" # keep me\n"), "{text}");
+        assert!(text.contains("[mcp_servers.mine]"), "{text}");
+        let opencode: Value =
+            serde_json::from_slice(&fs::read(root.join(".config/opencode/opencode.json")).unwrap())
+                .unwrap();
+        let text = fs::read_to_string(root.join(".config/opencode/opencode.json")).unwrap();
+        let at = |key: &str| text.find(&format!("\"{key}\"")).unwrap();
+        assert!(
+            at("theme") < at("$schema") && at("$schema") < at("mcp"),
+            "key order stays: {text}"
+        );
+        let row = opencode["mcp"]["filesystem-tools"].as_object().unwrap();
+        let mut fields: Vec<_> = row.keys().cloned().collect();
+        fields.sort();
+        assert_eq!(fields, ["command", "environment", "type"]);
+        let claude: Value =
+            serde_json::from_slice(&fs::read(root.join(".claude.json")).unwrap()).unwrap();
+        let mut fields: Vec<_> =
+            claude["mcpServers"]["filesystem-tools"].as_object().unwrap().keys().cloned().collect();
+        fields.sort();
+        assert_eq!(fields, ["args", "command", "env"]);
+
+        remove(&request, Some(root)).unwrap();
+        assert_eq!(
+            fs::read_to_string(root.join(".codex/config.toml"))
+                .unwrap()
+                .contains("filesystem-tools"),
+            false
+        );
+        assert!(
+            fs::read_to_string(root.join(".codex/config.toml"))
+                .unwrap()
+                .starts_with("# my settings")
+        );
+        let opencode: Value =
+            serde_json::from_slice(&fs::read(root.join(".config/opencode/opencode.json")).unwrap())
+                .unwrap();
+        assert!(opencode["mcp"].get("filesystem-tools").is_none());
+        assert_eq!(opencode["theme"], "x");
+    }
+
+    #[test]
+    fn unmanaged_mcp_entries_are_never_replaced_or_removed() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = private_test_root(&temp);
+        let theirs = r#"{"mcpServers":{"filesystem-tools":{"command":"theirs"}}}"#;
+        fs::write(root.join(".claude.json"), theirs).unwrap();
+        let request = json!({"id":"filesystem-tools","targets":["claude"]});
+        assert!(install(&request, Some(root)).is_err());
+        remove(&request, Some(root)).unwrap();
+        assert_eq!(fs::read_to_string(root.join(".claude.json")).unwrap(), theirs);
     }
 
     #[test]
