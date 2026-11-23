@@ -230,7 +230,7 @@ public final class MacScreenPages {
             hubHost.sessionOver(id)
             pushedTickets = pushedTickets.filter { $0.value.sessionId != id }
             for viewer in hubViewers where viewer.phase.sessionID == id { viewer.ended(reason: reason) }
-        case .devicesChanged, .permissionsChanged, .relaysChanged, .pong, .unknown:
+        case .devicesChanged, .permissionsChanged, .relaysChanged, .settingsChanged, .pong, .unknown:
             break
         }
     }

@@ -13,6 +13,7 @@ import { installScrollers } from "../../scrollers";
 import { chromiumGlassUnderlay } from "../../ui/glass/chromiumUnderlay.experiment";
 import { CORNER_RULE_ATTRIBUTE, cornerRule } from "../../ui/cornerRule.experiment";
 import { installBackdropFallback } from "../../ui/glass/glassState";
+import { installPageGlassBlur } from "../../ui/glass/pageGlassBlur";
 import { installSpinnerClock } from "../../ui/spinnerClock";
 import { installTooltips } from "../../ui/titleTooltips";
 import { installWave } from "../../ui/wave";
@@ -96,6 +97,9 @@ export function installDesktopLayer(doc: Document = document): void {
   // Transparency, with no host still or with no glass on the page). The fallback keeps a still the
   // host sends before the lens chunk arrives; the WebGL engine stays out of each page's eager budget.
   installBackdropFallback(view);
+  // GLASS BLURS WHAT IT COVERS: a menu or popover the App does not draw glass under blurs the page
+  // under it in place, so no text reads crisp through it (ui/glass/pageGlassBlur.ts).
+  if (doc.body) installPageGlassBlur(doc);
   void import("../../ui/glass/lens").then(({ installGlassLens }) => installGlassLens(doc));
   // A drop never navigates the page: a page that takes drops handles them (and calls
   // preventDefault itself); everything else is refused here.
