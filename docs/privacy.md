@@ -48,13 +48,16 @@ deletes them.
 
 ## Egress gate
 
-The host list below is checked in CI (`tests/test_outbound_hosts.py`), and is being moved to a run-time check too:
-one egress gate per runtime (the daemon's Rust, the Mac and iPhone apps' Swift, the web pages' Content Security
-Policy) through which every HTTP client and socket the app makes for itself goes. In nightly and dev builds the gate
-refuses a connection to a host with no `connects` row and logs the host and the call site. Hosts you configure
-yourself (a self-hosted server, an API endpoint, an SSH or git host) pass because you named them.
-`tests/test_egress_gate.py` finds every client the code makes by hand; `tests/egress_ungated.json` lists the ones
-not moved to the gate yet (163 today), and that list may only shrink.
+The host list below is checked in CI (`tests/test_outbound_hosts.py`) and at run time. The daemon's Rust makes its
+HTTP clients through one egress gate (`cmux-tui/crates/cmux-egress`), whose resolver checks each host before it is
+looked up: in dev and nightly builds a host with no `connects` row is refused and logged (`egress.unlisted host=...
+site=...`); a release build logs it. `CMUX_EGRESS=enforce|log|off` overrides the mode. Hosts you configure yourself
+(a self-hosted server, an API endpoint, an SSH or git host) pass because you named them; loopback, IP addresses and
+reserved names pass. The gate's host list is generated from this page, so the two stay equal.
+
+Not every client goes through the gate yet. `tests/test_egress_gate.py` finds every client the code makes by hand
+(Rust and Swift); `tests/egress_ungated.json` lists the ones not moved yet (161 today), and that list may only
+shrink. The Mac and iPhone apps' Swift gate and the web pages' Content Security Policy come next.
 
 ## Hosts
 
