@@ -338,6 +338,7 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding, Agent
         // Another pane may have reparented `previous` already (a moved tab):
         // only a view still installed here is removed.
         let hosted = previous.flatMap { $0.superview === contentHost ? $0 : nil }
+        let morphFrom = TabSwitchMorph.isOn ? contentHost.groundColor : nil // the ground the tab leaving shows (PageTunables.tabSwitchMorph)
         // An agent page draws nothing until it paints: what this pane showed stays until then
         // (`beginPaintHold`), not an empty pane. Not a browser whose header band the strip leaves
         // now (its header would jump while it stays). While an earlier switch waits, what shows is the content it keeps.
@@ -358,6 +359,7 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding, Agent
         (view as? any ToolbarEdgeHosting)?.toolbarPosition = toolbarPosition
         if let view, !windowEntry.defers(view, to: contentHost) { install(view, replacing: leaving) }
         if holds, let shown, let view { beginPaintHold(outgoing: shown, incoming: view) }
+        if let morphFrom { TabSwitchMorph.run(on: contentHost, from: morphFrom, to: contentHost.groundColor, in: window) }
         // A terminal's theme scope inherits this pane's workspace theme.
         view?.reparentRootedThemeScope()
         // Another pane may own `previous` now and have taken its callback.
