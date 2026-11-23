@@ -133,6 +133,17 @@ export function isCommandLabel(value: unknown): boolean {
   return rule.program !== undefined || rule.match !== undefined;
 }
 
+/** `sidebar.sections.hidden` / `order`: at most 256 distinct ids of 1 to 128 characters (`SidebarSectionIDsSetting`). */
+export function isSidebarSectionIds(value: unknown): boolean {
+  if (!Array.isArray(value) || value.length > 256) return false;
+  const seen = new Set<string>();
+  return value.every((id) => {
+    if (typeof id !== "string" || id === "" || Array.from(id).length > 128 || seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
+}
+
 /** An ssh endpoint of a host: `ssh://[user@]host[:port]`, or what ssh takes (`[user@]host`, an alias). */
 export function isHostEndpoint(text: unknown): boolean {
   if (typeof text !== "string" || text === "" || text.startsWith("-") || /[\s\p{Cc}]/u.test(text)) return false;
@@ -282,6 +293,9 @@ export function validate(row: SchemaRow, value: unknown, domains?: Partial<Domai
     return typeof value === "string" && row.pattern !== undefined && new RegExp(row.pattern).test(value)
       ? null
       : "expected an app id, publisher/name in lowercase letters, digits and -";
+  }
+  if (row.validation === "domain:sidebar_section_ids") {
+    return isSidebarSectionIds(value) ? null : "expected a list of at most 256 distinct section ids";
   }
   if (row.validation === "domain:search_template") {
     return isSearchTemplate(value) ? null : "expected a web address with %s or {searchTerms}, or empty";
