@@ -74,9 +74,9 @@ struct AttachLineScanner {
         func plainStringEnd(from start: Int) -> Int? {
             guard start <= n else { return nil }
             let p = b.base.advanced(by: start)
-            guard let q = memchr(p, Int32(quote), n - start) else { return nil }
+            guard let q = memchr(p, Int32(truncatingIfNeeded: quote), n - start) else { return nil }
             let len = q.assumingMemoryBound(to: UInt8.self) - p
-            if len > 0, memchr(p, Int32(backslash), len) != nil { return nil }
+            if len > 0, memchr(p, Int32(truncatingIfNeeded: backslash), len) != nil { return nil }
             return start + len
         }
         /// A string body for `data`: no escapes, byte range without quotes. Control bytes are left to the base64
@@ -200,7 +200,7 @@ struct AttachLineScanner {
     }
 
     /// Sextet per byte, 0xFF for a non-alphabet byte: one load per input byte in the bulk loop.
-    private static let sextetTable: [UInt8] = (0..<256).map { sextet(UInt8($0)) }
+    private static let sextetTable: [UInt8] = (0..<256).map { sextet(UInt8(truncatingIfNeeded: $0)) }
 
     /// Standard padded base64 straight from the line's bytes (no `String`); nil for anything else.
     /// Every quad but the last runs a table-driven loop with no per-byte bounds checks; the last (which may
@@ -215,37 +215,42 @@ struct AttachLineScanner {
         if pad == 1, b.at(r.upperBound - 2) == equals { pad = 2 }
         let outCount = count / 4 * 3 - pad
         var ok = false
-        let out = Data(unsafeUninitializedCapacity: outCount) { dst, initialized in
+        let out = Data(unsafeUninitializedCapacity: outCount) { buffer, initialized in
             initialized = 0
-            let table = sextetTable
-            let done: Bool = table.withUnsafeBufferPointer { lut -> Bool in
+            guard let dst = buffer.baseAddress else { return }
+            let done: Bool = sextetTable.withUnsafeBufferPointer { lutBuffer -> Bool in
+                guard let lut = lutBuffer.baseAddress else { return false }
                 let src = b.base
+                func sx(_ at: Int) -> UInt8 {
+                    lut.advanced(by: Int(truncatingIfNeeded: src.advanced(by: at).pointee)).pointee
+                }
                 var o = 0
                 var p = r.lowerBound
                 let lastQuad = r.upperBound - 4
                 while p < lastQuad {
-                    let q0 = lut[Int(src[p])], q1 = lut[Int(src[p + 1])]
-                    let q2 = lut[Int(src[p + 2])], q3 = lut[Int(src[p + 3])]
-                    if (q0 | q1 | q2 | q3) == invalid { return false }  // 0xFF only from an invalid byte (valid are < 64)
-                    let v = UInt32(q0) << 18 | UInt32(q1) << 12 | UInt32(q2) << 6 | UInt32(q3)
-                    dst[o] = UInt8(truncatingIfNeeded: v >> 16)
-                    dst[o + 1] = UInt8(truncatingIfNeeded: v >> 8)
-                    dst[o + 2] = UInt8(truncatingIfNeeded: v)
+                    let q0 = sx(p), q1 = sx(p + 1), q2 = sx(p + 2), q3 = sx(p + 3)
+                    if (q0 | q1 | q2 | q3) == invalid { return false }  // valid sextets are < 64
+                    let v = UInt32(truncatingIfNeeded: q0) << 18 | UInt32(truncatingIfNeeded: q1) << 12
+                        | UInt32(truncatingIfNeeded: q2) << 6 | UInt32(truncatingIfNeeded: q3)
+                    dst.advanced(by: o).pointee = UInt8(truncatingIfNeeded: v >> 16)
+                    dst.advanced(by: o + 1).pointee = UInt8(truncatingIfNeeded: v >> 8)
+                    dst.advanced(by: o + 2).pointee = UInt8(truncatingIfNeeded: v)
                     o += 3
                     p += 4
                 }
                 // The last quad, possibly padded.
-                let c2 = src[p + 2], c3 = src[p + 3]
-                let q0 = lut[Int(src[p])], q1 = lut[Int(src[p + 1])]
-                let q2 = pad == 2 ? 0 : lut[Int(c2)]
-                let q3 = pad >= 1 ? 0 : lut[Int(c3)]
+                let c2 = b.at(p + 2), c3 = b.at(p + 3)
+                let q0 = sx(p), q1 = sx(p + 1)
+                let q2 = pad == 2 ? 0 : sx(p + 2)
+                let q3 = pad >= 1 ? 0 : sx(p + 3)
                 if q0 == invalid || q1 == invalid || q2 == invalid || q3 == invalid { return false }
                 if pad == 2 && (c2 != equals || c3 != equals) { return false }
                 if pad == 1 && c3 != equals { return false }
-                let v = UInt32(q0) << 18 | UInt32(q1) << 12 | UInt32(q2) << 6 | UInt32(q3)
-                dst[o] = UInt8(truncatingIfNeeded: v >> 16); o += 1
-                if pad < 2 { dst[o] = UInt8(truncatingIfNeeded: v >> 8); o += 1 }
-                if pad < 1 { dst[o] = UInt8(truncatingIfNeeded: v); o += 1 }
+                let v = UInt32(truncatingIfNeeded: q0) << 18 | UInt32(truncatingIfNeeded: q1) << 12
+                    | UInt32(truncatingIfNeeded: q2) << 6 | UInt32(truncatingIfNeeded: q3)
+                dst.advanced(by: o).pointee = UInt8(truncatingIfNeeded: v >> 16); o += 1
+                if pad < 2 { dst.advanced(by: o).pointee = UInt8(truncatingIfNeeded: v >> 8); o += 1 }
+                if pad < 1 { dst.advanced(by: o).pointee = UInt8(truncatingIfNeeded: v); o += 1 }
                 return o == outCount
             }
             if done { initialized = outCount }
