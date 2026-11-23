@@ -210,6 +210,7 @@ final class HomeService {
     var pendingSelection: ConversationID?
     /// Each chat's own bubble colours (`home.chatColors`), kept on this Mac, and the app's one Chat Colors… panel (AppKit).
     @ObservationIgnored let chatColors = HomeChatColorStore(defaults: .standard)
+    @ObservationIgnored private(set) lazy var clipboardHistory = HomeClipboardHistory { [weak services] in services?.settings } // the + menu's recent copies
     @ObservationIgnored private(set) lazy var chatColorsPanel = HomeChatColorsPanel(store: chatColors, design: .shared)
     @ObservationIgnored var cloudLinker: HomeCloudLink?
     /// Each conversation tab's view, by tab id; released with the tab.
