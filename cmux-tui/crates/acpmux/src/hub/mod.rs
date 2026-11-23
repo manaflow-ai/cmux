@@ -8,6 +8,7 @@
 mod claim_check;
 mod control_asks;
 
+mod account_usage;
 mod activity;
 mod app_exit;
 // Opt-in team usage sharing: one record per turn (`cmux-usage-share`).
