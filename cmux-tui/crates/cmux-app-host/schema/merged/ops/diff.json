@@ -1,0 +1,25 @@
+{
+  "family": "diff",
+  "ops": {
+    "diff.comments.delete": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "f9ecb06b0c830751"
+    },
+    "diff.comments.list": {
+      "source": "local",
+      "class": "read",
+      "digest": "ffa00658aac4a470"
+    },
+    "diff.comments.save": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "e7a6bf1e711cf33e"
+    },
+    "diff.comments.send": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "cf0de8605d19ab19"
+    }
+  }
+}

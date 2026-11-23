@@ -36,6 +36,10 @@ public struct StreamedBrowserPage: View {
             } else if case let .waiting(reason) = model.phase {
                 if model.canReopen {
                     reopen(reason)
+                } else if let chip = StreamedBrowserModel.linkChip(for: reason) {
+                    // The link is coming back: a chip over the last frame, not a sentence (Leo,
+                    // 2026-11-21: "a symbol or short thing, not a sentence. stop layout shifting").
+                    linkChip(chip)
                 } else {
                     status(reason)
                 }
@@ -54,7 +58,7 @@ public struct StreamedBrowserPage: View {
                         .font(.system(size: 17, weight: .medium))
                         .frame(width: 44, height: 44)
                 }
-                .buttonStyle(.cmuxPressFill)
+                .buttonStyle(.cmuxPressGlass)
                 .glassEffect(.regular.interactive(), in: .circle)
                 .padding(12)
                 .accessibilityLabel(Text("Keyboard"))
@@ -164,7 +168,7 @@ public struct StreamedBrowserPage: View {
                 .multilineTextAlignment(.leading)
                 .padding(.horizontal, 14).padding(.vertical, 10)
         }
-        .buttonStyle(.cmuxPressFill)
+        .buttonStyle(.cmuxPressGlass)
         .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 16))
         .padding(.horizontal, 16).padding(.top, 12)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -179,6 +183,23 @@ public struct StreamedBrowserPage: View {
             .padding(.horizontal, 14).padding(.vertical, 8)
             .glassEffect(.regular, in: .capsule)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func linkChip(_ chip: ConnectionChip.Content) -> some View {
+        ConnectionChip(chip, downSince: model.waitingSince ?? ConnectionChip.justDropped)
+            .padding(.top, 8)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .accessibilityIdentifier("browser.reconnecting")
+    }
+}
+
+extension StreamedBrowserModel {
+    /// A `.waiting` reason that is the link coming back, as one or two words for
+    /// ``ConnectionChip`` (the sentence stays its VoiceOver label); nil for any other reason
+    /// (the Mac ended the page, reopening), which keeps its words.
+    static func linkChip(for reason: String) -> ConnectionChip.Content? {
+        guard reason == reconnectingText || reason == linkReconnectingText else { return nil }
+        return ConnectionChip.Content(.reconnecting, sentence: reason)
     }
 }
 
@@ -228,20 +249,23 @@ public struct StreamedBrowserCard: View {
     let placeholder: String
     /// A simulator's frame is shown whole and centred; a page's fills the width from the top.
     let fit: Bool
+    /// The tab's last-known picture, kept across launches: shown until this launch has a frame.
+    let lastKnown: CGImage?
 
-    public init(model: StreamedBrowserModel, placeholder: String = "globe", fit: Bool = false) {
+    public init(model: StreamedBrowserModel, placeholder: String = "globe", fit: Bool = false, lastKnown: CGImage? = nil) {
         self.model = model
         self.placeholder = placeholder
         self.fit = fit
+        self.lastKnown = lastKnown
     }
 
     public var body: some View {
         ZStack(alignment: .top) {
             Color(uiColor: .systemBackground)
-            if fit, let image = model.snapshot?.image {
+            if fit, let image = model.snapshot?.image ?? lastKnown {
                 Color.black
                 Image(decorative: image, scale: 1).resizable().interpolation(.medium).scaledToFit()
-            } else if let image = model.snapshot?.image {
+            } else if let image = model.snapshot?.image ?? lastKnown {
                 GeometryReader { geo in
                     Image(decorative: image, scale: 1).resizable().interpolation(.medium)
                         .frame(width: geo.size.width,

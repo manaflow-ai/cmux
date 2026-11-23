@@ -30,12 +30,6 @@ const LEO_STEPS: { doing?: string; tokens: number }[] = [
   { tokens: 2_500 },
 ];
 const counts = (tokens: number): WorkingCounts => ({
-  agents: 0,
-  commands: 0,
-  sessions: 0,
-  openAgents: () => undefined,
-  openCommands: () => undefined,
-  openSessions: () => undefined,
   tokens,
 });
 const NO_WAITING: ReadonlySet<string> = new Set();
@@ -92,6 +86,8 @@ export function StatusSwapStage({ sequence }: { sequence?: "leo" }) {
             waiting={NO_WAITING}
             onOpen={() => undefined}
             shown={shown}
+            // The exact step, sliding in as it comes: this stage is about that hand-over (hatStep.experiment.ts).
+            stepLook="exact"
           />
           <div className="acpmux-composer">
             <div

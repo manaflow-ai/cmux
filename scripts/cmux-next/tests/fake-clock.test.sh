@@ -11,21 +11,22 @@ fail() { echo "fake-clock: $1" >&2; exit 1; }
 start=$(date +%s)
 [[ "$start" == 1700000000 ]] || fail "starts at $start"
 wall=$SECONDS
+# sleep-ok: these sleeps are the fake-clock sleep under test (they advance the virtual clock, no real wait).
 sleep 3600
-sleep 0.5s
+sleep 0.5s  # sleep-ok: the fake sleep under test
 [[ "$(date +%s)" == 1700003600 ]] || fail "after 3600.5 s it reads $(date +%s)"
 (( SECONDS - wall < 5 )) || fail "sleep waited for real"
 [[ "$(date -u -r 0 +%Y)" == 1970 || "$(date -u -d @0 +%Y)" == 1970 ]] || fail "other date calls must run the real date"
 
 fake_clock_at 2 "echo two >> '$TMP/log'"
 fake_clock_at 5 "echo five >> '$TMP/log'"
-sleep 1
+sleep 1  # sleep-ok: the fake sleep under test
 [[ ! -e "$TMP/log" ]] || fail "an event ran early"
-sleep 1
+sleep 1  # sleep-ok: the fake sleep under test
 [[ "$(cat "$TMP/log")" == two ]] || fail "the 2 s event did not run once at 2 s"
-sleep 10
+sleep 10  # sleep-ok: the fake sleep under test
 [[ "$(cat "$TMP/log")" == $'two\nfive' ]] || fail "events did not each run once, in order"
-sleep 10
+sleep 10  # sleep-ok: the fake sleep under test
 [[ "$(cat "$TMP/log")" == $'two\nfive' ]] || fail "an event ran twice"
 
 # A child script (the script under test) sees the same clock.
