@@ -40,6 +40,7 @@ public struct CommandPaletteSwitcherFingerprintContext: Sendable {
             for workspace in context.workspaces {
                 hasher.combine(workspace.id)
                 hasher.combine(workspace.displayName)
+                hasher.combine(workspace.tintColorHex)
                 workspace.metadata.combine(into: &hasher)
                 hasher.combine(workspace.surfaces.count)
                 for surface in workspace.surfaces {
