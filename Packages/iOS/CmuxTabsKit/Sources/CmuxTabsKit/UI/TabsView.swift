@@ -285,19 +285,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
             if let old, old == staticCardID { source.resumeLiveContent(old) }
             staticCardID = source.showStaticCard(for: new) ? new : nil
         }
-        .onAppear {
-            zoomDriver.onSettle = { phase in
-                if phase == .page {
-                    zoomTabId = nil
-                    queuedOpen = nil
-                    chrome.expand(tap: true, theme)
-                }
-                if phase == .overview, let id = queuedOpen {
-                    queuedOpen = nil
-                    if source.tabs.contains(where: { $0.id == id }) { closeOverview(selecting: id) }
-                }
-            }
-        }
+        .onAppear { zoomDriver.onSettle = { zoomSettled(at: $0) } }
         #if DEBUG
         // Screenshot harness: use the same action and menu as a toolbar tap.
         // The single delay is bounded and cancelled when this screen disappears.
@@ -641,6 +629,21 @@ struct TabsScreen<Source: TabsDataSource>: View {
             prepareOverview(revealing: activeIndex ?? 0, count: tabs.count)
         }
         zoomDriver.go(toOverview: true)
+    }
+
+    /// The zoom came to rest on the page or the grid. A method, not a closure
+    /// in `body`: inside the modifier chain it made `body` one expression the
+    /// compiler could not type-check in reasonable time.
+    private func zoomSettled(at phase: TabZoomState.Phase) {
+        if phase == .page {
+            zoomTabId = nil
+            queuedOpen = nil
+            chrome.expand(tap: true, theme)
+        }
+        if phase == .overview, let id = queuedOpen {
+            queuedOpen = nil
+            if source.tabs.contains(where: { $0.id == id }) { closeOverview(selecting: id) }
+        }
     }
 
     /// Done or a card: grid -> page, or reverse a zoom heading to the grid.
