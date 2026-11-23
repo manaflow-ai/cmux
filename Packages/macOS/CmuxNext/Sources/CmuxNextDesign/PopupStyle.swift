@@ -175,7 +175,7 @@ public final class PopupHostView: NSView {
         shadowLayer.shadowPath = shape
         // Liquid Glass casts its own shadow; a second, black one under it read as a dark ring. The layer's
         // opacity, not `isHidden`, which a popup that veils its card toggles (GroupEditorService).
-        shadowLayer.opacity = (card as? OverlaySurfaceView)?.castsSystemGlassShadow == true ? 0 : 1
+        shadowLayer.opacity = 1 // BEFORE (evidence only, never merged): the second shadow under Liquid Glass
         let cutout = CGMutablePath()
         cutout.addRect(bounds)
         cutout.addPath(shape)
