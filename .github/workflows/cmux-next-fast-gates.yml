@@ -359,18 +359,13 @@ jobs:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
 
-      # A dispatch runs on feat-cmux-next's ref, so a cache it saved would sit in
-      # the base branch's scope after pull request code (bun install scripts)
-      # ran: a dispatch only restores.
-      - name: Cache Bun package cache
-        if: ${{ github.event_name == 'pull_request' && (steps.prepare.outputs.web == 'true' || steps.prepare.outputs.checks == 'true') }}
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: ~/.bun/install/cache
-          key: bun-web-lint-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock', 'web/bun.lock', 'cmux-tui/frontends/web/bun.lock') }}
-
-      - name: Restore the Bun package cache (dispatch)
-        if: ${{ github.event_name == 'workflow_dispatch' && (steps.prepare.outputs.web == 'true' || steps.prepare.outputs.checks == 'true') }}
+      # Restore only, on pull requests and dispatches alike: cmux-next-web-lint.yml's web-lint job saves this key on
+      # each feat-cmux-next push. A pull request's own save was a copy of about 1.2 GB in that pull request's scope,
+      # which nothing else reads and which evicts the base's caches from the 10 GB store (2026-11-22: 10.56 GB, 6.66 GB
+      # of it pull request refs). A dispatch runs on feat-cmux-next's ref after pull request code (bun install
+      # scripts) ran, so it never saved.
+      - name: Restore the Bun package cache
+        if: ${{ steps.prepare.outputs.web == 'true' || steps.prepare.outputs.checks == 'true' }}
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
@@ -383,17 +378,10 @@ jobs:
         with:
           node-version: "24.22.1"
 
-      # prepush-gate.py downloads its pinned tools (sha256 checked) once per lock.
-      # A dispatch only restores them, as with the Bun cache above.
-      - name: Cache the pinned lint tools
-        if: ${{ github.event_name == 'pull_request' }}
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: ~/.cache/cmux-lint-tools
-          key: cmux-lint-tools-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/cmux-next/lint-tools.lock') }}
-
-      - name: Restore the pinned lint tools (dispatch)
-        if: ${{ github.event_name == 'workflow_dispatch' }}
+      # prepush-gate.py downloads its pinned tools (sha256 checked) when they are missing. Restore only, as with the
+      # Bun cache above: cmux-next-web-lint.yml's web-lint job saves this key on each feat-cmux-next push. On
+      # 2026-11-22 the store held 14 pull request copies of it (65 MB each) and none on feat-cmux-next.
+      - name: Restore the pinned lint tools
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.cache/cmux-lint-tools
@@ -479,6 +467,8 @@ jobs:
       - name: Restore the cargo build cache
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
+          add-rust-environment-hash-key: false
           cache-bin: false
           workspaces: cmux-tui -> target
           shared-key: cmux-tui-pr-clippy
