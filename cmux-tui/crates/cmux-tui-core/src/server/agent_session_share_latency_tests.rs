@@ -102,8 +102,11 @@ fn guests_of(owner: &mut Client, share: &str, account: &str, count: usize) -> Ve
     let invite = owner.request(json!({"cmd":"agent-session-share-invite", "share_id":share,
         "account":account, "role":"talk"}));
     assert_eq!(invite["ok"], true, "{invite}");
+    // An attempt is one account's: each join gets its own id, across accounts too.
+    static ATTEMPT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     (0..count)
-        .map(|n| {
+        .map(|_| {
+            let n = ATTEMPT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             let reply = owner.request(json!({"cmd":"agent-session-share-redeem",
                 "share_id":share, "account":account, "name":"Ann",
                 "attempt_id":format!("attempt-{n}")}));
