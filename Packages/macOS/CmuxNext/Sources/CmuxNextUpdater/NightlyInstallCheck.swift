@@ -88,7 +88,7 @@ public struct NightlyInstallCheck {
         let listed = (try? await updater.work.run(.userVisible, mayBlock: .files) { store.list() }) ?? []
         var kept: [InstallCheckKept] = []
         for version in listed where version.build != running {
-            let inputs = await updater.rollbackInputs(to: version.build, checkOnly: true, stateDirectories: stateDirectories)
+            let inputs = await updater.rollbackInputs(to: version.build, stateDirectories: stateDirectories)
             let reads = (try? updater.rollbackDecision(to: version.build, inputs: inputs).get()) != nil
             kept.append(InstallCheckKept(build: version.build, readsStore: reads))
         }
