@@ -523,7 +523,7 @@
   text-decoration: none;
 }
 .acpmux-md-inline-chip[data-preview="text"] .acpmux-md-inline-retry:hover {
-  background: var(--ds-color-hover);
+  background: var(--ds-surface-hover);
 }
 .acpmux-md-inline-chip[data-preview="text"] .acpmux-md-inline-retry:focus-visible {
   outline: 1.5px solid var(--agent-text);

@@ -62,7 +62,10 @@ parser.add_argument("--tag", required=True)
 parser.add_argument("--out", required=True)
 parser.add_argument("--matrix", default="full", choices=["full", "quick", "none"])
 parser.add_argument("--vdisplay", default="")
-parser.add_argument("--vdisplay-hidpi", action="store_true")
+parser.add_argument("--vdisplay-hidpi", nargs="?", const="hidpi", default="", choices=["hidpi", "hidpi-points"])
+# The virtual display's size in points (the 900 x 600 test window fits any): a 2x display of 1920x1200 points
+# is 3840x2400 pixels, over what some hosts' virtual displays take (scripts/measure/vdisplay-hidpi-probe.sh).
+parser.add_argument("--vdisplay-size", default="1920x1200")
 parser.add_argument("--hz", type=float, default=60)
 parser.add_argument("--activate", action="store_true")
 parser.add_argument("--frames", action="store_true")
@@ -99,6 +102,11 @@ BASE = [
     {"backdrop": "wallpaper", "row": "pressed"},
     {"backdrop": "plain", "ic": True},                    # Increase Contrast (the Mac's setting)
     {"backdrop": "wallpaper", "ic": True},
+    # The text axis (GlassParityPlayground.TextRendering): which rasterization pairing matches the text.
+    {"backdrop": "plain", "text": "flat"},
+    {"backdrop": "wallpaper", "text": "flat"},
+    {"backdrop": "plain", "text": "smooth"},
+    {"backdrop": "wallpaper", "text": "smooth"},
 ]
 CSS = [{"backdrop": "plain", "mode": "css"}, {"backdrop": "wallpaper", "mode": "css"}]
 QUICK = [{"backdrop": "plain"}, {"backdrop": "wallpaper"}, {"backdrop": "terminal", "opacity": 0.6}]
@@ -173,10 +181,13 @@ def passes(diff, gate=GATE):
 display = None
 if opts.vdisplay:
     out_path = os.path.join(opts.out, "vdisplay.out")
-    display = subprocess.Popen([os.path.join(opts.vdisplay, "Contents/MacOS/VDisplay"), f"{opts.hz:g}", "7200", "main", "1920x1200"]
-                               + (["hidpi"] if opts.vdisplay_hidpi else []),
+    display = subprocess.Popen([os.path.join(opts.vdisplay, "Contents/MacOS/VDisplay"), f"{opts.hz:g}", "7200", "main",
+                                opts.vdisplay_size] + ([opts.vdisplay_hidpi] if opts.vdisplay_hidpi else []),
                                stdout=open(out_path, "w"), stderr=subprocess.STDOUT)
-    wait(lambda: open(out_path).read().startswith(("ready", "error")), 20)
+    # A 2x display can take 20 s to list and 15 s more for its modes (vdisplay.m): wait for its "ready" line, not
+    # for the first line, which is a diagnostic while it comes up (runs 4-10 printed an empty "vdisplay:").
+    wait(lambda: any(line.startswith(("ready", "error")) for line in open(out_path).read().splitlines()),
+         60 if opts.vdisplay_hidpi else 20)
     print("vdisplay:", open(out_path).read().strip(), flush=True)
 
 with open(os.path.join(opts.app, "Contents/Info.plist"), "rb") as f:
@@ -200,6 +211,7 @@ app = subprocess.Popen([BINARY], env=ENV,
 print(f"app pid {app.pid}, scratch {SCRATCH}, out {opts.out}", flush=True)
 
 results, rows, failures, skipped, frames = [], [], [], [], []
+app_inactive = True  # the app launches in the background until the first active cell opens it
 
 
 def pct(values, q):
@@ -261,10 +273,18 @@ try:
                 params.setdefault("active", True)
                 params.setdefault("opacity", 1)
                 params.setdefault("row", "rest")
+                params.setdefault("text", "standard")
                 params.update({"scale": scale, "measure": True, "dir": opts.out})
-                if opts.activate and not params["active"]:
-                    # Another app takes activation (the Finder opens no window), so the playground is inactive.
-                    subprocess.run(["open", "-a", "Finder"], capture_output=True)
+                if opts.activate:
+                    # Activation is the system's to give: an app started by a process that is no app (this harness) is
+                    # never made active by its own request (fleet run b44f5987: every active cell came back with the app
+                    # inactive). LaunchServices activates the running app at this bundle path, as a Dock click would,
+                    # and the playground then makes its window key; an inactive cell gives activation to the Finder
+                    # (it opens no window).
+                    # Only when activation is elsewhere: reopening an active app lets its main window take key.
+                    if not params["active"] or app_inactive:
+                        subprocess.run(["open", "-a", opts.app if params["active"] else "Finder"], capture_output=True)
+                    app_inactive = not params["active"]
                 reply = rpc("debug.glass_parity", params) or {}
                 status = reply.get("status") or {}
                 if status.get("scale") is not None and abs(float(status["scale"]) - scale) > 0.01:
@@ -272,7 +292,10 @@ try:
                     print("skip", skipped[-1], flush=True)
                     continue
                 active = params["active"]
-                real = status.get("key") is True if active else status.get("app_active") is False
+                # Active: the window key at every capture of the cell (the measure's snapshots say so per renderer).
+                shots_key = [v.get("key_at_capture") for v in (reply.get("snapshots") or {}).values()]
+                real = (status.get("key") is True and all(k is not False for k in shots_key)) if active \
+                    else status.get("app_active") is False
                 if opts.activate and not real:
                     failures.append(f"{label}: the window is not {'key' if active else 'inactive'} (key={status.get('key')}, "
                                     f"app_active={status.get('app_active')})")
@@ -316,6 +339,15 @@ try:
                         if gated and not ok:
                             failures.append(f"{reply['stem']} {kind} {engine}: glass mean {material.get('mean')} "
                                             f"p99 {material.get('p99')} max {material.get('max')}")
+                        # WebKit text is gated on every text axis: the pages draw with the native text's smoothing
+                        # (appearance.fontSmoothing `auto`, WebTheme.pageSmoothing; `flat` and `smooth` pin both
+                        # sides), which run c2c44e1f measured exact (mean 0.005, p99 0). Chromium shapes with
+                        # HarfBuzz and rasterizes with Skia (other subpixel glyph positions, about 16% less ink),
+                        # so its text stays reported, not gated.
+                        if gated and engine == "webkit" and scenario.get("text", "standard") in ("standard", "flat", "smooth") \
+                                and not passes(full, TEXT_TOLERANCE):
+                            failures.append(f"{reply['stem']} {kind} {engine}: text mean {full.get('mean')} "
+                                            f"p99 {full.get('p99')} (same smoothing on both sides)")
                 print(f"{reply['stem']}: worst glass mean {worst:.3f} rt={status.get('reduce_transparency')} "
                       f"key={status.get('key')} host_glass={status.get('host_glass')}", flush=True)
             if opts.frames:
@@ -348,7 +380,18 @@ with open(os.path.join(opts.out, "summary.md"), "w") as f:
     f.write(f"Gate (glass: the box and its margin, text box left out): mean <= {GATE['mean']}, p99 <= {GATE['p99']} "
             f"(8-bit worst-channel error). {sum(r['pass'] for r in gated)}/{len(gated)} gated cells pass, "
             f"{sum(r['exact'] for r in gated)} exact (max 0). Text included (not gated; mean <= {TEXT_TOLERANCE['mean']}, "
-            f"p99 <= {TEXT_TOLERANCE['p99']}): {sum(r['text_ok'] for r in gated)}/{len(gated)}.\n\n")
+            f"p99 <= {TEXT_TOLERANCE['p99']}): {sum(r['text_ok'] for r in gated)}/{len(gated)}.\n")
+    # Text, per rasterization pairing and engine: the mean of the cells' with-text mean and p99.
+    by = {}
+    for r in gated:
+        after = r["stem"].split("-text-")
+        axis = after[1].split("-")[0] if len(after) > 1 else "standard"
+        by.setdefault((axis, r["engine"]), []).append(r["full"])
+    for (axis, engine), fulls in sorted(by.items()):
+        mean = sum(full.get("mean") or 0 for full in fulls) / len(fulls)
+        p99 = sum(full.get("p99") or 0 for full in fulls) / len(fulls)
+        f.write(f"Text {axis} {engine}: {len(fulls)} cells, with-text mean {mean:.3f}, p99 {p99:.1f}.\n")
+    f.write("\n")
     f.write("| scenario | surface | engine | glass pass | glass mean | glass p99 | glass max | text ok | with text mean | with text p99 |\n"
             "|---|---|---|---|---|---|---|---|---|---|\n")
     for r in rows:

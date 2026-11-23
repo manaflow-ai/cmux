@@ -247,7 +247,8 @@ public final class ScreenSharingViewer: Identifiable {
                 return
             }
             end(ticket.sessionId, reason: ScreenSharingEndReason.failed.rawValue)
-            phase = .refused(.other, requested: ticket.scope)
+            phase = .refused(.other(reason: ScreenSharingRefusal.reason(error as? DeviceHubError ?? .transport(error.localizedDescription))),
+                             requested: ticket.scope)
             return
         }
         lastScope = ticket.scope
@@ -450,7 +451,9 @@ public enum ScreenSharingRefusal: Equatable, Sendable {
     /// The Mac does not share its screen.
     case notShared
     case notFound
-    case other
+    /// Anything else (a transport failure, a server error, a code this build does not know),
+    /// with the hub's own words when it gave any: the card says them.
+    case other(reason: String?)
 
     init(_ error: DeviceHubError) {
         switch error.code {
@@ -459,8 +462,25 @@ public enum ScreenSharingRefusal: Equatable, Sendable {
         case .hostOffline?: self = .hostOffline
         case .notShared?: self = .notShared
         case .notFound?, .deviceRemoved?: self = .notFound
-        default: self = .other
+        default: self = .other(reason: Self.reason(error))
         }
+    }
+
+    /// Whether this is a refusal without a card of its own (``other(reason:)``).
+    var isOther: Bool { if case .other = self { true } else { false } }
+
+    /// The hub's words for a refusal this build has no card of its own for: the server's
+    /// message (else its code), the HTTP status, or the transport's own error; nil when
+    /// there is nothing to say.
+    static func reason(_ error: DeviceHubError) -> String? {
+        let text: String = switch error {
+        case let .server(_, code, message): message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? code.rawValue : message
+        case let .http(status): "HTTP \(status)"
+        case let .transport(detail), let .decoding(detail), let .identity(detail): detail
+        case .notConfigured, .notSignedIn: ""
+        }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 }
 

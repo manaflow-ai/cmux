@@ -56,8 +56,8 @@ private final class RecoveryDialer: MacLinkDialer, @unchecked Sendable {
 
 @MainActor
 @Suite struct LinkRecoveryTests {
-    private func controller(_ dialer: RecoveryDialer, clock: any Clock<Duration> = ContinuousClock()) -> LinkController {
-        let controller = LinkController(transport: .wireGuard, dialer: dialer, clock: clock) { _ in "token" }
+    private func controller(_ dialer: RecoveryDialer, clock: LinkTestClock) -> LinkController {
+        let controller = LinkController(transport: .wireGuard, dialer: dialer, clock: clock, beat: .off) { _ in "token" }
         controller.endpoint = {
             LinkEndpoint(baseURL: URL(string: "https://example.invalid")!, teamID: "t", deviceID: "d", macDeviceID: $0)
         }
@@ -95,12 +95,10 @@ private final class RecoveryDialer: MacLinkDialer, @unchecked Sendable {
         controller.send(.background)
         dialer.first.dropSilently()
         let oldGeneration = controller.dialGeneration
-        let start = ContinuousClock.now
         controller.send(.resume)
         #expect(controller.phase == .connecting(.wireGuard, attempt: 1))
         #expect(controller.dialGeneration > oldGeneration)
         try await eventually { dialer.dials == 2 && dialer.first.isClosed }
-        print("LINK_RECOVERY foreground_redial_ms=\(milliseconds(ContinuousClock.now - start))")
         #expect(dialer.first.probeCount == 1, "No probe of the stale link before redial")
     }
 
@@ -109,11 +107,15 @@ private final class RecoveryDialer: MacLinkDialer, @unchecked Sendable {
         let clock = LinkTestClock()
         let controller = controller(dialer, clock: clock)
         defer { controller.send(.target(nil)); clock.stop() }
+        let driver = LinkClockDriver(clock: clock, controller: controller)
         try await eventually { dialer.first.probeCount == 1 }
+        try await driver.settle()
         controller.send(.background)
         let backgroundDeadline = clock.now.advanced(by: .seconds(15))
-        try await eventually { clock.isSleeping(until: backgroundDeadline) }
-        clock.advance(by: LinkController.heartbeat + .milliseconds(100))
+        try await driver.settle()
+        #expect(clock.isSleeping(until: backgroundDeadline))
+        // Past the foreground beat, with every timer due by then run: no probe.
+        try await driver.advance(by: LinkController.heartbeat + .milliseconds(100))
         #expect(dialer.first.probeCount == 1)
         #expect(clock.isSleeping(until: backgroundDeadline))
         controller.send(.target(nil))

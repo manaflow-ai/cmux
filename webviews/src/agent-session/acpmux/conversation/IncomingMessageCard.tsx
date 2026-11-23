@@ -275,14 +275,13 @@ export function SenderChip({
   const icon =
     toolNotice && look !== "tag" ? <NoticeMark severity={toolNotice.severity} /> : <SenderMark message={message} />;
   const host = toolNotice?.host ?? sender.host;
-  // The harness, model and effort it runs on, under the name's tooltip and on the mark's.
+  // The harness, model and effort it runs on, on the name's facts card and the mark's tooltip.
   const about = message.chief
     ? undefined
     : senderAbout(senderHarness(sender.harness, message.harness), sender.run, message);
   // "Open chief-ui (studio-mac)": the chat the name opens, and the other machine it runs on.
   const openHost = sender.host ?? resolved?.host;
   const open = openHost ? t("subagents.openOnHost", { name, host: openHost }) : t("subagents.open", { name });
-  const openTitle = about ? `${open}\n${about}` : open;
   return (
     // Its own part of the line: the name opens the sender's chat or nothing, never the message.
     <span className="cv-received__sender" data-own-click="">
@@ -299,7 +298,7 @@ export function SenderChip({
         <AgentTag
           name={from}
           className="cv-received__from cv-received__from--open"
-          title={openTitle}
+          about={about}
           ariaLabel={open}
           attributes={openSessionAttributes(sessionId, true)}
           hover={hover}
@@ -310,7 +309,7 @@ export function SenderChip({
         <AgentTag
           name={from}
           className="cv-received__from cv-received__from--open"
-          title={openTitle}
+          about={about}
           ariaLabel={open}
           onClick={openAsked}
         />

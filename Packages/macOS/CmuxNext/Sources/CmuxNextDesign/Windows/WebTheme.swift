@@ -40,12 +40,25 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     /// (`ui.animations.web` or the master switch `ui.animations.enabled` off).
     public let motion: String
     /// `lens`, `plain` or `spectrum` (``GlassLensMode/current``, already `plain` under Reduce
-    /// Transparency and Low Power Mode): `data-glass` on `<html>`, which `.ui-glass` reads.
+    /// Transparency and Low Power Mode), or ``glassOff`` while `appearance.liquidGlass` is off:
+    /// `data-glass` on `<html>`, which `.ui-glass` reads.
     public let glass: String
-    /// `auto`, `antialiased` or `subpixel` (`appearance.fontSmoothing`, ``FontSmoothing``):
-    /// `data-cmux-font-smoothing` on `<html>`. Under `antialiased` and `subpixel` the bootstrap
-    /// stylesheet sets `-webkit-font-smoothing` on every element over the page's own; `auto` leaves
-    /// the page's own.
+
+    /// `glass` while `appearance.liquidGlass` is off: every web glass surface draws solid, with a
+    /// hairline rim and no blur (webviews ui/glass/glass.css, `GLASS_OFF` in glassState.ts).
+    public static let glassOff = "off"
+    /// `current`, or ``glassLevelsPrevious`` while `appearance.previousGlass` is on:
+    /// `data-glass-levels` on `<html>`, which webviews ui/glass/glass.css reads to draw the glass
+    /// numbers from before the one glass system (design/glass-system.md). `current` removes it.
+    public let glassLevels: String
+
+    /// ``glassLevels`` while `appearance.previousGlass` is on.
+    public static let glassLevelsPrevious = "previous"
+    /// `antialiased` or `subpixel` (`appearance.fontSmoothing`, ``FontSmoothing``, with `auto`
+    /// resolved to native text's smoothing by ``pageSmoothing(_:native:)``):
+    /// `data-cmux-font-smoothing` on `<html>`. The bootstrap stylesheet sets
+    /// `-webkit-font-smoothing` on every element over the page's own; the page script still takes
+    /// `auto` (no rule, the page's own).
     public let fontSmoothing: String
     /// The filled personality slots (``ThemeDecorations/payload``): `data-cmux-decoration-<slot>` on
     /// `<html>`, which the page draws. Empty sends no `decorations` key at all.
@@ -132,9 +145,10 @@ public nonisolated struct WebTheme: Equatable, Sendable {
             "--cmux-surface-solid": Self.css(surfaceKind.map {
                 backgrounds.opaqueFill(for: $0, tokens: tokens, base: surface.withAlpha(1), windowTint: windowTint)
             } ?? surface.withAlpha(1)),
-            // Reading pages (the Markdown viewer): clear over a picture, which hides what is behind
-            // the window, so they show the App Theme's one veil like the terminals; else the page
-            // color made opaque, so desktop text never reads through a document (#30818).
+            // Reading pages (the Markdown viewer): clear over a picture (Window Glass's included),
+            // which covers what is behind the window, so they show the App Theme's one veil like the
+            // terminals; else the page color made opaque, so desktop text never reads through a
+            // document (#30818).
             "--cmux-reading-background": Self.css(WindowBackdrop.current(tokens, reduceTransparency: reduceTransparency).hidesWhatIsBehind
                 ? tokens.surfaceBackground.withAlpha(0) : tokens.surfaceBackground.withAlpha(1)),
             "--cmux-elevated-background": Self.css(tokens.elevatedBackground),
@@ -209,9 +223,19 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         statusIndicators = !Motion.indicators.animatesLoops || DesignSettings.shared.statusIndicator.animation == .static ? "static" : "animated"
         workingLook = StatusWorkingLook.tunable.value.rawValue
         motion = Self.motionValue(Motion.web.policy)
-        self.glass = (glass ?? .current).rawValue
+        self.glass = DesignSettings.shared.liquidGlass ? (glass ?? .current).rawValue : Self.glassOff
+        glassLevels = DesignSettings.shared.previousGlass ? Self.glassLevelsPrevious : "current"
         decorations = ThemeDecorations.current.payload
-        fontSmoothing = DesignSettings.shared.fontSmoothing.rawValue
+        fontSmoothing = Self.pageSmoothing(DesignSettings.shared.fontSmoothing, native: .chrome)
+    }
+
+    /// `data-cmux-font-smoothing` for `setting`: an explicit choice as it is; ``FontSmoothing/auto``
+    /// the smoothing native text draws with now (`native`, ``ProcessFontSmoothing/chrome``), so text
+    /// on a page and native text beside it draw the same pixels (the Liquid Glass Parity matrix:
+    /// WebKit text on glass is exact only with the same smoothing on both sides).
+    public static func pageSmoothing(_ setting: FontSmoothing, native: ProcessFontSmoothing) -> String {
+        guard setting == .auto else { return setting.rawValue }
+        return native.smoothsStems ? FontSmoothing.subpixel.rawValue : FontSmoothing.antialiased.rawValue
     }
 
     /// `data-cmux-motion` for `policy`: `off` when the web category, the master switch or speed
@@ -232,7 +256,7 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     public var payloadJSON: String {
         var object: [String: Any] = ["variables": variables, "colorScheme": colorScheme, "scrollers": scrollers,
                                      "terminal": terminal.json, "transition": transition, "statusIndicators": statusIndicators,
-                                     "workingLook": workingLook, "motion": motion, "glass": glass, "fontSmoothing": fontSmoothing]
+                                     "workingLook": workingLook, "motion": motion, "glass": glass, "glassLevels": glassLevels, "fontSmoothing": fontSmoothing]
         if !decorations.isEmpty { object["decorations"] = decorations }
         guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]),
               let json = String(data: data, encoding: .utf8) else { return "{}" }
@@ -381,6 +405,8 @@ public nonisolated struct WebTheme: Equatable, Sendable {
           if (payload.workingLook) root.setAttribute('data-working-look', payload.workingLook);
           if (payload.motion) root.setAttribute('data-cmux-motion', payload.motion);
           if (payload.glass) root.setAttribute('data-glass', payload.glass);
+          if (payload.glassLevels === 'previous') root.setAttribute('data-glass-levels', 'previous');
+          else if (payload.glassLevels) root.removeAttribute('data-glass-levels');
           if (payload.fontSmoothing) root.setAttribute('data-cmux-font-smoothing', payload.fontSmoothing);
           // The filled personality slots (ThemeDecorations): one attribute per slot; a slot the
           // last theme filled and this one leaves empty loses its attribute.
@@ -464,33 +490,41 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     @MainActor
     static func chromeDivider(_ tokens: ThemeTokens, backgrounds: SurfaceBackgrounds) -> String {
         guard Borders.drawsLines else { return "transparent" }
-        if let override = backgrounds.fill(for: .splitDivider, tokens: tokens) { return css(override) }
         let separator = tokens.separator
-        return css(separator.withAlpha(min(1, separator.alpha * ChromeTunables.dividerStrength.value)))
+        let base = separator.withAlpha(min(1, separator.alpha * ChromeTunables.dividerStrength.value))
+        return css(backgrounds.dividerLine(base: base) ?? base)
     }
 
-    /// The inputs of the page theme that no theme change pushes: `appearance.borders`, `appearance.fontSmoothing`, the divider
+    /// The inputs of the page theme that no theme change pushes: `appearance.borders`, `appearance.fontSmoothing`,
+    /// `appearance.liquidGlass`, `appearance.previousGlass`, the divider
     /// strength (`--cmux-chrome-divider`), the title area's tone and contrast and the chrome shade they
     /// make (`--cmux-sidebar-surface`, `--cmux-chrome-tone`, `--cmux-folder-fill`). The app repaints
     /// every page when one changes (`AppServices.observeBorders`).
     @MainActor
     public static var pushInputs: [String] {
         let design = DesignSettings.shared
-        return [Borders.current.mode.rawValue, design.fontSmoothing.rawValue, "\(ChromeTunables.dividerStrength.value)", design.titleAreaTone.rawValue,
+        return [Borders.current.mode.rawValue, design.fontSmoothing.rawValue, "\(design.liquidGlass)", "\(design.previousGlass)", "\(ChromeTunables.dividerStrength.value)", design.titleAreaTone.rawValue,
                 "\(design.titleAreaContrast)", "\(Metrics.mainPaneChromeShade(isDark: false))", "\(Metrics.mainPaneChromeShade(isDark: true))"]
     }
 
     /// `rgba(r, g, b, a)` with 0-255 channels.
     public static func css(_ color: ThemeRGB) -> String {
         func channel(_ value: Double) -> Int { Int((value * 255).rounded()) }
-        let alpha = (color.alpha * 1000).rounded() / 1000
-        return "rgba(\(channel(color.red)), \(channel(color.green)), \(channel(color.blue)), \(alpha))"
+        return "rgba(\(channel(color.red)), \(channel(color.green)), \(channel(color.blue)), \(cssAlpha(color.alpha)))"
     }
 
-    /// `color` as pages read it from `css`: each channel rounded to 8 bits, the alpha to 3 decimals.
+    /// `alpha` as the 8-bit alpha the native layer draws (round(alpha x 255) / 255), written to 3 decimals, which
+    /// every engine reads back as that same 8-bit value. Before, an alpha on a half step (0.1 x 255 = 25.5, the
+    /// light theme's pressed row) drew 26/255 natively and 25/255 in WebKit, a level apart over the whole row
+    /// (Liquid Glass Parity, fleet step e573c84a).
+    static func cssAlpha(_ alpha: Double) -> Double {
+        ((alpha * 255).rounded() / 255 * 1000).rounded() / 1000
+    }
+
+    /// `color` as pages read it from `css`: each channel and the alpha rounded to 8 bits.
     public static func cssRounded(_ color: ThemeRGB) -> ThemeRGB {
         func channel(_ value: Double) -> Double { (value * 255).rounded() / 255 }
         return ThemeRGB(red: channel(color.red), green: channel(color.green), blue: channel(color.blue),
-                        alpha: (color.alpha * 1000).rounded() / 1000)
+                        alpha: cssAlpha(color.alpha))
     }
 }

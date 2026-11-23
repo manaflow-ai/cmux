@@ -3,6 +3,7 @@
 // range); the page groups and presents them. Behavior matches the Swift page it replaces
 // (CmuxNextHistory/HistoryPageModel.swift, HistoryQuery.swift HistoryGrouping, HistoryPageRow.swift).
 import type { HistoryEntry, HistoryKind, HistoryRange } from "./types";
+import { intl } from "../../ui/intl";
 
 export type HistoryFilter = "all" | "pages" | "locations" | "commands" | "agents" | "closed";
 
@@ -250,12 +251,12 @@ export function groupTitle(
   if (grouping === "machine") return group.name ?? t("group.thisMac");
   const days = Math.round((localDayStart(nowMs) - group.at_ms) / 86_400_000);
   if (days === 0 || days === 1) {
-    const text = new Intl.RelativeTimeFormat(language, { numeric: "auto" }).format(-days, "day");
+    const text = intl.RelativeTimeFormat(language, { numeric: "auto" }).format(-days, "day");
     return text.charAt(0).toLocaleUpperCase(language) + text.slice(1);
   }
-  return new Intl.DateTimeFormat(language, { dateStyle: "full" }).format(group.at_ms);
+  return intl.DateTimeFormat(language, { dateStyle: "full" }).format(group.at_ms);
 }
 
 export function rowTime(entry: HistoryEntry, language: string): string {
-  return new Intl.DateTimeFormat(language, { timeStyle: "short" }).format(entry.at_ms);
+  return intl.DateTimeFormat(language, { timeStyle: "short" }).format(entry.at_ms);
 }

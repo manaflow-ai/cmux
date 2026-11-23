@@ -110,7 +110,7 @@ fn quiet(sub: &SubRecord, now: u64) -> bool {
     since > 0 && now.saturating_sub(since) >= QUIET_AFTER.as_millis() as u64
 }
 
-fn minutes(ms: u64) -> String {
+pub(super) fn minutes(ms: u64) -> String {
     crate::sub_watch::minutes(ms)
 }
 
@@ -120,7 +120,7 @@ fn busy(status: cmux_chief::acp::SessionStatus) -> bool {
 }
 
 /// `text` on one line, at most `n` characters.
-fn one_line(text: &str, n: usize) -> String {
+pub(super) fn one_line(text: &str, n: usize) -> String {
     let line: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
     if line.chars().count() <= n {
         line
@@ -261,6 +261,7 @@ impl Brain {
             "cancel" => self.control_cancel(&sub),
             "restart" => self.control_restart(&sub, message),
             "priority" => self.control_priority(&sub),
+            "tasks" => self.control_tasks(&sub, call.items.as_ref()),
             other => Err(format!("control: no action {other}")),
         }
     }
@@ -1010,6 +1011,35 @@ impl Brain {
         }
     }
 
+    /// `control tasks id items`: keeps the subagent chat's task list (acpmux
+    /// `_acpmux/task_list/set`), which its chat and its sidebar row show, for a
+    /// harness that keeps no plan of its own. `[]` clears it.
+    fn control_tasks(&mut self, sub: &SubRecord, items: Option<&Value>) -> Result<String, String> {
+        let id = sub.id.as_str();
+        let Some(session) = sub.session_id.as_deref() else {
+            return outcome(
+                "refused",
+                format!("{id} has no chat yet ({})", state_name(sub, now_ms())),
+            );
+        };
+        let items = items.cloned().unwrap_or_else(|| json!([]));
+        match self.agents.task_list_set(session, &items)? {
+            Value::Null => outcome("done", format!("{id}'s task list is cleared")),
+            list => {
+                let done = list["done"].as_u64().unwrap_or(0);
+                let total = list["total"].as_u64().unwrap_or(0);
+                let now = list["current"]
+                    .as_str()
+                    .map(|c| format!("; now: {c}"))
+                    .unwrap_or_default();
+                outcome(
+                    "done",
+                    format!("{id}'s task list: {done} of {total} done{now}"),
+                )
+            }
+        }
+    }
+
     fn control_priority(&mut self, sub: &SubRecord) -> Result<String, String> {
         let id = sub.id.as_str();
         if sub.status != SubStatus::Queued {
@@ -1426,24 +1456,44 @@ impl Brain {
     }
 }
 
-/// How often the host checks its cloud VMs for idle ones: a VM pauses at
-/// most this long after `cloud.autoPauseIdleSeconds`.
+/// The least time between two runs of the cloud checks: a VM pauses at most
+/// this long after `cloud.autoPauseIdleSeconds`.
 pub(super) const CLOUD_TICK: Duration = Duration::from_secs(5);
 
-/// Sends `CloudTick` to the brain every [`CLOUD_TICK`] until it is gone.
-pub(super) fn start_cloud_ticker(tx: std::sync::mpsc::Sender<super::Input>) {
-    let _ = std::thread::Builder::new()
-        .name("cloud-tick".into())
-        .spawn(move || {
-            loop {
-                // A fixed, intended interval (idle VM check), not a poll for
-                // a result.
-                std::thread::sleep(CLOUD_TICK);
-                if tx.send(super::Input::CloudTick).is_err() {
-                    return;
-                }
-            }
-        });
+impl super::Brain {
+    /// When the brain next runs its cloud checks (VM pause, VM delete, key
+    /// revoke, fleet polls): the earliest deadline one of them waits for, at
+    /// least [`CLOUD_TICK`] after the last run, so a check that finds nothing
+    /// to do cannot spin. `None` while none of them waits for anything: an
+    /// idle host gets no cloud wakeup (perf-lead.md row 9; a ticker thread
+    /// used to wake it every 5 s while cloud VMs or keys were set up).
+    pub fn next_cloud_tick(&self) -> Option<std::time::Instant> {
+        let due_ms = self.cloud_due_ms()?;
+        let at = std::time::Instant::now() + Duration::from_millis(due_ms.saturating_sub(now_ms()));
+        Some(match self.cloud_ticked_at {
+            Some(last) => at.max(last + CLOUD_TICK),
+            None => at,
+        })
+    }
+
+    /// Runs the cloud checks now.
+    pub(super) fn run_cloud_checks(&mut self) {
+        self.cloud_ticked_at = Some(std::time::Instant::now());
+        self.cloud_tick();
+        self.agent_key_tick();
+        self.cloud_reap_tick();
+        self.fleet_tick();
+    }
+
+    /// Runs the cloud checks when their deadline came.
+    pub(super) fn fire_cloud_checks_if_due(&mut self) {
+        if self
+            .next_cloud_tick()
+            .is_some_and(|at| at <= std::time::Instant::now())
+        {
+            self.run_cloud_checks();
+        }
+    }
 }
 
 /// Sends `SubTick` to the brain every [`TICK`] until the brain is gone.

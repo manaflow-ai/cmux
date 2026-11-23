@@ -28,10 +28,6 @@ import Testing
         [KeyContext.topPage: KeyContextValue.string("home")],
         [KeyContext.surfaceKind: .string("home")],
         [KeyContext.surfaceKind: .string("home-dock")],
-        // Bring your history (issue 38049): the first-run import over Home zooms with the Chief chat.
-        [KeyContext.pageID: .string("cmux.import-history"), KeyContext.surfaceKind: .string("import-history")],
-        // Shown on top with the keyboard elsewhere in the window (a sidebar click).
-        [KeyContext.topPage: .string("import-history"), KeyContext.surfaceKind: .string("sidebar")],
     ])
     func zoomKeysZoomTheChiefChatOnHome(context: [String: KeyContextValue]) {
         for (key, command) in Self.keys {
@@ -58,7 +54,6 @@ import Testing
         let key = Shortcut("k", modifiers: [.control, .option])
         registry.setShortcutOverride(key, for: "home.zoomIn")
         #expect(Self.winner(key, in: KeyContext([KeyContext.topPage: .string("home")]), registry: registry) == "home.zoomIn")
-        #expect(Self.winner(key, in: KeyContext([KeyContext.pageID: .string("cmux.import-history")]), registry: registry) == "home.zoomIn")
         // Another React page (Settings) does not take the Chief chat's zoom.
         #expect(Self.winner(key, in: KeyContext([KeyContext.pageID: .string("cmux.settings")]), registry: registry) != "home.zoomIn")
         var terminal = KeyContext(bits: [.terminalFocused])

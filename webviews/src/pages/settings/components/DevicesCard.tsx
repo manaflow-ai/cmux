@@ -5,6 +5,7 @@
 // only draws and forwards. A relay secret typed in the editor lives in that form's state until it
 // is sent, never in the store, is cleared after Save, and is never drawn back.
 import { useCallback, useId, useState, type ReactNode } from "react";
+import { RemoteHostsExperiment } from "./RemoteHostsExperiment";
 import { Button } from "../../../ui/Button";
 import { Icon } from "../icons";
 import { Input } from "../../../ui/Input";
@@ -23,6 +24,7 @@ import type {
   DevicesState,
   DevicesTone,
 } from "../ops";
+import { WithFacts } from "../../../agent-session/acpmux/chips/FactsHoverCard";
 
 export function DevicesCard() {
   const store = useStore();
@@ -39,6 +41,7 @@ export function DevicesCard() {
     <div className="devices" data-card="devices" ref={mounted}>
       {devices && <DevicesBody state={devices} join={join} />}
       {!devices && join && <JoinGroup join={join} />}
+      <RemoteHostsExperiment />
     </div>
   );
 }
@@ -324,9 +327,13 @@ function DeviceRow({ device, labels }: { device: DevicesDevice; labels: DevicesL
           {device.fingerprint && (
             <div className="row-help" data-device-fingerprint="">
               {labels.fingerprint}{" "}
-              <code className="font-mono selectable" title={device.fingerprintFull ?? undefined}>
-                {device.fingerprint}
-              </code>
+              <WithFacts facts={[{ value: device.fingerprintFull ?? "", code: true }]}>
+                {(facts) => (
+                  <code {...facts} className="font-mono selectable">
+                    {device.fingerprint}
+                  </code>
+                )}
+              </WithFacts>
               {device.fingerprintFull && (
                 <>
                   {" "}
@@ -918,16 +925,10 @@ function HistoryGroup({ state }: { state: DevicesState }) {
                       {row.eventText}
                     </span>
                   </td>
-                  <td className="devices-wrap" title={row.device}>
-                    {row.device}
-                  </td>
-                  <td className="devices-wrap" title={row.host}>
-                    {row.host}
-                  </td>
+                  <td className="devices-wrap">{row.device}</td>
+                  <td className="devices-wrap">{row.host}</td>
                   <td>{row.scope}</td>
-                  <td className="devices-wrap devices-detail" title={row.detail}>
-                    {row.detail}
-                  </td>
+                  <td className="devices-wrap devices-detail">{row.detail}</td>
                   <td className="devices-nowrap">{row.duration}</td>
                 </tr>
               ))}

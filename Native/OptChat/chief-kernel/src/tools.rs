@@ -5,14 +5,15 @@
 use serde_json::{Value, json};
 
 use crate::prompt::{
-    CLOUD_WORKSPACE_DESCRIPTION, CONTROL_DESCRIPTION, DATE_DESCRIPTION, ESCALATE_AUTH_DESCRIPTION,
+    ASK_DESCRIPTION, CHECK_INS_DESCRIPTION, CLOUD_WORKSPACE_DESCRIPTION, CONTROL_DESCRIPTION,
+    DATE_DESCRIPTION, ESCALATE_AUTH_DESCRIPTION, FOLLOW_UP_DESCRIPTION, FOLLOW_UPS_DESCRIPTION,
     MCP_DESCRIPTION, MEMORY_FORGET_DESCRIPTION, MEMORY_PATH_HELP, MEMORY_READ_DESCRIPTION,
-    MEMORY_WRITE_DESCRIPTION, PEER_TELL_DESCRIPTION, PEERS_DESCRIPTION, REACT_DESCRIPTION,
-    RECALL_DESCRIPTION, REMEMBER_DESCRIPTION, REPLY_DESCRIPTION, SEND_DESCRIPTION,
-    SLEEP_DESCRIPTION, SPAWN_CWD_DESCRIPTION, SPAWN_DESCRIPTION, SPAWN_HARNESS_DESCRIPTION,
-    SPAWN_MODEL_DESCRIPTION, SPAWN_SIDEBAR_DESCRIPTION, STOP_DESCRIPTION, TELL_DESCRIPTION,
-    TRANSCRIPT_DESCRIPTION, VERSION_DESCRIPTION, WATCH_DESCRIPTION, ZOOM_AGENT_DESCRIPTION,
-    ZOOM_DESCRIPTION,
+    MEMORY_WRITE_DESCRIPTION, NOTHING_DESCRIPTION, PEER_TELL_DESCRIPTION, PEERS_DESCRIPTION,
+    REACT_DESCRIPTION, RECALL_DESCRIPTION, REMEMBER_DESCRIPTION, REPLY_DESCRIPTION,
+    SEND_DESCRIPTION, SLEEP_DESCRIPTION, SPAWN_CWD_DESCRIPTION, SPAWN_DESCRIPTION,
+    SPAWN_HARNESS_DESCRIPTION, SPAWN_MODEL_DESCRIPTION, SPAWN_SIDEBAR_DESCRIPTION,
+    STOP_DESCRIPTION, TELL_DESCRIPTION, TRANSCRIPT_DESCRIPTION, VERSION_DESCRIPTION,
+    WATCH_DESCRIPTION, ZOOM_AGENT_DESCRIPTION, ZOOM_DESCRIPTION,
 };
 
 /// Shortest `sleep` (a turn costs more than a shorter wait saves).
@@ -51,7 +52,7 @@ pub const PLACES: [&str; 7] = [
 ];
 
 /// The `control` tool's actions.
-pub const CONTROL_ACTIONS: [&str; 12] = [
+pub const CONTROL_ACTIONS: [&str; 13] = [
     "status",
     "interrupt",
     "answer",
@@ -60,6 +61,7 @@ pub const CONTROL_ACTIONS: [&str; 12] = [
     "cancel",
     "restart",
     "priority",
+    "tasks",
     "show",
     "hide",
     "cap",
@@ -165,6 +167,10 @@ pub fn tool_list(subagent: bool, allows: &dyn Fn(&str) -> bool) -> Value {
             "message": {"type": "string", "minLength": 1, "description": "interrupt/restart/resume: the prompt sent once it has stopped."},
             "option": {"type": "string", "minLength": 1, "description": "answer: deny (only the user can allow, in the app)."},
             "n": {"type": "integer", "minimum": 0, "description": "cap: subagents at work at once; 0 is no cap."},
+            "items": {"type": "array", "description": "tasks: the subagent chat's whole task list, in order; [] clears it.", "items": {"type": "object", "properties": {
+                "content": {"type": "string", "minLength": 1},
+                "status": {"type": "string", "enum": ["pending", "in_progress", "completed"]}},
+              "required": ["content", "status"], "additionalProperties": false}},
             "peer": {"type": "string", "minLength": 1, "description": "cloud: the acpmux peers (acpmux host ls, comma-separated) new subagents run on by default, each on the least busy, or off; without it, shows the setting."}},
           "required": ["action"], "additionalProperties": false}}));
     }
@@ -261,6 +267,28 @@ pub fn tool_list(subagent: bool, allows: &dyn Fn(&str) -> bool) -> Value {
           "required": ["path", "description", "body"], "additionalProperties": false}}));
         list.push(json!({"name": "memory_forget", "description": MEMORY_FORGET_DESCRIPTION,
          "inputSchema": {"type": "object", "properties": {"path": path}, "required": ["path"], "additionalProperties": false}}));
+        list.push(json!({"name": "follow_up", "description": FOLLOW_UP_DESCRIPTION,
+         "inputSchema": {"type": "object", "properties": {
+            "note": {"type": "string", "minLength": 1, "maxLength": 2000},
+            "at": {"type": "string", "maxLength": 40, "description": "Local YYYY-MM-DDTHH:MM, or ISO with an offset."},
+            "in": {"type": "string", "maxLength": 20, "description": "30m, 2h or 1d."},
+            "loop": {"type": "string", "maxLength": 80, "description": "loops/<task>.md it belongs to."},
+            "for_person": {"type": "boolean"}},
+          "required": ["note"], "additionalProperties": false}}));
+        list.push(json!({"name": "follow_ups", "description": FOLLOW_UPS_DESCRIPTION,
+         "inputSchema": {"type": "object", "properties": {"cancel": {"type": "string", "maxLength": 40}}, "additionalProperties": false}}));
+        list.push(
+            json!({"name": "check_ins", "description": CHECK_INS_DESCRIPTION,
+         "inputSchema": {"type": "object", "properties": {
+            "mode": {"type": "string", "enum": ["auto", "mornings", "off"]},
+            "quiet": {"type": "string", "maxLength": 20},
+            "cost_limit_usd": {"type": "number", "minimum": 0}},
+          "additionalProperties": false}}),
+        );
+        list.push(json!({"name": "nothing", "description": NOTHING_DESCRIPTION,
+         "inputSchema": {"type": "object", "properties": {"reason": {"type": "string", "minLength": 1, "maxLength": 300}}, "required": ["reason"], "additionalProperties": false}}));
+        list.push(json!({"name": "ask", "description": ASK_DESCRIPTION,
+         "inputSchema": {"type": "object", "properties": {"question": {"type": "string", "minLength": 1, "maxLength": 2000}}, "required": ["question"], "additionalProperties": false}}));
         list.push(json!({"name": "remember", "description": REMEMBER_DESCRIPTION,
          "inputSchema": {"type": "object", "properties": {
             "text": {"type": "string", "minLength": 1, "maxLength": REMEMBER_MAX, "description": "The preference as one short rule in the person's own terms, e.g. \"Reply in one short bullet list.\""}},
@@ -297,6 +325,11 @@ const HOST_ONLY: &[&str] = &[
     "memory_read",
     "memory_write",
     "memory_forget",
+    "follow_up",
+    "follow_ups",
+    "check_ins",
+    "nothing",
+    "ask",
 ];
 
 /// The engines that take specs; a cloud engine drops the host-only tools.

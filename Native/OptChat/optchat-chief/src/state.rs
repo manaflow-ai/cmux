@@ -91,6 +91,17 @@ pub struct HostState {
     /// outcome no Chief post has told the person yet.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub untold: Vec<Untold>,
+    /// The loop guard refuses the Chief's messages in its conversation
+    /// (`agent_budget`, brain/budget_hold.rs): set by a refusal, cleared by
+    /// the person's next message or a Chief message the owner takes. While
+    /// set, `stop`/`sleep` are not refused for untold work and the
+    /// `[untold]`/`[no text]` notes wait for the person's next turn.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub budget_hold: bool,
+    /// Subagents a turn started with no words while the guard held: the
+    /// person's next turn names them (brain/budget_hold.rs).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub held_spawns: Vec<String>,
     /// E22: ids a posted reply named in `answers_pending`: the turn that
     /// ends their work answers them even when it says nothing (a done
     /// marker), so a waiting `cmux chief -p` ends.
@@ -224,6 +235,15 @@ pub struct Wake {
     /// first drops this wake.
     #[serde(default)]
     pub until_event: bool,
+    /// A `follow_up` (check_in.rs): its id (`fu_...`); None for a sleep wake.
+    #[serde(default)]
+    pub id: Option<String>,
+    /// The loops/<task>.md the follow-up belongs to.
+    #[serde(default)]
+    pub loop_path: Option<String>,
+    /// The person asked for this exact time: quiet hours never move it.
+    #[serde(default)]
+    pub for_person: bool,
 }
 
 /// How many thread roots `HostState::message_roots` keeps.
@@ -581,6 +601,17 @@ pub struct SubRecord {
     /// (`bg-…` from `bg_start`, until their notice).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub background: Vec<String>,
+    /// Its last report's first words, kept after the report is logged, for
+    /// `<open-items>`.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub last_report: String,
+    /// When its last report came (ms since the epoch), for `<open-items>`.
+    #[serde(default, skip_serializing_if = "is_zero_u64")]
+    pub reported_ms: u64,
+    /// When a Chief post last named it (ms since the epoch): its last report
+    /// was told when this is not before `reported_ms`.
+    #[serde(default, skip_serializing_if = "is_zero_u64")]
+    pub told_ms: u64,
 }
 
 /// How many tell keys a subagent keeps for dedupe.

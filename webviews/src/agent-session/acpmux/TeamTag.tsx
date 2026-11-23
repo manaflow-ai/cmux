@@ -40,7 +40,7 @@ export const teamIconName = (team: ActiveTeamTag): "account" | "team" => (team.p
 
 export function TeamTag({ team, size = 12 }: { team: ActiveTeamTag; size?: number }) {
   return (
-    <span className="acpmux-team-tag" data-personal={team.personal ? "" : undefined} title={team.name}>
+    <span className="acpmux-team-tag" data-personal={team.personal ? "" : undefined}>
       <Icon name={teamIconName(team)} size={size} />
       <span className="acpmux-team-tag-name">{team.name}</span>
     </span>

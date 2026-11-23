@@ -239,6 +239,43 @@ fn the_settle_wait_never_passes_the_ceiling() {
     assert_eq!(*d.captures.lock().unwrap(), 1 + 10);
 }
 
+/// Leo (ask-cdfac12eab): "why do we ever even wait for screen frames? we
+/// shouldnt bother most of the time i think". An app whose accessibility
+/// signals are watched and that sent none, with its window unchanged after
+/// the floor, returns at the floor after one capture: no frame-by-frame wait
+/// to the ceiling.
+#[test]
+fn a_silent_app_is_not_watched_frame_by_frame() {
+    let d = Arc::new(FakeDesktop::standard());
+    *d.signals.lock().unwrap() = Some(crate::desktop::Signals::default());
+    let (e, slept) = settling_engine(d.clone());
+    assert!(!e.call(&ctx(None), "screenshot", &json!({"window_id": "1"})).is_error);
+    let out = e.call(&ctx(None), "type_text", &json!({"window_id": "1", "text": "x"}));
+    let state = &out.body["state"];
+    assert_eq!(state["unchanged"], true, "{state}");
+    assert_eq!(state["waited_ms"], 120, "{state}");
+    assert_eq!(*d.captures.lock().unwrap(), 1 + 1);
+    assert_eq!(*slept.0.lock().unwrap(), vec![Duration::from_millis(120)]);
+}
+
+/// An app that signalled a change its window does not show yet is still
+/// watched until the change shows (within the ceiling), a signal it sent
+/// while the action ran included: the watch counts from before the action.
+#[test]
+fn a_signalled_change_is_waited_for_until_it_shows() {
+    let d = Arc::new(FakeDesktop::standard());
+    let (e, _) = settling_engine(d.clone());
+    assert!(!e.call(&ctx(None), "screenshot", &json!({"window_id": "1"})).is_error);
+    // One signal since the watch started (sent while the key went in); the
+    // app redraws on the third capture after the agent's screenshot.
+    *d.signals.lock().unwrap() =
+        Some(crate::desktop::Signals { in_window: 1, ..Default::default() });
+    *d.repaint_from.lock().unwrap() = Some((4, 77));
+    let out = e.call(&ctx(None), "press_key", &json!({"window_id": "1", "keys": "Return"}));
+    assert_eq!(out.body["state"]["unchanged"], false, "{}", out.body);
+    assert_eq!(*d.captures.lock().unwrap(), 1 + 3);
+}
+
 /// Bug 5 and the verified results: input the route only delivered, whose
 /// effect must show in the window (`shows`), after which nothing changed
 /// through a real settle wait (pixels, elements, windows of any process,
@@ -265,7 +302,9 @@ fn a_delivered_action_with_no_visible_change_says_so() {
     assert_eq!(out.body["evidence"], "no_visible_change", "{}", out.body);
     assert!(out.body.get("shows").is_none(), "{}", out.body);
     let note = out.body["note"].as_str().unwrap();
-    assert!(note.contains("no visible change within 1000 ms"), "{}", out.body);
+    // The app signalled nothing and its window held at the first look: the
+    // settle ends there (ask-cdfac12eab), not at the 1 s ceiling.
+    assert!(note.contains("no visible change within 120 ms"), "{}", out.body);
     assert!(note.contains("take a screenshot before retrying"), "{}", out.body);
 }
 

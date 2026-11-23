@@ -66,6 +66,7 @@ def functions(image: bytes) -> tuple[bytes, list[tuple[int, str]]] | None:
     uuid = None
     text_vmaddr = None
     text_section = None
+    text_start = None
     text_end = None
     sections = 0
     symtab = None
@@ -86,11 +87,11 @@ def functions(image: bytes) -> tuple[bytes, list[tuple[int, str]]] | None:
                 if image[sect:sect + 16].rstrip(b"\0") == b"__text" and image[sect + 16:sect + 32].rstrip(b"\0") == b"__TEXT":
                     text_section = sections
                     sect_addr, sect_size = struct.unpack_from("<QQ", image, sect + 32)
-                    text_end = sect_addr + sect_size
+                    text_start, text_end = sect_addr, sect_addr + sect_size
         elif cmd == LC_SYMTAB:
             symtab = struct.unpack_from("<IIII", image, at + 8)
         at += size
-    if uuid is None or text_vmaddr is None or text_section is None or text_end is None or symtab is None:
+    if uuid is None or text_vmaddr is None or text_section is None or text_start is None or text_end is None or symtab is None:
         return None
     symoff, nsyms, stroff, strsize = symtab
     strings = image[stroff:stroff + strsize]
@@ -98,6 +99,10 @@ def functions(image: bytes) -> tuple[bytes, list[tuple[int, str]]] | None:
     for i in range(nsyms):
         strx, n_type, n_sect, _, value = struct.unpack_from("<IBBHQ", image, symoff + i * 16)
         if n_type & N_STAB or n_type & N_TYPE != N_SECT or n_sect != text_section:
+            continue
+        # The header symbol (__mh_execute_header, all a stripped executable keeps) sits
+        # before __text: it names no function, and as the only entry it would name them all.
+        if value < text_start:
             continue
         name = strings[strx:strings.index(b"\0", strx)].decode("utf-8", "replace")
         # Assembler temporaries name no function.

@@ -118,6 +118,75 @@ require_submodule_refs() { # SRC DIR [PREFIX]
   done
 }
 
+# Each long step runs through tsw_step, with its own bound, and says it is alive while it runs. The controller stops a
+# step that prints nothing for 45 min (CMUX_CI_MEASURE_SILENT_MAX) and names no cause: both chat-long-return runs on
+# #47553 (base and head, two display Macs, 2026-11-19) went silent after "TSW recorder ready" while the app build
+# wrote only to build.log, and each was stopped with nothing to say which step it was. macOS has no timeout(1).
+TSW_STEP_EVERY=${TSW_STEP_EVERY:-60}
+# tsw_stop_tree PID: TERM to PID and every process under it (listed first, so none escapes by being reparented), KILL
+# to any left after 10 s.
+tsw_stop_tree() {
+  local pids=("$1") i=0 child pid left
+  while ((i < ${#pids[@]})); do
+    for child in $(pgrep -P "${pids[i]}" 2>/dev/null); do pids+=("$child"); done
+    i=$((i + 1))
+  done
+  kill -TERM "${pids[@]}" 2>/dev/null || true
+  for ((i = 0; i < 10; i++)); do
+    left=0
+    for pid in "${pids[@]}"; do kill -0 "$pid" 2>/dev/null && left=1; done
+    ((left)) || return 0
+    sleep 1
+  done
+  kill -KILL "${pids[@]}" 2>/dev/null || true
+}
+# tsw_step PREFIX NAME LIMIT LOG [--stream] -- COMMAND...: runs COMMAND with its output in LOG, shown as it comes
+# with --stream; without it, every TSW_STEP_EVERY seconds a line gives the elapsed time and LOG's last line. Past
+# LIMIT seconds it stops COMMAND and everything under it, prints "PREFIX step NAME ran past LIMIT s" with LOG's tail
+# and returns 3 (could not measure); otherwise COMMAND's own status.
+tsw_step() {
+  local prefix="$1" name="$2" limit="$3" log="$4" stream=0 follow="" rc=0
+  shift 4
+  [[ "${1:-}" == --stream ]] && { stream=1; shift; }
+  [[ "${1:-}" == -- ]] && shift
+  : >"$log"
+  "$@" >"$log" 2>&1 &
+  local pid=$! started=$SECONDS next=$((SECONDS + TSW_STEP_EVERY))
+  if [[ "$stream" == 1 ]]; then
+    tail -n +1 -f "$log" &
+    follow=$!
+  fi
+  while kill -0 "$pid" 2>/dev/null; do
+    if ((SECONDS - started >= limit)); then
+      [[ -n "$follow" ]] && { kill "$follow" 2>/dev/null; wait "$follow" 2>/dev/null || true; }
+      echo "$prefix step $name ran past $limit s: stopped. Its log's last lines:"
+      tsw_stop_tree "$pid"
+      wait "$pid" 2>/dev/null || true
+      tail -n 30 "$log"
+      return 3
+    fi
+    if [[ "$stream" == 0 ]] && ((SECONDS >= next)); then
+      echo "$prefix step $name: $((SECONDS - started)) s, last: $(tail -n 1 "$log" | cut -c1-200)"
+      next=$((SECONDS + TSW_STEP_EVERY))
+    fi
+    sleep 1
+  done
+  wait "$pid" || rc=$?
+  if [[ -n "$follow" ]]; then
+    sleep 1 # tail -f reads the last lines on its next pass
+    kill "$follow" 2>/dev/null
+    wait "$follow" 2>/dev/null || true
+  fi
+  return "$rc"
+}
+# The bounds, each well past the step's slowest pass seen and overridable: a cold Release build on a light mini takes
+# about 45 min.
+TSW_PREFLIGHT_MAX=${TSW_PREFLIGHT_MAX:-300}
+TSW_TOOLS_MAX=${TSW_TOOLS_MAX:-600}
+TSW_SEEDER_MAX=${TSW_SEEDER_MAX:-1800}
+TSW_BUILD_MAX=${TSW_BUILD_MAX:-5400}
+TSW_RUN_MAX=${TSW_RUN_MAX:-7200}
+
 # Submodules, GhosttyKit and the pinned bun a tagged build needs (a fleet step checks out no submodules).
 prepare_build() {
   local tmp
@@ -143,6 +212,18 @@ prepare_build() {
   RUNNER_TEMP="$tmp" GITHUB_PATH="$tmp/bun-path" ./scripts/cmux-next/private-bun.sh
   PATH="$(tail -n 1 "$tmp/bun-path"):$PATH"
   export PATH
+}
+
+# The app build in SRC with scratch folder TMP and reload tag TAG; the rest goes to reload.sh. Run by tsw_step, in
+# its own subshell, so the cd stays there.
+tsw_build_app() { # SRC TMP TAG RELOAD-ARGS...
+  local src="$1" tmp="$2" tag="$3"
+  shift 3
+  cd "$src" && prepare_build "$tmp" && CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" --no-global-cli-links "$@"
+}
+# The settle matrix's scale seeder, from this checkout's cmux-tui (its target folder stays warm between steps).
+tsw_build_seeder() {
+  cd cmux-tui && cargo build --release --quiet -p acpmux --example scale_home
 }
 
 # The app a key=value run measures (launch-capture-probe.sh sources this file for it): build=nightly downloads DMG,
@@ -180,8 +261,9 @@ app_under_test() {
     APP_LABEL="$(git -C "$src" rev-parse HEAD)" || return 3
     local configuration=(--release)
     [[ "$config" == bench ]] && configuration=(--config bench)
-    (cd "$src" && prepare_build "$tmp" && CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" \
-      --no-global-cli-links "${configuration[@]}") >"$tmp/build.log" 2>&1 || true
+    # A failed or stopped build falls through to the app path check below, which says why.
+    tsw_step "$prefix" app-build "$TSW_BUILD_MAX" "$tmp/build.log" -- \
+      tsw_build_app "$src" "$tmp" "$tag" "${configuration[@]}" || true
     local app
     app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$tmp/build.log" | tail -n 1)"
     if [[ -z "$app" || ! -d "$app" ]]; then
@@ -243,17 +325,18 @@ frames_main() {
   # Before the build, as the console user the harness records as: a Mac whose CuaDriver cannot start or has no Screen
   # Recording grant exits 3 in seconds, not after an hour-long build on an exclusive display worker (2026-11-16:
   # three display Macs built every pull request's app, then died in cua-driver's `initialize`).
-  GITHUB_WORKSPACE="$root" scripts/ci/frame-pacing/console-session.sh python3 -I "$root/scripts/cmux-next/tab_switch_capture.py" \
-    preflight || exit 3
-  swiftc -O -o "$tmp/tab-switch-tools" scripts/measure/tab-switch-frames/tools.swift 2>&1 | tail -n 40 || true
+  GITHUB_WORKSPACE="$root" tsw_step TSW preflight "$TSW_PREFLIGHT_MAX" "$tmp/preflight.log" --stream -- \
+    scripts/ci/frame-pacing/console-session.sh python3 -I "$root/scripts/cmux-next/tab_switch_capture.py" preflight || exit 3
+  tsw_step TSW tools-compile "$TSW_TOOLS_MAX" "$tmp/tools.log" -- \
+    swiftc -O -o "$tmp/tab-switch-tools" scripts/measure/tab-switch-frames/tools.swift || tail -n 40 "$tmp/tools.log"
   [ -x "$tmp/tab-switch-tools" ] || { echo "TSW the marker and decoder did not compile"; exit 3; }
   if [[ "$scale" != none ]]; then
     # The settle matrix's daemon home at scale is written by acpmux's own store (god_fixture::write_scale_home), so
     # the seeder is built from this checkout's cmux-tui; its target folder stays warm between steps.
     local account_home
     account_home="$(dscl . -read "/Users/$(id -un)" NFSHomeDirectory 2>/dev/null | awk '{print $2}')"
-    (cd cmux-tui && PATH="${account_home:+$account_home/.cargo/bin:}$PATH" cargo build --release --quiet -p acpmux --example scale_home) >"$tmp/seeder.log" 2>&1 \
-      || { echo "TSW the scale seeder did not build"; tail -n 30 "$tmp/seeder.log"; exit 3; }
+    PATH="${account_home:+$account_home/.cargo/bin:}$PATH" tsw_step TSW seeder-build "$TSW_SEEDER_MAX" "$tmp/seeder.log" -- \
+      tsw_build_seeder || { echo "TSW the scale seeder did not build"; tail -n 30 "$tmp/seeder.log"; exit 3; }
     cp "${CARGO_TARGET_DIR:-$root/cmux-tui/target}/release/examples/scale_home" "$tmp/scale_home" && chmod 0755 "$tmp/scale_home"
   fi
   app_under_test "$build" "$config" "$dmg" "$tmp" "$root" tabswitch TSW || exit 3
@@ -269,11 +352,12 @@ frames_main() {
   [[ "$chat_perf" == 1 ]] && scenario_args+=(--chat-perf)
   local rc=0
   set +e
-  GITHUB_WORKSPACE="$root" scripts/ci/frame-pacing/console-session.sh python3 -I "$root/scripts/cmux-next/bench_tab_switch.py" \
+  GITHUB_WORKSPACE="$root" tsw_step TSW bench "$TSW_RUN_MAX" "$out/run.log" --stream -- \
+    scripts/ci/frame-pacing/console-session.sh python3 -I "$root/scripts/cmux-next/bench_tab_switch.py" \
     --frames "${app_args[@]}" --build "$label" --tools "$tmp/tab-switch-tools" --rounds "$rounds" --loads "$load" \
     --chat-turns "$turns" --agents "$agents" --out "$out" ${scenario_args[@]+"${scenario_args[@]}"} \
-    ${gate_args[@]+"${gate_args[@]}"} 2>&1 | tee "$out/run.log"
-  rc=${PIPESTATUS[0]}
+    ${gate_args[@]+"${gate_args[@]}"}
+  rc=$?
   set -e
   [[ -d "$tmp/src" ]] && git worktree remove --force "$tmp/src" >/dev/null 2>&1
   rm -f "$tmp/in.dmg"
