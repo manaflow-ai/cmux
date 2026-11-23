@@ -21,6 +21,9 @@ public struct ChiefEngineReport: Decodable, Sendable, Equatable {
         public var classifierModel: String?
         public var classifierPrompt: String?
         public var reactionsCanWake: Bool?
+        /// The Cloud machine this Chief does computer use on (`machine:<id>`); nil: this Mac. In
+        /// `choice` only (cmux issue 36047). Nil from an older brain.
+        public var computer: String?
 
         public init(harness: String? = nil, model: String? = nil, effort: String? = nil, speed: String? = nil) {
             self.harness = harness
@@ -33,6 +36,7 @@ public struct ChiefEngineReport: Decodable, Sendable, Equatable {
             case harness, model, effort, speed
             case classifierHarness = "classifier_harness", classifierModel = "classifier_model"
             case classifierPrompt = "classifier_prompt", reactionsCanWake = "reactions_can_wake"
+            case computer
         }
 
         public init(from decoder: any Decoder) throws {
@@ -44,6 +48,7 @@ public struct ChiefEngineReport: Decodable, Sendable, Equatable {
             classifierHarness = try c.decodeIfPresent(String.self, forKey: .classifierHarness)
             classifierModel = try c.decodeIfPresent(String.self, forKey: .classifierModel)
             classifierPrompt = try c.decodeIfPresent(String.self, forKey: .classifierPrompt)
+            computer = try c.decodeIfPresent(String.self, forKey: .computer)
             // engine.json may keep it as the string a set sent ("true"/"false").
             if let on = try? c.decodeIfPresent(Bool.self, forKey: .reactionsCanWake) {
                 reactionsCanWake = on
@@ -259,8 +264,9 @@ public struct ChiefControlClient: Sendable {
     }
 
     /// The fields `chief.engine.set` takes: the turns' engine, and the reaction classifier (a416).
+    /// `computer` is the Cloud machine the Chief does computer use on (`machine:<id>`, cmux issue 36047).
     public static let engineSetKeys: Set<String> = ["harness", "model", "effort", "speed", "classifier_harness",
-                                                    "classifier_model", "classifier_prompt", "reactions_can_wake"]
+                                                    "classifier_model", "classifier_prompt", "reactions_can_wake", "computer"]
 
     /// `params` of a `chief.engine.set` of `fields` (only ``engineSetKeys``; "default" clears one).
     static func engineSetParams(_ fields: [String: String], chief: String?) -> [String: JSONValue] {

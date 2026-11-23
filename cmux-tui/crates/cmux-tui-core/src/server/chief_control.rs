@@ -321,6 +321,8 @@ pub(super) fn tool_line(
                 "classifier_model",
                 "classifier_prompt",
                 "reactions_can_wake",
+                // The Cloud machine the Chief does computer use on (optchat-chief engine.rs, cmux issue 36047).
+                "computer",
                 // The Chief turns' permission mode (optchat-chief engine.rs, cmux#37392).
                 "permission_mode",
             ] {
