@@ -160,7 +160,8 @@ fn an_older_pin_in_a_group_moves_to_the_band_when_pinned_again() {
     assert_eq!(list(&doc, PINNED_SECTION_ID, None), ["w3"]);
     assert!(!doc.item(&item_id("w3")).unwrap().pinned_in_group());
     run(&mut doc, vec![Op::Unpin { items: vec![item_id("w3")] }]);
-    assert_eq!(list(&doc, &machine(), Some("g1")), ["w1", "w2", "w3"]);
+    // Back where it was when pinned: first in its group.
+    assert_eq!(list(&doc, &machine(), Some("g1")), ["w3", "w1", "w2"]);
 }
 
 #[test]
