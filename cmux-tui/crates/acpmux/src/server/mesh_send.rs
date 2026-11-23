@@ -350,15 +350,40 @@ fn class_note(row: &mut Value, inline: Option<PromptClass>) {
 
 /// The proven caller names the sender; `fromAgent` (anything a client writes) only when no
 /// session is proven, as a display name. `claim` is provenance only, never the sender.
+/// The hub's sender for a send from session `caller`, else from the program that named itself
+/// `named`. A program outside any session is no session the hub can find, so the hub names none
+/// and the receiver read only "a session on HOST" (ask-1e0e42a38e: glaeda-land's notice;
+/// ask-ee9ef79cbb: shadow-leo's). It also goes as the send's relay record (`relay`), which the hub
+/// carries as the sender's word, so the receiver names the program (`mesh_relay::sender_name`).
 fn sender(hub: &Hub, caller: Option<&str>, named: Option<String>, claim: Option<Value>) -> Sender {
+    let host = crate::pairing::mesh_host();
+    let relay = match (caller, named.as_deref().and_then(relay_label)) {
+        (None, Some(by)) => relay_label(&host).map(|machine| crate::mesh::SenderRelay {
+            by,
+            machine,
+            session: None,
+        }),
+        _ => None,
+    };
     Sender {
         name: caller.map(|id| hub.session_name(id)).or(named),
         session_id: caller.map(str::to_owned),
-        host: Some(crate::pairing::mesh_host()),
+        host: Some(host),
         claim,
+        relay,
         ..Sender::default()
     }
 }
+
+/// `text` as a hub label (cmux-platform `Label`: 1 to 128 characters), one line; None when empty.
+fn relay_label(text: &str) -> Option<String> {
+    let clean: String = text.chars().filter(|c| !c.is_control()).take(RELAY_LABEL_CHARS).collect();
+    let clean = clean.trim();
+    (!clean.is_empty()).then(|| clean.to_owned())
+}
+
+/// The longest label the hub takes.
+const RELAY_LABEL_CHARS: usize = 128;
 
 pub(super) async fn send(
     hub: &Arc<Hub>,
@@ -606,6 +631,29 @@ mod tests {
         let to = recipient_in(&hub, "machine-b/claude-sr2-coord-old");
         assert_eq!(to.name.as_deref(), Some("claude-sr2-coord-old"));
         assert_eq!(recipient_in(&hub, "machine-b/Kiwi").name.as_deref(), Some("Kiwi"));
+    }
+
+    /// A program outside any session (ACPMUX_FROM, no caller) goes with a relay record naming it,
+    /// so the receiver names it rather than "a session on HOST" (ask-1e0e42a38e). A session's own
+    /// send carries none: the hub names that session.
+    #[test]
+    fn a_program_outside_any_session_sends_its_name_as_the_relay_record() {
+        let mut config: crate::config::Config = serde_json::from_value(json!({})).unwrap();
+        config.store.mode = crate::config::StoreMode::Memory;
+        let store =
+            crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
+        let hub = Hub::new(config, store);
+        let from = sender(&hub, None, Some(" glaeda-land\n".into()), None);
+        let relay = from.relay.expect("a relay record");
+        assert_eq!(relay.by, "glaeda-land");
+        assert_eq!(relay.machine, crate::pairing::mesh_host().trim());
+        assert_eq!(relay.session, None);
+        assert_eq!(from.name.as_deref(), Some(" glaeda-land\n"));
+        let wire = serde_json::to_value(sender(&hub, None, Some("x".repeat(300)), None)).unwrap();
+        assert_eq!(wire["relay"]["by"].as_str().map(str::len), Some(128));
+        assert!(sender(&hub, None, None, None).relay.is_none());
+        assert!(sender(&hub, None, Some("  ".into()), None).relay.is_none());
+        assert!(sender(&hub, Some("s-1"), Some("lane-a".into()), None).relay.is_none());
     }
 
     /// cmuxterm-hq#17418: `class: question` to 9 sessions reached only through the relay sent 0

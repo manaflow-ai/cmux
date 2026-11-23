@@ -966,15 +966,41 @@ fn sender_name(message: &InMessage, book_host: Option<&str>) -> String {
         name => name,
     };
     let daemon = field(message.from.daemon_id.as_deref());
-    let named = match (host.is_empty(), name.is_empty()) {
-        (false, false) => format!("{host}/{name}"),
-        (true, false) if !daemon.is_empty() => format!("{name} on hub daemon {daemon}"),
-        (true, false) => name,
-        (false, true) => format!("a session on {host}"),
-        (true, true) if !daemon.is_empty() => format!("a session on hub daemon {daemon}"),
-        (true, true) => "a session on another machine".to_owned(),
+    let named = match relayed_by(message).filter(|_| name.is_empty()) {
+        Some(program) if !host.is_empty() => format!("{program} on {host}"),
+        Some(program) if !daemon.is_empty() => format!("{program} on hub daemon {daemon}"),
+        Some(program) => program,
+        None => match (host.is_empty(), name.is_empty()) {
+            (false, false) => format!("{host}/{name}"),
+            (true, false) if !daemon.is_empty() => format!("{name} on hub daemon {daemon}"),
+            (true, false) => name,
+            (false, true) => format!("a session on {host}"),
+            (true, true) if !daemon.is_empty() => format!("a session on hub daemon {daemon}"),
+            (true, true) => "a session on another machine".to_owned(),
+        },
     };
     named.chars().take(crate::hub::MAX_FROM_AGENT_CHARS).collect::<String>().trim().to_owned()
+}
+
+/// The program a message with no session names says carried it (`from.relay`, the sending
+/// daemon's `mesh_send::sender`): `by`, and the session it names on its machine when it names one
+/// (`lane-gh` relaying `vm-3/lane-a`). The sender's word, never read as a session.
+fn relayed_by(message: &InMessage) -> Option<String> {
+    let relay = message.from.relay.as_ref()?;
+    let clean =
+        |s: &str| s.chars().filter(|c| !c.is_control()).collect::<String>().trim().to_owned();
+    let by = clean(&relay.by);
+    if by.is_empty() {
+        return None;
+    }
+    match relay.session.as_deref().map(clean).filter(|s| !s.is_empty()) {
+        Some(session) => {
+            let machine = clean(&relay.machine);
+            let from = if machine.is_empty() { session } else { format!("{machine}/{session}") };
+            Some(format!("{from} via {by}"))
+        }
+        None => Some(by),
+    }
 }
 
 /// The host this person's address book lists for the daemon the hub stamped on `message`
@@ -1213,6 +1239,40 @@ mod tests {
         let mut bare = from("", "");
         bare.body = message.body.clone();
         assert_eq!(sender_name(&bare, None), "a session on another machine");
+    }
+
+    /// A program outside any session (glaeda-land's notice, shadow-leo's nudge) is named by the
+    /// relay record its daemon sent, on the stamped machine; before, "a session on cmux-cp-1"
+    /// (ask-1e0e42a38e, ask-ee9ef79cbb).
+    #[test]
+    fn a_program_outside_any_session_is_named_by_its_relay_record() {
+        use crate::mesh::SenderRelay;
+        let mut message = from("cmux-cp-1", "");
+        message.from.relay = Some(SenderRelay {
+            by: "glaeda-land".into(),
+            machine: "cmux-cp-1".into(),
+            session: None,
+        });
+        assert_eq!(sender_name(&message, None), "glaeda-land on cmux-cp-1");
+        // The machine is the hub's stamp, not the record's word.
+        message.from.daemon_id = Some("inst_a".into());
+        assert_eq!(sender_name(&message, Some("book-host")), "glaeda-land on book-host");
+        message.from.host = None;
+        assert_eq!(sender_name(&message, None), "glaeda-land on hub daemon inst_a");
+        // A relay that names the session it carried says whose and through what.
+        message.from.relay = Some(SenderRelay {
+            by: "lane-gh".into(),
+            machine: "vm-3".into(),
+            session: Some("lane-a".into()),
+        });
+        assert_eq!(sender_name(&message, Some("ctl")), "vm-3/lane-a via lane-gh on ctl");
+        // A session the hub named stays the name: the record is only for a sender with none.
+        message.from.name = Some("coord".into());
+        assert_eq!(sender_name(&message, Some("ctl")), "ctl/coord");
+        // An empty record says nothing.
+        let mut bare = from("vm", "");
+        bare.from.relay = Some(SenderRelay::default());
+        assert_eq!(sender_name(&bare, None), "a session on vm");
     }
 
     #[test]

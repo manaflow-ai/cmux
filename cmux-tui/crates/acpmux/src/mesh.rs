@@ -213,6 +213,23 @@ pub struct Sender {
     /// the receiver cannot look at another machine's processes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub claim: Option<serde_json::Value>,
+    /// The program that carried the send onto its daemon's socket, in its own word (cmux-platform
+    /// `MeshSenderRelay`): a tool outside any session (`acpmux send` with `--from` or
+    /// `ACPMUX_FROM` and no session) is `by`, its machine `machine`. The hub names no session for
+    /// such a send, so without it the receiver could only say "a session on HOST". Display only:
+    /// the hub checks none of it, and its daemon stamp stays the proof of the machine.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub relay: Option<SenderRelay>,
+}
+
+/// [`Sender::relay`]: `by` carried the message from `machine`, for `session` there when it says.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SenderRelay {
+    pub by: String,
+    pub machine: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session: Option<String>,
 }
 
 /// When a message reaches a busy session: after its turn (`turn-end`), or into the running
