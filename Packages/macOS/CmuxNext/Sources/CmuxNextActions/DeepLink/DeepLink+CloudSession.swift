@@ -6,7 +6,7 @@ public import Foundation
 /// same thing for every member of the team on every Mac; a person outside the team is refused.
 nonisolated extension DeepLink {
     /// Which half of a team Cloud link: a chat (`cloud/session/…`) or a workspace (`cloud/workspace/…`).
-    public enum CloudSessionKind: String, Sendable, Hashable, CaseIterable {
+    public enum CloudSessionKind: String, Sendable, Hashable, CaseIterable, Codable {
         case chat = "session"
         case workspace
 
@@ -22,36 +22,13 @@ nonisolated extension DeepLink {
         }
     }
 
-    /// A team id as TeamDO names it: `team_` and 20 lowercase letters or digits.
-    static func isTeamID(_ text: String) -> Bool {
-        guard text.hasPrefix("team_") else { return false }
-        let rest = text.utf8.dropFirst(5)
-        return rest.count == 20 && rest.allSatisfy { (48...57).contains($0) || (97...122).contains($0) }
-    }
-
     /// A Cloud machine id: `vm_` (or an older record's `vm-`) and 1 to 64 ASCII letters or digits
     /// (backend `CloudSessionVm`).
-    public static func isCloudVM(_ text: String) -> Bool {
-        guard text.hasPrefix("vm_") || text.hasPrefix("vm-") else { return false }
-        let rest = text.utf8.dropFirst(3)
-        return (1...64).contains(rest.count) && rest.allSatisfy { (48...57).contains($0) || (65...90).contains($0) || (97...122).contains($0) }
-    }
+    public static func isCloudVM(_ text: String) -> Bool { DeepLinkRust.valid("cloudVM", text) }
 
     /// A chat's acpmux session id or a workspace's id on its VM (backend `CloudSessionId`): a letter or
     /// digit, then up to 127 letters, digits, `.`, `_`, `:` or `-`.
-    public static func isCloudSessionID(_ text: String) -> Bool {
-        let bytes = Array(text.utf8)
-        guard let first = bytes.first, (1...128).contains(bytes.count) else { return false }
-        let alnum = { (b: UInt8) in (48...57).contains(b) || (65...90).contains(b) || (97...122).contains(b) }
-        return alnum(first) && bytes.allSatisfy { alnum($0) || $0 == UInt8(ascii: ".") || $0 == UInt8(ascii: "_") || $0 == UInt8(ascii: ":") || $0 == UInt8(ascii: "-") }
-    }
-
-    /// `cloud/<session|workspace>/<team>/<vm>/<id>`'s target, nil for anything else.
-    static func cloudTarget(_ segments: [String], fragment: String?) -> Target? {
-        guard fragment == nil, segments.count == 4, let kind = CloudSessionKind(rawValue: segments[0]),
-              isTeamID(segments[1]), isCloudVM(segments[2]), isCloudSessionID(segments[3]) else { return nil }
-        return .cloudSession(team: segments[1], machine: segments[2], session: segments[3], kind: kind)
-    }
+    public static func isCloudSessionID(_ text: String) -> Bool { DeepLinkRust.valid("cloudSessionID", text) }
 
     /// The `cloud:<team>/<vm>/<session>` key (C5) or a `cmux://cloud/…` link (any build's `cmux…`
     /// scheme: `cmux`, `cmux-dev`, `cmux-next`) as a link.
@@ -60,15 +37,7 @@ nonisolated extension DeepLink {
     /// - Parameter text: What a person or script passed (`--session`).
     /// - Returns: The link, or nil when `text` is neither.
     public static func cloudSession(_ text: String) -> DeepLink? {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.hasPrefix("cloud:") {
-            let parts = trimmed.dropFirst("cloud:".count).split(separator: "/", omittingEmptySubsequences: false).map(String.init)
-            guard parts.count == 3, isTeamID(parts[0]), isCloudVM(parts[1]), isCloudSessionID(parts[2]) else { return nil }
-            return DeepLink(.cloudSession(team: parts[0], machine: parts[1], session: parts[2], kind: .chat))
-        }
-        guard let url = URL(string: trimmed), let scheme = url.scheme, scheme.hasPrefix("cmux"), isScheme(scheme),
-              let link = parse(url, scheme: scheme), case .cloudSession = link.target else { return nil }
-        return link
+        DeepLinkRust.optional(.init("cloudSession", text: text), as: DeepLink.self)
     }
 
     /// What opening a team Cloud link does, decided from `team.cloud.session.get`'s answer and what
