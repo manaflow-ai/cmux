@@ -77,7 +77,6 @@ import Testing
         #expect(auto.createRoute(personsOwnCreate: true, team: "team_a") == .direct)
     }
 
-
     /// The start's plan as the ledger answers it (cmux-cloud-start-core's `StartChatPlan`, camelCase).
     private func plan(_ json: String) throws -> CloudMoveCLI.StartChatPlan {
         try JSONDecoder().decode(CloudMoveCLI.StartChatPlan.self, from: Data(json.utf8))

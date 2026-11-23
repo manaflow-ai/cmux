@@ -88,8 +88,6 @@ extension CloudStartChat {
             if !plan.createSent {
                 _ = try Self.checked(await cli.startChatCreateBegin(key: start.key, account: CloudStartCore().accountText(account), name: plan.newName ?? "cloud-chats", createKey: plan.createKey))
             }
-            // A picked Cloud environment boots the machine in it; without it the create was a plain `cloud.machine.create`, which the
-            // platform serves from the person's generic spare, and the chat ran with none of the environment (staging probe run 45132397559).
             let request = CloudMachineRequest(startChatKey: plan.createKey, sizedFor: await pick(), team: plan.createTeam ?? (account.last ?? nil), size: start.size, diskMb: start.grownDiskMb, planMax: start.planMax, bytes: start.folderBytes, plan: plan, environment: start.environment)
             try Self.checkAccount(account, now: cloud.account, listCurrent: cloud.hasLoadedCurrentMachines)
             // The account is checked again once the server answered, before the machine joins the list. The Send is the person's own gesture
