@@ -290,3 +290,141 @@ test("live: the steer the pane drew at the send keeps its place when acpmux reco
   expect(above(readRows)).toEqual(above(beforeRecord));
   client.close?.();
 });
+
+// One harness for the numbers: after each record the pane draws, how many rows that first drew after a
+// steer was sent draw above that steer. Two steers, each sent while the agent writes, each recorded by
+// acpmux only after the agent wrote more; then the same chat opened again from acpmux's records (a
+// reload), which has only the records.
+const chunk = (id: string, text: string) =>
+  update({ sessionUpdate: "agent_message_chunk", messageId: id, content: { type: "text", text } });
+const call = (id: string, command: string) =>
+  update({
+    sessionUpdate: "tool_call",
+    toolCallId: id,
+    title: command,
+    kind: "execute",
+    status: "in_progress",
+    rawInput: { command },
+  });
+const STEER_2 = "and keep the queue on air-blue";
+
+async function openChat(history: Record<string, unknown>[]) {
+  const daemon = fakeDaemon(history);
+  const state: { rows: AcpmuxRow[]; snap: any } = { rows: [], snap: undefined };
+  const client = await AcpmuxDirectClient.connect(
+    { protocolVersion: 1, transport: "acpmux-websocket", endpoint: "ws://127.0.0.1:1/", token: "t", sessionId: CHAT },
+    (snapshot: any) => {
+      state.rows = snapshot.rows;
+      state.snap = snapshot;
+    },
+    undefined,
+    daemon.connect,
+  );
+  await settle();
+  const drawn = () =>
+    turnView(state.rows, new Set(), {
+      working: true,
+      agentFamily: "claude",
+      now: Date.now(),
+      clockOffset: state.snap?.clockOffsetMs ?? 0,
+    });
+  return { daemon, client, drawn };
+}
+
+test("live, two steers: no row that came after a send draws above that steer, at any step", async () => {
+  const history: Record<string, unknown>[] = [];
+  [
+    ["mux", "user_message", { text: "Fix the relay", promptId: "p-1", turnId: "turn-1" }],
+    ["mux", "turn_started", { turnId: "turn-1", promptId: "p-1" }],
+    ["in", "agent_message_chunk", chunk("m1", "Looking at the relay first.")],
+  ].forEach(([dir, kind, msg], index) =>
+    history.push({ sessionId: CHAT, seq: index + 1, at: START + (index + 1) * 1000, dir, kind, msg }),
+  );
+  const { daemon, client, drawn } = await openChat(history);
+  const firstSeen = new Map<string, number>();
+  const sentAt = new Map<string, number>();
+  let step = 0;
+  let crossings = 0;
+  const crossed: string[] = [];
+  const look = () => {
+    step += 1;
+    const rows = drawn();
+    for (const row of rows) if (!firstSeen.has(row.id)) firstSeen.set(row.id, step);
+    for (const [text, sent] of sentAt) {
+      const at = rows.findIndex((row) => row.kind === "user" && row.text === text);
+      if (at < 0) continue;
+      for (const row of rows.slice(0, at))
+        if (firstSeen.get(row.id)! > sent && !ownRow(row) && row.text !== STEER && row.text !== STEER_2) {
+          crossings += 1;
+          crossed.push(`step ${step}: ${row.kind} "${row.text ?? row.id}" above "${text}"`);
+        }
+    }
+  };
+  look();
+  void client.send(STEER, [], "p-steer", undefined, undefined, true).catch(() => {});
+  await settle();
+  sentAt.set(STEER, step);
+  look();
+  daemon.push("in", "agent_message_chunk", chunk("m2", "Now the queue."));
+  await settle();
+  look();
+  daemon.push("in", "tool_call", call("t1", "git status"));
+  await settle();
+  look();
+  void client.send(STEER_2, [], "p-steer-2", undefined, undefined, true).catch(() => {});
+  await settle();
+  sentAt.set(STEER_2, step);
+  look();
+  daemon.push("in", "agent_message_chunk", chunk("m3", "Checking the broker."));
+  await settle();
+  look();
+  daemon.push("mux", "user_message", {
+    text: STEER,
+    promptId: "p-steer",
+    turnId: "turn-1",
+    steer: true,
+    client: "pane",
+  });
+  await settle();
+  look();
+  daemon.push("in", "tool_call", call("t2", "ls"));
+  await settle();
+  look();
+  daemon.push("mux", "user_message", {
+    text: STEER_2,
+    promptId: "p-steer-2",
+    turnId: "turn-1",
+    steer: true,
+    client: "pane",
+  });
+  await settle();
+  look();
+  daemon.push("mux", "steer_read", { promptId: "p-steer", turnId: "turn-1" });
+  daemon.push("mux", "steer_read", { promptId: "p-steer-2", turnId: "turn-1" });
+  daemon.push("in", "agent_message_chunk", chunk("m4", "Moving off huge-blue."));
+  await settle();
+  look();
+  const live = drawn().map((row) => row.id);
+  console.log(`STEER_ORDER live steps=${step} crossings=${crossings}`);
+  for (const line of crossed) console.log(`  ${line}`);
+  client.close?.();
+
+  // The same chat opened again from acpmux's records: each steer is where acpmux recorded it, after
+  // what the agent wrote between the send and the record. A measurement, not a rule yet: the record
+  // carries no place of the send (handoff, see the PR).
+  const reopened = await openChat([...history]);
+  const reloadRows = reopened.drawn();
+  const reload = reloadRows.map((row) => row.id);
+  const steerIndex = (rows: AcpmuxRow[], text: string) =>
+    rows.findIndex((row) => row.kind === "user" && row.text === text);
+  const above = (rows: AcpmuxRow[], text: string) =>
+    rows
+      .slice(0, steerIndex(rows, text))
+      .filter((row) => !ownRow(row) && row.kind !== "user")
+      .map((row) => row.text ?? row.id);
+  console.log(
+    `STEER_ORDER reload sameOrderAsLive=${live.join("|") === reload.join("|")} aboveSteer1=${JSON.stringify(above(reloadRows, STEER))} aboveSteer2=${JSON.stringify(above(reloadRows, STEER_2))}`,
+  );
+  reopened.client.close?.();
+  expect(crossed).toEqual([]);
+});
