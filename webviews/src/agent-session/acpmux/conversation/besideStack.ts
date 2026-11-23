@@ -21,7 +21,7 @@ export type StackSurface = {
 };
 
 /// How much of the transcript shows in the band at the stack's foot, the composer card and the quiet
-/// row under it (dockBand.experiment.ts; Leo, 2026-11-22: "I KINDA HATE HOW MUCH FUCKING SOLID + BLUR
+/// row under it (dockBand.experiment.ts; Leo, 2026-11-22: "I KINDA HATE HOW MUCH SOLID + BLUR
 /// THERE IS AT THE BOTTOM [...] OF THE BOX"). `height` is the scroller's own height: the pane's
 /// bottom edge, where the quiet row ends.
 export type DockBand = { arm: DockBandArm; height: number };

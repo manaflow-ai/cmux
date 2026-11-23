@@ -1,8 +1,8 @@
 // cmux-web-test-timeout: 240
 // The composer's geometry holds still where Leo looks, frame by frame (Leo, 2026-11-22):
-//   "the fucking buttons for send attach all that bullshit doesnt follow/simply fucking stick with
-//    teh bottom of the composer. plus, the caret gets fucking shot down past the composer as it goes."
-//   "deleting attachments make the composer AND the fucking text jump in a layout shift instead of a
+//   "the buttons for send attach all that doesnt follow/simply stick with
+//    teh bottom of the composer. plus, the caret gets shot down past the composer as it goes."
+//   "deleting attachments make the composer AND the text jump in a layout shift instead of a
 //    smooth motion."
 //
 // Typing: a draft typed key by key until it wraps, then Shift-Enter lines until the field reaches

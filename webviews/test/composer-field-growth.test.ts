@@ -68,7 +68,7 @@ test("one line grows and shrinks in CSS pixels at every composer zoom", async ()
           const grows = height > before;
           field.scrollTop = 20;
           view.dispatch(view.state.tr.insertText("x"));
-          // The text rides the field's bottom edge (Leo 2026-11-22: "the caret gets fucking shot down
+          // The text rides the field's bottom edge (Leo 2026-11-22: "the caret gets shot down
           // past the composer as it goes"): a growth holds its end there by the scroll (the end is 0
           // here: the text fits the height it lands on); a shrink rides the top edge, at no scroll.
           expect(field.scrollTop).toBe(0);

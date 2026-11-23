@@ -3,8 +3,8 @@
 // scroller's thumb whenever its text overflows (scrollers.ts MINIMAL_SCROLLER_CSS), and while it
 // grows to a new line (composer/fieldGrowth.ts) the text is already a line taller than the moving
 // box, so the thumb drew for the length of the motion although nothing is left to scroll once it
-// lands. Since Leo 2026-11-22 ("the thumb only appears when it's fucking relevant INSTEAD OF ALWAYS
-// SHOWING UP LIKE A FUCKING DUMBASS") the thumb shows only while the draft scrolls (the transcript's
+// lands. Since Leo 2026-11-22 ("the thumb only appears when it's relevant INSTEAD OF ALWAYS
+// SHOWING UP LIKE ...") the thumb shows only while the draft scrolls (the transcript's
 // shown scroller, scrollers.ts), and a growth that scrolls the field must still draw none.
 // Read from the pixels of the scroller's lane in headless Chromium, with its scrollbars
 // drawn (no --hide-scrollbars) and the page's animations slowed so the motion spans many reads:

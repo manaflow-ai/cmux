@@ -2,7 +2,7 @@
 // l10n-allow-file: test fixture prompts, not shipped UI.
 // The composer's thumb shows only when it is relevant: while the draft scrolls (or the pointer is on
 // its lane), then it fades, as Claude desktop's does (Leo 2026-11-22: "the thumb only appears when
-// it's fucking relevant INSTEAD OF ALWAYS SHOWING UP LIKE A FUCKING DUMBASS"). The prompt
+// it's relevant INSTEAD OF ALWAYS SHOWING UP LIKE ..."). The prompt
 // (.acpmux-md-field) is the transcript's shown scroller (SHOWN_SCROLLER_ATTRIBUTE, scrollers.ts) with
 // the minimal scroller's inset track: a thin thumb on no track, hidden at rest under the agent pane's
 // scrollbar fade through typing pauses, blur, focus and the pointer leaving, shown after a scroll,

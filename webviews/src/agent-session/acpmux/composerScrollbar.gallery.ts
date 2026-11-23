@@ -9,7 +9,7 @@
 //   - `lane`: in a lane between the draft and the mic and Send (the placement before);
 //   - `outside`: just outside the box's right edge, in the column's gutter, as Codex desktop.
 // The alternates are gallery-only CSS over the shipped rules. The thumb shows only while the draft
-// scrolls (Leo 2026-11-22: "the thumb only appears when it's fucking relevant"), so each variant
+// scrolls (Leo 2026-11-22: "the thumb only appears when it's relevant"), so each variant
 // draws it as it scrolls: the field carries the scrolling mark (scrollers.ts SCROLLING_ATTRIBUTE)
 // until a real scroll's timer clears it.
 import { agentPaneEntry } from "../../gallery/format";

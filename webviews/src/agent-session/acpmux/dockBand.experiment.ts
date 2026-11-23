@@ -5,9 +5,9 @@ import type { DockBandArm } from "./conversation/besideStack";
 /// How much of the transcript shows at the foot of the floating bottom stack: under the composer
 /// card and in the quiet row's band under it (conversation/besideStack.ts, the transcript's mask
 /// layers; conversation.css `--acpmux-beside-*`). Leo, 2026-11-22, scrolled up in a chat: "AND I
-/// KINDA HATE HOW MUCH FUCKING SOLID + BLUR THERE IS AT THE BOTTOM [image] OF THE BOX. FIGURE OUT HOW
+/// KINDA HATE HOW MUCH SOLID + BLUR THERE IS AT THE BOTTOM [image] OF THE BOX. FIGURE OUT HOW
 /// WE CAN HAVE MORE STUFF THERE. [...] WE DO WANT SOME BLUR BUT... IDK FIGURE OUT HOW TO ELIMINATE
-/// THAT BOTOM BULLSHIT". Every arm keeps the one glass material: the only blur is the card's own
+/// THAT BOTOM STUFF". Every arm keeps the one glass material: the only blur is the card's own
 /// glass (composerStates.css), never a band of its own, so the rows run under the card only where
 /// that glass blurs (a see-through window, Lens, Spectrum); an opaque window's card and Reduce
 /// Transparency blur nothing, and keep the shipped band (conversation/useBesideStack.ts).

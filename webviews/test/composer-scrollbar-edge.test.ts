@@ -11,8 +11,8 @@
 // And in the gallery's `agent-pane.composer-scrollbar` (the placements drawn for the pick): with the
 // draft scrolled to its end, the drawn thumb stops above Send in the shipped `edge`, and runs past
 // Send's top in `edge-full` (so the probe sees the thumb at all). The shipped track ends a block
-// inset above the button row, never on its top (Leo 2026-11-22: "INSTEAD OF OUR MOTHERFUCKING THUMB
-// THAT FUCKING STOPS ATOP BUTTONS!? THE FUCK!? [...] THEN OUR CALIBRATION OF "BOTTOM" LOOKS FUCKING
+// inset above the button row, never on its top (Leo 2026-11-22: "INSTEAD OF OUR THUMB
+// THAT STOPS ATOP BUTTONS!? [...] THEN OUR CALIBRATION OF "BOTTOM" LOOKS
 // STUPID"): the thumb's bottom is at least 8 px over the actions' top. The placements gallery marks
 // the field scrolling, since the thumb shows only while the draft scrolls.
 //

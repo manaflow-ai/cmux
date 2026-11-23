@@ -21,8 +21,8 @@ import { fieldGrowthMotion, type FieldGrowthArm } from "./fieldGrowth.experiment
 // and the controls stand on it: composerLocation.css). Every line, the caret's and each attachment's
 // tile is drawn at its final place on the screen from the move's first frame, and only the top edge
 // glides, uncovering the top line as it rises or covering it as it falls (Leo 2026-11-22: "the caret
-// gets fucking shot down past the composer as it goes" and "deleting attachments make the composer
-// AND the fucking text jump in a layout shift instead of a smooth motion"). A growth holds the text's
+// gets shot down past the composer as it goes" and "deleting attachments make the composer
+// AND the text jump in a layout shift instead of a smooth motion"). A growth holds the text's
 // end on the bottom edge by its scroll (`holdBottom`). Its top used to ride the moving top edge
 // instead: the new line, and the caret on it, came in below the field's bottom for the spring's
 // length (11 px out for two frames in Chromium, composer-caret-frames.browser.test.ts). A shrink

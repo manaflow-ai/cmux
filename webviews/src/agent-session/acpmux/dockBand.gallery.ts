@@ -1,6 +1,6 @@
 // l10n-allow-file: sample transcript and comparison notes, not shipped UI.
 // The band at the chat's foot, behind the composer (dockBand.experiment.ts, conversation/besideStack.ts).
-// Leo, 2026-11-22, of a chat scrolled up: "AND I KINDA HATE HOW MUCH FUCKING SOLID + BLUR THERE IS AT
+// Leo, 2026-11-22, of a chat scrolled up: "AND I KINDA HATE HOW MUCH SOLID + BLUR THERE IS AT
 // THE BOTTOM [image] OF THE BOX. FIGURE OUT HOW WE CAN HAVE MORE STUFF THERE." Every variant is a long
 // chat parked mid-transcript, so rows run behind the composer card and its quiet row; one variant per
 // arm. View light and dark (?colorScheme=light / dark), and over a picture (?background=dark): only
@@ -32,7 +32,9 @@ const park: Play = async (ctx) => {
   const scroller = ctx.document.querySelector<HTMLElement>(".acpmux-scroll")!;
   await ctx.scroll({ selector: ".acpmux-scroll" }, Math.max(0, scroller.scrollHeight - scroller.clientHeight - 900));
   await ctx.waitFor(() =>
-    ctx.document.querySelector<HTMLElement>(".acpmux-scroll")?.style.getPropertyValue("--acpmux-beside-images"),
+    Boolean(
+      ctx.document.querySelector<HTMLElement>(".acpmux-scroll")?.style.getPropertyValue("--acpmux-beside-images"),
+    ),
   );
 };
 

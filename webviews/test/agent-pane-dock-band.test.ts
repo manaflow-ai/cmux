@@ -1,7 +1,7 @@
 // cmux-web-test-timeout: 900
 // l10n-allow-file: test labels, not shipped UI.
 // The band at the chat's foot, behind the composer (dockBand.experiment.ts, conversation/besideStack.ts).
-// Leo, 2026-11-22, scrolled up in a chat: "AND I KINDA HATE HOW MUCH FUCKING SOLID + BLUR THERE IS AT
+// Leo, 2026-11-22, scrolled up in a chat: "AND I KINDA HATE HOW MUCH SOLID + BLUR THERE IS AT
 // THE BOTTOM [image] OF THE BOX. FIGURE OUT HOW WE CAN HAVE MORE STUFF THERE."
 //
 // Real gallery frames (agent-pane.dock-band, one variant per arm), a long chat parked mid-transcript.

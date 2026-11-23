@@ -605,8 +605,8 @@
 /* +, the mic and Send stand on the box's bottom edge at every height, each centered on the one-line
    row's line (the same offset the first line had, so a one-line box draws them where it did): as the
    draft wraps and grows they stay on its last line, the line being typed, and never sit on the first
-   line of a tall draft, as the chat composer's (composerLocation.css; Leo 2026-11-22: "the fucking
-   buttons for send attach all that bullshit doesnt follow/simply fucking stick with teh bottom of the
+   line of a tall draft, as the chat composer's (composerLocation.css; Leo 2026-11-22: "the
+   buttons for send attach all that doesnt follow/simply stick with teh bottom of the
    composer"). test/composer-wrap-layout.browser.test.ts. */
 .nt-input[data-split] > .acpmux-chrome-area > .nt-pickers {
   align-self: end;

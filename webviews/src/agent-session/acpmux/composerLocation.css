@@ -1370,7 +1370,7 @@
 }
 /* The row's margin is all the room under it: the chat composer's own 16 px bottom padding stacked
    on it (26 px, Claude Code leaves about 8) is dropped while the quiet row ends the composer (Leo
-   2026-10-21: "WE HAVE TOO MUCH FUCKING STUPID SPACE AT THE BOTTOM COMPAREDE TO CLAUDE CODE"). Only
+   2026-10-21: "WE HAVE TOO MUCH STUPID SPACE AT THE BOTTOM COMPAREDE TO CLAUDE CODE"). Only
    the floating chat dock: a fresh chat's hero layout keeps its padding. */
 .acpmux-main[data-dock="float"] > .acpmux-dock > .acpmux-composer:has(.acpmux-composer-foot) { padding-bottom: 0; }
 /* The chips lay out as the row's own items, so the mode goes left and the rest right (right too
@@ -1651,8 +1651,8 @@
 }
 /* The controls stand on the box's bottom edge at every height, one control inset over it: a one-line
    draft centers them on its line (the box is 10 + 28 + 10), and as the draft wraps, grows and caps
-   they stay where they were while the box's top edge rises (Leo 2026-11-22: "the fucking buttons for
-   send attach all that bullshit doesnt follow/simply fucking stick with teh bottom of the composer").
+   they stay where they were while the box's top edge rises (Leo 2026-11-22: "the buttons for
+   send attach all that doesnt follow/simply stick with teh bottom of the composer").
    They stood on the first line before and flipped to the bottom once the draft capped, a jump at the
    cap (his 1:37 clip). One rule, no state: nothing toggles them. test/composer-geometry-stable.test.ts. */
 /* The right inset less the minimal scroller's reserved lane (markdownField.css). */
@@ -1682,7 +1682,7 @@
   );
   /* The track ends a block inset above the button row, which stands one control inset over the
      box's bottom edge at every height: the thumb never runs over + / Send / the mic nor stops on
-     their tops (Leo 2026-11-22: "INSTEAD OF OUR MOTHERFUCKING THUMB THAT FUCKING STOPS ATOP
+     their tops (Leo 2026-11-22: "INSTEAD OF OUR THUMB THAT STOPS ATOP
      BUTTONS!?"). Default: 10 + 28 + 10 = 48 px (the minimal scroller's end inset, scrollers.ts). */
   --cmux-minimal-scroller-inset-end: calc(
     var(--acpmux-prompt-control-top) + var(--acpmux-composer-control) + var(--acpmux-composer-block-inset)

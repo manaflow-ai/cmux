@@ -17,7 +17,7 @@
 // (`SCROLLER_FADE_ATTRIBUTE`, on in the agent pane since Lawrence 2026-10-23, msg 11494: "auto-fades
 // away"). The composer's also carries `MINIMAL_SCROLLER_ATTRIBUTE`: its track inset clear of the
 // box's corner and controls, and no thumb while its box settles (Leo 2026-11-22: "the thumb only
-// appears when it's fucking relevant INSTEAD OF ALWAYS SHOWING UP").
+// appears when it's relevant INSTEAD OF ALWAYS SHOWING UP").
 //
 // Every scroller drawn here also widens and darkens its thumb while the pointer is over its
 // scrollbar lane (`NEAR_ATTRIBUTE`, `installScrollerProximity`), as a macOS overlay scroller does,
@@ -41,7 +41,7 @@ export const SCROLLING_HIDE_MS = 800;
 
 /**
  * On a scroller whose thin thumb stays drawn the whole time its content overflows, whatever the
- * macOS setting: the agent chat's transcript (Leo 2026-10-21: "SCROLLBAR IT SHOULD FUCKING SHOW").
+ * macOS setting: the agent chat's transcript (Leo 2026-10-21: "SCROLLBAR IT SHOULD SHOW").
  * The rules come after the legacy ones in `SCROLLER_ROOT_CSS`, and their `:root` prefix outranks
  * them. The thumb never shows, hides and shows again as rows arrive or the view follows them. Its
  * lane is always there (`overflow-y: scroll`, on no track; no thumb is drawn while the content
@@ -931,8 +931,8 @@ export const SETTLING_SCROLLER_ATTRIBUTE = "data-cmux-scroller-settling";
  * The composer's additions to a shown scroller (the element carries both attributes; the lane, ink,
  * scroll fade and near look are `SHOWN_SCROLLER_ATTRIBUTE`'s, `followShownScrollerFade`). Its thumb
  * shows only while it scrolls or the pointer is near its lane, then fades, as Claude desktop's does
- * (Leo 2026-11-22: "the thumb only appears when it's fucking relevant INSTEAD OF ALWAYS SHOWING UP
- * LIKE A FUCKING DUMBASS"); before, it stayed drawn the whole time the draft overflowed (Leo
+ * (Leo 2026-11-22: "the thumb only appears when it's relevant INSTEAD OF ALWAYS SHOWING UP
+ * LIKE ..."); before, it stayed drawn the whole time the draft overflowed (Leo
  * 2026-10-21, superseded).
  *
  * The track stops `--cmux-minimal-scroller-inset` short of each end, clear of a rounded corner;

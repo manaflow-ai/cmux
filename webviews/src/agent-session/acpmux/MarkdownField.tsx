@@ -918,7 +918,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
   // Written only when it changes: each write is an attribute mutation, and this runs on every edit.
   // A draft of blank lines (Shift+Enter in an empty prompt) is not empty: the placeholder stayed on
   // the first line while the caret went down the lines under it (Leo 2026-11-22: "the caret gets
-  // fucking shot down past the composer as it goes"). More than one block hides it too.
+  // shot down past the composer as it goes"). More than one block hides it too.
   const showPlaceholder = (markdown: string) => {
     const doc = view.current?.state.doc;
     const hide =
@@ -1610,7 +1610,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
     [],
   );
   // Its thumb fades in while the draft scrolls and out at rest, as the transcript's does (scrollers.ts
-  // SHOWN_SCROLLER_ATTRIBUTE; Leo 2026-11-22: "the thumb only appears when it's fucking relevant").
+  // SHOWN_SCROLLER_ATTRIBUTE; Leo 2026-11-22: "the thumb only appears when it's relevant").
   useEffect(() => (wrapper.current ? followShownScrollerFade(wrapper.current) : undefined), []);
   // In the composer's box, its scrollbar runs down the box's right edge, clear of the actions
   // (composerScrollLane.ts).

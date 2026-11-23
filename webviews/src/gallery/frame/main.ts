@@ -221,7 +221,7 @@ const context: StageContext = {
 
 // The pages mark each scroller a wheel or scroll moves (pages/shared/pageHealth.ts), which shows a
 // shown scroller's thumb only while it scrolls (Leo 2026-11-22: "the thumb only appears when it's
-// fucking relevant"); the stage does the same, or no gallery thumb could ever show.
+// relevant"); the stage does the same, or no gallery thumb could ever show.
 installScrollingMarks(document);
 
 if (stageRoot) {
