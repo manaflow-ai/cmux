@@ -1,0 +1,178 @@
+#if canImport(CmuxMobileLinkFFI)
+import CmuxMobileLinkFFI
+import CmuxMobileTransport
+import Foundation
+import OSLog
+
+/// Keys typed from the Feed (a terminal approval's Allow once, a question's answer) held until the
+/// Mac has them, so a stalled or redialing link never drops one: each goes as one `send` under a
+/// key made when it was typed (the Rust `cmux-composer-send` outbox, `push_keys`), and the Mac
+/// types a key once, so an attempt that goes again after a reconnect writes nothing twice.
+///
+/// - **In order.** One queue; a later key never overtakes an earlier one, on any connection.
+/// - **Held, then resent.** An attempt that gets no answer within ``attemptDeadline``, or whose
+///   connection ended, goes again under its key on the connection that replaces it, until
+///   ``hold`` (the keyboard's own limit, `DaemonTerminalSession.inputHoldLimit`) after the tap.
+/// - **Never silent.** Past the hold, `type` throws ``notSent`` (no attempt went out) or
+///   ``maybeSent`` (one did, and its answer never came), which the caller shows.
+/// - **The screen check stays the caller's.** A key is queued only on the connection the caller
+///   checked the screen on. Only an attempt that already went out goes again on a newer
+///   connection (its key makes that safe); a key that never went out is given up as not sent
+///   when the connection changes, so the caller checks the screen again before typing it.
+@MainActor
+final class TerminalKeyOutbox {
+    static let notSent = "keys-not-sent"
+    static let maybeSent = "keys-maybe-sent"
+
+    /// The connection serial while a daemon is attached, else nil.
+    var connection: (@MainActor () -> Int?)?
+    /// One request on the daemon channel of `connection` (throws when it is not current).
+    var request: (@MainActor (_ command: String, _ params: [String: Any], _ connection: Int, _ deadline: Duration) async throws -> Data)?
+    /// An attempt with no answer by then is lost and goes again.
+    var attemptDeadline: Duration = .seconds(3)
+    var clock: any Clock<Duration> = ContinuousClock()
+    var tick: Duration = .milliseconds(50)
+
+    private let outbox: ComposerOutbox
+    private let origin = ContinuousClock.now
+    private struct Waiter {
+        let surface: Int
+        let bytes: Data
+        let continuation: CheckedContinuation<Void, any Error>
+    }
+    private var waiters: [UInt64: Waiter] = [:]
+    /// Entries an attempt went out for.
+    private var attempted: Set<UInt64> = []
+    /// The connection the queue is bound to, and whether its daemon takes keys (nil: not asked).
+    private var attached: Int?
+    private var keyed: Bool?
+    private var driver: Task<Void, Never>?
+    private let log = Logger(subsystem: "com.cmuxterm.mobile", category: "terminal-key-outbox")
+
+    init(nonce: String = "feed-\(UUID().uuidString)", hold: Duration = .seconds(DaemonTerminalSession.inputHoldLimit)) {
+        outbox = ComposerOutbox(nonce: nonce, holdMs: Self.milliseconds(hold))
+    }
+
+    /// Keys still waiting for the Mac.
+    var pending: Int { waiters.count }
+
+    /// Types `bytes` into `surface` on `connection`, the one the caller checked the screen on.
+    /// Returns once the Mac has them (once, however many attempts it took). Throws `no-link` when
+    /// `connection` is not current (nothing queued), ``notSent`` or ``maybeSent`` past the hold.
+    func type(surface: Int, bytes: Data, connection: Int) async throws {
+        guard self.connection?() == connection, request != nil else {
+            throw LinkError(code: "no-link", message: "Not connected to the Mac")
+        }
+        if outbox.pending() == 0 { attached = connection; keyed = nil }
+        let seq = outbox.pushKeys(bytes: bytes, nowMs: nowMs())
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+            waiters[seq] = Waiter(surface: surface, bytes: bytes, continuation: continuation)
+            if driver == nil { driver = Task { [weak self] in await self?.run() } }
+        }
+    }
+
+    private func run() async {
+        while true {
+            finish(outbox.expire(nowMs: nowMs()))
+            if waiters.isEmpty { break }
+            if let current = connection?() { await drive(current) } else if attached != nil {
+                // Redialing: what went out has no answer coming on that connection.
+                outbox.linkLost()
+            }
+            try? await clock.sleep(for: tick)
+        }
+        driver = nil
+    }
+
+    private func drive(_ current: Int) async {
+        if attached != current {
+            // A new connection: an attempt that went out goes again under its key; a key that
+            // never went out is given up, so its caller checks the screen again.
+            attached = current
+            keyed = nil
+            outbox.linkLost()
+            for seq in waiters.keys.sorted() where !attempted.contains(seq) {
+                if let done = outbox.giveUpSend(seq: seq) { finish([done]) }
+            }
+        }
+        if keyed == nil {
+            guard let reply = try? await request?("identify", [:], current, attemptDeadline), attached == current else { return }
+            let caps = DaemonTerminalSession.capabilities(reply)
+            keyed = outbox.setCapabilities(capabilities: caps)
+        }
+        guard keyed == true else {
+            await sendUnkeyed(current)
+            return
+        }
+        while let next = outbox.nextRequest() {
+            attempted.insert(next.seq)
+            Task { [weak self] in await self?.attempt(next, on: current) }
+        }
+    }
+
+    private func attempt(_ next: ComposerSendRequest, on current: Int) async {
+        guard let waiter = waiters[next.seq],
+              var params = (try? JSONSerialization.jsonObject(with: Data(next.paramsJson.utf8))) as? [String: Any] else { return }
+        params["surface"] = waiter.surface
+        let reply: Data
+        do {
+            reply = try await request?("send", params, current, attemptDeadline) ?? Data()
+        } catch {
+            // Only the connection the queue is on counts: an older one was already given up.
+            if attached == current { settle(next.seq, .lost) }
+            return
+        }
+        let object = (try? JSONSerialization.jsonObject(with: reply) as? [String: Any]) ?? [:]
+        if object["ok"] as? Bool == false {
+            // The daemon says nothing was written, or says nothing: it may have typed it.
+            settle(next.seq, object["error_delivery"] as? String == "known-not-delivered" ? .refused : .uncertain)
+        } else {
+            settle(next.seq, .applied)
+        }
+    }
+
+    /// A daemon that takes no keys: its keys go as before (once, unkept), in order.
+    private func sendUnkeyed(_ current: Int) async {
+        let queued = outbox.giveUp()
+        for done in queued {
+            guard let waiter = waiters.removeValue(forKey: done.seq) else { continue }
+            attempted.remove(done.seq)
+            do {
+                let reply = try await request?("send", ["surface": waiter.surface, "bytes": waiter.bytes.base64EncodedString()], current, .seconds(20)) ?? Data()
+                _ = try WorkspaceSync.check(reply)
+                waiter.continuation.resume()
+            } catch {
+                waiter.continuation.resume(throwing: error)
+            }
+        }
+    }
+
+    private func settle(_ seq: UInt64, _ answer: ComposerSendAnswer) {
+        if let done = outbox.answer(seq: seq, answer: answer) { finish([done]) }
+    }
+
+    private func finish(_ dones: [ComposerSendDone]) {
+        for done in dones {
+            attempted.remove(done.seq)
+            guard let waiter = waiters.removeValue(forKey: done.seq) else { continue }
+            switch done.outcome {
+            case .sent:
+                waiter.continuation.resume()
+            case .notSent:
+                log.notice("typed keys \(done.seq, privacy: .public): not sent")
+                waiter.continuation.resume(throwing: LinkError(code: Self.notSent, message: "Not sent. The Mac did not get it."))
+            case .maybeSent:
+                log.notice("typed keys \(done.seq, privacy: .public): maybe sent")
+                waiter.continuation.resume(throwing: LinkError(code: Self.maybeSent, message: "May have been sent. Check the terminal."))
+            }
+        }
+    }
+
+    private func nowMs() -> UInt64 { Self.milliseconds(ContinuousClock.now - origin) }
+
+    nonisolated static func milliseconds(_ duration: Duration) -> UInt64 {
+        let parts = duration.components
+        return UInt64(max(0, parts.seconds)) * 1000 + UInt64(max(0, parts.attoseconds) / 1_000_000_000_000_000)
+    }
+}
+#endif

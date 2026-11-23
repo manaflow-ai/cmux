@@ -1383,6 +1383,12 @@ public protocol ComposerOutboxProtocol: AnyObject, Sendable {
     func push(text: String, submit: Bool, nowMs: UInt64)  -> UInt64
     
     /**
+     * Typed keys at `now_ms`: raw terminal bytes as one keyed `send {bytes, key}`, in the same
+     * queue and order as composer Sends. Returns the entry's number.
+     */
+    func pushKeys(bytes: Data, nowMs: UInt64)  -> UInt64
+    
+    /**
      * The attached daemon's `identify` capabilities. Returns whether it takes keyed Sends; until
      * a daemon that does is attached, Sends wait in the outbox.
      */
@@ -1569,6 +1575,20 @@ open func push(text: String, submit: Bool, nowMs: UInt64) -> UInt64  {
             self.uniffiCloneHandle(),
         FfiConverterString.lower(text),
         FfiConverterBool.lower(submit),
+        FfiConverterUInt64.lower(nowMs),$0
+    )
+})
+}
+    
+    /**
+     * Typed keys at `now_ms`: raw terminal bytes as one keyed `send {bytes, key}`, in the same
+     * queue and order as composer Sends. Returns the entry's number.
+     */
+open func pushKeys(bytes: Data, nowMs: UInt64) -> UInt64  {
+    return try!  FfiConverterUInt64.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_composeroutbox_push_keys(
+            self.uniffiCloneHandle(),
+        FfiConverterData.lower(bytes),
         FfiConverterUInt64.lower(nowMs),$0
     )
 })
@@ -7232,6 +7252,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_composeroutbox_push() != 49833) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_composeroutbox_push_keys() != 23485) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_composeroutbox_set_capabilities() != 28189) {

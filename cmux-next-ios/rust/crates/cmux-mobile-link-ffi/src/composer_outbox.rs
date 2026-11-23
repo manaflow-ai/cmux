@@ -118,6 +118,14 @@ impl ComposerOutbox {
         inner.outbox.push(text, submit, at)
     }
 
+    /// Typed keys at `now_ms`: raw terminal bytes as one keyed `send {bytes, key}`, in the same
+    /// queue and order as composer Sends. Returns the entry's number.
+    pub fn push_keys(&self, bytes: Vec<u8>, now_ms: u64) -> u64 {
+        let mut inner = self.inner();
+        let at = inner.at(now_ms);
+        inner.outbox.push_keys(bytes, at)
+    }
+
     /// The next request to send, in tap order behind those in flight (up to
     /// `cmux_composer_send::MAX_IN_FLIGHT`), when a keyed daemon is attached.
     pub fn next_request(&self) -> Option<ComposerSendRequest> {
@@ -225,6 +233,26 @@ mod tests {
         assert_eq!(
             outbox.expire(1_030_000),
             vec![ComposerSendDone { seq, outcome: ComposerSendOutcome::NotSent { text: "make".into() } }]
+        );
+    }
+
+    #[test]
+    fn typed_keys_wait_for_a_link_then_go_as_bytes_under_one_key_again_after_a_loss() {
+        let outbox = ComposerOutbox::new("phone-1".into(), 10_000);
+        outbox.set_capabilities(caps(&["send-key-v1"]));
+        let seq = outbox.push_keys(vec![0x1b, b'[', b'A'], 1_000);
+        let first = outbox.next_request().unwrap();
+        let params: serde_json::Value = serde_json::from_str(&first.params_json).unwrap();
+        assert_eq!(params["bytes"], "G1tB");
+        assert_eq!(params["key"], "phone-1-1");
+        outbox.link_lost();
+        assert_eq!(outbox.next_request().unwrap(), first);
+        assert_eq!(
+            outbox.expire(11_000),
+            vec![ComposerSendDone {
+                seq,
+                outcome: ComposerSendOutcome::MaybeSent { text: "\u{1b}[A".into() }
+            }]
         );
     }
 

@@ -133,6 +133,9 @@ private final class FakeAcpmux: @unchecked Sendable {
     private var log: [String] = []
     private var turns = 0
     private var attaches = 0
+    /// The last seq given out: seqs only go up, so records dropped from the log leave gaps and
+    /// never reuse one a phone already holds.
+    private var lastSeq = 0
 
     init() {
         for _ in 0..<3 { appendTurn() }
@@ -149,7 +152,8 @@ private final class FakeAcpmux: @unchecked Sendable {
     private func appendTurn() {
         let n = turns
         turns += 1
-        let s = log.count + 1
+        let s = lastSeq + 1
+        lastSeq += 4
         log += [
             #"{"sessionId":"s1","seq":\#(s),"at":1,"dir":"mux","kind":"user_message","msg":{"text":"prompt \#(n)","promptId":"p\#(n)","turnId":"t\#(n)"}}"#,
             #"{"sessionId":"s1","seq":\#(s + 1),"at":2,"dir":"mux","kind":"turn_started","msg":{"turnId":"t\#(n)"}}"#,
@@ -158,10 +162,17 @@ private final class FakeAcpmux: @unchecked Sendable {
         ]
     }
 
+    /// Drops the duress stream's records from the log (a cell's own stream, not the chat), so a
+    /// cold attach pages the same log in every cell and a relaunch's first paint is per cell.
+    func resetStream() {
+        lock.withLock { log.removeAll { $0.contains(#""promptId":"ps"#) } }
+    }
+
     /// One live record the Mac streams while the phone switches away and back (the duress rows).
     func streamRecord() -> Data {
         lock.withLock {
-            let seq = log.count + 1
+            lastSeq += 1
+            let seq = lastSeq
             let record = #"{"sessionId":"s1","seq":\#(seq),"at":6,"dir":"mux","kind":"user_message","msg":{"text":"stream \#(seq)","promptId":"ps\#(seq)","turnId":"s\#(seq)"}}"#
             log.append(record)
             return Data(#"{"jsonrpc":"2.0","method":"_acpmux/event","params":\#(record)}"#.utf8)
@@ -184,7 +195,8 @@ private final class FakeAcpmux: @unchecked Sendable {
                 attaches += 1
                 if after > 0 {
                     // While the phone was away: the live turn ended, and one more turn ran.
-                    let s = log.count + 1
+                    lastSeq += 1
+                    let s = lastSeq
                     log.append(#"{"sessionId":"s1","seq":\#(s),"at":4,"dir":"mux","kind":"turn_result","msg":{"status":"completed","turnId":"l\#(attaches - 2)"}}"#)
                     appendTurn()
                 }
@@ -195,7 +207,8 @@ private final class FakeAcpmux: @unchecked Sendable {
                 }
                 let first = reply(#"{"session":{"sessionId":"s1","status":"idle","pending":[]},"hasMore":false,"events":[\#(page.joined(separator: ","))]}"#)
                 let live = attaches - 1
-                let seq = log.count + 1
+                lastSeq += 1
+                let seq = lastSeq
                 let record = #"{"sessionId":"s1","seq":\#(seq),"at":5,"dir":"mux","kind":"user_message","msg":{"text":"live \#(live)","promptId":"pl\#(live)","turnId":"l\#(live)"}}"#
                 log.append(record)
                 return [first, Data(#"{"jsonrpc":"2.0","method":"_acpmux/event","params":\#(record)}"#.utf8)]
@@ -219,6 +232,8 @@ private final class FakeMac: @unchecked Sendable {
     private var oneWayLatency: Duration = .milliseconds(40)
     private var dialCount = 0
     private var keyArrival: ContinuousClock.Instant?
+    private var keyWrites = 0
+    private var keysSeen: Set<String> = []
     private weak var latestLink: ChainLink?
     private var down = 0
     private var streamDown = 0
@@ -232,8 +247,20 @@ private final class FakeMac: @unchecked Sendable {
 
     /// When the Mac's daemon first served a `send` (a typed key) since `resetKey`.
     var keyArrived: ContinuousClock.Instant? { lock.withLock { keyArrival } }
-    func resetKey() { lock.withLock { keyArrival = nil } }
-    func keyServed() { lock.withLock { if keyArrival == nil { keyArrival = .now } } }
+    func resetKey() { lock.withLock { keyArrival = nil; keyWrites = 0; keysSeen = [] } }
+    /// A `send` reached the daemon. One with a key it already applied writes nothing (the daemon's
+    /// `send-key-v1`); anything else types. The first write is the key's arrival.
+    func keySent(key: String?) {
+        lock.withLock {
+            if let key {
+                guard keysSeen.insert(key).inserted else { return }
+            }
+            keyWrites += 1
+            if keyArrival == nil { keyArrival = .now }
+        }
+    }
+    /// Times a typed key was written since `resetKey` (one key typed once reads 1; a double reads 2).
+    var keysWritten: Int { lock.withLock { keyWrites } }
 
     /// Channel payload bytes that reached the phone (no link framing), and the duress stream's share of them.
     var bytesDown: (all: Int, stream: Int) { lock.withLock { (down, streamDown) } }
@@ -253,6 +280,7 @@ private final class FakeMac: @unchecked Sendable {
             switch object["cmd"] as? String ?? "" {
             case "list-workspaces": line = #"{"id":"\#(id)","ok":true,"data":{"workspaces":[]}}"#
             case "list-agents": line = #"{"id":"\#(id)","ok":true,"data":{"agents":[]}}"#
+            case "identify": line = #"{"id":"\#(id)","ok":true,"data":{"capabilities":["send-key-v1"]}}"#
             default: line = #"{"id":"\#(id)","ok":true,"data":{}}"#
             }
             return Data(line.utf8) + Data([0x0A])
@@ -470,7 +498,9 @@ private final class ChainLink: MacLink, @unchecked Sendable {
             switch channel.service {
             case "acpmux": replies = Self.objects(data).flatMap { mac.acpmux.answer($0) }
             case "daemon":
-                if Self.objects(data).contains(where: { $0["cmd"] as? String == "send" }) { mac.keyServed() }
+                for object in Self.objects(data) where object["cmd"] as? String == "send" {
+                    mac.keySent(key: object["key"] as? String)
+                }
                 replies = FakeMac.daemon(data)
             default: replies = []
             }
@@ -712,7 +742,7 @@ private final class ChainDialer: MacLinkDialer, @unchecked Sendable {
 }
 
 /// One typed key's send; `failed` once it threw (no-link), so the bench sends it again.
-@MainActor private final class KeyAttempt { var failed = false }
+@MainActor private final class KeyAttempt { var failed = false; var lost = false; var counted = false }
 
 /// The live resume bench, on the chain suite's rig and fake Mac; its own suite for a longer time limit.
 @MainActor
@@ -1021,12 +1051,15 @@ private final class ChainDialer: MacLinkDialer, @unchecked Sendable {
                 continue
             }
             let cellStart = ContinuousClock.now
+            mac.acpmux.resetStream() // the earlier cells' duress stream is not this cell's chat log
             var paints: [Double] = []
             var keys: [Double] = []
             var bytes: [Double] = []
             var streamBytes: [Double] = []
             var reconnects = 0
             var lost = 0
+            var held = 0
+            var doubled = 0
             var blanked = 0
             for _ in 0..<Self.runs {
                 try await waitFor("the link to settle before a switch") { settled() }
@@ -1075,8 +1108,6 @@ private final class ChainDialer: MacLinkDialer, @unchecked Sendable {
                 var relaunched: MacSession? = away.seconds == nil ? nil : session
                 var openChat: AgentChatStore? = away.seconds == nil ? nil : chat
                 var attempt: KeyAttempt?
-                var attemptSerial = -1
-                var attemptAt = ContinuousClock.now
                 var watchdog = AwakeDeadline(.seconds(20))
                 while (mac.keyArrived == nil || paint == nil), watchdog.hasTimeLeft() {
                     if relaunched == nil { relaunched = live.session(macID: macID) }
@@ -1087,16 +1118,20 @@ private final class ChainDialer: MacLinkDialer, @unchecked Sendable {
                     if paint != nil, let openChat, openChat.turns.isEmpty { blank = true } // painted, then cleared
                     if mac.keyArrived == nil, let s = relaunched {
                         let serial = s.workspaces.connectionSerial
-                        let stale = attempt.map { !$0.failed && (serial != attemptSerial || ContinuousClock.now - attemptAt > .seconds(3)) } ?? false
-                        if attempt == nil || attempt!.failed || stale {
-                            if stale { lost += 1 }
+                        // A typed key is held by the outbox across a stall or a redial and delivered
+                        // once, in order, after the reconnect: not lost. It is lost only when the
+                        // phone says it was not sent (or maybe sent) and the person must type it again.
+                        if let attempt, attempt.failed, attempt.lost, !attempt.counted { attempt.counted = true; lost += 1 }
+                        if attempt == nil || attempt!.failed {
                             let next = KeyAttempt()
                             attempt = next
-                            attemptSerial = serial
-                            attemptAt = .now
                             Task { @MainActor in
                                 guard let type = s.terminalFeed.type else { next.failed = true; return }
-                                do { try await type(1, Data("x".utf8), serial) } catch { next.failed = true }
+                                do { try await type(1, Data("x".utf8), serial) } catch let error as LinkError {
+                                    // `no-link`: nothing was queued (a connection that has gone), so no key was lost.
+                                    if error.code != "no-link" { next.lost = true }
+                                    next.failed = true
+                                } catch { next.failed = true }
                             }
                         }
                     }
@@ -1105,6 +1140,8 @@ private final class ChainDialer: MacLinkDialer, @unchecked Sendable {
                 streaming.cancel()
                 if blank { blanked += 1 }
                 let landed = try #require(mac.keyArrived, "the first key never reached the Mac within 20 s (\(cell))")
+                if let attempt, !attempt.lost, landed - start > .seconds(3) { held += 1 } // delivered after being held
+                doubled += max(0, mac.keysWritten - 1) // one key typed once writes once
                 keys.append(Self.millis(landed - start))
                 paints.append(try #require(paint, "the chat never had content within 20 s (\(cell))"))
                 session = try #require(relaunched)
@@ -1117,7 +1154,7 @@ private final class ChainDialer: MacLinkDialer, @unchecked Sendable {
             }
             keyP95[away.name + "/" + reentry.name] = pct(keys, 0.95)
             reconnectsAt[away.name + "/" + reentry.name] = reconnects
-            emit(#"RESUME_MATRIX {\#(cell),"mode":"headless","duress":"mac streams a record every 10 ms through the switch; 80 ms RTT; chat log \#(mac.acpmux.logCount) records","n":\#(Self.runs),"first_paint_p50_ms":\#(fmt(pct(paints, 0.5))),"first_paint_p95_ms":\#(fmt(pct(paints, 0.95))),"first_key_p50_ms":\#(fmt(pct(keys, 0.5))),"first_key_p95_ms":\#(fmt(pct(keys, 0.95))),"reconnects":\#(reconnects),"keys_lost":\#(lost),"content_cleared_runs":\#(blanked),"bytes_down_p50":\#(Int(pct(bytes, 0.5))),"bytes_down_p95":\#(Int(pct(bytes, 0.95))),"stream_bytes_down_p50":\#(Int(pct(streamBytes, 0.5))),"path_dies_after_s":\#(Self.pathDiesAfter),"cell_wall_ms":\#(fmt(Self.millis(ContinuousClock.now - cellStart))),"model":"\#(Self.model(away, reentry))"}"#)
+            emit(#"RESUME_MATRIX {\#(cell),"mode":"headless","duress":"mac streams a record every 10 ms through the switch; 80 ms RTT; chat log \#(mac.acpmux.logCount) records","n":\#(Self.runs),"first_paint_p50_ms":\#(fmt(pct(paints, 0.5))),"first_paint_p95_ms":\#(fmt(pct(paints, 0.95))),"first_key_p50_ms":\#(fmt(pct(keys, 0.5))),"first_key_p95_ms":\#(fmt(pct(keys, 0.95))),"reconnects":\#(reconnects),"keys_lost":\#(lost),"keys_held_then_delivered":\#(held),"keys_doubled":\#(doubled),"content_cleared_runs":\#(blanked),"bytes_down_p50":\#(Int(pct(bytes, 0.5))),"bytes_down_p95":\#(Int(pct(bytes, 0.95))),"stream_bytes_down_p50":\#(Int(pct(streamBytes, 0.5))),"path_dies_after_s":\#(Self.pathDiesAfter),"cell_wall_ms":\#(fmt(Self.millis(ContinuousClock.now - cellStart))),"model":"\#(Self.model(away, reentry))"}"#)
         } }
         // The cliff: the first away time (app switcher) whose reconnects go above 0, and its cost.
         let timed = Away.allCases.filter { $0.seconds != nil }
