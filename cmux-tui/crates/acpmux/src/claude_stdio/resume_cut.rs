@@ -111,7 +111,9 @@ pub fn prepare(path: &Path) -> std::io::Result<bool> {
                 None => bytes.len(),
             }
         };
-        let Ok(text) = std::str::from_utf8(&bytes[skip..]) else { return Ok(false) };
+        let Ok(text) = std::str::from_utf8(bytes.get(skip..).unwrap_or_default()) else {
+            return Ok(false);
+        };
         // The last message, and the Stop's line after it, by their place in the window.
         let mut at = 0usize;
         let mut cut: Option<(usize, usize)> = None;
@@ -133,7 +135,7 @@ pub fn prepare(path: &Path) -> std::io::Result<bool> {
         match last {
             Some(Line::ToolResult) => {
                 let Some((from, to)) = cut else { return Ok(true) };
-                let rest = text.as_bytes()[to..].to_vec();
+                let rest = text.as_bytes().get(to..).unwrap_or_default().to_vec();
                 let keep = start + (skip + from) as u64;
                 file.seek(SeekFrom::Start(keep))?;
                 file.write_all(&rest)?;
