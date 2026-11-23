@@ -60,7 +60,7 @@ pub(crate) fn start_host_runtime(
     let killer = child.clone_killer();
     let pty_poll_fd = sys::pty_poll_handle(master.as_ref())?;
     let pty_reader = master.try_clone_reader()?;
-    let pty_writer = master.take_writer()?;
+    let pty_writer = sys::nonblocking_pty_writer(pty_poll_fd, master.take_writer()?)?;
     let (pty_drain_waker, pty_drain_waiter) = HostStream::pair()?;
 
     let clipboard = ClipboardReads::new(Arc::new(SystemClock));
@@ -113,6 +113,7 @@ pub(crate) fn start_host_runtime(
         stream_progress: TerminalStreamProgress::default(),
         writer: Mutex::new(pty_writer),
         master: Mutex::new(master),
+        paste_pacer: Mutex::default(),
         killer: Mutex::new(killer),
         pid,
         command: launch.command.clone(),
@@ -286,8 +287,10 @@ pub(crate) fn read_pty_output(
 /// Reads the bytes the PTY already holds into `buffer` after its first
 /// `count` bytes, until the buffer is full or a read would wait. True when
 /// the stream ended (end of file or a read error) after those bytes; the
-/// caller publishes them first. A lone key echo finds nothing more, so it
-/// costs one poll and goes out at once.
+/// caller publishes them first. A non-blocking PTY (the host's own) is read
+/// until a read finds it empty, with no poll per read; a blocking one is
+/// polled before each read. A lone key echo finds nothing more, so it goes
+/// out at once.
 // perf-hot: 1us terminal-host-output (every PTY read)
 pub(crate) fn fill_waiting_pty_bytes(
     pty_reader: &mut dyn Read,
@@ -295,7 +298,8 @@ pub(crate) fn fill_waiting_pty_bytes(
     buffer: &mut [u8],
     count: &mut usize,
 ) -> bool {
-    while *count < buffer.len() && sys::pty_readable_now(pty_poll_fd) {
+    let drains = sys::pty_reads_without_waiting(pty_poll_fd);
+    while *count < buffer.len() && (drains || sys::pty_readable_now(pty_poll_fd)) {
         let Some(rest) = buffer.get_mut(*count..) else { return false };
         match pty_reader.read(rest) {
             Ok(0) => return true,
@@ -334,6 +338,10 @@ pub(crate) fn publish_pty_output(host: &HostShared, bytes: &[u8]) -> bool {
 // perf-hot: 1us terminal-host-output (every PTY read)
 fn publish_pty_frame(host: &HostShared, bytes: &[u8]) -> bool {
     let count = bytes.len();
+    // The daemon's mirror sets the drain's pace (it parses slower than a
+    // flood drains): wait for room in its queue before taking any lock, so a
+    // resize or a new client never waits behind the mirror.
+    host.smart.wait_for_owner_room(crate::terminal_host_protocol::HEADER_LEN.saturating_add(count));
     let _source_order = host.source_order_lock.lock().recover_poison();
     host.parser_budget.reserve(count);
     // Publication deliberately precedes parser enqueue. The bounded queue

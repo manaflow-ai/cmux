@@ -26,8 +26,13 @@ function planFor(element: Element, viewHeight: number): Plan | undefined {
     const rect = element.getBoundingClientRect();
     if (rect.bottom < 0 || rect.top > viewHeight) return { drop: true };
   }
-  if (element.scrollTop > 0 || element.scrollLeft > 0)
-    plan = { drop: false, scroll: `${Math.round(element.scrollTop)},${Math.round(element.scrollLeft)}` };
+  if (element.scrollTop > 0 || element.scrollLeft > 0) {
+    const atEnd = element.scrollHeight - element.clientHeight - element.scrollTop <= 1;
+    plan = {
+      drop: false,
+      scroll: `${Math.round(element.scrollTop)},${Math.round(element.scrollLeft)}${atEnd ? ",end" : ""}`,
+    };
+  }
   // By tag, not `instanceof`: the page's realm is not always this module's (a test's window).
   const tag = element.tagName;
   // No field's text is written (``scrubFields``); a box's checked state is not text. Both ways: a

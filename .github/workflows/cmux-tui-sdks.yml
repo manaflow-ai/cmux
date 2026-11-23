@@ -10,13 +10,18 @@ on:
       - main
       - feat-cmux-next
     paths:
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings"
+      - "schemas/settings/source/general.json"
+      - "webviews/src/apps/scene/extTemplateScenes.json"
       - "cmux-tui/**"
       - "cmux-tui/scripts/verify-pypi-tui-upload.sh"
       - ".github/actions/setup-cmux-tui-rust/**"
       - ".github/actions/runner-cargo-home/**"
+      - ".github/actions/zig-global-cache/**"
       - ".github/workflows/cmux-tui-artifacts.yml"
       - ".github/workflows/cmux-tui-build-package.yml"
       - "scripts/cmux-next/cmux-tui-build-profiles.json"
+      - "scripts/cmux-next/**"
       - ".github/workflows/cmux-tui.yml"
       - ".github/workflows/cmux-tui-release-cut.yml"
       - ".github/workflows/cmux-tui-release.yml"
@@ -39,6 +44,8 @@ on:
       - "tests/test_tui_publish_workflow_security.py"
       - "tests/workflow_jobs.py"
       - "scripts/ci/gh_expressions.py"
+      # The link profiles the ignored terminal_restart_settled test reads (cmux-tui tests).
+      - "webviews/bench/link-profiles.json"
       - "scripts/ci/adopt_cmux_tui_commit.py"
       - "scripts/ci/cmux_tui_manifest_sweep.py"
       - "scripts/ci/cmux_tui_tree_handoff.py"
@@ -65,16 +72,129 @@ on:
       - "tests/git_fixture_env.py"
       - "tests/runs_on_labels.py"
       - "tests/test_ci_fleet_rule_lints.py"
+      # The router's own files (affected_jobs.py SELF): a change to them runs every routed job, so it starts this workflow.
+      - "scripts/ci/affected-jobs.json"
+      - "scripts/ci/affected_jobs.py"
+      - "scripts/ci/cargo_test_verdict.py"
+      - "scripts/ci/git_tree.py"
+      - "scripts/ci/affected_jobs_replay.py"
+      - "scripts/ci/tree_result.py"
+      - ".github/actions/tree-result/**"
+      - "tests/test_ci_tree_result.py"
+      - "tests/test_ci_affected_jobs.py"
       - "webviews/src/pages/shared/generated/pageRouter.ts"
+      # Inputs of the jobs scripts/ci/affected_jobs.py routes by the crate graph, outside the globs above
+      # (`affected_jobs.py check` keeps this whole; `affected_jobs.py paths --workflow` lists them all).
+      - ".github/actions/ghostty-zig-packages/**"
+      - ".github/actions/zig-global-cache/**"
+      - ".github/workflows/nightly.yml"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneCloudFolder.swift"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextBrowserImport/Resources/browser-sources.json"
+      - "Packages/macOS/CmuxNext/Tests/CmuxNextSidebarTests/Fixtures/sidebar-layout-cases.json"
+      - "Packages/macOS/CmuxNext/Tests/Fixtures/agent-tools/setup-mcp-terminals.json"
+      - "Resources/cmux-cli-path/**"
+      - "Resources/theme-files/**"
+      - "Resources/sidebar-looks/**"
+      - "backend/catalog/cloud-operations.json"
+      - "backend/packages/home-core/conformance/conversation-import-cases.json"
+      - "design/agent-icons/manifest.json"
+      - "docs/chief-setup-prompts.md"
+      - "docs/cmux-next/customize-recipes.md"
+      - "examples/looks/**"
+      - "docs/cmux-next/sidebar-customization/**"
+      - "docs/remote-agents-and-cloud.md"
+      - "examples/extensions/web-pane/**"
+      - "first-party-apps/**"
+      - "ghostty"
+      - "ghostty-next"
+      - "plans/cmux-next/action-catalog.json"
+      - "plans/cmux-next/action-surfaces.json"
+      - "plans/cmux-next/daemon-capabilities.json"
+      - "plans/cmux-next/spec-proposals/visuals/design-tokens.json"
+      - "samples/apps/**"
+      - "schemas/agent-url-policy/vectors.json"
+      - "schemas/automation-input/vectors.json"
+      - "schemas/automation-lease/vectors.json"
+      - "schemas/build-identity/vectors.json"
+      - "schemas/chief-cmux-target/vectors.json"
+      - "schemas/chief-home/vectors.json"
+      - "schemas/deeplinks/agent-link.json"
+      - "schemas/ghostty-shell-features/vectors.json"
+      - "schemas/link-token/keyset-vectors.json"
+      - "schemas/settings/retired-keys.json"
+      - "schemas/settings/settings-schema.json"
+      - "schemas/settings/source/agent-cache.json"
+      - "schemas/settings/source/agent-retry.json"
+      - "schemas/settings/source/mcp-servers.json"
+      - "schemas/settings/source/subsessions.json"
+      - "schemas/settings/source/trust.json"
+      - "schemas/terminal-sizing/fixtures.json"
+      - "schemas/theme/slots.json"
+      - "schemas/transcript-look/transcript-look.json"
+      - "schemas/theme/theme-ink-vectors.json"
+      - "scripts/ci/cloud_capture_provision.py"
+      - "scripts/ci/init-submodule.sh"
+      - "scripts/cmux-next/cmux-tui.pin"
+      - "scripts/ghostty-zig-version.sh"
+      - "scripts/install-zig-ci.sh"
+      - "skills/cmux-acpmux/SKILL.md"
+      - "skills/cmux-browser/SKILL.md"
+      - "skills/cmux-browser/references/authentication.md"
+      - "skills/cmux-browser/references/commands.md"
+      - "skills/cmux-browser/references/proxy-support.md"
+      - "skills/cmux-browser/references/session-management.md"
+      - "skills/cmux-browser/references/snapshot-refs.md"
+      - "skills/cmux-browser/references/surface-discovery.md"
+      - "skills/cmux-browser/references/video-recording.md"
+      - "skills/cmux-browser/templates/authenticated-session.sh"
+      - "skills/cmux-browser/templates/capture-workflow.sh"
+      - "skills/cmux-browser/templates/form-automation.sh"
+      - "skills/cmux-computer-use/SKILL.md"
+      - "skills/cmux-cua/SKILL.md"
+      - "skills/cmux-customization/SKILL.md"
+      - "skills/cmux-customization/references/examples.md"
+      - "skills/cmux-customization/references/local-app-views.md"
+      - "skills/cmux-customization/references/viewer-types.md"
+      - "skills/cmux-customization/templates/clock-weather/cmux-app.json"
+      - "skills/cmux-customization/templates/clock-weather/main.js"
+      - "skills/cmux-customization/templates/my-prs/cmux-app.json"
+      - "skills/cmux-customization/templates/my-prs/main.js"
+      - "skills/cmux-live/SKILL.md"
+      - "skills/cmux/SKILL.md"
+      - "webviews/src/agent-session/acpmux/rows/parity/parity.changes.jsonl"
+      - "webviews/src/agent-session/acpmux/rows/parity/r1-reply-1.changes.jsonl"
+      - "webviews/src/agent-session/acpmux/rows/parity/r1-reply-2.changes.jsonl"
+      - "webviews/src/agent-session/acpmux/rows/parity/seed-turn.changes.jsonl"
+      - "webviews/src/apps/scene/extTemplateScenes.json"
+      - "workers/cmux-vm/cli/crates/cmux-vm-codegen/src/normalize.rs"
+      - "workers/cmux-vm/cli/crates/cmux-vm-client/Cargo.toml"
+      - "workers/cmux-vm/cli/crates/cmux-vm-client/src/**"
+      - "workers/cmux-vm/cli/crates/cmux-vm/Cargo.toml"
+      - "workers/cmux-vm/cli/crates/cmux-vm/src/**"
+      # Customize inputs of the routed jobs: the seven-language conformance and
+      # Windows check read these, so a change to them must start this workflow
+      # (scripts/ci/affected_jobs.py check names the ones a paths list misses).
+      - "docs/cmux-next/customize-recipes.md"
+      - "examples/looks/**"
+      - "schemas/settings/source/mcp-servers.json"
+      - "skills/cmux-customization/templates/clock-weather/cmux-app.json"
+      - "skills/cmux-customization/templates/clock-weather/main.js"
+      - "skills/cmux-customization/templates/my-prs/cmux-app.json"
+      - "skills/cmux-customization/templates/my-prs/main.js"
   pull_request:
     paths:
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings"
+      - "schemas/settings/source/general.json"
+      - "webviews/src/apps/scene/extTemplateScenes.json"
       - "cmux-tui/**"
       - "cmux-tui/scripts/verify-pypi-tui-upload.sh"
       - ".github/actions/setup-cmux-tui-rust/**"
       - ".github/actions/runner-cargo-home/**"
+      - ".github/actions/zig-global-cache/**"
       - ".github/workflows/cmux-tui-artifacts.yml"
       - ".github/workflows/cmux-tui-build-package.yml"
       - "scripts/cmux-next/cmux-tui-build-profiles.json"
+      - "scripts/cmux-next/**"
       - ".github/workflows/cmux-tui.yml"
       - ".github/workflows/cmux-tui-release-cut.yml"
       - ".github/workflows/cmux-tui-release.yml"
@@ -97,6 +217,8 @@ on:
       - "tests/test_tui_publish_workflow_security.py"
       - "tests/workflow_jobs.py"
       - "scripts/ci/gh_expressions.py"
+      # The link profiles the ignored terminal_restart_settled test reads (cmux-tui tests).
+      - "webviews/bench/link-profiles.json"
       - "scripts/ci/adopt_cmux_tui_commit.py"
       - "scripts/ci/cmux_tui_manifest_sweep.py"
       - "scripts/ci/cmux_tui_tree_handoff.py"
@@ -123,31 +245,149 @@ on:
       - "tests/git_fixture_env.py"
       - "tests/runs_on_labels.py"
       - "tests/test_ci_fleet_rule_lints.py"
+      # The router's own files (affected_jobs.py SELF): a change to them runs every routed job, so it starts this workflow.
+      - "scripts/ci/affected-jobs.json"
+      - "scripts/ci/affected_jobs.py"
+      - "scripts/ci/cargo_test_verdict.py"
+      - "scripts/ci/git_tree.py"
+      - "scripts/ci/affected_jobs_replay.py"
+      - "scripts/ci/tree_result.py"
+      - ".github/actions/tree-result/**"
+      - "tests/test_ci_tree_result.py"
+      - "tests/test_ci_affected_jobs.py"
       - "webviews/src/pages/shared/generated/pageRouter.ts"
+      # Inputs of the jobs scripts/ci/affected_jobs.py routes by the crate graph, outside the globs above
+      # (`affected_jobs.py check` keeps this whole; `affected_jobs.py paths --workflow` lists them all).
+      - ".github/actions/ghostty-zig-packages/**"
+      - ".github/actions/zig-global-cache/**"
+      - ".github/workflows/nightly.yml"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneCloudFolder.swift"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextBrowserImport/Resources/browser-sources.json"
+      - "Packages/macOS/CmuxNext/Tests/CmuxNextSidebarTests/Fixtures/sidebar-layout-cases.json"
+      - "Packages/macOS/CmuxNext/Tests/Fixtures/agent-tools/setup-mcp-terminals.json"
+      - "Resources/cmux-cli-path/**"
+      - "Resources/theme-files/**"
+      - "Resources/sidebar-looks/**"
+      - "backend/catalog/cloud-operations.json"
+      - "backend/packages/home-core/conformance/conversation-import-cases.json"
+      - "design/agent-icons/manifest.json"
+      - "docs/chief-setup-prompts.md"
+      - "docs/cmux-next/customize-recipes.md"
+      - "examples/looks/**"
+      - "docs/cmux-next/sidebar-customization/**"
+      - "docs/remote-agents-and-cloud.md"
+      - "examples/extensions/web-pane/**"
+      - "first-party-apps/**"
+      - "ghostty"
+      - "ghostty-next"
+      - "plans/cmux-next/action-catalog.json"
+      - "plans/cmux-next/action-surfaces.json"
+      - "plans/cmux-next/daemon-capabilities.json"
+      - "plans/cmux-next/spec-proposals/visuals/design-tokens.json"
+      - "samples/apps/**"
+      - "schemas/agent-url-policy/vectors.json"
+      - "schemas/automation-input/vectors.json"
+      - "schemas/automation-lease/vectors.json"
+      - "schemas/build-identity/vectors.json"
+      - "schemas/chief-cmux-target/vectors.json"
+      - "schemas/chief-home/vectors.json"
+      - "schemas/deeplinks/agent-link.json"
+      - "schemas/ghostty-shell-features/vectors.json"
+      - "schemas/link-token/keyset-vectors.json"
+      - "schemas/settings/retired-keys.json"
+      - "schemas/settings/settings-schema.json"
+      - "schemas/settings/source/agent-cache.json"
+      - "schemas/settings/source/agent-retry.json"
+      - "schemas/settings/source/mcp-servers.json"
+      - "schemas/settings/source/subsessions.json"
+      - "schemas/settings/source/trust.json"
+      - "schemas/terminal-sizing/fixtures.json"
+      - "schemas/theme/slots.json"
+      - "schemas/transcript-look/transcript-look.json"
+      - "schemas/theme/theme-ink-vectors.json"
+      - "scripts/ci/cloud_capture_provision.py"
+      - "scripts/ci/init-submodule.sh"
+      - "scripts/cmux-next/cmux-tui.pin"
+      - "scripts/ghostty-zig-version.sh"
+      - "scripts/install-zig-ci.sh"
+      - "skills/cmux-acpmux/SKILL.md"
+      - "skills/cmux-browser/SKILL.md"
+      - "skills/cmux-browser/references/authentication.md"
+      - "skills/cmux-browser/references/commands.md"
+      - "skills/cmux-browser/references/proxy-support.md"
+      - "skills/cmux-browser/references/session-management.md"
+      - "skills/cmux-browser/references/snapshot-refs.md"
+      - "skills/cmux-browser/references/surface-discovery.md"
+      - "skills/cmux-browser/references/video-recording.md"
+      - "skills/cmux-browser/templates/authenticated-session.sh"
+      - "skills/cmux-browser/templates/capture-workflow.sh"
+      - "skills/cmux-browser/templates/form-automation.sh"
+      - "skills/cmux-computer-use/SKILL.md"
+      - "skills/cmux-cua/SKILL.md"
+      - "skills/cmux-customization/SKILL.md"
+      - "skills/cmux-customization/references/examples.md"
+      - "skills/cmux-customization/references/local-app-views.md"
+      - "skills/cmux-customization/references/viewer-types.md"
+      - "skills/cmux-customization/templates/clock-weather/cmux-app.json"
+      - "skills/cmux-customization/templates/clock-weather/main.js"
+      - "skills/cmux-customization/templates/my-prs/cmux-app.json"
+      - "skills/cmux-customization/templates/my-prs/main.js"
+      - "skills/cmux-live/SKILL.md"
+      - "skills/cmux/SKILL.md"
+      - "webviews/src/agent-session/acpmux/rows/parity/parity.changes.jsonl"
+      - "webviews/src/agent-session/acpmux/rows/parity/r1-reply-1.changes.jsonl"
+      - "webviews/src/agent-session/acpmux/rows/parity/r1-reply-2.changes.jsonl"
+      - "webviews/src/agent-session/acpmux/rows/parity/seed-turn.changes.jsonl"
+      - "webviews/src/apps/scene/extTemplateScenes.json"
+      - "workers/cmux-vm/cli/crates/cmux-vm-codegen/src/normalize.rs"
+      - "workers/cmux-vm/cli/crates/cmux-vm-client/Cargo.toml"
+      - "workers/cmux-vm/cli/crates/cmux-vm-client/src/**"
+      - "workers/cmux-vm/cli/crates/cmux-vm/Cargo.toml"
+      - "workers/cmux-vm/cli/crates/cmux-vm/src/**"
+      # Customize inputs of the routed jobs: the seven-language conformance and
+      # Windows check read these, so a change to them must start this workflow
+      # (scripts/ci/affected_jobs.py check names the ones a paths list misses).
+      - "docs/cmux-next/customize-recipes.md"
+      - "examples/looks/**"
+      - "schemas/settings/source/mcp-servers.json"
+      - "skills/cmux-customization/templates/clock-weather/cmux-app.json"
+      - "skills/cmux-customization/templates/clock-weather/main.js"
+      - "skills/cmux-customization/templates/my-prs/cmux-app.json"
+      - "skills/cmux-customization/templates/my-prs/main.js"
   workflow_dispatch:
 
 concurrency:
   group: cmux-tui-sdks-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # A pull request's newer push supersedes its run. A base push never cancels a started run (conformance now
+  # judges merges there): the next one waits, one pending at most, so the runs batch the merges between them.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
 
 env:
+  # Warnings never fail a pull request's compile (Leo, 2026-11-19); pushes, dispatches, nightly and release
+  # keep them errors. scripts/ci/warnings_policy.py.
+  CI_WARNINGS: ${{ github.event_name == 'pull_request' && 'soft' || 'deny' }}
   # libghostty-vt always builds from the ghostty-next gitlink: an empty
   # value overrides any runner-level CMUX_GHOSTTY_SRC (build.rs treats it
   # as unset).
   CMUX_GHOSTTY_SRC: ""
-  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
-  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
 
 jobs:
   contract:
     name: protocol contract
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
+    # Tier A of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
+    # into feat-cmux-next skips it unless labeled full-ci; the feat-cmux-next push runs it.
+    if: ${{ (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 8
     outputs:
       sdk_inputs: ${{ steps.sdk-inputs.outputs.changed }}
+      conformance: ${{ steps.graph.outputs.conformance }}
+      conformance_tree: ${{ steps.graph.outputs.conformance_tree }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -176,6 +416,24 @@ jobs:
           fi
           echo "SDK package inputs changed: $changed"
           echo "changed=$changed" >> "$GITHUB_OUTPUT"
+
+      # Jobs routed by the crate graph (scripts/ci/affected_jobs.py, scripts/ci/affected-jobs.json): each runs
+      # when the change touches an input of a crate it builds (the crate, its path dependencies with their
+      # features, the files their sources name) or of its own steps. A push, a dispatch, the full-ci label, a
+      # change to the router and a cmux-tui path it cannot place run every job; so does a failed router (the
+      # jobs read `!= 'false'`).
+      - name: Which jobs can the change affect (crate graph)
+        id: graph
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+        run: |
+          base=""
+          if [[ "$EVENT_NAME" == pull_request ]]; then
+            base=$(git rev-parse HEAD^1 2>/dev/null || true)
+          fi
+          python3 scripts/ci/affected_jobs.py route --workflow .github/workflows/cmux-tui-sdks.yml \
+            --base "$base" --head HEAD --event "$EVENT_NAME" --labels "${LABELS:-[]}"
 
       # Its download can fail (GitHub answered 504 on 2026-11-08). Then the job takes a 3.12 from uv,
       # or else the runner's python3, in a venv (the runner's own Python refuses a pip install).
@@ -220,6 +478,9 @@ jobs:
 
       - name: Test published artifact manifest verifier
         run: python3 -m unittest discover -s cmux-tui/scripts -p 'test_verify_published_manifest.py' -v
+
+      - name: Test folder sync bench harness
+        run: python3 -m unittest discover -s cmux-tui/scripts -p 'test_sync_bench.py' -v
 
       - name: Test SDK schema drift checker
         run: python3 cmux-tui/scripts/test_check_sdk_schema.py
@@ -286,8 +547,10 @@ jobs:
   packages:
     name: ${{ matrix.language }} package
     needs: contract
-    if: ${{ needs.contract.outputs.sdk_inputs == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    # Tier A of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
+    # into feat-cmux-next skips it unless labeled full-ci; the feat-cmux-next push runs it.
+    if: ${{ (needs.contract.outputs.sdk_inputs == 'true') && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 25
     strategy:
       fail-fast: false
@@ -340,24 +603,39 @@ jobs:
           go-version: "1.22.12"
           cache-dependency-path: cmux-tui/bindings/go/go.mod
 
-      - name: Select JDK 17
+      # The reused fleet image (LINUX_RUNNER) has no hosted toolcache JDK, so
+      # JAVA_HOME_17_X64 is unset there; setup-java provisions Temurin 17 on any runner.
+      - name: Set up JDK 17
         if: matrix.language == 'java'
-        run: |
-          test -x "$JAVA_HOME_17_X64/bin/java"
-          echo "$JAVA_HOME_17_X64/bin" >> "$GITHUB_PATH"
-          echo "JAVA_HOME=$JAVA_HOME_17_X64" >> "$GITHUB_ENV"
-          "$JAVA_HOME_17_X64/bin/java" -version
-          "$JAVA_HOME_17_X64/bin/javac" -version
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: "17"
 
+      # The reused fleet image (LINUX_RUNNER) may ship no clang or cmake; install what is missing.
       - name: Select Clang C++20
         if: matrix.language == 'cpp'
-        run: clang++ --version
+        run: |
+          missing=()
+          command -v clang++ >/dev/null 2>&1 || missing+=(clang)
+          command -v cmake >/dev/null 2>&1 || missing+=(cmake)
+          if [ "${#missing[@]}" -gt 0 ]; then
+            sudo apt-get update
+            sudo apt-get install -y "${missing[@]}"
+          fi
+          clang++ --version
+          cmake --version
 
       - name: Set up Zig
         if: matrix.language == 'zig'
         uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
         with:
           version: 0.15.2
+          # Its own cache saves a new entry per run; zig-global-cache keys it stably.
+          use-cache: false
+      - name: Restore the Zig global cache (feat-cmux-next pushes save it)
+        if: matrix.language == 'zig'
+        uses: ./.github/actions/zig-global-cache
 
       - name: Test and install Python SDK
         if: matrix.language == 'python'
@@ -414,7 +692,7 @@ jobs:
             -p cmux-sidebar \
             --doc \
             --locked
-          cargo clippy \
+          python3 "$GITHUB_WORKSPACE/scripts/ci/warnings_policy.py" run -- cargo clippy \
             -p cmux-sdk \
             -p cmux-sidebar \
             --all-targets \
@@ -422,8 +700,9 @@ jobs:
             -- -D warnings
           # Embedders such as Chromium build without sha2 (socket-path-hash).
           cargo test -p cmux-sdk --all-targets --locked --no-default-features
-          cargo clippy -p cmux-sdk --all-targets --locked --no-default-features -- -D warnings
+          python3 "$GITHUB_WORKSPACE/scripts/ci/warnings_policy.py" run -- cargo clippy -p cmux-sdk --all-targets --locked --no-default-features -- -D warnings
           RUSTDOCFLAGS="-D warnings" \
+            python3 "$GITHUB_WORKSPACE/scripts/ci/warnings_policy.py" run -- \
             cargo doc \
               -p cmux-sdk \
               -p cmux-sidebar \
@@ -473,8 +752,10 @@ jobs:
   consumers:
     name: ${{ matrix.language }} consumer
     needs: contract
-    if: ${{ needs.contract.outputs.sdk_inputs == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    # Tier A of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
+    # into feat-cmux-next skips it unless labeled full-ci; the feat-cmux-next push runs it.
+    if: ${{ (needs.contract.outputs.sdk_inputs == 'true') && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 25
     strategy:
       fail-fast: false
@@ -533,24 +814,39 @@ jobs:
             cmux-tui/bindings/go/go.mod
             cmux-tui/bindings/examples/go-terminal-bot/go.mod
 
-      - name: Select JDK 17
+      # The reused fleet image (LINUX_RUNNER) has no hosted toolcache JDK, so
+      # JAVA_HOME_17_X64 is unset there; setup-java provisions Temurin 17 on any runner.
+      - name: Set up JDK 17
         if: matrix.language == 'java'
-        run: |
-          test -x "$JAVA_HOME_17_X64/bin/java"
-          echo "$JAVA_HOME_17_X64/bin" >> "$GITHUB_PATH"
-          echo "JAVA_HOME=$JAVA_HOME_17_X64" >> "$GITHUB_ENV"
-          "$JAVA_HOME_17_X64/bin/java" -version
-          "$JAVA_HOME_17_X64/bin/javac" -version
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: "17"
 
+      # The reused fleet image (LINUX_RUNNER) may ship no clang or cmake; install what is missing.
       - name: Select Clang C++20
         if: matrix.language == 'cpp'
-        run: clang++ --version
+        run: |
+          missing=()
+          command -v clang++ >/dev/null 2>&1 || missing+=(clang)
+          command -v cmake >/dev/null 2>&1 || missing+=(cmake)
+          if [ "${#missing[@]}" -gt 0 ]; then
+            sudo apt-get update
+            sudo apt-get install -y "${missing[@]}"
+          fi
+          clang++ --version
+          cmake --version
 
       - name: Set up Zig
         if: matrix.language == 'zig'
         uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
         with:
           version: 0.15.2
+          # Its own cache saves a new entry per run; zig-global-cache keys it stably.
+          use-cache: false
+      - name: Restore the Zig global cache (feat-cmux-next pushes save it)
+        if: matrix.language == 'zig'
+        uses: ./.github/actions/zig-global-cache
 
       - name: Test Python agent watchdog
         if: matrix.language == 'python'
@@ -579,7 +875,7 @@ jobs:
           cargo test \
             --manifest-path cmux-tui/bindings/examples/rust-agent-dashboard/Cargo.toml \
             --locked
-          cargo clippy \
+          python3 "$GITHUB_WORKSPACE/scripts/ci/warnings_policy.py" run -- cargo clippy \
             --manifest-path cmux-tui/bindings/examples/rust-agent-dashboard/Cargo.toml \
             --locked \
             --all-targets \
@@ -588,7 +884,7 @@ jobs:
             --manifest-path cmux-tui/bindings/examples/rust-sidebar-monitor/Cargo.toml \
             --locked \
             --all-targets
-          cargo clippy \
+          python3 "$GITHUB_WORKSPACE/scripts/ci/warnings_policy.py" run -- cargo clippy \
             --manifest-path cmux-tui/bindings/examples/rust-sidebar-monitor/Cargo.toml \
             --locked \
             --all-targets \
@@ -644,16 +940,28 @@ jobs:
   rust-msrv:
     name: Rust SDK MSRV (1.88)
     needs: contract
-    if: ${{ needs.contract.outputs.sdk_inputs == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    # Tier A of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
+    # into feat-cmux-next skips it unless labeled full-ci; the feat-cmux-next push runs it.
+    if: ${{ (needs.contract.outputs.sdk_inputs == 'true') && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
 
+      # The reused fleet image (LINUX_RUNNER) may lack rustup or keep it off PATH;
+      # provision it as setup-cmux-tui-rust does.
       - name: Install Rust 1.88 MSRV toolchain
-        run: rustup toolchain install 1.88.0 --profile minimal --component clippy --component rustfmt
+        run: |
+          set -euo pipefail
+          export PATH="$HOME/.cargo/bin:$PATH"
+          if ! command -v rustup >/dev/null 2>&1; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+              | sh -s -- -y --profile minimal --default-toolchain none --no-modify-path
+          fi
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          rustup toolchain install 1.88.0 --profile minimal --component clippy --component rustfmt
 
       # Before rust-cache: its cleanup must never reach a home a sibling runner builds from.
       - name: Give this runner instance its own CARGO_HOME
@@ -685,12 +993,12 @@ jobs:
           cargo +1.88.0 test \
             --manifest-path cmux-tui/bindings/examples/rust-agent-screen-detection/Cargo.toml \
             --locked
-          cargo +1.88.0 clippy \
+          python3 "$GITHUB_WORKSPACE/scripts/ci/warnings_policy.py" run -- cargo +1.88.0 clippy \
             --manifest-path cmux-tui/bindings/examples/rust-agent-dashboard/Cargo.toml \
             --locked \
             --all-targets \
             -- -D warnings
-          cargo +1.88.0 clippy \
+          python3 "$GITHUB_WORKSPACE/scripts/ci/warnings_policy.py" run -- cargo +1.88.0 clippy \
             --manifest-path cmux-tui/bindings/examples/rust-sidebar-monitor/Cargo.toml \
             --locked \
             --all-targets \
@@ -701,30 +1009,53 @@ jobs:
       GHOSTTY_ZIG_SOURCE: ghostty-next
     name: seven-language live conformance
     needs: contract
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    # By the crate graph (the contract job's graph step); a failed or skipped router never skips it.
+    # Tier A (scripts/ci/affected-jobs.json pull_request_skip), as contract is: a pull request into
+    # feat-cmux-next skips it unless labeled full-ci, and the feat-cmux-next push runs it. Without the clause
+    # the skipped contract left sdk_inputs empty, which reads as != 'false': 148 of its 154 pull request runs
+    # on 11-21 14:29-17:00Z ran on heads that changed no SDK input (5 of 282 merged commits did).
+    # After merge (CI 10x, 2026-11-21: 1.57% of pull request runner-minutes, 0.05% of heads it alone caught): a
+    # pull request runs it only when it changes the SDK and protocol inputs (sdk_inputs: bindings/, spec/, the
+    # workspace manifests) or carries full-ci; every feat-cmux-next push the graph reaches runs it.
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')) && (github.event_name != 'pull_request' || needs.contract.outputs.sdk_inputs != 'false' || contains(github.event.pull_request.labels.*.name, 'full-ci')) && (needs.contract.result != 'success' || needs.contract.outputs.conformance != 'false') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
 
+      # A green result of this job for the same input tree (affected_jobs.py result_key) is this
+      # run's result: the tested steps are skipped and the job reports green with that run named.
+      - name: Reuse a green result for the same input tree
+        id: tree
+        uses: ./.github/actions/tree-result
+        with:
+          mode: restore
+          job: conformance
+          key: ${{ needs.contract.outputs.conformance_tree }}
+
       - name: Initialize Ghostty protocol submodule
+        if: ${{ steps.tree.outputs.hit != 'true' }}
         shell: bash
         run: |
           bash scripts/ci/init-submodule.sh ghostty
           bash scripts/ci/init-submodule.sh ghostty-next
 
       - name: Install Linux build dependencies
+        if: ${{ steps.tree.outputs.hit != 'true' }}
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang libclang-dev pkg-config
+          sudo apt-get install -y clang libclang-dev pkg-config cmake
 
       - name: Set up Python
+        if: ${{ steps.tree.outputs.hit != 'true' }}
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
         with:
           python-version: "3.12.8"
 
       - name: Set up Node.js
+        if: ${{ steps.tree.outputs.hit != 'true' }}
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "22.23.4"
@@ -732,23 +1063,27 @@ jobs:
           cache-dependency-path: cmux-tui/bindings/typescript/package-lock.json
 
       - name: Set up pinned cmux-tui Rust
+        if: ${{ steps.tree.outputs.hit != 'true' }}
         uses: ./.github/actions/setup-cmux-tui-rust
 
       - name: Set up Go
+        if: ${{ steps.tree.outputs.hit != 'true' }}
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
           go-version: "1.22.12"
           cache-dependency-path: cmux-tui/bindings/go/go.mod
 
-      - name: Select JDK 17
-        run: |
-          test -x "$JAVA_HOME_17_X64/bin/java"
-          echo "$JAVA_HOME_17_X64/bin" >> "$GITHUB_PATH"
-          echo "JAVA_HOME=$JAVA_HOME_17_X64" >> "$GITHUB_ENV"
-          "$JAVA_HOME_17_X64/bin/java" -version
-          "$JAVA_HOME_17_X64/bin/javac" -version
+      # The reused fleet image (LINUX_RUNNER) has no hosted toolcache JDK, so
+      # JAVA_HOME_17_X64 is unset there; setup-java provisions Temurin 17 on any runner.
+      - name: Set up JDK 17
+        if: ${{ steps.tree.outputs.hit != 'true' }}
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: "17"
 
       - name: Resolve Ghostty Zig version
+        if: ${{ steps.tree.outputs.hit != 'true' }}
         id: ghostty-zig-version
         run: |
           set -euo pipefail
@@ -757,11 +1092,18 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Set up Zig for Ghostty
+        if: ${{ steps.tree.outputs.hit != 'true' }}
         uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
         with:
           version: ${{ steps.ghostty-zig-version.outputs.version }}
+          # Its own cache saves a new entry per run; zig-global-cache keys it stably.
+          use-cache: false
+      - name: Restore the Zig global cache (feat-cmux-next pushes save it)
+        if: ${{ steps.tree.outputs.hit != 'true' }}
+        uses: ./.github/actions/zig-global-cache
 
       - name: Install TypeScript adapter build tools
+        if: ${{ steps.tree.outputs.hit != 'true' }}
         working-directory: cmux-tui/bindings/typescript
         run: npm ci --no-audit --no-fund
 
@@ -771,12 +1113,14 @@ jobs:
       # Keyed on exactly those, an unchanged tree skips a five-minute compile,
       # which is every run started by a workflow-only edit.
       - name: Key the headless cmux-tui build
+        if: ${{ steps.tree.outputs.hit != 'true' }}
         id: headless-key
         run: |
           set -euo pipefail
-          echo "key=cmux-tui-headless-v2-${RUNNER_OS}-${RUNNER_ARCH}-$(git rev-parse HEAD:cmux-tui)-$(git rev-parse HEAD:ghostty)-$(git rev-parse HEAD:ghostty-next)" >> "$GITHUB_OUTPUT"
+          echo "key=cmux-tui-headless-v3-${RUNNER_OS}-${RUNNER_ARCH}-$(git rev-parse HEAD:cmux-tui)-$(git rev-parse HEAD:ghostty)-$(git rev-parse HEAD:ghostty-next)" >> "$GITHUB_OUTPUT"
 
       - name: Restore the headless cmux-tui build
+        if: ${{ steps.tree.outputs.hit != 'true' }}
         id: headless-cache
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
@@ -787,7 +1131,7 @@ jobs:
       # cmux-tui never hits it. Restore feat-cmux-next's target dir
       # (cmux-tui-headless-debug.yml saves it) and rebuild only what changed. Read-only here.
       - name: Cache the cmux-tui target dir
-        if: ${{ steps.headless-cache.outputs.cache-hit != 'true' }}
+        if: ${{ steps.tree.outputs.hit != 'true' && (steps.headless-cache.outputs.cache-hit != 'true') }}
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           cache-bin: false
@@ -797,10 +1141,13 @@ jobs:
           save-if: false
 
       - name: Build exact headless cmux-tui
-        if: ${{ steps.headless-cache.outputs.cache-hit != 'true' }}
+        if: ${{ steps.tree.outputs.hit != 'true' && (steps.headless-cache.outputs.cache-hit != 'true') }}
         working-directory: cmux-tui
         env:
           GHOSTTY_ZIG_REQUIRED: ${{ steps.ghostty-zig-version.outputs.version }}
+          # libghostty-vt for any x86-64 CPU: this binary is cached and restored on other pool hosts,
+          # and a build-host-native one dies with SIGILL there (v3 key drops the native v2 builds).
+          CMUX_GHOSTTY_VT_ZIG_CPU: baseline
         run: |
           test "$(zig version)" = "$GHOSTTY_ZIG_REQUIRED"
           cargo build -p cmux-tui --bin cmux-tui --locked
@@ -808,18 +1155,25 @@ jobs:
       # Pull request caches stay read-only. main publishes the build they reuse,
       # and cmux-tui-headless-debug.yml does on feat-cmux-next.
       - name: Save the headless cmux-tui build
-        if: ${{ github.event_name == 'push' && steps.headless-cache.outputs.cache-hit != 'true' }}
+        if: ${{ steps.tree.outputs.hit != 'true' && (github.event_name == 'push' && steps.headless-cache.outputs.cache-hit != 'true') }}
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: cmux-tui/target/debug/cmux-tui
           key: ${{ steps.headless-key.outputs.key }}
 
       - name: Set up Zig for SDK conformance
+        if: ${{ steps.tree.outputs.hit != 'true' }}
         uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
         with:
           version: 0.15.2
+          # Its own cache saves a new entry per run; zig-global-cache keys it stably.
+          use-cache: false
+      - name: Restore the Zig global cache (feat-cmux-next pushes save it)
+        if: ${{ steps.tree.outputs.hit != 'true' }}
+        uses: ./.github/actions/zig-global-cache
 
       - name: Run shared fake and live protocol contract
+        if: ${{ steps.tree.outputs.hit != 'true' }}
         env:
           CC: clang
           CXX: clang++
@@ -839,7 +1193,7 @@ jobs:
       # spaces) against the exact
       # headless daemon built above.
       - name: Test Rust SDK byte attachment and typed state against the live daemon
-        if: ${{ needs.contract.outputs.sdk_inputs == 'true' }}
+        if: ${{ steps.tree.outputs.hit != 'true' && (needs.contract.outputs.sdk_inputs == 'true') }}
         working-directory: cmux-tui
         env:
           CMUX_SDK_LIVE_TUI_BIN: ${{ github.workspace }}/cmux-tui/target/debug/cmux-tui
@@ -847,13 +1201,26 @@ jobs:
           cargo test -p cmux-sdk --locked --test byte_attachment_live --test typed_state_ops_live --test home_conversation_live --test state_resources_live --test capabilities_per_connection_live -- --nocapture
           cargo test -p cmux-daemon-client --locked --test mirror_live --test mirror_agent_tabs_live --test spaces_live --test session_deltas_live -- --nocapture
 
+      # Kept only from a run in which every tested step ran: the live SDK step above runs only when the
+      # change touched the SDKs, which is the diff's, not the tree's.
+      - name: Record this green result for its input tree
+        if: ${{ success() && steps.tree.outputs.hit != 'true' && needs.contract.outputs.sdk_inputs == 'true' }}
+        uses: ./.github/actions/tree-result
+        with:
+          mode: save
+          job: conformance
+          key: ${{ needs.contract.outputs.conformance_tree }}
+
   # The code-mode MCP (cmux-tui/bindings/typescript/code-mode/mcp.mjs) and the bwrap sandbox of
   # scripts/cmux-next/cmux-code-mode-runner: a cancelled cmux_exec returns and leaves no process
   # behind. No job ran this test (it had no registry entry, tests/test_pr_lane_coverage.py), and
   # it skips without bun and bwrap, so this job installs both and the test fails on CI without them.
   code-mode:
     name: code-mode MCP cancellation
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
+    # Tier A of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
+    # into feat-cmux-next skips it unless labeled full-ci; the feat-cmux-next push runs it.
+    if: ${{ (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 8
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -864,6 +1231,7 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
 
       # Ubuntu 24.04 lets only AppArmor-profiled programs make an unprivileged user
       # namespace; bwrap needs one, so the runner VM lifts that restriction.

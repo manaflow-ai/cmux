@@ -29,8 +29,9 @@ public protocol AutomationTabProvider: AnyObject {
     /// WebKit tabs of the session's workspace first, then (with `all`) of
     /// every other workspace and window.
     func automationTabs(all: Bool) -> [AutomationTab]
-    /// Opens a background WebKit tab in the session's workspace.
-    func openAutomationTab(url: URL?) async throws -> WebKitTab
+    /// Opens a background WebKit tab beside the session's caller (`place`),
+    /// else in the focused pane.
+    func openAutomationTab(url: URL?, place: AutomationTabPlace) async throws -> WebKitTab
     /// Closes a tab the session opened or claimed.
     func closeAutomationTab(_ id: BrowserTabID)
     /// A session's end closes tab `id` (either engine), which the session created and did not

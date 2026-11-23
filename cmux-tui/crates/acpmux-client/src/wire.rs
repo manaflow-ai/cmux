@@ -20,6 +20,9 @@ pub const CREDIT_WINDOW_BYTES: u64 = 1024 * 1024;
 pub const CONNECTION_BUDGET_BYTES: usize = 4 * 1024 * 1024;
 pub const MAX_SUBSCRIPTIONS: usize = 256;
 pub const MAX_IDENTIFIER_BYTES: usize = 256;
+pub const MAX_ACT_ID_BYTES: usize = 64;
+pub const MAX_ACT_OP_BYTES: usize = 32;
+pub const MAX_DAEMON_LINE_BYTES: usize = 256 * 1024;
 
 /// Subscription and request identifiers have one UTF-8 byte bound.
 pub fn identifier_fits(value: &str) -> bool {
@@ -39,6 +42,9 @@ pub enum Request {
     Credit(Credit),
     Unsub(Unsub),
     Blob(Blob),
+    /// A v2 action request. Servers may decode this shape while keeping action
+    /// execution disabled until the corresponding surface is enabled.
+    Act(Act),
 }
 
 /// A generic stream name. The wire layer does not know which stream is being
@@ -338,6 +344,73 @@ impl Default for Limits {
 pub struct HelloReply {
     pub daemon_id: String,
     pub limits: Limits,
+}
+
+/// A request to perform one idempotent action on a chat.
+///
+/// `body` is deliberately an arbitrary JSON value. The serving side hashes the
+/// operation and body together when it records the durable receipt, so a retry
+/// with the same id and a different body can never be mistaken for a replay.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Act {
+    pub chat: Stream,
+    pub op: String,
+    pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub since: Option<u64>,
+    pub body: serde_json::Value,
+}
+
+impl Act {
+    pub fn new(
+        chat: impl Into<Stream>,
+        op: impl Into<String>,
+        id: impl Into<String>,
+        body: serde_json::Value,
+    ) -> Self {
+        Self { chat: chat.into(), op: op.into(), id: id.into(), since: None, body }
+    }
+
+    pub fn since(mut self, since: u64) -> Self {
+        self.since = Some(since);
+        self
+    }
+
+    /// Validates the bounded fields used by the daemon action writer.
+    pub fn validate(&self) -> Result<(), &'static str> {
+        if self.id.is_empty() || self.id.len() > MAX_ACT_ID_BYTES {
+            return Err("action id must be 1..64 UTF-8 bytes");
+        }
+        if self.op.len() > MAX_ACT_OP_BYTES {
+            return Err("action op must be at most 32 UTF-8 bytes");
+        }
+        let encoded =
+            serde_json::to_vec(&self.body).map_err(|_| "action body is not serializable")?;
+        if encoded.len() > MAX_DAEMON_LINE_BYTES {
+            return Err("action daemon line exceeds 256 KiB");
+        }
+        Ok(())
+    }
+}
+
+/// The successful durable receipt for an [`Act`].
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Ack {
+    pub id: String,
+    pub seq: u64,
+}
+
+/// A typed action error. The id is omitted when the request could not be
+/// correlated (for example, malformed JSON or an overlong identifier).
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Error {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    pub code: String,
+    pub message: String,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -692,6 +765,18 @@ pub struct ChatPageResult {
     pub turns: bool,
 }
 
+/// One person in a chat presence replacement. Presence is a latest-value state op and carries
+/// no chat id or sequence: the containing chat stream supplies its identity.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PresencePerson {
+    pub id: String,
+    pub name: String,
+    pub devices: u32,
+    pub viewing: bool,
+    pub typing: bool,
+}
+
 /// One op of a chat's delta. A settled row and a patch carry a seq of their own; a row that
 /// begins, a `text` and a `queue` op carry the last record's seq and move no cursor. Separate
 /// from the list's `DeltaOp<T>`, in the same frame kind.
@@ -722,6 +807,17 @@ pub enum ChatOp {
         #[serde(skip_serializing_if = "Option::is_none")]
         head: Option<QueueHead>,
     },
+    /// The complete latest presence set for this chat. `trimmed` reports people omitted to fit
+    /// the bounded state frame; there is deliberately no `chatId` or `seq`.
+    Presence {
+        participants: Vec<PresencePerson>,
+        #[serde(default, skip_serializing_if = "is_zero")]
+        trimmed: usize,
+    },
+}
+
+fn is_zero(value: &usize) -> bool {
+    *value == 0
 }
 
 // Read from the JSON map directly, as `DeltaOp` is: an internally tagged enum buffers its
@@ -732,7 +828,7 @@ impl<'de> Deserialize<'de> for ChatOp {
         #[serde(rename_all = "camelCase")]
         struct Fields {
             op: String,
-            seq: u64,
+            seq: Option<u64>,
             row: Option<RawJson>,
             body_len: Option<u64>,
             row_id: Option<u64>,
@@ -741,32 +837,43 @@ impl<'de> Deserialize<'de> for ChatOp {
             removed: Option<String>,
             count: Option<u32>,
             head: Option<QueueHead>,
+            participants: Option<Vec<PresencePerson>>,
+            trimmed: Option<usize>,
         }
         let fields = Fields::deserialize(deserializer)?;
         let seq = fields.seq;
         match fields.op.as_str() {
             "row" => Ok(Self::Row {
-                seq,
+                seq: seq.ok_or_else(|| D::Error::missing_field("seq"))?,
                 row: fields.row.ok_or_else(|| D::Error::missing_field("row"))?,
                 body_len: fields.body_len,
             }),
             "text" => Ok(Self::Text {
-                seq,
+                seq: seq.ok_or_else(|| D::Error::missing_field("seq"))?,
                 row_id: fields.row_id.ok_or_else(|| D::Error::missing_field("rowId"))?,
                 text: fields.text.ok_or_else(|| D::Error::missing_field("text"))?,
             }),
             "patch" => Ok(Self::Patch {
-                seq,
+                seq: seq.ok_or_else(|| D::Error::missing_field("seq"))?,
                 row: fields.row.ok_or_else(|| D::Error::missing_field("row"))?,
             }),
             "queue" => Ok(Self::Queue {
-                seq,
+                seq: seq.ok_or_else(|| D::Error::missing_field("seq"))?,
                 entry: fields.entry,
                 removed: fields.removed,
                 count: fields.count.ok_or_else(|| D::Error::missing_field("count"))?,
                 head: fields.head,
             }),
-            other => Err(D::Error::unknown_variant(other, &["row", "text", "patch", "queue"])),
+            "presence" => Ok(Self::Presence {
+                participants: fields
+                    .participants
+                    .ok_or_else(|| D::Error::missing_field("participants"))?,
+                trimmed: fields.trimmed.unwrap_or_default(),
+            }),
+            other => Err(D::Error::unknown_variant(
+                other,
+                &["row", "text", "patch", "queue", "presence"],
+            )),
         }
     }
 }
@@ -1189,6 +1296,68 @@ mod tests {
     }
 
     #[test]
+    fn act_wire_round_trips_without_changing_v1_shapes() {
+        let act =
+            Act::new("chat:demo", "append", "a-1", serde_json::json!({"text":"hello"})).since(7);
+        let value = serde_json::to_value(Request::Act(act.clone())).unwrap();
+        assert_eq!(value["method"], "act");
+        assert_eq!(value["params"]["chat"], "chat:demo");
+        assert_eq!(value["params"]["since"], 7);
+        assert!(
+            matches!(serde_json::from_value::<Request>(value), Ok(Request::Act(decoded)) if decoded == act)
+        );
+    }
+
+    #[test]
+    fn act_validation_bounds_id_op_and_body() {
+        let valid = Act::new("chat:demo", "append", "a", serde_json::json!({"text":"ok"}));
+        assert!(valid.validate().is_ok());
+        assert!(Act::new("chat:demo", "append", "", serde_json::Value::Null).validate().is_err());
+        assert!(
+            Act::new(
+                "chat:demo",
+                "append",
+                "x".repeat(MAX_ACT_ID_BYTES + 1),
+                serde_json::Value::Null
+            )
+            .validate()
+            .is_err()
+        );
+        assert!(
+            Act::new("chat:demo", "x".repeat(MAX_ACT_OP_BYTES + 1), "x", serde_json::Value::Null)
+                .validate()
+                .is_err()
+        );
+        assert!(
+            Act::new(
+                "chat:demo",
+                "append",
+                "x",
+                serde_json::Value::String("x".repeat(MAX_DAEMON_LINE_BYTES))
+            )
+            .validate()
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn ack_and_error_use_compact_camel_case_fields() {
+        assert_eq!(
+            serde_json::to_string(&Ack { id: "a".into(), seq: 9 }).unwrap(),
+            r#"{"id":"a","seq":9}"#
+        );
+        assert_eq!(
+            serde_json::to_string(&Error {
+                id: Some("a".into()),
+                code: "id_reuse".into(),
+                message: "different body".into(),
+            })
+            .unwrap(),
+            r#"{"id":"a","code":"id_reuse","message":"different body"}"#
+        );
+    }
+
+    #[test]
     fn a_page_of_turns_round_trips_and_is_left_out_when_false() {
         let mut page = Page::new("s1", "chat:c", PageSide::Before, 11);
         assert!(serde_json::to_value(&page).unwrap().get("turns").is_none());
@@ -1339,6 +1508,16 @@ mod other_delta_tests {
                 removed: None,
                 count: 1,
                 head: Some(QueueHead { entries: vec![item], count: 1 }),
+            },
+            ChatOp::Presence {
+                participants: vec![PresencePerson {
+                    id: "person".into(),
+                    name: "Person".into(),
+                    devices: 1,
+                    viewing: true,
+                    typing: false,
+                }],
+                trimmed: 2,
             },
         ];
         let delta = ChatDelta { sid: "s".into(), replay: Some(ReplayMark::End), ops };

@@ -74,6 +74,9 @@ public final class WindowOverlayHost {
     weak var forwardTarget: NSWindow?
     /// The button of that click (`NSEvent.buttonNumber`).
     var forwardButton = 0
+    /// The button of a press on an overlay that reached a window under the panel (`takeEventFromBelow`): its drags and
+    /// its release go to the panel too. Nil while no such press is held.
+    var takenButton: Int?
     /// Another window (not the panel nor the overlay's own window) became key while a modal
     /// showed: dismissing it leaves the keyboard there (`focusMoved`).
     var otherWindowTookKey = false

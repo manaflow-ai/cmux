@@ -47,11 +47,12 @@ enum AgentPaneGitWriteReply {
     /// the worktree is made of the folder as that check names it (symlinks resolved). The page then
     /// starts the chat in the worktree through `workspace.useFolder`. A Cloud or SSH chat's folder
     /// is checked by that machine's store, as a folder picked there is, and this Mac's disk is never read.
-    private static func newWorktree(_ write: AgentPaneGitWrite, in cwd: String, model: AgentPaneModel) async -> [String: Any] {
+    /// `gestureSpent`: the click that asked was already counted (a GitHub repository's checkout, which ends here).
+    static func newWorktree(_ write: AgentPaneGitWrite, in cwd: String, model: AgentPaneModel, gestureSpent: Bool = false) async -> [String: Any] {
         let message = AgentPaneModel.gitWriteFailedMessage
         guard let onGitWrite = model.onGitWrite else { return AgentPaneModel.gitFailure(.notConnected, message: message) }
         guard model.sessionId == nil else { return AgentPaneModel.gitFailure(.sessionChanged, message: message) }
-        guard model.transport.gestures.consume() else { return AgentPaneModel.transportFailure(.gestureRequired) }
+        guard gestureSpent || model.transport.gestures.consume() else { return AgentPaneModel.transportFailure(.gestureRequired) }
         let answer = model.remoteChat
             ? await model.startFolders.useRemote(cwd, confirm: false, transport: model.transport)
             : await model.startFolders.use(cwd, confirm: false, transport: model.transport)

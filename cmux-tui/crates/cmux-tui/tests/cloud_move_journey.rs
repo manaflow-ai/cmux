@@ -287,15 +287,19 @@ fn a_fresh_image_vm_serves_fs_v1_from_the_baked_env_and_the_bound_id() {
     .unwrap();
     let seam = vec![("CMUX_TEST_CLOUD_ETC", etc.to_string_lossy().into_owned())];
 
-    // No bound id yet: no identity, no fs-v1 (as before the fix, a fresh VM).
+    // No bound id yet: no identity, so not a Cloud host (as before the fix, a fresh VM). It
+    // serves fs-v1 only as a Linux machine of one's own does (owner only), and none of the
+    // Cloud-only verbs.
     let unbound = Machine::start(&root, "unbound", seam.clone());
-    assert!(!advertises(&unbound, "fs-v1"), "fs-v1 without a machine id");
+    assert!(!advertises(&unbound, "access-request-v1"), "a Cloud host without a machine id");
     drop(unbound);
 
     fs::write(etc.join("daemon-instance-id"), "vm-fresh-image\n").unwrap();
     let mac = Machine::start(&root, "mac", Vec::new());
     let vm = Machine::start(&root, "vm", seam);
     assert!(advertises(&vm, "fs-v1"), "a fresh image VM does not serve fs-v1");
+    // Owner scope also serves fs-v1: the bound VM must be a Cloud host.
+    assert!(advertises(&vm, "access-request-v1"), "a bound VM is a Cloud host");
     assert!(
         !vm.home().join(".config/cmux/model-plane.env").exists(),
         "the daemon must not write a per-home model-plane.env (it would shadow the image's)"

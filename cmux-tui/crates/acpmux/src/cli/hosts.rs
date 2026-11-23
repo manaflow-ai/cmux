@@ -74,6 +74,13 @@ pub trait Remote {
     fn first_contact(&self, _accept_new_host_key: bool) -> Result<RemoteOut> {
         self.exec("true", None)
     }
+    /// The reach check again under strict host key checking, which records and updates
+    /// nothing. Enrollment asks it only when the first try said no more than "Host key
+    /// verification failed." (OpenSSH's default policy under `BatchMode` says only that for an
+    /// unknown key), to get positive evidence that the key is merely unknown.
+    fn strict_host_key_check(&self) -> Result<RemoteOut> {
+        self.first_contact(false)
+    }
     /// Copy a local file to `remote` (a plain `~/` or absolute path).
     fn push(&self, local: &Path, remote: &str) -> Result<()>;
     /// Start one of acpmux's fixed scripts on the host and leave it running,
@@ -106,6 +113,10 @@ impl Remote for SshRemote<'_> {
 
     fn first_contact(&self, accept_new_host_key: bool) -> Result<RemoteOut> {
         self.exec_argv(first_contact_argv(self.0, accept_new_host_key)?, None)
+    }
+
+    fn strict_host_key_check(&self) -> Result<RemoteOut> {
+        self.exec_argv(strict_host_key_check_argv(self.0)?, None)
     }
 
     fn spawn(&self, script: &str) -> Result<Child> {
@@ -169,6 +180,17 @@ fn first_contact_argv(host: &str, accept_new_host_key: bool) -> Result<Vec<Strin
     }
     // Recovery depends on SSH's diagnostic, even when the user's config is quiet.
     argv.extend(["-o", "LogLevel=ERROR"].map(str::to_owned));
+    argv.extend(ssh_argv(host, "true")?);
+    Ok(argv)
+}
+
+/// [`Remote::strict_host_key_check`]: the candidate probe's host key policy (strict, no key
+/// updates, diagnostics kept under a quiet config) on enrollment's reach command.
+pub(crate) fn strict_host_key_check_argv(host: &str) -> Result<Vec<String>> {
+    let mut argv: Vec<String> =
+        ["-o", "StrictHostKeyChecking=yes", "-o", "UpdateHostKeys=no", "-o", "LogLevel=ERROR"]
+            .map(str::to_owned)
+            .to_vec();
     argv.extend(ssh_argv(host, "true")?);
     Ok(argv)
 }
@@ -495,7 +517,8 @@ fn push_update(
 /// Install the pushed `.acpmux-new/acpmux` once its `--version` runs (else
 /// delete it and leave the installed binary alone) and the host's restart
 /// window and downgrade check let it (else the same), keeping the binary it
-/// replaces as `acpmux.prev` (a hard link, else a copy; none when nothing
+/// replaces as `acpmux.prev` (a hard link, else a copy renamed into place,
+/// since a still-running `acpmux.prev` cannot be written over; none when nothing
 /// was installed, so a rollback never brings back an older one) for a
 /// rollback. Only a binary known to run replaces `acpmux.prev`: the
 /// installed one when the daemon that answered (`$c`, its commit) runs its
@@ -505,11 +528,14 @@ fn push_update(
 /// Prints the new binary's version. Once it is in place nothing fails the
 /// install: a staging folder that will not go is left for the next push
 /// to clear.
-const INSTALL_PUSHED: &str = "cd ~/.local/bin && chmod +x .acpmux-new/acpmux && { v=$(.acpmux-new/acpmux --version) || { rm -rf .acpmux-new; echo 'the pushed acpmux does not run on this host' >&2; exit 1; }; } && { ! acpmux_window_refuses || { rm -rf .acpmux-new; exit 1; }; } && { ! acpmux_downgrade acpmux .acpmux-new/acpmux || { rm -rf .acpmux-new; exit 1; }; } && { if [ ! -e acpmux ]; then rm -f acpmux.prev; elif [ -f acpmux.prev ] && ! { [ -n \"$c\" ] && grep -qaF \"($c\" acpmux; }; then :; else ln -f acpmux acpmux.prev 2>/dev/null || cp -p acpmux acpmux.prev; fi; } && mv -f .acpmux-new/acpmux acpmux && { rmdir .acpmux-new 2>/dev/null; printf '%s\\n' \"$v\"; }";
+const INSTALL_PUSHED: &str = "cd ~/.local/bin && chmod +x .acpmux-new/acpmux && { v=$(.acpmux-new/acpmux --version) || { rm -rf .acpmux-new; echo 'the pushed acpmux does not run on this host' >&2; exit 1; }; } && { ! acpmux_window_refuses || { rm -rf .acpmux-new; exit 1; }; } && { ! acpmux_downgrade acpmux .acpmux-new/acpmux || { rm -rf .acpmux-new; exit 1; }; } && { if [ ! -e acpmux ]; then rm -f acpmux.prev; elif [ -f acpmux.prev ] && ! { [ -n \"$c\" ] && grep -qaF \"($c\" acpmux; }; then :; else ln -f acpmux acpmux.prev 2>/dev/null || { cp -p acpmux .acpmux.prev.new && mv -f .acpmux.prev.new acpmux.prev; } || { rm -f .acpmux.prev.new; false; }; fi; } && mv -f .acpmux-new/acpmux acpmux && { rmdir .acpmux-new 2>/dev/null; printf '%s\\n' \"$v\"; }";
 
 /// Put `acpmux.prev` back as `~/.local/bin/acpmux`; fails without one.
 const RESTORE_PREV: &str = "(cd ~/.local/bin && [ -f acpmux.prev ] && rm -f acpmux && { ln acpmux.prev acpmux 2>/dev/null || cp -p acpmux.prev acpmux; })";
 
+/// The `acpmux daemon service` LaunchAgent. `ProcessType` `Interactive`: a job with none is
+/// `Standard`, whose QoS clamp holds the daemon and everything it starts below the default CPU
+/// priority, and every pane's connect waits on the daemon (`qos::lowered_priority`).
 pub(crate) const PLIST: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
@@ -519,6 +545,7 @@ pub(crate) const PLIST: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
   <key>WorkingDirectory</key><string>__HOME__</string>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
+  <key>ProcessType</key><string>Interactive</string>
   <key>StandardOutPath</key><string>__HOME__/.acpmux/launchd.log</string>
   <key>StandardErrorPath</key><string>__HOME__/.acpmux/launchd.log</string>
 </dict></plist>
@@ -663,6 +690,15 @@ const IN_PLACE: &str = "ACPMUX_IN_PLACE=";
 /// shutdown` restarts it too (`systemctl --user stop acpmux.service` stops
 /// it). `host update` rewrites a unit an older acpmux wrote
 /// ([`OLD_SYSTEMD_UNITS`]) to this text.
+///
+/// `NotifyAccess=main` lets the daemon arm systemd's watchdog itself and ping
+/// it only while it answers its own hello (`daemon/watchdog.rs`): a hung
+/// daemon is ended and started again, which `Restart=always` alone never did
+/// (huge-blue, 2026-11-20: 16.5 GB, no hello answered). The unit sets no
+/// `WatchdogSec`, so a binary that never arms it is never ended for silence.
+/// `WatchdogSignal=SIGTERM` ends it as a restart handoff (agents kept), not
+/// with the default SIGABRT's core dump of a large heap; one that does not
+/// stop is killed after `TimeoutStopSec`.
 pub(crate) const SYSTEMD_UNIT: &str = "[Unit]
 Description=acpmux daemon
 After=default.target
@@ -680,6 +716,8 @@ RestartSteps=5
 RestartMaxDelaySec=60
 KillMode=process
 TimeoutStopSec=30
+NotifyAccess=main
+WatchdogSignal=SIGTERM
 
 [Install]
 WantedBy=default.target
@@ -689,7 +727,7 @@ WantedBy=default.target
 /// replaces one of them with [`SYSTEMD_UNIT`] ([`unit_refresh`]). A unit
 /// with any other text was written or edited by someone else and is left
 /// as it is.
-pub(crate) const OLD_SYSTEMD_UNITS: [&str; 3] = [
+pub(crate) const OLD_SYSTEMD_UNITS: [&str; 4] = [
     // #22899 (2026-10-21): gave up after 5 failed starts in 60 s.
     "[Unit]
 Description=acpmux daemon
@@ -744,6 +782,29 @@ StartLimitIntervalSec=0
 Type=simple
 Environment=PATH=%h/.local/bin:%h/.bun/bin:%h/.cargo/bin:%h/bin:/usr/local/bin:/usr/bin:/bin
 ExecStart=%h/.local/bin/acpmux daemon run
+WorkingDirectory=%h
+Restart=always
+RestartPreventExitStatus=75
+RestartSec=3
+RestartSteps=5
+RestartMaxDelaySec=60
+KillMode=process
+TimeoutStopSec=30
+
+[Install]
+WantedBy=default.target
+",
+    // The take-over unit before the daemon's own watchdog (2026-11-20): a hung
+    // daemon stayed hung.
+    "[Unit]
+Description=acpmux daemon
+After=default.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+Environment=PATH=%h/.local/bin:%h/.bun/bin:%h/.cargo/bin:%h/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=%h/.local/bin/acpmux daemon run --take-over
 WorkingDirectory=%h
 Restart=always
 RestartPreventExitStatus=75
@@ -1196,6 +1257,13 @@ mod tests {
         assert_eq!(&opted_in[..2], ["-o", "StrictHostKeyChecking=accept-new"]);
         assert_eq!(&opted_in[2..], diagnostic);
         assert!(first_contact_argv("-oProxyCommand=bad", true).is_err());
+        let strict = strict_host_key_check_argv("user@box").unwrap();
+        assert_eq!(
+            &strict[..6],
+            ["-o", "StrictHostKeyChecking=yes", "-o", "UpdateHostKeys=no", "-o", "LogLevel=ERROR"]
+        );
+        assert_eq!(&strict[6..], normal);
+        assert!(strict_host_key_check_argv("-oProxyCommand=bad").is_err());
         // A later command or copy keeps the user's policy, even after an opted-in reach.
         assert_eq!(ssh_argv("user@box", "true").unwrap(), normal);
         assert!(

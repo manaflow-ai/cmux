@@ -1,0 +1,76 @@
+{
+  "cmuxSetup": 1,
+  "id": "manaflow-ai/prism-look",
+  "name": "Prism",
+  "tagline": "A browser-as-sidebar look: a space-colored frame holding the rows, a borderless card inset in it, playful soft menus.",
+  "description": "A whole cmux look built only from public surfaces, after the vertical-tab browsers that treat each workspace as a color: theme files for color, material and proportions (Prism, light, the default; Prism Dark), settings for the chat's type, the spaces switcher and colored groups in the sidebar, a stylesheet of cmux.agentPane.style/1 tokens for an accent-tinted prompt bubble and space-tinted menus, and a customize view for a link-preview hover card. Remove it and everything you had comes back.",
+  "version": "1.1.0",
+  "license": "MIT",
+  "repository": "https://github.com/manaflow-ai/cmux-prism-look",
+  "screenshots": ["screenshots/prism-light.png", "screenshots/prism-dark.png"],
+
+  "cmuxProfile": 1,
+  "settings": {
+    "appearance.themeFile": "prism",
+
+    // The rest of cmux in the same hand. The Markdown viewer: the system face, 15 px at the chat's
+    // 1.5 line height and code scale, in a column as wide as the chat's (760 px is about 99
+    // characters).
+    "markdown.font.preset": "system",
+    "markdown.font.size": 15,
+    "markdown.font.lineHeight": 1.5,
+    "markdown.code.scale": 0.9,
+    "markdown.layout.width": 99,
+    // Diffs in the theme's own red and green, with a bar at each changed line.
+    "diff.colors": "theme",
+    "diff.diffIndicators": "bars",
+
+    // The chat in the system font at 14 px with an airy 1.5 line height, code at 0.9, a 760 px
+    // column, no minimap; the context ring around Send.
+    "agentPane.display.font.ui": "system-ui",
+    "agentPane.display.font.preset": "system",
+    "agentPane.display.font.size": 14,
+    "agentPane.display.font.lineHeight": 1.5,
+    "agentPane.display.code.scale": 0.9,
+    "agentPane.display.width": 760,
+    "agentPane.display.minimap": "off",
+    "agentPane.display.harnessPlacement": "symbols",
+    "agentPane.composerRing": "context",
+    // Pending cmux#46738: no command-bar composer exists (auto, codex, claude); a floating white
+    // field with a large soft shadow, as the look's command bar, is the gap.
+    // "agentPane.composerLook": "auto",
+
+    // The sidebar as the browser's: rows that are the tabs, grouped by folder under solid colored
+    // pills with a colored rail down the group (the pink group in the source), vivid group colors,
+    // the spaces switcher pinned at the bottom of the frame and always shown, and the frame sliding
+    // out over the work when you point at the edge with the sidebar hidden.
+    // Pending cmux#46805: no browser-sidebar look exists (cmux, claude, codex, studio).
+    // "sidebar.look": "cmux",
+    "sidebar.density": "comfortable",
+    "sidebar.groupBy": "folder",
+    "sidebar.groupHeader.background": "solid",
+    "sidebar.groupHeader.memberCount": false,
+    "sidebar.groupPalette": "vibrant",
+    "sidebar.chromeGroups": true,
+    "sidebar.showColors": true,
+    "sidebar.showSpaces": true,
+    "sidebar.spacesPosition": "bottom",
+    "sidebar.spacesVisibility": "always",
+    "sidebar.floatOnHover": true,
+    "sidebar.detailedStatusIcons": false,
+    "sidebar.showTimestamps": false,
+    "sidebar.workspaceRow.icon": true,
+    "sidebar.workspaceRow.directory": false,
+    "sidebar.workspaceRow.branch": false,
+    "sidebar.workspaceRow.lastActivity": false,
+    "sidebar.workspaceRow.agentStatus": false,
+    "sidebar.workspaceRow.pullRequest": false,
+    "sidebar.workspaceRow.working": true,
+    "sidebar.workspaceRow.progress": true,
+    "sidebar.hoverCards.enabled": true,
+
+    // The command bar: a rounded panel lifted on a shadow.
+    "browser.omnibar.cornerRadius": 10,
+    "browser.omnibar.shadow": true
+  }
+}

@@ -16,15 +16,19 @@ public struct CmuxRemoteActionEnvironment {
     public var openDevices: @MainActor () -> Void
     /// This Mac as a hub host: its menu bar item shows an owner's agent's share.
     public var hubHost: @MainActor () -> MacScreenHubHost?
+    /// `macScreen.shareWithoutAsking`: the person's one yes to Share This Mac.
+    public var shareConsent: CmuxRemoteShareConsent
 
     public init(remote: CmuxRemoteService, screenHost: MacScreenHubHost, hub: @escaping @MainActor () -> DeviceHub?, window: @escaping @MainActor () -> NSWindow?,
-                openDevices: @escaping @MainActor () -> Void) {
+                openDevices: @escaping @MainActor () -> Void,
+                shareConsent: CmuxRemoteShareConsent = CmuxRemoteShareConsent(given: { false }, remember: {})) {
         self.remote = remote
         self.screenHost = screenHost
         self.hub = hub
         self.window = window
         self.openDevices = openDevices
         self.hubHost = { [screenHost] in screenHost }
+        self.shareConsent = shareConsent
     }
 }
 
@@ -76,7 +80,7 @@ extension CmuxRemoteActionEnvironment {
             .waiting(.externalProcess) {
                 let status = (try? await remote.status()) ?? .null
                 guard let window = environment.window() else { return nil }
-                let spec = CmuxDialogSpec(title: CmuxRemoteStrings.statusTitle, lines: CmuxRemoteStrings.statusLines(status),
+                let spec = CmuxDialogSpec(usesTransientMaterial: true, title: CmuxRemoteStrings.statusTitle, lines: CmuxRemoteStrings.statusLines(status),
                                           buttons: [CmuxDialogButton(id: "ok", title: CmuxRemoteStrings.done, role: .default)],
                                           identifier: "cmux.dialog.remote.status")
                 CmuxDialogCenter.shared.present(spec, in: .window(window)) { _ in }
@@ -86,7 +90,7 @@ extension CmuxRemoteActionEnvironment {
         _ = registry.bindEffect("macScreen.shareThisMac", unavailable: { environment.hub() == nil ? CmuxRemoteStrings.signedOut : nil }, effect: { invocation in
             guard environment.hub() != nil else { return .refused(CmuxRemoteStrings.signedOut) }
             guard let window = environment.window() else { return .refused(L.t("macScreen.setup.noWindow", "Open a cmux window to share this Mac.")) }
-            return CmuxRemoteSharingSetup(host: environment.screenHost).begin(in: window, invocation: invocation)
+            return CmuxRemoteSharingSetup(host: environment.screenHost, consent: environment.shareConsent).begin(in: window, invocation: invocation)
         })
         _ = registry.bindEffect("macScreen.stopSharingThisMac", effect: { _ in
             // Stop locally on this turn, even when the hub cannot be reached.
@@ -97,10 +101,8 @@ extension CmuxRemoteActionEnvironment {
                 return .success([:])
             })
         })
-        _ = registry.bindEffect("macScreen.revokeViewer", unavailable: { environment.screenHost.noSessionReason }, effect: { _ in
-            _ = environment.screenHost.revokeViewer()
-            return .done
-        })
+        // `macScreen.revokeViewer` is MacScreenActions' (the same host, `macScreenPages.hubHost`): binding it here too
+        // was a second owner (CatalogRequestHandlersTests.everyRequestRowIsBound, `duplicateBindings`).
         _ = registry.bindEffect("macScreen.deviceAccess", effect: { _ in
             environment.openDevices()
             return .done
@@ -169,12 +171,13 @@ extension CmuxRemoteActionEnvironment {
                         confirm: { await Self.confirm(title: title, body: body, in: window) },
                         apply: { try await Self.applyAccess(device: device, scope: scope, hub: hub) })
                 } else {
-                    let screenHost = environment.screenHost
-                    // The setup sheet asks and turns sharing on itself, so its answer is the change.
+                    let screenHost = environment.screenHost, consent = environment.shareConsent
+                    // The setup sheet asks and turns sharing on itself, so its answer is the change. After the
+                    // person's one yes on this Mac, the owner's request turns sharing on with no sheet.
                     personConfirmed = Self.confirmedChange(
                         confirm: {
-                            guard let window else { return false }
-                            return try await CmuxRemoteSharingSetup(host: screenHost).confirm(in: window)
+                            try await CmuxRemoteSharingSetup(host: screenHost, consent: consent)
+                                .ownerRequest(in: window, by: CmuxRemoteShareCaller(controlParams: call.params))
                         },
                         apply: {})
                 }
@@ -304,7 +307,7 @@ extension CmuxRemoteActionEnvironment {
     static func confirm(title: String, body: String, in window: NSWindow?) async -> Bool {
         guard let window else { return false }
         return await withCheckedContinuation { continuation in
-            let spec = CmuxDialogSpec(title: title, lines: [body],
+            let spec = CmuxDialogSpec(usesTransientMaterial: true, title: title, lines: [body],
                                       buttons: [.cancel(), CmuxDialogButton(id: "confirm", title: CmuxRemoteStrings.allow, role: .default)],
                                       identifier: Self.confirmIdentifier)
             CmuxDialogCenter.shared.present(spec, in: .window(window)) { answer in

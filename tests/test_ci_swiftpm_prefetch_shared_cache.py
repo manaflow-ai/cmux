@@ -19,6 +19,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest import mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -91,16 +92,28 @@ class SeedsTheSharedCache(unittest.TestCase):
             self.assertEqual(entry.read_bytes(), BODY)
 
     def test_a_held_lock_is_waited_for_then_passed(self) -> None:
+        # The wait runs on a fake clock: each 1 s retry sleep moves it, so the test counts the retries the
+        # 3 s wait allows instead of timing them on a busy runner.
+        class FakeTime:
+            def __init__(self) -> None:
+                self.now, self.sleeps = 0.0, []
+
+            def monotonic(self) -> float:
+                return self.now
+
+            def sleep(self, seconds: float) -> None:
+                self.sleeps.append(seconds)
+                self.now += seconds
+
         with tempfile.TemporaryDirectory() as tmp:
             store = Path(tmp)
             import fcntl
-            with open(store / PREFETCH.SEED_LOCK, "a") as held:
+            fake = FakeTime()
+            with open(store / PREFETCH.SEED_LOCK, "a") as held, mock.patch.object(PREFETCH, "time", fake):
                 fcntl.flock(held, fcntl.LOCK_EX)
-                started = time.monotonic()
-                with PREFETCH.seed_lock(store, wait=1.0):
-                    waited = time.monotonic() - started
-            self.assertGreaterEqual(waited, 1.0)
-            self.assertLess(waited, 5.0)
+                with PREFETCH.seed_lock(store, wait=3.0):
+                    passed_at = list(fake.sleeps)
+            self.assertEqual(passed_at, [1, 1, 1], "it retried each second for the whole wait, then went on without")
 
 
 class EveryOwnedMacKeepStepSeeds(unittest.TestCase):

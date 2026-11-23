@@ -18,6 +18,8 @@
 //!   items stay.
 //! - [`device_list`]: which device hub records are one physical device, and
 //!   which are this device's other builds (Screen Sharing's Your Devices).
+//! - [`screen_picker`]: Screen Sharing's machine picker (the new tab menu's Screen Sharing ▸):
+//!   which machines it lists, in what order, and why one cannot be viewed.
 //! - [`identity`]: the install identity's rules that are not key calls: the
 //!   `cmux auth token` mint's team, token claims, transient refusals, install
 //!   key names, share install origins.
@@ -26,6 +28,8 @@
 //! - [`keychain`]: the deadline of the app's calls into its own Keychain items,
 //!   and the refusal, naming the item, of a call that misses it (the app FFI's
 //!   gate runs the call on its own thread).
+//! - [`signin`]: the install token's owner: renew at 2/3 of its life beside the held token, wait on a mint
+//!   at most its bound, and name the step of a mint that stalls (remote-cloud-durability F13).
 //! - [`agent_key`]: `vm.agent_key.create` and `cmux vm token create`: the
 //!   request a VM agent key is minted with and how the VM API's answer reads.
 
@@ -39,3 +43,5 @@ pub mod identity;
 pub mod install_key_slots;
 pub mod keychain;
 pub mod origin;
+pub mod screen_picker;
+pub mod signin;

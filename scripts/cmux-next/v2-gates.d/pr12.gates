@@ -1,0 +1,4 @@
+# Row 12a source gates. Later row 12 cuts append their own filters here.
+core v2_pr12_follow_append
+core v2_pr12_follow_scan_bytes
+core v2_pr12_follow_read_at

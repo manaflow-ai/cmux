@@ -48,6 +48,8 @@ final class SettingsPageProvider: PageProvider {
     /// Settings > Keys (CmuxNextKeys `SettingsKeys`): its `cmux.settings.keys.*` ops and stream; nil in tests without an app.
     var keys: (any PageProvider)?
     var devicesWatching: (@MainActor (Bool) -> Void)?
+    /// Settings > Models (`SettingsModels`, cmux-tui/docs/model-connections.md); nil in tests without an app.
+    var models: (any PageProvider)?
     /// Parts another package serves whole, by op (Agent integrations, try on, Customization Library); empty in tests without an app.
     var parts: [String: any PageProvider] = [:]
     /// The theme picker's write (level, spec or nil) and its spec check (R82 commit 4).
@@ -140,8 +142,7 @@ final class SettingsPageProvider: PageProvider {
         }
     }
 
-    /// The person's own click or key in this page (HID-backed, ``PersonInputLedger``), spent once; else `personOnly`.
-    private func requirePersonsGesture(_ c: PageCallContext) throws { guard c.page == PageDescriptor.settings.id, c.userGesture, let event = c.gestureEvent, personBacksGesture?(event) == true, wideningGate.claimGesture(event) else { throw Self.personOnly } }
+    private func requirePersonsGesture(_ c: PageCallContext) throws { guard c.page == PageDescriptor.settings.id, c.userGesture, let event = c.gestureEvent, personBacksGesture?(event) == true, wideningGate.claimGesture(event) else { throw Self.personOnly } } // The person's own HID-backed click or key here, spent once.
 
     /// A host the App wires in (nil in tests without an app), or the page's `cmux.page.unavailable`.
     private static func host<Host>(_ host: Host?, _ name: String) throws -> Host {
@@ -195,7 +196,8 @@ final class SettingsPageProvider: PageProvider {
             // agent with Control consent driving this page (the cmux-cua helper posts real-looking
             // clicks) never grants itself more, and the app's line to acpmux is the person's anyway.
             // Off only narrows, so it needs no gesture and takes any input.
-            if on { try requirePersonsGesture(context) }
+            if on { try JoinConsentModel.requirePersonGesture(context, page: PageDescriptor.settings.id, backs: personBacksGesture,
+                                                              claim: wideningGate.claimGesture) }
             let write = try Self.host(setJoinConsent, "devices")
             return try await wideningGate.setWithoutConfirmation(
                 "joinConsent \(surface)", on: on,
@@ -214,6 +216,7 @@ final class SettingsPageProvider: PageProvider {
         case "cmux.settings.agents.run": return try await Self.host(agents, "agents").runPage(params)
         case "cmux.settings.harnesses.state": return try Self.host(harnessesState, "harnesses")()
         case "cmux.settings.harnesses.run": return try await Self.host(harnessesRun, "harnesses")(params, context)
+        case "cmux.settings.models.state", "cmux.settings.models.run": return try await Self.host(models, "models").call(op, params: params, context: context)
         case "cmux.settings.environments.state": return try Self.host(environmentsState, "environments")()
         case "cmux.settings.environments.run": return try await Self.host(environmentsRun, "environments")(params)
         case "cmux.settings.devices.state": return try Self.host(devicesState, "devices")()
@@ -221,8 +224,7 @@ final class SettingsPageProvider: PageProvider {
         case "cmux.settings.shares.revoke":
             guard let id = params["share_id"]?.stringValue, !id.isEmpty else { throw PageError.invalidParams("share_id") }
             return try await Self.host(sharesRevoke, "shares")(id)
-        case "cmux.settings.devices.run":
-            // SECURITY: agents-may-share on lets agents share with no dialog: the person's own click only, like join_consent.
+        case "cmux.settings.devices.run": // SECURITY: agents-may-share on (no dialog for agents): the person's own click only.
             if params["action"]?.stringValue == "setAgentsMayShare", params["on"]?.boolValue == true { try requirePersonsGesture(context) }
             return try await Self.host(devicesRun, "devices")(params)
         case "cmux.settings.keys.list", "cmux.settings.keys.answer", "cmux.settings.keys.decline", "cmux.settings.keys.revoke":
@@ -309,7 +311,7 @@ final class SettingsPageProvider: PageProvider {
             let descriptor = try descriptor(params)
             let value = params["value"].flatMap { $0 == .null ? nil : $0 }
             if let source = settings.managedSource(for: descriptor) {
-                throw PageError(code: "cmux.settings.managed", message: "\(descriptor.id) is managed", details: Self.managedInfo(source))
+                throw PageError(code: "cmux.settings.managed", message: "\(descriptor.id) is managed", details: source.pageInfo)
             }
             guard Self.writer(context).mayWrite(descriptor) else {
                 throw Self.userOnlyError(SettingUserOnly(key: descriptor.id, writer: Self.writer(context)))
@@ -360,6 +362,7 @@ final class SettingsPageProvider: PageProvider {
         if stream == "cmux.settings.harnesses.changed", let harnessesState {
             return Self.watch(harnessesState, onEvent: onEvent)
         }
+        if stream == "cmux.settings.models.changed", let models { return try await models.subscribe(stream, filter: filter, context: context, onEvent: onEvent) }
         if stream == "cmux.settings.host.changed", let hostLists {
             return Self.watch(hostLists, onEvent: onEvent)
         }
@@ -406,12 +409,12 @@ final class SettingsPageProvider: PageProvider {
     // MARK: Reads
 
     private func list(section: String?) -> JSONValue {
-        settings.pageRows(section: section, managedInfo: Self.managedInfo)
+        settings.pageRows(section: section, managedInfo: \.pageInfo)
     }
 
     private func snapshot() -> JSONValue {
         var managed: [String: JSONValue] = [:]
-        for (key, source) in settings.managedKeys { managed[key] = Self.managedInfo(source) }
+        for (key, source) in settings.managedKeys { managed[key] = source.pageInfo }
         var published: [String: JSONValue] = [:]
         for (name, values) in domains() { published[name] = .array(values.map(JSONValue.string)) }
         return [
@@ -421,6 +424,7 @@ final class SettingsPageProvider: PageProvider {
             "effective": settings.snapshot.root,
             "managed": .object(managed),
             "diagnostics": .array(settings.pageDiagnostics.map { ["path": .string($0.path), "message": .string($0.pageMessage)] }),
+            "notes": settings.pageNotesWire,
             "domains": .object(published),
         ]
     }
@@ -475,7 +479,7 @@ final class SettingsPageProvider: PageProvider {
         do {
             try await settings.setSetting(descriptor, to: value, by: writer)
         } catch let managed as SettingManaged {
-            throw PageError(code: "cmux.settings.managed", message: String(describing: managed), details: Self.managedInfo(managed.source))
+            throw PageError(code: "cmux.settings.managed", message: String(describing: managed), details: managed.source.pageInfo)
         } catch let refused as SettingRefused {
             let reasons = descriptor.path == ChatSettings.rootsPath
                 ? (refused.value.arrayValue ?? []).compactMap { $0.stringValue.flatMap { ChatRootValidator().refusal($0) } } : []
@@ -485,13 +489,6 @@ final class SettingsPageProvider: PageProvider {
         }
         // setSetting returns once its own load applied the write (reloadAfterWrite), so the
         // page's next read is current without a second full load and apply.
-    }
-
-    static func managedInfo(_ source: ManagedSource) -> JSONValue {
-        switch source {
-        case .device: ["source": "device", "reason": "device", "team": .null]
-        case .team(let name): ["source": "team", "reason": "team", "team": name.isEmpty ? .null : .string(name)]
-        }
     }
 }
 

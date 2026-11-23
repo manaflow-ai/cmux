@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""A clean base merge carries a pull request's Mac tiers from its older head, as merge_hold carries their checks.
+"""A clean base merge carries a pull request's Mac tiers from its older head, as land-judge carries their checks.
 
-merge_hold lands a base merge M of a head H whose checks passed on its merged-tree checks alone, yet cmux-next.yml
+land-judge lands a base merge M of a head H whose checks passed on its merged-tree checks alone, yet cmux-next.yml
 ran every Mac tier again at M (2026-11-16 05:44Z: 18 of 60 open cmux-next PR runs on base-merge heads, glaeda-std
 134 queued, glaeda-side-std 126). scripts/ci/cmux_next_base_merge_carry.py turns those tiers off at M when M is
 git's clean merge of a feat-cmux-next commit into H and H's cmux-next run passed (docs/ci/cmux-next-workflow-notes.md
@@ -26,6 +26,15 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 
 import cmux_next_base_merge_carry as carry  # noqa: E402
+# tests/git_fixture_env.py, loaded by path (`python3 -I` puts no script folder on sys.path): git's auto maintenance
+# off in the fixture repositories and in the scratch bare repository clean_merge_tree makes.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from cmux_next_step_text import step_run  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", Path(__file__).resolve().parent / "git_fixture_env.py")
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 WORKFLOW = ROOT / ".github/workflows/cmux-next.yml"
 REPO = "manaflow-ai/cmux"
@@ -174,8 +183,9 @@ class CleanMergeTree(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.mkdtemp(prefix="carry-test-")
         self.up = os.path.join(self.dir, "up")
-        env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
-               "GIT_COMMITTER_EMAIL": "t@t", "GIT_CONFIG_NOSYSTEM": "1"}
+        env = git_fixture_env.fixture_env({**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
+                                           "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t",
+                                           "GIT_CONFIG_NOSYSTEM": "1"})
         self.env = env
 
         def git(*args):
@@ -185,7 +195,7 @@ class CleanMergeTree(unittest.TestCase):
         def write(name, text):
             Path(self.up, name).write_text(text)
 
-        subprocess.run(["git", "init", "-q", "-b", "base", self.up], check=True, env=env)
+        git_fixture_env.init_repo(self.up, "-b", "base", env=env)
         git("config", "uploadpack.allowFilter", "true")
         git("config", "uploadpack.allowAnySHA1InWant", "true")
         write("f", "a\nb\nc\nd\ne\nf\ng\n")
@@ -242,7 +252,7 @@ class Workflow(unittest.TestCase):
         cls.step = next(step for step in cls.route_job["steps"] if step.get("id") == "route")
 
     def test_route_step_asks_the_carry_after_the_router(self):
-        run = self.step["run"]
+        run = step_run(self.step)
         router = run.index("scripts/ci/cmux_next_route.py")
         asked = run.index("scripts/ci/cmux_next_base_merge_carry.py")
         self.assertLess(router, asked)

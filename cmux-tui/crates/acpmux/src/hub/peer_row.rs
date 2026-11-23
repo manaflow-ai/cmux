@@ -6,7 +6,7 @@
 //! ([`PeerRow::listed`]); a reader that needs the whole row parses it then ([`PeerRow::value`]).
 //!
 //! The members a list writes itself (`stale`, `peerState`) or leaves out or cuts without tools
-//! (`tools`, `toolsMutable`, `title`), and `tags` (read on demand), are kept apart from the rest,
+//! (`tools`, `toolsMutable`, `timeBreakdown`, `title`), and `tags` (read on demand), are kept apart from the rest,
 //! so a list writes the row with no parse and no member twice.
 
 use super::*;
@@ -21,6 +21,8 @@ enum Apart {
     Title,
     Tools,
     ToolsMutable,
+    /// `timeBreakdown`, which a census row leaves out (`views::CENSUS_LEAVES_OUT`).
+    TimeBreakdown,
 }
 
 impl Apart {
@@ -32,6 +34,7 @@ impl Apart {
             "title" => Self::Title,
             "tools" => Self::Tools,
             "toolsMutable" => Self::ToolsMutable,
+            super::views::CENSUS_LEAVES_OUT => Self::TimeBreakdown,
             _ => return None,
         })
     }
@@ -44,6 +47,7 @@ impl Apart {
             Self::Title => "title",
             Self::Tools => "tools",
             Self::ToolsMutable => "toolsMutable",
+            Self::TimeBreakdown => super::views::CENSUS_LEAVES_OUT,
         }
     }
 }
@@ -55,6 +59,10 @@ impl Apart {
 struct Hot {
     session_id: Option<Box<str>>,
     name: Option<Box<str>>,
+    handle: Option<Box<str>>,
+    alias: Option<Box<str>>,
+    /// Its `formerNames`; None (no allocation) for a row never renamed.
+    former_names: Option<Box<[Box<str>]>>,
     status: Option<Box<str>>,
     peer: Option<Box<str>>,
     agent_session_id: Option<Box<str>>,
@@ -67,6 +75,9 @@ struct Hot {
     stale: bool,
     /// Its `(mux.parent, mux.handle)` tags.
     pair: Option<(Box<str>, Box<str>)>,
+    /// Its `usageStats` as JSON text, when it carries any: what `_acpmux/usage` sends of the row
+    /// (`usage_answer.rs`), read with no parse of the rest.
+    usage_stats: Option<Box<str>>,
 }
 
 impl Hot {
@@ -76,6 +87,21 @@ impl Hot {
         Self {
             session_id: text("sessionId"),
             name: text("name"),
+            handle: text("handle"),
+            alias: summary
+                .get("tags")
+                .and_then(|tags| tags.get("session.alias"))
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|alias| !alias.is_empty())
+                .map(Box::from),
+            former_names: summary
+                .get("formerNames")
+                .and_then(Value::as_array)
+                .map(|names| -> Box<[Box<str>]> {
+                    names.iter().filter_map(Value::as_str).map(Box::from).collect()
+                })
+                .filter(|names| !names.is_empty()),
             status: text("status"),
             peer: text("peer"),
             agent_session_id: text("agentSessionId"),
@@ -87,6 +113,10 @@ impl Hot {
             last_seen: number("lastSeen"),
             stale: summary.get("stale") == Some(&Value::Bool(true)),
             pair: pair_of(summary),
+            usage_stats: summary
+                .get("usageStats")
+                .filter(|stats| !stats.is_null())
+                .map(|stats| json_text(stats).into()),
         }
     }
 }
@@ -108,18 +138,23 @@ fn pair_of(summary: &Value) -> Option<(Box<str>, Box<str>)> {
 pub struct PeerRow {
     /// `{...}`: every member but those kept apart, in the tree's order. A row that is not an
     /// object is its whole text.
-    base: Box<str>,
+    /// Shared: a clone (a hub event that announces the row, `RemoteRef`) copies no text.
+    base: Arc<str>,
     /// The members kept apart, each its value's text.
-    apart: Box<[(Apart, Box<str>)]>,
+    apart: Arc<[(Apart, Box<str>)]>,
     /// The title a list without tools shows (`views::without_summary_tools`), when it is cut.
     short_title: Option<Box<str>>,
     hot: Hot,
+    /// A stale mark not yet written into the text (`PeerRow::stale_announced`): `Some(last_seen)`
+    /// reads as `peer_cache::mark_stale` would write the row. Only a hub event holds one, so an
+    /// outage announces each row as the row it already has, with no copy of its text.
+    mark: Option<Option<u64>>,
 }
 
 /// Two rows are the same when their text is: what changed detection compares.
 impl PartialEq for PeerRow {
     fn eq(&self, other: &Self) -> bool {
-        self.base == other.base && self.apart == other.apart
+        self.base == other.base && self.apart == other.apart && self.mark == other.mark
     }
 }
 
@@ -165,13 +200,19 @@ impl PeerRow {
             base.push_str(&json_text(value));
         }
         base.push('}');
-        Self { base: base.into(), apart: apart.into(), short_title, hot }
+        Self { base: base.into(), apart: apart.into(), short_title, hot, mark: None }
     }
 
     /// The row as JSON text: every member, `stale` as `stale` says (else as kept), `peerState`
-    /// as `peer_state` says (else as kept), and without tools (`tools`, `toolsMutable`, a long
-    /// title cut) unless `tools`.
+    /// as `peer_state` says (else as kept), and without tools (`tools`, `toolsMutable`,
+    /// `timeBreakdown`, a long title cut) unless `tools`.
     fn text_with(&self, stale: Option<bool>, peer_state: Option<&str>, tools: bool) -> String {
+        if let Some(last_seen) = self.mark {
+            let plain = Self { mark: None, ..self.clone() };
+            let mut summary = plain.value();
+            super::peer_cache::mark_stale(&mut summary, last_seen);
+            return Self::new(&summary).text_with(stale, peer_state, tools);
+        }
         let Some(open) = self.base.strip_suffix('}') else {
             return self.base.to_string();
         };
@@ -194,7 +235,7 @@ impl PeerRow {
             let value = match which {
                 Apart::Stale if stale.is_some() => continue,
                 Apart::PeerState if peer_state.is_some() => continue,
-                Apart::Tools | Apart::ToolsMutable if !tools => continue,
+                Apart::Tools | Apart::ToolsMutable | Apart::TimeBreakdown if !tools => continue,
                 Apart::Title if !tools => self.short_title.as_ref().unwrap_or(value),
                 _ => value,
             };
@@ -216,6 +257,12 @@ impl PeerRow {
     /// The whole row as JSON text.
     pub fn text(&self) -> String {
         self.text_with(None, None, true)
+    }
+
+    /// The row a `session_changed` carries: whole with `tools`, else as
+    /// `views::without_summary_tools` cuts it (no tools, a long title cut). No parse.
+    pub fn changed_text(&self, tools: bool) -> String {
+        self.text_with(None, None, tools)
     }
 
     /// The whole row, parsed: for a reader that needs more than the hot fields.
@@ -255,12 +302,38 @@ impl PeerRow {
         changed
     }
 
+    /// The row `before` marked stale with `last_seen` (`marked`, which `mark_stale` made of
+    /// `before`), as a hub event announces it: `before`'s text, shared, the mark kept apart until
+    /// a connection writes the row, and `marked`'s hot fields. A peer's outage announces every row
+    /// of it, and the 8,192-event ring holds each announcement until every connection read it.
+    pub(super) fn stale_announced(before: &Self, marked: &Self, last_seen: Option<u64>) -> Self {
+        Self { hot: marked.hot.clone(), mark: Some(last_seen), ..before.clone() }
+    }
+
     pub fn session_id(&self) -> Option<&str> {
         self.hot.session_id.as_deref()
     }
 
+    /// Its `usageStats` as JSON text, when it carries any.
+    pub fn usage_stats_text(&self) -> Option<&str> {
+        self.hot.usage_stats.as_deref()
+    }
+
     pub fn name(&self) -> Option<&str> {
         self.hot.name.as_deref()
+    }
+
+    pub fn handle(&self) -> Option<&str> {
+        self.hot.handle.as_deref()
+    }
+
+    pub fn alias(&self) -> Option<&str> {
+        self.hot.alias.as_deref()
+    }
+
+    /// Whether `name` is one of its former names (`formerNames`, `hub/former_names.rs`).
+    pub fn has_former_name(&self, name: &str) -> bool {
+        self.hot.former_names.as_deref().is_some_and(|names| names.iter().any(|n| &**n == name))
     }
 
     pub fn status(&self) -> Option<&str> {
@@ -333,6 +406,7 @@ mod tests {
             "sessionId": "s1", "name": "hb/x", "status": "running", "peer": "hb",
             "stale": false, "peerState": "old", "tags": {"mux.parent": "p", "mux.handle": "h"},
             "title": "t".repeat(400), "tools": [{"name": "a"}], "toolsMutable": true,
+            "timeBreakdown": {"totalMs": 9, "spans": [{"turnId": "t1"}]},
             "updatedAt": 5, "createdAt": 3, "pendingPermissions": 2,
         });
         let row = PeerRow::new(&summary);

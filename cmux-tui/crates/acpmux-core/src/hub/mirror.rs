@@ -43,9 +43,10 @@ pub const MAX_UNIT_CHANGES: usize = 512;
 /// at 4.1 to 5.1 µs a change whatever the count (build, append, the index apply
 /// and publishing, measured at 512 to 15,360 changes a turn), and ends with one
 /// log sync of about 0.3 ms. So a local row waits behind at most two units,
-/// about 5 ms: its p95 was 6.7 to 8.4 ms with 30 units of [`MAX_UNIT_CHANGES`]
-/// queued, against 11 to 17 ms at four units, where the bound of 10 ms sat on
-/// the mean. The units past this count wait for the next turns.
+/// about 5 ms: with 30 units of [`MAX_UNIT_CHANGES`] queued, its capped p95 was
+/// 4.1 to 5.5 ms, against 8.0 to 10.0 ms at four units, where the bound of 10 ms
+/// sat on the p95 (`turn_cap_compare`, cmux#44124). Draining all 30 units took
+/// within 3% of the same time at both counts. The units past this count wait for the next turns.
 pub const MAX_TURN_UNIT_CHANGES: usize = 2 * MAX_UNIT_CHANGES;
 
 pub enum UnitChange {
@@ -542,6 +543,7 @@ impl HubWriter {
         {
             self.turn_measure.unit_ns[2] += applied.duration_since(began).as_nanos();
         }
+        self.hold_history(current.seq(), next.seq());
         self.publish_folder_index(next, &folder_ops);
         for record in records {
             if record.gone {

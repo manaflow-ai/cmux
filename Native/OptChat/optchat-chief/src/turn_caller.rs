@@ -144,7 +144,7 @@ fn agent_session_name(pid: i32, agent_parent: &Path) -> Option<String> {
         if parent <= 1 {
             return None;
         }
-        if executable(parent).is_some_and(|exe| exe == agent_parent) {
+        if runs(parent, agent_parent) {
             return environment_value(current, "ACPMUX_SESSION_NAME");
         }
         current = parent;
@@ -175,6 +175,51 @@ fn executable(pid: i32) -> Option<PathBuf> {
     crate::acpmux_peer::executable_of(pid).ok()
 }
 
+/// Whether process `pid` runs `agent_parent` (this host's acpmux): by its executable, or, when
+/// that is gone, by the path it was started from, resolved now. An app update (Sparkle) moves
+/// the bundle away and deletes it under the long-lived `acpmux __agent-host` processes, so the
+/// kernel names no executable for them (or one that no longer exists), while the path they were
+/// started from still names this host's acpmux (live 2026-11-18: every subagent started before
+/// the nightly updated lost its identity, so its `tell` was refused). An executable that still
+/// exists and is another file is refused, as `acpmux_peer` refuses such a daemon.
+fn runs(pid: i32, agent_parent: &Path) -> bool {
+    match executable(pid) {
+        Some(exe) if exe == agent_parent => true,
+        Some(exe) if exe.exists() => false,
+        _ => started_from(pid)
+            .and_then(|path| std::fs::canonicalize(path).ok())
+            .is_some_and(|path| path == agent_parent),
+    }
+}
+
+/// The path process `pid` was started from (the exec path the kernel keeps with its
+/// arguments), when it is absolute.
+#[cfg(target_os = "macos")]
+fn started_from(pid: i32) -> Option<PathBuf> {
+    let data = process_arguments(pid)?;
+    let rest = data.get(4..)?;
+    let end = rest.iter().position(|b| *b == 0)?;
+    let path = PathBuf::from(String::from_utf8_lossy(&rest[..end]).into_owned());
+    path.is_absolute().then_some(path)
+}
+
+/// The path process `pid` was started from: its first argument when absolute (acpmux starts
+/// its agent host by its full path), else its executable, which Linux names
+/// `<path> (deleted)` once replaced.
+#[cfg(target_os = "linux")]
+fn started_from(pid: i32) -> Option<PathBuf> {
+    let args = std::fs::read(format!("/proc/{pid}/cmdline")).ok()?;
+    let first = args.split(|b| *b == 0).next().unwrap_or_default();
+    let first = PathBuf::from(String::from_utf8_lossy(first).into_owned());
+    if first.is_absolute() {
+        return Some(first);
+    }
+    let link = std::fs::read_link(format!("/proc/{pid}/exe")).ok()?;
+    let text = link.to_string_lossy();
+    let path = PathBuf::from(text.strip_suffix(" (deleted)").unwrap_or(&text));
+    path.is_absolute().then_some(path)
+}
+
 #[cfg(target_os = "linux")]
 fn environment_value(pid: i32, key: &str) -> Option<String> {
     let bytes = std::fs::read(format!("/proc/{pid}/environ")).ok()?;
@@ -182,7 +227,8 @@ fn environment_value(pid: i32, key: &str) -> Option<String> {
 }
 
 #[cfg(target_os = "macos")]
-fn environment_value(pid: i32, key: &str) -> Option<String> {
+/// Process `pid`'s `KERN_PROCARGS2` block: argc, the exec path, its arguments, its environment.
+fn process_arguments(pid: i32) -> Option<Vec<u8>> {
     let mut argmax: libc::c_int = 0;
     let mut size = std::mem::size_of::<libc::c_int>();
     let mut mib = [libc::CTL_KERN, libc::KERN_ARGMAX];
@@ -217,8 +263,15 @@ fn environment_value(pid: i32, key: &str) -> Option<String> {
     if read != 0 {
         return None;
     }
+    buffer.truncate(filled);
+    Some(buffer)
+}
+
+#[cfg(target_os = "macos")]
+fn environment_value(pid: i32, key: &str) -> Option<String> {
+    let buffer = process_arguments(pid)?;
     // argc (i32), the exec path, NUL padding, argc arguments, the environment.
-    let data = &buffer[..filled];
+    let data = &buffer[..];
     let argc = usize::try_from(i32::from_le_bytes(data.get(..4)?.try_into().ok()?)).ok()?;
     let rest = &data[4..];
     let path_end = rest.iter().position(|b| *b == 0)?;

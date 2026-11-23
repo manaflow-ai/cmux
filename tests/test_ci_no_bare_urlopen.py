@@ -80,7 +80,6 @@ LEGACY = {
     "required_status_checks.py": 1,
     "seed_derived_data.py": 1,
     "simple_pool_picker.py": 1,
-    "stable_next.py": 2,
     "stop_if_publish_doomed.py": 1,
     "submodule_forward_only.py": 1,
     "sync_labels.py": 1,

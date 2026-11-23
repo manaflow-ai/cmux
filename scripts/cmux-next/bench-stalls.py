@@ -212,7 +212,7 @@ class Run:
     def stalls(self, hangs):
         out = []
         for record in hangs.get("records", []):
-            frames = [f for f in record.get("frames", []) if "cmux" in f or "Ghostty" in f or "AppKit" in f][:6]
+            frames = [f for f in record.get("frames", []) if "cmux" in f or "CmuxNext" in f or "Ghostty" in f or "AppKit" in f][:6]
             out.append({"ms": round(record.get("duration_ms", 0), 1), "cpu_ms": round(record.get("cpu_ms", 0), 1),
                         "frames": frames or record.get("frames", [])[:6]})
         return sorted(out, key=lambda s: -s["ms"])
