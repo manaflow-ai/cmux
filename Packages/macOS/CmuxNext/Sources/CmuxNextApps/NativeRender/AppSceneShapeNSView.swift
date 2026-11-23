@@ -6,6 +6,7 @@ import CmuxNextDesign
 /// also be a gradient (``AppSceneGradient``), drawn clipped to the shape. `size`
 /// makes it a square of that side; without it, it takes the width it gets and its `frame` height
 /// (a shape has no height of its own, so with no frame it draws nothing in a vertical stack).
+/// `Line` is a stroke along its width: `strokeWidth` thick (1 by default) in `stroke` (the separator ink).
 final class AppSceneShapeNSView: AppSceneNodeNSView {
     private let shape = CAShapeLayer()
     /// The gradient `fill`, masked to the shape's path; made the first time a node asks for one.
@@ -21,10 +22,18 @@ final class AppSceneShapeNSView: AppSceneNodeNSView {
 
     private var side: CGFloat? { node.number("size").map { CGFloat(max(0, $0)) } }
 
-    override var contentNaturalWidth: CGFloat? { side }
-    override func contentHeight(width: CGFloat) -> CGFloat { side ?? 0 }
+    private var lineWidth: CGFloat { CGFloat(max(0, node.number("strokeWidth") ?? 1)) }
+
+    override var contentNaturalWidth: CGFloat? { node.type == .line ? nil : side }
+    override func contentHeight(width: CGFloat) -> CGFloat { node.type == .line ? lineWidth : side ?? 0 }
 
     override func layoutContent(in rect: CGRect) {
+        if node.type == .line {
+            shape.frame = rect
+            shape.path = CGPath(rect: CGRect(origin: .zero, size: rect.size), transform: nil)
+            shape.lineWidth = 0
+            return
+        }
         let box = side.map { CGRect(x: rect.minX, y: rect.midY - $0 / 2, width: $0, height: $0) } ?? rect
         shape.frame = box
         let lineWidth = CGFloat(node.number("strokeWidth") ?? 1)
@@ -50,6 +59,12 @@ final class AppSceneShapeNSView: AppSceneNodeNSView {
 
     override func paint() {
         let stroke = node.props["stroke"]?.sceneColor
+        if node.type == .line {
+            gradient?.isHidden = true
+            shape.fillColor = (stroke ?? node.props["fill"]?.sceneColor ?? Palette.separator).cgColor
+            shape.strokeColor = nil
+            return
+        }
         if let fill = AppSceneGradient(node.props["fill"]) {
             let gradient = gradientLayer()
             gradient.isHidden = false

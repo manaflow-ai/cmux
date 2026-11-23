@@ -244,6 +244,8 @@ export interface WorkerBindings {
   readonly CHIEF_CREDITS_DOGFOOD_ROUND?: string
   /** `e2e` (development only): the e2e price set (1 USD included); `v2` (development or staging only): Team 25 USD per seat (billing-catalog.ts). Production is always v1. */
   readonly BILLING_USAGE_PRICE_SET?: string
+  /** A live usage sync's allowlist (billing-usage-sync.ts liveAllowList): subscription ids, comma separated; unset = all. */
+  readonly BILLING_USAGE_LIVE_ALLOW?: string
   /** The raise lock (billing-catalog.ts teamCapUnpaidMaxPools): before its first paid renewal invoice an account's cap counts up to this many pools (default 4). */
   readonly TEAM_CAP_UNPAID_MAX_POOLS?: string
   /** `1`: a team the usage sync has not seen on a billable subscription stops at its plan's included AI amount (inference/included-stop.ts). */
@@ -398,6 +400,9 @@ export interface WorkerBindings {
   readonly CHIEF_CC_ENABLED?: string
   /** The chief-cc VM snapshot id (backend/chief-cc/bake.sh). */
   readonly CHIEF_CC_SNAPSHOT?: string
+  /** The Chief's computer image (backend/chief-cc/bake-computer.sh): small Ubuntu with the desktop and cua-driver baked in,
+   * for `chief-vm create --image computer`. Unset: computer setup installs the desktop on the sandbox. */
+  readonly CHIEF_CC_COMPUTER_SNAPSHOT?: string
   /** Comma-separated exact owner ids (team_ or user_) whose Chiefs use the Claude Code route; each must also be on CHIEF_BRAIN_CLAUDE_OWNERS. */
   readonly CHIEF_CC_OWNERS?: string
   /** Secret: the Freestyle key of the account that holds CHIEF_CC_SNAPSHOT (no other code reads it). */

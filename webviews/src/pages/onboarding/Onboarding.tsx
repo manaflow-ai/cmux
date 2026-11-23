@@ -10,9 +10,9 @@ import { DialogButton } from "../../ui/DialogButton";
 import { StableLabel } from "../../ui/StableLabel";
 import type { Strings } from "../shared/i18n";
 import { AgentsStep, DEFAULT_AGENTS_LOOK, type AgentsLook } from "./AgentsStep";
-import { AgentToolsStep } from "./AgentToolsStep";
 import { ComputerUseStep } from "./ComputerUseStep";
 import { ImportSources, ImportStep } from "./ImportStep";
+import { DEFAULT_MAKE_IT_YOURS_LOOK, MakeItYoursStep, type MakeItYoursLook } from "./MakeItYoursStep";
 import { OPS, type OnboardingFooter, type OnboardingState, type OnboardingStep } from "./ops";
 import { OnboardingContext, useOnboarding } from "./parts";
 import type { OnboardingStore } from "./store";
@@ -38,17 +38,15 @@ function Footer({ footer, step, leading }: { footer: OnboardingFooter; step: Onb
             {back}
           </DialogButton>
         )}
-        {footer.skip !== "none" && (
-          <DialogButton
-            dialogKey="escape"
-            className="ui-button ui-btn"
-            data-variant="subtle"
-            data-size="md"
-            onClick={() => store.call(OPS.skip)}
-          >
-            <StableLabel label={skipLabel(strings, footer.skip)} alternatives={skipLabels(strings, step)} />
-          </DialogButton>
-        )}
+        <DialogButton
+          dialogKey="escape"
+          className="ui-button ui-btn"
+          data-variant="subtle"
+          data-size="md"
+          onClick={() => store.call(OPS.skip)}
+        >
+          <StableLabel label={skipLabel(strings, footer.skip)} alternatives={skipLabels(strings, step)} />
+        </DialogButton>
         <DialogButton
           dialogKey="return"
           className="ui-button ui-btn"
@@ -65,29 +63,37 @@ function Footer({ footer, step, leading }: { footer: OnboardingFooter; step: Onb
   );
 }
 
-function Scaffold({ state, agentsLook }: { state: OnboardingState; agentsLook: AgentsLook }) {
+function Scaffold({
+  state,
+  agentsLook,
+  makeItYoursLook,
+}: {
+  state: OnboardingState;
+  agentsLook: AgentsLook;
+  makeItYoursLook: MakeItYoursLook;
+}) {
   const { strings } = useOnboarding();
   const agents = state.step === "agents";
-  const tools = state.step === "agentTools";
-  const sources = !agents && state.importer != null ? <ImportSources importer={state.importer} /> : null;
+  const make = state.step === "makeItYours";
+  const sources = !agents && !make && state.importer != null ? <ImportSources importer={state.importer} /> : null;
   return (
     <div className="onb-scaffold" data-step={state.step}>
       <header className="onb-header">
         <h1 className="onb-title">
           {agents
             ? strings.t("onboarding.agents.heading")
-            : tools
-              ? strings.t("onboarding.agentTools.heading")
+            : make
+              ? strings.t("onboarding.makeItYours.title")
               : strings.t("onboarding.import.title2")}
         </h1>
         {agents && <p className="onb-sentence">{strings.t("onboarding.agents.body")}</p>}
-        {tools && <p className="onb-sentence">{strings.t("onboarding.agentTools.body")}</p>}
+        {make && <p className="onb-sentence">{strings.t("onboarding.makeItYours.body")}</p>}
       </header>
       <div className="onb-body">
         {agents ? (
           <AgentsStep agents={state.agents} look={agentsLook} />
-        ) : tools ? (
-          <AgentToolsStep tools={state.agentTools} />
+        ) : make ? (
+          <MakeItYoursStep choices={state.makeItYours} look={makeItYoursLook} />
         ) : state.importer != null ? (
           <ImportStep importer={state.importer} progress={state.footer.progress} />
         ) : null}
@@ -101,10 +107,12 @@ export function OnboardingPage({
   store,
   strings,
   agentsLook = DEFAULT_AGENTS_LOOK,
+  makeItYoursLook = DEFAULT_MAKE_IT_YOURS_LOOK,
 }: {
   store: OnboardingStore;
   strings: Strings;
   agentsLook?: AgentsLook;
+  makeItYoursLook?: MakeItYoursLook;
 }) {
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
   useEffect(() => {
@@ -138,7 +146,7 @@ export function OnboardingPage({
             <ComputerUseStep computerUse={state.computerUse} />
           ) : null
         ) : (
-          <Scaffold state={state} agentsLook={agentsLook} />
+          <Scaffold state={state} agentsLook={agentsLook} makeItYoursLook={makeItYoursLook} />
         )}
       </div>
     </OnboardingContext.Provider>

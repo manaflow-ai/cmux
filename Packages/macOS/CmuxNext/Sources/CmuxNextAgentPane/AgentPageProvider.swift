@@ -13,15 +13,17 @@ public extension PageDescriptor {
     /// meta CSP says the same (build-agent-pane-web.sh; AgentPageCSPAlignmentTests); the host runs the
     /// user's registry.js through evaluateJavaScript, which the CSP does not govern. It plays video
     /// and audio only from its own origin: the files the host granted (``AgentPaneMediaGrants``),
-    /// served in byte ranges under `__media/` (``AgentPageMediaResource``), and its app sections'
-    /// bundle images under `__appbundle/` (``AppsPanelsPageProvider``).
+    /// served in byte ranges under `__media/` (``AgentPageMediaResource``), its app sections'
+    /// bundle images under `__appbundle/` (``AppsPanelsPageProvider``), and the chart and diagram
+    /// libraries (Ondine, Mermaid, Vega) under `__lib/` (``AgentPageResources``).
     static let agent = PageDescriptor(
         id: "cmux.agent", resource: "agent-pane", namespaces: [AgentPageOps.namespace, AppsPanelsPageProvider.namespace],
         csp: PageCSP(connect: ["'none'"],
                      frame: [AgentPaneRenderFrame.source, "cmux-page://cmux.agent/__artifact", "http://localhost:*", "http://127.0.0.1:*", "https://localhost:*", "https://127.0.0.1:*"],
                      media: ["'self'"],
                      script: ["'wasm-unsafe-eval'"], inlineScript: false),
-        dynamicPrefixes: [AgentPageMediaResource.prefix, AgentPaneChatSnapshots.prefix, AppsPanelsPageProvider.bundlePrefix],
+        dynamicPrefixes: [AgentPageMediaResource.prefix, AgentPaneChatSnapshots.prefix, AppsPanelsPageProvider.bundlePrefix,
+                          MarkdownPageResource.library],
         // Permission cards (Allow once, Allow for chat), tool cards, Push, Apply and Remove act on one click and
         // appear when the agent decides: a click meant only to bring the window forward must not answer them.
         acceptsFirstMouse: false)
@@ -36,17 +38,17 @@ public nonisolated struct AgentPageOps {
     /// Op suffix to the old bridge method that ``AgentPaneRequest`` parses.
     static let methods: [String: String] = {
         var methods = Dictionary(uniqueKeysWithValues: [
-            "pane.checkpointAvailability", "pane.commandAvailability", "pane.framePacing", "pane.painted", "pane.clientReady", "pane.renderRate", "pane.saveLog", "pane.saveFile", "pane.finishSound", "pane.showContextUsage", "pane.showDictation", "pane.setScrollToBottomOnSend", "pane.setDisplay", "pane.setAttachmentView", "pane.setComposerRing", "pane.setDictationSource", "pane.setRemoteControl", "pane.noticeAction", "tips.state",
+            "pane.checkpointAvailability", "pane.commandAvailability", "pane.framePacing", "pane.painted", "pane.launchSettle", "pane.clientReady", "pane.renderRate", "pane.saveLog", "pane.saveFile", "pane.finishSound", "pane.showContextUsage", "pane.showDictation", "pane.setScrollToBottomOnSend", "pane.setDisplay", "pane.setAttachmentView", "pane.setComposerRing", "pane.setDictationSource", "pane.setRemoteControl", "pane.noticeAction", "tips.state",
             "pane.edit", "pane.setQuickActions", "tab.open", "run.attach", "tab.typeAhead", "tab.jump", "cloud.preview.open",
             "newTab.remember", "newTab.setTemplate", "nowPlaying.command", "readAloud.speak", "readAloud.stop", "chat.attention.open", "newTab.inputReady", "newTab.touched", "newTab.context", "newTab.warm", "shortcut.edit", "action.run", "file.open", "browser.open",
             "project.list", "project.icon", "folder.complete", "agent.avatar", "agent.avatar.set", "agent.avatar.remove", "agent.mini", "agent.mini.show", "chief.face", "harness.symbol", "project.browse", "workspace.chooseFolder", "workspace.useFolder", "chat.folder.choose", "machine.share.self", "share.op", "chat.attach.choose", "chat.attach.dropped", "chat.attach.source", "chat.attach.external", "attachment.sourceIcon", "app.action", "chats.open", "chats.resume", "chats.openInTerminal", "chats.watch", "chats.page",
             "quick.dismiss", "quick.openInWindow", "quick.startInBackground", "quick.setOnTop", "quick.setCollapsed", "quick.floatingState", "quick.context", "pane.action", "pane.moveToMachine", "pane.tabState", "pane.tabRowTools", "pane.sessionInfo", "pane.sessionInfo.overlays", "pane.sessionInfo.pinch", "pane.glass", "pane.toastAvoidance", "pane.toast", "pane.copyText", "pane.tabRowTools.set", "pane.tabRowTools.openMenu", "chat.toolCard.respond", "chat.computerUsePreview", "chat.upload", "chat.btw.inline", "chat.sideChat", "chat.subagentPane", "chat.subagentShown", "chat.processTerminal", "chat.openTab", "chat.tryAnotherApproach", "chat.offer.open", "chat.asks.open", "chat.asks.answer", "chat.newHere", "chat.unsentDraft", "chat.leftover", "chat.leftoverTaken", "chat.scrollAnchor", "chat.scrollAnchor.get", "chat.tail", "chat.tail.get", "chat.snapshot.put", "chat.snapshot.get", "chat.draftAttachments", "chat.draftAttachments.get", "chat.asks.pending",
             "shell.run", "shell.read", "shell.stop", "harness.update", "harness.restart",
-            "git.diff", "git.status", "git.commit", "git.push", "git.worktree.create", "git.worktree.apply", "git.worktree.remove", "git.worktree.setup", "git.githubRepository", "file.search", "git.checkpoint.diff", "turn.undo", "git.stage", "git.unstage", "git.stageHunk", "git.unstageHunk", "git.pullRequest", "project.instructions", "project.addFiles", "composer.capture",
+            "git.diff", "git.status", "git.commit", "git.push", "git.worktree.create", "git.worktree.apply", "git.worktree.remove", "git.worktree.setup", "git.worktree.setup.run", "git.githubRepository", "file.search", "git.checkpoint.diff", "turn.undo", "git.stage", "git.unstage", "git.stageHunk", "git.unstageHunk", "git.pullRequest", "project.instructions", "project.addFiles", "composer.capture",
             "externalAccess.openSettings",
             "dictation.toggle", "dictation.handoff", "dictation.sources", "dictation.start", "dictation.stop", "dictation.cancel", "dictation.openSettings", "dictation.audio", "dictation.recording.upload", "dictation.recording.cancel",
             "transport.open", "transport.send", "transport.close", "transport.gesture", "transport.gesture.release",
-            "chat.missing", "uiPointer.report", "acpmux.restart", "acpmux.restartStuck", "sandbox.run", "sandbox.state", "cloud.signIn", "cloud.signInCancel", "cloud.setUp", "cloud.startChat", "cloud.repickChat", "cloud.answerStart", "cloud.handoffTurn",
+            "chat.missing", "uiPointer.report", "designSelection.released", "acpmux.restart", "acpmux.restartStuck", "sandbox.run", "sandbox.state", "cloud.signIn", "cloud.signInCancel", "cloud.setUp", "cloud.startChat", "cloud.repickChat", "cloud.answerStart", "cloud.handoffTurn",
             // The pricing card's Subscribe (cloud.plan.subscribe {plan}: pro or max), which opens that plan's checkout.
             "cloud.plan.subscribe",
             // The composer streams every upload (cloudUploads.ts); without these the page fell back to one frame, which refuses a file over 24 MiB (#28647).
@@ -149,6 +151,9 @@ public final class AgentPageProvider: PageProvider {
     /// The debug UI pointer report from an app-owned page. The native picker
     /// owns the crop and composer delivery; the page only supplies metadata.
     public var onUiPointerReport: @MainActor (JSONValue) -> Void = { _ in }
+    /// The ids of browser picks that left the composer (`designSelection.released {ids}`): removed
+    /// or sent. ``AgentPaneView`` passes them to the browser, which takes their pins off the page.
+    public var onDesignSelectionReleased: @MainActor ([String]) -> Void = { _ in }
     /// The page's flicker events (`diag.flicker`, `{events}`), for the pane's ring file
     /// (``AgentPageFlickerLog/recordPage(_:page:pid:)``). ``AgentPaneView`` sets it; until then they are dropped.
     public var onFlicker: @MainActor (JSONValue) -> Void = { _ in }
@@ -411,6 +416,13 @@ public final class AgentPageProvider: PageProvider {
         if method == "chat.asks.pending" { return try await pendingAsks.reply(params, op: op, socket: pendingAsksSocket()) }
         if method == "uiPointer.report" {
             onUiPointerReport(params)
+            return .object(["ok": .bool(true)])
+        }
+        if method == "designSelection.released" {
+            // Bounded: a composer holds at most a few dozen chips; only design pick ids pass.
+            let ids = (params["ids"]?.arrayValue ?? []).compactMap(\.stringValue)
+                .filter { $0.hasPrefix("design-") && $0.count <= 64 }.prefix(64)
+            if !ids.isEmpty { onDesignSelectionReleased(Array(ids)) }
             return .object(["ok": .bool(true)])
         }
         if method.hasPrefix("chat.draftAttachments") { return try await Self.draftAttachments(method, params: params, op: op) }

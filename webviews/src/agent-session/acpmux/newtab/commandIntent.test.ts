@@ -24,7 +24,13 @@ test.each([
   ["./scripts/build.sh --fast", "command"],
   ["sudo brew upgrade", "command"],
   ["FOO=1 bun test", "command"],
-  ["make", "command"],
+  // A program whose name is an English word, alone: Ask leads, Run is second (David Beyer 2026-11-20).
+  ["make", "maybe"],
+  ["test", "maybe"],
+  ["history", "maybe"],
+  ["date", "maybe"],
+  ["clear", "maybe"],
+  ["code", "maybe"],
   ["make test", "maybe"],
   ["git is broken", "maybe"],
   ["open .", "command"],
@@ -62,6 +68,12 @@ test("a command leads with Run, Ask second", () => {
 
 test("a maybe keeps Ask first and Run second", () => {
   expect(kinds("make test")).toEqual(["ask", "run"]);
+});
+
+test("a lone word that names a program and a prompt keeps Ask first, Run second", () => {
+  // David Beyer 2026-11-20: a word typed into New Tab ran as a shell command on Return.
+  expect(kinds("test")).toEqual(["ask", "run"]);
+  expect(kinds("history")).toEqual(["ask", "run"]);
 });
 
 test("an agent's folder start keeps Return over Run", () => {

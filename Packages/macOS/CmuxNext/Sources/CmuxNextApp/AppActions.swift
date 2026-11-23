@@ -94,8 +94,8 @@ enum AppActions {
         DevToolsHandlers.bind(into: registry, context: context)
         HintHandlers.bind(into: registry, context: context)
         MusicHandlers.bind(into: registry, context: context)
+        context.services.keyRouter.keyModes.bind(into: registry)
         VoiceRoomHandlers.bind(into: registry, context: context)
-        ChiefScreenShareActions(share: context.services.chiefScreenShare, registry: registry).bind()
         NowPlayingCardHandlers.bind(into: registry, context: context)
         PictureInPictureHandlers.bind(into: registry, context: context)
         StatsPageTab.bind(into: registry, context: context)
@@ -129,7 +129,6 @@ enum AppActions {
         RemoteGroupHandlers.bind(into: registry, context: context)
         SidebarScreenIntentActions.bindViewScreen(into: registry) { [weak services] in services?.windows.active.map { window in (sections: window.sidebar.model.sections, handle: { @MainActor intent in window.sidebar.handle(intent) }) } }
         ChiefMoveHandlers.bind(into: registry, context: context)
-        ChiefMemoryImportHandlers.bind(into: registry, context: context)
         RemoteBrowserPages.bind(into: registry, context: context)
         ResourceHandlers.bind(into: registry, context: context)
         LinkHandlers.bind(into: registry, context: context)
@@ -137,6 +136,7 @@ enum AppActions {
         CatalogRequestHandlers(host: services).bind(into: registry)
         HandlerPlaceholders.bind(into: registry)
         IconMenuVisibility.install(registry, context: context)
+        SpacesMenuVisibility { [weak services] in services.map { SidebarSpaceBar.profiles($0.machines.local, window: $0.windows.active?.state.id ?? "", windows: $0.windows).count } ?? 0 }.install(in: registry)
         TabSelectionTitles(context: context).install(in: registry)
         TopPages.installActionRules(services)
         ActionTargetReasons.refuseHeadlessNameEditors(in: registry) { RefusalStrings.nameArgumentRequired }
@@ -198,6 +198,8 @@ enum AppActions {
             do {
                 let scripted = registry.isCapturingRefusal
                 let origin = try QuitOrigin(for: invocation, scripted: scripted)
+                // Cmd-Q's first press only warns (`app.warnBeforeQuitShortcut`); the menu, Dock and scripts quit.
+                if !scripted, origin == .interactive, services.quit.holdsShortcutQuit(invocation) { return }
                 // A scripted quit saves unsaved documents first and refuses,
                 // naming them, when a save fails (R96 quit hook).
                 guard scripted, !services.quit.unsaved.unsaved().isEmpty else { return services.quit.requestQuit(origin) }

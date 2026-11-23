@@ -26,6 +26,7 @@ import { SessionCwdContext, SessionEditsContext } from "../turnChanges/sessionRo
 import { useEditedFilesSettings } from "../turnChanges/settings";
 import { applyUndo, cancelUndo, checkUndo, useUndoState, type UndoState } from "../turnChanges/undoStore";
 import { setCardOpen, useCardOpen } from "../turnChanges/openStore";
+import { TurnShots } from "../turnChanges/TurnShotsPair";
 import { HEADER_TOGGLE_ATTRIBUTE, headerToggleClick } from "./headerToggle";
 import { DiffFile, Undo } from "./icons";
 import { Icon } from "../icons/Icon";
@@ -34,6 +35,7 @@ import { useTranscriptReadOnly } from "./readOnly";
 import { OpenWrittenMarkdown } from "./writtenArtifacts";
 import { isMarkdownPath } from "./writtenArtifactsModel";
 import "./EditedFilesCard.css";
+import { intl } from "../../../ui/intl";
 
 /// `onOpenDiff` opens the turn's changes, at `path` when given; focus returns to `opener`.
 export function EditedFilesCard({
@@ -315,6 +317,8 @@ function Card({
           </div>
         );
       })}
+      {/* The turn's page pictures show with the card's contents: collapsed, they wait until it opens. */}
+      {row.ended === true && open && <TurnShots rowId={row.id} />}
       {open && (more > 0 || showAll) && !single && total > limit && (
         <button
           type="button"
@@ -428,7 +432,7 @@ function UndoConfirm({
             {names.length === 1
               ? t("edited.undoSkip.unknown.one", { file: names[0]! })
               : t("edited.undoSkip.unknown.other", {
-                  files: new Intl.ListFormat(language, { type: "conjunction" }).format(names),
+                  files: intl.ListFormat(language, { type: "conjunction" }).format(names),
                 })}
           </div>
         )}

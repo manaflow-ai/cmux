@@ -32,6 +32,21 @@ type VegaLiteAPI = { compile(spec: unknown, options?: { config?: unknown }): { s
 
 export type DiagramLibrary = "ondine" | "mermaid" | "vega";
 
+/**
+ * A renderer's script did not load (the host served no `__lib/<name>.js`, or it ran without its
+ * globals). The message names the library for logs and tests; what a reader sees is the caller's own
+ * localized line (DiagramBlock's `diagram.unavailable`, the markdown page's), never this name.
+ */
+export class DiagramLoadError extends Error {
+  constructor(
+    readonly library: string,
+    detail: string,
+  ) {
+    super(`${library} ${detail}`);
+    this.name = "DiagramLoadError";
+  }
+}
+
 /** The global each library script defines. */
 const LIBRARY_GLOBALS: Record<DiagramLibrary, string> = { ondine: "ondine", mermaid: "mermaid", vega: "vega" };
 
@@ -50,12 +65,12 @@ export class DiagramLibraries {
     if (!promise) {
       promise = new Promise<void>((resolve, reject) => {
         const url = this.libURL(name);
-        if (!url) return reject(new Error(`no ${name} library`));
+        if (!url) return reject(new DiagramLoadError(name, "has no URL"));
         const script = document.createElement("script");
         script.src = url;
         script.async = true;
         script.onload = () => resolve();
-        script.onerror = () => reject(new Error(`${name} library failed to load`));
+        script.onerror = () => reject(new DiagramLoadError(name, "failed to load"));
         document.head.append(script);
       });
       promise.catch(() => this.loads.delete(name));
@@ -77,7 +92,7 @@ let ondineRenderer: ReturnType<OndineAPI["create"]> | null = null;
 async function renderOndine(libraries: DiagramLibraries, source: string): Promise<string> {
   await libraries.load("ondine");
   const ondine = (globalThis as { ondine?: OndineAPI }).ondine;
-  if (!ondine) throw new Error("ondine did not load");
+  if (!ondine) throw new DiagramLoadError("ondine", "did not load");
   ondineRenderer ??= ondine.create({ modules: { all: ondine.wasm } });
   return ondineRenderer.render(source).svg;
 }
@@ -86,7 +101,7 @@ async function renderOndine(libraries: DiagramLibraries, source: string): Promis
 async function renderMermaidJS(libraries: DiagramLibraries, source: string): Promise<string> {
   await libraries.load("mermaid");
   const mermaid = (globalThis as { mermaid?: MermaidAPI }).mermaid;
-  if (!mermaid) throw new Error("mermaid did not load");
+  if (!mermaid) throw new DiagramLoadError("mermaid", "did not load");
   const scheme = darkScheme() ? "dark" : "default";
   if (mermaidScheme !== scheme) {
     mermaid.initialize({ startOnLoad: false, securityLevel: "strict", theme: scheme, fontFamily: "inherit" });
@@ -118,7 +133,8 @@ export function cancelDiagram(target: HTMLElement): void {
 
 /**
  * Renders a mermaid diagram as SVG into `target` with Ondine, falling back to Mermaid for a source
- * Ondine refuses; when both refuse, Ondine's reason is the error.
+ * Ondine refuses; when both refuse, Ondine's reason is the error, unless Ondine never loaded and
+ * Mermaid refused the source: then Mermaid's reason is the one about the source.
  */
 export async function renderMermaid(libraries: DiagramLibraries, source: string, target: HTMLElement): Promise<void> {
   const current = beginDraw(target);
@@ -128,8 +144,10 @@ export async function renderMermaid(libraries: DiagramLibraries, source: string,
   } catch (ondineError) {
     try {
       svg = await renderMermaidJS(libraries, source);
-    } catch {
-      throw ondineError;
+    } catch (mermaidError) {
+      throw ondineError instanceof DiagramLoadError && !(mermaidError instanceof DiagramLoadError)
+        ? mermaidError
+        : ondineError;
     }
   }
   if (!current()) return;
@@ -181,12 +199,12 @@ export async function renderVega(
   const [, { expressionInterpreter }] = await Promise.all([libraries.load("vega"), import("vega-interpreter")]);
   const globals = globalThis as { vega?: VegaAPI; vegaLite?: VegaLiteAPI };
   const vega = globals.vega;
-  if (!vega) throw new Error("vega did not load");
+  if (!vega) throw new DiagramLoadError("vega", "did not load");
   // The chart sits on the page backdrop (no white card), with readable axes in dark mode.
   const config = { background: "transparent", ...(darkScheme() ? darkVegaConfig : {}) };
   let vegaSpec: Record<string, unknown> = spec;
   if (mode === "vega-lite") {
-    if (!globals.vegaLite) throw new Error("vega-lite did not load");
+    if (!globals.vegaLite) throw new DiagramLoadError("vega-lite", "did not load");
     vegaSpec = globals.vegaLite.compile(spec, { config }).spec as Record<string, unknown>;
   }
   const runtime = vega.parse({ ...vegaSpec, background: spec.background ?? "transparent" }, config, { ast: true });
@@ -215,13 +233,17 @@ const darkVegaConfig = {
   view: { stroke: "#444" },
 };
 
-/** Renders a diagram block; on failure shows `errorText` and the reason. */
+/**
+ * Renders a diagram block; on failure shows `errorText` and the reason, or `unavailableText` when a
+ * renderer did not load (``DiagramLoadError``), whose message names an internal library.
+ */
 export function renderDiagram(
   libraries: DiagramLibraries,
   language: string,
   source: string,
   target: HTMLElement,
   errorText: string,
+  unavailableText: string,
 ): void {
   target.dataset.state = "rendering";
   const done = (promise: Promise<void>) =>
@@ -233,7 +255,9 @@ export function renderDiagram(
         target.dataset.state = "error";
         const message = document.createElement("div");
         message.className = "md-diagram-error";
-        message.textContent = `${errorText} ${error instanceof Error ? error.message : String(error)}`;
+        const reason =
+          error instanceof DiagramLoadError ? unavailableText : error instanceof Error ? error.message : String(error);
+        message.textContent = `${errorText} ${reason}`;
         target.replaceChildren(message);
       },
     );

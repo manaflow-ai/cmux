@@ -91,6 +91,7 @@ nonisolated struct OnboardingPageState: Encodable, Equatable {
         let bookmarks: Int
         let history: Int
         let openTabs: Int
+        let extensions: Int
         let cookies: Int
         let passwords: Int
         let searchEngines: Int
@@ -99,6 +100,7 @@ nonisolated struct OnboardingPageState: Encodable, Equatable {
             bookmarks = counts.bookmarks
             history = counts.history
             openTabs = counts.openTabs
+            extensions = counts.extensions
             cookies = counts.cookies
             passwords = counts.passwords
             searchEngines = counts.searchEngines
@@ -258,24 +260,42 @@ nonisolated struct OnboardingPageState: Encodable, Equatable {
         private enum Keys: String, CodingKey { case helperIcon, rows, allGranted, note, showsRestart, comebacks }
     }
 
-    /// One coding agent of the cmux Tools step: `ready`, `added`, `conflict` or `failed`
-    /// (``AgentToolsAgent/State``). No icon: the page draws the agent's mark from its id.
-    struct AgentToolsRow: Encodable, Equatable {
+    /// One background of Make cmux Yours (ops.ts `MakeItYoursBackground`).
+    struct Background: Encodable, Equatable {
         let id: String
+        /// The work's name; empty for Shuffle Paintings (the page names it).
         let name: String
-        let state: String
+        let preview: Image?
+
+        func encode(to encoder: any Encoder) throws {
+            var c = encoder.container(keyedBy: Keys.self)
+            try c.encode(id, forKey: .id)
+            try c.encode(name, forKey: .name)
+            try c.encodeNullable(preview, forKey: .preview)
+        }
+
+        private enum Keys: String, CodingKey { case id, name, preview }
     }
 
-    /// The cmux Tools step (ops.ts `AgentToolsState`).
-    struct AgentTools: Encodable, Equatable {
-        let rows: [AgentToolsRow]
+    /// The Make cmux Yours step (ops.ts `MakeItYoursState`).
+    struct MakeItYours: Encodable, Equatable {
+        let workStyle: String
+        let density: String
+        /// The background's id; null: none.
+        let background: String?
+        let backgrounds: [Background]
         let loaded: Bool
-        /// The answer in the settings file: `ask`, `on` or `off`.
-        let choice: String
-        let applying: Bool
-        let failed: Bool
-        /// The person answered in this window (Add or Not Now).
-        let answered: Bool
+
+        func encode(to encoder: any Encoder) throws {
+            var c = encoder.container(keyedBy: Keys.self)
+            try c.encode(workStyle, forKey: .workStyle)
+            try c.encode(density, forKey: .density)
+            try c.encodeNullable(background, forKey: .background)
+            try c.encode(backgrounds, forKey: .backgrounds)
+            try c.encode(loaded, forKey: .loaded)
+        }
+
+        private enum Keys: String, CodingKey { case workStyle, density, background, backgrounds, loaded }
     }
 
     let step: String
@@ -283,7 +303,7 @@ nonisolated struct OnboardingPageState: Encodable, Equatable {
     let agents: Agents?
     let importer: Importer?
     let computerUse: ComputerUse?
-    let agentTools: AgentTools?
+    let makeItYours: MakeItYours?
 
     /// Every field `ops.ts` types `T | null` is sent, as null when absent: the page reads `null`, never a
     /// missing key. (Synthesized `Encodable` leaves a nil out, so each such struct encodes itself.)
@@ -294,10 +314,10 @@ nonisolated struct OnboardingPageState: Encodable, Equatable {
         try container.encodeNullable(agents, forKey: .agents)
         try container.encodeNullable(importer, forKey: .importer)
         try container.encodeNullable(computerUse, forKey: .computerUse)
-        try container.encodeNullable(agentTools, forKey: .agentTools)
+        try container.encodeNullable(makeItYours, forKey: .makeItYours)
     }
 
-    private enum Keys: String, CodingKey { case step, footer, agents, importer, computerUse, agentTools }
+    private enum Keys: String, CodingKey { case step, footer, agents, importer, computerUse, makeItYours }
 }
 
 extension OnboardingPageState {
@@ -310,25 +330,24 @@ extension OnboardingPageState {
         agents = model.step == .agents ? Self.agents(model.agents, images) : nil
         importer = model.step == .importData ? Self.importer(model.importer, images) : nil
         computerUse = model.step == .computerUse ? Self.computerUse(model.computerUse, images) : nil
-        agentTools = model.step == .agentTools ? Self.agentTools(model.agentTools) : nil
+        makeItYours = model.step == .makeItYours ? Self.makeItYours(model.makeItYours) : nil
     }
 
-    /// The footer's quiet button: Skip Importing over the Keychain explainer; on cmux Tools, Not Now
-    /// until the person answered, then none (`none`: only Done is left).
+    @MainActor
+    static func makeItYours(_ model: MakeItYoursStepModel) -> MakeItYours {
+        let choices = model.choices
+        return MakeItYours(workStyle: choices.workStyle.rawValue, density: choices.density.rawValue, background: choices.background,
+                           backgrounds: model.backgrounds.map { Background(id: $0.id, name: $0.name, preview: $0.preview.map { Image(src: $0, template: false) }) },
+                           loaded: model.loaded)
+    }
+
+    /// The footer's quiet button: Skip Importing over the Keychain explainer.
     @MainActor
     static func skip(_ model: OnboardingModel) -> String {
         switch model.step {
         case .importData where model.importer.isConfirmingPasswords: "skipImporting"
-        case .agentTools: model.agentTools.answered ? "none" : "notNow"
         default: "skip"
         }
-    }
-
-    @MainActor
-    static func agentTools(_ model: AgentToolsStepModel) -> AgentTools {
-        AgentTools(rows: model.agents.map { AgentToolsRow(id: $0.id, name: $0.name, state: $0.state.rawValue) },
-                   loaded: model.loaded, choice: model.choice.rawValue, applying: model.applying,
-                   failed: model.failed, answered: model.answered)
     }
 
     /// `OnboardingModel.primaryTitle`, as the page's label key.
@@ -336,9 +355,8 @@ extension OnboardingPageState {
     static func primary(_ model: OnboardingModel) -> String {
         let importer = model.importer
         switch model.step {
-        case .agents: return "continue"
+        case .agents, .makeItYours: return "continue"
         case .computerUse: return "done"
-        case .agentTools: return model.agentTools.answered ? "done" : "addTools"
         case .importData:
             if importer.phase == .detecting { return "detecting" }
             if importer.phase == .idle { return "findBrowsers" }

@@ -47,16 +47,43 @@ function load() {
   for (const level of data.glass) {
     assert(level.tint > 0 && level.tint < 90, `glass ${level.name} is never opaque (surface-roles nearOpaque 0.9)`);
     assert(
-      level.artTint === undefined || (level.artTint > 0 && level.artTint < level.tint),
+      level.darkTint === undefined || (level.darkTint > 0 && level.darkTint <= level.tint),
+      `glass ${level.name}'s dark tint is translucent and no denser than its light one (dark glass reads denser)`,
+    );
+    assert(
+      level.artTint === undefined || (level.artTint > 0 && level.artTint < (level.darkTint ?? level.tint)),
       `glass ${level.name}'s artTint is clearer than its tint`,
     );
     assert(
-      level.veil === undefined || (level.veil > 0 && level.veil < level.tint),
+      level.veil === undefined || (level.veil > 0 && level.veil < (level.darkTint ?? level.tint)),
       `glass ${level.name}'s veil on the App's glass is clearer than its own tint`,
     );
     assert(["level", "mode"].includes(level.kind), `glass ${level.name} is a level or a mode`);
     assert(GLASS_FILTER.test(level.blur), `glass ${level.name}'s blur is blur(<px>) saturate(<n>)`);
+    if (level.kind === "level")
+      assert(
+        Number(level.blur.match(GLASS_FILTER)[2]) === data.glassSaturation.value,
+        `glass ${level.name} frosts at the one saturation, ${data.glassSaturation.value} (design/glass-system.md)`,
+      );
   }
+  assert(
+    data.glassContent.darkTint <= data.glassContent.tint && data.glassContent.tint < 90,
+    "the content surface is near-solid, never opaque, and no denser in dark",
+  );
+  assert(data.glassUnderlay.value > 0 && data.glassUnderlay.value <= 50, "the see-through underlay stays light");
+  assert(
+    data.glassInk.secondary >= 50 &&
+      data.glassInk.darkSecondary >= data.glassInk.secondary &&
+      data.glassInk.darkSecondary < 100,
+    "the secondary ink on glass stays a step under the text, and no fainter in dark (dark glass passes more of a white page)",
+  );
+  assert(
+    data.glassInk.status > 0 &&
+      data.glassInk.status <= 100 &&
+      data.glassInk.darkStatus >= 40 &&
+      data.glassInk.darkStatus <= data.glassInk.status,
+    "a status word on glass keeps most of its hue, and no more hue in dark (dark glass passes more of a white page)",
+  );
   const levels = data.glass.filter((level) => level.kind === "level").map((level) => level.name);
   assert(
     levels.join() === "chrome,popover,menu,chip",
@@ -68,12 +95,15 @@ function load() {
   const transient = data.transientMaterial;
   const menu = data.glass.find((level) => level.name === "menu");
   assert(
-    menu.veil === transient.hostVeil * 100 && menu.tint === transient.webTint,
+    menu.veil === transient.hostVeil * 100 &&
+      menu.tint === transient.webTint &&
+      (menu.darkTint ?? menu.tint) === transient.webTintDark,
     "menu and transient material stay in sync",
   );
   for (const key of ["darkVeilAlpha", "lightVeilAlpha", "hostVeil"])
     assert(transient[key] > 0 && transient[key] < 0.9, `transientMaterial.${key} stays translucent`);
   assert(transient.webTint > 0 && transient.webTint < 90, "transient web tint stays translucent");
+  assert(transient.webSaturation === data.glassSaturation.value, "the transient material frosts at the one saturation");
   // Native parity belongs to check-surface-roles.py. Web-only sparse checkouts
   // generate this scale from schemas without loading platform source files.
   assert(data.elevation.length === 2, "exactly two shadows");
@@ -96,7 +126,7 @@ function load() {
 
 const px = (value) => `${value}px`;
 // A glass level's backdrop filter: the blur radius and the saturation, nothing else.
-const GLASS_FILTER = /^blur\(([\d.]+)px\) saturate\([\d.]+\)$/;
+const GLASS_FILTER = /^blur\(([\d.]+)px\) saturate\(([\d.]+)\)$/;
 const glassVars = (level) => ({
   tint: [`--ds-glass-${level.name}-tint`, `${level.tint}%`],
   blur: [`--ds-glass-${level.name}-${level.blurName ?? "blur"}`, level.blur],
@@ -154,12 +184,23 @@ function cssBlock(data) {
     if (level.kind === "level") out.push(`  ${radius[0]}: ${radius[1]};`);
   }
   out.push("  --ds-glass-edge: var(--cmux-hairline);");
+  out.push(`  /* glass saturation: ${data.glassSaturation.for} */`);
+  out.push(`  --ds-glass-saturation: ${data.glassSaturation.value};`);
+  out.push(`  /* glass edge: ${data.glassEdge.for} */`);
+  out.push(`  --ds-glass-edge-top: ${data.glassEdge.topLight}%;`);
+  out.push(`  /* glass content: ${data.glassContent.for} */`);
+  out.push(`  --ds-glass-content-tint: ${data.glassContent.tint}%;`);
+  out.push(`  /* glass ink: ${data.glassInk.for} */`);
+  out.push(`  --ds-glass-ink-secondary: ${data.glassInk.secondary}%;`);
+  out.push(`  --ds-glass-ink-status: ${data.glassInk.status}%;`);
+  out.push(`  /* glass underlay: ${data.glassUnderlay.for} */`);
+  out.push(`  --ds-glass-underlay: ${data.glassUnderlay.value}%;`);
   out.push(`  /* glass material: ${data.glassMaterial.for} */`);
   for (const [name, value, note] of materialVars(data.glassMaterial)) out.push(`  ${name}: ${value}; /* ${note} */`);
   for (const [key, value] of Object.entries(data.transientMaterial)) {
     if (typeof value !== "number") continue;
     const name = key.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
-    const unit = key === "webTint" ? "%" : key === "webBlur" ? "px" : "";
+    const unit = key.startsWith("webTint") ? "%" : key === "webBlur" ? "px" : "";
     out.push(`  --ds-transient-${name}: ${value}${unit};`);
   }
   for (const entry of data.elevation)
@@ -195,7 +236,19 @@ function cssBlock(data) {
     "  }",
     "}",
   );
-  const dark = data.elevation.map((entry) => `    --elevation-${entry.name}: ${shadow(entry, "dark")};`);
+  // Dark: the same geometry a little darker, and each glass level's own dark tint (dark glass reads
+  // denser at the same alpha, so it runs a few points clearer; design/glass-system.md, rule 3).
+  const dark = [
+    ...data.elevation.map((entry) => `    --elevation-${entry.name}: ${shadow(entry, "dark")};`),
+    ...data.glass
+      .filter((level) => level.darkTint !== undefined && level.darkTint !== level.tint)
+      .map((level) => `    ${glassVars(level).tint[0]}: ${level.darkTint}%;`),
+    `    --ds-transient-web-tint: ${data.transientMaterial.webTintDark}%;`,
+    `    --ds-glass-edge-top: ${data.glassEdge.topDark}%;`,
+    `    --ds-glass-content-tint: ${data.glassContent.darkTint}%;`,
+    `    --ds-glass-ink-secondary: ${data.glassInk.darkSecondary}%;`,
+    `    --ds-glass-ink-status: ${data.glassInk.darkStatus}%;`,
+  ];
   out.push("@media (prefers-color-scheme: dark) {", '  :root:not([data-theme="light"]) {', ...dark, "  }", "}");
   out.push(':root[data-theme="dark"] {', ...dark.map((line) => line.slice(2)), "}");
   // Reduce Transparency (the system's or the host's): no level blurs, so a surface that names a level
@@ -210,7 +263,8 @@ function cssBlock(data) {
     "  }",
     "}",
   );
-  out.push(":root[data-reduce-transparency] {", ...still, "}", END);
+  // The host's Reduce Transparency, and Liquid Glass off (appearance.liquidGlass, data-glass="off").
+  out.push(':root:is([data-reduce-transparency], [data-glass="off"]) {', ...still, "}", END);
   return out.join("\n");
 }
 

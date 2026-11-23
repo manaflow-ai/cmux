@@ -22,7 +22,6 @@ export function WrittenArtifactButtons({ tools }: { tools: readonly Tool[] }) {
           type="button"
           className="acpmux-review-changes"
           aria-label={t("artifact.open")}
-          title={artifact.path}
           onClick={() => open(artifact)}
         >
           {t("artifact.open")} · {artifact.path?.split("/").pop()}

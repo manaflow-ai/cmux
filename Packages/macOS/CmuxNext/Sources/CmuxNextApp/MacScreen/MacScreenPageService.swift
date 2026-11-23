@@ -112,7 +112,7 @@ final class MacScreenPageService: InternalPageProvider {
     func open(_ record: MacScreenRecord, in pane: PaneController, focus: Bool, byPerson: Bool,
               created: (@MainActor () -> Void)? = nil) -> String {
         let key = LocalPageTab.makeKey(.macScreen)
-        pages.prepare(key, record: record, byPerson: byPerson)
+        pages.prepareOpen(key, record: record, byPerson: byPerson)
         guard let services else { return key }
         let window = services.windowController(showing: pane)
         var onCreated: (@MainActor (SurfaceID) -> Void)?
@@ -156,7 +156,7 @@ final class MacScreenPageService: InternalPageProvider {
 
 extension AppServices {
     static func makeMacScreenPages(_ services: AppServices) -> MacScreenPages {
-        let pages = MacScreenPages(store: .forApplication(bundleIdentifier: services.environment.launch.bundleID), work: services.work)
+        let pages = MacScreenPages(store: .forApplication(bundleIdentifier: services.environment.launch.bundleID, loginKeychain: services.loginKeychain), work: services.work)
         pages.useActions(of: services.registry, isPersonEvent: services.personInput.isPerson)
         // SECURITY: a joined Mac serves only what its person allowed here (with the model gone, nothing),
         // and a session stops once that no longer allows it.
@@ -165,6 +165,7 @@ extension AppServices {
         consent.changed = { [weak consent, weak host = pages.hubHost] in
             host?.consentChanged { consent?.macScreenPermits($0) ?? false }
         }
+        pages.deviceSetup.runner = MacScreenDeviceSetup.runner(daemon: services.daemon)
         return pages
     }
 

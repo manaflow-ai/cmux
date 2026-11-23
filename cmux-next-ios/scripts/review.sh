@@ -12,7 +12,9 @@
 #                 removed, and the phone's kept override cleared
 #   tag-stack     this tag's own `wrangler dev` stack on the dev VM, over the tailnet: its origin from
 #                 scripts/cmux-next/cloud-dev-stack.sh url --tag <tag> (CNX_CLOUD_DEV_STACK names
-#                 another command)
+#                 another command). The stack runs the tag's API, mobile Worker and device hub; both
+#                 apps use all three from the one origin (the Mac from its client-config, the phone
+#                 from the next two ports), and the phone's receipt must name the stack's mobile Worker.
 #   <origin>      https://<host>.<tailnet>.ts.net[:port], `preview-N`, or the dev Workers API origin.
 #                 Anything else is refused before any build (review_mac.py backend-check; the apps
 #                 refuse it too, and Release builds ignore every override).
@@ -103,6 +105,11 @@ TAG="" SLUG="" DEVICE_ID="" TARGET_WORKER="" WORKSPACE=""
 # --backend: what was asked for, the origin it names ("" = the shared dev Workers, no override) and the
 # report's words for it; the Mac app's own answer lands in REPORT_BACKEND_MAC.
 BACKEND_ARG="" BACKEND_URL="" BACKEND_REPORT="shared dev Workers (default, no override)" REPORT_BACKEND_MAC="not checked"
+# A tag stack's own mobile Worker (cloud-dev-stack.sh url --service mobile): the phone's receipt must name it.
+BACKEND_MOBILE_URL=""
+# The phone's origins when the stack has a public one (cloud-dev-stack.sh url --public): the same stack behind the
+# authenticating gateway, which a phone reaches off the tailnet too. The Mac keeps the tailnet origin.
+BACKEND_PHONE_URL="" BACKEND_PHONE_MOBILE_URL=""
 # What the phone gets (default `paired`, the hand-off every dev build must reach):
 #   paired   signed in with the personal account and paired with the same-tag Mac by its code
 #   manual   --manual-pairing: signed in, no pairing code; the person pairs by hand
@@ -184,7 +191,18 @@ review_resolve_backend() {
       out="$("$stack" url --tag "$SLUG" 2>&1)" || die "--backend tag-stack: $stack url --tag $SLUG failed: ${out##*$'\n'}"
       out="$(printf '%s\n' "$out" | awk 'NF { line = $0 } END { print line }')"
       BACKEND_URL="$(mac_py backend-check "$out")" || die "--backend tag-stack: the stack's URL $out is not a tailnet origin"
-      BACKEND_REPORT="$BACKEND_URL (this tag's stack)" ;;
+      # The stack's mobile Worker and device hub: its client-config names them for the Mac, and the phone
+      # derives them from BACKEND_URL; the receipt must show the phone's mobile service is the stack's.
+      BACKEND_MOBILE_URL="$("$stack" url --tag "$SLUG" --service mobile 2>/dev/null | awk 'NF { line = $0 } END { print line }')" || BACKEND_MOBILE_URL=""
+      BACKEND_REPORT="$BACKEND_URL (this tag's stack: API, mobile Worker and device hub)"
+      # Its public origin, when it has one, is the phone's: it works away from the tailnet too.
+      local pub=""
+      pub="$("$stack" url --tag "$SLUG" --public 2>/dev/null | awk 'NF { line = $0 } END { print line }')" || pub=""
+      if [[ -n "$pub" ]]; then
+        BACKEND_PHONE_URL="$(mac_py backend-check "$pub")" || die "--backend tag-stack: the stack's public URL $pub is not a tag stack origin"
+        BACKEND_PHONE_MOBILE_URL="$("$stack" url --tag "$SLUG" --public --service mobile 2>/dev/null | awk 'NF { line = $0 } END { print line }')" || BACKEND_PHONE_MOBILE_URL=""
+        BACKEND_REPORT="$BACKEND_REPORT; the phone: $BACKEND_PHONE_URL (its public origin)"
+      fi ;;
     *)
       BACKEND_URL="$(mac_py backend-check "$BACKEND_ARG")" || exit 2
       BACKEND_REPORT="$BACKEND_URL (--backend)" ;;
@@ -542,7 +560,7 @@ phone_launch_and_check() {
     export DEVICECTL_CHILD_CMUX_DOGFOOD_READINESS_NONCE="$nonce" DEVICECTL_CHILD_CMUX_DOGFOOD_CLIENT_ID="$client"
     # --backend: the first launch names the tag's backend (`default`: the build's own, clearing a kept one);
     # every later launch carries nothing and must keep it, as the person's own launches do.
-    case "$launch" in auto_login|clear) export DEVICECTL_CHILD_CMUX_NEXT_CLOUD_BACKEND="${BACKEND_URL:-default}" ;; esac
+    case "$launch" in auto_login|clear) export DEVICECTL_CHILD_CMUX_NEXT_CLOUD_BACKEND="${BACKEND_PHONE_URL:-${BACKEND_URL:-default}}" ;; esac
     if [[ "$launch" == auto_login ]]; then
       export DEVICECTL_CHILD_CMUX_MOBILE_STACK_EMAIL="$PERSONAL_EMAIL" DEVICECTL_CHILD_CMUX_MOBILE_STACK_PASSWORD="$PERSONAL_PASSWORD"
       [[ -z "$pair_url" ]] || export DEVICECTL_CHILD_CMUX_MOBILE_PAIR_URL="$pair_url"
@@ -556,6 +574,9 @@ phone_launch_and_check() {
   fi
   # REVIEW_WAIT: a longer wait for this one launch (--approve-first waits for the person's Allow).
   local wait="${REVIEW_WAIT:-${CNX_REVIEW_RECEIPT_TIMEOUT:-180}}"
+  # The mobile Worker the phone's receipt must name: its public one when the phone has the public origin.
+  local phone_mobile="$BACKEND_MOBILE_URL"
+  [[ -z "$BACKEND_PHONE_URL" ]] || phone_mobile="$BACKEND_PHONE_MOBILE_URL"
   local deadline=$((SECONDS + wait)) verdict="" receipt
   receipt="$(mktemp "${TMPDIR:-/tmp}/cnx-review-receipt.XXXXXX")"
   while :; do
@@ -564,7 +585,8 @@ phone_launch_and_check() {
       rc=0
       verdict="$(/usr/bin/python3 -I "$SCRIPT_DIR/handoff_receipt.py" check "$receipt" --nonce "$nonce" \
         --client-id "$client" --bundle-id "$BUNDLE_ID" --account "$PERSONAL_ACCOUNT" --session "$session" \
-        --mac-id "$mac_id" --git-sha "$SHA" --dev-tag "$SLUG" --cloud-backend "${BACKEND_URL:-default}" \
+        --mac-id "$mac_id" --git-sha "$SHA" --dev-tag "$SLUG" --cloud-backend "${BACKEND_PHONE_URL:-${BACKEND_URL:-default}}" \
+        ${phone_mobile:+--mobile-api "$phone_mobile"} \
         ${MAC_BUILD_SPACE:+--build-space "$MAC_BUILD_SPACE"})" || rc=$?
       [[ $rc -eq 1 ]] || break
     else

@@ -244,8 +244,10 @@ def upstream_of(repo: Path, local_ref: str | None, remote: str | None) -> str | 
 
 def full_ref(ref: str) -> str:
     """Remote-tracking ref REF as a full ref name: `origin/x` -> `refs/remotes/origin/x` (a full name stays). Git
-    reads a short `origin/x` as the local branch refs/heads/origin/x when one exists (see UPSTREAM)."""
-    return ref if ref.startswith("refs/") else f"refs/remotes/{ref}"
+    reads a short `origin/x` as the local branch refs/heads/origin/x when one exists (see UPSTREAM). A bare name with
+    no `<remote>/` (`upstream`) is no remote-tracking ref: it stays as given, so a caller (the ratchet and layer gate
+    tests) can name a local branch as the upstream."""
+    return ref if ref.startswith("refs/") or "/" not in ref else f"refs/remotes/{ref}"
 
 
 _full_ref = full_ref

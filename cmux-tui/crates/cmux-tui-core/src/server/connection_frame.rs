@@ -293,6 +293,11 @@ pub(super) fn handle_request_with_cancellation(
     writer: &MessageWriter,
     cancellation: Option<&ConnectionCancellation>,
 ) -> bool {
+    // Freed memory goes back to the system once requests stop (malloc_quiet_trim.rs). The app's
+    // liveness ask (`identify`, `ping`) is no activity: it would wake the trim on every ask.
+    if !request.cmd.answers_before_queue() {
+        cmux_tui_platform::malloc_quiet_trim::note_activity();
+    }
     let commands = mux.connection_stats().commands();
     // What the client says it is, for the counters only (never a trust decision), before its
     // reply: the client's next line already counts under it.
@@ -384,7 +389,8 @@ fn handle_request_uncounted(
                 .or_else(|| cloud_conversations::error_reason(&error));
             retryable = cloud_conversations::error_retryable(&error);
             details = renderer_grant::error_details(&error)
-                .or_else(|| conversations::error_details(&error));
+                .or_else(|| conversations::error_details(&error))
+                .or_else(|| stop_if_idle::error_details(&error));
             let error_code = response_error_code(&error);
             let error_delivery =
                 error.downcast_ref::<DeliveryClassifiedError>().map(|error| error.delivery);

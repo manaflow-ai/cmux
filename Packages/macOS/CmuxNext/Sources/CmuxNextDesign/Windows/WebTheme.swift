@@ -40,8 +40,20 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     /// (`ui.animations.web` or the master switch `ui.animations.enabled` off).
     public let motion: String
     /// `lens`, `plain` or `spectrum` (``GlassLensMode/current``, already `plain` under Reduce
-    /// Transparency and Low Power Mode): `data-glass` on `<html>`, which `.ui-glass` reads.
+    /// Transparency and Low Power Mode), or ``glassOff`` while `appearance.liquidGlass` is off:
+    /// `data-glass` on `<html>`, which `.ui-glass` reads.
     public let glass: String
+
+    /// `glass` while `appearance.liquidGlass` is off: every web glass surface draws solid, with a
+    /// hairline rim and no blur (webviews ui/glass/glass.css, `GLASS_OFF` in glassState.ts).
+    public static let glassOff = "off"
+    /// `current`, or ``glassLevelsPrevious`` while `appearance.previousGlass` is on:
+    /// `data-glass-levels` on `<html>`, which webviews ui/glass/glass.css reads to draw the glass
+    /// numbers from before the one glass system (design/glass-system.md). `current` removes it.
+    public let glassLevels: String
+
+    /// ``glassLevels`` while `appearance.previousGlass` is on.
+    public static let glassLevelsPrevious = "previous"
     /// `antialiased` or `subpixel` (`appearance.fontSmoothing`, ``FontSmoothing``, with `auto`
     /// resolved to native text's smoothing by ``pageSmoothing(_:native:)``):
     /// `data-cmux-font-smoothing` on `<html>`. The bootstrap stylesheet sets
@@ -153,6 +165,10 @@ public nonisolated struct WebTheme: Equatable, Sendable {
             // and secondary text 4.5:1 over any backdrop, and its rim.
             "--cmux-card-tint": Self.css(cardMaterial.tint),
             "--cmux-card-rim": Borders.drawsLines ? Self.css(cardMaterial.rim) : "transparent",
+            // A menu's veil (``GlassMenuMaterial/webClear(for:)``) as the share a web menu's own glass lets through:
+            // glass.css lays the menu tint at 100% - (100% - its level tint) × this, so a web menu is as much denser
+            // as a native one, and its own inks read over any page.
+            "--cmux-menu-clear": Self.menuClear(tokens),
             "--cmux-text": Self.css(tokens.textPrimary),
             "--cmux-text-secondary": Self.css(tokens.textSecondary),
             "--cmux-text-tertiary": Self.css(tokens.textTertiary),
@@ -211,7 +227,8 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         statusIndicators = !Motion.indicators.animatesLoops || DesignSettings.shared.statusIndicator.animation == .static ? "static" : "animated"
         workingLook = StatusWorkingLook.tunable.value.rawValue
         motion = Self.motionValue(Motion.web.policy)
-        self.glass = (glass ?? .current).rawValue
+        self.glass = DesignSettings.shared.liquidGlass ? (glass ?? .current).rawValue : Self.glassOff
+        glassLevels = DesignSettings.shared.previousGlass ? Self.glassLevelsPrevious : "current"
         decorations = ThemeDecorations.current.payload
         fontSmoothing = Self.pageSmoothing(DesignSettings.shared.fontSmoothing, native: .chrome)
     }
@@ -243,7 +260,7 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     public var payloadJSON: String {
         var object: [String: Any] = ["variables": variables, "colorScheme": colorScheme, "scrollers": scrollers,
                                      "terminal": terminal.json, "transition": transition, "statusIndicators": statusIndicators,
-                                     "workingLook": workingLook, "motion": motion, "glass": glass, "fontSmoothing": fontSmoothing]
+                                     "workingLook": workingLook, "motion": motion, "glass": glass, "glassLevels": glassLevels, "fontSmoothing": fontSmoothing]
         if !decorations.isEmpty { object["decorations"] = decorations }
         guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]),
               let json = String(data: data, encoding: .utf8) else { return "{}" }
@@ -392,6 +409,8 @@ public nonisolated struct WebTheme: Equatable, Sendable {
           if (payload.workingLook) root.setAttribute('data-working-look', payload.workingLook);
           if (payload.motion) root.setAttribute('data-cmux-motion', payload.motion);
           if (payload.glass) root.setAttribute('data-glass', payload.glass);
+          if (payload.glassLevels === 'previous') root.setAttribute('data-glass-levels', 'previous');
+          else if (payload.glassLevels) root.removeAttribute('data-glass-levels');
           if (payload.fontSmoothing) root.setAttribute('data-cmux-font-smoothing', payload.fontSmoothing);
           // The filled personality slots (ThemeDecorations): one attribute per slot; a slot the
           // last theme filled and this one leaves empty loses its attribute.
@@ -480,15 +499,22 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         return css(backgrounds.dividerLine(base: base) ?? base)
     }
 
-    /// The inputs of the page theme that no theme change pushes: `appearance.borders`, `appearance.fontSmoothing`, the divider
+    /// The inputs of the page theme that no theme change pushes: `appearance.borders`, `appearance.fontSmoothing`,
+    /// `appearance.liquidGlass`, `appearance.previousGlass`, the divider
     /// strength (`--cmux-chrome-divider`), the title area's tone and contrast and the chrome shade they
     /// make (`--cmux-sidebar-surface`, `--cmux-chrome-tone`, `--cmux-folder-fill`). The app repaints
     /// every page when one changes (`AppServices.observeBorders`).
     @MainActor
     public static var pushInputs: [String] {
         let design = DesignSettings.shared
-        return [Borders.current.mode.rawValue, design.fontSmoothing.rawValue, "\(ChromeTunables.dividerStrength.value)", design.titleAreaTone.rawValue,
+        return [Borders.current.mode.rawValue, design.fontSmoothing.rawValue, "\(design.liquidGlass)", "\(design.previousGlass)", "\(ChromeTunables.dividerStrength.value)", design.titleAreaTone.rawValue,
                 "\(design.titleAreaContrast)", "\(Metrics.mainPaneChromeShade(isDark: false))", "\(Metrics.mainPaneChromeShade(isDark: true))"]
+    }
+
+    /// `--cmux-menu-clear` for `tokens` (``GlassMenuMaterial/webClear(for:)``), to 3 decimals: 1 where the theme keeps
+    /// the 40% veil, 1/6 at the 90% cap.
+    static func menuClear(_ tokens: ThemeTokens) -> String {
+        String(format: "%.3f", locale: Locale(identifier: "en_US_POSIX"), GlassMenuMaterial.webClear(for: tokens))
     }
 
     /// `rgba(r, g, b, a)` with 0-255 channels.

@@ -74,9 +74,11 @@ cmux ext dev --once --json   # one round, for an agent's loop
 | `newTab(render)` | A whole New Tab page (`cmux.newtab/1`): the scene is the page body. It shows only once the person runs `cmux settings set tabs.newTabApp <your id>`; unset, or when the extension is hidden, disabled or fails, cmux draws its own page. Render gets `{ surface: "newTab", cwd? }`. Draws on the web New Tab page, not the native one (`tabs.nativeNewTabPage`). |
 | `widget(render)` | A widget (`cmux.widget/1`): a glanceable tile the person places on the New Tab page or in the sidebar from Edit Widgets > Add Widget, as many copies as they like. The manifest's `options` name `sizes` (`small` 1x1, `medium` 2x1, `large` 2x2 tiles; the sidebar takes small and medium), `defaultSize`, `refresh.everySeconds` (at least 60) and `places` (`newtab`, `sidebar`; missing means both). Render gets `{ surface: "widget", place, size, instance, settings, refresh, now(), preview? }`; a view that reads `ctx.now()` redraws on each host tick, which comes on the wall-clock boundary and only while the tile is shown. A resize remounts at the new size. cmux ships no widgets of its own. |
 | `WidgetFrame`, `WidgetTitle`, `BigNumber`, `Headline`, `Caption`, `Footnote`, `WidgetSymbol`, `Gauge`, `RowList`, `WidgetEmpty`, `bySize`, `WIDGET_TYPE`, `WIDGET_INSET`, `WIDGET_TILES` | Layout for widgets on Apple's widget type scale and 16 pt inset (12 in the sidebar): a frame, a tinted header, the big glanceable value, secondary lines, a gauge, a compact list with tinted bars, an empty state, and a pick by size. `cmux ext new NAME --kind widget` starts from them. |
+| `TYPE_ROLES`, `TextIn`, `Heading`, `Label`, `Body`, `SPACE`, `Space` | The type roles (numeral, heading, title, label, body, caption, footnote) and the spacing scale (0 2 4 6 8 12 16 20 24 32 48) the helpers use. Text goes through a role and gaps through `SPACE`; `cmux ext dev` warns on a size or gap off them, a raw or unknown color, more than two accents, low contrast, and in a widget more than four type roles or text with no line limit, each with its fix. `cmux ext design FILE` runs the same check on recorded scenes. |
 | `chatWidget(render)` | A chat widget (`cmux.chat.widget/1`): a card under each agent tool call whose name matches the manifest's `options.tools` (`*` matches any run of characters), and for widget parts an agent sends naming the extension. Render gets `{ surface: "chatWidget", widget: { key }, tool?: { name, title?, status?, input?, output? }, props? }`. cmux ships no widgets of its own; a missing, hidden or failing extension leaves the call as it was. Export the same render with `section(...)` to show it in the sidebar too. |
 | `command(run)` | A command an extension declares in `catalog.json`; runs from the palette, the CLI or another extension. |
 | `workspaces()`, `agents()`, `chats()` | Live lists: call one for the latest value; `.loading()`, `.error()`, `.refresh()`. One read however many views use it; re-read on the matching event. |
+| `recentChats({limit, state?, after?})` | The newest chats, at most `limit` (1 to 1000): a New Tab page's recent chats, a waiting-on-you list (`state: "input"`), or a page of All chats (`after` the last chat of the page before). cmux reads them from its ordered chat index, so a read costs the chats it returns, never a sort of every chat. Rows carry `preview`, the last reply. |
 | `on(stream, fn)` | Runs `fn` each time `stream` fires; returns the unsubscribe, and unsubscribes with the render that called it. An unknown stream throws at load. |
 | `onChange(live, fn, {initial})` | Runs `fn` with each new value of a live list. |
 | `EVENT_STREAMS`, `scopeFor(stream)` | The streams cmux sends and the scope each needs. |
@@ -140,8 +142,13 @@ agent chat composer, so saving `cmux-app.json` updates the composer without a re
 - `cmux.composer.mention/1`: items the daemon ranks for a query (`apps.composer.mentions`). Up to
   200 per extension.
 
-The TypeScript types are `ComposerCommand` and `ComposerMention`; in Rust,
-`Manifest::slash_command` and `Manifest::mention`.
+- `cmux.composer.chip/1`: context chips (`{"chips": [{"id", "label", "insert", "detail"?}]}`), short
+  labels the person clicks to add `insert` to the draft. The daemon lists them in
+  `apps.composer.list` (`chips`), in app id and manifest order, dropping a chip whose insert text
+  an earlier one already writes. Up to 12 per extension.
+
+The TypeScript types are `ComposerCommand`, `ComposerMention` and `ComposerChip`; in Rust,
+`Manifest::slash_command`, `Manifest::mention` and `Manifest::composer_chip`.
 
 ## The Rust API
 
