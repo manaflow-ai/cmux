@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The interaction latency benches of each cmux NEXT nightly: the ones its changes touched, run at its commit.
 
-Leo, 2026-11-19: "fuck it's annoying to use the app via terminal it's still slow as shit EVERYTHING IS FUCKING SLOW".
+Leo, 2026-11-19, paraphrased: the app is still slow everywhere, and that has to change.
 The perf cron (scripts/cmux-next/perf-cron.py) measures feat-cmux-next tips when a bench host is free, and went five
 days with no measurement (2026-11-17 to 11-22). This runs on every push to nightly-next (.github/workflows/
 nightly-interaction-latency.yml), on a Linux runner, and needs no Mac:

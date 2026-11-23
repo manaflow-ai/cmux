@@ -1,8 +1,8 @@
 name: nightly interaction latency
 
 # The interaction latency benches each cmux NEXT nightly touched, run at its commit (scripts/ci/
-# nightly_interaction_latency.py). Leo, 2026-11-19: "fuck it's annoying to use the app via terminal it's still slow
-# as shit EVERYTHING IS FUCKING SLOW". On each push to nightly-next it reads the last state (the newest
+# nightly_interaction_latency.py). Leo, 2026-11-19, paraphrased: the app is still slow everywhere. On each push to
+# nightly-next it reads the last state (the newest
 # nightly-interaction-latency artifact), picks the interactions whose files changed since the nightly it last
 # measured (and any still stale), runs their webviews/bench/web-ui-suite.ts benches one at a time on Linux, and
 # uploads the new state: each interaction's rows, the commit that measured them, and `stale` for one touched but not
