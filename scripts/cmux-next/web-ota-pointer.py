@@ -24,7 +24,8 @@ explicit version and stays valid (`--allow-expired`).
 
 Usage:
   web-ota-pointer.py payload --manifest M --abi-file F --channel C --commit SHA --committed-at T --out P
-  web-ota-pointer.py sign --payload P --key PEM --keys KEYS --out POINTER
+  web-ota-pointer.py sign --payload P --key PEM [--extra-key PEM2]... --keys KEYS --out POINTER
+      --extra-key: a rotation's next key; signs too when KEYS lists it, else skipped with a warning
   web-ota-pointer.py verify --pointer POINTER --keys KEYS [--channel C] [--purpose P [--allow-expired]]
       print the payload
   web-ota-pointer.py newer --pointer NEW --keys KEYS [--current CURRENT]  exit 0 when NEW moves forward
@@ -123,25 +124,43 @@ def openssl(*argv):
     return result.returncode == 0, result.stdout
 
 
-def sign(args):
-    keys = load_keys(args.keys)
-    payload = open(args.payload, "rb").read()
-    json.loads(payload)
-    der = subprocess.run(["openssl", "pkey", "-in", args.key, "-pubout", "-outform", "DER"], capture_output=True)
+def signature_of(payload, pem, keys, keys_path):
+    """(key_id, signature) of `payload` by the ed25519 private key `pem`; Refused unless `keys` lists it."""
+    der = subprocess.run(["openssl", "pkey", "-in", pem, "-pubout", "-outform", "DER"], capture_output=True)
     if der.returncode != 0 or not der.stdout.startswith(ED25519_SPKI_PREFIX) or len(der.stdout) != 44:
-        fail("the signing key is not an ed25519 private key")
+        raise Refused(f"the signing key {pem} is not an ed25519 private key")
     raw = der.stdout[len(ED25519_SPKI_PREFIX):]
     key_id = hashlib.sha256(raw).hexdigest()[:16]
     if keys.get(key_id) != raw:
-        fail(f"the signing key {key_id} is not in {args.keys}; the app would refuse its pointers")
+        raise Refused(f"the signing key {key_id} is not in {keys_path}; the app would refuse its pointers")
     with tempfile.TemporaryDirectory() as tmp:
         data = os.path.join(tmp, "payload")
         open(data, "wb").write(payload)
-        ok, sig = openssl("pkeyutl", "-sign", "-inkey", args.key, "-rawin", "-in", data)
+        ok, sig = openssl("pkeyutl", "-sign", "-inkey", pem, "-rawin", "-in", data)
     if not ok or len(sig) != 64:
-        fail("openssl could not sign the payload")
+        raise Refused("openssl could not sign the payload")
+    return key_id, sig
+
+
+def sign(args):
+    """Sign with --key, and with each --extra-key the key list already names (a key rotation's next
+    key: verifiers take any one listed signature, so a dual-signed file verifies on hosts that know
+    only the old key and on hosts that know only the new one). An --extra-key the list does not name
+    yet (its public half has not shipped) is skipped with a warning, never a failure."""
+    keys = load_keys(args.keys)
+    payload = open(args.payload, "rb").read()
+    json.loads(payload)
+    signed = [signature_of(payload, args.key, keys, args.keys)]
+    for pem in args.extra_key or []:
+        try:
+            key_id, sig = signature_of(payload, pem, keys, args.keys)
+        except Refused as error:
+            print(f"::warning::web-ota-pointer: extra signing key skipped: {error}", file=sys.stderr)
+            continue
+        if key_id not in [k for k, _ in signed]:
+            signed.append((key_id, sig))
     envelope = {"schema": SCHEMA, "payload": base64.b64encode(payload).decode(),
-                "signatures": [{"key_id": key_id, "sig": base64.b64encode(sig).decode()}]}
+                "signatures": [{"key_id": k, "sig": base64.b64encode(sig).decode()} for k, sig in signed]}
     with open(args.out, "w") as out:
         json.dump(envelope, out, indent=1, sort_keys=True)
         out.write("\n")
@@ -292,6 +311,7 @@ def main(argv):
     s = sub.add_parser("sign")
     for name in ("--payload", "--key", "--keys", "--out"):
         s.add_argument(name, required=True)
+    s.add_argument("--extra-key", action="append", help="also sign with this key when KEYS lists it (rotation)")
     v = sub.add_parser("verify")
     v.add_argument("--pointer", required=True)
     v.add_argument("--keys", required=True)

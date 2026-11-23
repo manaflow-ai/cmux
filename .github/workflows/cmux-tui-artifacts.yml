@@ -4991,6 +4991,9 @@ jobs:
           AWS_DEFAULT_REGION: auto
           R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
           SIGNING_KEY: ${{ secrets.CMUX_WEB_OTA_SIGNING_KEY }}
+          # The dedicated Linux release key (linux-signed-packages.md section 3): signs the Linux release
+          # files beside SIGNING_KEY once web-update-keys.json lists it; unset, they carry SIGNING_KEY's alone.
+          LINUX_RELEASE_SIGNING_KEY: ${{ secrets.CMUX_LINUX_RELEASE_SIGNING_KEY }}
           GH_TOKEN: ${{ github.token }}  # gh run download, for the Linux release file
           VERIFY_PUBLISH: ${{ needs.verify-publish.result }}
         run: |
