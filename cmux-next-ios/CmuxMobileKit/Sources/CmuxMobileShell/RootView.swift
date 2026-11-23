@@ -72,6 +72,7 @@ public struct RootView: View {
     @State private var sidebar = SidebarModel()
     /// The app's keyboard notifications, for every keyboard-pinned composer.
     @State private var keyboard = MobileKeyboardFrameTracker()
+    @Environment(\.scenePhase) private var scenePhase
     @State private var launchFinished = false
     /// The startup spring: the shell's arrival from the launch mark.
     private static let startupSpring = Animation.spring(response: 0.55, dampingFraction: 0.86)
@@ -191,6 +192,15 @@ public struct RootView: View {
         }
         .animation(theme.motion.gentle.animation.unlessReduceMotion, value: destination)
         .environment(\.mobileKeyboardFrameTracker, keyboard)
+        // Back in the app: a keyboard the tracker holds as up while nothing
+        // takes keys went away unannounced; every composer docked to it rests
+        // at the bottom again (MobileKeyboardFrameTracker.dropKeyboardWithoutOwner).
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active {
+                keyboard.dropKeyboardWithoutOwner()
+                HomeNewMessage.appActiveChanged()
+            }
+        }
         // A fold or unfold resizes the window with no rotation: the app's orientations follow it.
         .onGeometryChange(for: Bool.self) { proxy in
             let insets = proxy.safeAreaInsets
@@ -566,7 +576,6 @@ struct ShellView: View {
     /// App Store plans from the root (nil hides Settings → Plan).
     @Environment(BillingModel.self) private var billing: BillingModel?
     @State private var shell: ShellModel
-    @State private var inviteEmail = ""
     private let options: ShellLaunchOptions
     /// RootView's coordinator; it can arrive after the shell is built.
     private let live: LiveCoordinator?
@@ -646,14 +655,16 @@ struct ShellView: View {
             get: { shell.invitingTeam != nil },
             set: { if !$0 { shell.invitingTeam = nil } }
         )) {
-            TextField("Email", text: $inviteEmail)
+            // The address stays until it is sent (ShellModel.inviteEmailDraft); Send waits for one.
+            TextField("Email", text: $shell.inviteEmailDraft)
                 .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
                 .keyboardType(.emailAddress)
-            Button("Cancel", role: .cancel) { inviteEmail = "" }
+            Button("Cancel", role: .cancel) { shell.inviteEmailDraft = "" }
             Button("Send") {
-                if let team = shell.invitingTeam { shell.sendInvite(email: inviteEmail, to: team) }
-                inviteEmail = ""
+                if let team = shell.invitingTeam { shell.sendInvite(email: shell.inviteEmailDraft, to: team) }
             }
+                .disabled(!InviteEmail.isPlausible(shell.inviteEmailDraft))
                 .keyboardShortcut(.defaultAction)
         } message: {
             Text("They'll get an email invitation to join.")
@@ -945,6 +956,8 @@ struct ShellTabs: View {
             }
         }
         .tabBarMinimizeBehavior(.never)
+        // One pane on a phone, a list beside its detail unfolded (Rust's `window_layout`).
+        .modifier(ShellWindowLayoutReader())
         .tint(theme.colors.label.color)
         .cmuxMobileSensoryFeedback(.selection, trigger: shell.tab)
         // A closed ask's notification leaves Notification Center; only when an ask opens or

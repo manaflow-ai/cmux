@@ -1,6 +1,46 @@
 use serde_json::json;
 
-use super::{LowerChange, not_bundled_note, routes_to_app, still_open};
+use super::{HELP, LowerChange, VERB_USAGE, not_bundled_note, refusal, routes_to_app, still_open};
+
+fn words(list: &[&str]) -> Vec<String> {
+    list.iter().map(|word| (*word).to_string()).collect()
+}
+
+/// A known verb with missing or wrong arguments names its own usage, not
+/// "unknown remote-host command" (a bare `cmux remote-host access` said that).
+#[test]
+fn a_known_verb_with_wrong_arguments_names_its_usage() {
+    assert_eq!(
+        refusal(&words(&["access"])),
+        "usage: cmux remote-host access DEVICE none|ask|view|full"
+    );
+    assert_eq!(
+        refusal(&words(&["access", "my-iphone"])),
+        "usage: cmux remote-host access DEVICE none|ask|view|full"
+    );
+    assert_eq!(
+        refusal(&words(&["access", "my-iphone", "admin"])),
+        "usage: cmux remote-host access DEVICE none|ask|view|full"
+    );
+    assert_eq!(
+        refusal(&words(&["request"])),
+        "usage: cmux remote-host request accessibility|screen-recording"
+    );
+    assert_eq!(
+        refusal(&words(&["share"])),
+        "usage: cmux remote-host share on|off, or share on --device DEVICE"
+    );
+    assert_eq!(refusal(&words(&["frobnicate"])), "unknown remote-host command \"frobnicate\"");
+    assert_eq!(refusal(&words(&["--bogus"])), "remote-host does not take \"--bogus\"");
+}
+
+/// Every verb usage names a verb HELP lists, so the two cannot drift apart.
+#[test]
+fn every_verb_usage_is_a_verb_help_lists() {
+    for (verb, _) in VERB_USAGE {
+        assert!(HELP.contains(&format!("cmux remote-host {verb}")), "{verb} is not in HELP");
+    }
+}
 
 /// A build without cmux Remote (`bundled: false`) sends share off and stop
 /// to the app, as share on already goes; a build with it, an older daemon

@@ -34,6 +34,8 @@ fn wire_name_round_trips_through_serde() {
         "cloud.machine.io",
         "cloud.machine.chat_access",
         "cloud.machine.share_chat",
+        "cloud.machine.chief_start",
+        "cloud.machine.chief_resize",
         "palette.rank",
         "chat.list",
         "chat.mark_read",
