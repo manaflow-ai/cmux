@@ -1336,7 +1336,7 @@ for operand in operands:
 if default is None:
     fail(f"yields no label by default: {runs_on}")
 if judged(default):
-    fail(f"takes {default} first, a label the janitor judges; lead with one it does not judge (cmux-gcp-repair-jit-x64)")
+    fail(f"takes {default} first, a label the janitor judges; lead with one it does not judge (ubuntu-24.04)")
 print(f"PASS: the queue janitor takes {default} by default, a label it does not judge, and names no Blacksmith label")
 PY
 }
@@ -1373,17 +1373,15 @@ check_no_github_hosted_runners() {
   #     a fork's: `needs.resolve-ref.outputs.trusted_ref != 'true' && 'ubuntu-24.04'` (the
   #     ref is not a branch head of this repository) or `github.event_name ==
   #     'workflow_dispatch' && inputs.ref != '' && 'ubuntu-24.04'` (#47956 review);
-  #   - the label list inside the exact CI_TRUSTED_RUNNER selector, which names
-  #     Blacksmith sizes only: until 2026-11-21 it also accepted ubuntu-24.04, and
-  #     while CI_TRUSTED_RUNNER named it the jobs behind it sat queued for 15 hours
-  #     (Leo, 2026-11-21: "the ci must flow"), so a hosted label inside that list fails;
+  #   - the label list inside the exact CI_TRUSTED_RUNNER selector, where
+  #     GitHub-hosted is an operator choice and Blacksmith is the default;
   #   - the exact lines in `exceptions` below, each with the reason it cannot move.
   # Runner-selection positions: runs-on, labels/group, matrix os/runner keys,
   # scalar list items, dispatch defaults, and every *RUNNER* key (env mirrors
   # and inputs feed runs-on too).
   local hosted='(^|[^A-Za-z0-9_-])(ubuntu-(latest|slim|[0-9]{2}[.][0-9]{2}(-arm)?)|macos-(latest|[0-9]+(-intel|-large|-xlarge|-arm64)?)|windows-(latest|[0-9]{4}(-arm)?|11-arm))([^A-Za-z0-9_.-]|$)'
   local fork_branch="(github[.]repository_owner != 'manaflow-ai' [&][&] ('[A-Za-z0-9._-]+'|matrix[.]hosted_runner)|github[.]event_name == 'pull_request' [&][&] github[.]event[.]pull_request[.]head[.]repo[.]full_name != github[.]repository( [&][&] !contains[(]fromJSON[(]inputs[.]owned_head_repos[)], github[.]event[.]pull_request[.]head[.]repo[.]full_name[)])? [&][&] 'ubuntu-24[.]04'|needs[.]resolve-ref[.]outputs[.]trusted_ref != 'true' [&][&] 'ubuntu-24[.]04'|github[.]event_name == 'workflow_dispatch' [&][&] inputs[.]ref != '' [&][&] 'ubuntu-24[.]04')"
-  local trusted_list='fromJSON[(]'"'"'[[]"blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"(,"blacksmith-8vcpu-ubuntu-2404")?[]]'"'"'[)], vars[.]CI_TRUSTED_RUNNER'
+  local trusted_list='fromJSON[(]'"'"'[[]"ubuntu-24[.]04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"(,"blacksmith-8vcpu-ubuntu-2404")?(,"cmux-gcp-secret-jit-x64")?[]]'"'"'[)], vars[.]CI_TRUSTED_RUNNER'
   # "<workflow>:<line content>" -> why it stays GitHub-hosted. Exact lines only.
   # This is the whole allowlist: every other Linux job takes a Blacksmith label
   # sized to the job (Leo, 2026-10-27: "just put it on blacksmith / 16vcpu
@@ -1500,22 +1498,21 @@ PY_LIGHT
     "tui-publish-pypi.yml:    runs-on: ubuntu-latest # github-hosted-required: PyPI trusted publishing needs a GitHub-hosted runner"
     # crates.io trusted publishing (id-token: write) takes GitHub's OIDC on a GitHub-hosted runner.
     "sdk-release-cut.yml:    runs-on: ubuntu-latest # github-hosted-required: crates.io trusted publishing needs a GitHub-hosted runner"
-    # Reads untrusted pull request source (pull_request_target) and requires an ephemeral runner; the
-    # persistent Linux pool registers every blacksmith-*-ubuntu-2404 label, so only hosted Ubuntu is
-    # ephemeral (run 44801662760 landed on cmux-runner-pool-n4c-0027). Not a required check on main.
-    "web-complexity-trusted.yml:    runs-on: ubuntu-24.04 # github-hosted-required: reads untrusted pull request source; the persistent pool carries every Blacksmith Linux label"
     # The packages' attestations are verified with --deny-self-hosted-runners,
     # so they must be signed on a GitHub-hosted runner.
     "cmux-tui-build-package.yml:    runs-on: ubuntu-latest # github-hosted-required: artifact attestations need GitHub OIDC"
-    # Leo owns language-boundaries.yml (its own guard refuses a change without his
-    # leo-approved-port label), so it keeps the CI_TRUSTED_RUNNER selector that
-    # still admits ubuntu-24.04 until he moves it; nothing else may.
-    "language-boundaries.yml:    runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('[\"ubuntu-24.04\",\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}"
-    # validate-cla-policy.rb pins the CLA jobs' runs-on to its exact allowlist, and the base
-    # branch's validator plus a trusted review gate any change to it, so these two keep the
-    # selector that still admits ubuntu-24.04 until a CLA policy PR moves them.
-    "cla.yml:    runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('[\"ubuntu-24.04\",\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: write token on fork pull requests"
-    "cla-policy-guard.yml:    runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('[\"ubuntu-24.04\",\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}"
+    # The queue repair job must not depend on the pools it repairs: the queue
+    # janitor's sweep judges the owned labels (glaeda-*, cmux-fleet-linux-x64)
+    # and moves the Blacksmith pools, so a busy pool would hold back the job
+    # that relieves it (a sweep waited 77 minutes on 2026-11-20). It runs on
+    # GitHub-hosted Ubuntu, with the fleet label behind a repository variable
+    # (hq docs/handbook/repair-path-on-the-pool-it-repairs.md;
+    # check_queue_janitor_runs_off_the_pools_it_judges).
+    "ci-queue-janitor.yml:    runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_QUEUE_JANITOR_ON_FLEET == '1' && 'cmux-fleet-linux-x64' || 'ubuntu-24.04' }}"
+    # Its watchdog runs off the label the sweep runs on, so it is hosted Ubuntu
+    # exactly when CI_QUEUE_JANITOR_ON_FLEET=1 puts the sweep on the fleet label
+    # (tests/test_ci_janitor_watchdog_route.py).
+    "ci-queue-janitor-watchdog.yml:    runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_QUEUE_JANITOR_ON_FLEET != '1' && 'cmux-fleet-linux-x64' || 'ubuntu-24.04' }}"
   )
   # The declared hosted light jobs' exact runs-on lines (validated above).
   local light_line
@@ -1538,11 +1535,7 @@ PY_LIGHT
                "runs-on: \${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}" \
                "runs-on: \${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && 'ubuntu-24.04' || 'cmux-linux' }}" \
                "LINUX_ARM64_RUNNER: \${{ vars.LINUX_ARM64_RUNNER || 'ubuntu-24.04-arm' }}" \
-               "runs-on: \${{ vars.MACOS_RUNNER_BACKGROUND || 'macos-15' }}" 'runs-on: macos-15-intel' 'runs-on: windows-2025' \
-               "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('[\"ubuntu-24.04\",\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}" \
-               "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('[\"ubuntu-24.04\",\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\",\"blacksmith-8vcpu-ubuntu-2404\"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}" \
-               "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_QUEUE_JANITOR_ON_FLEET == '1' && 'cmux-fleet-linux-x64' || 'ubuntu-24.04' }}" \
-               "runs-on: \${{ contains(fromJSON('[\"blacksmith-8vcpu-ubuntu-2404\"]'), inputs.runner) && inputs.runner || 'ubuntu-24.04' }}"; do
+               "runs-on: \${{ vars.MACOS_RUNNER_BACKGROUND || 'macos-15' }}" 'runs-on: macos-15-intel' 'runs-on: windows-2025'; do
     if ! printf '%s\n' "$probe" | sed -E "s/$fork_branch//g; s/$trusted_list//g" | grep -Eq "$hosted"; then
       echo "FAIL: GitHub-hosted runner guard self-test missed a GitHub-hosted label: $probe"
       exit 1
@@ -1550,11 +1543,10 @@ PY_LIGHT
   done
   for probe in "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}" \
                "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'windows-2025' || 'blacksmith-4vcpu-windows-2025' }}" \
-               "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('[\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}" \
-               "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('[\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\",\"blacksmith-8vcpu-ubuntu-2404\"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}" \
-               "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_QUEUE_JANITOR_ON_FLEET == '1' && 'cmux-fleet-linux-x64' || 'cmux-gcp-repair-jit-x64' }}" \
-               "runs-on: \${{ contains(fromJSON('[\"blacksmith-8vcpu-ubuntu-2404\"]'), inputs.runner) && inputs.runner || 'cmux-gcp-pr-control-jit-x64' }}" \
-               "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-pr-control-jit-x64' }}" \
+               "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('[\"ubuntu-24.04\",\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}" \
+               "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('[\"ubuntu-24.04\",\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\",\"blacksmith-8vcpu-ubuntu-2404\"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}" \
+               "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('[\"ubuntu-24.04\",\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\",\"blacksmith-8vcpu-ubuntu-2404\",\"cmux-gcp-secret-jit-x64\"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}" \
+               "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('[\"ubuntu-24.04\",\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\",\"cmux-gcp-secret-jit-x64\"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}" \
                "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}" \
                "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && !contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && 'ubuntu-24.04' || 'cmux-linux' }}" \
                '- blacksmith-6vcpu-macos-15' 'runs-on: blacksmith-4vcpu-ubuntu-2404-arm' '- warp-macos-15-arm64-6x'; do

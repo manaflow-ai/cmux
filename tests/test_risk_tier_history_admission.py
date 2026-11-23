@@ -41,7 +41,7 @@ class HistoryAdmission(unittest.TestCase):
         self.assertNotIn("if", self.job)
         for name in ("Checkout the classifier at the tip of the pull request's base branch",
                      "Grade the pull request", "Set the risk label",
-                     "Hold high until a person looked"):
+                     "Hold only an unowned takeback"):
             self.assertIn(name, self.steps)
         grade = self.steps["Grade the pull request"]
         self.assertNotIn("if", grade)

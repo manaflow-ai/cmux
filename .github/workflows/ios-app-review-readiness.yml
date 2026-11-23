@@ -7,14 +7,26 @@ name: iOS App Review readiness
 # The App Store app is the cmux NEXT iPhone app (cmux-next-ios, com.cmux.app,
 # built from feat-cmux-next), so its gate is feat-cmux-next's
 # ios-review-gate.yml (cmux-next-ios/AppStoreReview/APP-REVIEW-GATE.md): the
-# guideline lint, and the reviewer-path walk on iPhone, iPad and iPhone Duo
-# with the agent reviewer pass. This job dispatches that workflow on
-# feat-cmux-next for the feat-cmux-next head and takes its run's conclusion,
-# as ios-reliability-matrix.yml starts the matrix. It holds no secret: the
-# gate runs as feat-cmux-next's own run with feat-cmux-next's own rules, and
-# main's release key never reaches a workflow defined on another branch.
-# `asc validate --strict` needs that key, so it stays in the production
-# submission (ios-app-store.yml), which calls the gate with it.
+# guideline lint, and the reviewer-path walk on iPhone, iPad and iPhone Duo.
+# The review-gate job dispatches that workflow on feat-cmux-next for the
+# feat-cmux-next head and takes its run's conclusion, as
+# ios-reliability-matrix.yml starts the matrix. It holds no secret: the gate
+# runs as feat-cmux-next's own run, and main's release key never reaches a
+# workflow defined on another branch.
+#
+# A dispatched gate runs on refs/heads/feat-cmux-next, where its asc-validate
+# job skips (it needs the release environment, which serves main), and main's
+# production pipeline that used to call it with the key is retired
+# (ios-app-store.yml). So the App Store Connect half runs here, on main, in
+# the app-store-connect job: `asc validate --strict` and `asc metadata
+# validate`, and the review package (cmux#40346's checks, now feat-cmux-next's
+# cmux-next-ios/scripts/asc_review_package.py: the App Review notes render
+# from App Store Connect's review detail, and every locale's Support URL
+# matches the repository), each read-only (--dry-run: nothing is written).
+# That job runs only `asc` and the gate's own scripts at the judged
+# feat-cmux-next SHA, as the gate's asc-validate job does; the keyless verdict
+# job ranks their JSON with the gate's report (app_review_gate.py report),
+# which blocks on every finding and on a check that left no result.
 #
 # No paths filter. One waiter at a time: a newer main push cancels the older
 # push run still waiting, and the newer run carries the verdict for the newest
@@ -35,6 +47,10 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'push' }}
 
 permissions: {}
+
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
 
 jobs:
   review-gate:
@@ -57,16 +73,19 @@ jobs:
         run: |
           set -euo pipefail
           # One refused read must not turn the push run red with no verdict (run
-          # 43618862433): each call gets 5 tries a minute apart. A dispatch whose
-          # reply was lost and is sent again makes at most one extra gate run.
-          # gh api prints a refused call's error body to stdout, so only the
-          # successful try's output is passed on.
+          # 43618862433): each call gets 5 tries, 30, 60, 120 and 240 s apart. A
+          # dispatch whose reply was lost and is sent again makes at most one
+          # extra gate run. gh api prints a refused call's error body to stdout,
+          # so only the successful try's output is passed on; a failed try's body
+          # goes into its warning (run 45101415966 failed 5 times and said
+          # nothing about why).
           ghr() {
-            local out
+            local out err delay=30
+            err="$(mktemp)"
             for try in 1 2 3 4 5; do
-              out="$(gh api "$@")" && { printf '%s\n' "$out"; return 0; }
-              echo "::warning::gh api $1 failed (try $try of 5)" >&2
-              [[ $try -lt 5 ]] && sleep 60
+              out="$(gh api "$@" 2>"$err")" && { printf '%s\n' "$out"; return 0; }
+              echo "::warning::gh api $1 failed (try $try of 5): $(cat "$err" - <<<"$out" | tr '\n' ' ' | cut -c1-300)" >&2
+              [[ $try -lt 5 ]] && { sleep "$delay"; delay=$((delay * 2)); }
             done
             return 1
           }
@@ -80,8 +99,12 @@ jobs:
           # The repository's run list, matched on each run's workflow path: the
           # gate's file exists only on feat-cmux-next, not in this branch's
           # .github/workflows.
-          run_id="$(ghr "repos/$GITHUB_REPOSITORY/actions/runs?event=workflow_dispatch&branch=feat-cmux-next&head_sha=$sha&per_page=100" \
-            --jq '[.workflow_runs[] | select(.path == ".github/workflows/ios-review-gate.yml" and .actor.login == "github-actions[bot]" and .conclusion != "cancelled")][0].id // empty')"
+          # The lookup only saves a gate run, so a lookup GitHub keeps refusing
+          # dispatches a new one instead of turning the push run red with no
+          # verdict (readiness run 45101415966: the list read failed 5 times).
+          run_id="$(ghr "repos/$GITHUB_REPOSITORY/actions/runs?event=workflow_dispatch&branch=feat-cmux-next&head_sha=$sha&per_page=30" \
+            --jq '[.workflow_runs[] | select(.path == ".github/workflows/ios-review-gate.yml" and .actor.login == "github-actions[bot]" and .conclusion != "cancelled")][0].id // empty')" \
+            || { echo "::warning::could not list gate runs for $sha; dispatching one" >&2; run_id=""; }
           if [[ -z "$run_id" ]]; then
             # return_run_details: the reply names the run this dispatch made, so a
             # concurrent dispatch is never mistaken for it. No inputs.ref: the gate
@@ -133,3 +156,162 @@ jobs:
             esac
             sleep 120
           done
+
+  # The feat-cmux-next commit the App Store Connect checks judge, and the
+  # version they validate (the AppStore configuration's MARKETING_VERSION),
+  # read with no secret in the job.
+  plan:
+    name: App Store Connect plan
+    if: github.repository == 'manaflow-ai/cmux'
+    permissions:
+      contents: read
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 5
+    outputs:
+      sha: ${{ steps.plan.outputs.sha }}
+      version: ${{ steps.plan.outputs.version }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: feat-cmux-next
+          persist-credentials: false
+          sparse-checkout: |
+            cmux-next-ios/project.yml
+            cmux-next-ios/scripts
+          sparse-checkout-cone-mode: false
+      - name: Resolve the judged commit and version
+        id: plan
+        run: |
+          set -euo pipefail
+          sha="$(git rev-parse HEAD)"
+          version="$(python3 -I cmux-next-ios/scripts/app_review_gate.py version --source-root . --lane appstore || true)"
+          [[ "$version" =~ ^[0-9][0-9.]*$ ]] || version=""
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "App Store Connect checks judge feat-cmux-next $sha, version ${version:-unknown}" | tee -a "$GITHUB_STEP_SUMMARY"
+
+  # Read-only: nothing here writes to App Store Connect. The key is decoded
+  # for this one step and removed after it; the outputs are asc's JSON and the
+  # review package's own lines, which carry no account value.
+  app-store-connect:
+    name: App Store Connect (asc validate --strict, review package; read-only)
+    needs: plan
+    if: github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/main'
+    environment: release
+    permissions:
+      contents: read
+    # It holds the App Store Connect key, so it takes an ephemeral Linux
+    # machine, as ios-asc-ops.yml's key-holding job does; nothing here needs a Mac.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 20
+    env:
+      ASC_APP_ID: ${{ vars.IOS_APPSTORE_APP_ID }}
+      ASC_VERSION: ${{ needs.plan.outputs.version }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
+          persist-credentials: false
+          sparse-checkout: |
+            cmux-next-ios/project.yml
+            cmux-next-ios/scripts
+            cmux-next-ios/AppStoreReview
+          sparse-checkout-cone-mode: false
+      - name: Install asc
+        env:
+          ASC_CLI_VERSION: 7.2.0
+          ASC_CLI_SHA256: b77872625ba50d95a3a92b3d289d28617e1ccec6d9ae80206ef1956bcb6121ba
+        run: |
+          set -euo pipefail
+          bin="$RUNNER_TEMP/bin"; mkdir -p "$bin"
+          curl -fsSL --retry 3 -o "$bin/asc" \
+            "https://github.com/rudrankriyam/App-Store-Connect-CLI/releases/download/$ASC_CLI_VERSION/asc_${ASC_CLI_VERSION}_linux_amd64"
+          echo "$ASC_CLI_SHA256  $bin/asc" | sha256sum -c -
+          chmod +x "$bin/asc"
+          echo "$bin" >> "$GITHUB_PATH"
+          "$bin/asc" --version
+      - name: Read-only App Store Connect checks
+        env:
+          ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+          ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
+        run: |
+          set -uo pipefail
+          mkdir -p out
+          key="$RUNNER_TEMP/AuthKey.p8"
+          trap 'rm -f "$key"' EXIT
+          printf '%s' "$ASC_API_KEY_P8_BASE64" | base64 --decode > "$key"
+          chmod 600 "$key"
+          unset ASC_API_KEY_P8_BASE64
+          export ASC_KEY_ID="$ASC_API_KEY_ID" ASC_ISSUER_ID="$ASC_API_ISSUER_ID" ASC_PRIVATE_KEY_PATH="$key"
+          error() { printf '{"issues":[{"severity":"error","code":"%s","message":"%s"}]}\n' "$1" "$2"; }
+          if ! [[ "$ASC_APP_ID" =~ ^[0-9]+$ ]]; then
+            error app.unknown "no App Store Connect app id (repository variable IOS_APPSTORE_APP_ID)" > out/asc-validate.json
+            exit 0
+          fi
+          if [ -z "$ASC_VERSION" ]; then
+            error version.unknown "no MARKETING_VERSION in cmux-next-ios/project.yml" > out/asc-validate.json
+            exit 0
+          fi
+          asc validate --app "$ASC_APP_ID" --version "$ASC_VERSION" --platform IOS --strict --output json > out/asc-validate.json || true
+          asc metadata validate --dir cmux-next-ios/AppStoreReview/metadata --output json > out/asc-metadata.json || true
+          # The review package, --dry-run: sync-notes fails when App Store
+          # Connect lacks a value the notes need (demo account, contact) and
+          # notes a drift the submission's own sync-notes writes; sync-listing
+          # fails on a locale whose Support URL differs (Guideline 1.5).
+          pkg=cmux-next-ios/scripts/asc_review_package.py
+          python3 -I "$pkg" --app "$ASC_APP_ID" --config AppStore sync-notes --version "$ASC_VERSION" --dry-run 2> out/notes.log
+          notes=$?
+          python3 -I "$pkg" --app "$ASC_APP_ID" --config AppStore sync-listing --version "$ASC_VERSION" --dry-run 2> out/listing.log
+          listing=$?
+          cat out/notes.log out/listing.log
+          python3 -I - "$notes" "$listing" > out/asc-review-package.json <<'PY'
+          import json, sys
+          issues = []
+          for code, status, log in (("review-package.notes", int(sys.argv[1]), "out/notes.log"),
+                                    ("review-package.support-url", int(sys.argv[2]), "out/listing.log")):
+              lines = [l.split(": ", 1)[-1].strip() for l in open(log, errors="replace") if l.strip()]
+              if status:
+                  bad = [l.removeprefix("BLOCKING: ") for l in lines if l.startswith(("BLOCKING", "error"))] or lines[-1:]
+                  issues += [{"severity": "error", "code": code, "message": m[:500]} for m in bad or [f"exited {status}"]]
+              else:
+                  issues += [{"severity": "info", "code": code, "message": m[:500]} for m in lines]
+          json.dump({"issues": issues}, sys.stdout)
+          PY
+          rm -f out/*.log
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: asc-readiness
+          path: out/asc-*.json
+          retention-days: 3
+
+  # The verdict, with no secret: the gate's own report on the App Store
+  # Connect JSON. Every finding blocks, and a check that left no result is
+  # `asc.missing`, never a pass.
+  app-store-connect-verdict:
+    name: App Store Connect verdict
+    needs: [plan, app-store-connect]
+    if: ${{ !cancelled() && needs.plan.result == 'success' }}
+    permissions:
+      contents: read
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
+          persist-credentials: false
+          sparse-checkout: cmux-next-ios/scripts
+          sparse-checkout-cone-mode: false
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        continue-on-error: true
+        with:
+          name: asc-readiness
+          path: in
+      - name: One ranked list
+        run: |
+          set -uo pipefail
+          args=(report --out app-store-connect.md)
+          while IFS= read -r f; do args+=(--asc-validate "$f"); done < <(find in -name 'asc-*.json' -type f 2>/dev/null | sort)
+          python3 -I cmux-next-ios/scripts/app_review_gate.py "${args[@]}"

@@ -386,6 +386,35 @@ TIP = "c" * 40
 IDLE = [run(21, 40, status="completed", head_sha=HEAD)]
 
 
+class SignerStaggerTests(unittest.TestCase):
+    """2 slots: one building run leaves the other signer Mac free, but the second start waits half a build
+    (SIGNER_STAGGER_MINUTES) after the newest start so the two finish apart."""
+
+    def decide(self, starts, slots=2, waiting=True):
+        return rolling.decide(NOW, head=HEAD, head_runs=[r for r in starts if r.get("head_sha") == HEAD],
+                              jobs_of=lambda r: ONE_BUILDING, promotions=[],
+                              oldest_waiting=(WAITING, NOW - dt.timedelta(minutes=5)) if waiting else None,
+                              starts=starts, slots=slots)
+
+    def test_one_build_half_done_promotes_onto_the_other_mac(self):
+        go, reason = self.decide([run(40, 20, head_sha=HEAD)])
+        self.assertTrue(go, reason)
+        self.assertIn("1 of 2 nightly-next slots busy", reason)
+
+    def test_one_build_just_started_waits_half_a_build(self):
+        go, reason = self.decide([run(41, 12, head_sha=HEAD)])
+        self.assertFalse(go, reason)
+        self.assertIn("started 12 of 16 min ago", reason)
+
+    def test_a_free_slot_with_nothing_waiting_waits(self):
+        go, reason = self.decide([run(45, 20, head_sha=HEAD)], waiting=False)
+        self.assertFalse(go, reason)
+
+    def test_one_slot_is_unchanged(self):
+        go, reason = self.decide([run(44, 20, head_sha=HEAD)], slots=1)
+        self.assertFalse(go, reason)
+
+
 class Api:
     """Answers by path prefix, as `gh api` does; a value that is an exception is raised."""
 
