@@ -292,7 +292,10 @@ pub fn offers_h264_baseline(codec: &str) -> bool {
 /// The session's settings with the viewer's caps applied: a viewer that negotiated
 /// `h264.baseline` (OpenH264, which shows a High-profile stream as wrong pictures with no
 /// error, cmux#50591) gets Constrained Baseline whatever `--profile` says.
-fn session_cfg(cfg: &SessionCfg, negotiated_caps: &[String]) -> std::borrow::Cow<'_, SessionCfg> {
+fn session_cfg<'a>(
+    cfg: &'a SessionCfg,
+    negotiated_caps: &[String],
+) -> std::borrow::Cow<'a, SessionCfg> {
     let baseline = negotiated_caps.iter().any(|c| c == cmux_rd_core::service::caps::H264_BASELINE);
     if baseline && cfg.profile != "baseline" {
         std::borrow::Cow::Owned(SessionCfg { profile: "baseline".into(), ..cfg.clone() })
