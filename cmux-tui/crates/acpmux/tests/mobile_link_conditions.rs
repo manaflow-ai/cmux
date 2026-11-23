@@ -145,7 +145,8 @@ struct Link {
     capabilities: Vec<String>,
     /// The `timeBreakdownVersion` the last attach reply named; a reattach sends it back so the
     /// daemon leaves out a breakdown this side already holds (the app's AcpmuxSessionSource
-    /// keeps it the same way). `None` against a daemon that names none: nothing is sent.
+    /// keeps it the same way) with `omitTimeBreakdown`, since the phone draws none. `None`
+    /// against a daemon that names none: nothing is sent.
     time_breakdown_version: Option<String>,
     /// Every frame either way, by message type (the bytes-per-minute bench reads it).
     tap: Arc<Tap>,
@@ -329,6 +330,8 @@ impl Link {
         }
         if let Some(v) = &self.time_breakdown_version {
             params["timeBreakdownVersion"] = json!(v);
+            // As the phone does (AcpmuxHub.swift readPages): it draws no breakdown.
+            params["omitTimeBreakdown"] = json!(true);
         }
         let id = self.post("_acpmux/attach", params).await?;
         let (at, reply) = self.answer(id, deadline).await?;
