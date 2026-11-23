@@ -739,14 +739,15 @@ impl Hub {
             harness: m.harness.clone(),
             family: m.family.clone(),
             cwd: m.cwd.to_string_lossy().into_owned(),
-            status: m.status.to_string(),
+            // A watched chat whose app exited reads disconnected (`app_exit.rs`).
+            status: super::app_exit::row_status(session, m.status),
             // A Stop's turn that has not ended yet (`cancel.rs`): never read as running on.
             state: if stopping {
                 "stopping".to_owned()
             } else if stuck.is_some() {
                 "stuck".to_owned()
             } else {
-                m.status.to_string()
+                super::app_exit::row_status(session, m.status)
             },
             stuck_reason: stuck.map(|s| s.0),
             stuck_since: stuck.map(|s| s.1),

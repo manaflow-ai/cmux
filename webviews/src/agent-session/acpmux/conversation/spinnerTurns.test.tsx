@@ -31,7 +31,7 @@ test("a loading spinner (a harness check) never takes the working dot", () => {
 // brings that default itself, so it holds on any page that draws it.
 test("the spinner brings its own hidden dot and turning ring, not only conversation.css's", async () => {
   const dir = import.meta.dir;
-  const source = await Bun.file(`${dir}/icons.tsx`).text();
+  const source = await Bun.file(`${dir}/Spinner.tsx`).text();
   expect(source).toMatch(/^import "\.\/spinner\.css";$/m);
   const css = await Bun.file(`${dir}/spinner.css`).text();
   expect(css).toMatch(/\.cv-spinner__dot \{\s*display: none;/);

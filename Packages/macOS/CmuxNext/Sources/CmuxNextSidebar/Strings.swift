@@ -35,7 +35,6 @@ enum Strings {
     /// Projects and Recents' header over workspaces in no group (`ListHeaderRowView`).
     static var recents: String { String(localized: "sidebar.section.recents", defaultValue: "Recents", bundle: .localizedModule) }
     static var noFolder: String { String(localized: "sidebar.folder.none", defaultValue: "No Folder", bundle: .localizedModule) }
-    static var pinnedEmpty: String { String(localized: "sidebar.section.pinned.empty", defaultValue: "Drop here to pin", bundle: .localizedModule) }
     /// An open empty group's row (`EmptyGroupRowView`).
     static var groupEmpty: String { String(localized: "sidebar.group.empty", defaultValue: "No workspaces · drag one here", bundle: .localizedModule) }
     static var statusConnected: String { String(localized: "sidebar.machine.connected", defaultValue: "Connected", bundle: .localizedModule) }
