@@ -337,9 +337,11 @@ public extension PageDescriptor {
     /// Needs you (`#/needs-you`); the Inbox tab (`#/inbox`) and the right sidebar's Feed
     /// (`#/list`) have no entry point now. Its `cmux.feed.` ops go to the daemon's feed
     /// client; it opens an item and runs a GitHub action through the host's actions, and Add
-    /// Connection opens Settings > Notifications at `feed.github.enabled` (`openSettings`).
+    /// Connection opens Settings > Notifications at `feed.github.enabled` (`openSettings`). In
+    /// Chief, `cmux.settings.hub.` draws and answers the integrations hub's approvals
+    /// (CmuxNextAgentIntegrations `SettingsIntegrationsHub`).
     static let feed = PageDescriptor(
-        id: "cmux.feed", resource: "feed", namespaces: ["cmux.feed."],
+        id: "cmux.feed", resource: "feed", namespaces: ["cmux.feed.", "cmux.settings.hub."],
         nativeOps: [PageNativeOp.actionRun, PageNativeOp.clipboardWrite],
         actions: ["feed.openItem", "feed.githubAction", "openSettings"])
     /// The Stashed Tabs page (`cmux://stashed`, a top page): the daemon's stashes (`stash-v1`). The

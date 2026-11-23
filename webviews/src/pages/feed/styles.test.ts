@@ -15,3 +15,10 @@ function rule(selector: string): string {
 test("an approval's command keeps its line breaks and spacing", () => {
   expect(rule(".feed-code-text")).toMatch(/white-space:\s*pre-wrap;/);
 });
+
+test("a hub approval card is the height the pinned section's frame gives it", () => {
+  // FeedNeedsYouSection.hubCardHeight (Swift) is 84.
+  expect(rule(":root")).toContain("--feed-hub-card: 84px;");
+  expect(rule(".feed-hub-card")).toMatch(/height:\s*var\(--feed-hub-card\);/);
+  expect(rule(".feed-hub-card")).toMatch(/box-sizing:\s*border-box;/);
+});

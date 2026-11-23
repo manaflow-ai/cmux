@@ -20,6 +20,8 @@
   --feed-dot: 6px;
   --feed-badge: 16px;
   --feed-needs-row: 40px;
+  /* One integrations hub approval card (FeedNeedsYouSection.hubCardHeight). */
+  --feed-hub-card: 84px;
 }
 
 .feed-page {
@@ -1297,6 +1299,99 @@
 .feed-needs-answers {
   flex: none;
   padding-inline-end: 4px;
+}
+
+/* An integrations hub approval (HubApprovalCard.tsx): three lines and its answers, one fixed height
+   so the pinned section's frame (FeedNeedsYouSection) matches it. */
+.feed-hub-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  box-sizing: border-box;
+  height: var(--feed-hub-card);
+  padding: 8px;
+  border-radius: calc(var(--ds-radius-control) + 8px);
+}
+
+.feed-hub-card + .feed-hub-card,
+.feed-hub-card + .feed-needs-row,
+.feed-hub-card + .feed-card {
+  box-shadow: inset 0 1px 0 var(--ds-color-separator);
+}
+
+.feed-hub-card[data-sending] {
+  opacity: 0.55;
+}
+
+.feed-hub-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.feed-hub-headline {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  font-weight: var(--weight-emphasis, 600);
+  white-space: nowrap;
+}
+
+.feed-hub-integration {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: var(--text-caption);
+  font-weight: normal;
+  color: var(--ds-color-muted);
+}
+
+.feed-hub-line,
+.feed-hub-meta,
+.feed-hub-error {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+}
+
+.feed-hub-line {
+  color: var(--ds-color-fg);
+}
+
+.feed-hub-meta {
+  color: var(--ds-color-faint);
+}
+
+.feed-hub-error {
+  color: var(--ds-color-danger);
+}
+
+.feed-hub-answers {
+  display: flex;
+  flex: none;
+  gap: 4px;
+}
+
+.feed-hub-outcome {
+  flex: none;
+  max-width: 45%;
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  color: var(--ds-color-muted);
+}
+
+.feed-hub-card[data-tone="done"] .feed-hub-outcome {
+  color: var(--ds-color-success);
+}
+
+.feed-hub-card[data-tone="failed"] .feed-hub-outcome {
+  color: var(--ds-color-danger);
 }
 
 .feed-needs .feed-card {
