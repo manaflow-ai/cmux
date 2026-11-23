@@ -25,6 +25,7 @@ mod prompt_coach;
 // The person's prompts to a held chat wait to go in together (`person_hold.rs`).
 mod person_hold;
 pub use person_hold::PromptTriager;
+pub(crate) mod restricted;
 mod rolling_summary;
 pub(crate) mod stop_condition;
 mod surge_triage;
@@ -51,6 +52,7 @@ mod exit_reason;
 mod fallback_start;
 pub(crate) mod session_auth;
 pub(crate) mod settled_view;
+mod subagent_expiry;
 pub(crate) mod subagent_resume;
 pub(crate) mod subagent_retry;
 pub(crate) use crate::turn_errors;
