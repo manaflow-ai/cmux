@@ -1,0 +1,527 @@
+{
+  "version": 1,
+  "build": "4516973685101",
+  "notes": "notes/4516973685101.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 50473,
+      "title": "Mac Screen: the home page is a labelled AX group, so macScreen.home is in the AX tree",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49335,
+      "title": "agent pane: Reconnect on an offline chat reconnects its machine first",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48727,
+      "title": "ci: feat-cmux-next write-token bot jobs run on GCP JIT runners first",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51750,
+      "title": "ci(fast gates): restore the Bun and lint-tools caches from R2 first (Freestyle and hx/hd hosts pull GitHub at ~0.9 MB/s)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50133,
+      "title": "test(actions): Rust action catalog checks every action's CLI name",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51894,
+      "title": "ci: delete dispatch-nightly-next-sign and the nightly-next sign stage",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48382,
+      "title": "settings: a shared nested-JSON kind; sidebar row layout keys editable through cmux settings (CMUX-383)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51414,
+      "title": "acpmux: a handover saves every peer's cache at once, not one durable write per peer",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48629,
+      "title": "ios-review-gate: device legs take an owned simulator Mac first",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51912,
+      "title": "measure: launch-ready video=1, a screen video of the measured launches",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49755,
+      "title": "Settings appearance: undo a workspace background, reset one card, Cmd-Z (successor of #46842)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 47649,
+      "title": "ask-b93921e66b: release cancelled client reply waiters",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51954,
+      "title": "The app's default Cloud machine is 2 vCPU / 4 GB / 20 GB",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51869,
+      "title": "CI: base linux job routes by the push diff when its green read fails; a failed step runs once more",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49567,
+      "title": "iOS: hold the link banner, chat dot and chat loading text inside the quiet bounds",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48046,
+      "title": "bench: cloud-turn, the agent-turn bench through a real relay",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51631,
+      "title": "test(hooks): the install fixture also copies checks-copy-inputs' files",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50926,
+      "title": "ci: name deferred run in quota marker",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43022,
+      "title": "apps: the daemon owns an extension's settings (Settings > Extensions backend)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41080,
+      "title": "Agent chat: when a raised composer's prompt gets sent, it lands in place in its first frame",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51879,
+      "title": "ci(cmux-tui): a coalescing window's one build is never skipped as a non-tip push",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50625,
+      "title": "Computer Use: background keys reach an inline editor over the target; set_value focuses a field that applies on end of editing",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49577,
+      "title": "computer use: an acting call no longer waits for the screen by default (carries #48236)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 46799,
+      "title": "cmux-tui: a freed terminal's shell comes back with the state the person left",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51072,
+      "title": "cmux cloud journey: the Cloud journey's core on the shipped Rust client; staging's gate runs it (M1b)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50927,
+      "title": "cmux app try .: a sparse checkout serves its web UI, and a failed step says why",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51850,
+      "title": "New Cloud teams start with idle pause on (K8)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51865,
+      "title": "agent-config: Claude Code's subagents listed (cmux agent-config subagents)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50125,
+      "title": "Agent chat: a received message under an opened Worked for sits on the tool rows' pitch (ST-02)",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/50125/hv-5748f78b2c40-video.mp4",
+      "source": "manual"
+    },
+    {
+      "pr": 40447,
+      "title": "Cloud sign-in: OpenCode Zen and Go with the key from opencode.ai/auth",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 47325,
+      "title": "Extensions draw titlebar buttons: contributes.toolbarItems in the toolbar band",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51322,
+      "title": "Cloud start gate counts the person's own team's gateway",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36441,
+      "title": "[Thunderdome top-right C] consolidate and morph: one control that becomes the pane's tab",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/36441/td-c-tour.mp4",
+      "source": "manual"
+    },
+    {
+      "pr": 51587,
+      "title": "Tooltip refresh: one look for every tooltip and hover card (experiments.hoverLook, off by default)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51964,
+      "title": "ci: daemon tests on a fresh runner restore ghostty-next and Zig from the CI cache bucket",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49677,
+      "title": "Hold the daemon update board's offline line for the shared link bound",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51131,
+      "title": "Agent chat: a followed stream forces no transcript render per chunk",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49473,
+      "title": "cmux setup: setups stack as layers (successor of #46900, merged with current feat-cmux-next)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 47672,
+      "title": "launch-ready.sh front=chat: an agent chat in front, so a launch starts Chromium and its cef.* marks time it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51898,
+      "title": "share host: a daemon restart no longer restarts a lane VM's screen host, and cmux-rd's update stops waiting on an always-on display",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 47528,
+      "title": "Agent chat: hold to approve, an experiment (off by default) where an allow answers after a press-and-hold",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/47528/hv-fbeed5be081d-video.mp4",
+      "source": "manual"
+    },
+    {
+      "pr": 51929,
+      "title": "ci(next): hot verify hand-off rotates App pools on a rate limit",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50458,
+      "title": "cmux-next: customize doctor tells you what changes your customization unexpectedly, with fixes and recover",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51451,
+      "title": "acpmux: a replaced daemon swaps itself instead of the app's stop+start; a failed update swap tries again",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51829,
+      "title": "getDisplayMedia answers in both engines: Meet screen share no longer hangs",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49889,
+      "title": "Cloud create: retry an approved create at 250 ms, 500 ms, then every 1 s (was up to 8 s); mark the approval's parts",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43014,
+      "title": "Extensions: an overlay presentation on cmux.pane/1 that only the person opens",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51880,
+      "title": "ci: each nightly runs the interaction latency benches its changes touched and carries stale ones",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51471,
+      "title": "iOS: Mac scroll to phone display bench, idle and loaded Mac CPU, with a p95 CI gate",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50547,
+      "title": "acpmux: a per-host model-name hot patch (model-aliases.json), read by canonical_model",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51853,
+      "title": "SignInPageOpensBesideTests: read the static page as Self.page",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51701,
+      "title": "acpmux trigger create|ls|rm: wake a Cloud chat on CI failure or PR comment (M19)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43696,
+      "title": "New Tab icon column: tiles, app icons and dock arms you can tell apart; tiles ships",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/43696/hv-f9f60f11b0bf-video.mp4",
+      "source": "manual"
+    },
+    {
+      "pr": 51836,
+      "title": "CmuxNext: remote chat link state and first live paint as app events",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51715,
+      "title": "cmux-vm-image sshd: accept the platform's runtime private-address listen",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 46792,
+      "title": "cmux-next-ios: no keyboard space with no keyboard on every surface; real Retry controls in card previews",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50731,
+      "title": "projection: tell the agent once that the Mac is away and which reads failed",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49186,
+      "title": "ci guard reds: hook trust fixture and change-area tests follow #48396, #48662, #48920",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51926,
+      "title": "ci: checkout names branches as refs/heads/X, so it fetches one branch, not every X*",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48707,
+      "title": "ci: run cmux-tui SDKs in the post-merge batch, not on every feat-cmux-next push",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51686,
+      "title": "Computer Use: a running worker hands over to a newly swapped helper between calls",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49038,
+      "title": "cmux Remote: refuse a client past the daemon's limit as too many clients, and scale the limit with the open-file limit",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/49038/hv-6ab073eebc30-video.mp4",
+      "source": "manual"
+    },
+    {
+      "pr": 49568,
+      "title": "New Tab page: mount an app the daemon just loaded instead of refusing it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 47224,
+      "title": "Screen Sharing comes back by itself after a 60 s network drop: the hub waits 120 s before peer_offline",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 47831,
+      "title": "Agent chat: Open on a Markdown file the agent wrote; rich-output tools and skill name what exists",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51396,
+      "title": "Agent pane inbound: a history page goes to the page as the daemon's text, parsed only when an observer reads it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51062,
+      "title": "cmux-journal: many chats' appends to one store no longer wait on the journal writer's lock",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51931,
+      "title": "Sidebar: Chips, Tree and Cards group looks (opt-in; Folders stays the default)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51399,
+      "title": "base_red_excuse: an aggregator red with a verdictless need names the state and the re-run",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 47124,
+      "title": "Cloud GitHub: add the Codex agent leg",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51338,
+      "title": "ci(api call log): its tests pin the date inside the log's window",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48368,
+      "title": "What's New: gallery pictures for living-wallpapers, needs-you-glow, update-when-idle",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51539,
+      "title": "cmux-action-catalog: unbreak swift_parity on feat-cmux-next (toggleTop marker, duplicate dump row, awaiting aliases)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51804,
+      "title": "theme: cmux theme new --canvas --accent derives a whole theme from two colors",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 47060,
+      "title": "perf cron: cmux Cloud claim-to-ready p50/p95 row",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50261,
+      "title": "Linux release: signed tree file and per-commit aliases",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50510,
+      "title": "test(toasts): toasts shown at once stack and each fades on its own timer (web and native)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51723,
+      "title": "coderouter: house Claude route holds each request's upper bound until it settles",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49531,
+      "title": "perf(next): start the Chief owner's acpmux signature check with the owner, beside the adoptions",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40356,
+      "title": "billing: a manual Billing E2E workflow runs the Stripe test-mode journey",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51642,
+      "title": "feat(cmux-next-ios): the Feed folds one chat's events in a row under its newest event",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51355,
+      "title": "acpmux: cancelling a duplicate prompt's request never stops the first run",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 46896,
+      "title": "Sidebar: archived chats under Archived, with Restore and Undo",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51712,
+      "title": "cmux NEXT: cmux hosts add, rename, set-endpoints and remove",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50277,
+      "title": "Agent chat: the composer and dock read owner-set attributes, not wide :has()",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/50277/hv-2492509b1a4e-video.mp4",
+      "source": "manual"
+    }
+  ]
+}
