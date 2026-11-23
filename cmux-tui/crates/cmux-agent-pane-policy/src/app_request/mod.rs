@@ -5,6 +5,7 @@
 
 mod ids;
 mod page;
+mod reply;
 mod url;
 mod value;
 
@@ -57,7 +58,9 @@ pub fn decode(body: &Value, home: &str) -> Decoded {
         return Decoded::Case(unsupported(""));
     };
     let params = Params(object.get("params").and_then(Value::as_object));
-    page::decode(method, params, home).unwrap_or(Decoded::Delegate)
+    reply::decode(method, params)
+        .or_else(|| page::decode(method, params, home))
+        .unwrap_or(Decoded::Delegate)
 }
 
 #[cfg(test)]
