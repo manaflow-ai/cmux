@@ -28,8 +28,8 @@ public nonisolated struct CloudNewWorkspaceSetting: Sendable {
     /// `cloud.workspacePins`: each pinned folder and where its new workspaces run (`thisMac`, `cloud`,
     /// `machine:<id>`); entries that are not text are left out. Rust reads the values (`moves::placement`).
     /// A folder written from the home folder (`~/code/app`) is read as its absolute path.
-    public func pins(in root: JSONValue, home: String = NSHomeDirectory()) -> [String: String] {
-        let pins = (root.value(at: Self.pinsPath)?.objectValue ?? [:]).compactMapValues(\.stringValue)
+    public func pins(in root: JSONValue, home: String? = nil) -> [String: String] {
+        let home = home ?? NSHomeDirectory(), pins = (root.value(at: Self.pinsPath)?.objectValue ?? [:]).compactMapValues(\.stringValue)
         return Dictionary(pins.map { ($0.key == "~" || $0.key.hasPrefix("~/") ? home + $0.key.dropFirst() : $0.key, $0.value) }) { first, _ in first }
     }
 
