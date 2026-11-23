@@ -68,7 +68,8 @@ final class TerminalDockInsetUITests: XCTestCase {
         attach(app, "6-landscape-keyboard-up")
         XCUIDevice.shared.orientation = .portrait
         _ = reading(probe)
-        if keyboardKey.exists, keyboardKey.isHittable { keyboardKey.tap() }
+        // The key row reopens with the keyboard after the rotation: tap its key once it can be.
+        if keyboardKey.waitForHittable(timeout: 3) { keyboardKey.tap() }
         let settled = assertNoInset(probe, "keyboard down after a rotation")
         XCTAssertEqual(settled.fieldBottom, rest.fieldBottom, accuracy: 1, "(\(settled.line))")
         attach(app, "7-rotated-keyboard-down")
