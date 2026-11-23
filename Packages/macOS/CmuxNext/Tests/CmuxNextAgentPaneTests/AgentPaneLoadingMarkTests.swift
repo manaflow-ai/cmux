@@ -4,13 +4,13 @@ import Foundation
 import Testing
 @testable import CmuxNextAgentPane
 
-/// Leo, 2026-11-18: "we shouldnt need to see spinners on loading switching between chats most of the time".
-/// A chat this app already showed (a released hidden chat built again, a sidebar open of a chat read before) is
-/// one the person knows and whose copy the page draws first; its pane's loading cover never shows the busy mark,
-/// however long its page takes. A chat never shown in this app's life still gets the mark after the beat.
+/// cmux#48605: a chat that took long to open showed a blank pane, sometimes with the busy mark and sometimes
+/// without, because a chat this app showed in the last hour opened with no mark however long its page took (a
+/// hidden chat released under memory pressure and built again, a page Chromium dropped and WebKit reopened).
+/// Every chat still loading past the beat now shows the mark; one that paints within the beat shows none.
 @Suite(.serialized, .closesItsWindows)
 @MainActor
-struct AgentPaneSeenChatMarkTests {
+struct AgentPaneLoadingMarkTests {
     private actor NoHost: AgentPaneHostProviding {
         func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw AgentPaneHostError.daemonStopped }
     }
@@ -56,7 +56,7 @@ struct AgentPaneSeenChatMarkTests {
         window.close()
     }
 
-    @Test func aChatShownBeforeOpensWithNoBusyMarkEvenWhenItsPageIsSlow() async throws {
+    @Test func aChatShownBeforeStillShowsTheBusyMarkWhenItsPageIsSlow() async throws {
         let session = "seen-\(UUID().uuidString)"
         try Self.showOnce(session)
         var rounds = 0
@@ -69,8 +69,8 @@ struct AgentPaneSeenChatMarkTests {
             rounds += 1
             if try await Self.slowOpenShowsMark(view) { markRounds += 1 }
         }
-        print("seen-chat-mark: switches=\(rounds) switches_with_busy_mark=\(markRounds)")
-        #expect(markRounds == 0, "switching back to a chat this app showed drew the busy mark on \(markRounds) of \(rounds) switches")
+        print("loading-mark: switches=\(rounds) switches_with_busy_mark=\(markRounds)")
+        #expect(markRounds == rounds, "a chat shown before and still loading past the beat showed a blank pane on \(rounds - markRounds) of \(rounds) switches")
     }
 
     @Test func aChatNeverShownStillGetsTheMarkAfterTheBeat() async throws {
@@ -79,16 +79,13 @@ struct AgentPaneSeenChatMarkTests {
         #expect(try await Self.slowOpenShowsMark(view), "a chat never shown and still loading after the beat showed no busy mark")
     }
 
-    @Test func seenChatsAreBoundedByCountAndAge() {
-        var now = ContinuousClock.now
-        let seen = AgentPaneSeenChats(limit: 3, window: .seconds(3_600), clock: { now })
-        for name in ["a", "b", "c", "d"] { seen.noteShown(name) }
-        #expect(!seen.wasShown("a"), "a chat past the count bound still counted as shown")
-        #expect(seen.wasShown("b") && seen.wasShown("d"))
-        #expect(seen.count == 3, "the store grew past its bound")
-        now += .seconds(3_601)
-        #expect(!seen.wasShown("d"), "a chat shown over an hour ago still counted as shown")
-        seen.noteShown("e")
-        #expect(seen.count == 1, "chats past the window stayed in the store")
+    @Test func aPageThatPaintsWithinTheBeatShowsNoMark() async throws {
+        let (view, window) = try Self.pane(session: "quick-\(UUID().uuidString)")
+        defer { window.close() }
+        try await Task.sleep(for: AgentPaneLoadingView.markDelay / 3)
+        #expect(!Self.markShows(view), "the mark drew before the beat")
+        view.model.markPainted()
+        try await Task.sleep(for: AgentPaneLoadingView.markDelay)
+        #expect(!Self.markShows(view), "a page that painted within the beat still drew the busy mark")
     }
 }
