@@ -271,6 +271,53 @@ pub fn agents_get_cmux(settings: Option<&str>) -> bool {
     cmux_config::managed::applied_to(AGENTS_CMUX_MCP_KEY, file) != Some(off)
 }
 
+/// The per-agent switch under [`AGENTS_CMUX_MCP_KEY`] (cmux#49395): `agents.cmuxMcpClaude` for a
+/// Claude Code chat, `agents.cmuxMcpCodex` for a Codex one; `None` for another harness, which
+/// follows the answer alone. cmux-tui's `AgentsCmuxMcp::agent_key` names the same keys.
+pub fn agent_switch_key(agent: &str) -> Option<&'static str> {
+    match agent {
+        "claude" => Some("agents.cmuxMcpClaude"),
+        "codex" => Some("agents.cmuxMcpCodex"),
+        _ => None,
+    }
+}
+
+/// Whether the person switched `agent` off: `false` at [`agent_switch_key`]. No file, no key,
+/// `true`, another value or a file that does not parse: not switched off.
+pub fn agent_switched_off(settings: Option<&str>, agent: &str) -> bool {
+    let Some(key) = agent_switch_key(agent) else { return false };
+    settings
+        .and_then(crate::user_settings::document)
+        .and_then(|doc| crate::user_settings::value(&doc, key))
+        .is_some_and(|value| value == Value::Bool(false))
+}
+
+/// A chat of `agent` (`claude` or `codex`) the person switched off gets the answer `off` in its
+/// env ([`TOOLS_ANSWER_ENV`]) when it has none of its own, so every path that reads the answer
+/// (the tool list, the pool key, a person's own `cmux` entry) leaves cmux's server out.
+pub fn agent_switch_answer(
+    env: &mut BTreeMap<String, String>,
+    settings: Option<&str>,
+    agent: Option<&str>,
+) {
+    if agent.is_some_and(|agent| agent_switched_off(settings, agent)) {
+        env.entry(TOOLS_ANSWER_ENV.to_owned()).or_insert_with(|| "off".to_owned());
+    }
+}
+
+/// The agent a harness name or family names for [`agent_switch_key`]: `codex…` is Codex,
+/// `claude…` is Claude Code; `None` for another.
+pub fn switch_agent(harness: &str) -> Option<&'static str> {
+    let harness = harness.trim().to_ascii_lowercase();
+    if harness.starts_with("codex") {
+        Some("codex")
+    } else if harness.starts_with("claude") {
+        Some("claude")
+    } else {
+        None
+    }
+}
+
 /// The `cmux` server every agent cmux starts gets: this cmux CLI's `mcp
 /// serve` (`--all-tools` lists every tool instead of code mode) under the
 /// name [`CMUX_SERVER`]. Its env always names `settings_file`, the settings
