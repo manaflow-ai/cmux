@@ -35,7 +35,10 @@ impl Hub {
 
     fn test_set_status(&self, id: &str, status: SessionStatus) {
         let session = self.resolve(id).unwrap();
-        self.set_status(&session, status);
+        match crate::hub::NotWaiting::of(status) {
+            Some(settled) => self.set_status(&session, settled),
+            None => self.set_waiting(&session, crate::store::WaitReason::Permission),
+        }
     }
 }
 
@@ -217,7 +220,7 @@ fn activity_cache_is_bounded_under_mutation_and_keeps_the_last_update() {
         let stop = stop.clone();
         thread::spawn(move || {
             for _ in 0..32 {
-                hub.test_set_status("live", SessionStatus::Running);
+                hub.test_set_status("live", NotWaiting::Running);
                 hub.test_set_status("live", SessionStatus::Waiting);
                 thread::yield_now();
             }
@@ -261,11 +264,11 @@ fn activity_cache_follows_live_status_transitions() {
     hub.test_append_activity("live", "message", json!({}));
     hub.test_set_status("live", SessionStatus::Waiting);
     assert_eq!(decorate(&hub)["attention"], "needsInput");
-    hub.test_set_status("live", SessionStatus::Running);
+    hub.test_set_status("live", NotWaiting::Running);
     assert_eq!(decorate(&hub)["attention"], Value::Null);
-    hub.test_set_status("live", SessionStatus::Closed);
+    hub.test_set_status("live", NotWaiting::Closed);
     assert_eq!(decorate(&hub)["attention"], Value::Null);
-    hub.test_set_status("live", SessionStatus::Idle);
+    hub.test_set_status("live", NotWaiting::Idle);
     assert_eq!(decorate(&hub)["attention"], Value::Null);
 }
 

@@ -77,7 +77,7 @@ async fn a_chat_written_to_while_its_log_was_read_is_left_whole() {
     // the chat before its record waits for the append lock the pass holds (`write_status`).
     std::thread::sleep(std::time::Duration::from_millis(2));
     assert!(hub.reopen(&session, session.stops.load(Ordering::SeqCst)));
-    hub.set_status(&session, SessionStatus::Closed);
+    hub.set_status(&session, NotWaiting::Closed);
     assert_eq!(session.status(), SessionStatus::Closed);
     assert!(!hub.untouched(&session, seen, cutoff), "a chat closed just now is not compacted");
     hub.shutdown_all().await;
