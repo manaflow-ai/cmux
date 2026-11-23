@@ -92,7 +92,10 @@ export function HatBurstStage({ scene = "lone", arm }: { scene?: HatBurstScene; 
           <article className="acpmux-row acpmux-thinking" style={{ position: "relative" }}>
             <Thinking since={clock - 34_000} below />
           </article>
-          <output data-stage="clock" style={{ position: "absolute", right: 16, top: 16, opacity: 0.4, fontSize: 11 }}>
+          <output
+            data-stage="clock"
+            style={{ position: "absolute", right: 16, top: 16, opacity: 0.4, fontSize: "var(--text-caption)" }}
+          >
             {(t / 1000).toFixed(1)}s
           </output>
         </div>

@@ -10,11 +10,11 @@ export function useDwell<T>(value: T, dwellMs: number): T {
   const [shown, setShown] = useState(value);
   // The first value is held too: a part that mounts mid-burst (a new kind in the hat's header) shows
   // what it mounted with for a whole dwell before its first change.
+  const [mountedAt] = useState(Date.now);
   const shownAt = useRef<number | undefined>(undefined);
-  shownAt.current ??= Date.now();
   useEffect(() => {
     if (Object.is(value, shown)) return;
-    const wait = (shownAt.current ?? 0) + dwellMs - Date.now();
+    const wait = (shownAt.current ?? mountedAt) + dwellMs - Date.now();
     const show = () => {
       shownAt.current = Date.now();
       setShown(value);
@@ -25,7 +25,7 @@ export function useDwell<T>(value: T, dwellMs: number): T {
     }
     const timer = setTimeout(show, wait);
     return () => clearTimeout(timer);
-  }, [value, shown, dwellMs]);
+  }, [value, shown, dwellMs, mountedAt]);
   return shown;
 }
 
