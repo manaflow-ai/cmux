@@ -20,7 +20,15 @@ const LAPTOP = "M3.5 4.5h9a1 1 0 0 1 1 1v5.5h-11V5.5a1 1 0 0 1 1-1ZM1.5 12.5h13"
 function Glyph({ mode, paint }: { mode: HybridPin; paint: string }) {
   const clip = useId();
   return (
-    <svg className="acpmux-hybrid-tri__glyph" data-mode={mode} width={16} height={16} viewBox="0 0 16 16" focusable="false" aria-hidden="true">
+    <svg
+      className="acpmux-hybrid-tri__glyph"
+      data-mode={mode}
+      width={mode === "auto" ? 22 : 16}
+      height={16}
+      viewBox={mode === "auto" ? "0 0 22 16" : "0 0 16 16"}
+      focusable="false"
+      aria-hidden="true"
+    >
       <defs>
         <linearGradient id={paint} x1="2" y1="12" x2="14" y2="4" gradientUnits="userSpaceOnUse">
           <stop offset="0" className="acpmux-hybrid-stop" data-stop="1" />
@@ -30,16 +38,18 @@ function Glyph({ mode, paint }: { mode: HybridPin; paint: string }) {
           <stop offset="1" className="acpmux-hybrid-stop" data-stop="5" />
         </linearGradient>
         <clipPath id={`${clip}a`}>
-          <path d="M0 0h9.5L5.5 16H0Z" />
+          <path d="M0 0h10.5L7.5 16H0Z" />
         </clipPath>
         <clipPath id={`${clip}b`}>
-          <path d="M10.5 0H16v16H6.5Z" />
+          <path d="M6 0h10v16H3Z" />
         </clipPath>
       </defs>
       {mode === "auto" ? (
         <>
           <path className="acpmux-hybrid-tri__cloud" d={CLOUD} clipPath={`url(#${CSS.escape(`${clip}a`)})`} />
-          <path className="acpmux-hybrid-tri__laptop" d={LAPTOP} clipPath={`url(#${CSS.escape(`${clip}b`)})`} />
+          <g transform="translate(6 0)">
+            <path className="acpmux-hybrid-tri__laptop" d={LAPTOP} clipPath={`url(#${CSS.escape(`${clip}b`)})`} />
+          </g>
         </>
       ) : mode === "cloud" ? (
         <path className="acpmux-hybrid-tri__cloud" d={CLOUD} />
@@ -55,20 +65,34 @@ export function CloudTriToggle({
   look = "rainbow",
   form = "segments",
   named = true,
+  lit = false,
   onChange,
+  onLitChange,
 }: {
   pin: HybridPin;
   look?: HybridLook;
   form?: "segments" | "cycle";
   /// Shows the chosen mode's name beside the glyphs.
   named?: boolean;
+  /// Hybrid only: the chat is high priority (Keep Running), so the split glyph's cloud half is lit.
+  /// Only in Cloud is always lit; Only on This Mac never is.
+  lit?: boolean;
   onChange(pin: HybridPin): void;
+  /// Choosing Hybrid again while it is chosen turns its light on or off.
+  onLitChange?(lit: boolean): void;
 }) {
   const t = useT();
   const paint = useId();
   const [fresh, setFresh] = useState(false);
+  const glows = (mode: HybridPin) => mode === "cloud" || (mode === "auto" && lit);
   const pick = (next: HybridPin) => {
-    setFresh(next !== pin);
+    if (next === pin) {
+      if (pin !== "auto" || !onLitChange) return;
+      setFresh(!lit);
+      onLitChange(!lit);
+      return;
+    }
+    setFresh(glows(next));
     onChange(next);
   };
   const style = { "--acpmux-hybrid-paint": `url(#${CSS.escape(paint)})` } as React.CSSProperties;
@@ -83,6 +107,7 @@ export function CloudTriToggle({
           data-look={look}
           data-form="cycle"
           data-mode={pin}
+          data-lit={glows(pin) ? "" : undefined}
           data-fresh={fresh ? "" : undefined}
           aria-label={`${t("hybrid.pin")}: ${t(NAMES[pin])}`}
           style={style}
@@ -117,6 +142,7 @@ export function CloudTriToggle({
             data-look={look}
             data-mode={mode}
             data-on={mode === pin ? "" : undefined}
+            data-lit={mode === pin && glows(mode) ? "" : undefined}
             data-fresh={fresh && mode === pin ? "" : undefined}
             onClick={() => pick(mode)}
             onKeyDown={(event) => {
@@ -131,7 +157,11 @@ export function CloudTriToggle({
           </button>
         </Tooltip>
       ))}
-      {named && <span className="acpmux-hybrid-label acpmux-hybrid-tri__name">{t(NAMES[pin])}</span>}
+      {named && (
+        <span className="acpmux-hybrid-label acpmux-hybrid-tri__name">
+          {pin === "auto" && lit ? t("hybrid.keepRunning") : t(NAMES[pin])}
+        </span>
+      )}
     </span>
   );
 }
