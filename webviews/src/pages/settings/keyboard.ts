@@ -2,7 +2,9 @@
 // Return reveals a search result (or enters a row's control). The page handles no other Cmd or Ctrl
 // chord than its `app.keyStyle` keys on a row (Emacs' Ctrl-N/P...); the app's key dispatcher owns
 // them and sends page commands (`cmux.page.command`: find, back, forward, reset), which
-// `runPageCommand` performs.
+// `runPageCommand` performs. One more exception: on the appearance pages, Cmd-Z and Shift-Cmd-Z
+// outside a text field run the appearance Undo and Redo (AppearanceBar), as a text field's own undo
+// would there.
 import { focusSearchField } from "../shared/searchField";
 import {
   createListKeys,
