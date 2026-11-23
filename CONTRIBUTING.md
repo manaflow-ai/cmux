@@ -139,6 +139,11 @@ for CI:
 Read which tests actually ran on your commit, not the color of the checks list: a
 skipped job is green and is not coverage.
 
+To see whether a red check is yours or already red on the base branch, run
+`scripts/ci-why` (your current branch's pull request) or `scripts/ci-why N`. It uses
+your own `gh` login, reads once and changes nothing
+([is this red mine?](docs/ci/landing.md#is-this-red-mine)).
+
 ## Ghostty Submodule
 
 `ghostty` points to [manaflow-ai/ghostty](https://github.com/manaflow-ai/ghostty),

@@ -11,6 +11,8 @@ description = "cmux app manifest v2 validator: the one validator for the CLI, th
 workspace = true
 
 [dependencies]
+# The typed app global compiled in compressed (src/capabilities.rs).
+cmux-embed.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 hex.workspace = true

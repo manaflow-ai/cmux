@@ -75,7 +75,7 @@ describe("extension slash commands (cmux.composer.command/1)", () => {
       caret: "Write my standup notes.".length,
     });
     // Return on the whole name writes the text; it never sends `/standup` to the agent.
-    expect(returnPicks(rows[0], "standup", false)).toBe(true);
+    expect(returnPicks(rows[0], "standup")).toBe(true);
     owner.stop();
   });
 

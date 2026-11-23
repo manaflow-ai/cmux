@@ -26,7 +26,7 @@ use crate::rpc::method;
 /// `acpmux ls`'s flags (`cli/command.rs` `Command::Ls`).
 #[derive(clap::Args, Debug, Clone)]
 pub struct LsArgs {
-    /// Only sessions whose name matches one of these (a glob: `*`, `?`; `host/glob` for one
+    /// Only sessions whose handle, ID, or name matches (a name glob: `*`, `?`; `host/glob` for one
     /// peer's), or with this session id (bare, or a peer's `host/id`).
     #[arg(value_name = "PATTERN")]
     patterns: Vec<String>,
@@ -68,7 +68,8 @@ pub struct LsArgs {
     #[arg(long)]
     live: bool,
     /// Only sessions on this machine: its name, or this machine's (`local` too). `--host` still
-    /// works.
+    /// works. Without it `ls` lists every machine's sessions, and says so on stderr: a script
+    /// after its own sessions passes `--machine local`.
     #[arg(long = "machine", alias = "host", value_name = "MACHINE")]
     host: Option<String>,
     /// Text view: also what the compact view hides (closed, reviewer, sub- and unnamed sessions).
@@ -98,12 +99,19 @@ pub(super) async fn run(args: LsArgs, json_out: bool) -> Result<()> {
     // a host with no sessions).
     let client = connect_running().await?;
     let via = Via::daemon();
-    print!("{}", output(args, json_out, &client, via, crate::store::now_ms()).await?);
+    let (out, scope) = scoped_output(args, json_out, &client, via, crate::store::now_ms()).await?;
+    // The scope line goes to stderr, never stdout: a script reading the JSON reads the same
+    // bytes with it or without it.
+    if let Some(line) = scope {
+        eprintln!("{line}");
+    }
+    print!("{out}");
     Ok(())
 }
 
 /// What `acpmux ls` prints for `args`, read from `client`'s daemon `via` the v2 list or v1's
-/// pages, with ages as of `now`.
+/// pages, with ages as of `now`. The tests read it; `run` takes [`scoped_output`]'s line too.
+#[cfg(test)]
 pub(crate) async fn output(
     args: LsArgs,
     json_out: bool,
@@ -111,6 +119,18 @@ pub(crate) async fn output(
     via: Via,
     now: u64,
 ) -> Result<String> {
+    Ok(scoped_output(args, json_out, client, via, now).await?.0)
+}
+
+/// [`output`] (stdout), and the line `ls` writes to stderr when the rows it lists come from
+/// more than this machine ([`scope_line`]).
+pub(crate) async fn scoped_output(
+    args: LsArgs,
+    json_out: bool,
+    client: &Arc<Client>,
+    via: Via,
+    now: u64,
+) -> Result<(String, Option<String>)> {
     let LsArgs {
         mut patterns,
         name_patterns,
@@ -353,6 +373,35 @@ pub(crate) async fn output(
             })
             .collect();
         merged = crate::cli::send_relay::merge_rows(&mut sessions, far);
+        // A down `ssh://` peer's rows are the ones its link left: read again over ssh, at most
+        // `ls_ssh::LS_DEADLINE`, and put in their place (`cli/ls_ssh.rs`).
+        // Each peer's url and link state (`_acpmux/peers`, the read `machine ls` makes).
+        let known = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            client.request("_acpmux/peers", json!({})),
+        )
+        .await
+        .ok()
+        .and_then(Result::ok);
+        let peers = known
+            .as_ref()
+            .and_then(|s| s.get("peers"))
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        let (hosts, far) = crate::cli::ls_ssh::rows(&peers, false).await;
+        if !hosts.is_empty() {
+            let far: Vec<Value> = far
+                .into_iter()
+                .filter(|s| {
+                    keeps(s)
+                        && cutoff.is_none_or(|at| {
+                            s.get("updatedAt").and_then(Value::as_u64).unwrap_or(0) >= at
+                        })
+                })
+                .collect();
+            merged += crate::cli::ls_ssh::replace_rows(&mut sessions, &hosts, far).max(1);
+        }
     }
     if leads {
         sessions = super::ls_leads::leaders(&sessions);
@@ -376,6 +425,8 @@ pub(crate) async fn output(
     {
         sessions.truncate(usize::try_from(limit).unwrap_or(usize::MAX));
     }
+    // Read before `--fields` drops `peer`.
+    let scope = scope_line(&sessions);
     if let Some(fields) = fields.as_deref() {
         sessions = sessions.into_iter().map(|s| project_fields(&s, fields)).collect();
     }
@@ -389,7 +440,7 @@ pub(crate) async fn output(
     if json_out {
         out.push_str(&serde_json::to_string_pretty(&v).unwrap_or_default());
         out.push('\n');
-        return Ok(out);
+        return Ok((out, scope));
     }
     let sessions = match v.get_mut("sessions") {
         Some(Value::Array(rows)) => std::mem::take(rows),
@@ -404,11 +455,11 @@ pub(crate) async fn output(
             out.push_str(&cells.join("\t"));
             out.push('\n');
         }
-        return Ok(out);
+        return Ok((out, scope));
     }
     if leads {
         out.push_str(&super::ls_leads::render(&sessions));
-        return Ok(out);
+        return Ok((out, scope));
     }
     let status = match (status_read, peers) {
         (Some(read), _) => read,
@@ -435,14 +486,43 @@ pub(crate) async fn output(
         out.push_str(&line);
         out.push('\n');
     }
-    Ok(out)
+    Ok((out, scope))
+}
+
+/// The stderr line `acpmux ls` adds when `rows` come from more than this machine. A listing
+/// is every machine's sessions, and a script that reads it as its own sends to the fleet (a
+/// boot hook's recovery prompt reached other lanes' sessions, 2026-11-20). None when every row
+/// is this machine's (no `peer`). The machines count this one when it lists a row.
+pub(crate) fn scope_line(rows: &[Value]) -> Option<String> {
+    let mut machines = std::collections::BTreeSet::new();
+    let mut local = false;
+    for row in rows {
+        match row.get("peer").and_then(Value::as_str).filter(|p| !p.is_empty()) {
+            Some(peer) => {
+                machines.insert(peer.to_ascii_lowercase());
+            }
+            None => local = true,
+        }
+    }
+    if machines.is_empty() {
+        return None;
+    }
+    let n = rows.len();
+    let m = machines.len() + usize::from(local);
+    let sessions = if n == 1 { "session" } else { "sessions" };
+    let on = if m == 1 { "machine" } else { "machines" };
+    let here = if local { "" } else { ", none of them this one" };
+    Some(format!("ls: {n} {sessions} on {m} {on}{here}; --machine local lists only this one"))
 }
 
 /// The line `acpmux ls` ends with while messages wait in this daemon's outbox (`hub/outbox.rs`).
 fn outbox_line(status: &Value) -> Option<String> {
     let n = status.get("outboxPending").and_then(Value::as_u64).filter(|n| *n > 0)?;
     let s = if n == 1 { "" } else { "s" };
-    Some(format!("{n} message{s} queued here, not delivered yet (acpmux send --status)"))
+    Some(format!(
+        "{n} message{s} queued here, not delivered yet ({} send --status)",
+        crate::cli::entry::program()
+    ))
 }
 
 #[cfg(test)]
@@ -602,6 +682,29 @@ mod tests {
         assert_eq!(
             project_fields(&json!({"name": "one", "status": "idle", "cwd": "/tmp"}), &fields),
             json!({"name": "one", "status": "idle"})
+        );
+    }
+
+    #[test]
+    fn scope_line_names_the_machines_only_when_a_row_is_remote() {
+        let local = [json!({"name": "a"}), json!({"name": "b", "peer": ""})];
+        assert_eq!(scope_line(&local), None);
+        assert_eq!(scope_line(&[]), None);
+        let mixed = [
+            json!({"name": "a"}),
+            json!({"peer": "hb"}),
+            json!({"peer": "HB"}),
+            json!({"peer": "far"}),
+        ];
+        assert_eq!(
+            scope_line(&mixed).as_deref(),
+            Some("ls: 4 sessions on 3 machines; --machine local lists only this one")
+        );
+        assert_eq!(
+            scope_line(&[json!({"peer": "far"})]).as_deref(),
+            Some(
+                "ls: 1 session on 1 machine, none of them this one; --machine local lists only this one"
+            )
         );
     }
 

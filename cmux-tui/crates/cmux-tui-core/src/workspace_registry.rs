@@ -108,6 +108,7 @@ mod identity_load;
 mod personal_terminals;
 pub(crate) mod presentation_store;
 mod public_fold;
+pub(crate) use public_fold::volatile_fields;
 mod public_projection_store;
 mod receipt_env;
 pub(crate) mod registry_connection;

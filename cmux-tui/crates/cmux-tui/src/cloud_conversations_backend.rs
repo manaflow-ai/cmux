@@ -53,10 +53,22 @@ pub(crate) struct RemoteCloudBackend {
     /// Attachment slot and signed URLs: never follows a redirect (the URL
     /// the daemon checked is the one it talks to).
     files: reqwest::Client,
+    /// The build space every request and socket upgrade carries (both
+    /// clients send it as a default header; [`Self::handshake`] adds it).
+    space: Option<cmux_build_space::BuildSpace>,
 }
 
 impl RemoteCloudBackend {
+    /// The transport of this process's build space (`cmux_build_space::process`).
     pub(crate) fn new() -> anyhow::Result<Self> {
+        Self::in_space(cmux_build_space::process().map(|space| space.cloned()))
+    }
+
+    /// The transport for `space`: a dev build's sends `x-cmux-build-space` on
+    /// every request and socket upgrade; an unusable space builds none.
+    pub(crate) fn in_space(space: cmux_build_space::Resolved) -> anyhow::Result<Self> {
+        let space = space?;
+        let headers = cmux_build_space::headers_for(space.as_ref());
         // reqwest's rustls-no-provider build and tokio-tungstenite's rustls
         // need the workspace's ring provider installed once per process.
         let _ = rustls::crypto::ring::default_provider().install_default();
@@ -66,16 +78,18 @@ impl RemoteCloudBackend {
             .enable_all()
             .build()?;
         let http = reqwest::Client::builder()
+            .default_headers(headers.clone())
             .timeout(REQUEST_TIMEOUT)
             .connect_timeout(CONNECT_TIMEOUT)
             .user_agent(concat!("cmux-tui/", env!("CARGO_PKG_VERSION")))
             .build()?;
         let files = reqwest::Client::builder()
+            .default_headers(headers)
             .connect_timeout(CONNECT_TIMEOUT)
             .redirect(reqwest::redirect::Policy::none())
             .user_agent(concat!("cmux-tui/", env!("CARGO_PKG_VERSION")))
             .build()?;
-        Ok(Self { runtime, http, files })
+        Ok(Self { runtime, http, files, space })
     }
 }
 
@@ -417,6 +431,7 @@ impl RemoteCloudBackend {
         request
             .headers_mut()
             .insert("sec-websocket-protocol", HeaderValue::from_static("cmux.wire.v1"));
+        cmux_build_space::insert_space(request.headers_mut(), self.space.as_ref());
         if let Some(version) =
             client_version.and_then(|version| HeaderValue::from_str(version).ok())
         {
@@ -545,6 +560,46 @@ mod tests {
     use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 
     use super::*;
+
+    /// Every call the daemon's cloud transport makes (the conversations
+    /// proxy and the host replica: JSON calls, platform calls with an install
+    /// bearer, the part URL, ranged reads and the `cmux.wire/1` upgrade),
+    /// as the heads the loopback cloud saw.
+    fn spaces_sent(space: cmux_build_space::Resolved) -> Vec<Option<String>> {
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let heads = runtime.block_on(cmux_build_space::testing::Heads::start()).unwrap();
+        let backend = RemoteCloudBackend::in_space(space).unwrap();
+        let base = heads.base_url.clone();
+        let _ = backend.post(&format!("{base}/v1/ops"), Some("tok"), Some("1"), &json!({}));
+        let _ = backend.get(&format!("{base}/v1/read"), None, None);
+        let _ = backend.platform("POST", &format!("{base}/v1/host-replica"), "install", &json!({}));
+        let _ = backend.attachment_part_url(&format!("{base}/v1/part"), 1);
+        let _ = backend.get_range(&format!("{base}/v1/blob"), 0, 1);
+        let _ = backend.connect(&format!("{}/v1/wire/socket", heads.ws_url()), Some("tok"), None);
+        let all = runtime.block_on(heads.wait_for(6));
+        assert_eq!(all.len(), 6, "{all:?}");
+        assert!(all.last().is_some_and(|head| head.contains("upgrade: websocket")), "{all:?}");
+        heads.spaces()
+    }
+
+    #[test]
+    fn a_dev_builds_daemon_sends_its_build_space_on_every_cloud_call() {
+        let space = cmux_build_space::testing::space("my-tag-2");
+        assert_eq!(spaces_sent(Ok(Some(space))), vec![Some("dev:my-tag-2".to_owned()); 6]);
+    }
+
+    #[test]
+    fn a_nightly_daemon_sends_no_build_space() {
+        assert_eq!(spaces_sent(Ok(None)), vec![None; 6]);
+    }
+
+    #[test]
+    fn a_daemon_with_an_unusable_build_space_has_no_cloud_transport() {
+        let error = RemoteCloudBackend::in_space(cmux_build_space::testing::refused())
+            .err()
+            .expect("refused");
+        assert!(error.to_string().contains("refusing to call cmux Cloud"), "{error}");
+    }
 
     /// The declared part length is a hard boundary even when it is not a
     /// 64 KiB multiple. A server must never receive the next part's bytes.

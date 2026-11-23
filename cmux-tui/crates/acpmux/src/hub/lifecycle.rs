@@ -398,6 +398,12 @@ impl Hub {
             let session = self.make_session(meta);
             *session.codex_answer_asked.lock().unwrap_or_else(|e| e.into_inner()) = asked;
             session.person.store(person, Ordering::SeqCst);
+            // A chat that records no creator (an adopt, a move's target) is the person's only
+            // when the person asked for it: its first start says so (`host_level.rs`).
+            if session.read_meta(|m| m.created_by.is_none()) {
+                let start_for = super::host_level::start_for_creator(person);
+                session.start_for.store(start_for, Ordering::SeqCst);
+            }
             // Before the session is published, so its first spawn already has it; memory only.
             *session.credential.lock().unwrap_or_else(|e| e.into_inner()) = credential;
             *session.fork_from.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
@@ -1295,6 +1301,9 @@ impl Hub {
                 &mode,
                 Some(&model),
             );
+            // The translator starts in the mode the process runs in, also over a profile that
+            // pins its own: Claude Code reports it only with the first turn's `system/init`.
+            let run_mode = crate::claude_stdio::spawn_mode(profile, &mode).to_owned();
             // The chat's Sources (`additional_dirs.rs`), at every start.
             let mut plan = plan;
             plan.args.extend(super::additional_dirs::claude_args(&meta));
@@ -1306,7 +1315,7 @@ impl Hub {
             if self.agent_hosts_enabled() {
                 let translator = crate::agent_host::TranslatorSpec {
                     acp_session_id: session.id.clone(),
-                    mode: mode.clone(),
+                    mode: run_mode.clone(),
                     model: model.clone(),
                     effort: effort.clone(),
                     fast,
@@ -1326,7 +1335,7 @@ impl Hub {
             } else {
                 let tr = crate::claude_stdio::Translator::new(
                     session.id.clone(),
-                    &mode,
+                    &run_mode,
                     &model,
                     &effort,
                 );
@@ -1408,7 +1417,7 @@ impl Hub {
         // Start the inbound loop for this session once.
         self.spawn_inbound_loop(session).await;
 
-        let init = match child.request(method::INITIALIZE, super::pool::initialize_params()).await {
+        let init = match child.request(method::INITIALIZE, self.start_params(session)).await {
             Ok(v) => v,
             Err(e) => {
                 // An agent CLI that refuses to start signed out exits before it answers
@@ -1522,6 +1531,7 @@ impl Hub {
             }
             self.set_status(session, SessionStatus::Ready);
             self.note_launch(session, &child);
+            self.note_start_level(session, &child, true);
             self.save_meta(session);
             let meta_now = session.meta();
             self.remember_models(&meta_now.harness, &meta_now);
@@ -1627,6 +1637,7 @@ impl Hub {
         self.cap_full_access(session, &child, profile, off).await?;
         self.set_status(session, SessionStatus::Ready);
         self.note_launch(session, &child);
+        self.note_start_level(session, &child, true);
         self.save_meta(session);
         let meta_now = session.meta();
         self.remember_models(&meta_now.harness, &meta_now);

@@ -27,6 +27,7 @@ jobs:
   tag:
     name: create release tag
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 10
     permissions:
       contents: write
       # actions: write lets this job dispatch the downstream build/publish

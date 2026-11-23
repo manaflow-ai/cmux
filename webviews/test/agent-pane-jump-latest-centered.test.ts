@@ -50,7 +50,7 @@ await requireBrowserLane("agent-pane-jump-latest-centered.test.ts", async () => 
   });
 
   type SessionInfo = "closed" | "open" | "push";
-  type State = { info: SessionInfo; look?: "codex"; scrollbar?: boolean; computerUse?: boolean };
+  type State = { info: SessionInfo; scrollbar?: boolean; computerUse?: boolean };
 
   /// The button's and the composer card's horizontal centers, as drawn.
   const centers = (page: Page) =>
@@ -102,9 +102,7 @@ await requireBrowserLane("agent-pane-jump-latest-centered.test.ts", async () => 
   };
 
   const open = async (width: number, state: State) => {
-    const page = await pane!.open({ width, height: 700 }, async (page) => {
-      if (state.look) await page.addInitScript((look) => localStorage.setItem("cmux.composer.look", look), state.look);
-    });
+    const page = await pane!.open({ width, height: 700 });
     if (state.info === "push") await sessionInfoPushAlways(page);
     if (state.info !== "closed") await sessionInfo(page, true);
     if (state.scrollbar)
@@ -132,7 +130,6 @@ await requireBrowserLane("agent-pane-jump-latest-centered.test.ts", async () => 
     { info: "push" },
     { info: "closed", scrollbar: true },
     { info: "push", scrollbar: true },
-    { info: "push", look: "codex" },
     { info: "closed", computerUse: true },
   ];
 

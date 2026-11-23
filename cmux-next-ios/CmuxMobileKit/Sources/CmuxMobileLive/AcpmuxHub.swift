@@ -27,6 +27,20 @@ public final class AcpmuxHub {
     @ObservationIgnored public var macLink: (any MacLink)?
 
     @ObservationIgnored var connection: AcpmuxConnection?
+    /// Recovers this hub's channel when a read stalls on it (`AcpmuxHub+Steady.swift`): the live
+    /// coordinator opens a fresh `acpmux` channel on the same link and binds it. Nil: no recovery,
+    /// a stalled read fails at its deadline as before.
+    @ObservationIgnored public var onStall: (@MainActor () async -> Void)?
+    /// The one recovery running now; every stalled read waits on it rather than starting its own.
+    @ObservationIgnored var recovering: Task<Void, Never>?
+    /// Requests ride out a reconnect (wait for the next ready channel) and retry an idempotent read
+    /// once on a fresh channel. False: the old behavior, failing at once (the bench's baseline).
+    @ObservationIgnored var steadyReads = true
+    /// How long a request waits for a channel that is coming back before it says offline.
+    @ObservationIgnored var readyGrace: Duration = AcpmuxHub.defaultReadyGrace
+    /// How long a read may go unanswered before the channel counts as stalled and is replaced.
+    @ObservationIgnored var stallAfter: Duration = AcpmuxHub.defaultStallAfter
+    @ObservationIgnored var steadyClock: any Clock<Duration> = ContinuousClock()
     /// Callers of `waitUntilReady` (a Feed answer whose Mac's link is opening).
     @ObservationIgnored private var readyWaiters: [UUID: CheckedContinuation<Bool, Never>] = [:]
     @ObservationIgnored private var pumpTask: Task<Void, Never>?
@@ -309,31 +323,40 @@ public final class AcpmuxHub {
         readyWaiters.removeValue(forKey: id)?.resume(returning: ready)
     }
 
+    /// A request on the current channel. While the channel is coming back it waits for it
+    /// (``readyGrace``); an idempotent read that stalls or loses its channel is retried once on a
+    /// fresh one (`AcpmuxHub+Steady.swift`), so a blip never reaches the person as an error.
     public func request(_ method: String, _ params: JSONValue) async throws -> JSONValue {
-        guard let connection else { throw LinkError(code: "offline", message: "Not connected to the Mac") }
-        return try await connection.request(method, params)
+        try await steady(method, stallWatch: true) { try await $0.request(method, params) }
     }
 
     public func request(_ method: String, _ params: JSONValue, timeout: Duration) async throws -> JSONValue {
+        try await steady(method, stallWatch: true) { try await $0.request(method, params, timeout: timeout) }
+    }
+
+    /// One request on the channel as it is: no wait, no retry, no recovery. For probes of the
+    /// channel itself (the Feed's Retry), which must not recover the channel they test.
+    public func requestOnce(_ method: String, _ params: JSONValue, timeout: Duration) async throws -> JSONValue {
         guard let connection else { throw LinkError(code: "offline", message: "Not connected to the Mac") }
         return try await connection.request(method, params, timeout: timeout)
     }
 
-    /// ``AcpmuxConnection/wholeList(_:_:timeout:)`` on the current connection.
+    /// ``AcpmuxConnection/wholeList(_:_:timeout:)`` on the current connection. A long list
+    /// takes as long as it takes (no stall watch); a lost channel is retried once.
     public func wholeList(_ method: String, _ params: [String: JSONValue], timeout: Duration) async throws -> [JSONValue] {
-        guard let connection else { throw LinkError(code: "offline", message: "Not connected to the Mac") }
-        return try await connection.wholeList(method, params, timeout: timeout)
+        try await steady(method, stallWatch: false) { try await $0.wholeList(method, params, timeout: timeout) }
     }
 
     /// ``AcpmuxConnection/submit(_:_:)`` on the current connection: returns once the request
-    /// is written, with the connection that answers it.
+    /// is written, with the connection that answers it. Waits for a channel that is coming back;
+    /// never retried (a submit is a send).
     public func submit(_ method: String, _ params: JSONValue) async throws -> (AcpmuxConnection, Int) {
-        guard let connection, isReady else { throw LinkError(code: "offline", message: "Not connected to the Mac") }
+        let connection = try await readyConnection()
         return (connection, try await connection.submit(method, params))
     }
 
     public func notify(_ method: String, _ params: JSONValue) async throws {
-        guard let connection else { throw LinkError(code: "offline", message: "Not connected to the Mac") }
+        let connection = try await liveConnection()
         try await connection.notify(method, params)
     }
 
@@ -657,6 +680,22 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         guard let cache = hub?.transcriptCache, let key = keptKey else { return }
         if let entry = cache.cached(key) {
             restore(entry)
+            return
+        }
+        // The newest kept turns from the head file in this turn, so the reopened chat's first
+        // frame draws them; the whole kept copy is read off the main thread only to keep saving
+        // it whole (its older turns come from the Mac as the reader scrolls up, as for any page).
+        if let head = cache.firstScreen(key) {
+            restore(head)
+            guard head.earlier, keptRestored else { return }
+            let headSeq = head.lastSeq
+            Task { [weak self] in
+                guard let whole = await cache.load(key), let self, self.keptRestored, whole.sessionID == self.sessionID,
+                      whole.lastSeq == headSeq, whole.records.count > head.records.count else { return }
+                let newer = self.kept.filter { Int($0["seq"]?.numberValue ?? 0) > headSeq }
+                self.kept = whole.records + newer
+                self.keptEarlier = whole.earlier
+            }
             return
         }
         restoring = true
@@ -1360,7 +1399,9 @@ public final class AcpmuxSessionSource: AgentSessionSource {
 
     /// One request to this chat's acpmux, its refusal as the Mac's own words.
     private func call(_ method: String, _ params: [String: JSONValue]) async throws -> JSONValue {
-        guard let hub, hub.isReady else {
+        let ready: Bool
+        if let hub { ready = hub.isReady ? true : await hub.waitUntilReady(timeout: hub.readyGrace, clock: ContinuousClock()) } else { ready = false }
+        guard let hub, ready else {
             throw AgentFeatureUnavailable(String(localized: "Agents on \(summary.macName) aren't connected. Try again in a moment."))
         }
         do {

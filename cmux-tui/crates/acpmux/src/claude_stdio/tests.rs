@@ -727,3 +727,50 @@ fn claude_chats_keep_per_machine_sections_out_of_the_cached_system_prompt() {
         plan.args
     );
 }
+
+/// The mode the translator starts in is the mode the spawned Claude Code runs in: the one the
+/// profile's argv pins (both spellings), else the chat's, with `bypassPermissions` moved to Claude
+/// Code's own mode only when the process could not take it. `spawn_plan` puts that same mode on
+/// the command line, and never a second `--permission-mode` over a pinned one.
+#[test]
+fn the_translator_starts_in_the_mode_the_process_runs_in() {
+    let profile = |argv: Value| -> crate::config::HarnessProfile {
+        serde_json::from_value(json!({"kind": "claude-stdio", "argv": argv})).unwrap()
+    };
+    let flag_values = |plan: &SpawnPlan| -> Vec<String> {
+        plan.args
+            .iter()
+            .enumerate()
+            .filter(|(_, a)| *a == "--permission-mode")
+            .map(|(i, _)| plan.args[i + 1].clone())
+            .collect()
+    };
+
+    for pinned in [
+        profile(json!(["claude", "--permission-mode", "default"])),
+        profile(json!(["claude", "--permission-mode=default"])),
+    ] {
+        for asked in ["auto", "bypassPermissions", "acceptEdits"] {
+            assert_eq!(spawn_mode(&pinned, asked), "default", "{:?} asked {asked}", pinned.argv);
+            let plan = spawn_plan(&pinned, None, false, Some("fresh"), None, asked, None);
+            let named = plan.args.iter().filter(|a| a.starts_with("--permission-mode")).count();
+            assert_eq!(named, 1, "only the profile's own mode: {:?}", plan.args);
+        }
+    }
+
+    let open = profile(json!(["claude"]));
+    for asked in ["auto", "default", "acceptEdits", "plan"] {
+        assert_eq!(spawn_mode(&open, asked), asked);
+        let plan = spawn_plan(&open, None, false, Some("fresh"), None, asked, None);
+        assert_eq!(flag_values(&plan), [asked], "{:?}", plan.args);
+    }
+    let bypass = spawn_mode(&open, "bypassPermissions");
+    let plan = spawn_plan(&open, None, false, Some("fresh"), None, "bypassPermissions", None);
+    assert_eq!(flag_values(&plan), [bypass], "{:?}", plan.args);
+    let expected = if bypass_allowed(&open) { "bypassPermissions" } else { OWN_MODE };
+    assert_eq!(bypass, expected);
+
+    // A profile passing a skip flag itself takes bypassPermissions as it is.
+    let skips = profile(json!(["claude", "--dangerously-skip-permissions"]));
+    assert_eq!(spawn_mode(&skips, "bypassPermissions"), "bypassPermissions");
+}

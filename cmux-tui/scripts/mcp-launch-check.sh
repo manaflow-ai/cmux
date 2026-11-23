@@ -439,8 +439,11 @@ PY
     tm send-keys -t trust C-c; tm send-keys -t trust C-c
     for _ in $(seq 1 20); do [ "$(tm display -p -t trust '#{pane_dead}')" = 1 ] && break; perl -e 'select(undef,undef,undef,0.5)'; done
     screen > "$D/trust.after"
+    # The pane's process group is Codex and the package processes it started: end that group, which this check
+    # started, rather than every process whose command line names a path.
+    trust_pg=$(tm display -p -t trust '#{pane_pid}')
     tm kill-server
-    pkill -f "$CODEX_HOME/packages/" 2>/dev/null
+    [ -n "$trust_pg" ] && kill -- -"$trust_pg" 2>/dev/null
     refused=$(grep -cE "not supported for stdio|Error loading" "$D/trust.screen")
     trusted=$(grep -c "\"$N\"" "$CODEX_HOME/config.toml" 2>/dev/null)
     entry=$(sed -n 's/.*cmux-tui: codex mcp get cmux: [0-9]* ms (\([A-Za-z]*\).*/\1/p' "$D/trust.after" | head -1)

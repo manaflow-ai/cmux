@@ -28,7 +28,10 @@ enum HomeThemePalette {
             background: color(Palette.windowBackground, opaque: true),
             foreground: color(Palette.textPrimary, opaque: true),
             accent: color(accent, opaque: true),
-            failure: color(Palette.danger, opaque: true))
+            // The failed-send badge and its "Not Delivered" label are a status mark: systemRed's hue,
+            // like the sidebar's error mark, not the theme's ANSI red (pink in Soft Blue; Leo
+            // 2026-11-16: "why is this icon pink lol").
+            failure: color(Palette.statusError, opaque: true))
         var palette: HomePalette
         switch style {
         case .iMessage:
@@ -47,7 +50,10 @@ enum HomeThemePalette {
         // paints the pane's fill, never a tint of its own, active or not,
         // unless the user set Home's background (`appearance.surfaces.home`).
         // The secondary text reads on that fill over the window, not on the window alone.
-        palette = palette.onBackground(color(Palette.fill(for: .home, default: Palette.paneFill), opaque: false), over: theme.background)
+        // Over a see-through window the composer's placeholder is the secondary text token, the web
+        // fields' placeholder there (--cmux-text-secondary), so the two match pixel for pixel.
+        palette = palette.onBackground(color(Palette.fill(for: .home, default: Palette.paneFill), opaque: false), over: theme.background,
+                                       placeholderOverGlass: color(Palette.textSecondary, opaque: false))
         return palette
     }
 

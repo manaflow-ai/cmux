@@ -51,9 +51,12 @@ pub(super) struct LivePayload {
     pub schema: u64,
     pub purpose: String,
     pub commit: String,
-    /// Every commit whose app can take this build live, newest first.
+    /// Commits whose daemon protocol can take this build, newest first.
     #[serde(default)]
     pub live_from: Vec<String>,
+    /// Commits whose app content outside the replaced companions is unchanged.
+    #[serde(default)]
+    pub native_from: Vec<String>,
     pub targets: BTreeMap<String, BTreeMap<String, Binary>>,
 }
 
@@ -81,13 +84,25 @@ pub(super) fn verify(
     Ok(payload)
 }
 
-/// Whether an app at `app_commit` (a nightly stamps CMUXCommit short) can take
-/// the build live: exactly one `live_from` entry is that commit.
+/// Whether an app at `app_commit` (a nightly stamps CMUXCommit short) has
+/// daemon compatibility: exactly one `live_from` entry is that commit.
 pub(super) fn takes(live_from: &[String], app_commit: &str) -> bool {
     if app_commit.len() < 7 || !channel::lower_hex(app_commit, app_commit.len()) {
         return false;
     }
     live_from.iter().filter(|entry| entry.starts_with(app_commit)).count() == 1
+}
+
+/// Native equality must cover the same full commit as daemon compatibility.
+/// Older manifests prove it only when the app already contains the target commit.
+pub(super) fn native_matches(payload: &LivePayload, app_commit: &str) -> bool {
+    if !takes(&payload.live_from, app_commit) {
+        return false;
+    }
+    payload.live_from.iter().find(|entry| entry.starts_with(app_commit)).is_some_and(|entry| {
+        channel::lower_hex(entry, 40)
+            && (entry == &payload.commit || payload.native_from.contains(entry))
+    })
 }
 
 /// One file of the app's `bin/` a try sets: the build's, or none (the build

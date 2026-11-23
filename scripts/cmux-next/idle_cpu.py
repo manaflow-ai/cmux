@@ -51,8 +51,10 @@ import fresh_home_launch_smoke as smoke  # noqa: E402  (scripts/ci: the first-in
 
 CONTROLLER = os.environ.get("CMUX_CI_CONTROLLER") or "http://100.89.225.106:18765"
 # The processes the verdict judges: the daemons that must rest. The app and its helpers are reported too.
-DAEMON_KINDS = re.compile(r"^(acpmux-.*|tui-daemon.*|terminal-host)$")
-SAMPLE_KINDS = re.compile(r"^(acpmux-.*|tui-daemon.*)$")
+# optchat-chief is the Chief host, a daemon that runs while the app does (row 9 of perf-lead.md, 2026-11-21:
+# 3.49 wakeups/s at idle passed unjudged because no pattern named it).
+DAEMON_KINDS = re.compile(r"^(acpmux-.*|tui-daemon.*|terminal-host|optchat-chief)$")
+SAMPLE_KINDS = re.compile(r"^(acpmux-.*|tui-daemon.*|optchat-chief)$")
 
 
 def log(message: str) -> None:
@@ -117,10 +119,23 @@ def switches(pid: int) -> int | None:
     return int(buf[20])
 
 
-def measure(app_pid: int, bundle: str, windows: int, window: float, each=None) -> list[dict]:
+def app_threads(before: dict, after: dict, seconds: float) -> list[dict]:
+    """The app's threads that ran in one window, grouped by name, busiest first: how many threads, CPU ms per second.
+    The kernel counts wakeups per process only; a thread's CPU time names which threads woke (a thread that never runs
+    never wakes). Unnamed threads (dispatch workers) group as "?"."""
+    groups: dict = {}
+    for row in bench_memory.thread_deltas(before, after, seconds, top=4096):
+        entry = groups.setdefault(row["name"], {"name": row["name"], "threads": 0, "cpu_ms_per_s": 0.0})
+        entry["threads"] += 1
+        entry["cpu_ms_per_s"] = round(entry["cpu_ms_per_s"] + row["cpu_ms_per_s"], 4)
+    return sorted(groups.values(), key=lambda entry: -entry["cpu_ms_per_s"])
+
+
+def measure(app_pid: int, bundle: str, windows: int, window: float, each=None, threads=None) -> list[dict]:
     """Per process: kind, command and each window's CPU %, wakeups/s, switches/s, then the medians. `each(rows, index)`,
     if given, runs after each window with that window's rows (busiest first); a new window starts after it returns, so
-    its own work (a `sample`) is never inside a measured window."""
+    its own work (a `sample`) is never inside a measured window. `threads`, if given, gets one `app_threads` list per
+    window (proc_pidinfo reads from outside the app: no call into it)."""
     procs = bench_memory.owned(app_pid, bundle)
 
     def mark():
@@ -128,9 +143,12 @@ def measure(app_pid: int, bundle: str, windows: int, window: float, each=None) -
 
     spans = []
     for index in range(windows):
+        before_threads = bench_memory.thread_times(app_pid) if threads is not None else None
         start = mark()
         time.sleep(window)  # the measured idle window: no call into the app or its processes
         spans.append((start, mark()))
+        if threads is not None:
+            threads.append(app_threads(before_threads, bench_memory.thread_times(app_pid), spans[-1][1][0] - start[0]))
         if each is not None:
             each(rows_of(procs, spans[-1:]), index)
     return rows_of(procs, spans)
@@ -432,9 +450,14 @@ def main(argv: list[str] | None = None) -> int:
                 log(f"IDLE-CPU-WINDOW {index + 1}/{args.windows} busiest {top['kind']} pid={top['pid']} "
                     f"cpu_pct={top['cpu_pct']} top_frame={top_frame(text)!r}")
 
+        threads: list = []
         rows = measure(process.pid, bundle, args.windows, args.window,
-                       each if args.sample_each_window and not args.no_sample else None)
+                       each if args.sample_each_window and not args.no_sample else None, threads)
         result["processes"] = rows
+        result["app_threads"] = threads
+        for index, groups in enumerate(threads):
+            log(f"IDLE-CPU-THREADS {index + 1}/{args.windows} app " + " ".join(
+                f"{entry['name']!r}x{entry['threads']}={entry['cpu_ms_per_s']}" for entry in groups[:16]))
         for row in rows:
             log(f"IDLE-CPU {row['kind']} pid={row['pid']} cpu_pct={row['cpu_pct']} wakeups_per_s={row['wakeups_per_s']} "
                 f"switches_per_s={row['switches_per_s']} windows={json.dumps([[w['cpu_pct'], w['wakeups_per_s']] for w in row['windows']])}")

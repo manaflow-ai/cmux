@@ -27,7 +27,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
     /// The tab chosen on this screen. When it disappears (a new workspace
     /// whose placeholder tab became the Mac's real tab), the active tab
     /// falls back to the workspace's opening tab.
-    private var selectedTabID: String?
+    var selectedTabID: String?
     /// From the published tabs (`tabs`), not the workspace: a Mac publish
     /// that changes nothing the kit shows does not re-run the tabs screen.
     public var activeTabID: String? {
@@ -36,6 +36,15 @@ public final class WorkspaceTabsSource: TabsDataSource {
     }
     /// The workspace's opening tab as of the last `refreshTabs()`.
     private var openingTabID: String?
+    /// The selected tab as last published, and where: kept on screen through a Mac publish that
+    /// leaves it out (WorkspaceTabsSource+StickySelection.swift).
+    @ObservationIgnored var heldTab: (tab: WorkspaceTab, index: Int)?
+    /// The hold's clock: runs only while the Mac link is up; done means the tab is gone for good.
+    @ObservationIgnored var heldGraceTask: Task<Void, Never>?
+    @ObservationIgnored var heldGraceDone = false
+    /// Tabs this screen itself removed (closed, moved, archived, closed by the Mac's group close):
+    /// never held.
+    @ObservationIgnored var removedHere: Set<String> = []
     @ObservationIgnored let store: AppStore
     @ObservationIgnored let terminal: any TerminalTabContent
     @ObservationIgnored let sessions: AgentSessionDirectory
@@ -49,6 +58,9 @@ public final class WorkspaceTabsSource: TabsDataSource {
     /// Toggle Terminal and Chat (WorkspaceTabsSource+TerminalChat.swift): the face each paired tab
     /// shows, once the person chose one (else Rust's default).
     var chosenFaces: [String: TabFace] = [:]
+    /// Tab groups this phone's own edit (Ungroup, Close, Remove) emptied: their page goes at once,
+    /// not after the reconnect grace (`groupStaysGone`).
+    @ObservationIgnored var groupsEmptiedHere: Set<String> = []
     /// The View Only chat this phone had the Mac open for a terminal's session (`macID|harness|session`).
     var openedTerminalChats: [String: String] = [:]
     /// Macs whose acpmux makes no View Only chat for a phone (`remote.adopt_refused`): asked once.
@@ -232,9 +244,11 @@ public final class WorkspaceTabsSource: TabsDataSource {
         listGeneration += 1
         listStale = false
         let generation = listGeneration
-        let (workspace, opening) = withObservationTracking {
+        let (published, opening, linked) = withObservationTracking {
             let workspace = store.workspace(id: workspaceID)
-            return (workspace, workspace.flatMap { store.openingTab(for: $0)?.id })
+            // The link is read too: the held tab (`holdSelectedTab`) is let go only while it is up.
+            return (workspace, workspace.flatMap { store.openingTab(for: $0)?.id },
+                    workspace.map { store.macConnection[$0.macID] == .connected } ?? false)
         } onChange: { [weak self] in
             // The store is main-actor isolated: its changes, and so this call, run on main.
             MainActor.assumeIsolated {
@@ -246,18 +260,19 @@ public final class WorkspaceTabsSource: TabsDataSource {
                 self.refreshTabs()
             }
         }
-        workspaceSnapshot = workspace
         if openingTabID != opening { openingTabID = opening }
         // A request that arrives while the screen is up is taken here only when the tab on screen
         // is gone (a new workspace's placeholder tab became the Mac's real one). Otherwise it is
         // for the next screen of this workspace (a notification or Feed item rebuilds the page),
         // which opens on it and takes it in `opened()`.
-        if hasAppeared, let workspace, let opening, store.requestedTabByWorkspace[workspace.id] == opening,
-           !workspace.tabs.contains(where: { $0.id == selectedTabID }) {
+        if hasAppeared, let published, let opening, store.requestedTabByWorkspace[published.id] == opening,
+           !published.tabs.contains(where: { $0.id == selectedTabID }) {
             selectedTabID = opening
             // Taken outside this rebuild (an action), so the next open starts where this screen is left.
-            Task { @MainActor [store] in store.takeRequestedTab(workspace.id) }
+            Task { @MainActor [store] in store.takeRequestedTab(published.id) }
         }
+        let workspace = holdSelectedTab(in: published, linked: linked)
+        workspaceSnapshot = workspace
         let identity = workspace.map { WorkspaceIdentity(macID: $0.macID, title: $0.title, directory: $0.directory, branch: $0.branch,
                                                          screens: $0.screens) }
         if workspaceIdentity != identity { workspaceIdentity = identity }
@@ -593,7 +608,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
             CmuxMobileTheme.standard.haptics.error()
             return false
         }
-        let next = store.removeTab(id, from: workspaceID)
+        let next = removeTabHere(id)
         // The kit reads `tabs` as soon as this returns (Safari's timing).
         refreshTabs()
         surfaces[id] = nil
@@ -1614,7 +1629,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
         do {
             let landed = try await creator.backend.moveTab(tab, from: workspace, toWorkspace: destination)
             if landed?.id == workspaceID { return }
-            let next = store.removeTab(id, from: workspaceID)
+            let next = removeTabHere(id)
             refreshTabs()
             // The mock keeps tabs in its own store; a live Mac's list already moved it.
             if let landed, store.workspace(id: landed.id)?.tabs.contains(where: { $0.id == id }) == false {
@@ -1660,6 +1675,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
             guard await confirmClose(members, in: workspace) else { return }
         }
         let before = workspace.tabs
+        if edit == .ungroup || edit == .close || edit == .remove, let group = tab.group { groupsEmptiedHere.insert(group.id) }
         apply(edit, to: tab)
         refreshTabs()
         do {
@@ -1691,8 +1707,9 @@ public final class WorkspaceTabsSource: TabsDataSource {
     /// Tabs the Mac closed (a tab group, a screen): gone here too, with their pages; the
     /// workspace leaves when none is left.
     func dropClosedTabs(_ ids: [String]) {
+        let shownIndex = workspace?.tabs.firstIndex { $0.id == selectedTabID }
         for id in ids {
-            _ = store.removeTab(id, from: workspaceID)
+            _ = removeTabHere(id)
             surfaces[id] = nil
             browsers[id] = nil
             streamed.drop(tab: id)
@@ -1700,7 +1717,8 @@ public final class WorkspaceTabsSource: TabsDataSource {
         }
         // `workspaceTab` reads the listed copy: list the removals before reading it.
         refreshTabs()
-        if !isListed(selectedTabID) { selectedTabID = workspace?.tabs.first?.id }
+        // The neighbour of the tab that went (Safari's close), not the first tab: that is often a browser.
+        if !isListed(selectedTabID) { selectedTabID = Self.neighbour(at: shownIndex ?? 0, in: workspace?.tabs ?? [])?.id }
         if workspace?.tabs.isEmpty ?? true { exit() }
     }
 
@@ -1810,7 +1828,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
         } catch {
             return show(error, doing: "archive", tab.title)
         }
-        let next = store.removeTab(id, from: workspaceID)
+        let next = removeTabHere(id)
         refreshTabs()
         surfaces[id] = nil
         if selectedTabID == id || !isListed(selectedTabID) { selectedTabID = next?.id }

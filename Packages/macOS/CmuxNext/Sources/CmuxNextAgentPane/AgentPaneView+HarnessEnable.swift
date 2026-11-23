@@ -41,7 +41,7 @@ extension AgentPaneView {
     /// `%@` is the folder.
     static var harnessEnableMessage: String {
         String(localized: "agentPane.enableHarness.message",
-               defaultValue: "A file in %@ asks to run this program with your rights in chats inside that folder. Enable it only if you trust every line below.",
+               defaultValue: "A file in %@ wants to run this program in chats in that folder. Enable it only if you trust every line below.",
                bundle: .module)
     }
 

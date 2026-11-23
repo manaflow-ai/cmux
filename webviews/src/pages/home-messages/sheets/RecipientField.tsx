@@ -274,7 +274,10 @@ export function RecipientField({
         </button>
       </div>
       {visible && (
-        <div className="hm-suggestions" data-testid="cmux.home.newMessage.suggestions">
+        <div
+          className="hm-suggestions ui-glass ui-glass-floats ui-glass-transient"
+          data-testid="cmux.home.newMessage.suggestions"
+        >
           {emptyText !== null ? (
             <p className="hm-suggestions-empty">{emptyText}</p>
           ) : (

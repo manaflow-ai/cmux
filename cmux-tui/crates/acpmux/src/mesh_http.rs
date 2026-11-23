@@ -99,6 +99,7 @@ impl HttpHub {
         let origin = config.origin()?;
         let _ = rustls::crypto::ring::default_provider().install_default();
         let http = reqwest::Client::builder()
+            .default_headers(cmux_build_space::headers().map_err(|e| e.to_string())?)
             .redirect(reqwest::redirect::Policy::none())
             .user_agent(concat!("acpmux/", env!("CARGO_PKG_VERSION")))
             .build()

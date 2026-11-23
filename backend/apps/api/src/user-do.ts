@@ -1,3 +1,4 @@
+import { envForObject } from "./build-space.ts"
 import type { Domain, EventFrame, OpFrame, OwnerEngine, OwnerFrame, Principal } from "@cmux/ownership"
 import { mcpScopesForGrant } from "./mcp-grant.ts"
 import { isMachineInstallKind } from "./machine-installs.ts"
@@ -13,7 +14,7 @@ import { chiefActive, grantFor, inboxRefusalFor, installActive, liveInstallGrant
 import { appIdHashFor, confirmRead } from "./domains/user-confirm.ts"
 import { CHIEF_AGENT_CLASS, HOSTED_DEFAULT_KEY, chiefList, placedChiefClasses } from "./domains/user-chief.ts"
 import { avatarRpc, type AvatarCall } from "./user-avatars.ts"
-import type { Env } from "./env.ts"
+import type { Env, RawEnv } from "./env.ts"
 import { HomePushQueue } from "./home-push.ts"
 import { apnsHomePushSender, decideHomePush, drainHomePush, feedHomePushQuiet } from "./home-push-drain.ts"
 import { CLOSE_RETRY_MS, flushInstallCloses, markAgentClosing, markInstallClosing, nextCloseAt, registerSocketOwner } from "./socket-registry.ts"
@@ -25,7 +26,7 @@ import { checkPresenceKey, type PresenceKeyBody } from "./user-presence-key.ts"
 import { homeRateTakeSql, type HomeRateGate, type HomeRateOp } from "./home-rate.ts"
 import { installAuthorityVersion } from "./domains/user-authority.ts"
 import { DEFAULT_CHIEF_BIND, DEFAULT_CHIEF_REBIND, defaultChiefIdentity } from "./domains/user-chief-default.ts"
-import { deliverSignupChief, rebindDefaultChief, type DefaultMachinePlatform, type RebindReply } from "./user-chief-provision.ts"
+import { deliverSignupChief, platformInSpace, rebindDefaultChief, type DefaultMachinePlatform, type RebindReply } from "./user-chief-provision.ts"
 import type { DeliverResult, TargetItem } from "./do-outbox.ts"
 
 const CHALLENGE_TTL_MS = 2 * 60_000
@@ -54,9 +55,11 @@ export class UserDO extends OwnerDO<UserState> {
   /** Sends one Home alert (APNs, as FeedDO); tests replace it inside the object. */
   protected homePushSender = apnsHomePushSender(this.env)
   /** Signup's server-only service binding (replaced inside the object in integration tests). */
-  protected signupPlatform = () => this.env.PLATFORM as unknown as DefaultMachinePlatform | undefined
+  /** The platform's default machine, asked in this object's build space (`platformInSpace`). */
+  protected signupPlatform = () => platformInSpace(this.env.PLATFORM as unknown as DefaultMachinePlatform | undefined, this.env.BUILD_SPACE)
 
-  constructor(ctx: DurableObjectState, env: Env) {
+  constructor(ctx: DurableObjectState, raw: RawEnv) {
+    const env = envForObject(ctx, raw)
     super(ctx, env, makeUserDomain(appIdHashFor(env.IOS_APP_ID)), "user")
     ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS auth_challenges (nonce TEXT PRIMARY KEY, install TEXT NOT NULL, expires_at INTEGER NOT NULL)`)
     ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS auth_team_challenges (nonce TEXT PRIMARY KEY, install TEXT NOT NULL, team TEXT NOT NULL, expires_at INTEGER NOT NULL)`)

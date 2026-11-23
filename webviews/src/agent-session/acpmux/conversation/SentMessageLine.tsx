@@ -41,14 +41,14 @@ import { isFailed, isRunning, type SentEntry } from "./toolGroups";
 import { acpmuxMcpSendCall } from "./acpmuxMcpSends";
 import { McpCallDetails } from "./McpCallRows";
 import { mcpCall, mcpRawName } from "./mcpCalls";
-import { useTranscriptDisclosure } from "./transcriptDisclosureModel";
+import { sendDisclosureKey, useTranscriptDisclosure } from "./transcriptDisclosureModel";
 import { ToolRow } from "./ToolRow";
 import { useMessageLineLook } from "./messageLineLook";
 import { sentMessageLook } from "./sentMessageLook.experiment";
 import { SubsessionContext, SubsessionStore } from "../subagents/subsessions";
 import "./AgentMessageRow.css";
 import "./SubsessionCallCard.css";
-import { look, listeners, recipientPlace, targetChat, sendKey } from "./sentMessageLineModel";
+import { look, listeners, recipientPlace, targetChat } from "./sentMessageLineModel";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 
@@ -264,6 +264,7 @@ export function SentMessageLine({
           </span>
         ) : undefined
       }
+      bare={!text}
       body={
         text ? (
           <>
@@ -423,7 +424,7 @@ export function AcpmuxSendLine({
       text={send.text}
       file={send.file}
       detail={detail}
-      disclosureKey={`send:${sendKey(tool.id, send.index)}`}
+      disclosureKey={sendDisclosureKey(tool.id, send.index)}
       others={grouped ? 0 : send.others}
       rawOpen={send.state === "failed"}
       raw={(reveal) => <SendRaw tool={tool} reveal={reveal} />}

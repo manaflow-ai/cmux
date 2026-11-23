@@ -101,6 +101,10 @@ pub(super) struct OpenWork {
     /// a lasting grant ("allow always").
     floor_cancelled: Option<String>,
     last_control: Option<Control>,
+    /// The paired device that drove the last Web turn (`turn_started`/`turn_control`
+    /// `device`), and the open turn's: a restart keeps the owner's own phone on the floor.
+    last_device: Option<String>,
+    turn_device: Option<String>,
     harness_grant: bool,
     /// A remote chain's Claude Code session whose current host has no
     /// passed sandbox canary just before it started (`remote_sandbox.rs`).
@@ -623,6 +627,24 @@ impl Hub {
         adopted
     }
 
+    /// Runs `read`, a read of `session`'s whole log, on a blocking thread and waits for it.
+    /// Adoption reads the log four times, and on the executor each pass of a 1 GB log was a
+    /// stretch nothing could interrupt: a stop waited 583 ms (p50) for the startup task's poll to
+    /// return, against none for a small chat (`tests/stop_under_load.rs`). A caller dropped
+    /// meanwhile (a stop aborts startup) leaves the read to end unobserved; what it found is
+    /// applied by the caller, after it.
+    async fn read_whole_log<T: Send + 'static>(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        read: impl FnOnce(&Hub, &Session) -> T + Send + 'static,
+    ) -> anyhow::Result<T> {
+        let (hub, session) = (self.clone(), session.clone());
+        // bare blocking (daemon): owned startup, loader, probe, timer, or restore work
+        tokio::task::spawn_blocking(move || read(&hub, &session))
+            .await
+            .map_err(|e| anyhow::anyhow!("the chat's log was not read: {e}"))
+    }
+
     async fn adopt_held(
         self: &Arc<Self>,
         session: &Arc<Session>,
@@ -630,8 +652,12 @@ impl Hub {
         off: &OffLatch,
         hold: &mut Option<super::full_access_bound::FamilyHold>,
     ) -> anyhow::Result<()> {
+        let incarnation = record.incarnation.clone();
+        let of = incarnation.clone();
         if session.meta().remote_origin
-            && !self.remote_host_env_current(session, &record.incarnation)
+            && !self
+                .read_whole_log(session, move |hub, s| hub.remote_host_env_current(s, &of))
+                .await?
         {
             let dir = agent_host::hosts_dir();
             let ended = end_host_blocking(
@@ -654,15 +680,19 @@ impl Hub {
             );
             return Ok(());
         }
-        let resume_after = self.last_host_seq(session, &record.incarnation);
+        let of = incarnation.clone();
+        let (resume_after, subagents, turn_open) = self
+            .read_whole_log(session, move |hub, s| {
+                (hub.last_host_seq(s, &of), hub.subagents_in_log(s), hub.log_turn_open(s))
+            })
+            .await?;
         // The subagents the host still runs, before its first replayed line reaches the tap:
         // a child's line is tagged with its session from the first one (`work_below.rs`).
-        self.seed_subagents_from_log(session);
+        self.seed_subagents(session, subagents);
         // So is the turn its log has open: the replay's model work is that turn's, not one the
         // person did not start, until recovery below rebuilds it (`background_turn.rs`).
-        let _adopted_turn = self.hold_adopted_turn(session);
+        let _adopted_turn = self.hold_adopted_turn(session, turn_open);
         let tap = self.session_tap(session);
-        let incarnation = record.incarnation.clone();
         let caller_token = record.caller_token.clone();
         let attached = ChildAgent::attach_hosted(
             &session.meta().harness,
@@ -787,7 +817,10 @@ impl Hub {
             hold.take();
             return Ok(());
         }
-        let work = self.recovery_work(session, &incarnation, resume_after);
+        let of = incarnation.clone();
+        let work = self
+            .read_whole_log(session, move |hub, s| hub.recovery_work(s, &of, resume_after))
+            .await?;
         // Handed on before recovery, which may take the family gate itself.
         if let (Some(record), Some(hold)) = (child.host_record(), hold.take()) {
             let told = replayed && adopted.version >= agent_host::QUEUED_VERSION;
@@ -823,8 +856,7 @@ impl Hub {
         session.floor.unsandboxed.store(work.unsandboxed, Ordering::SeqCst);
         session
             .floor
-            .last_turn_web
-            .store(work.last_control == Some(Control::Web), Ordering::SeqCst);
+            .mark_last_turn(work.last_control == Some(Control::Web), work.last_device.clone());
         session.floor.cloud_mobile_turn.store(work.cloud_mobile_turn, Ordering::SeqCst);
         if let Some((_, turn_id, ..)) = &work.turn
             && work.floor_cancelled.as_ref() == Some(turn_id)
@@ -913,20 +945,22 @@ impl Hub {
                         // As logged (`turn_started` `persons`); an older record's takes notices.
                         persons: work.turn_persons,
                         accepted: true,
-                        device: None,
+                        // The paired device that sent it, as logged (`turn_started` `device`).
+                        device: work.turn_device.clone().filter(|_| control == Control::Web),
                     });
                     if work.turn_trigger {
                         self.restore_trigger_background(session, &turn_id);
                     }
-                    session.floor.last_turn_web.store(control == Control::Web, Ordering::SeqCst);
+                    let device = work.turn_device.clone().filter(|_| control == Control::Web);
+                    session.floor.mark_last_turn(control == Control::Web, device.clone());
                     // A Web turn in flight in an agent the sandbox did not
                     // start does not go on (tools that do not ask).
                     if control == Control::Web && session.floor.unsandboxed.load(Ordering::SeqCst) {
                         self.remote_floor_cancel(session, "remote.unsandboxed_agent");
                     }
-                    // Nor one in a mode only a machine's Full-access setting allows: which
-                    // machine sent it is not kept across a restart (`full_access_hold`).
-                    if self.full_access_hold(&session.meta(), control, None).is_err() {
+                    // Nor one in a mode only a machine's Full-access setting allows, unless the
+                    // machine that sent it (as logged) still has it (`full_access_hold`).
+                    if self.full_access_hold(&session.meta(), control, device.as_deref()).is_err() {
                         self.remote_floor_cancel(session, "remote.full_access_ended");
                     }
                     *session.open_tools.lock().unwrap_or_else(|e| e.into_inner()) =

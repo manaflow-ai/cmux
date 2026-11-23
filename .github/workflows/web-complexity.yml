@@ -77,6 +77,7 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
 
       # The same key as ci-web.yml's web jobs, so a pull request restores the package cache its base branch saved and
       # downloads only what changed. A pull request's save is scoped to its own ref: no other branch's run restores it,

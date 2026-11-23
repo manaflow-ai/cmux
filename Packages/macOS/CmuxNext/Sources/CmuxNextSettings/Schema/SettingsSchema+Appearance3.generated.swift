@@ -94,11 +94,11 @@ extension AppearanceSettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.appearance.textSize", "Text Size"),
-                help: SettingsText.keyed("settings.appearance.textSize.help", "Text size of tabs, the sidebar and chat. Terminals have their own size."),
+                help: SettingsText.keyed("settings.appearance.textSize.help", "Text size of the sidebar, tabs, menus and chat. Terminals have their own size."),
                 kind: .number(SettingNumber(InterfaceSizeSetting.range, step: 1, unit: .points, placeholder: InterfaceSizeSetting.placeholder)),
                 default: nil,
                 defaultLabel: SettingsText.keyed("settings.default.density", "Density default"),
-                keywords: ["font", "text", "size", "density", "interface size", "chromeFontSize"]
+                keywords: ["font", "text", "size", "density", "interface size", "chromeFontSize", "sidebar font size", "menu", "interface font", "bigger", "larger", "readable", "accessibility"]
             ),
             SettingDescriptor(
                 FontSmoothingSetting.configPath,
@@ -286,6 +286,22 @@ extension AppearanceSettingsSchema {
                 kind: .number(SettingNumber(TitleAreaContrastSetting.range, step: 0.05, unit: .fraction, placeholder: TitleAreaContrastSetting.placeholder)),
                 default: .number(TitleAreaContrastSetting.fallback),
                 keywords: ["contrast", "title", "titlebar", "tab bar", "tabs", "chrome", "shade", "intensity", "darker", "softer", "frame"]
+            ),
+            SettingDescriptor(
+                CornerFlushSetting.configPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.cornerFlush", "Selected Tab Shape"),
+                help: SettingsText.keyed("settings.appearance.cornerFlush.help", "How the selected tab meets the content below it: a pill, flush with it, or flowing into it like a drop of water."),
+                summary: SettingsText.keyed("settings.appearance.cornerFlush.summary", "Pill, flush or goo for the selected tab"),
+                kind: .choice([
+                    SettingChoice(CornerFlush.off.rawValue, SettingsText.keyed("settings.choice.cornerFlush.off", "Pill")),
+                    SettingChoice(CornerFlush.flush.rawValue, SettingsText.keyed("settings.choice.cornerFlush.flush", "Flush")),
+                    SettingChoice(CornerFlush.tight.rawValue, SettingsText.keyed("settings.choice.cornerFlush.tight", "Flush, Tight to the Sidebar")),
+                    SettingChoice(CornerFlush.goo.rawValue, SettingsText.keyed("settings.choice.cornerFlush.goo", "Goo")),
+                ]),
+                default: .string(CornerFlushSetting.fallback.rawValue),
+                keywords: ["corner", "flush", "goo", "gooey", "folder tab", "fillet", "pill", "selected tab", "tab shape", "card", "material"]
             ),
         ]
     }

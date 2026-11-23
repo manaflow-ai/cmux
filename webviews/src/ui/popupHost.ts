@@ -12,6 +12,7 @@ import { usePopupHost } from "./UiProvider";
 import type { NativePopupTransport } from "./nativePopup";
 import type { NativePopupEvent } from "./popupProtocol";
 import { onVisualViewport, visualViewportScale } from "./visualViewportBox";
+import { listPlacement } from "./listPlacement";
 
 export interface PopupItem {
   id: string;
@@ -273,6 +274,12 @@ export interface EscapeOptions {
   /** How a list's row picks: on mouse-down (a list beside a field it keeps focused) or a click. */
   pick?: "mousedown" | "click";
   /**
+   * A list the page itself opens on the side of its box with room and shrinks to that room
+   * (listPlacement.ts, a composer's `/` list): it leaves the page only when even the larger side
+   * has no room for a few rows.
+   */
+  shrinks?: boolean;
+  /**
    * The host closed the rows (another app, a resize, a click elsewhere). By default the surface
    * gets an Escape; a field whose Escape clears its text hides its rows here instead.
    */
@@ -298,6 +305,7 @@ export function useEscapingPopup(
     pick = "mousedown",
     onDismiss,
     wraps = false,
+    shrinks = false,
   }: EscapeOptions,
 ) {
   const anchorRef = useRef(anchor);
@@ -363,8 +371,10 @@ export function useEscapingPopup(
       const room = at?.getBoundingClientRect();
       const fits =
         !room ||
-        (fitsInPage(room, naturalHeight(element), gap, window.innerHeight, flip ? undefined : side) &&
-          (kind !== "tooltip" || wraps || textWidth(element) <= window.innerWidth - 2 * EDGE));
+        (shrinks
+          ? !listPlacement(room, window.innerHeight, naturalHeight(element), { gap }).escapes
+          : fitsInPage(room, naturalHeight(element), gap, window.innerHeight, flip ? undefined : side) &&
+            (kind !== "tooltip" || wraps || textWidth(element) <= window.innerWidth - 2 * EDGE));
       if (!flat || items.length === 0 || fits) return;
       const first = model();
       if (!first) return;
@@ -448,7 +458,7 @@ export function useEscapingPopup(
       cancelAnimationFrame(frame);
       restore();
     };
-  }, [host, element, side, align, gap, kind, flip, hide, active, pick, wraps]);
+  }, [host, element, side, align, gap, kind, flip, hide, active, pick, wraps, shrinks]);
 }
 
 /**
@@ -462,6 +472,7 @@ export function useEscapingList(
   gap: number,
   onDismiss?: () => void,
   anchor?: HTMLElement | null,
+  shrinks = false,
 ): ((list: HTMLElement | null) => void) | undefined {
   const host = usePopupHost();
   const [list, setList] = useState<HTMLElement | null>(null);
@@ -472,6 +483,7 @@ export function useEscapingList(
     kind: "list",
     flip: false,
     onDismiss,
+    shrinks,
   });
   return host ? setList : undefined;
 }

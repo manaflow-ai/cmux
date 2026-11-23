@@ -4,12 +4,14 @@
 //!   open and close.
 //! - [`signaling`]: the backend signaling WebSocket client.
 //! - [`api`]: the backend HTTP API.
+//! - [`build_space`]: a dev build's `x-cmux-build-space` header.
 //! - [`dial`]: the WebRTC and WireGuard dialers behind one [`dial::Dialer`]
 //!   trait, selected by [`TransportKind`].
 //! - [`hybrid`]: the phone's WebRTC media session beside a WireGuard link.
 //! - [`keepalive`]: the phone's one keepalive clock (Align Keepalives).
 
 pub mod api;
+pub mod build_space;
 pub mod class_queue;
 pub mod dial;
 pub mod frame;
@@ -23,6 +25,7 @@ pub mod signaling;
 pub mod testing;
 pub mod timing;
 
+pub use build_space::BuildSpace;
 pub use dial::{Connected, DialError, DialOptions, LinkPath, TransportKind, UltraSetting};
 pub use link::{
     Channel, ChannelEvent, CloseInfo, IncomingChannel, Lane, LaneState, Link, LinkConfig, LinkError, Role,

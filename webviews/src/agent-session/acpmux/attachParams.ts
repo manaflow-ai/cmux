@@ -27,11 +27,15 @@ export const QUEUE_KINDS = ["queue_order", "queue_updated", "prompt_refused"];
 /// the chat's `limits` changing.
 export const SUBSESSION_KIND = "subsession";
 
-/// The attach of a chat drawn by v1: its newest page, then its records live.
+/// The attach of a chat drawn by v1: its newest page, then its records live. With `afterSeq` (a
+/// reconnect that holds the chat through that seq) the page is the records after it instead, oldest
+/// first (acpmux requests.rs: `afterSeq` alone pages forward), so a reconnect reads only what it
+/// missed rather than the newest 400 records again (cmuxterm-hq#14027).
 export function plainAttach(
   sessionId: string,
-  options: { settled: boolean; visible: boolean; local: boolean; maxBytes: number },
+  options: { settled: boolean; visible: boolean; local: boolean; maxBytes: number; afterSeq?: number },
 ): AttachParams {
+  const forward = options.afterSeq !== undefined && options.afterSeq > 0;
   return {
     sessionId,
     // The visible page must not wait for the daemon's restart-time full-log restoration. The
@@ -40,7 +44,10 @@ export function plainAttach(
     waitLogs: false,
     // The chat's settled view first (cmuxterm-hq#9655): acpmux keys it on these page bounds, which
     // stay the same on every open of the pane; it carries the queue a restarted acpmux has not read.
-    ...(options.settled ? { settled: true } : {}),
+    // A forward page asks no settled view: that view answers the chat's newest records, not the
+    // ones after the cursor.
+    ...(options.settled && !forward ? { settled: true } : {}),
+    ...(forward ? { afterSeq: options.afterSeq } : {}),
     limit: 400,
     // The most opening a chat downloads, however large its tool output (a remote session's open).
     maxBytes: options.maxBytes,

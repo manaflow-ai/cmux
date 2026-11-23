@@ -379,7 +379,7 @@
         },
         {
           "key": "app.hideDockIconWithoutWindows",
-          "note": "On when unset or invalid.",
+          "note": "Off when unset or invalid.",
           "title": {
             "key": "settings.app.hideDockIconWithoutWindows",
             "text": "Hide Dock Icon When No Windows Are Open"
@@ -389,7 +389,7 @@
             "text": "cmux stays in the menu bar until a window opens."
           },
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "keywords": [
             "dock",
             "icon",
@@ -2365,7 +2365,7 @@
             "text": "Adds Customize Menu… to the end of every right-click menu."
           },
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "keywords": [
             "context menu",
             "right click",

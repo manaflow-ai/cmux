@@ -31,7 +31,7 @@ FW_NAME="Chromium Embedded Framework.framework"
 FW_BINARY="Chromium Embedded Framework"
 source "$SCRIPT_DIR/cef-locale-allowlist.sh"
 # Bump when the embedded layout changes so existing app bundles are redone.
-LAYOUT="versioned-3-locale-fallback-allowlist-credits-license-stripped-libs-no-intro-sounds-trimmed-paks-kept-images-aliases-no-gpu-shader-cache"
+LAYOUT="versioned-3-locale-fallback-allowlist-credits-license-stripped-libs-no-intro-sounds-trimmed-paks-kept-images-aliases-no-gpu-shader-cache-gz-credits"
 
 app="${TARGET_BUILD_DIR:?}/${WRAPPER_NAME:?}"
 frameworks="$app/Contents/Frameworks"
@@ -216,9 +216,11 @@ if [[ ! -f "$source_stamp" || ! -L "$frameworks/$FW_NAME/Versions/Current" || "$
   for lib in "$fw/Versions/A/Libraries"/*.dylib; do
     if [[ -f "$lib" ]]; then "${CMUX_STRIP_TOOL:-strip}" -S -x "$lib"; fi
   done
-  # Chromium's CREDITS.html (license notices), before signing seals Resources:
-  # the artifact's own file, else the INTERIM stock credits for the pinned
-  # Chromium (chromium-credits/README.md). Release gate: check-cef-credits.sh.
+  # Chromium's CREDITS.html (license notices), before signing seals Resources,
+  # as CREDITS.html.gz (nothing reads it at runtime; chrome://credits is served
+  # from resources.pak): the artifact's own file, else the INTERIM stock credits
+  # for the pinned Chromium (chromium-credits/README.md). Release gate:
+  # check-cef-credits.sh.
   chromium_version="$(/usr/bin/python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["chromium"])' "$SCRIPT_DIR/cef-manifest.json")"
   if ! "$SCRIPT_DIR/install-cef-credits.sh" "$cef_dir" "$fw/Versions/A/Resources" "$chromium_version"; then
     if [[ "${CMUX_NEXT_REQUIRE_CEF:-0}" == "1" ]]; then

@@ -4,7 +4,8 @@
 //! `ladder[min(n - 1, len - 1)]`, and after it the model waits
 //! `backoff[min(n - 1, len - 1)]` for the part's signal before the next step.
 //! At most [`MAX_REPAIRS`] attempts per part in [`REPAIR_WINDOW_MS`]; the
-//! next one due past the cap makes the part `failed` instead.
+//! next one due past the cap makes the part `failed` instead, until the
+//! window lets its oldest attempt go and the part tries again by itself.
 
 use crate::RepairAction;
 
@@ -20,6 +21,23 @@ pub const PAGE_SLOW_INPUT_MS: u64 = 3_000;
 /// Silent (or input pending) this long is `stuck`.
 pub const PAGE_STUCK_MS: u64 = 10_000;
 pub const PAGE_LADDER: &[RepairAction] = &[RepairAction::ReloadPage, RepairAction::RestartRenderer];
+
+/// Several visible pages silent together are one stall of what they share (their Chromium renderer,
+/// or the whole Mac), not one hung page each. A page stuck by silence while another visible,
+/// non-resting page has been silent at least [`PAGE_SLOW_SILENT_MS`] is `slow`, not repaired: a
+/// reload of each page loads more into the stalled renderer, and the ladder's next step killed the
+/// renderer every agent chat shares, so every chat went blank at once (a Mac in swap, 2026-11-21:
+/// the chats' renderer at 3.7 GB, three pages reloaded within 7 s and their renderer restarted
+/// 30 s later; Leo: "the gui agent chats all blanked out just now"). A page silent while its
+/// siblings beat is still a hung page and climbs [`PAGE_LADDER`].
+///
+/// The stall is waited out this long from its oldest silence; then the page silent longest, alone,
+/// gets [`PAGE_SHARED_STALL_LADDER`], so a renderer that really hangs is still ended once.
+pub const PAGE_SHARED_STALL_MS: u64 = 120_000;
+pub const PAGE_SHARED_STALL_LADDER: &[RepairAction] = &[RepairAction::RestartRenderer];
+/// How often a page waiting on a shared stall looks again (a sibling that beats again leaves it a
+/// hung page of its own). Only while a stall lasts.
+pub const PAGE_SHARED_RECHECK_MS: u64 = 5_000;
 
 /// A renderer reported unresponsive this long is `stuck`.
 pub const RENDERER_STUCK_MS: u64 = 5_000;

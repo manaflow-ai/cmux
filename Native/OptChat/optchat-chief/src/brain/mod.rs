@@ -22,6 +22,7 @@
 //! `Settings::turn_limit`.
 
 mod approvals;
+mod background;
 mod chief_inbox;
 pub use chief_inbox::name as chief_inbox_name;
 mod children;
@@ -35,6 +36,7 @@ mod image_fit;
 pub mod images;
 mod inbox;
 pub mod media;
+mod memory;
 mod mux_ack;
 mod outbox;
 mod outcome_ledger;
@@ -46,10 +48,9 @@ pub mod redescribe;
 mod replies;
 mod reply_ledger;
 mod rights_gate;
-pub use rights_gate::RightsCtx;
-mod screen;
 pub use outcome_ledger::{UNTOLD_TAG, UNTOLD_WAIT};
 pub use reply_ledger::{MAX_REPLY_TRIES, NO_REPLY_TAG, REPLY_RETRY_WAITS};
+pub use rights_gate::RightsCtx;
 mod send;
 mod side;
 mod spawn_text;
@@ -131,6 +132,20 @@ pub enum Input {
     Steered {
         id: u64,
         result: Result<(), String>,
+    },
+    /// The steers of turn `key` that the deadline found unread were asked
+    /// back (`steer.rs` `on_steer_deadline`): whether every one was dropped
+    /// unread, so the turn's session holds none of them.
+    SteersWithdrawn {
+        key: String,
+        all: bool,
+    },
+    /// The deadline found a person's steer of turn `key` unread and asked
+    /// acpmux to move the turn's running work to the background
+    /// (`steer.rs`): whether something moved.
+    SteerBackgrounded {
+        key: String,
+        moved: bool,
     },
     TurnEnded {
         key: String,
@@ -333,6 +348,16 @@ pub enum Input {
     StopTurn {
         reply: Sender<Result<String, String>>,
     },
+    /// A check-in's PR check ended (memory.rs): the loops whose PR merged.
+    CheckInReady {
+        slot: String,
+        merged: Vec<(String, String)>,
+    },
+    /// `follow_up`, `follow_ups`, `check_ins`, `nothing`, `ask` (memory.rs).
+    WakeTool {
+        call: crate::tools::WakeCall,
+        reply: Sender<Result<String, String>>,
+    },
     /// `sleep(seconds, note, until)` (wakes.rs).
     Sleep {
         call: crate::tools::SleepCall,
@@ -411,6 +436,11 @@ pub enum Input {
         tool: String,
         input: serde_json::Value,
         reply: Sender<Result<(), String>>,
+    },
+    /// Whether the running turn is the owner's own (true) or one another
+    /// person's text started (false); read only: no log, audit or count.
+    TurnTrust {
+        reply: Sender<bool>,
     },
     /// The reaction classifier's answer for decision `id` on Chief message
     /// `seq` (reaction_wake.rs).
@@ -650,6 +680,10 @@ pub struct Settings {
     /// The codex turn preset (`optchat-chief-codex-<home id>`), when a codex
     /// harness exists: a turn on codex starts with it.
     pub codex_preset: Option<String>,
+    /// The open-source brains (Hermes, OpenClaw; brain_home.rs): each brain harness's turn
+    /// preset and whether it can run a turn. A turn engine.json puts on one that cannot runs on
+    /// `harness` with a visible note.
+    pub brains: crate::brain_home::BrainTurns,
     /// The per-Chief settings file (`chief_settings`), read at start.
     pub settings_file: PathBuf,
     /// The monitoring trace's directory, where approvals are recorded
@@ -677,9 +711,6 @@ pub struct Settings {
     /// (chief_inbox.rs): how another Chief on this Mac or a lane reaches it
     /// with `acpmux_send`. None: no such session (tests, a Cloud Chief).
     pub chief_inbox: Option<String>,
-    /// `$MUX_HOME/optchat/screen` (Share Screen with Chief, `screen_share.rs`):
-    /// its inbox becomes a note at each turn start. None: not read.
-    pub screen_share: Option<PathBuf>,
 }
 
 /// The longest a turn waits for view lines that are still building
@@ -871,6 +902,14 @@ pub struct Brain {
     owner_stopped: bool,
     /// This turn's send was refused for length once; its next send posts.
     length_refused: bool,
+    /// Subagents whose landed report this turn saw, with what landed
+    /// (landed_told.rs): `sleep` and `stop` are refused once until a post
+    /// of the turn names them.
+    turn_landed: Vec<(String, String)>,
+    /// The words the turn posted (`send`, `reply`), to see whom it named.
+    turn_posts: String,
+    /// This turn was refused once for a landed report it had not told.
+    landed_refused: bool,
     /// The subagents the running turn started (spawn_text.rs).
     turn_spawned: Vec<String>,
     /// The running turn posted words by `send` or `reply` (spawn_text.rs).
@@ -882,6 +921,21 @@ pub struct Brain {
     /// The steer on its way into the running turn (`steer.rs`), and the
     /// last steer's number.
     steering: Vec<steer::Steering>,
+    /// The turn (its key) a written but unread steer was taken back from
+    /// (`steer.rs`): its session is not kept (turns.rs `keep_turn_session`).
+    steer_left: Option<String>,
+    /// The turn (its key) whose unread steers are being taken back now:
+    /// no new steer goes into it (`steer.rs`).
+    withdrawing: Option<String>,
+    /// The turn (its key) whose running work the steer deadline asked to
+    /// move to the background, once a turn (`steer.rs`).
+    backgrounded: Option<String>,
+    /// The turn (its key) whose running work did move to the background
+    /// (`steer.rs`): its session must outlive the turn (`background.rs`).
+    moved: Option<String>,
+    /// Turn sessions that are not kept but still run moved work: followed
+    /// until their background turn ends, then ended (`background.rs`).
+    draining: Vec<background::Draining>,
     steer_seq: u64,
     /// A draft could not be published (logged once).
     draft_failed: bool,
@@ -959,6 +1013,8 @@ pub struct Brain {
     agent_keys: Option<std::sync::Arc<dyn crate::agent_keys::AgentKeys>>,
     agent_key_done_since: std::collections::BTreeMap<String, u64>,
     agent_key_revoking: std::collections::BTreeSet<String>,
+    /// When the cloud checks last ran (`control::next_cloud_tick`).
+    cloud_ticked_at: Option<Instant>,
     /// How long a keyed subagent stays done before its key is revoked.
     agent_key_grace: std::time::Duration,
     /// Most subagents at work at once (`subagents::live_limit`); None: no cap.
@@ -1070,6 +1126,12 @@ pub struct Brain {
     /// The idempotency keys of this run's `send` calls (send.rs): a repeat
     /// of one in the same turn is a noop even after the owner took it.
     sent_keys: std::collections::HashSet<String>,
+    /// Messages the owner refused and the outbox dropped (outbox.rs) that the
+    /// Chief has not been told of yet: `send` reports them (send.rs).
+    refused: Vec<outbox::Refused>,
+    /// `send` keys the outbox merged into an earlier entry (pacing::coalesce):
+    /// absorbed key -> the key it went under, until that `send` answers.
+    merged_sends: HashMap<String, String>,
     /// The running turn was ended by the Chief's own `stop` or `sleep`
     /// (wakes.rs): its final text is not posted, and it is no failure.
     tool_stopped: bool,
@@ -1085,6 +1147,27 @@ pub struct Brain {
     approval_told: HashSet<String>,
     /// Fetches link previews for replies' URL lines (None: replies stay text).
     previewer: Option<Arc<dyn crate::link_preview::Fetcher>>,
+    /// The memory files whose index and standing rules every turn reads
+    /// after the chat (memory_files.rs); None: no files on this host.
+    memory_files: Option<Arc<crate::memory_files::MemoryFiles>>,
+    /// The self-paced check-ins (check_in.rs).
+    check_ins: crate::check_in::Mode,
+    /// What the person set for the Chief's own wakes (check_ins tool).
+    wake_settings: crate::check_in::WakeSettings,
+    /// The last check-in slot taken (`YYYY-MM-DD HH:MM`).
+    check_in_last: Option<String>,
+    /// The `<chief-memory>` block the last turn read.
+    last_memory_block: Option<String>,
+    /// The running wake run (memory.rs), when the turn is one.
+    wake_run: Option<memory::WakeRunState>,
+    /// The planned time (ms) of each wake note queued (a follow-up's or
+    /// sleep's time, a check-in slot), by its text, for `scheduled_at`.
+    wake_planned: std::collections::HashMap<String, i64>,
+    /// A wake run whose turn was cut: its resume turn goes on as it.
+    cut_wake_run: Option<memory::WakeRunState>,
+    /// This Chief's measured $/token rates and when they were read.
+    rates: Option<(std::time::Instant, std::collections::BTreeMap<String, f64>)>,
+
     /// Turns cut in a row by a lost acpmux link (`Brain::turn_cut`): past
     /// `turns::MAX_CUTS` the next one fails as before, never a loop.
     cuts: u32,
@@ -1092,6 +1175,9 @@ pub struct Brain {
     /// false): its work may have run, so the try that ends the row is never
     /// treated as one that did not start.
     cut_ran: bool,
+    /// Refused turns in a row (`TurnOutcome::refused`): each refused reply says how many, so no two
+    /// in a row post the same text (first-run findings row 8). Any other ended turn resets it.
+    refused_in_row: u32,
     /// While set, an adopted turn session still runs and no turn starts; at
     /// this time it is folded and ended anyway (`children::adopt_orphans`).
     orphan_wait: Option<Instant>,
@@ -1164,12 +1250,20 @@ impl Brain {
             fatal: None,
             stop_wanted: false,
             length_refused: false,
+            turn_landed: Vec::new(),
+            turn_posts: String::new(),
+            landed_refused: false,
             turn_spawned: Vec::new(),
             turn_said: false,
             spawn_text_nudged: false,
             owner_stopped: false,
             interrupt: Arc::new(crate::turn::Interrupt::new()),
             steering: Vec::new(),
+            steer_left: None,
+            withdrawing: None,
+            backgrounded: None,
+            moved: None,
+            draining: Vec::new(),
             steer_seq: 0,
             draft_failed: false,
             run_failed: false,
@@ -1212,6 +1306,7 @@ impl Brain {
             agent_keys: None,
             agent_key_done_since: Default::default(),
             agent_key_revoking: Default::default(),
+            cloud_ticked_at: None,
             agent_key_grace: crate::agent_keys::REVOKE_AFTER_DONE,
             max_live: None,
             clock: Arc::new(now_ms),
@@ -1249,13 +1344,26 @@ impl Brain {
             newest_seq: 0,
             reacted: std::collections::HashSet::new(),
             sent_keys: std::collections::HashSet::new(),
+            refused: Vec::new(),
+            merged_sends: HashMap::new(),
             tool_stopped: false,
             denial_stopped: None,
             unanswered: Vec::new(),
             approval_told: HashSet::new(),
             previewer: None,
+            memory_files: None,
+            check_ins: crate::check_in::Mode::Off,
+            wake_settings: crate::check_in::WakeSettings::default(),
+            check_in_last: None,
+            last_memory_block: None,
+            wake_run: None,
+            cut_wake_run: None,
+            wake_planned: std::collections::HashMap::new(),
+            rates: None,
+
             cuts: 0,
             cut_ran: false,
+            refused_in_row: 0,
             resume_at: None,
             orphan_wait: None,
             upstream_backoff: turns::UPSTREAM_RESUME_BACKOFF.to_vec(),
@@ -1415,10 +1523,7 @@ impl Brain {
         vms: Option<std::sync::Arc<dyn crate::cloud_vms::CloudVms>>,
         idle: std::time::Duration,
     ) {
-        // A host that runs cloud subagents checks its VMs every few seconds.
-        if vms.is_some() && self.cloud_vms.is_none() {
-            control::start_cloud_ticker(self.tx.clone());
-        }
+        // The cloud checks run from the brain's own timer (`next_cloud_tick`).
         self.cloud_vms = vms;
         self.cloud_idle = idle;
     }
@@ -1454,9 +1559,6 @@ impl Brain {
         keys: Option<std::sync::Arc<dyn crate::agent_keys::AgentKeys>>,
         grace: std::time::Duration,
     ) {
-        if keys.is_some() && self.agent_keys.is_none() && self.cloud_vms.is_none() {
-            control::start_cloud_ticker(self.tx.clone());
-        }
         self.agent_keys = keys;
         self.agent_key_grace = grace;
     }
@@ -1551,6 +1653,8 @@ impl Brain {
                 self.next_unanswered_due(),
                 self.next_reply_due(),
                 self.next_outcome_due(),
+                self.next_check_in(),
+                self.next_cloud_tick(),
             ]
             .into_iter()
             .flatten()
@@ -1563,6 +1667,8 @@ impl Brain {
                         self.fire_wakes_at(now_ms());
                         self.fire_reply_checks_at(now_ms());
                         self.fire_outcome_checks_at(now_ms());
+                        self.fire_check_in();
+                        self.fire_cloud_checks_if_due();
                         let now = (self.clock)();
                         self.deny_overdue_permissions_at(now);
                         continue;
@@ -1605,6 +1711,8 @@ impl Brain {
             Input::Draft(draft) => self.turn_draft(&draft),
             Input::Run(update) => self.turn_run(*update),
             Input::Steered { id, result } => self.steered(id, result),
+            Input::SteersWithdrawn { key, all } => self.steers_withdrawn(&key, all),
+            Input::SteerBackgrounded { key, moved } => self.steer_backgrounded(&key, moved),
             Input::TurnEnded { key, outcome } => self.turn_ended(&key, *outcome),
             Input::Notice { key, text } => self.notice(key, text),
             Input::CompactorStatus(status) => self.compactor_status(status),
@@ -1740,6 +1848,7 @@ impl Brain {
                 let result = self.reply_now(id, &text);
                 if result.is_ok() {
                     self.said_in_turn();
+                    self.posted_in_turn(&text);
                 }
                 let _ = reply.send(result);
             }
@@ -1752,14 +1861,15 @@ impl Brain {
                 message,
             } => self.tell_unsteered(&id, &session, &message),
             Input::Send { call, reply } => {
-                let words = call.text.as_deref().is_some_and(|t| !t.trim().is_empty());
+                let words = call.text.clone().filter(|t| !t.trim().is_empty());
                 let result = self.send(call);
-                if words
+                if let Some(words) = words
                     && result
                         .as_deref()
                         .is_ok_and(|r| r.starts_with("outcome: done"))
                 {
                     self.said_in_turn();
+                    self.posted_in_turn(&words);
                 }
                 let _ = reply.send(result);
             }
@@ -1768,6 +1878,13 @@ impl Brain {
             }
             Input::Sleep { call, reply } => {
                 let _ = reply.send(self.sleep(call));
+            }
+            Input::WakeTool { call, reply } => {
+                let _ = reply.send(self.wake_tool(call));
+            }
+            Input::CheckInReady { slot, merged } => {
+                self.close_merged(&merged);
+                self.check_in_ready(slot);
             }
             Input::Watch { call, reply } => {
                 let _ = reply.send(self.watch(call));
@@ -1805,12 +1922,7 @@ impl Brain {
                     let _ = reply.send(answer);
                 }
             }
-            Input::CloudTick => {
-                self.cloud_tick();
-                self.agent_key_tick();
-                self.cloud_reap_tick();
-                self.fleet_tick();
-            }
+            Input::CloudTick => self.run_cloud_checks(),
             Input::FleetJobFinished { id, job, state } => {
                 self.fleet_job_finished(&id, &job, &state)
             }
@@ -1843,6 +1955,9 @@ impl Brain {
             }
             Input::TurnGate { tool, input, reply } => {
                 let _ = reply.send(self.turn_gate(&tool, &input));
+            }
+            Input::TurnTrust { reply } => {
+                let _ = reply.send(!self.turn_is_ask());
             }
             Input::Described { image, description } => self.described(&image, description),
             Input::Redescribe { notes, reply } => {
@@ -2285,6 +2400,11 @@ impl Brain {
         };
         let wakes = item.wakes();
         let owner = item.is_owner_message();
+        // A person's message for the running wake run lifts its cost limit
+        // (memory.rs): the person is answered whatever the run cost.
+        if owner && same {
+            self.lift_wake_budget();
+        }
         self.queue.push_back(item);
         if human && same && wakes {
             self.interrupt_for_newer();

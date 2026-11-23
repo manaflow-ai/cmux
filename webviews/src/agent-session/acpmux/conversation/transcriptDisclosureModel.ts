@@ -335,6 +335,10 @@ function useDisclosureSessionId(): string {
 /// draws: on its own, in a group, in a run (TurnRows.tsx). A fold that holds the call opens for it.
 export const callDisclosureKey = (id: string) => `${CALL_PREFIX}${id}`;
 
+/// The key of an `acpmux send`'s message row (SentMessageLine.tsx `AcpmuxSendLine`): the call's id,
+/// and the message's place in a batch (sentMessageLineModel.ts `sendKey`).
+export const sendDisclosureKey = (id: string, index?: number) => `send:${index === undefined ? id : `${id}#${index}`}`;
+
 /// The keys of the calls among `items` (`callDisclosureKey`), for the fold that holds them (`members`).
 export function callDisclosureKeys(items: readonly { tool?: { id: string } }[]): string[] {
   const keys: string[] = [];

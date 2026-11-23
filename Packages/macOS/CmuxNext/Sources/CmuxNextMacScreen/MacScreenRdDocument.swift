@@ -15,9 +15,11 @@ import Foundation
 ///     a=fingerprint:cmux-rd-key <64 hex>
 ///     a=cmux-rd-candidate:host 192.168.1.4:51000     (repeated)
 ///     a=cmux-rd-display:1                             (offer: the display to show)
+///     a=cmux-rd-display-id:69734208                   (offer: a run's display by CGDirectDisplayID; wins over the index)
 ///     a=cmux-rd-max-width:1920                        (offer: the quality wish)
 ///     a=cmux-rd-max-fps:120                           (offer)
 ///     a=cmux-rd-displays:3342x2160,1920x1080          (answer: the host's displays)
+///     a=cmux-rd-display-ids:1,69734208                (answer: the displays' CGDirectDisplayIDs, same order)
 ///     a=cmux-rd-current:0                             (answer: the display it streams)
 nonisolated struct MacScreenRdDocument: Equatable, Sendable {
     static let header = "cmux.rd/1"
@@ -27,20 +29,30 @@ nonisolated struct MacScreenRdDocument: Equatable, Sendable {
     var key: String
     var candidates: [String] = []
     var display: Int?
+    /// The display to show by CGDirectDisplayID (a run's screen link); the host shows the main display when it is gone.
+    var displayID: UInt32?
     var maxWidth: Int?
     var maxFps: Int?
     var displays: [CGSize] = []
+    /// The host's displays' CGDirectDisplayIDs, in `displays` order (empty from an older host).
+    var displayIDs: [UInt32] = []
     var currentDisplay: Int?
+
+    /// Whether this answer says `id` is gone: it lists its display ids and `id` is not one. An older host lists
+    /// none, so it says nothing either way.
+    func lacksDisplay(_ id: UInt32) -> Bool { !displayIDs.isEmpty && !displayIDs.contains(id) }
 
     var text: String {
         var lines = [Self.header, "a=fingerprint:\(Self.keyPrefix)\(key)"]
         lines += candidates.map { "a=cmux-rd-candidate:\($0)" }
         if let display { lines.append("a=cmux-rd-display:\(display)") }
+        if let displayID { lines.append("a=cmux-rd-display-id:\(displayID)") }
         if let maxWidth { lines.append("a=cmux-rd-max-width:\(maxWidth)") }
         if let maxFps { lines.append("a=cmux-rd-max-fps:\(maxFps)") }
         if !displays.isEmpty {
             lines.append("a=cmux-rd-displays:" + displays.map { "\(Int($0.width))x\(Int($0.height))" }.joined(separator: ","))
         }
+        if !displayIDs.isEmpty { lines.append("a=cmux-rd-display-ids:" + displayIDs.map(String.init).joined(separator: ",")) }
         if let currentDisplay { lines.append("a=cmux-rd-current:\(currentDisplay)") }
         return lines.joined(separator: "\r\n") + "\r\n"
     }
@@ -59,6 +71,8 @@ nonisolated struct MacScreenRdDocument: Equatable, Sendable {
                 key = String(value.dropFirst(Self.keyPrefix.count))
             case "cmux-rd-candidate": candidates.append(value)
             case "cmux-rd-display": display = Int(value)
+            case "cmux-rd-display-id": displayID = UInt32(value)
+            case "cmux-rd-display-ids": displayIDs = value.split(separator: ",").compactMap { UInt32($0) }
             case "cmux-rd-max-width": maxWidth = Int(value)
             case "cmux-rd-max-fps": maxFps = Int(value)
             case "cmux-rd-current": currentDisplay = Int(value)

@@ -142,5 +142,11 @@ export function subscribeAnswers(listener: () => void): () => void {
 /// The asks stack above the composer: whether it shows, and whether it holds the keys the composer
 /// would otherwise hand on (an empty ⌘↩ to the waiting card, the Home lists' shortcuts). A live ask
 /// (trust, a permission, a secret, a tool card) holds them; pinned questions only show, since
-/// their newest takes the empty ⌘↩ itself.
-export const bottomAsks = (live: boolean, pinned: number) => ({ shows: live || pinned > 0, holdsKeys: live });
+/// their newest takes the empty ⌘↩ itself. An ask that is folding out (`folding`, the trust question
+/// once answered) still shows until its fold ends, and holds nothing; `leaving` says it is all the
+/// stack still shows, so the stack goes with it (bottomStack.css).
+export const bottomAsks = (live: boolean, pinned: number, folding = false) => ({
+  shows: live || pinned > 0 || folding,
+  holdsKeys: live,
+  leaving: folding && !live && pinned === 0,
+});

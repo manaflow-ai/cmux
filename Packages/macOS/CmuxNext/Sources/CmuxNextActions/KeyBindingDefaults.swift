@@ -120,7 +120,9 @@ public nonisolated struct KeyBindingDefaults {
         .equals(KeyContext.surfaceKind, .string("home-dock")),
     ])
 
-    /// The `topPage` of a window that shows Bring your history on top (the first-run import over Home).
+    /// The `topPage` Bring your history had on top of a window (the first-run import over Home). That page is
+    /// gone (2026-11-20), so no window has it; the term stays in ``onChiefZoom`` until the Rust catalog's
+    /// binding text (`bindings.rs`) drops it, which reaches the app only with an app FFI re-pin.
     public static let historyImportTopPage = "import-history"
 
     /// Where the Chief chat's zoom keys run: Home (``onHome``'s terms), and Bring your history
@@ -163,7 +165,8 @@ public nonisolated struct KeyBindingDefaults {
     public static let focusHistoryAliases: [KeyBinding] = RustActionCatalog.shared.bindings["focus_history_aliases"] ?? []
     /// Cmd-Shift-= (Cmd-+ on a US layout) is the markdown viewer's Zoom In too, as Cmd-= is: the
     /// key a person reads as "Command plus". The action needs `markdownFocused`, so a terminal or a
-    /// browser page never loses the key to it.
+    /// browser page never loses the key to it. The diff viewer's Zoom In takes it too, only in a focused
+    /// diff tab (`diffViewerFocused`).
     public static let zoomAliases: [KeyBinding] = RustActionCatalog.shared.bindings["zoom_aliases"] ?? []
 
     /// Not in a web page, and not in the code editor, whose Cmd-[ / Cmd-] are outdent / indent.

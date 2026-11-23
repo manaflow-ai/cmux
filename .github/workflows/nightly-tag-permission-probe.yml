@@ -39,8 +39,9 @@ jobs:
     permissions:
       contents: write
     # Called only by nightly.yml, so a nightly job: never Blacksmith. It holds contents: write and OIDC, so it
-    # stays on GitHub-hosted Ubuntu, an ephemeral runner, not a reused mini.
-    runs-on: ubuntu-24.04
+    # takes a one-job JIT VM, an ephemeral runner, not a reused mini: the nightly's own label under nightly.yml,
+    # the repair label under any other caller. GitHub-hosted Ubuntu starts nothing in manaflow-ai.
+    runs-on: ${{ contains(github.workflow_ref, '/.github/workflows/nightly.yml@') && 'cmux-gcp-nightly-jit-x64' || 'cmux-gcp-repair-jit-x64' }}
     timeout-minutes: 10
     steps:
       - name: Check out the probe target

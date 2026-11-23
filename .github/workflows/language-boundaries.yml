@@ -65,33 +65,33 @@ jobs:
             echo "::notice::The base has no language-boundaries check yet; nothing to check."
             exit 0
           fi
-          files="$RUNNER_TEMP/files.jsonl"
-          format=json
-          # One JSON object per changed file: status, path, and a rename's old path, every character kept (a TSV
-          # or git's default output quotes or escapes a path with a quote, tab or newline, and it then matches no
-          # area).
-          if ! gh api --paginate "repos/$REPOSITORY/pulls/$PR/files?per_page=100" \
-            --jq '.[] | {status, path: .filename, old: (.previous_filename // "")} | tojson' > "$files"; then
-            # The REST listing shares the installation's rate limit. Read the same files from the PR's merge
-            # commit (classic-frozen-guard.yml's fallback): its first parent is the base.
-            echo "::warning::The REST file listing failed; reading the changed files from refs/pull/$PR/merge."
-            export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.extraheader
-            GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
-            export GIT_CONFIG_VALUE_0
-            if git fetch --no-tags --filter=blob:none --depth=2 \
-                 origin "+refs/pull/$PR/merge:refs/guard/merge" \
-               && [ "$(git rev-parse refs/guard/merge^1)" = "$BASE_SHA" ] \
-               && [ "$(git rev-parse refs/guard/merge^2)" = "$HEAD_SHA" ] \
-               && git diff -z --name-status -M refs/guard/merge^1 refs/guard/merge > "$RUNNER_TEMP/files.z"; then
-              # -z: NUL-separated, every path byte for byte, nothing quoted.
-              files="$RUNNER_TEMP/files.z"
-              format=git-z
-              # No GitHub listing cap applies to git, and a base that already has some of the changes lists fewer.
-              CHANGED_FILES=""
-            else
-              echo "::error::Could not list the changed files; re-run this check."
-              exit 1
-            fi
+          # The changed files from the PR's merge commit, not the files API: this runs on every push, label and
+          # description edit (about 330 runs an hour on 2026-11-21), and each REST listing spent the repository's
+          # GITHUB_TOKEN hour that every workflow shares (the production promote gates 403'd on it, backend.yml run
+          # 44878749398). Trees only, no blobs but a rename's; -z keeps every path byte for byte, nothing quoted.
+          # The merge ref can lag a push, so it counts only when its second parent is this event's head. Its first
+          # parent is whichever base GitHub last merged with, often newer than the event's base.sha on a busy base;
+          # the diff from it is still what the PR changes there (classic-api-guard.yml, cmux#41500).
+          files="$RUNNER_TEMP/files.z"
+          format=git-z
+          export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.extraheader
+          GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          export GIT_CONFIG_VALUE_0
+          if git fetch --no-tags --filter=blob:none --depth=2 \
+               origin "+refs/pull/$PR/merge:refs/guard/merge" \
+             && git rev-parse --verify --quiet refs/guard/merge^1 > /dev/null \
+             && [ "$(git rev-parse refs/guard/merge^2)" = "$HEAD_SHA" ] \
+             && git diff -z --name-status -M refs/guard/merge^1 refs/guard/merge > "$files"; then
+            # No GitHub listing cap applies to git, and a base that already has some of the changes lists fewer.
+            CHANGED_FILES=""
+          else
+            # A conflict (GitHub makes no merge commit) or a merge ref still behind this head: one REST listing.
+            echo "::notice::No merge commit of this head yet; listing the changed files over the API."
+            files="$RUNNER_TEMP/files.jsonl"
+            format=json
+            gh api --paginate "repos/$REPOSITORY/pulls/$PR/files?per_page=100" \
+              --jq '.[] | {status, path: .filename, old: (.previous_filename // "")} | tojson' > "$files" \
+              || { echo "::error::Could not list the changed files; re-run this check."; exit 1; }
           fi
           set -- --files "$files" --format "$format" --labels-json "$LABELS_JSON"
           if [ -n "$CHANGED_FILES" ]; then set -- "$@" --expected-files "$CHANGED_FILES"; fi

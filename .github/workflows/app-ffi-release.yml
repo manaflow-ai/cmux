@@ -107,6 +107,12 @@ on:
         description: "Internal: the build rescue's owned pool, ffi-pool, promote or side (the build rescue sets it)"
         type: string
         default: ""
+      rescue_tried:
+        # The owned pools (ffi-pool, promote, side) this rescue chain has named, comma-separated, never empty: a rescued run whose build also
+        # gets no runner rescues again to an owned pool not in it (never Blacksmith), and leaves the build queued once all are tried.
+        description: "Internal: the owned pools the build rescue already named (the build rescue sets it)"
+        type: string
+        default: ""
 
 # No run-level group: with one (cancel-in-progress: false) a newer FFI push
 # waited for the whole older run, publish and re-pin included, before its own
@@ -144,13 +150,21 @@ jobs:
   # skipped placement leaves the build its earlier route. Known limit: the
   # reading is taken when the run starts, so a build that first waits in its
   # concurrency group for an older build starts on that reading.
+  # LINUX ROUTE (2026-11-19): the Linux jobs (placement, rescue, publish, re-pin) take the nightly lane's
+  # reserved label cmux-gcp-nightly-x64 first, attempts 1 and 2 (the build's RELEASE_FIRST rule, same switch
+  # vars.CI_RELEASE_PIN_SLOT). On vars.LINUX_RUNNER they queued behind all of cmux's PR CI: runs 44600407530 and
+  # 44612287186 sat in "place the build" on cmux-fleet-linux-x64 (2,600 jobs queued, 0 idle runners) for hours, and
+  # the pin guard went 30 h stale. That label's runners are one-job JIT VMs (signing rule 7), which the HQ booter
+  # (gha_runners.py LANE_POOLS) starts per queued job ahead of the PR lanes. Attempt 3 takes the old route.
   placement:
     name: place the build
     if: github.ref == 'refs/heads/feat-cmux-next' && github.repository_owner == 'manaflow-ai' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
-    runs-on: ${{ vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_RELEASE_PIN_SLOT != 'off' && github.run_attempt <= 2 && 'cmux-gcp-nightly-x64' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 5
     # The routing App's read-only key, in the environment cmux-next's placement uses.
-    environment: ci-routing-agent
+    environment:
+      name: ci-routing-agent
+      deployment: false
     # actions: write only for ffi_build_supersede.py's cancel of an older run whose build waits for a runner.
     permissions:
       actions: write
@@ -443,13 +457,15 @@ jobs:
   # watches its own run's build (scripts/ci/app_ffi_rescue.py, hq#3690): queued with no runner for 20 minutes, it
   # dispatches this workflow on the same ref with the rescue inputs and cancels this run. The script reads the
   # Blacksmith switch: allowed, rescue=blacksmith (a live Blacksmith slot its placement finds, else rescue_pool; the
-  # build holds no secret); off or unset, rescue=owned (rescue_pool, never Blacksmith). A rescued run never rescues
-  # again. Nothing needs this job, so its result never gates the publish or the re-pin.
+  # build holds no secret); off or unset, rescue=owned (rescue_pool, never Blacksmith). A rescued run rescues again only
+  # to an owned pool no build of its chain sat on (inputs.rescue_tried; 2026-11-20, run 44734106982's build sat 110 min
+  # on the pool its rescue picked), so a chain ends after at most one rescue per owned pool. Nothing needs this job, so
+  # its result never gates the publish or the re-pin.
   rescue:
     name: rescue a build no runner took
     needs: placement
-    if: ${{ !cancelled() && github.ref == 'refs/heads/feat-cmux-next' && github.repository_owner == 'manaflow-ai' && inputs.rescue == '' }}
-    runs-on: ${{ vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    if: ${{ !cancelled() && github.ref == 'refs/heads/feat-cmux-next' && github.repository_owner == 'manaflow-ai' && (inputs.rescue == '' || inputs.rescue_tried != '') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_RELEASE_PIN_SLOT != 'off' && github.run_attempt <= 2 && 'cmux-gcp-nightly-x64' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 110
     permissions:
       actions: write
@@ -470,6 +486,7 @@ jobs:
           CI_FFI_RELEASE_POOL: ${{ vars.CI_FFI_RELEASE_POOL }}
           CI_NEXT_PROMOTE_POOL: ${{ vars.CI_NEXT_PROMOTE_POOL }}
           CI_SIDE_LANE_RUNNER: ${{ vars.CI_SIDE_LANE_RUNNER }}
+          RESCUE_TRIED: ${{ inputs.rescue_tried }}
         run: python3 scripts/ci/app_ffi_rescue.py
 
   macos-cross-shadow:
@@ -596,7 +613,7 @@ jobs:
     # !cancelled(): a failed placement (an ancestor the build runs past) must
     # not skip the publish of a build that succeeded.
     if: ${{ !cancelled() && needs.build.result == 'success' && github.ref == 'refs/heads/feat-cmux-next' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_RELEASE_PIN_SLOT != 'off' && github.run_attempt <= 2 && 'cmux-gcp-nightly-x64' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 15
     # Never cancelled. Two runs of one commit (a push and a dispatch, or two
     # dispatches) publish one at a time, so the second sees the first's
@@ -783,8 +800,12 @@ jobs:
     # re-pin either, until the next FFI push or pin merge; dispatch app-ffi-repin.yml by hand after any force-cancel.
     if: always() && github.ref == 'refs/heads/feat-cmux-next' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     environment: ffi-release
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
-    timeout-minutes: 10
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_RELEASE_PIN_SLOT != 'off' && github.run_attempt <= 2 && 'cmux-gcp-nightly-x64' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    # 20, not 10 (2026-11-20): checkout alone took about 1.5 min and one healthy re-pin about 8 (run 44655157417),
+    # so runs 44660432819, 44661713537, 44662970467 and 44664319551 hit the 10 min bound and re-dispatched. 30, not
+    # 20: publish-app-ffi-repin.sh may also wait up to 10 min (REPIN_RATE_LIMIT_WAIT_S) for GitHub's rate limit, and
+    # a timeout in that wait would hide its "Re-pin rate-limited" reason.
+    timeout-minutes: 30
     # actions: write only for the failure step's dispatch of app-ffi-repin.yml; the re-pin script reads runs and
     # jobs with this token (READ_TOKEN) and writes nothing with it.
     permissions:
@@ -793,7 +814,9 @@ jobs:
       checks: read
       statuses: read
     concurrency:
-      group: app-ffi-repin
+      # -v2 (2026-11-20): GitHub kept the old key held after runs 44636531297 and 44645693256 were cancelled; every
+      # later re-pin sat PENDING with no holder (run 44651765158). A new key keeps the same one-at-a-time rule.
+      group: app-ffi-repin-v2
       cancel-in-progress: false
     steps:
       # Workflows too: the force push moves app-ffi-repin from an older base to
@@ -871,7 +894,7 @@ jobs:
       # commit whose release is not published (SOURCE_SHA or SHA256SUMS is a
       # 404: its build was cancelled or is still running) is skipped, not
       # waited for, and the base's FFI sources may be ahead of the pin:
-      # merge_hold accepts such a pin once the app compiles against it
+      # land-judge accepts such a pin once the app compiles against it
       # (scripts/ci/base_red_excuse.py, the published base pin). The script
       # checks the release's SOURCE_SHA and SHA256SUMS. The commit goes through
       # GitHub's contents API, so it is written by the release App and signed
@@ -890,6 +913,10 @@ jobs:
           BASE_PIN_ENABLED: ${{ vars.CMUX_NEXT_BASE_AUTOFIX == '1' }}
           TAG: ${{ needs.build.outputs.tag }}
           CHECKSUM: ${{ needs.build.outputs.checksum }}
+          # A stalled git transfer (a lazy tree fetch of this treeless clone, or `git fetch origin $previous`) aborts
+          # after 60 s under 1 KB/s instead of hanging the job to its timeout; the script treats a failed read as before.
+          GIT_HTTP_LOW_SPEED_LIMIT: "1000"
+          GIT_HTTP_LOW_SPEED_TIME: "60"
         shell: bash
         run: bash scripts/cmux-next/publish-app-ffi-repin.sh
 

@@ -11,6 +11,8 @@ enum AppStoreHandlers {
         let services = context.services
         // The App Store is an internal page (a tab of the active window).
         services.pages.register(services.apps)
+        // Hidden until it is ready (`showsAppStore`, Labs): off in the palette, menus, keys, CLI and MCP.
+        registry.addSettingOffReason(["appStore.show", "appStore.showInstalled"]) { [weak services] in services?.settings?.snapshot.showsAppStore == true ? nil : CmuxConfigSnapshot.appStoreHiddenReason }
         // `category` (cmux's features) is still accepted and ignored: those are Settings now.
         registry.bind("appStore.show", invoke: { invocation in
             let app = invocation["app"]?.stringValue?.trimmingCharacters(in: .whitespaces)

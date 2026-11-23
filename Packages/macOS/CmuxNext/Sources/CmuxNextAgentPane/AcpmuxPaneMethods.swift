@@ -46,7 +46,7 @@ nonisolated enum AcpmuxPaneMethods {
         // Take Over a View Only chat (direct.ts takeOver): the chat runs the conversation from then on.
         "_acpmux/watch_take_over", "_acpmux/project_new", // New project: AgentPaneProjectNewRelayTests.
         // Read-only, and its reply is filtered to ``replyShapes`` (ad349).
-        "_acpmux/status", "_acpmux/peers", "_acpmux/draft_get",
+        "_acpmux/status", "_acpmux/peers", "_acpmux/move_targets", "_acpmux/draft_get",
         // Session-scoped draft writes are kept separate from the filtered replies above.
         "_acpmux/draft_set",
         // An inbox notice's thread the person opened (direct.ts inboxThread, InboxNoticeCard):

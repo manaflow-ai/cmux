@@ -151,6 +151,7 @@ final class TerminalDemoDriver {
         // Opt-in only (not in `all`): the keyboard reversed mid-animation.
         if selected.contains("kbinterrupt") { await keyboardInterrupt() }
         if selected.contains("kbtui") { await keyboardOverTUI() }
+        if selected.contains("kbclaude") { await keyboardOverTUI(command: "claude") }
         if selected.contains("kbshell") { await keyboardOverShell() }
         mark("end")
         if let log = model.controller?.presentLog, !log.isEmpty,
@@ -250,8 +251,11 @@ final class TerminalDemoDriver {
     /// at `done.rz<before>-<after>`: the PTY resizes sent before and after.
     /// `-CmuxMobileTerminalDemoTUI htop` runs htop (it reports the mouse)
     /// instead of vim.
-    private func keyboardOverTUI() async {
-        let program = UserDefaults.standard.string(forKey: "CmuxMobileTerminalDemoTUI") == "htop" ? "htop" : "vim README.md"
+    /// `kbclaude` (opt-in): the same with the mock Claude Code screen (its
+    /// header box on the first rows, the cursor in its input box at the
+    /// bottom), whose header stays pinned above the keyboard.
+    private func keyboardOverTUI(command: String? = nil) async {
+        let program = command ?? (UserDefaults.standard.string(forKey: "CmuxMobileTerminalDemoTUI") == "htop" ? "htop" : "vim README.md")
         model.controller?.surface.sendText(program, pressReturn: true)
         // Past the resize settle (250 ms), so every size before the toggles is counted.
         await wait(2.5)

@@ -70,6 +70,10 @@ WORKFLOW = "cmux-next.yml"
 TITLE = "cmux-next base tier · "
 # The tiers a feat-cmux-next push leaves to the base tier run (path_route outputs).
 TIERS = ("daemon", "scheme", "generated")
+# What a feat-cmux-next push leaves off outright: the scheduled tip Swift suite (tip_swift_suite, about once
+# an hour) runs every CmuxNext Swift target on the tip, which covers the canary's changed targets
+# (cmux-next.yml swift-canary, a Mac job per merge). Leo, 2026-11-21: "whatever we need to cut, we cut."
+TIP_SUITE_COVERED = {"swift_canary": "false", "swift_canary_targets": ""}
 WINDOW_S = 15 * 60
 # After a dispatch: long enough that the next kick's listing shows the new run.
 SETTLE_S = 20
@@ -97,7 +101,8 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def defer(lines: list[str], keep: tuple[str, ...] = ()) -> list[str]:
-    """The router's key=value lines with TIERS (but KEEP) off, and base_tier=deferred when one was on."""
+    """The router's key=value lines with TIERS (but KEEP) and the tip-suite-covered canary off, and
+    base_tier=deferred when one of TIERS was on."""
     out, deferred = [], []
     for line in lines:
         key, sep, value = line.partition("=")
@@ -105,6 +110,8 @@ def defer(lines: list[str], keep: tuple[str, ...] = ()) -> list[str]:
             if value == "true":
                 deferred.append(key)
             line = f"{key}=false"
+        elif sep and key in TIP_SUITE_COVERED:
+            line = f"{key}={TIP_SUITE_COVERED[key]}"
         out.append(line)
     out.append(f"base_tier={'deferred' if deferred else 'none'}")
     out.append(f"base_tier_deferred={','.join(deferred)}")

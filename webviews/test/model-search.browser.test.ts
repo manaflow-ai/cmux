@@ -127,10 +127,7 @@ await requireBrowserLane("model-search.browser.test.ts", async () => {
       const indexes = rows.flatMap((row, at) => (row.heading === "OpenCode" && row.name === "GPT-6.1 Sol" ? [at] : []));
       expect(indexes).toHaveLength(2);
       await page.locator(".acpmux-cols [role=listbox] [role=option]").nth(indexes[index]!).click();
-      // A click lands the pick at once and keeps the menu open; Return then only closes it.
-      expect(await page.locator(".acpmux-cols").count(), "a click keeps the menu open").toBe(1);
-      expect(await page.evaluate(() => (window as unknown as { picked: unknown[] }).picked)).toHaveLength(1);
-      await page.keyboard.press("Enter");
+      // A click lands the pick and closes the menu (David Beyer 2026-11-20).
       await page.locator(".acpmux-cols").waitFor({ state: "detached" });
       const landed = await page.evaluate(
         () => (window as unknown as { picked: { harness: string; model: string }[] }).picked,

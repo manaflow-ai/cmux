@@ -24,6 +24,7 @@ nonisolated enum RoomStrings {
     static func noRoom(_ id: String) -> String { String(format: text("rooms.refusal.noRoom", "no space %@"), id) }
     static var roomAtEdge: String { text("rooms.refusal.atEdge", "the space is already at the edge") }
     static var noOtherRoom: String { text("rooms.refusal.noOtherRoom", "there is no space that way") }
+    static var spacesOff: String { text("rooms.refusal.spacesOff", "Spaces is off. Turn on Show Spaces in Settings to use spaces.") }
     static var iconArgumentRequired: String { text("rooms.refusal.iconRequired", "an icon argument (SF Symbol name or one emoji) is required") }
     static var roomArgumentRequired: String { text("rooms.refusal.roomRequired", "a space argument is required") }
     static var alreadyInRoom: String { text("rooms.refusal.alreadyInRoom", "the workspace is already in that space") }

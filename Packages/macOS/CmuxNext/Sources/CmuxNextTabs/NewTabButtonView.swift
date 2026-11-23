@@ -54,7 +54,8 @@ final class NewTabButtonView: NSView {
         super.init(frame: frame)
         wantsLayer = true
         layerContentsRedrawPolicy = .never
-        _ = look
+        // The tab bar's +: a tab's corner, as the tabs and the pane's ⋮ beside it (Lawrence 2026-11-20).
+        look.roundsAsTabBarControl = true
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
         setAccessibilityLabel(Strings.axNewTab)
@@ -111,13 +112,13 @@ final class NewTabButtonView: NSView {
         return true
     }
 
-    /// The split control's corner: the tab's ratio on the +'s own short side (its width beside a tab's height), so the
-    /// `+ ⌄` hover keeps one shape at every density instead of a tab's radius on a narrower button (Lucas 2026-11-15).
+    /// The split control's corner: a tab pill's (``PlusButtonLook/splitCornerRadius``), as the ⋮ beside it rounds.
     static var splitCornerRadius: CGFloat { PlusButtonLook.splitCornerRadius }
 
-    /// The + button's height in the tab strip: the split look's `+ ⌄` is a tab's height, so its hover fill is a tab's
-    /// band; every other look keeps the square button (`side`), centered on the tabs.
-    static func frameHeight(split: Bool, side: CGFloat, tabHeight: CGFloat) -> CGFloat { split ? tabHeight : side }
+    /// The + button's height in the tab strip, in every look: the pane ⋮'s side (``Metrics/tabBarControlSide``), centered
+    /// on the tabs, so the +, its ⌄ and the ⋮ are one size (Lawrence 2026-11-20: "size of plus button must be same as
+    /// size of these buttons"). Before, the split look's `+ ⌄` was a tab's height, taller than the ⋮.
+    static var frameHeight: CGFloat { Metrics.tabBarControlSide }
 }
 
 /// Flipped container with no event handling of its own.

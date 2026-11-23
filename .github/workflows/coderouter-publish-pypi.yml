@@ -16,7 +16,8 @@ concurrency:
 
 jobs:
   publish:
-    runs-on: ubuntu-latest # github-hosted-required: PyPI trusted publishing needs a GitHub-hosted runner
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-latest' || fromJSON(vars.RUNNER_POOLS).provenance }} # github-hosted-required: PyPI trusted publishing needs a GitHub-hosted runner
+    timeout-minutes: 30
     environment:
       name: pypi-coderouter
       url: https://pypi.org/project/coderouter/

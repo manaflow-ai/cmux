@@ -1,32 +1,9 @@
 name: CI artifact transport
 
+# A pull request runs these tests as the ci-artifact-transport and ci-artifact-worker steps of ci/steps.toml
+# (pr-pipeline.yml); a push to main runs them here.
+
 on:
-  pull_request:
-    paths:
-      - .github/workflows/ci-artifact-transport.yml
-      - .github/workflows/ci.yml
-      - .github/workflows/ci-macos.yml
-      - workers/ci-artifacts/**
-      - scripts/ci/restore-r2-artifact.py
-      - scripts/ci/parallel_artifact_download.py
-      - scripts/ci/deadline_http.py
-      - tests/test_ci_parallel_artifact_transport.py
-      - scripts/ci/node_product_cache.py
-      - docs/ci/node-product-cache-maintenance.md
-      - scripts/ci/peer_product_source.py
-      - scripts/ci/restore-app-host-test-product.sh
-      - scripts/ci/relocate_package_framework_rpaths.py
-      - tests/test_relocate_package_framework_rpaths.py
-      - tests/test_node_product_cache.py
-      - tests/test_lan_product_source.py
-      - scripts/ci/verify-r2-canary.py
-      - scripts/ci/r2-canary-cloudflare.py
-      - tests/test_ci_r2_canary.py
-      - .github/workflows/ci-artifact-canary.yml
-      - tests/test_ci_r2_artifact.py
-      - .github/actions/download-test-product/action.yml
-      - scripts/ci/measure-r2-artifact-run.py
-      - tests/git_fixture_env.py
   push:
     branches: [main]
     paths:

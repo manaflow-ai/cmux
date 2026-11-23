@@ -31,6 +31,30 @@ extension WorkspaceRowView {
         return givesWay
     }
 
+    /// Whether `mark` is drawn under one of the hover controls that show (`controls`: the ✕, the ⋮ and the Unpin, in
+    /// row coordinates). Half a point of each edge is ignored, so marks that only touch a control do not count.
+    static func covers(_ controls: [NSRect], _ mark: NSView) -> Bool {
+        guard !mark.isHidden, mark.frame.width > 0, mark.frame.height > 0 else { return false }
+        let ink = mark.frame.insetBy(dx: 0.5, dy: 0.5)
+        return controls.contains { $0.intersects(ink) }
+    }
+
+    /// The pull request badge, the roll-up chips, the unread mark and the keycap give way to a hover control drawn on
+    /// them: where the layout left them room they stay beside the ✕ and the ⋮, and otherwise the ✕ takes their
+    /// place until the hover ends (https://github.com/manaflow-ai/cmux/issues/48363: the ✕ drew on top of the red
+    /// pull request glyph, the blue unread dot and the red error mark). The status marks give way in the layout's
+    /// mark pass by the same test.
+    func giveWayToControls(_ controls: [NSRect], fades: Bool) {
+        for mark in [pullRequests, rollUp] as [NSView] {
+            fadeOpacity(mark, to: Self.covers(controls, mark) ? 0 : 1, fades: fades)
+        }
+        // A pointer on the badge when it gave way is on the ✕ now: its card does not stay open.
+        if pullRequests.alphaValue == 0 { pullRequests.pointerLeft() }
+        for mark in [badge, keycap] as [NSView] where Self.covers(controls, mark) && mark.alphaValue > 0 {
+            setHoverPainted(mark, false, fades: fades)
+        }
+    }
+
     /// The next shared slot left of any still-visible tree control/chip. Both overflow and unpin
     /// use it: neither may paint over a fold chevron whose hit target would then perform another action.
     func trailingActionFrame(rowWidth: CGFloat, cy: CGFloat, control: CGFloat, minimumSlot: Int) -> CGRect {

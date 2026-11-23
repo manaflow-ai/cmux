@@ -117,6 +117,7 @@ impl MacDesktop {
         self.require_input()?;
         match delivery {
             Delivery::Foreground => {
+                super::refuse_if_locked("foreground input")?;
                 self.raise(t)?;
                 Ok(Route::Hid)
             }
@@ -183,6 +184,7 @@ impl MacDesktop {
     fn key_route(&self, t: &Target, delivery: Delivery) -> DResult<Route> {
         self.require_input()?;
         if delivery == Delivery::Foreground {
+            super::refuse_if_locked("foreground input")?;
             self.raise(t)?;
             // Raising does not prove the window takes keys: an app-modal alert,
             // a sheet or a floating panel of the app can stay its key window,

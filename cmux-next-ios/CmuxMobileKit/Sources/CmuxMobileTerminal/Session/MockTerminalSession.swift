@@ -47,6 +47,10 @@ public final class MockTerminalSession: TerminalSession {
         case shell
         case htop(tick: Int)
         case vim(MockVim)
+        /// A full-screen agent like Claude Code: a header box on its first
+        /// rows, the transcript, and its input box on the last rows with the
+        /// cursor in it.
+        case agent
     }
 
     /// `playsIntro`: run `ls -la`, `git log` and a build when the session starts.
@@ -113,6 +117,7 @@ public final class MockTerminalSession: TerminalSession {
         case .vim(var vim):
             write(vim.render(columns: columns, rows: rows))
             program = .vim(vim)
+        case .agent: drawAgent()
         }
     }
 
@@ -155,6 +160,8 @@ public final class MockTerminalSession: TerminalSession {
         case .vim(var vim):
             replay += "\u{1B}[?1049h\u{1B}[H\u{1B}[2J" + vim.render(columns: columns, rows: rows)
             program = .vim(vim)
+        case .agent:
+            replay += "\u{1B}[?1049h" + agentScreen()
         }
         handler?(.output(Data(replay.utf8)))
     }
@@ -256,6 +263,7 @@ public final class MockTerminalSession: TerminalSession {
                 write(vim.render(columns: columns, rows: rows))
                 program = .vim(vim)
             }
+        case .agent: if key == .control("c") || key == .escape { exitProgram() }
         }
     }
 
@@ -358,6 +366,12 @@ public final class MockTerminalSession: TerminalSession {
             handler?(.output(Data(Self.htopMouse.utf8)))
             startHtopTicker()
             return
+        case "claude":
+            busy = false
+            program = .agent
+            setAlternate(true, program: "claude")
+            drawAgent()
+            return
         case "vim", "vi", "nvim":
             busy = false
             let file = parts.dropFirst().first ?? "README.md"
@@ -389,6 +403,31 @@ public final class MockTerminalSession: TerminalSession {
     }
 
     // MARK: htop
+
+    /// The agent program's screen at the current grid: its header box on
+    /// rows 1-3, transcript rows, and the input box on the last three rows
+    /// with the cursor after its prompt.
+    private func drawAgent() { write(agentScreen()) }
+
+    /// The agent screen's bytes at the current grid.
+    private func agentScreen() -> String {
+        let rule = String(repeating: "\u{2500}", count: max(10, min(60, columns - 2)))
+        var out = "\u{1B}[H\u{1B}[2J"
+        out += "\u{1B}[1;1H\u{256D}\(rule)\u{256E}"
+        out += "\u{1B}[2;1H\u{2502} \u{1B}[33m\u{273B}\u{1B}[0m Claude Code (mock)  ~/cmux-next"
+        out += "\u{1B}[3;1H\u{2570}\(rule)\u{256F}"
+        let last = max(4, rows - 3)
+        if last >= 5 {
+            for row in 5...last {
+                out += "\u{1B}[\(row);1H" + (row % 4 == 1 ? "\u{1B}[32m\u{23FA}\u{1B}[0m answer \(row - 4)" : "  transcript row \(row - 4)")
+            }
+        }
+        out += "\u{1B}[\(rows - 2);1H\u{256D}\(rule)\u{256E}"
+        out += "\u{1B}[\(rows - 1);1H\u{2502} > "
+        out += "\u{1B}[\(rows);1H\u{2570}\(rule)\u{256F}"
+        out += "\u{1B}[\(rows - 1);5H"
+        return out
+    }
 
     private func startHtopTicker() {
         let task = Task { [weak self] in

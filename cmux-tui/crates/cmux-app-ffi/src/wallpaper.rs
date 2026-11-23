@@ -595,7 +595,13 @@ fn with_pointer(state: *mut CmuxWallpaperPointer, f: impl FnOnce(&mut PointerSta
 /// `state` is null or points to a writable `CmuxWallpaperPointer`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_wallpaper_pointer_reset(state: *mut CmuxWallpaperPointer) {
-    with_pointer(state, |p| *p = PointerState::default());
+    if state.is_null() {
+        return;
+    }
+    // A write, never a read: the storage may be uninitialized (this call stands in for zeroing
+    // the struct), and reading it first would read uninitialized `bool`s.
+    // SAFETY: `state` is non-null and points to writable `CmuxWallpaperPointer` storage (contract above).
+    unsafe { state.write(PointerState::default().into()) };
 }
 
 /// A pointer move to (`x`, `y`) rendered pixels (top left origin) at time `t`

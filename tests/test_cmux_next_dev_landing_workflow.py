@@ -103,6 +103,8 @@ class WorkflowTests(unittest.TestCase):
             self.assertIn(clause, job["if"])
         # Only when the compile runs: its own tree condition, word for word.
         compile_if = self.jobs["cmux-scheme-compile"]["if"]
+        # The label guard (tests/test_ci_label_events_skip_full_ci.py) ends every if; the tree comes before it.
+        compile_if = compile_if[:compile_if.rindex(") && !(github.event_name == 'pull_request'")] + " }}"
         tree = compile_if[compile_if.index("((inputs.same_tree_sha == ''"):].rstrip(" }")[:-2]
         self.assertIn(tree, job["if"])
         # Only a run whose DEV Release app gets built: the Release step's dispatch condition, word for word

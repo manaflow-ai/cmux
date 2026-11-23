@@ -176,6 +176,7 @@ fn refusal_caption(code: &str) -> Option<&'static str> {
         "foreground_not_allowed" => "Foreground input is off",
         "person_in_control" => "You're in control",
         "approval_denied" | "approval_unavailable" => "Not approved",
+        crate::locked::CODE => "Mac is locked",
         stop::STOPPED_CODE => stop::STOPPED_CAPTION,
         _ => return None,
     })
@@ -781,6 +782,16 @@ impl Engine {
         args: &Value,
     ) -> Result<(ToolOutput, Option<TargetApp>), ToolOutput> {
         let config = self.config();
+        // Before anything is read or posted: a locked screen admits only what
+        // cannot reach its password field ([`crate::locked`]). A batch's
+        // steps come back here one by one.
+        let kind = crate::locked::kind_of(tool.name, args);
+        if !crate::locked::admits(kind, config.while_locked) && self.desktop.screen_locked() {
+            let (message, detail) = crate::locked::refusal(tool.name, kind, config.while_locked);
+            let mut out = ToolOutput::error(crate::locked::CODE, message);
+            set_key(&mut out.body, "whileLocked", detail);
+            return Err(out);
+        }
         match tool.name {
             "status" => Ok((self.status(&config), None)),
             "list_machines" => Ok((
@@ -1089,6 +1100,8 @@ impl Engine {
             "cursor": config.show_cursor,
             "cloud_vm": config.cloud_vm,
             "menus": config.menus.as_str(),
+            "screen_locked": self.desktop.screen_locked(),
+            "while_locked": config.while_locked,
         }))
     }
 

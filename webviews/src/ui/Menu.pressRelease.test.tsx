@@ -79,9 +79,17 @@ afterEach(async () => {
   dom = undefined;
 });
 
-const wait = (ms: number) =>
+/** One macrotask, inside act: React commits what the last event set. */
+const tick = () =>
   act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, ms));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+
+/** A press held past the click time: pressRelease.ts reads Date.now(), so the hold is wall-clock time. */
+const holdPastClick = () =>
+  act(async () => {
+    // fixed-wait: the press must outlast PRESS_CLICK_MS on the wall clock (pressRelease.ts uses Date.now())
+    await new Promise((resolve) => setTimeout(resolve, PRESS_CLICK_MS + 20));
   });
 
 /** A mouse pointer event as WebKit sends it (jsdom has no PointerEvent). */
@@ -135,7 +143,7 @@ test("press on the menu button, drag onto a row, release: the row runs and the m
   under(doc, () => trigger(doc));
   pointer(trigger(doc), "pointerdown", 10, 10);
   mouse(trigger(doc), "mousedown", 10, 10);
-  await wait(0);
+  await tick();
   const rename = row(doc, "Rename");
   expect(rename).not.toBeNull();
   // The press drags down onto Rename and lets go there, as on a Mac menu.
@@ -143,7 +151,7 @@ test("press on the menu button, drag onto a row, release: the row runs and the m
   pointer(rename!, "pointermove", 12, 40);
   pointer(rename!, "pointermove", 14, 60);
   pointer(rename!, "pointerup", 14, 60);
-  await wait(0);
+  await tick();
   expect(ran).toEqual(["rename"]);
   expect(trigger(doc).getAttribute("aria-expanded")).toBe("false");
 });
@@ -154,10 +162,11 @@ test("a held press released on a row without moving picks it too (past the click
   under(doc, () => trigger(doc));
   pointer(trigger(doc), "pointerdown", 10, 10);
   mouse(trigger(doc), "mousedown", 10, 10);
-  await wait(PRESS_CLICK_MS + 20);
+  // fixed-wait: a held press (holdPastClick)
+  await holdPastClick();
   under(doc, () => row(doc, "Copy"));
   pointer(row(doc, "Copy")!, "pointerup", 10, 10);
-  await wait(0);
+  await tick();
   expect(ran).toEqual(["copy"]);
 });
 
@@ -170,12 +179,12 @@ test("a plain click opens the menu and leaves it open; a later click on a row ru
   pointer(trigger(doc), "pointerup", 10, 10);
   mouse(trigger(doc), "mouseup", 10, 10);
   mouse(trigger(doc), "click", 10, 10);
-  await wait(0);
+  await tick();
   expect(trigger(doc).getAttribute("aria-expanded")).toBe("true");
   expect(row(doc, "Copy")).not.toBeNull();
   expect(ran).toEqual([]);
   row(doc, "Copy")!.click();
-  await wait(0);
+  await tick();
   expect(ran).toEqual(["copy"]);
 });
 
@@ -185,11 +194,12 @@ test("a press dragged away and released off any row closes the menu and runs not
   under(doc, () => trigger(doc));
   pointer(trigger(doc), "pointerdown", 10, 10);
   mouse(trigger(doc), "mousedown", 10, 10);
-  await wait(PRESS_CLICK_MS + 20);
+  // fixed-wait: a held press (holdPastClick)
+  await holdPastClick();
   under(doc, () => doc.body);
   pointer(doc.body, "pointermove", 300, 300);
   pointer(doc.body, "pointerup", 300, 300);
-  await wait(0);
+  await tick();
   expect(ran).toEqual([]);
   expect(trigger(doc).getAttribute("aria-expanded")).toBe("false");
 });
@@ -215,7 +225,7 @@ test("an App-drawn menu leaves the release to the App: no page row under it runs
   };
   const pageRows: string[] = [];
   const doc = render(
-    <UiProvider popupHost={host}>
+    <UiProvider container={null} popupHost={host}>
       <Menu
         native={{
           model: { side: "bottom", align: "start", width: 200, rows: [{ id: "copy", kind: "action", label: "Copy" }] },
@@ -228,6 +238,7 @@ test("an App-drawn menu leaves the release to the App: no page row under it runs
         </MenuPopup>
       </Menu>
       {/* A page list row that happens to lie under the App's panel. */}
+      {/* oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/prefer-tag-over-role, jsx-a11y/interactive-supports-focus -- a bare page row fixture: the test clicks it through the panel */}
       <div role="option" aria-selected="false" onClick={() => pageRows.push("clicked")}>
         Page row
       </div>
@@ -237,12 +248,13 @@ test("an App-drawn menu leaves the release to the App: no page row under it runs
   under(doc, () => trigger(doc));
   pointer(trigger(doc), "pointerdown", 10, 10);
   mouse(trigger(doc), "mousedown", 10, 10);
-  await wait(PRESS_CLICK_MS + 20);
+  // fixed-wait: a held press (holdPastClick)
+  await holdPastClick();
   expect(trigger(doc).getAttribute("aria-expanded")).toBe("true");
   under(doc, () => pageRow);
   pointer(doc.body, "pointermove", 20, 60);
   pointer(doc.body, "pointerup", 20, 60);
-  await wait(0);
+  await tick();
   expect(pageRows).toEqual([]);
   expect(trigger(doc).getAttribute("aria-expanded")).toBe("true");
   expect(shown.length).toBeGreaterThan(0);

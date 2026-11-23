@@ -1,0 +1,28 @@
+// The Codex app: a soft gray sidebar beside a white page, near-black text, gray accents, no
+// borders, and the app's big round corners. Colors from the codex-app recipe
+// (manaflow-ai/cmux#45804); edit and save, the window repaints at once.
+{
+  "name": "Codex app",
+  "description": "A gray sidebar beside a white page, near-black text, big round corners, no borders.",
+
+  "appearance.theme": "Builtin Light",
+  "colors": { "background": "#ffffff", "foreground": "#0d0d0d", "selection": "#e3e3e3", "cursor": "#0d0d0d", "accent": "#5d5d5d" },
+  "appearance.appTheme": "followTerminal",
+  "appearance.accent": "neutral",
+
+  "appearance.background": "none",
+  "appearance.backgroundBlur": "none",
+  "appearance.borders": "none",
+  "appearance.chromeStyle": "flat",
+
+  "appearance.sidebarSurface": "separate",
+  "appearance.surfaces.sidebar.color": "#ececec",
+  "appearance.surfaces.sidebar.opacity": 0.94,
+  "appearance.surfaces.agentPane.color": "#ffffff",
+  "appearance.surfaces.agentPane.opacity": 1,
+  "sidebar.sectionLook": "quiet",
+  "appearance.statusIndicator.style": "native",
+
+
+  "appearance.density": "comfortable"
+}

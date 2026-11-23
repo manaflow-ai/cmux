@@ -39,6 +39,8 @@ public final class SettingsApplier {
         if design.customDensities != snapshot.customDensities { design.customDensities = snapshot.customDensities }
         let density = snapshot.selectedDensity
         if design.densityTokens != density { design.densityTokens = density }
+        let densityFromThemeFile = snapshot.themeDensity != nil
+        if design.densityFromThemeFile != densityFromThemeFile { design.densityFromThemeFile = densityFromThemeFile }
         let uiScale = DesignSettings.clampedUIScale(CGFloat(snapshot.uiScale))
         if design.uiScale != uiScale { design.uiScale = uiScale }
         let interfaceScale = DesignSettings.clampedInterfaceScale(CGFloat(snapshot.interfaceScale))
@@ -75,6 +77,8 @@ public final class SettingsApplier {
             design.liveWallpaperFrameRate = snapshot.liveWallpaperFrameRate
         }
         if design.liveWallpaperGrade != snapshot.liveWallpaperGrade { design.liveWallpaperGrade = snapshot.liveWallpaperGrade }
+        if design.agentGlowEnabled != snapshot.agentGlow { design.agentGlowEnabled = snapshot.agentGlow }
+        if design.previousGlass != snapshot.previousGlass { design.previousGlass = snapshot.previousGlass }
         let hoverCardDelay = Duration.milliseconds(Int(snapshot.hoverCards.delayMilliseconds.rounded()))
         if design.hoverCardDelay != hoverCardDelay { design.hoverCardDelay = hoverCardDelay }
         let workspaceHoverCard = snapshot.hoverCards.workspaceCardOptions

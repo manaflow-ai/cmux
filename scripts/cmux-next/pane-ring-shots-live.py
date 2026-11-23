@@ -14,7 +14,7 @@ each scene and theme writes the window image (`debug.window_snapshot`) as `<labe
 `rings.json` holds each scene's `debug.layers` rings (the ring rect against the pane's content rect).
 Every process of this job's own app copy is ended on exit (tag_teardown.py, exact PIDs).
 """
-import argparse, glob, json, os, plistlib, socket, subprocess, sys, time
+import argparse, glob, json, os, plistlib, socket, subprocess, sys, tempfile, time
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--job", required=True)
@@ -24,7 +24,8 @@ parser.add_argument("--set", default="content", choices=["content", "styles"],
                     help="content: the three content-area scenes; styles: every appearance.chromeStyle, split, light and dark")
 opts = parser.parse_args()
 
-OUT = os.path.realpath(os.environ.get("NX_ARTIFACTS") or f"/tmp/pane-ring-shots-{opts.tag}")
+# A folder of this run's own when no artifacts folder is given: a fixed /tmp name another run could own or plant.
+OUT = os.path.realpath(os.environ.get("NX_ARTIFACTS") or tempfile.mkdtemp(prefix=f"pane-ring-shots-{opts.tag}-"))
 os.makedirs(OUT, exist_ok=True)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown  # noqa: E402
@@ -32,6 +33,9 @@ from tag_teardown import TagTeardown  # noqa: E402
 
 def say(*parts):
     print(" ".join(str(p) for p in parts), flush=True)
+
+
+say("shots in", OUT)
 
 
 zip_path = os.path.join(OUT, "app.zip")

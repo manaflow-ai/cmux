@@ -52,6 +52,11 @@ pub struct MachineExtra {
     /// app. Older backends omit this field.
     #[serde(default, skip_serializing_if = "Vec::is_empty", alias = "providerCapabilities")]
     pub provider_operations: Vec<String>,
+    /// Optional latest guest disk report. Keep the object opaque so this relay
+    /// preserves new health fields without coupling the app server to the
+    /// machine telemetry schema.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub disk_health: Option<Value>,
     /// Optional idle-pause diagnostics from the cmux REST VM projection.
     /// Keep the object opaque here so this relay preserves new diagnostic
     /// fields without coupling the app server to the cron implementation.

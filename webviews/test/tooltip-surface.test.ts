@@ -318,6 +318,81 @@ await requireBrowserLane("tooltip-surface.test.ts", async () => {
     expect(swift).toContain("static var shadow: Elevation { PopupStyle.elevation1 }");
     expect(desktop).toContain("--tooltip-shadow: var(--elevation-1);");
   });
+  // Lawrence 2026-11-20: one tooltip everywhere, on the composer's "Select effort ⌃⇧M". The page's
+  // tooltip has the native one's shape (TooltipMetrics.swift): regular text at the detail size, one
+  // height with or without keys, the keys on a keycap inset the same from the top, bottom and end with
+  // its corner nested in the tooltip's, below its control.
+  test("the tooltip's shape is TooltipMetrics.swift's: regular text, a keycap inset 4px, one height, below its control", async () => {
+    const swift = fs.readFileSync(
+      path.resolve(
+        import.meta.dir,
+        "../../Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Tooltip/TooltipMetrics.swift",
+      ),
+      "utf8",
+    );
+    const metric = (name: string) => Number(swift.match(new RegExp(`static let ${name}: CGFloat = ([\\d.]+)`))![1]);
+    for (const scale of [1, 1.25]) {
+      const page = await open(
+        theme("dark", `--cmux-interface-scale:${scale};`),
+        `<div style="display:flex;gap:40px;padding:40px">
+           <button id="keyed" title="Select effort" data-tooltip-shortcut="⌃⇧M" style="width:28px;height:28px"></button>
+           <button id="plain" title="Back" style="width:28px;height:28px"></button>
+         </div>`,
+      );
+      try {
+        const measure = async (id: string) => {
+          await hoverAndWait(page, id);
+          return page.evaluate((target) => {
+            const tip = document.querySelector<HTMLElement>(".ui-title-tooltip")!;
+            const rect = tip.getBoundingClientRect();
+            const anchor = document.getElementById(target)!.getBoundingClientRect();
+            const style = getComputedStyle(tip);
+            const text = getComputedStyle(tip.querySelector(".ui-tooltip-text") ?? tip);
+            const hint = tip.querySelector<HTMLElement>(".ui-tooltip-hint");
+            const key = hint?.getBoundingClientRect();
+            return {
+              height: rect.height,
+              below: rect.top - anchor.bottom,
+              radius: parseFloat(style.borderTopLeftRadius),
+              fontSize: parseFloat(text.fontSize),
+              fontWeight: Number(text.fontWeight),
+              key: key && {
+                height: key.height,
+                top: key.top - rect.top,
+                bottom: rect.bottom - key.bottom,
+                end: rect.right - key.right,
+                radius: parseFloat(getComputedStyle(hint!).borderTopLeftRadius),
+                fill: getComputedStyle(hint!).backgroundColor,
+              },
+            };
+          }, id);
+        };
+        const keyed = await measure("keyed");
+        await page.mouse.move(480, 290);
+        await page.waitForFunction(() => document.querySelector<HTMLElement>(".ui-title-tooltip")!.hidden);
+        const plain = await measure("plain");
+        const height = (metric("lineHeight") + 2 * metric("paddingBlock")) * scale;
+        const inset = metric("keycapInset") * scale;
+        for (const seen of [keyed, plain]) {
+          expect(Math.abs(seen.height - height)).toBeLessThanOrEqual(0.5);
+          expect(Math.abs(seen.below - metric("gap") * scale)).toBeLessThanOrEqual(0.5);
+          expect(seen.radius).toBeCloseTo(metric("radius") * scale, 1);
+          expect(seen.fontSize).toBeCloseTo(metric("fontSize") * scale, 1);
+          expect(seen.fontWeight).toBe(400);
+        }
+        expect(plain.key).toBeUndefined();
+        const key = keyed.key!;
+        expect(key.height).toBeCloseTo(metric("keycapHeight") * scale, 1);
+        // The rim is one device pixel inside the box; the plate's inset is from the box's edge.
+        for (const side of [key.top, key.bottom, key.end]) expect(Math.abs(side - inset)).toBeLessThanOrEqual(1);
+        expect(key.radius).toBeCloseTo((metric("radius") - metric("keycapInset")) * scale, 1);
+        expect(key.fill).not.toBe("rgba(0, 0, 0, 0)");
+      } finally {
+        await page.close();
+      }
+    }
+  });
+
   test("wide rows keep compact scaled bubbles close to the control with title/detail hierarchy", async () => {
     for (const scale of [1, 1.25]) {
       const page = await open(
@@ -335,7 +410,7 @@ await requireBrowserLane("tooltip-surface.test.ts", async () => {
           const detail = getComputedStyle(tip.querySelector(".ui-tooltip-detail")!);
           return {
             width: rect.width,
-            gap: anchor.top - rect.bottom,
+            gap: rect.top - anchor.bottom,
             titleWeight: Number(title.fontWeight),
             detailWeight: Number(detail.fontWeight),
             titleColor: title.color,
@@ -347,7 +422,8 @@ await requireBrowserLane("tooltip-surface.test.ts", async () => {
         expect(seen.width).toBeLessThan(450);
         // Placement rounds its top to a CSS pixel, including fractional scaled line heights.
         expect(Math.abs(seen.gap - 4 * scale)).toBeLessThanOrEqual(0.5);
-        expect(seen.titleWeight).toBeGreaterThan(seen.detailWeight);
+        // One weight (the native tooltip's regular text); the detail is told apart by its dimmer ink.
+        expect(seen.titleWeight).toBe(seen.detailWeight);
         expect(seen.titleColor).not.toBe(seen.detailColor);
         expect(seen.text).toContain("This one stays as it is.");
       } finally {

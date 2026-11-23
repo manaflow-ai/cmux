@@ -116,6 +116,7 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
 
       - name: Chat through the team's gateway machine
         env:
@@ -140,7 +141,7 @@ jobs:
     # placement): an owned pool while CI_PR_POOL_OWNED is 1 and a machine is free now, else nothing, and the
     # mac job takes Blacksmith macOS, which cannot reach sr; its first step then says so.
     needs: e2e
-    if: always() && github.ref == 'refs/heads/feat-cmux-next'
+    if: ${{ !cancelled() && github.ref == 'refs/heads/feat-cmux-next' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 5
     # Reads the queue janitor's pool snapshot (e2e_runner_pool.py's budget)
@@ -325,6 +326,7 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
 
       - name: Chat through this Mac's gateway in front of sr
         env:

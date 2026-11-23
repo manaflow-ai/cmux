@@ -240,14 +240,21 @@ fn which_in(path: &std::ffi::OsStr, bin: &str) -> Option<String> {
     None
 }
 
-/// Claude Code's native installer puts `claude` in `~/.local/bin`, which a login PATH may not list
-/// (the installer only asks the person to add it), and a daemon read that PATH when it started: so a
-/// `claude` installed there (`acpmux harness install claude`) is found on the next reload.
+/// Claude Code's and Codex's own installers put `claude` and `codex` in `~/.local/bin`, which a login
+/// PATH may not list (the installers only ask the person to add it), and a daemon read that PATH when
+/// it started: so one installed there (`acpmux harness install`, the Harnesses page's Install on a Mac
+/// with no npm) is found on the next look. Without it a fresh Mac's Codex install ended in "cmux can't
+/// run it yet" (first-run findings row 3).
 fn native_install(bin: &str) -> Option<String> {
-    if bin != "claude" {
+    native_install_in(&dirs::home_dir()?, bin)
+}
+
+/// [`native_install`] under `home`.
+fn native_install_in(home: &std::path::Path, bin: &str) -> Option<String> {
+    if !matches!(bin, "claude" | "codex") {
         return None;
     }
-    let candidate = dirs::home_dir()?.join(".local/bin").join(bin);
+    let candidate = home.join(".local/bin").join(bin);
     // A stale or non-executable file there is no installed CLI (as `harness install` checks).
     crate::harness_install::is_executable(&candidate)
         .then(|| candidate.to_string_lossy().into_owned())
@@ -271,6 +278,31 @@ mod tests {
         let path = std::env::join_paths([first.path(), second.path()]).unwrap();
         assert_eq!(which_in(&path, "claude"), Some(runnable.to_string_lossy().into_owned()));
         assert_eq!(which_in(&path, "codex"), None);
+    }
+
+    /// Codex's own installer (`chatgpt.com/codex/install.sh`, what the Harnesses page's Install runs
+    /// on a Mac with no npm) puts `codex` in `~/.local/bin`, as Claude Code's does, and a fresh Mac's
+    /// login PATH does not list it: after Install the row said "Finished, but cmux can't run it yet"
+    /// (first-run findings row 3). Both are found there; a file that cannot run is no install.
+    #[test]
+    fn codex_and_claude_from_their_own_installers_are_found_in_local_bin() {
+        let home = tempfile::tempdir().unwrap();
+        let bin = home.path().join(".local/bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        for name in ["codex", "claude"] {
+            let file = bin.join(name);
+            std::fs::write(&file, "#!/bin/sh\n").unwrap();
+            std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o755)).unwrap();
+            assert_eq!(
+                super::native_install_in(home.path(), name),
+                Some(file.to_string_lossy().into_owned()),
+                "{name}"
+            );
+        }
+        std::fs::write(bin.join("opencode"), "").unwrap();
+        assert_eq!(super::native_install_in(home.path(), "opencode"), None);
+        let empty = tempfile::tempdir().unwrap();
+        assert_eq!(super::native_install_in(empty.path(), "codex"), None);
     }
 }
 

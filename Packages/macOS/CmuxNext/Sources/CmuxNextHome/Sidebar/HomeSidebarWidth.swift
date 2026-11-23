@@ -4,7 +4,7 @@ public import Foundation
 /// compact, avatar-only list) and half the window, the list's preferred width
 /// to start, kept per window. The column model's
 /// width (the docked column, `column.update`) takes this value over when the
-/// daemon owns the column.
+/// daemon owns the column. It also keeps whether the list shows at all (``listShown``).
 public struct HomeSidebarWidth: Sendable {
     /// MessagesLab's `SidebarController.minimumWidth` and `preferredWidth`
     /// (HomeSidebarView reads them from the list; these match v1).
@@ -48,6 +48,16 @@ public struct HomeSidebarWidth: Sendable {
     public func reset(window: String) {
         defaults.removeObject(forKey: Self.key(window))
     }
+
+    /// Whether the conversation list shows beside the Chief's chat (its Chats button). Off until the person shows it:
+    /// the Chief replaces Home (the person, 2026-11-20), so its chat fills the page by default. One choice on this Mac,
+    /// not per window, so a new window opens the way the person last left it.
+    public var listShown: Bool {
+        get { defaults.bool(forKey: Self.listShownKey) }
+        nonmutating set { defaults.set(newValue, forKey: Self.listShownKey) }
+    }
+
+    static let listShownKey = "cmux.home.chatListShown"
 
     private static func key(_ window: String) -> String { "cmux.home.sidebarWidth.\(window)" }
 }

@@ -155,7 +155,7 @@ fn bind_posts_the_vector_fields_writes_bound_then_removes_bind() {
     store.write(BIND_FILE, &bind_text(), 0o600).unwrap();
     let key = ensure_install_key(&mut store, "i-aaa", &rng).unwrap().key;
     let result = bind_machine(&mut store, &fake, &key, "AAAA=", &daemon(), None, T0);
-    assert!(matches!(result, BindResult::Bound(_)), "{result:?}");
+    assert!(matches!(result, BindResult::Bound(..)), "{result:?}");
     let seen = fake.0.borrow().seen[0].clone();
     assert_eq!(seen.url, format!("{DEV}/v1/cloud/bind"));
     assert_eq!(seen.bearer, None, "the one-time token is the credential");
@@ -200,7 +200,7 @@ fn a_carrier_bind_sends_the_noise_key_and_keeps_carrier_json() {
     let key = ensure_install_key(&mut store, "i-aaa", &rng).unwrap().key;
     let noise = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
     let result = bind_machine(&mut store, &fake, &key, "AAAA=", &daemon(), Some(noise), T0);
-    assert!(matches!(result, BindResult::Bound(_)), "{result:?}");
+    assert!(matches!(result, BindResult::Bound(..)), "{result:?}");
     let seen = fake.0.borrow().seen[0].clone();
     assert_eq!(seen.body["daemon_noise_key"], noise);
     assert!(seen.body.get("carrier").is_none(), "the route is not sent back");
@@ -234,7 +234,7 @@ fn a_bind_without_carrier_changes_nothing() {
         store.write(BIND_FILE, &bind_text(), 0o600).unwrap();
         let key = ensure_install_key(&mut store, "i-aaa", &rng).unwrap().key;
         let result = bind_machine(&mut store, &fake, &key, "AAAA=", &daemon(), None, T0);
-        assert!(matches!(result, BindResult::Bound(_)), "{result:?}");
+        assert!(matches!(result, BindResult::Bound(..)), "{result:?}");
         assert_eq!(store.read(CARRIER_FILE).as_deref(), existing);
         assert!(fake.0.borrow().seen[0].body.get("daemon_noise_key").is_none());
     }
@@ -415,9 +415,9 @@ fn vm_receiver_client_existing_bind_auth_report_and_refresh_keep_working() {
     store.write(BIND_FILE, &bind_text(), 0o600).unwrap();
     let key = ensure_install_key(&mut store, "i-original", &rng).unwrap().key;
     let bound = bind_machine(&mut store, &fake, &key, "AAAA=", &daemon(), None, T0);
-    assert!(matches!(bound, BindResult::Bound(_)), "original bind failed");
+    assert!(matches!(bound, BindResult::Bound(..)), "original bind failed");
     let saved: Bound = serde_json::from_str(&store.read(BOUND_FILE).unwrap()).unwrap();
-    if let BindResult::Bound(bound) = bound {
+    if let BindResult::Bound(bound, _) = bound {
         assert_eq!(*bound, saved);
     }
     let mut client = CloudClient::new(fake.clone(), saved, key);
@@ -447,7 +447,7 @@ fn carrier_ticket_request_uses_an_empty_body() {
     store.write(BIND_FILE, &bind_text(), 0o600).unwrap();
     let key = ensure_install_key(&mut store, "i-original", &rng).unwrap().key;
     let result = bind_machine(&mut store, &fake, &key, "AAAA=", &daemon(), None, T0);
-    assert!(matches!(result, BindResult::Bound(_)), "original bind failed");
+    assert!(matches!(result, BindResult::Bound(..)), "original bind failed");
     let saved: Bound = serde_json::from_str(&store.read(BOUND_FILE).unwrap()).unwrap();
 
     let mut client = CloudClient::new(fake.clone(), saved, key);
@@ -512,7 +512,7 @@ fn a_retry_after_a_lost_answer_that_binds_clears_the_record() {
     assert!(matches!(bind(T0), BindResult::Retry(_)));
     assert!(matches!(bind(T0 + 1_000), BindResult::Retry(_)));
     let result = bind(T0 + 5_000);
-    assert!(matches!(result, BindResult::Bound(_)), "{result:?}");
+    assert!(matches!(result, BindResult::Bound(..)), "{result:?}");
     assert_eq!(store.mode_of(BIND_UNANSWERED_FILE), None);
     assert_eq!(store.read(BIND_FILE), None);
 }
@@ -563,7 +563,7 @@ fn a_bind_that_lands_holds_the_updaters_flip() {
         None,
         T0,
     );
-    assert!(matches!(result, Some(BindResult::Bound(_))), "{result:?}");
+    assert!(matches!(result, Some(BindResult::Bound(..))), "{result:?}");
     assert_eq!(
         Gate::new(&paths).held_left(T0),
         Some(CONNECT_HOLD),
@@ -621,7 +621,7 @@ fn a_spare_that_flips_after_ready_reports_degraded_until_its_daemon_identifies()
     store.write(BIND_FILE, &bind_text(), 0o600).unwrap();
     let key = ensure_install_key(&mut store, "i-aaa", &rng).unwrap().key;
     let bound = bind_machine(&mut store, &fake, &key, "AAAA=", &daemon(), None, T0);
-    assert!(matches!(bound, BindResult::Bound(_)), "bind failed");
+    assert!(matches!(bound, BindResult::Bound(..)), "bind failed");
     let saved: Bound = serde_json::from_str(&store.read(BOUND_FILE).unwrap()).unwrap();
     let mut client = CloudClient::new(fake.clone(), saved, key);
     let send = |client: &mut CloudClient<Fake>, s: &mut Session, reqs: Vec<_>, now| {
@@ -694,7 +694,7 @@ fn the_flips_stopping_report_says_stopping_with_the_last_reported_block() {
     store.write(BIND_FILE, &bind_text(), 0o600).unwrap();
     let key = ensure_install_key(&mut store, "i-aaa", &SystemRandom::new()).unwrap().key;
     let bound = bind_machine(&mut store, &fake, &key, "AAAA=", &daemon(), None, T0);
-    assert!(matches!(bound, BindResult::Bound(_)), "bind failed");
+    assert!(matches!(bound, BindResult::Bound(..)), "bind failed");
     let reported = DaemonInfo { version: "0.40.1".to_owned(), ..daemon() };
     let state = json!({ "daemon": reported.to_json() });
     store.write(AGENT_STATE_FILE, &format!("{state}\n"), 0o644).unwrap();

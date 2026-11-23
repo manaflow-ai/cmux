@@ -195,7 +195,7 @@ pub static ACTIONS: &[Action] = &[
         symbol: "display",
         surfaces: PALETTE | MENU | CONTEXT_MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("newTab", "create", 3), Placement::at("pane", "create", 10), Placement::at("tab", "create", 7)], ..SurfacePlan::DEFAULT },
-        arguments: &[args::DEVICE.optional()],
+        arguments: &[args::DEVICE.optional(), args::AUTOCONNECT.optional()],
         targets: &["pane"],
         cli_name: "tab new-mac-screen",
         main_menu: Some("file"),

@@ -2,8 +2,8 @@ public import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
 
-/// Where the Chief runs, as a small chip (the Home header beside the Chief's name, the Chief card's
-/// Runs On row): This Mac, cmux Cloud or the host's name, or the running move's step. A click
+/// Where the Chief runs, as a small chip (the Chief card's Runs On row, ``ChiefRunsOnChip``): This
+/// Mac, cmux Cloud or the host's name, or the running move's step. A click
 /// opens the Teleport menu (``ChiefTeleportMenuBuilder``), whose picks run the app's `chief.moveTo`
 /// and `chief.moveRollback` through ``ChiefTeleportModel``.
 ///
@@ -14,9 +14,6 @@ import CmuxNextDesign
 public final class ChiefTeleportChip: NSView {
     /// How it draws (``ChiefTeleportChipStyle/plain`` ships).
     public var style: ChiefTeleportChipStyle { didSet { if style != oldValue { show() } } }
-    /// A Chief on another host reads "Chief is on <host>" (Home's header on this Mac's conversation,
-    /// which cannot open the Chief there); off, the host's name alone (the Chief card).
-    public var saysAway = false { didSet { if saysAway != oldValue { show() } } }
     private let model: ChiefTeleportModel
     private let glyph = ThemedImageView()
     private let label = ThemedLabel(labelWithString: "")
@@ -103,9 +100,7 @@ public final class ChiefTeleportChip: NSView {
             symbol = "exclamationmark.triangle"
         case .idle, .done, .rolledBack:
             tone = model.location == .thisMac ? .here : .away
-            if saysAway, case .host = model.location {
-                text = ChiefTeleportStrings.awayOn(place)
-            } else if model.location == .thisMac, model.marks.fork != nil {
+            if model.location == .thisMac, model.marks.fork != nil {
                 text = ChiefTeleportStrings.withFork(place)
             } else {
                 text = place

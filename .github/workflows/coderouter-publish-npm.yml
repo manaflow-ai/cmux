@@ -16,7 +16,8 @@ concurrency:
 
 jobs:
   publish:
-    runs-on: ubuntu-latest # github-hosted-required: npm provenance needs a GitHub-hosted runner
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-latest' || fromJSON(vars.RUNNER_POOLS).provenance }} # github-hosted-required: npm provenance needs a GitHub-hosted runner
+    timeout-minutes: 30
     environment:
       name: npm-coderouter
       url: https://www.npmjs.com/package/coderouter

@@ -52,6 +52,11 @@ cmux-file-lock = { path = "../cmux-file-lock" }
 zbus = { version = "5", default-features = false, features = ["async-io", "blocking-api"], optional = true }
 pipewire = { version = "0.10", optional = true }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+# cmux Computer Use's engine: the helper hosts its macOS worker and gives it ScreenCaptureKit
+# screenshots (src/mac/cu_host.rs). Behind the `computer-use` feature.
+cmux-computer-use = { path = "../cmux-computer-use", features = ["desktop", "server"], optional = true }
+
 [target.'cfg(windows)'.dependencies]
 # `cmux-rd windows-host` (src/windows_host.rs): the same device hub client as `linux-host`.
 cmux-hub-host = { path = "../cmux-hub-host" }
@@ -74,7 +79,12 @@ cc = "1"
 [features]
 # `cmux-rd serve`: device hub sessions over the secure link (cmux-rd-link).
 link = ["dep:cmux-rd-link"]
-default = ["bench", "openh264", "link", "portal"]
+# `cmux-screen-sharing __computer-use-worker` (src/computer_use_worker.rs): the macOS Computer Use
+# worker and its ScreenCaptureKit screenshots. Only the Screen Sharing helper turns it on: cmux-tui
+# links this crate for `cmux rd`, and the Linux pool's macOS cross SDK cannot link the engine's
+# AppKit and Accessibility desktop into it (cmux-tui tests/macos_bin_no_computer_use_desktop.rs).
+computer-use = ["dep:cmux-computer-use"]
+default = ["bench", "openh264", "link", "portal", "computer-use"]
 # Wayland screen sharing through xdg-desktop-portal: `portal-dbus` is the ScreenCast and
 # RemoteDesktop handshakes over D-Bus (the one-time grant `linux-host enable` makes, and the
 # input calls), pure Rust; `portal` adds the PipeWire capture (links libpipewire-0.3).

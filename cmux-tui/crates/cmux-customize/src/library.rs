@@ -1021,6 +1021,9 @@ impl Customize {
             .into_iter()
             .filter(|problem| writes.contains_key(&problem.path))
             .collect();
+        // A refused value the person's file already holds stays as written;
+        // only what this change brings stops it.
+        let problems = validate::introduced(problems, &self.live_problems(writes.keys())?);
         if !problems.is_empty() {
             return Err(Error::Invalid(problems));
         }

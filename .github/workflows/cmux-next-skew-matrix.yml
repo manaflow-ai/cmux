@@ -58,7 +58,7 @@ jobs:
           test "$(git rev-parse HEAD)" = "$COMMIT"
           old="${OLD_COMMIT:-$(git rev-parse HEAD^1)}"
           git fetch --depth 1 origin "$old"
-          git worktree add --detach "$RUNNER_TEMP/old" "$old"
+          git worktree add -f -f --detach "$RUNNER_TEMP/old" "$old"
           echo "OLD=$old" >> "$GITHUB_ENV"
           git submodule update --init --depth 1 ghostty-next
           git -C "$RUNNER_TEMP/old" submodule update --init --depth 1 ghostty-next

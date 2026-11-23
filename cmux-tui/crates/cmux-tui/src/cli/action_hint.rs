@@ -7,11 +7,10 @@
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
+use cmux_tui_core::packed_catalogs::ACTION_SURFACES;
 use serde_json::Value;
 
 use super::OutputMode;
-
-const ACTIONS_JSON: &str = include_str!("../../../../../plans/cmux-next/action-surfaces.json");
 
 /// EX_USAGE: the words named an action, but not as a verb.
 pub(super) const EXIT_CODE: i32 = 64;
@@ -19,7 +18,7 @@ pub(super) const EXIT_CODE: i32 = 64;
 fn non_verbs() -> &'static HashMap<String, String> {
     static NON_VERBS: OnceLock<HashMap<String, String>> = OnceLock::new();
     NON_VERBS.get_or_init(|| {
-        let doc: Value = serde_json::from_str(ACTIONS_JSON).unwrap_or(Value::Null);
+        let doc: Value = serde_json::from_str(&ACTION_SURFACES.inflate()).unwrap_or(Value::Null);
         doc["actions"]
             .as_array()
             .into_iter()
@@ -37,7 +36,7 @@ fn non_verbs() -> &'static HashMap<String, String> {
 pub(super) fn action_takes_argument(action: &str, argument: &str) -> bool {
     static ARGS: OnceLock<HashMap<String, Vec<String>>> = OnceLock::new();
     ARGS.get_or_init(|| {
-        let doc: Value = serde_json::from_str(ACTIONS_JSON).unwrap_or(Value::Null);
+        let doc: Value = serde_json::from_str(&ACTION_SURFACES.inflate()).unwrap_or(Value::Null);
         let mut map = HashMap::new();
         for action in doc.get("actions").and_then(Value::as_array).into_iter().flatten() {
             let names: Vec<String> = action
@@ -62,7 +61,8 @@ pub(super) fn offered_app_action(name: &str) -> bool {
     static OFFERED: OnceLock<std::collections::HashSet<String>> = OnceLock::new();
     OFFERED
         .get_or_init(|| {
-            let doc: Value = serde_json::from_str(ACTIONS_JSON).unwrap_or(Value::Null);
+            let doc: Value =
+                serde_json::from_str(&ACTION_SURFACES.inflate()).unwrap_or(Value::Null);
             doc.get("actions")
                 .and_then(Value::as_array)
                 .into_iter()

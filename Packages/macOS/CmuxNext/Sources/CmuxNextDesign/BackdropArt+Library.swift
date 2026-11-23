@@ -7,6 +7,7 @@ public nonisolated enum BackdropArtCollection: String, CaseIterable, Equatable, 
     case museumIcons
     case calm
     case dore
+    case eastAsian
 
     public var title: String {
         switch self {
@@ -14,6 +15,7 @@ public nonisolated enum BackdropArtCollection: String, CaseIterable, Equatable, 
         case .museumIcons: String(localized: "backdrop.collection.museumIcons", defaultValue: "Museum Icons", bundle: .module)
         case .calm: String(localized: "backdrop.collection.calm", defaultValue: "Calm", bundle: .module)
         case .dore: String(localized: "backdrop.collection.dore", defaultValue: "Doré", bundle: .module)
+        case .eastAsian: String(localized: "backdrop.collection.eastAsian", defaultValue: "East Asian Painting", bundle: .module)
         }
     }
 }

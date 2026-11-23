@@ -18,6 +18,8 @@ import { installRevealSettle } from "../shared/pageReveal";
 import { setHarnessSymbolHost } from "../shared/harnessIcons";
 import { experimentArm } from "../../experiments/experiment";
 import { liveBackground } from "../../ui/liveBackground/liveBackground.experiment";
+import { reportHostGlass } from "../../ui/glass/hostGlass";
+import { chatUnderHoverCard, hostGlassCover } from "./chatUnderGlass";
 import { installUiPointer, type UiPointerControl } from "./uiPointer/picker";
 import { reportChatSnapshot } from "./chatSnapshot/live";
 
@@ -74,8 +76,14 @@ export function mountAcpmux(initialChat?: InitialChat): void {
   // its call with the page client; the legacy bridge answers `contextMenu.show`.
   if (!pageHostClient() && window.webkit?.messageHandlers?.agentSession)
     installNativeMenu((request) => postNative("contextMenu.show", { ...request }));
-  // No App glass under the page's popovers and menus (CMUX-561): the App's glass was drawn from boxes
-  // the page sent, so a zoom left it apart from the page's content. The page draws their glass itself.
+  // Floating glass the page marks (data-host-glass) is the App's own glass under the page, as its
+  // native menus are (ui/glass/hostGlass.ts). Each report carries the zoom its boxes were measured at,
+  // so a zoom never leaves the App's glass apart from the page's content (cmux#42413 had it off for that).
+  if (pageHostClient() || window.webkit?.messageHandlers?.agentSession)
+    reportHostGlass(document, (surfaces, zoom) => postNative("pane.glass", { surfaces, zoom }), {
+      candidates: chatUnderHoverCard,
+      options: hostGlassCover,
+    });
   // The always-on flicker detector (flickerLog.ts; its frame watch only behind a debug flag): on the
   // shared page host its batches are the `diag.flicker` op, on the old host the pane's own WebKit
   // handler takes them.

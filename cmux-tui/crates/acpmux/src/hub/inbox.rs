@@ -9,8 +9,8 @@
 //! ([`thread_key`]): the `_meta.acpmux.topic` or `pr` its sender gave, else its sender and the
 //! pull request its first line names, else its sender. An image, an upload, a slash command, a
 //! sub-session family message and a Web one are no inbox items: each still runs as before. So
-//! far only a plain send from this host is ([`plain_send`]): a peer's or the mesh relay's forward,
-//! a team message, a correction under a supersede key, a steer-only send, a `cmux agent message`
+//! far only a plain send is ([`plain_send`]), from this host or forwarded by a peer daemon or the
+//! mesh relay: a team message, a correction under a supersede key, a steer-only send, a `cmux agent message`
 //! (the cmux daemon delivers and tracks it) and the prompts acpmux makes itself (lane reports,
 //! task cards, a paused pair's release) still queue.
 //!
@@ -139,7 +139,10 @@ pub const WAKE_DEBOUNCE_MS: u64 = 2_000;
 pub const REFUSED_RETRY_MS: u64 = 30_000;
 /// How long a message that wakes no one waits in an idle chat, or FYIs alone wait for a running
 /// turn, before a notice brings them anyway.
-pub const FLUSH_MS: u64 = 10 * 60 * 1000;
+/// The minimum interval between turns started solely to carry FYIs. Keeping the
+/// interval at fifteen minutes bounds a quiet coordinator to at most four
+/// notice turns per hour while urgent classes still wake immediately.
+pub const FLUSH_MS: u64 = 15 * 60 * 1000;
 /// A notice line shows this much of the newest message's first line, in characters.
 const PREVIEW_CHARS: usize = 120;
 /// A notice holds its messages whole when their text is this many bytes or less ([`render`]).
@@ -318,12 +321,21 @@ pub(super) enum Unsend {
     Gone,
 }
 
-/// Whether a `session/prompt` is a plain send the inbox may take: from a connection on this host
-/// (an agent's `acpmux send`, the MCP `send` tool), with no supersede key, not steer-only, and no
-/// team message. A peer daemon's or the mesh relay's forward, a team message, a correction under
-/// a supersede key and a steer-only send keep the queue for now, as do the prompts acpmux makes
-/// itself (lane reports, task cards, a paused pair's release), which never set
-/// `PromptOptions::inbox`.
+/// Whether a `session/prompt` is a plain send the inbox may take: an agent's `acpmux send`, the MCP
+/// `send` tool, or either forwarded by a peer daemon or the mesh relay (the lane-gh broker's
+/// relay reaches a lane VM's chat that way), with no supersede key, not steer-only, and no team
+/// message. A team message, a correction under a supersede key and a steer-only send keep the
+/// queue for now, as do the prompts acpmux makes itself (lane reports, task cards, a paused
+/// pair's release), which never set `PromptOptions::inbox`.
+///
+/// A peer's forward kept the queue until 2026-11-21, so a message from another machine never met
+/// the inbox's classes: each one woke an idle chat as a turn of its own, or, if it came while
+/// the chat was busy, went in after that turn. Of 482 no-op wake turns in 48 h across the fleet
+/// (a turn that made no tool call), about 84 were single forwards sent with no class
+/// (cmuxterm-hq#15820).
+/// In the inbox, an unclassified one is an FYI that waits for the next notice; a block or a
+/// question still wakes the chat at once, and the session that started it or first gave it work
+/// still sends a prompt of its own (`Hub::inbox_route`).
 ///
 /// Nor a prompt whose caller gave its own provenance (`prompt_provenance::of`): a `cmux agent
 /// message` the cmux daemon's pump delivers (`agents_chat_send`, the app's reply in place). The
@@ -332,13 +344,12 @@ pub(super) enum Unsend {
 /// (`app_reply_fits`). In the inbox it became a notice, so a reply in place was refused, a send to
 /// a chat that cannot run said delivered, and a send to an idle chat ran no turn.
 pub(crate) fn plain_send(
-    from_peer: bool,
     team: bool,
     supersede: bool,
     steer_only: bool,
     given_provenance: bool,
 ) -> bool {
-    !from_peer && !team && !supersede && !steer_only && !given_provenance
+    !team && !supersede && !steer_only && !given_provenance
 }
 
 /// Whether a provenance is a plain message from another agent: none (a sender that named
@@ -708,6 +719,11 @@ fn kind_of(class: PromptClass) -> &'static str {
     }
 }
 
+/// Unclassified notices are informational and can wait for the FYI flush window.
+fn default_notice_class(class: Option<PromptClass>) -> PromptClass {
+    class.unwrap_or(PromptClass::Fyi)
+}
+
 /// The first line of `text`, cut to [`PREVIEW_CHARS`]: of the message inside a relay's label
 /// ([`relay_body`]), never the label's own words.
 fn preview(text: &str) -> String {
@@ -946,7 +962,7 @@ pub(super) fn not_woken(receiver: &str, sender: &str, class: PromptClass) -> Rpc
     let message = match class {
         PromptClass::Fyi => format!(
             "send.not_woken: an fyi from {sender} neither wakes {receiver} nor interrupts its \
-             turn: it waits for its next notice (FYIs alone go in once 10 minutes old). Nothing \
+             turn: it waits for its next notice (FYIs alone go in once 15 minutes old). Nothing \
              was delivered. Send it again with --class question to have it read now, or with \
              --no-wait to leave it in its inbox."
         ),
@@ -1200,7 +1216,7 @@ impl Hub {
         if controls(&session.meta(), sender_session(provenance).as_deref()) {
             return Route::Plain;
         }
-        let class = crate::prompt_class::of_message(class, true).unwrap_or(PromptClass::Result);
+        let class = default_notice_class(class);
         Route::Inbox(agent, class)
     }
 

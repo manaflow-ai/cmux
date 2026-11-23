@@ -5,6 +5,7 @@
 // Ops the owner does not serve yet (team list, sign-out) show "Not available yet".
 import { useState } from "react";
 import type { Strings } from "../shared/i18n";
+import { Switch } from "../../ui/Switch";
 import { percent } from "./model";
 import { AccountOps, CloudOps, type CloudRetention, type RetentionOverrides } from "./ops";
 import { RETENTION_FIELDS, retentionLimit, type RetentionField } from "./retention";
@@ -191,12 +192,12 @@ function CleanupSettings({
         </p>
       )}
       <label className="cloud-check cloud-cleanup-email">
-        <input
-          type="checkbox"
+        <Switch
+          size="sm"
           aria-label={t(L.cleanupEmail)}
           checked={retention.email_heads_up}
           disabled={saving}
-          onChange={(event) => void store.setEmailHeadsUp(event.target.checked)}
+          onCheckedChange={(on) => void store.setEmailHeadsUp(on)}
         />
         <span>{t(L.cleanupEmail)}</span>
       </label>

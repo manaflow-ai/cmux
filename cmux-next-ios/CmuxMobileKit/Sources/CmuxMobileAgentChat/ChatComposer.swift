@@ -514,12 +514,12 @@ struct ChatComposer: View {
                 .foregroundStyle(active ? Color.cmuxMobileOnAccent : Color.primary)
                 .symbolEffect(.variableColor.iterative, isActive: active)
                 .frame(width: 36, height: 36)
-                .background(style.fillColor, in: .circle)
+                .cmuxMobilePressBackground(style.fillColor, in: .circle)
                 .padding(4)
                 .contentShape(.circle)
                 .padding(-4)
         }
-        .buttonStyle(.cmuxPressFill)
+        .buttonStyle(.cmuxPressFillInLabel)
         .accessibilityLabel(active ? "End Voice Mode" : "Voice Mode")
         .accessibilityIdentifier("agentChat.composer.voice")
     }
@@ -540,7 +540,7 @@ struct ChatComposer: View {
                 .foregroundStyle(state == .empty ? Color(uiColor: .tertiaryLabel) : Color.cmuxMobileOnAccent)
                 .contentTransition(.symbolEffect(.replace))
                 .frame(width: 36, height: 36)
-                .background(state == .empty ? Color.cmuxMobileFill : Color.cmuxMobileAccent, in: .circle)
+                .cmuxMobilePressBackground(state == .empty ? Color.cmuxMobileFill : Color.cmuxMobileAccent, in: .circle)
                 .overlay {
                     if state == .queue {
                         Circle().strokeBorder(.secondary, lineWidth: 2).padding(-4)
@@ -551,7 +551,7 @@ struct ChatComposer: View {
                 .contentShape(.circle)
                 .padding(-4)
         }
-        .buttonStyle(.cmuxPressFill)
+        .buttonStyle(.cmuxPressFillInLabel)
         .disabled(state == .empty)
         .animation(.cmuxMobileSnap.unlessReduceMotion, value: state)
         .contextMenu {
@@ -909,12 +909,12 @@ struct AttachmentThumb: View {
                         .font(.system(size: 10, weight: .bold))
                         .foregroundStyle(.white)
                         .frame(width: 22, height: 22)
-                        .background(Color(white: 0.18), in: .circle)
+                        .cmuxMobilePressBackground(Color(white: 0.18), in: .circle)
                         .overlay(Circle().strokeBorder(Color(uiColor: .systemBackground), lineWidth: 1.5))
                         .frame(width: 44, height: 44)
                         .contentShape(.rect)
                 }
-                .buttonStyle(.cmuxPressFill)
+                .buttonStyle(.cmuxPressFillInLabel)
                 .offset(x: 17, y: -17)
                 .accessibilityLabel("Remove attachment")
             }

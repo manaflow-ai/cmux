@@ -266,6 +266,22 @@ while True:
     conn.close()
 '''
 
+# The app's bundled status command, run from the same fresh home as the app.
+COMPUTER_USE_CLI = r'''#!PYTHON
+import json, os, sys
+from pathlib import Path
+home = Path(os.environ["HOME"])
+assert Path.cwd().samefile(home) and os.environ["CFFIXED_USER_HOME"] == str(home)
+assert "GH_TOKEN" not in os.environ and "FRESH_SMOKE_SECRET" not in os.environ
+assert sys.argv[1:] == ["computer-use", "status", "--json"]
+arm = "seeded" if home.parent.name == "seeded" else "empty"
+fixtures = Path(__file__).resolve().parents[1] / "computer_use.json"
+replies = json.loads(fixtures.read_text()) if fixtures.exists() else {}
+status, body = replies.get(arm, [0, {"mode": "fullAccess"}])
+print(json.dumps(body), file=sys.stderr if status else sys.stdout)
+sys.exit(status)
+'''
+
 # A `defaults` stand-in: export writes the domain's file, delete removes it, import restores it.
 DEFAULTS = r'''#!PYTHON
 import os, plistlib, shutil, sys
@@ -307,6 +323,7 @@ def make_app(parent: Path, mode: str) -> Path:
     (app / "Contents" / "Resources" / "mode").write_text(mode)
     # The stub's daemon: a program file in the bundle (Python by another name) and a session of this test alone.
     (app / "Contents" / "Resources" / "bin").mkdir()
+    write_executable(app / "Contents" / "Resources" / "bin" / "cmux", COMPUTER_USE_CLI)
     os.symlink(sys.executable, app / "Contents" / "Resources" / "bin" / "cmux-tui")
     (app / "Contents" / "Resources" / "session").write_text(f"cmux-app-stub-{parent.parent.name}")
     # Where the stub puts a crash report of its own (the test's diagnostics folder), outside the run's root.
@@ -352,12 +369,14 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         self.tmp.cleanup()
 
     def run_smoke(self, mode: str, *extra: str, env: dict | None = None, ready: str = "",
-                  setup: str = "") -> tuple[int, str, dict]:
+                  setup: str = "", computer_use: dict | None = None) -> tuple[int, str, dict]:
         """The smoke on a stub of MODE. `ready`: a caller's READY (a Python expression over `smoke`), set by a small
         caller script as scripts/cmux-next/idle_cpu.py sets it; `setup`: statements over `smoke` that such a caller
         runs first; both empty runs the smoke itself."""
         self.runs = getattr(self, "runs", 0) + 1
         app = make_app(self.dir / f"run-{self.runs}", mode)
+        if computer_use:
+            (app / "Contents" / "Resources" / "computer_use.json").write_text(json.dumps(computer_use))
         if getattr(self, "host_pid_path", None):
             (app / "Contents" / "Resources" / "host_pid_path").write_text(str(self.host_pid_path))
         out = self.dir / f"out-{mode}-{self.runs}"
@@ -1436,6 +1455,30 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
     CONNECTED = {"state": "connected", "failure": None}
     DISCONNECTED = {"state": "disconnected", "failure": None}
 
+    def test_computer_use_off_or_unreadable_fails_the_fresh_home(self):
+        for reply, state in (({"mode": "off"}, "off"), ({"unexpected": {}}, "error")):
+            with self.subTest(reply=reply):
+                status, output, report = self.run_smoke("healthy", "--seconds", "0", "--startup-timeout", "10",
+                                                        "--daemon", computer_use={"empty": [0, reply]})
+                self.assertEqual(status, smoke.FAIL, output)
+                self.assertEqual(report["computer_use"]["state"], state)
+                self.assertIn("Computer Use:", report["failures"][0])
+
+    def test_computer_use_permission_missing_passes_but_a_reason_naming_remote_fails_the_seeded_arm(self):
+        args = ("--seconds", "0", "--startup-timeout", "10", "--arms", "empty,seeded", "--seeded-seconds", "0", "--daemon")
+        denied = [1, {"code": "computer_use_unavailable", "message": "Screen Recording permission is not granted"}]
+        status, output, report = self.run_smoke("healthy", *args, computer_use={"empty": denied})
+        self.assertEqual(status, smoke.PASS, output)
+        self.assertEqual(report["computer_use"], {"state": "unavailable", "reason": denied[1]["message"]})
+        self.assertEqual(report["arms"]["seeded"]["computer_use"]["state"], "ready")
+        legacy = [1, {"code": "computer_use_unavailable", "message": "cmux Remote needs Screen Recording permission"}]
+        status, output, report = self.run_smoke("healthy", *args, computer_use={"seeded": legacy})
+        self.assertEqual(status, smoke.FAIL, output)
+        self.assertEqual(report["arm"], "seeded")
+        self.assertEqual(report["arms"]["empty"]["computer_use"]["state"], "ready")
+        self.assertEqual(report["computer_use"], report["arms"]["seeded"]["computer_use"])
+        self.assertEqual(report["failures"], [f"seeded home: Computer Use: {legacy[1]['message']}"])
+
     def test_a_daemon_that_is_not_connected_when_the_watch_ends_fails_the_launch(self):
         verdicts = gate_verdicts()
         status, output, report = self.run_smoke("healthy@down", "--seconds", "0", "--startup-timeout", "10", "--daemon")
@@ -1481,6 +1524,7 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         self.assertEqual(status, smoke.PASS, output)  # the launch itself passed; what a caller makes of the mark is its
         self.assertEqual(report["daemon"], [{**self.CONNECTED, "of_launch": False}])
         self.assertIsNone(report["daemon_down"])
+        self.assertIsNone(report["computer_use"])
         self.assertIn("\ndaemon: not judged (not of this launch)\n", output)
         self.assertNotIn("daemon: connected", output)
         self.assert_cleaned_up(report)

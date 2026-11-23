@@ -137,12 +137,15 @@ pub(crate) struct After {
 
 /// After `outcome`, cancelled or not, with the join it ran for still `current` or not.
 /// Only an enable that finished for the join still current, uncancelled, keeps its host: any
-/// other may have started the unit for a join that is gone, so the unit is stopped (cmux-rd's
-/// `run` would also refuse to serve it).
+/// other may have started the unit, for a join that is gone or one the daemon does not record
+/// as set up, so the unit is stopped (review of #45369).
 pub(crate) fn after_enable(outcome: &Outcome, cancelled: bool, current: bool) -> After {
     let finished = matches!(outcome, Outcome::SetUp(_));
     let superseded = cancelled || !current || matches!(outcome, Outcome::Cancelled);
-    After { save_mark: finished && !superseded, stop_host: superseded }
+    let kept = finished && !superseded;
+    // Any enable that did not finish (failed, timed out, not installed, cancelled) may have
+    // started the unit before it ended: its host is stopped, never left running unmarked.
+    After { save_mark: kept, stop_host: !kept }
 }
 
 /// One line of cmux-rd's output, made plain and short for a log line.
@@ -298,7 +301,9 @@ pub(crate) fn stop_host() -> Result<(), String> {
 pub(crate) fn still_running(pid: Option<u32>, disabled: bool) -> String {
     format!(
         "the screen host may still be running ({}){}; stop it with: {}",
-        pid.map_or("its pid is unknown".into(), |pid| format!("pid {pid}")),
+        pid.map_or("its pid is unknown: a host of an older build records none".into(), |pid| {
+            format!("pid {pid}")
+        }),
         if disabled { "" } else { "; systemctl --user disable --now did not finish" },
         pid.map_or(format!("systemctl --user kill --signal=KILL {HOST_UNIT}"), |pid| {
             format!("kill -KILL {pid}")

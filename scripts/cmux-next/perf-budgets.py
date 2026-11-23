@@ -46,11 +46,11 @@ REGRESSION = 0.10
 
 BENCHES = ["new_surfaces", "panes", "tab_switch", "palette", "sidebar", "home", "acp", "idle", "anim"]
 # Benches that run only when --only names them: the default (all of BENCHES) is what stable-next's --gate step runs, and
-# a bench added here is a perf cron row that warns, never a new gate row (CLAUDE.md: no new CI gates).
+# a bench added here is a perf cron row that warns, never a new gate row (the 2026-10-23 no-new-CI rule, since lifted).
 OPT_IN_BENCHES = ["terminal_burst"]
 PERF_BENCH = os.path.join(HERE, "..", "perf-bench")
 # Stage rows: where a judged row's time goes (the chat composer's typing: key to page, key to edit and render done).
-# Stored and shown, never gated, budgeted or written to a baseline: measurement only (no new CI gates).
+# Stored and shown, never gated, budgeted or written to a baseline: measurement only (the 2026-10-23 no-new-CI rule, since lifted).
 STAGE_ROW_RE = re.compile(r"^acp\.[^.@]+\.typing\.(to_listener|to_work)(@|$)")
 
 
@@ -196,16 +196,19 @@ def load(path):
         return None
 
 
-def find_stage(table, stage):
-    """tab-switch tables nest {kind: {stage: stat}} or {stage: stat}."""
+def find_stage(table, stage, kind):
+    """A tab-switch table's `stage` for switches that showed `kind`: {kind: {stage: stat}}, or a flat {stage: stat}.
+    Only the scenario's own kind counts. `debug.tab_switch` files a switch under the content it showed, so a scenario
+    holds other buckets too: `cold` (a tab whose surface was not alive: the pane empties now and the surface comes a
+    frame later) or `?` (untagged). Reading the first bucket with the stage read `cold` as the terminal row from
+    2026-11-15 (cmux#24569): the time to an empty pane, not to the terminal. A missing bucket is no value, so the
+    row is incomplete rather than another bucket's number."""
     if not isinstance(table, dict):
         return None
     if stage in table:
         return table[stage]
-    for v in table.values():
-        if isinstance(v, dict) and stage in v:
-            return v[stage]
-    return None
+    own = table.get(kind)
+    return own.get(stage) if isinstance(own, dict) else None
 
 
 def rows_new_surfaces(rep):
@@ -229,7 +232,7 @@ def rows_panes(rep):
 def rows_tab_switch(rep):
     out = {}
     for sc in (rep or {}).get("scenarios") or []:
-        stat = find_stage((sc.get("ctrl_tab") or {}).get("table"), "e2e")
+        stat = find_stage((sc.get("ctrl_tab") or {}).get("table"), "e2e", sc.get("kind"))
         out[f"tab_switch.{sc.get('kind')}.{sc.get('count')}.e2e"] = p50_p95(stat)
     return out
 
@@ -256,6 +259,9 @@ def rows_sidebar(rep, size):
         out[f"sidebar.{size}.ticking.cpu_pct"] = (cpu, cpu)
     if isinstance(ticks.get("main_ms_per_s"), (int, float)):
         out[f"sidebar.{size}.ticking.main_ms_per_s"] = (ticks["main_ms_per_s"], ticks["main_ms_per_s"])
+    maps = (ticks.get("per_tick") or {}).get("row_maps")
+    if isinstance(maps, (int, float)):
+        out[f"sidebar.{size}.ticking.row_maps_per_tick"] = (maps, maps)
     for key, m in (s.get("switch_matrix") or {}).items():
         if isinstance(m, dict) and "input_to_idle_ms" in m:
             out[f"workspace_switch.{key}.input_to_idle"] = p50_p95(m["input_to_idle_ms"])

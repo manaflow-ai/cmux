@@ -240,6 +240,17 @@ pub(super) fn run_if_requested(args: &[String], surface: Surface) -> Option<Moun
             if let Err(code) = end_on_termination_signals() {
                 return Some(Mount::Exit(code));
             }
+            // `install|uninstall ssh://HOST`: the same verbs on another machine.
+            match super::server_remote::request(&server_args) {
+                Some(Ok(request)) => {
+                    return Some(Mount::Exit(super::server_remote::run_request(&request)));
+                }
+                Some(Err(error)) => {
+                    eprintln!("cmux server: {error}");
+                    return Some(Mount::Exit(2));
+                }
+                None => {}
+            }
             let guard = std::env::var(cmux_server_core::reexec::GUARD_ENV).ok();
             let code = cmux_server::cli::run_code(&server_args, guard, release_version());
             Some(Mount::Exit(i32::from(code)))

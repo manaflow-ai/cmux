@@ -35,6 +35,7 @@ import type { CloudStore } from "./store";
 import { canArchive, canKeep } from "./retention";
 import { L } from "./strings";
 import type { FileTransfer } from "./transfers";
+import { DiskHealthSummary } from "./DiskHealth";
 
 export interface DetailProps {
   store: CloudStore;
@@ -223,6 +224,14 @@ export function MachineDetailView({
             </select>
           )}
         </dd>
+        {machine.disk_health && (
+          <>
+            <dt>{t(L.fieldDisk)}</dt>
+            <dd>
+              <DiskHealthSummary health={machine.disk_health} strings={strings} />
+            </dd>
+          </>
+        )}
         {cost && (
           <>
             <dt>{t(L.fieldCost)}</dt>

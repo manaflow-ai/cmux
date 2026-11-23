@@ -107,6 +107,11 @@ enum OnboardingStrings {
         }
     }
 
+    /// The workspace an import of extensions opens; `source`: "Google Chrome · Work".
+    static func extensionsWorkspace(_ source: String) -> String {
+        String(format: String(localized: "onboarding.import.extensionsWorkspace", defaultValue: "Extensions from %@", bundle: .module), source)
+    }
+
     /// "Google Chrome · Work" (Safari and one-profile browsers: the browser name).
     static func profileName(_ profile: BrowserSourceProfile) -> String {
         profile.directoryName.isEmpty || profile.browser.family == .safari || profile.browser.family.isPrivateStore
@@ -134,7 +139,8 @@ public extension Optional where Wrapped == ImportCounts {
 enum ImportCountsText {
     static func line(_ counts: ImportCounts) -> String {
         let values: [(ImportDataKind, Int)] = [(.bookmarks, counts.bookmarks), (.history, counts.history),
-                                               (.openTabs, counts.openTabs), (.cookies, counts.cookies), (.passwords, counts.passwords)]
+                                               (.openTabs, counts.openTabs), (.extensions, counts.extensions), (.cookies, counts.cookies),
+                                               (.passwords, counts.passwords)]
         // One default engine per profile: its name alone says it came over.
         let engine = counts.searchEngines > 0 ? [OnboardingStrings.kind(.searchEngines)] : []
         return (values.filter { $0.1 > 0 }.map { "\(OnboardingStrings.kind($0.0)) \($0.1.formatted(.number))" } + engine)

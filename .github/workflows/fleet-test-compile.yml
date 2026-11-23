@@ -46,16 +46,23 @@ name: fleet test-compile (advisory)
 # a newer push or a re-run before it finished (37 of 78 check runs cancelled,
 # none passed). So this check is again what compiles a PR's CmuxNext test
 # targets.
+#
+# Since 2026-11-21 a pull request runs it only with the full-ci label. Leo,
+# 2026-11-21: "id rather we simply cut shit now and revisit later." Each run
+# held a Mac gateway runner while its client waited on the Linux pool: 132
+# runner-hours a day over 11-13..21 (ci-dash's Mac job log, 4,393 jobs at a
+# median 0.01 cores), the largest share of the Mac runner time spent waiting.
+# It gates nothing, and over 11-13..19 it was the only real red on 4.3% of PR
+# heads (cmuxterm-hq docs/ci/bottleneck-and-skip-candidates-2026-11-21.md).
+# What it would have caught, cmux-next-tip-test-compile.yml catches after the
+# merge: it compiles the change since its last green run on every push and
+# opens the "Swift test targets do not compile" issue. Revert this condition
+# to run it on every same-repository pull request again.
 
+# Cut from pull requests on 2026-11-21 (ci-time-map: advisory, read by nothing; ~6.9k fleet runner-min a day). It stays runnable
+# by workflow_dispatch; cmux-next-tip-test-compile.yml still compiles the test targets on the base.
 on:
-  pull_request:
-    branches: [feat-cmux-next]
-    paths:
-      - "Packages/**"
-      - "vendor/**"
-      - "scripts/ci/compile_test_plan.py"
-      - "scripts/ci/package-test-lane.sh"
-      - ".github/workflows/fleet-test-compile.yml"
+  workflow_dispatch:
 
 permissions: {}
 
@@ -71,7 +78,9 @@ jobs:
   plan:
     name: fleet test-compile plan
     # The fleet takes same-repository pull requests only (as the Swift canary's fleet job).
-    if: ${{ github.repository_owner == 'manaflow-ai' && github.event.pull_request.head.repo.full_name == github.repository }}
+    # A pull request compiles its test targets here only with full-ci (2026-11-21, below); the tip compile
+    # (cmux-next-tip-test-compile.yml) checks every feat-cmux-next push that reaches a test target.
+    if: ${{ github.repository_owner == 'manaflow-ai' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'full-ci') }}
     # Blacksmith, behind the fork branch, so a GitHub billing block cannot stop it (tests/test_ci_self_hosted_guard.sh).
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
     permissions:

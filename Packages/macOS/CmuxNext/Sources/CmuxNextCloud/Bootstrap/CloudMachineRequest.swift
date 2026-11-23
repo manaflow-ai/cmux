@@ -60,12 +60,23 @@ public struct CloudMachineRequest: Equatable, Sendable {
     /// The disk in MiB a chat's folder needs past ``chatSize``'s own (``CloudChatSize/grownDiskMb(_:bytes:planMax:)``):
     /// the create asks at least it. Nil: the size's own.
     public var chatDiskMb: Int?
+    /// The largest size the plan gives, as the chat's start knew it (``CloudChatSize/planned(bytes:planMax:)``'s
+    /// `planMax`); nil: not known.
+    public var chatPlanMax: CloudChatSize?
+    /// The bytes of the chat's folder, as its start counted them; nil: not counted.
+    public var chatFolderBytes: Int64?
 
-    /// The create's `size` axes, each at least ``chatSize``'s (its disk at least ``chatDiskMb``): the default machine's
-    /// `cpu`, `memoryMb` and `diskMb` when they are already as large.
+    /// The create's `size` axes for a chat's folder, never below the default machine's `cpu`, `memoryMb` and `diskMb`.
+    /// The disk is at least ``chatSize``'s and ``chatDiskMb``. ``chatSize`` is picked for its disk, so its vCPUs and
+    /// memory are raised only as far as the plan's largest size has (``chatPlanMax``; not known: not raised): a folder
+    /// that needs a large disk never asks more vCPUs than the plan gives, which the server refuses. One case keeps the
+    /// size's whole row: a folder the disk asked does not hold, whose create the server is to refuse with its upgrade.
     public func atLeast(cpu: Int, memoryMb: Int, diskMb: Int) -> (cpu: Int, memoryMb: Int, diskMb: Int) {
         guard let chatSize else { return (cpu, memoryMb, diskMb) }
-        return (max(cpu, chatSize.cpu), max(memoryMb, chatSize.memoryMb), max(diskMb, chatSize.diskMb, chatDiskMb ?? 0))
+        let disk = max(diskMb, chatSize.diskMb, chatDiskMb ?? 0)
+        let floor = chatFolderBytes.map { CloudChatSize.floorDiskBytes($0) ?? .max } ?? 0
+        guard floor <= Int64(disk) * 1_048_576 else { return (max(cpu, chatSize.cpu), max(memoryMb, chatSize.memoryMb), disk) }
+        return (max(cpu, min(chatSize.cpu, chatPlanMax?.cpu ?? cpu)), max(memoryMb, min(chatSize.memoryMb, chatPlanMax?.memoryMb ?? memoryMb)), disk)
     }
 
     /// A machine name `cloud new-machine` takes: 1-64 of letters, digits, `.`, `_` and `-`, not

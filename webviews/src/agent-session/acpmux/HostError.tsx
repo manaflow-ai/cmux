@@ -1,5 +1,6 @@
 import { type ReactNode, useId, useState } from "react";
 import { Notice } from "../../ui/Notice";
+import { Clock } from "../../ui/Typography";
 import { HOST_ERROR_DEADLINE_MS, type HostRestoring, hostRecoveryLine } from "./hostRetry";
 import { useNow } from "./subagents/subagentGroupModel";
 import { useT } from "./i18n";
@@ -163,7 +164,9 @@ export function HostWaitingLine({
   return (
     <output className="acpmux-host-line-group" data-host-waiting>
       <div className="acpmux-host-line">
-        <p className="acpmux-host-line-message">{t("host.waitingService", { time: waitedText(waited) })}</p>
+        <p className="acpmux-host-line-message">
+          <ClockedWords text={t("host.waitingService", { time: SLOT })} time={waitedText(waited)} />
+        </p>
         {onRestart && (
           <button type="button" className="acpmux-host-line-quiet" onClick={onRestart} disabled={restarting}>
             {t(restarting ? "host.restartingService" : "host.restartService")}
@@ -182,6 +185,7 @@ export function HostRecoveringLine({
   relinkingSince,
   restoring,
   failureShown,
+  waitingSince,
   otherwise = null,
   now: fixedNow,
 }: {
@@ -189,21 +193,43 @@ export function HostRecoveringLine({
   restoring?: HostRestoring;
   /// The pane already says a failure (`hostErrorSaid`): "Reconnecting…" leaves the line to it.
   failureShown?: boolean;
+  /// When the waiting line's wait began (its `since`): "Reconnecting…" stays until that line shows.
+  waitingSince?: number;
   otherwise?: ReactNode;
   /// A fixed clock for the gallery and tests; the pane passes none and the line counts each second.
   now?: number;
 }) {
   const t = useT();
   const ticking = useNow(fixedNow === undefined && (relinkingSince !== undefined || restoring !== undefined));
-  const line = hostRecoveryLine({ relinkingSince, restoring, failureShown, now: fixedNow ?? ticking });
+  const line = hostRecoveryLine({ relinkingSince, restoring, failureShown, waitingSince, now: fixedNow ?? ticking });
   if (!line) return otherwise;
   return (
     <output className="acpmux-host-line" data-host-recovering={line.kind}>
       <p className="acpmux-host-line-message">
-        {line.kind === "restoring"
-          ? t("host.restoringSessions", { time: waitedText(line.waitedMs) })
-          : t("host.reconnecting")}
+        {line.kind === "restoring" ? (
+          <ClockedWords text={t("host.restoringSessions", { time: SLOT })} time={waitedText(line.waitedMs)} />
+        ) : (
+          t("host.reconnecting")
+        )}
       </p>
     </output>
+  );
+}
+
+/// The translation's time slot, filled with the ticking time.
+const SLOT = "\u0000";
+
+/// A line's words with its ticking `m:ss` in the shared clock (ui/Typography.tsx `Clock`): tabular
+/// figures in a box as wide as the widest time of its shape, so a tick never moves what follows the
+/// time (the waiting line's Restart agent service jiggled sideways each second). `text` is the
+/// translation with `SLOT` where the time goes.
+function ClockedWords({ text, time }: { text: string; time: string }) {
+  const [before, after = ""] = text.split(SLOT);
+  return (
+    <>
+      {before}
+      <Clock text={time} />
+      {after}
+    </>
   );
 }

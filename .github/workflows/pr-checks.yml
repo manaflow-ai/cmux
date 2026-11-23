@@ -18,6 +18,56 @@ on:
   pull_request:
     branches: [feat-cmux-next]
     types: [opened, synchronize, reopened, edited, ready_for_review]
+    # docs-only paths: BEGIN (scripts/ci/docs_only_paths.py --sync writes this block; edit DOCS_ONLY_PATHS there)
+    paths:
+      - "**"
+      - "!**/*.md"
+      - "!docs/**/*.png"
+      - "!docs/**/*.jpg"
+      - "!docs/**/*.gif"
+      - "!docs/**/*.webp"
+      - "!plans/**/*.png"
+      - "!plans/**/*.jpg"
+      - "!plans/**/*.gif"
+      - "!plans/**/*.webp"
+      - "**/AGENTS.md"
+      - "**/CLAUDE.md"
+      - "**/SKILL.md"
+      - ".github/**"
+      - "**/skills/**"
+      - "**/references/**"
+      - "**/templates/**"
+      - "**/Resources/**"
+      - "**/fixtures/**"
+      - "**/testdata/**"
+      - "**/test/**"
+      - "**/tests/**"
+      - "CHANGELOG.md"
+      - "THIRD_PARTY_LICENSES.md"
+      - "release-notes/**"
+      - "docs/agent-hooks.md"
+      - "docs/chief-setup-prompts.md"
+      - "docs/configuration.md"
+      - "docs/ci/node-product-cache-maintenance.md"
+      - "plans/cmux-next/actions.md"
+      - "docs/mdm/managed-preferences.md"
+      - "docs/ci/health-report.md"
+      - "docs/privacy.md"
+      - "**/notices/**"
+      - "vendor/stack-auth-swift-sdk-prerelease/README.cmux.md"
+      - "cmux-tui/README.md"
+      - "docs/remote-agents-and-cloud.md"
+      - "docs/cmux-next/customize-recipes.md"
+      - "cmux-tui/crates/acpmux/README.md"
+      - "cmux-tui/crates/acpmux/docs/**"
+      - "cmux-tui/crates/cmux-browser-host/js/guide.md"
+      - "cmux-tui/crates/cmux-extension-sdk/README.md"
+      - "cmux-tui/vendor/terminput-crossterm/README.md"
+      - "mux/packages/brain/conformance/README.md"
+    # docs-only paths: END
+  # docs-only-fallback.yml calls this in a pull request's own context when the docs-only `paths:` above could
+  # have skipped it wrongly (over 300 changed files, or a full-ci/dev-build label): scripts/ci/docs_only_paths.py.
+  workflow_call:
 
 # The base-only job reads the previous head's run by this title, which names the pull
 # request (two pull requests can share a head commit): an `edited` run
@@ -29,10 +79,13 @@ permissions: {}
 
 # A push supersedes the previous push's run, which then reads as cancelled, so
 # a base-only push after it runs every check rather than keep answers that never
-# finished. A description edit (the PR size check alone) has its own group and
-# never cancels a push's run.
+# finished. A description edit that adds, changes or removes a `Size:` line or the
+# UI review section (all that PR size and UI review read) has its own group and never
+# cancels a push's run. Any other edit (a title, a base, the rest of the description)
+# starts no runner and takes a group of its own, so it cancels neither
+# (tests/test_ci_edit_events_start_no_runner.py).
 concurrency:
-  group: pr-checks-${{ github.event.pull_request.number }}-${{ github.event.action == 'edited' && 'edited' || 'push' }}
+  group: pr-checks-${{ github.event.pull_request.number }}-${{ github.event.action == 'edited' && ((github.event.changes.body && (contains(github.event.pull_request.body, 'Size:') || contains(github.event.changes.body.from, 'Size:'))) || (github.event.changes.body && (contains(github.event.pull_request.body, 'UI review') || contains(github.event.changes.body.from, 'UI review') || contains(github.event.pull_request.body, 'Verdict:') || contains(github.event.changes.body.from, 'Verdict:')))) && 'edited' || github.event.action == 'edited' && format('edit-{0}', github.run_id) || 'push' }}
   cancel-in-progress: true
 
 env:
@@ -40,47 +93,6 @@ env:
   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
 
 jobs:
-  # A small, secretless bootstrap reads the fresh runner-state publication and
-  # assigns the advisory jobs to an idle owned mini when one is available.  The
-  # source branch is trusted and the placement script fails open, so a stale or
-  # missing publication keeps the existing hosted/Blacksmith route.
-  portable-placement:
-    name: portable light placement
-    if: ${{ vars.CI_PORTABLE_LIGHT_JOBS_OFF != '1' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_2 }}
-    timeout-minutes: 4
-    permissions:
-      contents: read
-      actions: read
-    outputs:
-      linux_runner: ${{ steps.place.outputs.linux_runner }}
-      linux_jobs: ${{ steps.place.outputs.linux_jobs }}
-      mini_runner: ${{ steps.place.outputs.mini_runner }}
-      mini_jobs: ${{ steps.place.outputs.mini_jobs }}
-      placed_attempt: ${{ github.run_attempt }}
-    steps:
-      - name: Check out the trusted placement script
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          ref: ${{ github.event.pull_request.base.sha || github.sha }}
-          sparse-checkout: scripts/ci
-          persist-credentials: false
-      - name: Place the portable advisory jobs
-        id: place
-        continue-on-error: true
-        env:
-          CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          JOBS: size ui-review split
-          # Only the owned-pool rescue bot's third attempt may re-place these
-          # light jobs. Other workflows and manual retries stay fail-closed.
-          PORTABLE_ATTEMPT3_RESCUE: '1'
-          FLEET_LINUX: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.LINUX_RUNNER }}
-          REQUIRE_LIVE_CAPACITY: '1'
-          SIDE_LABEL: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_LIGHT_LANE_RUNNER || vars.CI_SIDE_LANE_RUNNER }}
-          SNAPSHOT_TOKEN: ${{ github.token }}
-        run: python3 scripts/ci/portable_job_placement.py
-
   # Whether this push only merged the base, so the previous head's answers still
   # hold. Any doubt (another event, a force push, a failed fetch or read, a
   # conflict resolved by hand, a previous run that did not finish) answers false
@@ -193,6 +205,7 @@ jobs:
     needs: base-only
     if: ${{ !cancelled() && needs.base-only.outputs.base_only != 'true' && contains(fromJSON('["opened","synchronize","reopened","ready_for_review"]'), github.event.action) && vars.CI_QUOTA_HOLD != '1' && !github.event.pull_request.draft && github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted pull-request-write token; CI_TRUSTED_RUNNER picks the Blacksmith size
+    timeout-minutes: 10
     permissions:
       contents: read
       pull-requests: write
@@ -324,16 +337,16 @@ jobs:
   # passes, and so does a measured size over the limit.
   size:
     name: PR size
-    # Every edit runs it, a title-only one too: edits share one cancelling group, so a
-    # title edit can cancel a body edit's run, and its own run must answer. It runs on a
+    # An edit runs it only when it adds, changes or removes a `Size:` line, the one thing
+    # it reads from the description; any other edit takes a concurrency group of its own,
+    # so it neither cancels a measuring run nor starts one. It runs on a
     # base-only update too: it costs one API call, and a previous head's green run
     # from before it could fail (or that a later Size: edit changed) must not
     # answer for it.
-    if: ${{ always() && !cancelled() && contains(fromJSON('["opened","synchronize","reopened","edited","ready_for_review"]'), github.event.action) && vars.CI_QUOTA_HOLD != '1' && !github.event.pull_request.draft }}
+    if: ${{ always() && !cancelled() && contains(fromJSON('["opened","synchronize","reopened","edited","ready_for_review"]'), github.event.action) && (github.event.action != 'edited' || (github.event.changes.body && (contains(github.event.pull_request.body, 'Size:') || contains(github.event.changes.body.from, 'Size:')))) && vars.CI_QUOTA_HOLD != '1' && !github.event.pull_request.draft }}
     # A light job: one GraphQL read, 4 s of work. The reconciled Linux pool on every attempt (no
     # secret), never GitHub-hosted Ubuntu (it left light jobs queued for hours, cmux#45735).
-    needs: portable-placement
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.linux_jobs, ' size ') && needs.portable-placement.outputs.linux_runner || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.mini_jobs, ' size ') && needs.portable-placement.outputs.mini_runner || fromJSON(vars.RUNNER_POOLS).linux }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -412,11 +425,12 @@ jobs:
   # The checker comes from the base branch so a PR cannot weaken its own policy.
   ui-review:
     name: UI review advisory
-    needs: [base-only, portable-placement]
-    if: ${{ always() && !cancelled() && needs.base-only.outputs.base_only != 'true' && contains(fromJSON('["opened","synchronize","reopened","edited","ready_for_review"]'), github.event.action) && vars.CI_QUOTA_HOLD != '1' && !github.event.pull_request.draft }}
+    needs: base-only
+    # An edit runs it only when it moved the `## UI review` section or its `Verdict:` line (all it reads).
+    if: ${{ always() && !cancelled() && needs.base-only.outputs.base_only != 'true' && contains(fromJSON('["opened","synchronize","reopened","edited","ready_for_review"]'), github.event.action) && (github.event.action != 'edited' || (github.event.changes.body && (contains(github.event.pull_request.body, 'UI review') || contains(github.event.changes.body.from, 'UI review') || contains(github.event.pull_request.body, 'Verdict:') || contains(github.event.changes.body.from, 'Verdict:')))) && vars.CI_QUOTA_HOLD != '1' && !github.event.pull_request.draft }}
     # A light job: one file list read, 4 s of work. The reconciled Linux pool on every attempt (no
     # secret), never GitHub-hosted Ubuntu (it left light jobs queued for hours, cmux#45735).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.linux_jobs, ' ui-review ') && needs.portable-placement.outputs.linux_runner || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.mini_jobs, ' ui-review ') && needs.portable-placement.outputs.mini_runner || fromJSON(vars.RUNNER_POOLS).linux }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -485,9 +499,9 @@ jobs:
   # that event can cancel a push run, and its own run must answer for all three checks.
   split:
     name: split-plan advisory
-    needs: [base-only, portable-placement]
+    needs: base-only
     if: ${{ always() && !cancelled() && needs.base-only.outputs.base_only != 'true' && github.event.action != 'edited' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.linux_jobs, ' split ') && needs.portable-placement.outputs.linux_runner || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.mini_jobs, ' split ') && needs.portable-placement.outputs.mini_runner || fromJSON(vars.RUNNER_POOLS).linux }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -498,8 +512,10 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 1
           persist-credentials: false
+      # Refs only: no submodule commits. Fetching every branch otherwise also fetches each branch's
+      # ghostty pins, and one pin upstream no longer serves fails the job ("not our ref").
       - name: Fetch split refs without blobs
-        run: git fetch --no-tags --filter=blob:none --unshallow origin
+        run: git fetch --no-tags --no-recurse-submodules --filter=blob:none --unshallow origin
       # The classifier comes from the base: a head branched before the guard has no copy, and a
       # pull request should not grade itself with its own edits to the guard.
       - name: Report split metrics

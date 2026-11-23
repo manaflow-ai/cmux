@@ -554,6 +554,30 @@ describe("the chat's surface after a restart", () => {
     } finally { chat.stop(); }
   });
 
+  // cmux#40159: the machine holds no login, and the app gives the person's model connection to each chat's agent at its
+  // start. A chaos chat started without it had nothing to reply with: every fault failed "the felt chat's warm-up got no
+  // reply within 120 s" before any fault ran (cloud-carrier-chaos-staging, 2026-11-18).
+  for (const credentials of [{ env: { CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-oat01-test" } }, undefined]) test(`the chat's start carries ${credentials ? "the launch credential" : "none when the journey has none"}`, async () => {
+    const f = fakeDial((frame) => {
+      switch (frame.cmd) {
+        case "identify": return { registry_id: "r" };
+        case "create-workspace": return { workspace: 1 };
+        case "new-conversation-tab": return { surface: 7, tab_resource_id: "tab_chat" };
+        case "agent-session-start": return { session: "s-1" };
+        case "list-workspaces": return tree([{ surface: 7, tab_resource_id: "tab_chat", conversation: agent("s-1") }]).data;
+        case "agent-session-attach": return { lastSeq: 10, events: [], hasMore: false };
+        default: return {};
+      }
+    });
+    const chat = new chaos.ChatClient({ cmux: "", env: {}, machine: "m", exec: async () => ({ code: 0, stdout: "", stderr: "" }), guest: "", session: "", tag: "t", credentials }, f.make);
+    try {
+      await chat.open("claude");
+      const start = f.frames.find((x) => x.cmd === "agent-session-start");
+      expect(start?.credentials).toEqual(credentials);
+      expect("credentials" in (start ?? {})).toBe(Boolean(credentials));
+    } finally { chat.stop(); }
+  });
+
   test("after a redial the chat attaches, and prompts, on the tab's new surface", async () => {
     let surface = 7;
     const f = fakeDial((frame) => {
@@ -698,7 +722,31 @@ describe("the felt time after a send", () => {
     // Two refusals, each followed by a 500 ms pause: the person waited through them.
     expect(felt.felt_ms).toBeGreaterThanOrEqual(950);
     expect(felt.ack_ms).toBeGreaterThanOrEqual(950);
+    // Both refusals, one run of the same text, so a slow take names where its time went.
+    expect(felt.trail).toMatch(/^\d+-\d+ ms: .+ \(2\)$/);
     chat.stop();
+  });
+
+  test("the refusal trail keeps each change of refusal in order, with its first and last time", () => {
+    expect(chaos.refusalTrail([
+      { at: 10, text: "connection refused" },
+      { at: 600, text: "connection refused" },
+      { at: 1200, text: "session not restored" },
+    ])).toBe("10-600 ms: connection refused (2); 1200 ms: session not restored (1)");
+  });
+
+  test("the restart timeline reads journal times from the kill, corrected for the machine's clock", () => {
+    // The machine's clock runs 2 s ahead: its @@now is 2 s past when the runner read the answer.
+    const stdout = [
+      "@@now 1000012000",
+      "1000002.500000 vm systemd[1]: acpmux.service: Main process exited, code=killed, status=9/KILL",
+      "1000005.600000 vm systemd[1]: Started acpmux.service.",
+      "1000007.000000 vm acpmux[42]: INFO ready",
+    ].join("\n");
+    expect(chaos.restartTimeline(stdout, 1000000000, 1000010000)).toBe(
+      "+500 ms systemd[1]: acpmux.service: Main process exited, code=killed, status=9/KILL | +3600 ms systemd[1]: Started acpmux.service. | +5000 ms acpmux[42]: INFO ready",
+    );
+    expect(chaos.restartTimelineCommand(1000000000)).toContain("--since @999999");
   });
 
   test("no reply within the deadline is null, with the last error", async () => {

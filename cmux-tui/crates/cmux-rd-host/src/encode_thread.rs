@@ -36,6 +36,8 @@ pub struct Done {
 pub struct Frame {
     pub access_unit: Vec<u8>,
     pub idr: bool,
+    /// Why the encoder made this IDR on its own (`None` when asked for, or a delta frame).
+    pub idr_cause: Option<&'static str>,
     /// When the capture ended, on the protocol clock in µs (the frame's timestamp).
     pub t_capture_us: u64,
     /// When the encode ended, on the protocol clock in µs.
@@ -229,6 +231,7 @@ fn encode_one(source: &mut dyn FrameSource, job: &Job) -> Res<Frame> {
     Ok(Frame {
         access_unit,
         idr,
+        idr_cause: if idr { source.idr_cause() } else { None },
         t_capture_us,
         encoded_us: t1 / 1000,
         picked_times: source.picked_times(),

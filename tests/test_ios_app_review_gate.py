@@ -86,6 +86,36 @@ class AppReviewGateTests(unittest.TestCase):
               json.dumps({"description": "cmux for iPhone"}))
         self.assertIn("metadata.support-url", self.rules(self.run_lint()))
 
+    def screenshot_findings(self, families: str | None) -> set[str]:
+        """The screenshot blockers with only an iphone folder, for an app
+        target built for `families` (None: project.yml never sets it)."""
+        shutil.rmtree(self.root / "cmux-next-ios/AppStoreReview/screenshots/en-US/ipad")
+        project = self.root / "cmux-next-ios/project.yml"
+        if families is not None:
+            project.write_text(project.read_text().replace(
+                "        CMUX_MOBILE_APPLE_SIGN_IN: \"NO\"\n",
+                f"        CMUX_MOBILE_APPLE_SIGN_IN: \"NO\"\n        TARGETED_DEVICE_FAMILY: \"{families}\"\n"))
+        return {f.message for f in self.run_lint().findings if f.rule == "metadata.screenshots"}
+
+    def test_an_iphone_only_app_needs_no_ipad_screenshots(self) -> None:
+        # App Store Connect: iPad screenshots are "Required if app runs on iPad".
+        self.assertEqual(self.screenshot_findings("1"), set())
+
+    def test_an_app_that_runs_on_ipad_needs_ipad_screenshots(self) -> None:
+        self.assertEqual(self.screenshot_findings("1,2"), {"no ipad screenshots"})
+
+    def test_an_app_with_no_device_family_runs_on_ipad_too(self) -> None:
+        # xcodegen's and Xcode's iOS default is "1,2".
+        self.assertEqual(self.screenshot_findings(None), {"no ipad screenshots"})
+
+    def test_an_iphone_only_app_still_needs_iphone_screenshots(self) -> None:
+        shutil.rmtree(self.root / "cmux-next-ios/AppStoreReview/screenshots/en-US/iphone")
+        self.assertEqual(self.screenshot_findings("1"), {"no iphone screenshots"})
+
+    def test_the_real_app_is_iphone_only(self) -> None:
+        # Every target in the real project.yml is TARGETED_DEVICE_FAMILY "1".
+        self.assertEqual(gate.app_device_families(ROOT), frozenset({"1"}))
+
     def test_missing_account_deletion_blocks(self) -> None:
         write(self.root, "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileSettings/SettingsPages.swift", 'Text("Account")\n')
         self.assertIn("account.deletion", self.rules(self.run_lint()))

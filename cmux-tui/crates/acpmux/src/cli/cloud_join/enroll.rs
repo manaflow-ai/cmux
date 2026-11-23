@@ -198,7 +198,7 @@ pub(super) fn owner_among(recorded: Option<&str>, accounts: &[String]) -> Owner 
 
 /// The machine's name: its host name, with a DEV build's tag after it.
 fn enroll_name(build_tag: Option<&str>) -> String {
-    let base = crate::pairing::machine_name();
+    let base = crate::pairing::host_label();
     let tag: String = build_tag
         .unwrap_or_default()
         .chars()

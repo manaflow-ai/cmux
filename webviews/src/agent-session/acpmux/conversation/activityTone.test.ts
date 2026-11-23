@@ -12,7 +12,7 @@ test("background activity has one secondary tone; a row's words light on hover o
   // activity row's words light by the same rule, all the way through (Leo, 2026-11-09: "this
   // scheduled check thing isn't highlighted all the way through like other tool calls are").
   expect(css).toMatch(
-    /button\.cv-tool:not\(\.cv-sent, :disabled\):is\(:hover, :focus-visible\):not\(:has\(\.cv-agent-tag\.is-open:is\(:hover, :focus\)\)\)\s*> :is\(\.cv-tool__text, \.cv-command__text, \.cv-agent-activity__sentence\),[\s\S]*?\{\s*color: var\(--cv-text\);/,
+    /button\.cv-tool:not\(\.cv-sent, \.cv-thought, :disabled\):is\(:hover, :focus-visible\):not\(:has\(\.cv-agent-tag\.is-open:is\(:hover, :focus\)\)\)\s*> :is\(\.cv-tool__text, \.cv-command__text, \.cv-agent-activity__sentence\),[\s\S]*?\{\s*color: var\(--cv-text\);/,
   );
   expect(css).not.toContain(".cv-tool:focus-within");
   expect(css).not.toMatch(/\.cv-tool:not\([^)]*\):focus-within:not/);

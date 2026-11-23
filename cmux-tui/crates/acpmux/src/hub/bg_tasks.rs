@@ -81,6 +81,13 @@ impl BgScope {
             Self::Caller(sub) => owner_id(sub.as_ref()) == owner_id(record.subagent.as_ref()),
         }
     }
+
+    /// Whether a stop's answer reaches the one its task's end would tell: the chat's own agent
+    /// stopping a task its caller started (a stop by the person, another agent, a workflow, or
+    /// one of another caller's tasks is news to the chat, and its end still comes).
+    fn told_by_its_answer(&self) -> bool {
+        matches!(self, Self::Caller(_))
+    }
 }
 
 impl Hub {
@@ -450,10 +457,23 @@ impl Hub {
             ))
             .with_data(json!({"id": id, "startedBy": record.subagent, "owner": owner})));
         }
+        // A stop the chat's own agent asked for answers that agent with the task's end, so the
+        // end's notice would only wake the chat to say it again: it counts as sent before the
+        // stop, so the watch that sees the runner go finds it marked (`bg_notify.rs`). 45 of 115
+        // such notices in 48 h woke a chat to a turn with no tool call (hq#15820).
+        let mark = bg_run::notified_path(&dir, id);
+        let quiet = scope.told_by_its_answer() && record.notify && !mark.exists();
+        if quiet && let Err(e) = crate::home_fs::write(&mark, b"") {
+            tracing::warn!(task = %id, "a stopped task's end was not marked told: {e}");
+        }
         if bg_run::request_stop(&dir, id, &record.generation) {
             bg_wait_gone(&dir, id).await;
         }
         let record = bg_run::read_record(&dir, id).unwrap_or(record);
+        // A runner that outlived the wait: its end is still news, so its notice is owed again.
+        if quiet && record.ended_at.is_none() {
+            let _ = crate::home_fs::remove_file(&mark);
+        }
         Ok(bg_view(&dir, &record, LIST_TAIL))
     }
 

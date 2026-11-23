@@ -18,11 +18,11 @@ import {
   TRANSCRIPT_LINE_TO_LIVE_STEP,
   TRANSCRIPT_LIVE_STEP_GAP,
   TRANSCRIPT_LIVE_STEP_GAP_TOKEN,
-  TRANSCRIPT_LIVE_STEP_HEIGHT,
+  TRANSCRIPT_LIVE_LINE_BOX,
 } from "./transcriptGrid";
 
 /// The live line under a one-line row: its distance comes from its box and gap in transcriptGrid.ts, never typed here.
-const LIVE_STEP_SOURCE = `${TRANSCRIPT_LINE_ROW} line, half each side + ${TRANSCRIPT_LIVE_STEP_GAP_TOKEN} ${TRANSCRIPT_LIVE_STEP_GAP} + the live line's ${TRANSCRIPT_LIVE_STEP_HEIGHT} box, half (transcriptGrid.ts TRANSCRIPT_LIVE_STEP_BOX)`;
+const LIVE_STEP_SOURCE = `${TRANSCRIPT_LINE_ROW} line, half each side + ${TRANSCRIPT_LIVE_STEP_GAP_TOKEN} ${TRANSCRIPT_LIVE_STEP_GAP} + the live line's ${TRANSCRIPT_LIVE_LINE_BOX} box, half (transcriptGrid.ts LIVE_GAP_LOOKS)`;
 
 export type SpacingRow = {
   /** The measurement's id, as the test names it. */

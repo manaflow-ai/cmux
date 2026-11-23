@@ -16,6 +16,11 @@
 //! - A launch whose environment already names an `HTTPS_PROXY` keeps it:
 //!   its placeholders are then never filled (fail closed), logged once as
 //!   `vault.egress_proxy_conflict`.
+//! - A joined machine's team-mode launch (`joined_model_plane.rs`) gets the
+//!   same proxy settings ([`machine_credential_env`]) with no vault entry, and
+//!   from then on the proxy also serves one built-in entry,
+//!   `CMUX_MACHINE_CREDENTIAL`: the machine credential, toward the hub
+//!   origin's host only.
 //! - The proxy starts on the first spawn that needs it and runs for the
 //!   daemon's life. Each request reads the entries again (at most 2 s old),
 //!   so a revoke, a removed grant or a narrowed host list holds within that.
@@ -52,6 +57,10 @@ const RETRY_START: Duration = Duration::from_secs(60);
 const POLICY_TTL: Duration = Duration::from_secs(2);
 static POLICY: Mutex<Option<(Instant, Arc<Policy>)>> = Mutex::new(None);
 static CONFLICT_LOGGED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// A launch asked for the machine credential ([`machine_credential_env`]): only then does the
+/// policy hold it.
+static MACHINE_CREDENTIAL: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
 
 /// Bundles agents' TLS stacks read when `SSL_CERT_FILE` is unset, first found wins.
 const SYSTEM_BUNDLES: &[&str] = &[
@@ -104,15 +113,30 @@ pub(crate) fn child_env_with(
         }
     }
     let Some(running) = running.filter(|_| any_proxy) else { return out };
-    if inherited("HTTPS_PROXY").is_some() || inherited("https_proxy").is_some() {
-        if !CONFLICT_LOGGED.swap(true, std::sync::atomic::Ordering::SeqCst) {
-            tracing::warn!(
-                code = "vault.egress_proxy_conflict",
-                "this launch already has an HTTPS proxy; vault placeholders are not filled"
-            );
+    match proxy_env(running, inherited) {
+        Some(proxy) => out.extend(proxy),
+        None => {
+            if !CONFLICT_LOGGED.swap(true, std::sync::atomic::Ordering::SeqCst) {
+                tracing::warn!(
+                    code = "vault.egress_proxy_conflict",
+                    "this launch already has an HTTPS proxy; vault placeholders are not filled"
+                );
+            }
         }
-        return out;
     }
+    out
+}
+
+/// The settings that send a launch through the proxy at `running` and trust its CA; None when
+/// the launch already names an HTTPS proxy (it keeps it).
+fn proxy_env(
+    running: &Running,
+    inherited: &dyn Fn(&str) -> Option<String>,
+) -> Option<Vec<(String, String)>> {
+    if inherited("HTTPS_PROXY").is_some() || inherited("https_proxy").is_some() {
+        return None;
+    }
+    let mut out = Vec::with_capacity(10);
     let url = format!("http://127.0.0.1:{}", running.port);
     out.push(("HTTPS_PROXY".to_owned(), url.clone()));
     out.push(("https_proxy".to_owned(), url));
@@ -126,7 +150,24 @@ pub(crate) fn child_env_with(
             out.push((name.to_owned(), bundle.clone()));
         }
     }
-    out
+    Some(out)
+}
+
+/// The proxy settings for a joined machine's team-mode launch (`joined_model_plane.rs`), the
+/// proxy started for it, and the machine credential served from now on. `launch` reads the
+/// launch's own env (its profile). None when the proxy cannot start or the launch already names
+/// an HTTPS proxy: its header would go out unfilled, so the launch keeps own mode.
+pub(crate) fn machine_credential_env(
+    launch: &dyn Fn(&str) -> Option<String>,
+) -> Option<Vec<(String, String)>> {
+    let running = ensure()?;
+    let either = |k: &str| launch(k).filter(|v| !v.is_empty()).or_else(|| inherited(k));
+    let env = proxy_env(&running, &either)?;
+    if !MACHINE_CREDENTIAL.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        // The next request reads the policy again, with the credential.
+        *POLICY.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    }
+    Some(env)
 }
 
 /// The inherited `NO_PROXY` with loopback added (never the proxy's own
@@ -252,19 +293,30 @@ pub(crate) fn policy_now() -> Arc<Policy> {
     {
         return policy.clone();
     }
-    let policy = Arc::new(policy_of(super::entries_now()));
+    let machine = MACHINE_CREDENTIAL
+        .load(std::sync::atomic::Ordering::SeqCst)
+        .then(crate::joined_model_plane::secret_now)
+        .flatten();
+    let policy = Arc::new(policy_with(machine, super::entries_now()));
     *POLICY.lock().unwrap_or_else(|e| e.into_inner()) = Some((Instant::now(), policy.clone()));
     policy
 }
 
+#[cfg(test)]
 pub(crate) fn policy_of(entries: Vec<Given>) -> Policy {
+    policy_with(None, entries)
+}
+
+/// [`policy_of`] with the built-in `machine` entry first (`joined_model_plane::secret`), so no
+/// vault entry of the same name takes its place toward the hub.
+pub(crate) fn policy_with(machine: Option<Secret>, entries: Vec<Given>) -> Policy {
     Policy::new(
-        entries
+        machine
             .into_iter()
-            .filter_map(|g| {
+            .chain(entries.into_iter().filter_map(|g| {
                 let hosts = g.proxy?.iter().filter_map(|h| HostPattern::parse(h)).collect();
                 Some(Secret::new(g.name, g.value, hosts))
-            })
+            }))
             .collect(),
     )
 }

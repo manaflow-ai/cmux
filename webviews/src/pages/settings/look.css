@@ -127,16 +127,20 @@
       mask-image: none;
     }
 
-    :root[data-settings-look="refined"]:not([data-settings-folder-tab="pill"]) .settings .sidebar-scroll-viewport:not(:has(.section-link[aria-current])) {
+    /* Nested links sit inside the expanding group. The folder cutout belongs to top-level tabs. */
+    :root[data-settings-look="refined"]:not([data-settings-folder-tab="pill"]) .settings .sidebar-scroll-viewport:not(:has(.section-link[data-section-link][aria-current])) {
       background: var(--cmux-sidebar-surface, transparent);
     }
 
-    :root[data-settings-look="refined"]:not([data-settings-folder-tab="pill"]) .settings :is(.section-link[aria-current], .section-link[aria-current]:hover) {
+    :root[data-settings-look="refined"]:not([data-settings-folder-tab="pill"]) .settings .section-link[aria-current] {
       position: relative;
-      background: var(--cmux-folder-fill, transparent);
     }
 
-    :root[data-settings-look="refined"]:not([data-settings-folder-tab="pill"]) .settings .section-link[aria-current]::before {
+    :root[data-settings-look="refined"]:not([data-settings-folder-tab="pill"]) .settings .section-link[data-section-link][aria-current] {
+      --settings-nav-selection-fill: var(--cmux-folder-fill, transparent);
+    }
+
+    :root[data-settings-look="refined"]:not([data-settings-folder-tab="pill"]) .settings .section-link[data-section-link][aria-current]::before {
       content: "";
       position: absolute;
       z-index: var(--layer-backdrop);
@@ -179,7 +183,7 @@
    one fills; its weight stays, so selecting never widens its name. */
 :root[data-settings-look="refined"] .settings .section-link {
   min-height: var(--look-nav-height);
-  padding: 0 var(--look-nav-inset);
+  --settings-nav-padding: 0 var(--look-nav-inset);
   border-radius: var(--look-nav-radius);
   font-size: var(--look-nav-font-size);
 }
@@ -187,11 +191,6 @@
 :root[data-settings-look="refined"] .settings .sidebar-section {
   gap: var(--look-nav-gap);
 }
-
-/* Hover follows the pointer at once, as a native sidebar's does (Lucas 2026-11-11: a quick pass
-   over the rows lagged behind the pointer: each fill faded in over the hover duration). A press
-   changes the row's fill only: no sink, no scale (Lawrence 2026-11-15: a held button changes its
-   background, nothing else; design/pressed-state.md). */
 
 :root[data-settings-look="refined"] .settings .section-link[aria-current] .section-name {
   font-weight: inherit;

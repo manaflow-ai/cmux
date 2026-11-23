@@ -114,4 +114,6 @@ source "$SCRIPT_DIR/lib/notarization-ticket.sh"
 # shellcheck source=lib/gatekeeper-assessment.sh
 source "$SCRIPT_DIR/lib/gatekeeper-assessment.sh"
 check_screen_share_helper
+# One Screen Recording holder whose bundle id and requirement stay the same between builds.
+"$SCRIPT_DIR/check-screen-share-identity.sh" "$APP_PATH"
 

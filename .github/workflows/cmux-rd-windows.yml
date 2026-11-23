@@ -1,8 +1,9 @@
 name: cmux-rd Windows host
 
-# On landings and dispatch, not pull requests: no PR job runs Windows to take the selftest as a step;
-# the live proof needs the ios-e2e environment, which pull request events do not reach. Listed in
-# .github/post-merge-checks.json; manaflow-ai/cmuxterm-hq#10846 tracks moving the selftest onto PRs.
+# The selftest (`host`) runs on landings, dispatch and, as an advisory check, on pull requests into feat-cmux-next
+# that touch its paths (manaflow-ai/cmuxterm-hq#10846): no ruleset requires it and its name ends "(advisory)" on a
+# pull request, so a red there is a follow-up, never a merge block. The live proof stays on landings and dispatch:
+# it needs the ios-e2e environment, which pull request events do not reach.
 on:
   push:
     branches: [feat-cmux-next]
@@ -12,6 +13,21 @@ on:
       - "cmux-tui/crates/cmux-rd-core/**"
       - "cmux-tui/crates/cmux-rd-proto/**"
       - ".github/workflows/cmux-rd-windows.yml"
+      # A README or notes file alone starts nothing here (tests/test_ci_docs_only_prs.py); no build reads them.
+      - "!**/README.md"
+      - "!**/COORDINATION.md"
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches: [feat-cmux-next]
+    paths:
+      - "cmux-tui/crates/cmux-rd-host/**"
+      - "cmux-tui/crates/cmux-encode/**"
+      - "cmux-tui/crates/cmux-rd-core/**"
+      - "cmux-tui/crates/cmux-rd-proto/**"
+      - ".github/workflows/cmux-rd-windows.yml"
+      # A README or notes file alone starts nothing here (tests/test_ci_docs_only_prs.py); no build reads them.
+      - "!**/README.md"
+      - "!**/COORDINATION.md"
   workflow_dispatch:
 
 permissions:
@@ -23,7 +39,8 @@ concurrency:
 
 jobs:
   host:
-    name: Windows capture and encode selftest
+    name: Windows capture and encode selftest${{ github.event_name == 'pull_request' && ' (advisory)' || '' }}
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'windows-2025' || vars.WINDOWS_RUNNER || fromJSON(vars.RUNNER_POOLS).windows }}
     timeout-minutes: 20
     # A runs-on expression hides the OS from actionlint; the steps are PowerShell, the Windows default.
@@ -116,7 +133,9 @@ jobs:
 
   live-windows-host:
     name: Windows live host (tailnet)
-    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')
+    # Never on a pull request today; the same-repo guard and RD_WINDOWS_PR_TAILNET say so to the tailnet gate
+    # (tests/test_ci_workflow_tailnet_oidc_pr_gate.py) and keep a later PR trigger off the identity until it admits PRs.
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && ((github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')) && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository && vars.RD_WINDOWS_PR_TAILNET == 'true')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'windows-2025' || vars.WINDOWS_RUNNER || fromJSON(vars.RUNNER_POOLS).windows }}
     timeout-minutes: 15
     defaults:
@@ -198,7 +217,9 @@ jobs:
 
   live-macos-viewer:
     name: macOS live viewer (tailnet)
-    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')
+    # Never on a pull request today; the same-repo guard and RD_WINDOWS_PR_TAILNET say so to the tailnet gate
+    # (tests/test_ci_workflow_tailnet_oidc_pr_gate.py) and keep a later PR trigger off the identity until it admits PRs.
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && ((github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')) && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository && vars.RD_WINDOWS_PR_TAILNET == 'true')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (vars.CI_BLACKSMITH_MACOS != 'on' && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || vars.MACOS_RUNNER_IOS || vars.MACOS_RUNNER_PR || fromJSON(vars.RUNNER_POOLS).macos_26) }}
     timeout-minutes: 15
     environment: ios-e2e

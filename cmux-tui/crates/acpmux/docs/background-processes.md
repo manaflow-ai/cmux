@@ -30,10 +30,12 @@ Status 2026-10-14: partly built. What exists:
   through the same `background_tasks` request, so the turn goes on while it
   runs; it is listed with origin `auto_backgrounded`. The daemon's env
   `ACPMUX_AUTO_BACKGROUND_SECS` sets the wait, `0` turns it off. Before a
-  call starts, the session plugin's PreToolUse hook (`bg_hook.rs`) turns away
-  a known-slow foreground command (builds, test runs, CI waits, dev servers)
-  with the background call that runs it instead; the same call again runs as
-  asked, and so does one with a `# fg-ok` comment. Codex needs neither: its
+  call starts, the session plugin's PreToolUse hook (`bg_hook.rs`) rewrites
+  a known-slow foreground command (builds, test runs, CI waits, dev servers,
+  follows) into `acpmux process start`, which runs it as a daemon-owned task
+  and answers at once with its id, when the chat has `bg_start`; otherwise it
+  turns the command away towards `run_in_background: true`, and the same call
+  again runs as asked. A `# fg-ok` comment keeps a command in the foreground. Codex needs neither: its
   unified exec hands a long command back as a running background terminal.
 - The person's message (`hub/auto_background.rs`): while the person's steer
   waits for Claude Code's step to end, each Bash or Agent call of the chat's
@@ -196,12 +198,23 @@ process's command line and its kill never leave the machine.
 
 | Message | Params | Result |
 | --- | --- | --- |
-| `_acpmux/process/list` (request, built) | `{sessionId?, limit?, cursor?}`. With `limit`, `sessionId` is required, `cursor` is the previous page's `nextCursor`, and the limit is capped at 1,000. Without `limit`, the newest processes that fit one reply (1 MiB, `rpc::REPLY_PAGE_BYTES`), of one chat or of every chat. A client that needs every process of a chat (to stop them all, or to find an older one) pages with `limit` and `cursor`: the Chief's `running_processes` and `acpmux process list --session`/`show` do. | Unpaged: `{processes: [Process], omitted?: number}`, oldest first, with `omitted` saying how many older processes were left out. Paged: `{processes: [Process], nextCursor: string|null}`, each page also cut to fit 1 MiB. A record too large on its own goes as a stub that keeps the process's identity and state, with `omitted` set. |
+| `_acpmux/process/list` (request, built) | `{sessionId?, limit?, cursor?, recent?}`. With `recent` (at most 1,000; `sessionId` required, no `limit` or `cursor`), every process of the chat still running, however old, and the newest `recent` that ended, in one reply: what the agent pane holds while no list of the whole history shows (a chat of 56,000 shells gave its page 66 MB). With `limit`, `sessionId` is required, `cursor` is the previous page's `nextCursor`, and the limit is capped at 1,000. Without `limit`, the newest processes that fit one reply (1 MiB, `rpc::REPLY_PAGE_BYTES`), of one chat or of every chat. A client that needs every process of a chat (to stop them all, or to find an older one) pages with `limit` and `cursor`: the Chief's `running_processes` and `acpmux process list --session`/`show` do. | Unpaged: `{processes: [Process], omitted?: number}`, oldest first, with `omitted` saying how many older processes were left out. Paged: `{processes: [Process], nextCursor: string|null}`, each page also cut to fit 1 MiB. Recent: as unpaged, with `recent` echoed (an older acpmux ignores the key and answers unpaged) and `omitted` counting every older process left out; a reply cut to size drops the oldest ended rows, never a running one. A record too large on its own goes as a stub that keeps the process's identity and state, with `omitted` set. |
 | `_acpmux/process/tail` (request, built) | `{processId, fromByte?, maxBytes?}` (default: the last 64 KiB; at most 1 MiB) | `{data (base64), fromByte, nextByte, eof}`; `eof`: the process ended and `nextByte` is the file's end; a missing file is empty data |
 | `_acpmux/process/watch` (request) | `{processId}` | `{}`; then `_acpmux/process/output` notifications `{processId, data (base64), atByte}`, the same shape as v2's `terminal_output_chunk`, until `unwatch` or the process ends |
 | `_acpmux/process/kill` (request, built) | `{processId, sessionId?, signal?: "term" \| "kill"}`; a named `sessionId` must be the process's chat (the agent pane names it, and its host allows only a chat in the pane's scope) | `{}`; the outcome arrives as a `process_update` |
 | `_acpmux/process/background` (request, built) | `{sessionId, toolCallId?}` (none: every foreground task) | `{backgrounded: bool}`; false when no turn runs or nothing ran in the foreground. Claude Code (a claude-stdio harness, whatever its name) only: any other chat is refused with invalid params (Codex moves long commands to the background itself). Every session summary says which chats it takes (`backgroundsWork`). Claude Code's error is the request's error. What moved arrives as `process_update`s, origin `user_backgrounded` |
 | `_acpmux/process_update` (notification, built) | `{process: Process}` | |
+
+If a recent list's running rows cannot all fit its reply budget, or one row's identity cannot fit
+even as a stub, the request fails with `message.too_large`; it never reports a partial running set
+as a successful recent list. The agent pane then uses its existing `limit`/`cursor` fallback.
+Each fallback reply stays bounded, but the client reads and temporarily retains the full history
+before its registry keeps only running rows and the recent ended window. This preserves running
+process visibility; it does not provide history-independent heap or wire cost on that overflow path.
+The regression detectors are `a_recent_reply_refuses_running_rows_that_only_fit_individually`,
+`a_recent_reply_keeps_every_running_row_when_ended_rows_exceed_the_budget`, and
+`a_recent_reply_refuses_a_running_identity_that_cannot_fit_as_a_stub` in
+`src/hub/processes_page_tests.rs`.
 
 **Migration:**
 

@@ -1,0 +1,53 @@
+name: CI shed superseded runs
+
+# Leo, 2026-11-19: "why are there even 20,000? What are the 20,000 [jobs] doing?" and "Just [...] unstick
+# the [...] queue by any [...] means." At 20:12Z 28,318 jobs were queued, 12,848 of them for commits a newer
+# push on the same branch had already replaced. The other janitors run on Blacksmith labels, so they queue
+# behind the backlog they would cancel. This one runs on an owned runner (CI_CONTROL_RUNNER, else the
+# reserved cmux-gcp-nightly-x64 label), never Blacksmith or GitHub-hosted, and reads the whole queue:
+# scripts/ci/shed_superseded_runs.py has the policy (queued attempt-1 push/pull_request runs whose commit is
+# no longer its branch tip, or whose branch is gone). in_progress is never touched.
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Report what would be cancelled without cancelling anything"
+        required: true
+        default: false
+        type: boolean
+
+permissions: {}
+
+# One sweep at a time; a second waits instead of racing the first one's cancels, and never cancels it.
+concurrency:
+  group: ci-shed-superseded-runs
+  cancel-in-progress: false
+
+jobs:
+  shed:
+    name: Shed queued runs on superseded heads
+    if: github.repository == 'manaflow-ai/cmux'
+    permissions:
+      actions: write
+      contents: read
+    runs-on: ${{ vars.CI_CONTROL_RUNNER || 'cmux-gcp-nightly-x64' }}
+    timeout-minutes: 30
+    steps:
+      - name: Check out the shed script
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/ci
+          sparse-checkout-cone-mode: true
+
+      - name: Cancel queued runs nobody will read
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && 'true' || 'false' }}
+          SHED_MAX_CANCELS: ${{ vars.CI_SHED_MAX_CANCELS || '1500' }}
+          SHED_CANCEL_SPACING_SECONDS: ${{ vars.CI_SHED_CANCEL_SPACING_SECONDS || '0.2' }}
+        run: python3 scripts/ci/shed_superseded_runs.py

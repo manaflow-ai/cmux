@@ -379,6 +379,27 @@
           ]
         },
         {
+          "key": "appearance.themeFileExceptions",
+          "title": {
+            "key": "settings.appearance.themeFileExceptions",
+            "text": "Changed Over Theme File"
+          },
+          "help": {
+            "key": "settings.appearance.themeFileExceptions.help",
+            "text": "Settings you changed while a theme file sets them. Your value applies over the file's; resetting the row returns to the file's. Choosing another theme file clears the list."
+          },
+          "kind": "string_list",
+          "swift_owner": "ThemeFileExceptionsSetting",
+          "default": [],
+          "keywords": [
+            "theme file",
+            "override",
+            "exception"
+          ],
+          "palette_hidden": "a Settings change to a row the theme file sets edits it: a list of setting keys",
+          "page_hidden": "bookkeeping of the rows changed over the theme file; each row's note says so"
+        },
+        {
           "key": "appearance.highlightColor",
           "title": {
             "key": "settings.appearance.highlightColor",
@@ -773,6 +794,32 @@
           ]
         },
         {
+          "key": "appearance.backgroundMemory",
+          "name": "memory",
+          "note": "What Background's modes last showed, so switching modes never loses one (Leo, 2026-11-19: \"it lost the folder ... i couldn't get back into it\"): rotate is Rotate's last shuffle (daily or folder:<path>), folder the last folder it shuffled, off the picture Off last showed (none for No Wallpaper). The Settings page's Background card writes it when the background moves to another mode and reads it back in a new page or after a restart; the app's engine never reads it.",
+          "title": {
+            "key": "settings.appearance.backgroundMemory",
+            "text": "Background Mode Memory"
+          },
+          "help": {
+            "key": "settings.appearance.backgroundMemory.help",
+            "text": "The folder and picture each background mode last showed, so switching back restores them."
+          },
+          "kind": "string_map",
+          "swift_owner": {
+            "type": "BackdropSelectionSetting",
+            "prefixed": true
+          },
+          "default": null,
+          "keywords": [
+            "wallpaper",
+            "background",
+            "folder",
+            "rotate",
+            "restore"
+          ]
+        },
+        {
           "key": "appearance.displayBackgrounds",
           "name": "displayBackgrounds",
           "title": {
@@ -899,6 +946,61 @@
             "art",
             "simple",
             "performance"
+          ]
+        },
+        {
+          "key": "appearance.agentGlow",
+          "title": {
+            "key": "settings.appearance.agentGlow",
+            "text": "React to Agents"
+          },
+          "help": {
+            "key": "settings.appearance.agentGlow.help",
+            "text": "Calm while agents are idle; a soft glow in the machine's color when an agent needs you."
+          },
+          "kind": "toggle",
+          "swift_owner": "AgentGlowSetting",
+          "default": false,
+          "keywords": [
+            "agent",
+            "agents",
+            "glow",
+            "react",
+            "reactive",
+            "background",
+            "attention",
+            "needs you",
+            "idle",
+            "calm",
+            "machine color"
+          ]
+        },
+        {
+          "key": "appearance.previousGlass",
+          "note": "Web pages only: on sends glassLevels \"previous\" with the web theme (WebTheme), data-glass-levels=\"previous\" on <html>, and webviews ui/glass/glass.css (PREVIOUS GLASS) restores the glass numbers from before the one glass system (design/glass-system.md, cmux#48174). Off (default) draws the one glass system.",
+          "title": {
+            "key": "settings.appearance.previousGlass",
+            "text": "Previous Glass Look"
+          },
+          "help": {
+            "key": "settings.appearance.previousGlass.help",
+            "text": "Draws menus, popovers, the composer and cards with the glass from before November 2026."
+          },
+          "kind": "toggle",
+          "swift_owner": "PreviousGlassSetting",
+          "default": false,
+          "keywords": [
+            "glass",
+            "liquid glass",
+            "previous",
+            "old",
+            "classic look",
+            "blur",
+            "frost",
+            "translucent",
+            "transparency",
+            "menu",
+            "popover"
           ]
         },
         {
@@ -1423,13 +1525,13 @@
           },
           "help": {
             "key": "settings.appearance.textSize.help",
-            "text": "Text size of tabs, the sidebar and chat. Terminals have their own size."
+            "text": "Text size of the sidebar, tabs, menus and chat. Terminals have their own size."
           },
           "kind": "number",
           "swift_owner": "InterfaceSizeSetting",
           "range": {
             "min": 10,
-            "max": 16,
+            "max": 20,
             "step": 1,
             "unit": "points",
             "placeholder": 12
@@ -1445,7 +1547,14 @@
             "size",
             "density",
             "interface size",
-            "chromeFontSize"
+            "chromeFontSize",
+            "sidebar font size",
+            "menu",
+            "interface font",
+            "bigger",
+            "larger",
+            "readable",
+            "accessibility"
           ]
         },
         {
@@ -2118,6 +2227,75 @@
             "softer",
             "frame"
           ]
+        },
+        {
+          "key": "appearance.cornerFlush",
+          "note": "How the selected tab meets the content card (CornerFlush, CmuxNextDesign). A missing key is the default, flush with no goo, drawn only over the stock chrome (CornerFlush.defaultFits); a set value draws over any chrome, as a Debug Settings pick of chrome.cornerFlush does, which still overrides it in DEV and NIGHTLY. Compact density keeps the pill under every value. Leo 2026-11-13: \"lawrence wanted no goo by default\"; Leo 2026-11-18: the gooey look is a toggle a theme or a setup can pick.",
+          "title": {
+            "key": "settings.appearance.cornerFlush",
+            "text": "Selected Tab Shape"
+          },
+          "help": {
+            "key": "settings.appearance.cornerFlush.help",
+            "text": "How the selected tab meets the content below it: a pill, flush with it, or flowing into it like a drop of water."
+          },
+          "summary": {
+            "key": "settings.appearance.cornerFlush.summary",
+            "text": "Pill, flush or goo for the selected tab"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "off",
+              "title": {
+                "key": "settings.choice.cornerFlush.off",
+                "text": "Pill"
+              }
+            },
+            {
+              "value": "flush",
+              "title": {
+                "key": "settings.choice.cornerFlush.flush",
+                "text": "Flush"
+              }
+            },
+            {
+              "value": "flush-tight",
+              "swift_case": "tight",
+              "title": {
+                "key": "settings.choice.cornerFlush.tight",
+                "text": "Flush, Tight to the Sidebar"
+              }
+            },
+            {
+              "value": "flush-goo",
+              "swift_case": "goo",
+              "title": {
+                "key": "settings.choice.cornerFlush.goo",
+                "text": "Goo"
+              }
+            }
+          ],
+          "default": "flush",
+          "keywords": [
+            "corner",
+            "flush",
+            "goo",
+            "gooey",
+            "folder tab",
+            "fillet",
+            "pill",
+            "selected tab",
+            "tab shape",
+            "card",
+            "material"
+          ],
+          "swift_enum": {
+            "name": "CornerFlush",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "swift_owner": "CornerFlushSetting"
         }
       ]
     },

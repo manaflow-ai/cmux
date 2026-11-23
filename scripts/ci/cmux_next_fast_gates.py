@@ -19,7 +19,7 @@ result is fresh for the tip they merge into.
                                                   together, and exit 1 when any gate fails after running all of them.
       With --budget-seconds, a gate still running N seconds after the run began is stopped
       and reported as stalled (2026-11-09: a web lint whose bun install hung on the registry sat
-      silent until the job's limit cancelled it, and merge_hold refused the cancelled check).
+      silent until the job's limit cancelled it, and land-judge refused the cancelled check).
 
 The gates, each the same invocation as its push-time job:
   web lint        scripts/web_lint_prepush.py --base BASE --head MERGE --new-only (cmux-next-web-lint.yml's

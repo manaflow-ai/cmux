@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""A clean base merge carries a pull request's Mac tiers from its older head, as merge_hold carries their checks.
+"""A clean base merge carries a pull request's Mac tiers from its older head, as land-judge carries their checks.
 
-merge_hold lands a base merge M of a head H whose checks passed on its merged-tree checks alone, yet cmux-next.yml
+land-judge lands a base merge M of a head H whose checks passed on its merged-tree checks alone, yet cmux-next.yml
 ran every Mac tier again at M (2026-11-16 05:44Z: 18 of 60 open cmux-next PR runs on base-merge heads, glaeda-std
 134 queued, glaeda-side-std 126). scripts/ci/cmux_next_base_merge_carry.py turns those tiers off at M when M is
 git's clean merge of a feat-cmux-next commit into H and H's cmux-next run passed (docs/ci/cmux-next-workflow-notes.md

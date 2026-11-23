@@ -1,12 +1,13 @@
+import { BASE_SPACE, envForObject, envInSpace, parseBuildSpace } from "./build-space.ts"
 import type { EventFrame, OpFrame, OwnerFrame, Principal } from "@cmux/ownership"
 import type { ServerNetworkReservation } from "@cmux/protocol"
 import { teamEventVisible, teamSubscriberView } from "./domains/team-visibility.ts"
 import { aiLimitViewOf, codeRunLimit, teamDomain, type TeamState } from "./domains/team.ts"
-import type { Env } from "./env.ts"
-import { OwnerDO, type Attachment, type ReadResult, type SubmitResult } from "./owner-do.ts"
+import type { Env, RawEnv } from "./env.ts"
+import { OwnerDO, type ReadResult, type SubmitResult, type Attachment } from "./owner-do.ts";
 import { cloudMachineReader, publishOwnershipRefusal, type CloudMachineRead } from "./team-cloud-session-machine.ts"
 import { teamRead, teamVmAccountsFence, withAiSpend } from "./team-reads.ts"
-import { can, firstOwner, homeCoMembersOf, hostOf, memberOf, roleOf, TABLE_MEMBER, TEAM_PRIVATE_TABLES } from "./domains/team-members.ts"
+import { can, firstOwner, homeCoMembersOf, hostInSpace, hostOf, hostSpaceOf, memberOf, TABLE_HOST_BY_INSTALL, roleOf, TABLE_MEMBER, TEAM_PRIVATE_TABLES } from "./domains/team-members.ts"
 import { integrationSyncPending, releasePending, sliceHash, type IntegrationFields } from "./domains/team-integration-sync.ts"
 import { runSyncPending, runSyncPush } from "./domains/team-run-sync.ts"
 import { cloudPolicyOf, currentPolicy, integrationSlice } from "./domains/team-policy.ts"
@@ -50,7 +51,8 @@ const MEMBER_VIEW: Principal = { identity: "view:member", kind: "session" }
 const PERSONAL_SOLO_CACHE_MS = 30_000
 
 export class TeamDO extends OwnerDO<TeamState> {
-  constructor(ctx: DurableObjectState, env: Env) {
+  constructor(ctx: DurableObjectState, raw: RawEnv) {
+    const env = envForObject(ctx, raw)
     // Members see each other's public ids and display name in events, never email,
     // Stack id, grant or token data.
     super(ctx, env, teamDomain, "team", (p) => ({
@@ -103,7 +105,11 @@ export class TeamDO extends OwnerDO<TeamState> {
   /** A host that left its owner loses its read replica (team-host-replica-drop.ts); the queue is SQL, the alarm retries. */
   private _replicaDrops: HostReplicaDrops | undefined
   private get replicaDrops(): HostReplicaDrops {
-    return (this._replicaDrops ??= new HostReplicaDrops(this.ctx.storage.sql, (host) => this.env.HOST_DO.get(this.env.HOST_DO.idFromName(host))))
+    return (this._replicaDrops ??= new HostReplicaDrops(this.ctx.storage.sql, (host) => {
+      // The replica lives in the HostDO of the host's build space (build-space.ts).
+      const env = envInSpace(this.env, parseBuildSpace(hostSpaceOf(this.rows, host)) ?? BASE_SPACE)
+      return env.HOST_DO.get(env.HOST_DO.idFromName(host))
+    }))
   }
 
   private nextTeamWakeAt(state: TeamState, now: number): number | null {
@@ -260,8 +266,33 @@ export class TeamDO extends OwnerDO<TeamState> {
    * caller's live install grant (UserDO networkIdentity) and to this team's current hosts, members
    * and policy; there is no await between the final state checks and the answer.
    */
+  /**
+   * The UserDO that holds `install`: TeamDO is one object for every build, but an install lives in the UserDO of the
+   * build space its host was enrolled from (TABLE_HOST_SPACE, build-space.ts). An install with no host is nightly
+   * and stable's.
+   */
+  private installUser(user: string, install: string) {
+    const host = this.rows?.get<{ host: string }>(TABLE_HOST_BY_INSTALL, install)?.row.host
+    const env = envInSpace(this.env, parseBuildSpace(host === undefined ? "" : hostSpaceOf(this.rows, host)) ?? BASE_SPACE)
+    return env.USER_DO.get(env.USER_DO.idFromName(user))
+  }
+  /** networkIdentities across build spaces: one call per space, answers in the order asked. */
+  private async installIdentities(user: string, entries: ReadonlyArray<{ install: string; grant: string }>, entity: string) {
+    const out = new Array<Awaited<ReturnType<ReturnType<TeamDO["installUser"]>["networkIdentities"]>>[number]>(entries.length)
+    const bySpace = new Map<string, Array<number>>()
+    entries.forEach((e, i) => {
+      const host = this.rows?.get<{ host: string }>(TABLE_HOST_BY_INSTALL, e.install)?.row.host
+      const space = host === undefined ? "" : hostSpaceOf(this.rows, host)
+      bySpace.set(space, [...(bySpace.get(space) ?? []), i])
+    })
+    for (const indexes of bySpace.values()) {
+      const answers = await this.installUser(user, entries[indexes[0]!]!.install).networkIdentities(user, indexes.map((i) => entries[i]!), entity)
+      indexes.forEach((i, j) => (out[i] = answers[j]!))
+    }
+    return out
+  }
   private networkIdentity(entity: string) {
-    return (user: string, install: string, grant: string) => this.env.USER_DO.get(this.env.USER_DO.idFromName(user)).networkIdentity(user, install, grant, entity)
+    return (user: string, install: string, grant: string) => this.installUser(user, install).networkIdentity(user, install, grant, entity)
   }
   private nativeDialDeps(entity: string): NativeDialDeps | null {
     if (!this.isBound(entity)) return null
@@ -287,7 +318,7 @@ export class TeamDO extends OwnerDO<TeamState> {
     return vmReceiverPeers({ team: entity, project: this.env.STACK_PROJECT_ID, origin: () => this.env.CLOUD_VM_API_ORIGIN,
       state: () => engine.currentState, rows: engine.rows, tenant: () => this.vmApiTenant(entity, "operate"), now: Date.now,
       allowed: () => cloudPolicyOf(engine.currentState).connect_services, identity: this.networkIdentity(entity),
-      identities: (user, entries) => this.env.USER_DO.get(this.env.USER_DO.idFromName(user)).networkIdentities(user, entries, entity)
+      identities: (user, entries) => this.installIdentities(user, entries, entity)
     }, target)
   }
   /** host.network.target for the platform route (cmux-platform NativeNetwork Target.ts); the caller passes the grant classes it verified. */
@@ -297,7 +328,7 @@ export class TeamDO extends OwnerDO<TeamState> {
     return hostNetworkTarget({
       team: entity, project: this.env.STACK_PROJECT_ID, connection: () => vmApiConnection(this.env), revision: () => String(engine.currentSeq),
       state: () => engine.currentState, rows: engine.rows, tenant: () => this.vmApiTenant(entity, "operate"), http: this.http, now: Date.now,
-      identity: (user, install, grant) => this.env.USER_DO.get(this.env.USER_DO.idFromName(user)).readIdentity(user, install, grant)
+      identity: (user, install, grant) => this.installUser(user, install).readIdentity(user, install, grant)
     }, p, params)
   }
   /** Verify the Native network owner without reading the mesh. cmux-platform performs that read with its creator key. */
@@ -307,7 +338,7 @@ export class TeamDO extends OwnerDO<TeamState> {
     return hostNetworkTargetOwner({
       team: entity, project: this.env.STACK_PROJECT_ID, origin: () => vmApiOrigin(this.env), revision: () => String(engine.currentSeq),
       state: () => engine.currentState, rows: engine.rows, tenant: () => this.vmApiTenant(entity, "operate"), now: Date.now,
-      identity: (user, install, grant) => this.env.USER_DO.get(this.env.USER_DO.idFromName(user)).readIdentity(user, install, grant)
+      identity: (user, install, grant) => this.installUser(user, install).readIdentity(user, install, grant)
     }, p, params)
   }
   /** RPC from SchedulerDO (fail closed): the run class as TeamDO would push it now. */
@@ -472,7 +503,8 @@ export class TeamDO extends OwnerDO<TeamState> {
 
   /** RPC from the Worker: team_vm.ssh_cert.challenge, team_vm.ssh_cert, team_vm.ssh_cert.revoke and team_vm.ssh_ca.rotate (the team SSH CA, team-ssh-ca.ts). */
   async sshOp(entity: string, principal: Principal, frame: { op: string; params: unknown; idempotency_key: string }): Promise<DomainReply> {
-    return sshExternal({ ...this.sshDeps(entity), presence: this.presenceOwner(entity) }, principal, frame)
+    // The presence device is the requester's own, so its UserDO is in the requester's build space (build-space.ts).
+    return sshExternal({ ...this.sshDeps(entity), presence: this.presenceOwner(entity, principal.build_space ?? "") }, principal, frame)
   }
 
   /** The daemon confirms only its existing approved reservation; no policy or role is activated. */
@@ -481,7 +513,7 @@ export class TeamDO extends OwnerDO<TeamState> {
     return serverNetworkExternal({
       team: entity, project: this.env.STACK_PROJECT_ID, origin: this.env.CLOUD_VM_API_ORIGIN, stream: engine.stream,
       state: () => this.boundEngine?.currentState ?? engine.currentState, rows: engine.rows, tenant: () => this.vmApiTenant(entity, "operate"), http: this.http, now: Date.now,
-      key: (user, install, grant) => this.env.USER_DO.get(this.env.USER_DO.idFromName(user)).serverKey(user, install, grant, entity),
+      key: (user, install, grant) => this.installUser(user, install).serverKey(user, install, grant, entity),
       submitSystem: (op, params, key) => this.submitSystem(op, params, key)
     }, principal, frame)
   }
@@ -492,7 +524,7 @@ export class TeamDO extends OwnerDO<TeamState> {
     return hostNetworkExternal({
       team: entity, project: this.env.STACK_PROJECT_ID, origin: this.env.CLOUD_VM_API_ORIGIN, stream: engine.stream,
       state: () => this.boundEngine?.currentState ?? engine.currentState, rows: engine.rows, tenant: () => this.vmApiTenant(entity, "operate"), http: this.http, now: Date.now,
-      key: (user, install, grant) => this.env.USER_DO.get(this.env.USER_DO.idFromName(user)).deviceKey(user, install, grant),
+      key: (user, install, grant) => this.installUser(user, install).deviceKey(user, install, grant),
       submitSystem: (op, params, key, revision) => this.submitSystem(op, params, key, undefined, revision)
     }, principal, frame)
   }
@@ -537,10 +569,19 @@ export class TeamDO extends OwnerDO<TeamState> {
   private readonly sshRunning = new Set<string>()
 
   /** The person's UserDO checks presence proofs (keys, nonces, App Attest counters live there); tests replace it. */
-  presenceOwner = (team: string): SshPresence => ({
-    challenge: (user, install, purpose) => this.env.USER_DO.get(this.env.USER_DO.idFromName(user)).presenceChallenge(user, team, install, purpose),
-    assert: (user, proof, purpose) => this.env.USER_DO.get(this.env.USER_DO.idFromName(user)).presenceAssert(user, team, proof, purpose)
-  })
+  /** The UserDO that holds a requester's presence device: the one of the requester's build space. */
+  presenceUser = (user: string, space: string) => {
+    const env = envInSpace(this.env, parseBuildSpace(space) ?? BASE_SPACE)
+    return env.USER_DO.get(env.USER_DO.idFromName(user))
+  }
+  presenceOwner = (team: string, space = ""): SshPresence => {
+    // Challenge and assert go to the same UserDO (a challenge made in one space is only provable there).
+    const user = (id: string) => this.presenceUser(id, space)
+    return {
+      challenge: (id, install, purpose) => user(id).presenceChallenge(id, team, install, purpose),
+      assert: (id, proof, purpose) => user(id).presenceAssert(id, team, proof, purpose)
+    }
+  }
 
   /**
    * RPC from UserDO only (S4): `user` revoked `install`. Every unexpired team SSH certificate of
@@ -583,6 +624,8 @@ export class TeamDO extends OwnerDO<TeamState> {
   async hostReplicaRole(entity: string, host: string, principal: Principal): Promise<"publisher" | "reader" | null> {
     if (!this.isBound(entity) || !principal.user || principal.agent) return null
     const record = hostOf(this.bind(entity).currentState, this.rows, host)
+    // Another build's host has no replica for this build (build-space.ts): its HostDO is in that build's space.
+    if (record && !hostInSpace(this.rows, record.id, principal)) return null
     // An orphaned host (its owner left the team) has no owner to read it until a team owner reassigns it.
     if (!record || record.owner_user !== principal.user || record.orphaned) return null
     // A removed member's hosts are orphaned by the cleanup a moment later; no socket opens in between.
@@ -617,7 +660,8 @@ export class TeamDO extends OwnerDO<TeamState> {
   ): Promise<{ ok: true; host: string } | { ok: false; code: string; message: string; refused?: true }> {
     this.bind(entity)
     if (principal.kind !== "session" || principal.agent || !principal.user) return { ok: false, code: "auth.forbidden", message: "only a signed-in user may approve a server" }
-    const res = this.submitSystem("server.enrolled", { ...params, owner_user: principal.user, approved_by: principal.user }, idempotencyKey)
+    // The approver's build space: the server's install sits in that space's UserDO (build-space.ts).
+    const res = this.submitSystem("server.enrolled", { ...params, owner_user: principal.user, approved_by: principal.user, ...(principal.build_space ? { space: principal.build_space } : {}) }, idempotencyKey)
     const reply = res.frames.find((f) => f.t === "result" || f.t === "reject")
     if (!reply || reply.t !== "result") return { ok: false, code: reply && reply.t === "reject" ? reply.code : "owner.unreachable", message: reply && reply.t === "reject" ? reply.message : "no reply" }
     const value = reply.value as { id: string } | ServerEnrollRefused
@@ -630,8 +674,11 @@ export class TeamDO extends OwnerDO<TeamState> {
   }
 
   /** The owner's UserDO for revocation pushes; tests replace it to fail the RPC. */
-  userOwner = (user: string): { revokeByTeam(entity: string, team: string, install: string, by: string, idempotencyKey: string): Promise<unknown> } =>
-    this.env.USER_DO.get(this.env.USER_DO.idFromName(user))
+  userOwner = (user: string, space = ""): { revokeByTeam(entity: string, team: string, install: string, by: string, idempotencyKey: string): Promise<unknown> } => {
+    // A dev build's server install is in its space's UserDO; TeamDO is shared, so it names that space (build-space.ts).
+    const env = envInSpace(this.env, parseBuildSpace(space) ?? BASE_SPACE)
+    return env.USER_DO.get(env.USER_DO.idFromName(user))
+  }
 
   /** The platform revoke of a paired server's machine (pair-machine-join.ts); tests replace it. */
   machineJoins = (team: string, joinTokenId: string): Promise<"done" | "retry"> => revokePairMachineJoin(this.env, { team, join_token_id: joinTokenId })
@@ -653,7 +700,7 @@ export class TeamDO extends OwnerDO<TeamState> {
     const pending = Object.values(engine.currentState.server_revocations ?? {}).filter((r) => only === undefined || r.install === only)
     const revoked: Array<string> = []
     for (const r of pending) {
-      const user = this.userOwner(r.owner_user)
+      const user = this.userOwner(r.owner_user, r.space)
       let res: { ok: boolean; code?: string }
       try {
         res = (await user.revokeByTeam(r.owner_user, entity, r.install, r.by, `team-revoke:${entity}:${r.install}`)) as { ok: boolean; code?: string }

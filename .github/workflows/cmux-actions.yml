@@ -5,18 +5,11 @@
 
 name: cmux Actions
 
+# On demand only (2026-11-20): an experiment that deploys nothing, untouched since 2026-11-02,
+# and red on every run of the last day while its .github/workflows/** filter started it on about
+# 345 pull requests a day. Run it by hand when the worker changes:
+#   gh workflow run cmux-actions.yml --repo manaflow-ai/cmux --ref <branch>
 on:
-  pull_request:
-    paths:
-      - workers/cmux-actions/**
-      - .github/workflows/**
-      - .github/actions/**
-  push:
-    branches: [main]
-    paths:
-      - workers/cmux-actions/**
-      - .github/workflows/**
-      - .github/actions/**
   workflow_dispatch:
 
 concurrency:
@@ -44,6 +37,7 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24"

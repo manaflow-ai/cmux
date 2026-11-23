@@ -366,8 +366,16 @@ function listOf(names: string[], language: string): string {
 }
 
 function sum(counts: ImportCounts[]): ImportCounts {
-  const total: ImportCounts = { bookmarks: 0, history: 0, openTabs: 0, cookies: 0, passwords: 0, searchEngines: 0 };
-  for (const c of counts) for (const key of Object.keys(total) as (keyof ImportCounts)[]) total[key] += c[key];
+  const total: Required<ImportCounts> = {
+    bookmarks: 0,
+    history: 0,
+    openTabs: 0,
+    extensions: 0,
+    cookies: 0,
+    passwords: 0,
+    searchEngines: 0,
+  };
+  for (const c of counts) for (const key of Object.keys(total) as (keyof ImportCounts)[]) total[key] += c[key] ?? 0;
   return total;
 }
 

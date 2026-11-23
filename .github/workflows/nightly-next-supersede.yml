@@ -35,7 +35,7 @@ permissions: {}
 jobs:
   supersede:
     if: github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_2 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     # Reads, at most one settle wait of up to 6 minutes, and at most two cancels.
     timeout-minutes: 12
     # One runs and the newest waits; each reads every nightly-next run when it starts, so a replaced

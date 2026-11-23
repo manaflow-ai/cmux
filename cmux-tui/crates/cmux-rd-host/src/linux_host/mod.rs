@@ -1194,7 +1194,7 @@ fn start_session(
         }
         let ended = session::serve(&hub, &ticket, view_only, &args, &stop);
         eprintln!("linux-host: session ended: {}", ended.reason);
-        if let Some(reason) = ended.tell_hub {
+        if let Some(reason) = ended.tell_hub.as_deref() {
             if let Err(e) = hub.end(&ticket.session_id, reason) {
                 eprintln!("linux-host: end not sent: {e}");
             }

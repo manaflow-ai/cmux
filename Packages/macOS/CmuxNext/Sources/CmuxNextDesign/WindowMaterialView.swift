@@ -15,7 +15,9 @@ public import CmuxNextDesignTokens
 /// tint view stays hidden: untinted glass draws its own dark material, and
 /// a second tint over it dimmed the desktop twice. The glass keeps its key look when the window
 /// resigns key (``ActiveLookGlassEffectView``), so switching apps changes nothing on the window
-/// background. Neither the material nor the tint draws a border.
+/// background. Neither the material nor the tint draws a border: a backdrop that
+/// ``fillsWindow`` runs its glass past the window's edges, so the window clips the
+/// highlight Liquid Glass draws along its own edges.
 /// The owner decides the backdrop (including Reduce Transparency) and calls
 /// ``apply(_:tint:)`` on every theme change.
 ///
@@ -45,6 +47,9 @@ public final class WindowMaterialView: NSView {
     private var keyFamily: WindowKeyFamily?
     /// Posted when `appearance.inactiveWindowDim` changes (``DesignSettings/inactiveWindowDim``).
     public static let inactiveDimDidChange = Notification.Name("WindowMaterialView.inactiveDimDidChange")
+    /// The agents' glow over the backdrop (`appearance.agentGlow`); it follows the agents only in a
+    /// window's own backdrop (one made with an ``activeLook``), never a pane's.
+    let agentGlowView = BackdropAgentGlowView()
     /// The keyboard left the window's family: another app, or a window that is not this one, its
     /// child (a Chromium page window, popup, palette) or its sheet. Only then does the window look
     /// inactive (Leo 2026-10-21: "on itself? that should never happen"); a window whose family
@@ -54,6 +59,16 @@ public final class WindowMaterialView: NSView {
     /// view, centered, like a macOS wallpaper. Its frame autoresizes with the window, so nothing
     /// is computed per size and nothing jumps while resizing.
     let artView = NSView()
+    /// Whether this backdrop fills its window, edge to edge (a window's backdrop, not a pane's own
+    /// picture): its glass then runs ``glassOutset`` past every edge of the view.
+    public let fillsWindow: Bool
+    /// How far a window's glass runs past each edge of the window, in points. Liquid Glass draws a
+    /// bright highlight and a lens band along its own edges, strongest at the top and bottom; on the
+    /// window's edge they read as a white line over the window's own rim (the user, 2026-11-19, on
+    /// macOS 27: "weird white border at top of window"). Past the edge the window clips them, and
+    /// the window keeps one even rim on all four sides. 4 points clipped them in a real capture; 8
+    /// leaves room for the lens band at 2x.
+    static let glassOutset: CGFloat = 8
     /// The art layer's opacity (`WindowBackdrop.artOpacity`), the end of its fade-in.
     private(set) var artOpacity: Float = 1
     /// Tests crossfade a view that is in no visible window (a test host may have no screen).
@@ -113,10 +128,14 @@ public final class WindowMaterialView: NSView {
     /// - Parameter videos: Where video wallpapers' players are shared.
     /// - Parameter activeLook: The app's ``ActiveLookScope`` (made once by `AppServices`) for a
     ///   window backdrop; nil for one whose glass follows the key state.
+    /// - Parameter fillsWindow: True for a window's backdrop, edge to edge: its glass runs past the
+    ///   window's edges (``fillsWindow``). False, the default, keeps the glass inside the view (a
+    ///   pane's own picture, beside other panes).
     public init(frame frameRect: NSRect, images: BackdropImageStore, videos: BackdropVideoPlayers = .shared,
-                activeLook: ActiveLookScope? = nil) {
+                activeLook: ActiveLookScope? = nil, fillsWindow: Bool = false) {
         self.images = images
         self.activeLook = activeLook
+        self.fillsWindow = fillsWindow
         videoView = BackdropVideoView(frame: frameRect, players: videos)
         liveView = BackdropLiveView(frame: frameRect, programs: images.livePrograms)
         shaderView = BackdropShaderView(frame: frameRect, renderer: images.shaders)
@@ -124,6 +143,9 @@ public final class WindowMaterialView: NSView {
         artView.wantsLayer = true
         artView.frame = bounds
         artView.autoresizingMask = [.width, .height]
+        // AppKit sets a backing layer's gravity from its placement: both say fill (a custom picture showed bottom-left).
+        artView.layerContentsRedrawPolicy = .never
+        artView.layerContentsPlacement = .scaleProportionallyToFill
         artView.layer?.contentsGravity = .resizeAspectFill
         artView.layer?.masksToBounds = true
         artView.isHidden = true
@@ -148,6 +170,9 @@ public final class WindowMaterialView: NSView {
         tintView.autoresizingMask = [.width, .height]
         tintView.isHidden = true
         addSubview(tintView)
+        agentGlowView.frame = bounds
+        addSubview(agentGlowView)
+        if activeLook != nil { agentGlowView.follow() }
         inactiveTintView.wantsLayer = true
         inactiveTintView.frame = bounds
         inactiveTintView.autoresizingMask = [.width, .height]
@@ -337,7 +362,9 @@ public final class WindowMaterialView: NSView {
             materialView?.removeFromSuperview()
             materialView = Self.makeMaterialView(material, activeLook: activeLook)
             if let materialView {
-                materialView.frame = bounds
+                // Flexible width and height keep the outset through every resize.
+                let outset = fillsWindow ? Self.glassOutset : 0
+                materialView.frame = bounds.insetBy(dx: -outset, dy: -outset)
                 materialView.autoresizingMask = [.width, .height]
                 addSubview(materialView, positioned: .below, relativeTo: glassTint.overlay)
             }

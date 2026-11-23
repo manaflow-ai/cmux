@@ -58,7 +58,7 @@ import Testing
             #expect((reason == .paletteInternal) == descriptor.requires.contains(.paletteOpen), "\(descriptor.id)")
         }
         #expect(catalog.filter { !$0.isPaletteVisible }.map(\.id.rawValue).sorted()
-            == (["agent.openSessionTab", "agent.openSessionWorkspace", "agent.share.kick", "agent.share.list", "agent.share.revoke", "agent.share.uninvite", "app.menu.run", "browser.findPrevious", "browser.image.copy", "browser.image.copyAddress", "browser.image.saveAs", "browser.link.copy",
+            == (["agent.share.kick", "agent.share.list", "agent.share.revoke", "agent.share.uninvite", "app.menu.run", "browser.findPrevious", "browser.image.copy", "browser.image.copyAddress", "browser.image.saveAs", "browser.link.copy",
                 "browser.link.copyText", "browser.link.saveAs", "browser.selection.copy", "browser.selection.lookUp",
                 "chief.openSubagent", "cloud.group.memberRemove", "cloud.group.memberSet", "cloud.group.members",
                 "cloud.team.members", "cloud.team.session", "cloud.team.sessions", "commandPaletteNext", "commandPalettePrevious",

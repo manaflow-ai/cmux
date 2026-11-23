@@ -142,11 +142,13 @@ function Harness({
   list,
   startEffort,
   auth,
+  session = {},
 }: {
   calls: Calls;
   list: QuickFamily[];
   startEffort: string;
   auth?: SessionAuth;
+  session?: Session;
 }) {
   const [open, setOpen] = useState(false);
   const [effort, setEffort] = useState(startEffort);
@@ -175,7 +177,7 @@ function Harness({
       chip={{ "data-menu": "model", label: "Model", title: "Model" }}
       menu={{
         models: [],
-        current: "claude-Opus",
+        ...(session.current === null ? {} : { current: session.current ?? "claude-Opus" }),
         onModel() {},
         inlineEffort: true,
         ...(auth
@@ -206,7 +208,7 @@ function Harness({
         },
         // The session reports Fast later: the switch must show the pick before it does.
         fast: {
-          checked: false,
+          checked: session.fastOn === true,
           onChange(on) {
             calls.fast.push(on);
           },
@@ -244,13 +246,23 @@ function Harness({
   );
 }
 
-async function openMenu(list: QuickFamily[] = [claude, codex, gemini], startEffort = "medium", auth?: SessionAuth) {
+/// The chat the menu opens on: its running model (null: the session has named none yet) and its Fast.
+type Session = { current?: string | null; fastOn?: boolean };
+
+async function openMenu(
+  list: QuickFamily[] = [claude, codex, gemini],
+  startEffort = "medium",
+  auth?: SessionAuth,
+  session: Session = {},
+) {
   const container = installDom();
   QuickModelColumns ??= (await import("./QuickModelColumns")).QuickModelColumns;
   const calls: Calls = { picks: [], efforts: [], fast: [], added: [], open: false, logins: 0, refreshes: 0 };
   await act(async () => {
     root = createRoot(container);
-    root.render(<Harness calls={calls} list={list} startEffort={startEffort} {...(auth ? { auth } : {})} />);
+    root.render(
+      <Harness calls={calls} list={list} startEffort={startEffort} session={session} {...(auth ? { auth } : {})} />,
+    );
   });
   await act(async () => container.querySelector<HTMLButtonElement>("button[data-menu='model']")!.click());
   await settle();
@@ -602,17 +614,43 @@ test("arrows move the highlight without landing; Return lands it and closes", as
 
 const chip = () => document.querySelector<HTMLButtonElement>("button[data-menu='model']")!;
 
-test("a click on a model lands it at once and keeps the menu open", async () => {
+// David Beyer 2026-11-20: the model menu closes after a switch, as the list menu's pick always did.
+test("a click on a model lands it and closes the menu", async () => {
   const calls = await openMenu();
   await click(tab("Codex"));
   await click(row("Sol"));
-  expect(row("Sol").getAttribute("aria-selected")).toBe("true");
-  expect(calls.open).toBe(true);
-  expect(calls.picks.map((pick) => pick.id)).toEqual(["codex-Sol"]);
-  // A close lands nothing more.
-  await click(chip());
   expect(calls.open).toBe(false);
+  expect(calls.picks.map((pick) => pick.id)).toEqual(["codex-Sol"]);
+  // Reopened, the menu shows the pick on its tab; a close lands nothing more.
+  await click(chip());
+  expect(calls.open).toBe(true);
+  await click(chip());
   expect(calls.picks).toHaveLength(1);
+});
+
+test("a click on a level lands it and closes the menu", async () => {
+  const calls = await openMenu();
+  await click([...tune().querySelectorAll<HTMLElement>("[role=radio]")].find((node) => node.textContent === "High")!);
+  expect(calls.efforts).toEqual(["high"]);
+  expect(calls.open).toBe(false);
+});
+
+test("a click on a level of another model lands both and closes the menu", async () => {
+  const calls = await openMenu();
+  await click(tab("Codex"));
+  // The arrows show Astra's levels without landing it; a click on one lands Astra at that level.
+  await press("ArrowDown");
+  expect(calls.picks).toHaveLength(0);
+  await click([...tune().querySelectorAll<HTMLElement>("[role=radio]")].find((node) => node.textContent === "High")!);
+  expect(calls.picks.map((pick) => [pick.id, pick.effort])).toEqual([["codex-Astra", "high"]]);
+  expect(calls.open).toBe(false);
+});
+
+test("the Fast switch flips in place and keeps the menu open", async () => {
+  const calls = await openMenu();
+  await click(fastSwitch());
+  expect(calls.fast).toEqual([true]);
+  expect(calls.open).toBe(true);
 });
 
 test("a picked model keeps the chat's level when it has it, else takes its recommended one", async () => {
@@ -620,28 +658,74 @@ test("a picked model keeps the chat's level when it has it, else takes its recom
   await click(tab("Codex"));
   // The chat is on Medium: Sol has no Medium, so it takes its recommended Low.
   await click(row("Sol"));
-  expect(levels()).toEqual([
-    { name: "Low", checked: true },
-    { name: "High", checked: false },
-  ]);
   expect(calls.picks[0]).toMatchObject({ id: "codex-Sol", effort: "low" });
   // Astra has Medium: it keeps it.
+  await click(chip());
+  await click(tab("Codex"));
   await click(row("Astra"));
-  expect(levels().find((level) => level.checked)?.name).toBe("Medium");
   expect(calls.picks).toHaveLength(2);
   expect(calls.picks[1]).toMatchObject({ id: "codex-Astra", effort: "medium" });
 });
 
-test("a level picked on one model carries to the next model clicked", async () => {
-  const calls = await openMenu();
+// #48444: "i switch the reasoning and then it switches my model in the picker". Model, level and
+// Fast are independent: a level never lands a model the person did not pick, and a model pick keeps
+// the chat's level (or the nearest one it has) and its Fast.
+test("a chat whose session names no model yet sends a level to the session, never the first row's model", async () => {
+  const calls = await openMenu(undefined, "medium", undefined, { current: null });
+  expect(row("Opus").hasAttribute("data-hl")).toBe(false);
+  expect(levels().find((level) => level.checked)?.name).toBe("Medium");
+  await click([...tune().querySelectorAll<HTMLElement>("[role=radio]")].find((node) => node.textContent === "High")!);
+  expect(calls.efforts).toEqual(["high"]);
+  expect(calls.picks).toHaveLength(0);
+});
+
+test("a picked model without the chat's level takes the nearest one, not its own default", async () => {
+  const terra = model("codex", "Terra", { efforts: ["low", "medium"], defaultEffort: "low" });
+  const calls = await openMenu([claude, { ...codex, models: [...codex.models, terra] }, gemini], "high");
   await click(tab("Codex"));
+  await click(row("Terra"));
+  expect(calls.picks[0]).toMatchObject({ id: "codex-Terra", effort: "medium" });
+});
+
+test("a picked model keeps the chat's Fast where it runs Fast", async () => {
+  const calls = await openMenu(undefined, "medium", undefined, { fastOn: true });
+  await click(tab("Codex"));
+  // Sol runs Fast: its column shows the chat's Fast, and the pick lands it with Fast on.
+  expect(fastSwitch().getAttribute("aria-checked")).toBe("true");
   await click(row("Sol"));
-  const high = [...tune().querySelectorAll<HTMLElement>("[role=radio]")].find((node) => node.textContent === "High")!;
-  await click(high);
-  // Astra has High: it takes the level just picked, not the chat's Medium or its own default.
+  expect(calls.picks[0]).toMatchObject({ id: "codex-Sol", fast: true });
+  // Astra has no Fast: it lands without it.
+  await click(chip());
+  await click(tab("Codex"));
   await click(row("Astra"));
-  expect(levels().find((level) => level.checked)?.name).toBe("High");
-  expect(calls.picks.at(-1)).toMatchObject({ id: "codex-Astra", effort: "high" });
+  expect(calls.picks[1]!.id).toBe("codex-Astra");
+  expect(calls.picks[1]!.fast).toBeFalsy();
+  // Neither pick touched the session's own Fast or level.
+  expect(calls.fast).toEqual([]);
+  expect(calls.efforts).toEqual([]);
+});
+
+// Review of #48444: Fast switched off on a model only shown landed that model and left Fast on.
+test("Fast off on a model only shown lands nothing, and its pick lands it with the chat's Fast off", async () => {
+  const sonnet = model("claude", "Sonnet", { efforts: ["low", "medium", "high"], canFast: true });
+  const calls = await openMenu(
+    [{ ...claude, models: [...claude.models, sonnet] }, codex, gemini],
+    "medium",
+    undefined,
+    { fastOn: true },
+  );
+  await press("ArrowDown");
+  await press("ArrowDown");
+  expect(row("Sonnet").hasAttribute("data-hl")).toBe(true);
+  expect(fastSwitch().getAttribute("aria-checked")).toBe("true");
+  await click(fastSwitch());
+  expect(fastSwitch().getAttribute("aria-checked")).toBe("false");
+  expect(calls.picks).toHaveLength(0);
+  expect(calls.fast).toEqual([]);
+  await click(row("Sonnet"));
+  expect(calls.picks).toHaveLength(1);
+  expect(calls.picks[0]!.fast).toBeFalsy();
+  expect(calls.fast).toEqual([false]);
 });
 
 test("a chat on Ultracode carries Extra High to a model that has it", async () => {
@@ -676,6 +760,7 @@ test("a Claude Code model shown but not picked lists Ultracode, and its pick lan
   await click(ultracode);
   expect(calls.picks.at(-1)).toMatchObject({ id: "claude-Sonnet", effort: "ultracode" });
   // A harness that does not offer it lists none, Extra High or not.
+  await click(chip());
   await click(tab("Codex"));
   await press("ArrowDown");
   await press("ArrowDown");
@@ -683,25 +768,21 @@ test("a Claude Code model shown but not picked lists Ultracode, and its pick lan
   expect(levels().map((level) => level.name)).not.toContain("Ultracode");
 });
 
-test("another model, then a level, then Fast each land at once, the level kept with Fast", async () => {
+test("Fast, then a level of another model each land at once, the level kept with Fast", async () => {
   const calls = await openMenu();
   await click(tab("Codex"));
-  await click(row("Sol"));
+  // Fast on Sol, the tab's shown model, lands it with Fast and keeps the menu open.
+  await click(fastSwitch());
+  expect(calls.open).toBe(true);
   const high = [...tune().querySelectorAll<HTMLElement>("[role=radio]")].find((node) => node.textContent === "High")!;
   await click(high);
-  await click(fastSwitch());
-  expect(levels()).toEqual([
-    { name: "Low", checked: false },
-    { name: "High", checked: true },
-  ]);
   expect(calls.picks.map((pick) => [pick.id, pick.effort, !!pick.fast])).toEqual([
-    ["codex-Sol", "low", false],
-    ["codex-Sol", "high", false],
+    ["codex-Sol", undefined, true],
     ["codex-Sol", "high", true],
   ]);
-  // Return on the picked model only closes: it lands nothing again.
-  await press("Enter");
-  expect(calls.picks).toHaveLength(3);
+  // The level closed the menu; it lands nothing again.
+  expect(calls.open).toBe(false);
+  expect(calls.picks).toHaveLength(2);
 });
 
 test("a tab without the running model shows its first model's catalog levels", async () => {
@@ -746,6 +827,26 @@ test("the chat's tab with no row for the running model still shows the session's
     { name: "High", checked: false },
   ]);
   expect(fastSwitch()).not.toBeNull();
+});
+
+// Leo 2026-11-20 (ask-e8a6bcbb62): "when i tried toggling on fast ... it turned it to terra for some
+// reason!!!! model picked got [messed] up". His Codex chat ran a model its tab did not list, so the
+// tab's first model (GPT-6.1 Terra) stood in for it and Fast landed that model.
+test("the chat's tab listing other models but not the running one toggles the session's Fast", async () => {
+  const calls = await openMenu([
+    { ...claude, models: [model("claude", "Sonnet", { canFast: true })], more: [] },
+    codex,
+  ]);
+  expect(row("Sonnet").hasAttribute("data-hl")).toBe(false);
+  expect(row("Sonnet").getAttribute("aria-selected")).not.toBe("true");
+  expect(levels().find((level) => level.checked)?.name).toBe("Medium");
+  await click(fastSwitch());
+  expect(calls.fast).toEqual([true]);
+  await click([...tune().querySelectorAll<HTMLElement>("[role=radio]")].find((node) => node.textContent === "High")!);
+  expect(calls.efforts).toEqual(["high"]);
+  // The level closed the menu and landed no model.
+  expect(calls.open).toBe(false);
+  expect(calls.picks).toHaveLength(0);
 });
 
 test("the account card lists only the other accounts, then Add account…", async () => {
@@ -812,10 +913,8 @@ test("a level picked by hand under a search does not outlast the menu: the same 
   expect(checked()).toBe("High");
   const low = [...tune().querySelectorAll<HTMLElement>("[role=radio]")].find((node) => node.textContent === "Low")!;
   await click(low);
-  expect(checked()).toBe("Low");
-  // Escape clears the search, then closes the menu; the chip opens it again.
-  await press("Escape");
-  await press("Escape");
+  // The pick lands Low and closes the menu; the chip opens it again.
+  expect(calls.picks.at(-1)).toMatchObject({ id: "codex-Sol", effort: "low" });
   expect(calls.open).toBe(false);
   await act(async () => document.querySelector<HTMLButtonElement>("button[data-menu='model']")!.click());
   await settle();
@@ -850,20 +949,20 @@ async function search(text: string) {
   await settle();
 }
 const local = { host: null, login: { kind: "terminal" as const, command: "claude /login", host: null } };
-const SIGN_IN_AGAIN = translate("turn.signInAgain");
+const SIGN_IN_CLAUDE = translate("auth.fix.signInTo", { name: "Claude Code" });
 const CHECK_AGAIN = translate("harnesses.checkAgain");
 const cases: { name: string; auth: SessionAuth; words: string; actions: string[] }[] = [
   {
     name: "an expired local login",
     auth: { state: "expired", source: "authCheck", evidenceAt: 1, harness: "Claude Code", ...local },
-    words: translate("turn.authExpired"),
-    actions: [SIGN_IN_AGAIN, CHECK_AGAIN],
+    words: translate("auth.login.expired", { agent: "Claude Code" }),
+    actions: [SIGN_IN_CLAUDE, CHECK_AGAIN],
   },
   {
     name: "a turn that found it signed out",
     auth: { state: "signedOut", source: "turn", evidenceAt: 1, harness: "Claude Code", ...local },
-    words: translate("harness.signedOut", { agent: "Claude Code" }),
-    actions: [SIGN_IN_AGAIN, CHECK_AGAIN],
+    words: translate("auth.login.signedOut", { agent: "Claude Code" }),
+    actions: [SIGN_IN_CLAUDE, CHECK_AGAIN],
   },
   {
     // The strongest false-ready case: a route login is no local terminal login.
@@ -888,7 +987,7 @@ const cases: { name: string; auth: SessionAuth; words: string; actions: string[]
       host: "studio-mac",
       login: { kind: "terminal", command: "claude /login", host: "studio-mac" },
     },
-    words: "studio-mac: claude /login",
+    words: "On studio-mac, run claude /login.",
     actions: [CHECK_AGAIN],
   },
   {
@@ -915,7 +1014,7 @@ for (const { name, auth, words, actions } of cases)
     await click(check);
     expect(calls.refreshes).toBe(1);
     expect(calls.open).toBe(true);
-    const signIn = [...authRow()!.querySelectorAll("button")].find((button) => button.textContent === SIGN_IN_AGAIN);
+    const signIn = [...authRow()!.querySelectorAll("button")].find((button) => button.textContent === SIGN_IN_CLAUDE);
     if (signIn) {
       await click(signIn);
       expect(calls.logins).toBe(1);
@@ -933,7 +1032,7 @@ test("an unknown verdict draws no readiness row, before or during a search", asy
 test("a harness this Mac does not have keeps its Install row beside the chat's readiness", async () => {
   await openMenu(undefined, undefined, cases[0]!.auth);
   await click(tab("Gemini"));
-  expect(authRow()?.textContent).toContain(translate("turn.authExpired"));
+  expect(authRow()?.textContent).toContain(translate("auth.login.expired", { agent: "Claude Code" }));
   expect(
     [...popup().querySelectorAll("[role=listbox] [role=button]")].some(
       (row) => row.textContent === translate("harnesses.install"),

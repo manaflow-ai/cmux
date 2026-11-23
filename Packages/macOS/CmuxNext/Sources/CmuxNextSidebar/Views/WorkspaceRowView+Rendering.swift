@@ -104,6 +104,7 @@ extension WorkspaceRowView {
             layer?.borderColor = Palette.focusRing.cgColor
             layer?.borderWidth = isKeyboardFocused ? Metrics.dividerThickness * 1.5 : 0
             (rowBadge.ringColor, rowBadge.chipColor) = (Self.badgeBackdrop(painted), Palette.sidebarStep.cgColor)
+            updateNeedsYouGlow()
             // The sidebar's own tonal step, once more: a bar a step apart.
             placeholderBar.layer?.backgroundColor = Palette.sidebarStep.cgColor
         }
@@ -113,7 +114,7 @@ extension WorkspaceRowView {
         super.layout()
         activity.dotDiameter = SidebarStyle.statusDotSize // one diameter for every status dot (Lawrence msg 19696)
         let full = layoutBounds
-        layoutColorRail(in: full)
+        layoutNeedsYouGlow()
         // The name lines and the trailing cluster center in the head; the
         // status block, when shown, fills the rest below it.
         let b = NSRect(x: full.minX, y: full.minY, width: full.width, height: full.height - statusHeight)
@@ -128,6 +129,7 @@ extension WorkspaceRowView {
         // (Leo 2026-10-21); the members' line is one layer per group beside the rows
         // (SidebarListView+GroupLines).
         let (th, sh, top, cy) = textMetrics(head: b)
+        layoutColorRail(in: full, centerY: cy)
         let columns = SidebarStyle.columns(rowWidth: b.width, depth: treeDepth)
         // A custom workspace icon or favicon takes the leading slot; without one the title starts
         // at the leading inset (no default kind glyph).
@@ -233,6 +235,7 @@ extension WorkspaceRowView {
         (closeSlot.frame, moreSlot.frame) = (closeFrame, moreFrame)
         let pinStart = layoutPin(rowWidth: b.width, showMore: showMore, moreFrame: moreFrame, control: control, fades: controlFades)
         let overlayStart = [showClose ? closeFrame.minX : nil, showMore ? moreFrame.minX : nil, pinStart].compactMap { $0 }.min()
+        let shownControls = [showClose ? closeFrame : nil, showMore ? moreFrame : nil, pinStart.map { _ in pinSlot.frame }].compactMap { $0 }
         let ind = SidebarStyle.indicatorSize
         if markReplacesStatus, columnMark?.view !== agentMark {
             agentMark.frame = columns.trailingFrame(before: trailing, centerY: cy, size: CGSize(width: SidebarStyle.statusGlyphSize, height: SidebarStyle.statusGlyphSize))
@@ -321,8 +324,11 @@ extension WorkspaceRowView {
             let status = mark === activity || (mark === agentMark && markReplacesStatus)
             let covered = mark === usageWarningMark ? false : mark === columnMark?.view ? markGivesWay
                 : (status && coverStart != nil) || coverStart.map { mark.frame.maxX > $0 - Metrics.space1 } == true
-            fadeOpacity(mark, to: covered ? 0 : 1, fades: fades)
+            // The usage warning never gives way (the layout keeps it left of the controls).
+            let underControl = mark !== usageWarningMark && Self.covers(shownControls, mark)
+            fadeOpacity(mark, to: covered || underControl ? 0 : 1, fades: fades)
         }
+        giveWayToControls(shownControls, fades: fades)
         layoutStatus(x: textX, width: max(0, b.width - Metrics.space3 - textX), head: b.maxY, bottom: full.maxY)
         if titleArrivalPending && !titleArrivalScheduled {
             titleArrivalScheduled = true

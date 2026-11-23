@@ -19,8 +19,6 @@ run-name: >-
 # request: try
 # a change with `gh workflow run first-user-journey-ios.yml --ref BRANCH`.
 on:
-  schedule:
-    - cron: "23 7 * * *"
   workflow_dispatch:
     inputs:
       ref:

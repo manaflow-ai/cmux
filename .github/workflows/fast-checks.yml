@@ -169,6 +169,7 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: ${{ steps.bun-pin.outputs.version }}
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
 
       - name: Set up Node
         if: inputs.setup == 'webviews' || inputs.setup == 'playwright'
@@ -452,7 +453,7 @@ jobs:
   # until the cmux-ci client's fallback moves it to the build fleet, whose Linux pool may take it.
   checks-mac:
     if: github.repository == 'manaflow-ai/cmux' && inputs.setup == 'kernel-free'
-    runs-on: glaeda-side-light-xcode-26.6
+    runs-on: ${{ vars.CI_LIGHT_LANE_RUNNER || 'glaeda-side-light-xcode-26.6' }}
     permissions:
       contents: read
     timeout-minutes: 195

@@ -1,9 +1,11 @@
 --- a/Sources/MessagesLabHome/Vendor/catalyst/Transcript.swift
 +++ b/Sources/MessagesLabHome/Vendor/catalyst/Transcript.swift
-@@ -67,6 +67,32 @@
+@@ -65,6 +65,32 @@
+         specs += tail
+         let previous = merge(specs, from: m0, at: t, ghosts: ghosts)
          rebuild(from: m0, previous: previous)
-     }
- 
++    }
++
 +    /// cmux: the rows from `start` on take `specs`, the same rows measured again (a width pass over the rows near the
 +    /// viewport, MessagesWindowView.widthPassNearViewport): same keys in the same order, so the index, the connectors
 +    /// and every other row stay, and only the offsets from `start` on follow the new heights (one add per row after
@@ -28,11 +30,9 @@
 +            offsets.replaceSubrange((start + 1)..., with: changed + offsets.slice(from: end + 1).map { $0 + delta }) // crash-allow: start + 1 <= offsets.count (guards above)
 +        }
 +        return true
-+    }
-+
+     }
+ 
      /// Merge `specs` into the rows from `m0` on (rows before stay). Returns the rows it replaced.
-     @discardableResult
-     private func merge(_ specs: [RowSpec], from m0: Int, at t: Double, ghosts: Bool) -> [Row] {
 @@ -373,7 +399,7 @@
      /// Content y of a connector's top (the root's vertical center).
      func connectorTop(_ c: (reply: Int, root: Int?)) -> CGFloat {

@@ -638,6 +638,90 @@
           ]
         },
         {
+          "key": "agentPane.display.font.uiFamily",
+          "name": "uiFamily",
+          "note": "A CSS family or comma stack, no quotes; when set it wins over agentPane.display.font.ui (webviews chatUiFont). A theme's font pack names its faces here and in agentPane.display.font.faces.",
+          "title": {
+            "key": "settings.agentPane.display.uiFamily",
+            "text": "Chat Interface Font Family"
+          },
+          "help": {
+            "key": "settings.agentPane.display.uiFamily.help",
+            "text": "A font family or a comma list of them. When set, it replaces the Chat Interface Font."
+          },
+          "kind": "font_family",
+          "default": null,
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "font",
+            "interface",
+            "ui",
+            "family",
+            "typeface",
+            "custom"
+          ]
+        },
+        {
+          "key": "agentPane.display.font.proseFamily",
+          "name": "proseFamily",
+          "note": "The face of the agent's reply prose; when set it wins over agentPane.display.font.preset.",
+          "title": {
+            "key": "settings.agentPane.display.proseFamily",
+            "text": "Chat Reply Font Family"
+          },
+          "help": {
+            "key": "settings.agentPane.display.proseFamily.help",
+            "text": "The font of the agent's replies. When set, it replaces the Chat Font."
+          },
+          "kind": "font_family",
+          "default": null,
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "reading",
+            "font",
+            "reply",
+            "prose",
+            "family",
+            "serif",
+            "typeface",
+            "custom"
+          ]
+        },
+        {
+          "key": "agentPane.display.font.faces",
+          "name": "faces",
+          "note": "Font files the chat page declares as @font-face: key = family, optionally suffixed :italic; value = file:PATH (absolute or at ~; in a theme file relative to the themes folder). At most 8 faces, each a plain woff2, woff, ttf or otf file of at most 2 MiB whose extension matches its bytes (cmux-config font_faces, Swift ChatFontFaces); the page gets each as a data:font URL.",
+          "title": {
+            "key": "settings.agentPane.display.fontFaces",
+            "text": "Chat Font Files"
+          },
+          "help": {
+            "key": "settings.agentPane.display.fontFaces.help",
+            "text": "A font file for each family, such as \"Lora:italic\": \"file:~/Fonts/Lora-Italic.woff2\"."
+          },
+          "kind": "string_map",
+          "default": null,
+          "keywords": [
+            "agent",
+            "chat",
+            "display",
+            "font",
+            "file",
+            "woff2",
+            "ttf",
+            "otf",
+            "face",
+            "typeface",
+            "custom"
+          ]
+        },
+        {
           "key": "agentPane.display.font.size",
           "name": "fontSize",
           "title": {
@@ -1105,6 +1189,163 @@
             "custom",
             "comma",
             "thinking"
+          ]
+        },
+        {
+          "key": "agentPane.display.thinking.shimmer",
+          "name": "thinkingShimmer",
+          "note": "How the live line's light band moves while the agent works (webviews agent chat). Cadenced is today's one-second sweep every four seconds; Continuous sweeps back to back, eased in and out, over shimmerPeriod.",
+          "title": {
+            "key": "settings.agentPane.display.thinking.shimmer",
+            "text": "Thinking Shimmer"
+          },
+          "help": {
+            "key": "settings.agentPane.display.thinking.shimmer.help",
+            "text": "How the light band moves across the live status line."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "cadenced",
+              "title": {
+                "key": "settings.choice.thinkingShimmerCadenced",
+                "text": "Every Few Seconds"
+              }
+            },
+            {
+              "value": "continuous",
+              "title": {
+                "key": "settings.choice.thinkingShimmerContinuous",
+                "text": "Continuous"
+              }
+            }
+          ],
+          "default": "cadenced",
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "thinking",
+            "shimmer",
+            "status",
+            "animation",
+            "sweep",
+            "claude"
+          ]
+        },
+        {
+          "key": "agentPane.display.thinking.shimmerPeriod",
+          "name": "thinkingShimmerPeriod",
+          "note": "One continuous shimmer pass in milliseconds; read only when shimmer is continuous.",
+          "title": {
+            "key": "settings.agentPane.display.thinking.shimmerPeriod",
+            "text": "Shimmer Speed"
+          },
+          "help": {
+            "key": "settings.agentPane.display.thinking.shimmerPeriod.help",
+            "text": "How long one continuous pass of the shimmer takes."
+          },
+          "kind": "number",
+          "range": {
+            "min": 600,
+            "max": 4000,
+            "step": 50,
+            "unit": "milliseconds",
+            "placeholder": 1250
+          },
+          "default": 1250,
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "thinking",
+            "shimmer",
+            "speed",
+            "period",
+            "duration",
+            "animation",
+            "claude"
+          ]
+        },
+        {
+          "key": "agentPane.display.thinking.shimmerBand",
+          "name": "thinkingShimmerBand",
+          "note": "The shimmer band's width in points; 0 keeps today's band, half the line's width.",
+          "title": {
+            "key": "settings.agentPane.display.thinking.shimmerBand",
+            "text": "Shimmer Width"
+          },
+          "help": {
+            "key": "settings.agentPane.display.thinking.shimmerBand.help",
+            "text": "The width of the shimmer's light band. 0 uses half the line."
+          },
+          "kind": "number",
+          "range": {
+            "min": 0,
+            "max": 240,
+            "step": 4,
+            "unit": "points",
+            "placeholder": 0
+          },
+          "default": 0,
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "thinking",
+            "shimmer",
+            "band",
+            "width",
+            "animation",
+            "claude"
+          ]
+        },
+        {
+          "key": "agentPane.display.thinking.jumpButton",
+          "name": "thinkingJumpButton",
+          "note": "What Jump to latest shows while the agent works: the arrow (today), or three small dots in the theme accent moving in turn; the arrow comes back on hover and when the agent stops.",
+          "title": {
+            "key": "settings.agentPane.display.thinking.jumpButton",
+            "text": "Jump to Latest While Working"
+          },
+          "help": {
+            "key": "settings.agentPane.display.thinking.jumpButton.help",
+            "text": "What the Jump to latest button shows while the agent works."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "arrow",
+              "title": {
+                "key": "settings.choice.thinkingJumpArrow",
+                "text": "Arrow"
+              }
+            },
+            {
+              "value": "dots",
+              "title": {
+                "key": "settings.choice.dots",
+                "text": "Dots"
+              }
+            }
+          ],
+          "default": "arrow",
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "thinking",
+            "jump",
+            "latest",
+            "scroll",
+            "button",
+            "arrow",
+            "dots",
+            "claude"
           ]
         },
         {

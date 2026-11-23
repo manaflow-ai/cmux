@@ -13,19 +13,24 @@ name: thunderdome label
 on:
   pull_request_target:
     branches: [feat-cmux-next, main]
-    types: [opened, reopened, edited, synchronize]
+    # No synchronize: the label follows the title, and a push changes no title (it started about
+    # 3,000 skipped runs a day, 2026-11-20).
+    types: [opened, reopened, edited]
 
 permissions: {}
 
 concurrency:
-  group: thunderdome-label-${{ github.event.pull_request.number }}
+  group: thunderdome-label-${{ github.event.pull_request.number }}${{ github.event.action == 'edited' && !github.event.changes.title && !github.event.changes.base && format('-edit-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
 jobs:
   label:
+    # An edit re-labels only when it changed the title or the base; a description edit starts no runner
+    # (tests/test_ci_edit_events_start_no_runner.py).
     if: >-
       contains(github.event.pull_request.title, 'thunderdome') &&
-      !contains(github.event.pull_request.labels.*.name, 'thunderdome')
+      !contains(github.event.pull_request.labels.*.name, 'thunderdome') &&
+      (github.event.action != 'edited' || github.event.changes.title || github.event.changes.base)
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted pull-request-write token; CI_TRUSTED_RUNNER picks the Blacksmith size
     timeout-minutes: 5
     permissions:

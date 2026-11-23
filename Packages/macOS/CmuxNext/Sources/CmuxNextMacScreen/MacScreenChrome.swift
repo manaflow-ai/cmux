@@ -85,15 +85,20 @@ final class MacScreenChromeHost {
     let actions = MacScreenChromeActions()
     let toolbar: MacScreenToolbarView
     let card: MacScreenCardView
-    private let model: MacScreenPaneModel
+    /// Look B's status strip, made the first time a look with ``MacScreenViewerStyle/statusStrip`` is shown.
+    var statusStrip: MacScreenStatusStrip?
+    /// The look's layer over the picture: the toolbar's auto-hide and the control edge (``MacScreenViewerStyle``).
+    let overlay: MacScreenViewerOverlay
+    let model: MacScreenPaneModel
 
     init(model: MacScreenPaneModel) {
         self.model = model
         toolbar = MacScreenToolbarView(model: model, actions: actions)
         card = MacScreenCardView(model: model, actions: actions)
+        overlay = MacScreenViewerOverlay(model: model, toolbar: toolbar)
     }
 
-    var showsCard: Bool { model.card != nil }
+    var showsCard: Bool { model.card != nil && !(model.viewerLook.style.outageKeepsPicture && model.outageOverPicture) }
 }
 
 extension MacScreenPaneModel {
@@ -135,20 +140,30 @@ extension MacScreenPaneModel {
         }
     }
 
-    /// Why the stream failed, as the failed card says it: a TURN relay that
-    /// refused the credentials or can't be reached, a relay-only path that
-    /// found no relay, else what to check on the other Mac.
+    /// Why the stream failed, as the failed card says it: the host's own reason when it gave
+    /// one (over the link or through the hub), a TURN relay that refused the credentials or
+    /// can't be reached, a relay-only path that found no relay, this Mac's link failure, a link
+    /// that came up but carried no picture, and only when nobody said anything, what to check on
+    /// the other Mac.
     var failedDetail: String {
         Self.failedDetail(relayErrors: session?.relayErrors ?? [], relayOnly: relayOnly, hubTab: hub != nil, name: name,
                           hubOnline: (hub?.hubConnected ?? true) && !(hub?.failedWhileOffline ?? false),
+                          cause: failureCause, linkConnected: session?.linkConnected ?? false,
                           timedOut: session?.timedOutStage)
     }
 
+    /// The session's cause, else the host's reason the hub carried (`failed: <reason>`).
+    var failureCause: MacScreenSession.FailureCause? {
+        session?.failureCause ?? hub?.hostFailure.map(MacScreenSession.FailureCause.host)
+    }
+
     static func failedDetail(relayErrors errors: [ICECandidateError], relayOnly: Bool, hubTab: Bool, name: String,
-                             hubOnline: Bool = true, timedOut: MacScreenConnectStage? = nil) -> String {
+                             hubOnline: Bool = true, cause: MacScreenSession.FailureCause? = nil,
+                             linkConnected: Bool = false, timedOut: MacScreenConnectStage? = nil) -> String {
         if hubTab, !hubOnline {
             return L.t("macScreen.card.ownLinkLost", "This Mac lost its connection to the device hub. Check your network; cmux reconnects on its own.")
         }
+        if case let .host(reason)? = cause { return hostFailedText(reason, name: name) }
         // A connect that ran out of time says the stage it stopped at (no answer, no link, no picture).
         if let detail = timedOut?.timeoutDetail(name: name) { return detail }
         if errors.contains(where: \.refusedCredentials) {
@@ -158,7 +173,27 @@ extension MacScreenPaneModel {
             return L.t("macScreen.card.relayUnreachable", "The relay can’t be reached. Check its URL and that its port is open.")
         }
         if relayOnly { return L.t("macScreen.card.relayNone", "No relay could connect the two Macs. Check your relays in Settings › Devices.") }
+        if case let .link(reason)? = cause, !reason.isEmpty {
+            return String(format: L.t("macScreen.card.linkFailed", "The connection to %1$@ failed: %2$@"), name, reason)
+        }
+        if linkConnected {
+            // The link came up, so the other Mac was awake and online: say what was seen instead.
+            return String(format: L.t("macScreen.card.noPicture", "Connected to %@, but no picture arrived before the session closed."), name)
+        }
         return String(format: L.t("macScreen.card.failedHub", "Check that %@ is awake and online."), name)
+    }
+
+    /// The host's own reason, named for it (`reason` may be empty: it said only that it failed).
+    static func hostFailedText(_ reason: String, name: String) -> String {
+        reason.isEmpty
+            ? String(format: L.t("macScreen.card.hostFailedNoReason", "%@ couldn’t share its screen."), name)
+            : String(format: L.t("macScreen.card.hostFailed", "%1$@ couldn’t share its screen: %2$@"), name, reason)
+    }
+
+    /// The detail of a hub card that ended a session because it failed, when the host said why.
+    var hubFailureDetail: String? {
+        guard case let .host(reason)? = failureCause else { return nil }
+        return Self.hostFailedText(reason, name: name)
     }
 
     /// Whether the toolbar shows the stream's controls: only while a session streams.

@@ -64,6 +64,13 @@ public nonisolated struct MacScreenTunables {
         help: "How the Screen Sharing page lists your other Macs, offline ones above all. Applies at once.",
         default: .quiet, code: "MacScreenTunables.devicesLook")
 
+    // The default is `current`: Debug Settings can show the viewer in a look before it exists.
+    /// The look of the screen-share viewer pane.
+    public static let viewerLook = Tunable<MacScreenViewerLook>.choice(
+        "macScreen.viewerLook", section, "Screen viewer look",
+        help: "How the screen-share viewer draws its toolbar, the area around the picture and its state cards. Applies at once.",
+        default: .current, code: "MacScreenTunables.viewerLook")
+
     /// Every Mac Screen tunable, for Debug Settings.
-    public static var all: [TunableDescriptor] { [sharingLook.descriptor, devicesLook.descriptor] }
+    public static var all: [TunableDescriptor] { [sharingLook.descriptor, devicesLook.descriptor, viewerLook.descriptor] }
 }

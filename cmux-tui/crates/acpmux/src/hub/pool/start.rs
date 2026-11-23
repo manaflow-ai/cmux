@@ -70,6 +70,8 @@ impl Hub {
                 &mode,
                 Some(&model),
             );
+            // The mode the process runs in: a profile may pin its own (`spawn_mode`).
+            let mode = crate::claude_stdio::spawn_mode(profile, &mode).to_owned();
             (
                 Some((plan.program, plan.args)),
                 Some(agent_host::TranslatorSpec {

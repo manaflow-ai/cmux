@@ -2,11 +2,12 @@
 //! a fixed picture (`appearance.backgroundLight` / `appearance.backgroundDark`
 //! and each schedule entry), the time-of-day schedule
 //! (`appearance.backgroundSchedule`) and the sun location
-//! (`appearance.backgroundLocation`).
+//! (`appearance.backgroundLocation`), and what each mode last showed
+//! (`appearance.backgroundMemory`).
 
 use serde_json::Value;
 
-use super::{Kind, Schema};
+use super::{DomainKind, Kind, Row, Schema, Validation};
 use crate::text::trim_whitespaces;
 
 /// The row whose choices are the fixed backgrounds (the bundled art and
@@ -53,12 +54,19 @@ pub(crate) fn is_live(text: &str) -> bool {
 }
 
 /// Swift `BackdropSelectionSetting.picture`: `system:` or `file:` with an
-/// absolute path, or a listed fixed background.
+/// absolute path, a canonical `youtube:` video (crate::youtube), or a listed
+/// fixed background.
 pub(crate) fn is_picture(text: &str) -> bool {
+    is_path_or_video(text) || picture_choices().iter().any(|choice| choice == text)
+}
+
+/// `system:` or `file:` with an absolute path, or a canonical `youtube:` id:
+/// the one-picture ids every background row takes beside its listed choices.
+pub(crate) fn is_path_or_video(text: &str) -> bool {
     let path = ["system:", "file:"]
         .iter()
         .any(|prefix| text.strip_prefix(prefix).is_some_and(|path| path.starts_with('/')));
-    path || picture_choices().iter().any(|choice| choice == text)
+    path || crate::youtube::is_canonical_id(text)
 }
 
 /// The fixed backgrounds the schema lists.
@@ -66,6 +74,34 @@ pub(crate) fn picture_choices() -> Vec<String> {
     match Schema::embedded().row(PICTURE_ROW).map(|row| &row.kind) {
         Some(Kind::Choice(choices)) => choices.iter().map(|choice| choice.value.clone()).collect(),
         _ => Vec::new(),
+    }
+}
+
+/// `value` with each background id in it that claims YouTube (a pasted
+/// address, a `youtube:` id in another order) as its canonical `youtube:` id,
+/// for the rows that hold background ids: `appearance.background`, the light
+/// and dark pictures and the schedule's pictures.
+/// Every settings write runs it before validation (`settings.set`,
+/// `settings.edit`, so the CLI, MCP and the app alike), so a pasted address
+/// is stored as the id the app parses. A text that does not read as a
+/// wallpaper is left as typed and the row's validation refuses it.
+pub fn normalize_backdrop(row: &Row, value: Value) -> Value {
+    let one = |value: Value| match value {
+        Value::String(text) => Value::String(crate::youtube::normalize(&text).unwrap_or(text)),
+        other => other,
+    };
+    let each = |value: Value| match value {
+        Value::Object(members) => {
+            Value::Object(members.into_iter().map(|(key, item)| (key, one(item))).collect())
+        }
+        other => other,
+    };
+    match row.validation {
+        Validation::Domain(DomainKind::BackdropSelection | DomainKind::BackdropPicture) => {
+            one(value)
+        }
+        Validation::Domain(DomainKind::BackdropSchedule) => each(value),
+        _ => value,
     }
 }
 
@@ -115,6 +151,29 @@ pub(crate) fn is_location(text: &str) -> bool {
     let number = |part: &str| part.parse::<f64>().ok().filter(|x| x.is_finite());
     number(latitude).is_some_and(|x| x.abs() <= 90.0)
         && number(longitude).is_some_and(|x| x.abs() <= 180.0)
+}
+
+/// Swift `BackdropSelectionSetting.acceptsMemory`: `appearance.backgroundMemory`,
+/// what each background mode last showed. An object with at most `rotate`
+/// (`daily` or a folder), `folder` (a folder) and `off` (`none` or a fixed
+/// picture); any other member is refused.
+pub(crate) fn is_memory(value: &Value) -> bool {
+    value.as_object().is_some_and(|members| {
+        members.iter().all(|(name, value)| {
+            let Some(text) = value.as_str() else { return false };
+            match name.as_str() {
+                "rotate" => text == "daily" || is_folder(text),
+                "folder" => is_folder(text),
+                "off" => text == "none" || is_picture(text),
+                _ => false,
+            }
+        })
+    })
+}
+
+/// `folder:<absolute path>`, never `/` alone (Swift `BackdropSelectionSetting.folderPath`).
+pub(crate) fn is_folder(text: &str) -> bool {
+    text.strip_prefix("folder:").is_some_and(|path| path.starts_with('/') && path.len() > 1)
 }
 
 #[cfg(test)]

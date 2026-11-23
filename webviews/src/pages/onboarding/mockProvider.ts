@@ -2,8 +2,8 @@
 // `?mock`: the page on fixture states, answering gestures the way the host would, closely enough to
 // click through each step in a plain browser.
 import { pageError, type PageClient, type PageHandler } from "../shared/pageClient";
-import { agentToolsState, agentsState, computerUseState, importState } from "./fixtures";
-import { OPS, type ImportDataKind, type OnboardingState } from "./ops";
+import { agentToolsState, agentsState, computerUseState, importState, makeItYoursState } from "./fixtures";
+import { OPS, type DensityChoice, type ImportDataKind, type OnboardingState, type WorkStyle } from "./ops";
 
 export class MockOnboardingProvider implements PageClient {
   private state: OnboardingState;
@@ -17,7 +17,9 @@ export class MockOnboardingProvider implements PageClient {
           ? computerUseState("fresh")
           : step === "agentTools"
             ? agentToolsState("found")
-            : agentsState("mixed");
+            : step === "makeItYours"
+              ? makeItYoursState("fresh")
+              : agentsState("mixed");
   }
 
   private change(next: OnboardingState): void {
@@ -26,7 +28,13 @@ export class MockOnboardingProvider implements PageClient {
   }
 
   async call<R>(op: string, params: unknown): Promise<R> {
-    const input = (params ?? {}) as { id?: string; kind?: ImportDataKind; target?: string | null; pane?: string };
+    const input = (params ?? {}) as {
+      id?: string | null;
+      kind?: ImportDataKind;
+      target?: string | null;
+      pane?: string;
+      value?: string;
+    };
     const state = this.state;
     switch (op) {
       case OPS.state:
@@ -97,6 +105,20 @@ export class MockOnboardingProvider implements PageClient {
       case OPS.skip:
         if (state.step === "agentTools" && !state.agentTools?.answered) this.change(agentToolsState("declined"));
         return {} as R;
+      case OPS.workStyle:
+      case OPS.density:
+      case OPS.background: {
+        const choices = state.makeItYours;
+        if (!choices) return {} as R;
+        const next =
+          op === OPS.workStyle
+            ? { ...choices, workStyle: input.value as WorkStyle }
+            : op === OPS.density
+              ? { ...choices, density: input.value as DensityChoice }
+              : { ...choices, background: input.id ?? null };
+        this.change({ ...state, makeItYours: next });
+        return {} as R;
+      }
       case OPS.install:
       case OPS.openFullDiskAccess:
       case OPS.fromFiles:

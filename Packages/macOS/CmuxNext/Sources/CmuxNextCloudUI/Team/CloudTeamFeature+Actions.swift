@@ -13,6 +13,10 @@ import Foundation
 extension CloudTeamFeature {
     public func bind(into registry: ActionRegistry, reason: @escaping @MainActor () -> String?) {
         self.registry = registry
+        #if DEBUG
+        // Command Palette > Environment Secrets Playground (DEV only), bound with the other Cloud UI actions.
+        EnvSecretsPlaygroundAction().bind(into: registry)
+        #endif
         let store = store
         let host = { [weak self] in self?.host }
         // The publisher starts with the actions it shares the store with, once per app.
