@@ -21,11 +21,7 @@ import { OnboardingContext } from "./parts";
 import { OnboardingStore } from "./store";
 import type { MakeItYoursScreen } from "./walk";
 import { WalkArmScreen, type WalkArm } from "./walkArms";
-import {
-  READINESS,
-  type ReadinessFixture,
-  type ReadinessFixtureCase,
-} from "../shared/signIn/galleryFixtures";
+import { READINESS, type ReadinessFixture, type ReadinessFixtureCase } from "../shared/signIn/galleryFixtures";
 
 export type OnboardingGalleryProps = {
   step?: "agents" | "importData" | "computerUse" | "makeItYours";
@@ -71,9 +67,7 @@ export function OnboardingGallery({
     const state = readiness ? withReadiness(base, READINESS[readiness]) : base;
     return { provider: new MockOnboardingProvider(step, state), state };
   });
-  const [store] = useState(
-    () => new OnboardingStore(mock.provider, mock.state),
-  );
+  const [store] = useState(() => new OnboardingStore(mock.provider, mock.state));
   const [strings] = useState(() => createStrings(table));
   const root = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -87,9 +81,7 @@ export function OnboardingGallery({
       if (signIn.refusal) mock.provider.signIn.refusal = signIn.refusal;
       else mock.provider.signIn.hold = new Promise<void>(() => {});
       root.current
-        ?.querySelector<HTMLButtonElement>(
-          `[data-ready-family="${signIn.family}"] [data-ready-action="signIn"]`,
-        )
+        ?.querySelector<HTMLButtonElement>(`[data-ready-family="${signIn.family}"] [data-ready-action="signIn"]`)
         ?.click();
     }
     return () => store.stop();
