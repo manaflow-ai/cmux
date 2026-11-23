@@ -88,3 +88,25 @@ test("the template's example deck follows the contract: data-seconds, notes, an 
   // The runtime stays the file's last element.
   assert.match(html, /<\/script>\s*<\/body>\s*<\/html>\s*$/);
 });
+
+test("budgets: a backup slide (data-skip) is passed over, so the pace never counts it", () => {
+  const budgets = deckLogic.budgets(["20", undefined, "40", "abc", "-5", "30"], [false, false, true, false, false, false]);
+  assert.deepEqual(budgets, [20, 0, 0, 0, 0, 30]);
+  // The planned run (5 timed slides, the appendix from index 5) leaves the skipped 40 s out.
+  assert.equal(deckLogic.pace(budgets, 5, 0, 0, 0).planned, 20);
+  assert.equal(deckLogic.pace(budgets, 5, 5, 25, 0).appendix, true);
+});
+
+test("spoken: the time spoken stands still while paused", () => {
+  assert.equal(deckLogic.spoken(null, null, 5000), 0);
+  assert.equal(deckLogic.spoken(1000, null, 6000), 5);
+  assert.equal(deckLogic.spoken(1000, 4000, 9000), 3);
+  assert.equal(deckLogic.spoken(9000, null, 1000), 0);
+});
+
+test("the runtime keeps Present with speaker notes, backup slides and one channel", () => {
+  const runtime = html.slice(html.lastIndexOf("<script>"));
+  for (const needle of ["Present with speaker notes", "data-skip", "cmux-deck-presenter", "deck-console", "Audience window", "Laser", "Captions"]) assert.ok(runtime.includes(needle), needle);
+  assert.equal((runtime.match(/new BroadcastChannel\(/g) || []).length, 1, "one channel for every window of a deck");
+  assert.equal((html.match(/<script/g) || []).length, 1, "the runtime is the only script");
+});
