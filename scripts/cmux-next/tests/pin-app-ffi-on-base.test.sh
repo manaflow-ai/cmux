@@ -253,6 +253,15 @@ git reset -q --hard HEAD~1
 git commit -qam "ffi: comment only"
 python3 -I scripts/cmux-next/app_ffi_additive.py HEAD~1 HEAD -- cmux-tui/crates/cmux-app-ffi >/dev/null \
   || fail "a comment was read as a changed declaration"
+# A declaration moved below another in the same directive interval (a typedef under the prototype that uses it) is
+# not additive, though every declaration's text is unchanged.
+sed -e '/^typedef struct CmuxPoint/d' -e 's/^int cmux_one(int a);$/&\ntypedef struct CmuxPoint { int x; int y; } CmuxPoint;/' "$tmp/h" > "$header"
+git commit -qam "ffi: reorder"
+if python3 -I scripts/cmux-next/app_ffi_additive.py HEAD~1 HEAD -- cmux-tui/crates/cmux-app-ffi > "$tmp/additive"; then
+  fail "a reordered declaration read as additive"
+fi
+grep -q "declaration order changed" "$tmp/additive" || fail "no reorder line: $(cat "$tmp/additive")"
+git reset -q --hard HEAD~1
 git rm -q "$header"
 git commit -qm "ffi: drop the header"
 if python3 -I scripts/cmux-next/app_ffi_additive.py HEAD~1 HEAD -- cmux-tui/crates/cmux-app-ffi > "$tmp/additive"; then
