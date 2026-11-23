@@ -110,7 +110,8 @@ async fn begin_waiting(
 ) -> Result<super::transfer::Begun> {
     // Neither flag: a running turn moves with the chat, between its tool calls.
     if !args.interrupt && !args.after_turn {
-        let live = super::transfer::begin_move_live(src, id, watch, super::transfer::TOOL_WAIT, staged);
+        let live =
+            super::transfer::begin_move_live(src, id, watch, super::transfer::TOOL_WAIT, staged);
         return waiting(name, "freezing the chat for its move", live).await;
     }
     let running = (args.interrupt, args.after_turn);
