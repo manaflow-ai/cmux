@@ -291,7 +291,7 @@ class GitHub:
         if completed.returncode != 0 and re.search(
                 r"HTTP 5\d\d|unexpected end of JSON input|TLS handshake timeout|connection reset|i/o timeout",
                 completed.stderr):
-            time.sleep(10)  # a gateway or network timeout; once
+            time.sleep(10)  # sleep-ok: backoff before the one retry of a gateway or network timeout
             completed = self.gh(*args, check=False)
         if completed.returncode != 0:
             raise RuntimeError(f"gh api graphql failed: {completed.stderr.strip()[-500:]}")
@@ -831,7 +831,7 @@ def cmd_debounce(args: argparse.Namespace) -> int:
     first = first_trigger_since_dispatch(runs, at)
     wait = debounce_wait(at, first)
     log(f"first event since the last batch at {first.isoformat()}; waiting {wait}s for quiet")
-    time.sleep(wait)
+    time.sleep(wait)  # sleep-ok: the debounce window; quiet for this long is the condition
     if superseded(gh.runs(WORKFLOW, "per_page=60"), me, args.repo):
         log("an event arrived during the wait; its run dispatches instead")
         return 0
@@ -1346,6 +1346,23 @@ class Controller:
             if time.monotonic() > deadline:
                 raise RuntimeError(f"{workflow} never started on {branch}")
 
+    def wait_rerun_shown(self, run_id: int, before: dict, timeout: int = 300) -> bool:
+        """Until GitHub shows the rerun of RUN_ID: a newer attempt than BEFORE's, or the run no longer completed.
+        Until then wait_run would read the finished first attempt and return at once."""
+        attempt = before.get("run_attempt") or 1
+        deadline = time.monotonic() + timeout
+        while True:
+            try:
+                run = self.gh.api(f"repos/{self.args.repo}/actions/runs/{run_id}")
+                if run.get("status") != "completed" or (run.get("run_attempt") or 1) > attempt:
+                    return True
+            except (RuntimeError, TypeError, AttributeError) as error:
+                log(f"run {run_id}: could not read the rerun ({error})")
+            if time.monotonic() > deadline:
+                log(f"run {run_id}: its rerun never showed (no new attempt, still completed) in {timeout} s")
+                return False
+            time.sleep(10)
+
     def wait_run(self, run_id: int, timeout: int) -> dict:
         deadline = time.monotonic() + timeout
         while True:
@@ -1543,7 +1560,7 @@ class Controller:
                 return  # the batch ended and cancelled it: no rerun, no result
             if failed:
                 self.gh.gh("run", "rerun", str(heavy["id"]), "--failed", "-R", self.args.repo, check=False)
-                time.sleep(30)
+                self.wait_rerun_shown(heavy["id"], run)
                 if self.wait_run(heavy["id"], timeout=120 * 60)["status"] != "completed":
                     # The first attempt's list still holds its flakes: record nothing (push-run fallback).
                     log("base probe: its rerun did not finish; no result")
@@ -1803,7 +1820,7 @@ class Controller:
             # One rerun of the failed jobs before blaming a PR: flakes are not culprits.
             validation.rerun = True
             self.gh.gh("run", "rerun", str(heavy["id"]), "--failed", "-R", self.args.repo, check=False)
-            time.sleep(30)
+            self.wait_rerun_shown(heavy["id"], run)
             run = self.wait_run(heavy["id"], timeout=120 * 60)
             failed = self.failed_jobs(heavy["id"], detail=True, base=False)
         inherited = self.failing_on_base(base_sha) if failed else set()
