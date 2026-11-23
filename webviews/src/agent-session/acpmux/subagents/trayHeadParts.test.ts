@@ -23,7 +23,7 @@ const commands = [
 
 test("each kind has its mark, its count and the items it counts", () => {
   const items = trayItems([], commands, [], true);
-  const parts = trayHeadParts(translate, { items, finished: [], waiting: new Set(), working: true });
+  const parts = trayHeadParts(translate, { items, finished: [], waiting: new Set() });
   expect(parts.map((part) => [part.key, part.icon, part.text, part.items.length])).toEqual([
     ["sends", "agent.chat", "1 message", 1],
     ["waits", "history", "1 wait", 1],
@@ -42,5 +42,5 @@ test("the kinds read as the counts do", () => {
 });
 
 test("nothing running draws no kinds", () => {
-  expect(trayHeadParts(translate, { items: [], finished: [], waiting: new Set(), working: false })).toEqual([]);
+  expect(trayHeadParts(translate, { items: [], finished: [], waiting: new Set() })).toEqual([]);
 });

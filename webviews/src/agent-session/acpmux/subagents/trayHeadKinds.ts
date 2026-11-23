@@ -186,12 +186,10 @@ export function trayHeadParts(
     items,
     finished,
     waiting,
-    working,
   }: {
     items: readonly TrayItem[];
     finished: readonly TrayItem[];
     waiting: ReadonlySet<string>;
-    working: boolean;
   },
 ): readonly TrayHeadPart[] {
   const agents: TrayItem[] = [];

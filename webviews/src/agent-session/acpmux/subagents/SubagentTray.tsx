@@ -564,8 +564,8 @@ export const SubagentTray = memo(function SubagentTray({
   );
   // Each kind's mark and count (the `kinds` arm), folded and open; hovering one names what it counts.
   const headParts = useMemo(
-    () => (foldHead === "kinds" ? trayHeadParts(t, { items, finished, waiting, working }) : NO_PARTS),
-    [foldHead, t, items, finished, waiting, working],
+    () => (foldHead === "kinds" ? trayHeadParts(t, { items, finished, waiting }) : NO_PARTS),
+    [foldHead, t, items, finished, waiting],
   );
   // One icon per subagent in the kinds header, each naming its own (HatFaces.tsx).
   const faces = useMemo(
