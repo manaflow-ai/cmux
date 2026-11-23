@@ -322,6 +322,10 @@ UNWIRED: set[str] = {
     # lane-branch push of cmux-tui artifacts skips before it takes a Blacksmith runner (#45997). Run it by hand after
     # changing cmux-tui-artifacts.yml's gate. Exit: as above.
     "tests/test_cmux_tui_superseded_gate.py",
+    # lane = "manual" (no new CI tests, CLAUDE.md). It checks that feat-cmux-next tree publishing is latest-wins:
+    # tree-preflight's shared feat push group and supersede-feat-runs cancelling only never-started older push runs
+    # (#48296). Run it by hand after changing either or scripts/ci/cmux_tui_feat_supersede.py. Exit: as above.
+    "tests/test_cmux_tui_feat_latest_wins.py",
     # lane = "manual" (kept manual under the 2026-10-23 no-new-CI rule, since lifted). It checks that every git fetch
     # and curl in nightly.yml's nightly- next-one job has its own bound and the ones that fail it retry (nightly run
     # 44232805509). Run it by hand after changing a fetch or download there. Exit: as above.

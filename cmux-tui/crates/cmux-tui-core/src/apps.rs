@@ -79,6 +79,8 @@ mod open_tokens;
 #[cfg(unix)]
 mod openers;
 #[cfg(unix)]
+mod overlay;
+#[cfg(unix)]
 // The `render: web` page bridge: `page_calls` runs each page's calls through it
 // (`allowed_ops` and the rate-limited count are read only by tests).
 #[cfg_attr(not(test), allow(dead_code))]
@@ -143,6 +145,8 @@ mod terminal_links;
 mod terminal_ops;
 #[cfg(unix)]
 pub(crate) mod timer;
+#[cfg(unix)]
+mod toolbar;
 #[cfg(unix)]
 mod widgets;
 

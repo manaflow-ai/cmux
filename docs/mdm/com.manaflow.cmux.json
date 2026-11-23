@@ -3096,6 +3096,12 @@
       "title" : "Show Customize Menu…",
       "type" : "boolean"
     },
+    "customize.doctorNotice" : {
+      "default" : true,
+      "description" : "customize.doctorNotice",
+      "title" : "Customization notices",
+      "type" : "boolean"
+    },
     "customize.fromTheApp" : {
       "default" : false,
       "description" : "Hold Option over a part of the window to see what changes it, and right-click it for Customize…. Turn this off to hide both.",
