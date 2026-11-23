@@ -256,6 +256,12 @@ pub struct SessionMeta {
     /// applied at spawn, not through set_model.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_request: Option<String>,
+    /// The effort a new Claude Code chat starts on, given at spawn as `--effort` instead of a
+    /// `session/set_config_option` after `initialize` (`hub/lifecycle.rs`). A start before the
+    /// harness reported its options reads it (`model_options::spawn_effort`); its reported
+    /// effort wins after that.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effort_request: Option<String>,
     pub cwd: PathBuf,
     /// Folders the chat sees beside `cwd` (ACP `session/new` `additionalDirectories`, its
     /// Sources): every start of its harness gets them (`hub/additional_dirs.rs`). Absolute,
@@ -272,6 +278,11 @@ pub struct SessionMeta {
     /// Codex keeps the goal in its thread, so it is set once.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub stop_condition_sent: bool,
+    /// Read-only work in a folder the person chose not to trust (`_meta.acpmux.restricted`,
+    /// `hub/restricted.rs`): every start of its Claude Code skips the folder's settings and MCP
+    /// servers, and it keeps the review policy.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub restricted: bool,
     #[serde(default)]
     pub agent_session_id: Option<String>,
     /// Claude Code can replace its native session id when a chat is forked. Keep ids this
