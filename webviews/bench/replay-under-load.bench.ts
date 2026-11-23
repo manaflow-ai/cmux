@@ -5,11 +5,11 @@
 //
 // Leo, 2026-11-23 (relayed): "Run the #50373 frame tally against a replayed transcript in a headless nightly on a GCP
 // VM with stress-ng at 4x cores, and get frame_p95_ms and renderer_main_busy_pct publishing from there on every sensor
-// pass, with the cosmic-gray reading as a second series. Done when the board has a number for both goals while my
+// pass, with the [his Mac's] reading as a second series. Done when the board has a number for both goals while my
 // nightly is closed."
 //
 // cmuxterm-hq goals/visible-frame-p95-under-load.md and goals/renderer-main-busy.md read
-// `perf_sensor.leo_nightly.*`, a sample of Leo's running NIGHTLY on cosmic-gray; when it is closed they have no
+// `perf_sensor.leo_nightly.*`, a sample of Leo's running NIGHTLY on his Mac; when it is closed they have no
 // number. This bench is their proxy: scripts/measure/replay-under-load.sh runs it under `stress-ng --cpu 4*nproc` on a
 // fleet VM and NOW publishes the reading as `perf_sensor.vm_replay`.
 //
@@ -56,7 +56,9 @@ const BUCKETS = 1000;
 /// frameTally.ts FLUSH_MS, plus margin: the window's last gaps arrive at most this long after it closes.
 const FLUSH_WAIT_MS = 6_000;
 if (![RATE, SECONDS, WARM].every((n) => Number.isFinite(n) && n > 0)) {
-  console.error("usage: bun bench/replay-under-load.bench.ts [--log FILE] [--rate 40] [--seconds 60] [--warm 5] [--out FILE]");
+  console.error(
+    "usage: bun bench/replay-under-load.bench.ts [--log FILE] [--rate 40] [--seconds 60] [--warm 5] [--out FILE]",
+  );
   process.exit(2);
 }
 
@@ -81,7 +83,8 @@ export function addTally(counts: Map<number, number>, params: unknown): number {
   for (const pair of p.gaps) {
     if (!Array.isArray(pair) || pair.length !== 2) continue;
     const [index, count] = pair as [unknown, unknown];
-    if (!Number.isInteger(index) || !Number.isInteger(count) || (index as number) < 0 || (count as number) <= 0) continue;
+    if (!Number.isInteger(index) || !Number.isInteger(count) || (index as number) < 0 || (count as number) <= 0)
+      continue;
     const at = Math.min(BUCKETS, index as number);
     counts.set(at, (counts.get(at) ?? 0) + (count as number));
     added += count as number;
@@ -212,7 +215,9 @@ async function run(): Promise<Reading> {
       await page.locator(".acpmux-scroll").waitFor({ timeout: 120_000 });
     } catch (error) {
       const body = (await page.evaluate(() => document.body?.innerText ?? "")).slice(0, 400);
-      throw new Error(`the pane never drew its transcript: ${String(error).split("\n")[0]}; page: ${JSON.stringify(body)}; console: ${consoleTail.slice(-8).join(" | ")}`);
+      throw new Error(
+        `the pane never drew its transcript: ${String(error).split("\n")[0]}; page: ${JSON.stringify(body)}; console: ${consoleTail.slice(-8).join(" | ")}`,
+      );
     }
     for (let tries = 0; !socket && tries < 600; tries++) await page.waitForTimeout(50);
     if (!socket) throw new Error(`${log.name}: the pane never attached`);
@@ -247,7 +252,9 @@ async function run(): Promise<Reading> {
     measuring = false;
     const long = (await page.evaluate(
       ([from, to]) =>
-        (window as unknown as { __long: { at: number; ms: number }[] }).__long.filter((t) => t.at >= from && t.at <= to),
+        (window as unknown as { __long: { at: number; ms: number }[] }).__long.filter(
+          (t) => t.at >= from && t.at <= to,
+        ),
       [pageStart, pageEnd] as const,
     )) as { at: number; ms: number }[];
     const frames = [...counts.values()].reduce((sum, n) => sum + n, 0);
@@ -266,7 +273,9 @@ async function run(): Promise<Reading> {
       frame_p95_ms: enough ? quantile(counts, 0.95) : null,
       frame_p99_ms: quantile(counts, 0.99),
       frames_over_50ms: over50,
-      frame_p95_reason: enough ? null : `${frames} frames in the window, under ${MIN_FRAMES}: the chat drew too little to count`,
+      frame_p95_reason: enough
+        ? null
+        : `${frames} frames in the window, under ${MIN_FRAMES}: the chat drew too little to count`,
       frame_p95_source: "frame_tally",
       renderer_main_busy_pct: wallMs > 0 ? Math.round(((taskAfter - taskBefore) * 1000 * 1000) / wallMs) / 10 : null,
       long_tasks: long.length,

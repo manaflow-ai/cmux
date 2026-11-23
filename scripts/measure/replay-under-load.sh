@@ -5,13 +5,13 @@
 #
 # Leo, 2026-11-23 (relayed): "Run the #50373 frame tally against a replayed transcript in a headless nightly on a GCP
 # VM with stress-ng at 4x cores, and get frame_p95_ms and renderer_main_busy_pct publishing from there on every sensor
-# pass, with the cosmic-gray reading as a second series."
+# pass, with the [his Mac's] reading as a second series."
 #
 #   scripts/measure/replay-under-load.sh [--out FILE] [--cores N] [--seconds 60] [--rate 40] [--log FILE]
 #
 # --cores N runs the load and the replay on the first N CPUs only (taskset), so a shared VM gives up N cores, not all
 # of them; nproc inside is N and stress-ng runs 4*N workers there. Without it the whole machine is loaded: only a VM
-# that runs nothing else (never cosmic-gray: no load or suites on Leo's Macs).
+# that runs nothing else (never Leo's Macs: no load or suites there).
 # Writes one JSON document (perf-vm-replay/v1) to --out (default artifacts/replay-under-load/reading.json): the
 # bench's reading plus load_1m, cores (the CPUs the run had), load_per_core (the stress workers and the run's own
 # threads over those CPUs, sampled from /proc while the replay ran), stressors, commit, host. Exit 0 with a reading,
@@ -64,7 +64,7 @@ sleep 10
   while :; do
     r=0
     for task in /proc/[0-9]*/task/[0-9]*/stat; do
-      read -r line <"$task" 2>/dev/null || continue
+      read -r line 2>/dev/null <"$task" || continue
       rest="${line##*) }"
       [ "${rest:0:1}" = "R" ] || continue
       pid="${task#/proc/}"; pid="${pid%%/*}"
