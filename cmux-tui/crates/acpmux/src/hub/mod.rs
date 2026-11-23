@@ -50,6 +50,7 @@ mod carried_turn;
 pub(crate) mod clone_boot;
 mod exit_reason;
 mod fallback_start;
+mod restart_outcome;
 pub(crate) mod session_auth;
 pub(crate) mod settled_view;
 mod subagent_expiry;
@@ -2125,6 +2126,7 @@ impl Hub {
             auto_resume: Default::default(),
             rate_hold: Default::default(),
             rate_note: Default::default(),
+            resume_at_reset: Default::default(),
             turn_lock: Mutex::new(()),
             releasing: AtomicBool::new(false),
             turn_claimed: AtomicBool::new(false),

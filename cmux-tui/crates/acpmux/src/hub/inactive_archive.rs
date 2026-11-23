@@ -72,7 +72,7 @@ fn archive_after_now() -> Option<std::time::Duration> {
 }
 
 /// Whether `meta` carries tag `key`, not past its expiry at `now`.
-fn has_tag(meta: &SessionMeta, key: &str, now: u64) -> bool {
+pub(super) fn has_tag(meta: &SessionMeta, key: &str, now: u64) -> bool {
     meta.tags.get(key).is_some_and(|tag| tag.expires_at.is_none_or(|at| at > now))
 }
 

@@ -3943,6 +3943,17 @@
             "null"
           ]
         },
+        "restartOutcome": {
+          "anyOf": [
+            {
+              "$ref": "#/types/RestartOutcome"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "A turn a daemon restart cut: what recovery did with it (`hub/restart_outcome.rs`)."
+        },
         "status": {
           "description": "`completed`, `failed` or `cancelled`.",
           "type": [
@@ -5724,18 +5735,145 @@
       },
       "type": "object"
     },
-    "RetryKind": {
-      "description": "What `_acpmux/retry` retried: the chat's own turn, or one of its subagents.",
+    "RestartNextAction": {
       "enum": [
-        "turn",
-        "subagent"
+        "none",
+        "send_again",
+        "review_then_send",
+        "retry"
       ],
       "type": "string"
+    },
+    "RestartOutcome": {
+      "description": "What recovery did with a turn a daemon restart cut, as its conversation shows it: one next\naction, and the detail behind it (`hub/restart_outcome.rs`). Recorded on the cut turn's\n`turn_result`, so `lastTurn` carries it until the chat's next turn ends.",
+      "properties": {
+        "continuationPromptId": {
+          "description": "The continuation recovery queued (`resumed`): queued, not delivered, until a turn with\nthis prompt id starts.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "nextAction": {
+          "$ref": "#/types/RestartNextAction",
+          "description": "What the person does next: `none` (its continuation goes on by itself), `send_again`,\n`review_then_send` (a trigger's turn: inspect what it did first) or `retry`."
+        },
+        "state": {
+          "$ref": "#/types/RestartOutcomeState"
+        },
+        "toolsOmitted": {
+          "description": "More unfinished tool calls than `unfinishedTools` names, or histories not read.",
+          "type": "boolean"
+        },
+        "unfinishedTools": {
+          "description": "Tool calls the cut turn started and the log never saw finish: their outcome is unknown,\nnever that they still run.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "why": {
+          "description": "Why it did not resume: `auto_resume_off`, `attempts_exhausted`, `stopped`,\n`remote_floor_cancel`, `remote_control_ended`, `no_prompt`, `trigger`, `hidden_context`\nor `prompt_not_received`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "state",
+        "nextAction"
+      ],
+      "type": "object"
+    },
+    "RestartOutcomeState": {
+      "enum": [
+        "resumed",
+        "waiting_for_user",
+        "unable_to_resume"
+      ],
+      "type": "string"
+    },
+    "ResumeAtReset": {
+      "description": "A one-shot resume of the chat's usage-limited last turn at the provider's reset\n(`hub/auto_resume/at_reset.rs`), as the row offers it.",
+      "properties": {
+        "resetsAt": {
+          "description": "The reset the provider reported (Unix ms). Absent for `unknown_reset`: no countdown is\nguessed, and the person retries by hand.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "state": {
+          "$ref": "#/types/ResumeAtResetState"
+        },
+        "turnId": {
+          "description": "The failed turn it is bound to.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "state",
+        "turnId"
+      ],
+      "type": "object"
+    },
+    "ResumeAtResetState": {
+      "oneOf": [
+        {
+          "const": "offered",
+          "description": "`_acpmux/retry {atReset: true}` would arm it.",
+          "type": "string"
+        },
+        {
+          "const": "armed",
+          "description": "Armed: it sends once at `resetsAt`; `{atReset: true, cancel: true}` cancels it.",
+          "type": "string"
+        },
+        {
+          "const": "unknown_reset",
+          "description": "The provider reported no reset: only a retry by hand.",
+          "type": "string"
+        }
+      ]
+    },
+    "RetryKind": {
+      "description": "What `_acpmux/retry` retried: the chat's own turn, or one of its subagents.",
+      "oneOf": [
+        {
+          "enum": [
+            "turn",
+            "subagent"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "at_reset",
+          "description": "Armed (or cancelled) for the reset, not sent now (`atReset`).",
+          "type": "string"
+        }
+      ]
     },
     "RetryParams": {
       "additionalProperties": false,
       "description": "`_acpmux/retry` (the Retry button, `acpmux retry`): retry the chat's failed last turn now,\nin the same session (`hub/auto_resume/retry_turn.rs`).",
       "properties": {
+        "atReset": {
+          "description": "Not now, but once at the reset the provider reported for the usage limit that failed\nthe last turn (`hub/auto_resume/at_reset.rs`): opt-in, armed for that failed turn only.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "cancel": {
+          "description": "With `atReset`: cancel the resume at the reset that is armed.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "sessionId": {
           "description": "The chat's id, name or unique prefix.",
           "type": "string"
@@ -5767,11 +5905,24 @@
     "RetryResult": {
       "description": "What `_acpmux/retry` sent: the prompt `promptId` (for the chat's turn `P~resume-n`, the next\nattempt of the failed prompt; for a subagent `subagent-retry-<tool>-<attempt>-<ms>`) and the turn\nit started.",
       "properties": {
+        "cancelled": {
+          "description": "`at_reset` with `cancel`: the armed resume was cancelled.",
+          "type": "boolean"
+        },
         "kind": {
           "$ref": "#/types/RetryKind"
         },
         "promptId": {
           "type": "string"
+        },
+        "resetsAt": {
+          "description": "`at_reset`: when the armed resume sends `promptId` (Unix ms), the provider's reset.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "turnId": {
           "type": [
@@ -6567,6 +6718,17 @@
             "null"
           ]
         },
+        "resumeAtReset": {
+          "anyOf": [
+            {
+              "$ref": "#/types/ResumeAtReset"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Its last turn failed on the account's usage limit and nothing goes on by itself: the\none-shot resume at the reset it may arm, or has armed (`hub/auto_resume/at_reset.rs`)."
+        },
         "retiredAgentSessionIds": {
           "description": "The chat's earlier native ids, oldest first (`SessionMeta::retired_agent_session_ids`):\na Codex chat's earlier roots, which its older records still name, so a client folding\nthem never reads one as a subagent. Absent when none, and from a peer on an older acpmux.",
           "items": {
@@ -7337,6 +7499,17 @@
             "integer",
             "null"
           ]
+        },
+        "resumeAtReset": {
+          "anyOf": [
+            {
+              "$ref": "#/types/ResumeAtReset"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Its last turn failed on the account's usage limit and nothing goes on by itself: the\none-shot resume at the reset it may arm, or has armed (`hub/auto_resume/at_reset.rs`)."
         },
         "retiredAgentSessionIds": {
           "description": "The chat's earlier native ids, oldest first (`SessionMeta::retired_agent_session_ids`):\na Codex chat's earlier roots, which its older records still name, so a client folding\nthem never reads one as a subagent. Absent when none, and from a peer on an older acpmux.",

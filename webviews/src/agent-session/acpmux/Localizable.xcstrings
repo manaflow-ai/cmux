@@ -453310,6 +453310,2382 @@
           }
         }
       }
+    },
+    "resumeAtReset.offered": {
+      "comment": "Agent pane: the chat's last turn failed on the account's usage limit and nothing resumes it by itself; {time} is the reset time the provider reported (hub/auto_resume/at_reset.rs)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تم بلوغ حد الاستخدام. ستتم إعادة التعيين في {time}."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dostignuta je granica korištenja. Resetuje se u {time}."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Forbrugsgrænsen er nået. Den nulstilles kl. {time}."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nutzungslimit erreicht. Es wird um {time} zurückgesetzt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage limit reached. It resets at {time}."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Se alcanzó el límite de uso. Se restablece a las {time}."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Limite d'utilisation atteinte. Réinitialisation à {time}."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Limite di utilizzo raggiunto. Si reimposta alle {time}."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "利用上限に達しました。{time}にリセットされます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បានដល់ដែនកំណត់ការប្រើប្រាស់។ វានឹងកំណត់ឡើងវិញនៅម៉ោង {time}។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "사용 한도에 도달했습니다. {time}에 초기화됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bruksgrensen er nådd. Den tilbakestilles kl. {time}."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Osiągnięto limit użycia. Zostanie zresetowany o {time}."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Limite de uso atingido. Ele é redefinido às {time}."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Достигнут лимит использования. Он сбросится в {time}."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ถึงขีดจำกัดการใช้งานแล้ว จะรีเซ็ตเวลา {time}"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kullanım sınırına ulaşıldı. {time} saatinde sıfırlanacak."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Досягнуто ліміту використання. Він скинеться о {time}."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đã đạt giới hạn sử dụng. Giới hạn sẽ được đặt lại lúc {time}."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已达到使用限额。将于 {time} 重置。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已達使用上限。將於 {time} 重置。"
+          }
+        }
+      }
+    },
+    "resumeAtReset.arm": {
+      "comment": "Agent pane: button that arms a one-shot resume of the usage-limited turn at the provider's reset time",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "استئناف عند إعادة التعيين"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nastavi nakon resetovanja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Genoptag ved nulstilling"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Beim Zurücksetzen fortsetzen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resume at reset"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Reanudar al restablecer"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Reprendre à la réinitialisation"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Riprendi al reset"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "リセット時に再開"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បន្តនៅពេលកំណត់ឡើងវិញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "초기화 시 재개"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gjenoppta ved tilbakestilling"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wznów po resecie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Retomar na redefinição"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Возобновить после сброса"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ดำเนินการต่อเมื่อรีเซ็ต"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sıfırlanınca devam et"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Відновити після скидання"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tiếp tục khi đặt lại"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "重置时恢复"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "重置時恢復"
+          }
+        }
+      }
+    },
+    "resumeAtReset.armed": {
+      "comment": "Agent pane: a one-shot resume at the usage-limit reset is armed; {time} is the reset time",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "سيُستأنف مرة واحدة في {time}"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nastavlja se jednom u {time}"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Genoptages én gang kl. {time}"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wird einmalig um {time} fortgesetzt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resumes once at {time}"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Se reanudará una vez a las {time}"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Reprise unique à {time}"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Riprende una volta alle {time}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{time}に1回だけ再開します"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "នឹងបន្តម្តងនៅម៉ោង {time}"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{time}에 한 번 재개됩니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gjenopptas én gang kl. {time}"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zostanie wznowione jednorazowo o {time}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Será retomado uma vez às {time}"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Будет возобновлено один раз в {time}"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "จะดำเนินการต่อหนึ่งครั้งเวลา {time}"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{time} saatinde bir kez devam edecek"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Буде відновлено один раз о {time}"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sẽ tiếp tục một lần lúc {time}"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "将于 {time} 恢复一次"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "將於 {time} 恢復一次"
+          }
+        }
+      }
+    },
+    "resumeAtReset.unknown": {
+      "comment": "Agent pane: the usage limit failed the last turn and the provider reported no reset time, so no countdown is shown; the person retries by hand",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تم بلوغ حد الاستخدام. لم يتم الإبلاغ عن وقت إعادة التعيين: أعد المحاولة عند رفع الحد."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dostignuta je granica korištenja. Vrijeme resetovanja nije prijavljeno: pokušajte ponovo kada se granica ukloni."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Forbrugsgrænsen er nået. Intet nulstillingstidspunkt blev oplyst: prøv igen, når grænsen er hævet."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nutzungslimit erreicht. Es wurde keine Zurücksetzungszeit gemeldet: Versuche es erneut, sobald das Limit aufgehoben ist."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage limit reached. No reset time was reported: retry when it lifts."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Se alcanzó el límite de uso. No se informó la hora de restablecimiento: reintenta cuando se levante."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Limite d'utilisation atteinte. Aucune heure de réinitialisation n'a été indiquée : réessayez une fois la limite levée."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Limite di utilizzo raggiunto. Nessun orario di reset indicato: riprova quando il limite sarà rimosso."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "利用上限に達しました。リセット時刻は報告されていません。上限が解除されたら再試行してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បានដល់ដែនកំណត់ការប្រើប្រាស់។ មិនបានរាយការណ៍ពេលវេលាកំណត់ឡើងវិញទេ៖ សូមព្យាយាមម្តងទៀតនៅពេលដែនកំណត់ត្រូវបានដកចេញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "사용 한도에 도달했습니다. 초기화 시간이 보고되지 않았습니다: 한도가 풀리면 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bruksgrensen er nådd. Ingen tid for tilbakestilling ble oppgitt: prøv igjen når grensen er hevet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Osiągnięto limit użycia. Nie podano czasu resetu: spróbuj ponownie po zniesieniu limitu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Limite de uso atingido. Nenhum horário de redefinição foi informado: tente novamente quando o limite for liberado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Достигнут лимит использования. Время сброса не сообщено: повторите попытку, когда лимит снимут."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ถึงขีดจำกัดการใช้งานแล้ว ไม่มีการรายงานเวลารีเซ็ต: ลองอีกครั้งเมื่อขีดจำกัดถูกยกเลิก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kullanım sınırına ulaşıldı. Sıfırlanma zamanı bildirilmedi: sınır kalkınca yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Досягнуто ліміту використання. Час скидання не повідомлено: повторіть спробу, коли ліміт знімуть."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đã đạt giới hạn sử dụng. Không có thời điểm đặt lại được báo: hãy thử lại khi giới hạn được gỡ."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已达到使用限额。未报告重置时间：请在限额解除后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已達使用上限。未回報重置時間：請在上限解除後重試。"
+          }
+        }
+      }
+    },
+    "restartOutcome.resumed": {
+      "comment": "Agent pane: the daemon restarted mid-turn and queued the turn's continuation, not yet sent to the agent (hub/restart_outcome.rs)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تم الاستئناف بعد إعادة التشغيل: استكماله في قائمة الانتظار"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nastavljeno nakon ponovnog pokretanja: nastavak je u redu čekanja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Genoptaget efter genstart: fortsættelsen er sat i kø"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nach einem Neustart fortgesetzt: Die Fortsetzung ist eingereiht"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resumed after a restart: its continuation is queued"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Reanudado tras un reinicio: su continuación está en cola"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Repris après un redémarrage : sa suite est en file d'attente"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ripreso dopo un riavvio: la continuazione è in coda"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "再起動後に再開しました: 続行はキューに入っています"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បានបន្តបន្ទាប់ពីចាប់ផ្តើមឡើងវិញ៖ ការបន្តស្ថិតក្នុងជួររង់ចាំ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "재시작 후 재개됨: 이어서 진행할 작업이 대기열에 있습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gjenopptatt etter en omstart: fortsettelsen står i kø"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wznowiono po restarcie: kontynuacja czeka w kolejce"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Retomado após uma reinicialização: a continuação está na fila"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Возобновлено после перезапуска: продолжение поставлено в очередь"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ดำเนินการต่อหลังรีสตาร์ต: ส่วนที่ต่อรออยู่ในคิว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yeniden başlatmanın ardından devam edildi: devamı kuyrukta"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Відновлено після перезапуску: продовження поставлено в чергу"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đã tiếp tục sau khi khởi động lại: phần tiếp theo đang chờ trong hàng đợi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "重启后已恢复：后续内容已排入队列"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "重新啟動後已恢復：後續內容已排入佇列"
+          }
+        }
+      }
+    },
+    "restartOutcome.delivered": {
+      "comment": "Agent pane: the daemon restarted mid-turn and the turn's continuation has started",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تم الاستئناف بعد إعادة التشغيل: يتابع الآن"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nastavljeno nakon ponovnog pokretanja: nastavlja se sada"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Genoptaget efter genstart: fortsætter nu"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nach einem Neustart fortgesetzt: Läuft jetzt weiter"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resumed after a restart: continuing now"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Reanudado tras un reinicio: continuando ahora"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Repris après un redémarrage : reprise en cours"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ripreso dopo un riavvio: continua ora"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "再起動後に再開しました: 続行中です"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បានបន្តបន្ទាប់ពីចាប់ផ្តើមឡើងវិញ៖ កំពុងបន្តឥឡូវនេះ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "재시작 후 재개됨: 지금 이어서 진행합니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gjenopptatt etter en omstart: fortsetter nå"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wznowiono po restarcie: kontynuowanie teraz"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Retomado após uma reinicialização: continuando agora"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Возобновлено после перезапуска: продолжается сейчас"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ดำเนินการต่อหลังรีสตาร์ต: กำลังดำเนินการต่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yeniden başlatmanın ardından devam edildi: şimdi devam ediyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Відновлено після перезапуску: триває зараз"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đã tiếp tục sau khi khởi động lại: đang tiếp tục"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "重启后已恢复：正在继续"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "重新啟動後已恢復：正在繼續"
+          }
+        }
+      }
+    },
+    "restartOutcome.sendAgain": {
+      "comment": "Agent pane: the daemon restarted mid-turn and nothing resumes it by itself; the person sends the prompt again",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تمت المقاطعة بسبب إعادة التشغيل: أرسله مرة أخرى عندما تكون جاهزًا"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prekinuto ponovnim pokretanjem: pošaljite ponovo kada budete spremni"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Afbrudt af en genstart: send igen, når du er klar"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Durch einen Neustart unterbrochen: Sende erneut, wenn du bereit bist"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Interrupted by a restart: send it again when ready"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Interrumpido por un reinicio: envíalo de nuevo cuando quieras"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Interrompu par un redémarrage : renvoyez-le quand vous êtes prêt"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Interrotto da un riavvio: invialo di nuovo quando sei pronto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "再起動により中断されました: 準備ができたら再送信してください"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ត្រូវបានរំខានដោយការចាប់ផ្តើមឡើងវិញ៖ សូមផ្ញើម្តងទៀតនៅពេលអ្នកត្រៀមខ្លួនរួច"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "재시작으로 중단됨: 준비되면 다시 보내세요"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Avbrutt av en omstart: send på nytt når du er klar"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przerwano przez restart: wyślij ponownie, gdy będziesz gotowy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Interrompido por uma reinicialização: envie novamente quando estiver pronto"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Прервано перезапуском: отправьте снова, когда будете готовы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ถูกขัดจังหวะโดยการรีสตาร์ต: ส่งอีกครั้งเมื่อพร้อม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yeniden başlatma nedeniyle kesildi: hazır olunca tekrar gönderin"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Перервано перезапуском: надішліть знову, коли будете готові"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bị gián đoạn do khởi động lại: gửi lại khi bạn sẵn sàng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "被重启中断：准备好后请重新发送"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "被重新啟動中斷：準備好後請重新傳送"
+          }
+        }
+      }
+    },
+    "restartOutcome.review": {
+      "comment": "Agent pane: an automation's turn was cut by a daemon restart; the person inspects its outcome before sending again",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تمت المقاطعة بسبب إعادة التشغيل: تحقق مما فعله قبل الإرسال مرة أخرى"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prekinuto ponovnim pokretanjem: provjerite šta je urađeno prije ponovnog slanja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Afbrudt af en genstart: tjek, hvad den nåede, før du sender igen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Durch einen Neustart unterbrochen: Prüfe, was erledigt wurde, bevor du erneut sendest"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Interrupted by a restart: check what it did before sending again"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Interrumpido por un reinicio: revisa lo que hizo antes de enviar de nuevo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Interrompu par un redémarrage : vérifiez ce qu'il a fait avant de renvoyer"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Interrotto da un riavvio: controlla cosa ha fatto prima di inviare di nuovo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "再起動により中断されました: 再送信する前に実行内容を確認してください"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ត្រូវបានរំខានដោយការចាប់ផ្តើមឡើងវិញ៖ សូមពិនិត្យអ្វីដែលវាបានធ្វើ មុនពេលផ្ញើម្តងទៀត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "재시작으로 중단됨: 다시 보내기 전에 수행한 작업을 확인하세요"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Avbrutt av en omstart: sjekk hva den rakk å gjøre før du sender på nytt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przerwano przez restart: sprawdź, co zostało zrobione, zanim wyślesz ponownie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Interrompido por uma reinicialização: confira o que ele fez antes de enviar novamente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Прервано перезапуском: проверьте, что было сделано, прежде чем отправлять снова"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ถูกขัดจังหวะโดยการรีสตาร์ต: ตรวจสอบสิ่งที่ทำไปแล้วก่อนส่งอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yeniden başlatma nedeniyle kesildi: tekrar göndermeden önce ne yaptığını kontrol edin"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Перервано перезапуском: перевірте, що було зроблено, перш ніж надсилати знову"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bị gián đoạn do khởi động lại: kiểm tra những gì đã làm trước khi gửi lại"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "被重启中断：重新发送前请检查它做了什么"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "被重新啟動中斷：重新傳送前請檢查它做了什麼"
+          }
+        }
+      }
+    },
+    "restartOutcome.unable": {
+      "comment": "Agent pane: the daemon restarted mid-turn and could not continue the turn; the person uses the turn's Retry",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعذّر الاستئناف بعد إعادة التشغيل: استخدم إعادة المحاولة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nastavak nakon ponovnog pokretanja nije uspio: koristite Pokušaj ponovo"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kunne ikke genoptage efter genstart: brug Prøv igen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fortsetzung nach einem Neustart nicht möglich: Nutze „Erneut versuchen“"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not resume after a restart: use Retry"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No se pudo reanudar tras un reinicio: usa Reintentar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossible de reprendre après un redémarrage : utilisez Réessayer"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossibile riprendere dopo un riavvio: usa Riprova"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "再起動後に再開できませんでした: 再試行を使用してください"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនអាចបន្តបន្ទាប់ពីចាប់ផ្តើមឡើងវិញបានទេ៖ សូមប្រើ ព្យាយាមម្តងទៀត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "재시작 후 재개할 수 없음: 다시 시도를 사용하세요"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kunne ikke gjenopptas etter en omstart: bruk Prøv igjen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie udało się wznowić po restarcie: użyj Ponów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não foi possível retomar após uma reinicialização: use Tentar novamente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не удалось возобновить после перезапуска: нажмите «Повторить»"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ดำเนินการต่อหลังรีสตาร์ตไม่ได้: ใช้ลองใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yeniden başlatmanın ardından devam edilemedi: Yeniden dene'yi kullanın"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не вдалося відновити після перезапуску: натисніть «Повторити»"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không thể tiếp tục sau khi khởi động lại: hãy dùng Thử lại"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "重启后无法恢复：请使用重试"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "重新啟動後無法恢復：請使用重試"
+          }
+        }
+      }
+    },
+    "restartOutcome.unfinishedTools": {
+      "comment": "Agent pane: tool calls the cut turn started that the log never saw finish; {tools} is a comma-separated list of tool names",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "بدأت ولم يُرَ أنها انتهت (النتيجة غير معروفة): {tools}"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokrenuto, ali nije viđeno da je završeno (ishod nepoznat): {tools}"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Startet, men ikke set afsluttet (udfald ukendt): {tools}"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gestartet, aber nicht als beendet gesehen (Ergebnis unbekannt): {tools}"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Started but not seen to finish (outcome unknown): {tools}"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Iniciadas pero sin verlas terminar (resultado desconocido): {tools}"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lancés mais non vus terminés (résultat inconnu) : {tools}"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Avviati ma non visti terminare (esito sconosciuto): {tools}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "開始されましたが完了を確認できません(結果不明): {tools}"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បានចាប់ផ្តើម ប៉ុន្តែមិនឃើញថាបានបញ្ចប់ទេ (មិនដឹងលទ្ធផល)៖ {tools}"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "시작되었지만 완료가 확인되지 않음(결과 알 수 없음): {tools}"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Startet, men ikke sett fullført (utfall ukjent): {tools}"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rozpoczęte, ale nie widziano ich zakończenia (wynik nieznany): {tools}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Iniciadas, mas não foram vistas terminando (resultado desconhecido): {tools}"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запущены, но завершение не зафиксировано (результат неизвестен): {tools}"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เริ่มแล้วแต่ไม่พบว่าเสร็จสิ้น (ไม่ทราบผล): {tools}"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Başlatıldı ancak bittiği görülmedi (sonuç bilinmiyor): {tools}"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запущені, але завершення не зафіксовано (результат невідомий): {tools}"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đã bắt đầu nhưng chưa thấy hoàn tất (không rõ kết quả): {tools}"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已开始但未见完成（结果未知）：{tools}"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已開始但未見完成（結果未知）：{tools}"
+          }
+        }
+      }
+    },
+    "restartOutcome.why.auto_resume_off": {
+      "comment": "Agent pane: why a turn cut by a restart was not continued",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "المتابعة التلقائية متوقفة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Automatski nastavak je isključen."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Automatisk fortsættelse er slået fra."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die automatische Fortsetzung ist deaktiviert."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatic continuation is turned off."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La continuación automática está desactivada."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La reprise automatique est désactivée."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La continuazione automatica è disattivata."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "自動継続はオフになっています。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការបន្តដោយស្វ័យប្រវត្តិត្រូវបានបិទ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "자동 이어하기가 꺼져 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Automatisk fortsettelse er slått av."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Automatyczna kontynuacja jest wyłączona."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A continuação automática está desativada."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Автоматическое продолжение отключено."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การดำเนินการต่ออัตโนมัติถูกปิดอยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otomatik devam kapalı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Автоматичне продовження вимкнено."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tính năng tự động tiếp tục đang tắt."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "自动继续已关闭。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "自動繼續已關閉。"
+          }
+        }
+      }
+    },
+    "restartOutcome.why.attempts_exhausted": {
+      "comment": "Agent pane: why a turn cut by a restart was not continued",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تمت متابعته بالفعل بأقصى عدد مسموح من المرات."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Već je nastavljeno maksimalan dozvoljen broj puta."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Den er allerede fortsat det tilladte antal gange."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sie wurde bereits so oft fortgesetzt wie erlaubt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "It was already continued as many times as allowed."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ya se continuó el máximo de veces permitido."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il a déjà été repris le nombre de fois autorisé."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "È già stato continuato il numero massimo di volte consentito."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "許可された回数だけすでに継続されています。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "វាត្រូវបានបន្តរួចហើយតាមចំនួនដងអតិបរមាដែលអនុញ្ញាត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "허용된 횟수만큼 이미 이어서 진행했습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Den er allerede fortsatt så mange ganger som tillatt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kontynuowano już maksymalną dozwoloną liczbę razy."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ele já foi continuado o máximo de vezes permitido."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Оно уже продолжалось максимально допустимое число раз."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ดำเนินการต่อครบจำนวนครั้งที่อนุญาตแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "İzin verilen sayıda zaten devam ettirildi."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Воно вже продовжувалося максимально дозволену кількість разів."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đã tiếp tục đủ số lần cho phép."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已按允许的最大次数继续过。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已依允許的最大次數繼續過。"
+          }
+        }
+      }
+    },
+    "restartOutcome.why.stopped": {
+      "comment": "Agent pane: why a turn cut by a restart was not continued",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تم إيقافه قبل إعادة التشغيل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zaustavljeno je prije ponovnog pokretanja."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Den blev stoppet før genstarten."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sie wurde vor dem Neustart gestoppt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "It was stopped before the restart."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Se detuvo antes del reinicio."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il a été arrêté avant le redémarrage."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "È stato interrotto prima del riavvio."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "再起動の前に停止されていました。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "វាត្រូវបានបញ្ឈប់មុនពេលចាប់ផ្តើមឡើងវិញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "재시작 전에 중지되었습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Den ble stoppet før omstarten."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zatrzymano przed restartem."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Foi interrompido antes da reinicialização."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Оно было остановлено до перезапуска."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ถูกหยุดก่อนการรีสตาร์ต"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yeniden başlatmadan önce durdurulmuştu."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Його зупинили до перезапуску."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đã bị dừng trước khi khởi động lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在重启前已被停止。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在重新啟動前已被停止。"
+          }
+        }
+      }
+    },
+    "restartOutcome.why.remote": {
+      "comment": "Agent pane: why a turn cut by a restart was not continued (remote control ended or was cancelled)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "انتهى التحكم عن بُعد قبل إعادة التشغيل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Daljinsko upravljanje je završeno prije ponovnog pokretanja."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fjernstyring sluttede før genstarten."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die Fernsteuerung endete vor dem Neustart."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote control ended before the restart."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El control remoto terminó antes del reinicio."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le contrôle à distance s'est terminé avant le redémarrage."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il controllo remoto è terminato prima del riavvio."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "リモートコントロールは再起動の前に終了しました。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការគ្រប់គ្រងពីចម្ងាយបានបញ្ចប់មុនពេលចាប់ផ្តើមឡើងវិញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "원격 제어가 재시작 전에 종료되었습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fjernstyring tok slutt før omstarten."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zdalne sterowanie zakończyło się przed restartem."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O controle remoto terminou antes da reinicialização."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Удалённое управление завершилось до перезапуска."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การควบคุมระยะไกลสิ้นสุดลงก่อนการรีสตาร์ต"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uzaktan kontrol yeniden başlatmadan önce sona erdi."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Віддалене керування завершилося до перезапуску."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Điều khiển từ xa đã kết thúc trước khi khởi động lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "远程控制在重启前已结束。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "遠端控制在重新啟動前已結束。"
+          }
+        }
+      }
+    },
+    "restartOutcome.why.trigger": {
+      "comment": "Agent pane: why a turn cut by a restart waits for the person",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "بدأت أتمتة هذا الدور؛ ربما تكون قد نفّذت إجراءً بالفعل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ovaj korak je pokrenula automatizacija; možda je već djelovala."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En automatisering startede denne tur; den kan allerede have handlet."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eine Automatisierung hat diesen Durchlauf gestartet; sie hat möglicherweise schon gehandelt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An automation started this turn; it may already have acted."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una automatización inició este turno; puede que ya haya actuado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Une automatisation a lancé ce tour ; elle a peut-être déjà agi."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un'automazione ha avviato questo turno; potrebbe aver già agito."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "自動化がこのターンを開始しました。すでに処理が行われた可能性があります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ស្វ័យប្រវត្តិកម្មបានចាប់ផ្តើមវេននេះ វាប្រហែលជាបានធ្វើសកម្មភាពរួចហើយ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "자동화가 이 턴을 시작했으며, 이미 작업을 수행했을 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En automatisering startet denne runden; den kan allerede ha handlet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tę turę rozpoczęła automatyzacja; mogła już coś zrobić."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uma automação iniciou este turno; ela pode já ter agido."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Этот ход запустила автоматизация; она могла уже что-то выполнить."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ระบบอัตโนมัติเริ่มรอบนี้ และอาจดำเนินการไปแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu turu bir otomasyon başlattı; zaten işlem yapmış olabilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Цей хід запустила автоматизація; вона могла вже щось виконати."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Một tự động hóa đã bắt đầu lượt này; có thể nó đã thực hiện hành động."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此轮由自动化启动；它可能已经执行了操作。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此輪由自動化啟動；它可能已經執行了動作。"
+          }
+        }
+      }
+    },
+    "restartOutcome.why.hidden_context": {
+      "comment": "Agent pane: why a turn cut by a restart waits for the person",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "احتوى طلبه على مستند لا يتم الاحتفاظ به؛ سيُشغَّل كاملًا من جديد عند إرساله مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Njegov upit je sadržavao dokument koji se ne čuva; pri ponovnom slanju izvršava se u cijelosti iznova."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dens prompt indeholdt et dokument, der ikke gemmes; den køres helt forfra, når den sendes igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Prompt enthielt ein Dokument, das nicht gespeichert wird; beim erneuten Senden läuft er komplett neu."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Its prompt carried a document that is not kept; it runs again whole when sent again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Su prompt incluía un documento que no se conserva; se ejecuta completo de nuevo al enviarlo otra vez."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Son prompt contenait un document qui n'est pas conservé ; il est relancé en entier à l'envoi suivant."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il prompt conteneva un documento che non viene conservato; viene eseguito di nuovo per intero all'invio successivo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "プロンプトに保持されないドキュメントが含まれていました。再送信すると最初から実行されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ប្រអប់បញ្ចូលរបស់វាមានឯកសារដែលមិនត្រូវបានរក្សាទុក វានឹងដំណើរការទាំងស្រុងម្តងទៀតនៅពេលផ្ញើម្តងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "프롬프트에 보관되지 않는 문서가 포함되어 있었습니다. 다시 보내면 처음부터 전체가 실행됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prompten inneholdt et dokument som ikke lagres; den kjøres helt på nytt når den sendes igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Jego prompt zawierał dokument, który nie jest przechowywany; po ponownym wysłaniu zostanie uruchomiony w całości od nowa."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O prompt continha um documento que não é mantido; ele roda inteiro de novo quando enviado outra vez."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "В его запросе был документ, который не сохраняется; при повторной отправке он выполнится заново целиком."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "พรอมต์มีเอกสารที่ไม่ได้เก็บไว้ จะรันใหม่ทั้งหมดเมื่อส่งอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "İstemi saklanmayan bir belge içeriyordu; tekrar gönderildiğinde baştan tamamen çalışır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Його запит містив документ, який не зберігається; після повторного надсилання він виконається заново повністю."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lời nhắc có một tài liệu không được lưu giữ; khi gửi lại, nó chạy lại toàn bộ."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "其提示词包含未保留的文档；再次发送时将整体重新运行。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "其提示詞包含未保留的文件；再次傳送時將整體重新執行。"
+          }
+        }
+      }
+    },
+    "restartOutcome.why.prompt_not_received": {
+      "comment": "Agent pane: why a turn cut by a restart waits for the person",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم يتلقَّ الوكيل هذا الطلب أبدًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agent nikada nije primio ovaj upit."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agenten modtog aldrig denne prompt."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Agent hat diesen Prompt nie erhalten."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The agent never received this prompt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El agente nunca recibió este prompt."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L'agent n'a jamais reçu ce prompt."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L'agente non ha mai ricevuto questo prompt."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "エージェントはこのプロンプトを受信しませんでした。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ភ្នាក់ងារមិនដែលទទួលបានប្រអប់បញ្ចូលនេះទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "에이전트가 이 프롬프트를 받지 못했습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agenten mottok aldri denne prompten."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agent nigdy nie otrzymał tego promptu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O agente nunca recebeu este prompt."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Агент так и не получил этот запрос."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เอเจนต์ไม่เคยได้รับพรอมต์นี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajan bu istemi hiç almadı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Агент так і не отримав цей запит."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tác tử chưa bao giờ nhận được lời nhắc này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "智能体从未收到此提示词。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "智慧代理從未收到此提示詞。"
+          }
+        }
+      }
+    },
+    "restartOutcome.why.no_prompt": {
+      "comment": "Agent pane: why a turn cut by a restart was not continued",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم يكن هناك طلب للمتابعة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nije bilo upita za nastavak."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der var ingen prompt at fortsætte."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Es gab keinen Prompt zum Fortsetzen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "There was no prompt to continue."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No había ningún prompt que continuar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il n'y avait aucun prompt à poursuivre."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Non c'era nessun prompt da continuare."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "続行するプロンプトがありませんでした。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនមានប្រអប់បញ្ចូលដើម្បីបន្តទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이어서 진행할 프롬프트가 없었습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Det var ingen prompt å fortsette."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie było promptu do kontynuowania."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não havia prompt para continuar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не было запроса для продолжения."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่มีพรอมต์ให้ดำเนินการต่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Devam ettirilecek bir istem yoktu."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не було запиту для продовження."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không có lời nhắc nào để tiếp tục."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "没有可继续的提示词。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "沒有可繼續的提示詞。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

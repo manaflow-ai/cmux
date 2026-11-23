@@ -287,6 +287,10 @@ pub const CAPABILITIES: &[Capability] = &[
     // `_acpmux/retry {sessionId}` on a sub-session whose last turn was stopped continues it in
     // the same chat (`hub/subsession_resume.rs`): its row offers Resume only under it.
     Capability { id: "subsession-resume-v1", wire: &[method::MUX_RETRY] },
+    // `_acpmux/retry {atReset}` arms (or with `cancel` cancels) a one-shot resume of a
+    // usage-limited turn at its reported reset; the row carries `resumeAtReset`
+    // (`hub/auto_resume/at_reset.rs`). The pane offers it only under this id.
+    Capability { id: "resume-at-reset-v1", wire: &[method::MUX_RETRY, method::SESSION_UPDATE] },
     // Stop one of a chat's background subagents. acpmux takes the method for
     // every harness, but only the Claude stdio adapter acts on it
     // (`claude_stdio/outbound.rs`); others pass it on to the agent.

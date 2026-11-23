@@ -474,6 +474,20 @@ where it stopped (provenance `{kind: "auto_resume", reason: "stopped", promptId,
 true}`, prompt id `stopped-resume-<ms>`), never queued (`retry.busy`), answered once it starts
 (`hub/subsession_resume.rs`). A top-level chat's stopped turn still says `retry.nothing_failed`.
 A parent's Stop stops only the parent's own turn; its sub-sessions run on.
+With `atReset: true` (capability `resume-at-reset-v1`) it arms a one-shot resume of a
+usage-limited failed last turn at the reset its provider reported, instead of now; `cancel: true`
+cancels it (`retry.at_reset.not_armed` when none is). It is offered (the row's `resumeAtReset`
+`{state: offered | armed | unknown_reset, turnId, resetsAt}`) only while nothing resumes the turn
+by itself (`retry.at_reset.already_scheduled`), and never guesses a reset
+(`retry.at_reset.unknown_reset`: retry by hand). It is bound to the failed turn and the
+`~resume-<n>` it sends, logged as `resume_at_reset` (`armed`, `cancelled` with `why`, `fired`,
+`failed`) and restored across a restart; it records `fired` before it sends, so it sends at most
+once. New work, a pending permission, archive, close or a later run cancel it
+(`hub/auto_resume/at_reset.rs`).
+A turn a daemon restart cut ends with `restartOutcome` in its result (the row's `lastTurn`):
+`{state: resumed | waiting_for_user | unable_to_resume, nextAction: none | send_again |
+review_then_send | retry, why, continuationPromptId, unfinishedTools, toolsOmitted}`, what
+recovery decided, said once, so the chat can show it (`hub/restart_outcome.rs`).
 With `subagentId` (`acpmux retry NAME --subagent ID`, `retry_session {subagent}`; capability
 `subagent-retry-v1`) it resumes that failed subagent instead, by its id or agent id: a waiting
 automatic retry fires now, else one more goes, as the prompt the automatic one sends

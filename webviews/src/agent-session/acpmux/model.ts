@@ -33,6 +33,7 @@ import {
 } from "./transcriptGrid";
 import type { MachineResources } from "./machineResources";
 import type { AutoResumeStatus } from "./autoResumeStatus";
+import type { RecoveryStatus } from "./recoveryStatus";
 import type { VideoInfo } from "./composer/videoAttachments";
 import type { AttachmentSource } from "./attachments";
 import type { HarnessIconSpec } from "../shared/harnessIcons";
@@ -1248,6 +1249,8 @@ export type AcpmuxSnapshot = {
   type: "snapshot";
   /** The selected chat's daemon-owned retry, including the last automatic attempt. */
   autoResume?: AutoResumeStatus;
+  /** What acpmux did, or can do, about the selected chat's last turn (recoveryStatus.ts). */
+  recovery?: RecoveryStatus;
   protocolVersion: number;
   rows: AcpmuxRow[];
   /// Reply row ids removed by explicit message_superseded events; refresh retention must not restore them.

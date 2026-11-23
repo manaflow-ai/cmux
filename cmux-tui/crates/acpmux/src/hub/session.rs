@@ -124,6 +124,8 @@ pub struct Session {
     /// A continuation folded into the queue's next turn at a reset leaves its words here
     /// (`rate_hold.rs` `rate_hold_due`); that turn takes them.
     pub(super) rate_note: StdMutex<Option<String>>,
+    /// The one-shot resume at the reset the person armed (`auto_resume/at_reset.rs`).
+    pub(super) resume_at_reset: StdMutex<Option<auto_resume::at_reset::Armed>>,
     pub(super) turn_lock: Mutex<()>,
     /// Set while `_acpmux/release_to_watch` waits to hand the chat to a terminal: a new prompt
     /// is refused (`watch.releasing`, `release_to_watch.rs`) rather than lost.

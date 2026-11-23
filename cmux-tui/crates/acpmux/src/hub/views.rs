@@ -189,7 +189,7 @@ pub fn status_indicator(summary: &Value) -> Option<&'static str> {
 
 /// The keys of a turn's result kept as the session's `lastTurn` (its `detail` names why a turn
 /// ended without an answer, e.g. `outcome_unknown`).
-pub(super) const LAST_TURN_KEYS: [&str; 10] = [
+pub(super) const LAST_TURN_KEYS: [&str; 11] = [
     "turnId",
     "promptId",
     "status",
@@ -200,6 +200,7 @@ pub(super) const LAST_TURN_KEYS: [&str; 10] = [
     "errorKind",
     "recovery",
     "details",
+    "restartOutcome",
 ];
 
 impl Hub {
@@ -914,6 +915,7 @@ impl Hub {
             // A retry of its failed last turn waits, or is being decided (`auto_resume.rs`).
             retry,
             retry_deciding,
+            resume_at_reset: self.resume_at_reset_row(session, &m),
             attached: session.attached.load(Ordering::SeqCst) as u64,
             // Some attached client shows the chat (`hub/seen.rs`).
             shown: self.shown(session),

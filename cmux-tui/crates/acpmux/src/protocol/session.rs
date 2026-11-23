@@ -311,6 +311,10 @@ pub struct SessionSummary {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     #[schemars(default)]
     pub retry_deciding: bool,
+    /// Its last turn failed on the account's usage limit and nothing goes on by itself: the
+    /// one-shot resume at the reset it may arm, or has armed (`hub/auto_resume/at_reset.rs`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resume_at_reset: Option<ResumeAtReset>,
     /// Attached clients.
     pub attached: u64,
     /// Some attached client shows the chat.
@@ -782,7 +786,55 @@ pub struct LastTurn {
     pub recovery: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub details: Option<ErrorDetails>,
+    /// A turn a daemon restart cut: what recovery did with it (`hub/restart_outcome.rs`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub restart_outcome: Option<RestartOutcome>,
     pub ended_at: u64,
+}
+
+/// What recovery did with a turn a daemon restart cut, as its conversation shows it: one next
+/// action, and the detail behind it (`hub/restart_outcome.rs`). Recorded on the cut turn's
+/// `turn_result`, so `lastTurn` carries it until the chat's next turn ends.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RestartOutcome {
+    pub state: RestartOutcomeState,
+    /// What the person does next: `none` (its continuation goes on by itself), `send_again`,
+    /// `review_then_send` (a trigger's turn: inspect what it did first) or `retry`.
+    pub next_action: RestartNextAction,
+    /// Why it did not resume: `auto_resume_off`, `attempts_exhausted`, `stopped`,
+    /// `remote_floor_cancel`, `remote_control_ended`, `no_prompt`, `trigger`, `hidden_context`
+    /// or `prompt_not_received`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub why: Option<String>,
+    /// The continuation recovery queued (`resumed`): queued, not delivered, until a turn with
+    /// this prompt id starts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub continuation_prompt_id: Option<String>,
+    /// Tool calls the cut turn started and the log never saw finish: their outcome is unknown,
+    /// never that they still run.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unfinished_tools: Vec<String>,
+    /// More unfinished tool calls than `unfinishedTools` names, or histories not read.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub tools_omitted: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum RestartOutcomeState {
+    Resumed,
+    WaitingForUser,
+    UnableToResume,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum RestartNextAction {
+    None,
+    SendAgain,
+    ReviewThenSend,
+    Retry,
 }
 
 /// The facts of a typed failure (`errorKind`); only the keys that apply are present.
@@ -884,6 +936,13 @@ pub struct RetryParams {
     /// (`hub/subagent_retry_manual.rs`), never taken as the chat's own turn.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub subagent_id: Option<String>,
+    /// Not now, but once at the reset the provider reported for the usage limit that failed
+    /// the last turn (`hub/auto_resume/at_reset.rs`): opt-in, armed for that failed turn only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub at_reset: Option<bool>,
+    /// With `atReset`: cancel the resume at the reset that is armed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cancel: Option<bool>,
 }
 
 /// What `_acpmux/retry` sent: the prompt `promptId` (for the chat's turn `P~resume-n`, the next
@@ -896,6 +955,13 @@ pub struct RetryResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub turn_id: Option<String>,
     pub kind: RetryKind,
+    /// `at_reset`: when the armed resume sends `promptId` (Unix ms), the provider's reset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resets_at: Option<u64>,
+    /// `at_reset` with `cancel`: the armed resume was cancelled.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[schemars(default)]
+    pub cancelled: bool,
 }
 
 /// What `_acpmux/retry` retried: the chat's own turn, or one of its subagents.
@@ -904,6 +970,33 @@ pub struct RetryResult {
 pub enum RetryKind {
     Turn,
     Subagent,
+    /// Armed (or cancelled) for the reset, not sent now (`atReset`).
+    AtReset,
+}
+
+/// A one-shot resume of the chat's usage-limited last turn at the provider's reset
+/// (`hub/auto_resume/at_reset.rs`), as the row offers it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ResumeAtReset {
+    pub state: ResumeAtResetState,
+    /// The failed turn it is bound to.
+    pub turn_id: String,
+    /// The reset the provider reported (Unix ms). Absent for `unknown_reset`: no countdown is
+    /// guessed, and the person retries by hand.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resets_at: Option<u64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ResumeAtResetState {
+    /// `_acpmux/retry {atReset: true}` would arm it.
+    Offered,
+    /// Armed: it sends once at `resetsAt`; `{atReset: true, cancel: true}` cancels it.
+    Armed,
+    /// The provider reported no reset: only a retry by hand.
+    UnknownReset,
 }
 
 /// Also the page fields of `_acpmux/watch` (`hub::session_pages`).

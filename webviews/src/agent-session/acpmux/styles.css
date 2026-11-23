@@ -883,6 +883,12 @@ button.acpmux-edited-file:hover{background:var(--ds-surface-hover)}
 .acpmux-instructions-notice button[data-notice-action=dismiss]{background:transparent;color:var(--agent-muted)}
 .acpmux-composer{flex-wrap:wrap}.acpmux-composer-dropping .acpmux-composer-box{border-color:var(--agent-accent)}
 .acpmux-switch-notice{display:block;padding:0 var(--cv-inset,max(18px,calc((100% - 760px)/2))) 6px;padding-right:var(--cv-inset-end,var(--cv-inset));color:var(--agent-muted);font-size:12px;line-height:16px}
+/* The recovery line (RecoveryNotice.tsx): its one action reads as a link, as the folder ask's; Details opens under the line. */
+.acpmux-recovery-action{padding:0;border:0;background:none;color:var(--agent-accent,inherit);font:inherit;text-decoration:underline;cursor:default}
+.acpmux-recovery-action:disabled{opacity:.6}
+.acpmux-recovery-details:not([open]),.acpmux-recovery-details:not([open])>summary{display:inline}
+.acpmux-recovery-details{margin-left:var(--grid-gap)}
+.acpmux-recovery-details>p{margin:var(--grid-half-step) 0 0}
 .acpmux-newtab-folder-ask{position:relative;z-index:var(--layer-raised,2);padding-top:8px}
 .acpmux-folder-choice-button{padding:0;border:0;background:none;color:var(--agent-accent,inherit);font:inherit;text-decoration:underline;cursor:default}
 /* A New Tab start failure's Details stays on its line until opened (newtab/StartFailure.tsx). */

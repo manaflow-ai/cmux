@@ -639,6 +639,8 @@ export type LastTurn = {
   promptId?: (string | null);
   /** One sentence saying what to do about the failure. */
   recovery?: (string | null);
+  /** A turn a daemon restart cut: what recovery did with it (`hub/restart_outcome.rs`). */
+  restartOutcome?: (RestartOutcome | null);
   /** `completed`, `failed` or `cancelled`. */
   status?: (string | null);
   stopReason?: (string | null);
@@ -1312,14 +1314,74 @@ export interface ResolveParams {
   sessionId?: unknown;
 }
 
+export type RestartNextAction = "none" | "send_again" | "review_then_send" | "retry";
+
+/**
+ * What recovery did with a turn a daemon restart cut, as its conversation shows it: one next
+ * action, and the detail behind it (`hub/restart_outcome.rs`). Recorded on the cut turn's
+ * `turn_result`, so `lastTurn` carries it until the chat's next turn ends.
+ */
+export type RestartOutcome = {
+  /**
+   * The continuation recovery queued (`resumed`): queued, not delivered, until a turn with
+   * this prompt id starts.
+   */
+  continuationPromptId?: (string | null);
+  /**
+   * What the person does next: `none` (its continuation goes on by itself), `send_again`,
+   * `review_then_send` (a trigger's turn: inspect what it did first) or `retry`.
+   */
+  nextAction: RestartNextAction;
+  state: RestartOutcomeState;
+  /** More unfinished tool calls than `unfinishedTools` names, or histories not read. */
+  toolsOmitted?: boolean;
+  /**
+   * Tool calls the cut turn started and the log never saw finish: their outcome is unknown,
+   * never that they still run.
+   */
+  unfinishedTools?: string[];
+  /**
+   * Why it did not resume: `auto_resume_off`, `attempts_exhausted`, `stopped`,
+   * `remote_floor_cancel`, `remote_control_ended`, `no_prompt`, `trigger`, `hidden_context`
+   * or `prompt_not_received`.
+   */
+  why?: (string | null);
+} & Record<string, unknown>;
+
+export type RestartOutcomeState = "resumed" | "waiting_for_user" | "unable_to_resume";
+
+/**
+ * A one-shot resume of the chat's usage-limited last turn at the provider's reset
+ * (`hub/auto_resume/at_reset.rs`), as the row offers it.
+ */
+export type ResumeAtReset = {
+  /**
+   * The reset the provider reported (Unix ms). Absent for `unknown_reset`: no countdown is
+   * guessed, and the person retries by hand.
+   */
+  resetsAt?: (number | null);
+  state: ResumeAtResetState;
+  /** The failed turn it is bound to. */
+  turnId: string;
+} & Record<string, unknown>;
+
+export type ResumeAtResetState = ("offered" | "armed" | "unknown_reset");
+
 /** What `_acpmux/retry` retried: the chat's own turn, or one of its subagents. */
-export type RetryKind = "turn" | "subagent";
+export type RetryKind = ("turn" | "subagent" | "at_reset");
 
 /**
  * `_acpmux/retry` (the Retry button, `acpmux retry`): retry the chat's failed last turn now,
  * in the same session (`hub/auto_resume/retry_turn.rs`).
  */
 export interface RetryParams {
+  /**
+   * Not now, but once at the reset the provider reported for the usage limit that failed
+   * the last turn (`hub/auto_resume/at_reset.rs`): opt-in, armed for that failed turn only.
+   */
+  atReset?: (boolean | null);
+  /** With `atReset`: cancel the resume at the reset that is armed. */
+  cancel?: (boolean | null);
   /** The chat's id, name or unique prefix. */
   sessionId: string;
   /**
@@ -1344,8 +1406,12 @@ export type RetryReason = "capacity" | "rate_limit" | "transport" | "agent_exite
  * it started.
  */
 export type RetryResult = {
+  /** `at_reset` with `cancel`: the armed resume was cancelled. */
+  cancelled?: boolean;
   kind: RetryKind;
   promptId: string;
+  /** `at_reset`: when the armed resume sends `promptId` (Unix ms), the provider's reset. */
+  resetsAt?: (number | null);
   turnId?: (string | null);
 } & Record<string, unknown>;
 
@@ -1691,6 +1757,11 @@ export type SessionDetail = {
    * "rate-limited until HH:MMZ". Absent otherwise, and from a peer on an older acpmux.
    */
   rateLimitedUntil?: (number | null);
+  /**
+   * Its last turn failed on the account's usage limit and nothing goes on by itself: the
+   * one-shot resume at the reset it may arm, or has armed (`hub/auto_resume/at_reset.rs`).
+   */
+  resumeAtReset?: (ResumeAtReset | null);
   /**
    * The chat's earlier native ids, oldest first (`SessionMeta::retired_agent_session_ids`):
    * a Codex chat's earlier roots, which its older records still name, so a client folding
@@ -2066,6 +2137,11 @@ export type SessionSummary = {
    * "rate-limited until HH:MMZ". Absent otherwise, and from a peer on an older acpmux.
    */
   rateLimitedUntil?: (number | null);
+  /**
+   * Its last turn failed on the account's usage limit and nothing goes on by itself: the
+   * one-shot resume at the reset it may arm, or has armed (`hub/auto_resume/at_reset.rs`).
+   */
+  resumeAtReset?: (ResumeAtReset | null);
   /**
    * The chat's earlier native ids, oldest first (`SessionMeta::retired_agent_session_ids`):
    * a Codex chat's earlier roots, which its older records still name, so a client folding

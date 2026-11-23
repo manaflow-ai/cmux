@@ -119,7 +119,13 @@ impl Hub {
             },
         };
         let turn_id = accepted.get("turnId").and_then(Value::as_str).map(str::to_owned);
-        let result = RetryResult { prompt_id, turn_id, kind: RetryKind::Turn };
+        let result = RetryResult {
+            prompt_id,
+            turn_id,
+            kind: RetryKind::Turn,
+            resets_at: None,
+            cancelled: false,
+        };
         Ok(serde_json::to_value(result).unwrap_or(Value::Null))
     }
 }

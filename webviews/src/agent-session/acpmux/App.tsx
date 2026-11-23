@@ -352,7 +352,7 @@ import { OpenBackgroundTasks, requestBackgroundFocus, useBackgroundFocus } from 
 import { backgroundGroups, type TaskCache } from "./backgroundTasks/backgroundTasks";
 import { backgroundTasksLook } from "./backgroundTasks/backgroundTasksLook.experiment";
 import { settleTrayExit } from "./subagents/trayMotionModel";
-import { runRetry, type RetryTarget } from "./subagents/retryState";
+import { RETRY_METHOD, runRetry, type RetryTarget } from "./subagents/retryState";
 import { runResume as runSubagentResume } from "./subagents/resumeState";
 import { configureWorkflowCardOpen, configureWorkflowCardSideTab } from "./summary/workflowCardModel";
 import {
@@ -699,6 +699,8 @@ import { Notice, NoticeSlot } from "./NoticeSlot";
 import { createPaneToasts, paneNotices, postNativePaneToast } from "./paneToasts";
 import { ToastLayer } from "./ToastLayer";
 import { AutoResumeNotice } from "./AutoResumeNotice";
+import { RecoveryNotice } from "./RecoveryNotice";
+import { RESUME_AT_RESET } from "./recoveryStatus";
 import { liveAutoResume, turnPhase } from "./turnPhase";
 import { RulesNotice } from "./RulesNotice";
 import { type ForumRule, forumRules } from "./rulesNoticeModel";
@@ -12520,6 +12522,28 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           </output>
         </Notice>
         {!showNewTab && <AutoResumeNotice state={liveAutoResume(liveTurnPhase, snapshot.autoResume)} />}
+        {/* The opt-in resume at the usage-limit reset and what recovery did after a restart
+            (RecoveryNotice.tsx): acpmux's rows, drawn; the pane only arms or cancels on a click, and
+            only where it may send to the chat (restartOwner) and acpmux serves it. */}
+        {!showNewTab && (
+          <RecoveryNotice
+            state={snapshot.recovery}
+            onResumeAtReset={
+              restartChat && directClient.current?.capabilities?.has(RESUME_AT_RESET)
+                ? ((owner: string) => (cancel: boolean) => {
+                    const client = directClient.current;
+                    if (!client || !restartReaches(owner, sessionIdRef.current, client.selectedSession))
+                      return Promise.reject(new Error("retry.not_sent"));
+                    return client.retry(RETRY_METHOD, {
+                      sessionId: owner,
+                      atReset: true,
+                      ...(cancel ? { cancel: true } : {}),
+                    });
+                  })(restartChat)
+                : undefined
+            }
+          />
+        )}
         {!showNewTab && (
           <ShareNudge
             open={shareNudge.shown}
