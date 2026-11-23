@@ -42,8 +42,8 @@ pub const MAX_RESENDS_PER_FEEDBACK: usize = 64;
 /// Shortest time between two forced keyframes.
 pub const MIN_FORCED_IDR_INTERVAL_US: u64 = 250_000;
 /// Longest a keyframe's time on the wire holds a recovery ask back (beyond
-/// [`MIN_FORCED_IDR_INTERVAL_US`]): the viewer waits at most 1.5 s for a frame.
-pub const KEYFRAME_WAIT_MAX_US: u64 = 1_500_000;
+/// [`MIN_FORCED_IDR_INTERVAL_US`]): as long as the viewer waits for a keyframe.
+pub const KEYFRAME_WAIT_MAX_US: u64 = cmux_rd_core::reassembly::MAX_KEYFRAME_WAIT_US;
 /// How long a stream's newest frame may go unacknowledged before the host
 /// resends it (a tail-loss probe). On a datagram path a frame whose every
 /// datagram was lost leaves the viewer nothing to NACK and the gate nothing
