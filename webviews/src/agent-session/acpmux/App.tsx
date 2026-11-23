@@ -525,7 +525,6 @@ import { hostLineText } from "./hostLine";
 import { AcpmuxRestartGate, type HostRestoring, readHostRestoring, hostSelfRetrying } from "./hostRetry";
 import { pageShowsWhatItIs } from "./firstPaint";
 import { ShellRuns } from "./shell/shellRuns";
-import { type Subagent } from "./subagents/subagentFold";
 import { restartOwner, restartReaches } from "./subagents/restart";
 import { type SubagentRows, runningGroups, subagentsIn } from "./subagents/subagentRows";
 import { foldOwnLog, subagentPaneView, useOwnLog, needsOwnLog } from "./subagents/subagentOwnLog";
