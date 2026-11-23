@@ -1198,21 +1198,26 @@ class ScriptBehavior(unittest.TestCase):
         self.assertEqual(len(list(barrier.glob("started-*"))), 4)
         self.assertEqual({e["gate"] for e in self.gate_log()}, set(GATE_SCRIPTS))
 
-    def test_no_gate_started_has_a_critical_path_fallback(self):
+    def test_a_zero_budget_stops_every_started_gate_and_still_names_a_critical_path_gate(self):
+        # Gates start side by side (#50061), so a spent budget no longer leaves every gate unstarted: each lane's first
+        # gate starts and is stopped as stalled, and a gate queued behind another in its lane (webviews checks behind
+        # web lint) never starts. The summary still names a critical-path gate, never "no gate ran".
         work, _ = self.prepared()
         summary = self.tmp / "summary.md"
-        result = self.script(work, "run", "--base", self.tip, "--web", "false", "--checks", "false",
+        result = self.script(work, "run", "--base", self.tip, "--web", "true", "--checks", "true",
                              budget=0, summary=summary)
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("Critical-path gate: **no gate ran**", summary.read_text())
+        text = summary.read_text()
+        self.assertRegex(text, r"Critical-path gate: \*\*(?!no gate ran)[^*]+\*\* \(")
+        self.assertIn("failed (no time left)", text)
 
     def test_gate_logs_are_named_per_gate_across_batches(self):
         module = load(SCRIPT)
         with tempfile.TemporaryDirectory(prefix="fast-gates-logs-") as tmp:
             log_dir = Path(tmp)
-            first = module.run_gate_batch([("crash ratchet", [sys.executable, "-c", "pass"])],
+            first = module.run_gate_batch([[("crash ratchet", [sys.executable, "-c", "pass"])]],
                                           Path(tmp), None, log_dir)
-            second = module.run_gate_batch([("webviews checks", [sys.executable, "-c", "pass"])],
+            second = module.run_gate_batch([[("webviews checks", [sys.executable, "-c", "pass"])]],
                                            Path(tmp), None, log_dir)
             self.assertIn("crash-ratchet.log", {path.name for path in log_dir.iterdir()})
             self.assertIn("webviews-checks.log", {path.name for path in log_dir.iterdir()})
