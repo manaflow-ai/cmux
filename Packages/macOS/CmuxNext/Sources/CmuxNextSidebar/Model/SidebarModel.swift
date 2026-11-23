@@ -46,6 +46,8 @@ public final class SidebarModel {
     @ObservationIgnored private var storedSections: [SidebarSection] { didSet { contentRevision &+= 1 } }
     /// The settled chats of `contentRevision` (`settledChats()`): one Rust call per change of the rows, not per layout.
     @ObservationIgnored var settleCache: (revision: UInt64, settled: Set<WorkspaceID>)?
+    /// The automatic sessions of `contentRevision` (`automaticSessions()`): one Rust call per change of the rows.
+    @ObservationIgnored var automaticCache: (revision: UInt64, automatic: Set<WorkspaceID>)?
     /// The latest document projection before user customization. Keeping this
     /// source lets a live settings reload restore sections or rows that were
     /// hidden by the previous value.
@@ -272,6 +274,9 @@ public final class SidebarModel {
     public var showsTimestamps = false
     /// Seen, finished agent chats fold behind a "Settled (N)" row (`sidebar.settleFinished`, off by default).
     public var settlesFinished = false
+    /// Sessions no person started and no chat's subagent draw in place (`sidebar.showAutomaticSessions`, off by
+    /// default: they fold behind an "Automatic (N)" row).
+    public var showsAutomaticSessions = false
     /// `sidebar.showColors` (off: no workspace or group color) and `workspaceColors.indicatorStyle`.
     public var showsColors = true
     public var colorIndicator: WorkspaceColorIndicatorStyle = .leftRail
@@ -330,6 +335,10 @@ public final class SidebarModel {
     /// A workspace's pin state and the Pin/Unpin Workspace action, from the
     /// App (layout tiles or the daemon flag): an expanded row's hover pin.
     @ObservationIgnored public var workspacePin: (isPinned: (WorkspaceID) -> Bool, toggle: (WorkspaceID) -> Void)?
+    /// A press on a chat's subagent under its row (`SidebarSubagentsView`): shows chat tab `TabID` of the workspace and
+    /// opens the subagent's pane beside it, as the chat's own subagent cards do; nil (the stacked line, "N more") shows
+    /// the chat only. Nil while the App offers none (the standalone mock).
+    @ObservationIgnored public var openSubagent: ((WorkspaceID, TabID, SidebarSubagent?) -> Void)?
     /// The sections another space shows (R99: the page beside the current
     /// one during a horizontal swipe). Read when a swipe reaches that page.
     @ObservationIgnored public var spaceSections: ((ProfileKey) -> [SidebarSection])?
@@ -779,6 +788,7 @@ public final class SidebarModel {
         detailedStatus = preferences.detailedStatusIcons
         showsTimestamps = preferences.showTimestamps
         settlesFinished = preferences.settleFinished
+        showsAutomaticSessions = preferences.showAutomaticSessions
         (showsColors, colorIndicator) = (preferences.showColors, preferences.workspaceColorIndicator)
         showsLocalMachine = preferences.showLocalMachine
         groupHeaderDetails = GroupHeaderDetails(memberCount: preferences.groupHeaderMemberCount,
@@ -832,6 +842,8 @@ public final class SidebarModel {
         (o.openDoneFolds, o.openShowMore) = (openDoneFolds, openShowMore)
         o.grouping = settledGrouping()
         if settlesFinished { o.settled = settledChats() }
+        o.automatic = automaticSessions()
+        o.subagentLook = SidebarTunables.subagentLook.value
         return o
     }
 

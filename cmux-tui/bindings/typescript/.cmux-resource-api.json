@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "bdd9b406e3fff73814beb1c41a4e0659400765afd6aa986a507927458fb34eb8",
+  "catalog_sha256": "551a51162df9c0e9a48b49fa9784634ae86c11630ce31f956cdd2dda13f42bcd",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -423,6 +423,9 @@
     },
     "git.worktree.setup": {
       "class": "read"
+    },
+    "git.worktree.setup.run": {
+      "class": "mutation"
     },
     "history.backups.purge": {
       "class": "mutation"

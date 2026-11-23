@@ -27,7 +27,7 @@ extension NativePopupContent {
     }
 
     func activate(_ row: NativePopupRow, view: NSView) {
-        guard row.disabled != true, owns(view) else { return }
+        guard row.disabled != true, !row.isLoading, owns(view) else { return }
         if let slider = view as? NativePopupSliderView { slider.slider.commitValue(true) }
         else if row.kind == .submenu { openSubmenu(row, view) }
         else if row.kind == .toggle {

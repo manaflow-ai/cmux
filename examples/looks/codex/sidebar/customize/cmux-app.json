@@ -13,7 +13,7 @@
       "export": "renderChats",
       "title": "Chats",
       "symbol": "bubble.left.and.bubble.right",
-      "options": { "defaultRegion": "top", "maxRows": 60 }
+      "options": { "defaultRegion": "top", "maxRows": 50 }
     },
     "cmux.hovercard/1": { "export": "renderCard" },
     "cmux.sidebar.rows/1": { "export": "decorateRows" }

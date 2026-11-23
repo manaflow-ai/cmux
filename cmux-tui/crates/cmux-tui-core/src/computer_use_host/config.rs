@@ -18,8 +18,9 @@
 //!    bake writes (`cmux-vm ...` or `cmux-devbox ...`; the same stamp the
 //!    daemon trusts for `fs-v1`, cmux-tui `link/cloud_fs.rs`).
 //!
-//! On macOS the app sends the policy (`computer-use-config`) and this file's
-//! owner path is not used.
+//! On macOS the app also sends the policy (`computer-use-config`); a trusted
+//! owner file still wins over it (`server/computer_use_command.rs`), for the
+//! worker the daemon runs itself (Release and NIGHTLY builds).
 
 use std::path::{Path, PathBuf};
 
@@ -110,6 +111,9 @@ pub(crate) fn from_settings(root: &Value, base: PolicyConfig) -> PolicyConfig {
     }
     if let Some(value) = flag("whileLocked") {
         config.while_locked = value;
+    }
+    if let Some(value) = flag("alerts") {
+        config.alerts = value;
     }
     config
 }
