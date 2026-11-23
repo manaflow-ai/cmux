@@ -85,10 +85,6 @@ cmux-tui/crates/cmux-host-budget/include/cmux_host_budget_ffi.h	cmux_host_pressu
 cmux-tui/crates/cmux-host-budget/include/cmux_host_budget_ffi.h	cmux_host_pressure_tracker_free
 cmux-tui/crates/cmux-host-budget/include/cmux_host_budget_ffi.h	cmux_host_pressure_tracker_level
 cmux-tui/crates/cmux-host-budget/include/cmux_host_budget_ffi.h	cmux_host_pressure_tracker_new
-# Held until the stage-0 launch window calls its plan and input hold (cmux#45089, cmux#45389).
-cmux-tui/crates/cmux-launch-shell/include/cmux_launch_shell.h	cmux_launch_shell_input_disposition
-cmux-tui/crates/cmux-launch-shell/include/cmux_launch_shell.h	cmux_launch_shell_plan
-cmux-tui/crates/cmux-launch-shell/include/cmux_launch_shell.h	cmux_launch_shell_replays
 cmux-tui/crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h	cmux_close_focus_tab
 cmux-tui/crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h	cmux_close_focus_tab_chrome
 cmux-tui/crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h	cmux_close_focus_workspace
