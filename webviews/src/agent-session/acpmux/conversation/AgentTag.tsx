@@ -72,7 +72,9 @@ export function AgentTag({
   }
   // A plain tag's title (the agent's whole name) shows on its facts card; a hover card the tag
   // triggers (ui/Tooltip.tsx passes its handlers in `trigger`) says more and would sit under it.
-  const facts = trigger.onPointerEnter ? [] : [{ value: title ?? "" }];
+  // A title that is the name the tag already shows says nothing more (c0ecbb88f12: no tooltip on an
+  // element whose text shows), so it adds no card and no second copy of the name for screen readers.
+  const facts = trigger.onPointerEnter || title === name ? [] : [{ value: title ?? "" }];
   /** The tag's own ref and the facts card's anchor, on one element. */
   const both =
     (anchor: (element: HTMLElement | null) => void) =>
