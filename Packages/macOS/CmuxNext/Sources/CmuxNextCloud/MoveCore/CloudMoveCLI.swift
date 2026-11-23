@@ -41,6 +41,10 @@ public nonisolated struct CloudMoveCLI: Sendable {
         public var sizeLocked: JSONValue?
         /// `link start-chat plan`'s `seed_refused` for a machine smaller than the size asked (`machine.too_small`): its name.
         public var machineTitle: String?
+        /// `link start-chat plan`'s refusal the same send may pass later (a busy machine, a rate limit, an
+        /// outage; cmux-platform#1192), as Rust read it: the start card offers Retry. A rate limit's window in seconds.
+        public var retryable = false
+        public var retryAfterS: Int?
 
         public init(ok: Bool, errorCode: String? = nil, error: String? = nil, sessionID: String? = nil, transferID: String? = nil,
                     conflicts: [String] = [], side: String? = nil, updated: Bool = false, build: String? = nil, notOlder: Bool = false,
@@ -305,13 +309,27 @@ public nonisolated struct CloudMoveCLI: Sendable {
     /// `cmux link machine pin`: its output, the Linux build this client pins (``CloudLegacyPin/pin(answer:)``).
     public func machinePin() async -> Data? { try? await output(["verb": "machine-pin"]).stdout }
 
-    /// `cmux inference gateway status --json`'s `serves` (Rust `status_answer`): the agents the active team's inference
-    /// gateway serves now, empty when it is off or offline; nil when the status could not be read (hq#15762).
-    public func inferenceGatewayServes() async -> Set<String>? {
-        guard let out = try? await output(["verb": "inference-gateway-status"]).stdout,
+    /// `cmux inference gateway status --json --team <team>`'s `serves` (Rust `status_answer`): the agents `team`'s inference
+    /// gateway serves now, empty when it is off or offline; nil when the status could not be read (hq#15762). `team` is
+    /// the backend team the start's machines are made in (the install token's): a team's gateway serves only its own
+    /// machines, so the active team's would wave through a start no gateway serves.
+    public func inferenceGatewayServes(team: String) async -> Set<String>? {
+        guard let out = try? await output(["verb": "inference-gateway-status", "team": team]).stdout,
               let answer = (try? JSONSerialization.jsonObject(with: out)) as? [String: Any], answer["ok"] as? Bool == true,
               let serves = answer["serves"] as? [String] else { return nil }
         return Set(serves)
+    }
+
+    /// What the gateways of TEAMS serve together (nil teams skipped, each asked once), nil when none answers. A start's
+    /// machine can land in either the install token's team or the person's own team: production made every
+    /// cloud-chat-replies-production machine in the personal team while the install token named another (cmuxterm-hq
+    /// probe rows 2026-11-22/23), and a gateway online there was refused as "No Cloud connection serves claude".
+    public func inferenceGatewayServes(teams: [String?]) async -> Set<String>? {
+        var asked: Set<String> = [], serves: Set<String>?
+        for team in teams.compactMap({ $0 }) where asked.insert(team).inserted {
+            if let answer = await inferenceGatewayServes(team: team) { serves = (serves ?? []).union(answer) }
+        }
+        return serves
     }
 
     /// Rust validates reservation fields; the native app supplies only its trusted origin/team.

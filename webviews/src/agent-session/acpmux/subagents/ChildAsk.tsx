@@ -30,7 +30,7 @@ export const ChildAsk = memo(function ChildAsk({
   const from = t(child.direct ? "message.from.subsession" : "message.from.descendant", { name: child.name });
   return (
     <section className="acpmux-pending-ask" aria-label={from} data-child-ask={child.ask.sessionId}>
-      <div className="acpmux-pending-ask__head">
+      <div className="acpmux-pending-ask__head" data-dock-clear="">
         <span className="acpmux-pending-ask__label">{from}</span>
         <button type="button" className="acpmux-pending-ask__dismiss" onClick={() => onOpen(child.ask.sessionId)}>
           {t("subagents.open", { name: child.name })}

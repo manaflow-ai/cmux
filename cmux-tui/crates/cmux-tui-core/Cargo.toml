@@ -51,6 +51,8 @@ cmux-browser-import.workspace = true
 cmux-palette-ranker.workspace = true
 cmux-theme-tokens.workspace = true
 cmux-config.workspace = true
+# The person's saved prompts (`apps.composer.list`), in the format `cmux agent-config commands` writes.
+cmux-agent-customize.workspace = true
 # The Computer Use policy and wire types (the engine only; the worker is the cmux-tui binary).
 cmux-computer-use.workspace = true
 cmux-usage-patterns.workspace = true
@@ -140,6 +142,9 @@ tokio.workspace = true
 # client the cmux-tui binary already links for cmux.wire/1.
 tokio-tungstenite.workspace = true
 futures-util.workspace = true
+# The app's language packs (language_packs.rs): a zstd tar, the reader the cmux-tui binary
+# already links for `cmux customize use pr:N`.
+tar.workspace = true
 
 [target.'cfg(unix)'.dev-dependencies]
 # The SDK's raw client drives the cloud.* operations in server/cloud_api_tests.rs.

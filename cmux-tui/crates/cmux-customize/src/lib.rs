@@ -21,6 +21,7 @@ mod brief;
 pub mod community;
 mod diff;
 mod engine;
+mod file_refs;
 pub mod library;
 mod paths;
 pub mod profile;

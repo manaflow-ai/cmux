@@ -17,17 +17,17 @@ struct BoundActionCatalogTests {
     /// ignored, so the re-pin bot's pull request stays green. Add to it only for that case, never
     /// for a typo.
     static let awaitingRepin: Set<ActionID> = [
-        // View Screen on a sidebar machine header's menu lands with its handler; the pinned app FFI gains its row on re-pin.
-        "machine.viewScreen",
-        // The release action lands with the Swift handler; the pinned app FFI gains its catalog row on re-pin.
-        "home.showSetup",
         // #44169 (Screen Sharing viewer palette rows, step B) merged before its step A, #44164,
         // which adds these rows to the Rust catalog: until it lands and re-pins, they do nothing.
         "macScreen.viewOnly", "macScreen.fullControl", "macScreen.fullScreen", "macScreen.sendSwitchApp",
         "macScreen.sendSpotlight", "macScreen.reconnect", "macScreen.stopAllViewing",
-        // Debug > Tooltip Gallery: the Rust catalog has its row (cmux-action-catalog, settings.rs); the pinned app FFI
-        // gains it on re-pin. Until then the Toast Playground's button opens the gallery.
-        "debug.tooltipGallery",
+        // #46896 (the Priority view's Archived fold) adds this row to the Rust catalog
+        // (cmux-action-catalog sidebar_priority.rs) and binds it in the same pull request: until the
+        // re-pin carries it, Restore on an archived row does nothing.
+        "sidebar.priority.restore",
+        // Adjust Background…, Fill and Fit (PR #49748, step B) bind before their step A catalog rows
+        // (cmux-action-catalog backdrop.rs) re-pin: until then they do nothing.
+        "appearance.adjustBackground", "appearance.background.fill", "appearance.background.fit",
     ]
 
     @Test func everyBoundActionIsInTheCatalog() {

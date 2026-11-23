@@ -58,6 +58,8 @@ mod git_ops;
 pub mod git_seed;
 mod history_ops;
 pub mod history_search;
+/// `language_packs.ensure`: the app's languages, downloaded on first use.
+pub(crate) mod language_packs;
 #[cfg(unix)]
 pub mod projection;
 /// The image paste spool; the cmux-tui-image-paste crate, re-exported at the old path.
@@ -112,6 +114,7 @@ mod shell_history;
 mod shell_integration;
 #[cfg(unix)]
 mod shell_runs;
+mod shell_state;
 pub mod startup_timings;
 use cmux_tui_util::short_id;
 mod sidebar_resource;

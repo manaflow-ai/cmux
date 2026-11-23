@@ -1007,12 +1007,13 @@ final class RowCell: UICollectionViewCell {
             if !queued {
             RowBitmaps.shared.want(want)
             pendingWant = want
-            RowBitmaps.shared.request(want, scale: renderScale) { [weak self, scale = renderScale] img in
+            RowBitmaps.shared.request(want, scale: renderScale) { [weak self, scale = renderScale, palette = Fixture.paletteGeneration] img in
                 if self?.pendingWant == want { self?.dropWant() }
                 // A bitmap of the scale the cell had at the request (a scale change since: its own request follows).
+                // cmux: and of its palette: one asked before a theme change can land after the new one's.
                 // cmux: a streaming bubble's earlier text that lands after a newer one was asked for still shows
                 // (top at the row's top, its own size): under a fast stream every text is followed by a newer one.
-                guard let self, self.renderScale == scale,
+                guard let self, self.renderScale == scale, self.palette == palette,
                       self.spec == want || (self.spec?.key == want.key && RowCell.streamDrawsOffMain(want)
                                             && self.drawn.map { $0.spec != want } ?? true) else { return }
                 CATransaction.begin(); CATransaction.setDisableActions(true)

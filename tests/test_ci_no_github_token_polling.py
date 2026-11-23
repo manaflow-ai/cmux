@@ -55,7 +55,7 @@ ALLOWED: dict[str, str] = {
     'cmux-next.yml: Probe the same-tree cmux-tui':
         'a same-repository PR whose merge has its own unpublished cmux-tui tree waits for an active trusted publisher (pin-cmux-tui.sh await_outside_publisher): two run reads every 10 s, at most 10 passes; forks look once; pushes and DEV dispatches look once, then re-check once after 20 s',
     'cmux-tui-artifacts.yml: Re-check the owner after leaving the marker':
-        'only when this run deferred to a same-key owner whose hand-off job has started: one owner-run read every 15 s, at most 12 passes',
+        'only when this run deferred to a same-key owner whose hand-off job has started and the CDN does not show the tree: one owner-run read every 45 s, at most 4 passes (was every 15 s, 12 passes)',
     'cmux-next-generated-catch-up.yml: Select PRs that conflict with feat-cmux-next':
         "per feat-cmux-next push, only while a PR's mergeable is UNKNOWN: re-lists open PRs every 20 s, at most 5 more times",
     "app-ffi-release.yml: Watch the build and rescue it":
@@ -107,8 +107,8 @@ ALLOWED: dict[str, str] = {
     'ci-cloud-overflow-probe.yml: Probe and switch':
         'every 10 min: watches its probe job, one jobs read every 15 s for at most CI_CLOUD_PROBE_MINUTES + 5 (7 to 25 min); a candidate for an App token',
     'cmux-next-hot-verify.yml: Dispatch the look':
-        'retry only (#45104): a look dispatch that failed is tried again, at most 6 tries in 20 minutes, 30 s doubling; '
-        'a rate limit waits for its reset, read from the rate_limit endpoint (no quota)',
+        'retry only (#45104): a look dispatch that failed for a reason other than a rate limit is tried again, at '
+        'most 3 tries, 30 s doubling; a rate limit moves to the cmux-bot spare pool (gh_budget_wait.sh) at once',
     'ci-macos.yml: Try parallel GitHub artifact transport':
         'retry only: an artifact download is retried after a failure, at most 4 tries, 1-8 s apart',
     'ci-owned-pool-rescue.yml: Watch runs on persistent pools':
@@ -118,10 +118,6 @@ ALLOWED: dict[str, str] = {
     'cmux-next-batch.yml: Wait for quiet, then dispatch a batch':
         'only when CMUX_NEXT_BATCH_ENABLED=1: one debounce sleep between two run listings, then a dispatch; the flagged loop (GraphQL paging with one 10 s retry) is in the batch subcommand this step does not run',
     "gallery-advisory.yml: Update the PR's gallery section":
-        'pr_status.py: a request is retried only after a rate limit or 5xx (at most 5 waits); the settle re-read after a write runs at most 4 rounds',
-    "pr-checks.yml: Update the PR's Swift logic line":
-        'pr_status.py: a request is retried only after a rate limit or 5xx (at most 5 waits); the settle re-read after a write runs at most 4 rounds',
-    "pr-checks.yml: Update the PR's review line":
         'pr_status.py: a request is retried only after a rate limit or 5xx (at most 5 waits); the settle re-read after a write runs at most 4 rounds',
     'pr-status.yml: Write the line':
         'pr_status.py: a request is retried only after a rate limit or 5xx (at most 5 waits); the settle re-read after a write runs at most 4 rounds',
@@ -134,7 +130,7 @@ ALLOWED: dict[str, str] = {
     'cmux-next-post-merge.yml: Judge the run':
         'retry only (post_merge_batch.py gh_api): the same rate-limit wait as the plan, within 600 s for the judge; '
         'run_jobs pages at most 5 times',
-    'cmux-next-post-merge.yml: Open the revert pull request':
+    'cmux-next-post-merge.yml: Swap out the piece, or open the revert pull request':
         'retry only (post_merge_batch.py gh_api): writes use the revert App token when minted; the same rate-limit '
         'wait, within 900 s for the revert',
     "tui-publish-npm.yml: Require successful verified artifact run": "a release, by hand: at most 24 reads",

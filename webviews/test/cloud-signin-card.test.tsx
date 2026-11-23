@@ -222,6 +222,8 @@ test("only an allowed provider page over https opens", () => {
     "https://cursor.com/loginDeepControl?challenge=c",
   );
   expect(signInURL("https://cursor.com.evil.example/login")).toBeUndefined();
+  // OpenCode's key page is the app's own fixed link, not a page a machine's sign-in may name.
+  expect(signInURL("https://opencode.ai/auth")).toBeUndefined();
 });
 
 test("each refusal reason has its own failure", () => {
@@ -262,7 +264,14 @@ test("the sign-in is offered only for a connected Cloud Claude or Codex chat on 
   expect(cloudAgentLogin(base)?.agent).toBe("claude");
   expect(cloudAgentLogin({ ...base, harness: "codex" })?.agent).toBe("codex");
   expect(cloudAgentLogin({ ...base, harness: "cursor" })?.agent).toBe("cursor");
-  expect(cloudAgentLogin({ ...base, harness: "opencode" })).toBeUndefined();
+  expect(cloudAgentLogin({ ...base, harness: "opencode" })?.agent).toBe("opencode");
+  // Only the `opencode` harness on Zen's and Go's models: another provider's model needs that
+  // provider's own login, and `opencode-v2` is a family acpmux does not sign in.
+  expect(cloudAgentLogin({ ...base, harness: "opencode", model: "opencode/big-pickle" })?.agent).toBe("opencode");
+  expect(cloudAgentLogin({ ...base, harness: "opencode", model: "opencode-go/kimi-k2" })?.agent).toBe("opencode");
+  expect(cloudAgentLogin({ ...base, harness: "opencode", model: "anthropic/claude-sonnet" })).toBeUndefined();
+  expect(cloudAgentLogin({ ...base, harness: "opencode-v2" })).toBeUndefined();
+  expect(cloudAgentLogin({ ...base, harness: "pi" })).toBeUndefined();
   expect(cloudAgentLogin({ ...base, machineID: undefined })).toBeUndefined();
   expect(cloudAgentLogin({ ...base, connected: false })).toBeUndefined();
   expect(cloudAgentLogin({ ...base, supported: false })).toBeUndefined();
@@ -342,14 +351,6 @@ test("no sign-in where acpmux lacks agent_login, or on another failure", async (
   const { signIn } = signInFor(client);
   await render({ route: cloudRoute, cloudSignIn: signIn, retry: () => undefined }, "API Error: 529 overloaded_error");
   expect(button("Sign in to Claude")).toBeUndefined();
-});
-
-test("in DEV the credential transfer stays beside the sign-in", async () => {
-  const { client } = mockClient();
-  const { signIn } = signInFor(client);
-  await render({ route: cloudRoute, cloudSignIn: signIn, transferCloudCredentials: async () => undefined });
-  expect(button("Sign in to Claude")).toBeDefined();
-  expect(button("Set up Claude Code credentials")).toBeDefined();
 });
 
 test("Claude: one click starts the login and opens its page; paste the code, finish, send again", async () => {
@@ -477,13 +478,10 @@ test("Cursor: one click opens its page, the card waits for the approve with no c
 });
 
 // A team Cloud machine takes no personal login (the start skipped it: `guest-not-owner`, guest `team`):
-// the card says so, Switch model leads, Use an API key stays, and neither Sign in to Claude nor a
-// login transfer (which ends in "Personal credentials can only be transferred to a Cloud machine you
-// own") is offered, by hand or automatically.
+// the card says so, Switch model leads, Use an API key stays, and Sign in to Claude is not offered.
 test("a team Cloud machine's sign-in failure names it and offers Switch model and Use an API key", async () => {
   const { client } = mockClient();
   const { signIn } = signInFor(client);
-  const transfers: unknown[][] = [];
   const team = { ...cloudRoute, teamMachine: true };
   const rejected = "The provider rejected Claude Code's credentials on this Cloud machine (HTTP 401).";
   await render(
@@ -491,7 +489,6 @@ test("a team Cloud machine's sign-in failure names it and offers Switch model an
       route: team,
       cloudSignIn: signIn,
       switchModel: () => undefined,
-      transferCloudCredentials: async (...args: unknown[]) => void transfers.push(args),
     },
     rejected,
   );
@@ -502,8 +499,6 @@ test("a team Cloud machine's sign-in failure names it and offers Switch model an
   expect(labels().slice(0, 2)).toEqual(["Switch model", "Use an API key"]);
   expect(button("Switch model")!.classList.contains("cv-turn-error__primary")).toBe(true);
   expect(button("Sign in to Claude")).toBeUndefined();
-  expect(button("Set up Claude Code credentials")).toBeUndefined();
-  expect(transfers).toEqual([]);
   // An owner machine's card is as it was.
   await render({ route: cloudRoute, cloudSignIn: signIn, switchModel: () => undefined }, rejected);
   expect(labels().slice(0, 3)).toEqual(["Sign in to Claude", "Use an API key", "Switch model"]);
@@ -550,6 +545,31 @@ test("API key: a password field, saved on the machine, then Send again", async (
   await flush();
   expect(intents).toHaveLength(1);
   expect(sent).toHaveLength(1);
+});
+
+// OpenCode (Leo 2026-11-10: "an OpenCode subscription and they're using one of OpenCode's models"):
+// OpenCode Zen and Go sign in only with the key from opencode.ai/auth, so Use an API key is the one
+// button, the key field links that page, and the key is saved on the machine for the agent.
+test("OpenCode: only Use an API key, its key page one click away, saved on the machine", async () => {
+  const opened: string[] = [];
+  const { client, calls, sent } = mockClient({ apiKey: () => ({ saved: true, restarted: true }) });
+  const { signIn } = signInFor(client, { harness: "opencode", opened });
+  await render(
+    { route: { name: "OpenCode", harness: "opencode", hostKind: "cloud" }, cloudSignIn: signIn },
+    "Authentication required",
+  );
+  expect(button("Sign in to OpenCode")).toBeUndefined();
+  expect(button("Use an API key")!.classList.contains("cv-turn-error__primary")).toBe(true);
+  await act(async () => button("Use an API key")!.click());
+  await act(async () => button("Get an OpenCode API key")!.click());
+  expect(opened).toEqual(["https://opencode.ai/auth"]);
+  await typeInto(host.querySelector<HTMLInputElement>(".cv-turn-signin__input")!, "sk-oc-test-key");
+  await act(async () => button("Save")!.click());
+  await flush();
+  expect(calls).toContainEqual(["apiKey", "opencode", "chat-1", "sk-oc-test-key"]);
+  expect(calls.filter(([op]) => op === "start")).toEqual([]);
+  expect(host.innerHTML).not.toContain("sk-oc-test-key");
+  expect(sent).toEqual([]);
 });
 
 test("never sends without a gesture ticket", async () => {
@@ -946,7 +966,9 @@ test("Gemini and Grok are login agents, each with its own ways in", () => {
   expect(loginAgent("gemini")).toBe("gemini");
   expect(loginAgent("grok")).toBe("grok");
   expect(loginAgent("cursor")).toBe("cursor");
-  expect(loginAgent("opencode")).toBeUndefined();
+  expect(loginAgent("opencode")).toBe("opencode");
+  expect(loginAgent("opencode-v2")).toBeUndefined();
+  expect([signsInByPage("opencode"), takesApiKey("opencode")]).toEqual([false, true]);
   expect(loginAgent(undefined)).toBeUndefined();
   expect([signsInByPage("cursor"), takesApiKey("cursor")]).toEqual([true, false]);
   expect([signsInByPage("gemini"), takesApiKey("gemini")]).toEqual([false, true]);
