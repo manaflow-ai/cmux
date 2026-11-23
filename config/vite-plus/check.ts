@@ -17,6 +17,8 @@ const TRANSCRIPT_SCROLL_FILES = [
   `${TRANSCRIPT}/conversation/scrollAnchor.ts`,
   `${TRANSCRIPT}/conversation/scrollCoordinates.ts`,
   `${TRANSCRIPT}/conversation/olderScrollTarget.ts`,
+  `${TRANSCRIPT}/transcript/*.ts`,
+  `${TRANSCRIPT}/transcript/*.tsx`,
   `${TRANSCRIPT}/threadMinimap/*.ts`,
   `${TRANSCRIPT}/threadMinimap/*.tsx`,
   `${TRANSCRIPT}/chatMinimap/*.ts`,
