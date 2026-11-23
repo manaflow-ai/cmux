@@ -327,16 +327,21 @@ if (FIXTURE !== "plain" && (RUNNING || CONTENT !== "plain"))
 /// OPEN=1 (FIXTURE=work): the last turn never ended, as a coordinator's that keeps working does: its records stop
 /// before its `turn_end`, and the chat is running. A reload of it on the v1 attach (no ROWS_WINDOW) then draws the
 /// turn as a watcher sees it (liveTurnWork `open`: every finished call in sight until the turn ends), and goneRows
-/// counts any row the reload drew that the still-open turn no longer draws.
+/// counts any row the reload drew that the still-open turn no longer draws. The turn then ends OPEN_ENDS_MS (1500;
+/// 0 never) after the relaunched page's attach is answered, as a running turn the reload caught does: its
+/// `turn_end` record and the session back to ready, pushed live. goneRows then also counts every row the reload drew
+/// that the ended turn's fold took away (Leo: "i see this rush and barrage of tool calls and message on a sort of
+/// "renewed-load" of chats. but they get folded/hidden anyways").
 const OPEN = process.env.OPEN === "1";
 if (OPEN && FIXTURE !== "work") throw new Error("OPEN=1 needs FIXTURE=work");
-const workRecords = (() => {
+const OPEN_ENDS_MS = OPEN ? Number(process.env.OPEN_ENDS_MS ?? 1500) : 0;
+const [workRecords, openEnd] = (() => {
   const all = longRun(TURNS).events;
-  if (!OPEN) return all;
+  if (!OPEN) return [all, null] as const;
   let end = all.length;
   while (end > 0 && all[end - 1]!.kind !== "turn_end") end -= 1;
   if (end === 0) throw new Error("OPEN=1: the work fixture has no turn_end");
-  return all.slice(0, end - 1);
+  return [all.slice(0, end - 1), all[end - 1]!] as const;
 })();
 /// The open turn's ids (OPEN=1), from its `turn_started`, for the session's `turn`.
 const openTurn = (() => {
@@ -894,6 +899,8 @@ try {
   /// TRACE: the daemon calls a spare page made before its adopt event.
   const spareCalls: string[] = [];
   let servingSpare = false;
+  /// OPEN_ENDS_MS: the relaunched page's attach starts the clock to the open turn's end.
+  let endOpenTurn = false;
   const delayedReplies = new Set<ReturnType<typeof setTimeout>>();
   const daemon = Bun.serve({
     port: 0,
@@ -925,6 +932,29 @@ try {
         const reply = () => {
           if (message.method === "initialize") load.initializeAnsweredAt ||= Date.now();
           if (message.method === "_acpmux/attach") load.attachAnsweredAt ||= Date.now();
+          if (message.method === "_acpmux/attach" && endOpenTurn && openEnd) {
+            endOpenTurn = false;
+            // fixed-wait: when the open turn ends is the condition OPEN_ENDS_MS sets; stops with the run.
+            const timer = setTimeout(() => {
+              delayedReplies.delete(timer);
+              const seq = (events.at(-1)?.seq ?? 0) + 1;
+              const at = Date.now();
+              const notify = (method: string, params: unknown) => {
+                try {
+                  ws.send(JSON.stringify({ jsonrpc: "2.0", method, params }));
+                } catch {
+                  // Closed: the round is over.
+                }
+              };
+              notify("_acpmux/event", { ...openEnd, sessionId: PAPERCUT_CHAT, seq, at });
+              const { turn: _turn, ...ended } = session as typeof session & { turn?: unknown };
+              notify("_acpmux/session_changed", {
+                kind: "updated",
+                session: { ...ended, status: "ready", updatedAt: at, lastSeq: seq },
+              });
+            }, OPEN_ENDS_MS);
+            delayedReplies.add(timer);
+          }
           // A socket the page gave up on meanwhile takes nothing.
           try {
             ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }));
@@ -1444,6 +1474,7 @@ try {
       downUntil = isReopen(mode) ? 0 : Date.now() + DOWN_MS;
       const upAt = downUntil;
       wireT0 = Date.now();
+      endOpenTurn = OPEN_ENDS_MS > 0;
       await Promise.all(pages.map((one) => one.goto(url, { waitUntil: "commit" })));
       await page.waitForFunction(() => (window as unknown as BenchWindow).__firstLoad.done, undefined, {
         timeout: windowMs + 60_000,
@@ -1672,6 +1703,7 @@ try {
       shiftPxMax: max(settled.map((one) => one.shiftPxMax)),
       fixture: FIXTURE,
       open: OPEN,
+      openEndsMs: OPEN_ENDS_MS,
       cpu: CPU,
       goneRows: median(settled.map((one) => one.goneRows)),
       goneFrames: median(settled.map((one) => one.goneFrames)),
