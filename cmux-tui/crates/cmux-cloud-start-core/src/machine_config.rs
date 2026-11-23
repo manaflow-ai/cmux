@@ -15,7 +15,12 @@
 //! run = ["bun install"]              # in order, bash -l, in the checkout; reruns only on change
 //! timeout_minutes = 30               # per command
 //! check = ["bun run typecheck"]      # reported, never a gate
+//! [idle]
+//! minutes = 5                        # 1 to 1439: paused this long after the last activity ([`idle`])
 //! ```
+//!
+//! A top-level `role = "lane"` (before the first table) gives an agent lane its 5-minute window
+//! without `[idle]`.
 //!
 //! The file is parsed on the machine, by the applier ([`applier`], Python's `tomllib`), never on
 //! the Mac: the applier also takes the checkout's own file, which the Mac never reads. Secret
@@ -33,6 +38,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::machine_bootstrap::{HOME_OF_USER, Plan, ROOT_HELPER, Step, USER, USER_HELPER};
+
+pub mod idle;
 
 pub const DIRECTORY: &str = "/home/cmux/.cmux/machine-config";
 /// The transient unit the applier runs in (`systemctl status cmux-machine-config`).

@@ -3199,7 +3199,7 @@ def test_ci_status_job_accepts_skipped_routed_jobs() -> None:
 
 
 # ci.yml's legacy lanes skip PRs into feat-cmux-next, which cmux-next.yml covers.
-FEAT_CMUX_NEXT_PR_SKIP = "(github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next')"
+FEAT_CMUX_NEXT_PR_SKIP = "(github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next'))"
 
 
 def test_feat_next_route_keeps_one_compile_for_webview_resources() -> None:

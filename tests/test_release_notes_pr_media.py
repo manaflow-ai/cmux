@@ -658,6 +658,20 @@ class GalleryRenderPlanTests(unittest.TestCase):
         # Rendered now, beside the after: both in the manifest without --parent.
         self.assertEqual([c["id"] for c in self.tool.manifest(out, cases)[0]], ["h--after", "h--before"])
 
+    def test_an_entrys_only_before_note_is_the_before_whatever_its_name(self):
+        # jump-place's `center` ("Before (Leo's screenshot)") for `end`, composer-studio's `standard-beside`
+        # ("Before: the default composer") for `studio`: both shipped with no before (2026-11-22).
+        jump = {"a.j": {"end": "Selected (ships)", "start": "Start edge", "center": "Before (Leo's screenshot): centered"}}
+        cases = [self.case("a.j", v) for v in ("end", "start", "corner", "center", "end-handle-right")]
+        self.assertEqual(self.tool.marked_before("a.j/end", cases, jump), "a.j/center")
+        studio = {"a.s": {"studio": "Studio's composer", "standard-beside": "Before: the default composer"}}
+        cases = [self.case("a.s", v) for v in ("studio", "studio-typed", "standard-beside")]
+        self.assertEqual(self.tool.marked_before("a.s/studio", cases, studio), "a.s/standard-beside")
+        # Two "Before" notes on other surfaces still name neither.
+        two = {"a.s": {**studio["a.s"], "other-old": "Before: another surface"}}
+        cases.append(self.case("a.s", "other-old"))
+        self.assertIsNone(self.tool.marked_before("a.s/studio", cases, two))
+
     def test_an_entry_that_marks_no_old_look_renders_the_before_at_the_parent(self):
         cases = [self.case("a.b", "x"), self.case("a.b", "y")]
         rows = [{"id": "h", "role": "before", "state": "a.b/x", "parent": "p"}]
