@@ -52,6 +52,10 @@ public final class AgentPaneLoadingView: NSView {
     private var onGiveUp: (@MainActor () -> Void)?
     /// Whether the page's bridge is up: it answered the handshake, so it speaks for itself.
     var pageIsAlive: (@MainActor () -> Bool)?
+    /// Whether this cover may show the busy mark. Every loading chat shows it (cmux#48605); only a
+    /// reload cover over the chat's last picture says no, since the picture already shows the chat.
+    /// Read when the delay starts and when it ends, so a cover that loses its picture meanwhile marks.
+    var marksLoading: @MainActor () -> Bool = { true }
     /// How many checks in a row have seen the pane, still unpainted.
     private var seenUnpainted = 0
     /// Whether a check has already seen the page answer, so the count starts over only once.
@@ -108,6 +112,7 @@ public final class AgentPaneLoadingView: NSView {
     func showMarkLater() {
         markTurn += 1
         let turn = markTurn
+        guard marksLoading() else { return markTimer.cancel() }
         markTimer.schedule(after: Self.markDelay) { @MainActor [weak self] in self?.markDelayEnded(turn) }
     }
 
@@ -115,7 +120,7 @@ public final class AgentPaneLoadingView: NSView {
     /// thread and then hops here, so the cover can hide, leave or start a new delay in between: only the
     /// newest delay, with no ``hideMark()`` after it, puts the mark in.
     func markDelayEnded(_ turn: Int) {
-        guard turn == markTurn else { return }
+        guard turn == markTurn, marksLoading() else { return }
         addSubview(indicator)
     }
 
