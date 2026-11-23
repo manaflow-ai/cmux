@@ -353,6 +353,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextAgentUpdates",
                 "CmuxNextAppCore",
                 "CmuxNextAppHealth",
+                "CmuxNextAppTry",
                 "CmuxNextApps",
                 "CmuxNextBookmarks",
                 "CmuxNextBridge",
@@ -536,6 +537,19 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextFloating",
                 "CmuxNextTestSupport",
             ],
+            swiftSettings: uiSwiftSettings
+        ),
+        // Run a PR as This App… and Undo Last PR Run (app.try.run / app.try.undo): the palette face of the
+        // bundled `cmux app try`, out of CmuxNextApp; the App only binds it with its CLI, bundle and window.
+        .target(
+            name: "CmuxNextAppTry",
+            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextActions",
+                "CmuxNextCompat",
+                "CmuxNextDaemon",
+                "CmuxNextDesign",
+            ],
+            resources: [.process("Resources")],
             swiftSettings: uiSwiftSettings
         ),
         // Archive and Unarchive of sidebar items (plans/cmux-next/archiving-DESIGN.md): the actions
@@ -2734,6 +2748,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextApp",
                 "CmuxNextAppCore",
                 "CmuxNextAppHealth",
+                "CmuxNextAppTry",
                 "CmuxNextApps",
                 "CmuxNextBrowserCore",
                 "CmuxNextBrowserHistory",
