@@ -30,12 +30,13 @@ use crate::row::{Phase, Row, RowKind};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+/// Version 12 preserves event times and permission receipts for sized row consumers.
 /// Version 11 writes each row's phase (entering, live, settled, leaving) and takes rows back by
 /// the leave op; version 10 wrote the card rows, patched by their later records (decisions 253, 254); version
 /// 9 wrote what a user row says of its prompt and its sender, the ask rows and their decisions,
 /// and a turn end a prompt sent now went on under (decisions 231, 235, 236). A book of any other
 /// version rebuilds from raw.
-pub const VERSION: u32 = 11;
+pub const VERSION: u32 = 12;
 /// The translator's segment and the queue's records together.
 pub const MAX_STATE_BYTES: usize = MAX_TRANSLATOR_BYTES + 32 * MAX_QUEUE_ENTRIES;
 /// Every held state at its cap at once, with room left for the live turn: held steers 12 KB, asks
@@ -498,6 +499,10 @@ pub struct State {
     #[serde(skip)]
     line_errors: u64,
     turn_start_ms: u64,
+    /// The daemon's turn_started event, distinct from the prompt that starts elapsed time.
+    started_event_ms: Option<u64>,
+    /// v1 dates every tool in an uninterrupted activity run by its first record.
+    activity_start_ms: Option<u64>,
     at_ms: u64,
     /// A Claude turn's tokens so far, its calls counted once by message id.
     claude: ClaudeTurn,
@@ -847,6 +852,15 @@ impl State {
             self.bound_counted_rows(63, out);
         }
         self.last_id = self.last_id.checked_add(1).ok_or(Error::CounterExhausted)?;
+        let mut fields = BTreeMap::new();
+        if !self.at_ms.is_multiple_of(1000) {
+            fields.insert("atMs".into(), self.at_ms.to_string());
+        }
+        if matches!(kind, RowKind::Text | RowKind::Notice)
+            && let Some(started) = self.started_event_ms
+        {
+            fields.insert("turnStartedAtMs".into(), started.to_string());
+        }
         Ok(OwnedRow {
             id: self.last_id,
             rev: 1,
@@ -862,7 +876,7 @@ impl State {
             entering: true,
             bytes: 0,
             lines: 0,
-            fields: BTreeMap::new(),
+            fields,
         })
     }
     #[allow(
@@ -1071,6 +1085,8 @@ impl State {
             self.dropped_fold_steers.saturating_add(self.fold.dropped_steers);
         self.fold = fold::Fold::default();
         self.turn_key.clear();
+        self.started_event_ms = None;
+        self.activity_start_ms = None;
         // A turn that ended with no notice (cut off, or no end at all) leaves no tokens to the next.
         self.claude = ClaudeTurn::default();
         // Background tools may complete after this turn. Preserve their original IDs.
@@ -1644,6 +1660,11 @@ impl State {
         }
         bounded(key)?;
         bounded(message)?;
+        if thinking {
+            self.activity_start_ms.get_or_insert(self.at_ms);
+        } else {
+            self.activity_start_ms = None;
+        }
         let mut slot = if thinking { self.thought.take() } else { self.reply.take() };
         if slot.as_ref().is_some_and(|s| s.key != key) {
             if !thinking
@@ -1953,6 +1974,11 @@ impl State {
         } else {
             let mut row = self.row(RowKind::Tool, out)?;
             row.group = self.group.as_ref().map(|g| g.id);
+            row.fields.insert("startedAt".into(), self.at_ms.to_string());
+            let activity_at = *self.activity_start_ms.get_or_insert(self.at_ms);
+            if activity_at != self.at_ms {
+                row.fields.insert("activityAt".into(), activity_at.to_string());
+            }
             if row.field("callId", key) {
                 self.cut_fields = self.cut_fields.saturating_add(1);
             }
@@ -1963,10 +1989,22 @@ impl State {
             }
             row
         };
-        for (key, value) in metadata {
+        if ended {
+            row.fields.insert("endedAt".into(), self.at_ms.to_string());
+        }
+        let mut provenance = serde_json::Map::new();
+        for &(key, value) in metadata {
+            if matches!(key, "tool" | "claudeCodeToolName") {
+                let name = if key == "tool" { "claudeTool" } else { key };
+                provenance.insert(name.into(), cut(value, MAX_KEY_BYTES).into());
+            }
             if row.field(key, value) {
                 self.cut_fields = self.cut_fields.saturating_add(1);
             }
+        }
+        if !provenance.is_empty() {
+            row.fields
+                .insert("provenance".into(), serde_json::Value::Object(provenance).to_string());
         }
         out.row(&row);
         for (field, append, raw) in parts {

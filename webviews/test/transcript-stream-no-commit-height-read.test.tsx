@@ -52,6 +52,11 @@ const replacements: Record<string, unknown> = {
     disconnect() {}
   },
   ResizeObserver: RecordingResizeObserver,
+  ResizeObserverEntry: class {
+    get borderBoxSize() {
+      return [];
+    }
+  },
   requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
   cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window),
   IS_REACT_ACT_ENVIRONMENT: true,
@@ -176,6 +181,35 @@ test("streamed tokens read no row height in their commit, and place the reply as
     expect(placed).toEqual(Array.from({ length: TOKENS }, (_, index) => heightAt(index + 1) - heightAt(0)));
     // No height read in any token's commit.
     expect(reads).toEqual(Array.from({ length: TOKENS }, () => 0));
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("v2 places the delivered border box, including a visible empty row", async () => {
+  observers.length = 0;
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  try {
+    await act(async () => root.render(
+      <VirtualTranscript chatRowsV2 rows={turnView(transcript(0), new Set())} expanded={new Set()} onToggleActivity={() => {}} />,
+    ));
+    await act(nextFrame);
+    const answer = answerNode();
+    const observer = observers.find((item) => item.targets.has(answer));
+    expect(observer).toBeDefined();
+    const deliver = (width: number, height: number) => act(async () => {
+      observer!.callback([{
+        target: answer,
+        borderBoxSize: [{ inlineSize: width, blockSize: height }],
+      } as unknown as ResizeObserverEntry]);
+    });
+    await deliver(760, 210.5);
+    const start = spacerHeight();
+    // Hidden by the host: retain the measured height until the row is laid out again.
+    await deliver(0, 0);
+    expect(spacerHeight()).toBe(start);
+    await deliver(760, 0);
+    expect(spacerHeight()).toBeLessThan(start - 200);
   } finally {
     await act(async () => root.unmount());
   }
