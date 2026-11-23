@@ -10,7 +10,6 @@
     "sidebar.showSpaces": false,
     "sidebar.cards.tips": false,
     "tabs.hideLoneChatTab": true,
-    "tabs.newTabTemplate": "threads",
     "tabs.toolbarButtons": ["openDiffViewer", "agentPane.searchChats"],
     "agentPane.display.presentation": "messages",
     "agentPane.display.font.preset": "system",

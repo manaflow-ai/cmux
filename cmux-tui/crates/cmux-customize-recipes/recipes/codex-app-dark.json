@@ -17,7 +17,6 @@
     "agentPane.display.width": 760,
     "agentPane.display.minimap": "off",
     "agentPane.display.harnessPlacement": "compact",
-    "tabs.newTabTemplate": "threads",
     "tabs.toolbarButtons": [
       "openDiffViewer",
       "agentPane.searchChats"

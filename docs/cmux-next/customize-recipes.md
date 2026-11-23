@@ -394,7 +394,7 @@ Or ask: "make cmux look and work like the Codex app"
 | Feature | How the recipe does it | Gap |
 | --- | --- | --- |
 | Threads by project | `sidebar.groupBy` `folder`, `sidebar.showTimestamps` | No Pinned and Recents sections above the projects |
-| Threads home | `tabs.newTabTemplate` `threads`: New Tab lists your chats | |
+| Threads home | Your chats are in the sidebar | New Tab no longer has a threads page |
 | New thread | Shift-Command-O: New Agent Chat with Codex (`palette.newAgentChat`, `harness: codex`) | It opens as a tab in this workspace, not as its own sidebar row. Shift-Command-O was Restore Previous App Launch |
 | Composer: Return sends, attachments | Return sends already; `agentPane.attachmentView` `strip` | |
 | Model and reasoning picker | Control-Shift-M: Switch Model; effort with Set Agent Chat Effort in the palette | No effort picker in the composer |
