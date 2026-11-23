@@ -147,7 +147,11 @@ impl<C: AutoCloud + 'static> Loop<C> {
                 }
                 self.step(&id, event).await;
             }
-            Command::Work { id, change, needs_run } => self.work_read(&id, change, needs_run).await,
+            Command::Work { id, change, needs_run, settles } => {
+                self.watch_settle(&id, settles);
+                self.work_read(&id, change, needs_run).await;
+            }
+            Command::Settled { id } => self.settled(&id),
             Command::Switch { id, auto, keep, reply } => self.switch(&id, auto, keep, reply).await,
             Command::Wake => {
                 for id in self.ids() {

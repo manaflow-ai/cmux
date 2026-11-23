@@ -30,7 +30,7 @@ pub async fn auto_chat(world: &World, laptop: &Daemon, keep: Option<bool>) -> St
     let session = laptop.hub.new_session(request).await.expect("a chat");
     let id = session.id.clone();
     let set = laptop.holder.set_auto(&id, true, keep).await.expect("Auto on");
-    assert_eq!(set["autoSession"]["auto"], true, "{set}");
+    assert_eq!(set["auto"], true, "{set}");
     world
         .until_view(&id, "the chat is registered and copied", |view| {
             view.holder == device() && view.snapshot >= 1

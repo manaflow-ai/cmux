@@ -63,6 +63,8 @@ pub(super) struct Tracked {
     /// (`away.rs`), and its first import makes it one. A session that is missing is then not
     /// one the person deleted.
     pub absent: bool,
+    /// A task waits for the chat's work to settle (`settle.rs`).
+    pub settling: bool,
 }
 
 impl Tracked {
@@ -82,6 +84,7 @@ impl Tracked {
             work: WorkRead::Idle,
             anchor: None,
             absent: false,
+            settling: false,
         }
     }
 

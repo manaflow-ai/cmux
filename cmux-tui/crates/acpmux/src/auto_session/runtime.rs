@@ -8,6 +8,7 @@
 //! - [`run`]: the task: it waits for a command, a hub event, the next time a chat asked for, or
 //!   a change of this machine's network. Nothing is polled.
 //! - [`signals`]: a hub event read as a change of the chat's work.
+//! - [`settle`]: work that ends with no hub event, read again when the hub says it settled.
 //! - [`effects`]: what the loop does for each effect, and what comes back of it.
 //! - [`tasks`]: the work that calls the store or reads the disk. Each runs as a task of its own
 //!   and comes back as a [`Command`], so a slow answer never holds another chat's renewal.
@@ -29,6 +30,7 @@ pub mod clock;
 mod effects;
 mod inbox;
 mod run;
+mod settle;
 mod signals;
 mod switch;
 mod tasks;
@@ -77,8 +79,16 @@ pub(crate) enum Command {
     /// Step chat `id` with `event`. `view` is the store's view that came with it.
     Step { id: String, event: Event, view: Option<Box<SessionView>> },
     /// The chat's `needsRun` was read. `change`: what it was read for; None tells the state
-    /// machine only when `needsRun` differs from what it has.
-    Work { id: String, change: Option<Change>, needs_run: bool },
+    /// machine only when `needsRun` differs from what it has. `settles`: with work, what
+    /// changes when that work ends with no record (`settle.rs`).
+    Work {
+        id: String,
+        change: Option<Change>,
+        needs_run: bool,
+        settles: Option<watch::Receiver<u64>>,
+    },
+    /// The chat's work settled with no record in its log (`settle.rs`).
+    Settled { id: String },
     /// Auto on or off for a chat, and whether it stays in the Cloud.
     Switch { id: String, auto: bool, keep: Option<bool>, reply: Option<Reply> },
     /// The system woke.

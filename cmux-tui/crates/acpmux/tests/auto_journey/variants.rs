@@ -40,7 +40,7 @@ async fn a_chat_kept_in_the_cloud_stays_there_until_the_person_lets_it_come_home
 
     // The person lets it come home: the machine's next renewal hands it back.
     let set = laptop.holder.set_auto(&id, true, Some(false)).await.expect("keep off");
-    assert_eq!(set["autoSession"]["keepInCloud"], false, "{set}");
+    assert_eq!(set["keepInCloud"], false, "{set}");
     world.until_view(&id, "the store knows", |view| !view.keep_in_cloud).await;
     a_period_passes(&world).await;
     comes_home(&world, &laptop, &id, 3).await;

@@ -208,6 +208,9 @@ impl<C: AutoCloud + 'static> Loop<C> {
                     tracked.tool = None;
                     // The import made the chat a session of this daemon.
                     tracked.absent = false;
+                    // A task that waits on the session the import replaced waits on nothing
+                    // of this one (`settle.rs`).
+                    tracked.settling = false;
                 }
                 Event::ImportDone { epoch: imported.epoch, snapshot: imported.snapshot }
             }

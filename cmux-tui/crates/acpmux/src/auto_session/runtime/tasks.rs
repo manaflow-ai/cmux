@@ -224,14 +224,16 @@ impl<C: AutoCloud + 'static> Ctx<C> {
     /// Reads the chat's `needsRun` off the async workers: it reads process records.
     pub(super) async fn work(self, id: String, change: Option<Change>) {
         let Some(session) = self.session(&id) else {
-            self.tell(Command::Work { id, change, needs_run: false });
+            self.tell(Command::Work { id, change, needs_run: false, settles: None });
             return;
         };
+        // Taken before the read: work that ends right after the read still changes it.
+        let settles = self.hub.auto_work_settles(&session);
         let hub = self.hub.clone();
         let needs_run = tokio::task::spawn_blocking(move || hub.auto_needs_run(&session))
             .await
             .unwrap_or(false);
-        self.tell(Command::Work { id, change, needs_run });
+        self.tell(Command::Work { id, change, needs_run, settles: needs_run.then_some(settles) });
     }
 
     /// A prompt for a chat another holder runs: into its Cloud inbox. The standby then renews
