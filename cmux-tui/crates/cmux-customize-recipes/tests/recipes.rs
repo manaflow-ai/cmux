@@ -196,3 +196,28 @@ fn a_folder_with_shell_characters_stays_one_argument_in_every_run_command() {
         assert_eq!(String::from_utf8(out.stdout).unwrap(), format!("{path}\n"), "{line}");
     }
 }
+
+/// c-07be086806, Leo: "we know you can change colours. im saying the big stuff". The layout and
+/// behaviour looks are recipes too, and none of them sets a color or a theme. The leader keys all
+/// start with Command-J, cmux's own leader, so none takes a key a terminal or a chat types.
+#[test]
+fn the_layout_and_behaviour_looks_change_layout_and_keys_not_colors() {
+    for name in ["review-desk", "bottom-deck", "workspace-tabs", "leader"] {
+        let recipe = find(name).unwrap_or_else(|| panic!("no {name} recipe"));
+        let profile = recipe.profile().unwrap();
+        for key in profile.settings.keys() {
+            assert!(
+                !key.starts_with("appearance.") && !key.contains("color") && !key.contains("Color"),
+                "{name} sets {key}, a look key"
+            );
+        }
+    }
+    let leader = find("leader").unwrap().profile().unwrap();
+    let parsed = cmux_config::keybindings::parse(&leader.files["keybindings.json"]);
+    assert!(parsed.entries.len() >= 20, "{} leader keys", parsed.entries.len());
+    for entry in &parsed.entries {
+        assert_eq!(entry.keys[0], "cmd+j", "{} does not start with the leader", entry.command);
+        assert!(entry.keys.len() >= 2, "{} is the bare leader", entry.command);
+    }
+    assert_eq!(find("review-desk").unwrap().parts(), ["settings", "keybindings"]);
+}
