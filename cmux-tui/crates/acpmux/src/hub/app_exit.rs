@@ -79,7 +79,7 @@ impl Hub {
             let live = crate::claude_peers::entry(&config, pid)
                 .filter(|p| p.session_id == conversation)
                 .and_then(|p| Some((p.pid, Some(crate::owner_exit::process_start(p.pid)?))));
-            tracing::info!(chat, pid, live = ?live, "following the watched app");
+            tracing::debug!(chat, pid, live = ?live, "following the watched app");
             seen(&hub, &chat, live, &runtime);
         }));
     }
