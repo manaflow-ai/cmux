@@ -136,11 +136,11 @@ test("the line opens on click to the rows exactly as they drew before", () => {
   expect(open[at]!.version).not.toBe(line.version);
 });
 
-test("the line counts what the run did, messages first", async () => {
+test("the line counts what the run did, each kind in the order it first came", async () => {
   const { messageRunSummary } = await import("../src/agent-session/acpmux/conversation/messageRuns");
   const line = turnView(turn(), new Set(), claude).find((row) => row.kind === MESSAGE_RUN)!;
   expect(messageRunSummary(translate, line.messageRun!)).toBe(
-    "Sent 6 messages, read 3 files, ran a command, received a message",
+    "Sent 6 messages, read 3 files, received a message, ran a command",
   );
 });
 
