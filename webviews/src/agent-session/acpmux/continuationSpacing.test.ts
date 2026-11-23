@@ -306,7 +306,8 @@ test("a finished work disclosure shares the activity rhythm when closed or opene
     // A reply right under the line takes no gap of its own; under the opened fold's rows, the run gap.
     const replyGap = rows.length === 2 ? 0 : TRANSCRIPT_RUN_GAP;
     expect(layout.gaps?.[replyIndex]).toBe(replyGap);
-    if (rows.length === 3) expect(layout.tops[1]! - layout.tops[0]!).toBe(TRANSCRIPT_LINE_ROW + ROW_METRIC.ruleAbove + ROW_METRIC.ruleBelow);
+    if (rows.length === 3)
+      expect(layout.tops[1]! - layout.tops[0]!).toBe(TRANSCRIPT_LINE_ROW + ROW_METRIC.ruleAbove + ROW_METRIC.ruleBelow);
     const placed = placeRows(layout, () => TRANSCRIPT_LINE_ROW);
     expect(placed.tops[replyIndex]! - placed.tops[replyIndex - 1]! - TRANSCRIPT_LINE_ROW).toBe(replyGap);
   }

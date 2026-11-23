@@ -13,7 +13,6 @@ import {
   TRANSCRIPT_LIVE_STEP_GAP,
   TRANSCRIPT_LIVE_STEP_HEIGHT,
   TRANSCRIPT_LINE_ROW,
-  TRANSCRIPT_LINE_WORDS,
 } from "../src/agent-session/acpmux/transcriptGrid";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { pinLiveTurnRuns } from "./support/liveTurnRuns";
