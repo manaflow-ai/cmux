@@ -259,7 +259,11 @@ pub(super) async fn handle_notification(
                 return cancel_refused::tell(hub, conn, &sent, &e);
             }
             if let Ok(key) = session_key(&params) {
-                if let Ok(s) = hub.resolve(key) {
+                // A chat that moved to a peer is stopped there (`hub/moved_forward.rs`).
+                let moved = hub.moved_forward(key);
+                if let Ok(s) = hub.resolve(key)
+                    && moved.is_none()
+                {
                     conn.cancel_preparation(&s.id);
                     s.abandon_prepared_connection(&conn.id);
                     // The person's Stop holds the agents' messages behind it (`hub/cancel.rs`),
@@ -267,7 +271,7 @@ pub(super) async fn handle_notification(
                     if let Err(e) = person_stop::stop(hub, conn, &params, &s).await {
                         tracing::debug!(conn = %conn.id, "cancel: {e}");
                     }
-                } else if let Some((peer, id, row)) = hub.resolve_remote(key) {
+                } else if let Some((peer, id, row)) = moved.or_else(|| hub.resolve_remote(key)) {
                     let turn = cancel_refused::row_turn(&row);
                     let mut forwarded = json!({"sessionId": id});
                     super::remote_guard::mark_forwarded(
@@ -1609,6 +1613,10 @@ async fn dispatch_request_with_identity(
         method::MUX_COMPUTER_USE_CALL => super::computer_use_relay::call(hub, conn, &params).await,
         method::MUX_COMPUTER_USE_MACHINES => super::computer_use_relay::machines(hub, conn).await,
         method::MUX_COMPUTER_USE_STATE => super::computer_use_relay::state(hub, conn).await,
+        // A file or command action on another of the person's machines (`machine_files_relay.rs`).
+        method::MUX_MACHINE_FILES_CALL => {
+            super::machine_files_relay::call(hub, conn, &params).await
+        }
         // A scoped key from the machine that keeps its provider's bootstrap (`keys_relay.rs`).
         method::MUX_KEYS_MINT => super::keys_relay::mint(hub, conn, &params).await,
         method::SESSION_NEW => {
