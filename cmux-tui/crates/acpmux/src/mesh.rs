@@ -291,8 +291,12 @@ impl OutMessage {
     pub fn validate(&self) -> Result<(), String> {
         match (self.kind, self.op.as_deref()) {
             (Kind::Control, Some("start" | "resume" | "stop" | "read")) => Ok(()),
+            // A chat moved through the hub (`hub/transfer_pull.rs`).
+            (Kind::Control, Some(crate::mesh_relay_config::MOVE_OP))
+            | (Kind::Control, Some(crate::mesh_relay_config::MOVE_FORGET_OP)) => Ok(()),
             (Kind::Control, _) => {
-                Err("control messages require op start, resume, stop or read".into())
+                Err("control messages require op start, resume, stop, read, move or move_forget"
+                    .into())
             }
             (Kind::Prompt, None) => Ok(()),
             (Kind::Prompt, Some(_)) => Err("prompt messages cannot carry an operation".into()),
