@@ -406,6 +406,7 @@ pub(super) fn advertised_capabilities(
         conversations::CONVERSATION_THREAD_OBJECTS_CAPABILITY,
         conversations::CONVERSATION_INBOX_STATE_CAPABILITY,
         conversations::HOME_INBOX_CAPABILITY,
+        conversation_scheduled::CONVERSATION_SCHEDULED_CAPABILITY,
         conversations::HOME_INBOX_SINCE_CAPABILITY,
         conversations::HOME_INBOX_WINDOW_CAPABILITY,
         conversation_runs::CONVERSATION_RUNS_CAPABILITY,

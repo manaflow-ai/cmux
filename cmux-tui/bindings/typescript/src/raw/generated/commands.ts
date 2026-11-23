@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 8e292e79c1396e841ad4d94548147fb425ee2a2a87152a5e2aee3b49642c63e4. */
+/* cmux-tui mux protocol 12, IR 5e9345efe9def453bee55c83c2781312faa2b7b24e8bf8b40c3a9c44499b0cbf. */
 
 
 import type * as T from "./types.js";
@@ -954,6 +954,28 @@ export interface ConversationRunsRequest extends CmuxRequestBase {
 export type ConversationRunsResult = {
   "has_more": boolean;
   "runs": Array<T.JsonValue>;
+};
+
+/** Protocol v12; authority: local-admin. */
+export interface ConversationScheduledListRequest extends CmuxRequestBase {
+  cmd: "conversation-scheduled-list";
+  "conversation"?: (string) | null;
+}
+export type ConversationScheduledListResult = {
+  "scheduled": Array<T.JsonValue>;
+};
+
+/** Protocol v12; authority: local-admin. */
+export interface ConversationScheduledOpRequest extends CmuxRequestBase {
+  cmd: "conversation-scheduled-op";
+  "op": (T.JsonValue) | null;
+}
+export type ConversationScheduledOpResult = {
+  "change"?: T.JsonValue;
+  "removed"?: T.JsonValue;
+  "replayed"?: boolean;
+  "rev"?: bigint;
+  "scheduled"?: (T.JsonValue) | null;
 };
 
 /** Protocol v12; authority: local-admin. */
@@ -3222,6 +3244,8 @@ export type CmuxRequest =
   | ConversationRunRequest
   | ConversationRunAppendRequest
   | ConversationRunsRequest
+  | ConversationScheduledListRequest
+  | ConversationScheduledOpRequest
   | ConversationSearchRequest
   | ConversationSnapshotRequest
   | ConversationThreadRequest
@@ -4140,6 +4164,22 @@ export interface CmuxCommandDefinitionMap {
     authority: "local-admin";
     since: 12;
     capability: "conversation-runs-v1";
+    stream: null;
+  };
+  "conversation-scheduled-list": {
+    request: ConversationScheduledListRequest;
+    result: ConversationScheduledListResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "conversation-scheduled-v1";
+    stream: null;
+  };
+  "conversation-scheduled-op": {
+    request: ConversationScheduledOpRequest;
+    result: ConversationScheduledOpResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "conversation-scheduled-v1";
     stream: null;
   };
   "conversation-search": {
