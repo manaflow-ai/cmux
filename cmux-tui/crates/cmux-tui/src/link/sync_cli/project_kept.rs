@@ -86,15 +86,17 @@ fn repositories(set: &LocalSet) -> Vec<String> {
 /// for another reason): such a file is not listed.
 fn why_kept(folder: &Path, relative: &str) -> Option<Why> {
     let names: Vec<&str> = relative.split('/').collect();
-    for end in 1..names.len() {
-        let dir = names[..end].join("/");
+    // Every folder on the way: each name but the last, with the path above it.
+    let mut parent = String::new();
+    for name in names.iter().zip(names.iter().skip(1)).map(|(name, _)| *name) {
+        let dir = if parent.is_empty() { name.to_owned() } else { format!("{parent}/{name}") };
         if let Some(why) = skips::credential(&dir, true) {
             return Some(why);
         }
-        let parent = names[..end - 1].join("/");
-        if skips::heavy(&folder.join(parent), names[end - 1]) {
+        if skips::heavy(&folder.join(&parent), name) {
             return Some(Why::Heavy);
         }
+        parent = dir;
     }
     skips::secret_at(folder, relative).or_else(|| skips::credential(relative, false))
 }
