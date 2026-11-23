@@ -37,6 +37,9 @@ pub enum At {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Plan {
+    /// The no-card trial a first turn-on starts.
+    Trial,
+    /// The first paid month: Plus's limits.
     Intro,
     Plus,
     Pro,
@@ -48,8 +51,8 @@ pub enum Plan {
 pub fn slots(plan: Option<Plan>) -> u32 {
     match plan {
         None => 0,
-        Some(Plan::Intro) => 1,
-        Some(Plan::Plus) => 3,
+        Some(Plan::Trial) => 1,
+        Some(Plan::Intro | Plan::Plus) => 3,
         Some(Plan::Pro) => 5,
         Some(Plan::Agents20) => 20,
         Some(Plan::Max) => 50,
@@ -59,8 +62,9 @@ pub fn slots(plan: Option<Plan>) -> u32 {
 /// The pooled awake-hour allowance for a plan.
 pub fn pool_hours(plan: Option<Plan>) -> Option<u32> {
     match plan {
-        None | Some(Plan::Intro) => None,
-        Some(Plan::Plus) => Some(250),
+        None => None,
+        Some(Plan::Trial) => Some(10),
+        Some(Plan::Intro | Plan::Plus) => Some(100),
         Some(Plan::Pro) => Some(1_000),
         Some(Plan::Agents20) => Some(4_000),
         Some(Plan::Max) => Some(10_000),
@@ -331,8 +335,9 @@ mod tests {
     fn plans_have_the_rfd_slot_and_pool_limits() {
         let cases = [
             (None, 0, None),
-            (Some(Plan::Intro), 1, None),
-            (Some(Plan::Plus), 3, Some(250)),
+            (Some(Plan::Trial), 1, Some(10)),
+            (Some(Plan::Intro), 3, Some(100)),
+            (Some(Plan::Plus), 3, Some(100)),
             (Some(Plan::Pro), 5, Some(1_000)),
             (Some(Plan::Agents20), 20, Some(4_000)),
             (Some(Plan::Max), 50, Some(10_000)),

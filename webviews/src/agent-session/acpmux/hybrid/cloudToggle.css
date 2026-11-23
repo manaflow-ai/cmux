@@ -1,4 +1,4 @@
-/* The cloud button (CloudToggle.tsx, RFD 0075). Off it is dull: the strip's muted ink, thinner
+/* The cloud button (CloudToggle.tsx, RFD 0078). Off it is dull: the strip's muted ink, thinner
    than the chips beside it. On it is the one colored thing in the composer. Three looks for the on
    state (data-look); each plays its turn-on once, on the person's click (data-fresh), and under
    reduced motion shows the lit cloud at once. */
@@ -121,9 +121,9 @@
   position: absolute;
   left: 50%;
   bottom: 6px;
-  width: 32px;
-  height: 20px;
-  margin-left: -16px;
+  width: 24px;
+  height: 16px;
+  margin-left: -12px;
   overflow: visible;
   pointer-events: none;
   opacity: 0;

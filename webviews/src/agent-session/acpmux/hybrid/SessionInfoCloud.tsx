@@ -1,4 +1,4 @@
-// Session Info's cloud controls (RFD 0075), in the place the Remote Control row had (Leo,
+// Session Info's cloud controls (RFD 0078), in the place the Remote Control row had (Leo,
 // 2026-11-23: "we can replace that area with our cloud... paradigms"). Remote Control stays one
 // app-wide switch in Settings; a chat no longer shows it. Rows of the Environment list: Keep
 // Running (the same switch as the composer's cloud button, with the plan's slots) and, in the
