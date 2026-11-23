@@ -561,6 +561,190 @@ fn a_create_whose_whiteout_cannot_go_leaves_nothing_behind() {
     assert_eq!(overlay.whiteouts(), ["src/a.rs"]);
 }
 
+/// A manifest of files of `size` bytes each at `paths` (folders are made as they are needed).
+fn sized(files: &[(&str, u64)]) -> Manifest {
+    let items = files
+        .iter()
+        .map(|(path, size)| Item {
+            path: (*path).into(),
+            kind: Kind::File,
+            mode: 0o644,
+            size: *size,
+            mtime_ns: 1,
+            link: None,
+        })
+        .collect();
+    Manifest::build(1, items).unwrap()
+}
+
+/// What a fault on `path` reads ahead, as paths, with the paths `skip` names left out.
+fn picked(manifest: &Manifest, path: &str, skip: impl Fn(&str, &Entry) -> bool) -> Vec<String> {
+    let index = manifest.resolve(path).unwrap();
+    let picked = read_ahead(manifest, index, |other, entry| skip(&manifest.path_of(other), entry));
+    let names: Vec<String> = picked.iter().map(|other| manifest.path_of(*other)).collect();
+    let mut unique = names.clone();
+    unique.sort();
+    unique.dedup();
+    assert_eq!(unique.len(), names.len(), "a file is picked twice");
+    assert!(!names.iter().any(|name| name == path), "the faulting file is picked");
+    names
+}
+
+/// A workspace `ws` whose `crates` folder holds three projects (`a` and `b` with a `Cargo.toml`,
+/// `c` with a `package.json`), a folder with no marker and a loose file, beside a `docs` folder.
+fn workspace() -> Manifest {
+    sized(&[
+        ("ws/Cargo.toml", 4),
+        ("ws/crates/a/Cargo.toml", 4),
+        ("ws/crates/a/build.rs", 4),
+        ("ws/crates/a/src/lib.rs", 4),
+        ("ws/crates/a/src/x.rs", 4),
+        ("ws/crates/b/Cargo.toml", 4),
+        ("ws/crates/b/src/lib.rs", 4),
+        ("ws/crates/c/package.json", 4),
+        ("ws/crates/notes/readme.md", 4),
+        ("ws/crates/top.txt", 4),
+        ("docs/one.md", 4),
+    ])
+}
+
+#[test]
+fn a_fault_in_a_folder_with_no_marker_beside_it_reads_only_its_own_folder() {
+    let manifest =
+        sized(&[("src/a.rs", 4), ("src/b.rs", 4), ("src/deep/d.rs", 4), ("README.md", 4)]);
+    assert_eq!(picked(&manifest, "src/a.rs", |_, _| false), ["src/b.rs"]);
+}
+
+#[test]
+fn a_fault_in_a_project_reads_the_projects_beside_it_but_not_their_subfolders() {
+    let manifest = workspace();
+    assert_eq!(
+        picked(&manifest, "ws/crates/a/Cargo.toml", |_, _| false),
+        ["ws/crates/a/build.rs", "ws/crates/b/Cargo.toml", "ws/crates/c/package.json"]
+    );
+}
+
+#[test]
+fn a_fault_in_a_projects_sources_stays_in_its_folder() {
+    // `src` has no folder beside it, and its project's neighbours are not its own neighbours.
+    let manifest = workspace();
+    assert_eq!(picked(&manifest, "ws/crates/a/src/x.rs", |_, _| false), ["ws/crates/a/src/lib.rs"]);
+}
+
+#[test]
+fn a_fault_at_the_top_reads_only_the_top_folder() {
+    let manifest = sized(&[("Cargo.toml", 4), ("README.md", 4), ("a/Cargo.toml", 4)]);
+    assert_eq!(picked(&manifest, "Cargo.toml", |_, _| false), ["README.md"]);
+}
+
+#[test]
+fn skipped_files_and_folders_are_not_read_or_looked_into() {
+    let manifest = workspace();
+    let skipped = |path: &str, entry: &Entry| {
+        path == "ws/crates/b"
+            || (entry.kind == Kind::File && path == "ws/crates/a/build.rs")
+            || (entry.kind == Kind::File && path == "ws/crates/c/package.json")
+    };
+    // `c` is still a project (its marker is cached, not gone): it is looked into, and has nothing
+    // else to read.
+    assert_eq!(picked(&manifest, "ws/crates/a/Cargo.toml", skipped), Vec::<String>::new());
+}
+
+#[test]
+fn a_batch_holds_at_most_the_file_budget_with_the_faulting_file() {
+    let files: Vec<(String, u64)> = (0..300).map(|at| (format!("d/f{at:03}.rs"), 4)).collect();
+    let refs: Vec<(&str, u64)> = files.iter().map(|(path, size)| (path.as_str(), *size)).collect();
+    let manifest = sized(&refs);
+    let names = picked(&manifest, "d/f000.rs", |_, _| false);
+    assert_eq!(names.len(), BATCH_FILES - 1);
+    assert_eq!(names.first().map(String::as_str), Some("d/f001.rs"));
+}
+
+#[test]
+fn the_projects_beside_share_the_file_budget_in_name_order() {
+    let files: Vec<(String, u64)> =
+        (0..300).map(|at| (format!("crates/p{at:03}/Cargo.toml"), 4)).collect();
+    let refs: Vec<(&str, u64)> = files.iter().map(|(path, size)| (path.as_str(), *size)).collect();
+    let manifest = sized(&refs);
+    let names = picked(&manifest, "crates/p000/Cargo.toml", |_, _| false);
+    assert_eq!(names.len(), BATCH_FILES - 1);
+    assert_eq!(names.first().map(String::as_str), Some("crates/p001/Cargo.toml"));
+    assert_eq!(names.last().map(String::as_str), Some("crates/p255/Cargo.toml"));
+}
+
+#[test]
+fn a_batch_holds_at_most_the_byte_budget_and_no_big_file() {
+    const MIB: u64 = 1024 * 1024;
+    let mut files: Vec<(String, u64)> =
+        vec![("d/a.bin".into(), MIB), ("d/huge.bin".into(), CHUNK + 1)];
+    files.extend((0..40).map(|at| (format!("d/b{at:02}.bin"), MIB)));
+    let refs: Vec<(&str, u64)> = files.iter().map(|(path, size)| (path.as_str(), *size)).collect();
+    let manifest = sized(&refs);
+    let names = picked(&manifest, "d/a.bin", |_, _| false);
+    // The faulting megabyte and fifteen more make the budget's sixteen.
+    assert_eq!(names.len(), 15);
+    assert!(!names.iter().any(|name| name == "d/huge.bin"));
+}
+
+#[test]
+fn a_pick_looks_at_no_more_than_its_scan_budget() {
+    let mut files: Vec<(String, u64)> =
+        (0..BATCH_SCAN + 10).map(|at| (format!("a/src/s{at:05}.rs"), 4)).collect();
+    files.push(("a/src/fault.rs".into(), 4));
+    files.push(("a/tests/Cargo.toml".into(), 4));
+    let refs: Vec<(&str, u64)> = files.iter().map(|(path, size)| (path.as_str(), *size)).collect();
+    let manifest = sized(&refs);
+    // Every file of the own folder is skipped, so the pick stops at its scan budget before it
+    // gets to the project beside it.
+    let names = picked(&manifest, "a/src/fault.rs", |path, entry| {
+        entry.kind == Kind::File && path != "a/src/fault.rs" && path != "a/tests/Cargo.toml"
+    });
+    assert_eq!(names, Vec::<String>::new());
+}
+
+/// A manifest of files holding `files`' bytes, with their sizes, and a fake source serving them.
+fn served(files: &[&str]) -> (Arc<Manifest>, Arc<Fake>) {
+    let contents: Vec<(String, u64)> =
+        files.iter().map(|path| ((*path).to_string(), format!("<{path}>").len() as u64)).collect();
+    let refs: Vec<(&str, u64)> =
+        contents.iter().map(|(path, size)| (path.as_str(), *size)).collect();
+    let manifest = Arc::new(sized(&refs));
+    let mut fake = Fake::default();
+    for path in files {
+        fake.bytes.insert(manifest.resolve(path).unwrap(), format!("<{path}>").into_bytes());
+    }
+    (manifest, Arc::new(fake))
+}
+
+#[test]
+fn a_fault_fetches_the_projects_beside_it_in_one_ask_and_never_again() {
+    let (manifest, fake) = served(&[
+        "ws/crates/a/Cargo.toml",
+        "ws/crates/a/src/lib.rs",
+        "ws/crates/b/Cargo.toml",
+        "ws/crates/b/build.rs",
+        "ws/crates/b/src/lib.rs",
+        "ws/crates/c/package.json",
+    ]);
+    let state = tempfile::tempdir().unwrap();
+    let overlay = open(state.path(), &manifest, &fake);
+    let a = path_ino(&overlay, "ws/crates/a/Cargo.toml");
+    assert_eq!(overlay.read(a, 0, 100).unwrap(), b"<ws/crates/a/Cargo.toml>");
+    assert_eq!(fake.calls.load(Ordering::Relaxed), 1);
+    assert_eq!(fake.batches.lock().unwrap()[0].len(), 4);
+    for path in ["ws/crates/b/Cargo.toml", "ws/crates/b/build.rs", "ws/crates/c/package.json"] {
+        let ino = path_ino(&overlay, path);
+        assert_eq!(overlay.read(ino, 0, 100).unwrap(), format!("<{path}>").into_bytes());
+    }
+    assert_eq!(fake.calls.load(Ordering::Relaxed), 1);
+    // A fault in b's sources asks for that file alone: what is cached is not asked for again.
+    let b = path_ino(&overlay, "ws/crates/b/src/lib.rs");
+    assert_eq!(overlay.read(b, 0, 100).unwrap(), b"<ws/crates/b/src/lib.rs>");
+    assert_eq!(fake.calls.load(Ordering::Relaxed), 2);
+    assert_eq!(fake.batches.lock().unwrap()[1].len(), 1);
+    assert_eq!(overlay.stats().remote_reads, 5);
+}
+
 /// The bytes of the blobs in a projection's cache folder, on disk.
 fn cache_on_disk_bytes(state: &Path) -> u64 {
     fs::read_dir(state.join("cache"))
