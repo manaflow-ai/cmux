@@ -386,7 +386,8 @@
         "Check the published feed offers deltas": {"nightly_only": "reads the live nightly-next feed and fails when the published build lists no served delta (tests/test_nightly_next_delta_check.py)"}},
       "build-live-code-variant": {
         "Select Xcode": {"plumbing": true}, "Select the SDK of the selected Xcode": {"plumbing": true},
-        "Build the commit's live code overlay": {"nightly_only": "builds the published commit -interposable after the feed is written, continue-on-error (scripts/ci/nightly-steps/live-code-variant.sh; tests/test_swap_binary.py)"}},
+        "Build the commit's live code overlay": {"nightly_only": "builds the published commit -interposable after the feed is written, continue-on-error (scripts/ci/nightly-steps/live-code-variant.sh; tests/test_swap_binary.py)"},
+        "Mark the live code overlay built": {"nightly_only": "sets built=true only when both xcodebuild logs say BUILD SUCCEEDED and the archives exist; sign-live-code-variant gates on it (scripts/ci/nightly-steps/live-code-variant.sh built)"}},
       "sign-live-code-variant": {
         "Hold the whole Mac before any credential": {"pr": "ci-guards.yml:workflow-guard-tests:Validate a signing job on an owned Mac holds the whole Mac and deletes its keychain"},
         "Claim the whole Mac for signing": {"pr": "ci-guards.yml:workflow-guard-tests:Validate a signing job on an owned Mac holds the whole Mac and deletes its keychain"},
