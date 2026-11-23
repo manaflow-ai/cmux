@@ -386,6 +386,18 @@ impl Hub {
                     }
                     if !intentional {
                         self.set_status(&session, SessionStatus::Disconnected);
+                        // Quit on the account's limit: held until its reset, then started
+                        // again with no prompt (`rate_hold.rs` `hold_at_exit`).
+                        let limit = {
+                            let tail =
+                                session.stderr_tail.lock().unwrap_or_else(|e| e.into_inner());
+                            super::exit_reason::last_explaining(tail.iter().map(String::as_str))
+                                .filter(|l| super::exit_reason::exit_cause(l) == "rate_limit")
+                                .map(str::to_owned)
+                        };
+                        if let Some(line) = limit {
+                            self.hold_at_exit(&session, &line).await;
+                        }
                     }
                 }
             }
