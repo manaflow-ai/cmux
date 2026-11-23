@@ -373,3 +373,6 @@ pub mod ws_auth;
 pub mod xhost_audit;
 
 pub mod model_catalog;
+/// The per-host model-name hot patch (`$ACPMUX_HOME/model-aliases.json`), read by
+/// `model_catalog::canonical_model`.
+pub mod model_hot_patch;

@@ -1846,9 +1846,12 @@ jobs:
         if: steps.current.outputs.stale != 'true' && steps.marked.outputs.marked != 'true'
         run: echo "TMPDIR=/tmp" >> "$GITHUB_ENV"
 
+      # The ghostty-next git directory comes from the CI cache bucket (cmux-next-fast-tier-seed.yml seeds it
+      # on every feat-cmux-next push), then git fetches the difference. A Freestyle runner cloned it from
+      # github.com in 6.5 min (job 137551791655, 2026-11-23).
       - name: Init ghostty submodule
         if: steps.current.outputs.stale != 'true' && steps.marked.outputs.marked != 'true'
-        run: git submodule update --init --depth 1 ghostty-next
+        run: bash scripts/ci/init-submodule.sh ghostty-next
 
       - name: Install the build dependencies
         if: steps.current.outputs.stale != 'true' && steps.marked.outputs.marked != 'true' && runner.os == 'Linux'
@@ -1863,6 +1866,14 @@ jobs:
         with:
           path: ${{ runner.temp }}/cmux-zig-tarballs
           key: cmux-zig-tarball-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/ci/zig-tarballs.sha256') }}
+
+      # The owned fleet keeps Zig installed, so it never saves the actions/cache entry above, and a fresh
+      # Freestyle runner downloaded Zig from third-party mirrors: job 137551791655 spent its whole 480 s
+      # budget there and failed. The bucket's copy (seeded by cmux-next-fast-tier-seed.yml) fills the miss;
+      # install-zig-ci.sh still checks it against scripts/ci/zig-tarballs.sha256.
+      - name: Restore the Zig tarball from the CI cache bucket
+        if: steps.current.outputs.stale != 'true' && steps.marked.outputs.marked != 'true'
+        run: bash scripts/ci/zig-tarball-r2.sh restore "$RUNNER_TEMP/cmux-zig-tarballs"
 
       - name: Install zig
         if: steps.current.outputs.stale != 'true' && steps.marked.outputs.marked != 'true'
