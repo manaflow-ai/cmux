@@ -98,7 +98,7 @@ impl Daemon {
         let path = peer.map(|(peer_home, peer_socket)| {
             config["peers"] = json!({"target": {"url": "ssh://target"}});
             let link = link.map(|(_, port, delay)| (port, delay));
-            session_move::fake_ssh_linked(&home, &peer_home, &peer_socket, link)
+            session_move::fake_ssh(&home, &peer_home, &peer_socket, link)
         });
         if let Some((port, ..)) = link {
             config["websocket"] =

@@ -2,17 +2,14 @@
 use super::*;
 use std::os::unix::fs::PermissionsExt;
 
-/// Stand in only for the three SSH operations the CLI needs. No host SSH, credentials or
-/// network are used; the socket symlink reaches the other test daemon's real RPC server.
-pub(super) fn fake_ssh(home: &Path, target_home: &Path, target_socket: &Path) -> String {
-    fake_ssh_linked(home, target_home, target_socket, None)
-}
-
-/// [`fake_ssh`] that also carries the daemon's own peer link when `link` names the target's
-/// WebSocket port and a one-way delay in milliseconds: `ssh -W` is a TCP connection to that port
-/// (each chunk held for the delay, in both directions, as a link of that latency holds it), and
-/// the remote config read answers with the target's `config.json` and peer token.
-pub(super) fn fake_ssh_linked(
+/// Stand in only for the SSH operations the CLI needs. No host SSH, credentials or network are
+/// used; the socket symlink reaches the other test daemon's real RPC server.
+///
+/// With `link` (the target's WebSocket port, a one-way delay in milliseconds) it also carries the
+/// daemon's own peer link: `ssh -W` is a TCP connection to that port, each chunk held for the
+/// delay in both directions as a link of that latency holds it, and the remote config read
+/// answers with the target's `config.json` and peer token.
+pub(super) fn fake_ssh(
     home: &Path,
     target_home: &Path,
     target_socket: &Path,

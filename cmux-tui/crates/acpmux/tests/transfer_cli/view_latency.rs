@@ -163,11 +163,14 @@ async fn run(tag: &str, round_trip_ms: u64) -> Value {
     }
     let (moved_draft, moved_token) = measure(here, &key, "moved").await;
 
-    // The moved chat really ran on the peer: its own log holds the replies.
+    // The moved chat really ran on the peer, and the first daemon kept none of it.
     let mut there = Rpc::connect(&sides[1].daemon.socket).await;
-    let replies = there.texts(&id, "agent_message_chunk").await;
+    let ran = there.call("_acpmux/info", json!({"sessionId": id})).await;
     let last = format!("echo: moved {}", SAMPLES - 1);
-    assert!(replies.contains(&last), "the peer ran the moved chat's prompts");
+    assert_eq!(ran["lastMessage"]["text"], last.as_str(), "the peer ran the moved prompts");
+    let left = rpc.call("_acpmux/info", json!({"sessionId": id})).await;
+    assert_eq!(left["status"], "closed", "the first daemon only forwards: {left}");
+    assert_eq!(left["lastPrompt"], format!("local {}", SAMPLES - 1), "{left}");
 
     let row = |local: &[f64], moved: &[f64]| {
         let (l, m) = (spread(local), spread(moved));
