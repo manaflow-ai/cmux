@@ -422,6 +422,10 @@ async function main() {
       .getByText(args.url ? text : `echo: ${text}`)
       .last()
       .waitFor({ timeout: STEP_MS });
+    // The person's own message from their signed-in browser is theirs, never drawn as
+    // "Unverified sender" (`prompt_sender.rs` `owner_web_device`).
+    const unverified = await page.locator(".cv-unverified").count();
+    if (unverified) throw new Error(`the person's message is marked unverified (${unverified} marks)`);
   });
   report.totalMs = Math.round(performance.now() - started);
   report.ok = true;
