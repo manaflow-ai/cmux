@@ -353,6 +353,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextAgentUpdates",
                 "CmuxNextAppCore",
                 "CmuxNextAppHealth",
+                "CmuxNextAppTry",
                 "CmuxNextApps",
                 "CmuxNextBookmarks",
                 "CmuxNextBridge",
@@ -538,6 +539,19 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             ],
             swiftSettings: uiSwiftSettings
         ),
+        // Run a PR as This App… and Undo Last PR Run (app.try.run / app.try.undo): the palette face of the
+        // bundled `cmux app try`, out of CmuxNextApp; the App only binds it with its CLI, bundle and window.
+        .target(
+            name: "CmuxNextAppTry",
+            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextActions",
+                "CmuxNextCompat",
+                "CmuxNextDaemon",
+                "CmuxNextDesign",
+            ],
+            resources: [.process("Resources")],
+            swiftSettings: uiSwiftSettings
+        ),
         // Archive and Unarchive of sidebar items (plans/cmux-next/archiving-DESIGN.md): the actions
         // on the sidebar document; the App only answers `SidebarArchiveHost`.
         .target(
@@ -682,6 +696,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextTestSupport",
                 "CmuxNextWakeups",
                 "CmuxNextWakeupsTestSupport",
+                "CmuxNextWindowRules",
             ],
             swiftSettings: uiSwiftSettings
         ),
@@ -1300,6 +1315,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextFiles",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                // CCmuxAppFFI: the files lister client (cmux-app-ffi src/files_lister.rs).
+                "CCmuxAppFFI",
                 "CmuxNextCompat",
             ],
             swiftSettings: daemonSwiftSettings
@@ -1681,6 +1698,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextHomeModel",
                 "CmuxNextIcons",
                 "CmuxNextPalette",
+                "CmuxNextServer",
                 "CmuxNextSidebar",
                 "CmuxNextTabs",
                 "CmuxNextWakeups",
@@ -1958,6 +1976,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 .copy("Resources/WhatsNew"),
                 // The keys a web update pointer may be signed with (plans/cmux-next/web-ota.md).
                 .copy("Resources/web-update-keys.json"),
+                // The relaunch's afterimage, run by /usr/bin/osascript (RelaunchAfterimage).
+                .copy("Resources/relaunch-afterimage.js"),
             ],
             swiftSettings: uiSwiftSettings
         ),
@@ -2732,6 +2752,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextApp",
                 "CmuxNextAppCore",
                 "CmuxNextAppHealth",
+                "CmuxNextAppTry",
                 "CmuxNextApps",
                 "CmuxNextBrowserCore",
                 "CmuxNextBrowserHistory",
