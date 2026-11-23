@@ -34,8 +34,14 @@ public final class AgentPageRedraw {
     }
 
     /// The frame-then-task wait in the page; `done` runs after it (now when the page is gone).
-    private func probeFrame(_ done: @escaping @MainActor () -> Void) {
+    /// `size`: the size the page is laid out at now. A Chromium page learns a new size from its window a frame or more
+    /// after its view, so its next frame can still be one at the old size: it answers for a frame at `size`
+    /// (``PageWebView/afterFrame(at:_:)``).
+    private func probeFrame(at size: CGSize? = nil, _ done: @escaping @MainActor () -> Void) {
         let script = "await new Promise((done) => requestAnimationFrame(() => setTimeout(done, 0)));"
+        if let page, let size, page.showsChromium, size.width > 0, size.height > 0 {
+            return page.afterFrame(at: size) { done() }
+        }
         if let page {
             // task-owner: one frame wait; ends with the page's answer
             Task { @MainActor [weak page] in
@@ -85,7 +91,7 @@ public final class AgentPageRedraw {
         generation &+= 1
         let generation = generation
         // One animation frame, then a task: it runs after that frame was rendered (PagePaintProbe).
-        probeFrame { [weak self] in
+        probeFrame(at: page?.frame.size) { [weak self] in
             guard let self, self.generation == generation else { return }
             self.probing = false
             self.finish()

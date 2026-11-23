@@ -2,7 +2,8 @@ public import AppKit
 
 /// The window of a cmux dialog that floats over every app: a prompt the person at this Mac answers wherever they
 /// are (a device asking to see or control this Mac, the join consent, "Computer use can act as me"). It draws the
-/// one cmux dialog card (``CmuxDialogView``: the dialog glass, concentric corners, keycap buttons) in a borderless,
+/// one cmux dialog card (``CmuxDialogView``: the transient glass tinted by the theme, concentric corners, keycap
+/// buttons; ``CmuxDialogPresentation/floatsOverApps``) in a borderless,
 /// non-activating panel at the top right of the main screen, on every Space and over full-screen apps.
 ///
 /// Showing it never takes the keyboard or the frontmost app: a Return typed into another app as it appears answers
@@ -87,7 +88,8 @@ open class CmuxFloatingDialogPanel: NSPanel {
     /// every app, so it draws the ``SurfaceRole/prompt`` glass; one over its anchor window draws the spec's.
     @discardableResult
     public func show(_ spec: CmuxDialogSpec, onPress: @escaping (String) -> Void) -> CmuxDialogView {
-        let view = CmuxDialogView(dialog: .standalone(spec, activeLook: Self.appActiveLook, onPress: onPress), overApps: anchor == nil)
+        let view = CmuxDialogView(dialog: .standalone(spec, activeLook: Self.appActiveLook, floatsOverApps: true, onPress: onPress),
+                                  overApps: anchor == nil)
         present(view)
         return view
     }
@@ -243,7 +245,8 @@ open class CmuxDialogHostView: NSView {
     public func draw(_ spec: CmuxDialogSpec, onPress: @escaping (String) -> Void) -> CmuxDialogView {
         let hadKeyboard = card?.containsKeyboard == true
         card?.removeFromSuperview()
-        let view = CmuxDialogView(dialog: .standalone(spec, activeLook: CmuxFloatingDialogPanel.appActiveLook, onPress: onPress),
+        let view = CmuxDialogView(dialog: .standalone(spec, activeLook: CmuxFloatingDialogPanel.appActiveLook, floatsOverApps: true,
+                                                      onPress: onPress),
                                   overApps: true)
         addSubview(view)
         NSLayoutConstraint.activate([

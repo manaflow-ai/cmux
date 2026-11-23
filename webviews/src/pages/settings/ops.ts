@@ -12,6 +12,7 @@
 import type { AcpmuxUsageLimits } from "../../agent-session/acpmux/model";
 import type { GhosttyTheme } from "../../theme/ghosttyTheme";
 import type { WorktreeRecipe } from "../../worktreeRecipe";
+import type { AccountFamily, AccountRowWire, SignInFinishWire, SignInStartWire } from "../shared/signIn/accountSignIn";
 import { OWNER_SENTENCE } from "../shared/userMessage";
 
 /** A museum search result (cmux.settings.art.search); its thumbnail is at `museum/<key>`. */
@@ -781,6 +782,10 @@ export type AccountsState = {
   cmux: AccountsCmux;
   removeTitle: string;
   groups: Array<{ id: string; title: string; rows: AccountsRow[] }>;
+  /** The daemon's sign-in accounts (`account.list` rows: GitHub, ChatGPT and Claude, several each).
+   * Present only from a host that signs in in place (shared/signIn/accountSignIn.ts); without it the
+   * page keeps the terminal sign-in. */
+  signInAccounts?: AccountRowWire[] | null;
 };
 
 /**
@@ -794,6 +799,19 @@ export type AccountsRun = {
   secret?: string;
   team?: string;
   name?: string;
+  /** The in-place sign-in's gestures (ACCOUNT_ACTIONS): its login, a pasted code, a new account's family. */
+  loginId?: string;
+  code?: string;
+  family?: AccountFamily;
+};
+
+/** `cmux.settings.accounts.run`'s answer. A sign-in gesture adds the daemon's answer: `signIn` for
+ * a start, `finished` for a finish, `reason` for a refusal (SignInFailure). */
+export type AccountsRunReply = {
+  error?: string;
+  signIn?: SignInStartWire;
+  finished?: SignInFinishWire;
+  reason?: string;
 };
 
 /** One Settings > Agents row: a harness acpmux knows (never its command line or env). */
@@ -985,7 +1003,9 @@ export type HarnessesRun = {
   id?: string;
   /** With every account gesture but `accountAdd`: a listed account id. */
   account?: string;
-  /** With `accountAdd`: the provider family (`codex`, `claude`) that gets a new account. */
+  /** With `accountAdd`: the provider family (`codex`, `claude`) that gets a new account; `github`
+   * (way `new` only) types gh's own `gh auth login` into a terminal tab, the in-place sign-in's
+   * fallback for a daemon without `_acpmux/account/sign_in`. */
   family?: string;
   /** With `accountAdd`: `new` signs in a login folder of its own, `key` adds an API key. */
   way?: "new" | "key";
@@ -1218,7 +1238,8 @@ export type DevicesState = {
   thisDevice: DevicesDevice | null;
   others: DevicesDevice[];
   /** "Allow Mac Screen on this Mac"; null until this Mac is registered. */
-  sharing: { on: boolean; busy: boolean; permissions: DevicesPermission[] } | null;
+  /** `agentsMayShare`: the account's "My agents can turn screen sharing and control on my machines" (device hub). */
+  sharing: { on: boolean; busy: boolean; permissions: DevicesPermission[]; agentsMayShare: boolean } | null;
   relays: DevicesRelay[];
   /** Newest first. */
   history: DevicesHistoryRow[];
@@ -1299,6 +1320,8 @@ export type DevicesLabels = {
   sharingSection: string;
   sharingToggle: string;
   sharingDetail: string;
+  agentsToggle: string;
+  agentsDetail: string;
   openSettings: string;
   allowed: string;
   relaysSection: string;
@@ -1361,6 +1384,7 @@ export type DevicesRun =
   | { action: "remove"; id: string }
   | { action: "setAccess"; id: string; scope: DevicesScope }
   | { action: "setSharing"; on: boolean }
+  | { action: "setAgentsMayShare"; on: boolean }
   | { action: "openPermission"; id: DevicesPermissionId }
   | { action: "saveRelay"; relay: DevicesRelayDraft }
   | { action: "checkRelay"; id?: string; relay?: DevicesRelayDraft }
@@ -1390,7 +1414,7 @@ export type IntegrationRow = {
 export type AgentToolsCardRow = {
   id: string;
   name: string;
-  /** `terminals`: started in cmux, it gets cmux's tools; `ready`: not yet (the answer is not on). */
+  /** `terminals`: started in cmux, it gets cmux's tools; `ready`: not (`agents.cmuxMcp` is off). */
   state: "ready" | "terminals" | "failed";
   /** The line that removes a `cmux` entry in the agent's own settings that runs `cmux mcp serve`, used
    * outside cmux (not this build's own manual line); null or absent for none. Remove runs it only on
@@ -1402,12 +1426,12 @@ export type AgentToolsCardRow = {
 export type AgentToolsCardState = {
   /** The first read answered (an empty list then says none was found). */
   loaded: boolean;
-  /** Turn On runs. */
+  /** Turn On (shown while `agents.cmuxMcp` is off) runs. */
   applying: boolean;
   /** The answer could not be saved. */
   failed: boolean;
-  /** `agents.cmuxMcp` now. Absent from older hosts. */
-  choice?: "ask" | "on" | "off";
+  /** `agents.cmuxMcp` now (`on` unless the person turned it off). Absent from older hosts. */
+  choice?: "on" | "off";
   rows: AgentToolsCardRow[];
   /** The lines a person runs themselves to use cmux's tools in agents started elsewhere (cmux never
    * runs them). Absent from older hosts. */
@@ -1578,15 +1602,21 @@ export type AgentSkillsState =
       /** `files` (cmux read the folders) or `app-server` (Codex's own list). */
       sources: { claude: string; codex: string } | null;
       elapsedMs: number | null;
-      /** The CLI's refusal of the last switch ("" with no words of its own). */
+      /** The CLI's refusal of the last switch ("" with no words of its own); `path` is `new-command` for
+       * a New Command the CLI refused. */
       refusal: { path: string; message: string } | null;
+      /** The command New Command last saved: what to type and its file. */
+      added?: { agent: "claude" | "codex" | "cmux"; invocation: string; path: string } | null;
     };
 
 /** One Skills gesture; on and off run only on a click. */
 export type AgentSkillsRun =
   | { action: "refresh" }
   | { action: "open" | "reveal"; path: string }
-  | { action: "on" | "off"; path: string; agent: "claude" | "codex" };
+  | { action: "on" | "off"; path: string; agent: "claude" | "codex" }
+  /** New Command (`cmux agent-config commands add NAME --prompt TEXT --agent A`): a saved prompt in the
+   * agent's own folder, or cmux's (`cmux`, in every chat's `/` menu); only on a click. */
+  | { action: "add"; agent: "claude" | "codex" | "cmux"; name: string; prompt: string; description?: string };
 
 /** One MCP server Claude Code or Codex starts, from its own config files (`cmux agent-config mcp
  * list --json`, cmux-agent-customize `mcp.rs`). Never a secret: env and header values are names only. */
@@ -1862,7 +1892,7 @@ export type SettingsOps = {
   /** Native: the Accounts part (providers, linked accounts, forms). */
   "cmux.settings.accounts.state": [Record<string, never>, AccountsState];
   /** Native: one Accounts gesture; a failed Keychain save answers its message. */
-  "cmux.settings.accounts.run": [AccountsRun, { error?: string }];
+  "cmux.settings.accounts.run": [AccountsRun, AccountsRunReply];
   /** Native: Settings > Agents, the harnesses acpmux knows and the last doctor answers. */
   "cmux.settings.agents.state": [Record<string, never>, AgentsState];
   /** Native: one Agents gesture; a daemon refusal rejects with `cmux.agents.<code>` and its text. */

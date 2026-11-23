@@ -511,7 +511,9 @@ function DeviceRow({ device, labels }: { device: DevicesDevice; labels: DevicesL
 
 function SharingGroup({ sharing, labels }: { sharing: NonNullable<DevicesState["sharing"]>; labels: DevicesLabels }) {
   const [error, run] = useRun();
+  const [agentsError, runAgents] = useRun();
   const titleId = useId();
+  const agentsTitleId = useId();
   return (
     <section className="group" data-devices-group="sharing">
       <h3 className="group-title">{labels.sharingSection}</h3>
@@ -534,6 +536,26 @@ function SharingGroup({ sharing, labels }: { sharing: NonNullable<DevicesState["
             </div>
           </div>
           <RunError error={error} />
+        </div>
+        {/* The account's standing permission: one click here is the person's consent (the hub audits it). */}
+        <div className="row" data-devices-agents="">
+          <div className="row-main">
+            <div className="row-label">
+              <div className="row-title" id={agentsTitleId}>
+                {labels.agentsToggle}
+              </div>
+              <div className="row-help">{labels.agentsDetail}</div>
+            </div>
+            <div className="row-control">
+              <Switch
+                checked={sharing.agentsMayShare}
+                disabled={sharing.busy}
+                labelId={agentsTitleId}
+                onToggle={(on) => void runAgents({ action: "setAgentsMayShare", on })}
+              />
+            </div>
+          </div>
+          <RunError error={agentsError} />
         </div>
         {sharing.on &&
           sharing.permissions.map((permission) => (
