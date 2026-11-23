@@ -281,7 +281,13 @@ import CmuxTabsKit
             key = Self.key(feed, turns: [turn])
         }
         try #require(key.isDrawable)
-        return try #require(AgentCardRasterizer.render(feed, key))
+        let image = try #require(AgentCardRasterizer.render(feed, key))
+        // Evidence for the PR: with CMUX_CARD_EVIDENCE_DIR set, each card picture is also written as a PNG.
+        if let dir = ProcessInfo.processInfo.environment["CMUX_CARD_EVIDENCE_DIR"], let png = image.pngData() {
+            try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+            try png.write(to: URL(fileURLWithPath: dir).appendingPathComponent("card-\(turn.id).png"))
+        }
+        return image
     }
 
     /// Leo, 2026-11-22, on yellow squares with a red prohibition sign in the tab grid's cards:
