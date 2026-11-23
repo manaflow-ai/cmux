@@ -490,6 +490,21 @@ class OneBaseCheck(unittest.TestCase):
                                    str(tmp / "out" / history.HEAD_RESULTS)], capture_output=True, text=True)
             self.assertNotEqual(done.returncode, 0)  # read as one shard's unreadable results were: every red replays
 
+    def test_one_shard_downloaded_flat_still_joins(self):
+        # download-artifact puts a pattern's one match at the path itself (run 45084775340's shard 1 alone).
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            self.shard(tmp / "dl", 1, {})
+            flat = tmp / "dl" / history.HEAD_ARTIFACT.format(1)
+            done = subprocess.run([sys.executable, str(SCRIPT), "heads", str(flat), "--matrix",
+                                   json.dumps([{"shard": 1, "shard_count": 8}]), "--out", str(tmp / "out")],
+                                  capture_output=True, text=True)
+            self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+            self.assertEqual(json.loads((tmp / "out" / history.HEAD_RESULTS).read_text()), {})
+            self.assertTrue((tmp / "out/runner/run-webviews-tests.sh").is_file())
+            # Two shards still need a directory each: a flat file does not stand in for a missing one.
+            self.assertIn("shard1", history.join_heads(flat, 2, tmp / "out2"))
+
     def test_a_pull_request_joins_only_the_shards_it_ran(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)

@@ -429,8 +429,13 @@ def join_heads(shards: Path, count: "int | list[int]", out: Path) -> str | None:
     joined: dict | None = {}
     where: dict[str, int] = {}
     out.mkdir(parents=True, exist_ok=True)
-    for shard in (range(1, count + 1) if isinstance(count, int) else count):
+    ran = list(range(1, count + 1) if isinstance(count, int) else count)
+    for shard in ran:
         here = shards / HEAD_ARTIFACT.format(shard)
+        # download-artifact extracts a pattern that matched one artifact into the path itself, not a directory named
+        # for it: a pull request that ran shard 1 alone (run 45084775340) has its results at SHARDS.
+        if len(ran) == 1 and not here.is_dir() and (shards / HEAD_RESULTS).is_file():
+            here = shards
         if not (here / HEAD_RESULTS).is_file():
             return f"{HEAD_ARTIFACT.format(shard)} has no {HEAD_RESULTS}"
         try:
