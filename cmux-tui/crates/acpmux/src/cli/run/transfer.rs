@@ -211,7 +211,7 @@ pub(crate) fn receiver_takes(begin: &Value, dst_init: &Value) -> Result<()> {
 /// there, and committed on `src`. A failure that leaves the chat nowhere else aborts the move.
 ///
 /// Each end reconnects when its connection drops, and every request has a deadline
-/// (`move_end.rs`): on cosmic-gray (2026-11-23) moves through ssh forwards lost their
+/// (`move_end.rs`): on a laptop (2026-11-23) moves through ssh forwards lost their
 /// connections mid-page and one waited 30 minutes on a reply that never came. A move whose ends
 /// can both be reached again is noted in this machine's move journal until it ends, so that one
 /// whose client dies is ended by the next move here, not left frozen.

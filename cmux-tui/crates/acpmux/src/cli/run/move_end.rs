@@ -2,8 +2,8 @@
 //! reach that daemon again when its connection drops.
 //!
 //! A move from another machine pages the bundle through two `ssh -L` forwards
-//! (`ssh_forward.rs`), each a connection the move's client cannot do without: on cosmic-gray
-//! (2026-11-23) moves off gcp-codex-swarm-05 to huge-blue lost `_acpmux/transfer_read` and
+//! (`ssh_forward.rs`), each a connection the move's client cannot do without: on a laptop
+//! (2026-11-23) moves from one fleet VM to another lost `_acpmux/transfer_read` and
 //! `transfer_write` connections mid-move, one move waited 30 minutes on a reply that never came,
 //! and a move that failed so left its chat frozen ("it is being moved already") with no one to
 //! end it. So:

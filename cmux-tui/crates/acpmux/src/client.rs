@@ -231,8 +231,8 @@ impl Client {
     pub fn closed(&self, context: &str) -> anyhow::Error {
         // The pid file and panic log say only how this machine's own daemon is. A connection to
         // another socket (a move's `ssh -L` forward of another machine's daemon, a sibling
-        // build's) ended for reasons they cannot tell: on cosmic-gray a move's dropped forwards
-        // read "the daemon (pid 5763) is still running but dropped this connection", naming the
+        // build's) ended for reasons they cannot tell: on a laptop a move's dropped forwards
+        // read "the daemon (pid N) is still running but dropped this connection", naming the
         // local daemon, which was never on that path (2026-11-23).
         if !same_socket(&self.socket, &crate::config::socket_path()) {
             return other_socket_closed(&self.socket, context);

@@ -1,8 +1,8 @@
 //! A move whose connections drop (`move_end.rs`): fake daemons on unix sockets that speak the
 //! move protocol as `hub/transfer_out.rs` and `hub/transfer_in.rs` do (pages by offset, a write
 //! out of place answered with the size the target has, a commit answered again the same), and
-//! cut, lose the answer of, or stall a chosen request, as the ssh forwards of cosmic-gray's moves
-//! off gcp-codex-swarm-05 did on 2026-11-23.
+//! cut, lose the answer of, or stall a chosen request, as the ssh forwards of a laptop's moves
+//! off a fleet VM did on 2026-11-23.
 
 use super::*;
 use crate::cli::run::transfer::{begin_move, finish_journaled};
@@ -170,7 +170,7 @@ async fn run_move(src: &Fake, dst: &Fake, reconnect: bool, journal: &Path) -> Re
     let pick = |f: &Fake| if reconnect { f.reach() } else { None };
     let mut s_end = MoveEnd::new("source", &s, pick(src)).with_waits(SHORT, SHORT * 5);
     let mut d_end = MoveEnd::new("target", &d, pick(dst)).with_waits(SHORT, SHORT * 5);
-    let to = json!({"host": "huge-blue"});
+    let to = json!({"host": "target-host"});
     let moved = finish_journaled(
         &mut s_end,
         &mut d_end,
@@ -249,7 +249,7 @@ async fn a_multi_megabyte_move_whose_connections_drop_or_stall_mid_page_resumes_
     assert_eq!(d.connections, 4, "the first connection and one per drop");
     let s = src.state.lock().unwrap();
     assert_eq!(s.connections, 2);
-    assert_eq!(s.committed, Some(json!({"host": "huge-blue", "sessionId": "chat-there"})));
+    assert_eq!(s.committed, Some(json!({"host": "target-host", "sessionId": "chat-there"})));
     assert!(!s.aborted);
     assert!(noted(journal.path()).is_empty(), "the ended move leaves no journal entry");
 }
@@ -304,7 +304,7 @@ async fn a_move_neither_end_can_answer_for_stays_in_the_journal_with_its_owner()
         serde_json::from_slice(&std::fs::read(journal.path().join(format!("{TID}.json"))).unwrap())
             .unwrap();
     assert_eq!((j.pid, j.session_id.as_str(), j.epoch), (std::process::id(), "chat", 0));
-    assert_eq!(j.to, json!({"host": "huge-blue"}));
+    assert_eq!(j.to, json!({"host": "target-host"}));
 }
 
 /// A pid no process has now.
@@ -328,7 +328,7 @@ async fn a_move_whose_client_died_is_ended_by_the_next_run_and_a_live_ones_is_le
             pid: dead_pid(),
             src: src.reach().unwrap(),
             dst: dst.reach().unwrap(),
-            to: json!({"host": "huge-blue"}),
+            to: json!({"host": "target-host"}),
         };
         dead.note(dir.path());
         let live_id = "0190aaaa-0000-7000-8000-000000000002";
@@ -339,7 +339,7 @@ async fn a_move_whose_client_died_is_ended_by_the_next_run_and_a_live_ones_is_le
         assert_eq!(ended, vec![("chat".to_owned(), how)]);
         let s = src.state.lock().unwrap();
         if landed {
-            assert_eq!(s.committed, Some(json!({"host": "huge-blue"})));
+            assert_eq!(s.committed, Some(json!({"host": "target-host"})));
         } else {
             assert!(s.aborted && s.committed.is_none());
         }
