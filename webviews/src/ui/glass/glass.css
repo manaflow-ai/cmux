@@ -459,7 +459,7 @@
    itself under it (seeThroughBlur.ts, below) needs no underlay and draws none. */
 :root {
   /* The design scale's underlay (design/glass-system.md, rule 6): a menu's 80% over 40% covers
-     88% of the text under it. 70% (93%, a grey slab with no blur) until the one glass system. */
+     88% of the text under it, and in dark its 72% over 57% covers the same. 70% (93%, a grey slab with no blur) until the one glass system. */
   --glass-underlay: var(--ds-glass-underlay);
 }
 :root[data-glass-underlay="none"] {
