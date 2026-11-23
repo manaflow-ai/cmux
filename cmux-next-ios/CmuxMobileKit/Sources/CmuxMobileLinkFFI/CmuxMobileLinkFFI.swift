@@ -1367,7 +1367,8 @@ public protocol ComposerOutboxProtocol: AnyObject, Sendable {
     func nextDeadlineMs(nowMs: UInt64)  -> UInt64?
     
     /**
-     * The next request to send, when none is in flight and a keyed daemon is attached.
+     * The next request to send, in tap order behind those in flight (up to
+     * `cmux_composer_send::MAX_IN_FLIGHT`), when a keyed daemon is attached.
      */
     func nextRequest()  -> ComposerSendRequest?
     
@@ -1537,7 +1538,8 @@ open func nextDeadlineMs(nowMs: UInt64) -> UInt64?  {
 }
     
     /**
-     * The next request to send, when none is in flight and a keyed daemon is attached.
+     * The next request to send, in tap order behind those in flight (up to
+     * `cmux_composer_send::MAX_IN_FLIGHT`), when a keyed daemon is attached.
      */
 open func nextRequest() -> ComposerSendRequest?  {
     return try!  FfiConverterOptionTypeComposerSendRequest.lift(try! rustCall() {
@@ -7174,7 +7176,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_method_composeroutbox_next_deadline_ms() != 21898) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_method_composeroutbox_next_request() != 11883) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_composeroutbox_next_request() != 48840) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_composeroutbox_pending() != 16018) {
