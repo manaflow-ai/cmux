@@ -282,11 +282,8 @@ import CmuxTabsKit
         }
         try #require(key.isDrawable)
         let image = try #require(AgentCardRasterizer.render(feed, key))
-        // Evidence for the PR: with CMUX_CARD_EVIDENCE_DIR set, each card picture is also written as a PNG.
-        if let dir = ProcessInfo.processInfo.environment["CMUX_CARD_EVIDENCE_DIR"], let png = image.pngData() {
-            try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
-            try png.write(to: URL(fileURLWithPath: dir).appendingPathComponent("card-\(turn.id).png"))
-        }
+        // Evidence for the PR: the card's picture, as a test attachment the simulator step returns.
+        if let png = image.pngData() { Attachment.record(png, named: "card-\(turn.id).png") }
         return image
     }
 
