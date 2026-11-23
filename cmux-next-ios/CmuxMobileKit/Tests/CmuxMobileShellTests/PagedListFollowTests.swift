@@ -39,6 +39,19 @@ struct PagedListFollowTests {
         #expect(abs(moved) <= 0.5, "a row that moved among the rows on screen read as a \(moved) pt shift")
     }
 
+    /// The row being read moves away, and in the same frame the rows just under where it was draw
+    /// 10 pt lower while the rows at the top stay: what the reader was looking at jumped. The measure
+    /// follows the row in place nearest where the reader was, not the first one on screen (a row at
+    /// the top, or the top of an `.up` list read from its bottom, can be far from the eye line).
+    @Test func aJumpNearWhereTheReadRowWasCountsWhenItMovesAway() throws {
+        let before = [Row(id: 10, y: 100), Row(id: 11, y: 160), Row(id: 12, y: 220), Row(id: 13, y: 300),
+                      Row(id: 14, y: 340), Row(id: 15, y: 400)]
+        let after = [Row(id: 10, y: 100), Row(id: 11, y: 160), Row(id: 12, y: 220),
+                     Row(id: 14, y: 350), Row(id: 15, y: 410), Row(id: 13, y: 19_100)]
+        let moved = try #require(shift(before, after, reading: 13))
+        #expect(abs(moved - 10) < 0.5, "a 10 pt jump next to where the read row was read \(moved) pt")
+    }
+
     /// Everything drawn 10 pt lower in the frame a row arrives right after the row being read: the
     /// arrival does not excuse the move (c7a938de's case: the up-slow-flood frame that drew the
     /// rows 75 pt off while a row went next to the reader).
