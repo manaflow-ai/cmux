@@ -1,0 +1,11 @@
+{
+  "caption": "A downloaded update waits on the Update Ready card until you click Restart to Update.",
+  "frameInterval": 0.25,
+  "steps": [
+    {"title": "Launch", "wait": 3},
+    {"title": "Show a pretend update that finished downloading in the background", "rpc": {"method": "debug.tunables", "params": {"action": "set", "key": "sidebar.updateCard.simulatePending", "value": true}}, "wait": 2, "clip": true},
+    {"title": "Hold on the card", "wait": 1.5, "clip": true},
+    {"title": "Reset", "rpc": {"method": "debug.tunables", "params": {"action": "reset", "key": "sidebar.updateCard.simulatePending"}}, "wait": 0.3}
+  ],
+  "crop": [0, 0.55, 0.185, 0.45]
+}
