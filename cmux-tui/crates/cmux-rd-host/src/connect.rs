@@ -26,7 +26,6 @@ use cmux_rd_link::{EndpointEvent, Event, KeyPair, Role};
 use cmux_rd_proto::app_line::{AppLine, LinePath};
 use serde::Deserialize;
 use std::io::{self, BufRead, Read, Write};
-use std::net::SocketAddr;
 use std::os::fd::AsRawFd;
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::{UnixListener, UnixStream};
@@ -85,11 +84,7 @@ pub fn run() -> Res<()> {
     io::stdin().lock().read_line(&mut line)?;
     let answer: Answer = serde_json::from_str(&line).map_err(|e| format!("answer line: {e}"))?;
     let peer = unhex32(&answer.peer_key).ok_or("peer_key must be 64 hex characters")?;
-    let stun: Vec<SocketAddr> = answer
-        .stun
-        .iter()
-        .filter_map(|s| std::net::ToSocketAddrs::to_socket_addrs(s).ok()?.find(SocketAddr::is_ipv4))
-        .collect();
+    let (stun, stun_later) = crate::carrier::stun_servers(&answer.stun, answer.relay_only);
     // The socket's directory is the app's private one; the socket itself is the user's only.
     let _ = std::fs::remove_file(&answer.socket);
     let listener = UnixListener::bind(&answer.socket)?;
@@ -105,6 +100,9 @@ pub fn run() -> Res<()> {
         turn: crate::carrier::turn_servers(&answer.turn),
         relay_only: answer.relay_only,
     })?;
+    if let Some(later) = stun_later {
+        net.add_stun_later(later);
+    }
     // A host that dies without a close ends this viewer instead of freezing it.
     net.set_peer_lost(Some(std::time::Duration::from_micros(cmux_rd_link::PEER_LOST_US)));
     for c in answer.candidates.iter().filter_map(|c| Candidate::from_wire(c)) {
@@ -200,6 +198,9 @@ fn bridge(net: &Net, listener: &UnixListener) -> Res<String> {
             }
         }
         for event in net.events() {
+            if let Some(line) = event.phase_line() {
+                println!("{line}");
+            }
             match event {
                 NetEvent::Candidate(c) => {
                     say(AppLine { candidate: Some(c.to_wire()), ..AppLine::default() })

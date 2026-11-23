@@ -170,6 +170,8 @@ cmux agent session stop NAME --if-idle [--expect-revision LASTSEQ]   # stop only
 `send` on a busy or blocked session never refuses: the prompt queues and the
 output says `queued behind …`.
 
+A `--no-wait` or agent send exits 0 once handed off and prints `sent queued|held|delivered|steered id=ID to=TARGET` first (`--json`: `{"ok":true,"state":…,"id":…}`); a retry loop checks the exit code, never greps the text.
+
 ### Messages between agents
 
 In a chat with acpmux's MCP tools, message with the `send` tool

@@ -410,6 +410,31 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
             let request: Request = read(request)?;
             to_value(targets::ssh_move_result(&request.stdout, &request.stderr, request.status))?
         }
+        // What the move means for the tab: the session it opens, the one question, or the failure.
+        b"cloud_move_ssh_move_run" => {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct Request {
+                #[serde(default)]
+                stdout: String,
+                #[serde(default)]
+                stderr: String,
+                status: i32,
+                #[serde(default)]
+                moved: String,
+                destination: String,
+                #[serde(default)]
+                dry_run: bool,
+            }
+            let request: Request = read(request)?;
+            let result = targets::ssh_move_result(&request.stdout, &request.stderr, request.status);
+            to_value(targets::ssh_move_run(
+                &request.moved,
+                &request.destination,
+                request.dry_run,
+                &result,
+            ))?
+        }
         b"cloud_move_list_current" => {
             #[derive(Deserialize)]
             #[serde(rename_all = "camelCase")]

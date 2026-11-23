@@ -50,11 +50,26 @@ pub const TAG_PUNCH: u8 = 0xD4;
 pub const SEAL_OVERHEAD: usize = 1 + 8 + 1 + 16;
 /// Largest handshake message (two keys, payloads and tags fit well inside).
 const MAX_HANDSHAKE: usize = 256;
-/// Resend the last handshake message this often until the peer answers.
+/// The first resend of a handshake message that got no answer. A wired or
+/// Wi-Fi LAN answers in well under a millisecond and a tailnet or WAN path in
+/// tens, so a lost message 1, 2 or 3 costs this much instead of a full
+/// [`HANDSHAKE_RETRY_US`]: each later resend of the same message waits twice as
+/// long as the one before, up to that cap. Handshake messages are under 200
+/// bytes, so the extra resends on a slow path cost nothing that matters.
+pub const HANDSHAKE_FIRST_RETRY_US: u64 = 50_000;
+/// The longest gap between resends of the last handshake message while the
+/// peer does not answer ([`HANDSHAKE_FIRST_RETRY_US`] doubling up to it).
 pub const HANDSHAKE_RETRY_US: u64 = 250_000;
-/// Give up on a handshake after this long from first contact: the
-/// initiator's start (it dials at once), or the moment a responder first
-/// has the peer (a route from signaling, or a valid message 1).
+
+/// The gap before resend number `resends + 1` of one handshake message.
+pub fn handshake_retry_us(resends: u32) -> u64 {
+    HANDSHAKE_FIRST_RETRY_US
+        .checked_shl(resends)
+        .map_or(HANDSHAKE_RETRY_US, |us| us.min(HANDSHAKE_RETRY_US))
+}
+/// Give up on a handshake after this long from first contact: in an endpoint, the first
+/// route to the peer; in a bare link, the initiator's start (it dials at once), or the moment
+/// a responder first has the peer (a route from signaling, or a valid message 1).
 pub const HANDSHAKE_TIMEOUT_US: u64 = 10_000_000;
 /// The longest a responder waits for that first contact. A responder starts
 /// its link before signaling has carried its answer to the peer (its key and
@@ -62,6 +77,11 @@ pub const HANDSHAKE_TIMEOUT_US: u64 = 10_000_000;
 /// start is no part of the handshake's own [`HANDSHAKE_TIMEOUT_US`]. It
 /// matches the host's 30 s wait for a viewer (`cmux-rd serve`).
 pub const RESPONDER_WAIT_US: u64 = 30_000_000;
+/// Give up when signaling has supplied no route to the peer after this long. Signaling (the
+/// device hub, a relayed bench) can take longer than the handshake itself, so its wait does
+/// not count against [`HANDSHAKE_TIMEOUT_US`]; this bounds it, so a peer that never shows up
+/// does not hold the socket.
+pub const SIGNALING_TIMEOUT_US: u64 = 60_000_000;
 /// A viewer's bound for an established link that hears nothing at all
 /// ([`Link::set_peer_lost`]): the host's own grace for a silent viewer
 /// (`cmux-rd-host` `REATTACH_GRACE_NS`). A live peer answers a probe every
@@ -122,6 +142,8 @@ pub enum LinkError {
     /// The handshake did not finish in [`HANDSHAKE_TIMEOUT_US`] from first
     /// contact, or a responder heard of no peer in [`RESPONDER_WAIT_US`].
     HandshakeTimeout,
+    /// Signaling supplied no route to the peer in [`SIGNALING_TIMEOUT_US`].
+    NoRoute,
     /// A sealed packet or control record before the handshake finished.
     NotReady,
     /// Too many unacknowledged control records (the peer stopped answering).
@@ -141,6 +163,9 @@ impl std::fmt::Display for LinkError {
             Self::Noise(e) => write!(f, "noise: {e}"),
             Self::WrongPeer => write!(f, "the peer's key is not the one the hub vouched for"),
             Self::HandshakeTimeout => write!(f, "the secure handshake timed out"),
+            Self::NoRoute => {
+                write!(f, "no route to the peer arrived in {} s", SIGNALING_TIMEOUT_US / 1_000_000)
+            }
             Self::NotReady => write!(f, "the secure handshake has not finished"),
             Self::ControlBacklog => write!(f, "the peer stopped acknowledging control messages"),
             Self::PeerLost { silent_us } => {
@@ -193,6 +218,8 @@ pub struct Link {
     contact_us: Option<u64>,
     /// The last handshake message this side sent, resent until answered.
     last_handshake: Option<(Vec<u8>, u64)>,
+    /// Resends of `last_handshake` so far: the next waits [`handshake_retry_us`] of it.
+    handshake_resends: u32,
     send_nonce: u64,
     replay: ReplayWindow,
     control_out: ControlSender,
@@ -234,6 +261,7 @@ impl Link {
             started_us: now_us,
             contact_us: (role == Role::Initiator).then_some(now_us),
             last_handshake: None,
+            handshake_resends: 0,
             send_nonce: 0,
             replay: ReplayWindow::default(),
             control_out: ControlSender::default(),
@@ -284,6 +312,7 @@ impl Link {
         packet.extend_from_slice(&buf);
         self.out.push_back(packet.clone());
         self.last_handshake = Some((packet, now_us));
+        self.handshake_resends = 0;
         Ok(())
     }
 
@@ -492,6 +521,21 @@ impl Link {
         Ok(self.out.drain(..).collect())
     }
 
+    /// Starts the handshake's timeout clock over: the endpoint calls it when the first route
+    /// arrives, so the wait for signaling does not count against the handshake.
+    pub(crate) fn start_handshake_clock(&mut self, now_us: u64) {
+        if let State::Handshake(_) = self.state {
+            self.started_us = now_us;
+            self.contact_us = Some(now_us);
+        }
+    }
+
+    /// Ends a handshake that never got a route ([`LinkError::NoRoute`]).
+    pub(crate) fn fail_no_route(&mut self) -> LinkError {
+        self.state = State::Failed;
+        LinkError::NoRoute
+    }
+
     /// Advances handshake timers without creating another packet.  Endpoints
     /// use this while signaling has not supplied a route, so the queued first
     /// message stays available without a retry storm or a lost timeout.
@@ -516,18 +560,41 @@ impl Link {
             }
         }
         let mut retry = false;
+        let gap = handshake_retry_us(self.handshake_resends);
         if let Some((_, sent)) = &mut self.last_handshake
-            && now_us.saturating_sub(*sent) >= HANDSHAKE_RETRY_US
+            && now_us.saturating_sub(*sent) >= gap
         {
             *sent = now_us;
+            self.handshake_resends = self.handshake_resends.saturating_add(1);
             retry = true;
         }
         Ok(retry)
     }
 
+    /// Moves a due handshake retry on without sending it or checking the timeout: an
+    /// endpoint with no route yet has nowhere to send it, and its first route gets the
+    /// queued message at once.
+    pub(crate) fn defer_handshake_retry(&mut self, now_us: u64) {
+        if let Some((_, sent)) = &mut self.last_handshake
+            && now_us.saturating_sub(*sent) >= HANDSHAKE_RETRY_US
+        {
+            *sent = now_us;
+        }
+    }
+
+    /// This side's last handshake message while the handshake runs, for a
+    /// route learned after it went out (resending it is what a retry does).
+    pub(crate) fn handshake_in_flight(&self) -> Option<&[u8]> {
+        match self.state {
+            State::Handshake(_) => self.last_handshake.as_ref().map(|(packet, _)| &packet[..]),
+            _ => None,
+        }
+    }
+
     /// When the caller should call [`Link::poll_transmit`] next without input.
     pub fn next_deadline_us(&self) -> Option<u64> {
-        let handshake = self.last_handshake.as_ref().map(|(_, sent)| sent + HANDSHAKE_RETRY_US);
+        let gap = handshake_retry_us(self.handshake_resends);
+        let handshake = self.last_handshake.as_ref().map(|(_, sent)| sent + gap);
         let control =
             if self.is_established() { self.control_out.next_deadline_us() } else { None };
         let lost = self

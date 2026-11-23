@@ -52,13 +52,21 @@ them beside their own Swift (the daemon ABI floor only), which the nightly-live 
    "targets": {"aarch64-apple-darwin": {"cmux-tui": {"url", "sha256", "size"},
                                         "cmux-tui-app-host": {...}, ...}}}
 
+With --screen-sharing-helper F (mac-live only; F is the helper record of the commit's helper source key,
+scripts/ci/screen_sharing_helper_release.py) it also names the NIGHTLY's signed Screen Sharing helper, the zip
+cmux-tui/<commit>/cmux-screen-sharing-helper-aarch64-apple-darwin.zip, downloaded and checked like the binaries,
+under a NEW top-level key, never inside `targets` (a new name there makes every older `cmux app try` refuse
+the file; a new top-level key is ignored by it):
+
+   "screen_sharing_helper": {"url", "sha256", "size", "bundle_id", "team", "designated_requirement"}
+
 An installer holds the channel pointer to expires_at; the per-commit file carries the same field,
 but an installer that asks for a version by name does not enforce it.
 
 Usage:
   cmux-machine-channel.py payload (--manifest M | --binaries-dir B [--machine-path]) --commit SHA
       --committed-at T --download-dir D --out P [--purpose linux-release --channel C [--cargo-version V]]
-      [--purpose mac-live --live-from F]
+      [--purpose mac-live --live-from F [--screen-sharing-helper R]]
 """
 import argparse
 import hashlib
@@ -71,6 +79,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import nightly_version  # noqa: E402
+import screen_sharing_helper_release as helper_release  # noqa: E402
 
 SCHEMA = 1
 PURPOSE = "cmux-cloud-machine-update"
@@ -99,6 +108,8 @@ MAC_LIVE_TARGET = "aarch64-apple-darwin"
 MAC_LIVE_NAMES = ("cmux-tui", "cmux-tui-app-host", "cmux-tui-cloud-server", "cmux-tui-browser-host",
                   "cmux-tui-host", "cmux-tui-holder", "cmux-tui-agent-screen-detection")
 MAC_LIVE_FROM_MAX = 400
+# The top-level key of the signed Screen Sharing helper (try_cmd/helper.rs KEY).
+MAC_LIVE_HELPER_KEY = "screen_sharing_helper"
 
 
 def fail(message):
@@ -189,9 +200,30 @@ def mac_live(args):
         files[name] = {"url": url, "sha256": sha, "size": os.path.getsize(path)}
         os.remove(path)
     now = int(time.time())
-    return {"schema": SCHEMA, "purpose": MAC_LIVE_PURPOSE, "channel": MAC_LIVE_CHANNEL, "commit": args.commit,
-            "committed_at": int(args.committed_at), "published_at": now, "expires_at": now + LIFETIME,
-            "live_from": commits, "targets": {MAC_LIVE_TARGET: files}} | ({"daemon_from": daemon} if daemon else {})
+    value = {"schema": SCHEMA, "purpose": MAC_LIVE_PURPOSE, "channel": MAC_LIVE_CHANNEL, "commit": args.commit,
+             "committed_at": int(args.committed_at), "published_at": now, "expires_at": now + LIFETIME,
+             "live_from": commits, "targets": {MAC_LIVE_TARGET: files}} | ({"daemon_from": daemon} if daemon else {})
+    if args.screen_sharing_helper:
+        value[MAC_LIVE_HELPER_KEY] = screen_sharing_helper(args)
+    return value
+
+
+def screen_sharing_helper(args):
+    """The signed helper of --screen-sharing-helper's record, as the commit's own copy serves it."""
+    try:
+        record = helper_release.verify_value(json.load(open(args.screen_sharing_helper)))
+    except (helper_release.Refused, ValueError) as error:
+        fail(f"{args.screen_sharing_helper}: {error}")
+    url = f"{FILES}/{args.commit}/{helper_release.ZIP}"
+    path = os.path.join(args.download_dir, helper_release.ZIP)
+    subprocess.run(["curl", "-fsS", "--retry", "3", "--max-time", "600", "-o", path, f"{url}?channel=1"],
+                   check=True)
+    size = os.path.getsize(path)
+    if sha256_file(path) != record["sha256"] or size != record["size"]:
+        fail(f"{url} is not the helper zip {args.screen_sharing_helper} names")
+    os.remove(path)
+    return {"url": url, "sha256": record["sha256"], "size": size, "bundle_id": record["bundle_id"],
+            "team": record["team"], "designated_requirement": record["designated_requirement"]}
 
 
 def payload(args):
@@ -202,8 +234,8 @@ def payload(args):
         with open(args.out, "wb") as out:
             out.write(json.dumps(value, sort_keys=True, separators=(",", ":")).encode())
         return
-    if args.live_from:
-        fail("--live-from is for --purpose mac-live")
+    if args.live_from or args.screen_sharing_helper:
+        fail("--live-from and --screen-sharing-helper are for --purpose mac-live")
     release = args.purpose == "linux-release"
     if release and args.channel not in LINUX_RELEASE_CHANNELS:
         fail(f"--purpose linux-release needs --channel, one of {', '.join(LINUX_RELEASE_CHANNELS)}")
@@ -274,6 +306,8 @@ def main(argv):
         p.add_argument(name, required=True)
     p.add_argument("--purpose", choices=("cloud-machine", "linux-release", "mac-live"), default="cloud-machine")
     p.add_argument("--live-from", help="--purpose mac-live: `hot-apply.py live-from SHA`'s JSON")
+    p.add_argument("--screen-sharing-helper",
+                   help="--purpose mac-live: the commit's signed helper record (screen_sharing_helper_release.py)")
     p.add_argument("--channel", help="--purpose linux-release: the channel this build publishes to")
     p.add_argument("--cargo-version", help="--purpose linux-release: default cmux-tui/Cargo.toml's version")
     p.add_argument("--machine-path", action="store_true",
