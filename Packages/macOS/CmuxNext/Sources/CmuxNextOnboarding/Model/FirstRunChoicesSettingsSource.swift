@@ -10,7 +10,8 @@ import UniformTypeIdentifiers
 /// - how they work: `tabs.newTabTemplate` `terminal` for terminal-first (a person's Cmd-T then opens a
 ///   terminal, cmux-window-rules `tabs::new_tab_kind`), removed for GUI-first (the New Tab page);
 /// - density: through the App's `appearance.density.set` (`setDensity`), which also applies the tokens;
-/// - background: `appearance.background`, removed for none.
+/// - background: `appearance.background`, removed for none;
+/// - where chats run: `agentPane.newChatsIn` `cloud`, removed for this Mac (the setting's default).
 @MainActor
 public final class FirstRunChoicesSettingsSource: FirstRunChoicesSource {
     /// The built-in backgrounds the step offers after None: Shuffle Paintings, then a few calm works
@@ -40,9 +41,11 @@ public final class FirstRunChoicesSettingsSource: FirstRunChoicesSource {
         guard let snapshot = settings()?.snapshot else { return .recommended }
         let template = snapshot.root.value(at: ["tabs", "newTabTemplate"])?.stringValue
         let background = snapshot.root.value(at: ["appearance", "background"])?.stringValue
+        let runIn = snapshot.root.value(at: ["agentPane", "newChatsIn"])?.stringValue
         return FirstRunChoices(workStyle: template == "terminal" ? .terminal : .gui,
                                density: Self.density(snapshot.density),
-                               background: background == "none" ? nil : background)
+                               background: background == "none" ? nil : background,
+                               chatsRunIn: runIn == "cloud" ? .cloud : .local)
     }
 
     /// A density setting as the step's three choices: the smaller and larger extremes go to their neighbor.
@@ -81,6 +84,7 @@ public final class FirstRunChoicesSettingsSource: FirstRunChoicesSource {
         var writes: [([String], JSONValue?)] = []
         if new.workStyle != old.workStyle { writes.append((["tabs", "newTabTemplate"], new.workStyle == .terminal ? .string("terminal") : nil)) }
         if new.background != old.background { writes.append((["appearance", "background"], new.background.map(JSONValue.string))) }
+        if new.chatsRunIn != old.chatsRunIn { writes.append((["agentPane", "newChatsIn"], new.chatsRunIn == .cloud ? .string("cloud") : nil)) }
         guard !writes.isEmpty else { return }
         // task-owner: one settings write per pick; the settings owner serializes them.
         Task { [log, writes] in

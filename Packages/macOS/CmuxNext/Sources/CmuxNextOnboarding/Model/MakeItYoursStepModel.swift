@@ -8,6 +8,13 @@ public enum WorkStyle: String, CaseIterable, Sendable {
     case gui, terminal
 }
 
+/// Where a new chat runs (`agentPane.newChatsIn`): on this Mac, the setting's default, or in Cloud,
+/// which needs nothing installed here, so a person with no agent CLI on this Mac has a way to start
+/// (Leo's ask c-8f5f7ff8b3: "how can someone who has no idea ... just start and keep going?").
+public enum ChatsRunIn: String, CaseIterable, Sendable {
+    case local, cloud
+}
+
 /// The first run's density choice: the three of the five `appearance.density` levels a new person can
 /// tell apart at a glance (ultra-compact and spacious stay in Settings).
 public enum DensityChoice: String, CaseIterable, Sendable {
@@ -34,14 +41,17 @@ public struct FirstRunChoices: Sendable, Equatable {
     public var density: DensityChoice
     /// The background's id (`appearance.background`); nil: none.
     public var background: String?
+    /// Where a new chat runs; this Mac unless the person picks Cloud.
+    public var chatsRunIn: ChatsRunIn
 
-    /// GUI-first, standard density, no background: what a person gets who skips.
+    /// GUI-first, standard density, no background, chats on this Mac: what a person gets who skips.
     public static let recommended = FirstRunChoices(workStyle: .gui, density: .standard, background: nil)
 
-    public init(workStyle: WorkStyle, density: DensityChoice, background: String?) {
+    public init(workStyle: WorkStyle, density: DensityChoice, background: String?, chatsRunIn: ChatsRunIn = .local) {
         self.workStyle = workStyle
         self.density = density
         self.background = background
+        self.chatsRunIn = chatsRunIn
     }
 }
 
@@ -98,6 +108,7 @@ public final class MakeItYoursStepModel {
 
     public func setWorkStyle(_ value: WorkStyle) { update { $0.workStyle = value } }
     public func setDensity(_ value: DensityChoice) { update { $0.density = value } }
+    public func setChatsRunIn(_ value: ChatsRunIn) { update { $0.chatsRunIn = value } }
 
     /// `id` nil: no background. An id the step does not offer is refused.
     @discardableResult

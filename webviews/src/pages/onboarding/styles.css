@@ -1086,6 +1086,12 @@
   grid-template-columns: repeat(3, 1fr);
   gap: var(--ds-space-2);
 }
+.onb-make-segments[data-count="2"] {
+  grid-template-columns: repeat(2, 1fr);
+}
+.onb-make-caption {
+  margin: var(--ds-space-1) 0 0;
+}
 .onb-make-segment {
   display: flex;
   align-items: center;

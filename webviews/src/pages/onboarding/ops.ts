@@ -212,6 +212,9 @@ export interface ComputerUseState {
 export type WorkStyle = "gui" | "terminal";
 /** Three of the five `appearance.density` levels: compact, standard (the default) and comfortable. */
 export type DensityChoice = "compact" | "standard" | "comfortable";
+/** Where a new chat runs (`agentPane.newChatsIn`): this Mac (the default) or Cloud, which needs
+ * nothing installed here. */
+export type ChatsRunIn = "local" | "cloud";
 
 /** A background offered: Shuffle Paintings (`daily`, no name: the page names it) or a built-in work. */
 export interface MakeItYoursBackground {
@@ -226,6 +229,8 @@ export interface MakeItYoursState {
   density: DensityChoice;
   /** The background's id; null: none. */
   background: string | null;
+  /** Where a new chat runs; an older host leaves it out, and the row is not drawn. */
+  chatsRunIn?: ChatsRunIn;
   backgrounds: MakeItYoursBackground[];
   /** The backgrounds' previews were read. */
   loaded: boolean;
@@ -299,6 +304,7 @@ export interface OnboardingOps {
   /** Make cmux Yours: each pick is written at once, so the window behind shows it. */
   "cmux.onboarding.makeItYours.workStyle": [{ value: WorkStyle }, unknown];
   "cmux.onboarding.makeItYours.density": [{ value: DensityChoice }, unknown];
+  "cmux.onboarding.makeItYours.chatsRunIn": [{ value: ChatsRunIn }, unknown];
   /** `id` null: no background. */
   "cmux.onboarding.makeItYours.background": [{ id: string | null }, unknown];
 }
@@ -329,6 +335,7 @@ export const OPS = {
   restart: "cmux.onboarding.computerUse.restart",
   workStyle: "cmux.onboarding.makeItYours.workStyle",
   density: "cmux.onboarding.makeItYours.density",
+  chatsRunIn: "cmux.onboarding.makeItYours.chatsRunIn",
   background: "cmux.onboarding.makeItYours.background",
   changed: "cmux.onboarding.changed",
 } as const satisfies Record<string, keyof OnboardingOps | keyof OnboardingEvents>;

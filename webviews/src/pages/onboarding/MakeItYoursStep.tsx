@@ -1,15 +1,18 @@
-// Make cmux Yours (cmux#48416): a new person's one setup screen, three choices, each already on the
+// Make cmux Yours (cmux#48416): a new person's one setup screen, four choices, each already on the
 // recommended answer so Continue alone is a good setup:
 //   1. How you work: Agents first (recommended; Cmd-T opens the New Tab page, where a chat starts) or
 //      Terminal first (Cmd-T opens a terminal). The words never say "classic".
-//   2. Density: Compact, Standard or Comfortable (Settings has the two extremes).
-//   3. Background: None, Shuffle Paintings or one of a few built-in works.
+//   2. Where chats run: This Mac (the default) or Cloud, which needs nothing installed, so a person
+//      with no agent on this Mac still has a way to start (Leo's ask c-8f5f7ff8b3). The caption under
+//      it says what the checked one means.
+//   3. Density: Compact, Standard or Comfortable (Settings has the two extremes).
+//   4. Background: None, Shuffle Paintings or one of a few built-in works.
 // No theme row: windows follow macOS's light or dark mode, and the terminal theme stays in Settings.
 // Each choice is a group of native radios (the browser owns roles, arrows and focus); a pick is sent
 // at once and the host writes it, so the app behind the window changes while the person watches.
 // Return presses Continue, Escape skips (the page's own key handler).
 import { cx } from "../../ui/cx";
-import type { DensityChoice, MakeItYoursState, WorkStyle } from "./ops";
+import type { ChatsRunIn, DensityChoice, MakeItYoursState, WorkStyle } from "./ops";
 import { HostIcon, useOnboarding } from "./parts";
 
 /** The two looks of the screen (the gallery's variant switch): `cards` ships. */
@@ -20,6 +23,11 @@ const WORK_STYLES: readonly WorkStyle[] = ["gui", "terminal"];
 const WORK_KEYS: Record<WorkStyle, { title: string; detail: string }> = {
   gui: { title: "onboarding.makeItYours.work.gui", detail: "onboarding.makeItYours.work.gui.detail" },
   terminal: { title: "onboarding.makeItYours.work.terminal", detail: "onboarding.makeItYours.work.terminal.detail" },
+};
+const RUN_INS: readonly ChatsRunIn[] = ["local", "cloud"];
+const RUN_IN_KEYS: Record<ChatsRunIn, { title: string; detail: string }> = {
+  local: { title: "onboarding.makeItYours.runIn.local", detail: "onboarding.makeItYours.runIn.local.detail" },
+  cloud: { title: "onboarding.makeItYours.runIn.cloud", detail: "onboarding.makeItYours.runIn.cloud.detail" },
 };
 const DENSITIES: readonly DensityChoice[] = ["compact", "standard", "comfortable"];
 const DENSITY_KEYS: Record<DensityChoice, string> = {
@@ -75,6 +83,30 @@ export function MakeItYoursStep({
           ))}
         </div>
       </fieldset>
+      {choices.chatsRunIn != null && (
+        <fieldset className="onb-make-group onb-make-run-in">
+          <legend className="onb-make-label">{strings.t("onboarding.makeItYours.runIn.label")}</legend>
+          <div className="onb-make-segments" data-count={RUN_INS.length}>
+            {RUN_INS.map((where) => (
+              <label key={where} className="onb-make-segment" data-checked={choices.chatsRunIn === where || undefined}>
+                <input
+                  type="radio"
+                  name="chatsRunIn"
+                  value={where}
+                  aria-label={strings.t(RUN_IN_KEYS[where].title)}
+                  aria-describedby="onb-make-run-in-detail"
+                  checked={choices.chatsRunIn === where}
+                  onChange={() => store.call("cmux.onboarding.makeItYours.chatsRunIn", { value: where })}
+                />
+                <span>{strings.t(RUN_IN_KEYS[where].title)}</span>
+              </label>
+            ))}
+          </div>
+          <p id="onb-make-run-in-detail" className="onb-make-option-detail onb-make-caption">
+            {strings.t(RUN_IN_KEYS[choices.chatsRunIn].detail)}
+          </p>
+        </fieldset>
+      )}
       <fieldset className="onb-make-group onb-make-density">
         <legend className="onb-make-label">{strings.t("onboarding.makeItYours.density.label")}</legend>
         <div className="onb-make-segments">
