@@ -146,6 +146,52 @@ pub(crate) fn plan_of(request: &Value) -> Option<String> {
     Some(parts.join("\n\n")).filter(|t| !t.is_empty())
 }
 
+/// The longest edited plan a person may send back (`edit_plan`): far past any plan an agent
+/// writes, short of what one hub message carries.
+pub(crate) const MAX_EDITED_PLAN: usize = 256 * 1024;
+
+/// Puts the person's edit of a plan (Leo's gap doc item 6: "an edit step before Approve") on the
+/// pending ask `request`: Claude Code's ExitPlanMode only, whose allow carries its input back
+/// (`updatedInput`, `claude_stdio/outbound.rs`), so the agent builds the plan as edited. The
+/// edit is the input's `plan` and `_meta.acpmux.plan` (`{markdown, edited}`), which the card and
+/// a build elsewhere read first (`plan_of`).
+pub(crate) fn edit_plan(request: &mut Value, plan: &str) -> Result<(), RpcError> {
+    let plan = plan.trim();
+    if plan.is_empty() {
+        return Err(RpcError::invalid_params("an edited plan cannot be empty"));
+    }
+    if plan.len() > MAX_EDITED_PLAN {
+        return Err(RpcError::invalid_params(format!(
+            "an edited plan is at most {MAX_EDITED_PLAN} bytes"
+        )));
+    }
+    let Some(tool) = request.get_mut("toolCall") else {
+        return Err(refused("plan_edit.unsupported", "this plan approval cannot take an edit"));
+    };
+    let exit_plan =
+        tool.pointer("/_meta/claude/tool").and_then(Value::as_str) == Some("ExitPlanMode");
+    let has_input = tool.get("rawInput").is_some_and(Value::is_object);
+    if !exit_plan || !has_input {
+        return Err(refused(
+            "plan_edit.unsupported",
+            "only a Claude Code plan approval takes an edited plan",
+        ));
+    }
+    tool["rawInput"].set("plan", json!(plan));
+    tool.set_path(&["_meta", "acpmux", "plan"], json!({"markdown": plan, "edited": true}));
+    Ok(())
+}
+
+/// The input an allow of `request` hands back when the person edited its plan (`edit_plan`),
+/// else None (the input goes back as the agent sent it).
+pub(crate) fn edited_input(request: &Value) -> Option<Value> {
+    let tool = request.get("toolCall")?;
+    if tool.pointer("/_meta/acpmux/plan/edited").and_then(Value::as_bool) != Some(true) {
+        return None;
+    }
+    tool.get("rawInput").filter(|v| v.is_object()).cloned()
+}
+
 /// The first option of `kind` an ask offers.
 pub(crate) fn option_of(request: &Value, kind: &str) -> Option<String> {
     request
@@ -265,6 +311,25 @@ impl Hub {
         if let Some(turn_id) = turn_id {
             self.cancel_turn(session, turn_id).await;
         }
+    }
+
+    /// Puts the person's edited plan on `session`'s pending plan approval `permission_id`
+    /// (`edit_plan`), before it is answered: an allow then hands the edit to the agent, and a
+    /// build elsewhere starts from it.
+    pub(crate) fn edit_pending_plan(
+        &self,
+        session: &Session,
+        permission_id: &str,
+        plan: &str,
+    ) -> Result<(), RpcError> {
+        let mut state = session.permissions.lock().unwrap_or_else(|e| e.into_inner());
+        let pending = state.pending.get_mut(permission_id).ok_or_else(|| {
+            refused(
+                "plan_build.not_pending",
+                "that plan approval is no longer waiting for an answer",
+            )
+        })?;
+        edit_plan(&mut pending.request, plan)
     }
 
     /// The plan of `session`'s pending ask `permission_id`, with the ask itself.

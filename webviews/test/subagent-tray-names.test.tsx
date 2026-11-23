@@ -63,19 +63,11 @@ afterAll(async () => {
   await teardownDom(saved, { window: dom.window, scope });
 });
 setPaneLanguage("en");
-// The folded header's names are the `one` arm of subagent-tray-fold-head; since #48542 the default
-// is `kinds` (each kind's mark and count, pinned in subagent-tray.test.tsx), so this file pins `one`.
-// The arm is read when a tray mounts.
-const experiments = globalThis as { cmuxExperiments?: Record<string, string> };
-experiments.cmuxExperiments = { ...experiments.cmuxExperiments, "subagent-tray-fold-head": "one" };
-afterAll(() => {
-  if (experiments.cmuxExperiments) delete experiments.cmuxExperiments["subagent-tray-fold-head"];
-});
-// These cases read the folded header's names (trayFoldHead.experiment.ts `two`; its default is now
+// These cases read the folded header's names (trayFoldHead.experiment.ts `one`; its default is now
 // `kinds`) and the run's clock (trayHeadClock.experiment.ts `run`; its default is now `none`).
 globalThis.cmuxExperiments = {
   ...globalThis.cmuxExperiments,
-  "subagent-tray-fold-head": "two",
+  "subagent-tray-fold-head": "one",
   "subagent-tray-head-clock": "run",
 };
 afterAll(() => {
