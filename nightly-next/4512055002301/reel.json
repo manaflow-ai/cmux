@@ -1,0 +1,78 @@
+{
+  "version": 1,
+  "build": "4512055002301",
+  "notes": "notes/4512055002301.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 43126,
+      "title": "test(cmux-next-ios): ChiefKeptTranscriptTests relaunches only after the first transcript save",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50949,
+      "title": "Browser swap: a page one point short of its pane draws nothing ahead of the commit",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48098,
+      "title": "Looks: a WCAG contrast check of every theme and look, and the dark-on-dark selections it found (successor of #46779)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45415,
+      "title": "Agent chat: streamed text shows with its chunk; closed Markdown blocks draw once",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50805,
+      "title": "projection: read ahead the project folders beside a fault's own (160 round trips to 9 on a cold build)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51244,
+      "title": "pick-forward of #36515 + #45742: Chief computer pages on Mac and CLI (iOS part stays in #50839)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51435,
+      "title": "cmux automation: local generic webhook trigger (HMAC, filters, dedupe) [webhook-automations]",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36428,
+      "title": "[Thunderdome top-right A] icons only when relevant (contextual)",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/36428/cap-527738d9-tour-header-icons-contextual.mp4",
+      "source": "manual"
+    },
+    {
+      "pr": 50971,
+      "title": "cmux-cloud-client: typed VM lifecycle adapters",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 47489,
+      "title": "cmux-rd: a lost datagram costs one round trip, not 50 to 250 ms (screen share P3, D6; draft, stacked on #44858)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50862,
+      "title": "cmux-next: give the macOS fast tier 120 minutes, from its measured cold build",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
