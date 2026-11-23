@@ -790,6 +790,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                     LaunchMarks.shared.mark("terminal_key_sent")
                 }
                 #if DEBUG
+                if model.connectionState.isAttached, !inputRefused { ResumeMarks.shared?.note("terminal_key_sent") }
+                #endif
+                #if DEBUG
                 if InputLatencyTrace.isEnabled, model.connectionState.isAttached, !inputRefused {
                     let now = CACurrentMediaTime()
                     if echoMeter.step != .idle, now - echoStart > 2 { echoMeter = TerminalFirstEcho() }
@@ -2943,6 +2946,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         }
         #endif
         if model.connectionState.isAttached { LaunchMarks.shared.mark("terminal_ready") }
+        #if DEBUG
+        ResumeMarks.shared?.note(model.connectionState.isAttached ? "terminal_frame" : "terminal_detached")
+        #endif
         #if DEBUG
         if let probe = TerminalBenchProbe.shared {
             probe.presented()
