@@ -82,7 +82,10 @@ impl Activity {
     }
 }
 
-fn append(path: &std::path::Path, entry: &Entry, rotate_at: u64) -> std::io::Result<()> {
+/// Appends `entry` as one JSON line to `path` (0600), first moving a file of `rotate_at` bytes or
+/// more to `<name>.1.jsonl`: never more than the file and one previous on disk. Also the
+/// `phone-frames` log's writer (`phone_frames.rs`).
+pub(crate) fn append<T: Serialize>(path: &std::path::Path, entry: &T, rotate_at: u64) -> std::io::Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
