@@ -174,15 +174,18 @@ const DATAGRAM_PING_RESEND: Duration = Duration::from_millis(500);
 /// keepalive later. Off (backgrounded, nothing on screen, no datagram
 /// lane) the link sends only its keepalive, as before.
 pub const FOREGROUND_PROBE: Duration = Duration::from_secs(3);
-/// Foreground probes in a row with nothing at all received after them
-/// before the link is suspect.
-pub const FOREGROUND_PROBE_MISSES: u32 = 2;
 /// A foreground probe nothing answered is sent once more after this many
 /// smoothed round trips (at least [`DATAGRAM_PING_RESEND`], at most
 /// [`FOREGROUND_RESEND_CAP`]), so one lost datagram on a lossy path is not
-/// a miss.
+/// a miss. The same wait again with nothing received is a miss: a confirm
+/// probe goes out, and nothing received [`FOREGROUND_CONFIRM`] after it
+/// makes the link suspect.
 const FOREGROUND_RESEND_RTTS: u32 = 2;
 const FOREGROUND_RESEND_CAP: Duration = Duration::from_millis(1500);
+/// After a missed foreground probe, how long the confirm probe has before
+/// the link is suspect (at least this, or the resend wait when the round
+/// trip is longer).
+pub const FOREGROUND_CONFIRM: Duration = Duration::from_millis(500);
 const DATAGRAM_PING_ATTEMPTS: u8 = 5;
 /// A liveness datagram: kind, the ping's nonce (8 bytes, big-endian), the
 /// attempt number. A pong echoes the ping's nonce and attempt.
@@ -977,7 +980,8 @@ impl Link {
     /// The phone app is in the foreground with a terminal or chat on
     /// screen (`true`), or not. While it is and the pings travel as
     /// datagrams, the link probes every [`FOREGROUND_PROBE`] and is suspect
-    /// after [`FOREGROUND_PROBE_MISSES`] unanswered probes. The keepalive
+    /// after one missed probe and an unanswered confirm
+    /// ([`FOREGROUND_CONFIRM`]). The keepalive
     /// keeps its own interval either way. Needs the suspect signal
     /// (`LinkConfig::suspect_after`); without it this does nothing.
     pub fn set_foreground_probe(&self, on: bool) {
@@ -1455,12 +1459,14 @@ async fn watch_liveness(link: Link, after: Duration) {
 /// The foreground probe ([`Link::set_foreground_probe`]): while it is on
 /// and the pings travel as datagrams, a datagram ping every
 /// [`FOREGROUND_PROBE`], sent once more when nothing came back in a couple
-/// of round trips. A probe with nothing at all received after it by the
-/// next one is a miss; [`FOREGROUND_PROBE_MISSES`] in a row make the link
-/// suspect, and the watchdog's [`SUSPECT_PROBE`] probes take over until
-/// anything arrives. The probes take no waiter and do not count as the
-/// watchdog's unanswered pings, so `SUSPECT_AFTER` does not shorten the
-/// misses rule.
+/// of round trips. Nothing at all received the same wait after the resend
+/// is a miss: one confirm probe goes out, and nothing received
+/// [`FOREGROUND_CONFIRM`] (or the resend wait, if longer) after it makes
+/// the link suspect, and the watchdog's [`SUSPECT_PROBE`] probes take over
+/// until anything arrives. Three datagrams (probe, resend, confirm) or
+/// their answers must all be lost for a false suspect. The probes take no
+/// waiter and do not count as the watchdog's unanswered pings, so
+/// `SUSPECT_AFTER` does not shorten the rule.
 async fn foreground_probe(link: Link) {
     let inner = &link.inner;
     let mut closed = inner.closed.subscribe();
@@ -1472,18 +1478,15 @@ async fn foreground_probe(link: Link) {
                 changed = on.changed() => if changed.is_err() { return },
             }
         }
-        // The last probe (when, its nonce) and whether it was resent.
-        let mut last: Option<(Instant, u64)> = None;
-        let mut resent = false;
-        let mut misses = 0u32;
-        let mut first_miss: Option<Instant> = None;
+        let mut probe = ForegroundProbe::default();
         let mut tick = Instant::now();
         loop {
-            let resend_at = last.filter(|_| !resent).map(|(at, _)| {
+            let wait = {
                 let srtt = *inner.srtt.lock().unwrap_or_else(PoisonError::into_inner);
-                let wait = srtt.map_or(DATAGRAM_PING_RESEND, |srtt| srtt * FOREGROUND_RESEND_RTTS);
-                at + wait.clamp(DATAGRAM_PING_RESEND, FOREGROUND_RESEND_CAP)
-            });
+                srtt.map_or(DATAGRAM_PING_RESEND, |srtt| srtt * FOREGROUND_RESEND_RTTS)
+                    .clamp(DATAGRAM_PING_RESEND, FOREGROUND_RESEND_CAP)
+            };
+            let due = probe.due(wait);
             tokio::select! {
                 _ = closed.wait_for(Option::is_some) => return,
                 changed = on.changed() => {
@@ -1495,13 +1498,29 @@ async fn foreground_probe(link: Link) {
                     }
                     continue;
                 }
-                () = tokio::time::sleep_until(resend_at.unwrap_or(tick)), if resend_at.is_some() => {
-                    resent = true;
-                    if let Some((at, nonce)) = last
-                        && inner.last_received() < at
-                        && !inner.suspect_flag.load(Ordering::Relaxed)
-                    {
-                        inner.send_datagram(DATAGRAM_PING, nonce, 1);
+                () = tokio::time::sleep_until(due.unwrap_or(tick)), if due.is_some() => {
+                    let now = Instant::now();
+                    if inner.suspect_flag.load(Ordering::Relaxed) {
+                        probe = ForegroundProbe::default();
+                        continue;
+                    }
+                    match probe.step(inner.last_received(), now, wait) {
+                        ProbeStep::Quiet => {}
+                        ProbeStep::Resend(nonce) => {
+                            inner.send_datagram(DATAGRAM_PING, nonce, 1);
+                        }
+                        ProbeStep::Confirm => {
+                            let nonce = inner.next_nonce.fetch_add(1, Ordering::Relaxed);
+                            if inner.send_datagram(DATAGRAM_PING, nonce, 0) {
+                                inner.ping_stats.lock().unwrap_or_else(PoisonError::into_inner).sent += 1;
+                            }
+                        }
+                        ProbeStep::Suspect(since) => {
+                            inner.raise_suspect(since);
+                            // The watchdog sleeps on an idle link: wake it to probe.
+                            inner.unanswered_changed.notify_one();
+                            probe = ForegroundProbe::default();
+                        }
                     }
                     continue;
                 }
@@ -1511,33 +1530,92 @@ async fn foreground_probe(link: Link) {
             tick = (tick + FOREGROUND_PROBE).max(now);
             if !inner.datagram_pings() || inner.suspect_flag.load(Ordering::Relaxed) {
                 // No lane (pings in the stream: the keepalive's), or suspect
-                // (the watchdog probes): start counting afresh.
-                (last, misses, first_miss) = (None, 0, None);
+                // (the watchdog probes): start afresh.
+                probe = ForegroundProbe::default();
                 continue;
             }
-            if let Some((at, _)) = last {
-                if inner.last_received() < at {
-                    misses += 1;
-                    first_miss.get_or_insert(at);
-                } else {
-                    (misses, first_miss) = (0, None);
-                }
-            }
-            if misses >= FOREGROUND_PROBE_MISSES
-                && let Some(since) = first_miss
-            {
-                inner.raise_suspect(since);
-                // The watchdog sleeps on an idle link: wake it to probe.
-                inner.unanswered_changed.notify_one();
-                (last, misses, first_miss) = (None, 0, None);
+            if probe.confirming() {
+                // A confirm is out: its verdict comes first.
                 continue;
             }
             let nonce = inner.next_nonce.fetch_add(1, Ordering::Relaxed);
             if inner.send_datagram(DATAGRAM_PING, nonce, 0) {
                 inner.ping_stats.lock().unwrap_or_else(PoisonError::into_inner).sent += 1;
             }
-            (last, resent) = (Some((now, nonce)), false);
+            probe = ForegroundProbe::sent(now, nonce);
         }
+    }
+}
+
+/// Where one foreground probe stands, with the time it went out (what a
+/// received frame must be newer than to answer it) and when its next step
+/// is due.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum ForegroundProbe {
+    #[default]
+    Idle,
+    /// Sent; its resend is due one resend wait later (set by `due`).
+    Sent { at: Instant, nonce: u64 },
+    /// Resent at `due - wait`; nothing by `due` is a miss.
+    Resent { at: Instant, due: Instant, wait: Duration },
+    /// A miss: the confirm probe went out; nothing by `due` is suspect.
+    Confirming { at: Instant, due: Instant },
+}
+
+/// What the foreground probe does at its deadline.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ProbeStep {
+    /// Something came back: nothing to do until the next beat.
+    Quiet,
+    /// Send the probe once more (its nonce).
+    Resend(u64),
+    /// A miss: send a confirm probe.
+    Confirm,
+    /// The confirm went unanswered: suspect since the probe went out.
+    Suspect(Instant),
+}
+
+impl ForegroundProbe {
+    fn sent(at: Instant, nonce: u64) -> Self {
+        ForegroundProbe::Sent { at, nonce }
+    }
+
+    fn confirming(&self) -> bool {
+        matches!(self, ForegroundProbe::Confirming { .. })
+    }
+
+    /// When the next step is due; `wait` is the resend wait now.
+    fn due(&self, wait: Duration) -> Option<Instant> {
+        match *self {
+            ForegroundProbe::Idle => None,
+            ForegroundProbe::Sent { at, .. } => Some(at + wait),
+            ForegroundProbe::Resent { due, .. } | ForegroundProbe::Confirming { due, .. } => Some(due),
+        }
+    }
+
+    /// The deadline passed at `now`; `received` is the newest frame's
+    /// time and `wait` the resend wait.
+    fn step(&mut self, received: Instant, now: Instant, wait: Duration) -> ProbeStep {
+        let (next, step) = match *self {
+            ForegroundProbe::Idle => (ForegroundProbe::Idle, ProbeStep::Quiet),
+            ForegroundProbe::Sent { at, .. }
+            | ForegroundProbe::Resent { at, .. }
+            | ForegroundProbe::Confirming { at, .. }
+                if received >= at =>
+            {
+                (ForegroundProbe::Idle, ProbeStep::Quiet)
+            }
+            ForegroundProbe::Sent { at, nonce } => {
+                (ForegroundProbe::Resent { at, due: now + wait, wait }, ProbeStep::Resend(nonce))
+            }
+            ForegroundProbe::Resent { at, wait, .. } => (
+                ForegroundProbe::Confirming { at, due: now + wait.max(FOREGROUND_CONFIRM) },
+                ProbeStep::Confirm,
+            ),
+            ForegroundProbe::Confirming { at, .. } => (ForegroundProbe::Idle, ProbeStep::Suspect(at)),
+        };
+        *self = next;
+        step
     }
 }
 
@@ -2896,13 +2974,49 @@ mod tests {
         )
     }
 
+    /// The foreground probe's steps: an answer at any step ends it quietly;
+    /// a lost probe whose resend is answered is no miss; probe, resend and
+    /// confirm all unanswered is suspect since the probe went out.
+    #[test]
+    fn a_foreground_probe_is_suspect_only_after_a_miss_and_a_confirm() {
+        let wait = Duration::from_millis(600);
+        let start = Instant::now();
+        let before = start - Duration::from_secs(1);
+        // Answered before the resend.
+        let mut probe = ForegroundProbe::sent(start, 7);
+        let due = probe.due(wait).unwrap();
+        assert_eq!(due, start + wait);
+        assert_eq!(probe.step(start + Duration::from_millis(30), due, wait), ProbeStep::Quiet);
+        assert_eq!(probe, ForegroundProbe::Idle);
+        // The resend answered: no miss.
+        let mut probe = ForegroundProbe::sent(start, 7);
+        assert_eq!(probe.step(before, due, wait), ProbeStep::Resend(7));
+        let resend_due = probe.due(wait).unwrap();
+        assert_eq!(resend_due, due + wait);
+        assert_eq!(probe.step(due + Duration::from_millis(40), resend_due, wait), ProbeStep::Quiet);
+        // Dark: resend, confirm, then suspect since the probe.
+        let mut probe = ForegroundProbe::sent(start, 7);
+        assert_eq!(probe.step(before, due, wait), ProbeStep::Resend(7));
+        assert_eq!(probe.step(before, resend_due, wait), ProbeStep::Confirm);
+        assert!(probe.confirming());
+        let confirm_due = probe.due(wait).unwrap();
+        assert_eq!(confirm_due, resend_due + wait.max(FOREGROUND_CONFIRM));
+        assert_eq!(probe.step(before, confirm_due, wait), ProbeStep::Suspect(start));
+        // The confirm answered: alive.
+        let mut probe = ForegroundProbe::sent(start, 7);
+        probe.step(before, due, wait);
+        probe.step(before, resend_due, wait);
+        assert_eq!(probe.step(resend_due + Duration::from_millis(50), confirm_due, wait), ProbeStep::Quiet);
+    }
+
     /// In the foreground the phone probes every `FOREGROUND_PROBE` over the
-    /// datagram lane and is suspect after `FOREGROUND_PROBE_MISSES` of them
-    /// go unanswered: within 3 x 3 s of the network going dark, not the
+    /// datagram lane and is suspect after one probe, its resend and a
+    /// confirm go unanswered: within one probe interval plus three resend
+    /// waits of the network going dark, not the
     /// 15 s keepalive plus `SUSPECT_AFTER`. Backgrounded it is the keepalive
     /// alone again.
     #[tokio::test(start_paused = true)]
-    async fn a_foreground_probe_finds_a_dark_link_in_two_misses() {
+    async fn a_foreground_probe_finds_a_dark_link_in_one_miss_and_a_confirm() {
         let (phone, mac, dark) = gated_pair(LinkConfig::default(), LinkConfig::default());
         let sent = Arc::new(AtomicU64::new(0));
         let (phone_lane, mac_lane) = gated_datagrams(&dark, Arc::clone(&sent));
@@ -2915,11 +3029,11 @@ mod tests {
         assert!(!phone.is_suspect() && !mac.is_suspect(), "a false suspect on a live link");
         let began = Instant::now();
         dark.send_replace(true);
-        let bound = FOREGROUND_PROBE * (FOREGROUND_PROBE_MISSES + 1) + Duration::from_millis(10);
+        let bound = FOREGROUND_PROBE + FOREGROUND_RESEND_CAP * 3 + Duration::from_millis(10);
         let at = tokio::time::timeout(bound, suspect_after(&phone, began))
             .await
-            .expect("suspect within three foreground probes");
-        assert!(at >= FOREGROUND_PROBE * FOREGROUND_PROBE_MISSES - FOREGROUND_PROBE, "suspect after {at:?}");
+            .expect("suspect within a probe interval and three resend waits");
+        assert!(at >= DATAGRAM_PING_RESEND * 2 + FOREGROUND_CONFIRM, "suspect after {at:?}");
         dark.send_replace(false);
         let mut state = phone.suspect_state();
         tokio::time::timeout(SUSPECT_PROBE + Duration::from_millis(100), state.wait_for(|suspect| !suspect))
