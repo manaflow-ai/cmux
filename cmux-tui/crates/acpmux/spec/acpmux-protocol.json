@@ -8569,6 +8569,29 @@
             "null"
           ]
         },
+        "tokensByModel1h": {
+          "additionalProperties": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "tokensByModelPreviousUtcHour": {
+          "additionalProperties": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "description": "Tokens per call model in the completed UTC hour preceding the hour of updatedAt.",
+          "type": [
+            "object",
+            "null"
+          ]
+        },
         "updatedAt": {
           "description": "Unix ms of the read these come from.",
           "format": "uint64",
@@ -8591,6 +8614,8 @@
         "subagents24h",
         "subagentsLive",
         "tokens24h",
+        "tokensByModel1h",
+        "tokensByModelPreviousUtcHour",
         "updatedAt"
       ],
       "type": "object"
