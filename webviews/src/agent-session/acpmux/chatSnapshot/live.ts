@@ -11,6 +11,7 @@ import {
   type SnapshotLive,
 } from "./shared";
 import { watchLaunchSettle } from "../launchSettle";
+import { loadHighlightedCode, loadHighlightedLines } from "../conversation/codeBlockModel";
 
 type Shown = { at: number; swappedAt?: number };
 
@@ -84,7 +85,49 @@ export function swapChatSnapshot(): void {
   // A copy the host answers after this draws nothing (boot.ts): the page shows the chat itself.
   if (typeof window !== "undefined") liveSide().drawn = true;
   if (!showsChatSnapshot()) return;
-  requestAnimationFrame(() => removeChatSnapshot());
+  const asked = performance.now();
+  const swap = () => {
+    // The copy drew the fences on screen highlighted: it stays over the live page until the live page
+    // draws them highlighted too, so seen code never goes plain and back (Leo, 2026-11-22, after a
+    // relaunch: "then more shit re-rendered"). Bounded, so a slow worker never keeps an old frame up.
+    if (showsChatSnapshot() && performance.now() - asked < HIGHLIGHT_HOLD_MS && pendingHighlightOnScreen()) {
+      requestAnimationFrame(swap);
+      return;
+    }
+    removeChatSnapshot();
+  };
+  requestAnimationFrame(swap);
+}
+
+/// How long the copy may wait over the live page for its code cards' highlighting (swapChatSnapshot).
+/// A card's chunk and Pierre's first answer take ~100-300 ms; a worker that never answers is the
+/// watchdog's (highlightWatchdog.ts) and its card draws plain once the copy has gone.
+export const HIGHLIGHT_HOLD_MS = 1_200;
+
+/// Whether a code card on screen in the live page still draws plain lines while its highlighted card
+/// loads or paints (`data-highlight-pending`, CodeBlock.tsx and HighlightedCode.tsx).
+export function pendingHighlightOnScreen(doc: Document = document): boolean {
+  const root = doc.getElementById("root");
+  if (!root) return false;
+  const pending = root.querySelectorAll<HTMLElement>("[data-highlight-pending]");
+  if (pending.length === 0) return false;
+  const view = doc.defaultView;
+  const height = view?.innerHeight ?? 0;
+  const width = view?.innerWidth ?? 0;
+  for (const card of Array.from(pending)) {
+    const box = card.getBoundingClientRect();
+    if (box.height > 0 && box.bottom > 0 && box.top < height && box.right > 0 && box.left < width) return true;
+  }
+  return false;
+}
+
+/// Starts loading the highlighted code the drawn copy shows: fenced cards (not one drawn plain) and a
+/// read file's lines.
+function preloadCopyCode(doc: Document = document): void {
+  const copy = doc.querySelector(SNAPSHOT_HOST_TAG)?.shadowRoot;
+  if (!copy) return;
+  if (copy.querySelector(".cv-codeblock:not(.cv-codeblock--plain)")) void loadHighlightedCode().catch(() => undefined);
+  if (copy.querySelector(".cv-filepeek__lines diffs-container")) void loadHighlightedLines().catch(() => undefined);
 }
 
 /// How long the live page may take to draw the chat before the copy goes anyway, so a page that
@@ -155,6 +198,9 @@ export function reportChatSnapshot(
   if (typeof window === "undefined") return;
   const shows = () => {
     void report("pane.painted", { drewKeptTail: true }).catch(() => undefined);
+    // The copy shows highlighted code: its card's chunk loads now, not after the live page's first
+    // paint (App.tsx), so the live page draws those cards highlighted before the copy goes.
+    preloadCopyCode();
     // The copy is the page's first paint: what moves from here is the launch's settle (launchSettle.ts).
     watchLaunchSettle(report, SNAPSHOT_HOST_TAG);
     // A click or key while the copy shows ends the copy and does nothing else: the live page under

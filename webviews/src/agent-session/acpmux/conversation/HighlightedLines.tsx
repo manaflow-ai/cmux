@@ -13,7 +13,7 @@ export function HighlightedLines({ code, path }: { code: string; path: string })
   const lang = fileLanguage(path);
   const { host, painted, workerAvailable } = usePierreCode(code, lang, codeUnsafeCSS, false);
   return (
-    <div className="cv-filepeek__lines">
+    <div className="cv-filepeek__lines" data-highlight-pending={workerAvailable && !painted ? "" : undefined}>
       {(!workerAvailable || !painted) && <PlainCodeLines code={code} />}
       {workerAvailable && (
         <DiffsHost
