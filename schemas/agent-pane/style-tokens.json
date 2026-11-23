@@ -72,6 +72,12 @@
       "kind": "length",
       "owner": "webviews/src/agent-session/acpmux/conversation/conversation.css",
       "about": "How far a code block's long line fades at the card's right edge while more of it lies past. Unset: no fade, a hard edge. Paint only: the line's box does not change."
+    },
+    {
+      "name": "--cv-composer-icon-radius",
+      "kind": "length",
+      "owner": "webviews/src/agent-session/acpmux/composerLook.css",
+      "about": "The corner of the round composer's + button (Studio's paperclip) and its hover highlight; 50% draws a circle. Read only by the in-box composer looks (Studio, Codex), never by Claude's one-line look. Unset: the app's button corner, --ds-radius-control. A corner never changes the button's box."
     }
   ]
 }

@@ -33,6 +33,7 @@ change often, so a look sets only these custom properties, on `:root`
 | `--cv-user-bubble-tint`, `--cv-user-bubble-edge` | the prompt bubble's glass tint and its hairline |
 | `--cv-user-bubble-radius` | the prompt bubble's corner |
 | `--cv-code-edge-fade` | how far a long code line fades at the card's right edge while more lies past; unset, a hard edge |
+| `--cv-composer-icon-radius` | the corner of the in-box composer's + (attach) button and its hover highlight; `50%` is a circle. Claude's one-line composer never reads it; unset, the app's button corner |
 
 ```css
 :root {
