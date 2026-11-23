@@ -77,6 +77,28 @@ import Testing
         #expect(!entries[1].overlayTook && entries[1].forwardedTo == "NSWindow" && entries[1].forwardedToNumber == parent.windowNumber)
     }
 
+    /// hq#22239: the screen-share host crashed (SIGTRAP) when sharing started, in `press` converting a press's
+    /// non-finite point to `Int`. A press with no finite point records its line with no x and y.
+    @Test func aPressWithNoFinitePointRecordsNoCoordinatesAndDoesNotTrap() throws {
+        _ = NSApplication.shared
+        let trace = ClickTrace()
+        // AppKit may refuse to build such an event; when it does, the conversion below still covers the class.
+        if let event = NSEvent.mouseEvent(with: .leftMouseDown, location: NSPoint(x: CGFloat.nan, y: CGFloat.infinity),
+                                          modifierFlags: [], timestamp: 7, windowNumber: 0, context: nil, eventNumber: 1,
+                                          clickCount: 1, pressure: 1) {
+            trace.press(event, window: nil)
+            let entries = trace.entries()
+            try #require(entries.count == 1, "\(entries)")
+            if !event.locationInWindow.x.isFinite { #expect(entries[0].x == nil) }
+            if !event.locationInWindow.y.isFinite { #expect(entries[0].y == nil) }
+        }
+        #expect(ClickTrace.points(.nan) == nil)
+        #expect(ClickTrace.points(-.infinity) == nil)
+        #expect(ClickTrace.points(1e300) == nil)
+        #expect(ClickTrace.points(40.4) == 40)
+        #expect(ClickTrace.points(-2.6) == -3)
+    }
+
     @Test func theRingKeepsTheNewestPressesInOrder() throws {
         _ = NSApplication.shared
         let trace = ClickTrace()

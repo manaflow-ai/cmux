@@ -22,9 +22,10 @@ public final class ClickTrace {
         public var at: String
         /// `left`, `right` or `other`.
         public var button: String
-        /// The press in screen points, rounded.
-        public var x: Int
-        public var y: Int
+        /// The press in screen points, rounded; nil when the event's point is not a finite number (a synthesized
+        /// press can carry NaN, and `Int(_:)` of NaN traps: the host crash at Share, hq#22239).
+        public var x: Int?
+        public var y: Int?
         /// The class of the window AppKit dispatched the press to (`CefNSWindow`, `DividerMousePanel`, ...).
         public var window: String
         public var windowNumber: Int
@@ -126,8 +127,8 @@ public final class ClickTrace {
         guard Self.isPress(event.type) else { return }
         if let open, open.timestamp == event.timestamp, open.timestamp != 0 { return }
         let screen = window.map { $0.convertPoint(toScreen: event.locationInWindow) } ?? event.locationInWindow
-        append(Entry(seq: 0, at: Self.stamp(now()), button: Self.button(event.type), x: Int(screen.x.rounded()),
-                     y: Int(screen.y.rounded()), window: Self.name(window), windowNumber: window?.windowNumber ?? -1),
+        append(Entry(seq: 0, at: Self.stamp(now()), button: Self.button(event.type), x: Self.points(screen.x),
+                     y: Self.points(screen.y), window: Self.name(window), windowNumber: window?.windowNumber ?? -1),
                timestamp: event.timestamp)
     }
 
@@ -203,6 +204,12 @@ public final class ClickTrace {
     private func update(_ change: (inout Entry) -> Void) {
         guard let open, ring.indices.contains(open.index) else { return }
         change(&ring[open.index])
+    }
+
+    /// A coordinate rounded to whole points, or nil when it has none (NaN, infinite, past `Int`'s range). The trace
+    /// sees every press before AppKit does, so it must never trap on what a press carries.
+    static func points(_ value: CGFloat) -> Int? {
+        Int(exactly: value.rounded())
     }
 
     static func name(_ window: NSWindow?) -> String {
