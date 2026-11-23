@@ -89,8 +89,12 @@ class DecideTest(unittest.TestCase):
         self.c = piece_swap.load_classifier()
         self.config = piece_swap.load_config()
 
-    def test_ships_with_only_the_drill_class(self):
-        self.assertEqual(self.config["classes"], ["drill"])
+    def test_ships_with_drill_web_ui_and_rust_core(self):
+        self.assertEqual(self.config["classes"], ["drill", "web-ui", "rust-core"])
+
+    def test_never_build_and_unclassed_stay_unlisted(self):
+        for name in ("migrations", "signing-release", "published-builds", "other"):
+            self.assertNotIn(name, self.config["classes"], name)
 
     def test_drill_commit_swaps(self):
         ok, why = piece_swap.decide(piece_swap.split([DRILL_RED, DRILL_KEEP], self.c), self.config, {})
