@@ -71,7 +71,6 @@ fn store_supervisor(root: &TempDir) -> Arc<Supervisor> {
                 setups: None,
                 saved_prompts: None,
                 defaults: None,
-                setups: None,
             },
             idle_stop: Duration::from_secs(60),
             provider_deadline: Duration::from_secs(30),
