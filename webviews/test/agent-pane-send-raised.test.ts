@@ -14,6 +14,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { COMPOSER_EDITOR } from "../src/agent-session/acpmux/composerSelectors";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -48,7 +49,7 @@ await requireBrowserLane("agent-pane-send-raised.test.ts", async () => {
     await pane?.close();
   });
 
-  const field = '.acpmux-composer-prompt [contenteditable="true"]';
+  const field = COMPOSER_EDITOR;
 
   const openChat = async (page: Page) => {
     await page.addInitScript(() => {
