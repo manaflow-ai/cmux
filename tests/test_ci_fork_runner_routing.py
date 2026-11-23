@@ -656,6 +656,19 @@ def _ends_in_pool(node: tuple) -> bool:
     return False
 
 
+def _forks_first_inside(node: tuple) -> bool:
+    """Whether a guarded disjunct picks its value with the fork branch first.
+
+    e.g. ``verdict == 'pass' && (FORK && 'blacksmith-2vcpu-ubuntu-2404' ||
+    'cmux-linux')``: a fork pull request takes the Blacksmith literal inside
+    the parentheses, so the owned label after it is same-repository only.
+    """
+    if node[0] != "and" or not node[1]:
+        return False
+    tail = node[1][-1]
+    return tail[0] == "or" and bool(tail[1]) and _is_fork_pull_request_branch(tail[1][0])
+
+
 def _runner_value_error(
     node: tuple, selector: re.Pattern[str], dispatch_inputs_are_empty: bool
 ) -> str | None:
@@ -675,7 +688,7 @@ def _runner_value_error(
     for disjunct in disjuncts:
         if _is_fork_pull_request_branch(disjunct):
             return None
-        if _ends_in_pool(disjunct):
+        if _ends_in_pool(disjunct) or _forks_first_inside(disjunct):
             continue
         early = _owned(disjunct, selector)
         if early:
@@ -697,6 +710,10 @@ def _runner_value_error(
 FORK_WRAPPED_POOL_READ = re.compile(
     r"\(github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.repo\.full_name != "
     r"github\.repository && ('blacksmith-[^']+') \|\| fromJSON\(vars\.RUNNER_POOLS\)\.[A-Za-z0-9_]+\)"
+    # The one Linux label's group (scripts/ci/one_linux_label.py): a fork takes CI_FORK_LINUX_RUNNER, a
+    # fork-only variable that is GitHub-hosted 'ubuntu-24.04' while unset, so the gate reads that literal.
+    r"|\(github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.repo\.full_name != "
+    r"github\.repository && \(vars\.CI_FORK_LINUX_RUNNER \|\| ('ubuntu-24\.04')\) \|\| 'cmux-linux'\)"
 )
 # A route whose owned fallback is itself behind the macOS Blacksmith switch.
 # The fork branch still wins before the fallback; reduce the whole expression
@@ -736,7 +753,7 @@ def fork_pull_request_gate_error(
     if not selector.search(line):
         return None
     line = FORK_WRAPPED_GUARDED_POOL_READ.sub(r"\1", line)
-    line = FORK_WRAPPED_POOL_READ.sub(r"\1", line)
+    line = FORK_WRAPPED_POOL_READ.sub(lambda m: m.group(1) or m.group(2), line)
     try:
         outside = EXPRESSION.sub("", line)
     except gh_expressions.Unterminated:
@@ -1431,7 +1448,9 @@ class ForkRunnerRoutingTests(unittest.TestCase):
                 )
 
                 with self.subTest(workflow=path.name, line=number):
-                    if "vars.LINUX_RUNNER" in line:
+                    # cmux-linux as the last fallback is what a fork reaches; as a same-repository first-attempt
+                    # clause (app-compile-placement) it never serves a fork.
+                    if "vars.LINUX_RUNNER" in line or re.search(r"\|\|\s*'cmux-linux'\s*\}\}", line):
                         saw_linux += 1
                         self.assertTrue(
                             hosted_linux or (fork_short_circuits and hosted_macos),
