@@ -29,6 +29,9 @@ final class FieldTextView: NSTextView {
     /// cmux: a draft attachment's file, named like it: Copy of a selection holding attachments
     /// writes the files (ComposeSelectionCopy.swift). Nil: none here.
     var draftAttachmentFile: (ID) -> URL? = { _ in nil }
+    /// cmux: a click on a picture in the field (``ComposeInlineAttachmentView``) opens it large; true when it opened
+    /// (issue 51939). Nil host: nothing opens.
+    var onOpenDraftPicture: (ID, ComposeInlineAttachmentView) -> Bool = { _, _ in false }
     /// cmux: the field became (true) or stopped being (false) the target of a drag the host's
     /// intake takes: the pane's drop highlight follows it.
     var onDropTargetChange: (Bool) -> Void = { _ in }

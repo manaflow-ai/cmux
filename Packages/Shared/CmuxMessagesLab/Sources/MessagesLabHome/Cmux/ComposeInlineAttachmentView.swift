@@ -69,6 +69,46 @@ final class ComposeInlineAttachmentView: NSView {
         tracking = t
     }
 
+    /// The attachment shown (nil once it is gone).
+    var attachmentID: ID? { attachment?.attachmentID }
+
+    /// A picture's thumbnail as shown (nil: the placeholder grey, or a file pill).
+    var thumbnail: CGImage? { attachment?.isImage == true ? attachment?.thumbnail : nil }
+
+    /// The field that holds this view.
+    private var field: FieldTextView? {
+        var v: NSView? = superview
+        while let next = v, !(next is FieldTextView) { v = next.superview }
+        return v as? FieldTextView
+    }
+
+    /// A press and release this close together (points, window coordinates) is a click, not a drag.
+    static let clickSlop: CGFloat = 4
+    static func isClick(from down: CGPoint, to up: CGPoint) -> Bool { hypot(up.x - down.x, up.y - down.y) <= clickSlop }
+
+    /// A click on a picture opens it large (issue 51939: it opened nothing). The press still goes to the field
+    /// first (its caret and its own drag of the attachment); a release in place over the picture opens it.
+    override func mouseDown(with event: NSEvent) {
+        guard attachment?.isImage == true, event.clickCount == 1 else { super.mouseDown(with: event); return }
+        let down = event.locationInWindow
+        super.mouseDown(with: event)
+        var up = NSApp.currentEvent
+        // Nothing above tracked the press (the current event is still this press): wait for its release here.
+        if let e = up, e.type == .leftMouseDown, e.timestamp == event.timestamp {
+            repeat { up = window?.nextEvent(matching: [.leftMouseUp, .leftMouseDragged]) } while up.map { $0.type != .leftMouseUp } ?? false
+        }
+        guard let up, up.type == .leftMouseUp, Self.isClick(from: down, to: up.locationInWindow),
+              bounds.contains(convert(up.locationInWindow, from: nil)) else { return }
+        openPreview()
+    }
+
+    /// Opens the picture large through the field's host; false for a file pill or with no host.
+    @discardableResult
+    func openPreview() -> Bool {
+        guard let attachment, attachment.isImage, let field else { return false }
+        return field.onOpenDraftPicture(attachment.attachmentID, self)
+    }
+
     override func mouseEntered(with event: NSEvent) { showsRemove = true }
     override func mouseExited(with event: NSEvent) { showsRemove = false }
     override func resetCursorRects() { addCursorRect(bounds, cursor: .arrow) }
@@ -77,9 +117,7 @@ final class ComposeInlineAttachmentView: NSView {
     /// ``HomeContentMenu``) and Remove Attachment. The draft's file comes from the field that holds this view.
     override func menu(for event: NSEvent) -> NSMenu? {
         guard let attachment else { return nil }
-        var field: NSView? = superview
-        while let v = field, !(v is FieldTextView) { field = v.superview }
-        let lookup = (field as? FieldTextView)?.draftAttachmentFile
+        let lookup = field?.draftAttachmentFile
         let id = attachment.attachmentID
         let resolve: @MainActor @Sendable () async -> URL? = { lookup?(id) }
         let menu = NSMenu()
