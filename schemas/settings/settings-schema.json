@@ -414,7 +414,8 @@
               "appearance.accent",
               "appearance.selection",
               "appearance.themeFile",
-              "appearance.highlightColor"
+              "appearance.highlightColor",
+              "customize.doctorNotice"
             ],
             "title" : {
               "key" : "settings.group.appTheme",
@@ -13041,7 +13042,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "adaptive",
+      "default" : "openai",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.computerUse",
@@ -28306,6 +28307,144 @@
       "title" : {
         "key" : "settings.appearance.highlightColor",
         "text" : "Highlight Color"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.appTheme",
+        "text" : "App Theme"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "customize.doctorNotice",
+      "keywords" : [
+        "customize",
+        "customization",
+        "doctor",
+        "notice",
+        "toast",
+        "theme",
+        "layer",
+        "broken",
+        "file"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "customize",
+        "doctorNotice"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : {
+        "key" : "settings.customize.doctorNotice.summary",
+        "text" : "Tell me when a file or layer changes my setup"
+      },
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:customize.doctorNotice"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.customize.doctorNotice",
+        "text" : "Customization notices"
       },
       "validation" : "portable"
     },
@@ -71580,7 +71719,10 @@
         "auto",
         "glass",
         "solid",
-        "sections"
+        "sections",
+        "chip",
+        "tree",
+        "card"
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
@@ -71619,6 +71761,27 @@
             "text" : "Sections"
           },
           "value" : "sections"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.groupBackgroundChip",
+            "text" : "Chips"
+          },
+          "value" : "chip"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.groupBackgroundTree",
+            "text" : "Tree"
+          },
+          "value" : "tree"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.groupBackgroundCard",
+            "text" : "Cards"
+          },
+          "value" : "card"
         }
       ],
       "consumers" : [
@@ -71651,7 +71814,14 @@
         "sections",
         "section",
         "heading",
-        "plain"
+        "plain",
+        "chip",
+        "chromium",
+        "rail",
+        "tree",
+        "guide",
+        "card",
+        "cards"
       ],
       "kind" : "choice",
       "page_hidden" : false,
@@ -113366,20 +113536,12 @@
     },
     {
       "accepts" : [
-        "ask",
         "on",
         "off"
       ],
       "agent_refusal" : "userOnly",
       "agent_settable" : false,
       "choices" : [
-        {
-          "title" : {
-            "key" : "settings.agents.cmuxMcp.ask",
-            "text" : "Ask"
-          },
-          "value" : "ask"
-        },
         {
           "title" : {
             "key" : "settings.agents.cmuxMcp.on",
@@ -113398,7 +113560,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "ask",
+      "default" : "on",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.agentTools",
@@ -113406,7 +113568,7 @@
       },
       "help" : {
         "key" : "settings.agents.cmuxMcp.help",
-        "text" : "Agents you start in cmux get cmux’s tools, Computer Use included: Claude Code and Codex in cmux’s terminals and agent chats. Until you choose, they get nothing. cmux never changes your agents’ own settings."
+        "text" : "Agents you start in cmux get cmux’s tools, Computer Use included: Claude Code and Codex in cmux’s terminals and agent chats. cmux never changes your agents’ own settings."
       },
       "kept_on_reset_all" : false,
       "key" : "agents.cmuxMcp",
@@ -113418,8 +113580,7 @@
         "claude",
         "codex",
         "coding agents",
-        "agents",
-        "onboarding"
+        "agents"
       ],
       "kind" : "choice",
       "page_hidden" : false,

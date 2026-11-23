@@ -128,6 +128,14 @@ class Seed:
             raise RuntimeError(f"workspace {key} ({workspace}) still listed 10 s after closeWorkspace")
         self.row.update(closed=workspace, workspaces_left=len(self.topology().get("workspaces") or []))
 
+    def chat(self):
+        """Opens a new agent chat (palette.newAgentChat) and waits until the focus is on a tab other than the one before."""
+        before = (self.topology().get("focus") or {}).get("tab")
+        self.action("palette.newAgentChat")
+        if not wait(lambda: (self.topology().get("focus") or {}).get("tab") not in (None, before), 30):
+            raise RuntimeError(f"palette.newAgentChat focused no new tab in 30 s (tab before {before})")
+        self.row["chat_tab"] = (self.topology().get("focus") or {}).get("tab")
+
     def build(self):
         """Raises RuntimeError naming the step that failed."""
         windows = self.window_ids()
@@ -173,6 +181,8 @@ class Seed:
             counts[window] += 1
         if self.front_mode == "home":  # --front tab: the last workspace's terminal tab stays in front
             self.action("home.show")
+        elif self.front == "chat":  # --front chat: a new agent chat tab in the last workspace stays in front
+            self.chat()
         final = self.topology()
         listed = {w.get("id"): set(w.get("workspaces") or []) for w in final.get("windows") or []}
         mine = set().union(*ours.values())
@@ -208,7 +218,7 @@ def main(argv=None):
     parser.add_argument("--front-out", help="write the front just before the quit here (launch-ready.swift's shape)")
     # launch-ready.sh front=home|tab: the front the session is left on, and --stay leaves the app running (the probe
     # quits it after reading that front).
-    parser.add_argument("--front", choices=["home", "tab"], default="home")
+    parser.add_argument("--front", choices=["home", "tab", "chat"], default="home")
     parser.add_argument("--stay", action="store_true")
     # launch-ready.sh snapshot=unknown: close the workspace with this model key (closeWorkspace), and nothing else.
     parser.add_argument("--close-workspace", default="")
