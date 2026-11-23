@@ -53,9 +53,9 @@ extension NSWindow {
     /// cmuxterm-hq synthetic-probes run 42599053150).
     public func nameStandardWindowButtons() {
         let names: [(NSWindow.ButtonType, String)] = [
-            (.closeButton, String(localized: "window.button.close", defaultValue: "Close", bundle: .module)),
-            (.miniaturizeButton, String(localized: "window.button.minimize", defaultValue: "Minimize", bundle: .module)),
-            (.zoomButton, String(localized: "window.button.zoom", defaultValue: "Zoom", bundle: .module)),
+            (.closeButton, String(localized: "window.button.close", defaultValue: "Close", bundle: .localizedModule)),
+            (.miniaturizeButton, String(localized: "window.button.minimize", defaultValue: "Minimize", bundle: .localizedModule)),
+            (.zoomButton, String(localized: "window.button.zoom", defaultValue: "Zoom", bundle: .localizedModule)),
         ]
         for (type, name) in names {
             guard let button = standardWindowButton(type), (button.accessibilityLabel() ?? "").isEmpty else { continue }

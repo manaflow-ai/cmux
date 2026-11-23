@@ -51,6 +51,20 @@ enum Command {
         #[serde(default)]
         brief: bool,
     },
+    /// `cmux <cli.name> <path…>`: the installed app whose manifest
+    /// `cli.name` is `name`, and its op whose `cli.path` the words start
+    /// with (apps/cli_commands.rs). The CLI then runs the op with `apps-run`.
+    #[serde(rename = "apps-cli")]
+    Cli {
+        name: String,
+        #[serde(default)]
+        words: Vec<String>,
+    },
+    /// `cmux mcp serve`'s `tools/list`: every installed extension op whose
+    /// catalog offers it to agents (apps/mcp_tools.rs), read on each list so
+    /// an install or a saved app shows with no restart.
+    #[serde(rename = "apps-mcp-tools")]
+    McpTools,
     #[serde(rename = "apps-place")]
     Place {
         contribution: String,
@@ -186,6 +200,17 @@ enum Command {
     /// reply is the page's answer `{id, ok, value | error}`.
     #[serde(rename = "apps-page-call")]
     PageCall { app: String, page: String, message: String },
+    /// The person approves a credential for an app's `external` server
+    /// (apps/server_external.rs): origin user, the verified app only.
+    #[serde(rename = "apps-server-credential")]
+    ServerCredential { app: String },
+    /// A process the person started serves `app` on this connection, with
+    /// the credential they approved.
+    #[serde(rename = "apps-server-attach")]
+    ServerAttach { app: String, credential: String },
+    /// One `result` or `event` line of the external server on this connection.
+    #[serde(rename = "apps-server-line")]
+    ServerLine { app: String, line: Value },
     #[serde(rename = "apps-provider-result")]
     ProviderResult {
         request_id: u64,
@@ -409,7 +434,7 @@ pub(super) fn try_handle(
     // origin it claims, and every request with origin user (gestures) need a
     // verified cmux app connection. A declared kind app does not count.
     let changes_apps = match &request.command {
-        Command::Set { .. } => true,
+        Command::Set { .. } | Command::ServerCredential { .. } => true,
         Command::Store { op, .. } => crate::apps::store_op_mutates(op),
         // Only the app that runs the link reports its changes (cx-rtipa).
         Command::LinkChanged | Command::TeamEvent { .. } => true,
@@ -523,6 +548,8 @@ pub(super) fn try_handle(
         Command::List => Ok(supervisor.list()),
         Command::ReloadLocal { folders } => Ok(supervisor.reload_local_apps_named(folders)),
         Command::Capabilities { op, brief } => capabilities(op.as_deref(), brief),
+        Command::Cli { name, words } => supervisor.cli_resolve(&name, &words),
+        Command::McpTools => Ok(supervisor.mcp_tools()),
         Command::Place { contribution, region } => supervisor.place_sidebar(&contribution, region),
         // Answered on its own thread above.
         Command::Reload { .. } => Err(crate::apps::ApiError::new(
@@ -634,6 +661,11 @@ pub(super) fn try_handle(
         Command::ProviderResult { request_id, ok, body } => {
             supervisor.provider_result(client, request_id, ok, body)
         }
+        Command::ServerCredential { app } => supervisor.server_credential(&app, origin),
+        Command::ServerAttach { app, credential } => {
+            supervisor.server_attach(client, claim_for(mux, client).agent, &app, &credential)
+        }
+        Command::ServerLine { app, line } => supervisor.server_line_from(client, &app, line),
     };
     Some(reply(writer, id, result.map(|v| if v.is_null() { json!({}) } else { v })))
 }

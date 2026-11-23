@@ -87,7 +87,6 @@ function App() {
           <TurnActionsContext.Provider
             value={{
               reauthenticate: () => undefined,
-              transferCloudCredentials: async () => undefined,
               route: { name: "Claude Code", harness: "claude", hostKind: "cloud" },
             }}
           >

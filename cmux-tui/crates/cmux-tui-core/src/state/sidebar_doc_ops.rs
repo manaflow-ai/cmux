@@ -146,11 +146,14 @@ pub(crate) fn drop_closed_adopts(
 /// an adopt with no target placed it at the end of its section (Lawrence
 /// 2026-11-12: "by default all new workspaces should go to the top"). A
 /// machine's first adopt (no section yet) keeps that machine's order. This
-/// machine's own workspaces are placed from their personal rows.
+/// machine's own workspaces are placed from their personal rows. The app adopts
+/// every unplaced workspace at once, so one adopt can hold several machines'
+/// refs, or a new one beside one placed already: each machine's new refs are
+/// placed on their own (cmux#47677: such a batch listed a new Cloud workspace last).
 pub(crate) fn place_remote_adopts(
     connection: &Connection,
     doc: &Doc,
-    ops: &mut [Op],
+    ops: &mut Vec<Op>,
     placement: NewWorkspacePlacement,
 ) -> anyhow::Result<()> {
     if placement == NewWorkspacePlacement::Bottom
@@ -160,26 +163,46 @@ pub(crate) fn place_remote_adopts(
         return Ok(());
     }
     let local = crate::state::values::local_registry_id(connection)?;
-    for op in ops.iter_mut() {
-        let Op::Adopt { refs, to } = op else { continue };
-        if to.is_some() {
-            continue;
-        }
-        let Some(session) = refs.first().map(|reference| reference.session_id.clone()) else {
-            continue;
+    let mut placed = Vec::with_capacity(ops.len());
+    for op in ops.drain(..) {
+        let refs = match op {
+            Op::Adopt { refs, to: None } => refs,
+            other => {
+                placed.push(other);
+                continue;
+            }
         };
-        let section = machine_section_id(&session);
-        let new = |reference: &WorkspaceRef| doc.workspace_item(reference).is_none();
-        if session == local
-            || doc.section(&section).is_none()
-            || refs.iter().any(|reference| reference.session_id != session || !new(reference))
-        {
-            continue;
+        // Each machine's new refs whose section exists go first in it, newest
+        // first as a create lists them (the app adopts in the order the
+        // machine made them); the rest keep the reducer's own placement.
+        let mut rest = Vec::new();
+        let mut firsts: Vec<(String, Vec<WorkspaceRef>)> = Vec::new();
+        for reference in refs {
+            let session = reference.session_id.clone();
+            if session == local
+                || doc.workspace_item(&reference).is_some()
+                || doc.section(&machine_section_id(&session)).is_none()
+            {
+                rest.push(reference);
+            } else if let Some((_, group)) = firsts.iter_mut().find(|(id, _)| *id == session) {
+                group.push(reference);
+            } else {
+                firsts.push((session, vec![reference]));
+            }
         }
-        // Newest first, as a create lists it: the app adopts in the order the machine made them.
-        refs.reverse();
-        *to = Some(Target { index: Some(0), ..Target::end(&section) });
+        if !rest.is_empty() || firsts.is_empty() {
+            placed.push(Op::Adopt { refs: rest, to: None });
+        }
+        for (session, mut refs) in firsts {
+            refs.reverse();
+            let section = machine_section_id(&session);
+            placed.push(Op::Adopt {
+                refs,
+                to: Some(Target { index: Some(0), ..Target::end(&section) }),
+            });
+        }
     }
+    *ops = placed;
     Ok(())
 }
 

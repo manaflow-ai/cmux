@@ -15,6 +15,7 @@
 import { foldMotion, foldMs } from "./fold";
 import { FOLD_SETTLE_MS } from "./foldAnchor";
 import { LOAD_FADE_CLASS } from "../../shared/loadFade";
+import { EXIT_EASING, exitLeadMs } from "./exitLead";
 import type { LayoutGeometry } from "../conversationGeometry";
 
 /// The fold's state on the thread while it plays: "open" or "close" (the CSS and tests read it).
@@ -62,6 +63,9 @@ export type TurnFold = {
   opening: boolean;
   sessionId?: string;
   ms: number;
+  /// A close's exit lead (exitLead.ts): the copies of the rows it hides fade out over it, and nothing
+  /// moves until it ends. 0 for an open.
+  lead: number;
   /// When the motion started and when it stops (performance.now()). Every animation runs on this
   /// one clock, so an element that mounts mid-fold starts part way, in step with the rest.
   start: number;
@@ -240,14 +244,16 @@ export function startTurnFold(
     moving.set(row.node, { id: row.id, top, delta: 0, reveal: false, animations: [] });
   }
   thread.setAttribute(TURN_FOLD_ATTR, opening ? "open" : "close");
+  const lead = opening ? 0 : exitLeadMs(ms, 1, thread);
   const fold: TurnFold = {
     id,
     at,
     opening,
     sessionId,
     ms,
+    lead,
     start: now,
-    until: now + ms + FOLD_SETTLE_MS,
+    until: now + lead + ms + FOLD_SETTLE_MS,
     startRows: "geometry" in placed ? placed : { ...placed, tops: Float64Array.from(placed.tops as ArrayLike<number>) },
     startAt: at,
     moving,
@@ -256,7 +262,7 @@ export function startTurnFold(
   };
   playing.set(thread, fold);
   // The state goes when the fold is over even if nothing renders the transcript again by then.
-  setTimeout(() => endTurnFold(thread, fold), ms + FOLD_SETTLE_MS);
+  setTimeout(() => endTurnFold(thread, fold), lead + ms + FOLD_SETTLE_MS);
   return fold;
 }
 
@@ -308,9 +314,23 @@ export function playTurnFold(
   if (at < 0) return false;
   fold.at = at;
   const easing = foldMotion.easing(thread);
-  const clock = { duration: fold.ms, delay: Math.min(0, fold.start - now), easing };
+  // The move starts when the close's exit lead ends; until then each row holds where it starts
+  // (`backwards`), and the copies fade out (`exit`).
+  const clock = { duration: fold.ms, delay: Math.min(0, fold.start - now) + fold.lead, easing };
   const play = (node: HTMLElement, keyframes: Keyframe[], fill?: FillMode) => {
-    const animation = node.animate(keyframes, fill ? { ...clock, fill } : clock);
+    const held: FillMode | undefined = fold.lead > 0 ? (fill === "forwards" ? "both" : (fill ?? "backwards")) : fill;
+    const animation = node.animate(keyframes, held ? { ...clock, fill: held } : clock);
+    fold.animations.add(animation);
+    return animation;
+  };
+  /// A copy's ink going to 0 on the exit's clock: the lead, from the fold's start.
+  const exit = (node: HTMLElement) => {
+    const animation = node.animate([{ opacity: 1 }, { opacity: 0 }], {
+      duration: fold.lead,
+      delay: Math.min(0, fold.start - now),
+      easing: EXIT_EASING,
+      fill: "both",
+    });
     fold.animations.add(animation);
     return animation;
   };
@@ -374,14 +394,16 @@ export function playTurnFold(
       first.translate = `0 ${row.delta}px`;
       end.translate = `0 ${to}px`;
     }
-    if (place === undefined) {
+    // Gone (the close hid it): its text leaves on the exit lead, before anything moves over its place.
+    const exits = place === undefined && fold.lead > 0;
+    if (place === undefined && !exits) {
       first.opacity = 1;
       end.opacity = 0;
-    } else if (row.reveal) {
+    } else if (place !== undefined && row.reveal) {
       first.opacity = 0;
       end.opacity = 1;
     }
-    if (Object.keys(first).length === 0) continue;
+    if (Object.keys(first).length === 0 && !exits) continue;
     const ghost = ghostOf(node);
     thread.insertBefore(ghost, below);
     ghosts.add(ghost);
@@ -391,9 +413,12 @@ export function playTurnFold(
       if (fold.copies.get(row.id) === ghost) fold.copies.delete(row.id);
       ghost.remove();
     };
-    const motion = play(ghost, [first, end], "forwards");
-    motion.onfinish = drop;
-    motion.oncancel = drop;
+    // The copy lasts its move, or its exit when it only fades; either ending drops it.
+    const motion = Object.keys(first).length > 0 ? play(ghost, [first, end], "forwards") : undefined;
+    const faded = exits ? exit(ghost) : undefined;
+    const last = motion ?? faded!;
+    last.onfinish = drop;
+    last.oncancel = drop;
     // The copy draws only outside the rows sliding over its place, on the same clock, so its fading
     // text never shows under theirs (`coverClip`, as the turn end's fold does: turnEndFold.ts).
     // Read only in a pass where a copy is made: each mounted row's path and box, then the copy's.

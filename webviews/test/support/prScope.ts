@@ -8,6 +8,10 @@
 // CMUX_PR_CHANGED_FILES (locally, base pushes) every finding counts.
 // CMUX_NEXT_STYLE_GUARDS=warn (ci-web.yml sets it for feat-cmux-next, Leo 2026-10-19) makes every
 // finding a warning: these are style and structure rules, and they no longer fail a run there.
+// `strict` scopes are correctness, not style (gallery coverage's "the entries are valid": an id the URL and
+// the experiment registry cannot carry), so the warn mode leaves them failing the pull request that adds one.
+// #48230 added the experiment id agent-pane.high-contrast-look with only a warning, then every web-view pull
+// request's shard 1 went red on it (#49118). Leo, 2026-11-21: "these sorts of things probably shouldn't happen".
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -36,9 +40,13 @@ export interface PrScope {
  * `lists`: repository paths (or patterns) of the files that name findings, such as pending and allow
  * lists or gallery entries' covers: a line the pull request adds or removes owns the names quoted on it.
  */
-export function prScope(options: { rules: readonly string[]; lists?: readonly (string | RegExp)[] }): PrScope {
+export function prScope(options: {
+  rules: readonly string[];
+  lists?: readonly (string | RegExp)[];
+  strict?: boolean;
+}): PrScope {
   const scope = changedScope(options);
-  return process.env.CMUX_NEXT_STYLE_GUARDS === "warn" ? warnOnly(scope) : scope;
+  return process.env.CMUX_NEXT_STYLE_GUARDS === "warn" && !options.strict ? warnOnly(scope) : scope;
 }
 
 /** Every finding prints as a warning and none fails the run. */

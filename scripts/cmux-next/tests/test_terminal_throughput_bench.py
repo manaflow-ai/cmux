@@ -23,6 +23,20 @@ class Payload(unittest.TestCase):
             self.assertEqual(tput.write_payload(path, 3), 3 * tput.MB)
             self.assertEqual(os.path.getsize(path), 3 * tput.MB)
 
+    def test_the_sgr_block_changes_color_on_every_character(self):
+        a = tput.sgr_payload_block()
+        self.assertEqual(a, tput.sgr_payload_block())
+        text = a.decode()
+        visible = tput.re.sub(r"\x1b\[[0-9;]*m", "", text)
+        self.assertNotIn("\x1b", visible, "no escape byte is itself wrapped in a color change")
+        self.assertEqual(text.count("\x1b[38;5;"), len(visible.replace("\n", "")))
+
+    def test_the_sgr_file_is_exactly_the_asked_size(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "p")
+            self.assertEqual(tput.write_payload(path, 2, "sgr"), 2 * tput.MB)
+            self.assertEqual(os.path.getsize(path), 2 * tput.MB)
+
 
 class Rows(unittest.TestCase):
     def test_both_rates_and_their_ratio(self):
@@ -32,12 +46,75 @@ class Rows(unittest.TestCase):
         self.assertEqual(rows["terminal.throughput.ratio"]["p95"], 0.5)
         self.assertTrue(all(r["budget"] is None for r in rows.values()), "reporting only")
 
+    def test_the_sgr_arm_has_its_own_row_names(self):
+        names = [r["name"] for r in tput.report_rows(150.0, 300.0, None, tput.ROW_PREFIX["sgr"])]
+        self.assertEqual(names, ["terminal.throughput_sgr.next_mb_s", "terminal.throughput_sgr.ghostty_mb_s",
+                                 "terminal.throughput_sgr.ratio"])
+
     def test_no_ratio_without_ghostty(self):
         self.assertEqual([r["name"] for r in tput.report_rows(150.0, None)], ["terminal.throughput.next_mb_s"])
 
     def test_median_of_runs_skips_failed_ones(self):
         self.assertEqual(tput.summarize([{"mb_s": 10.0}, {"error": "no result"}, {"mb_s": 30.0}, {"mb_s": 20.0}]), 20.0)
         self.assertIsNone(tput.summarize([{"error": "no result"}]))
+
+
+class Interrupt(unittest.TestCase):
+    def test_a_run_is_the_key_to_the_signal_and_the_signal_to_the_drain(self):
+        rec = tput.interrupt_record(1, 100.0, {"signal_at": 100.0125, "drained_at": 100.2125, "bytes": 9})
+        self.assertEqual((rec["key_to_signal_ms"], rec["signal_to_drained_ms"], rec["flood_bytes"]), (12.5, 200.0, 9))
+
+    def test_a_run_without_a_flood_or_a_result_says_so(self):
+        self.assertEqual(tput.interrupt_record(2, None, None)["error"], "no flood")
+        self.assertEqual(tput.interrupt_record(3, 1.0, {"signal_at": 1.1})["error"], "no result")
+
+    def test_rows_are_the_median_and_the_worst_of_the_good_runs(self):
+        runs = [{"key_to_signal_ms": 10.0, "signal_to_drained_ms": 5.0}, {"error": "no result"},
+                {"key_to_signal_ms": 30.0, "signal_to_drained_ms": 50.0}, {"key_to_signal_ms": 20.0, "signal_to_drained_ms": 7.0}]
+        rows = {r["name"]: r for r in tput.report_rows(150.0, 300.0, runs)}
+        k = rows["terminal.interrupt.key_to_signal_ms"]
+        self.assertEqual((k["p50"], k["p95"], k["n"], k["unit"], k["budget"]), (20.0, 30.0, 3, "ms", None))
+        self.assertEqual(rows["terminal.interrupt.signal_to_drained_ms"]["p95"], 50.0)
+        self.assertIn("terminal.throughput.ratio", rows)
+
+    def test_no_interrupt_rows_without_a_good_run(self):
+        self.assertEqual(tput.interrupt_rows([{"error": "no flood"}]), [])
+        self.assertEqual(tput.interrupt_rows(None), [])
+
+    def test_the_flooder_stops_on_ctrl_c_through_a_pty(self):
+        """FLOODER on a real PTY: its line discipline turns the 0x03 byte into SIGINT, the flood stops and drains."""
+        import pty, select, sys, time
+        with tempfile.TemporaryDirectory() as d:
+            flooder, payload, result = (os.path.join(d, n) for n in ("f.py", "p", "r.json"))
+            with open(flooder, "w") as f:
+                f.write(tput.FLOODER)
+            tput.write_payload(payload, 2)
+            pid, master = pty.fork()
+            if pid == 0:
+                os.execv(sys.executable, [sys.executable, "-I", flooder, payload, result])
+            read = 0
+            def pump(until, seconds):
+                nonlocal read
+                deadline = time.monotonic() + seconds
+                while not until() and time.monotonic() < deadline:
+                    if select.select([master], [], [], 0.05)[0]:
+                        try:
+                            read += len(os.read(master, 1 << 16))
+                        except OSError:
+                            return
+            pump(lambda: os.path.exists(result + ".started"), 30)
+            self.assertTrue(os.path.exists(result + ".started"))
+            sent_at = time.time()
+            os.write(master, b"\x03")
+            pump(lambda: os.path.exists(result), 30)
+            os.waitpid(pid, 0)
+            os.close(master)
+            with open(result) as f:
+                rec = tput.interrupt_record(1, sent_at, __import__("json").load(f))
+            self.assertGreaterEqual(rec["key_to_signal_ms"], 0)
+            self.assertLess(rec["key_to_signal_ms"], 5000)
+            self.assertGreaterEqual(rec["signal_to_drained_ms"], 0)
+            self.assertGreaterEqual(rec["flood_bytes"], 1 << 20)
 
 
 class Arms(unittest.TestCase):

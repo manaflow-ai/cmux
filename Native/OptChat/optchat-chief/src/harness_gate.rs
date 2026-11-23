@@ -178,11 +178,12 @@ fn admitted(requested: &str, a: cmux_chief::policy::harness::Admission) -> Admit
     }
 }
 
-/// The text the Chief posts for a refused turn: one plain sentence a person can act on, never the
+/// The text the Chief gives for a refused turn: plain sentences a person can act on, never the
 /// parts it is built from (first-run findings row 1: a fresh Mac's first reply named acpmux,
 /// claude-stdio, the CodeRouter CLI and `sr claude proxy`). `reason` stays in the host log and the
 /// trace's `harness.refused` (``trace_refusal``), where the person debugging it reads it. It starts
-/// with `refused: ` (the chat shows `(turn refused: …)`, which the apps recognize).
+/// with `refused: `, then what is wrong, then (after the first `. `) what to do; the chat posts it
+/// through ``refused_reply``.
 pub fn refusal(reason: &str) -> String {
     let lower = reason.to_ascii_lowercase();
     // The agent the refused harness runs: Codex, else Claude Code for the Claude routes.
@@ -194,16 +195,59 @@ pub fn refusal(reason: &str) -> String {
         None
     };
     let missing = lower.contains("has no harness named") || lower.contains("acpmux has none");
-    let text = match (agent, missing) {
-        (Some(agent), true) => format!(
-            "Chief answers through {agent}, and this Mac doesn't have it yet. Install {agent} from the Set Up card above (or Set Up cmux… in the command palette), then send your message again."
+    let (what, fix) = match (agent, missing) {
+        (Some(agent), true) => (
+            format!("Chief answers through {agent}, which is not on this Mac yet."),
+            format!("Install {agent} from the Set Up card above, then send again."),
         ),
-        (Some(agent), false) => format!(
-            "Chief can't run {agent} on this Mac right now. Check it in Set Up cmux… (command palette), then send your message again."
+        (Some(agent), false) => (
+            format!("Chief can't run {agent} on this Mac right now."),
+            format!("Check {agent} in Set Up cmux… (command palette), then send again."),
         ),
-        (None, _) => "Chief couldn't start this reply. Send your message again; if it keeps happening, check your agents in Set Up cmux… (command palette).".to_owned(),
+        (None, _) => (
+            "Chief couldn't start this reply.".to_owned(),
+            "Send again; if it keeps happening, check your agents in Set Up cmux… (command palette)."
+                .to_owned(),
+        ),
     };
-    format!("refused: {text}")
+    format!("refused: {what} {fix}")
+}
+
+/// What a refused turn posts in the chat (first-run findings row 8: the same tall refusal on every
+/// turn made the chat look stuck). `error` is ``refusal``'s text; `asked` is the person's message the
+/// turn answers (quoted by its start); `in_row` counts refused turns in a row, from 1. The first
+/// names the message and says what is wrong and what to do; a repeat is shorter, says how many in a
+/// row, and keeps only what to do. No two turns in a row post the same text.
+pub fn refused_reply(error: &str, asked: Option<&str>, in_row: u32) -> String {
+    let body = error.strip_prefix("refused: ").unwrap_or(error).trim();
+    let (what, fix) = body
+        .split_once(". ")
+        .map_or((body.to_owned(), String::new()), |(what, fix)| {
+            (format!("{what}."), fix.to_owned())
+        });
+    let quoted = asked.map(quote).filter(|q| !q.is_empty());
+    let text = match (in_row, quoted) {
+        (0 | 1, Some(q)) => format!("Can't answer “{q}” yet. {what} {fix}"),
+        (0 | 1, None) => format!("Can't answer yet. {what} {fix}"),
+        (n, Some(q)) => format!("Still can't answer “{q}” ({n} in a row). {fix}"),
+        (n, None) => format!("Still can't answer ({n} in a row). {fix}"),
+    };
+    text.trim().to_owned()
+}
+
+/// The start of a person's message for a refused reply: its first line, at most 32 characters.
+fn quote(text: &str) -> String {
+    const MAX: usize = 32;
+    let line = text
+        .lines()
+        .map(str::trim)
+        .find(|l| !l.is_empty())
+        .unwrap_or("");
+    if line.chars().count() <= MAX {
+        return line.to_owned();
+    }
+    let cut: String = line.chars().take(MAX - 1).collect();
+    format!("{}…", cut.trim_end())
 }
 
 /// Admits `requested` against the daemon's current harnesses (asked at each
@@ -348,5 +392,53 @@ mod refusal_text_tests {
             plain(&shown);
             assert!(shown.contains(agent), "{agent} in {shown}");
         }
+    }
+
+    /// First-run findings row 8 ("chat looks stuck"): every refused turn posted the same tall text,
+    /// so in a small window the new reply looked exactly like the old one and the person's message
+    /// above it was out of view. Each reply now names the message it answers, stays short, and a
+    /// repeat says how many in a row: no two turns in a row post the same text.
+    #[test]
+    fn each_refused_turn_posts_a_short_reply_of_its_own() {
+        use super::refused_reply;
+        let error = refusal(
+            "the Chief runs Claude only through acpmux's own Claude Code adapter (kind claude-stdio); acpmux has none: acpmux has no harness named claude",
+        );
+        let first = refused_reply(&error, Some("hello?"), 1);
+        let second = refused_reply(&error, Some("hello?"), 2);
+        let third = refused_reply(&error, Some("are you there"), 3);
+        for shown in [&first, &second, &third] {
+            assert!(!shown.starts_with('('), "no raw wrapper: {shown}");
+            assert!(!shown.contains("refused"), "{shown}");
+            for word in INTERNAL {
+                assert!(!shown.contains(word), "{word:?} in {shown}");
+            }
+            assert!(shown.contains("Install Claude Code"), "{shown}");
+            assert!(shown.chars().count() <= 200, "short: {shown}");
+        }
+        assert!(first.contains("“hello?”"), "{first}");
+        assert!(third.contains("“are you there”"), "{third}");
+        assert_ne!(first, second);
+        assert_ne!(second, third);
+        assert!(second.contains('2'), "{second}");
+        assert!(
+            second.chars().count() < first.chars().count(),
+            "a repeat is shorter: {second}"
+        );
+        // A long or multi-line message is quoted by its start only.
+        let long = refused_reply(
+            &error,
+            Some(&format!("{}\nsecond line", "x".repeat(300))),
+            1,
+        );
+        assert!(
+            long.chars().count() <= 200 && !long.contains('\n'),
+            "{long}"
+        );
+        // No message to quote (a wake turn): still plain and still per count.
+        assert_ne!(
+            refused_reply(&error, None, 1),
+            refused_reply(&error, None, 2)
+        );
     }
 }

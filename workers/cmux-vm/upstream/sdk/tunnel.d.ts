@@ -42,7 +42,8 @@ export interface TunnelAttachment {
  * private network to it; attach several and one WireGuard interface reaches
  * them all.
  */
-export interface TunnelData {
+export interface WireguardTunnelData {
+    type?: "wireguard";
     /** @deprecated The tunnel's id under its old name. Read `tunnelId`. */
     id: string;
     /**
@@ -94,11 +95,12 @@ export interface TunnelData {
  * mint a keypair. The key is never stored and cannot be read back. Empty when
  * you supplied your own public key.
  */
-export interface CreatedTunnel extends TunnelData {
+export interface CreatedTunnel extends WireguardTunnelData {
     /** Returned once. Already embedded in `clientConfig`. */
     clientPrivateKey: string;
 }
 export interface CreateTunnelOptions {
+    type?: "wireguard";
     /**
      * A URL-safe handle, unique within your account: lowercase letters, digits
      * and single hyphens, up to 63 characters. Address the tunnel by it instead
@@ -181,6 +183,71 @@ export interface AttachVpcOptions {
      */
     exit?: boolean;
 }
+/** A Freestyle-managed subnet router; no WireGuard configuration is exposed. */
+export interface TailscaleTunnelData {
+    type: "tailscale";
+    id: string;
+    tunnelId: string;
+    slug?: string | null;
+    displayName?: string | null;
+    attachments: TunnelAttachment[];
+    createdAt: string;
+    updatedAt: string;
+    tailscale: {
+        hostname: string;
+        generation: number;
+        routeApproval: "unknown";
+        status: {
+            state: "provisioning" | "needs_auth" | "connecting" | "connected" | "degraded" | "error";
+            authUrl?: string | null;
+            deviceId?: string | null;
+            tailnet?: string | null;
+            addresses?: string[];
+            advertisedRoutes?: string[];
+            observedGeneration?: number;
+            lastSeen?: string | null;
+        };
+    };
+}
+export interface Ikev2TunnelData extends Pick<WireguardTunnelData, "id" | "tunnelId" | "slug" | "displayName" | "routes" | "attachments" | "createdAt" | "updatedAt"> {
+    type: "ikev2";
+    connection: {
+        server: string;
+        serverIdentity: string;
+        remoteIdentity: string;
+        mtu: number;
+    };
+}
+export interface CreatedIkev2Tunnel extends Ikev2TunnelData {
+    /** Install this one-time Apple VPN profile as a .mobileconfig file. Contains the shared secret. */
+    clientConfig: string;
+    credentials: {
+        preSharedKey: string;
+    };
+}
+export interface CreateIkev2TunnelOptions extends Omit<CreateTunnelOptions, "type" | "clientPublicKey"> {
+    type: "ikev2";
+}
+export type TunnelData = WireguardTunnelData | TailscaleTunnelData | Ikev2TunnelData;
+export interface CreateTailscaleTunnelOptions {
+    type: "tailscale";
+    slug?: string;
+    displayName?: string;
+    tailscale?: {
+        hostname?: string;
+        /** Write-only. Omit to enroll through status.authUrl in a browser. */
+        authKey?: string;
+    };
+    vpcs?: Array<{
+        vpcId: string;
+        ipv4?: string;
+        ipv6?: string;
+    }>;
+}
+export interface ListTunnelsOptions {
+    /** Omitted: WireGuard only, preserving the v5 listing contract. */
+    type?: "wireguard" | "ikev2" | "tailscale" | "all";
+}
 export interface UpdateTunnelOptions {
     /** An empty string clears it. */
     slug?: string;
@@ -195,7 +262,7 @@ export declare class TunnelsNamespace {
     private readonly client;
     constructor(client: FreestyleClient);
     /** List your tunnels, newest first. Listings never include a private key. */
-    list(): Promise<ListTunnelsResult>;
+    list(options?: ListTunnelsOptions): Promise<ListTunnelsResult>;
     /**
      * Create a tunnel, optionally attaching networks in the same call
      * (`vpcs`, all-or-nothing). This is a one-time setup: the tunnel lives
@@ -203,7 +270,13 @@ export declare class TunnelsNamespace {
      * once, and manage which networks it reaches by attaching and detaching
      * them.
      */
+    create(options: CreateIkev2TunnelOptions): Promise<CreatedIkev2Tunnel>;
+    create(options: CreateTailscaleTunnelOptions): Promise<TailscaleTunnelData>;
     create(options?: CreateTunnelOptions): Promise<CreatedTunnel>;
+    /** Reauthenticate a managed router. Omit authKey to request browser login. */
+    authenticateTailscale(tunnelIdOrSlug: string, options?: {
+        authKey?: string;
+    }): Promise<TailscaleTunnelData>;
     /** Read one tunnel by its id or its slug. Its config comes back with a blank `PrivateKey`. */
     get(tunnelIdOrSlug: string): Promise<TunnelData>;
     /**
@@ -219,7 +292,7 @@ export declare class TunnelsNamespace {
      */
     rotateKey(tunnelIdOrSlug: string, options?: {
         clientPublicKey?: string;
-    }): Promise<CreatedTunnel>;
+    }): Promise<CreatedTunnel | CreatedIkev2Tunnel>;
     /** Delete a tunnel, detaching every network as it goes. */
     delete(tunnelIdOrSlug: string): Promise<void>;
     /**
