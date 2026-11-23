@@ -1553,7 +1553,7 @@ def command_look(args) -> int:
         receipt["marker"] = marker(planned["head"], receipt["app"].get("commit") or receipt["app"].get("version")
                                    or "unknown", planned["layers"], planned["source"])
         return look(args, repo, planned, side, the_app, out, receipt, phases, began)
-    except (LookError, Usage, OSError, ValueError, subprocess.SubprocessError) as error:
+    except (RuntimeError, Usage, OSError, ValueError, subprocess.SubprocessError) as error:
         receipt["errors"].append(f"{type(error).__name__}: {str(error)[:500]}")
         if not args.watch:
             with phases("stop"):
@@ -1654,7 +1654,7 @@ def look(args, repo, planned, side, the_app, out, receipt, phases, began) -> int
                                 else run_steps(steps, pid, sock, side.app(), out, shoot))
         if video is not None:
             video = stop_video(video, receipt, side, phases)
-    except (LookError, OSError, ValueError, subprocess.SubprocessError) as error:
+    except (RuntimeError, OSError, ValueError, subprocess.SubprocessError) as error:
         receipt["errors"].append(f"{type(error).__name__}: {str(error)[:500]}")
     finally:
         if video is not None and video.running:
