@@ -102,6 +102,13 @@ const CLAUDE_CODE_APP: &[(&str, &str)] = &[
     ("agent-pane/theme.css", include_str!("../recipes/apps/claude-code-app/agent-pane.css")),
 ];
 
+/// A tonal theme: its light and dark theme files and its chat stylesheet, beside the recipe.
+const TONAL: &[(&str, &str)] = &[
+    ("themes/tonal.json", include_str!("../recipes/apps/tonal/theme.json")),
+    ("themes/tonal-dark.json", include_str!("../recipes/apps/tonal/theme-dark.json")),
+    ("agent-pane/theme.css", include_str!("../recipes/apps/tonal/agent-pane.css")),
+];
+
 /// Layout and behaviour looks (c-07be086806, Leo: "im saying the big stuff"): each is a look
 /// folder in `examples/looks`, and the recipe is that look's `cmux-setup.json` with its
 /// `keybindings.json`, so the gallery's install test and these tests hold the same files.
@@ -284,6 +291,14 @@ pub const RECIPES: &[Recipe] = &[
         ask: "make it soft and plush, raised surfaces with no borders or glass",
         profile: include_str!("../recipes/plush.json"),
         includes: PLUSH,
+    },
+    Recipe {
+        name: "tonal",
+        title: "Tonal: one seed, every color",
+        group: Group::Look,
+        ask: "make cmux one calm tonal theme from a single seed color, opaque, no glass",
+        profile: include_str!("../recipes/tonal.json"),
+        includes: TONAL,
     },
     Recipe {
         name: "hairline",

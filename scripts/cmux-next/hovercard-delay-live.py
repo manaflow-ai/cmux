@@ -252,7 +252,9 @@ def settle():
     move(None)
     # Idle, and no card shows: an owned card (update, pull request) leaves the machine idle while it shows.
     quiet_wait(lambda: cards().get("phase") == "idle" and cards().get("card_showing") != "true", 3)
-    time.sleep(0.4)
+    # sleep-ok: outlasts the quick-reshow timer (RESHOW_MS from the card hiding), which debug.hover_cards does not
+    # report (the phase is idle through it); the next hover must start cold.
+    time.sleep(RESHOW_MS / 1000 + 0.1)
 
 
 def owned_showing(card_id):
@@ -266,6 +268,7 @@ def cold(kind, point, delay_ms, seen=showing):
     start = time.monotonic()
     move(point)
     early = 0.45 * delay_ms / 1000
+    # sleep-ok: the check is that no card shows at this point in the delay, so the duration is the measurement.
     time.sleep(max(0.0, early - (time.monotonic() - start)))
     before = seen()
     report = cards()
@@ -291,7 +294,7 @@ def warm(kind, point, previous):
 def cancel(kind, point, delay_ms):
     settle()
     move(point)
-    time.sleep(0.27 * delay_ms / 1000)
+    time.sleep(0.27 * delay_ms / 1000)  # sleep-ok: the hover lasts part of the delay on purpose (leaving before it)
     move(None)
     seen = quiet_wait(showing, delay_ms / 1000 + 0.8, step=0.05)
     check(seen is None, f"{kind}: leaving before the delay cancels the card (shown: {seen})")
