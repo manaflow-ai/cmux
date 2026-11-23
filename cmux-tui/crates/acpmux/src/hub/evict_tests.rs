@@ -1,3 +1,4 @@
+use super::super::list_guard::BuiltRow;
 use super::*;
 use serde_json::json;
 
