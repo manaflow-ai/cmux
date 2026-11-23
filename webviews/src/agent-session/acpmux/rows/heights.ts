@@ -5,8 +5,8 @@ import { nextDrawnRow, prevDrawnRow, rowEdge, type AcpmuxRow } from "../model";
 import { rowOpenState } from "../conversation/rowOpenState";
 import { bookRevision } from "./bookRevision";
 
-type Key = { id: number; rev: number; width: number; signature: string };
-export type MeasuredRow = Key & { height: number };
+export type RowHeightKey = { id: number; rev: number; width: number; signature: string };
+export type MeasuredRow = RowHeightKey & { height: number };
 const BATCH = 256;
 
 const identities = new WeakMap<object, number>();
@@ -28,7 +28,7 @@ export function heightKey(
   sessionId: string | undefined,
   layout: string,
   width: number,
-): Key | undefined {
+): RowHeightKey | undefined {
   const row = rows[index];
   if (!row || row.streaming || row.steer === "waiting" || (row.kind !== "user" && row.kind !== "assistant")) return;
   const match = /^row-(\d+)$/.exec(row.id);
@@ -53,11 +53,11 @@ export function writeHeights(sid: string, entries: readonly MeasuredRow[]): void
 
 /// The Rust cache echoes the key with every hit. Native errors and evictions leave the normal
 /// estimate in place until the browser delivers that row's border box.
-export async function readHeights(sid: string, rows: readonly Key[]): Promise<MeasuredRow[]> {
+export async function readHeights(sid: string, rows: readonly RowHeightKey[]): Promise<MeasuredRow[]> {
   const batches: Promise<MeasuredRow[]>[] = [];
   for (let start = 0; start < rows.length; start += BATCH) {
     batches.push(
-      callNative<{ rows: (Key & { height: number | null })[] }>("chat.rows.heights.read", {
+      callNative<{ rows: (RowHeightKey & { height: number | null })[] }>("chat.rows.heights.read", {
         sid,
         rows: rows.slice(start, start + BATCH),
       })

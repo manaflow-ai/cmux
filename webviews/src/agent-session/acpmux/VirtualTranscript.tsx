@@ -207,7 +207,14 @@ import { hasPromptTops, keepPromptTops, knownPromptTop } from "./conversation/tr
 import { holdWebSwap } from "../../pages/shared/webSwap";
 import { playChatSwitch, type ChatSwitchPlay } from "./chatSwitch";
 import { chatSwitchMotion } from "./chatSwitch.experiment";
-import { heightKey, layoutIdentity, type MeasuredRow, readHeights, writeHeights } from "./rows/heights";
+import {
+  heightKey,
+  layoutIdentity,
+  type MeasuredRow,
+  type RowHeightKey,
+  readHeights,
+  writeHeights,
+} from "./rows/heights";
 import { callNative } from "./callNative";
 import { StreamReveal } from "./streamReveal";
 import { type NativeRegistry, type OpenDiff } from "./rows/rowProps";
@@ -2335,7 +2342,7 @@ function TranscriptView({
     if (!heightSid || flowing) return;
     const shown = rowsRef.current;
     const positions = new Map<number, number>();
-    const keys = [];
+    const keys: RowHeightKey[] = [];
     for (let index = 0; index < shown.length; index += 1) {
       const key = heightKey(shown, index, sessionId, heightLayout, scaledRowWidth);
       if (key) {

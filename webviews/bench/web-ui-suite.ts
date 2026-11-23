@@ -76,6 +76,14 @@ export const BENCHES: readonly Bench[] = [
     args: ["3000", "2"],
     timeoutMs: 240_000,
   },
+  // Production transcript, with the same 100k messages served as records or shaped rows.
+  {
+    name: "transcript-fling-rows",
+    file: "transcript-fling-rows.bench.ts",
+    args: [],
+    timeoutMs: 900_000,
+    ownPart: true,
+  },
   // thread-rail-jump takes 24 to 29 s on the perf runner (2026-11-12).
   {
     name: "thread-rail-jump",
