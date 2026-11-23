@@ -170,6 +170,7 @@ jobs:
             CI_CLOUD_OVERFLOW_SAVED=${{ vars.CI_CLOUD_OVERFLOW_SAVED }}
             CI_COMPILE_CHECK_GATEWAY=${{ vars.CI_COMPILE_CHECK_GATEWAY }}
             CI_CONTROL_RUNNER=${{ vars.CI_CONTROL_RUNNER }}
+            CI_DEPLOY_SKIP_FLEET=${{ vars.CI_DEPLOY_SKIP_FLEET }}
             CI_EVAL_STEP_GATEWAY=${{ vars.CI_EVAL_STEP_GATEWAY }}
             CI_FFI_RELEASE_POOL=${{ vars.CI_FFI_RELEASE_POOL }}
             CI_GATE_SKIP_FLEET=${{ vars.CI_GATE_SKIP_FLEET }}
@@ -187,6 +188,7 @@ jobs:
             CI_NIGHTLY_ONLY_RUNNER=${{ vars.CI_NIGHTLY_ONLY_RUNNER }}
             CI_NIGHTLY_SIGN_RUNNER=${{ vars.CI_NIGHTLY_SIGN_RUNNER }}
             CI_NIGHTLY_TRUSTED_RUNNER=${{ vars.CI_NIGHTLY_TRUSTED_RUNNER }}
+            CI_OVERFLOW_LINUX=${{ vars.CI_OVERFLOW_LINUX }}
             CI_PAID_MACOS_OVERFLOW=${{ vars.CI_PAID_MACOS_OVERFLOW }}
             CI_PERF_CRON_GATEWAY=${{ vars.CI_PERF_CRON_GATEWAY }}
             CI_PIN_DAEMON_POOL=${{ vars.CI_PIN_DAEMON_POOL }}
@@ -194,6 +196,8 @@ jobs:
             CI_PR_POOL_OWNED=${{ vars.CI_PR_POOL_OWNED }}
             CI_QUEUE_RESERVED=${{ vars.CI_QUEUE_RESERVED }}
             CI_QUEUE_JANITOR_ON_FLEET=${{ vars.CI_QUEUE_JANITOR_ON_FLEET }}
+            CI_RD_HOST_GATEWAY=${{ vars.CI_RD_HOST_GATEWAY }}
+            CI_RELEASE_PIN_SLOT=${{ vars.CI_RELEASE_PIN_SLOT }}
             CI_REPAIR_SKIP_FLEET=${{ vars.CI_REPAIR_SKIP_FLEET }}
             CI_SEED_TRUSTED_POOL=${{ vars.CI_SEED_TRUSTED_POOL }}
             CI_SESSION_LABEL=${{ vars.CI_SESSION_LABEL }}

@@ -541,6 +541,8 @@ SIDE_WORKFLOW_PATHS = frozenset({
     ".github/workflows/cmux-next-frame-pacing.yml",  # feat-cmux-next only
     ".github/workflows/cmux-next-media.yml",  # feat-cmux-next only
     ".github/workflows/cmux-next-pr-autofix.yml",  # feat-cmux-next only
+    # feat-cmux-next only; its ci-web.yml call's react-apps-base-check reads vars.CI_LINUX_GATE_OWNED_RUNNER.
+    ".github/workflows/cmux-next-post-merge.yml",
     ".github/workflows/cmux-next-remote-browser-host-publish.yml",
     # feat-cmux-next only; its zsh git HEAD watcher job takes the side label on attempt 1.
     ".github/workflows/cmux-next-shell-integration.yml",
@@ -552,8 +554,7 @@ SIDE_WORKFLOW_PATHS = frozenset({
     ".github/workflows/cmux-next-post-merge.yml",
     # feat-cmux-next only; uploads the owned-pool-watch marker on attempt 1.
     ".github/workflows/cmux-next.yml",
-    # feat-cmux-next only; its portable placement (portable_job_placement.py) puts the guard group,
-    # tooling tests and release-notary guards on the side label only while a side runner is idle.
+    # feat-cmux-next only.
     ".github/workflows/cmux-next-car-guards.yml",
     ".github/workflows/cmux-next-guards.yml",
     ".github/workflows/cmux-rd-windows.yml",
