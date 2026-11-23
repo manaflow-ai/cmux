@@ -185,8 +185,8 @@ fn a_refusal_names_the_platforms_code_and_never_the_token() {
     let error = go(&origin, &["select", "fr_1", "c_codex", "--workspace", "ws_1"]).unwrap_err();
     assert_eq!(error.code.name(), "runtime");
     assert_eq!(error.detail, "fork_run.selection_conflict");
-    assert!(error.message.contains("409"), "{}", error.message);
-    assert!(error.message.contains("another child is selected"), "{}", error.message);
+    assert!(error.message.contains("already kept another fork"), "{}", error.message);
+    assert_eq!(error.data.as_ref().unwrap()["status"], 409);
     assert!(!format!("{error:?}").contains("tok-secret"));
 }
 
@@ -208,4 +208,33 @@ fn start_needs_a_machine_and_a_harness() {
     ] {
         assert!(Cli::try_parse_from(args).is_err(), "{args:?}");
     }
+}
+
+#[test]
+fn a_failed_start_names_its_key_for_the_retry() {
+    let (origin, _) = fake(vec![(503, json!({"code": "fork_run.provider_unavailable"}))]);
+    let error = go(
+        &origin,
+        &["start", "--workspace", "ws_1", "--machine", VM, "--harness", "claude", "--key", "k9"],
+    )
+    .unwrap_err();
+    assert_eq!(error.detail, "fork_run.provider_unavailable");
+    assert!(error.message.contains("--key k9"), "{}", error.message);
+    assert_eq!(error.data.unwrap()["clientKey"], "k9");
+}
+
+#[test]
+fn a_refusal_echoing_the_token_is_redacted() {
+    let (origin, _) =
+        fake(vec![(400, json!({"code": "fork_run.invalid", "message": "bad tok-secret"}))]);
+    let error = go(&origin, &["status", "fr_1", "--workspace", "ws_1"]).unwrap_err();
+    assert!(!format!("{error:?}").contains("tok-secret"), "{error:?}");
+}
+
+#[test]
+fn a_short_wait_still_reads_again_at_its_deadline() {
+    let (origin, seen) = fake(vec![(200, run_json("restoring")), (200, run_json("ready"))]);
+    let answer = go(&origin, &["status", "fr_1", "--workspace", "ws_1", "--wait", "1"]).unwrap();
+    assert_eq!(answer["state"], "ready");
+    assert_eq!(seen.lock().unwrap().len(), 2);
 }

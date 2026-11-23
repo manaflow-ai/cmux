@@ -212,6 +212,42 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
     ("group ls", &[("List sidebar groups as JSON", "acpmux group ls --json")]),
     ("group move", &[("Put a session in the Leads group", "acpmux group move coord Leads")]),
     (
+        "account",
+        &[
+            ("List every account and which is the default", "acpmux account list"),
+            ("Add a second ChatGPT account", "acpmux account sign-in --family codex"),
+            ("Make it the Codex default", "acpmux account switch codex-2"),
+        ],
+    ),
+    (
+        "account sign-in",
+        &[
+            ("Sign an account in again", "acpmux account sign-in --account codex-2"),
+            (
+                "Add a Claude account with a name",
+                "acpmux account sign-in --family claude --name Work",
+            ),
+            ("Add a GitHub account through gh", "acpmux account sign-in --family github"),
+        ],
+    ),
+    (
+        "account sign-out",
+        &[("Sign an account out; it stays listed", "acpmux account sign-out codex-2")],
+    ),
+    (
+        "account switch",
+        &[("Make a GitHub account gh's active one", "acpmux account switch github:alice")],
+    ),
+    ("account remove", &[("Remove an account's route", "acpmux account remove claude-2")]),
+    ("account list", &[("Every account as JSON", "acpmux --json account list")]),
+    (
+        "account readiness",
+        &[
+            ("Which of GitHub, Codex and Claude still need a sign-in", "acpmux account readiness"),
+            ("The same as JSON, for a script", "acpmux --json account readiness"),
+        ],
+    ),
+    (
         "group tidy",
         &[
             ("See which groups a tidy would merge", "acpmux group tidy"),

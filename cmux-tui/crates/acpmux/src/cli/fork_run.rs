@@ -120,7 +120,9 @@ pub(crate) async fn execute(cmd: ForkRunCmd, env: &Env) -> Result<Value> {
                     args.insert(name.to_owned(), json!(value));
                 }
             }
-            let mut answer = call(&a.cloud, args, env).await?;
+            // A start whose answer was lost may still have made the run: the error names the
+            // key, so a retry with it answers that run instead of making a second one.
+            let mut answer = call(&a.cloud, args, env).await.map_err(|e| with_key(e, &key))?;
             if let Some(answer) = answer.as_object_mut() {
                 answer.insert("clientKey".to_owned(), json!(key));
             }
@@ -129,13 +131,14 @@ pub(crate) async fn execute(cmd: ForkRunCmd, env: &Env) -> Result<Value> {
         ForkRunCmd::Status(a) => {
             let args = json!({ "verb": "get", "workspace": a.cloud.workspace, "run": a.run });
             let deadline = tokio::time::Instant::now() + Duration::from_secs(a.wait);
+            let mut answer = call(&a.cloud, args.clone(), env).await?;
             loop {
-                let answer = call(&a.cloud, args.clone(), env).await?;
                 let settled = matches!(field(&answer, "state").as_str(), Some("ready" | "failed"));
-                if settled || a.wait == 0 {
-                    return Ok(answer);
-                }
-                if tokio::time::Instant::now() + POLL > deadline {
+                let left = deadline.saturating_duration_since(tokio::time::Instant::now());
+                if settled || left.is_zero() {
+                    if settled || a.wait == 0 {
+                        return Ok(answer);
+                    }
                     let state = field(&answer, "state").as_str().unwrap_or("unknown").to_owned();
                     return Err(AppError::timeout(format!(
                         "fork run {} is still {state} after {} s",
@@ -144,7 +147,14 @@ pub(crate) async fn execute(cmd: ForkRunCmd, env: &Env) -> Result<Value> {
                     .with_data(answer)
                     .into());
                 }
-                tokio::time::sleep(POLL).await;
+                // Sleep and read within what is left of --wait: the last read is at the deadline,
+                // and a read past it is cut off there (its answer is the run's last state seen).
+                tokio::time::sleep(POLL.min(left)).await;
+                let left = deadline.saturating_duration_since(tokio::time::Instant::now());
+                match tokio::time::timeout(left, call(&a.cloud, args.clone(), env)).await {
+                    Ok(read) => answer = read?,
+                    Err(_) => continue,
+                }
             }
         }
         ForkRunCmd::Select(a) => {
@@ -208,24 +218,75 @@ async fn call(cloud: &CloudArgs, args: Value, env: &Env) -> Result<Value> {
     let request = request(cloud, args, env)?;
     cmux_cloud_api::perform(&request, zeroize::Zeroizing::new(Vec::new()))
         .await
-        .map_err(|failure| anyhow::Error::from(failed(&failure)))
+        .map_err(|failure| anyhow::Error::from(failed(&failure, &request)))
 }
 
-/// The library's failure as acpmux's error: the platform's code (`fork_run.conflict`, …) or the
-/// failure's kind as the detail, its line as the message. A failure carries no credential.
-#[cfg(unix)]
-fn failed(failure: &cmux_cloud_api::Failure) -> AppError {
-    let data = failure.json();
-    let detail = field(&data, "code")
-        .as_str()
-        .filter(|c| !c.is_empty())
-        .unwrap_or(failure.kind())
-        .to_owned();
-    let code = match failure {
-        cmux_cloud_api::Failure::TimedOut(_) => Code::Timeout,
-        _ => Code::Runtime,
+/// A failed start's error with its key: the line says how to retry it, the data carries it.
+fn with_key(error: anyhow::Error, key: &str) -> anyhow::Error {
+    let Ok(mut app) = error.downcast::<AppError>() else {
+        return anyhow::anyhow!("fork run start failed; retry it with --key {key}");
     };
-    AppError::new(code, &detail, failure.to_string()).with_data(data)
+    app.message =
+        format!("{} Retry this start with --key {key}: it never makes a second run.", app.message);
+    let mut data = app.data.take().unwrap_or_else(|| json!({}));
+    if let Some(object) = data.as_object_mut() {
+        object.insert("clientKey".to_owned(), json!(key));
+    }
+    app.with_data(data).into()
+}
+
+/// The library's failure as acpmux's error, in acpmux's own words with what to do next. The
+/// platform's code (`fork_run.conflict`, …) or the failure's kind is the detail; the failure's
+/// fields go in the data with the credential redacted (`cmux_cloud_api::scrub`).
+#[cfg(unix)]
+fn failed(failure: &cmux_cloud_api::Failure, request: &cmux_cloud_api::Request) -> AppError {
+    use cmux_cloud_api::Failure;
+    let scrubbed = cmux_cloud_api::scrub(failure.json().to_string(), request);
+    let data = serde_json::from_str::<Value>(&scrubbed).unwrap_or(Value::Null);
+    let platform = field(&data, "code").as_str().filter(|c| !c.is_empty());
+    let detail = platform.unwrap_or(failure.kind()).to_owned();
+    let message = match (failure, platform) {
+        (Failure::TimedOut(_), _) => {
+            "The Cloud API did not answer in time. Read the run with fork-run status, or retry."
+                .to_owned()
+        }
+        (Failure::Transport(_) | Failure::NoBackend, _) => {
+            "Could not reach the Cloud API. Check --cloud-api and the network.".to_owned()
+        }
+        (Failure::Decoding(_), _) => "The Cloud API's answer was not a fork run.".to_owned(),
+        (Failure::PlanRequired { plan, .. }, _) => format!("Fork runs need the {plan} plan."),
+        (_, Some("fork_run.child_not_ready")) => {
+            "That fork is not ready yet. Wait with fork-run status RUN --wait 180.".to_owned()
+        }
+        (_, Some("fork_run.selection_conflict")) => {
+            "This run already kept another fork; a run keeps one.".to_owned()
+        }
+        (_, Some("fork_run.conflict")) => {
+            "That key belongs to a different fork run. Start again without --key.".to_owned()
+        }
+        (
+            _,
+            Some("fork_run.invalid" | "fork_run.empty_harnesses" | "fork_run.duplicate_harness"),
+        ) => "Cloud refused the fork run: give 1 to 16 different --harness values and real ids."
+            .to_owned(),
+        (
+            _,
+            Some(
+                "fork_run.unavailable"
+                | "fork_run.provider_unavailable"
+                | "fork_run.placement_unavailable",
+            ),
+        ) => "Cloud fork runs are not available here right now. Try again later.".to_owned(),
+        (Failure::Http { status: 401 | 403, .. }, _) => {
+            "Cloud refused your credential. Sign in again or check --team.".to_owned()
+        }
+        (Failure::Http { status: 404, .. }, _) => {
+            "No such fork run, workspace or machine on this Cloud team.".to_owned()
+        }
+        (Failure::Http { status, .. }, _) => format!("Cloud refused the fork run ({status})."),
+    };
+    let code = if matches!(failure, Failure::TimedOut(_)) { Code::Timeout } else { Code::Runtime };
+    AppError::new(code, &detail, message).with_data(data)
 }
 
 /// A field of a JSON object, null when absent: no indexing that can panic.
