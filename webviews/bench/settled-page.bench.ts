@@ -326,7 +326,7 @@ function installFrameReader() {
   // As firstLoadWatch.ts `readFrame` reads a frame: the drawn copy's layer when it shows, else the live page.
   const read = (): Rec => {
     const drawn = document.querySelector<HTMLElement>("cmux-chat-snapshot");
-    const host = drawn && drawn.style.visibility !== "hidden" ? drawn : null;
+    const host = drawn && drawn.style.visibility !== "hidden" && drawn.style.opacity !== "0" ? drawn : null;
     const scope: ParentNode = host?.shadowRoot ?? document;
     const rootHidden = !host && document.getElementById("root")?.style.opacity === "0";
     const scroller = scope.querySelector<HTMLElement>(".acpmux-scroll");
