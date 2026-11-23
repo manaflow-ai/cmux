@@ -6,10 +6,22 @@
 // recovers by itself; one that lasts says only "Still loading the agent pane…". The backoff is kept
 // across the reloads (sessionStorage), so a pane that fails on every load reloads at most every
 // 30 s, not once a second.
-import { Component, type ReactNode, type ErrorInfo } from "react";
+//
+// What it caught goes to the page's console in the error's own words, with the component that threw
+// (the app keeps console errors in its journal, `cmux errors`): the pane alone says only that it is
+// still loading, and a boundary that logs nothing leaves no reason to fix (Leo, 2026-11-22: "it gave
+// me the agent pane could not be drawn after i opedn up background tasks"; handbook
+// failure-drops-its-reason).
+import { Component, type ErrorInfo, type ReactNode } from "react";
 import { AUTO_RETRY_FIRST_MS, AUTO_RETRY_MAX_MS, type AutoRetryOptions, useAutoRetry } from "./autoRetry";
 import { useT } from "./i18n";
 import { LASTING_MS } from "../../ui/lasting";
+
+/// The line a caught render error is logged under: what failed, then the error's own words.
+export function paneFailureLine(error: unknown): string {
+  const words = error instanceof Error ? error.message : String(error);
+  return `agent pane render failed: ${words || "no message"}`;
+}
 
 type Props = {
   children?: ReactNode;
@@ -81,7 +93,7 @@ export class PaneBoundary extends Component<Props, State> {
       ...(error instanceof Error && error.stack ? { stack: error.stack } : {}),
       ...(info.componentStack ? { componentStack: info.componentStack } : {}),
     };
-    console.error("agent pane failed to draw", window.__cmuxPaneFailure);
+    console.error(paneFailureLine(error), error, info.componentStack ?? "");
   }
 
   render() {

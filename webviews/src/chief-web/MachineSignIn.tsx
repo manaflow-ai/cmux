@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { LoginAgent, LoginStart } from "../agent-session/acpmux/cloudAgentLogin";
+import { signsInByPage, type LoginAgent, type LoginStart } from "../agent-session/acpmux/cloudAgentLogin";
 import { Spinner } from "../agent-session/acpmux/conversation/icons";
 import { useT } from "../agent-session/acpmux/i18n";
 import { useAutoRetry } from "../agent-session/acpmux/autoRetry";
@@ -151,6 +151,8 @@ export function MachineSignIn({ run, api, onExpired }: { run: string; api: Machi
   });
   if (state.phase === "hidden") return null;
   const busy = state.phase !== "ready";
+  // This card runs only a page sign-in: a key-only agent's (Gemini, OpenCode) is the chat card's.
+  const pageAgent = state.harness && signsInByPage(state.harness) ? state.harness : undefined;
   const title =
     state.harness === "codex"
       ? t("turn.signIn.codex")
@@ -219,10 +221,11 @@ export function MachineSignIn({ run, api, onExpired }: { run: string; api: Machi
           </div>
         </>
       )}
-      {/* retry-prompt-ok: starts a sign-in (opens the provider's page), the person's call */}
+      {/* retry-prompt-ok: starts a sign-in (opens the provider's page), or checks again once the person
+          has set the agent's key: theirs to do. Before the run's status is read there is no button. */}
       {!state.login && state.harness && (
-        <button type="button" className="chief-web__action" disabled={busy} onClick={start}>
-          {title}
+        <button type="button" className="chief-web__action" disabled={busy} onClick={pageAgent ? start : refresh}>
+          {pageAgent ? title : t("turn.retry")}
         </button>
       )}
     </section>

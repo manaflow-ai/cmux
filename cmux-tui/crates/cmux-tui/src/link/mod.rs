@@ -143,6 +143,11 @@ pub(crate) fn run(args: &[String]) -> i32 {
     if args.first().map(String::as_str) == Some("project") {
         return sync_cli::project::run(args.get(1..).unwrap_or_default());
     }
+    // `offload`: one local command run on a machine over this folder's view, its writes
+    // published back (sync_cli/offload.rs, RFD 0007 step 7).
+    if args.first().map(String::as_str) == Some("offload") {
+        return sync_cli::offload::run(args.get(1..).unwrap_or_default());
+    }
     // `memory`: the person's agent memory follows them (sync_cli/memory.rs).
     if args.first().map(String::as_str) == Some("memory") {
         return sync_cli::memory::run(args.get(1..).unwrap_or_default());

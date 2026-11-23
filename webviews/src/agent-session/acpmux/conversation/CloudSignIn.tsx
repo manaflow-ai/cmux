@@ -28,6 +28,7 @@ import {
   type CloudSignIn as SignIn,
   type LoginFailure,
   type LoginStart,
+  KEY_PAGE,
 } from "../cloudAgentLogin";
 import { cancelResize, playResize } from "./fold";
 import { motionMode } from "../../../ui/motion/motionMode";
@@ -345,7 +346,9 @@ export function CloudSignIn({
   // Each agent's ways in: its own sign-in page (all but Gemini) and a saved key (all but Grok and
   // Cursor).
   const agent = signIn.agent;
-  const pageLabel = agent === "gemini" ? undefined : SIGN_IN_LABEL[agent];
+  const pageLabel = agent === "gemini" || agent === "opencode" ? undefined : SIGN_IN_LABEL[agent];
+  // Where the agent's key is made (OpenCode's opencode.ai/auth), opened on this Mac.
+  const keyPage = KEY_PAGE[agent];
   const offersPage = !keyOnly && signsInByPage(agent) && pageLabel !== undefined;
   const offersKey = takesApiKey(agent);
   const offersGateway = gateway && usesGateway(agent);
@@ -515,6 +518,11 @@ export function CloudSignIn({
             </button>
             {cancelButton}
           </span>
+          {keyPage && (
+            <button type="button" className="cv-turn-error__offer-link" onClick={() => signIn.open(keyPage)}>
+              {t("turn.signIn.getKey.opencode")}
+            </button>
+          )}
           <span className="cv-turn-signin__text">{t("turn.signIn.keyStored")}</span>
         </form>
       );
