@@ -126,6 +126,11 @@ final class PagedListLayout: UICollectionViewCompositionalLayout {
     private(set) var corrections = 0
     /// Each correction as it is made (the frame-shift measure tells it from a scroll).
     var corrected: ((CGFloat, Int?) -> Void)?
+    /// The line, in content coordinates, above which a row that changes height moves the offset with
+    /// it (the rows under that row stay put): the reader's top edge, or, for an `.up` list that
+    /// follows its newest row, the bottom edge (the newest row stays on it; a row that grows pushes
+    /// the rows above it up, as Messages does). Nil: the reader's top edge.
+    var keepLine: (() -> CGFloat)?
 
     override func invalidationContext(forPreferredLayoutAttributes preferred: UICollectionViewLayoutAttributes,
                                       withOriginalAttributes original: UICollectionViewLayoutAttributes) -> UICollectionViewLayoutInvalidationContext {
@@ -140,8 +145,8 @@ final class PagedListLayout: UICollectionViewCompositionalLayout {
         guard abs(delta) > 0.25 else { return context }
         // The row starts above the reader's top edge: everything the reader sees is below it and would
         // move by `delta`. Move the viewport with it.
-        let readerTop = collectionView.contentOffset.y + collectionView.adjustedContentInset.top
-        guard original.frame.minY < readerTop - 0.5 else { return context }
+        let line = keepLine?() ?? collectionView.contentOffset.y + collectionView.adjustedContentInset.top
+        guard original.frame.minY < line - 0.5 else { return context }
         context.contentOffsetAdjustment = CGPoint(x: 0, y: delta)
         corrections += 1
         corrected?(delta, preferred.indexPath.item)
@@ -440,6 +445,7 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         collectionView = PagedListCollectionView(frame: .zero, collectionViewLayout: layout)
         super.init()
         swipes.provide = { [weak self] indexPath in self?.swipeConfiguration(at: indexPath) }
+        layout.keepLine = { [weak self] in self?.keepLine ?? 0 }
         layout.corrected = { [weak self] delta, item in
             guard let self else { return }
             self.ledger.corrected(delta, item: item)
@@ -517,7 +523,7 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
     private func rowSized(_ attributes: UICollectionViewLayoutAttributes, _ height: CGFloat) {
         let delta = height - attributes.size.height
         guard abs(delta) > 0.25 else { return }
-        let above = attributes.frame.minY < readerTop - 0.5
+        let above = attributes.frame.minY < keepLine - 0.5
         ledger.sized(item: attributes.indexPath.item, by: delta, aboveReader: above)
         note(above ? "m" : "m_", delta)
     }
@@ -686,6 +692,14 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
     }
 
     private var readerTop: CGFloat { collectionView.contentOffset.y + collectionView.adjustedContentInset.top }
+
+    /// Where a row that changes height stops moving what the reader sees (``PagedListLayout/keepLine``):
+    /// the reader's top edge, or, for an `.up` list following its newest row, the bottom edge. While
+    /// that list slides to new rows, a row on screen that sized itself again (with no update: its
+    /// content changed with state the item does not carry) moved every row under it for a frame, the
+    /// newest row too, until the slide's next step took it in (the follow-path flash, 22 pt, rep
+    /// 5baccd69 frame #97). At rest the pass's `stayOnNewest` put it back in the same frame.
+    private var keepLine: CGFloat { direction == .up && followsNewest ? bottomEdgeY : readerTop }
 
     /// The rows on screen whose bottom is below the reader's top edge (the first is the one being read),
     /// or, `fromBottom`, those whose top is above the bottom edge, lowest first, by their bottoms.
