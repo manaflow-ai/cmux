@@ -16674,6 +16674,95 @@ class HeadCheckNamedAnotherWay(unittest.TestCase):
             self.found("Web tests (2/4)", statuses=[status])
 
 
+class OneJobNameAtThreeCheckRuns(unittest.TestCase):
+    """2026-11-22, manaflow-ai/cmuxterm-hq at eb73df0c: three check runs are named exactly 'tests' -- two success
+    (137452469910, 137452467955) and the red one the caller was asking about (137452467640, run 45101284995 of
+    'fleet-reconcilers tests'). latest_checks keeps one check run per name, so
+    `--check 'fleet-reconcilers tests / tests'` read the newest id and answered "'tests' is success: it has no
+    verdict to compare with the base; re-run it": a verdict about a check run nobody asked about, and the caller's
+    next step was to re-run a check that had passed while the red one was never read. The name's own
+    'WORKFLOW / JOB' prefix is the disambiguator the caller already gave: it is read as the workflow of the run each
+    candidate belongs to. With no prefix that names one, the red candidate is what a caller asking why a head is red
+    can mean; two reds, or two of a workflow, are refused naming every candidate, never picked."""
+
+    SHA = "eb73df0c6535fb535091e2c36a56de8735b3eb35"
+    RUNS = {45101285663: "lane-gh-broker tests", 45101285056: "fleet alert registry",
+            45101284995: "fleet-reconcilers tests"}
+    CHECKS = {137452469910: (45101285663, "success"), 137452467955: (45101285056, "success"),
+              137452467640: (45101284995, "failure")}
+
+    class Fake:
+        def __init__(self, outer, conclusions):
+            self.outer, self.conclusions, self.routes = outer, conclusions, []
+
+        def json(self, route, *, paginate=False):
+            self.routes.append(route)
+            outer = self.outer
+            if route.endswith("/check-runs?filter=all&per_page=100"):
+                return [{"check_runs": [outer.check(check) for check in outer.CHECKS]}]
+            if "/actions/jobs/" in route:
+                return outer.job(int(route.rsplit("/", 1)[1]))
+            if "/actions/runs/" in route:
+                run = int(route.rsplit("/", 1)[1])
+                return {"id": run, "name": outer.RUNS[run], "workflow_id": run % 1000, "head_sha": outer.SHA,
+                        "path": f".github/workflows/{outer.RUNS[run].replace(' ', '-')}.yml"}
+            if route.endswith("/status?per_page=100"):
+                return {"statuses": []}
+            if "/actions/runs?head_sha=" in route:
+                return {"workflow_runs": []}
+            raise AssertionError(route)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.conclusions = {}
+
+    def check(self, check_id):
+        run, conclusion = self.CHECKS[check_id]
+        return {"id": check_id, "name": "tests", "status": "completed",
+                "conclusion": self.conclusions.get(check_id, conclusion), "head_sha": self.SHA,
+                "app": {"slug": "github-actions"},
+                "details_url": f"https://github.com/{REPO}/actions/runs/{run}/job/{check_id}"}
+
+    def job(self, job_id):
+        run, conclusion = self.CHECKS[job_id]
+        return {"id": job_id, "run_id": run, "name": "tests", "status": "completed", "head_sha": self.SHA,
+                "conclusion": self.conclusions.get(job_id, conclusion), "steps": []}
+
+    def found(self, name, conclusions=None):
+        self.conclusions = conclusions or {}
+        gh = self.Fake(self, self.conclusions)
+        audit: list[str] = []
+        return excuse.head_jobs(REPO, self.SHA, [], [name], gh, excused=audit), audit
+
+    def test_the_workflow_prefix_names_the_red_check_run_the_caller_asked_about(self):
+        jobs, audit = self.found("fleet-reconcilers tests / tests")
+        self.assertEqual([job["id"] for job in jobs], [137452467640])
+        self.assertTrue(any("'fleet-reconcilers tests'" in line and "137452467640" in line for line in audit), audit)
+
+    def test_the_workflow_prefix_names_a_green_check_run_too(self):
+        # The prefix is read before the reds: it names one check run, whatever its conclusion.
+        with self.assertRaisesRegex(excuse.Refused, "is success"):
+            self.found("lane-gh-broker tests / tests")
+
+    def test_the_bare_name_is_the_one_check_run_of_it_that_is_not_green(self):
+        jobs, audit = self.found("tests")
+        self.assertEqual([job["id"] for job in jobs], [137452467640])
+        self.assertTrue(any("not green" in line and "137452467640" in line for line in audit), audit)
+
+    def test_two_reds_of_one_name_are_refused_naming_every_candidate(self):
+        with self.assertRaises(excuse.Refused) as caught:
+            self.found("tests", conclusions={137452469910: "failure"})
+        said = str(caught.exception)
+        self.assertIn("names 3 check runs at exact head", said)
+        for check_id in self.CHECKS:
+            self.assertIn(str(check_id), said)
+        for workflow in self.RUNS.values():
+            self.assertIn(workflow, said)
+
+    def test_a_prefix_no_workflow_answers_to_falls_back_to_the_red(self):
+        jobs, _ = self.found("some other workflow / tests")
+        self.assertEqual([job["id"] for job in jobs], [137452467640])
+
 OTHER_PR_SETUP_FIXTURES = ROOT / "tests/fixtures/base_red_excuse_other_pr_setup"
 
 

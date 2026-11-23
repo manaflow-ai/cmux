@@ -4889,22 +4889,80 @@ def derived_status_line(repo: str, name: str, sha: str, parts: list[Part], audit
 # run '<caller job> / <its job>' ('web / Web tests (2/4)'), the checks page shows '<workflow> / <check>', and a caller
 # that names either other part was refused as if the check had not run. A name is read as the one Actions check run
 # at the head it is a ' / '-part of, either way: the check run's name ends in ' / NAME', or NAME ends in ' / ' and the
-# check run's name. A name as written still comes first (a check run, then a status, as before), a name two check runs
-# answer to stays refused (which one was meant is unknown), and a partial part ('tests (2/4)') matches nothing.
+# check run's name. A name as written still comes first (a check run, then a status, as before), and a partial part
+# ('tests (2/4)') matches nothing. A name more than one check run at the head carries -- as written or as a part --
+# is resolved by the workflow its 'WORKFLOW / JOB' prefix names, then by its one red; anything still ambiguous is
+# refused naming every candidate, never picked silently (named_check).
 # A head named by a short or upper-case sha is the same commit: GitHub answers its reads, and every job's head_sha is
 # the full lower-case one, so each "is this job at the exact head" compare refused (exact_sha).
 FULL_SHA = re.compile(r"[0-9a-f]{40}")
 
 
-def spelled_check(latest: dict, name: str, sha: str) -> dict | None:
-    """The one check run in LATEST (latest_checks: name to check run) that NAME names another way (above), or None."""
-    found = {check["id"]: check for check_name, check in latest.items()
-             if check_name.endswith(f" / {name}") or name.endswith(f" / {check_name}")}
-    if len(found) > 1:
-        names = sorted(check["name"] for check in found.values())
-        raise Refused(f"{name}: names {len(found)} check runs at exact head {sha} ({', '.join(map(repr, names))[:300]}); "
-                      "which one is unknown, so none is judged: name it in full")
-    return next(iter(found.values()), None)
+def head_check_runs(repo: str, sha: str, github, seen: dict | None = None) -> list[dict]:
+    """The newest Actions check run of each (name, run) at SHA, every attempt read (filter=all), sharing one judge
+    call's check-run read (SEEN, as linked_checks keeps it). latest_checks keeps one check run per name, so three
+    runs whose job is named 'tests' collapse to the newest id there and the other two are never seen; a name is
+    resolved from these instead (named_checks)."""
+    seen = {} if seen is None else seen
+    if "checks" not in seen:
+        listed = github.json(f"repos/{repo}/commits/{sha}/check-runs?filter=all&per_page=100", paginate=True)
+        seen["checks"] = [check for page in listed for check in page.get("check_runs") or []
+                          if (check.get("app") or {}).get("slug") == "github-actions"]
+    newest: dict[tuple[str, int | None], dict] = {}
+    for check in seen["checks"]:
+        link = re.search(r"/actions/runs/(\d+)/job/\d+", str(check.get("details_url") or ""))
+        key = (str(check.get("name")), int(link[1]) if link else None)
+        if check.get("id", -1) > newest.get(key, {}).get("id", -1):
+            newest[key] = check
+    return list(newest.values())
+
+
+def spelled_candidates(checks: list[dict], name: str) -> list[dict]:
+    """The check runs of CHECKS that NAME names another way (above): the name as written is not among them."""
+    return [check for check in checks
+            if str(check.get("name") or "").endswith(f" / {name}")
+            or name.endswith(f" / {check.get('name')}")]
+
+
+def check_workflow(repo: str, check: dict, github, seen: dict) -> str:
+    """The name of the workflow run CHECK belongs to: the 'WORKFLOW / ' prefix the checks page writes before a check
+    run's own name, and the part of 'WORKFLOW / JOB' that tells two check runs of one job name apart. '' when the
+    check run links no run, or GitHub names none."""
+    link = re.search(r"/actions/runs/(\d+)/job/\d+", str(check.get("details_url") or ""))
+    if not link:
+        return ""
+    run = rest_run(repo, int(link[1]), github, seen)
+    return str((run or {}).get("name") or "") if isinstance(run, dict) else ""
+
+
+def named_check(repo: str, sha: str, name: str, found: list[dict], github, seen: dict) -> tuple[dict, str | None]:
+    """The one check run of FOUND that NAME means, and why it was read that way (None when FOUND holds one alone, for
+    the caller's own line). More than one check run can carry one job name at one head: three 'tests' at
+    cmuxterm-hq eb73df0c, two of them success and the red one the caller was asking about (2026-11-22). The name's
+    own 'WORKFLOW / JOB' prefix is what tells them apart, so it is read as the workflow of the run each check run
+    belongs to; with no prefix, or none that names one of them, the red ones are what the caller asking why a head
+    is red can mean, and one red alone is it. Whatever is still more than one is refused naming every candidate: a
+    silent pick answers about a check run nobody asked about ('tests' is success: re-run it, of a check run that
+    passed, while the red one was never read)."""
+    if len(found) == 1:
+        return found[0], None
+    prefixed = []
+    for check in found:
+        part = str(check.get("name") or "")
+        prefix = name[:-len(f" / {part}")] if part and name.endswith(f" / {part}") else ""
+        if prefix and prefix == check_workflow(repo, check, github, seen):
+            prefixed.append((check, f"the check run of that name in workflow {prefix!r}"))
+    if len(prefixed) == 1:
+        return prefixed[0][0], prefixed[0][1]
+    left = [check for check, _ in prefixed] or found
+    red = [check for check in left if check.get("conclusion") not in GREEN]
+    if len(red) == 1:
+        return red[0], f"the only one of {len(found)} check runs of that name at the head that is not green"
+    listed = ", ".join(f"{check.get('name')!r} ({check.get('conclusion')}, check run {check.get('id')}, workflow "
+                       f"{check_workflow(repo, check, github, seen)!r})"
+                       for check in sorted(found, key=lambda check: check.get("id", 0)))
+    raise Refused(f"{name}: names {len(found)} check runs at exact head {sha} ({listed[:600]}); which one is meant is "
+                  "unknown, so none is judged: name it as 'WORKFLOW / JOB', the checks page's own spelling")
 
 
 def exact_sha(repo: str, sha: str, github) -> str:
@@ -4991,11 +5049,16 @@ def head_jobs(repo: str, sha: str, runs: list[int], checks: list[str], github, *
         for rollup in run_rollups:
             validate_run_rollup(rollup["name"], children, repo, rollup)
     if checks:
-        latest = latest_checks(repo, sha, github)
+        at_head = head_check_runs(repo, sha, github, seen)
         aggregate_jobs = []
         aggregate_runs = []
         for name in checks:
-            check = latest.get(name)
+            check = None
+            if exact := [found for found in at_head if found.get("name") == name]:
+                check, why = named_check(repo, sha, name, exact, github, seen)
+                if why is not None and excused is not None:
+                    excused.append(f"read '{name}' as check run '{check['name']}' (job {check.get('id')}) on {sha}: "
+                                   f"{why}")
             if check is None:
                 if (job := status_job(repo, sha, name, github, base if excused is not None else None, suites,
                                       evidence)) is not None:
@@ -5005,11 +5068,13 @@ def head_jobs(repo: str, sha: str, runs: list[int], checks: list[str], github, *
                     jobs[job["id"]] = job
                     contexts.setdefault(job["id"], []).append(name)
                     continue
-                if (check := spelled_check(latest, name, sha)) is None:
+                found = spelled_candidates(at_head, name)
+                if not found:
                     raise Refused(f"{name}: has not run on exact head {sha}")
+                check, why = named_check(repo, sha, name, found, github, seen)
                 if excused is not None:
                     excused.append(f"read '{name}' as check run '{check['name']}' (job {check.get('id')}) on {sha}: "
-                                   "the only check run at the head that name is a part of")
+                                   + (why or "the only check run at the head that name is a part of"))
                 name = check["name"]
             job = job_for(repo, check, sha, github)
             if is_aggregate(name, repo):

@@ -2191,3 +2191,35 @@ class ReadOncePerLog(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CutShortWordsAreWords(unittest.TestCase):
+    """2026-11-22, cmuxterm-hq eb73df0c's 'build-fleet Go tests / go vet + go test' (job 137452468531) was refused
+    "a crash, a cut-short run or a failure no parser names is never a base red", quoting `error: Path
+    'docs/handbook/stalled-work-nobody-moves.md' not uptodate; will not remove from working tree.`: one of 54
+    annotations actions/checkout printed at 02:37:42 narrowing a sparse checkout on a reused self-hosted workspace,
+    which failed nothing. The job ran five more minutes and ended at 02:42:40 in a plain Go failure a comparison can
+    name. The hang watchdog's words matched with `\\b`, so that file name's `stalled` read as the watchdog's word and
+    the first annotation in the log pre-empted the real failure. Each word is read as a word: a path or a longer
+    identifier that carries it is not it."""
+
+    CHECKOUT = ["##[error]error: Path 'docs/handbook/%s' not uptodate; will not remove from working tree." % name
+                for name in ("stalled-work-nobody-moves.md", "timeout-without-a-deadline.md",
+                             "a-run-that-never-finished-its-sweep.md")]
+    GO = ["--- FAIL: TestEveryStepModeReservesItsMeasuredDisk (0.00s)", "FAIL",
+          "FAIL\tcmuxterm-hq/build-fleet/cmd/controller\t241.426s", "FAIL",
+          "##[error]Process completed with exit code 1."]
+
+    def test_a_checkout_annotation_naming_such_a_file_is_not_a_cut_short_run(self):
+        self.assertEqual(reds.read(log(*self.CHECKOUT, *self.GO)).truncated, [])
+
+    def test_the_watchdogs_own_words_are_still_a_cut_short_run(self):
+        for line in ("##[error]go test timed out after 600s",
+                     "##[error]the suite stalled: no output for 600s",
+                     "##[error]hung test: TestX made no progress",
+                     "##[error]TestX stopped by SIGKILL",
+                     "##[error]cancelled test run",
+                     "##[error]Timeout waiting for the controller",
+                     "##[error]2 test(s) never finished"):
+            with self.subTest(line=line):
+                self.assertEqual(reds.read(log(line, *self.GO)).truncated, [line.removeprefix("##[error]")])
