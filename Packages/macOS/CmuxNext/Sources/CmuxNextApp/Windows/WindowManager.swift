@@ -349,10 +349,8 @@ final class WindowManager {
         let isFirstRun = firstWorkspace != nil && document.windows.isEmpty // Meet Chief decides before Home's welcome:
         services.onboarding.chief.begin(freshInstall: isFirstRun && ChiefIntroStore(defaults: .standard).welcomePending)
         Task {
-            // A first run's Set Up cmux card comes first: the migration asks on its cmux Classic row, not a dialog.
-            let route = services.onboarding.firstRunRoute(isFirstRun: isFirstRun)
+            let route = services.onboarding.firstRunRoute(isFirstRun: isFirstRun) // the card first: the migration asks on its cmux Classic row
             await onboarding.migrateClassicAtLaunch(firstWorkspace: firstWorkspace)
-            // With no card, one step at a time: the first-run windows one after another.
             await services.onboarding.showFirstRunSteps(route, isFirstRun: isFirstRun)
             // A new person's first launch: a new agent chat, ready to type (cmux#48416).
             await services.onboarding.openFirstChat(isFirstRun: isFirstRun)

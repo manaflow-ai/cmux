@@ -158,23 +158,16 @@ final class OnboardingService {
     private(set) lazy var chief = ChiefOnboarding(defaults: .standard, settings: HomeChiefOnboardingSettings { [weak services] in services?.settings },
                                                   skipsOnboarding: services.environment.launchSteps == .none)
 
-    /// Before the classic migration, with onboarding on (``AppEnvironment/launchSteps``): a first run starts Home's
-    /// Set Up cmux card, which offers the classic import (its cmux Classic row), the agents, the account and the
-    /// command line in one place (the Agents window and the CLI toast count as shown). Nil with onboarding off.
+    /// Before the migration, onboarding on: a first run's Set Up cmux card, whose cmux Classic row asks the import. Nil when off.
     func firstRunRoute(isFirstRun: Bool) -> FirstRunSetup.Route? {
         guard services.environment.launchSteps == .firstRun else { return nil }
         let route = setup.route(isFirstRun: isFirstRun, replacedKeys: [CLIInstallHandlers.offeredAtLaunchKey], screenReader: NSWorkspace.shared.isVoiceOverEnabled)
-        if route == .startCard { DebugTimings.markLaunch("first_run.setup_card_shown") }
-        return route
+        if route == .startCard { DebugTimings.markLaunch("first_run.setup_card_shown") }; return route
     }
-
-    /// The launch's steps after the classic migration (``AppEnvironment/launchSteps``): for `.windows` the first-run
-    /// windows (``OnboardingWindowPresenter/showFirstRunSteps``), after which this Mac's first launch is finished
-    /// (``OnboardingWindowPresenter/historyShownKey``).
+    /// After it (``AppEnvironment/launchSteps``): for `.windows` the first-run windows, then this Mac's first launch is finished.
     func showFirstRunSteps(_ route: FirstRunSetup.Route?, isFirstRun: Bool) async {
         guard await presenter.showLaunchSteps(services.environment.launchSteps, isFirstRun: isFirstRun, agentTools: agentTools) else { return }
-        // The cmux Tools question comes at launch whatever owns the first run, for an existing
-        // installation too: until it is answered, the person's agents get no cmux server.
+        // The cmux Tools question comes at launch whatever owns the first run (until answered, agents get no cmux server).
         guard route == .windows else { return await presenter.askAgentToolsOnce(source: agentTools) }
         await presenter.showFirstRunSteps(isFirstRun: isFirstRun, source: signInHarnesses, agentTools: agentTools) {
             UserDefaults.standard.set(true, forKey: OnboardingWindowPresenter.historyShownKey)

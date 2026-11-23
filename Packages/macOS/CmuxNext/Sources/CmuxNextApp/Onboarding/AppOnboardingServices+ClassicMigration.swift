@@ -62,12 +62,8 @@ extension AppOnboardingServices {
     func migrateClassicAtLaunch(firstWorkspace: String?) async {
         guard classicMigrationRunsAtLaunch else { return owner.setup.classicSettled() }
         do {
-            // While the Set Up cmux card shows, its cmux Classic row asks; otherwise the dialog. A No there reads on the row.
-            let outcome = try await owner.setup.classicMigration(seam: owner.classicMigrationConfirmation, offer: Self.classicOffer,
-                                                                 dialog: { await self.confirmClassicImport($0, atLaunch: true) },
-                                                                 imported: { !$0.opened.isEmpty }) {
-                try await migrateClassic(.automatic, firstWorkspace: firstWorkspace, confirmation: $0)
-            }
+            let outcome = try await owner.setup.classicMigration(seam: owner.classicMigrationConfirmation, offer: \.setupOffer, dialog: { await self.confirmClassicImport($0, atLaunch: true) },
+                                                                 imported: { !$0.opened.isEmpty }) { try await migrateClassic(.automatic, firstWorkspace: firstWorkspace, confirmation: $0) }
             guard owner.setup.classicAnswer != .declined, let notice = outcome.opened.isEmpty ? outcome.notice : owner.classicImportNotice else { return }
             let registry = services.registry
             ClassicImportStrings.toast(notice, in: services.windows.active?.window,
@@ -96,13 +92,6 @@ extension AppOnboardingServices {
     func confirmClassicImport(_ preview: ClassicImportPreview, atLaunch: Bool = false) async -> ClassicImportAnswer {
         if let confirmation = owner.classicMigrationConfirmation { return await confirmation(preview) }
         return await ClassicImportConfirmation(preview: preview, services: services, atLaunch: atLaunch).ask()
-    }
-
-    /// The Set Up cmux card's cmux Classic row for the daemon's preview: what the dialog would say, as row facts.
-    static func classicOffer(_ preview: ClassicImportPreview) -> FirstRunSetup.ClassicOffer {
-        FirstRunSetup.ClassicOffer(workspaces: preview.counts.workspaces, app: ClassicImportPreviewStrings.appName(preview.bundleID),
-                                   savedAt: preview.savedAt, running: preview.classicRunning, browserTabs: preview.counts.browserTabs,
-                                   sshWorkspaces: preview.counts.sshWorkspaces, agentChats: preview.counts.agentChats)
     }
 
     /// The daemon's classic import operations on this Mac's connection.
