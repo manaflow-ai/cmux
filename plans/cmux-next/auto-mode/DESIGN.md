@@ -205,6 +205,71 @@ Callers: **owner** (a signed-in session or a person's install: the laptop's daem
 Codes: `auto.stale_epoch`, `auto.not_holder`, `auto.no_machine`, `auto.held_in_cloud`, `auto.seq_gap`,
 `auto.snapshot_incomplete`, `auto.no_snapshot`, `auto.chunk_mismatch`, `auto.too_large`, `auto.closed`.
 
+## The store's rules as built (2026-11-23)
+
+The Cloud store landed first. Where it is more exact than the sections above, it is the contract: the pure
+rules are `backend/apps/api/src/auto-sessions/lease.ts` (every move of the record) and `model.ts` (the record,
+the view, the limits). `FakeAutoCloud` follows the same rules, and the conformance vectors (slice F) hold the two
+together.
+
+Lease (`POST lease`) answers a role and never `auto.stale_epoch`:
+
+- `holder` to a renewal that is not a standby's: go on, at the answer's epoch.
+- `holder` to a standby's renewal: the chat is yours now. Import the Cloud copy, then hold at the answer's epoch.
+- `standby`: remembered as waiting (a standby counts for `LEASE_MS` from its last renewal; at most 8).
+- `lost`: what you run is not the chat any more. Stop it, then renew as standby. The holder device naming an old
+  epoch gets `lost` too, except the repeat of its own retake of a parked chat.
+- A parked chat: the laptop whose lease ran straight into `parked` takes it back as it is with a non-standby
+  renewal naming epoch − 1. Any other laptop, or that laptop after a machine ran the chat, takes it with a standby
+  renewal (import first), unless the chat is kept in the Cloud.
+
+Takeover and parking:
+
+- A laptop's lease that runs out gives the chat to the Auto machine when `needsRun` was set **or an inbox message
+  is unacked**; otherwise it is parked. No machine set: parked, `needsRun` kept, `blocked: "no_machine"`; setting
+  the machine later moves it.
+- A machine's start is retried while it has something unacked (every 5 s while it starts and for its first
+  120 s, then every 60 s, for up to 6 h).
+
+Handback:
+
+- At a machine's renewal the chat goes to the newest live standby only when the renewal says `needsRun: false`,
+  no inbox message is unacked, its assignment is acked, the chat is not kept in the Cloud, and the newest
+  snapshot covers the chat's `lastSeq`. So a machine posts its events, then the snapshot that covers them, then
+  renews. The machine's answer is `lost`. `release` hands back without the snapshot check.
+- A machine that renewed last with `needsRun: false`, has everything acked and copied, and then stopped renewing
+  for `LEASE_MS` (it is paused) gives the chat to a standby at the standby's renewal. This is the one case where
+  a machine's lease lapses to another holder.
+
+Assignments, release and inbox:
+
+- `assignment/ack` with an unread inbox leaves a `deliver` assignment: ack the inbox first.
+- `release` with an unread message never strands it: released by the Auto machine, the chat stays with it at the
+  same epoch with a `deliver`; released by a laptop, it goes to the Auto machine as a `takeover`; no machine,
+  parked with `blocked: "no_machine"`.
+- Inbox `state`: `delivered` for a laptop holder or an acked machine with a live lease; `resuming` while a
+  machine is being started; `queued` when no machine is set.
+
+`PUT :id`:
+
+- `auto: false` is refused `auto.held_in_cloud` while a machine holds the chat, for a parked chat a machine ran
+  last, and for a parked chat with an unread message. A laptop takes it as standby first.
+- `auto: true` on a closed chat reopens it, empty, at the next epoch. Closed chats are not listed.
+
+Wire:
+
+- A refusal is `{error: {code, message}, session?, lastSeq?, missing?}`. Status: 413 `auto.too_large`, 400
+  `auto.chunk_mismatch`, 404 `auto.no_snapshot` and `auto.no_machine` on `GET machine`, 409 the rest.
+- A machine that held the chat last gets `auto.stale_epoch` with `session` on writes and 404 on reads; a machine
+  the chat was moved away from gets 404 on both.
+- Limits: a chat id is `[A-Za-z0-9_.:-]{1,128}` (`machine` and `assignments` are reserved; ids the Cloud makes
+  are `as_<20 hex>` from the owner and `firstMessage.id`, so a repeated `POST` answers the same chat); events
+  `GET` 256 events or 1 MiB a page; inbox `GET` 64 messages; inbox text 256 KiB; 256 unacked messages; a
+  manifest is 1 MiB and 4096 chunks at most and names a numeric `lastSeq`; 512 MiB is per snapshot, with events
+  capped at 512 MiB apart.
+- The view: `standby` lists live standbys only; `leaseExpiresAt` is 0 for a parked chat and for a machine before
+  its first ack; times are milliseconds.
+
 ## Slices
 
 | | Owns | Where |
