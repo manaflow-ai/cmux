@@ -208,7 +208,7 @@ public final class WallpaperLight {
     /// (the Desktop Wallpaper background) or lets it through (see-through glass).
     func field(for window: NSWindow?) -> (field: WallpaperLightField, screen: CGRect?)? {
         guard enabled else { return nil }
-        if let view = window.flatMap(Self.material(of:)), view.shownSelection != .desktop, view.artImage != nil {
+        if let view = window.flatMap(Self.material(of:)), !view.followsDesktop, view.artImage != nil {
             return view.artLight.map { ($0, nil) }
         }
         guard let desktop else { return nil }

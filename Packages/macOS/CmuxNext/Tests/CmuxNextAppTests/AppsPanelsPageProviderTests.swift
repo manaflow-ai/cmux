@@ -136,6 +136,7 @@ import Testing
             ("sidebarSection", "other", "cmux.section/1"),
             ("hoverCard", nil, "cmux.hovercard/1"),
             ("sessionInfoSection", "cmux.session.info.section/1", "cmux.session.info.section/1"),
+            ("chatWidget", nil, "cmux.chat.widget/1"),
             // The whole New Tab page (tabs.newTabApp names the app; the page asks for no section).
             ("newTab", nil, "cmux.newtab/1"),
             // One New Tab widget tile (`cmux.widget/1`); the daemon checks its place, size and instance.
@@ -157,6 +158,27 @@ import Testing
         await #expect(throws: PageError.self) { try await Self.mount(provider, surface: "pane", app: "local/missing") }
     }
 
+    /// The page asks the daemon which extension draws under a tool call (`route`), gets its answer
+    /// as the daemon sent it, and mounts it on the chatWidget surface.
+    @Test func routesAChatWidgetThroughTheDaemonAndMountsIt() async throws {
+        let transport = FakePanelsTransport(manifest: FakePanelsTransport.everySurface())
+        let client = try await Self.listedClient(transport)
+        let provider = AppsPanelsPageProvider(client: client)
+        let ask: JSONValue = .object(["key": .string("tool:t1"), "tool": .object(["name": .string("mcp__github__get_pull_request")])])
+        let answer = try await provider.call("cmux.apps.panels.route", params: ask, context: Self.page)
+        #expect(transport.routes.last?["tool"]?["name"]?.stringValue == "mcp__github__get_pull_request")
+        #expect(answer["widget"]?["app"]?.stringValue == "local/customize")
+        let context = try #require(answer["widget"]?["context"])
+        let reply = try await provider.call(
+            "cmux.apps.panels.mount",
+            params: .object(["surface": .string("chatWidget"), "app": .string("local/customize"), "context": context]),
+            context: Self.page)
+        #expect(reply["mount_id"]?.stringValue != nil)
+        await client.tail?.value
+        #expect(transport.mounts.last?.interface == "cmux.chat.widget/1")
+        #expect(transport.mounts.last?.context["widget"]?["key"]?.stringValue == "tool:t1")
+    }
+
     /// `tabs.newTabApp` names an app: the New Tab page mounts its `cmux.newtab/1` only while it is
     /// installed, enabled and shown, and is refused otherwise, so the page draws cmux's own instead.
     @Test func newTabMountsOnlyAVisibleAppThatImplementsIt() async throws {
@@ -174,6 +196,24 @@ import Testing
         #expect(try await Self.mount(shown, surface: "newTab")["mount_id"] != nil)
         await client.tail?.value
         #expect(transport.mounts.last?.interface == "cmux.newtab/1")
+    }
+
+    /// `cmux customize use` loads the app in the daemon, then a New Tab opens at once: the page's mount
+    /// can arrive before the `apps-changed` list lands. It lists again and mounts instead of refusing,
+    /// since a refused New Tab page draws cmux's own page for the rest of its life.
+    @Test func newTabMountsAnAppTheDaemonLoadedBeforeTheMirrorHeard() async throws {
+        let transport = FakePanelsTransport(manifest: FakePanelsTransport.everySurface())
+        transport.listed = false
+        let client = try await Self.listedClient(transport)
+        #expect(client.app("local/customize") == nil)
+        transport.listed = true
+        let provider = AppsPanelsPageProvider(client: client)
+        #expect(try await Self.mount(provider, surface: "newTab")["mount_id"] != nil)
+        await client.tail?.value
+        #expect(transport.mounts.last?.interface == "cmux.newtab/1")
+
+        // An app the daemon still does not list is refused after that one list.
+        await #expect(throws: PageError.self) { try await Self.mount(provider, surface: "newTab", app: "local/missing") }
     }
 
     /// A widget tile mounts only for a visible app that implements `cmux.widget/1`, with the page's
@@ -421,6 +461,9 @@ private final class FakePanelsTransport: AppsTransport {
 
     /// The listed app is hidden (Settings > Apps > Hide): it shows on no surface.
     var hidden = false
+    /// The daemon lists the app; false: it has not loaded it yet.
+    var listed = true
+    private var listRevision: UInt64 = 0
 
     init(manifest: AppJSON = FakePanelsTransport.sessionInfo, bundleDirectory: String? = nil) {
         self.manifest = manifest
@@ -442,6 +485,7 @@ private final class FakePanelsTransport: AppsTransport {
             "cmux.section/1": ["export": "renderSection"],
             "cmux.hovercard/1": ["export": "renderCard"],
             "cmux.session.info.section/1": ["export": "renderInfo"],
+            "cmux.chat.widget/1": ["export": "renderWidget"],
             "cmux.newtab/1": ["export": "renderNewTab"],
             "cmux.widget/1": ["export": "renderWidget", "options": ["sizes": ["small", "medium"]]],
         ],
@@ -456,7 +500,8 @@ private final class FakePanelsTransport: AppsTransport {
     func list() async throws(AppsTransportError) -> AppsListReply {
         var record: [String: AppJSON] = ["id": manifest["id"] ?? "local/customize", "installed": true, "hidden": .bool(hidden), "manifest": manifest]
         if let bundleDirectory { record["bundle_dir"] = .string(bundleDirectory) }
-        return AppsListReply(revision: 1, apps: [AppRecord(json: .object(record))].compactMap { $0 })
+        listRevision += 1
+        return AppsListReply(revision: listRevision, apps: listed ? [AppRecord(json: .object(record))].compactMap { $0 } : [])
     }
     func sessionInfoPanels() async throws(AppsTransportError) -> [AppSessionInfoPanel] {
         [AppSessionInfoPanel(json: ["app": "local/customize", "section": "prs", "title": "PRs"])].compactMap { $0 }
@@ -486,6 +531,12 @@ private final class FakePanelsTransport: AppsTransport {
         .null
     }
     func logs(app: String, follow: Bool) async throws(AppsTransportError) -> [AppLogLine] { [] }
+    var routes: [AppJSON] = []
+    func chatWidgetRoute(_ args: AppJSON) async throws(AppsTransportError) -> AppJSON {
+        routes.append(args)
+        return ["widget": ["app": "local/customize", "interface": "cmux.chat.widget/1", "title": "Card",
+                           "context": ["surface": "chatWidget", "widget": ["key": "tool:t1"]]]]
+    }
     func storeCall(_ op: String, args: AppJSON, origin: AppOrigin) async throws(AppsTransportError) -> AppJSON {
         storeCalls.append((op, args, origin))
         switch op {

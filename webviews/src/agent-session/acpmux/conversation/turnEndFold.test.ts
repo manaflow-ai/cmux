@@ -36,7 +36,11 @@ test("an update ends the turn only when it takes the line away", () => {
 });
 
 test("switching the running status line does not end its turn", () => {
-  const running = [row("u", "user"), row("working-u", "working"), row(LIVE_THINKING, "thinking")];
+  const running = [
+    row("u", "user"),
+    { ...row("worked-u", "worked"), turnPhase: "running" as const },
+    row(LIVE_THINKING, "thinking"),
+  ];
   const status = [row("u", "user"), row("activityLine-u", "activityLine")];
   expect(hasLiveLine(status)).toBe(true);
   expect(endsTurn(running, status)).toBe(false);
@@ -133,7 +137,8 @@ test("folded work stays between the header and final answer while they move", as
     thread.append(node);
     return node;
   };
-  draw("working-u", "working", 0, 34);
+  // The turn's header, running: one row with the ended one, its chevron's slot held unseen.
+  draw("worked-u", "worked", 0, 34).innerHTML = '<svg class="cv-worked__chevron is-reserved"></svg>';
   draw("work", "activity", 34, 60);
   draw("answer", "assistant", 94, 50);
   draw(LIVE_THINKING, "thinking", 144, 22);

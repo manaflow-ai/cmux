@@ -66,6 +66,14 @@ impl Roots {
         }
     }
 
+    /// Installed setups' own views layers (`setup::layers`): `setups/` next
+    /// to the customize folder (`~/.config/cmux/setups`), so a setup never
+    /// writes into the person's own views. The daemon reads the same folder
+    /// (cmux-tui-core `apps::catalog::setups_dir`).
+    pub fn setups_dir(&self) -> PathBuf {
+        self.customize_dir.with_file_name("setups")
+    }
+
     /// Saved profiles: `<config dir>/profiles/NAME.json`.
     pub fn profiles_dir(&self) -> PathBuf {
         self.config_dir.join("profiles")
