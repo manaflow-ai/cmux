@@ -165,7 +165,9 @@ public struct MacScreenActions {
     /// An empty, unknown or ambiguous name fails with the devices it could name, as "name (id)".
     static func deviceID(named text: String, among devices: [HubDevice]) throws -> String {
         if let id = MacScreenRecord.normalizedDeviceID(text) { return id }
-        let name = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        var name = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        // A `cmux device list` row id (`peer:desk-1`) names the machine; its screen host registers by that name.
+        if name.hasPrefix("peer:") { name = String(name.dropFirst("peer:".count)) }
         guard !name.isEmpty else { throw ActionFailure(message: missingDevice(among: devices)) }
         for key: (String) -> String in [Self.folded, Self.slug] {
             let wanted = key(name)
