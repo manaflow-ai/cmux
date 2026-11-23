@@ -15,7 +15,9 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
 
 use acpmux::config::{Config, HarnessProfile, PermissionPolicy, StoreMode};
 use acpmux::hub::Hub;
-use acpmux::hub_carrier::{CarrierAnswer, CircuitService, HubCarrier, Tickets, Timings};
+use acpmux::hub_carrier::{
+    CarrierAnswer, CircuitLane, CircuitService, HubCarrier, Tickets, Timings,
+};
 use acpmux::rpc::{Message, method};
 use acpmux::server::peer_auth::PeerAuth;
 use acpmux::server::{WsAuth, bind_ws, serve_connection, serve_ws_with};
@@ -1971,6 +1973,12 @@ struct DelayProxy {
 
 impl DelayProxy {
     async fn start(target: SocketAddr, delay: Duration) -> Self {
+        Self::start_with(target, delay, None).await
+    }
+
+    /// [`Self::start`], each connection carrying at most `rate` bytes a second each way (one
+    /// TCP's share of a thin link: what queues in it waits its turn).
+    async fn start_with(target: SocketAddr, delay: Duration, rate: Option<u64>) -> Self {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
         let (cut, _) = watch::channel(0u64);
@@ -1985,8 +1993,8 @@ impl DelayProxy {
                     let (ir, iw) = inbound.into_split();
                     let (or, ow) = outbound.into_split();
                     tokio::select! {
-                        _ = delayed(ir, ow, delay) => {}
-                        _ = delayed(or, iw, delay) => {}
+                        _ = delayed(ir, ow, delay, rate) => {}
+                        _ = delayed(or, iw, delay, rate) => {}
                         _ = cut.changed() => {}
                     }
                 });
@@ -2004,6 +2012,7 @@ async fn delayed(
     mut from: tokio::net::tcp::OwnedReadHalf,
     mut to: tokio::net::tcp::OwnedWriteHalf,
     delay: Duration,
+    rate: Option<u64>,
 ) {
     let (tx, mut rx) = mpsc::unbounded_channel::<(tokio::time::Instant, Vec<u8>)>();
     let read = async move {
@@ -2024,6 +2033,9 @@ async fn delayed(
             tokio::time::sleep_until(at).await;
             if to.write_all(&bytes).await.is_err() {
                 return;
+            }
+            if let Some(rate) = rate {
+                tokio::time::sleep(Duration::from_secs_f64(bytes.len() as f64 / rate as f64)).await;
             }
         }
     };
@@ -2121,6 +2133,16 @@ impl KeptFixture {
 /// A dials B's stand-in sshd over the in-process relay, A's leg `delay` away each way. Returns once B
 /// serves (its gate's refusal came back), with control not granted yet unless `granted`.
 async fn kept_fixture(delay: Duration, b_keeps_circuits: bool, granted: bool) -> KeptFixture {
+    kept_fixture_with(delay, None, b_keeps_circuits, granted).await
+}
+
+/// [`kept_fixture`], A's leg carrying at most `rate` bytes a second per connection.
+async fn kept_fixture_with(
+    delay: Duration,
+    rate: Option<u64>,
+    b_keeps_circuits: bool,
+    granted: bool,
+) -> KeptFixture {
     let relay_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let relay_address = relay_listener.local_addr().unwrap();
     let relay = cmux_relay::Relay::new(cmux_relay::RelayConfig {
@@ -2134,7 +2156,7 @@ async fn kept_fixture(delay: Duration, b_keeps_circuits: bool, granted: bool) ->
         let _ = axum::serve(relay_listener, router).await;
     });
     // Only A's leg runs through the proxy: a cut drops A's circuits, not B's registration.
-    let proxy = DelayProxy::start(relay_address, delay).await;
+    let proxy = DelayProxy::start_with(relay_address, delay, rate).await;
     let route = format!("relay+ws://127.0.0.1:{}", proxy.port);
     let direct = format!("relay+ws://{relay_address}");
     let sshd = standin_sshd().await;
@@ -2195,6 +2217,60 @@ async fn kept_fixture(delay: Duration, b_keeps_circuits: bool, granted: bool) ->
     assert!(serves, "B never served: {last}");
     fixture.gate.granted.store(granted, Ordering::SeqCst);
     fixture
+}
+
+/// RFD 0039 cut 5 (H13): a pair keeps two circuits, so a cheap read never waits behind bulk in one
+/// circuit's TCP. A's leg carries 2 MiB/s per connection; 4 bulk transfers of 8 MiB each run on
+/// the bulk circuit, read as they come, while a cheap echo on the cheap circuit answers in under
+/// 200 ms (durability F18's bound). The same echo on the bulk circuit, behind the bulk streams'
+/// windows, is printed beside it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hub_carrier_a_cheap_read_never_waits_behind_four_bulk_transfers() {
+    let _ = HERMETIC;
+    let fixture = kept_fixture_with(Duration::ZERO, Some(2 << 20), true, true).await;
+    let mut bulks = Vec::new();
+    for _ in 0..4 {
+        let mut bulk = fixture.dial_to_banner().await;
+        bulk.write_all(b"bulk 8388608\n").await.unwrap();
+        bulks.push(tokio::spawn(async move {
+            let mut got = Vec::new();
+            let _ = bulk.read_to_end(&mut got).await;
+            got.len()
+        }));
+    }
+    let open_cheap = || async {
+        let mut stream = within(
+            "a cheap dial",
+            fixture.a.dial_service_on(&fixture.b_key, fixture.service(), CircuitLane::Cheap),
+        )
+        .await
+        .unwrap();
+        let mut banner = vec![0u8; BANNER.len()];
+        within("the cheap banner", stream.read_exact(&mut banner)).await.unwrap();
+        stream
+    };
+    let mut cheap = open_cheap().await;
+    assert_eq!(fixture.a.kept_circuits(&fixture.b_key), 2, "one cheap circuit, one bulk");
+    // Let the bulk streams fill their windows first.
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let mut worst = Duration::ZERO;
+    for n in 0..10 {
+        let started = std::time::Instant::now();
+        echo(&mut cheap, format!("cheap {n}\n").as_bytes()).await;
+        worst = worst.max(started.elapsed());
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let mut behind = fixture.dial_to_banner().await;
+    let started = std::time::Instant::now();
+    echo(&mut behind, b"behind bulk\n").await;
+    let behind = started.elapsed();
+    eprintln!(
+        "H13: cheap read during 4 bulk transfers: worst {worst:?} on the cheap circuit, {behind:?} on the bulk one"
+    );
+    assert!(worst < Duration::from_millis(200), "a cheap read took {worst:?}");
+    for bulk in bulks {
+        assert_eq!(within("a bulk transfer", bulk).await.unwrap(), 8 << 20);
+    }
 }
 
 /// Echo `text` through `stream` and read it back.
