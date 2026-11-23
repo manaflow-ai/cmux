@@ -25,6 +25,7 @@ mod ls_leads;
 mod ls_pages;
 mod ls_tools;
 pub use ls::LsArgs;
+mod move_end;
 mod parent;
 mod send_async;
 mod session_move;

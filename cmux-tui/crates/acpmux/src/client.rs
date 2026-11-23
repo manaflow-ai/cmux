@@ -229,6 +229,14 @@ impl Client {
     /// The error for a connection that ended: says why, as far as the pid
     /// file and socket tell, and what to do.
     pub fn closed(&self, context: &str) -> anyhow::Error {
+        // The pid file and panic log say only how this machine's own daemon is. A connection to
+        // another socket (a move's `ssh -L` forward of another machine's daemon, a sibling
+        // build's) ended for reasons they cannot tell: on cosmic-gray a move's dropped forwards
+        // read "the daemon (pid 5763) is still running but dropped this connection", naming the
+        // local daemon, which was never on that path (2026-11-23).
+        if !same_socket(&self.socket, &crate::config::socket_path()) {
+            return other_socket_closed(&self.socket, context);
+        }
         closed_error(context, self.daemon_build().as_deref())
     }
 
@@ -522,6 +530,27 @@ pub(crate) fn closed_cause(
         (None, _, false) => ("shut_down", "the daemon was shut down".to_owned()),
     };
     (cause, why + &panicked.unwrap_or_default())
+}
+
+/// Whether `a` and `b` name one socket (as written, or once resolved).
+fn same_socket(a: &std::path::Path, b: &std::path::Path) -> bool {
+    a == b || matches!((a.canonicalize(), b.canonicalize()), (Ok(a), Ok(b)) if a == b)
+}
+
+/// "daemon connection closed" for a connection to a socket that is not this machine's own
+/// daemon's: cause `other_socket`, and no claim about the local daemon.
+pub(crate) fn other_socket_closed(socket: &std::path::Path, context: &str) -> anyhow::Error {
+    TransportClosed {
+        message: format!(
+            "daemon connection closed while {context}: the connection to the daemon at {} ended \
+             (an ssh forward of another machine's daemon, or another build's socket; this \
+             machine's own daemon is not on that path)",
+            socket.display()
+        ),
+        cause: "other_socket",
+        panic: None,
+    }
+    .into()
 }
 
 /// "daemon connection closed" with a cause: the pid file and socket say

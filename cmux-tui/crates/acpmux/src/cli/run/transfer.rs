@@ -2,6 +2,7 @@
 //! build's) through `_acpmux/transfer_*` (`hub/transfer_out.rs`). The reference client of the
 //! move: it pages the bundle from one daemon to the other, and gives the chat back on a failure.
 
+use super::move_end::{Journal, MoveEnd, Reach, Wait, journal_dir};
 use super::*;
 use cmux_json::JsonSet as _;
 
@@ -16,6 +17,8 @@ pub(super) async fn run(
     json_out: bool,
 ) -> Result<()> {
     let src = connect(true).await?;
+    // A move this machine began whose client went away is ended first (`move_end.rs`).
+    super::move_end::reclaim_dead_moves(&journal_dir()).await;
     let dst = Client::connect(to).await?;
     let dst_init = dst
         .request(
@@ -31,8 +34,13 @@ pub(super) async fn run(
     let to_meta = json!({"socket": socket});
     let watch = json!({"socket": socket});
     let running = (interrupt, after_turn);
+    let reach = (
+        Some(Reach::Socket { path: std::path::absolute(crate::config::socket_path())? }),
+        Some(Reach::Socket { path: socket.clone() }),
+    );
     let moved =
-        move_chat(&src, &dst, &dst_init, &id, Some(watch), cwd, name, running, to_meta).await?;
+        move_chat(&src, &dst, &dst_init, &id, Some(watch), cwd, name, running, to_meta, reach)
+            .await?;
     if json_out {
         print_json(&moved);
     } else {
@@ -168,9 +176,12 @@ pub(super) async fn move_chat(
     name: Option<String>,
     running: (bool, bool),
     to_meta: Value,
+    (src_reach, dst_reach): (Option<Reach>, Option<Reach>),
 ) -> Result<Value> {
     let begun = begin_move(src, id, watch, running, None).await?;
-    finish_move(src, dst, dst_init, id, &begun, cwd, name, to_meta).await
+    let mut src_end = MoveEnd::new("source", src, src_reach);
+    let mut dst_end = MoveEnd::new("target", dst, dst_reach);
+    finish_move(&mut src_end, &mut dst_end, dst_init, id, &begun, cwd, name, to_meta).await
 }
 
 /// Whether the receiver may take the bundle `begin` made: one that carries prompts the owner
@@ -198,10 +209,16 @@ pub(crate) fn receiver_takes(begin: &Value, dst_init: &Value) -> Result<()> {
 
 /// The rest of a move [`begin_move`] began: the bundle paged into a receive on `dst`, finished
 /// there, and committed on `src`. A failure that leaves the chat nowhere else aborts the move.
+///
+/// Each end reconnects when its connection drops, and every request has a deadline
+/// (`move_end.rs`): on cosmic-gray (2026-11-23) moves through ssh forwards lost their
+/// connections mid-page and one waited 30 minutes on a reply that never came. A move whose ends
+/// can both be reached again is noted in this machine's move journal until it ends, so that one
+/// whose client dies is ended by the next move here, not left frozen.
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn finish_move(
-    src: &Client,
-    dst: &Client,
+    src: &mut MoveEnd<'_>,
+    dst: &mut MoveEnd<'_>,
     dst_init: &Value,
     id: &str,
     begun: &Begun,
@@ -209,61 +226,124 @@ pub(super) async fn finish_move(
     name: Option<String>,
     to_meta: Value,
 ) -> Result<Value> {
+    let journal = (&journal_dir(), to_meta);
+    finish_journaled(src, dst, dst_init, id, begun, cwd, name, journal).await
+}
+
+/// [`finish_move`], the move noted in the journal at `dir` while it is under way.
+#[allow(clippy::too_many_arguments)]
+pub(super) async fn finish_journaled(
+    src: &mut MoveEnd<'_>,
+    dst: &mut MoveEnd<'_>,
+    dst_init: &Value,
+    id: &str,
+    begun: &Begun,
+    cwd: Option<String>,
+    name: Option<String>,
+    (dir, to_meta): (&std::path::Path, Value),
+) -> Result<Value> {
+    let journal = match (src.reach(), dst.reach()) {
+        (Some(s), Some(d)) => Some(Journal {
+            session_id: id.to_owned(),
+            transfer_id: begun.transfer_id.clone(),
+            epoch: begun.epoch,
+            pid: std::process::id(),
+            src: s.clone(),
+            dst: d.clone(),
+            to: to_meta.clone(),
+        }),
+        _ => None,
+    };
+    if let Some(j) = &journal {
+        j.note(dir);
+    }
+    let result = finish_noted(src, dst, dst_init, id, begun, cwd, name, to_meta).await;
+    if !matches!(result, Err(Unresolved(_))) {
+        Journal::done(dir, &begun.transfer_id);
+    }
+    result.map_err(|Unresolved(e)| Resolved(e) | e)
+}
+
+/// How a failed move left the chat: given back or on the target (`Resolved`), or frozen with
+/// neither end able to say (`Unresolved`, kept in the journal for the next run).
+enum Failed {
+    Resolved(anyhow::Error),
+    Unresolved(anyhow::Error),
+}
+use Failed::*;
+
+impl From<anyhow::Error> for Failed {
+    fn from(e: anyhow::Error) -> Self {
+        Unresolved(e)
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn finish_noted(
+    src: &mut MoveEnd<'_>,
+    dst: &mut MoveEnd<'_>,
+    dst_init: &Value,
+    id: &str,
+    begun: &Begun,
+    cwd: Option<String>,
+    name: Option<String>,
+    to_meta: Value,
+) -> Result<Value, Failed> {
     let (begin, transfer_id) = (&begun.begin, &begun.transfer_id);
     if let Err(e) = receiver_takes(begin, dst_init) {
-        abort_move(src, id, begun).await;
-        return Err(e);
+        return Err(abort_end(src, id, begun, e).await);
     }
-    let receive = match dst.request("_acpmux/transfer_receive", json!({"manifest": begin})).await {
+    let receive =
+        dst.call("_acpmux/transfer_receive", json!({"manifest": begin}), Wait::Page, false);
+    let receive = match receive.await {
         Ok(receive) => receive,
-        Err(e) => {
-            abort_move(src, id, begun).await;
-            return Err(e);
-        }
+        Err(e) => return Err(abort_end(src, id, begun, e).await),
     };
-    let moved = match copy(
-        src,
-        dst,
-        begin,
-        receive.get("receiveId").unwrap_or(&Value::Null),
-        begun.epoch,
-        cwd,
-        name,
-    )
-    .await
-    {
+    let receive_id = receive.get("receiveId").unwrap_or(&Value::Null);
+    let moved = match copy(src, dst, begin, receive_id, begun.epoch, cwd, name).await {
         Ok(moved) => moved,
         // A finish whose answer was lost may have landed, and the target runs the queue then:
         // the source commits. Only a target that shows no such move lets the chat come back.
         Err(e) => match landed(dst, id, transfer_id).await {
-            Some(true) => dst.request(method::MUX_INFO, json!({"sessionId": id})).await?,
-            Some(false) => {
-                abort_move(src, id, begun).await;
-                return Err(e);
+            Some(true) => {
+                dst.call(method::MUX_INFO, json!({"sessionId": id}), Wait::Page, true).await?
             }
+            Some(false) => return Err(abort_end(src, id, begun, e).await),
             None => {
                 eprintln!(
-                    "acpmux: the move failed and the target cannot say whether it took the chat; it stays frozen here until the move is retried or aborted"
+                    "acpmux: the move failed and the target cannot say whether it took the chat; it stays frozen here until the next move from this machine ends it"
                 );
-                return Err(e);
+                return Err(Unresolved(e));
             }
         },
     };
     let mut to_meta = to_meta;
     to_meta.set("sessionId", moved.get("sessionId").cloned().unwrap_or(Value::Null));
-    src.request(
-        "_acpmux/transfer_commit",
-        json!({"sessionId": id, "transferId": transfer_id, "to": to_meta, "epoch": begun.epoch}),
-    )
-    .await?;
+    // A commit is answered again the same once it is on disk (`transfer_commit_with_epoch`).
+    let commit =
+        json!({"sessionId": id, "transferId": transfer_id, "to": to_meta, "epoch": begun.epoch});
+    src.call("_acpmux/transfer_commit", commit, Wait::Page, true).await?;
     Ok(moved)
+}
+
+/// Gives the chat back on the source through `src` (reconnected if its connection dropped):
+/// the move failed with `e`.
+async fn abort_end(src: &mut MoveEnd<'_>, id: &str, begun: &Begun, e: anyhow::Error) -> Failed {
+    let abort = json!({"sessionId": id, "transferId": begun.transfer_id, "epoch": begun.epoch});
+    match src.call("_acpmux/transfer_abort", abort, Wait::Page, true).await {
+        Ok(_) => Resolved(e),
+        Err(why) => {
+            eprintln!("acpmux: the move failed and the chat stays frozen here: {why:#}");
+            Unresolved(e)
+        }
+    }
 }
 
 /// Whether the target took this move (its log has the `transferred_in` of `transfer_id`); `None`
 /// when it cannot say.
-async fn landed(dst: &Client, id: &str, transfer_id: &str) -> Option<bool> {
+async fn landed(dst: &mut MoveEnd<'_>, id: &str, transfer_id: &str) -> Option<bool> {
     let kinds = json!({"sessionId": id, "afterSeq": 0, "kinds": ["transferred_in"]});
-    match dst.request(method::MUX_EVENTS, kinds).await {
+    match dst.call(method::MUX_EVENTS, kinds, Wait::Page, true).await {
         Ok(page) => Some(
             page["events"]
                 .as_array()
@@ -278,24 +358,47 @@ async fn landed(dst: &Client, id: &str, transfer_id: &str) -> Option<bool> {
     }
 }
 
-/// Pages every bundle file from `src` into the receive on `dst`, and finishes it there.
+/// How many times one move's copy goes on from the size the target says it has.
+const RESUMES: u32 = 32;
+
+/// The size the target has of a file whose page came out of place (`transfer.offset`,
+/// `hub/transfer_in.rs`): a page written before its answer was lost, or one lost with it.
+fn written_size(e: &anyhow::Error) -> Option<u64> {
+    let e = e.downcast_ref::<crate::client::DaemonError>()?;
+    e.0.message.starts_with("transfer.offset").then_some(())?;
+    e.0.data.as_ref()?.get("size")?.as_u64()
+}
+
+/// Pages every bundle file from `src` into the receive on `dst`, and finishes it there. A page
+/// whose connection dropped is asked again on the end's new one; a write the target already had
+/// (or never got) goes on from the size it says it has.
 async fn copy(
-    src: &Client,
-    dst: &Client,
+    src: &mut MoveEnd<'_>,
+    dst: &mut MoveEnd<'_>,
     begin: &Value,
     receive_id: &Value,
     epoch: u64,
     cwd: Option<String>,
     name: Option<String>,
 ) -> Result<Value> {
+    let mut resumes = 0;
     for file in begin["files"].as_array().into_iter().flatten() {
         let path = &file["path"];
         let mut offset = 0u64;
         loop {
             let read = json!({"transferId": begin["transferId"], "path": path, "offset": offset, "epoch": epoch});
-            let page = src.request("_acpmux/transfer_read", read).await?;
+            let page = src.call("_acpmux/transfer_read", read, Wait::Page, true).await?;
             let write = json!({"receiveId": receive_id, "path": path, "offset": offset, "data": page["data"], "epoch": epoch});
-            dst.request("_acpmux/transfer_write", write).await?;
+            if let Err(e) = dst.call("_acpmux/transfer_write", write, Wait::Page, true).await {
+                match written_size(&e) {
+                    Some(size) if resumes < RESUMES => {
+                        resumes += 1;
+                        offset = size;
+                        continue;
+                    }
+                    _ => return Err(e),
+                }
+            }
             offset = page["next"].as_u64().ok_or_else(|| anyhow!("transfer_read: no next"))?;
             if page["eof"] == true {
                 break;
@@ -310,5 +413,7 @@ async fn copy(
     if let Some(name) = name {
         finish.set("name", json!(name));
     }
-    dst.request("_acpmux/transfer_finish", finish).await
+    // Not asked again: a finish that landed answers a second one with an error; the caller
+    // asks the (reconnected) target whether it landed.
+    dst.call("_acpmux/transfer_finish", finish, Wait::Finish, false).await
 }
