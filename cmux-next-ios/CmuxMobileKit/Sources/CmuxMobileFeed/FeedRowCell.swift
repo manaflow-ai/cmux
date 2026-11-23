@@ -171,6 +171,9 @@ final class FeedRowCell: UITableViewCell, UITextViewDelegate, UITextFieldDelegat
     private let send = UIButton(type: .custom)
     private var footerButtons: [UIButton] = []
 
+    // Red graft stub: a reader of the cell's command block.
+    var showsCommandBlock: Bool { made.contains("command") && !command.isHidden && command.superview != nil }
+
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         #if DEBUG
         let t0 = CACurrentMediaTime()
@@ -846,7 +849,11 @@ final class FeedQuoteView: UIView {
 
     /// A 16 pt rounded rect and the tail (BubbleTail) in one path, the tail at the bottom-leading
     /// corner (bottom-trailing for your own message, mirrored).
+    // Red graft stub: the base computes every bubble (counted).
+    static var bubblesMade = 0
+
     static func bubblePath(_ rect: CGRect, outgoing: Bool) -> CGPath {
+        bubblesMade += 1
         let body = UIBezierPath(roundedRect: rect, cornerRadius: 16).cgPath
         let box = CGRect(x: -6, y: rect.height - 18 + 1, width: 22, height: 18)
         let w = box.width, h = box.height
