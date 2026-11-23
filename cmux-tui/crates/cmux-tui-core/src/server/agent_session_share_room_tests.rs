@@ -2342,3 +2342,6 @@ fn the_access_request_refusals_a_guest_may_see_are_listed() {
         assert!(GUEST_REFUSALS.contains(&code), "{code}");
     }
 }
+
+#[path = "agent_session_share_latency_tests.rs"]
+mod latency;
