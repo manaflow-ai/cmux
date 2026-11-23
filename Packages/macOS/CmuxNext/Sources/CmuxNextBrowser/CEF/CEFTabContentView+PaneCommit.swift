@@ -77,11 +77,15 @@ extension CEFTabContentView: PaneCommitSurface {
     func endCommitAhead() {
         guard commitAheadSize != nil else { return }
         commitAheadSize = nil
+        // A focus ask kept while the page laid out ahead (`grantFocus`) is granted after this turn's frame commits, once the
+        // page answered at its new size (``CEFCommitPageWait/whenPageAnswered(_:)``): a grant before that frame stalled it.
+        if let tab, tab.pendingFocus {
+            let grant: @MainActor () -> Void = { [weak tab] in AfterFrameCommit().run { tab?.grantPendingFocusIfShown() } }
+            if let commitWait { commitWait.whenPageAnswered(grant) } else { grant() }
+        }
         commitWait?.holdEnded()
         dropHold()
         layoutContent()
-        // A focus ask kept while the page laid out ahead (`grantFocus`) is granted once this turn's frame commits.
-        if let tab, tab.pendingFocus { AfterFrameCommit().run { [weak tab] in tab?.grantPendingFocusIfShown() } }
     }
 
     /// The page hides or leaves its pane while it took a size ahead: it draws nothing more for that commit, so it reports
