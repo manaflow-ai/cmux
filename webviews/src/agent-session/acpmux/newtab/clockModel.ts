@@ -38,7 +38,8 @@ export function readClockStyle(value: unknown): NewTabClockStyle | undefined {
 /// The time as the Lock Screen shows it: hours and minutes in the locale's 12- or 24-hour form,
 /// without the AM/PM mark.
 export function clockTime(at: Date, locale?: string): string {
-  return intl.DateTimeFormat(locale, { hour: "numeric", minute: "2-digit" })
+  return intl
+    .DateTimeFormat(locale, { hour: "numeric", minute: "2-digit" })
     .formatToParts(at)
     .filter((part) => part.type !== "dayPeriod")
     .map((part) => part.value)
