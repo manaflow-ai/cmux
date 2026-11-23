@@ -131,6 +131,9 @@ pub struct Endpoint {
     sent_us: u64,
     /// When session traffic (datagrams, control) last went either way.
     traffic_us: u64,
+    /// Routes added while the handshake runs: the next poll sends them the
+    /// handshake message in flight at once instead of at its next retry.
+    late_routes: Vec<Route>,
     /// A responder still in the handshake punches every path at this time
     /// ([`crate::TAG_PUNCH`]); a new path makes it due at once.
     next_punch_us: u64,
@@ -164,6 +167,7 @@ impl Endpoint {
             clock_us: now_us,
             sent_us: now_us,
             traffic_us: now_us,
+            late_routes: Vec::new(),
             next_punch_us: now_us,
             created_us: now_us,
             routed: false,
@@ -246,6 +250,11 @@ impl Endpoint {
             PathEntry { route, kind, next_probe_us: now_us, heard_us: now_us, unanswered_sends: 0 };
         self.paths.insert(id, entry);
         self.by_route.insert(route, id);
+        // A candidate trickled after the handshake started (the host's answer no
+        // longer waits for its reflexive and relayed ones) is tried at once.
+        if !self.link.is_established() {
+            self.late_routes.push(route);
+        }
         // A route to the peer means the peer has the answer and is dialing:
         // a responder's handshake clock starts now, not at its own start.
         self.link.peer_contact(now_us);
@@ -399,6 +408,11 @@ impl Endpoint {
                 && now_us.saturating_sub(self.created_us) > crate::SIGNALING_TIMEOUT_US
             {
                 return Err(self.link.fail_no_route());
+            } else {
+                // The retry that fell due with nowhere to go moves on, so the next deadline
+                // is not one already past (the network thread would wake for it at once,
+                // again and again, until a route arrived).
+                self.link.defer_handshake_retry(now_us);
             }
             return Ok(Vec::new());
         }
@@ -428,6 +442,15 @@ impl Endpoint {
             }
         }
         let packets = self.link.poll_transmit(now_us)?;
+        // Packets going out now reach every route anyway (no path answers yet).
+        let late = std::mem::take(&mut self.late_routes);
+        if packets.is_empty()
+            && let Some(handshake) = self.link.handshake_in_flight()
+        {
+            out.extend(
+                late.into_iter().map(|route| Transmit { route, packet: handshake.to_vec() }),
+            );
+        }
         // Only a poll that sends counts against silence: an idle link
         // waiting for nothing is not a quiet path.
         let routes = if packets.is_empty() { Vec::new() } else { self.routes() };

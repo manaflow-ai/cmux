@@ -442,7 +442,8 @@ fn open_rows(state: &mut ActorState) -> Result<Vec<OpenRow>, ChatError> {
 /// An open row as sent: its encoded row, and its body's length when the body was left out.
 type OpenRowOut = (Vec<u8>, Option<u64>);
 
-/// One open row's text: its body inline when it fits `left`, else `{}` and the body's length.
+/// One open row's text: its body inline when it fits `left`, else its fields' head
+/// ([`acpmux_book::translate::OwnedRow::head`]) and the body's length.
 fn open_row(
     state: &ActorState,
     id: u64,
@@ -466,7 +467,11 @@ fn open_row(
         }
         encoded.clear();
     }
-    row.as_row("{}").encode(None, &mut encoded).map_err(|_| ChatError::Response)?;
+    // The row's own fields stand for the body left out (an image's size among them).
+    let head = row.head();
+    if row.as_row(&head).encode(None, &mut encoded).is_err() {
+        row.as_row("{}").encode(None, &mut encoded).map_err(|_| ChatError::Response)?;
+    }
     Ok(Some((encoded, Some(len))))
 }
 

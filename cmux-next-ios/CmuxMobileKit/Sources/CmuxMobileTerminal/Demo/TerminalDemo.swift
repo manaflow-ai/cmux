@@ -23,8 +23,18 @@ public struct TerminalDemoRoot: View {
                 palette: ["#073642", "#dc322f", "#859900", "#b58900", "#268bd2", "#d33682", "#2aa198", "#eee8d5"],
                 accent: "blue")), keep: false)
         }
-        let session: any TerminalSession = TerminalHostGridDemoSession.requestedSpec
-            .flatMap(TerminalHostGridDemoSession.init(spec:)) ?? MockTerminalSession(macResize: Self.macResize)
+        let session: any TerminalSession
+        if TerminalDemoDriver.requestedPhases?.contains("projection") == true {
+            // A Mac pane of 120x40 (or `-CmuxMobileTerminalDemoMacGrid 39x26`, a
+            // pane narrower than the phone), through the session the app builds
+            // for a Mac terminal.
+            let grid = (UserDefaults.standard.string(forKey: "CmuxMobileTerminalDemoMacGrid") ?? "").split(separator: "x").compactMap { Int($0) }
+            let mac = grid.count == 2 ? MacPaneMockSession(columns: grid.first ?? 120, rows: grid.last ?? 40) : MacPaneMockSession()
+            session = TerminalSessionChoice.session(live: mac, mockDataEnabled: false, macName: "Mac", programName: "zsh")
+        } else {
+            session = TerminalHostGridDemoSession.requestedSpec
+                .flatMap(TerminalHostGridDemoSession.init(spec:)) ?? MockTerminalSession(macResize: Self.macResize)
+        }
         let model = TerminalModel(session: session, artifactSource: MockArtifactSource(), title: "zsh — cmux-next")
         _model = State(initialValue: model)
         _host = State(initialValue: TerminalTabHost(model: model))
@@ -73,9 +83,7 @@ public struct TerminalDemoRoot: View {
                 }
                 return
             }
-            let phases = UserDefaults.standard.string(forKey: "CmuxMobileTerminalDemoPhases")?
-                .split(separator: ",").map(String.init)
-            await TerminalDemoDriver(model: model).run(phases: phases)
+            await TerminalDemoDriver(model: model).run(phases: TerminalDemoDriver.requestedPhases)
         }
     }
 }
@@ -88,6 +96,10 @@ final class TerminalDemoDriver {
 
     init(model: TerminalModel) { self.model = model }
     let clock = ContinuousClock()
+
+    static var requestedPhases: [String]? {
+        UserDefaults.standard.string(forKey: "CmuxMobileTerminalDemoPhases")?.split(separator: ",").map(String.init)
+    }
 
     private func wait(_ seconds: Double) async {
         try? await clock.sleep(for: .milliseconds(Int(seconds * 1000)))
@@ -156,6 +168,8 @@ final class TerminalDemoDriver {
         if selected.contains("kbtui") { await keyboardOverTUI() }
         if selected.contains("kbclaude") { await keyboardOverTUI(command: "claude") }
         if selected.contains("kbshell") { await keyboardOverShell() }
+        if selected.contains("tuihold") { await holdTUI() }
+        if selected.contains("projection") { await projection() }
         if selected.contains("scrollbench") { await scrollBench() }
         if selected.contains("historyfling") { await historyFling() }
         for variant in ["primary", "mouse", "keys", "primary-load", "mouse-load", "keys-load"]
@@ -329,6 +343,7 @@ final class TerminalDemoDriver {
     private func tuiPan(_ variant: String) async {
         let load = variant.hasSuffix("-load")
         let screen = load ? String(variant.dropLast(5)) : variant
+        (model.session as? MockTerminalSession)?.stampsRedraws = true
         model.composerText = screen == "primary"
             ? (load ? "claudecli 12000 16" : "claudecli 1500 80")
             : (load ? "claudefull 12000 \(screen) stream=16" : "claudefull 1500 \(screen)")
@@ -344,6 +359,7 @@ final class TerminalDemoDriver {
         let meter = TerminalPanMeter(window: window, sends: { [weak session] in session?.sends ?? 0 })
         let bytes = session.bytesFromPhone, fetches = session.historyFetches, sends = session.sends
         let scrolls = session.appScrolls
+        session.paintSamples = []
         mark("tuipan-\(variant) ready isTUI=\(model.isTUI)")
         model.demoNote = "tuipan-\(variant) ready isTUI=\(model.isTUI)"
         // Until the pans are over: 4 s with no finger after the first (the
@@ -356,8 +372,16 @@ final class TerminalDemoDriver {
         meter.stop()
         let result = meter.summary + " bytes=\(session.bytesFromPhone - bytes) sends=\(session.sends - sends)"
             + " appScrolls=\(session.appScrolls - scrolls) fetches=\(session.historyFetches - fetches) touches=\(meter.touches) isTUI=\(model.isTUI)"
+            + Self.paintNote(session.paintSamples)
         model.demoNote = "tuipan-\(variant) done " + result
         mark(model.demoNote)
+    }
+
+    /// ` paint=N paintP50=MS paintP95=MS`: the screen's receive to the present that showed it
+    /// (``TerminalPaintTally``), over the stamped writes it reported.
+    static func paintNote(_ samples: [TerminalPaintTally.Sample]) -> String {
+        guard let paint = TerminalPaintTally.receiveToPaint(samples) else { return " paint=0" }
+        return String(format: " paint=%d paintP50=%.1f paintP95=%.1f", samples.count, paint.p50, paint.p95)
     }
 
     private func keyboard() async {
@@ -389,6 +413,15 @@ final class TerminalDemoDriver {
     /// keyboard is still moving), the same calls a tap on each makes; then the
     /// keyboard key twice 0.1 s apart. Each second action reverses the first
     /// from where the keyboard is, never after it settles.
+    /// `tuihold` (opt-in): vim, left running with the keyboard down for a UI
+    /// test to drive (KeyboardMotionBenchUITests). `demoNote` reads
+    /// `tui.ready` once it is up, `done.notui` when it never became full screen.
+    private func holdTUI() async {
+        model.controller?.surface.sendText("vim README.md", pressReturn: true)
+        await wait(2.5)
+        note(model.isTUI ? "tui.ready" : "done.notui")
+    }
+
     /// `kbtui` (opt-in): vim, then the keyboard key pressed to show and hide
     /// the keyboard five times. `demoNote` (the `debug.terminal-demo` label) ends
     /// at `done.rz<before>-<after>`: the PTY resizes sent before and after.
@@ -520,6 +553,34 @@ final class TerminalDemoDriver {
         }
         await wait(0.5)
         note("done.rz\(before)-\(model.ptyResizesSent)")
+    }
+
+    /// `projection` (opt-in): a shell on a Mac pane of 120x40
+    /// (`MacPaneMockSession`). The keyboard is shown and hidden; then the
+    /// UI test switches apps and rotates the phone while `demoNote` keeps
+    /// `p.<stage>.mac<PTY resizes>.wide<wide grids>.rs<mirror resets>`
+    /// current (TerminalProjectionUITests).
+    private func projection() async {
+        let mac = model.session.underlyingSession as? MacPaneMockSession
+        func counters(_ stage: String) {
+            note("p.\(stage).mac\(mac?.ptyResizes ?? -1).wide\(model.wideGridsShown).rs\(model.mirrorResets).ret\(model.lastReturnMs)"
+                + ".nar\(model.narrowKeyboardFrames).kbb\(model.keyboardBounces)")
+        }
+        counters("attach")
+        await wait(1)
+        counters("kbstart")
+        model.toggleKeyboard()
+        await wait(1.6)
+        counters("kbup")
+        await wait(1)
+        model.toggleKeyboard()
+        await wait(1.6)
+        counters("kb")
+        await wait(0.5)
+        for _ in 0..<600 {
+            counters("live")
+            await wait(0.25)
+        }
     }
 
     private func note(_ label: String) {

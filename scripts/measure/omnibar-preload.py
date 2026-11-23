@@ -133,7 +133,9 @@ def type_then_enter(text, settle=0.0):
     call("debug.omnibar_type", {"text": text, "commit": False})
     wait(lambda: omnibar().get("phase") == "editing" and omnibar().get("rows"), 10, 0.05)
     if settle:
-        time.sleep(settle)  # the predictor's prerender loads while the tab still shows about:blank
+        # sleep-ok: the dwell between the popup and Return is the arm's parameter (--settle, reported as settle_s):
+        # the predictor's prerender loads while the tab still shows about:blank, as when a person pauses before Enter.
+        time.sleep(settle)
     global LAST_FIELD, LAST_PRELOAD
     report = omnibar()
     LAST_FIELD, LAST_PRELOAD = report.get("field_text"), report.get("preload")
