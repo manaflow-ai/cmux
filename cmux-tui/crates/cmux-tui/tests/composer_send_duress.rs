@@ -71,6 +71,14 @@ const RETAPS: u32 = 3;
 /// After the last tap, how long a scenario may take to settle.
 const SETTLE: Duration = Duration::from_secs(150);
 
+/// To the process's stderr itself: the libtest harness captures `eprintln!` from a passing test
+/// (the hosted `cargo test` shows none of it), not a write to `std::io::stderr()`.
+macro_rules! say {
+    ($($arg:tt)*) => {{
+        let _ = writeln!(std::io::stderr(), $($arg)*);
+    }};
+}
+
 fn env_u64(name: &str, default: u64) -> u64 {
     std::env::var(name).ok().and_then(|value| value.trim().parse().ok()).unwrap_or(default)
 }
@@ -979,7 +987,7 @@ async fn scenario(
             break;
         }
         if now > bound {
-            eprintln!("composer-send {} {}: not settled at the bound", cond.name(), policy.name());
+            say!("composer-send {} {}: not settled at the bound", cond.name(), policy.name());
             break;
         }
         let item = match conn.as_mut() {
@@ -1086,7 +1094,7 @@ fn run(policies: &[Policy], sends: usize) -> Vec<Row> {
     for ((mut row, fate), (_, _, surface, log)) in results.into_iter().zip(&plan) {
         let text = daemon.sentinel(*surface, log);
         classify(&mut row, &text, &fate);
-        eprintln!(
+        say!(
             "COMPOSER-SEND {}",
             json!({"condition": row.cond, "policy": row.policy, "sends": row.sends,
                 "applied_once": row.applied_once, "text_without_submit": row.text_without_submit,
@@ -1103,8 +1111,8 @@ fn run(policies: &[Policy], sends: usize) -> Vec<Row> {
 }
 
 fn print_table(rows: &[Row], policies: &[Policy], sends: usize) {
-    eprintln!();
-    eprintln!(
+    say!();
+    say!(
         "composer Send under duress, per {sends} Sends: tws = text without submit, dbl = double submit, lost = lost both, NS = told not sent, MS = told maybe sent"
     );
     let mut header = format!("{:<10}", "condition");
@@ -1119,7 +1127,7 @@ fn print_table(rows: &[Row], policies: &[Policy], sends: usize) {
             "MS"
         ));
     }
-    eprintln!("{header}");
+    say!("{header}");
     for cond in CONDS {
         let mut line = format!("{:<10}", cond.name());
         for policy in policies {
@@ -1138,9 +1146,9 @@ fn print_table(rows: &[Row], policies: &[Policy], sends: usize) {
                 row.told_maybe_sent
             ));
         }
-        eprintln!("{line}");
+        say!("{line}");
     }
-    eprintln!();
+    say!();
 }
 
 #[test]
@@ -1165,7 +1173,7 @@ fn composer_send_duress_table() {
     let started = Instant::now();
     let rows = run(&policies, sends);
     print_table(&rows, &policies, sends);
-    eprintln!("composer_send_duress_table: {:.1} s", started.elapsed().as_secs_f64());
+    say!("composer_send_duress_table: {:.1} s", started.elapsed().as_secs_f64());
 }
 
 /// The outbox (or `COMPOSER_SEND_POLICY=legacy`) on every condition: no text without its
@@ -1180,7 +1188,7 @@ fn composer_send_duress_holds() {
     let started = Instant::now();
     let rows = run(&[policy], sends);
     print_table(&rows, &[policy], sends);
-    eprintln!("composer_send_duress_holds: {:.1} s", started.elapsed().as_secs_f64());
+    say!("composer_send_duress_holds: {:.1} s", started.elapsed().as_secs_f64());
     let bad: Vec<String> = rows
         .iter()
         .filter(|r| r.text_without_submit > 0 || r.double_submit > 0 || r.lost_unreported > 0)
