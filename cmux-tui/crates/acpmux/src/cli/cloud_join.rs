@@ -313,6 +313,20 @@ fn active_join_at(home: &std::path::Path) -> Option<MachineCredential> {
     Some(record)
 }
 
+/// This box's node key as its hub knows it (`wgPublicKey`, the hub's `daemonId`), for a join
+/// [`joined_device_at`] counts as live: the route another machine of the account dials this one
+/// by (`--via-machine KEY`). A cmux Remote invitation carries it (`via_machine`), so redeeming one
+/// elsewhere needs no key passed by hand. None for a box that is not joined.
+pub fn joined_node_key_at(home: &std::path::Path) -> Option<String> {
+    joined_device_at(home)?;
+    let key = load_at(home).ok().flatten()?.wg_public_key;
+    use base64::Engine;
+    base64::engine::general_purpose::STANDARD
+        .decode(&key)
+        .is_ok_and(|bytes| bytes.len() == 32)
+        .then_some(key)
+}
+
 /// [`copied_from_another_box_at`], as the box whose fingerprint is `current`. A record that
 /// cannot be read counts as no join (the daemon's own check reports it).
 ///
