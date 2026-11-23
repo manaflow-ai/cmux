@@ -27,7 +27,7 @@ public struct CEFChatRendererRecycle {
     /// The least time before another try once a page stopped one after its captures began (each try thaws every chat).
     public static let retryAfterAbort: Duration = .seconds(120)
     /// The input-free time after which the person counts as away while the app is active.
-    public static let idleInput: TimeInterval = 30
+    public static let idleInput: Double = 30
     /// How long the old renderer gets to exit once its last page closed; the chats are built again after it either way.
     public static let exitLimit: Duration = .seconds(3)
     /// The pages' origin (``CEFRendererPage/origin``).
@@ -70,7 +70,7 @@ public struct CEFChatRendererRecycle {
     }
 
     /// The person is away: no input for ``idleInput``, or the app is not active.
-    public static func personIdle(secondsSinceInput: TimeInterval, appActive: Bool) -> Bool {
+    public static func personIdle(secondsSinceInput: Double, appActive: Bool) -> Bool {
         !appActive || secondsSinceInput >= idleInput
     }
 
