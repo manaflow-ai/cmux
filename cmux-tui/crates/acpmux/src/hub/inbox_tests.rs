@@ -1516,7 +1516,7 @@ async fn a_status_is_held_and_then_delivered_on_the_next_turn() {
 /// A held status wakes the chat by itself at the flush, under the 20-minute ceiling.
 #[tokio::test]
 async fn a_held_status_wakes_the_chat_by_itself_within_twenty_minutes() {
-    assert!(FLUSH_MS <= 20 * 60 * 1000);
+    const { assert!(FLUSH_MS <= 20 * 60 * 1000) };
     let (hub, session) = hub_with_chat("coord-ceiling");
     let folds = page_rule::Folds::default();
     let at = now_ms().saturating_sub(FLUSH_MS + 1);
