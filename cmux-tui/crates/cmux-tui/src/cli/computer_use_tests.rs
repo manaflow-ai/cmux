@@ -70,6 +70,37 @@ fn bad_commands_are_usage_errors() {
 }
 
 #[test]
+fn the_alerts_commands_parse() {
+    let list = |machine: Option<&str>| Request::Call {
+        tool: "list_alerts".into(),
+        args: json!({}),
+        machine: machine.map(str::to_owned),
+    };
+    assert_eq!(parse(&words("alerts")).unwrap(), list(None));
+    assert_eq!(parse(&words("alerts --json")).unwrap(), list(None));
+    assert_eq!(parse(&words("alerts --json --machine studio")).unwrap(), list(Some("studio")));
+    let args: Vec<String> =
+        ["alerts", "dismiss", "96", "--button", "Not Now", "--machine", "studio"]
+            .iter()
+            .map(|w| (*w).to_owned())
+            .collect();
+    assert_eq!(
+        parse(&args).unwrap(),
+        Request::Call {
+            tool: "dismiss_alert".into(),
+            args: json!({"alert_id": "96", "button": "Not Now"}),
+            machine: Some("studio".into()),
+        }
+    );
+    // No button named, no alert named, or a flag nobody knows: usage errors.
+    assert!(parse(&words("alerts dismiss 96")).is_err());
+    assert!(parse(&words("alerts dismiss --button OK")).is_err());
+    assert!(parse(&words("alerts dismiss")).is_err());
+    assert!(parse(&words("alerts dismiss 96 --button OK --force yes")).is_err());
+    assert!(parse(&words("alerts --all")).is_err());
+}
+
+#[test]
 fn displays_doctor_and_display_screenshots_parse() {
     assert_eq!(
         parse(&words("displays --machine studio")).unwrap(),
