@@ -64,15 +64,19 @@ def secret_route_failure(route):
         return "runs-on does not gate LINUX_RUNNER on the ephemeral mirror"
     if set(json.loads(match[1])) != LINUX_EPHEMERAL:
         return f"mirror is {sorted(json.loads(match[1]))}, not {sorted(LINUX_EPHEMERAL)}"
-    if not route.endswith("|| fromJSON(vars.RUNNER_POOLS).linux_8 }}"):
-        return "runs-on does not fall back to linux_8"
+    # linux_4 is the ephemeral_only pool a write-token job reads (tests/test_ci_ephemeral_pool_readers.py).
+    if not route.endswith(("|| fromJSON(vars.RUNNER_POOLS).linux_8 }}", "|| fromJSON(vars.RUNNER_POOLS).linux_4 }}")):
+        return "runs-on does not fall back to linux_8 or linux_4"
     return None
 
 
 class SecretRouteBoundary(unittest.TestCase):
     def test_routing_keys_never_follow_the_secretless_pool(self):
         root = WORKFLOW_ROOT
-        for name, job in (("ci.yml", "changes"), ("cmux-next-ios-kit.yml", "runner")):
+        # ci.yml's `changes` mints only a GitHub App token for API reads (no signing, notarization or release
+        # secret); Linux CI is one persistent pool (hq decisions/junctions.md 2026-11-20), so it names cmux-linux
+        # past its fork branch (test_changes_router_takes_the_persistent_linux_pool in tests/test_ci_runner_set.py).
+        for name, job in (("cmux-next-ios-kit.yml", "runner"),):
             with self.subTest(workflow=name, job=job):
                 text = (root / ".github/workflows" / name).read_text()
                 block = text.split(f"\n  {job}:\n", 1)[1]
@@ -175,7 +179,7 @@ class SecretRouteBoundary(unittest.TestCase):
     def test_backend_migration_push_guard_keeps_the_secretless_fleet_route(self):
         path = WORKFLOW_ROOT / ".github/workflows/backend.yml"
         route = workflow_jobs.runs_on(workflow_jobs.jobs(path)["migrations-push-guard"])
-        self.assertIn("fromJSON(vars.RUNNER_POOLS).linux", route)
+        self.assertTrue(route.endswith("'cmux-linux' }}"), route)
 
 
 @unittest.skipUnless(POLICY_ROOT, "set RUNNER_POOL_POLICY_ROOT to main's checked-out policy")
