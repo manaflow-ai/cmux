@@ -9,6 +9,19 @@ mod daemon_env;
 // This process runs stand-in agents (the fake agents under tests/).
 const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
 
+// Who may call the Auto methods.
+#[path = "auto_session/access.rs"]
+mod access;
+// A second connection to a rig's daemon.
+#[path = "auto_session/client.rs"]
+mod client;
+// The kept changes: Apply, Discard, and two requests for one chat.
+#[path = "auto_session/leftover.rs"]
+mod leftover;
+// Auto on and Keep in Cloud answered from the store's answer.
+#[path = "auto_session/switch.rs"]
+mod switch;
+
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::{Arc, Mutex};
@@ -138,6 +151,11 @@ struct Rig {
 
 impl Rig {
     async fn new() -> Rig {
+        Rig::as_device(DEVICE).await
+    }
+
+    /// The laptop daemon of the device named `device`, as it says its name to the store.
+    async fn as_device(device: &str) -> Rig {
         let root = tempfile::tempdir().unwrap();
         let work = checkout(root.path());
         let wire_log = root.path().join("wire.log");
@@ -158,7 +176,7 @@ impl Rig {
         cloud.set_now(T0);
         let clock = ManualClock::new(T0);
         let importer = Arc::new(StubImporter::default());
-        let me = Holder::device(DEVICE);
+        let me = Holder::device(device);
         let options = HolderOptions { clock: clock.clone(), network: None, new_chats: None };
         let holder = spawn_holder_with(
             hub.clone(),

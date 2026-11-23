@@ -6,10 +6,13 @@
 //!   a tar), its queue, draft and open turn in one manifest, posted after its events.
 //! - [`leftover`]: what the folder holds beyond the last snapshot the store acknowledged, once
 //!   another holder runs the chat.
+//! - [`apply`]: that patch going into the folder when the person says so, merged beside the
+//!   folder so uncommitted work and the index stay as they are.
 //!
 //! [`copy`] is one whole copy, in the order the store needs: the events, then the snapshot that
 //! covers them.
 
+pub(crate) mod apply;
 pub(crate) mod events;
 pub(crate) mod folder;
 pub(crate) mod leftover;

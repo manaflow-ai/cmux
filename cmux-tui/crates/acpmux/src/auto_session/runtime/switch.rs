@@ -8,7 +8,7 @@ use cmux_auto_session::wire::{ErrorCode, InboxPost, SessionView};
 use serde_json::{Value, json};
 
 use super::Reply;
-use super::chats::{Tracked, auto};
+use super::chats::{Opening, Tracked, auto};
 use super::run::Loop;
 use super::tasks::{cloud_error, row};
 use crate::auto_session::record::AutoRecord;
@@ -33,7 +33,7 @@ pub(super) fn message_id(prompt_id: Option<&str>) -> String {
     }
 }
 
-fn answer(reply: Option<Reply>, result: Result<Value, RpcError>) {
+pub(super) fn answer(reply: Option<Reply>, result: Result<Value, RpcError>) {
     if let Some(reply) = reply {
         // Whoever asked may have gone.
         let _ = reply.send(result);
@@ -70,8 +70,9 @@ fn fresh_record(old: Option<AutoRecord>, keep: Option<bool>) -> AutoRecord {
 }
 
 impl<C: AutoCloud + 'static> Loop<C> {
-    /// Auto on or off for a chat. On answers at once: the chat goes on running here while the
-    /// store is told. Off answers once the store closed the chat, or refused.
+    /// Auto on or off for a chat. The chat goes on running here while the store is told, and
+    /// the request is answered from the store's answer: on, once the registration was answered
+    /// (`register.rs`); off, once the store closed the chat, or refused.
     pub(super) async fn switch(
         &mut self,
         id: &str,
@@ -91,17 +92,20 @@ impl<C: AutoCloud + 'static> Loop<C> {
             (true, false) => {
                 self.hub.update_auto_record(&session, |old| Some(fresh_record(old, keep)));
                 let now = self.now();
-                self.chats.insert(id.to_owned(), Tracked::new(Chat::new(Side::Laptop, now)));
+                let mut tracked = Tracked::new(Chat::new(Side::Laptop, now));
+                // Whoever still waits on the chat as it was waits on it as it is now.
+                if let Some(old) = self.chats.remove(id) {
+                    tracked.opening = old.opening;
+                    tracked.closing = old.closing;
+                }
+                if let Some(reply) = reply {
+                    tracked.opening.push(Opening { reply, keep });
+                }
+                self.chats.insert(id.to_owned(), tracked);
                 self.step(id, Event::AutoOn).await;
                 self.read_work(id, None);
-                answer(reply, Ok(row(&self.hub, id)));
             }
-            (true, true) => {
-                if let Some(keep) = keep {
-                    self.keep(id, keep);
-                }
-                answer(reply, Ok(row(&self.hub, id)));
-            }
+            (true, true) => self.keep(id, keep, reply),
             (false, false) => answer(reply, Ok(row(&self.hub, id))),
             (false, true) => {
                 if let (Some(tracked), Some(reply)) = (self.chats.get_mut(id), reply) {
@@ -112,42 +116,64 @@ impl<C: AutoCloud + 'static> Loop<C> {
         }
     }
 
-    /// Whether the chat stays in the Cloud when this machine returns: the row says so at once,
-    /// and the store's answer settles it.
-    fn keep(&mut self, id: &str, keep: bool) {
-        let Some(tracked) = self.chats.get_mut(id) else { return };
-        let known = tracked.view.as_ref().map(|view| view.keep_in_cloud);
-        if known == Some(keep) {
+    /// Auto on for a chat that has it on: the request may say whether the chat stays in the
+    /// Cloud when this machine returns. The store is asked first. Nothing changes here until it
+    /// answered, and its answer is the request's ([`Self::kept`]).
+    fn keep(&mut self, id: &str, keep: Option<bool>, reply: Option<Reply>) {
+        let Some(tracked) = self.chats.get_mut(id) else {
+            return answer(reply, Ok(row(&self.hub, id)));
+        };
+        if matches!(tracked.chat.state, State::Registering) {
+            // The store does not have the chat yet. The next registration says what the record
+            // says, and a registration's answer answers this request (`register.rs`).
+            if let Some(reply) = reply {
+                tracked.opening.push(Opening { reply, keep });
+            }
+            if let (Some(keep), Some(session)) = (keep, self.hub.auto_session(id)) {
+                self.hub.update_auto_record(&session, |old| {
+                    old.map(|record| AutoRecord { keep_in_cloud: keep, ..record })
+                });
+            }
             return;
         }
-        if let Some(view) = tracked.view.as_mut() {
-            view.keep_in_cloud = keep;
+        let known = tracked.view.as_ref().map(|view| view.keep_in_cloud);
+        match keep {
+            Some(keep) if known != Some(keep) => self.ask_keep(id, keep, reply),
+            Some(_) | None => answer(reply, Ok(row(&self.hub, id))),
         }
-        if let Some(session) = self.hub.auto_session(id) {
-            self.hub.update_auto_record(&session, |old| {
-                old.map(|record| AutoRecord { keep_in_cloud: keep, ..record })
-            });
-        }
-        // A chat the store does not have yet says it when it registers.
-        if !matches!(tracked.chat.state, State::Registering) {
-            self.ctx.start("auto-session keep", self.ctx.clone().keep(id.to_owned(), keep));
-        }
-        self.sync(id);
     }
 
-    /// The store answered whether the chat stays in the Cloud.
-    pub(super) fn kept(&mut self, id: &str, result: Result<SessionView, AutoCloudError>) {
-        match result {
-            Ok(view) => {
-                if let Some(tracked) = self.chats.get_mut(id) {
-                    tracked.note_view(view);
-                }
-                self.sync(id);
-            }
+    /// Asks the store to keep the chat in the Cloud, or to stop keeping it. `reply` is answered
+    /// with what the store says.
+    pub(super) fn ask_keep(&self, id: &str, keep: bool, reply: Option<Reply>) {
+        self.ctx.start("auto-session keep", self.ctx.clone().keep(id.to_owned(), keep, reply));
+    }
+
+    /// The store answered whether the chat stays in the Cloud. The row and the record follow
+    /// the store: its view on a yes, the view a refusal carried, and otherwise what they were.
+    /// Whoever asked gets the row, or the store's refusal.
+    pub(super) fn kept(
+        &mut self,
+        id: &str,
+        result: Result<SessionView, AutoCloudError>,
+        reply: Option<Reply>,
+    ) {
+        let (view, refused) = match result {
+            Ok(view) => (Some(view), None),
             Err(error) => {
                 tracing::warn!(session = %id, "auto session: keep in the Cloud not set: {error}");
+                (error.session().cloned(), Some(error))
             }
+        };
+        if let (Some(tracked), Some(view)) = (self.chats.get_mut(id), view) {
+            tracked.note_view(view);
         }
+        self.sync(id);
+        let result = match &refused {
+            None => Ok(row(&self.hub, id)),
+            Some(error) => Err(cloud_error(error)),
+        };
+        answer(reply, result);
     }
 
     /// The store answered Auto off. A refusal (`auto.held_in_cloud`: the Cloud has something

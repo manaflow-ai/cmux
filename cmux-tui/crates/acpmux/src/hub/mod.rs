@@ -1074,6 +1074,8 @@ pub struct Hub {
     /// Auto mode's holder loop, once this daemon started one (`auto_session::spawn_holder`):
     /// what the Auto methods and a prompt to a chat another holder runs reach it through.
     pub(crate) auto_holder: std::sync::OnceLock<crate::auto_session::HolderHandle>,
+    /// Whose turn it is to run git in an Auto chat's folder (`auto_session/turns.rs`).
+    pub(crate) auto_turns: crate::auto_session::turns::Turns,
     /// Each peer session's events as this daemon saw them, kept on disk
     /// (`peer_snapshot.rs`): a paused or offline peer's chat paints from it.
     pub(super) peer_snapshots: peer_snapshot::PeerSnapshots,
@@ -1616,6 +1618,7 @@ impl Hub {
             github_owners: Default::default(),
             github_app: Default::default(),
             auto_holder: std::sync::OnceLock::new(),
+            auto_turns: Default::default(),
             peer_snapshots,
             peer_notices,
             peer_wake,

@@ -9,6 +9,7 @@ use cmux_auto_session::wire::{self, Blocked, OpenTool, SessionView};
 
 use super::Reply;
 use super::run::Loop;
+use super::tasks::row;
 use crate::auto_session::record::AutoRecord;
 
 /// One thing a chat does in order, after the one before it ended.
@@ -34,6 +35,14 @@ pub(super) enum WorkRead {
     Reading { again: Option<Option<Change>> },
 }
 
+/// A request that switched Auto on and waits for the store's answer to the registration.
+pub(super) struct Opening {
+    pub reply: Reply,
+    /// Whether the request said the chat stays in the Cloud. The store is asked for it once
+    /// it has the chat, when the registration's answer says otherwise.
+    pub keep: Option<bool>,
+}
+
 /// One Auto chat, as the loop keeps it.
 pub(super) struct Tracked {
     pub chat: Chat,
@@ -52,6 +61,8 @@ pub(super) struct Tracked {
     pub lane_busy: bool,
     /// Who waits for the store's answer to Auto off.
     pub closing: Vec<Reply>,
+    /// Who waits for the store's answer to Auto on (`register.rs`).
+    pub opening: Vec<Opening>,
     /// The tool call in flight, for a snapshot's open turn.
     pub tool: Option<OpenTool>,
     /// When a streaming turn was last told to the state machine.
@@ -79,6 +90,7 @@ impl Tracked {
             lane: VecDeque::new(),
             lane_busy: false,
             closing: Vec::new(),
+            opening: Vec::new(),
             tool: None,
             streamed_at: 0,
             work: WorkRead::Idle,
@@ -153,9 +165,17 @@ impl<C: AutoCloud + 'static> Loop<C> {
         self.hub.update_auto_record(&session, |old| record_of(tracked, old));
     }
 
-    /// Drops a chat the loop has nothing left to do for.
+    /// Drops a chat the loop has nothing left to do for. Auto went off while a request waited
+    /// for it to come on: no registration answers that request any more, so the row does.
     pub(super) fn forget_spent(&mut self, id: &str) {
-        if self.chats.get(id).is_some_and(Tracked::spent) {
+        let Some(tracked) = self.chats.get_mut(id) else { return };
+        if matches!(tracked.chat.state, State::Off) {
+            for Opening { reply, .. } in std::mem::take(&mut tracked.opening) {
+                // Whoever asked may have gone.
+                let _ = reply.send(Ok(row(&self.hub, id)));
+            }
+        }
+        if tracked.spent() {
             self.chats.remove(id);
         }
     }
