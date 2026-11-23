@@ -343,7 +343,7 @@ fn collapsing_separators(entries: Vec<Entry>) -> Vec<Entry> {
                 }
             }
             Entry::Folder(folder, children) => {
-                result.push(Entry::Folder(folder, collapsing_separators(children)))
+                result.push(Entry::Folder(folder, collapsing_separators(children)));
             }
             other => result.push(other),
         }
