@@ -2,7 +2,9 @@
 //! Back Local and a chat start's machine steps. The app runs the cmux-tui CLIs and git, reads its
 //! defaults and the disk, observes its main-actor state, and asks here what each means.
 
-use cmux_cloud_start_core::moves::{autosize, cli, folder, ledger, pin, seed, targets, wait};
+use cmux_cloud_start_core::moves::{
+    autosize, cli, folder, ledger, pin, place, seed, targets, wait,
+};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -489,6 +491,71 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
         b"cloud_move_plan_request" => {
             let facts: wait::PlanFacts = read(request)?;
             json!({ "request": wait::plan_request(&facts) })
+        }
+        // Where a chat runs and moving it (`moves/place.rs`): the move's state machine and its
+        // view, the Auto rule, Evacuate's plan and the own-VM pick.
+        b"cloud_move_place_reduce" => {
+            #[derive(Deserialize)]
+            struct Request {
+                flow: Option<place::Flow>,
+                event: place::Event,
+            }
+            let request: Request = read(request)?;
+            let (flow, next) = place::reduce(request.flow, request.event);
+            json!({ "flow": flow, "next": next })
+        }
+        b"cloud_move_place_view" => {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct Request {
+                flow: place::Flow,
+                now_ms: u64,
+            }
+            let request: Request = read(request)?;
+            to_value(place::view(&request.flow, request.now_ms))?
+        }
+        b"cloud_move_place_auto" => {
+            #[derive(Deserialize)]
+            struct Request {
+                mode: place::Mode,
+                chat: place::ChatState,
+                signals: place::Signals,
+            }
+            let request: Request = read(request)?;
+            to_value(place::auto(request.mode, &request.chat, &request.signals))?
+        }
+        b"cloud_move_place_evacuate" => {
+            #[derive(Deserialize)]
+            struct Request {
+                chats: Vec<place::EvacuateChat>,
+                #[serde(default)]
+                selected: Option<Vec<String>>,
+            }
+            let request: Request = read(request)?;
+            to_value(place::evacuate(&request.chats, request.selected.as_deref()))?
+        }
+        b"cloud_move_place_own_machine" => {
+            #[derive(Deserialize)]
+            struct Request {
+                session: String,
+                #[serde(default)]
+                before: Option<String>,
+                #[serde(default)]
+                machines: Vec<place::Machine>,
+            }
+            let request: Request = read(request)?;
+            to_value(place::own_machine(
+                &request.session,
+                request.before.as_deref(),
+                &request.machines,
+            ))?
+        }
+        b"cloud_move_place_steps" => {
+            let steps: Vec<_> = place::Step::ALL
+                .iter()
+                .map(|step| json!({ "step": step.name(), "cancellable": step.cancellable(), "landed": step.landed(), "agentMovePhases": step.agent_move_phases() }))
+                .collect();
+            json!({ "steps": steps, "budgetMs": place::BUDGET_MS })
         }
         _ => return Err(ERR_INVALID),
     };
