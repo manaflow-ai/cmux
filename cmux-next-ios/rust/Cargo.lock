@@ -489,6 +489,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-fault"
+version = "0.1.0"
+dependencies = [
+ "cmux-scope",
+ "libc",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "cmux-follow-cam"
 version = "0.1.0"
 dependencies = [
@@ -510,6 +521,7 @@ dependencies = [
  "base64",
  "bytes",
  "cmux-build-space",
+ "cmux-fault",
  "cmux-message-preview",
  "cmux-mobile-link",
  "cmux-rd-core",
@@ -575,7 +587,7 @@ dependencies = [
 name = "cmux-mobile-link-ffi"
 version = "0.1.0"
 dependencies = [
- "base64 0.22.1",
+ "base64",
  "cmux-follow-cam",
  "cmux-mobile-host",
  "cmux-mobile-link",
@@ -647,6 +659,15 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "cmux-scope"
+version = "0.1.0"
+dependencies = [
+ "tokio",
+ "tokio-util",
+ "tracing",
 ]
 
 [[package]]
