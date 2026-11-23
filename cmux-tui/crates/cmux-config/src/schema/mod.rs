@@ -181,6 +181,9 @@ pub enum DomainKind {
     /// tokens, each in its range (`crate::transcript_look`; Swift
     /// `TranscriptTokensSetting.accepts` checks the shape only).
     TranscriptTokens,
+    /// `machines.hosts`: a list of hosts, each a label and the ssh endpoints
+    /// tried in order (`crate::hosts`; Swift `HostsSetting.accepts`).
+    Hosts,
     /// `tabs.newTabApp`: an id an app manifest may have
     /// (`app_id::is_valid_app_id`, the manifest schema's pattern; Swift `NewTabAppSetting.isValidID`).
     AppId,
@@ -458,6 +461,7 @@ fn row(raw: Value, text: RowText) -> Result<Row, String> {
         "domain:app_id" => Validation::Domain(DomainKind::AppId),
         "domain:transcript_tokens" => Validation::Domain(DomainKind::TranscriptTokens),
         "domain:sidebar_section_ids" => Validation::Domain(DomainKind::SidebarSectionIds),
+        "domain:hosts" => Validation::Domain(DomainKind::Hosts),
         other => return Err(format!("{}: unknown validation {other}", parsed.key)),
     };
     Ok(Row {

@@ -26,6 +26,7 @@ extension SettingDescriptor {
         if path == SidebarSectionIDsSetting.sectionsHiddenPath || path == SidebarSectionIDsSetting.sectionsOrderPath {
             return SidebarSectionIDsSetting.accepts(value)
         }
+        if path == HostsSetting.configPath { return HostsSetting.accepts(value) }
         if path == ThemeFileSetting.configPath { return value.stringValue.map(ThemeFileSetting.isValidName) ?? false }
         if path == BackdropSelectionSetting.lightPath || path == BackdropSelectionSetting.darkPath {
             return BackdropSelectionSetting.acceptsPicture(value)

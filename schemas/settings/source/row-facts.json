@@ -29,7 +29,8 @@
       "tabs.newTabApp": "domain:app_id",
       "agentPane.display.transcriptTokens": "domain:transcript_tokens",
       "sidebar.sections.hidden": "domain:sidebar_section_ids",
-      "sidebar.sections.order": "domain:sidebar_section_ids"
+      "sidebar.sections.order": "domain:sidebar_section_ids",
+      "machines.hosts": "domain:hosts"
     },
     "kinds": {
       "theme": "domain:theme",

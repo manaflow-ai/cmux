@@ -1627,6 +1627,13 @@
       ]
     },
     {
+      "agent": "network",
+      "why": "Which computers cmux dials over ssh and checks from the sidebar: the person declares a host, so an agent cannot point cmux at an address of its choosing.",
+      "keys": [
+        "machines.hosts"
+      ]
+    },
+    {
       "agent": "userOnly",
       "keys": [
         "phone.keepAwake"
