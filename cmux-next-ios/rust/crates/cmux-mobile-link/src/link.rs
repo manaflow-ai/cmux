@@ -1281,7 +1281,7 @@ impl Link {
         // queued bytes), else, or when its queue is full, in the stream.
         // A keepalive ping is not sent at all while parked.
         let mut datagram = false;
-        let first = || {
+        let mut first = || {
             datagram = self.inner.datagram_pings() && {
                 if self.inner.closed_reason().is_some() {
                     return Err(self.inner.closed_error());
