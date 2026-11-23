@@ -1,6 +1,14 @@
 import { describe, expect, test } from "bun:test";
-import { bundledIconPack, MISSING_ICON } from "../../agent-session/acpmux/icons/iconPack";
-import { SCENE_FALLBACK_ICON, SCENE_SF_SYMBOLS, appSceneIcon, appSceneIconFilled } from "./SceneSymbol";
+import {
+  bundledIconPack,
+  MISSING_ICON,
+} from "../../agent-session/acpmux/icons/iconPack";
+import {
+  SCENE_FALLBACK_ICON,
+  SCENE_SF_SYMBOLS,
+  appSceneIcon,
+  appSceneIconFilled,
+} from "./SceneSymbol";
 
 // Leo, 2026-11-16: "I still haven't seen a good weather/time/calendar thing, like apple's iOS or desktop
 // widgets". The AppKit sidebar draws these as real SF Symbols; the web scene renderer must draw a pack
@@ -99,7 +107,9 @@ describe("scene SF symbols", () => {
   }
 
   test("every mapped SF name points at a glyph the pack has", () => {
-    const dangling = Object.entries(SCENE_SF_SYMBOLS).filter(([, icon]) => !Object.hasOwn(bundledIconPack.icons, icon));
+    const dangling = Object.entries(SCENE_SF_SYMBOLS).filter(
+      ([, icon]) => !Object.hasOwn(bundledIconPack.icons, icon),
+    );
     expect(dangling).toEqual([]);
   });
 
@@ -131,13 +141,15 @@ describe("scene SF symbols", () => {
     // Already filled in Line; its Solid form is a selected swatch's ring.
     expect(appSceneIconFilled("circle.fill")).toBe(false);
     // The fallback dot never draws its Solid ring.
-    expect(appSceneIconFilled("cloud.hail.fill")).toBe(false);
+    expect(appSceneIconFilled("sunflower.fill")).toBe(false);
   });
 
   // An unmapped name (a symbol this table lacks) draws a quiet dot, never the pack's "?" box.
   test("an unknown name draws the neutral dot, not the missing-icon box", () => {
     expect(SCENE_FALLBACK_ICON).not.toBe(MISSING_ICON);
-    expect(Object.hasOwn(bundledIconPack.icons, SCENE_FALLBACK_ICON)).toBe(true);
+    expect(Object.hasOwn(bundledIconPack.icons, SCENE_FALLBACK_ICON)).toBe(
+      true,
+    );
     expect(appSceneIcon("not.a.real.sf.symbol")).toBe(SCENE_FALLBACK_ICON);
     expect(appSceneIcon("")).toBe(SCENE_FALLBACK_ICON);
   });

@@ -6,7 +6,17 @@ import { fileURLToPath } from "node:url";
 import { UiProvider } from "../../ui/UiProvider";
 import { SceneRenderer } from "./SceneRenderer";
 import { sceneGradient, sceneStyle } from "./sceneStyle";
-import { scenePalette, sceneSymbolRendering, symbolLayerPaint } from "./sceneSymbolRendering";
+import {
+  scenePalette,
+  sceneSymbolRendering,
+  symbolLayerPaint,
+} from "./sceneSymbolRendering";
+import {
+  SCENE_FALLBACK_ICON,
+  appSceneIcon,
+  resolveSceneSymbol,
+} from "./SceneSymbol";
+import { bundledIconPack } from "../../agent-session/acpmux/icons/iconPack";
 import { SceneStore, type SceneOp } from "./store";
 import { settleReact } from "../../../test/support/domTeardown";
 
@@ -29,10 +39,13 @@ afterEach(async () => {
 });
 
 function render(ops: SceneOp[]) {
-  dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", {
-    url: "http://localhost/",
-    pretendToBeVisual: true,
-  });
+  dom = new JSDOM(
+    "<!doctype html><html><body><main id=root></main></body></html>",
+    {
+      url: "http://localhost/",
+      pretendToBeVisual: true,
+    },
+  );
   const values: Record<string, unknown> = {
     window: dom.window,
     document: dom.window.document,
@@ -52,10 +65,15 @@ function render(ops: SceneOp[]) {
   }
   const container = document.getElementById("root")!;
   const clientPath = fileURLToPath(
-    new URL("./cjs/react-dom-client.development.js", import.meta.resolve("react-dom/client")),
+    new URL(
+      "./cjs/react-dom-client.development.js",
+      import.meta.resolve("react-dom/client"),
+    ),
   );
   delete require.cache[clientPath];
-  const { createRoot } = require(clientPath) as typeof import("react-dom/client");
+  const { createRoot } = require(
+    clientPath,
+  ) as typeof import("react-dom/client");
   const store = new SceneStore();
   store.apply(ops);
   root = createRoot(container);
@@ -75,22 +93,25 @@ const icon = (props: Record<string, unknown>): SceneOp[] => [
 ];
 
 const paths = (container: HTMLElement) =>
-  [...container.querySelectorAll('[data-app-node="icon"] path')].map((path) => ({
-    fill: path.getAttribute("fill"),
-    stroke: path.getAttribute("stroke"),
-    opacity: path.getAttribute("opacity"),
-  }));
+  // A Solid glyph's <mask> paths are cutouts, not painted layers.
+  [...container.querySelectorAll('[data-app-node="icon"] path')]
+    .filter((path) => !path.closest("mask"))
+    .map((path) => ({
+      fill: path.getAttribute("fill"),
+      stroke: path.getAttribute("stroke"),
+      opacity: path.getAttribute("opacity"),
+    }));
 
 test("a linear gradient becomes a CSS linear-gradient with tokens resolved and the angle normalized", () => {
   expect(sceneGradient({ linear: { colors: ["#112233", "success"] } })).toBe(
     "linear-gradient(180deg, #112233, var(--agent-status-success))",
   );
-  expect(sceneGradient({ linear: { colors: ["#112233", "#445566AA"], angle: -90 } })).toBe(
-    "linear-gradient(270deg, #112233, #445566AA)",
-  );
-  expect(sceneGradient({ radial: { colors: ["#FFCC00", "#FF9F0A", "#FF453A"] } })).toBe(
-    "radial-gradient(closest-side, #FFCC00, #FF9F0A, #FF453A)",
-  );
+  expect(
+    sceneGradient({ linear: { colors: ["#112233", "#445566AA"], angle: -90 } }),
+  ).toBe("linear-gradient(270deg, #112233, #445566AA)");
+  expect(
+    sceneGradient({ radial: { colors: ["#FFCC00", "#FF9F0A", "#FF453A"] } }),
+  ).toBe("radial-gradient(closest-side, #FFCC00, #FF9F0A, #FF453A)");
 });
 
 test("a gradient that is not exactly the documented shape is refused", () => {
@@ -102,7 +123,10 @@ test("a gradient that is not exactly the documented shape is refused", () => {
     { linear: { colors: ["#112233", "#445566"], angle: "90deg" } },
     { linear: { colors: ["#112233", "#445566"], stops: [0, 1] } },
     { radial: { colors: ["#112233", "#445566"], angle: 90 } },
-    { linear: { colors: ["#112233", "#445566"] }, radial: { colors: ["#112233", "#445566"] } },
+    {
+      linear: { colors: ["#112233", "#445566"] },
+      radial: { colors: ["#112233", "#445566"] },
+    },
     { conic: { colors: ["#112233", "#445566"] } },
     "linear-gradient(red, blue)",
     ["#112233", "#445566"],
@@ -111,13 +135,19 @@ test("a gradient that is not exactly the documented shape is refused", () => {
 });
 
 test("background takes a gradient as an image and a color as a color, never both", () => {
-  const gradient = sceneStyle({ background: { linear: { colors: ["#0B1A3A", "#3A4E86"] } } });
-  expect(gradient.backgroundImage).toBe("linear-gradient(180deg, #0B1A3A, #3A4E86)");
+  const gradient = sceneStyle({
+    background: { linear: { colors: ["#0B1A3A", "#3A4E86"] } },
+  });
+  expect(gradient.backgroundImage).toBe(
+    "linear-gradient(180deg, #0B1A3A, #3A4E86)",
+  );
   expect(gradient.backgroundColor).toBeUndefined();
   const color = sceneStyle({ background: "#0B1A3A" });
   expect(color.backgroundColor).toBe("#0B1A3A");
   expect(color.backgroundImage).toBeUndefined();
-  const bad = sceneStyle({ background: { linear: { colors: ["red", "blue"] } } });
+  const bad = sceneStyle({
+    background: { linear: { colors: ["red", "blue"] } },
+  });
   expect(bad.backgroundImage).toBeUndefined();
   expect(bad.backgroundColor).toBeUndefined();
 });
@@ -125,14 +155,23 @@ test("background takes a gradient as an image and a color as a color, never both
 test("rendering modes and palettes are validated", () => {
   expect(sceneSymbolRendering("multicolor")).toBe("multicolor");
   expect(sceneSymbolRendering("rainbow")).toBeUndefined();
-  expect(scenePalette(["#FFFFFF", "warning"])).toEqual(["#FFFFFF", "var(--agent-status-warning)"]);
+  expect(scenePalette(["#FFFFFF", "warning"])).toEqual([
+    "#FFFFFF",
+    "var(--agent-status-warning)",
+  ]);
   expect(scenePalette([])).toBeUndefined();
-  expect(scenePalette(["#FFFFFF", "#FFFFFF", "#FFFFFF", "#FFFFFF"])).toBeUndefined();
+  expect(
+    scenePalette(["#FFFFFF", "#FFFFFF", "#FFFFFF", "#FFFFFF"]),
+  ).toBeUndefined();
   expect(scenePalette(["#FFFFFF", "blue"])).toBeUndefined();
 });
 
 test("multicolor colors a layered weather glyph per layer and keeps the tint on the cloud", () => {
-  const paint = symbolLayerPaint("cloud.sun.rain.fill", "multicolor", undefined)!;
+  const paint = symbolLayerPaint(
+    "cloud.sun.rain.fill",
+    "multicolor",
+    undefined,
+  )!;
   expect([0, 1, 2, 3].map((index) => paint(index, 4))).toEqual([
     undefined,
     { color: "#FFCC00" },
@@ -141,10 +180,71 @@ test("multicolor colors a layered weather glyph per layer and keeps the tint on 
   ]);
   // A one-layer glyph keeps the tint for a layered entry and takes a one-color entry.
   expect(paint(0, 1)).toBeUndefined();
-  expect(symbolLayerPaint("sun.max.fill", "multicolor", undefined)!(0, 1)).toEqual({ color: "#FFCC00" });
+  expect(
+    symbolLayerPaint("sun.max.fill", "multicolor", undefined)!(0, 1),
+  ).toEqual({ color: "#FFCC00" });
   // A symbol with no multicolor entry draws in the tint.
   expect(symbolLayerPaint("folder", "multicolor", undefined)).toBeUndefined();
-  expect(symbolLayerPaint("sun.max.fill", "monochrome", undefined)).toBeUndefined();
+  expect(
+    symbolLayerPaint("sun.max.fill", "monochrome", undefined),
+  ).toBeUndefined();
+});
+
+test("weather SF names draw the pack's sun, crescent or cloud, not the missing-icon mark", () => {
+  const weather = [
+    "sun.max",
+    "sun.max.fill",
+    "sun.min",
+    "sunrise.fill",
+    "sunset",
+    "moon",
+    "moon.fill",
+    "moon.stars.fill",
+    "cloud.fill",
+    "cloud.sun.fill",
+    "cloud.sun.rain.fill",
+    "cloud.sun.bolt",
+    "cloud.rain",
+    "cloud.drizzle.fill",
+    "cloud.heavyrain.fill",
+    "cloud.bolt.rain.fill",
+    "cloud.hail",
+    "cloud.sleet.fill",
+    "cloud.snow.fill",
+    "cloud.moon.fill",
+    "cloud.moon.rain.fill",
+    "cloud.fog",
+  ];
+  for (const name of weather)
+    expect([name, appSceneIcon(name)]).not.toEqual([name, "icon.missing"]);
+  // A real pack glyph wins over a stand-in, and keeps the SF name for multicolor.
+  expect(resolveSceneSymbol(bundledIconPack.icons, "sun.max.fill")).toEqual({
+    name: "appearance.light",
+    paintAs: "sun.max.fill",
+  });
+  expect(resolveSceneSymbol(bundledIconPack.icons, "moon.stars.fill")).toEqual({
+    name: "weather.moon.stars",
+    paintAs: "moon.stars.fill",
+  });
+  expect(
+    resolveSceneSymbol(bundledIconPack.icons, "cloud.sun.rain.fill"),
+  ).toEqual({
+    name: "weather.cloud.rain",
+    paintAs: "cloud.sun.rain.fill",
+  });
+  // A weather name with no glyph of its own falls back to a stand-in.
+  expect(resolveSceneSymbol(bundledIconPack.icons, "cloud.hail")).toEqual({
+    name: "cloud",
+    paintAs: "cloud",
+  });
+  // The stand-in sun is yellow in multicolor; a stand-in cloud keeps the tint (its rain is not drawn).
+  expect(symbolLayerPaint("sun.max", "multicolor", undefined)!(0, 2)).toEqual({
+    color: "#FFCC00",
+  });
+  expect(symbolLayerPaint("cloud", "multicolor", undefined)).toBeUndefined();
+  // Names that only look like weather still miss.
+  expect(appSceneIcon("cloud.sun.rain.fill.extra")).toBe(SCENE_FALLBACK_ICON);
+  expect(appSceneIcon("sunflower")).toBe(SCENE_FALLBACK_ICON);
 });
 
 test("hierarchical lowers later layers' opacity; palette colors layers in order, the last repeating", () => {
@@ -156,7 +256,10 @@ test("hierarchical lowers later layers' opacity; palette colors layers in order,
     { opacity: 0.25 },
   ]);
   expect(hierarchical(0, 1)).toBeUndefined();
-  const palette = symbolLayerPaint("account", "palette", ["#FFFFFF", "#FFCC00"])!;
+  const palette = symbolLayerPaint("account", "palette", [
+    "#FFFFFF",
+    "#FFCC00",
+  ])!;
   expect([0, 1, 2].map((index) => palette(index, 3))).toEqual([
     { color: "#FFFFFF" },
     { color: "#FFCC00" },
@@ -167,15 +270,36 @@ test("hierarchical lowers later layers' opacity; palette colors layers in order,
 
 test("an Icon draws its layers in the palette, and multicolor through the SF name's pack glyph", () => {
   const palette = paths(
-    render(icon({ symbol: "account", symbolRendering: "palette", symbolColors: ["#FFFFFF", "#FFCC00", "#0A84FF"] })),
+    render(
+      icon({
+        symbol: "account",
+        symbolRendering: "palette",
+        symbolColors: ["#FFFFFF", "#FFCC00", "#0A84FF"],
+      }),
+    ),
   );
-  expect(palette.map((path) => path.stroke)).toEqual(["#FFFFFF", "#FFCC00", "#0A84FF"]);
+  expect(palette.map((path) => path.stroke)).toEqual([
+    "#FFFFFF",
+    "#FFCC00",
+    "#0A84FF",
+  ]);
 });
 
 test("multicolor on a mapped SF name colors the pack glyph; monochrome keeps currentColor", () => {
-  const multicolor = paths(render(icon({ symbol: "exclamationmark.triangle.fill", symbolRendering: "multicolor" })));
+  const multicolor = paths(
+    render(
+      icon({
+        symbol: "exclamationmark.triangle.fill",
+        symbolRendering: "multicolor",
+      }),
+    ),
+  );
   expect(multicolor.length).toBeGreaterThan(1);
-  expect(multicolor.every((path) => (path.fill === "none" ? path.stroke : path.fill) === "#FFCC00")).toBe(true);
+  expect(
+    multicolor.every(
+      (path) => (path.fill === "none" ? path.stroke : path.fill) === "#FFCC00",
+    ),
+  ).toBe(true);
 });
 
 test("monochrome and an unknown mode draw every layer in the tint", () => {
@@ -188,7 +312,9 @@ test("monochrome and an unknown mode draw every layer in the tint", () => {
 });
 
 test("hierarchical on a rendered Icon fades its second and third layers", () => {
-  const drawn = paths(render(icon({ symbol: "account", symbolRendering: "hierarchical" })));
+  const drawn = paths(
+    render(icon({ symbol: "account", symbolRendering: "hierarchical" })),
+  );
   expect(drawn.map((path) => path.opacity)).toEqual(["1", "0.5", "0.25"]);
 });
 
