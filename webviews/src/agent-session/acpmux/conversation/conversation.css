@@ -3980,7 +3980,7 @@ button.cv-tool:not(.cv-sent, :disabled):is(:hover, :focus-visible):not(:has(.cv-
   height: var(--cv-tool-row-height);
 }
 .acpmux-row .cv-tool.is-whole-open[aria-expanded="true"] > .cv-tool__text {
-  padding-block: calc((var(--cv-tool-row-height) - 20px) / 2);
+  padding-block: calc((var(--cv-tool-row-height) - 1lh) / 2);
 }
 .acpmux-row .cv-tool.is-whole-open[aria-expanded="true"] > .cv-tool__chevron {
   margin-block: calc((var(--cv-tool-row-height) - var(--cv-chevron-glyph)) / 2);
