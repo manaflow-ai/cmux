@@ -538,3 +538,129 @@ fn a_push_target_is_the_configured_store_or_the_url_with_the_s3_keys() {
     assert!(no_keys.is_err_and(|why| why.contains("no access keys")));
     assert!(push_target("s3://bucket", &[]).is_err());
 }
+
+/// botocore 1.34.46's `S3SigV4Auth` with a session token: it is sent and signed as
+/// `x-amz-security-token`, and never printed.
+#[test]
+fn signs_a_session_token_as_botocore_does() {
+    let mut keys = example_keys();
+    keys.session_token = Some("SESSIONTOKEN123".to_owned());
+    let config = Config::bucket(
+        "s3",
+        Bucket {
+            endpoint: "http://127.0.0.1:9000".to_owned(),
+            bucket: "blobs".to_owned(),
+            region: "auto".to_owned(),
+            prefix: "fleet/objects".to_owned(),
+            keys: Some(keys.clone()),
+            ..Bucket::default()
+        },
+    )
+    .unwrap();
+    let get =
+        config.signed("GET", HELLO, EMPTY_SHA256, UNIX_EPOCH + Duration::from_secs(1_795_406_706));
+    assert_eq!(header(&get, "x-amz-security-token"), "SESSIONTOKEN123");
+    assert!(header(&get, "authorization").ends_with(
+        "SignedHeaders=host;x-amz-content-sha256;x-amz-date;x-amz-security-token, \
+         Signature=cd0c3031b2d0aaac8ed164ee8da8fd97fac9d201554e52da15cb204f9d71c7dd"
+    ));
+    assert!(!format!("{keys:?}").contains("SESSIONTOKEN123"));
+    assert!(!format!("{config:?}").contains("SESSIONTOKEN123"));
+}
+
+/// The client sends the host lowercased, so it is signed lowercased.
+#[test]
+fn an_uppercase_host_signs_as_the_client_sends_it() {
+    let upper = bucket("https://S3.Example.COM", Some(true)).unwrap();
+    assert_eq!(upper.host, "s3.example.com");
+    let virtual_hosted = bucket("https://S3.Example.COM", Some(false)).unwrap();
+    assert_eq!(virtual_hosted.host, "blobs.s3.example.com");
+    assert_eq!(Config::public("r2", "https://Pub-1.R2.dev").unwrap().host, "pub-1.r2.dev");
+    let at = UNIX_EPOCH + Duration::from_secs(1_369_353_600);
+    assert_eq!(
+        upper.headers(HELLO, at),
+        bucket("https://s3.example.com", Some(true)).unwrap().headers(HELLO, at)
+    );
+}
+
+/// The client folds `.` and `..` out of the path it sends, so a signature over them never matches.
+#[test]
+fn dot_segments_are_refused() {
+    let with_prefix = |prefix: &str| {
+        Config::bucket(
+            "s3",
+            Bucket {
+                endpoint: "http://127.0.0.1:9000".to_owned(),
+                bucket: "blobs".to_owned(),
+                prefix: prefix.to_owned(),
+                keys: Some(aws_keys()),
+                ..Bucket::default()
+            },
+        )
+    };
+    assert!(with_prefix("../other").is_err());
+    assert!(with_prefix("a/./objects").is_err());
+    assert!(with_prefix("a..b/objects").is_ok());
+    assert!(bucket("http://127.0.0.1:9000/..", None).is_err());
+    assert_eq!(Config::public("r2", "https://pub.r2.dev/a/../b"), None);
+    let keys = [("AWS_ACCESS_KEY_ID", "id"), ("AWS_SECRET_ACCESS_KEY", "secret")];
+    assert!(push_target("http://127.0.0.1:9000/blobs/../objects", &keys).is_err());
+}
+
+/// A store that answers every request 403 with `body`, counting them.
+fn refusing_s3(body: &'static str) -> FakeS3 {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let asked = Arc::new(AtomicUsize::new(0));
+    let counter = Arc::clone(&asked);
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(stream) = stream else { return };
+            let counter = Arc::clone(&counter);
+            std::thread::spawn(move || {
+                let mut writer = stream.try_clone().unwrap();
+                let mut reader = BufReader::new(stream);
+                loop {
+                    let mut line = String::new();
+                    if reader.read_line(&mut line).unwrap_or(0) == 0 {
+                        return;
+                    }
+                    counter.fetch_add(1, Ordering::SeqCst);
+                    while reader.read_line(&mut line).unwrap_or(0) > 0
+                        && !line.ends_with("\r\n\r\n")
+                    {}
+                    let head = format!(
+                        "HTTP/1.1 403 Forbidden\r\nContent-Length: {}\r\n\r\n{body}",
+                        body.len()
+                    );
+                    if writer.write_all(head.as_bytes()).is_err() {
+                        return;
+                    }
+                }
+            });
+        }
+    });
+    FakeS3 {
+        base: format!("http://127.0.0.1:{port}"),
+        asked,
+        methods: Arc::default(),
+        blobs: Arc::default(),
+    }
+}
+
+/// AWS answers 403 `AccessDenied` for an object it lacks when the key may not list the bucket:
+/// each blob is a miss and the store stays in the chain.
+#[test]
+fn access_denied_is_a_miss_not_a_dropped_store() {
+    let s3 =
+        refusing_s3("<Error><Code>AccessDenied</Code><Message>Access Denied</Message></Error>");
+    let chain = Chain::new(Vec::new(), Box::new(NoNet))
+        .with_stores(vec![store_at(&s3.base, Some(aws_keys()))]);
+    let oids: Vec<String> =
+        (0..12).map(|at| blob_id(format!("blob {at}\n").as_bytes(), 40)).collect();
+    let (rest, filled, kept) = fill(&chain, &oids);
+    assert!(kept.is_empty());
+    assert_eq!(rest.len(), oids.len());
+    assert_eq!(filled.dropped, 0);
+    assert_eq!(s3.asked.load(Ordering::SeqCst), oids.len(), "every blob was asked");
+}

@@ -24,8 +24,9 @@
 //!   `public`); the variables above win over it.
 //!
 //! A private store with no keys is left out at once (it would only answer 403). A store that
-//! answers 401 or 403 at run time is dropped for the rest of the fill on that first answer, not
-//! after three failures.
+//! answers 401, or 403 for wrong keys, at run time is dropped for the rest of the fill on that
+//! first answer, not after three failures; a 403 `AccessDenied` is a miss (what AWS answers for an
+//! object it lacks when the key may not list the bucket).
 //!
 //! `cmux-projection s3-push` fills a bucket ([`Store::push`], [`Config::push_target`]): a signed
 //! `HEAD` per blob, and a signed `PUT` of the blobs the bucket lacks, each checked against its id
@@ -100,10 +101,12 @@ pub fn http_base(value: &str) -> Option<String> {
     Some(value.trim_end_matches('/').to_owned())
 }
 
-/// The `(scheme, authority, path)` of an `http(s)` URL; the authority keeps a non-default port.
+/// The `(scheme, authority, path)` of an `http(s)` URL; the authority keeps a non-default port and
+/// is lowercased, as the HTTP client sends (and so the store checks) it.
 fn split_url(url: &str) -> Option<(&str, String, String)> {
     let (scheme, rest) = url.split_once("://")?;
     let (authority, path) = rest.split_once('/').map_or((rest, ""), |(host, path)| (host, path));
+    let authority = authority.to_ascii_lowercase();
     let authority = match (scheme, authority.rsplit_once(':')) {
         ("https", Some((host, "443"))) | ("http", Some((host, "80"))) => host.to_owned(),
         _ => authority.to_owned(),
@@ -111,6 +114,15 @@ fn split_url(url: &str) -> Option<(&str, String, String)> {
     let path = path.trim_matches('/');
     let path = if path.is_empty() { String::new() } else { format!("/{path}") };
     Some((scheme, authority, path))
+}
+
+/// `Err` when `path` holds a `.` or `..` segment: the HTTP client folds those out of the path it
+/// sends, so a signature over them would never match (and `..` would leave the prefix).
+fn plain_path(path: &str) -> Result<(), String> {
+    if path.split('/').any(|segment| segment == "." || segment == "..") {
+        return Err(format!("{path:?} has a . or .. segment"));
+    }
+    Ok(())
 }
 
 fn truthy(value: &str) -> bool {
@@ -123,6 +135,7 @@ impl Config {
     pub fn public(tier: &'static str, base: &str) -> Option<Self> {
         let base = format!("{}/objects", http_base(base)?);
         let (_, host, path) = split_url(&base)?;
+        plain_path(&path).ok()?;
         Some(Self { tier, base, host, path, region: String::new(), keys: None })
     }
 
@@ -146,8 +159,9 @@ impl Config {
         let (host, path) = if path_style {
             (authority, format!("{root}/{bucket}{prefix}"))
         } else {
-            (format!("{bucket}.{authority}"), format!("{root}{prefix}"))
+            (format!("{bucket}.{authority}").to_ascii_lowercase(), format!("{root}{prefix}"))
         };
+        plain_path(&path)?;
         let base = format!("{scheme}://{host}{path}");
         let region = if region.trim().is_empty() { "us-east-1" } else { region.trim() };
         let keys = if public { None } else { keys };
@@ -249,6 +263,7 @@ impl Config {
         })?;
         let (_, host, path) =
             split_url(&base).ok_or_else(|| format!("--to {to:?} is not a URL"))?;
+        plain_path(&path)?;
         let region = get("CMUX_PROJECTION_S3_REGION").unwrap_or_else(|| {
             if host.ends_with(".r2.cloudflarestorage.com") { "auto" } else { "us-east-1" }
                 .to_owned()
@@ -494,7 +509,16 @@ impl Store {
         }
         match request.send() {
             Ok(response) => match response.status().as_u16() {
-                401 | 403 => Fetched::Denied(response.status().as_u16()),
+                401 => Fetched::Denied(401),
+                // AWS answers `AccessDenied` for an object it lacks when the key may read objects
+                // but not list the bucket (a read-only `GetObject` key): a miss. Any other 403
+                // (`SignatureDoesNotMatch`, `InvalidAccessKeyId`, ...) refuses every blob.
+                403 => match response.text() {
+                    Ok(body) if body.contains("<Code>AccessDenied</Code>") => {
+                        Fetched::Answer(Answer::Absent)
+                    }
+                    _ => Fetched::Denied(403),
+                },
                 404 => Fetched::Answer(Answer::Absent),
                 429 | 503 => Fetched::Answer(Answer::Busy),
                 status if (200..300).contains(&status) => Fetched::Answer(
