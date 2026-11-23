@@ -191,6 +191,18 @@ public nonisolated enum SidebarTunables {
         help: "Gives every workspace row a sample agent chat (needs you, working, done, failed or idle), to see the row states without real sessions.",
         default: false, code: "SidebarTunables.laneFixture")
 
+    /// How a chat row shows its subagents (`SidebarSubagentStrip`): the three looks the captures compare.
+    public static let subagentLook = Tunable<SidebarSubagentLook>.choice(
+        "sidebar.subagents.look", .sidebar, "Subagents under a chat",
+        help: "How a chat's subagents show under its row: one row each on a tree line, one stacked line, or rows while the chat is open in the session tree and the stacked line while it is folded.",
+        default: .both, code: "SidebarTunables.subagentLook")
+
+    /// Sample subagents on rows for captures (`SidebarSubagentFixture`), as `laneFixture` gives sample chats.
+    public static let subagentFixture = Tunable<Bool>.toggle(
+        "sidebar.subagents.fixture", .sidebar, "Sample subagents on rows",
+        help: "Gives workspace rows sample subagents (running, done, failed), to see them nested under a chat without real sessions.",
+        default: false, code: "SidebarTunables.subagentFixture")
+
     /// How a remote machine's group shows its free RAM, cores busy and free disk (`RemoteMachinesSidebar`).
     public static let remoteMachineResources = Tunable<RemoteMachineResourcesStyle>.choice(
         "sidebar.remoteMachines.resources", .sidebar, "Remote machines' room",
@@ -317,6 +329,8 @@ public nonisolated enum SidebarTunables {
             SidebarRowBadgeStackCap.tunable.descriptor,
             SidebarRowBadgeStyle.tunable.descriptor,
             simulatePendingUpdate.descriptor,
+            subagentFixture.descriptor,
+            subagentLook.descriptor,
             updateCardAutomaticControl.descriptor,
             updateCardAutomaticSize.descriptor,
             updateCardButton.descriptor,
