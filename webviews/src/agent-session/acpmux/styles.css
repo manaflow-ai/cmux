@@ -47,7 +47,7 @@
 /* appearance.borders none (data-borders on the root, applyAgentTheme): the composer, menu and tray edges draw clear in place; their fills keep them apart. */
 :root[data-borders=none] :is(.acpmux-shell,.ui-positioner){--acpmux-composer-edge:transparent}
 /* One height policy for chat, New Tab and Cmd-I composers: a dozen readable lines, then scroll. */
-.acpmux-shell{--acpmux-composer-max-lines:12}
+.acpmux-shell{--acpmux-composer-max-lines:30}
 .acpmux-composer{position:relative;padding:0 var(--cv-inset,max(18px,calc((100% - 760px)/2))) 16px;padding-right:var(--cv-inset-end,var(--cv-inset));font-family:var(--font-ui);-webkit-font-smoothing:antialiased}
 .acpmux-composer-box{--acpmux-composer-radius:22px;position:relative;display:flex;flex-direction:column;box-sizing:border-box;border-radius:var(--acpmux-composer-radius);--acpmux-card-ring:inset 0 0 0 var(--cmux-hairline,.5px) var(--acpmux-composer-edge);box-shadow:var(--acpmux-card-ring)}
 .acpmux-composer-box button{font:inherit}
@@ -272,6 +272,15 @@
 .acpmux-emoji-menu.is-strip .acpmux-emoji-glyph{width:auto;font-size:var(--text-heading)}
 .acpmux-emoji-strip-code{height:var(--ds-control-compact);padding:0 var(--ds-space-2);display:flex;align-items:center;color:var(--acpmux-composer-dim);font-size:var(--text-caption);white-space:nowrap}
 .acpmux-slash-empty{padding:0 var(--ui-row-padding-inline);height:var(--ui-row-height);display:flex;align-items:center;color:var(--acpmux-composer-dim);border-radius:var(--ui-row-radius)}
+.acpmux-help-sheet{--popup-scroll-cap:calc(12 * var(--ui-row-height,28px) + 2 * var(--ui-popup-padding,4px));display:flex;flex-direction:column;overflow:hidden}
+.acpmux-help-search{flex:none;height:var(--ui-row-height);margin:0 0 var(--ui-popup-padding);padding:0 var(--ui-row-padding-inline);border:0;border-radius:var(--ui-row-radius);background:var(--acpmux-menu-hover);color:var(--agent-text);font:inherit;outline:none}
+.acpmux-help-search::placeholder{color:var(--acpmux-composer-dim)}
+.acpmux-help-list{flex:1 1 auto;min-height:0;overflow:auto}
+.acpmux-help-row:has(.acpmux-help-label){flex-wrap:wrap;height:auto;min-height:var(--ui-row-height)}
+.acpmux-help-label{flex:0 0 100%;padding-top:var(--grid-step);padding-bottom:var(--grid-half-step);font-size:var(--text-caption);color:var(--acpmux-composer-dim);pointer-events:none}
+.acpmux-help-row[data-help-kind="key"] .acpmux-slash-name{flex:1 1 0}
+.acpmux-help-keys{flex:none;display:flex;gap:var(--grid-half-step)}
+.acpmux-help-keys kbd{/* concentric-allow: a keycap, not a container of buttons */font:var(--text-caption)/1 var(--font-ui);padding:var(--grid-half-step) var(--ds-space-1);border-radius:4px;background:color-mix(in srgb,var(--agent-text) 9%,var(--acpmux-base));color:var(--agent-soft)}
 .acpmux-import-input{display:none}
 /* New tab page (NewTabPage.tsx, #16620): one field with a Terminal | Browser | Agent switch
    that Tab cycles, each option with its shortcut, over the recent sessions. Same surfaces
@@ -296,8 +305,15 @@
 /* The field row is the text area: the I-beam over all of it, and a press anywhere in it focuses the field (NewTabPage); its switch keeps the arrow. The box has no hover state (Leo 2026-10-18). */
 .acpmux-newtab-switch{cursor:default}
 .acpmux-newtab-row>.acpmux-icon{color:var(--acpmux-composer-dim)}
+/* The kind glyph and the switch stand on the row's bottom edge, centered on its one-line height, so a
+   draft that wraps and grows keeps them on its last line, the line being typed, instead of drifting
+   to the middle of a tall row (Leo 2026-11-22: the buttons must "stick with teh bottom of the
+   composer"; the chat composer's rule, composerLocation.css). One line draws them where it did. */
+.acpmux-newtab-row{align-items:flex-end}
+.acpmux-newtab-row>.acpmux-icon{margin-block-end:calc((var(--acpmux-newtab-row) - 16px) / 2)}
+.acpmux-newtab-row>.acpmux-newtab-switch{margin-block-end:calc((var(--acpmux-newtab-row) - var(--ds-control-primary) - 2 * var(--ds-space-1)) / 2)}
 /* The field is the chat composer's prompt editor (MarkdownField, markdownField.css), sized as the row's one line: one line keeps the row 56 px tall; a long prompt wraps and grows to the composer's line cap, then scrolls (the New Tab screen's .nt-field). */
-.acpmux-newtab-field.acpmux-md-field{--acpmux-newtab-pad-block:calc((var(--acpmux-newtab-row) - 1lh) / 2);flex:1;min-width:0;align-self:stretch;display:block;box-sizing:border-box;min-height:var(--acpmux-newtab-row);max-height:min(calc(var(--acpmux-composer-max-lines, 12) * 1lh + 2 * var(--acpmux-newtab-pad-block)),40vh);margin:0;padding:var(--acpmux-newtab-pad-block) 0;overflow-x:hidden;overflow-y:auto;background:none;color:var(--agent-text);font:inherit;font-size:var(--text-content);line-height:var(--text-content--line-height)}
+.acpmux-newtab-field.acpmux-md-field{--acpmux-newtab-pad-block:calc((var(--acpmux-newtab-row) - 1lh) / 2);flex:1;min-width:0;align-self:stretch;display:block;box-sizing:border-box;min-height:var(--acpmux-newtab-row);max-height:min(calc(var(--acpmux-composer-max-lines, 30) * 1lh + 2 * var(--acpmux-newtab-pad-block)),60vh);margin:0;padding:var(--acpmux-newtab-pad-block) 0;overflow-x:hidden;overflow-y:auto;background:none;color:var(--agent-text);font:inherit;font-size:var(--text-content);line-height:var(--text-content--line-height)}
 .acpmux-newtab-field.acpmux-md-field .acpmux-md-root{min-height:1lh;box-sizing:border-box}
 .acpmux-newtab-field.acpmux-md-field .acpmux-md-placeholder{left:0;right:0;top:var(--acpmux-newtab-pad-block);color:var(--acpmux-composer-placeholder)}
 .acpmux-newtab-field.acpmux-md-field .acpmux-md{min-height:1lh;font-size:inherit;line-height:inherit;letter-spacing:inherit;color:inherit;white-space:pre-wrap;overflow-wrap:break-word}
@@ -593,8 +609,11 @@
    above the composer, so the two split it evenly. Absent, the composer docks at the bottom (above). */
 .acpmux-main[data-new-chat][data-empty-chat-composer="center"]::after{content:"";flex:1 1 0;min-height:0}
 .acpmux-main[data-new-chat][data-empty-chat-composer="center"] .acpmux-empty{justify-content:flex-end;padding-bottom:var(--ds-space-6,24px)}
-/* Home lists (HomeLists.tsx): the welcome lists between the hero and the docked composer, in its column; they scroll when tall. */
-.acpmux-main[data-new-chat]>.acpmux-dock>.acpmux-home-area{flex:0 1 auto;min-height:0;max-height:50%}
+/* Home lists (HomeLists.tsx): the welcome lists between the hero and the docked composer, in its column; they scroll when tall.
+   They give way before the composer (bottomStack.css's order): at a shrink of 1 the two split a short pane's deficit by
+   their sizes, so a card growing past the dock's cap shrank the composer too, eating the quiet row's room and sliding the
+   card down 6 px under a tile pasted into it (test/composer-attach-no-jump.test.ts, the narrow pane). */
+.acpmux-main[data-new-chat]>.acpmux-dock>.acpmux-home-area{flex:0 1000 auto;min-height:0;max-height:50%}
 /* The hero (header, glyph and title) keeps its room on a short pane; the lists, which scroll, give way first. */
 .acpmux-main[data-new-chat]:has(>.acpmux-dock>.acpmux-home-area:not(:empty))>.acpmux-stage{min-height:128px}
 /* No lists to show: no wrapper either, so the hero centers exactly as without this feature. */
@@ -1072,7 +1091,7 @@ fieldset.acpmux-question[hidden]{display:none}
 .acpmux-permission-ask .acpmux-permission-keys .acpmux-keycap{display:inline-flex;align-items:center;justify-content:center;min-width:var(--ds-control-icon);height:var(--ds-control-icon);margin:0;padding:0 4px;border-radius:calc(var(--ds-radius-control, 8px) - var(--ds-space-1, 4px));background:none;box-shadow:inset 0 0 0 1px color-mix(in srgb,currentColor 35%,transparent);color:color-mix(in srgb,currentColor 75%,transparent);font-family:var(--font-ui);font-size:var(--text-caption);line-height:var(--text-caption--line-height)}
 .acpmux-permission-ask .acpmux-permission-buttons button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
 /* The answer's letter, then its other keys: a faint slash between them reads as "or", never as a chord. */
-.acpmux-permission-ask .acpmux-permission-keys-or{color:color-mix(in srgb,currentColor 45%,transparent);font:var(--text-caption)/1 var(--font-ui)}
+.acpmux-permission-ask .acpmux-permission-keys-or{color:color-mix(in srgb,currentColor 75%,transparent);font:var(--text-caption)/1 var(--font-ui)}
 .acpmux-permission-ask .acpmux-permission-keys .acpmux-permission-action-shortcut{margin:0}
 /* The key hint (KeyHint): smaller and fainter than the label, on its baseline, a fixed step after it;
    the modifiers fainter still so the digit leads. No box: a keycap crowds a 24px button. */
@@ -1150,6 +1169,21 @@ fieldset.acpmux-question[hidden]{display:none}
 .acpmux-palette-menu .ui-separator{flex:none;height:0;margin:4px 8px;border:0;border-top:var(--cmux-hairline,.5px) solid var(--agent-border);background:none}
 /* The composer's + (Picker) splits its groups with the same hairline, on the group itself. */
 .acpmux-composer-plus .acpmux-menu-section+.acpmux-menu-section,.acpmux-menu.acpmux-composer-plus .acpmux-menu-section+.acpmux-menu-section{margin-top:4px;padding-top:4px;box-shadow:none;border-top:var(--cmux-hairline,.5px) solid var(--agent-border)}
+/* What Return does, on the highlighted row (PaletteMenu `returnLook`): the shared Keycap at the row's end, after
+   any shortcut, with the verb before it in the description's quiet voice. It takes no room from other rows. */
+.acpmux-palette-return{flex:none;margin-left:auto;display:inline-flex;align-items:center;gap:var(--ds-space-1,4px);color:var(--acpmux-composer-dim);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
+.acpmux-palette-return .acpmux-keycap{margin-right:0}
+/* The composer's + (Picker `returnHint`): the same verb and keycap, at the end of the highlighted row only. Every row
+   carries it hidden, so the highlight moving re-renders nothing; a hidden one takes no room. */
+.acpmux-menu-return{display:none;flex:none;margin-left:auto;align-items:center;gap:var(--ds-space-1,4px);color:var(--acpmux-composer-dim);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
+.acpmux-menu-item[data-highlighted] .acpmux-menu-return{display:inline-flex}
+.acpmux-menu-return .acpmux-keycap{margin-right:0}
+.acpmux-menu-hint+.acpmux-menu-return{margin-left:var(--ds-space-2,8px)}
+/* The `footer` look: the outcome with its target in one quiet line under the list, no rule above it (space and
+   fill, not lines). */
+.acpmux-palette-outcome{flex:none;display:flex;align-items:center;gap:var(--ds-space-1,4px);min-width:0;padding:var(--ds-space-1,4px) var(--cmux-menu-icon-x) var(--ui-popup-padding);color:var(--acpmux-composer-dim);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
+.acpmux-palette-outcome .acpmux-keycap{flex:none;margin-right:0}
+.acpmux-palette-outcome-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .acpmux-palette-empty{padding:var(--ui-row-height) var(--ui-row-padding-inline);color:var(--agent-muted);text-align:center}
 
 /* Keep search rows on the same shared menu metrics. */
