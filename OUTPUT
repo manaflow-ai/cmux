@@ -1,15 +1,43 @@
-ci-step focus-audit-58539eb6edf8-v1: scripts/ci/run-swift-testing-suites.sh Packages/macOS/CmuxNext at 58539eb6edf8f4b828b73b9a282ccc98b2aa9890: exit 1
-==> same-tree cmux-tui: source=published-after-fallback fallback_seconds=43 total_seconds=54
-/Volumes/ephemeral0/cmux-ci/fleet-worker/step-warm/slot-1/wsrc/Packages/macOS/CmuxNext/Sources/CmuxNextFocusUI/FocusLog/FocusLog.swift:66:118: error: property 'value' is internal and cannot be referenced from a default argument value
-    |                                                                                                                      `- error: property 'value' is internal and cannot be referenced from a default argument value
-error: emit-module command failed with exit code 1 (use -v to see invocation)
-/Volumes/ephemeral0/cmux-ci/fleet-worker/step-warm/slot-1/wsrc/Packages/macOS/CmuxNext/Sources/CmuxNextFocusUI/FocusLog/FocusLog.swift:66:118: error: property 'value' is internal and cannot be referenced from a default argument value
-    |                                                                                                                      `- error: property 'value' is internal and cannot be referenced from a default argument value
-error: cancelled
-error: cancelled
-error: cancelled
-error: cancelled
-error: cancelled
-error: cancelled
-error: fatalError
-ci-step focus-audit-58539eb6edf8-v1 exited 1
+ci-step acpmux-selfupdate-marker-c3e1108: scripts/ci/cmux-tui-rust-check.sh test self_update acpmux at c3e1108239aa524bf818bbda9b43be59a75a7931: exit 101
+error: linking with `cc` failed: exit status: 1
+  = note: collect2: fatal error: ld terminated with signal 7 [Bus error], core dumped
+error: linking with `cc` failed: exit status: 1
+  = note: collect2: fatal error: ld terminated with signal 7 [Bus error], core dumped
+rustc-LLVM ERROR: IO failure on output stream: No space left on device
+error: could not compile `acpmux` (test "start_mode_settings_watch") due to 1 previous error
+error: could not compile `acpmux` (test "cmux_tools_answer") due to 1 previous error
+error: could not compile `acpmux` (test "claude_plugin_dirs_env")
+error: linking with `cc` failed: exit status: 1
+          collect2: fatal error: ld terminated with signal 7 [Bus error], core dumped
+error: linking with `cc` failed: exit status: 1
+          collect2: fatal error: ld terminated with signal 7 [Bus error], core dumped
+error: could not compile `acpmux` (test "mobile_link_conditions") due to 1 previous error
+error: could not compile `acpmux` (test "media_read") due to 1 previous error
+error: linking with `cc` failed: exit status: 1
+          collect2: fatal error: ld terminated with signal 7 [Bus error], core dumped
+error: linking with `cc` failed: exit status: 1
+          collect2: fatal error: ld terminated with signal 7 [Bus error], core dumped
+error: could not compile `acpmux` (test "remote_guard") due to 1 previous error
+error: could not compile `acpmux` (test "person_prompt_activity") due to 1 previous error
+error: command `/srv/cmux-ci/cache/rustup/toolchains/1.95.0-x86_64-unknown-linux-gnu/bin/cargo '--color=auto' test --no-run --message-format json-render-diagnostics --package acpmux --locked` exited with code 101
+error: couldn't create a temp dir: No space left on device (os error 28) at path "/srv/cmux-ci/work/step-warm-cargo/slot-1/wsrc/.build/cmux-tui-rust-target/debug/deps/rustcPc0SnK"
+error: could not compile `acpmux` (test "cmux_tools_answer") due to 1 previous error
+error: linking with `cc` failed: exit status: 1
+          collect2: fatal error: ld terminated with signal 7 [Bus error], core dumped
+error: could not compile `acpmux` (test "session_lineage") due to 1 previous error
+error: linking with `cc` failed: exit status: 1
+  = note: collect2: fatal error: ld terminated with signal 7 [Bus error], core dumped
+error: could not compile `acpmux` (test "unattended_presets") due to 1 previous error
+error: linking with `cc` failed: exit status: 1
+  = note: collect2: fatal error: ld terminated with signal 7 [Bus error], core dumped
+error: could not compile `acpmux` (test "workspace_roots") due to 1 previous error
+error: linking with `cc` failed: exit status: 1
+          collect2: fatal error: ld terminated with signal 7 [Bus error], core dumped
+error: could not compile `acpmux` (test "peer_last_read") due to 1 previous error
+error: linking with `cc` failed: exit status: 1
+          collect2: fatal error: ld terminated with signal 7 [Bus error], core dumped
+error: could not compile `acpmux` (test "remote_guard_modes") due to 1 previous error
+error: failed to write file /srv/cmux-ci/work/step-warm-cargo/slot-1/wsrc/.build/cmux-tui-rust-target/debug/incremental/plan_build-2erwgaki6hi6a/s-hofk8cvp05-1vrbbyx-working/dep-graph.part.bin: No space left on device (os error 28)"
+error: could not compile `acpmux` (test "plan_build") due to 1 previous error
+error: command `/srv/cmux-ci/cache/rustup/toolchains/1.95.0-x86_64-unknown-linux-gnu/bin/cargo '--color=auto' test --no-run --message-format json-render-diagnostics --package acpmux --locked` exited with code 101
+ci-step acpmux-selfupdate-marker-c3e1108 exited 101
