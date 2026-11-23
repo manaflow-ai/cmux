@@ -85,6 +85,11 @@ LINUX_ONLY_STEPS = {
 PORTABLE_SUBSTITUTES = {
     "Run canonical CMUX CI guard profile": "scripts/ci/run_ci_guard_payload.sh",
 }
+# Steps that refuse a checkout with untracked files run alone, after every
+# parallel step has finished, so no sibling's scratch file is in the tree.
+ALONE_STEPS = {
+    "Run canonical CMUX CI guard profile",
+}
 GROUP_CONDITION = re.compile(r"matrix\.group\s*==\s*'([a-z0-9-]+)'")
 EXPRESSION = re.compile(r"\$\{\{\s*(.*?)\s*\}\}")
 SHELL = ["bash", "--noprofile", "--norc", "-eo", "pipefail"]
@@ -494,7 +499,7 @@ def main(argv: list[str]) -> int:
     step_names = {
         str(s.get("name")) for job in GUARD_JOBS for s in (workflow["jobs"].get(job) or {}).get("steps", [])
     }
-    stale = (DEPENDENCY_STEPS | LINUX_ONLY_STEPS | EVENT_CONDITION_STEPS | set(PORTABLE_SUBSTITUTES)) - step_names
+    stale = (DEPENDENCY_STEPS | LINUX_ONLY_STEPS | EVENT_CONDITION_STEPS | ALONE_STEPS | set(PORTABLE_SUBSTITUTES)) - step_names
     # An older checkout (--root, a bisect) may predate a special-cased step; the names only have to be current here.
     if stale and not args.root:
         print(f"run_ci_guards.py: ci-guards.yml has no step named {sorted(stale)}; update this script", file=sys.stderr)
@@ -560,7 +565,26 @@ def main(argv: list[str]) -> int:
         else:
             tasks.extend((unit, [step]) for step in unit.steps)
     tasks.sort(key=lambda task: -len(task[1]))
+    # A step that requires a clean checkout runs after the pool drains: a
+    # sibling step's scratch file in the checkout would fail it (run
+    # 45122790288: "checkout has non-ignored source changes" at 23 s).
+    alone = [task for task in tasks if any(step.name in ALONE_STEPS for step in task[1])]
+    tasks = [task for task in tasks if task not in alone]
     results: list[StepResult] = []
+
+    def report(result: StepResult) -> None:
+        results.append(result)
+        elapsed = time.monotonic() - started
+        # Every step prints as it finishes, so a run cut short by a
+        # timeout still shows what finished and when.
+        if result.ok is False:
+            print(f"  FAIL {result.seconds:6.1f}s  at {elapsed:5.0f}s  {result.unit.label}: {result.step.name}", flush=True)
+            print(f"::group::{result.step.name}\n{result.output.rstrip()}\n::endgroup::", flush=True)
+        elif result.ok:
+            print(f"  ok   {result.seconds:6.1f}s  at {elapsed:5.0f}s  {result.unit.label}: {result.step.name}", flush=True)
+            if args.verbose:
+                print(f"::group::{result.step.name}\n{result.output.rstrip()}\n::endgroup::", flush=True)
+
     # A job timeout ends this run with SIGTERM (Actions sends SIGINT first).
     # Both stop it the same way, after it names the steps still running.
     def interrupted(signum: int, _frame) -> None:
@@ -571,18 +595,13 @@ def main(argv: list[str]) -> int:
     try:
         for future in concurrent.futures.as_completed(futures):
             for result in future.result():
-                results.append(result)
-                elapsed = time.monotonic() - started
-                # Every step prints as it finishes, so a run cut short by a
-                # timeout still shows what finished and when.
-                if result.ok is False:
-                    print(f"  FAIL {result.seconds:6.1f}s  at {elapsed:5.0f}s  {result.unit.label}: {result.step.name}", flush=True)
-                    print(f"::group::{result.step.name}\n{result.output.rstrip()}\n::endgroup::", flush=True)
-                elif result.ok:
-                    print(f"  ok   {result.seconds:6.1f}s  at {elapsed:5.0f}s  {result.unit.label}: {result.step.name}", flush=True)
-                    if args.verbose:
-                        print(f"::group::{result.step.name}\n{result.output.rstrip()}\n::endgroup::", flush=True)
+                report(result)
         pool.shutdown()
+        for unit, steps in alone:
+            if STOPPING.is_set():
+                break
+            for result in run_steps(unit, steps, env, base_sha, args.keep_going):
+                report(result)
     except KeyboardInterrupt:
         signal.signal(signal.SIGTERM, signal.SIG_IGN)
         report = running_report()
