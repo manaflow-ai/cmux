@@ -22,8 +22,7 @@ public nonisolated struct WindowBackdrop: Equatable, Sendable {
     public var material: WindowMaterial
     /// Alpha of the theme tint over the material (glass carries it as its
     /// own tint): the resolved
-    /// `background-opacity` (for glass at most ``ThemeTokens/glassTintCeiling(isDark:)``, so glass
-    /// is never a solid fill), or 1 for an opaque window.
+    /// `background-opacity`, or 1 for an opaque window.
     public var tintOpacity: Double
     /// Optional bundled art beneath the material; hidden in opaque mode.
     public var art: BackdropArt? = nil
@@ -84,12 +83,9 @@ public nonisolated struct WindowBackdrop: Equatable, Sendable {
     /// - Parameter liquidGlass: Whether this Mac draws Liquid Glass. Without
     ///   it (before macOS 26) the glass styles frost the window at
     ///   ``glassFallbackBlurRadius``, as Ghostty.app does.
-    /// - Parameter isDark: Whether the theme is dark, which picks the glass's tint ceiling.
     public init(backgroundOpacity: Double, backgroundBlur: Int, reduceTransparency: Bool = false,
-                liquidGlass: Bool = Glass.isLiquidGlassAvailable, isDark: Bool = true) {
-        // Glass stops at its ceiling: at Opacity 1 its tint was a solid theme fill over the glass, and every
-        // terminal over it read as a slab (Leo, 2026-10-18: "if we're doing glass, we're doing glass, period").
-        let opacity = ThemeTokens.windowTintOpacity(min(max(backgroundOpacity, 0), 1), blur: backgroundBlur, isDark: isDark)
+                liquidGlass: Bool = Glass.isLiquidGlassAvailable) {
+        let opacity = min(max(backgroundOpacity, 0), 1)
         let backgroundBlur = backgroundBlur < 0 && !liquidGlass ? Self.glassFallbackBlurRadius : backgroundBlur
         let material: WindowMaterial
         if reduceTransparency {
@@ -134,7 +130,7 @@ public nonisolated struct WindowBackdrop: Equatable, Sendable {
             tokens.wallpaperTintOpacity
         }
         self.init(backgroundOpacity: opacity, backgroundBlur: tokens.backgroundBlur,
-                  reduceTransparency: reduceTransparency, isDark: tokens.isDark)
+                  reduceTransparency: reduceTransparency)
         // Window Glass: the Clear Glass setting (`background-blur` -2, frosted where Liquid Glass
         // is missing) over art; the desktop and the windows behind read through the art.
         let windowGlass = resolvedSelection != nil && !isOpaque && tokens.backgroundBlur == -2

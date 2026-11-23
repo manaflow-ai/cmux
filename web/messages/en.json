@@ -4319,6 +4319,7 @@
       "base": "Base",
       "nextSection": "cmux-next",
       "nextGettingStarted": "Getting started",
+      "nextStart": "Start here",
       "nextUpdates": "Install and update",
       "nextHome": "Home and Chief",
       "nextAgents": "Agents and subagents",
@@ -7767,6 +7768,14 @@
       "line": "Or try a Chief free for a week. No card.",
       "detail": "One Chief on the smallest machine ({vcpu} vCPU) for {days} days, with {hours} awake hours ({minutes} machine-minutes). Once per person, a limited number each day.",
       "cta": "Start the free week"
+    },
+    "proof": {
+      "title": "Measured on cmux Cloud",
+      "seconds": "{seconds} s",
+      "newMachine": "for a new machine to be running, the slowest of three runs",
+      "burst": "for {machines} machines asked for at once to all be ready",
+      "chatMove": "to move a chat to another machine and get its answer there, one run",
+      "note": "Test runs on our own accounts, not a promise. This pass includes up to {count} machines at once."
     }
   }
 }
