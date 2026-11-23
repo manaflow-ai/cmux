@@ -46,28 +46,57 @@ pub fn try_default_socket_path_in_base(session: &str, base: &Path) -> anyhow::Re
     Ok(default_socket_path_in_runtime_dir(session, platform::runtime_dir_for_base(base)))
 }
 
+/// [`try_default_socket_path_in_base`] for an owner of the given runtime scope
+/// (`platform::RUNTIME_SCOPE_ENV`): the socket an isolated app's owner
+/// listens on, for a client whose own environment carries no scope.
+pub fn try_default_socket_path_in_base_scoped(
+    session: &str,
+    base: &Path,
+    scope: Option<&str>,
+) -> anyhow::Result<PathBuf> {
+    validate_session_name(session)?;
+    Ok(default_socket_path_in_runtime_dir_scoped(
+        session,
+        platform::runtime_dir_for_base_scoped(base, scope),
+        scope,
+    ))
+}
+
 fn invalid_session_socket_path(session: &str) -> PathBuf {
     let digest = format!("{:x}", Sha256::digest(session.as_bytes()));
     platform::invalid_runtime_dir().join(format!("{digest}.sock"))
 }
 
 pub(super) fn default_socket_path_in_runtime_dir(session: &str, runtime_dir: PathBuf) -> PathBuf {
+    default_socket_path_in_runtime_dir_scoped(
+        session,
+        runtime_dir,
+        platform::runtime_scope().as_deref(),
+    )
+}
+
+fn default_socket_path_in_runtime_dir_scoped(
+    session: &str,
+    runtime_dir: PathBuf,
+    scope: Option<&str>,
+) -> PathBuf {
     let file_name = format!("{session}.sock");
     let preferred = runtime_dir.join(&file_name);
     #[cfg(unix)]
     if !unix_socket_path_fits(&preferred) {
-        let fallback = platform::fallback_runtime_dir().join(&file_name);
+        let fallback = platform::fallback_runtime_dir_scoped(scope).join(&file_name);
         if unix_socket_path_fits(&fallback) {
             return fallback;
         }
         let digest = format!("{:x}", Sha256::digest(session.as_bytes()));
         let preferred_base = runtime_dir.parent().unwrap_or_else(|| Path::new("/tmp"));
-        let hashed =
-            platform::hashed_runtime_dir_for_base(preferred_base).join(format!("{digest}.sock"));
+        let hashed = platform::hashed_runtime_dir_for_base_scoped(preferred_base, scope)
+            .join(format!("{digest}.sock"));
         if unix_socket_path_fits(&hashed) {
             return hashed;
         }
-        return platform::fallback_hashed_runtime_dir().join(format!("{digest}.sock"));
+        return platform::hashed_runtime_dir_for_base_scoped(Path::new("/tmp"), scope)
+            .join(format!("{digest}.sock"));
     }
     preferred
 }

@@ -228,7 +228,8 @@ function sendMessage(args: string[]): AgentMessage | undefined {
 /// How far a send got, as one word on its line (Leo 2026-10-21: the raw result is "immediately
 /// TMI"): from the call's state and what it printed. Claude Code's SendMessage answers with JSON
 /// (`{"success":true,"message":"Message queued for delivery to …"}`), `acpmux send --no-wait`
-/// prints `queued` or `steered` (or `--json`'s `{"queued":…,"steered":…}`), tell-coordinator its
+/// prints `sent STATE id=ID to=TARGET` first (older builds `queued` or `steered`; `--json`'s
+/// `{"queued":…,"steered":…}`), tell-coordinator its
 /// receipt (`delivered to leoli-24 (id …)`). Anything else that finished reads as sent; a result
 /// that says it failed reads as failed.
 export type Delivery = "sending" | "sent" | "queued" | "delivered" | "failed";
@@ -280,6 +281,10 @@ function receiptWords(text: string, message?: Pick<AgentMessage, "text" | "to">)
 
 /// A send's printed words, read for how far it got.
 function deliveryWords(text: string): Delivery {
+  // `acpmux send`'s stable first line, `sent STATE id=ID to=TARGET`: its state alone, so a
+  // recipient named like a failure word is never read as one.
+  const sent = /^\s*sent (queued|held|delivered|steered) id=\S* to=/.exec(text)?.[1];
+  if (sent) return sent === "queued" || sent === "held" ? "queued" : "delivered";
   // Chief's tell tool returns a plain-text outcome rather than JSON. Refusals are
   // successful tool calls at the transport layer, so the generic empty-output
   // fallback would otherwise label a cancelled or deleted agent as Sent.

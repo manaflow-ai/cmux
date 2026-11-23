@@ -84,6 +84,17 @@ class FloorTests(unittest.TestCase):
             with self.assertRaisesRegex(floor_tool.FloorError, "below the executable's deployment target 26.0"):
                 floor_tool.floor(app, minos_reader=lambda _: ["26.0"])
 
+    def test_floor_below_the_app_framework_deployment_target_fails(self) -> None:
+        # CMUX-629: the code is CmuxNextApp.framework behind a stub; its target is the package's.
+        with tempfile.TemporaryDirectory() as tmp:
+            app = make_app(Path(tmp), "14.0")
+            framework = app / floor_tool.APP_CODE_FRAMEWORK_BINARY
+            framework.parent.mkdir(parents=True)
+            framework.write_text("framework")
+            targets = {app / "Contents" / "MacOS" / "cmux": ["14.0"], framework: ["15.0"]}
+            with self.assertRaisesRegex(floor_tool.FloorError, "below CmuxNextApp.framework's deployment target 15.0"):
+                floor_tool.floor(app, minos_reader=lambda path: targets[path])
+
     def test_reads_minos_from_a_real_mach_o(self) -> None:
         if sys.platform != "darwin":
             self.skipTest("needs otool")

@@ -52,12 +52,14 @@ ab() {
   source "$out/nightly-fresh-launch-lib.sh"
   declare -F build_dmg >/dev/null || { echo "GAMUT build_dmg missing from nightly-fresh-launch.sh"; exit 3; }
   cp scripts/cmux-next/resolve-acpmux.sh "$out/resolve-acpmux.sh" && export NFL_RESOLVE_ACPMUX="$out/resolve-acpmux.sh"
+  cp scripts/cmux-next/bundle-screen-sharing-helper.sh "$out/bundle-screen-sharing-helper.sh" \
+    && export NFL_SCREEN_HELPER_PHASE="$out/bundle-screen-sharing-helper.sh"
   here="$(git rev-parse HEAD)"
   [[ -n "$base" ]] || base="$here"
   [[ "$base" =~ ^[0-9a-f]{40}$ && "$headsha" =~ ^[0-9a-f]{40}$ ]] || { echo "base= and head= take 40-hex commits" >&2; exit 2; }
   for want in "$base" "$headsha"; do
     git cat-file -e "$want^{commit}" 2>/dev/null \
-      || git fetch --quiet https://github.com/manaflow-ai/cmux.git "$want" || { echo "GAMUT cannot fetch $want"; exit 3; }
+      || git fetch --quiet --recurse-submodules=no https://github.com/manaflow-ai/cmux.git "$want" || { echo "GAMUT cannot fetch $want"; exit 3; }
   done
   # Each build checks its commit out and comes back here, so the check below is always this checkout's.
   for side in "${sides[@]}"; do

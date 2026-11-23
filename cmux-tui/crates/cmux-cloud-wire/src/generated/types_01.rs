@@ -64,6 +64,18 @@ pub struct AutomationAuditEntry {
 /// An automation definition, owned by its team's SchedulerDO.
 pub type AutomationId = String;
 
+/// An environment variable name: capital letters, digits and _, starting with a letter (at most 64).
+pub type AutomationSecretName = String;
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct AutomationSecretState {
+    pub name: AutomationSecretName,
+    pub hint: Option<String>,
+    pub generation: i64,
+    pub updated_at: i64,
+    pub updated_by: UserId,
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct AutomationSettings {
     pub agent_run_default_seconds: Option<i64>,
@@ -719,6 +731,41 @@ pub struct CloudSnapshotArchiveOf {
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudSurgePreview {
+    pub count: i64,
+    pub ttl_seconds: i64,
+    pub provider: Option<String>,
+    pub available: bool,
+    pub reason: String,
+    pub estimated_cost_usd: Option<WireNumber>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudSurgeReceipt {
+    pub count: i64,
+    pub ttl_seconds: i64,
+    pub slots: Vec<CloudSurgeSlot>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudSurgeSlot {
+    pub index: i64,
+    pub status: CloudSurgeSlotStatus,
+    pub machine_id: Option<MachineId>,
+    pub provider: Option<String>,
+    pub reason: String,
+    pub retryable: bool,
+}
+
+wire_enum! {
+    CloudSurgeSlotStatus {
+        Created = "created",
+        Queued = "queued",
+        Refused = "refused",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct CloudVmNetwork {
     pub tenant: NativeTenantId,
     pub mesh: NativeMeshId,
@@ -841,56 +888,9 @@ wire_enum! {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ConnectionResources {
     pub repos: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub linked_by_github_id: Option<i64>,
 }
 
 /// One integration connection (a provider account linked to a team).
 pub type ConnectionId = String;
-
-wire_enum! {
-    ConnectionStatus {
-        Pending = "pending",
-        Active = "active",
-        NeedsReauth = "needs_reauth",
-        Error = "error",
-        Revoked = "revoked",
-        Expired = "expired",
-    }
-}
-
-/// conv_<26> (group or chief) or conv_dm_<26> (one-to-one, derived from the pair).
-pub type ConversationId = String;
-
-wire_enum! {
-    ConversationKind {
-        Chief = "chief",
-        Dm = "dm",
-        Group = "group",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CronSpec {
-    pub expr: String,
-    pub tz: String,
-}
-
-/// A device (hardware) that groups installs.
-pub type DeviceId = String;
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct DeviceStatus {
-    pub install: InstallId,
-    pub user: String,
-    pub policy_version: i64,
-    pub app_version: String,
-    pub mdm_keys: Vec<String>,
-    pub conflicts: Vec<String>,
-    pub reported_at: i64,
-}
-
-pub type EgressHost = String;
-
-pub type EmailAddress = String;
-
-/// A lowercase DNS name such as acme.com.
-pub type EmailDomain = String;

@@ -44,8 +44,10 @@ extension CEFTabContentView {
     /// end of the old pane's motion reaches it any more, and a detached window takes no click. A move into the first
     /// superview, or to the same one, keeps all.
     func leavePaneResize(for newSuperview: NSView?) {
-        guard let superview, newSuperview !== superview,
-              heldPageSize != nil || pageMotionHold != nil || !pageSyncReasons.isEmpty || motionHosting != nil else { return }
+        guard let superview, newSuperview !== superview else { return }
+        // A size taken ahead for the old pane's commit is not this page's any more; the report it owes comes now.
+        leaveCommitAhead()
+        guard heldPageSize != nil || pageMotionHold != nil || !pageSyncReasons.isEmpty || motionHosting != nil else { return }
         dropHold()
         endAllPageSync()
         paneMotion(active: false)
