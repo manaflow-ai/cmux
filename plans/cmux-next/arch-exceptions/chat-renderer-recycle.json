@@ -1,0 +1,10 @@
+{
+  "date": "2026-11-23",
+  "row": "app_lines",
+  "allow": 228,
+  "why": "Chat renderer recycle prototype, off unless CMUX_NEXT_CHAT_RENDERER_RECYCLE=1. The policy and decision live in CmuxNextBrowser (CEFChatRendererRecycle, tested); the App keeps only the orchestration over App-only types (AppServices, PaneController, AgentTabStore, NewTabSparePool, AgentPageHibernation). Follow-up: move it behind a Host protocol in CmuxNextHibernation beside HiddenChatPagesHost before it ships on.",
+  "author": "lane inftabs-chat-renderer-recycle (claude opus 5.5)",
+  "owner": "lane inftabs-chat-renderer-recycle",
+  "receipt": "Review (independent claude helper subagent): SHIP at 1cf6004bca89d54ca0f55304a608fa07783b56a5",
+  "expiry": "2026-12-07"
+}
