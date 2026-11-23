@@ -11,7 +11,7 @@ use std::time::Duration;
 
 pub(crate) mod exe_path;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
-mod exe_swap;
+pub(crate) mod exe_swap;
 mod lock;
 #[cfg(unix)]
 mod log_cap;
@@ -28,11 +28,14 @@ use lock::{
 mod running;
 pub use running::connect_running;
 mod snapshot_clear;
+pub(crate) mod start_exe;
 pub(crate) use snapshot_clear::clear_peer_snapshots;
 mod router_owner;
 pub(crate) use router_owner::router_owner_path;
 use router_owner::{ensure_router, release_router};
 mod app_orphan;
+#[cfg(unix)]
+pub(crate) use app_orphan::is_app_acpmux;
 // Decided on every platform so its tests run everywhere; used on macOS only.
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub(crate) mod login_placement;
@@ -350,6 +353,22 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     let startup_home_gone =
         tokio::spawn(home_watch::watch(owned_home.clone(), None, &home(), &socket_path()));
     let _startup_home_watch = AbortOnDrop(startup_home_gone.abort_handle());
+    // Forwards a dead acpmux process left open (killed before its drop ran): ended by their
+    // recorded owner, never found by name (`ssh_forward_owners.rs`). One pass, off the workers.
+    {
+        let ledger = crate::ssh_forward_owners::ledger_dir(&home());
+        tokio::task::spawn_blocking(move || {
+            let reaped =
+                crate::ssh_forward_owners::reap_recorded(std::ffi::OsStr::new("ssh"), &ledger);
+            if reaped.ended > 0 {
+                tracing::info!(
+                    ended = reaped.ended,
+                    kept = reaped.kept,
+                    "ended leftover ssh forwards"
+                );
+            }
+        });
+    }
     // Gone already (removed between taking the lock and here): stop before the startup makes
     // anything there. A relative home is never watched (it reads as missing from the home cwd),
     // and there is no watch off Unix (`Owned::now` is always `None` there).
@@ -762,6 +781,9 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     hub.start_harness_checks();
     // Uploads past their age cap (`hub/file_uploads.rs`).
     hub.start_upload_sweep();
+    // Idle chats off this machine while it stays over budget: only with `autoEvacuate.enabled`
+    // (off by default); off runs no timer (`hub/auto_evacuate.rs`).
+    hub.start_auto_evacuate().await;
     // The host's sender token, which our own tools present to be named verified
     // (`sender_token.rs`): made once, kept across restarts. Without it no send is verified by it,
     // as before, so a failure is only logged.
@@ -1297,6 +1319,7 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
         Err(_) => tracing::warn!("embedded tailnet did not close within {SHUTDOWN_BUDGET:?}"),
     }
     hub.stop_idle_reaper();
+    let cleanup_took = shutdown_started.elapsed();
     // New clients get "connection refused" instead of a dying daemon. Only the socket this
     // daemon bound: one replaced since is another daemon's.
     recheck_home();
@@ -1325,6 +1348,7 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
         })
     };
     let mut unfinished_sessions = None;
+    let sessions_started = tokio::time::Instant::now();
     let kept = match tokio::time::timeout_at(cleanup_deadline, &mut sessions).await {
         Ok(Ok(kept)) => kept,
         _ => {
@@ -1335,11 +1359,13 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
             usize::MAX
         }
     };
+    let sessions_took = sessions_started.elapsed();
     // The requests still in flight are answered as restarting before the close cancels their
     // connections, within a bound inside the deadline (`server/shutdown_drain.rs`).
     crate::server::shutdown_drain::drain_in_flight(&hub, cleanup_deadline).await;
     // The hub's own tasks after its agents: cancelled and joined, any left named (`hub/shutdown.rs`).
     hub.close_owned_tasks_until(cleanup_deadline).await;
+    let persistence_started = tokio::time::Instant::now();
     let (cleanup_done, cleanup_finished) = tokio::sync::oneshot::channel::<()>();
     let mut persistence = {
         let hub = hub.clone();
@@ -1401,6 +1427,20 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
             "persistence still draining at the shutdown deadline; waiting for it with the home locked"
         );
         let _ = persistence.await;
+    }
+    // Where the handover's dark time went (the successor binds once the lock goes, right here).
+    let took = shutdown_started.elapsed();
+    let phases = format!(
+        "shutdown took {} ms: cleanup {} ms, agents {} ms, persistence and release {} ms",
+        took.as_millis(),
+        cleanup_took.as_millis(),
+        sessions_took.as_millis(),
+        persistence_started.elapsed().as_millis(),
+    );
+    if took > shutdown_budget(hub.ends_agents_at_shutdown()) {
+        tracing::warn!("{phases}");
+    } else {
+        tracing::info!("{phases}");
     }
     tracing::info!("stopped");
     Ok(())
@@ -1723,9 +1763,11 @@ pub(crate) const STARTER_SESSION_MARKS: [&str; 4] =
 /// only after the daemon wrote [`KEY_READY`] on it.
 #[cfg(unix)]
 fn spawn_detached(key: Option<zeroize::Zeroizing<String>>) -> Result<(std::fs::File, u32)> {
-    let this = crate::self_command::SelfCommand::current()?;
+    let choice = start_exe::current(&home())?;
+    let this = &choice.this;
     crate::config::private_state_dir(&home())?;
-    let log = open_daemon_log(&home().join("daemon.log"))?;
+    let mut log = open_daemon_log(&home().join("daemon.log"))?;
+    log_start_choice(&mut log, &choice);
     let log_err = log.try_clone()?;
     // Close-on-exec from the start (`pipe2(O_CLOEXEC)` where the OS has it):
     // a child another thread forks meanwhile never inherits either end, and
@@ -1743,7 +1785,7 @@ fn spawn_detached(key: Option<zeroize::Zeroizing<String>>) -> Result<(std::fs::F
         None => None,
     };
     let key_fd = pair.as_ref().map(|(_, theirs)| std::os::fd::AsRawFd::as_raw_fd(theirs));
-    let mut cmd = daemon_command(&this);
+    let mut cmd = daemon_command(this);
     crate::config::scrub_nested_claude_env(&mut cmd);
     // The daemon serves every session: its starter's turn values are not its own.
     for k in crate::config::inherited_caller_scoped_keys() {
@@ -1809,6 +1851,21 @@ fn spawn_detached(key: Option<zeroize::Zeroizing<String>>) -> Result<(std::fs::F
             .spawn(move || hand_key(ours, &key));
     }
     Ok((reader, child_pid))
+}
+
+/// Name the binary a start runs and why, in the daemon log the new daemon writes to and in this
+/// command's own log, so a daemon that came back from an unexpected build says who chose it.
+#[cfg(unix)]
+pub(crate) fn log_start_choice(log: &mut std::fs::File, choice: &start_exe::Choice) {
+    use std::io::Write as _;
+    let line = format!(
+        "acpmux: starting the daemon from {} (pid {} asked): {}",
+        choice.this.exe.display(),
+        std::process::id(),
+        choice.why
+    );
+    tracing::info!("{line}");
+    let _ = writeln!(log, "{line}");
 }
 
 /// Write the key on the daemon's key socket after the daemon said it is
