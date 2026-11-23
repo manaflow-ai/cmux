@@ -113,3 +113,12 @@ function subscribe(listener: () => void) {
 export function useComputerUseState(): ComputerUseState | undefined {
   return useSyncExternalStore(subscribe, computerUseState, computerUseState);
 }
+
+declare global {
+  interface Window {
+    /// The old host's script for the `computerUseState` event (CmuxNextAgentPane AgentPaneComputerUse):
+    /// with `agent.pageHost` off (the default) the state comes this way, not as a page host event.
+    cmuxAcpmuxComputerUseState?: (value: unknown) => void;
+  }
+}
+if (typeof window !== "undefined") window.cmuxAcpmuxComputerUseState = setComputerUseState;

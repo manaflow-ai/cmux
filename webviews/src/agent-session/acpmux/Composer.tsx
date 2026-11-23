@@ -2706,6 +2706,8 @@ function ComposerFrame({
       event.preventDefault();
       const step = event.key === "ArrowDown" || event.key === "j" ? 1 : -1;
       setActive((selected + step + matches.length) % matches.length);
+      // The arrows chose this row: a `$word`'s Return now picks it (returnPicks).
+      setArrowed(true);
     } else if ((event.key === "Enter" || event.key === "Tab") && plain) {
       event.preventDefault();
       pick(matches[selected].command);

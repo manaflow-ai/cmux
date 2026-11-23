@@ -33,6 +33,14 @@ struct AgentPaneComputerUseStateTests {
         #expect(AgentPageEvent.computerUseState(nil).value == .null)
     }
 
+    /// Review of #48024 (WebKit skips setup): with `agent.pageHost` off, the default, a page hears the
+    /// state only through the old host's script, the hook computerUseState.ts installs.
+    @Test func theOldHostGetsTheStateThroughThePagesHook() {
+        #expect(AgentPaneComputerUse.oldHostScript(.needsSetup) == "window.cmuxAcpmuxComputerUseState?.(\"needs_setup\");")
+        #expect(AgentPaneComputerUse.oldHostScript(.ready) == "window.cmuxAcpmuxComputerUseState?.(\"ready\");")
+        #expect(AgentPaneComputerUse.oldHostScript(nil) == "window.cmuxAcpmuxComputerUseState?.(null);")
+    }
+
     @Test func theFollowerKeepsTheLatestState() {
         let follower = AgentPaneComputerUse(read: nil)
         #expect(follower.state == nil)

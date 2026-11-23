@@ -135,7 +135,7 @@ import { focusRoute } from "../../../ui/focusRoute";
 import { HelpSheet } from "../HelpSheet";
 import { SlashMenu } from "../SlashMenu";
 import { ComposerListAnchor, ComposerListLayer } from "../backdropLayer";
-import { mentionQuery } from "../mentionMenuModel";
+import { markdownOffset, mentionQuery } from "../mentionMenuModel";
 import { toolMentionsIn } from "../toolMentions";
 import {
   applyCommand,
@@ -458,6 +458,8 @@ export function NewTabScreen(props: Props) {
   const [commandActive, setCommandActive] = useState(0);
   /// The `/word` the arrows chose a row at: Return picks that row while the word and the list stay.
   const [commandArrowedAt, setCommandArrowedAt] = useState<string>();
+  /// The caret in the prompt's shown text (MarkdownField onChange/onCaret), for the `@word` it is in; unknown: the end.
+  const [promptCaret, setPromptCaret] = useState<number>();
   const [commandDismissed, setCommandDismissed] = useState<string>();
   /// The `/word` the field's caret ends (MarkdownField `onSlash`), as in the chat composer.
   const [commandTrigger, setCommandTrigger] = useState<SlashTrigger>();
@@ -1025,7 +1027,8 @@ export function NewTabScreen(props: Props) {
   // An `@word` the text ends in lists the plugins, as Codex's @ does (Lucas 2026-11-21: "@ is for
   // plugins"): computer use, browser use (toolMentions.ts) and extension commands, every row that
   // writes its own text. In the same menu as `/`, never in the address rows below the field.
-  const atWord = shell || commandAt || profilePick ? undefined : mentionQuery(text, text.length);
+  const atCaret = promptCaret === undefined ? text.length : Math.min(text.length, markdownOffset(text, promptCaret));
+  const atWord = shell || commandAt || profilePick ? undefined : mentionQuery(text, atCaret);
   const atMatches = atWord ? matchCommands((snapshot.commands ?? []).filter(insertsText), atWord.query, false) : [];
   const atOpen = !slashOpen && atWord !== undefined && commandDismissed !== text && atMatches.length > 0;
   const commandsOpen = slashOpen || atOpen;
@@ -1046,9 +1049,12 @@ export function NewTabScreen(props: Props) {
     setCommandActive(0);
     // From the @ menu: its text over the `@word` the draft ends in.
     if (atOpen && atWord && insertsText(command)) {
-      setText(text.slice(0, atWord.start) + command.insert);
-      // The field keeps focus while the menu is open (a row's press never takes it): only the caret moves.
-      requestAnimationFrame(() => field.current?.setCaret(field.current.plainText().length));
+      // Over the `@word` at the caret, the text after it kept.
+      setText(text.slice(0, atWord.start) + command.insert + text.slice(atCaret));
+      // The field keeps focus while the menu is open (a row's press never takes it): only the caret
+      // moves, to just after what the row wrote.
+      const after = promptCaret === undefined ? undefined : promptCaret - (atCaret - atWord.start) + command.insert.length;
+      requestAnimationFrame(() => field.current?.setCaret(after ?? field.current.plainText().length));
       return;
     }
     // A picked Codex skill goes as `/$name` even where a command shares its name (withSkillDollars).
@@ -2525,7 +2531,9 @@ export function NewTabScreen(props: Props) {
                 onBeforeInput={(data, state) =>
                   !shell && state.paste && !state.composing ? pastedChips.take(data) : false
                 }
-                onChange={(value) => {
+                onCaret={setPromptCaret}
+                onChange={(value, caret) => {
+                  setPromptCaret(caret);
                   // The editor canonicalizes escaping while mounting; that is still the untouched
                   // location, not a typed draft or a reason to show suggestions or hold a web swap.
                   if (!fieldReady && field.current?.agentText(value) === originalLocation.current) {
