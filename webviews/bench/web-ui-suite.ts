@@ -154,6 +154,16 @@ export const BENCHES: readonly Bench[] = [
     timeoutMs: 300_000,
     ownPart: true,
   },
+  // Scrolling up a long chat page by page at 1k, 10k and 100k rows: each older page's ask to its drawn frame (target
+  // 50 ms p95), loading and blank frames, the anchor's shift, and the 100k / 1k ratio (target 1.2x). perf-cron.py's
+  // web-ui-scroll-up part runs it.
+  {
+    name: "transcript-scroll-up-scale",
+    file: "transcript-scroll-up-scale.bench.ts",
+    args: [],
+    timeoutMs: 900_000,
+    ownPart: true,
+  },
   // A chat at any length (goal chats-flat-at-any-length): a 100k-row chat opened and grown live, one and 20 at once,
   // against empty chats; renderer idle CPU, streaming CPU and PSS, and their worst ratio. perf-cron.py's web-ui-flat
   // part runs it, under that part's 30-minute run cap.

@@ -542,6 +542,11 @@ public final class TerminalModel {
     /// the terminal bouncing.
     public internal(set) var keyboardBounces = 0
     #if DEBUG
+    /// DEBUG: every page's `ptyResizesSent` added up (the keyboard pin trace's `rz=`).
+    public internal(set) static var debugResizesSentTotal = 0
+    /// DEBUG: posted when the terminal surface takes a key from the system keyboard
+    /// (the keyboard pin trace's `ev=keyAccepted`, the motion bench's time to interactive).
+    public static let debugKeyAccepted = Notification.Name("cmux.debug.terminal.keyAccepted")
     /// DEBUG: the terminal demo driver's last step (`TerminalDemoDriver`).
     var demoNote = "start"
     #endif

@@ -587,6 +587,7 @@ dependencies = [
 name = "cmux-mobile-link-ffi"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "cmux-follow-cam",
  "cmux-mobile-host",
  "cmux-mobile-link",
@@ -594,9 +595,11 @@ dependencies = [
  "cmux-rd-engine",
  "cmux-rd-ffi",
  "cmux-rd-proto",
+ "cmux-share-approval",
  "cmux-terminal-prediction",
  "cmux-terminal-projection",
  "cmux-window-rules",
+ "ring",
  "serde_json",
  "sha2",
  "tempfile",
@@ -665,6 +668,14 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tracing",
+]
+
+[[package]]
+name = "cmux-share-approval"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
