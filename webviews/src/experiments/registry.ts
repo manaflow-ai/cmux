@@ -83,6 +83,7 @@ import { traySurfaceLook } from "../agent-session/acpmux/subagents/traySurface.e
 import { chatSwitchMotion } from "../agent-session/acpmux/chatSwitch.experiment";
 import { liveBackground } from "../ui/liveBackground/liveBackground.experiment";
 import { composerPlusCommands } from "../agent-session/acpmux/composerPlusCommands.experiment";
+import { composerPlusReturnHint } from "../agent-session/acpmux/composerPlusReturnHint.experiment";
 import { promptSuggestionLook } from "../agent-session/acpmux/promptSuggestionLook.experiment";
 import { cmuxLinkLook } from "../agent-session/acpmux/chips/cmuxLinkLook.experiment";
 import { sentPasteJoin } from "../agent-session/acpmux/conversation/sentPasteJoin.experiment";
@@ -205,6 +206,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   chatSwitchMotion,
   liveBackground,
   composerPlusCommands,
+  composerPlusReturnHint,
   promptSuggestionLook,
   cloudStartComposerLook,
   cmuxLinkLook,
