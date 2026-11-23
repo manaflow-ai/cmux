@@ -33,7 +33,10 @@ fn a_session_dead_on_an_answering_host_restarts_in_place_until_its_restarts_run_
     f.tried.restarts = 2;
     assert_eq!(route(&f), Route::Successor { to: String::new(), number: 1 });
     f.tried.failovers = 2;
-    assert_eq!(route(&f), Route::Handoff { why: "restarts and failovers used up".into() });
+    assert_eq!(
+        route(&f),
+        Route::Handoff { why: "restarts and failovers used up".into(), after: Ending::UsedUp }
+    );
 }
 
 #[test]
@@ -96,14 +99,20 @@ fn a_gone_session_starts_again_on_the_first_admitted_host_else_hands_off() {
     f.tried.respawn_failed = "name held".into();
     assert_eq!(
         route(&f),
-        Route::Handoff { why: "a fresh session could not start: name held".into() }
+        Route::Handoff {
+            why: "a fresh session could not start: name held".into(),
+            after: Ending::FreshStart
+        }
     );
     let mut f = dead();
     f.has_row = false;
     f.hosts.admitted.clear();
     assert_eq!(
         route(&f),
-        Route::Handoff { why: "no host would admit a fresh session: no host has room".into() }
+        Route::Handoff {
+            why: "no host would admit a fresh session: no host has room".into(),
+            after: Ending::FreshStart,
+        }
     );
 }
 

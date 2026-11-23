@@ -144,8 +144,19 @@ pub enum Route {
     Restart { number: u32 },
     /// Start a successor (failover number `number`), on `to` when set.
     Successor { to: String, number: u32 },
-    /// Hand its work to whoever started it, else the coordinator.
-    Handoff { why: String },
+    /// Hand its work to whoever started it, else the coordinator. `after` says which step
+    /// ran out: `fresh_start` (no host admits one, or the start failed), `full` (its host is full
+    /// and nothing took it) or `used_up` (restarts and failovers).
+    Handoff { why: String, after: Ending },
+}
+
+/// Which step ran out before a hand-off.
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum Ending {
+    FreshStart,
+    Full,
+    UsedUp,
 }
 
 fn listed(list: &[String], host: &str) -> bool {
@@ -218,7 +229,7 @@ pub fn route(f: &Facts) -> Route {
                     if t.respawn_failed.is_empty() { "unknown" } else { &t.respawn_failed };
                 format!("a fresh session could not start: {failed}")
             };
-            return Route::Handoff { why };
+            return Route::Handoff { why, after: Ending::FreshStart };
         }
         // a network death whose fresh start could not happen: a successor on a healthy host below
     }
@@ -265,7 +276,7 @@ pub fn route(f: &Facts) -> Route {
             } else {
                 format!("{full}, so it is not restarted there; {}", h.none_text)
             };
-            return Route::Handoff { why };
+            return Route::Handoff { why, after: Ending::Full };
         }
         if !f.host_down && t.restarts < f.max_restarts {
             return Route::Restart { number: t.restarts + 1 };
@@ -294,7 +305,7 @@ pub fn route(f: &Facts) -> Route {
         let to = if network { healthy.first().cloned().unwrap_or_default() } else { String::new() };
         return Route::Successor { to, number: t.failovers + 1 };
     }
-    Route::Handoff { why: "restarts and failovers used up".into() }
+    Route::Handoff { why: "restarts and failovers used up".into(), after: Ending::UsedUp }
 }
 
 #[cfg(test)]
