@@ -184,6 +184,35 @@
       "key": "agents.hiddenChats.discardAfterMinutes",
       "reason": "a hidden chat that is idle gives back its memory on its own; a working chat keeps it",
       "why": "Leo (2026-11-14): \"obviously if something isn't drawn/is completely proven idle then dont bother taking memory\"; Lawrence (#38022): no perf switch. A hidden idle chat and an archived chat always give back their page."
+    },
+    {
+      "key": "home.chiefPanel.seesScreen",
+      "reason": "Share Screen with Chief is gone: the floating Chief no longer looks at the screen when it opens",
+      "why": "Lawrence (2026-11-20): \"remove share screen with chief\". Its capture host had already gone with the cmux Computer Use helper."
+    },
+    {
+      "key": "agentPane.display.inspector.placement",
+      "reason": "the panel is Session Info now: agentPane.display.sessionInfo.placement",
+      "replaced_by": "agentPane.display.sessionInfo.placement",
+      "since": "2026-11-02",
+      "until": "2027-01-01",
+      "why": "Session Info's setting keys drop the Inspector name (#32184; Leo 2026-11-01: \"WHY THE F***ING HAS IT STILL BEEN CALLED INSPECTOR\")."
+    },
+    {
+      "key": "sidebar.showWorkspaceDirectory",
+      "reason": "every workspace row element is its own setting: sidebar.workspaceRow.directory",
+      "replaced_by": "sidebar.workspaceRow.directory",
+      "since": "2026-10-06",
+      "until": "2026-12-05",
+      "why": "Minimal workspace rows, every row element a setting (2026-10-06, WorkspaceRowSetting.legacyPaths)."
+    },
+    {
+      "key": "sidebar.showCounts",
+      "reason": "every workspace row element is its own setting: sidebar.workspaceRow.tabCount",
+      "replaced_by": "sidebar.workspaceRow.tabCount",
+      "since": "2026-10-06",
+      "until": "2026-12-05",
+      "why": "Minimal workspace rows, every row element a setting (2026-10-06, WorkspaceRowSetting.legacyPaths)."
     }
   ]
 }
