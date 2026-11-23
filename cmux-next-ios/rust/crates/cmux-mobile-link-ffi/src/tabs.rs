@@ -577,4 +577,167 @@ mod tests {
         recv(&mirror, manifest(1, three()));
         assert_eq!(mirror.unreferenced(names), vec![old]);
     }
+
+    /// What the phone needs on the wire to paint the overview of 29 tabs: the cold manifest,
+    /// one tab's delta, and nothing when nothing visible changed. Frames come from the real
+    /// `Producer` and `Session` (no push, so blobs are not counted here: they are separate
+    /// frames, sized by the Mac's encoder). Bytes are framed (4-byte length included), before
+    /// any link compression. Run with `--nocapture` to see the numbers.
+    #[test]
+    fn wire_bytes_the_phone_needs_for_29_tabs() {
+        use cmux_tab_snapshots::{FaviconInput, ImageInput, Observation, Producer, ScreenInput, Session};
+
+        const SITES: [(&str, &str); 20] = [
+            ("Pull requests · manaflow-ai/cmux", "https://github.com/manaflow-ai/cmux/pulls"),
+            ("Inbox (14) - leo@example.com - Gmail", "https://mail.google.com/mail/u/0/#inbox"),
+            (
+                "Linear - CMUX-4821 Tab overview blank previews",
+                "https://linear.app/manaflow/issue/CMUX-4821/tab-overview-blank-previews",
+            ),
+            ("Slack | #cmux-leo | Manaflow", "https://app.slack.com/client/T01ABCDEF/C02GHIJKL"),
+            (
+                "Rust std::collections::HashMap - Rust",
+                "https://doc.rust-lang.org/std/collections/struct.HashMap.html",
+            ),
+            ("Vercel - cmux-web - Deployments", "https://vercel.com/manaflow/cmux-web/deployments"),
+            (
+                "Google Calendar - Week of 22 Nov 2026",
+                "https://calendar.google.com/calendar/u/0/r/week/2026/11/22",
+            ),
+            ("Hacker News", "https://news.ycombinator.com/"),
+            (
+                "Stack Overflow - Where developers learn, share, & build careers",
+                "https://stackoverflow.com/questions/tagged/rust",
+            ),
+            ("Apple Developer Documentation - UIKit", "https://developer.apple.com/documentation/uikit"),
+            (
+                "Figma - cmux next iPhone overview",
+                "https://www.figma.com/design/AbCdEf123456/cmux-next-iPhone-overview",
+            ),
+            (
+                "Notion - Roadmap Q4",
+                "https://www.notion.so/manaflow/Roadmap-Q4-0123456789abcdef0123456789abcdef",
+            ),
+            (
+                "Sentry - Issues - cmux-mobile-host",
+                "https://sentry.io/organizations/manaflow/issues/?project=4501234567",
+            ),
+            (
+                "PostHog - Insights - Weekly active devices",
+                "https://us.posthog.com/project/12345/insights/AbCdEfGh",
+            ),
+            ("Anthropic Console - Usage", "https://console.anthropic.com/settings/usage"),
+            (
+                "Wikipedia - Content-addressable storage",
+                "https://en.wikipedia.org/wiki/Content-addressable_storage",
+            ),
+            ("YouTube - Rust in 100 Seconds", "https://www.youtube.com/watch?v=5C_HPTJg5ek"),
+            (
+                "Cloudflare Dashboard - manaflow.com - DNS",
+                "https://dash.cloudflare.com/0123456789abcdef/manaflow.com/dns",
+            ),
+            (
+                "MDN Web Docs - IntersectionObserver",
+                "https://developer.mozilla.org/en-US/docs/Web/API/IntersectionObserver",
+            ),
+            ("Stripe Dashboard - Payments", "https://dashboard.stripe.com/payments"),
+        ];
+
+        // Realistic size classes for the blobs, only so the hashes differ; their bytes are
+        // never sent in this test.
+        let browser = |i: usize, title: &str, thumb_rev: u32| Observation {
+            tab_id: format!("{}", 1000 + i),
+            title: title.to_owned(),
+            kind: Kind::Browser,
+            favicon: Some(FaviconInput {
+                mime: Mime::Png,
+                bytes: format!("favicon-{}", i % 12).into_bytes(),
+            }),
+            thumb: Some(ImageInput {
+                mime: Mime::Jpeg,
+                bytes: format!("thumb-{i}-{thumb_rev}").into_bytes(),
+                width: 576,
+                height: 768,
+            }),
+            screen: None,
+            frame: None,
+            captured_at_ms: 1_763_900_000_000 + i64::from(thumb_rev),
+        };
+        let terminal = |i: usize, title: &str| Observation {
+            tab_id: format!("{}", 1000 + i),
+            title: title.to_owned(),
+            kind: if i % 2 == 0 { Kind::Terminal } else { Kind::Agent },
+            favicon: None,
+            thumb: None,
+            screen: Some(ScreenInput { text: format!("$ cargo test {i}\n"), cols: 120, rows: 40 }),
+            frame: None,
+            captured_at_ms: 1_763_900_000_000,
+        };
+
+        let mut producer = Producer::new("0f3a9c1e7b2d4c58", 0, 256, 64);
+        for i in 0..29 {
+            if i < 20 {
+                let (title, _url) = SITES[i];
+                producer.observe(browser(i, title, 0));
+            } else {
+                let title = [
+                    "~/Projects/cmux — zsh",
+                    "cargo test -p cmux-mobile-link-ffi",
+                    "claude — ios-tabs-phone-mirror",
+                    "codex — lane review",
+                    "htop",
+                    "ssh cosmic-gray",
+                    "claude — perf lane",
+                    "tail -f host.log",
+                    "git log --oneline",
+                ][i - 20];
+                producer.observe(terminal(i, title));
+            }
+        }
+        // 20 browser tabs plus 9 terminals and agents.
+        assert_eq!(producer.rows().len(), 29);
+
+        let mut session = Session::without_push();
+        session.on_message(Message::Viewport(Viewport::default())).expect("viewport");
+        let cold = session.next_frame(&producer).expect("a cold manifest");
+        assert_eq!(cold[0], 0x11, "a manifest");
+        assert!(session.next_frame(&producer).is_none(), "no push: no blobs, no second frame");
+        let cold_framed = framed(&cold).len();
+
+        // One tab's page loads: new title and a new thumbnail.
+        assert!(producer.observe(browser(3, "Slack | #cmux-leo | Manaflow (2 new)", 1)));
+        let one = session.next_frame(&producer).expect("one delta");
+        assert_eq!(one[0], 0x12, "a delta");
+        assert!(session.next_frame(&producer).is_none());
+        let delta_framed = framed(&one).len();
+
+        // The same content again, only recaptured later: no rev, no frame.
+        assert!(!producer.observe(browser(3, "Slack | #cmux-leo | Manaflow (2 new)", 1)));
+        let mut again = browser(3, "Slack | #cmux-leo | Manaflow (2 new)", 1);
+        again.captured_at_ms += 60_000;
+        assert!(!producer.observe(again));
+        let idle_frames = std::iter::from_fn(|| session.next_frame(&producer)).count();
+
+        println!(
+            "tabs wire: cold manifest, 29 tabs (20 browser, 9 terminal/agent): {cold_framed} framed bytes, {} bytes per row",
+            cold_framed / 29
+        );
+        println!("tabs wire: one-tab delta (title + thumbnail hash): {delta_framed} framed bytes");
+        println!("tabs wire: nothing visible changed: {idle_frames} frames, 0 framed bytes");
+        println!(
+            "tabs wire: one-tab delta is {:.1}% of the manifest",
+            100.0 * delta_framed as f64 / cold_framed as f64
+        );
+
+        // The property: a change costs a small slice of the manifest, a non-change costs nothing.
+        assert!(cold_framed / 29 < 600, "a row stays a few hundred bytes: {}", cold_framed / 29);
+        assert!(delta_framed * 10 < cold_framed, "one-tab delta {delta_framed} vs manifest {cold_framed}");
+        assert_eq!(idle_frames, 0);
+        // And the phone paints from it: the delta applies on the mirror.
+        let mirror = TabsMirror::new(Vec::new());
+        recv(&mirror, cold);
+        let TabsEvent::Rows { rows, .. } = recv(&mirror, one) else { panic!("rows expected") };
+        assert_eq!(rows.len(), 29);
+        assert_eq!(rows[3].title, "Slack | #cmux-leo | Manaflow (2 new)");
+    }
 }
