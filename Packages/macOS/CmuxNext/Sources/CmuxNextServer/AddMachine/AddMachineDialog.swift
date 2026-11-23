@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextDesign
+import CmuxNextWakeups
 
 /// Add Machine and Check Machine for the app: the runs and their card. Made once and kept, so a run in flight
 /// survives the card closing and a reopen shows it again.
@@ -67,8 +68,8 @@ final class AddMachineDialog {
     private var picked: HostCandidate?
     /// The list's pick last put in the host field: a later edit of the field never puts it back.
     private var appliedPick: String?
-    /// The pending close of a finished run (``closeWhenReady()``); stops when the card hides or draws another state.
-    private var closeTask: Task<Void, Never>?
+    /// The pending close of a finished run (``closeWhenReady()``); one deadline, cancelled when the card hides or draws another state.
+    private let closeTimer = DemandTimer(owner: "add-machine.ready-close")
     /// How long the ready card shows before it goes by itself.
     static let readyHold = Duration.seconds(2)
 
@@ -79,7 +80,7 @@ final class AddMachineDialog {
         panel.hidesOnOutsideClick = true
         panel.onHide = { [weak self] in
             self?.isOpen = false
-            self?.closeTask?.cancel()
+            self?.closeTimer.cancel()
         }
         runs.changed = { [weak self] in self?.draw() }
     }
@@ -117,16 +118,10 @@ final class AddMachineDialog {
     /// A finished run closes its card after a short hold (the person saw it work; Open Workspace and Done are still
     /// there until then), never one still running or failed.
     private func closeWhenReady() {
-        guard runs.run?.outcome == .ready else {
-            closeTask?.cancel()
-            return
-        }
-        guard closeTask == nil || closeTask?.isCancelled == true else { return }
-        // task-owner: one close per ready card; hiding or any other state cancels it.
-        closeTask = Task { [weak self] in
-            try? await Task.sleep(for: Self.readyHold)
-            guard !Task.isCancelled, let self, runs.run?.outcome == .ready else { return }
-            closeTask = nil
+        guard runs.run?.outcome == .ready else { return closeTimer.cancel() }
+        guard !closeTimer.isScheduled else { return }
+        closeTimer.schedule(after: Self.readyHold) { @MainActor [weak self] in
+            guard let self, runs.run?.outcome == .ready else { return }
             panel.hide()
         }
     }

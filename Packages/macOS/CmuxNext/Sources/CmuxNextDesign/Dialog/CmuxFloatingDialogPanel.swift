@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextWakeups
 
 /// The window of a cmux dialog that floats over every app: a prompt the person at this Mac answers wherever they
 /// are (a device asking to see or control this Mac, the join consent, "Computer use can act as me"). It draws the
@@ -171,11 +172,12 @@ open class CmuxFloatingDialogPanel: NSPanel {
         guard hidesOnOutsideClick, outsideClickMonitors.isEmpty else { return }
         let kinds: NSEvent.EventTypeMask = [.leftMouseDown, .rightMouseDown, .otherMouseDown]
         if let local = NSEvent.addLocalMonitorForEvents(matching: kinds, handler: { [weak self] event in
-            MainActor.assumeIsolated { if let self, event.window !== self { self.hide() } }
+            let inside = event.window.map { ObjectIdentifier($0) } == self.map { ObjectIdentifier($0) }
+            if !inside { MainDelivery().later { [weak self] in self?.hide() } }
             return event
         }) { outsideClickMonitors.append(local) }
         if let global = NSEvent.addGlobalMonitorForEvents(matching: kinds, handler: { [weak self] _ in
-            Task { @MainActor [weak self] in self?.hide() }
+            MainDelivery().later { [weak self] in self?.hide() }
         }) { outsideClickMonitors.append(global) }
     }
 
