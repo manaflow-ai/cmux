@@ -61,6 +61,7 @@ pub mod machine_deps;
 pub mod mesh_control;
 pub(crate) mod new_relay;
 pub use crate::mesh_node_key;
+pub mod fork_run;
 pub mod notices;
 pub mod orchestrate;
 pub mod output;
@@ -72,6 +73,11 @@ pub mod process;
 pub mod process_census;
 #[cfg(unix)]
 pub mod process_owner;
+
+/// Whether `argv` runs `daemon run` (the acpmux daemon). Every OS: the vault egress proxy asks.
+pub(crate) fn is_daemon_run(argv: &[String]) -> bool {
+    argv.windows(2).any(|w| matches!(w, [a, b] if a == "daemon" && b == "run"))
+}
 pub mod race;
 pub(crate) mod reply_address;
 pub mod resolve;
