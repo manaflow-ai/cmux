@@ -21,6 +21,9 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
     /// Why Mark All Notifications as Read failed on a Mac, shown once.
     @State private var markFailure: String?
     @State private var rowContext = FeedRowContext(store: FeedStore.shared)
+    /// The agents working right now (the strip above the chips). The screen reads only whether
+    /// the strip shows; the strip reads the agents.
+    @State private var working = FeedWorkingNow.shared
     /// Bounces the caught-up seal each time that state appears.
     @State private var caughtUpBounce = 0
     @Environment(AppStore.self) private var appStore
@@ -49,7 +52,7 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
                     FeedCollection(
                         items: store.visibleItems, context: rowContext, swipe: swipe, control: list,
                         header: AnyView(header), headerSignature: AnyHashable(headerSignature),
-                        headerContent: AnyHashable(store.needsYouCount)
+                        headerContent: AnyHashable(store.needsYouCount), headerAnimatedPart: AnyHashable(working.isShowing)
                     )
                     .ignoresSafeArea(.container, edges: .vertical)
                 }
@@ -76,6 +79,7 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
         }
         .onAppear {
             rowContext.open = { open($0) }
+            working.follow(appStore, feed: store)
             rowContext.openFromPeek = { open($0, animated: false) }
             rowContext.chat = { item in
                 guard let workspace = appStore.workspaces.first(where: { $0.id == item.workspaceID }),
@@ -151,15 +155,28 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
         withTransaction(transaction) { path.append(destination) }
     }
 
+    /// A working agent's capsule: its chat, or a terminal agent's terminal tab (as `open(_:)` routes events).
+    private func open(_ agent: WorkingAgent) {
+        if agent.opensTerminal, let openTerminal = FeedRouting.shared.openTerminal {
+            openTerminal(FeedItem(id: "working-now", kind: .response, workspaceID: agent.workspaceID, tabID: agent.tabID,
+                                  agentName: agent.agentName, harness: agent.harness, workspaceTitle: agent.workspaceTitle,
+                                  markdown: "", quote: nil, createdAt: .now))
+            return
+        }
+        path.append(AgentChatDestination(workspaceID: agent.workspaceID, tabID: agent.tabID))
+    }
+
     /// What can change the list header's height: it is measured again only when this changes (a
     /// chip's count or the selected chip redraw in place; the header cell re-reads its view).
     private var headerSignature: [String] {
-        [store.refreshError ?? "", "\(store.visibleItems.isEmpty)", "\(store.syncState)", "\(store.needsYouCount > 0)", store.filter.rawValue]
+        [store.refreshError ?? "", "\(store.visibleItems.isEmpty)", "\(store.syncState)", "\(store.needsYouCount > 0)", store.filter.rawValue,
+         "\(working.isShowing)"]
     }
 
-    /// The filter chips, a refresh error and an empty or connecting state, above the events.
+    /// The working-now strip, the filter chips, a refresh error and an empty or connecting state, above the events.
     private var header: some View {
         VStack(spacing: 0) {
+            FeedWorkingStrip(model: working) { open($0) }
             chips
             if let refreshError = store.refreshError {
                 refreshErrorRow(refreshError)
@@ -298,7 +315,7 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
         for id in store.unseenNewIDs.suffix(24).reversed() {
             // Only events the current filter shows: the pill never names an agent the list hides.
             guard let item = store.item(id: id), !item.isDone, store.filter.matches(item) else { continue }
-            let symbol = FeedRowCell.avatarSymbol(item.harness)
+            let symbol = AgentAvatarMark.fallbackSymbol(item.harness)
             if seen.insert(symbol).inserted { glyphs.append(symbol) }
             if glyphs.count == 3 { break }
         }
