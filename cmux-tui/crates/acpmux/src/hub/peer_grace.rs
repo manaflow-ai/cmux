@@ -85,7 +85,8 @@ impl Hub {
             workers.push(crate::supervise::once(
                 "peer notice shard",
                 &self.fatal,
-                self.clone().peer_notice_shard(
+                Self::peer_notice_shard(
+                    Arc::downgrade(&self),
                     shard_rx,
                     grace.clone(),
                     self.peer_notices_stop.subscribe(),
@@ -204,7 +205,7 @@ impl Hub {
 
     /// One shard's worker: its peers' notices and row deadlines, in order.
     async fn peer_notice_shard(
-        self: Arc<Self>,
+        hub: std::sync::Weak<Self>,
         mut rx: mpsc::Receiver<Work>,
         grace: Arc<Grace>,
         mut stop: tokio::sync::watch::Receiver<bool>,
@@ -218,9 +219,12 @@ impl Hub {
                 _ = stop.changed() => break,
             };
             let Some(work) = work else { break };
+            // A strong hub only while one item is applied: between items a shard holds none, as
+            // the one loop held only its own (the retention test counts the hub's holders).
+            let Some(this) = hub.upgrade() else { break };
             let (peer, generation, notice) = match work {
                 Work::Expire(peer, generation) => {
-                    self.expire_peer_rows(&grace, peer, generation);
+                    this.expire_peer_rows(&grace, peer, generation);
                     continue;
                 }
                 Work::Notice(peer, generation, notice) => (peer, generation, notice),
@@ -231,7 +235,7 @@ impl Hub {
             if let Some(bytes) = notice.list_bytes() {
                 crate::gauges::peer_lists().taken(bytes);
             }
-            let Some(current) = self.peer(&peer).filter(|p| p.generation == generation) else {
+            let Some(current) = this.peer(&peer).filter(|p| p.generation == generation) else {
                 continue;
             };
             let settles = matches!(
@@ -241,7 +245,7 @@ impl Hub {
             let key = (peer.clone(), generation);
             match notice {
                 PeerNotice::Disconnected(reason) => {
-                    self.note_peer_drop(&peer, generation, &reason);
+                    this.note_peer_drop(&peer, generation, &reason);
                     let ongoing = {
                         let mut state = grace.lock();
                         let ongoing = state.drops.contains_key(&key)
@@ -254,7 +258,7 @@ impl Hub {
                     };
                     if !ongoing {
                         grace.rearm.notify_one();
-                        self.events.origin_tee(
+                        this.events.origin_tee(
                             &peer,
                             super::peers::peer_origin_state(&current),
                             crate::store::now_ms(),
@@ -262,7 +266,7 @@ impl Hub {
                     }
                     // The outage's first drop by this loop's own record: the link's
                     // attempt count may already be past it.
-                    self.save_after_drop(&peer, generation, !ongoing);
+                    this.save_after_drop(&peer, generation, !ongoing);
                 }
                 notice => {
                     // Rows came (a list, a changed row) or the link is up: the peer's chats are
@@ -289,17 +293,17 @@ impl Hub {
                     // first, and prompts to it wait for that (`peer_snapshot/restore.rs`). Before
                     // the notice, so no message the notice wakes goes ahead of them.
                     if matches!(notice, PeerNotice::Connected) {
-                        self.restore_peer_journals(&peer, generation);
+                        this.restore_peer_journals(&peer, generation);
                     }
-                    self.apply_peer_notice(&peer, generation, notice);
+                    this.apply_peer_notice(&peer, generation, notice);
                     if warms {
-                        self.warm_peer_copies(&peer);
+                        this.warm_peer_copies(&peer);
                     }
                 }
             }
             if settles {
                 current.mark_settled();
-                self.watches.peer_settled();
+                this.watches.peer_settled();
             }
             crate::gauges::peer_notices().applied(
                 label,
