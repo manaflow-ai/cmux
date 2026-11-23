@@ -910,6 +910,7 @@ label:not([for]):has(:is(input, select, textarea):disabled):not(
   --grid-composer-quiet-row-gap: calc(4px * var(--cmux-interface-scale, 1)); /* Gap below composer box. */
   --grid-composer-quiet-row-height: calc(28px * var(--cmux-interface-scale, 1)); /* Quiet row height. */
   --grid-composer-quiet-row-text: calc(14px * var(--cmux-interface-scale, 1)); /* First quiet chip text at leading glyph left edge. */
+  --grid-card-radius: calc(16px * var(--cmux-interface-scale, 1)); /* Corner of a card the composer's height with no round controls in it (the sidebar's Updated card): a third of the box on the base grid, never a capsule. */
   --grid-sidebar-highlight-inset: calc(8px * var(--cmux-interface-scale, 1)); /* Highlight inset from the sidebar edge. */
   --grid-sidebar-lead: calc(16px * var(--cmux-interface-scale, 1)); /* Leading icon box left edge. */
   --grid-sidebar-text: calc(40px * var(--cmux-interface-scale, 1)); /* Compact text start. */

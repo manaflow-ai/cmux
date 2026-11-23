@@ -2741,3 +2741,9 @@ Vertical-tabs commits `fa51dcbb9d6` and `7a076d729ac` were reviewed as Sidebar-L
   on a tab, so the row keeps the tab bar's balance. Fitting every favicon's ink to the glyphs' side had drawn it about
   1.4x smaller than on its tab.
   Sidebar-Look: "the icon sizes should be the same size as the horizontal tabs... the icon sizes need to be kind of standardized"
+- 2026-11-23 (Updated card, ask-33e37575cb): the "Updated to Nightly" card is one line, "Updated to Nightly" with
+  What's New ↗ at its end, at the composer's one-line height (48) and material (the art share over background
+  pictures), at the layout grid's card corner (`card-radius`, 16: a third of the box) instead of the composer's
+  round-control corner (22), which made it a two-line capsule. The single-change second line is gone: every change is
+  one hover away. Gallery: `card-shape-*` in updateSurfaces.gallery.tsx.
+  Sidebar-Look: "the fuck is a pill with 2 lines supposed to be for anyways? the fuck kind of information are you showing with a single fucking line of content?"
