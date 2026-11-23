@@ -161,7 +161,10 @@ fn an_unreachable_remote_is_retried_with_backoff() {
     let Outcome::Failed { retry: second, .. } = backup.run(&s.chat) else {
         panic!("still missing")
     };
-    assert!(second > first, "the jittered exponential delay still backs off");
+    assert!(
+        second > first,
+        "the jittered exponential delay still backs off"
+    );
     assert_eq!(status(&s)["state"], "retrying");
     // The remote comes back: the next try pushes and the retry is cleared.
     init_bare(&s.bare);
@@ -170,7 +173,7 @@ fn an_unreachable_remote_is_retried_with_backoff() {
 }
 
 #[test]
-fn a_remote_with_other_history_is_never_forced() {
+fn a_remote_with_other_history_is_merged_without_force() {
     let s = setup();
     init_bare(&s.bare);
     // Someone else's history in the backup repository.
@@ -207,7 +210,12 @@ fn two_checkouts_reconcile_a_moved_branch_without_losing_memory_lines() {
     std::fs::create_dir_all(&second).unwrap();
     git(
         s.chat.parent().unwrap(),
-        &["clone", "-q", s.bare.to_str().unwrap(), second.to_str().unwrap()],
+        &[
+            "clone",
+            "-q",
+            s.bare.to_str().unwrap(),
+            second.to_str().unwrap(),
+        ],
     );
     turn(&s.chat, &["base", "first writer"], "turn:optchat:1:2");
     assert!(matches!(first.run(&s.chat), Outcome::Pushed { .. }));

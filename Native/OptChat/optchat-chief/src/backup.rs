@@ -1,17 +1,18 @@
 //! The remote backup of the memory's text export (decision 2026-10-06):
 //! after each turn's commit, the chat directory's history is pushed to a
 //! private per-Chief repository, `manaflow-ai/chief-memory-<chief id>`,
-//! created with `gh` on the first push. Never forced: a remote with other
-//! history is reported and left alone.
+//! created with `gh` on the first push. A moved remote branch is fetched and
+//! merged before retrying, never forced.
 //!
 //! Before a push, the export lines added since the last pushed commit are
 //! scanned for secrets (gitleaks when it is on PATH, else a built-in set of
 //! token and key shapes). A hit holds the backup: nothing is pushed, a
 //! `backup_held` trace event is written, and the status file says
 //! `(backup held: possible secret in message N)` until the hit is allowed
-//! (`backup-allow.txt`: one message id or summary name per line) . A failed
-//! push is retried with backoff (30 s doubling to 30 min) by the persister
-//! thread; it never blocks a turn.
+//! (`backup-allow.txt`: one message id or summary name per line). A failed push
+//! is retried with bounded jittered backoff by the persister thread; after the
+//! retry window the status becomes `blocked` instead of retrying forever. It
+//! never blocks a turn.
 //!
 //! Configuration per Chief home: `OPTCHAT_BACKUP_REMOTE=on|off`, else
 //! `optchat/settings.json` `{"backup": {"remote": true|false}}`, else on
@@ -133,6 +134,11 @@ pub enum Outcome {
         error: String,
         retry: Duration,
     },
+    /// A turn arrived before the next scheduled retry.
+    Waiting {
+        error: String,
+        retry: Duration,
+    },
     /// The backup could not be reconciled within its retry window.
     Blocked {
         error: String,
@@ -147,6 +153,8 @@ pub struct Backup {
     retries: u32,
     retry_until: Option<Instant>,
     due: Option<Instant>,
+    last_error: Option<String>,
+    blocked: Option<(String, u32)>,
 }
 
 /// One secret shape: a prefix, the characters that follow it and how many.
@@ -398,7 +406,11 @@ fn index_blob(dir: &Path, stage: u8, path: &str) -> Option<String> {
 /// Merge two JSONL export versions when both writers only appended records.
 /// A changed or removed existing line is left as a real conflict so no memory
 /// is silently replaced by a second writer.
-fn merge_jsonl(base: Option<&str>, ours: Option<&str>, theirs: Option<&str>) -> Result<String, String> {
+fn merge_jsonl(
+    base: Option<&str>,
+    ours: Option<&str>,
+    theirs: Option<&str>,
+) -> Result<String, String> {
     let Some(ours) = ours else {
         return Err("one writer removed an export file".into());
     };
@@ -461,7 +473,13 @@ fn reconcile_remote(dir: &Path) -> Result<(), String> {
         ],
     );
     if merge.is_err() {
-        let conflicts = git(dir, &["diff", "--name-only", "--diff-filter=U"])?;
+        let conflicts = match git(dir, &["diff", "--name-only", "--diff-filter=U"]) {
+            Ok(conflicts) => conflicts,
+            Err(error) => {
+                let _ = git(dir, &["merge", "--abort"]);
+                return Err(error);
+            }
+        };
         if conflicts.is_empty() {
             let _ = git(dir, &["merge", "--abort"]);
             return Err(merge.unwrap_err());
@@ -471,20 +489,35 @@ fn reconcile_remote(dir: &Path) -> Result<(), String> {
                 let _ = git(dir, &["merge", "--abort"]);
                 return Err(format!("merge conflict in non-memory file {path}"));
             }
-            let merged = merge_jsonl(
+            let merged = match merge_jsonl(
                 index_blob(dir, 1, path).as_deref(),
                 index_blob(dir, 2, path).as_deref(),
                 index_blob(dir, 3, path).as_deref(),
-            )
-            .map_err(|why| format!("merge conflict in {path}: {why}"))?;
-            std::fs::write(dir.join(path), merged)
-                .map_err(|e| format!("write merged export {path}: {e}"))?;
-            git(dir, &["add", "--", path])?;
+            ) {
+                Ok(merged) => merged,
+                Err(why) => {
+                    let _ = git(dir, &["merge", "--abort"]);
+                    return Err(format!("merge conflict in {path}: {why}"));
+                }
+            };
+            if let Err(error) = std::fs::write(dir.join(path), merged) {
+                let _ = git(dir, &["merge", "--abort"]);
+                return Err(format!("write merged export {path}: {error}"));
+            }
+            if let Err(error) = git(dir, &["add", "--", path]) {
+                let _ = git(dir, &["merge", "--abort"]);
+                return Err(error);
+            }
         }
     }
-    git(dir, &["commit", "-q", "-m", "Merge remote Chief memory backup"])
-        .map(|_| ())
-        .map_err(|e| format!("commit reconciled memory: {e}"))
+    if let Err(error) = git(
+        dir,
+        &["commit", "-q", "-m", "Merge remote Chief memory backup"],
+    ) {
+        let _ = git(dir, &["merge", "--abort"]);
+        return Err(format!("commit reconciled memory: {error}"));
+    }
+    Ok(())
 }
 
 impl Backup {
@@ -496,6 +529,8 @@ impl Backup {
             retries: 0,
             retry_until: None,
             due: None,
+            last_error: None,
+            blocked: None,
         }
     }
 
@@ -561,14 +596,36 @@ impl Backup {
 
     /// One attempt: scan what is new since the last push, then push it.
     pub fn run(&mut self, dir: &Path) -> Outcome {
+        if let Some((error, attempts)) = &self.blocked {
+            return Outcome::Blocked {
+                error: error.clone(),
+                attempts: *attempts,
+            };
+        }
+        if let Some(at) = self.due {
+            let now = Instant::now();
+            if now < at {
+                return Outcome::Waiting {
+                    error: self
+                        .last_error
+                        .clone()
+                        .unwrap_or_else(|| "backup retry is pending".to_owned()),
+                    retry: at.saturating_duration_since(now),
+                };
+            }
+        }
         let outcome = self.attempt(dir);
         match &outcome {
-            Outcome::Failed { .. } | Outcome::Blocked { .. } => {}
+            Outcome::Failed { .. } | Outcome::Waiting { .. } | Outcome::Blocked { .. } => {}
             _ => {
                 self.retries = 0;
                 self.retry_until = None;
                 self.due = None;
+                self.last_error = None;
             }
+        }
+        if let Outcome::Blocked { error, attempts } = &outcome {
+            self.blocked = Some((error.clone(), *attempts));
         }
         self.report(&outcome);
         outcome
@@ -610,7 +667,7 @@ impl Backup {
         }
         if self.config.url.is_none() && !self.created {
             if gh(&["repo", "view", &self.config.repo, "--json", "name"]).is_err() {
-                gh(&[
+                let created = gh(&[
                     "repo",
                     "create",
                     &self.config.repo,
@@ -619,7 +676,15 @@ impl Backup {
                     "--disable-wiki",
                     "--description",
                     "OptChat Chief memory: the text export, pushed after every turn",
-                ])?;
+                ]);
+                if let Err(error) = created
+                    && gh(&["repo", "view", &self.config.repo, "--json", "name"]).is_err()
+                {
+                    return Err(format!(
+                        "create backup repository {}: {error}",
+                        self.config.repo
+                    ));
+                }
             }
             self.created = true;
         }
@@ -665,13 +730,18 @@ impl Backup {
         let until = *self.retry_until.get_or_insert(now + RETRY_WINDOW);
         if self.retries >= MAX_RETRIES || now >= until {
             self.due = None;
-            return Outcome::Blocked {
+            let outcome = Outcome::Blocked {
                 error,
                 attempts: self.retries,
             };
+            if let Outcome::Blocked { error, .. } = &outcome {
+                self.last_error = Some(error.clone());
+            }
+            return outcome;
         }
         let retry = retry_delay(self.retries);
         self.due = Some(Instant::now() + retry);
+        self.last_error = Some(error.clone());
         Outcome::Failed { error, retry }
     }
 
@@ -699,6 +769,7 @@ impl Backup {
                     json!({"error": error, "retry_s": retry.as_secs()}),
                 )),
             ),
+            Outcome::Waiting { .. } => return,
             Outcome::Blocked { error, attempts } => {
                 let text = format!(
                     "backup push stopped after {attempts} attempts: {error}; inspect the backup repository and retry"
