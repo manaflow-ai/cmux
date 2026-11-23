@@ -139,7 +139,7 @@ test('typing "reddit" offers reddit.com first, highlighted, and Return opens it 
   expect(shown[0]!.getAttribute("aria-selected")).toBe("true");
   const titles = shown.map(label);
   expect(titles).toContain("Search the web for reddit");
-  expect(titles).toContain("Ask Claude Code");
+  expect(titles).toContain("Ask Opus 5.5");
   expect(titles).toContain("reddit-scraper");
   expect(titles).toContain("Reddit docs");
   expect(titles.some((title) => title.includes("about:blank"))).toBe(false);
@@ -166,8 +166,7 @@ test("a partial word asks first: the completion is one row down and Right leaves
   const calls: unknown[][] = [];
   await render(calls);
   const field = await type("reddi");
-  // The ask is Return's with no row of its own (David Beyer 2026-11-20): nothing is lit, the completion is a row.
-  expect(rows().some((row) => row.getAttribute("aria-selected") === "true")).toBe(false);
+  expect(rows().find((row) => row.getAttribute("aria-selected") === "true")?.dataset.type).toBe("ask");
   expect(rows().map(label)).toContain("reddit.com");
   await caretAt();
   await act(async () =>
@@ -213,9 +212,8 @@ test("Tab with suggestions showing steps from Return's row", async () => {
   const tab = new window.KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true });
   await act(async () => field.dispatchEvent(tab));
   expect(tab.defaultPrevented).toBe(true);
-  // From the prompt (no row of its own, David Beyer 2026-11-20) Tab lights the first drawn row.
-  expect(rows().some((row) => row.getAttribute("data-type") === "ask")).toBe(false);
-  expect(rows().findIndex((row) => row.getAttribute("aria-selected") === "true")).toBe(0);
+  expect(rows()[0]?.dataset.type).toBe("ask");
+  expect(rows().findIndex((row) => row.getAttribute("aria-selected") === "true")).toBe(1);
   const back = new window.KeyboardEvent("keydown", { key: "Tab", shiftKey: true, bubbles: true, cancelable: true });
   await act(async () => field.dispatchEvent(back));
   expect(back.defaultPrevented).toBe(false);
@@ -247,14 +245,13 @@ test("the rows float in a popover over the page, not in the page's flow", async 
   expect(field.getAttribute("aria-controls")).toBe(popover.id);
 });
 
-test("a prompt asks the agent on Return with no row of its own, a web search a Down away", async () => {
+test("a prompt highlights the agent action and asks it on Return", async () => {
   const calls: unknown[][] = [];
   await render(calls);
   const field = await type("why is the reddit scraper slow");
   const shown = rows();
-  // Return asks with no row of its own (David Beyer 2026-11-20): the chip names the agent, Send is the prompt's.
-  expect(shown.some((row) => row.getAttribute("data-type") === "ask")).toBe(false);
-  expect(shown.some((row) => row.getAttribute("aria-selected") === "true")).toBe(false);
+  expect(shown[0]?.dataset.type).toBe("ask");
+  expect(shown[0]?.getAttribute("aria-selected")).toBe("true");
   expect(shown.map(label)).toContain("Search the web for why is the reddit scraper slow");
   await act(async () =>
     field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })),
@@ -263,31 +260,25 @@ test("a prompt asks the agent on Return with no row of its own, a web search a D
   expect(calls).toEqual([["ask", "claude", "why is the reddit scraper slow", undefined, "claude-opus-5-5"]]);
 });
 
-// Lucas 2026-10-26: the arrows wrapped through the rows and never came back to the chat field.
-// Down on the last row still wraps to the top row, but Up on the top row returns to the field (no
-// row highlighted), and Return there sends the prompt.
-test("Down on the last row comes back to the field; Up on the top row comes back to the field", async () => {
+test("arrows wrap through the suggestions and return to the default Ask row", async () => {
   const calls: unknown[][] = [];
   await render(calls);
   const field = await type("why is the reddit scraper slow");
   const highlighted = () => rows().findIndex((row) => row.getAttribute("aria-selected") === "true");
   const press = (key: string) =>
     act(async () => field.dispatchEvent(new window.KeyboardEvent("keydown", { key, bubbles: true, cancelable: true })));
-  // The prompt has no row of its own (David Beyer 2026-11-20): it is the field, the stop before the first row.
   const count = rows().length;
   expect(count).toBeGreaterThan(0);
-  expect(highlighted()).toBe(-1);
+  expect(highlighted()).toBe(0);
 
-  for (let step = 0; step < count; step += 1) await press("ArrowDown");
+  for (let step = 1; step < count; step += 1) await press("ArrowDown");
   expect(highlighted()).toBe(count - 1);
   await press("ArrowDown");
-  expect(highlighted()).toBe(-1);
+  expect(highlighted()).toBe(0);
   await press("ArrowUp");
   expect(highlighted()).toBe(count - 1);
   for (let step = 1; step < count; step += 1) await press("ArrowUp");
   expect(highlighted()).toBe(0);
-  await press("ArrowUp");
-  expect(highlighted()).toBe(-1);
 
   await press("Enter");
   expect(calls).toEqual([["ask", "claude", "why is the reddit scraper slow", undefined, "claude-opus-5-5"]]);
@@ -304,9 +295,8 @@ test("in a prompt of several lines Up and Down move the caret, and Return asks",
     await act(async () => field.dispatchEvent(event));
     return event.defaultPrevented;
   };
-  // Many lines are a prompt: Ask alone (Lucas 2026-11-17), and the prompt has no row of its own (David Beyer
-  // 2026-11-20), so no list opens and ↑ and ↓ stay the caret's on every line.
-  expect(rows().length).toBe(0);
+  // The only action is Ask, so the arrows stay with the caret.
+  expect(rows().map((row) => row.dataset.type)).toEqual(["ask"]);
   await caretAt(); // the second line
   expect(await press("ArrowDown")).toBe(false);
   expect(await press("ArrowUp")).toBe(false);

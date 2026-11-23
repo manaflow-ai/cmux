@@ -41,8 +41,6 @@
 .nt-popover .nt-rows{--popup-scroll-cap:360px;box-sizing:border-box;border-radius:inherit;padding:var(--ui-popup-padding);max-height:min(48vh,360px,var(--available-height,360px));overflow:auto;overscroll-behavior:contain}
 .nt-row{display:flex;align-items:center;gap:calc(var(--ds-space-2) * var(--nt-density,1));height:var(--ui-row-height);padding:0 var(--ui-row-padding-inline);border-radius:var(--ui-row-radius);color:var(--agent-soft);font-size:var(--nt-row-text,var(--text-control));white-space:nowrap;letter-spacing:var(--text-control--letter-spacing)}
 .nt-row.is-selected{background:var(--ds-color-selection);color:var(--agent-text)}
-/* Hover lights a row without changing the keyboard selection. Not in the suggestions: there the pointer moves the
-   selection itself (NewTabScreen.tsx), so the selected row is the only lit one. */
 .nt-row:not(.is-selected,.nt-rows > *):hover,.nt-fix-chip:not(.is-selected):hover{background:var(--ds-color-hover);color:var(--agent-text)}
 /* One box for every row glyph: an icon, a command symbol, a mark and a favicon all draw centered in it, sized from one
    ink size, `--nt-glyph-ink` (the whole box here, 14 of its 16 in the suggestions), so no glyph is bigger or

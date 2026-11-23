@@ -143,6 +143,6 @@ test("Cmd-Return asks even when a row the arrows picked leads", async () => {
 test("the Ask row has no action hint when another row leads", async () => {
   await render([]);
   await type("reddit");
-  const ask = rows().find((row) => label(row) === "Ask Claude Code")!;
+  const ask = rows().find((row) => row.dataset.type === "ask")!;
   expect(ask.querySelector("kbd")).toBeNull();
 });

@@ -260,12 +260,11 @@ async function typedSuggestions(
 /// The suggestion kinds in their displayed order.
 const navigationTypes = (rows: SuggestionRow[]) => rows.map((row) => row.type);
 
-/// "ff": Return asks the chip's agent, so no Ask row leads (David Beyer 2026-11-20: "Ask Claude Code"
-/// under a chip that already says Claude Code); no workspace that only holds "ff" inside a word, the
+/// "ff": Ask leads; no workspace that only holds "ff" inside a word, the
 /// web search last, no create row.
 function ffProblem(rows: SuggestionRow[]): string | undefined {
   const types = navigationTypes(rows);
-  if (types[0] === "ask") return "an Ask row for the chip's agent leads";
+  if (types[0] !== "ask") return "Ask does not lead";
   if (rows.some((row) => row.type === "workspace" && /toolbar-diffviewer|app-efficiency/.test(row.title)))
     return "a workspace that only has ff inside a word shows";
   if (types.at(-1) !== "search") return "the web search is not the last row";
@@ -296,18 +295,6 @@ function checkSuggestionSurface(ctx: PlayContext): void {
       throw new Error(`suggestions differ from the composer: ${property}`);
   }
   if (popover.hasAttribute("data-host-glass")) throw new Error("suggestions draw a separate native popup material");
-}
-
-/// Return asks the chip's agent with no row for it; the first drawn row is `first`, titled `title`,
-/// and the web search is last.
-function askLeadsProblem(first: string, title: string) {
-  return (rows: SuggestionRow[]): string | undefined => {
-    if (rows[0]?.type === "ask") return "an Ask row for the chip's agent leads";
-    if (rows[0]?.type !== first) return `the first row is not ${first}`;
-    if (rows[0]?.title !== title) return `the first row is not ${title}`;
-    if (navigationTypes(rows).at(-1) !== "search") return "the web search is not the last row";
-    return undefined;
-  };
 }
 
 /// The first two rows' kinds are `first` and `second` (one of them Ask); the other one is `title`.
@@ -1060,14 +1047,14 @@ export default agentPaneEntry({
       },
     },
     "typed-prompt": {
-      note: "A typed instruction (David Beyer 2026-11-20): Return asks the agent the model chip names, so the popover has no row for it and nothing is highlighted; the web search is the one row, a Down away. Unrelated creation commands stay hidden; the cards stay where they were.",
+      note: "A typed instruction: the highlighted Ask row names the model and shows the prompt. Web search is one Down away. Unrelated creation commands stay hidden.",
       ready: newTab({ projects: [CWD] }),
       snapshot: noChat(manySessions(3)),
       play: async (ctx) => {
         await typePrompt(ctx, "fix the flaky upload test");
         await ctx.waitFor(() => ctx.document.querySelector('.nt-popover .nt-row[data-type="search"]'));
-        if (ctx.document.querySelector('.nt-row[data-type="ask"], .nt-row.is-selected'))
-          throw new Error("the prompt for the chip's agent shows as a row, or a row holds Return");
+        if (!ctx.document.querySelector('.nt-row[data-type="ask"].is-selected .nt-row-return'))
+          throw new Error("the Ask row does not show that Return sends the prompt");
       },
     },
     "typed-command": {
@@ -1082,18 +1069,21 @@ export default agentPaneEntry({
       },
     },
     "typed-lone-word": {
-      note: 'One word that names a program and a prompt ("test", David Beyer 2026-11-20: a word he typed ran as a shell command): Return asks the agent (no row, nothing highlighted, Send\'s arrow), Run in Terminal is the first row, a Down away.',
+      note: 'One word that names a program and a prompt ("test"): Ask is selected, and Run in Terminal is one Down away.',
       ready: newTab({ projects: [CWD] }),
       snapshot: noChat(manySessions(3)),
       play: async (ctx) => {
         await typePrompt(ctx, "test");
         await ctx.waitFor(() => ctx.document.querySelector('.nt-popover .nt-row[data-type="run"]'));
-        if (ctx.document.querySelector(".nt-row.is-selected, .nt-send[data-returns]"))
+        if (
+          !ctx.document.querySelector('.nt-row[data-type="ask"].is-selected') ||
+          ctx.document.querySelector(".nt-send[data-returns]")
+        )
           throw new Error("Return does something other than asking the agent");
       },
     },
     "typed-hover": {
-      note: "\"helo\" typed, the pointer resting on the web search suggestion. Return stays the prompt's (nothing highlighted, Send's arrow), so Return sends it.",
+      note: '"helo" typed, with the pointer resting on web search. Ask stays selected and Return sends the prompt.',
       ready: newTab({ projects: [CWD] }),
       snapshot: noChat(manySessions(3)),
       play: async (ctx) => {
@@ -1118,23 +1108,23 @@ export default agentPaneEntry({
       },
     },
     "typed-keywords": {
-      note: 'Leo 2026-10-20 (no Search | Ask switch) and 2026-10-24 ("Search the web. Do you really want that first?"): plain keywords. Return asks the agent the chip names (no row, nothing highlighted: David Beyer 2026-11-20), the web search is the last row.',
+      note: "Plain keywords select Ask, with web search last.",
       ready: newTab({ projects: [CWD] }),
       snapshot: noChat(manySessions(3)),
       play: async (ctx) => {
         await typePrompt(ctx, "rust serde");
         await ctx.waitFor(() => ctx.document.querySelector('.nt-popover .nt-row[data-type="search"]'));
-        if (ctx.document.querySelector(".nt-row.is-selected")) throw new Error("a row holds the prompt's Return");
+        if (!ctx.document.querySelector('.nt-row[data-type="ask"].is-selected')) throw new Error("Ask is not selected");
       },
     },
     "typed-question": {
-      note: "A question: Return asks the agent the chip names (no row, nothing highlighted), the web search one Down away.",
+      note: "A question selects Ask, with web search one Down away.",
       ready: newTab({ projects: [CWD] }),
       snapshot: noChat(manySessions(3)),
       play: async (ctx) => {
         await typePrompt(ctx, "why does the upload test flake?");
         await ctx.waitFor(() => ctx.document.querySelector('.nt-popover .nt-row[data-type="search"]'));
-        if (ctx.document.querySelector(".nt-row.is-selected")) throw new Error("a row holds the prompt's Return");
+        if (!ctx.document.querySelector('.nt-row[data-type="ask"].is-selected')) throw new Error("Ask is not selected");
       },
     },
     "typed-tab-match": {
@@ -1171,8 +1161,8 @@ export default agentPaneEntry({
       snapshot: noChat([]),
       play: async (ctx) => {
         await typePrompt(ctx, "release");
-        // Four matching tabs and the web search; Ask is Return's, with no row (David Beyer 2026-11-20).
-        await ctx.waitFor(() => ctx.document.querySelectorAll('.nt-rows [role="option"]').length >= 5);
+        // Ask, four matching tabs, and web search.
+        await ctx.waitFor(() => ctx.document.querySelectorAll('.nt-rows [role="option"]').length >= 6);
       },
     },
     "workspace-switch-animation-audit": {
@@ -1305,7 +1295,7 @@ export default agentPaneEntry({
       },
     },
     "suggestions-ff": {
-      note: "Suggestions use the composer's surface. Return asks the chip's agent (no row for it), web search last, and unrelated creation commands stay hidden.",
+      note: "Suggestions use the composer's surface. Ask leads, web search is last, and unrelated creation commands stay hidden.",
       ready: newTab({ omnibar: FF_OMNIBAR }),
       snapshot: noChat(manySessions(3)),
       play: async (ctx) => {
@@ -1437,13 +1427,13 @@ export default agentPaneEntry({
       },
     },
     "suggestions-chat-ff": {
-      note: "Chat order asks first (Return's, with no row for the chip's agent) and keeps web search last. Create actions stay outside suggestions.",
+      note: "Chat order puts Ask first and keeps web search last. Create actions stay outside suggestions.",
       ready: newTab({ suggestionOrder: "chat", omnibar: FF_OMNIBAR }),
       snapshot: noChat(manySessions(3)),
       play: async (ctx) => {
         await typedSuggestions(ctx, "ff", (rows) => {
           const types = navigationTypes(rows);
-          if (types[0] === "ask") return "an Ask row for the chip's agent leads";
+          if (types[0] !== "ask") return "Ask does not lead";
           if (types.at(-1) !== "search") return "the web search is not last";
           if (rows.some((row) => row.type === "create")) return "create actions are suggestions";
           return undefined;
@@ -1451,15 +1441,15 @@ export default agentPaneEntry({
       },
     },
     "suggestions-chat-url": {
-      note: "The chat order: Return asks even for an address an open tab shows (no row for the chip's agent); Switch to tab is the first row.",
+      note: "Chat order puts Ask first even for an address in an open tab. Switch to tab is second.",
       ready: newTab({ suggestionOrder: "chat", omnibar: FF_OMNIBAR }),
       snapshot: noChat(manySessions(3)),
       play: async (ctx) => {
-        await typedSuggestions(ctx, "github.com/manaflow-ai/cmux", askLeadsProblem("tab", "manaflow-ai/cmux"));
+        await typedSuggestions(ctx, "github.com/manaflow-ai/cmux", leadProblem("ask", "tab", "manaflow-ai/cmux"));
       },
     },
     "suggestions-minimal-ff": {
-      note: 'The minimal order (newTab.suggestionOrder "minimal"): as the default, at most three matches and no create rows while typing; "ff" asks on Return (no row) and lists the web search.',
+      note: 'The minimal order shows at most three matches and no create rows while typing. For "ff", Ask leads and web search is last.',
       ready: newTab({ suggestionOrder: "minimal", omnibar: FF_OMNIBAR }),
       snapshot: noChat(manySessions(3)),
       play: async (ctx) => {

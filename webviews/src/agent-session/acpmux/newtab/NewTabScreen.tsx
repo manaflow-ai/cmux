@@ -939,7 +939,8 @@ export function NewTabScreen(props: Props) {
     remembered,
     harnessesListed,
   );
-  const chipModel = useNewTabChipModel(chipSnapshot);
+  const chipChoice = useNewTabChipModel(chipSnapshot);
+  const chipModel = chipChoice?.id;
   const inline = useInlineAttachments({
     field,
     text,
@@ -1005,10 +1006,7 @@ export function NewTabScreen(props: Props) {
   // A harness the chip names always has the row: a last pick stands before the catalog lists it
   // (newTabStart), and with no row Return took the prompt to the web search under that chip.
   const askEntry = harness ? snapshot.catalog.find((agent) => agent.id === harness) : undefined;
-  const askModel = askEntry?.models.find((option) => option.id === chipSnapshot.summary?.model)?.name;
-  const ask = harness
-    ? { harness, agent: agentName(harness, askEntry?.name), ...(askModel ? { model: askModel } : {}) }
-    : undefined;
+  const ask = harness ? { harness, agent: agentName(harness, askEntry?.name), model: chipChoice?.name } : undefined;
   // Shell mode's text is a command line, where a `/` starts a path.
   const commandAt = shell ? undefined : commandTrigger;
   const commandQuery = commandAt?.query;
@@ -1121,6 +1119,7 @@ export function NewTabScreen(props: Props) {
         )
       : [];
   const rows = text !== dismissed ? suggested : NO_ROWS;
+  const promptFirst = promptLeads(rows, harness);
   // New tabs or pages from the host can shorten the rows under a highlight.
   // A highlighted row that went away (its tab closed) hands Return back to the top row.
   const kept = selected === undefined ? -1 : rows.findIndex((row) => rowKey(row) === selected);
@@ -1131,21 +1130,11 @@ export function NewTabScreen(props: Props) {
   const pointerAt = useRef("");
   const pick = (index: number) => {
     const row = rows[index];
-    setSelected(row ? rowKey(row) : NO_ROW);
+    // Returning to the default Ask row also returns arrow keys to the prompt's caret.
+    setSelected(promptFirst && index <= 0 ? undefined : row ? rowKey(row) : NO_ROW);
   };
-  // The prompt for the chip's own agent leads: not drawn (screenModel promptLeads), the list starts
-  // at the next row.
-  const firstDrawn = promptLeads(rows, harness) ? 1 : 0;
-  const drawnRows = rows.length - firstDrawn;
-  // The arrows' next row. With the prompt's row hidden, it and "no row" are one stop, the prompt
-  // (-1, which keeps ↑ and ↓ for a multi-line prompt's caret): ↓ from it reaches the first drawn row
-  // and ↓ from the last row comes back to it; ↑ from the first drawn row comes back to it in one press.
-  const stepRows = (from: number, by: 1 | -1) => {
-    if (!firstDrawn) return stepSelection(from, by, rows.length);
-    if (from < firstDrawn) return by === 1 ? firstDrawn : rows.length - 1;
-    if (by === 1) return from + 1 < rows.length ? from + 1 : -1;
-    return from - 1 < firstDrawn ? -1 : from - 1;
-  };
+  const stepRows = (from: number, by: 1 | -1) =>
+    stepSelection(promptFirst && from === 0 && by === -1 ? -1 : from, by, rows.length);
   // What Return does when it is not the prompt (a command, an address, a tab, a search): said beside
   // Send before Return is pressed (David Beyer 2026-11-20 typed words that ran as a shell command), the
   // same row submit takes (screenModel returnRow).
@@ -1806,8 +1795,8 @@ export function NewTabScreen(props: Props) {
     // take them from the caret's first (↑) or last (↓) line. Once a row is picked, the arrows step
     // the suggestion rows.
     const step = kept < 0 && movesCaretInPrompt(event, state, input) ? undefined : listStep(event);
-    // Only drawn rows take the arrows: a prompt whose one row is its own hidden Ask keeps them for the caret.
-    if (step && drawnRows) {
+    // A lone Ask row has no alternate action, so the prompt keeps its arrow keys.
+    if (step && rows.length > (promptFirst ? 1 : 0)) {
       event.preventDefault();
       pick(stepRows(current, step));
     } else if (step && dismissed !== undefined && text) {
@@ -2530,7 +2519,7 @@ export function NewTabScreen(props: Props) {
                   "aria-controls": commandsOpen ? "acpmux-slash-menu" : "nt-rows",
                   "aria-activedescendant": commandsOpen
                     ? `acpmux-slash-${commandIndex}`
-                    : rows[current] && current >= firstDrawn
+                    : rows[current]
                       ? `nt-row-${current}`
                       : undefined,
                   // One completion UI: the system's spelling bubble and inline predictions stay off
@@ -2694,7 +2683,7 @@ export function NewTabScreen(props: Props) {
           {lists}
         </>
       )}
-      {drawnRows > 0 && anchor && (
+      {rows.length > 0 && anchor && (
         <Popover
           open
           // The rows follow the field (Escape there and a press outside close them): the popover
@@ -2706,7 +2695,7 @@ export function NewTabScreen(props: Props) {
           // One row (a prompt on many lines): whole-pixel padding and row, so it sits centered (screen.css).
           className={
             // The Console template's field has the popup corner; the portal cannot see the screen's template.
-            `nt-composer-surface nt-popover${drawnRows === 1 ? " nt-popover-single" : ""}${
+            `nt-composer-surface nt-popover${rows.length === 1 ? " nt-popover-single" : ""}${
               template === "console" ? " nt-popover-console" : ""
             }${boxFocused ? " nt-popover-focused" : ""}`
           }
@@ -2722,52 +2711,50 @@ export function NewTabScreen(props: Props) {
             role="listbox"
             aria-label={nt("suggestions")}
           >
-            {rows.map((row, index) =>
-              index < firstDrawn ? null : (
-                <div
-                  key={rowKey(row)}
-                  id={`nt-row-${index}`}
-                  ref={index === current ? keepInView : undefined}
-                  // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-                  role="option"
-                  tabIndex={-1}
-                  aria-selected={index === current}
-                  data-type={row.type}
-                  className={index === current ? "nt-row is-selected" : "nt-row"}
-                  // The pointer moves the one selection the arrow keys move, as the shared lists do (ui/Listbox.tsx), so
-                  // a hovered row and a keyed row never light up at once (Lucas 2026-11-20).
-                  onMouseMove={(event) => {
-                    const at = `${event.screenX},${event.screenY}`;
-                    if (at === pointerAt.current) return;
-                    const known = pointerAt.current !== "";
-                    pointerAt.current = at;
-                    if (known && index !== current) pick(index);
-                  }}
-                  onMouseDown={(event) => {
-                    event.preventDefault();
-                    activate(row, event.altKey || event.metaKey);
-                  }}
-                >
-                  <SuggestionGlyph row={row} />
-                  <span className="nt-row-title">{rowTitle(nt, row)}</span>{" "}
-                  {rowDetail(row) && <span className="nt-row-detail">{rowDetail(row)}</span>}
-                  {row.type === "action" && !!row.keycaps?.length && (
-                    <span className="nt-row-shortcut" data-popup-skip>
-                      {row.keycaps.map((cap, index) => (
-                        <kbd key={index}>{cap}</kbd>
-                      ))}
-                    </span>
-                  )}
-                  {/* Return's row says so: ↩ at its end. The prompt for the chip's agent is no row, so a
-                    highlighted row is never the prompt: no highlight, Return sends to the agent. */}
-                  {index === current && (
-                    <kbd className="nt-row-return" aria-hidden="true" data-popup-skip>
-                      ↩
-                    </kbd>
-                  )}
-                </div>
-              ),
-            )}
+            {rows.map((row, index) => (
+              <div
+                key={rowKey(row)}
+                id={`nt-row-${index}`}
+                ref={index === current ? keepInView : undefined}
+                // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+                role="option"
+                tabIndex={-1}
+                aria-selected={index === current}
+                data-type={row.type}
+                className={index === current ? "nt-row is-selected" : "nt-row"}
+                // When the prompt leads, a suggestion needs a click or a keyboard pick. A pointer
+                // passing over web search must not redirect Return or the composer's Send button.
+                onMouseMove={(event) => {
+                  if (promptFirst) return;
+                  const at = `${event.screenX},${event.screenY}`;
+                  if (at === pointerAt.current) return;
+                  const known = pointerAt.current !== "";
+                  pointerAt.current = at;
+                  if (known && index !== current) pick(index);
+                }}
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  if (row.type === "ask") askTyped();
+                  else activate(row, event.altKey || event.metaKey);
+                }}
+              >
+                <SuggestionGlyph row={row} />
+                <span className="nt-row-title">{rowTitle(nt, row)}</span>{" "}
+                {rowDetail(row) && <span className="nt-row-detail">{rowDetail(row)}</span>}
+                {row.type === "action" && !!row.keycaps?.length && (
+                  <span className="nt-row-shortcut" data-popup-skip>
+                    {row.keycaps.map((cap, index) => (
+                      <kbd key={index}>{cap}</kbd>
+                    ))}
+                  </span>
+                )}
+                {index === current && (
+                  <kbd className="nt-row-return" aria-hidden="true" data-popup-skip>
+                    ↩
+                  </kbd>
+                )}
+              </div>
+            ))}
           </div>
         </Popover>
       )}
@@ -2884,7 +2871,7 @@ function rowTitle(nt: NewTabTranslate, row: ScreenRow): string {
     case "search":
       return nt("row.searchFor", { text: row.text });
     case "ask":
-      return nt("row.ask", { agent: row.agent });
+      return nt("row.ask", { agent: row.model ?? row.agent });
     case "open":
       return row.text;
     case "history":
@@ -2941,7 +2928,7 @@ function rowDetail(row: ScreenRow): string | undefined {
     case "workspace":
       return row.detail;
     case "ask":
-      return row.model;
+      return withoutInlineTokens(row.text).trim();
     case "inProfile":
     case "newProfile":
     case "profile":

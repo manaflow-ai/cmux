@@ -218,7 +218,7 @@ export function NewTabPage({
     () => newTabStart(snapshot, snapshot.catalog, lastAgent, projectCwd, remembered, harnessesListed),
     [snapshot, lastAgent, projectCwd, remembered, harnessesListed],
   );
-  const chipModel = useNewTabChipModel(chipSnapshot);
+  const chipModel = useNewTabChipModel(chipSnapshot)?.id;
   // The field is the chat composer's prompt editor (MarkdownField), as on the New Tab screen
   // (newtab/NewTabScreen.tsx): one composer everywhere (leo-workspace design/new-tab.md). Its value is
   // Markdown; a host-provided location is literal text (paths and URLs can hold `_`, `*` or `[`), so

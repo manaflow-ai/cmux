@@ -128,8 +128,7 @@ async function openMachines(button: HTMLElement) {
   await act(async () => item!.click());
 }
 
-/// The Down presses from the field to drawn row `index`: one more while no row is lit, as when the prompt
-/// leads with no row of its own (David Beyer 2026-11-20).
+/// The Down presses from the field to row `index`: one more while no row is selected.
 function downsTo(index: number) {
   return index + (document.querySelector(".nt-row.is-selected") ? 0 : 1);
 }
@@ -160,7 +159,9 @@ test.each(["minimal", "default"] as const)("%s home offers creation only as matc
   for (const kind of ["terminal", "browser", "chat"] as const) {
     const field = await typePrompt(translateNewTab(`create.${kind}`));
     const rows = [...document.querySelectorAll<HTMLElement>(".nt-row")];
-    const index = rows.findIndex((row) => row.textContent?.includes(translateNewTab(`create.${kind}`)));
+    const index = rows.findIndex(
+      (row) => row.dataset.type === "create" && row.textContent?.includes(translateNewTab(`create.${kind}`)),
+    );
     expect(index).toBeGreaterThanOrEqual(0);
     if (kind !== "chat") continue;
     const downs = downsTo(index);
@@ -834,8 +835,8 @@ test("with a remembered pick and no catalog, Return asks instead of searching", 
     field.acpmuxMarkdownField!.type("look at the ios connection failures");
   });
   const rows = [...document.querySelectorAll(".nt-row")].map((row) => row.textContent ?? "");
-  // The prompt is Return's with no row of its own (David Beyer 2026-11-20); the web search is a row.
-  expect(document.querySelector('.nt-row[data-type="ask"]')).toBeNull();
+  const ask = document.querySelector('.nt-row[data-type="ask"][aria-selected="true"]');
+  expect(ask?.querySelector(".nt-row-title")?.textContent).toBe("Ask Opus 5.5");
   expect(rows.some((row) => row.includes("Search the web"))).toBe(true);
   await press(field, "Enter");
   await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
@@ -2158,10 +2159,7 @@ test("Return runs a typed shell command in a terminal; Cmd-Return still asks the
   expect(asks.map((ask) => ask[1])).toEqual(["git status"]);
 });
 
-// David Beyer 2026-11-20 (first-run call): "the Ask Claude code thing is confusing 'cause it's not clear that I'm ...
-// already set on Claude Code". The prompt for the chip's own agent is what Return does with plain text, which the
-// chip and Send already say: the suggestions draw it as no row, nothing is highlighted, and Return asks.
-test("a prompt for the chip's agent is no suggestion row: nothing is highlighted and Return asks", async () => {
+test("a prompt for the chip's agent is highlighted and Return asks", async () => {
   const asks: unknown[][] = [];
   const searches: string[] = [];
   await act(async () => {
@@ -2176,16 +2174,16 @@ test("a prompt for the chip's agent is no suggestion row: nothing is highlighted
     );
   });
   const field = await typePrompt("fix the failing test");
-  expect(document.querySelector('.nt-row[data-type="ask"]'), "no Ask row for the chip's own agent").toBeNull();
-  expect(document.querySelector(".nt-row.is-selected"), "no row is Return's").toBeNull();
-  expect(document.querySelector(".nt-row-return"), "no row shows Return's keycap").toBeNull();
+  const ask = document.querySelector('.nt-row[data-type="ask"].is-selected');
+  expect(ask).toBeTruthy();
+  expect(ask?.querySelector(".nt-row-return")).toBeTruthy();
   expect(document.querySelector(".nt-send")?.getAttribute("data-returns"), "Send is the prompt's arrow").toBeNull();
   await press(field, "Enter");
   expect(asks.map((ask) => ask[1])).toEqual(["fix the failing test"]);
   expect(searches).toEqual([]);
 });
 
-test("Down from the prompt highlights the first drawn row, Up goes back to the prompt", async () => {
+test("Down from Ask highlights the next row, Up goes back to Ask", async () => {
   const asks: unknown[][] = [];
   const searches: string[] = [];
   await act(async () => {
@@ -2201,17 +2199,18 @@ test("Down from the prompt highlights the first drawn row, Up goes back to the p
   });
   const field = await typePrompt("fix the failing test");
   const rows = () => [...document.querySelectorAll<HTMLElement>(".nt-popover .nt-row")];
-  expect(rows().length).toBeGreaterThan(0);
+  expect(rows().length).toBeGreaterThan(1);
+  expect(rows()[0]?.dataset.type).toBe("ask");
   await press(field, "ArrowDown");
-  expect(rows()[0]!.classList.contains("is-selected"), "the first drawn row").toBe(true);
-  expect(rows()[0]!.querySelector(".nt-row-return"), "Return's keycap on it").toBeTruthy();
+  expect(rows()[1]!.classList.contains("is-selected"), "the row after Ask").toBe(true);
+  expect(rows()[1]!.querySelector(".nt-row-return"), "Return's keycap on it").toBeTruthy();
   await press(field, "ArrowUp");
-  expect(document.querySelector(".nt-row.is-selected"), "back on the prompt").toBeNull();
-  // The prompt is one stop: one more Up wraps to the last drawn row, and Down from it comes back.
+  expect(rows()[0]!.classList.contains("is-selected"), "back on Ask").toBe(true);
+  // Up from Ask wraps to the last row, and Down from it comes back.
   await press(field, "ArrowUp");
   expect(rows().at(-1)!.classList.contains("is-selected"), "the last drawn row").toBe(true);
   await press(field, "ArrowDown");
-  expect(document.querySelector(".nt-row.is-selected"), "the prompt again").toBeNull();
+  expect(rows()[0]!.classList.contains("is-selected"), "Ask again").toBe(true);
   await press(field, "Enter");
   expect(asks.map((ask) => ask[1])).toEqual(["fix the failing test"]);
   expect(searches).toEqual([]);
