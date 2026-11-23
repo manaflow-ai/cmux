@@ -41,6 +41,16 @@ test("percentile is nearest rank", () => {
 test("resumeMarkdown judges first byte p95 against the direct answer's p95", () => {
   const s = (arm: ResumeSample["arm"], answered: number | null, fb: number): ResumeSample => ({ pause_s: 30, arm, i: 0, machine: "m", at: "", paused_ms: 30_000, answered_ms: answered, running_ms: null, registered_ms: null, first_byte_ms: fb, ack_ms: null, clock_offset_ms: 0, error: "" });
   const md = resumeMarkdown([s("direct", 800, 1500), s("platform", 1200, 2300), s("send", null, 2600)]);
-  expect(md).toContain("| 30 s | platform | 1 | 0 | 1.20 / 1.20 | - / - | - / - | 2.30 / 2.30 | 1.50 |");
-  expect(md).toContain("| 30 s | send | 1 | 0 | - / - | - / - | - / - | 2.60 / 2.60 | 1.80 |");
+  expect(md).toContain("| 30 s | platform | 1 | 0 | 1.20 / 1.20 | - / - | - / - | 2.30 / 2.30 | 1.50 | - |");
+  expect(md).toContain("| 30 s | send | 1 | 0 | - / - | - / - | - / - | 2.60 / 2.60 | 1.80 | - |");
+});
+
+test("the fill holder ships its python as base64, so no shell or printf reads its % or quotes", () => {
+  const { fillStartCommand, TOUCH_COMMAND } = require("./cloud-resume-matrix.ts");
+  const b64 = /echo ([A-Za-z0-9+/=]+) \| base64 -d/.exec(fillStartCommand(60))![1];
+  const py = Buffer.from(b64, "base64").toString();
+  expect(py).toContain("*60/100");
+  expect(py).toContain("%256");
+  expect(py.split("\n").length).toBeGreaterThan(8);
+  expect(TOUCH_COMMAND).toContain("kill -USR1");
 });

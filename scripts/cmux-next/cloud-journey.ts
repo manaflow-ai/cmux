@@ -4060,6 +4060,10 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   if (!Number.isInteger(resumeN) || resumeN < 1) throw new Error("--resume-n must be a positive integer");
   const resumeArms = (argValue("--resume-arms", argv) ?? RESUME_ARMS.join(",")).split(",").filter(Boolean) as ResumeArm[];
   if (resumeArms.some((a) => !RESUME_ARMS.includes(a))) throw new Error(`--resume-arms: ${RESUME_ARMS.join(", ")}`);
+  // --resume-fill PCT: a guest holder keeps PCT% of MemTotal resident through the pauses and walks it after each wake
+  // (the page-in, hq#17877's resume-memory-probe.sh measure, now beside the matrix's points).
+  const resumeFill = Number(argValue("--resume-fill", argv) ?? 0);
+  if (!Number.isFinite(resumeFill) || resumeFill < 0 || resumeFill > 80) throw new Error("--resume-fill must be 0..80 percent");
   // --start-via app: the app's own start (agent-session-start over the carrier dial) instead of `acp ensure`.
   const startVia = argValue("--start-via", argv) ?? "acp";
   if (startVia !== "acp" && startVia !== "app") throw new Error(`--start-via ${startVia}: acp or app`);
@@ -5325,6 +5329,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
             J.secrets.push(v.token);
             return { token: v.token, vm_id: String(v.vm_id), api_base_url: String(v.api_base_url) };
           },
+          fillPct: resumeFill,
         }, resumePauses, resumeN, resumeArms).catch((e: Error) => {
           J.record({ step: "resume matrix", status: "fail", ms: 0, detail: e.message });
           return [];

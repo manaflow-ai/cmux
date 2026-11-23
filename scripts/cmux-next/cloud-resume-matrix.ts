@@ -34,6 +34,8 @@ import { ChatClient, feltAfterSend, feltBoundary, feltMarker, turnOutcome, type 
 export type ResumeArm = "direct" | "platform" | "send";
 export const RESUME_ARMS: ResumeArm[] = ["direct", "platform", "send"];
 export const RESUME_POINTS = ["answered", "running", "registered", "first_byte"] as const;
+/** Measured beside the points, not from the event: the fill's page-in walk after the wake. */
+export const RESUME_EXTRAS = ["page_in"] as const;
 export type ResumePoint = (typeof RESUME_POINTS)[number];
 
 export type ResumeSample = {
@@ -53,6 +55,8 @@ export type ResumeSample = {
   direct_mode?: "start" | "exec";
   /** The guest's wall clock minus the runner's, ms, from the exec at the sample's end. */
   clock_offset_ms: number | null;
+  /** The guest touching every page of the matrix's memory fill after the wake (--resume-fill), ms: the lazy page-in. */
+  page_in_ms?: number | null;
   /** The guest saw a resume (`notify event=resumed`) this long after the event, guest clock corrected. */
   resumed_notify_ms?: number | null;
   error: string;
@@ -72,6 +76,8 @@ export type ResumeDeps = {
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
   log?: (line: string) => void;
+  /** Percent of MemTotal a guest holder keeps resident through every pause (0: none), as resume-memory-probe.sh. */
+  fillPct?: number;
 };
 
 const TICKER = "/tmp/cmux-resume-matrix";
@@ -79,6 +85,33 @@ const TICKER = "/tmp/cmux-resume-matrix";
 export const TICKER_START = `mkdir -p ${TICKER}; if ! [ -s ${TICKER}/pid ] || ! kill -0 "$(cat ${TICKER}/pid)" 2>/dev/null; then `
   + `nohup sh -c 'prev=$(date +%s%3N); while :; do sleep 0.05; now=$(date +%s%3N); [ $((now-prev)) -gt 1000 ] && echo "$prev $now" >> ${TICKER}/gaps; prev=$now; done' `
   + `>/dev/null 2>&1 & echo $! > ${TICKER}/pid; fi; echo "@@ticker $(cat ${TICKER}/pid)"`;
+
+/**
+ * A holder process that keeps `pct`% of MemTotal resident and, on each SIGUSR1, touches every page of it and writes
+ * the walk's time to ${TICKER}/touch (cmux-platform scripts/resume-memory-probe.sh's fill, as a long-lived holder).
+ */
+export function fillStartCommand(pct: number): string {
+  const py = [
+    "import mmap,os,signal,time",
+    `n=int(int(open('/proc/meminfo').read().split()[1])*1024*${pct}/100)//4096*4096`,
+    "m=mmap.mmap(-1,n)",
+    "for o in range(0,n,4096): m[o]=1",
+    "def t(*_):",
+    " a=time.monotonic()",
+    " for o in range(0,n,4096): m[o]=(m[o]+1)%256",
+    ` open('${TICKER}/touch','w').write(str(int((time.monotonic()-a)*1000)))`,
+    "signal.signal(signal.SIGUSR1,t)",
+    `open('${TICKER}/fill','w').write(str(n))`,
+    "while True: signal.pause()",
+  ].join("\n");
+  return `mkdir -p ${TICKER}; if ! [ -s ${TICKER}/fillpid ] || ! kill -0 "$(cat ${TICKER}/fillpid)" 2>/dev/null; then `
+    + `echo ${Buffer.from(`${py}\n`).toString("base64")} | base64 -d > ${TICKER}/fill.py; nohup python3 ${TICKER}/fill.py >/dev/null 2>&1 & echo $! > ${TICKER}/fillpid; fi; `
+    + `for i in $(seq 1 600); do [ -s ${TICKER}/fill ] && break; sleep 0.1; done; echo "@@fill $(cat ${TICKER}/fill 2>/dev/null)"`;
+}
+
+/** Touch the fill once and print the walk's ms (the page-in after a wake; warm when nothing was paged out). */
+export const TOUCH_COMMAND = `rm -f ${TICKER}/touch; kill -USR1 "$(cat ${TICKER}/fillpid)" 2>/dev/null && `
+  + `for i in $(seq 1 1200); do [ -s ${TICKER}/touch ] && break; sleep 0.05; done; echo "@@touch $(cat ${TICKER}/touch 2>/dev/null)"`;
 
 /** One exec after a wake: the guest's clock now, the ticker's gaps and the journal's relay and resume lines since `sinceS`. */
 export function wakeFactsCommand(sinceS: number): string {
@@ -160,6 +193,11 @@ export async function runResumeMatrix(deps: ResumeDeps, pauses: number[], n: num
   const out: ResumeSample[] = [];
   const started = await ctx.exec(`${ctx.guest}${TICKER_START}`, 60_000);
   if (!/@@ticker \d+/.test(started.stdout)) throw new Error(`the guest ticker did not start: ${(started.stdout + started.stderr).slice(-200)}`);
+  if (deps.fillPct) {
+    const f = await ctx.exec(`${ctx.guest}${fillStartCommand(deps.fillPct)}`, 120_000);
+    if (!/@@fill \d+/.test(f.stdout)) throw new Error(`the guest memory fill did not start: ${(f.stdout + f.stderr).slice(-200)}`);
+    log(`resume matrix: holding ${Math.round(Number(/@@fill (\d+)/.exec(f.stdout)![1]) / 2 ** 20)} MiB resident (${deps.fillPct}% of MemTotal)`);
+  }
   const chat = new ChatClient(ctx);
   await chat.open(ctx.harness ?? "claude");
   let floor: number | null = chat.held;
@@ -200,6 +238,11 @@ export async function runResumeMatrix(deps: ResumeDeps, pauses: number[], n: num
             s.first_byte_ms = felt.felt_ms;
             s.ack_ms = felt.ack_ms;
             if (felt.felt_ms === null) s.error ||= `no reply within ${FIRST_BYTE_DEADLINE_MS / 1000} s${felt.error ? ` (${felt.error})` : ""}`;
+            if (deps.fillPct) {
+              const t = await ctx.exec(`${ctx.guest}${TOUCH_COMMAND}`, 120_000);
+              const ms = /@@touch (\d+)/.exec(t.stdout);
+              s.page_in_ms = ms ? Number(ms[1]) : null;
+            }
             const sent = now();
             const facts = await ctx.exec(`${ctx.guest}${wakeFactsCommand(t0 / 1000)}`, 60_000);
             const got = now();
@@ -257,8 +300,8 @@ export function resumeMarkdown(samples: ResumeSample[]): string {
   const cells = resumeCells(samples);
   const get = (pause_s: number, arm: ResumeArm, point: ResumePoint) => cells.find((c) => c.pause_s === pause_s && c.arm === arm && c.point === point);
   const lines = [
-    "| pause | arm | n | failed | answered p50 / p95 | running p50 / p95 | registered p50 / p95 | first byte p50 / p95 | first byte p95 - direct answered p95 |",
-    "|---|---|---|---|---|---|---|---|---|",
+    "| pause | arm | n | failed | answered p50 / p95 | running p50 / p95 | registered p50 / p95 | first byte p50 / p95 | first byte p95 - direct answered p95 | page-in p50 / p95 |",
+    "|---|---|---|---|---|---|---|---|---|---|",
   ];
   for (const pause_s of [...new Set(cells.map((c) => c.pause_s))]) {
     const floor = get(pause_s, "direct", "answered")?.p95 ?? null;
@@ -268,10 +311,11 @@ export function resumeMarkdown(samples: ResumeSample[]): string {
       const total = samples.filter((s) => s.pause_s === pause_s && s.arm === arm).length;
       const pts = RESUME_POINTS.map((p) => { const c = get(pause_s, arm, p); return `${sec(c?.p50 ?? null)} / ${sec(c?.p95 ?? null)}`; });
       const gap = fb.p95 !== null && floor !== null ? sec(fb.p95 - floor) : "-";
-      lines.push(`| ${pause_s} s | ${arm} | ${total} | ${fb.failed} | ${pts.join(" | ")} | ${gap} |`);
+      const pin = samples.filter((x) => x.pause_s === pause_s && x.arm === arm).map((x) => x.page_in_ms).filter((x): x is number => typeof x === "number");
+      lines.push(`| ${pause_s} s | ${arm} | ${total} | ${fb.failed} | ${pts.join(" | ")} | ${gap} | ${pin.length ? `${sec(percentile(pin, 50))} / ${sec(percentile(pin, 95))}` : "-"} |`);
     }
   }
-  return `${lines.join("\n")}\n\nSeconds from the wake's event. answered: the resume call's answer (send: none). running: the guest's first tick after the pause. registered: the relay registration line. first byte: the agent reply's first record on the client. n counts samples; a point's p50/p95 uses the samples that reached it.\n`;
+  return `${lines.join("\n")}\n\nSeconds from the wake's event. answered: the resume call's answer (send: none). running: the guest's first tick after the pause. registered: the relay registration line. first byte: the agent reply's first record on the client. page-in: with --resume-fill, the guest's walk over its held memory after the reply (cold pages load on first touch; about 0.85 s per GiB in hq#17877). n counts samples; a point's p50/p95 uses the samples that reached it.\n`;
 }
 
 if (import.meta.main && process.argv[2] === "aggregate") {
