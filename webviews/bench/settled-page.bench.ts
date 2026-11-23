@@ -306,9 +306,14 @@ function installFrameReader() {
     }
     send(data: string | ArrayBufferLike | Blob | ArrayBufferView) {
       try {
-        const msg = JSON.parse(String(data)) as { id?: unknown; method?: string };
+        const msg = JSON.parse(String(data)) as { id?: unknown; method?: string; params?: Record<string, unknown> };
         if (msg.method) asked.set(msg.id, msg.method);
-        mark(`out ${msg.method ?? "answer"}`);
+        // A read of records names its cursor, so a large catch-up says which read asked for it.
+        const cursor = ["afterSeq", "beforeSeq", "limit", "kinds"]
+          .filter((key) => msg.params?.[key] !== undefined)
+          .map((key) => `${key}=${JSON.stringify(msg.params![key])}`)
+          .join(" ");
+        mark(`out ${msg.method ?? "answer"}${cursor ? ` ${cursor}` : ""}`);
       } catch {
         mark("out ?");
       }
