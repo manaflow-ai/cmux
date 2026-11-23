@@ -138,6 +138,7 @@ export type PaneComposerDeps = {
   chatName: string;
   sendToSubagent: ((message: string) => Promise<void>) | undefined;
   subagentQuote: React.RefObject<{ quoteReply(markdown: string): void } | null>;
+  subagentPrompt: React.RefObject<MarkdownFieldHandle | null>;
   reviewing: boolean;
   snapshot: AcpmuxSnapshot;
   dictation: Dictation;
@@ -369,6 +370,7 @@ export function drawPaneComposer({
   chatName,
   sendToSubagent,
   subagentQuote,
+  subagentPrompt,
   reviewing,
   snapshot,
   dictation,
@@ -562,6 +564,9 @@ export function drawPaneComposer({
       draftKey={subagentDraftKey}
       onSend={sendToSubagent}
       quoteRef={subagentQuote}
+      accessory={composerMic}
+      dictation={dictation}
+      promptRef={subagentPrompt}
     />
   ) : (
     !reviewing && (
