@@ -66,7 +66,7 @@ real command can be faster than this number; the CLI's own path is timed only on
 
 ## First numbers
 
-Counted from the Start page (draft, manaflow-ai/cmux#51171) on 2026-11-22:
+Counted from the Start page (draft, manaflow-ai/cmux#51171, unchanged through its head f25c96a) on 2026-11-22:
 
 | level | steps | command | wait | physical | by the person | conditional | fewest steps |
 |---|---:|---:|---:|---:|---:|---:|---:|
@@ -76,8 +76,25 @@ Counted from the Start page (draft, manaflow-ai/cmux#51171) on 2026-11-22:
 | Through Chief | 15 | 7 | 1 | 7 | 7 | 11 | 4 |
 | From your phone | 9 | 2 | 0 | 7 | 7 | 3 | 6 |
 
-Cloud part on staging: not run yet. The workflow can be started by hand only once this file is on
-`feat-cmux-next`; on its pull request it runs on each change to the script or the workflow.
+Cloud part on staging, run 45087298817 (2026-11-23, on its pull request):
+
+| timed route | result | time |
+|---|---|---:|
+| `signIn` | pass | 1.7 s |
+| `chat`: machine running | pass | 9.5 s from the create |
+| `chat`: first exec | pass | 15.4 s from the create |
+| `chat`: Claude agent session started | pass | 2.9 s more |
+| `chat`: first reply | refused | "Claude is not signed in here. This Cloud machine's Claude has no model route" |
+| `send` | not run | |
+
+So no level has a full Cloud number yet. The agent test account on staging has no model connection that serves
+Cloud. A real person gets the same refusal: it is the "refused for a model connection" branch every level counts.
+That puts the agent level at 13 steps and Chief at 14 or more before a first reply. Giving the account a Cloud
+model connection, or pointing the run at the model stub the Cloud journey uses, turns the `chat` row into a number.
+
+The workflow can be started by hand (workflow_dispatch) only once this file is on `feat-cmux-next`; on its pull
+request it runs on each change to the script or the workflow. It reads the agent test account from the
+`cmux-next-vm-image-dev` environment, the pair `cloud-journey-pr.yml` reads on pull requests.
 
 ## What counting the page found
 
