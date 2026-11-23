@@ -8,6 +8,8 @@ const WIDTH: usize = 128;
 const HEIGHT: usize = 64;
 const X: usize = 128;
 const Y: usize = 64;
+/// The quality region in stream pixels (x, y, width, height).
+pub const RECT: (usize, usize, usize, usize) = (X, Y, WIDTH, HEIGHT);
 const MAX_SAMPLES: usize = 5;
 const MAX_AU: usize = 1_000_000;
 const MAX_TIMINGS: usize = 120_000;
