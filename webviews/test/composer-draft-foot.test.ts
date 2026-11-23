@@ -7,8 +7,8 @@
 // Real gallery frames (agent-pane.draft-foot, one variant per arm), the draft scrolled a third down.
 // For every arm it sums the draft's ink (the frame against the same frame with the draft hidden) in
 // the field's bottom 18 px, the band the shipped mask faded to nothing, and in the 18 px over it.
-// The shipping arm must keep at least twice the before's ink in that band, and keep some fade: less
-// ink than the hard edge. With FAST_CHECKS_OUT or CMUX_DRAFT_FOOT_CAPTURE set, it writes foot.json and
+// The shipping arm must keep more ink than the before in that band, at least three times its ink in
+// the last 6 px against the rim, and keep some fade: less ink than the hard edge. With FAST_CHECKS_OUT or CMUX_DRAFT_FOOT_CAPTURE set, it writes foot.json and
 // 2x stills of the box for every arm, light and dark.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -19,7 +19,7 @@ import { draftFoot } from "../src/agent-session/acpmux/draftFoot.experiment";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
-type Foot = { foot: number; above: number; ratio: number };
+type Foot = { foot: number; above: number; edge: number; ratio: number };
 
 await requireBrowserLane("composer-draft-foot.test.ts", async () => {
   setDefaultTimeout(560_000);
@@ -30,6 +30,7 @@ await requireBrowserLane("composer-draft-foot.test.ts", async () => {
   const WIDTH = 760;
   const HEIGHT = 640;
   const BAND = 18;
+  const EDGE = 6;
   const THEMES = [
     ["Apple System Colors", "dark", undefined],
     ["Apple System Colors Light", "light", undefined],
@@ -106,7 +107,9 @@ await requireBrowserLane("composer-draft-foot.test.ts", async () => {
     };
     const above = ink(0, BAND * SCALE);
     const foot = ink(BAND * SCALE, shown.height);
-    return { foot, above, ratio: above > 0 ? foot / above : 0 };
+    // The field's last 6 px, against the rim: where the shipped mask reached nothing.
+    const edge = ink(shown.height - EDGE * SCALE, shown.height);
+    return { foot, above, edge, ratio: above > 0 ? foot / above : 0 };
   }
 
   test("every arm: the draft's ink in the box's foot", async () => {
@@ -122,8 +125,9 @@ await requireBrowserLane("composer-draft-foot.test.ts", async () => {
       const hard = record[`clip-${name}`]!;
       // Same draft, same scroll: the band over the foot reads the same in every arm.
       expect(Math.abs(chosen.above - before.above)).toBeLessThan(before.above * 0.1 + 1);
-      // The shipping foot shows the draft there (Leo: "more stuff there") ...
-      expect(chosen.foot).toBeGreaterThan(before.foot * 2);
+      // The shipping foot shows the draft there, down to the rim (Leo: "more stuff there") ...
+      expect(chosen.foot).toBeGreaterThan(before.foot * 1.1);
+      expect(chosen.edge).toBeGreaterThan(before.edge * 3 + 1);
       // ... and still softens it (Leo: "we do want some blur").
       expect(chosen.foot).toBeLessThan(hard.foot);
     }
