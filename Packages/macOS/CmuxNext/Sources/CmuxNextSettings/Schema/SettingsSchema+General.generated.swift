@@ -85,6 +85,9 @@ extension CmuxConfigSnapshot {
     /// `app.confirmQuit`: Lawrence 2026-11-10: an accidental Cmd-Q ended every agent and terminal with no question. Asks only when the quit ends them.
     public nonisolated static let confirmQuitPath = ["app", "confirmQuit"]
     public nonisolated static let confirmQuitDefault = true
+    /// `app.warnBeforeQuitShortcut`: https://github.com/manaflow-ai/cmux/issues/48621: an accidental Cmd-Q quit at once. The first Cmd-Q asks "Quit cmux?" (Quit, Cancel, Don't ask again); pressing or holding it again quits. The Quit menu, the Dock and scripts quit at once.
+    public nonisolated static let warnBeforeQuitShortcutPath = ["app", "warnBeforeQuitShortcut"]
+    public nonisolated static let warnBeforeQuitShortcutDefault = true
 }
 
 extension DefaultColumnWidthSetting {
