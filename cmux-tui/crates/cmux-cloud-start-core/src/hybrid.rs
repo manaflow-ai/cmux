@@ -30,8 +30,10 @@ pub const PREFIX: &str = "hybrid start step: ";
 /// How many times a start tries the move before the chat stays here.
 pub const MOVE_TRIES: u8 = 3;
 
-/// The plans a hybrid start is on for: Pro, and Max above it.
-pub const PLANS: &[&str] = &["next_pro", "next_max"];
+/// The plans a hybrid start is on for: Pro, and Max above it, as `cloud.plan.get` names them and
+/// as the CLI reads them (`billing.status`, cmux.com's `GET /api/billing/plan` `planId`: `pro`,
+/// `max`).
+pub const PLANS: &[&str] = &["next_pro", "next_max", "pro", "max"];
 
 /// The reason of a chat the person kept here.
 pub const STOPPED: &str = "stopped";

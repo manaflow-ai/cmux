@@ -31,6 +31,11 @@ fn it_is_on_for_everybody_on_a_pro_plan() {
     assert_eq!(enabled(&account(Some("next_pro"), None)), Ok(()));
     assert_eq!(enabled(&account(Some("next_max"), None)), Ok(()));
     assert_eq!(enabled(&account(Some("next_plus"), None)), Err(Off::Plan));
+    // `billing.status`'s spelling, which is what the CLI can read.
+    assert_eq!(enabled(&account(Some("pro"), None)), Ok(()));
+    assert_eq!(enabled(&account(Some("max"), None)), Ok(()));
+    assert_eq!(enabled(&account(Some("go"), None)), Err(Off::Plan));
+    assert_eq!(enabled(&account(Some("free"), None)), Err(Off::Plan));
     assert_eq!(enabled(&account(None, None)), Err(Off::Plan));
 }
 
