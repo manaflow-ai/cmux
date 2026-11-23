@@ -62,7 +62,7 @@ impl Brain {
             })
             .collect::<Vec<_>>()
             .join("\n");
-        self.host_post(
+        if !self.host_post(
             format!(
                 "{}{}",
                 super::outcome_ledger::HOST_SPAWN_KEY,
@@ -70,7 +70,9 @@ impl Brain {
             ),
             lines,
             None,
-        );
+        ) {
+            self.queue(no_text_note(&spawned), super::Source::Note);
+        }
     }
 }
 
