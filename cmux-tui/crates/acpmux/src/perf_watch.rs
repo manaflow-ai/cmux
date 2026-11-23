@@ -977,7 +977,7 @@ impl Drop for LogPass {
     }
 }
 
-/// `_acpmux/perf`: `{op: "on"|"off"|"status"|"read"|"snapshot"|"report"|"budgets", ...}`.
+/// `_acpmux/perf`: `{op: "on"|"off"|"status"|"read"|"snapshot"|"report"|"budgets"|"frames"|"tally", ...}`.
 pub const METHOD: &str = crate::rpc::method::MUX_PERF;
 
 /// Serves [`METHOD`].
@@ -1009,8 +1009,13 @@ pub async fn handle(params: &Value) -> Result<Value, crate::rpc::RpcError> {
             Ok(json!({"on": true}))
         }
         "budgets" => Ok(watch.snapshot().get("budgets").cloned().unwrap_or(Value::Null)),
+        // The always-on frame tally (`frame_tally.rs`): on or off, the watch has no say in it.
+        "frames" => Ok(crate::frame_tally::read()),
+        "tally" => crate::frame_tally::report(params).map_err(|error| {
+            crate::rpc::RpcError::invalid_params(format!("_acpmux/perf tally: {error}"))
+        }),
         other => Err(crate::rpc::RpcError::invalid_params(format!(
-            "_acpmux/perf: unknown op {other:?} (on, off, status, read, snapshot, report, budgets)"
+            "_acpmux/perf: unknown op {other:?} (on, off, status, read, snapshot, report, budgets, frames, tally)"
         ))),
     }
 }

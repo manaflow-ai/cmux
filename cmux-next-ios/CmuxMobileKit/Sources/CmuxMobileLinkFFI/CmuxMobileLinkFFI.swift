@@ -1348,8 +1348,9 @@ public protocol FollowCameraProtocol: AnyObject, Sendable {
     /**
      * One message of the `focus` channel (a JSON event), received at
      * `now_us` on the phone's clock. Its own `t_us` (the Mac's clock) is
-     * replaced by `now_us`. A message that is not an event is refused and
-     * changes nothing.
+     * replaced by `now_us`, except that events sharing one Mac `t_us` (the
+     * rects of one redraw) all take the phone time the first of them got.
+     * A message that is not an event is refused and changes nothing.
      */
     func pushJson(line: String, nowUs: UInt64) throws 
     
@@ -1475,8 +1476,9 @@ open func mode() -> FollowCameraMode  {
     /**
      * One message of the `focus` channel (a JSON event), received at
      * `now_us` on the phone's clock. Its own `t_us` (the Mac's clock) is
-     * replaced by `now_us`. A message that is not an event is refused and
-     * changes nothing.
+     * replaced by `now_us`, except that events sharing one Mac `t_us` (the
+     * rects of one redraw) all take the phone time the first of them got.
+     * A message that is not an event is refused and changes nothing.
      */
 open func pushJson(line: String, nowUs: UInt64)throws   {try rustCallWithError(FfiConverterTypeCmuxMobileError_lift) {
     uniffi_cmux_mobile_link_ffi_fn_method_followcamera_push_json(
@@ -2650,6 +2652,11 @@ public protocol TerminalProjectionProtocol: AnyObject, Sendable {
      */
     func feed(bytes: Data, paint: Bool)  -> [ProjectionSegment]
     
+    /**
+     * Paints what unpainted feeds changed, once (nothing on the alternate screen).
+     */
+    func flush()  -> [ProjectionSegment]
+    
     func isAlternate()  -> Bool
     
     /**
@@ -2773,6 +2780,17 @@ open func feed(bytes: Data, paint: Bool) -> [ProjectionSegment]  {
             self.uniffiCloneHandle(),
         FfiConverterData.lower(bytes),
         FfiConverterBool.lower(paint),$0
+    )
+})
+}
+    
+    /**
+     * Paints what unpainted feeds changed, once (nothing on the alternate screen).
+     */
+open func flush() -> [ProjectionSegment]  {
+    return try!  FfiConverterSequenceTypeProjectionSegment.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_terminalprojection_flush(
+            self.uniffiCloneHandle(),$0
     )
 })
 }
@@ -4207,6 +4225,111 @@ public func FfiConverterTypeTimingMark_lift(_ buf: RustBuffer) throws -> TimingM
 #endif
 public func FfiConverterTypeTimingMark_lower(_ value: TimingMark) -> RustBuffer {
     return FfiConverterTypeTimingMark.lower(value)
+}
+
+
+/**
+ * The window's layout at one size.
+ */
+public struct WindowLayout: Equatable, Hashable {
+    /**
+     * The shorter side reaches [`UNFOLDED_SHORT_SIDE`]: the window turns
+     * with the phone, as an iPad's does.
+     */
+    public var unfolded: Bool
+    /**
+     * A list beside its detail (Home's chats beside the open chat,
+     * Workspaces' list beside the open workspace).
+     */
+    public var twoPane: Bool
+    /**
+     * The list column's width in points; the whole width with one pane.
+     */
+    public var listWidth: Double
+    /**
+     * The detail's width in points (the window less the list and its
+     * divider); the whole width with one pane.
+     */
+    public var detailWidth: Double
+    /**
+     * Columns of the tab overview at the detail's width.
+     */
+    public var overviewColumns: UInt32
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The shorter side reaches [`UNFOLDED_SHORT_SIDE`]: the window turns
+         * with the phone, as an iPad's does.
+         */unfolded: Bool, 
+        /**
+         * A list beside its detail (Home's chats beside the open chat,
+         * Workspaces' list beside the open workspace).
+         */twoPane: Bool, 
+        /**
+         * The list column's width in points; the whole width with one pane.
+         */listWidth: Double, 
+        /**
+         * The detail's width in points (the window less the list and its
+         * divider); the whole width with one pane.
+         */detailWidth: Double, 
+        /**
+         * Columns of the tab overview at the detail's width.
+         */overviewColumns: UInt32) {
+        self.unfolded = unfolded
+        self.twoPane = twoPane
+        self.listWidth = listWidth
+        self.detailWidth = detailWidth
+        self.overviewColumns = overviewColumns
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension WindowLayout: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeWindowLayout: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> WindowLayout {
+        return
+            try WindowLayout(
+                unfolded: FfiConverterBool.read(from: &buf), 
+                twoPane: FfiConverterBool.read(from: &buf), 
+                listWidth: FfiConverterDouble.read(from: &buf), 
+                detailWidth: FfiConverterDouble.read(from: &buf), 
+                overviewColumns: FfiConverterUInt32.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: WindowLayout, into buf: inout [UInt8]) {
+        FfiConverterBool.write(value.unfolded, into: &buf)
+        FfiConverterBool.write(value.twoPane, into: &buf)
+        FfiConverterDouble.write(value.listWidth, into: &buf)
+        FfiConverterDouble.write(value.detailWidth, into: &buf)
+        FfiConverterUInt32.write(value.overviewColumns, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeWindowLayout_lift(_ buf: RustBuffer) throws -> WindowLayout {
+    return try FfiConverterTypeWindowLayout.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeWindowLayout_lower(_ value: WindowLayout) -> RustBuffer {
+    return FfiConverterTypeWindowLayout.lower(value)
 }
 
 // Note that we don't yet support `indirect` for enums.
@@ -5944,6 +6067,31 @@ public func terminalChatSwap(facts: TerminalChatFacts, shown: TabFace, to: TabFa
     )
 })
 }
+/**
+ * Columns of the tab overview in a page `width` points wide: as many
+ * [`OVERVIEW_MIN_CARD`]-wide cards as fit, two to four.
+ */
+public func overviewColumns(width: Double) -> UInt32  {
+    return try!  FfiConverterUInt32.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_overview_columns(
+        FfiConverterDouble.lower(width),$0
+    )
+})
+}
+/**
+ * The layout of a window `width` by `height` points. A size that is not
+ * finite or not positive is a compact phone's of that width (zero when
+ * unknown), so a transient zero size during a scene change never shows two
+ * panes.
+ */
+public func windowLayout(width: Double, height: Double) -> WindowLayout  {
+    return try!  FfiConverterTypeWindowLayout_lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_window_layout(
+        FfiConverterDouble.lower(width),
+        FfiConverterDouble.lower(height),$0
+    )
+})
+}
 
 private enum InitializationResult {
     case ok
@@ -6018,6 +6166,12 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_terminal_chat_swap() != 57193) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_overview_columns() != 48015) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_window_layout() != 29754) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_channelhandle_close() != 40361) {
@@ -6134,7 +6288,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_method_followcamera_mode() != 38203) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_method_followcamera_push_json() != 58022) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_followcamera_push_json() != 54911) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_followcamera_resume() != 43594) {
@@ -6183,6 +6337,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_feed() != 63739) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_flush() != 56682) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_is_alternate() != 62553) {
