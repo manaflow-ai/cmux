@@ -1,7 +1,7 @@
 // l10n-allow-file: benchmark output, not shipped UI.
 // A stable, report-only fling benchmark for the transcript replacement work in RFD 0040 decision 2.
-// The web arm runs transcript-scroll-up's existing 100k-row fling driver. The bare arm draws the same row count as
-// plain text and drives the same per-frame fling steps, leaving a floor for a future native arm to join.
+// The web arm renders the current transcript row shape at 100k rows. The bare arm draws the same row count as
+// plain text and both arms use the named fling step sequence, leaving a floor for a future native arm to join.
 /// <reference types="bun" />
 import { chromium } from "./browsers";
 import { perfRow } from "./perfRow";
@@ -33,45 +33,67 @@ const percentile = (values: number[], p: number) => {
   return sorted[Math.min(sorted.length - 1, Math.floor((p / 100) * sorted.length))]!;
 };
 
-function numberFromWeb(output: string, field: string): number {
-  const match = output.match(new RegExp(`transcript-scroll-up chromium ${field}: ([^\\n]+)`));
-  if (!match) throw new Error(`web arm did not report ${field}; output tail:\n${output.slice(-2000)}`);
-  const value = Number(JSON.parse(match[1]!));
-  if (!Number.isFinite(value)) throw new Error(`web arm reported a non-number for ${field}`);
-  return value;
-}
-
 async function runWebArm(): Promise<Arm> {
-  const child = Bun.spawn([process.execPath, "bench/transcript-scroll-up.bench.ts"], {
-    cwd: import.meta.dir.replace(/\/bench$/, ""),
-    env: {
-      ...process.env,
-      ENGINES: "chromium",
-      FIXTURE: "flat",
-      ROWS: String(ROWS),
-      MODE: "fling",
-      PAGES: String(PAGES),
-    },
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  const [stdout, stderr] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text()]);
-  await child.exited;
-  const output = `${stdout}\n${stderr}`;
-  return {
-    schema: SCHEMA,
-    arm: "web",
-    engine: "chromium",
-    fixture: "flat",
-    rows: ROWS,
-    mode: "fling",
-    frames: numberFromWeb(output, "frames"),
-    frame_p50_ms: numberFromWeb(output, "frameP50"),
-    frame_p95_ms: numberFromWeb(output, "frameP95"),
-    frame_max_ms: numberFromWeb(output, "frameMax"),
-    late_frames: numberFromWeb(output, "lateFrames"),
-    blank_frames: numberFromWeb(output, "blankFrames"),
-  };
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const page = await browser.newPage({ viewport: { width: 1100, height: 800 } });
+    await page.setContent(
+      '<main id="transcript" class="web-transcript"><div id="rows"></div></main><style>' +
+        ":root,body{margin:0;height:100%;overflow:hidden}#transcript{height:100%;overflow:auto;box-sizing:border-box;padding:12px 16px;font:14px/24px system-ui,sans-serif}.web-row{box-sizing:border-box;min-height:40px;padding:8px 12px;border-bottom:1px solid #e5e7eb;contain:layout paint}.web-row.user{background:#f7f8fa}.web-row.assistant{background:#fff}" +
+        "</style>",
+    );
+    await page.locator("#rows").evaluate((node, rows) => {
+      const fragment = document.createDocumentFragment();
+      for (let index = 0; index < (rows as number); index++) {
+        const row = document.createElement("div");
+        row.className = `web-row ${index % 2 ? "assistant" : "user"}`;
+        row.textContent = `${index % 2 ? "assistant" : "user"}-${Math.floor(index / 2) + 1}: transcript row ${index + 1}`;
+        fragment.append(row);
+      }
+      node.append(fragment);
+    }, ROWS);
+    const result = await page.evaluate(
+      ({ pages, steps }) =>
+        new Promise<{ intervals: number[]; blankFrames: number[] }>((resolve) => {
+          const scroller = document.querySelector<HTMLElement>("#transcript")!;
+          scroller.scrollTop = scroller.scrollHeight;
+          const intervals: number[] = [];
+          const blankFrames: number[] = [];
+          let previous = 0;
+          let frame = 0;
+          const tick = (now: number) => {
+            if (previous) intervals.push(now - previous);
+            previous = now;
+            const box = scroller.getBoundingClientRect();
+            const visible = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+            if (!visible?.closest(".web-row")) blankFrames.push(frame);
+            scroller.scrollTop = Math.max(0, scroller.scrollTop - steps[frame % steps.length]!);
+            frame += 1;
+            if (frame >= pages * 120 || scroller.scrollTop <= 0) resolve({ intervals, blankFrames });
+            else requestAnimationFrame(tick);
+          };
+          requestAnimationFrame(tick);
+        }),
+      { pages: PAGES, steps: FLING_STEPS },
+    );
+    const rounded = (value: number) => Math.round(value * 100) / 100;
+    return {
+      schema: SCHEMA,
+      arm: "web",
+      engine: "chromium",
+      fixture: "flat",
+      rows: ROWS,
+      mode: "fling",
+      frames: result.intervals.length,
+      frame_p50_ms: rounded(percentile(result.intervals, 50)),
+      frame_p95_ms: rounded(percentile(result.intervals, 95)),
+      frame_max_ms: rounded(Math.max(0, ...result.intervals)),
+      late_frames: result.intervals.filter((interval) => interval > LATE_FRAME_MS).length,
+      blank_frames: result.blankFrames.length,
+    };
+  } finally {
+    await browser.close();
+  }
 }
 
 async function runBareArm(frames: number): Promise<Arm> {
