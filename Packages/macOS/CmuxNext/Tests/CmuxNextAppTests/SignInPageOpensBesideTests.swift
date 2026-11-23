@@ -38,7 +38,7 @@ struct SignInPageOpensBesideTests {
             services.linkOpener.placement = { .splitRight }
             let panes = Set(content.panes.keys)
 
-            let first = try await Self.open(services) { _ = services.linkOpener.openSignInPage(page, beside: pane.view) }
+            let first = try await Self.open(services) { _ = services.linkOpener.openSignInPage(Self.page, beside: pane.view) }
             @MainActor func right() -> PaneController? {
                 content.panes.first { !panes.contains($0.key) && $0.value.pane.tabs.contains { $0.id == first } }?.value
             }
@@ -50,7 +50,7 @@ struct SignInPageOpensBesideTests {
             let side = try #require(right())
             let afterFirst = Set(content.panes.keys)
 
-            let second = try await Self.open(services) { _ = services.linkOpener.openSignInPage(page, beside: pane.view) }
+            let second = try await Self.open(services) { _ = services.linkOpener.openSignInPage(Self.page, beside: pane.view) }
             try await PinnedPageTests.until({ side.stripModel.selectedID?.rawValue == second },
                                             report: { "a second sign-in is not selected in the pane beside the code: " + Self.describe(content) })
             #expect(Set(content.panes.keys) == afterFirst, "a second sign-in made another split: \(Self.describe(content))")
@@ -83,7 +83,7 @@ struct SignInPageOpensBesideTests {
             let layout = Set(content.panes.keys)
 
             var back: (@MainActor () -> Void)?
-            let first = try await Self.open(services) { back = services.linkOpener.openSignInPage(page, beside: codePane.view) }
+            let first = try await Self.open(services) { back = services.linkOpener.openSignInPage(Self.page, beside: codePane.view) }
             try await PinnedPageTests.until({ codePane.stripModel.selectedID?.rawValue == first && content.focusedPane === codePane },
                                             report: { "the sign-in page is not selected with the keyboard in the code's pane: " + Self.describe(content) })
             #expect(Set(content.panes.keys) == layout, "no room, yet the layout changed: \(Self.describe(content))")
@@ -91,7 +91,7 @@ struct SignInPageOpensBesideTests {
             try await PinnedPageTests.until({ codePane.stripModel.selectedID?.rawValue == codeTab },
                                             report: { "the sign-in's end did not show the code's tab again: " + Self.describe(content) })
 
-            let second = try await Self.open(services) { back = services.linkOpener.openSignInPage(page, beside: codePane.view) }
+            let second = try await Self.open(services) { back = services.linkOpener.openSignInPage(Self.page, beside: codePane.view) }
             try await PinnedPageTests.until({ codePane.stripModel.selectedID?.rawValue == second }, report: { "a second sign-in page is not selected: " + Self.describe(content) })
             codePane.select(StripTabID(other.id))
             try await PinnedPageTests.until({ codePane.stripModel.selectedID?.rawValue == other.id })
