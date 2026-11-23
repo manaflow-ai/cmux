@@ -208,6 +208,7 @@ import {
   computerUseHold,
   computerUseHoldText,
   computerUseState,
+  holdOpensSetup,
   useComputerUseState,
   type ComputerUsePlace,
 } from "./computerUse/computerUseState";
@@ -1157,11 +1158,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// Whether a send of `text` to a chat in `place` waits for Computer Use (`@computer-use` while the
   /// app's latest push, `computerUseState()`, is not `ready`, or always for a chat off this Mac, which
   /// has no Computer Use tools (#48541); decided at once, never on an answer still on its way). Not set
-  /// up: the send's own Enter or click opens the setup page (Lucas 2026-11-21: "when they hit send, we
-  /// want to show the computer use setup page"; its one grant credit, unspent, since nothing was sent),
-  /// and the message stays. Turned off by the organization, a build without it, a chat off this Mac, or
-  /// a host that did not open the page: the chat says why, and `toast` too where no notice slot shows
-  /// (New Tab).
+  /// up, or a build that cannot run it (`holdOpensSetup`): the send's own Enter or click opens the setup
+  /// page (Lucas 2026-11-21: "when they hit send, we want to show the computer use setup page"; its one
+  /// grant credit, unspent, since nothing was sent), and the message stays. Turned off by the
+  /// organization, a chat off this Mac, or a host that did not open the page: the chat says why, and
+  /// `toast` too where no notice slot shows (New Tab).
   const holdsForComputerUseSetup = (text: string, toast = false, place: ComputerUsePlace = "here"): boolean => {
     const gate = computerUseGate(text, computerUseState(), place);
     if (gate === "free") return false;
@@ -1169,7 +1170,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       setComputerUseAsked(place);
       if (toast) notices.transient(translate(computerUseHoldText(gate).title), "computerUseSetup");
     };
-    if (gate !== "setup") say();
+    if (!holdOpensSetup(gate)) say();
     else {
       setComputerUseAsked(undefined);
       void callNative("action.run", { id: "palette.computerUse.setup" }).catch(say);
@@ -8001,17 +8002,16 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   );
   /// The classic page's chat: a terminal or browser tab opens through `newTabPageSubmit`.
   const chatFromNewTab = (text: string, cwd?: string, attachments: ComposerAttachment[] = [], chat?: NewTabChat) => {
+    // `@computer-use` starts nothing while Computer Use is not ready on this Mac, nor on another
+    // machine, which has no Computer Use tools (`holdsForComputerUseSetup`, #48541): decided before a
+    // folder grant or anything else spends the send's gesture, and the page keeps its text.
+    if (text && holdsForComputerUseSetup(text, true, directClient.current?.startsOnSend ? "machine" : "here")) return;
     const generation = ++newTabStartGeneration.current;
     const isCurrent = () => newTabStartGeneration.current === generation;
     const inherited = newTab?.cwd;
     const start = (folder?: string) =>
       void (async () => {
         if (!isCurrent()) return;
-        // `@computer-use` starts nothing while Computer Use is not ready on this Mac, nor on another
-        // machine, which has no Computer Use tools (`holdsForComputerUseSetup`, decided at once,
-        // #48541): the page keeps its text.
-        if (text && holdsForComputerUseSetup(text, true, directClient.current?.startsOnSend ? "machine" : "here"))
-          return;
         // A chat on another machine starts only with a send (cx-k21v): with no text, the folder
         // waits for the first send.
         if (folder && !text && directClient.current?.startsOnSend) {

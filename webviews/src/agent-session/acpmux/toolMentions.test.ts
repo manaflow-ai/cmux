@@ -21,6 +21,9 @@ test("a message names a tool as its own @word outside code, once, in menu order"
   // Inside code, inside a word or with more letters after it, it is not a mention.
   expect(toolMentionsIn("run `@computer-use` literally")).toEqual([]);
   expect(toolMentionsIn("```\n@browser-use\n```")).toEqual([]);
+  // A four-backtick fence holds a three-backtick line; an inline `~~~` opens no fence.
+  expect(toolMentionsIn("````\n```\n@computer-use\n````")).toEqual([]);
+  expect(toolMentionsIn("a ~~~ b\nthen @computer-use")).toEqual(["computer-use"]);
   expect(toolMentionsIn("mail me@computer-use.dev")).toEqual([]);
   expect(toolMentionsIn("@computer-user")).toEqual([]);
   // A double-backtick code span is code too, and emphasis then letters is another word.

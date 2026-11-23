@@ -2258,7 +2258,7 @@ export function paneSnapshotEffect({
                 : "machine";
             const gate = computerUseGate(prompt, computerUseState(), place);
             if (gate !== "free" && holdsForComputerUseSetupRef.current(prompt, false, place))
-              throw new Error(translate(computerUseHoldText(gate).title));
+              throw new CmuxCommandRefused(translate(computerUseHoldText(gate).title));
           }
           // The chat it is beside, read before the fork (the reader may open another chat meanwhile).
           const chat = client.selectedSession;

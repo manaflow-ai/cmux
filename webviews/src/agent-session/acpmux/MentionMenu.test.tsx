@@ -283,11 +283,11 @@ test("picking a row hands back the row, and each kind writes what the agent read
 test("the row moved to stays picked when the files land around it", () => {
   const before = mentionItems({ query: "brow", files: [] });
   const after = mentionItems({ query: "brow", files: [{ path: "browse/main.ts", matches: [0, 1, 2, 3] }] });
-  expect(before[mentionSelection(before, "tool:browser-use")]!.key).toBe("tool:browser-use");
-  expect(after[mentionSelection(after, "tool:browser-use")]!.key).toBe("tool:browser-use");
-  expect(after[mentionSelection(after, "file:browse/main.ts")]!.key).toBe("file:browse/main.ts");
+  expect(before[mentionSelection(before, "tool:browser-use", false)]!.key).toBe("tool:browser-use");
+  expect(after[mentionSelection(after, "tool:browser-use", false)]!.key).toBe("tool:browser-use");
+  expect(after[mentionSelection(after, "file:browse/main.ts", false)]!.key).toBe("file:browse/main.ts");
   // A row that is gone falls back to the first.
-  expect(mentionSelection(after, "file:gone.ts")).toBe(0);
+  expect(mentionSelection(after, "file:gone.ts", false)).toBe(0);
 });
 
 test("a letter that lowercases longer does not move the bold letters after it", () => {
@@ -310,5 +310,5 @@ test("a plugin leads a guest harness the same word names: `@c` is Computer Use f
   const catalog = [{ id: "codex", name: "Codex", models: [], pickable: true, family: "codex" }];
   const keys = mentionItems({ query: "c", files: [], harnesses: catalog }).map((item) => item.key);
   expect(keys).toEqual(["tool:computer-use", "harness:codex"]);
-  expect(mentionSelection(mentionItems({ query: "c", files: [], harnesses: catalog }), undefined)).toBe(0);
+  expect(mentionSelection(mentionItems({ query: "c", files: [], harnesses: catalog }), undefined, false)).toBe(0);
 });

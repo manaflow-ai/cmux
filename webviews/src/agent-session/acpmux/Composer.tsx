@@ -322,6 +322,11 @@ type Props = {
   /// Binds the person's current key press or click to one prompt (`transport.gesture`), for a send
   /// the composer holds until its files are ready (attachmentIntake.tsx `useSendWhenAttached`).
   onBindSendGesture?(): SendGesture | undefined;
+  /// True: the draft may not go now (`@computer-use` while Computer Use is not ready, App.tsx
+  /// `holdsForComputerUseSetup`), and the pane already opened setup or said why. Asked before anything
+  /// binds the send's key press or click (a hold for files, a side chat), so that gesture still opens
+  /// the setup page (CMUX-682).
+  holdsSend?(text: string): boolean;
   /// Binds the person's key press or click to `/side`'s prompt, held for its files, bound to no chat:
   /// the side chat it goes to does not exist yet (#40066). The prompt redeems it by its prompt id.
   onBindSideGesture?(): SendGesture | undefined;
@@ -543,6 +548,7 @@ function ComposerFrame({
   chips: Chips,
   onSend,
   onBindSendGesture,
+  holdsSend,
   onBindSideGesture,
   transcriptFollowing,
   onStop,
@@ -1646,6 +1652,8 @@ function ComposerFrame({
     // A token whose attachment is gone (sent, then the clear undone in the same task, before the
     // field drops its node: inlineAttachments.tsx) is no place: it goes as the field will hold it.
     const draftText = withoutDeadTokens(unwrapped());
+    // Held before anything binds the gesture (a hold for files, a side chat): the draft stays.
+    if (holdsSend?.(draftText)) return false;
     // The attachments placed in the text go at their places (attachments.ts placeInline); a chip still
     // being read is not one of them yet.
     // A Codex skill typed or picked as `/name` goes as `/$name` (slashCommands.ts withSkillDollars).

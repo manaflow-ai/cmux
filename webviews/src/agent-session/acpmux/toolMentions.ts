@@ -92,20 +92,46 @@ export function toolSlashCommands(t: Translate): SlashCommand[] {
 /// fenced block or an inline span is literal text, never a mention), in menu order.
 export function toolMentionsIn(text: string): readonly ToolMentionId[] {
   if (!text.includes("@") && !text.includes("$")) return [];
-  const blank = (code: string) => code.replace(/[^\n]/g, " ");
-  // Code is literal text: fenced blocks, then inline spans as CommonMark reads them (`` ` `` runs too).
-  let outsideCode = text.replace(/(```|~~~)[\s\S]*?(?:\1|$)/g, blank);
-  for (const span of codeSpans(outsideCode))
-    outsideCode =
-      outsideCode.slice(0, span.start) + blank(outsideCode.slice(span.start, span.end)) + outsideCode.slice(span.end);
+  const prose = withoutCode(text);
   const found = new Set<string>();
   // Markdown's emphasis around it (`**@computer-use**`) is no part of the word, the badge drew it the
   // same; emphasis then more letters (`@computer-use_notes`) is another word.
-  for (const match of outsideCode.matchAll(
+  for (const match of prose.matchAll(
     /(^|[\s\uFFFC])[*_~]*[@$](computer-use|browser-use)(?=[*_~]*(?:[\s\uFFFC]|$|[,;:!?)]|\.(?:\s|$)))/gi,
   ))
     found.add(match[2]!.toLowerCase());
   return TOOL_MENTIONS.filter((tool) => found.has(tool.id)).map((tool) => tool.id);
+}
+
+/// `text` with its code blanked (line breaks kept), as CommonMark reads it: fenced blocks (a line of 3+
+/// backticks or tildes, closed by a line of the same mark at least as long, or the end), then inline
+/// code spans (slashCommands.ts codeSpans, `` ` `` runs too). One pass each, whatever the draft's size.
+function withoutCode(text: string): string {
+  const lines = text.split("\n");
+  let fence: { mark: string; length: number } | undefined;
+  for (let index = 0; index < lines.length; index++) {
+    const line = lines[index]!;
+    const run = /^ {0,3}(`{3,}|~{3,})/.exec(line);
+    if (fence) {
+      lines[index] = " ".repeat(line.length);
+      if (run && run[1]![0] === fence.mark && run[1]!.length >= fence.length && !line.slice(run[0].length).trim())
+        fence = undefined;
+    } else if (run && !(run[1]![0] === "`" && line.slice(run[0].length).includes("`"))) {
+      fence = { mark: run[1]![0]!, length: run[1]!.length };
+      lines[index] = " ".repeat(line.length);
+    }
+  }
+  const fenced = lines.join("\n");
+  const spans = codeSpans(fenced);
+  if (!spans.length) return fenced;
+  const out: string[] = [];
+  let at = 0;
+  for (const span of spans) {
+    out.push(fenced.slice(at, span.start), fenced.slice(span.start, span.end).replace(/[^\n]/g, " "));
+    at = span.end;
+  }
+  out.push(fenced.slice(at));
+  return out.join("");
 }
 
 const NOTES: Record<ToolMentionId, string> = {
