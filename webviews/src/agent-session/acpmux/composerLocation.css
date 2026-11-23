@@ -2000,3 +2000,77 @@
   width: calc(var(--ui-ghost-icon-size) * 1.25);
   height: var(--ui-ghost-icon-size);
 }
+
+/* A location menu sized by a drag (ui/PopupResize.tsx, cmux#51745): its list takes the height the
+   person gave it, not its own cap, and scrolls inside it; the search field and the actions keep theirs.
+   A popover only: a location menu that is a menu (Branch, Cloud environment) scrolls its rows in the
+   menu's own scroller (popupSurface.css). */
+.acpmux-menu.acpmux-location-menu[data-resized-height]:not(.ui-menu, .acpmux-folder-popover) {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.acpmux-location-menu[data-resized-height]:not(.ui-menu, .acpmux-folder-popover) > * { flex-shrink: 0; }
+/* The list, a plain one (no pinned rows) or the scroll area of one with pinned rows. */
+.acpmux-menu.acpmux-location-menu[data-resized-height]:not(.ui-menu) .acpmux-location-folders.acpmux-location-folders {
+  flex: 1 1 0%;
+  min-height: 0;
+  max-height: none;
+}
+.acpmux-menu.acpmux-location-menu[data-resized-height]:not(.ui-menu) .acpmux-location-folders:not(.ui-combobox-scroll) { overflow: auto; }
+.acpmux-location-menu[data-resized-height]:not(.ui-menu, .acpmux-folder-popover) .ui-combobox-scroll {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.acpmux-location-menu[data-resized-height]:not(.ui-menu, .acpmux-folder-popover) .ui-combobox-scroll > .ui-combobox-viewport {
+  flex: 1;
+  height: 0;
+  min-height: 0;
+  max-height: 100%;
+  overflow: auto;
+}
+/* A resizable Cloud environment menu scrolls its rows in the menu's scroller, not the popup, so the
+   grips on the popup's edges stay put while the rows scroll. */
+.acpmux-menu.acpmux-location-menu.acpmux-cloud-env-menu[data-resizable] { overflow: visible; }
+/* A popup that clips (overflow hidden) keeps its grips wholly inside its edges. */
+.acpmux-folder-popover,
+.acpmux-location-menu[data-resized-height]:not(.ui-menu) { --ui-popup-resize-out: 0px; }
+
+/* A chat a cmux terminal runs: in place of the model and mode chips, where they are set
+   (TerminalPickersNote.tsx), quiet and on one line like the chips it stands for. The badge is a
+   chip's height and inset with the row's icon gap, so its glyph and label sit on the chips' line;
+   it is not a control (no hover wash, the default pointer). */
+.acpmux-composer-bar .acpmux-terminal-pickers {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--acpmux-row-icon-gap);
+  min-width: 0;
+  min-height: 28px;
+  overflow: hidden;
+  padding-inline: var(--acpmux-row-inset);
+  color: var(--agent-muted);
+  font-size: var(--text-control);
+  line-height: var(--text-control--line-height);
+  letter-spacing: var(--text-control--letter-spacing);
+  white-space: nowrap;
+  cursor: default;
+}
+.acpmux-composer-bar .acpmux-terminal-pickers[data-look="sentence"] {
+  display: block;
+  min-height: 0;
+  text-overflow: ellipsis;
+}
+.acpmux-composer-bar .acpmux-terminal-pickers .acpmux-icon,
+.acpmux-composer-bar .acpmux-terminal-pickers svg {
+  flex: none;
+}
+.acpmux-composer-bar .acpmux-terminal-pickers-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* The trailing look: at the row's end, before the actions (gallery only). */
+.acpmux-composer-bar .acpmux-chips:has(> .acpmux-terminal-pickers[data-look="trailing"]) {
+  margin-inline-start: auto;
+}
