@@ -54,8 +54,8 @@ async fn a_pass_reads_the_chats_a_walk_of_every_session_reads() {
     let now = crate::store::now_ms();
     let candidates = hub.usage_candidates(now);
     assert_eq!(hub.list_order_rebuilds_for_test(), built, "the candidates came from a patch");
-    let read = hub.usage_sources(&candidates, now).await;
-    let walked = hub.usage_sources(&hub.sessions(), now).await;
+    let read = hub.usage_sources(&candidates, now).await.0;
+    let walked = hub.usage_sources(&hub.sessions(), now).await.0;
     assert_eq!(ids(&read), ids(&walked), "the pass reads what a walk of every session reads");
     assert_eq!(
         ids(&read),
