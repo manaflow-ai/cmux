@@ -220,34 +220,58 @@ fn newest_receipt(comments: &[Value]) -> Option<(Receipt, String)> {
     })
 }
 
-/// Failing check names and the pending count of a `statusCheckRollup`.
-fn checks(rollup: &[Value]) -> (Vec<String>, usize, usize) {
-    let (mut failing, mut pending, mut passed): (Vec<String>, usize, usize) = (Vec::new(), 0, 0);
+/// A `statusCheckRollup` split by what each check says.
+#[derive(Default)]
+struct Rollup {
+    /// Names of checks that failed: the PR's own red.
+    failing: Vec<String>,
+    /// Checks still running or not reported yet.
+    pending: usize,
+    /// Checks that ran and passed (`SUCCESS`, `NEUTRAL`).
+    passed: usize,
+    /// Names of checks that gave no verdict: `SKIPPED` (the check decided it had nothing to do,
+    /// so nothing it would have judged was judged) and `CANCELLED` (stopped before it judged).
+    /// A skipped check is neither a pass nor a failure, so it is counted here and nowhere else;
+    /// a cancelled one is also in `failing`, which is what decides `status` (see [`pr_state`]).
+    no_verdict: Vec<String>,
+}
+
+/// Split a `statusCheckRollup` into failing, pending, passed and no-verdict checks.
+fn checks(rollup: &[Value]) -> Rollup {
+    let mut out = Rollup::default();
     for c in rollup {
         let name = text(c, "name").or(text(c, "context")).unwrap_or("?").to_owned();
         let up = |k: &str| text_or_empty(c, k).to_ascii_uppercase();
         if text(c, "__typename") == Some("StatusContext") || c.get("context").is_some() {
+            // A commit status has no skipped state: error, failure, pending or success.
             match up("state").as_str() {
-                "FAILURE" | "ERROR" => failing.push(name),
-                "PENDING" | "EXPECTED" | "" => pending = pending.saturating_add(1),
-                _ => passed = passed.saturating_add(1),
+                "FAILURE" | "ERROR" => out.failing.push(name),
+                "PENDING" | "EXPECTED" | "" => out.pending = out.pending.saturating_add(1),
+                _ => out.passed = out.passed.saturating_add(1),
             }
             continue;
         }
         if up("status") != "COMPLETED" {
-            pending = pending.saturating_add(1);
+            out.pending = out.pending.saturating_add(1);
             continue;
         }
         match up("conclusion").as_str() {
-            "FAILURE" | "TIMED_OUT" | "CANCELLED" | "STARTUP_FAILURE" | "ACTION_REQUIRED" => {
-                failing.push(name)
+            "SKIPPED" => out.no_verdict.push(name),
+            "CANCELLED" => {
+                out.no_verdict.push(name.clone());
+                out.failing.push(name);
             }
-            _ => passed = passed.saturating_add(1),
+            "FAILURE" | "TIMED_OUT" | "STARTUP_FAILURE" | "ACTION_REQUIRED" => {
+                out.failing.push(name)
+            }
+            _ => out.passed = out.passed.saturating_add(1),
         }
     }
-    failing.sort();
-    failing.dedup();
-    (failing, pending, passed)
+    for names in [&mut out.failing, &mut out.no_verdict] {
+        names.sort();
+        names.dedup();
+    }
+    out
 }
 
 /// HOLD lines of the body and hold labels.
