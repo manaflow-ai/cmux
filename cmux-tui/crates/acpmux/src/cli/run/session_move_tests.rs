@@ -752,14 +752,9 @@ fn auto_never_picks_a_personal_last_resort_or_reserved_machine_and_ranks_a_stale
 async fn a_move_ends_once_the_chat_is_listed_reachable_where_it_went() {
     use crate::rpc::Message;
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-    let row = |stale: bool, state: &str| {
-        json!({"rows": [
-            {"sessionId": "s1", "status": "closed", "movedTo": {"host": "t"}},
-            {"sessionId": "s1", "peer": "t", "stale": stale, "peerState": state},
-        ]})
-    };
+    let row = |stale: bool, state: &str| json!({"rows": [{"sessionId": "s1", "peer": "t", "stale": stale, "peerState": state}]});
     let replies = [
-        json!({"rows": []}),
+        json!({"rows": [null]}),
         row(true, "reconnecting"),
         row(false, "reconnecting"),
         row(false, "connected"),
@@ -783,7 +778,7 @@ async fn a_move_ends_once_the_chat_is_listed_reachable_where_it_went() {
                 continue;
             }
             assert_eq!(called, method::MUX_INFO);
-            assert_eq!(params.unwrap_or_default()["sessionIds"], json!(["s1"]));
+            assert_eq!(params.unwrap_or_default()["sessionIds"], json!(["t/s1"]));
             let reply = replies.get(asked).cloned().unwrap_or_else(|| row(false, "reconnecting"));
             asked += 1;
             wr.write_all(Message::ok(id, reply).to_line().as_bytes()).await.unwrap();
@@ -793,10 +788,10 @@ async fn a_move_ends_once_the_chat_is_listed_reachable_where_it_went() {
     let client = Client::connect(&socket).await.unwrap();
     let poll = std::time::Duration::from_millis(250);
     let bound = std::time::Duration::from_secs(20);
-    await_arrival(&client, "s1", bound, poll).await.unwrap();
+    await_arrival(&client, "t/s1", bound, poll).await.unwrap();
     // A link that stays down: the wait ends at its bound and says why.
     let why =
-        await_arrival(&client, "s1", std::time::Duration::from_secs(1), poll).await.unwrap_err();
+        await_arrival(&client, "t/s1", std::time::Duration::from_secs(1), poll).await.unwrap_err();
     assert_eq!(why, "peer reconnecting");
     drop(client);
     let asked = server.await.unwrap();
@@ -806,4 +801,14 @@ async fn a_move_ends_once_the_chat_is_listed_reachable_where_it_went() {
     let stale = arrived(&row(true, "reconnecting")).unwrap_err();
     assert!(stale.contains("last-known copy"), "{stale}");
     assert_eq!(arrived(&row(false, "degraded")), Ok(()));
+
+    // A move keeps the chat's id, so the bare id names the closed row the source keeps: the
+    // wait asks for the peer's row by its key, and takes this machine's own row only live.
+    let peer = Target { name: "t".into(), ssh: "ssh-t".into(), probed: None };
+    assert_eq!(arrival_key(&peer, "s1"), "t/s1");
+    let here = Target { name: "here".into(), ssh: String::new(), probed: None };
+    assert_eq!(arrival_key(&here, "s1"), "s1");
+    let left = json!({"rows": [{"sessionId": "s1", "status": "closed", "movedTo": {"host": "t"}}]});
+    assert_eq!(arrived(&left), Err("listed here as closed".to_owned()));
+    assert_eq!(arrived(&json!({"rows": [{"sessionId": "s1", "status": "idle"}]})), Ok(()));
 }

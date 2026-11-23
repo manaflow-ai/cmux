@@ -140,20 +140,34 @@ fn after_turn_failed(name: &str, bound: std::time::Duration) -> String {
 }
 
 /// How long a move waits, after its commit, for this machine to list the chat reachable on the
-/// target (`await_arrival`), and how often it asks.
-const ARRIVAL_WAIT: std::time::Duration = std::time::Duration::from_secs(20);
-const ARRIVAL_POLL: std::time::Duration = std::time::Duration::from_millis(250);
+/// target (`await_arrival`), and how often it asks. The row is there within a poll or two of
+/// the commit while the link is up; the bound is for a link that is down.
+const ARRIVAL_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
+const ARRIVAL_POLL: std::time::Duration = std::time::Duration::from_millis(50);
 
-/// Whether `reply` (`_acpmux/info` with `sessionIds`, `row: true`) lists the moved chat as a
-/// reachable row of a peer: a peer's row, not a last-known copy (`stale`), its link up
-/// (`peerState` connected or degraded, as `ls` reads it, `cli/ls_table.rs`). `Err`: why not yet.
+/// The key this machine lists the moved chat `there` under once it runs on `target`
+/// (`Hub::rows_by_key`): `TARGET/ID`, the peer's mirrored row, or the bare id when the target
+/// is this machine (`--from` a peer to here). Never the bare id for a peer: a move keeps the
+/// chat's id, so that names the closed row the source keeps, which no wait turns into a peer's.
+fn arrival_key(target: &Target, there: &str) -> String {
+    if target.ssh.is_empty() { there.to_owned() } else { format!("{}/{there}", target.name) }
+}
+
+/// Whether `reply` (`_acpmux/info` with `sessionIds`, `row: true`) lists the moved chat as
+/// reachable: a peer's row, not a last-known copy (`stale`), its link up (`peerState` connected
+/// or degraded, as `ls` reads it, `cli/ls_table.rs`), or this machine's own row that is not
+/// closed (the target is this machine). `Err`: why not yet.
 fn arrived(reply: &Value) -> Result<(), String> {
     let rows = reply.get("rows").and_then(Value::as_array).into_iter().flatten();
     let mut why = "not listed here yet".to_owned();
-    for row in rows.filter(|r| r.get("peer").and_then(Value::as_str).is_some_and(|p| !p.is_empty()))
-    {
+    for row in rows.filter(|r| r.is_object()) {
         let state = row.get("peerState").and_then(Value::as_str);
-        if row.get("stale").and_then(Value::as_bool) == Some(true) {
+        if row.get("peer").and_then(Value::as_str).is_none_or(str::is_empty) {
+            if row.get("status").and_then(Value::as_str) != Some("closed") {
+                return Ok(());
+            }
+            why = "listed here as closed".to_owned();
+        } else if row.get("stale").and_then(Value::as_bool) == Some(true) {
             why = format!("listed as its last-known copy (peer {})", state.unwrap_or("down"));
         } else if let Some(s) = state.filter(|s| !matches!(*s, "connected" | "degraded")) {
             why = format!("peer {s}");
@@ -164,19 +178,20 @@ fn arrived(reply: &Value) -> Result<(), String> {
     Err(why)
 }
 
-/// Waits, at most `bound`, asking every `poll`, until `src` lists the moved chat `there` as
-/// reachable on its new machine (`arrived`): a move that ends before then leaves `ls` showing
-/// it unknown, its peer reconnecting, though it runs there. `Err`: why it is not, at the bound.
+/// Waits, at most `bound`, asking every `poll`, until `observer` (this machine's daemon) lists
+/// the moved chat under `key` (`arrival_key`) as reachable (`arrived`): a move that ends
+/// before then leaves `ls` showing it unknown, its peer reconnecting, though it runs there.
+/// `Err`: why it is not, at the bound.
 async fn await_arrival(
-    src: &Client,
-    there: &str,
+    observer: &Client,
+    key: &str,
     bound: std::time::Duration,
     poll: std::time::Duration,
 ) -> Result<(), String> {
     let deadline = tokio::time::Instant::now() + bound;
-    let params = json!({"sessionIds": [there], "row": true});
+    let params = json!({"sessionIds": [key], "row": true});
     loop {
-        let why = match src.request(method::MUX_INFO, params.clone()).await {
+        let why = match observer.request(method::MUX_INFO, params.clone()).await {
             Ok(reply) => match arrived(&reply) {
                 Ok(()) => return Ok(()),
                 Err(why) => why,
@@ -250,6 +265,9 @@ struct Outcome {
     moved: bool,
     /// The chat's id on the target, once moved.
     there: Option<String>,
+    /// Once moved: whether this machine listed the chat reachable on the target when the move
+    /// ended (`await_arrival`); a send to it then goes through at once.
+    reachable: Option<bool>,
     /// With `resume_there`: whether a held queue ran there, or why it did not (the chat moved).
     resumed: Result<bool, String>,
     /// With `--carry-changes`: what was carried (`Carry::record`).
@@ -269,6 +287,7 @@ impl Outcome {
             cwd: None,
             moved: false,
             there: None,
+            reachable: None,
             resumed: Ok(false),
             carried: None,
             error: None,
@@ -342,7 +361,7 @@ pub(super) async fn run(args: MoveArgs, json_out: bool) -> Result<()> {
                 json!({"sessionId": o.session, "name": o.name, "host": o.host, "cwd": o.cwd,
                        "moved": o.moved, "dryRun": args.dry_run, "carried": o.carried,
                        "error": o.error, "errorCode": o.error_code,
-                       "preflight": o.preflight, "targetSessionId": o.there})
+                       "preflight": o.preflight, "targetSessionId": o.there, "reachable": o.reachable})
             })
             .collect();
         print_json(&json!({"moves": rows, "failed": failed}));
@@ -628,8 +647,12 @@ async fn move_steps(
     // shows the chat unknown, its peer reconnecting (item D).
     if let Some(there) = o.there.clone() {
         let step = format!("waiting until this machine lists it reachable on {}", target.name);
+        // This machine's daemon, whichever machine the chat left (`--from`).
+        let observer = targets.observer.as_deref().unwrap_or(src);
+        let key = arrival_key(&target, &there);
         let listed =
-            waiting(&name, &step, await_arrival(src, &there, ARRIVAL_WAIT, ARRIVAL_POLL)).await;
+            waiting(&name, &step, await_arrival(observer, &key, ARRIVAL_WAIT, ARRIVAL_POLL)).await;
+        o.reachable = Some(listed.is_ok());
         if let Err(why) = listed {
             eprintln!(
                 "move: {name}: moved to {}, but this machine does not list it reachable there \
