@@ -42,6 +42,9 @@ extension PaletteController {
         )
         page.queryItems = goToRows()
         page.contributedAnswers = contributed.answers
+        // Leo: "do we have any kind of filtering mechanism for the searching?": in:tabs, -in:history.
+        page.filtersBySection = true
+        page.hint = PaletteStrings.searchFiltersHint
         return previewingActions(page)
     }
 

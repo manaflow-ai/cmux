@@ -22,12 +22,13 @@ chat as a workspace and writes the window as the window server composites it (`d
 design/chat-surfaces.md says what to look for: the edit card and the error card on one fill and one line.
 DIR/results.json lists each shot and what failed.
 """
-import argparse, json, os, shlex, subprocess, sys, time
+import argparse, hashlib, json, os, shlex, subprocess, sys, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, HERE)
 import bench_memory as bm  # noqa: E402  (the launch, the control socket and the test-agent harness)
+from state_wait import wait_stable, wait_until  # noqa: E402
 
 AGENT = os.path.join(ROOT, "cmux-tui/crates/acpmux/tests/fake_agent.py")
 THEMES = {
@@ -63,6 +64,28 @@ def say(*parts):
     print(*parts, flush=True)
 
 
+def transcript_drawn(app) -> bool:
+    """A shown chat page (cmux.agent, not parked) has drawn this chat's turns: its edit card or the failed turn."""
+    for listed in app.call("debug.page", {"page": "cmux.agent", "action": "list"}).get("pages", []):
+        if listed.get("parked"):
+            continue
+        found = app.call("debug.page", {"page": "cmux.agent", "instance": listed.get("instance"), "action": "query",
+                                        "selector": ".acpmux-edited, .cv-turn-retry"})
+        if found.get("elements"):
+            return True
+    return False
+
+
+def main_hash(app, scratch_files: str) -> str:
+    """A hash of the main window's picture (debug.window_snapshot to a scratch file)."""
+    path = os.path.join(scratch_files, "settle.png")
+    snap = app.call("debug.window_snapshot", {"kind": "main", "path": path}, timeout=60)
+    if snap.get("error"):
+        raise RuntimeError(snap["error"])
+    with open(path, "rb") as handle:
+        return hashlib.sha256(handle.read()).hexdigest()
+
+
 def shoot(label: str, bundle: str, theme: str, style: str) -> dict:
     name = f"{label}-{theme}-{style}"
     ghostty_text, config = STYLES[style]
@@ -94,16 +117,40 @@ def shoot(label: str, bundle: str, theme: str, style: str) -> dict:
         row["opened"] = {k: opened.get(k) for k in ("created", "error") if k in opened}
         # A fresh HOME starts on Home, and the open leaves it in front: show the newest workspace, the chat's
         # (the sidebar lists Home, App Store, then the workspaces in the order they were made).
-        row["selected"] = app.action("workspace.selectLast", focus=True).get("error") or "ok"
-        time.sleep(8)  # proof capture: the chat page loads its transcript and paints it
+        for _ in range(20):  # the first launch's window may not list the new workspace yet: "no workspace to act on"
+            row["selected"] = app.action("workspace.selectLast", focus=True).get("error") or "ok"
+            if row["selected"] == "ok":
+                break
+            time.sleep(0.5)  # test harness: the workspace the open made reaches the window
+        # The chat page loads its transcript and paints it: its turns are in the page, then the window holds still.
+        if not wait_until(lambda: transcript_drawn(app), "the chat page's transcript", timeout=30, interval=0.25,
+                          raise_on_timeout=False):
+            row["transcript_wait"] = "no edit card or failed turn in a shown chat page within 30 s"
+        wait_stable(lambda: main_hash(app, scratch_files), "the main window with the chat", timeout=15,
+                    interval=0.2, reads=2, raise_on_timeout=False)
         path = os.path.join(opts.out, name + ".png")
         snap = app.call("debug.window_snapshot", {"kind": "main", "path": path}, timeout=60)
         row["snapshot"] = snap
         row["ok"] = os.path.exists(path) and not snap.get("error")
         if opts.hovers:
             row["hovers"] = {}
+            # Home's Chief is a cmux.agent page too: hover in the one that draws this chat's edit card.
+            chat_page = None
+            for _ in range(20):
+                for listed in app.call("debug.page", {"page": "cmux.agent", "action": "list"}).get("pages", []):
+                    if listed.get("parked"):
+                        continue
+                    found = app.call("debug.page", {"page": "cmux.agent", "instance": listed.get("instance"),
+                                                    "action": "query", "selector": ".acpmux-edited"})
+                    if found.get("elements"):
+                        chat_page = listed.get("instance")
+                        break
+                if chat_page is not None:
+                    break
+                time.sleep(0.5)  # test harness: the chat's page draws its transcript
+            row["chat_page"] = chat_page
             for key, selector in HOVERS.items():
-                page = {"page": "cmux.agent", "selector": selector}
+                page = {"page": "cmux.agent", "instance": chat_page, "selector": selector}
                 scrolled = app.call("debug.page", {**page, "action": "scroll", "block": "center"}, timeout=20)
                 time.sleep(0.5)  # proof capture: the scroll settles before the pointer moves
                 hovered = app.call("debug.page", {**page, "action": "hover"}, timeout=20)
@@ -116,7 +163,10 @@ def shoot(label: str, bundle: str, theme: str, style: str) -> dict:
         row["error"] = f"{type(error).__name__}: {error}"[:400]
     finally:
         bm.end_bundle(bundle)
-        time.sleep(3)  # test harness: the app's daemons end before the next launch
+        # The app's daemons end before the next launch: no process of the bundle is left.
+        if not wait_until(lambda: not bm.bundle_pids(bundle), "the bundle's processes to end", timeout=15,
+                          interval=0.1, raise_on_timeout=False):
+            say(f"{name}: processes of {bundle} still run 15 s after the end: {sorted(bm.bundle_pids(bundle))}")
     say(json.dumps(row)[:400])
     return row
 

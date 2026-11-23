@@ -29,7 +29,8 @@
 # checkers, reduced to LF-TRACE: when the app's process made its first file call (dyld's first look: everything
 # before it is before the executable's first instruction), when it opened CmuxNextApp.framework and Chromium's
 # framework, and the checkers' first and last read of the copy's files.
-# Prints LF-RUN per launch, LF-TABLE per row, LF-TRACE per traced launch. Deletes every copy and DMG it made.
+# Prints LF-LAYOUT once (the build's layout; layout.txt in the report has the ls, otool -L and codesign -dv it rests
+# on), LF-RUN per launch, LF-TABLE per row, LF-TRACE per traced launch. Deletes every copy and DMG it made.
 # With row q or m it declares the Gatekeeper prompts it raises to the fleet's dialog alarm (a marker in
 # /Users/Shared/cmux-build-fleet/expected-dialogs, removed on exit) and answers each itself: Open for the measured open, Cancel for one still up after a launch or at exit (LF-PROMPT lines). It never presses
 # anything on a keychain or password panel; each launch's home gets its own login keychain so none comes up.
@@ -74,8 +75,16 @@ main() {
   gate dmg open "$out/app.dmg"
   source scripts/ci/lib/signing-runtime-guard.sh
   cmux_signing_runtime_guard || exit 3
+  # The build's layout (bundle_layout: stub executable and CmuxNextApp.framework or not), from the DMG's own app.
+  mkdir -p "$out/mnt-layout"
+  if hdiutil attach "$out/app.dmg" -nobrowse -readonly -noautofsck -mountpoint "$out/mnt-layout" >/dev/null; then
+    bundle_layout "$(find "$out/mnt-layout" -maxdepth 1 -name '*.app' | head -1)" "$out/layout.txt" LF
+    hdiutil detach "$out/mnt-layout" >/dev/null || hdiutil detach -force "$out/mnt-layout" >/dev/null
+  else
+    echo "LF-LAYOUT unknown: attach failed"
+  fi
   OUT="$out"
-  CUA=/Applications/CuaDriver.app/Contents/MacOS/cua-driver
+  cua_pick "$out"
   [[ -x "$CUA" ]] && echo "LF cua $(console "$CUA" permissions status 2>&1 | tr '\n' ' ' | head -c 200)" || echo "LF cua none: a prompt cannot be pressed"
   # Where q drags the app: /Applications when the console user may write it, as on a person's Mac; else ~/Applications.
   APPS=/Applications
@@ -177,6 +186,23 @@ marker_refresh() { [[ -n "$MARKER" ]] && (($(date +%s) + 900 > MARKER_EXPIRES)) 
 
 marker_remove() { [[ -n "$MARKER" ]] && rm -f "$MARKER"; MARKER=""; }
 
+# cua_pick DIR: CUA, the console's CuaDriver as a shim in DIR that reaches its daemon. cua-driver finds the daemon's
+# socket under $HOME/Library/Caches/cua-driver, and a fleet step's HOME is the step's own home, so every press there
+# failed with "Cua Driver daemon is not running" (cmux21, rows q and m, 2026-11-22). The shim runs it with the HOME
+# whose socket exists: this HOME, this user's own home, or the console user's.
+cua_pick() {
+  local real=/Applications/CuaDriver.app/Contents/MacOS/cua-driver home="" h u
+  CUA="$real"
+  [[ -x "$real" ]] || return 0
+  for u in "" "$(id -un)" "$(stat -f %Su /dev/console 2>/dev/null)"; do
+    if [[ -z "$u" ]]; then h="$HOME"; else h="$(dscl . -read "/Users/$u" NFSHomeDirectory 2>/dev/null | awk '{print $2}')"; fi
+    [[ -n "$h" && -S "$h/Library/Caches/cua-driver/cua-driver.sock" ]] && { home="$h"; break; }
+  done
+  [[ -n "$home" ]] || { echo "cua: no daemon socket under $HOME or the console user's home; CuaDriver calls may fail" >&2; return 0; }
+  mkdir -p "$1" && printf '#!/bin/sh\nHOME=%q exec %q "$@"\n' "$home" "$real" >"$1/cua-driver" && chmod +x "$1/cua-driver" \
+    && CUA="$1/cua-driver"
+}
+
 # prompts ARGS...: launch-fresh-install-prompts.py in the console session, with the console's CuaDriver.
 prompts() {
   [[ -x "${CUA:-}" ]] || return 1
@@ -257,7 +283,13 @@ first() {
     # shellcheck disable=SC2024
     sudo -n /usr/bin/fs_usage -w -t 70 -f filesys -f exec >"$OUT/fs-$tag.txt" 2>&1 &
     trace_pid=$!
-    sleep 1
+    # Until fs_usage is tracing: its first event is in the file (the system always has file activity), 10 s.
+    for _ in $(seq 100); do
+      [[ -s "$OUT/fs-$tag.txt" ]] && break
+      kill -0 "$trace_pid" 2>/dev/null || break
+      sleep 0.1
+    done
+    [[ -s "$OUT/fs-$tag.txt" ]] || echo "LF-WARN fs_usage logged nothing within 10 s for $tag" >&2
   fi
   # The probe makes $OUT/home-$tag/h the app's HOME (launch-premain.swift environment).
   fresh_keychain "$OUT/home-$tag/h"
@@ -301,7 +333,14 @@ print(json.dumps(r, sort_keys=True))' "$name" "$rep" "$copied_by" "$cpu_before" 
   ran="$(printf '%s' "$json" | python3 -I -c 'import json,sys; print(json.load(sys.stdin).get("ran_from") or "")')"
   pids="$(ps -axo pid=,command= | LF_A="$app/" LF_B="${ran:-$app}/" awk 'index($0, ENVIRON["LF_A"]) || index($0, ENVIRON["LF_B"]) { print $1 }')"
   [[ -n "$pids" ]] && { sudo -n kill $pids 2>/dev/null || kill $pids 2>/dev/null; }
-  sleep 1
+  # Until those processes have exited (ps, not kill -0: some run as root), 10 s.
+  if [[ -n "$pids" ]]; then
+    for _ in $(seq 100); do
+      ps -p "$(echo $pids | tr ' ' ',')" >/dev/null 2>&1 || break
+      sleep 0.1
+    done
+    ps -p "$(echo $pids | tr ' ' ',')" >/dev/null 2>&1 && echo "LF-WARN processes of $tag still up 10 s after kill: $(echo $pids)" >&2
+  fi
   # The measured open is over: a prompt still up (a press that missed, one a copy's helper raised) is not needed.
   # Cancel it now, while its copy exists; with the copy deleted under it, it stays as '"(null)" is an app downloaded
   # from the Internet'.

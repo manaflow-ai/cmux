@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import runpy
+import signal
 import subprocess
 import sys
 import tempfile
@@ -27,7 +28,7 @@ import claude_login_cache  # noqa: E402
 class CloudChatProofTests(unittest.TestCase):
     def run_proof(self, *, backend_name="staging", backend=None, environment=None, wrong_bundle=False,
                   signed_in=True, reply="CLOUD_BROWSER_PROOF_OK title=Example Domain h1=Example Domain", cleanup_exit=0, app_exits=True,
-                  from_folder=False, folder_reply=True, grant=False, login="", agent="claude",
+                  from_folder=False, folder_reply=True, cut_off_chat=False, grant=False, login="", agent="claude",
                   cache=False, secret_exit=0):
         calls = []
         stored = {}
@@ -94,6 +95,14 @@ class CloudChatProofTests(unittest.TestCase):
                     value = {"removed": True}
                 elif words == ["vm", "token", "create", "--ttl", "30m", "--json"]:
                     value = {"stored": True}
+                elif words[:2] == ["cloud", "start-chat"] and cut_off_chat:
+                    # A cancel stops the proof while its chat waits: the proof's own handler runs, as on SIGTERM.
+                    signal.getsignal(signal.SIGTERM)(signal.SIGTERM, None)
+                    self.fail("the cut-off handler must end the proof")
+                elif words == ["cloud", "list-machines", "--json"]:
+                    value = {"loaded": True, "machines": [
+                        {"machine_id": "machine-proof", "title": "proof-test"},
+                        {"machine_id": "machine-other", "title": "another-run"}]}
                 elif words[:2] == ["cloud", "start-chat"]:
                     self.assertEqual(words[0:3], ["cloud", "start-chat", "--prompt"])
                     self.assertIn("https://example.com/?cmux_browser_proof=", words[3])
@@ -132,6 +141,9 @@ class CloudChatProofTests(unittest.TestCase):
                                "--confirm", "--json"]:
                     code = cleanup_exit
                     value = {"deleted": code == 0}
+                elif words == ["cloud", "kill-machine", "--target", "machine:machine-proof",
+                               "--json", "--confirm"]:
+                    value = {"deleted": True}
                 elif words == ["app", "quit", "--json"]:
                     value = {"quitting": True}
                 else:
@@ -146,6 +158,8 @@ class CloudChatProofTests(unittest.TestCase):
                 + (["--grant-claude-login"] if grant else []) + (["--login", login] if login else []) \
                 + (["--cache-claude-login"] if cache else [])
             token_env = {claude_login_cache.TOKEN_ENV: FAKE_TOKEN} if cache else {}
+            handlers = {each: signal.getsignal(each) for each in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)}
+            self.addCleanup(lambda: [signal.signal(each, handler) for each, handler in handlers.items()])
             with patch.object(sys, "argv", argv), patch("subprocess.run", side_effect=run), \
                     patch.dict(os.environ, token_env), \
                     patch("subprocess.Popen", return_value=launcher) as launch, \
@@ -336,6 +350,20 @@ class CloudChatProofTests(unittest.TestCase):
         self.assertEqual(evidence["result"], "fail: the chat replied but its machine was not killed")
         cleanup = next(step for step in evidence["steps"] if step["step"] == "cloud kill-machine")
         self.assertEqual(cleanup["exit"], 1)
+
+    def test_pass_records_its_machine_killed(self):
+        code, evidence, _ = self.run_proof()
+        self.assertEqual(code, 0)
+        self.assertEqual(evidence["machine_cleanup"], "killed")
+
+    def test_a_cut_off_proof_kills_only_the_machines_named_after_its_run(self):
+        code, evidence, calls = self.run_proof(cut_off_chat=True)
+        self.assertEqual(code, 1)
+        self.assertEqual(evidence["result"], "fail: cut off by SIGTERM")
+        self.assertEqual(evidence["machine_cleanup"], "killed")
+        kills = [words for words in calls if words[:2] == ["cloud", "kill-machine"]]
+        self.assertEqual(kills, [["cloud", "kill-machine", "--target", "machine:machine-proof", "--json", "--confirm"]])
+        self.assertEqual(signal.getsignal(signal.SIGINT), signal.SIG_IGN, "a second signal does not cut the cleanup short")
 
     def test_reply_does_not_pass_until_own_launch_helper_confirms_app_exit(self):
         code, evidence, _ = self.run_proof(app_exits=False)

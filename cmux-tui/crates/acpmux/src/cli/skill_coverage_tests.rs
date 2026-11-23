@@ -14,7 +14,9 @@ fn acpmux_skill_names_every_top_level_command() {
         .filter(|command| !command.is_hide_set() && command.get_name() != "help")
         .map(|command| command.get_name())
         .filter(|name| {
-            !skill.contains(&format!("acpmux {name} ")) && !skill.contains(&format!("`{name}`"))
+            !skill.contains(&format!("cmux agent {name} "))
+                && !skill.contains(&format!("acpmux {name} "))
+                && !skill.contains(&format!("`{name}`"))
         })
         .collect();
     assert!(

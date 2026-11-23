@@ -24,8 +24,8 @@ struct CloudAuthLaunchSignInTests {
         #expect(CloudAuth.launchSignIn(configuration: nightly, environment: file).signIn
             == .init(devAuth: false, autoLogin: true, replacesSession: false, memoryOnly: true))
         #expect(CloudAuth.launchSignIn(configuration: nightly, environment: [:]).signIn == .noSignIn)
-        #expect(CloudAuth.tokenStore(configuration: nightly, nightlySession: nil, memoryOnly: true) is MemoryStackTokenStore)
-        #expect(!(CloudAuth.tokenStore(configuration: nightly, nightlySession: nil) is MemoryStackTokenStore))
+        #expect(CloudAuth.tokenStore(configuration: nightly, memoryOnly: true) is MemoryStackTokenStore)
+        #expect(!(CloudAuth.tokenStore(configuration: nightly) is MemoryStackTokenStore))
     }
 
     /// A debug build reads the ambient account files; a signed build only the explicit one.

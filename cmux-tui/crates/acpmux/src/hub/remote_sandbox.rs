@@ -1022,6 +1022,13 @@ fn alias_prelude(absent: &[PathBuf], read_only: &[PathBuf]) -> String {
     )
 }
 
+/// The alias probe holds when there was none to run, or when the sandbox
+/// reported `alias=0` and no probe write reached the host. Any other count,
+/// a missing field or a landed write refuses.
+fn canary_alias_held(probed: bool, alias: Option<i32>, landed: bool) -> bool {
+    !probed || (alias == Some(0) && !landed)
+}
+
 /// The `alias=` field of the single report line: 0 only when the probe held.
 fn parse_canary_alias(text: &str) -> Option<i32> {
     let line = text.lines().find_map(|line| line.strip_prefix("acpmux-canary "))?;
@@ -1085,6 +1092,25 @@ pub(super) async fn canary(exec: &Path, bound: &Bound, linux: bool) -> Result<()
         l.set_nonblocking(true).map_err(|e| format!("listen: {e}"))?;
     }
     let port6 = listener6.as_ref().and_then(|l| l.local_addr().ok()).map_or(0, |a| a.port());
+    // The plan accepts a second view of the HOME because it rebuilds
+    // it; the canary proves that view inside the sandbox before any spawn.
+    #[cfg(target_os = "linux")]
+    let alias_probe = if linux {
+        let paths = crate::linux_sandbox::bwrap::Paths {
+            cwd: bound.cwd.clone(),
+            tmp: bound.tmp.clone(),
+            home: bound.home.clone(),
+            claude_tmp_project: bound.claude_tmp_project.clone(),
+            claude_project: bound.claude_project.clone(),
+        };
+        let probe = crate::linux_sandbox::keeper::remote_alias_probe(&paths)
+            .map_err(|e| format!("canary alias probe: {e}"))?;
+        Some((probe.absent, probe.read_only))
+    } else {
+        None
+    };
+    #[cfg(not(target_os = "linux"))]
+    let alias_probe: Option<(Vec<PathBuf>, Vec<PathBuf>)> = None;
     let persistence_probe = canary_persistence_probe(&bound.cwd, linux)?;
     let outside = bound.home.join(format!(".acpmux-sandbox-canary-{}", uuid::Uuid::now_v7()));
     #[cfg(unix)]
@@ -1114,25 +1140,6 @@ pub(super) async fn canary(exec: &Path, bound: &Bound, linux: bool) -> Result<()
         .as_ref()
         .filter(|_| linux)
         .map_or_else(String::new, |probe| probe.path.to_string_lossy().into_owned());
-    // Probe 2: the plan accepts a second view of the HOME because it rebuilds
-    // it; the canary proves that view inside the sandbox before any spawn.
-    #[cfg(target_os = "linux")]
-    let alias_probe = if linux {
-        let paths = crate::linux_sandbox::bwrap::Paths {
-            cwd: bound.cwd.clone(),
-            tmp: bound.tmp.clone(),
-            home: bound.home.clone(),
-            claude_tmp_project: bound.claude_tmp_project.clone(),
-            claude_project: bound.claude_project.clone(),
-        };
-        let probe = crate::linux_sandbox::keeper::remote_alias_probe(&paths)
-            .map_err(|e| format!("canary alias probe: {e}"))?;
-        Some((probe.absent, probe.read_only))
-    } else {
-        None
-    };
-    #[cfg(not(target_os = "linux"))]
-    let alias_probe: Option<(Vec<PathBuf>, Vec<PathBuf>)> = None;
     let script = match &alias_probe {
         Some((absent, read_only)) => alias_prelude(absent, read_only) + CANARY,
         None => CANARY.to_owned(),
@@ -1227,7 +1234,7 @@ pub(super) async fn canary(exec: &Path, bound: &Bound, linux: bool) -> Result<()
     let fields = parse_canary_report(&text).unwrap_or([None; 9]);
     let [o, l, t, u, _, _, _, _, _] = fields;
     let alias = parse_canary_alias(&text);
-    let alias_held = alias_probe.is_none() || (alias == Some(0) && !alias_landed);
+    let alias_held = canary_alias_held(alias_probe.is_some(), alias, alias_landed);
     let held = canary_verdict(out.status.success(), fields, linux, probe_paths_absent)
         && sources_intact
         && !landed
@@ -1763,6 +1770,16 @@ mod endpoint_tests {
         let _ = std::fs::remove_dir_all(root);
         let _ = std::fs::remove_dir_all(root2);
         assert_eq!(result.ok(), Some(false), "probe check did not reject quickly");
+    }
+
+    #[test]
+    fn canary_refuses_a_nonzero_or_missing_alias_count_and_a_landed_write() {
+        assert!(canary_alias_held(false, None, false), "no second view: nothing to prove");
+        assert!(canary_alias_held(true, Some(0), false));
+        for alias in [Some(1), Some(2), None] {
+            assert!(!canary_alias_held(true, alias, false), "{alias:?}");
+        }
+        assert!(!canary_alias_held(true, Some(0), true), "a probe write reached the host");
     }
 
     #[test]

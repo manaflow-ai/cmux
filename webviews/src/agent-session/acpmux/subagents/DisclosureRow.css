@@ -71,7 +71,7 @@
 }
 .cv-disclosure__toggle:hover,
 .cv-disclosure__toggle:focus-visible {
-  background: var(--ds-color-hover);
+  background: var(--ds-surface-hover);
 }
 .cv-disclosure__icon {
   display: inline-flex;

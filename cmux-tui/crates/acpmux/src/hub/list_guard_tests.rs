@@ -335,8 +335,8 @@ async fn a_live_chats_stream_keeps_closed_rows_cached() {
         "closed rows rebuilt while one live chat streamed: {rebuilt} for {CHUNKS} lists of \
          {CLOSED} closed rows"
     );
-    // The live row is told before the next list read: it was stamped, not built anew.
-    assert!(hub.events.untold.lock().unwrap().contains("live"));
+    // The live row is told at a later list read: it was stamped, not built anew.
+    assert!(hub.events.stream_untold("live"));
     cached_rows_equal_uncached(&hub);
 
     // Another record of the live chat changes its own row only: no closed row is rebuilt.

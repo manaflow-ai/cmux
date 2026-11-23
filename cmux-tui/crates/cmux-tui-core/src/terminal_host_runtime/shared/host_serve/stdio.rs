@@ -211,7 +211,7 @@ pub fn serve_terminal_host_stdio(
     // included), so a deleted build or a renamed tag does not hold a PTY
     // until reboot. Any accepted connection restarts the clock, so a
     // restarted daemon's adoption always wins.
-    let mut orphan_since: Option<Instant> = None;
+    let mut orphan_since: Option<OrphanSince> = None;
     let mut orphan_ended = false;
     loop {
         let now = Instant::now();
@@ -235,7 +235,7 @@ pub fn serve_terminal_host_stdio(
         }
         if shared.active_client_streams.load(Ordering::Acquire) == 0 {
             if orphan_since.is_none() {
-                orphan_since = Some(now);
+                orphan_since = Some(OrphanSince::now());
                 set_orphan_since(orphan_since);
             }
         } else if orphan_since.take().is_some() {
@@ -257,7 +257,7 @@ pub fn serve_terminal_host_stdio(
                 // tie with the deadline.
                 if let Some(since) = orphan_since
                     && !orphan_ended
-                    && now.saturating_duration_since(since) >= orphan_grace
+                    && since.elapsed() >= orphan_grace
                 {
                     orphan_ended = true;
                     eprintln!(
@@ -281,9 +281,11 @@ pub fn serve_terminal_host_stdio(
                 } else {
                     Some(launch_owner_deadline.saturating_duration_since(now))
                 };
+                // Rechecked at least every ORPHAN_RECHECK: the wait's own
+                // timeout runs on the awake clock, which a sleep stops.
                 let orphan_timeout = orphan_since
                     .filter(|_| !orphan_ended)
-                    .map(|since| (since + orphan_grace).saturating_duration_since(now));
+                    .map(|since| orphan_grace.saturating_sub(since.elapsed()).min(ORPHAN_RECHECK));
                 let timeout = match (launch_timeout, orphan_timeout) {
                     (Some(a), Some(b)) => Some(a.min(b)),
                     (a, b) => a.or(b),

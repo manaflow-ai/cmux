@@ -748,6 +748,24 @@ impl Spawner {
 
     /// Read acpmux off the brain thread. A peer with unknown login/health
     /// is kept for explicit placement, but never chosen automatically.
+    /// The subagent numbers whose session names (`<prefix>-a<N>`) acpmux
+    /// already holds: the brain skips them when it gives ids. A list it cannot
+    /// read is logged and skips none (the start then says the name is taken).
+    fn taken_ids(&self) -> Vec<u64> {
+        let names = match self.agents.session_names() {
+            Ok(names) => names,
+            Err(e) => {
+                (self.log)(&format!("spawn: listing acpmux sessions: {e}"));
+                return Vec::new();
+            }
+        };
+        let prefix = format!("{}-a", self.settings.prefix);
+        names
+            .iter()
+            .filter_map(|name| name.strip_prefix(&prefix)?.parse::<u64>().ok())
+            .collect()
+    }
+
     fn machine_table(&self) -> Vec<crate::place_route::Machine> {
         use crate::place_route::{Kind, login_families, machine};
         let status = self.agents.machine_status().unwrap_or_else(|e| {
@@ -1865,6 +1883,7 @@ impl Orchestrator for Spawner {
                 .clone()
                 .or_else(|| self.pinned.then(|| self.settings.harness.clone())),
             machines: self.machine_table(),
+            taken: self.taken_ids(),
             reply,
         })?;
         let plan = answer
@@ -2393,9 +2412,25 @@ impl Orchestrator for Spawner {
         answer
     }
 
+    fn wake_tool(&self, call: crate::tools::WakeCall) -> Result<String, String> {
+        let (reply, answer) = channel();
+        self.to_brain(Input::WakeTool { call, reply })?;
+        answer
+            .recv()
+            .map_err(|_| "the Chief host is stopping".to_owned())?
+    }
+
     fn sleep(&self, call: crate::tools::SleepCall) -> Result<String, String> {
         let (reply, answer) = channel();
         self.to_brain(Input::Sleep { call, reply })?;
+        answer
+            .recv()
+            .map_err(|_| "the Chief host is stopping".to_owned())?
+    }
+
+    fn automation(&self, call: crate::automations::AutomationCall) -> Result<String, String> {
+        let (reply, answer) = channel();
+        self.to_brain(Input::Automation { call, reply })?;
         answer
             .recv()
             .map_err(|_| "the Chief host is stopping".to_owned())?

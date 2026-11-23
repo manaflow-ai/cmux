@@ -194,7 +194,7 @@
 }
 .cv-held__decline:hover {
   color: var(--cv-text);
-  background: var(--ds-color-hover);
+  background: var(--ds-surface-hover);
 }
 .cv-held__approve:focus-visible,
 .cv-held__decline:focus-visible,

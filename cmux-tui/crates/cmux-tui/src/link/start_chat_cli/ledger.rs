@@ -606,13 +606,25 @@ pub(crate) fn unreadable_path(path: &Path) -> PathBuf {
     path.with_extension(format!("unreadable-{now}.json"))
 }
 
+/// The ledger's file name in the start-chat state folder ([`path`]).
+pub(crate) const FILE: &str = "destinations.json";
+
 /// Where this Mac keeps the ledger; None when it has no state folder.
 pub(crate) fn path() -> Option<PathBuf> {
-    Some(
-        cmux_tui_core::platform::workspace_state_dir()?
-            .join("cloud-start-chat")
-            .join("destinations.json"),
-    )
+    Some(cmux_tui_core::platform::workspace_state_dir()?.join("cloud-start-chat").join(FILE))
+}
+
+/// The machines the ledger at `path` pins a send to: every machine a start took (a reserve's
+/// bind, the platform's ensure, a pinned existing machine, the App's create pinned with `pin`).
+/// Read with no lock and nothing moved aside: a ledger missing, busy or unreadable names none,
+/// so a reader that only uses it to skip a taken machine never fails because of it.
+pub(crate) fn pinned_machines(path: &Path) -> std::collections::HashSet<String> {
+    let Ok(bytes) = std::fs::read(path) else { return Default::default() };
+    let sends = serde_json::from_slice::<File>(&bytes)
+        .map(|file| file.sends)
+        .or_else(|_| serde_json::from_slice::<Vec<Entry>>(&bytes))
+        .unwrap_or_default();
+    sends.into_iter().map(|entry| entry.machine_id).collect()
 }
 
 #[cfg(test)]

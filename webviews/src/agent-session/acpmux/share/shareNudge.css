@@ -67,7 +67,7 @@
 }
 .acpmux-share-nudge__action:hover,
 .acpmux-share-nudge__close:hover {
-  background: var(--ds-color-hover);
+  background: var(--ds-surface-hover);
 }
 .acpmux-share-nudge__action:focus-visible,
 .acpmux-share-nudge__close:focus-visible {

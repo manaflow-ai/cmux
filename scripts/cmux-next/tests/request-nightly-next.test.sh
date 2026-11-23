@@ -114,6 +114,21 @@ if [[ "\$1 \$2" == "run list" ]]; then
   [[ -f "$TMP/gh-runs" ]] || exit 1
   cat "$TMP/gh-runs"; exit 0
 fi
+# The starved-run read (queued runs of one event for one commit): the ids of the
+# "<id> <head_sha> <event>" lines of $TMP/gh-starved that match, else none. A
+# run's jobs: $TMP/gh-jobs-<id> (the first job's created_at when it waits with no
+# runner, as the --jq prints it), or a failed read when that file is missing.
+if [[ "\$1" == api && "\$2" == repos/*/actions/workflows/cmux-tui-artifacts.yml/runs\?*"&event="* ]]; then
+  q="\$2"; want_sha="\${q#*head_sha=}"; want_sha="\${want_sha%%&*}"; want_event="\${q#*&event=}"; want_event="\${want_event%%&*}"
+  [[ -f "$TMP/gh-starved" ]] || exit 0
+  while read -r id s e; do [[ "\$s" == "\$want_sha" && "\$e" == "\$want_event" ]] && echo "\$id"; done < "$TMP/gh-starved"
+  exit 0
+fi
+if [[ "\$1" == api && "\$2" == repos/*/actions/runs/*/jobs\?* ]]; then
+  id="\${2#repos/*/actions/runs/}"; id="\${id%%/*}"
+  [[ -f "$TMP/gh-jobs-\$id" ]] || exit 1
+  cat "$TMP/gh-jobs-\$id"; exit 0
+fi
 if [[ "\$1" == api && "\$2" == repos/*/actions/workflows/cmux-tui-artifacts.yml/runs\?* ]]; then
   if [[ -f "$TMP/gh-active-runs" ]]; then
     python3 - "\$2" "$TMP/gh-active-runs" <<'PY'
@@ -353,7 +368,8 @@ git -C "$src" config uploadpack.allowAnySHA1InWant true
 git -C "$src" update-ref refs/heads/feat-cmux-next "$other"
 shallow="$TMP/shallow"
 git_q clone -q --no-local --depth=1 "file://$src" "$shallow"
-real_git=$(command -v git)
+# The git binary, never a wrapper on PATH that would exec this shim again (tests/real_git.py).
+real_git=$(python3 "$ROOT/tests/real_git.py") || exit 2
 mkdir -p "$TMP/gitbin"
 cat > "$TMP/gitbin/git" <<STUB
 #!/usr/bin/env bash
@@ -761,7 +777,39 @@ printf '[{"head_sha":"%s","status":"queued"}]\n' "$other" > "$TMP/gh-active-runs
 RUN_ID=123 request --tree-ready "$pending"
 [[ "$status" == 0 ]] && backfilled && ! dispatched "$pending" \
   || fail "a tip with no publisher must backfill despite an unrelated queued tree:" "$out" "$(cat "$TMP/gh.log")"
-rm -f "$TMP/gh-active-runs"
+# The tip's own push run, queued with its first job waiting for a runner past
+# CMUX_TREE_RUN_STARVED_MIN (30 min), is no run: it builds no tree, so the tip
+# is not requested as building and the rescue dispatch goes (2026-11-19: 40+
+# feat-cmux-next preflights queued on cmux-gcp-lane-build-x64 since 04:21Z).
+ago() { python3 -c 'import sys, datetime as d; print((d.datetime.now(d.timezone.utc) - d.timedelta(minutes=int(sys.argv[1]))).strftime("%Y-%m-%dT%H:%M:%SZ"))' "$1"; }
+echo 1 > "$TMP/gh-runs"
+printf '[{"head_sha":"%s","status":"queued"}]\n' "$pending" > "$TMP/gh-active-runs"
+echo "777 $pending push" > "$TMP/gh-starved"
+ago 45 > "$TMP/gh-jobs-777"
+RUN_ID=124 request --tree-ready "$pending"
+[[ "$status" == 0 ]] && backfilled && ! dispatched "$pending" && grep -q "waited 45 min with no runner; counted as no run" <<<"$out" \
+  || fail "a tip run starved of a runner past the limit must count as no run and be rescued:" "$out" "$(cat "$TMP/gh.log")"
+# Under the limit it is still the run that builds the tree: no rescue.
+ago 10 > "$TMP/gh-jobs-777"
+RUN_ID=125 request --tree-ready "$pending"
+[[ "$status" == 0 ]] && ! backfilled && dispatched "$pending" \
+  || fail "a run queued under the limit must still count as building the tree:" "$out" "$(cat "$TMP/gh.log")"
+# The limit is the env's.
+RUN_ID=126 CMUX_TREE_RUN_STARVED_MIN=5 request --tree-ready "$pending"
+[[ "$status" == 0 ]] && backfilled && ! dispatched "$pending" \
+  || fail "CMUX_TREE_RUN_STARVED_MIN must set the limit:" "$out" "$(cat "$TMP/gh.log")"
+# A starved rescue dispatch is not rescued again: only push runs count as starved.
+ago 45 > "$TMP/gh-jobs-777"
+echo "777 $pending workflow_dispatch" > "$TMP/gh-starved"
+RUN_ID=127 request --tree-ready "$pending"
+[[ "$status" == 0 ]] && ! backfilled \
+  || fail "a starved rescue dispatch must not start another rescue:" "$out" "$(cat "$TMP/gh.log")"
+# A run whose jobs cannot be read is not starved (the careful answer).
+echo "777 $pending push" > "$TMP/gh-starved"; rm -f "$TMP/gh-jobs-777"
+RUN_ID=128 request --tree-ready "$pending"
+[[ "$status" == 0 ]] && ! backfilled && dispatched "$pending" \
+  || fail "an unreadable job list must not count the run as starved:" "$out" "$(cat "$TMP/gh.log")"
+rm -f "$TMP/gh-starved" "$TMP/gh-active-runs"
 echo 1 > "$TMP/gh-runs"
 request --tree-ready "$pending"
 [[ "$status" == 0 ]] && dispatched "$pending" || fail "the building tip with the line and an active run must be requested:" "$out" "$(cat "$TMP/gh.log")"
