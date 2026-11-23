@@ -85,7 +85,7 @@ nonisolated enum AgentPaneImageCopies {
     /// The default folder: `Agent Images` in this app's caches.
     static func defaultFolder() -> URL {
         let caches = NextSupport.cachesDirectory()
-        return caches.appendingPathComponent(Bundle.main.bundleIdentifier ?? "cmux", isDirectory: true)
+        return caches.appendingPathComponent(Bundle.main.bundleIdentifier ?? "cmux-next", isDirectory: true)
             .appendingPathComponent("Agent Images", isDirectory: true)
     }
 }

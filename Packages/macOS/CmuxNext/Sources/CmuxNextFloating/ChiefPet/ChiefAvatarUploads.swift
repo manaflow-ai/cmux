@@ -150,7 +150,7 @@ public final class ChiefAvatarUploads {
     /// `Application Support/<bundle id>/AvatarUploads`.
     public nonisolated static var defaultFolder: URL? {
         NextSupport.applicationSupportDirectory()
-            .appendingPathComponent(Bundle.main.bundleIdentifier ?? "cmux", isDirectory: true)
+            .appendingPathComponent(Bundle.main.bundleIdentifier ?? "cmux-next", isDirectory: true)
             .appendingPathComponent("AvatarUploads", isDirectory: true)
     }
 

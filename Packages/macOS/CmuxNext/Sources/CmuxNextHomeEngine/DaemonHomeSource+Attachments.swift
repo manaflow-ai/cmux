@@ -11,7 +11,7 @@ nonisolated extension DaemonHomeSource {
     /// `~/Library/Caches/<bundle id>/HomeAttachments`.
     public static var defaultAttachmentCache: URL {
         let caches = NextSupport.cachesDirectory()
-        return caches.appendingPathComponent(Bundle.main.bundleIdentifier ?? "cmux", isDirectory: true)
+        return caches.appendingPathComponent(Bundle.main.bundleIdentifier ?? "cmux-next", isDirectory: true)
             .appendingPathComponent("HomeAttachments", isDirectory: true)
     }
 

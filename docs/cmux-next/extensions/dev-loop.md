@@ -137,7 +137,7 @@ cmux ext search [WORDS]           # extensions people tagged on GitHub
   (`dist/main.js`) must be committed. Anything missing is listed, and the exit code is 8. For a
   repository on GitHub it also reminds you to add the topic `cmux-extension`, which is what
   `ext search` lists.
-- **`ext add SOURCE`** clones the repository into `~/.cache/cmux/extensions/HOST/OWNER/NAME`, or
+- **`ext add SOURCE`** clones the repository into `~/.cache/cmux-next/extensions/HOST/OWNER/NAME`, or
   fetches it again when it is already there, and checks out the commit the source names. It
   then runs the reload `ext dev --once` runs: validate, copy into cmux, reload, render once.
   Last, it asks you to install the extension on the usual consent card. Until you confirm, it

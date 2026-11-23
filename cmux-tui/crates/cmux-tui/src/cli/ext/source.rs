@@ -7,7 +7,7 @@
 //! `#PATH` after any of these, names the extension's folder inside the repository. `ext share`
 //! prints the first form, pinned to a commit.
 //!
-//! The repository is cloned once into this user's cache (`~/.cache/cmux/extensions/HOST/OWNER/NAME`)
+//! The repository is cloned once into this user's cache (`~/.cache/cmux-next/extensions/HOST/OWNER/NAME`)
 //! and fetched again on each `ext add`, so adding it again updates it. That folder belongs to
 //! `ext add`: it is checked out detached at the commit the source names.
 
@@ -120,9 +120,9 @@ fn clean_subdir(path: &str) -> Result<String, String> {
     }
 }
 
-/// Where `repo` is cloned: `CACHE/cmux/extensions/HOST/OWNER/NAME`.
+/// Where `repo` is cloned: `CACHE/cmux-next/extensions/HOST/OWNER/NAME`.
 pub(super) fn cache_dir(cache: &Path, repo: &Repo) -> PathBuf {
-    let mut dir = cache.join("cmux").join("extensions").join(&repo.host);
+    let mut dir = cache.join("cmux-next").join("extensions").join(&repo.host);
     dir.extend(repo.owner.split('/'));
     dir.join(&repo.name)
 }

@@ -75,7 +75,7 @@ import Testing
                 "recoveryDrafts": "/Users/me/Library/Application Support/cmux-next/recovery",
                 "agentHome": "/Users/me/Library/Application Support/cmux/agent-home",
                 "chatUploads": "/Users/me/Library/Application Support/cmux/Chat Uploads",
-                "projectAvatarsCache": "/Users/me/Library/Caches/cmux/project-avatars",
+                "projectAvatarsCache": "/Users/me/Library/Caches/cmux-next/project-avatars",
                 "shellCompletionCache": "/Users/me/Library/Caches/cmux-next",
                 "homeCachesRoot": "/Users/me/Library/Caches",
             ], "\(build.build.key)")

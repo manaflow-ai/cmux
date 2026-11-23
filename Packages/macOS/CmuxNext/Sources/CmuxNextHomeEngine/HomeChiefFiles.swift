@@ -238,7 +238,7 @@ public nonisolated struct HomeChiefFiles: Sendable {
                                                      width: side, height: side)) else { return nil }
         let modified = (try? file.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
         let caches = NextSupport.cachesDirectory()
-        let directory = caches.appendingPathComponent(Bundle.main.bundleIdentifier ?? "cmux", isDirectory: true)
+        let directory = caches.appendingPathComponent(Bundle.main.bundleIdentifier ?? "cmux-next", isDirectory: true)
             .appendingPathComponent("ChiefAvatar", isDirectory: true)
         let stamp = Int(modified?.timeIntervalSince1970 ?? 0)
         // Keyed by the picture's full path too: every Chief's file is `avatar.png`, so name and

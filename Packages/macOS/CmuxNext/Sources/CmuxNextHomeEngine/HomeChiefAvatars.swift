@@ -41,7 +41,7 @@ public nonisolated struct HomeChiefAvatars: Sendable {
     /// The app's cache folder for Chief pictures.
     public static var defaultCache: URL {
         let caches = NextSupport.cachesDirectory()
-        return caches.appendingPathComponent(Bundle.main.bundleIdentifier ?? "cmux", isDirectory: true)
+        return caches.appendingPathComponent(Bundle.main.bundleIdentifier ?? "cmux-next", isDirectory: true)
             .appendingPathComponent("ChiefAvatarRegistry", isDirectory: true)
     }
 

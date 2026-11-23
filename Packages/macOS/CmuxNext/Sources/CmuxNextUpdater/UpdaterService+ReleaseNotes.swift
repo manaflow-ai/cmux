@@ -6,7 +6,7 @@ extension UpdaterService {
     /// cached under Caches; nil without an https feed (DEV builds without one).
     public var releaseNotes: ReleaseNotesStore? {
         let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-        let cache = caches.appending(path: "\(identity.bundleIdentifier ?? "cmux")/release-notes", directoryHint: .isDirectory)
+        let cache = caches.appending(path: "\(identity.bundleIdentifier ?? "cmux-next")/release-notes", directoryHint: .isDirectory)
         #if DEBUG || CMUX_BENCH_HOOKS
         // The update harness signs its own notes next to its loopback feed.
         if let harness = UpdateHarness.current, let key = harness.contentKey {
@@ -25,7 +25,7 @@ extension UpdaterService {
     public var changelogNotes: ReleaseNotesStore? {
         guard changelogReadsDevelopmentNotes else { return releaseNotes }
         let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-        let cache = caches.appending(path: "\(identity.bundleIdentifier ?? "cmux")/release-notes/nightly-next", directoryHint: .isDirectory)
+        let cache = caches.appending(path: "\(identity.bundleIdentifier ?? "cmux-next")/release-notes/nightly-next", directoryHint: .isDirectory)
         return ReleaseNotesStore(feedURL: Self.developmentNotesFeedURL, cache: cache)
     }
 
@@ -61,7 +61,7 @@ extension UpdaterService {
     nonisolated static func whatsNewSources(identity: UpdateBuildIdentity,
                                             environment: [String: String] = ProcessInfo.processInfo.environment) -> [any WhatsNewSource] {
         let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-        let cache = caches.appending(path: "\(identity.bundleIdentifier ?? "cmux")/release-notes", directoryHint: .isDirectory)
+        let cache = caches.appending(path: "\(identity.bundleIdentifier ?? "cmux-next")/release-notes", directoryHint: .isDirectory)
         let feed = ReleaseNotesStore(feedURL: identity.feed().url, cache: cache).map { FeedWhatsNewSource(store: $0) }
         var sources: [any WhatsNewSource] = [BundledWhatsNewSource.app] + (feed.map { [$0] } ?? [])
         if identity.track == .development, let folder = environment["CMUX_NEXT_WHATS_NEW_DIR"], !folder.isEmpty {

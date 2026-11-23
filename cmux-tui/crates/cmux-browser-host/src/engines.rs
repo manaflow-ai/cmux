@@ -18,10 +18,13 @@ pub fn chromium_candidates() -> Vec<PathBuf> {
         out.push(PathBuf::from(path));
     }
     if let Some(home) = std::env::var_os("HOME") {
-        // The optional Chrome for Testing bundle (`cmux browser install-chromium`).
-        let base = PathBuf::from(home).join(".cache/cmux/chromium");
-        out.push(base.join("chrome-linux64/chrome"));
-        out.push(base.join("chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing"));
+        // The optional Chrome for Testing bundle (`cmux browser install-chromium`): cmux NEXT's own cache, then
+        // the older `~/.cache/cmux/chromium` a machine image may already hold (only read, never made).
+        for folder in [".cache/cmux-next/chromium", ".cache/cmux/chromium"] {
+            let base = PathBuf::from(&home).join(folder);
+            out.push(base.join("chrome-linux64/chrome"));
+            out.push(base.join("chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing"));
+        }
     }
     for path in [
         "/usr/bin/chromium",

@@ -50,7 +50,7 @@ pub(crate) fn default_payload_cache() -> Option<PathBuf> {
     } else {
         PathBuf::from(std::env::var_os("HOME")?).join(".cache")
     };
-    Some(base.join("cmux/cmux-tui-ssh"))
+    Some(base.join("cmux-next/cmux-tui-ssh"))
 }
 
 /// The SHA-256 digests this client build pins for every remote platform, read

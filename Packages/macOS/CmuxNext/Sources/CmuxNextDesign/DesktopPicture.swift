@@ -63,7 +63,7 @@ public nonisolated struct DesktopPicture: Sendable {
 
     private static var defaultFallbackFolder: URL {
         let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
-        return caches.appendingPathComponent(Bundle.main.bundleIdentifier ?? "cmux", isDirectory: true)
+        return caches.appendingPathComponent(Bundle.main.bundleIdentifier ?? "cmux-next", isDirectory: true)
             .appendingPathComponent("desktop-picture", isDirectory: true)
     }
 

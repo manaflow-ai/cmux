@@ -41,7 +41,7 @@ nonisolated public struct UpdateInstallPreflight: Sendable {
     /// Sparkle's installation folder for `bundleIdentifier` in the user's caches.
     public static func stagedInstallation(bundleIdentifier: String?) -> URL {
         FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-            .appending(path: "\(bundleIdentifier ?? "cmux")/org.sparkle-project.Sparkle/Installation", directoryHint: .isDirectory)
+            .appending(path: "\(bundleIdentifier ?? "cmux-next")/org.sparkle-project.Sparkle/Installation", directoryHint: .isDirectory)
     }
 
     /// The first failed check, or nil when the install may start.

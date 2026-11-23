@@ -1335,7 +1335,7 @@ fn fetch_clones_checks_out_the_named_folder_and_updates_on_a_second_add() {
     let root = tempfile::tempdir().unwrap();
     let upstream = extension_repo(root.path());
     let url = upstream.to_string_lossy().into_owned();
-    let clone = root.path().join("cache/cmux/extensions/example/acme/widgets");
+    let clone = root.path().join("cache/cmux-next/extensions/example/acme/widgets");
     let tail: Vec<String> = ["feature", "x", "widgets", "hello"].map(String::from).to_vec();
 
     let fetched = source::fetch(&url, &tail, None, &clone).unwrap();

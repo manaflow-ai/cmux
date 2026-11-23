@@ -11,13 +11,13 @@ fn dev_build_own_mcp_upstreams_dir() {
     };
     assert_eq!(dir_from(env), Some(PathBuf::from("/tmp/dev-build/mcp-upstreams")));
     let shared = |name: &str| (name == "HOME").then(|| "/Users/me".into());
-    assert_eq!(dir_from(shared), Some(PathBuf::from("/Users/me/.cache/cmux/mcp-upstreams")));
+    assert_eq!(dir_from(shared), Some(PathBuf::from("/Users/me/.cache/cmux-next/mcp-upstreams")));
     let blank = |name: &str| match name {
         "HOME" => Some("/Users/me".into()),
         "CMUX_NEXT_MCP_UPSTREAMS_DIR" => Some("".into()),
         _ => None,
     };
-    assert_eq!(dir_from(blank), Some(PathBuf::from("/Users/me/.cache/cmux/mcp-upstreams")));
+    assert_eq!(dir_from(blank), Some(PathBuf::from("/Users/me/.cache/cmux-next/mcp-upstreams")));
 }
 
 fn spec(command: &Path, token: &str) -> Spec {
