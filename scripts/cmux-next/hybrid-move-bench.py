@@ -75,6 +75,7 @@ import time
 import uuid
 
 PREFIX = "HMB-"
+OLDEST = PREFIX + "PING 0"
 MODEL = "claude-opus-5-5"
 
 # ---------------------------------------------------------------- stand-in model
@@ -219,6 +220,11 @@ class StandIn(http.server.ThreadingHTTPServer):
         kind = last_prompt[len(PREFIX):].split()[0]
         if kind == "FILL":
             return "fill", text_events(fill_text(self.fill_bytes, hash(last_prompt) & 0xFFFF))
+        if kind == "RECALL":
+            # Only the chat's oldest prompt ("HMB-PING 0", the first thing in its 55 MB) answers it.
+            oldest = any((b.get("text") or "").startswith(OLDEST) for m in msgs if m.get("role") == "user"
+                         for b in blocks_of(m))
+            return ("recall-ok" if oldest else "recall-miss"), text_events("recall")
         if kind != "WORK":
             return kind.lower(), text_events("ok")
         done = 0
@@ -306,8 +312,9 @@ class Rpc:
         self.items: list[tuple[float, dict]] = []
         self.closed = False
         self.next = 0
+        self.send_lock = threading.Lock()
         threading.Thread(target=self._pump, daemon=True).start()
-        self.call("initialize", {"protocolVersion": 1, "clientInfo": {"name": "hybrid-move-bench"}})
+        self.init = self.call("initialize", {"protocolVersion": 1, "clientInfo": {"name": "hybrid-move-bench"}})
 
     def _pump(self):
         for line in self.rf:
@@ -345,9 +352,12 @@ class Rpc:
                 self.cv.wait(left)
 
     def send(self, method: str, params: dict) -> int:
-        self.next += 1
-        self.s.sendall((json.dumps({"jsonrpc": "2.0", "id": self.next, "method": method, "params": params}) + "\n").encode())
-        return self.next
+        # The history that follows a move is sent on a thread while the bench prompts the chat.
+        with self.send_lock:
+            self.next += 1
+            rid = self.next
+            self.s.sendall((json.dumps({"jsonrpc": "2.0", "id": rid, "method": method, "params": params}) + "\n").encode())
+        return rid
 
     def result(self, rid: int, start: int, timeout: float, method: str):
         t, m = self.wait(lambda m: m.get("id") == rid and "method" not in m, timeout, start, f"{method} answer")
@@ -473,19 +483,135 @@ def tree_bytes(*roots: str) -> int:
 TOOL_IN_FLIGHT = "tool_in_flight"
 
 
-def move(src: Rpc, dst: Rpc, sid: str, cwd: str, interrupt: bool, dst_sock: str) -> dict:
-    """cli/run/transfer.rs `move_chat`, with `begin_move_live`'s retry for a tool in flight."""
+PRECOPY = "transfer-precopy-v1"
+LIVE = "transfer-live-v1"
+HISTORY_LATER = "transfer-history-later-v1"
+SMALL_ROUND = 8 << 20   # transfer_live.rs SMALL_ROUND
+MAX_ROUNDS = 6          # transfer_live.rs MAX_ROUNDS
+
+
+def lists(reply: dict, path: list[str], cap: str) -> bool:
+    v = reply
+    for k in path:
+        v = (v or {}).get(k) if isinstance(v, dict) else None
+    return isinstance(v, list) and cap in v
+
+
+def page_files(src: Rpc, dst: Rpc, manifest: dict, read_id, write_id, epoch, held: dict) -> tuple[int, int]:
+    """transfer_live.rs `page_files`, raw base64 (no zstd: the target takes both). Returns
+    (bytes sent, base64 bytes on the socket)."""
+    sent = wire = 0
+    for f in manifest.get("files") or []:
+        path, size = f["path"], int(f.get("size") or 0)
+        off = min(held.get(path, 0), size)
+        if off == size and size > 0:
+            continue
+        while True:
+            read = {"transferId": read_id, "path": path, "offset": off, "limit": 4 << 20}
+            write = {"receiveId": write_id, "path": path, "offset": off}
+            if epoch is not None:
+                read["epoch"] = write["epoch"] = epoch
+            page = src.call("_acpmux/transfer_read", read)
+            write["data"] = page["data"]
+            dst.call("_acpmux/transfer_write", write)
+            wire += len(page["data"])
+            sent += page["next"] - off
+            off = page["next"]
+            if page.get("eof"):
+                break
+    return sent, wire
+
+
+def resume_offsets(src: Rpc, read_id: str, answer: dict) -> dict:
+    """transfer_live.rs `resume_offsets`: what the target already holds of each file, when the
+    source's bytes there are the same."""
+    held = {}
+    for h in answer.get("have") or []:
+        try:
+            theirs = src.call("_acpmux/transfer_digest", {"transferId": read_id, "path": h["path"], "length": h["bytes"]})
+        except RpcError:
+            theirs = {}
+        held[h["path"]] = h["bytes"] if theirs.get("sha256") == h.get("sha256") else 0
+    return held
+
+
+def precopy(src: Rpc, dst: Rpc, sid: str, later: int) -> tuple[dict | None, dict]:
+    """cli/run/transfer.rs `precopy` / `stage_rounds` (no base: each run's target is fresh): the
+    history staged on the target before the freeze, in rounds; with `later` turns, only the
+    agent's transcript is staged and the chat's log before its last `later` turns follows the
+    move (`hub/transfer_history.rs`). None when either daemon cannot."""
+    info = {"precopied": False, "history_later_asked": later, "precopy_bytes": 0, "precopy_rounds": 0}
+    if not lists(dst.init, ["_meta", "acpmux", "capabilities"], PRECOPY):
+        return None, info
+    status = src.call("_acpmux/status", {})
+    if not lists(status, ["capabilities"], PRECOPY):
+        return None, info
+    resume = lists(dst.init, ["_meta", "acpmux", "capabilities"], LIVE) and lists(status, ["capabilities"], LIVE)
+    can_later = lists(dst.init, ["_meta", "acpmux", "capabilities"], HISTORY_LATER) and lists(status, ["capabilities"], HISTORY_LATER)
+    info["history_later_capable"] = can_later
     t0 = time.perf_counter()
+    staged = None
+    for _ in range(MAX_ROUNDS):
+        params = {"sessionId": sid}
+        if later and can_later:
+            params["historyLater"] = {"keepTurns": later}
+        prepared = src.call("_acpmux/transfer_prepare", params, timeout=600)
+        stage = dst.call("_acpmux/transfer_stage", {"manifest": prepared, "resume": resume})
+        held = resume_offsets(src, prepared["prepareId"], stage)
+        sent, _ = page_files(src, dst, prepared, prepared["prepareId"], stage["stageId"], None, held)
+        info["precopy_bytes"] += sent
+        info["precopy_rounds"] += 1
+        staged = {"prepareId": prepared["prepareId"], "afterSeq": prepared["afterSeq"],
+                  "stageId": stage["stageId"], "historyLater": prepared.get("historyLater") is True}
+        if not resume or sent <= SMALL_ROUND:
+            break
+    dst.call("_acpmux/transfer_stage_finish", {"stageId": staged["stageId"]}, timeout=600)
+    info.update({"precopied": True, "precopy_ms": round((time.perf_counter() - t0) * 1000, 1),
+                 "history_later": staged["historyLater"], "staged_after_seq": staged["afterSeq"]})
+    return staged, info
+
+
+def history_follows(src: Rpc, dst: Rpc, sid: str, through: int) -> dict:
+    """cli/run/transfer.rs `history_follows`: the history before the freeze's turns, packed on the
+    source, staged and adopted on the target, after the chat runs there."""
+    t0 = time.perf_counter()
+    have = dst.call("_acpmux/transfer_history_have", {"sessionId": sid})
+    export = src.call("_acpmux/transfer_history_export", {"sessionId": sid, "throughSeq": through,
+                                                          "have": have.get("have") or []}, timeout=900)
+    stage = dst.call("_acpmux/transfer_stage", {"manifest": export})
+    sent, wire = page_files(src, dst, export, export["prepareId"], stage["stageId"], None, {})
+    dst.call("_acpmux/transfer_stage_finish", {"stageId": stage["stageId"]}, timeout=900)
+    arrived = dst.call("_acpmux/transfer_history", {"sessionId": sid, "stageId": stage["stageId"]}, timeout=900)
+    packed = export.get("packed") or {}
+    return {"history_bytes_later": sent, "history_wire_later": wire, "history_records_later": arrived.get("records"),
+            "history_raw_bytes": packed.get("rawBytes"), "history_pack_ms": packed.get("ms"),
+            "history_follow_ms": round((time.perf_counter() - t0) * 1000, 1), "_t_history": time.perf_counter()}
+
+
+def move(src: Rpc, dst: Rpc, sid: str, cwd: str, interrupt: bool, dst_sock: str, later: int = 0,
+         on_commit=None) -> dict:
+    """cli/run/transfer.rs `move_chat` on this branch: pre-copy when both daemons can (with
+    `later` turns, the history follows), then the begin, with `begin_move_live`'s retry for a tool
+    in flight, the receive seeded from the stage, the freeze's pages, finish and commit."""
+    t0 = time.perf_counter()
+    staged, info = precopy(src, dst, sid, later)
+    t_staged = time.perf_counter()
     begin_params = {"sessionId": sid, "interrupt": interrupt, "atToolBoundary": not interrupt,
                     "afterTurn": False, "gatesQueueApproval": True, "to": {"socket": dst_sock}}
     tries = 0
     while True:
         tries += 1
+        params = dict(begin_params)
+        if staged:
+            params.update({"prepareId": staged["prepareId"], "afterSeq": staged["afterSeq"]})
         try:
-            begin = src.call("_acpmux/transfer_begin", begin_params, timeout=900)
+            begin = src.call("_acpmux/transfer_begin", params, timeout=900)
             break
         except RpcError as e:
             text = json.dumps(e.error)
+            if staged and "transfer.diverged" in text:
+                staged, info["diverged"] = None, True
+                continue
             if TOOL_IN_FLIGHT in text or "compacting" in text:
                 # begin_move_live asks again every 500 ms; here the next ask waits on the source's
                 # next session/update (a tool call ending), bounded at 15 min like TOOL_WAIT.
@@ -494,36 +620,60 @@ def move(src: Rpc, dst: Rpc, sid: str, cwd: str, interrupt: bool, dst_sock: str)
                 continue
             raise
     t_begun = time.perf_counter()
+    if staged and "prefix" not in begin:
+        staged = None
     tid, epoch = begin.get("transferId"), begin.get("epoch", 0)
-    receive = dst.call("_acpmux/transfer_receive", {"manifest": begin})
+    receive_params = {"manifest": begin}
+    if staged:
+        receive_params["stageId"] = staged["stageId"]
+    receive = dst.call("_acpmux/transfer_receive", receive_params, timeout=600)
     rid = receive.get("receiveId")
-    sent = wire = 0
-    for f in begin.get("files") or []:
-        off = 0
-        while True:
-            page = src.call("_acpmux/transfer_read", {"transferId": tid, "path": f["path"], "offset": off, "epoch": epoch})
-            data = page["data"]
-            dst.call("_acpmux/transfer_write", {"receiveId": rid, "path": f["path"], "offset": off, "data": data, "epoch": epoch})
-            wire += len(data)
-            sent += len(base64.b64decode(data))
-            off = page["next"]
-            if page.get("eof"):
-                break
+    held = resume_offsets(src, tid, receive)
+    sent, wire = page_files(src, dst, begin, tid, rid, epoch, held)
     t_copied = time.perf_counter()
-    finished = dst.call("_acpmux/transfer_finish", {"receiveId": rid, "from": {"sessionId": sid}, "epoch": epoch, "cwd": cwd})
+    finished = dst.call("_acpmux/transfer_finish", {"receiveId": rid, "from": {"sessionId": sid}, "epoch": epoch, "cwd": cwd}, timeout=600)
     t_finished = time.perf_counter()
     src.call("_acpmux/transfer_commit", {"sessionId": sid, "transferId": tid, "epoch": epoch,
                                          "to": {"socket": dst_sock, "sessionId": finished.get("sessionId", sid)}})
     t_end = time.perf_counter()
     ms = lambda a, b: round((b - a) * 1000, 1)
-    return {
+    tsid = finished.get("sessionId", sid)
+    follow = None
+    if staged and staged["historyLater"]:
+        # As the client does: the chat runs on the target now; its history follows meanwhile.
+        follow = {"done": threading.Event()}
+
+        def run():
+            try:
+                follow.update(history_follows(src, dst, tsid, staged["afterSeq"]))
+            except Exception as e:
+                follow["history_error"] = f"{type(e).__name__}: {e}"
+            follow["done"].set()
+
+        threading.Thread(target=run, daemon=True).start()
+    r = {
         "session_bytes": sum(int(f.get("size") or 0) for f in begin.get("files") or []),
-        "files": len(begin.get("files") or []), "bytes_sent": sent, "wire_bytes": wire,
-        "begin_tries": tries, "begin_ms": ms(t0, t_begun), "copy_ms": ms(t_begun, t_copied),
-        "finish_ms": ms(t_copied, t_finished), "commit_ms": ms(t_finished, t_end), "total_ms": ms(t0, t_end),
-        "continues": begin.get("continues"), "target_session": finished.get("sessionId", sid),
-        "_t_finished": t_finished,
+        "files": len(begin.get("files") or []),
+        # In the freeze: what the begin's bundle paged, less what the stage already held.
+        "bytes_in_freeze": sent, "bytes_sent": info["precopy_bytes"] + sent, "wire_bytes_in_freeze": wire,
+        "begin_tries": tries, "precopy_ms": ms(t0, t_staged), "begin_ms": ms(t_staged, t_begun),
+        "copy_ms": ms(t_begun, t_copied), "finish_ms": ms(t_copied, t_finished), "commit_ms": ms(t_finished, t_end),
+        "total_ms": ms(t0, t_end),
+        # cli/run/transfer.rs's own freeze line: frozenMs before the begin answered + to the finish.
+        "freeze_client_ms": round(int(begin.get("frozenMs") or 0) + (t_finished - t_begun) * 1000, 1),
+        "continues": begin.get("continues"), "target_session": tsid,
+        "_t_finished": t_finished, "_follow": follow,
     }
+    r.update({k: v for k, v in info.items() if k != "precopy_ms"})
+    return r
+
+
+def oldest_read(dst: Rpc, tsid: str, oldest_text: str) -> bool:
+    """Whether the target's log serves the chat's first prompt (its oldest record a person sees)."""
+    for e in events(dst, tsid, afterSeq=0, kinds=["user_message"], limit=3):
+        if oldest_text in json.dumps(e.get("msg")):
+            return True
+    return False
 
 
 OUTPUT_KINDS = {"agent_message_chunk", "agent_thought_chunk", "tool_call", "tool_call_update"}
@@ -565,10 +715,15 @@ def event_times(src: Rpc, dst: Rpc, sid: str, tsid: str) -> dict:
 
 
 class Side:
-    def __init__(self, name: str, binary: str, scratch: str, marks: str, fifo: str, steps: int, fill: int):
+    def __init__(self, name: str, binary: str, scratch: str, marks: str, fifo: str, steps: int, fill: int,
+                 later: int = 0):
         self.stand = StandIn(name, marks, fifo, steps, fill)
         threading.Thread(target=self.stand.serve_forever, daemon=True).start()
         self.env = scrubbed_env(scratch, name, self.stand.url)
+        if later:
+            # Read by the move's client (cli/run/transfer.rs `history_later_turns`), which this
+            # bench is; set on both daemons too, as a move a daemon drives itself would read it.
+            self.env["ACPMUX_MOVE_HISTORY_LATER"] = str(later)
         self.daemon = Daemon(binary, self.env, name)
         self.rpc = self.daemon.rpc
         self.root = os.path.join(scratch, name)
@@ -585,7 +740,7 @@ def build_session(side: Side, size_mb: float, log) -> tuple[str, str, int]:
     made = side.rpc.call("session/new", {"cwd": cwd, "mcpServers": [], "_meta": {"acpmux": {
         "harness": "claude", "policy": "approve-all", "model": MODEL}}}, timeout=180)
     sid = made["sessionId"]
-    turn(side.rpc, sid, f"{PREFIX}PING 0")
+    turn(side.rpc, sid, OLDEST)
     i, size = 0, 0
     t0 = time.perf_counter()
     while size < size_mb * 1e6:
@@ -634,8 +789,9 @@ def run_move(kind: str, args, scratch: str, log) -> dict:
     marks, fifo = os.path.join(run_dir, "marks"), os.path.join(run_dir, "fifo")
     os.mkfifo(fifo)
     fill = int(args.fill_mb * 1e6)
-    src = Side("source", args.acpmux, run_dir, marks, fifo, args.steps, fill)
-    dst = Side("target", args.acpmux, run_dir, marks, fifo, args.steps, fill)
+    later = args.history_later
+    src = Side("source", args.acpmux, run_dir, marks, fifo, args.steps, fill, later)
+    dst = Side("target", args.acpmux, run_dir, marks, fifo, args.steps, fill, later)
     try:
         sid, _, store = build_session(src, args.size_mb, log)
         dst_cwd = os.path.join(dst.root, "project")
@@ -660,21 +816,48 @@ def run_move(kind: str, args, scratch: str, log) -> dict:
                 writer = fifo_writer(fifo)
                 if not writer["opened"].wait(300):
                     raise TimeoutError("step 2's Bash call never started")
-        r = move(src.rpc, dst.rpc, sid, dst_cwd, interrupt, dst.daemon.sock)
+        r = move(src.rpc, dst.rpc, sid, dst_cwd, interrupt, dst.daemon.sock, later)
         # The source's stale model request and blocked step end now; nothing on the source runs on.
         src.stand.release.set()
         if kind == "interrupt":
             os.close(writer["fd"])
         tsid = r.pop("target_session")
         t_fin = r.pop("_t_finished")
+        follow = r.pop("_follow")
+        # The old history on the target: its log read from seq 0 serves the chat's first prompt.
+        # Read at once; if not there, read again the moment the history has followed.
+        old_ok = oldest_read(dst.rpc, tsid, OLDEST)
+        t_old = time.perf_counter()
         if kind == "idle":
+            # The person types again the moment the move is done (the freeze's end), before any
+            # wait for the history.
             turn(dst.rpc, tsid, f"{PREFIX}PROBE 1")
+        if not old_ok and follow is not None:
+            if not follow["done"].wait(1800):
+                raise TimeoutError("the history did not follow in 1800s")
+            old_ok = oldest_read(dst.rpc, tsid, OLDEST)
+            t_old = time.perf_counter()
+        r.update({"old_history_read_ok": old_ok,
+                  "old_history_read_ms": round((t_old - t_fin) * 1000, 1) if old_ok else None})
+        if kind == "idle":
             finished = None
         else:
             done = dst.rpc.call("_acpmux/wait", {"sessions": [tsid], "until": ["ready"], "all": True,
                                                  "timeoutMs": 300000}, timeout=320)
             finished = (not done.get("timedOut")) and "work-done" in dst.stand.answered[before_target:]
+        # The agent on the target answers from the chat's oldest part (its Claude transcript).
+        turn(dst.rpc, tsid, f"{PREFIX}RECALL 1")
+        r["old_history_agent_ok"] = "recall-ok" in dst.stand.answered[before_target:]
+        if follow is not None:
+            if not follow["done"].wait(1800):
+                raise TimeoutError("the history did not follow in 1800s")
+            t_hist = follow.pop("_t_history", None)
+            follow.pop("done")
+            r.update(follow)
+            if t_hist is not None:
+                r["history_arrived_after_ms"] = round((t_hist - t_fin) * 1000, 1)
         r.update(event_times(src.rpc, dst.rpc, sid, tsid))
+        r["history_later_turns"] = later
         r.update({
             "move": kind, "cut": "interrupt" if interrupt else ("tool-boundary" if kind != "idle" else "idle"),
             "store_bytes_on_disk": store, "turn_finished": finished,
@@ -711,6 +894,10 @@ def main():
     ap.add_argument("--keep", help="scratch directory to use and keep (default: a temp dir, removed)")
     ap.add_argument("--out", help="also append each JSON line here")
     ap.add_argument("--verbose", action="store_true", help="include the continuation texts")
+    ap.add_argument("--history-later", type=int, default=0, metavar="TURNS",
+                    help="ACPMUX_MOVE_HISTORY_LATER on both daemons and the bench's client: the freeze "
+                         "carries the chat's last TURNS turns, the history before them follows the move "
+                         "(hub/transfer_history.rs); 0 (default) pre-copies the whole history first")
     args = ap.parse_args()
     if not shutil.which("claude"):
         sys.exit("hybrid-move-bench: needs `claude` (Claude Code) on PATH")
