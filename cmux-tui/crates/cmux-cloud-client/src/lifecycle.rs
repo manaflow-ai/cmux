@@ -138,13 +138,13 @@ pub fn observe(scope: &Scope, record: CloudMachine) -> Result<ObservedMachine, O
     relay::check_revision(&record.revision, &record.revision)
         .map_err(|_| ObserveError::InvalidRevision)?;
     let status = cloud_status(&record.status)?;
-    if let Some(expected) = scope.team() {
-        if expected != record.team {
-            return Err(ObserveError::TeamMismatch {
-                expected: expected.to_owned(),
-                actual: record.team,
-            });
-        }
+    if let Some(expected) = scope.team()
+        && expected != record.team
+    {
+        return Err(ObserveError::TeamMismatch {
+            expected: expected.to_owned(),
+            actual: record.team,
+        });
     }
     let machine = scope.machine(&record.id).map_err(ObserveError::Handle)?;
     let snapshot = Snapshot { machine, team: record.team, revision: record.revision };
@@ -321,13 +321,16 @@ impl Reconciled {
 impl Pending<Unknown> {
     /// Reconcile this subject with a fresh authoritative Cloud record. No
     /// lifecycle action is available on `Unknown` until this succeeds.
-    pub fn reconcile(mut self, record: CloudMachine) -> Result<Reconciled, (Self, ObserveError)> {
+    pub fn reconcile(
+        mut self,
+        record: CloudMachine,
+    ) -> Result<Reconciled, Box<(Self, ObserveError)>> {
         let status = match validate_record(self.state.payload(), &record) {
             Ok(status) => status,
-            Err(error) => return Err((self, error)),
+            Err(error) => return Err(Box::new((self, error))),
         };
         if self.revision().trim_start_matches('0') == record.revision.trim_start_matches('0') {
-            return Err((self, ObserveError::InvalidRevision));
+            return Err(Box::new((self, ObserveError::InvalidRevision)));
         }
         let original_revision = self.revision().to_owned();
         self.state.vm.payload_mut().revision = record.revision;
