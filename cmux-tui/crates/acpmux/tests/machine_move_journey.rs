@@ -1524,17 +1524,29 @@ async fn e4_one_kill(seed: u64) -> E4Row {
     let up = Instant::now();
     relay.point_at(serve(b2.clone(), &auth).await);
     let all = ["p0", "p1", "p2", "p3"];
+    // A prompt's results, its own and those of the continuations recovery queued for it
+    // (`{p}~resume-N`, `auto_resume.rs`), which carry the cut turn on: those read `resume:STATUS`.
     let result_of = |events: &[Value], p: &str| -> Vec<String> {
+        let resumed = format!("{p}~resume-");
         events
             .iter()
-            .filter(|e| e["kind"] == "turn_result" && e["msg"]["promptId"] == p)
-            .map(|e| e["msg"]["status"].as_str().unwrap_or("?").to_owned())
+            .filter(|e| e["kind"] == "turn_result")
+            .filter_map(|e| {
+                let id = e["msg"]["promptId"].as_str()?;
+                let status = e["msg"]["status"].as_str().unwrap_or("?");
+                if id == p {
+                    Some(status.to_owned())
+                } else {
+                    id.starts_with(&resumed).then(|| format!("resume:{status}"))
+                }
+            })
             .collect()
     };
+    let completed = |statuses: &[String]| statuses.iter().any(|s| s.ends_with("completed"));
     let deadline = Instant::now() + Duration::from_secs(60);
     loop {
         let events = journal(&b2, &id);
-        let done = all.iter().all(|p| !result_of(events.as_slice(), *p).is_empty())
+        let done = all.iter().all(|p| completed(&result_of(events.as_slice(), *p)))
             && says_once(&events, "echo: third");
         if done || Instant::now() >= deadline {
             break;
@@ -1558,7 +1570,7 @@ async fn e4_one_kill(seed: u64) -> E4Row {
         }
         if ran > 0 && statuses.is_empty() {
             unfinished.push(p.to_owned());
-        } else if !statuses.is_empty() && !statuses.iter().any(|s| s == "completed") {
+        } else if !statuses.is_empty() && !completed(&statuses) {
             not_completed.push(format!("{p}:{}", statuses.join("/")));
         }
     }
