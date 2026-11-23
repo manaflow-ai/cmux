@@ -53,7 +53,7 @@ export function cardFitProblems(doc: Document): string[] {
       const style = view.getComputedStyle(at);
       if (style.display === "none" || style.visibility === "hidden" || style.visibility === "collapse") return true;
       if (opacityCounts && Number(style.opacity) === 0) return true;
-      if (style.clipPath.startsWith("inset(50%") || (style.position === "absolute" && /^rect\(0/.test(style.clip)))
+      if (style.clipPath.startsWith("inset(50%") || (style.position === "absolute" && style.clip.startsWith("rect(0")))
         return true;
       if (at === card) break;
     }
