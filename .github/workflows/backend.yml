@@ -133,7 +133,12 @@ jobs:
       - run: bun install --frozen-lockfile
       - name: API Worker tests (workerd), shard ${{ matrix.shard }} of 6
         working-directory: backend/apps/api
-        run: bun run test --shard=${{ matrix.shard }}/6
+        # A packed cmux-linux runner shares its VM's vCPUs with up to 3 others (#48644) but nproc still reports all
+        # of them, so vitest's default (one worker per vCPU) runs about 4x too many workerd isolates and cases pass
+        # their 20 s and hooks their 120 s timeouts (backend runs 45159322542, 45172479573). At most 4 workers.
+        run: |
+          n=$(nproc); [ "$n" -gt 4 ] && n=4
+          bun run test --shard=${{ matrix.shard }}/6 --maxWorkers="$n"
 
   test:
     # Runs after the API Worker shards whatever they end with, and fails on a red shard (its last step), so the
