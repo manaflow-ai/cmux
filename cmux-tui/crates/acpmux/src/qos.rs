@@ -127,34 +127,26 @@ fn agent_background() -> bool {
     std::env::var_os(ENV).is_some_and(|v| v == "background")
 }
 
+/// This process (or, on Linux, this thread) at nice 0 when it runs below it: an agent host or a
+/// harness the daemon starts, which inherits a negative nice the daemon took
+/// (`daemon_priority.rs`). Raising a nice needs no privilege. Async-signal-safe: it runs between
+/// fork and exec (`cpu_class::start_at_normal`).
+#[cfg(unix)]
+pub fn at_least_default_nice() {
+    // SAFETY: plain syscalls on the calling process. -1 is also getpriority's error answer, and
+    // raising -1 to 0 is right either way.
+    unsafe {
+        if libc::getpriority(libc::PRIO_PROCESS, 0) < 0 {
+            libc::setpriority(libc::PRIO_PROCESS, 0, 0);
+        }
+    }
+}
+
 /// The daemon's tier: acknowledged replies wait on the event journal's sync, so the daemon keeps
 /// the default disk tier (lead rule 2026-11-04: a reply the person waits for never waits on a
 /// throttled sync) and only its background threads yield ([`background_thread`]). Nothing to
 /// set: the CPU is unchanged for the daemon too.
 pub fn enter_daemon() {}
-
-/// The base priority a process runs at when nothing lowered it (macOS `BASEPRI_DEFAULT`): the
-/// daemon's CPU tier ([`Tier::Serving`]).
-pub const DAEMON_PRIORITY: i32 = 31;
-
-/// This process's base priority when it runs below the daemon's tier ([`DAEMON_PRIORITY`]), None
-/// when it does not, when it cannot be read, off macOS, or with the policy off (`ACPMUX_QOS=off`).
-///
-/// [`enter_daemon`] sets nothing, so a daemon runs at whatever its starter gave it, and both
-/// what lowers a process on macOS are inherited by everything it starts and cannot be undone
-/// from inside: the QoS clamp of a launchd job of `ProcessType` `Standard` or `Background` (and
-/// of this module's agent tiers), and nice. Leo's NIGHTLY daemon (2026-11-21, "Waiting for the
-/// agent service (1:07)"): `nightly-update`, a `Standard` launchd job, ran `acpmux daemon
-/// restart`, and that daemon and every update's `--take-over` successor after it ran all 98
-/// threads at priority 20, below every default process on a Mac at load 80 to 170, so the
-/// `_acpmux/status` every pane's connect waits on took 0.2 to 51 s. Such a daemon starts again
-/// as a login-session job (`daemon/login_session.rs`: launchd starts it, at `Interactive`).
-pub fn lowered_priority() -> Option<i32> {
-    if !enabled() {
-        return None;
-    }
-    imp::base_priority().filter(|p| *p < DAEMON_PRIORITY)
-}
 
 /// The calling thread, dedicated to background work for its whole life (the event journal's
 /// checkpointer): its disk I/O at the utility tier. Only for a thread that does nothing else: a
@@ -173,6 +165,11 @@ pub fn background_thread() {
 pub fn enter(role: Role) {
     if !enabled() {
         return;
+    }
+    // Never above the default: the daemon may run at a negative nice (`daemon_priority.rs`).
+    #[cfg(unix)]
+    if matches!(tier(role), Tier::Agent | Tier::AgentStart) {
+        at_least_default_nice();
     }
     match tier(role) {
         // Nothing: acknowledged replies wait on the event journal's sync ([`enter_daemon`]).
@@ -265,25 +262,6 @@ mod imp {
         if unsafe { setiopolicy_np(IOPOL_TYPE_DISK, IOPOL_SCOPE_PROCESS, IOPOL_UTILITY) } != 0 {
             tracing::debug!("setiopolicy_np: {}", std::io::Error::last_os_error());
         }
-    }
-
-    /// This process's scheduler base priority (`proc_pidinfo` `PROC_PIDTASKINFO`): 31 at the
-    /// default, 20 under a utility clamp or at nice +11, 4 at background class.
-    pub(super) fn base_priority() -> Option<i32> {
-        // SAFETY: an all-zero proc_taskinfo is a valid out-parameter.
-        let mut task: libc::proc_taskinfo = unsafe { std::mem::zeroed() };
-        let size = std::mem::size_of::<libc::proc_taskinfo>() as libc::c_int;
-        // SAFETY: `task` is `size` bytes the call fills; getpid has no preconditions.
-        let n = unsafe {
-            libc::proc_pidinfo(
-                libc::getpid(),
-                libc::PROC_PIDTASKINFO,
-                0,
-                (&mut task as *mut libc::proc_taskinfo).cast(),
-                size,
-            )
-        };
-        (n == size).then_some(task.pti_priority)
     }
 
     /// The calling thread's disk I/O at utility (`background_thread`).
@@ -470,10 +448,6 @@ mod imp {
 mod imp {
     pub(super) fn disk_utility() {}
     pub(super) fn thread_disk_utility() {}
-    /// Linux: a unit or a command starts the daemon where it belongs; nothing re-places it.
-    pub(super) fn base_priority() -> Option<i32> {
-        None
-    }
 
     /// nice +5: inherited by everything the process starts. Not undone (an
     /// unprivileged process cannot lower its nice value), and not needed to be.
@@ -510,9 +484,6 @@ mod imp {
 mod imp {
     pub(super) fn disk_utility() {}
     pub(super) fn thread_disk_utility() {}
-    pub(super) fn base_priority() -> Option<i32> {
-        None
-    }
     pub(super) fn clamp_cpu_utility() {}
     pub(super) fn process_background() {
         clamp_cpu_utility();
