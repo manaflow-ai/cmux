@@ -16,7 +16,8 @@ import Foundation
 /// - Hover, multi-selection and press on an unselected tab: ink washed over the frame to the hover and pressed rungs
 ///   (``wash(rung:over:)``), so each state is one ladder step on any theme and over glass alike.
 /// - A dragged tab: the card's surface lifted (the floating role), so it reads as the same tab picked up.
-public nonisolated enum FrameTone {
+public nonisolated struct FrameTone {
+    public nonisolated init() {}
     /// The ink ladder's frame rung: the least share.
     public static let frameRung = 0.04
     /// The hover rung (and a multi-selected tab's).
