@@ -7,6 +7,9 @@
 //! off (it says so) and prints each event as it comes (`--json`: one JSON object a line), until
 //! interrupted. `snapshot` is the last minute in one JSON object (the Inspector's "Copy
 //! diagnosis"). The daemon also appends every event to `$ACPMUX_HOME/perf-watch.jsonl` while on.
+//!
+//! `frames` is apart from the commentator and always on: the visible chat's frame times over the
+//! last 5 minutes (acpmux `frame_tally.rs`), read without changing anything.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -16,7 +19,7 @@ use serde_json::{Value, json};
 
 use super::{GlobalArgs, OutputMode, parse_globals};
 
-const HELP: &str = "Usage: cmux debug perf [status|on|off|--follow [--json]|snapshot|budgets]\n\nThe live perf commentator of the app's acpmux (off by default): how long new chats, workspace switches and page loads take, part by part; what is higher than expected; and which channels move the most bytes.\n\n  cmux debug perf                  On or off, and its tail file\n  cmux debug perf on|off           Turn it on or off\n  cmux debug perf --follow         Print each span, note and meter summary as it comes (turns it on)\n  cmux debug perf --follow --json  The same, one JSON object a line\n  cmux debug perf snapshot         The last minute as one JSON object (for a bug report)\n  cmux debug perf budgets          What each span and check is expected to stay under\n";
+const HELP: &str = "Usage: cmux debug perf [status|on|off|--follow [--json]|snapshot|budgets|frames]\n\nThe live perf commentator of the app's acpmux (off by default): how long new chats, workspace switches and page loads take, part by part; what is higher than expected; and which channels move the most bytes.\n\n  cmux debug perf                  On or off, and its tail file\n  cmux debug perf on|off           Turn it on or off\n  cmux debug perf --follow         Print each span, note and meter summary as it comes (turns it on)\n  cmux debug perf --follow --json  The same, one JSON object a line\n  cmux debug perf snapshot         The last minute as one JSON object (for a bug report)\n  cmux debug perf budgets          What each span and check is expected to stay under\n  cmux debug perf frames           The visible chat's frame times over the last 5 minutes (always on; reads only)\n";
 
 /// How long one follow read waits on the daemon for a new event.
 const FOLLOW_WAIT_MS: u64 = 25_000;
@@ -43,6 +46,10 @@ fn run(global: &GlobalArgs, rest: &[String]) -> i32 {
         ["off"] => call(socket, json!({"op": "off"})).map(|v| print(&v, json_out, status_text)),
         ["snapshot"] => {
             call(socket, json!({"op": "snapshot"})).map(|v| print(&v, true, |_| String::new()))
+        }
+        // The always-on frame tally (acpmux `frame_tally.rs`): a line, or JSON with `--json`.
+        ["frames"] => {
+            call(socket, json!({"op": "frames"})).map(|v| print(&v, json_out, frames_text))
         }
         ["budgets"] => {
             call(socket, json!({"op": "budgets"})).map(|v| print(&v, json_out, budgets_text))
@@ -108,6 +115,26 @@ fn status_text(value: &Value) -> String {
     } else {
         "perf watch: off (cmux debug perf on)".to_owned()
     }
+}
+
+/// `visible chat: 1234 frames in 300 s, p50 8.35 ms, p95 16.65 ms, p99 33.45 ms (12 over 16.7 ms)`.
+fn frames_text(value: &Value) -> String {
+    let chat = at(value, "visible_chat");
+    let frames = at(chat, "frames").as_u64().unwrap_or(0);
+    let window = at(chat, "window_s").as_u64().unwrap_or(0);
+    if frames == 0 {
+        return format!("visible chat: no frames drawn in the last {window} s");
+    }
+    let p =
+        |key: &str| at(chat, key).as_f64().map_or_else(|| "?".to_owned(), |v| format!("{v} ms"));
+    format!(
+        "visible chat: {frames} frames in {window} s, p50 {}, p95 {}, p99 {} ({} over {} ms)",
+        p("p50_ms"),
+        p("p95_ms"),
+        p("p99_ms"),
+        at(chat, "over_budget").as_u64().unwrap_or(0),
+        at(chat, "budget_ms"),
+    )
 }
 
 fn budgets_text(value: &Value) -> String {
@@ -274,6 +301,18 @@ mod tests {
             event_text(&meter),
             "00:00:00 meter reply to _acpmux/sessions [daemon-ipc] 40.0 MB/min"
         );
+    }
+
+    #[test]
+    fn frames_read_as_one_line() {
+        let read = json!({"visible_chat": {"frames": 1200, "window_s": 300, "p50_ms": 8.35,
+            "p95_ms": 16.65, "p99_ms": 33.45, "over_budget": 14, "budget_ms": 16.7}});
+        assert_eq!(
+            frames_text(&read),
+            "visible chat: 1200 frames in 300 s, p50 8.35 ms, p95 16.65 ms, p99 33.45 ms (14 over 16.7 ms)"
+        );
+        let empty = json!({"visible_chat": {"frames": 0, "window_s": 40}});
+        assert_eq!(frames_text(&empty), "visible chat: no frames drawn in the last 40 s");
     }
 
     #[test]
