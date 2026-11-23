@@ -113,14 +113,15 @@ impl Customize {
         let overlay = self.overlay_now();
         let library = self.read_library();
         let (on, problem) = match &library {
-            Ok(library) => (active(&library.entries), None),
+            Ok(library) => (active(&library.entries, library.stack.as_ref()), None),
             Err(error) => (Vec::new(), Some(error.to_string())),
         };
         let stray_overlay = overlay.as_deref().is_some_and(|path| self.is_layer_path(path))
             && match &library {
-                Ok(library) => web_top(&library.entries).is_none_or(|code| {
-                    Some(self.layer_dir(&code.web)) != overlay.as_deref().map(PathBuf::from)
-                }),
+                Ok(library) => super::stack::web_key(&library.entries, library.stack.as_ref())
+                    .is_none_or(|key| {
+                        Some(self.layer_dir(&key)) != overlay.as_deref().map(PathBuf::from)
+                    }),
                 Err(_) => true,
             };
         let mut line = summary_line(&on, problem.is_some(), stray_overlay);
@@ -332,8 +333,10 @@ impl Customize {
     }
 }
 
-fn active(entries: &[Entry]) -> Vec<ActiveLayer> {
+fn active(entries: &[Entry], stack: Option<&super::StackLayer>) -> Vec<ActiveLayer> {
     let serving = web_top(entries);
+    // Built as one series, every on web layer is served.
+    let stacked = super::stack::serving(entries, stack).is_some();
     entries
         .iter()
         .filter(|entry| entry.on)
@@ -344,7 +347,8 @@ fn active(entries: &[Entry]) -> Vec<ActiveLayer> {
                 pr: (code.kind == CodeKind::Pr).then_some(code.pr),
                 source: Some(code.source_label()),
                 head: Some(code.head.chars().take(7).collect()),
-                web: code.has_web() && serving.is_some_and(|top| top.same_source(code)),
+                web: code.has_web()
+                    && (stacked || serving.is_some_and(|top| top.same_source(code))),
                 note: code.note.clone(),
             },
             None => ActiveLayer {

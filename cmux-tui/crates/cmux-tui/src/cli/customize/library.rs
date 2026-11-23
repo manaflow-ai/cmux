@@ -205,10 +205,11 @@ pub(super) fn execute(
         Request::Refresh { if_app_changed } => {
             let app = super::pr::App::find().commit;
             refresh_when(customize, app.as_deref(), if_app_changed, || {
-                Ok(with_no_longer_applies(
+                let answer = with_no_longer_applies(
                     customize,
                     super::pr::refresh(customize, origin, now_ms)?,
-                ))
+                );
+                Ok(with_stack(customize, answer, origin, now_ms))
             })?
         }
         Request::Expire => super::expire::run(customize, origin, now_ms)?,
@@ -226,7 +227,7 @@ pub(super) fn execute(
             let before = views_scopes(customize);
             let mut answer = changed(customize.library_set_on(&name, true, origin, now_ms)?);
             waiting(&mut answer, &before, &views_scopes(customize));
-            answer
+            with_stack(customize, answer, origin, now_ms)
         }
         Request::Off { name, reason: Some(reason) }
             if customize
@@ -287,7 +288,8 @@ pub(super) fn execute(
             )
         }
         Request::Order { name, position } => {
-            changed(customize.library_order(&name, position, origin, now_ms)?)
+            let answer = changed(customize.library_order(&name, position, origin, now_ms)?);
+            with_stack(customize, answer, origin, now_ms)
         }
         Request::Remove { name } => changed(customize.library_remove(&name, origin, now_ms)?),
         Request::Export { file, link, only_on, name } => {
@@ -367,6 +369,26 @@ fn refresh_when(
 fn with_no_longer_applies(customize: &Customize, answer: Answer) -> Answer {
     let stale = customize.library_no_longer_applies();
     no_longer_applies_into(answer, &stale)
+}
+
+/// Adds what serving the on web layers as one series says (RFD 0038 4.11).
+pub(super) fn with_stack(
+    customize: &Customize,
+    answer: Answer,
+    origin: &str,
+    now_ms: u64,
+) -> Answer {
+    match (answer, super::pr::settle_stack(customize, origin, now_ms)) {
+        (Answer::Library { mut json, mut human }, Some(line)) => {
+            human.push_str(&line);
+            human.push('\n');
+            if let Some(object) = json.as_object_mut() {
+                object.insert("stack".into(), Value::String(line));
+            }
+            Answer::Library { json, human }
+        }
+        (answer, _) => answer,
+    }
 }
 
 fn no_longer_applies_into(answer: Answer, stale: &[NoLongerApplies]) -> Answer {
