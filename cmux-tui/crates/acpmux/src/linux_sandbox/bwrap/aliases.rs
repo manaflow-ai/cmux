@@ -368,10 +368,7 @@ fn home_views_listed(
         }
         let Ok(rest) = underlying.strip_prefix(other_root) else { continue };
         let view = join_path(&mount.point, rest);
-        // A view a deeper mount covers is no path to the HOME (`covered`):
-        // under PrivateTmp a HOME in /tmp shows through the root mount at
-        // /tmp/systemd-private-*/tmp/..., which the private /tmp hides.
-        if view.starts_with(home) || home.starts_with(&view) || covered(&view, mount, &mounts)? {
+        if view.starts_with(home) || home.starts_with(&view) {
             continue;
         }
         // A view a mount below covers (systemd's PrivateTmp under `/tmp`) is out of reach, and
@@ -667,21 +664,6 @@ mod tests {
         assert!(views(&subtree).is_empty());
         let nested = format!("{ROOT}3 1 8:1 /home/u /home/u/loop rw - ext4 root rw\n");
         assert!(views(&nested).is_empty());
-    }
-
-    /// The HOME under a PrivateTmp /tmp (as the real-bwrap tests make it):
-    /// the root mount's /tmp/systemd-private-*/tmp/... is covered, no view.
-    #[test]
-    fn a_home_in_a_private_tmp_has_no_view_through_the_root() {
-        let private = "/tmp/systemd-private-97259c5-runner.service-DVpdTq/tmp";
-        let info = format!("{ROOT}2 1 8:1 {private} /tmp rw - ext4 root rw\n");
-        let home = Path::new("/tmp/acpmux-bwrap-test/home");
-        assert_eq!(home_views(home, 2, &info).unwrap(), Vec::<HomeView>::new());
-        let leak = format!("{info}3 1 8:1 {private} /mnt/leak rw - ext4 root rw\n");
-        assert_eq!(
-            home_views(home, 2, &leak).unwrap(),
-            [(3, PathBuf::from("/mnt/leak/acpmux-bwrap-test/home"))]
-        );
     }
 
     #[test]
