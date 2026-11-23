@@ -19,6 +19,9 @@ nonisolated enum SidebarAgentPill: Hashable, Sendable, CaseIterable {
         if ws.agentChip == .needsYou { return .needsApproval }
         if case .waiting = ws.activity { return .needsApproval }
         if ws.agentWorking { return .running }
+        // An agent chat's finished turn nobody has seen (`agentDone`): lanes never report `.success` and `agentChip`
+        // never says done, so without this an agent's Done pill never showed (found by the tour's clip).
+        if ws.agentDone { return .done }
         switch ws.agentChip {
         case .working?: return .running
         case .done?: return .done
