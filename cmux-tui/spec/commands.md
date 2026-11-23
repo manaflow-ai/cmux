@@ -11451,7 +11451,7 @@ acpmux, or `transfer.incomplete`) also forgets the receive.
 
 ### agent-transfer-begin
 
-`{id, cmd:"agent-transfer-begin", surface, interrupt?, ask_first?}` freezes the chat of
+`{id, cmd:"agent-transfer-begin", surface, interrupt?, ask_first?, begin_token?}` freezes the chat of
 an agent tab of this store (the session comes from the tab's store record,
 as `agent-session-attach`; any other surface is `agent_transfer.unknown_tab`)
 and answers `{transfer_id, source_session, manifest}` (`source_session` as
@@ -11481,6 +11481,16 @@ A begin of a chat that is already in a move is `agent_transfer.refused`
 (acpmux's `transfer.moving`) with `error_details: {transfer_id}`, the id of
 that move, so a pump that lost its begin answer can commit or abort the move
 it began. Only that refusal carries details.
+
+`begin_token` (`agent-transfer-begin-token-v1`; 1 to 128 of `[A-Za-z0-9_-]`,
+else `agent_transfer.bad_request`) is the client's own mark for this begin.
+acpmux keeps it beside the move's bundle, which a restart keeps while the
+move runs, and the `transfer.moving` refusal of a later begin hands it back
+as `error_details: {transfer_id, begin_token}`. A pump that lost its begin
+answer and recorded the token first can tell the frozen move is its own (it
+learned no transfer id, so it asked no target to receive it) and abort it at
+once instead of waiting out the source's lease (`cmux link agent move`). A
+move begun without a token, or by an older acpmux, hands back none.
 
 ### agent-transfer-source
 

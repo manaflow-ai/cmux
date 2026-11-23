@@ -121,6 +121,7 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
         capabilities.push(agent_transfer::AGENT_TRANSFER_CAPABILITY);
         capabilities.push(agent_transfer::AGENT_TRANSFER_VM_KIND_CAPABILITY);
         capabilities.push(agent_transfer::AGENT_TRANSFER_CONTINUES_CAPABILITY);
+        capabilities.push(agent_transfer::AGENT_TRANSFER_BEGIN_TOKEN_CAPABILITY);
     }
     #[cfg(unix)]
     if mux.on_cloud_host() {

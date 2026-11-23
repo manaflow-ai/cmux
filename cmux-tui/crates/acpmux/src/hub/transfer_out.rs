@@ -251,6 +251,27 @@ pub(super) fn names_a_move(mark: &str) -> bool {
     mark != MOVED_AWAY && mark != LOG_UNREADABLE && mark != IMPORTING
 }
 
+/// Where a move's begin token is kept, in its bundle folder.
+const BEGIN_TOKEN_FILE: &str = "begin-token";
+
+/// A client's begin token: 1 to 128 of `[A-Za-z0-9_-]`.
+fn is_begin_token(token: &str) -> bool {
+    (1..=128).contains(&token.len())
+        && token.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+}
+
+/// The begin token the client that began move `transfer_id` gave, if it gave one: a
+/// `transfer.moving` refusal hands it back, so that client alone can tell the move is its own.
+pub(super) fn moving_begin_token(transfer_id: &str) -> Option<String> {
+    if !names_a_move(transfer_id) {
+        return None;
+    }
+    let dir = inside(&transfers_dir(), transfer_id).ok()?;
+    let token = std::fs::read_to_string(dir.join(BEGIN_TOKEN_FILE)).ok()?;
+    let token = token.trim();
+    is_begin_token(token).then(|| token.to_owned())
+}
+
 #[cfg(test)]
 #[path = "restore_freeze_tests.rs"]
 mod restore_freeze_tests;
@@ -321,7 +342,16 @@ impl Hub {
                 };
                 // `afterTurnTimeoutMs`: the mover's `--timeout`, never past `AFTER_TURN_WAIT`.
                 let turn_wait = after_turn.then(|| after_turn_wait(params));
-                self.transfer_begin(&session, (cut, turn_wait), socket, ssh, host, gates).await
+                // The client's own mark for this begin, handed back by a `transfer.moving`
+                // refusal of the move it began (`begin_token`).
+                let token = params.get("beginToken").and_then(Value::as_str);
+                if token.is_some_and(|t| !is_begin_token(t)) {
+                    return Err(RpcError::invalid_params(
+                        "transfer: `beginToken` must be 1 to 128 of [A-Za-z0-9_-]",
+                    ));
+                }
+                let to = (socket, ssh, host);
+                self.transfer_begin(&session, (cut, turn_wait), to, gates, token).await
             }
             "read" => {
                 let offset = params.get("offset").and_then(Value::as_u64).unwrap_or(0);
@@ -376,15 +406,13 @@ impl Hub {
     /// running turn is neither refused nor stopped: the move first waits (that long) for the
     /// turn lock, unfrozen, so the turn ends on its own and every prompt sent meanwhile queues
     /// as usual; holding the lock, it freezes the chat and the queue moves with the bundle.
-    #[allow(clippy::too_many_arguments)]
     async fn transfer_begin(
         self: &Arc<Self>,
         session: &Arc<Session>,
         (cut, after_turn): (TurnCut, Option<std::time::Duration>),
-        to: Option<&str>,
-        to_ssh: Option<&str>,
-        to_host: Option<&str>,
+        (to, to_ssh, to_host): (Option<&str>, Option<&str>, Option<&str>),
         gates_receiver: bool,
+        begin_token: Option<&str>,
     ) -> Result<Value, RpcError> {
         if !session.ownership_epoch_is_valid() {
             return Err(transfer_error(
@@ -426,7 +454,11 @@ impl Hub {
             let mut moving = session.moving.lock().unwrap_or_else(|e| e.into_inner());
             if let Some(other) = moving.as_ref() {
                 let e = transfer_error("moving", "this chat is already being moved");
-                return Err(e.with_data(json!({"transferId": other})));
+                let mut data = json!({"transferId": other});
+                if let Some(token) = moving_begin_token(other) {
+                    data.set("beginToken", json!(token));
+                }
+                return Err(e.with_data(data));
             }
             let watch = self.claim_move_watch(&transfer_id);
             *moving = Some(transfer_id.clone());
@@ -598,6 +630,12 @@ impl Hub {
         }
         if let Some(id) = carried {
             let _ = crate::home_fs::write(dir.join("continues"), id);
+        }
+        // Beside the bundle, which a restart keeps while the log says the move runs
+        // (`queue_restore.rs`), and written only once the move is begun: a client that lost
+        // this answer ends only a move whose begin is done.
+        if let Some(token) = begin_token {
+            let _ = crate::home_fs::write(dir.join(BEGIN_TOKEN_FILE), token);
         }
         let _ = crate::home_fs::write(dir.join("epoch"), epoch.to_string());
         super::transfer_watch::note_activity(&dir, None);

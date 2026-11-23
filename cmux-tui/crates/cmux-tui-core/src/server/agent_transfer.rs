@@ -107,6 +107,11 @@ pub const AGENT_TRANSFER_VM_KIND_CAPABILITY: &str = "agent-transfer-vm-kind-v1";
 /// here when the move does not happen. An older one stops it for good, so the pump asks for the
 /// Stop only from a source that lists this.
 pub const AGENT_TRANSFER_CONTINUES_CAPABILITY: &str = "agent-transfer-continues-v1";
+/// `begin_token` on `agent-transfer-begin`: acpmux keeps it with the move (also across a
+/// restart) and a `transfer.moving` refusal hands it back (`error_details.begin_token`), so a
+/// pump that lost its begin answer can prove the frozen move is its own and end it at once
+/// instead of waiting out the source's lease. An acpmux that keeps no token echoes none.
+pub const AGENT_TRANSFER_BEGIN_TOKEN_CAPABILITY: &str = "agent-transfer-begin-token-v1";
 
 /// The largest page of bundle data a write takes or a read answers.
 pub(crate) const MAX_PAGE_BYTES: usize = 4 << 20;
@@ -404,6 +409,9 @@ struct BeginParams {
     interrupt: bool,
     #[serde(default)]
     ask_first: bool,
+    /// The pump's own mark for this begin ([`AGENT_TRANSFER_BEGIN_TOKEN_CAPABILITY`]).
+    #[serde(default)]
+    begin_token: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -559,8 +567,9 @@ enum Failure {
     Acpmux(String),
     /// A begin of a chat already in a move: acpmux's `transfer.moving`, with
     /// that move's id (`error_details.transfer_id`), so a pump that lost its
-    /// begin answer can resolve the move it began.
-    Moving(String, String),
+    /// begin answer can resolve the move it began, and the move's begin token when acpmux kept
+    /// one (`error_details.begin_token`).
+    Moving(String, String, Option<String>),
 }
 
 impl From<Refusal> for Failure {
@@ -582,7 +591,8 @@ impl From<LinkError> for Failure {
                 let moving = data.field("transferId").as_str().filter(|id| is_plain_id(id));
                 match moving {
                     Some(id) if message.starts_with("transfer.moving") => {
-                        Self::Moving(message, id.to_owned())
+                        let token = data.field("beginToken").as_str().filter(|t| is_plain_id(t));
+                        Self::Moving(message, id.to_owned(), token.map(str::to_owned))
                     }
                     _ => Self::Acpmux(message),
                 }
@@ -691,6 +701,7 @@ enum Prepared {
         session: String,
         interrupt: bool,
         ask_first: bool,
+        begin_token: Option<String>,
     },
     Read {
         transfer_id: String,
@@ -776,12 +787,15 @@ fn prepare(mux: &Mux, client: u64, verb: Verb) -> Result<Prepared, Failure> {
                 }
             }
         }
-        Verb::Begin(BeginParams { surface, interrupt, ask_first }) => {
+        Verb::Begin(BeginParams { surface, interrupt, ask_first, begin_token }) => {
+            if begin_token.as_deref().is_some_and(|token| !is_plain_id(token)) {
+                return Err(Refusal::BadRequest.into());
+            }
             let session = tab_session(mux, surface).ok_or(Refusal::UnknownTab)?;
             if AgentTransfers::full(&mut lock(&transfers.moves), MAX_MOVES, |m| m.touched) {
                 return Err(Refusal::Limit.into());
             }
-            Prepared::Begin { session, interrupt, ask_first }
+            Prepared::Begin { session, interrupt, ask_first, begin_token }
         }
         Verb::Read(ReadParams { transfer_id, path, offset, limit }) => {
             let limit = limit.unwrap_or(DEFAULT_READ);
@@ -975,12 +989,15 @@ fn run(mux: &Mux, socket: &Path, prepared: Prepared) -> Result<Value, Failure> {
             }
             Ok(json!({"session": session}))
         }
-        Prepared::Begin { session, interrupt, ask_first } => {
+        Prepared::Begin { session, interrupt, ask_first, begin_token } => {
             if ask_first {
                 ask_first::narrow(&call, &session)?;
             }
             let source_session = session.clone();
-            let params = json!({"sessionId": session, "interrupt": interrupt});
+            let mut params = json!({"sessionId": session, "interrupt": interrupt});
+            if let Some(token) = begin_token {
+                params["beginToken"] = json!(token);
+            }
             let mut manifest = call("_acpmux/transfer_begin", params, BEGIN_TIMEOUT)?;
             let transfer_id = manifest
                 .field("transferId")
@@ -1069,8 +1086,12 @@ fn reply(writer: &MessageWriter, id: Option<Value>, result: Result<Value, Failur
             Some(format!("{}: {message}", Refusal::Refused.message())),
             Some(Refusal::Refused.code()),
         ),
-        Err(Failure::Moving(message, transfer_id)) => {
-            details = Some(json!({"transfer_id": transfer_id}));
+        Err(Failure::Moving(message, transfer_id, token)) => {
+            let mut moving = json!({"transfer_id": transfer_id});
+            if let Some(token) = token {
+                moving["begin_token"] = json!(token);
+            }
+            details = Some(moving);
             (
                 None,
                 Some(format!("{}: {message}", Refusal::Refused.message())),

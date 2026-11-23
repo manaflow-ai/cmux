@@ -196,3 +196,60 @@ async fn a_bundle_of_a_move_the_log_ended_does_not_freeze_the_chat_again() {
     assert_eq!(moving.0, None, "a move the log ended froze the chat again");
     assert_eq!(moving.1.as_deref(), Some(bundles[1].1.as_str()), "a running move was not frozen");
 }
+
+/// A client that lost its begin answer asks again: the `transfer.moving` refusal hands back the
+/// token it began the move with, also once the daemon restarted (the log restores the move and
+/// its bundle folder keeps the token), so that client alone can tell the frozen move is its own
+/// and end it at once instead of waiting out the source's lease. A move begun without one names
+/// none.
+#[tokio::test]
+async fn a_moving_refusal_hands_back_the_begin_token_across_a_restart() {
+    let mut config = Config::default();
+    config.store.mode = crate::config::StoreMode::Memory;
+    let store = crate::store::open(&config.store, std::path::Path::new("/unused")).unwrap();
+    let hub = Arc::new(Hub::new(config, store));
+    let chat = |id: &str| {
+        let meta: SessionMeta = serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA, "id": id, "name": id,
+            "harness": "fake", "cwd": "/tmp", "status": "closed", "createdAt": 1, "updatedAt": 1
+        }))
+        .unwrap();
+        hub.store.save(&meta).unwrap();
+        let session = hub.make_session(meta);
+        hub.sessions.lock().unwrap().insert(session.id.clone(), session.clone());
+        session
+    };
+    let session = chat(&format!("token-move-{}", uuid::Uuid::now_v7()));
+    let token = "tok_pump_1";
+    let begin = json!({"sessionId": session.id, "beginToken": token});
+    let begun = hub.transfer_request("_acpmux/transfer_begin", &begin).await.unwrap();
+    let transfer = begun["transferId"].as_str().unwrap().to_owned();
+
+    let again = json!({"sessionId": session.id, "beginToken": "tok_pump_2"});
+    let refused = hub.transfer_request("_acpmux/transfer_begin", &again).await.unwrap_err();
+    assert!(refused.message.starts_with("transfer.moving"), "{}", refused.message);
+    assert_eq!(refused.data, Some(json!({"transferId": transfer, "beginToken": token})));
+
+    // A restart: the chat is loaded again, its move restored from the log.
+    *session.moving.lock().unwrap() = None;
+    hub.restore_queue(&session);
+    assert_eq!(session.moving().as_deref(), Some(transfer.as_str()));
+    let refused = hub.transfer_request("_acpmux/transfer_begin", &again).await.unwrap_err();
+    assert_eq!(refused.data, Some(json!({"transferId": transfer, "beginToken": token})));
+
+    // The client ends it and begins anew; a begin with no token leaves none to hand back.
+    let abort = json!({"sessionId": session.id, "transferId": transfer, "epoch": begun["epoch"]});
+    hub.transfer_request("_acpmux/transfer_abort", &abort).await.unwrap();
+    let plain = json!({"sessionId": session.id});
+    let begun = hub.transfer_request("_acpmux/transfer_begin", &plain).await.unwrap();
+    let refused = hub.transfer_request("_acpmux/transfer_begin", &again).await.unwrap_err();
+    assert_eq!(refused.data, Some(json!({"transferId": begun["transferId"]})));
+    let abort = json!({"sessionId": session.id, "transferId": begun["transferId"],
+                       "epoch": begun["epoch"]});
+    hub.transfer_request("_acpmux/transfer_abort", &abort).await.unwrap();
+
+    // A token that is no plain id is refused before anything freezes.
+    let bad = json!({"sessionId": session.id, "beginToken": "../x"});
+    hub.transfer_request("_acpmux/transfer_begin", &bad).await.unwrap_err();
+    assert_eq!(session.moving(), None);
+}

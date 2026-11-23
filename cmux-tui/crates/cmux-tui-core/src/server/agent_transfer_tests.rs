@@ -23,7 +23,10 @@ use super::super::agent_session_attach_tests::{
     UNGUARDED_CHAT, agent_tab, assert_code, mux_with, run, terminal_pane,
 };
 use super::super::{BoundedOutbound, ClientTransport, MessageWriter, QueuedSink, remote_relay};
-use super::{AGENT_TRANSFER_CAPABILITY, AgentTransferHost, MAX_PAGE_BYTES, try_handle};
+use super::{
+    AGENT_TRANSFER_BEGIN_TOKEN_CAPABILITY, AGENT_TRANSFER_CAPABILITY, AgentTransferHost,
+    MAX_PAGE_BYTES, try_handle,
+};
 use crate::mux::Mux;
 use crate::server::AgentStartHost;
 
@@ -917,6 +920,36 @@ fn begin_of_a_chat_already_moving_names_that_move() {
                                       "transfer_id":"xfer_1"}));
     assert_code(&abort, "agent_transfer.refused");
     assert!(abort.get("error_details").is_none(), "{abort}");
+}
+
+#[test]
+fn a_begin_token_reaches_acpmux_and_the_moving_refusal_hands_its_moves_token_back() {
+    let fake = FakeAcpmux::start("xtoken");
+    let home = Home::new("token");
+    let mux = transfer_mux(&fake, "atx-token", &home, false);
+    let advertised = run(&mux, json!({"cmd":"identify"}))["capabilities"].clone();
+    assert!(
+        advertised.as_array().unwrap().iter().any(|c| c == AGENT_TRANSFER_BEGIN_TOKEN_CAPABILITY),
+        "{advertised}"
+    );
+    let surface = agent_tab(&mux, Some(MOVING_CHAT));
+    let mut client = Client::connect(&mux, "xtoken");
+    let begun = client.request(json!({"cmd":"agent-transfer-begin","surface":surface,
+                                      "begin_token":"tok_mine"}));
+    assert_code(&begun, "agent_transfer.refused");
+    let sent = fake.frame();
+    assert_eq!(sent["method"], json!("_acpmux/transfer_begin"));
+    assert_eq!(sent["params"]["beginToken"], json!("tok_mine"));
+    // The token acpmux kept with the frozen move, whoever began it.
+    assert_eq!(
+        begun["error_details"],
+        json!({"transfer_id": "xfer_frozen", "begin_token": "tok_frozen"})
+    );
+    // A token that is no plain id never reaches acpmux.
+    let bad = client.request(json!({"cmd":"agent-transfer-begin","surface":surface,
+                                    "begin_token":"../x"}));
+    assert_code(&bad, "agent_transfer.bad_request");
+    fake.no_frame();
 }
 
 #[test]
