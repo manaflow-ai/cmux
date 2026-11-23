@@ -1,0 +1,329 @@
+"""scripts/cmux_worktree.py makes a worktree from clones of a clean seed checkout.
+
+A plain `git worktree add` of feat-cmux-next writes 1.3 GiB and takes about 16 s;
+on 2026-11-20 this Mac held 203 such worktrees with 461 GiB free. Cloned files
+share the seed's blocks, and the index the tool writes must carry the clones'
+own stat data: an index that names the right blobs with stale stat data makes
+git re-hash every file (14 s on feat-cmux-next) and `git diff-files` lists
+every file as changed. These tests run the tool as agents do and read git's
+verdict: the worktree is at the commit asked for, clean, and its index is
+fresh (`git diff-files --quiet` with no refresh); on macOS its unchanged files
+are clones of the seed's (same physical block). `dedupe` does the same for
+existing worktrees, never touching a changed file; `gc` removes only landed,
+clean, idle worktrees and reports the rest; `--cargo` seeds a Rust target
+from a sibling's, less its `incremental` folders, and skips one being built.
+"""
+
+from __future__ import annotations
+
+import fcntl
+import importlib.util
+import json
+import os
+import subprocess
+import sys
+import tempfile
+import time
+import unittest
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+TOOL = ROOT / "scripts" / "cmux_worktree.py"
+
+_spec = importlib.util.spec_from_file_location("git_fixture_env", Path(__file__).resolve().parent / "git_fixture_env.py")
+git_fixture_env = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(git_fixture_env)
+
+DARWIN = sys.platform == "darwin"
+BIG = 64 * 1024  # a file big enough to own whole blocks
+
+
+def git(cwd: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess:
+    return subprocess.run(["git", "-C", str(cwd), *args], text=True, capture_output=True, check=check,
+                          env=git_fixture_env.fixture_env())
+
+
+def tool(repo: Path, seed: Path, *args: str, env: dict | None = None) -> subprocess.CompletedProcess:
+    full_env = git_fixture_env.fixture_env()
+    full_env.update(env or {})
+    return subprocess.run([sys.executable, "-I", str(TOOL), "-C", str(repo), "--seed-dir", str(seed), *args],
+                          text=True, capture_output=True, env=full_env)
+
+
+def physical_offset(path: Path) -> int | None:
+    if not DARWIN:
+        return None
+    fd = os.open(path, os.O_RDONLY)
+    try:
+        import struct
+        return struct.unpack("=Iqq", fcntl.fcntl(fd, 49, b"\0" * 20))[2]  # F_LOG2PHYS
+    finally:
+        os.close(fd)
+
+
+def age(worktree: Path, days: float) -> None:
+    """Make a worktree look last used `days` ago (its index, HEAD and reflog times)."""
+    gdir = Path(git(worktree, "rev-parse", "--path-format=absolute", "--git-dir").stdout.strip())
+    when = time.time() - days * 86400
+    for name in ("index", "HEAD", "logs/HEAD"):
+        if (gdir / name).exists():
+            os.utime(gdir / name, (when, when))
+
+
+class Fixture:
+    """A repository with an origin, two commits on main (S, then C), and a seed path."""
+
+    def __init__(self, tmp: Path):
+        self.tmp = tmp
+        self.origin = tmp / "origin.git"
+        self.repo = tmp / "repo"
+        self.seed = tmp / "cache" / "seed"
+        git_fixture_env.init_repo(self.origin, "--bare", "-q")
+        git_fixture_env.init_repo(self.repo, "-q", "-b", "main")
+        git(self.repo, "config", "user.email", "t@example.com")
+        git(self.repo, "config", "user.name", "t")
+        git(self.repo, "config", "core.hooksPath", "/dev/null")
+        (self.repo / "src").mkdir()
+        (self.repo / "src" / "big.bin").write_bytes(os.urandom(BIG))
+        (self.repo / "src" / "edit.txt").write_text("one\n")
+        (self.repo / "gone.txt").write_text("deleted in C\n")
+        run = self.repo / "run.sh"
+        run.write_text("#!/bin/sh\necho hi\n")
+        run.chmod(0o755)
+        os.symlink("src/edit.txt", self.repo / "link")
+        (self.repo / ".gitignore").write_text("target/\nnode_modules/\n")
+        git(self.repo, "add", "-A")
+        git(self.repo, "commit", "-qm", "S")
+        self.s = git(self.repo, "rev-parse", "HEAD").stdout.strip()
+        (self.repo / "src" / "edit.txt").write_text("two\n")
+        (self.repo / "gone.txt").unlink()
+        (self.repo / "new.txt").write_text("added in C\n")
+        git(self.repo, "add", "-A")
+        git(self.repo, "commit", "-qm", "C")
+        self.c = git(self.repo, "rev-parse", "HEAD").stdout.strip()
+        git(self.repo, "remote", "add", "origin", str(self.origin))
+        git(self.repo, "push", "-q", "origin", "main")
+        git(self.repo, "fetch", "-q", "origin")
+
+
+class AddTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.f = Fixture(Path(self._tmp.name).resolve())
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def assert_clean_fresh(self, worktree: Path) -> None:
+        # Stat-only: an index with stale stat data lists every file here.
+        files = git(worktree, "diff-files", "--name-only", check=False)
+        self.assertEqual(files.returncode, 0, files.stderr)
+        self.assertEqual(files.stdout, "", "the index's stat data does not match the files")
+        self.assertEqual(git(worktree, "status", "--porcelain").stdout, "")
+
+    def test_add_clones_the_seed_and_moves_it_to_the_commit(self) -> None:
+        seeded = tool(self.f.repo, self.f.seed, "seed", self.f.s)
+        self.assertEqual(seeded.returncode, 0, seeded.stderr)
+        dest = self.f.tmp / "wt"
+        result = tool(self.f.repo, self.f.seed, "add", "--json", "-b", "feature", str(dest), self.f.c)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report = json.loads(result.stdout)
+        self.assertEqual(report["method"], "clone", report)
+        self.assertEqual(report["seed_commit"], self.f.s)
+        self.assertEqual(report["files_written"], 3)  # edit.txt, gone.txt, new.txt
+        self.assertEqual(git(dest, "rev-parse", "HEAD").stdout.strip(), self.f.c)
+        self.assertEqual(git(dest, "symbolic-ref", "HEAD").stdout.strip(), "refs/heads/feature")
+        self.assert_clean_fresh(dest)
+        self.assertEqual((dest / "src" / "edit.txt").read_text(), "two\n")
+        self.assertFalse((dest / "gone.txt").exists())
+        self.assertEqual((dest / "new.txt").read_text(), "added in C\n")
+        self.assertTrue(os.access(dest / "run.sh", os.X_OK))
+        self.assertEqual(os.readlink(dest / "link"), "src/edit.txt")
+        if DARWIN:
+            self.assertEqual(physical_offset(dest / "src" / "big.bin"), physical_offset(self.f.seed / "src" / "big.bin"),
+                             "an unchanged file is not a clone of the seed's")
+        # The seed stays clean, so the next add clones it too.
+        self.assertEqual(git(self.f.seed, "status", "--porcelain", "--ignored").stdout, "")
+
+    def test_add_makes_the_seed_when_there_is_none(self) -> None:
+        dest = self.f.tmp / "wt"
+        result = tool(self.f.repo, self.f.seed, "add", "--json", "--detach", str(dest), "origin/main")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report = json.loads(result.stdout)
+        self.assertEqual(report["method"], "clone", report)
+        self.assertEqual(report["files_written"], 0)
+        self.assert_clean_fresh(dest)
+        self.assertIn("locked", git(self.f.repo, "worktree", "list", "--porcelain").stdout)
+
+        # The cache was emptied: the next add makes the seed again.
+        subprocess.run(["rm", "-rf", str(self.f.seed)], check=True)
+        again = tool(self.f.repo, self.f.seed, "add", "--json", "--detach", str(self.f.tmp / "wt2"), "origin/main")
+        self.assertEqual(again.returncode, 0, again.stderr)
+        self.assertEqual(json.loads(again.stdout)["method"], "clone", again.stdout)
+        self.assert_clean_fresh(self.f.tmp / "wt2")
+
+    def test_add_checks_out_when_it_cannot_clone(self) -> None:
+        dest = self.f.tmp / "wt"
+        result = tool(self.f.repo, self.f.seed, "add", "--json", "-b", "plain", str(dest), self.f.c,
+                      env={"CMUX_WORKTREE_NO_CLONE": "1"})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout)["method"], "checkout")
+        self.assert_clean_fresh(dest)
+        self.assertEqual((dest / "src" / "edit.txt").read_text(), "two\n")
+
+    def test_cargo_target_is_seeded_from_a_sibling_less_incremental(self) -> None:
+        (self.f.repo / "rust-toolchain.toml").write_text('[toolchain]\nchannel = "1.95.0"\n')
+        git(self.f.repo, "add", "-A")
+        git(self.f.repo, "commit", "-qm", "toolchain")
+        sibling = self.f.tmp / "sibling"
+        git(self.f.repo, "worktree", "add", "-q", "--detach", str(sibling), "HEAD")
+        debug = sibling / "src" / "target" / "debug"
+        (debug / "deps").mkdir(parents=True)
+        (debug / "deps" / "libserde-1.rlib").write_bytes(b"rlib")
+        (debug / "incremental" / "mine-1").mkdir(parents=True)
+        (debug / ".cargo-lock").write_text("")
+        dest = self.f.tmp / "wt"
+        result = tool(self.f.repo, self.f.seed, "add", "--json", "--cargo", "src", "--detach", str(dest), "HEAD")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report = json.loads(result.stdout)
+        self.assertEqual(report["cargo"][0].get("from"), str(sibling / "src" / "target"), report)
+        self.assertEqual((dest / "src" / "target" / "debug" / "deps" / "libserde-1.rlib").read_bytes(), b"rlib")
+        self.assertFalse((dest / "src" / "target" / "debug" / "incremental").exists())
+
+        # A sibling cargo is building (it holds the lock): not used.
+        busy = self.f.tmp / "wt2"
+        fd = os.open(debug / ".cargo-lock", os.O_RDWR)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX)
+            (dest / "src" / "target").rename(self.f.tmp / "moved-target")  # leave only the busy sibling
+            result = tool(self.f.repo, self.f.seed, "add", "--json", "--cargo", "src", "--detach", str(busy), "HEAD")
+        finally:
+            os.close(fd)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("from", json.loads(result.stdout)["cargo"][0])
+        self.assertFalse((busy / "src" / "target").exists())
+
+
+@unittest.skipUnless(DARWIN, "dedupe needs APFS clones")
+class DedupeTests(unittest.TestCase):
+    def test_dedupe_clones_unchanged_files_and_leaves_changed_ones(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            f = Fixture(Path(tmp).resolve())
+            self.assertEqual(tool(f.repo, f.seed, "seed", f.c).returncode, 0)
+            old = f.tmp / "old"
+            git(f.repo, "worktree", "add", "-q", "--detach", str(old), f.c)
+            (old / "src" / "edit.txt").write_text("my edit\n")
+            time.sleep(1.1)  # sleep-ok: an mtime tick; files older than the index, in whole seconds: not racily clean
+            git(old, "update-index", "-q", "--really-refresh", check=False)  # as an agent's status would
+            before = physical_offset(old / "src" / "big.bin")
+            self.assertNotEqual(before, physical_offset(f.seed / "src" / "big.bin"))
+            mtime = (old / "src" / "big.bin").stat().st_mtime_ns
+
+            listed = tool(f.repo, f.seed, "dedupe", "--json", "--only", str(old))
+            self.assertEqual(listed.returncode, 0, listed.stderr)
+            self.assertGreaterEqual(json.loads(listed.stdout)[0]["files"], 1)
+            self.assertEqual(physical_offset(old / "src" / "big.bin"), before, "listing changed a file")
+
+            applied = tool(f.repo, f.seed, "dedupe", "--json", "--apply", "--only", str(old))
+            self.assertEqual(applied.returncode, 0, applied.stderr)
+            self.assertEqual(physical_offset(old / "src" / "big.bin"), physical_offset(f.seed / "src" / "big.bin"))
+            self.assertEqual((old / "src" / "big.bin").stat().st_mtime_ns, mtime)
+            self.assertEqual((old / "src" / "edit.txt").read_text(), "my edit\n")
+            self.assertEqual(git(old, "diff-files", "--name-only").stdout, "src/edit.txt\n")
+            self.assertEqual(git(old, "status", "--porcelain").stdout, " M src/edit.txt\n")
+
+
+    def test_a_stopped_dedupe_leaves_no_lock_and_no_half_clone(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            f = Fixture(Path(tmp).resolve())
+            many = f.repo / "many"
+            many.mkdir()
+            for number in range(20000):
+                (many / f"f{number}.txt").write_text(f"{number}\n" * 64)
+            git(f.repo, "add", "-A")
+            git(f.repo, "commit", "-qm", "many")
+            self.assertEqual(tool(f.repo, f.seed, "seed", "HEAD").returncode, 0)
+            old = f.tmp / "old"
+            git(f.repo, "worktree", "add", "-q", "--detach", str(old), "HEAD")
+            time.sleep(1.1)  # sleep-ok: an mtime tick; files older than the index, in whole seconds: not racily clean
+            git(old, "update-index", "-q", "--really-refresh", check=False)
+            first = old / "many" / "f0.txt"
+            first_inode = first.stat().st_ino
+            env = git_fixture_env.fixture_env()
+            proc = subprocess.Popen([sys.executable, "-I", str(TOOL), "-C", str(f.repo), "--seed-dir", str(f.seed),
+                                     "dedupe", "--apply", "--only", str(old)], env=env,
+                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            gdir = Path(git(old, "rev-parse", "--path-format=absolute", "--git-dir").stdout.strip())
+            deadline = time.monotonic() + 60
+            while not (gdir / "index.lock").exists() and proc.poll() is None and time.monotonic() < deadline:
+                time.sleep(0.01)  # until it holds the index: stopped while it clones
+            # Until its first clone is in place (os.replace gives many/f0.txt a new inode): stopped mid-clone.
+            while first.stat().st_ino == first_inode and proc.poll() is None and time.monotonic() < deadline:
+                time.sleep(0.01)
+            self.assertIsNone(proc.poll(), "dedupe ended before it could be stopped; make the fixture bigger")
+            proc.terminate()
+            proc.wait(timeout=60)
+            self.assertFalse((gdir / "index.lock").exists(), "a stopped dedupe left the index locked")
+            self.assertEqual(list(old.rglob("*.cmux-dedupe")), [])
+            self.assertEqual(git(old, "status", "--porcelain").stdout, "")
+            self.assertEqual((old / "many" / "f17.txt").read_text(), "17\n" * 64)
+
+
+class StatMatchTests(unittest.TestCase):
+    def test_a_new_device_number_alone_is_not_a_change(self) -> None:
+        spec = importlib.util.spec_from_file_location("cmux_worktree", TOOL)
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module  # its dataclasses look their module up
+        spec.loader.exec_module(module)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "f"
+            path.write_text("x")
+            fresh = module.stat_fields(os.lstat(path), 0o100644)
+            renumbered = list(fresh)
+            renumbered[4] += 1  # the volume's st_dev after a restart
+            self.assertTrue(module.same_stat(fresh, renumbered))
+            moved = list(fresh)
+            moved[5] += 1  # another inode: a different file
+            self.assertFalse(module.same_stat(fresh, moved))
+
+
+class GcTests(unittest.TestCase):
+    def test_gc_removes_only_landed_clean_idle_worktrees(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            f = Fixture(Path(tmp).resolve())
+            wts = {name: f.tmp / name for name in ("landed", "recent", "untracked", "unpushed", "gone")}
+            for name, path in wts.items():
+                git(f.repo, "worktree", "add", "-q", "-b", name, str(path), "origin/main")
+            (wts["untracked"] / "notes.md").write_text("keep me\n")
+            (wts["unpushed"] / "work.txt").write_text("work\n")
+            git(wts["unpushed"], "add", "work.txt")
+            git(wts["unpushed"], "commit", "-qm", "unpushed work")
+            subprocess.run(["rm", "-rf", str(wts["gone"])], check=True)
+            for name in ("landed", "untracked", "unpushed"):
+                age(wts[name], 10)
+
+            listed = tool(f.repo, f.seed, "gc", "--json", "--landing", "origin/main")
+            self.assertEqual(listed.returncode, 0, listed.stderr)
+            verdicts = {Path(e["worktree"]).name: e for e in json.loads(listed.stdout)}
+            self.assertEqual(verdicts["landed"]["verdict"], "remove")
+            self.assertEqual(verdicts["recent"]["verdict"], "keep")
+            self.assertEqual(verdicts["untracked"]["verdict"], "keep")
+            self.assertEqual(verdicts["unpushed"]["verdict"], "keep")
+            self.assertEqual(verdicts["unpushed"]["unpushed"], 1)
+            self.assertEqual(verdicts["gone"]["verdict"], "prune")
+            self.assertEqual(verdicts["repo"]["verdict"], "keep")
+            self.assertTrue(wts["landed"].exists(), "listing removed a worktree")
+
+            applied = tool(f.repo, f.seed, "gc", "--json", "--apply", "--landing", "origin/main")
+            self.assertEqual(applied.returncode, 0, applied.stderr)
+            self.assertFalse(wts["landed"].exists())
+            for name in ("recent", "untracked", "unpushed"):
+                self.assertTrue(wts[name].exists(), name)
+            self.assertEqual((wts["untracked"] / "notes.md").read_text(), "keep me\n")
+            listing = git(f.repo, "worktree", "list", "--porcelain").stdout
+            self.assertNotIn(str(wts["gone"]), listing)
+            self.assertNotIn(str(wts["landed"]), listing)
+
+
+if __name__ == "__main__":
+    unittest.main()

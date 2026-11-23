@@ -130,8 +130,8 @@ ${LIVE}::before {
 }`,
     ready: LIVE,
   },
-  /// The model's finished thinking as its own row, "Thought for 12s" with its chevron, folded; its
-  /// text opens under it. The rule keeps its body folded. Under the live-turn-work `line` a
+  /// The model's finished thinking as its own row, its first line with its chevron, folded; the rest
+  /// of its text opens under it. The rule keeps its body folded. Under the live-turn-work `line` a
   /// running turn draws no finished thought (turns.ts `codexRuns`), so the stage waits for the live
   /// line, and the row shows once its stretch ended.
   "thinking-block": {

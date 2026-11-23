@@ -49,7 +49,7 @@
   color: var(--agent-text);
 }
 .acpmux-session-info-usage__sort-option[aria-pressed="true"] {
-  background: var(--ds-color-pressed);
+  background: var(--ds-color-selection);
   color: var(--agent-text);
 }
 .acpmux-session-info-usage__sort-option:focus-visible {
@@ -69,11 +69,16 @@
   letter-spacing: var(--text-detail--letter-spacing);
 }
 .acpmux-session-info-usage__action:hover:not(:disabled) {
-  background: var(--ds-color-hover);
+  background: var(--ds-surface-hover);
   color: var(--agent-text);
 }
 .acpmux-session-info-usage__action:disabled {
   opacity: 0.5;
+}
+/* Why the action is off, beside it in the quieter ink (a disabled button gets no hover). */
+.acpmux-session-info-usage__soon {
+  min-width: 0;
+  color: var(--agent-muted);
 }
 .acpmux-session-info-usage__action:focus-visible {
   outline: 1.5px solid var(--agent-text);

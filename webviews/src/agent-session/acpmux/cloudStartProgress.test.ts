@@ -416,7 +416,7 @@ test("a folder too big to copy says why with its size, offers no Retry and marks
     more: false,
   });
   expect(ended?.message).toBe(
-    "~/Projects is too big to copy to a Cloud machine (at least 20.1 GB in 323,831 files). It holds repositories of its own: pick one to start in, or start without a folder.",
+    "~/Projects is too big to copy (at least 20.1 GB in 323,831 files). Pick one of its repositories, or start without a folder.",
   );
   // No repository inside: the limit is named, and another folder is the way on.
   const plain = cloudStartEnded(begun(), "k-1", {
@@ -425,7 +425,7 @@ test("a folder too big to copy says why with its size, offers no Retry and marks
     details: { ...details, folder: "~/Downloads", repos: [] },
   });
   expect(plain?.message).toBe(
-    "~/Downloads is too big to copy to a Cloud machine (at least 20.1 GB in 323,831 files; a copy sends at most 20 GB or 500,000 files). Pick a smaller folder, or start without a folder.",
+    "~/Downloads is too big to copy (at least 20.1 GB in 323,831 files; the limit is 20 GB or 500,000 files). Pick a smaller folder, or start without one.",
   );
 });
 

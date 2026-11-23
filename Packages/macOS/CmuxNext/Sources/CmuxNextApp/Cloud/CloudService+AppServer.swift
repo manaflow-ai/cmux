@@ -156,13 +156,17 @@ extension CloudService {
 
     /// POSTs to the API Worker as the signed-in person (Stack session), the way the feed does, in `team` (`x-cmux-team`)
     /// when given: only to answer a G8 approval after the person's native confirmation, and for a person's own create
-    /// (``CloudPersonCreate``). The session never goes to the daemon or the relay.
+    /// (``CloudPersonCreate``). The session never goes to the daemon or the relay. Every call carries this build's
+    /// space (a misconfigured dev build's call throws).
     private func sessionCall(team: String? = nil) -> CloudApprovalAnswer.Call {
         let base = FeedService.apiBaseURL(auth: auth)
         // A create (the call with a team) waits for the provider to make the machine; an approval's calls answer at once.
         let auth = auth, session = team == nil ? Self.sessionTransport : Self.createTransport, timeout = team == nil ? CloudPersonCreate.callTimeout : CloudPersonCreate.createTimeout
+        let buildSpace = configuration.buildSpace
         return { path, body in
-            try await CloudConnectHedge().data(for: CloudPersonCreate.post(base.appendingPathComponent(path), body: body, bearer: try await auth.tokens().access, team: team, timeout: timeout), on: session).0
+            var request = CloudPersonCreate.post(base.appendingPathComponent(path), body: body, bearer: try await auth.tokens().access, team: team, timeout: timeout)
+            try buildSpace.apply(to: &request)
+            return try await CloudConnectHedge().data(for: request, on: session).0
         }
     }
 

@@ -17,7 +17,7 @@ import CmuxNextWakeups
 @_cdecl("cmux_next_app_main") public func cmuxNextAppMain() { CmuxNextApp().main() }
 public struct CmuxNextApp {
     public func main() {
-        if StagedUpdatePrewarm.isPrewarm(CommandLine.arguments) { exit(0) }; DebugTimings.markLaunch("main_start") // a pre-warm needs only exec and dyld
+        if StagedUpdatePrewarm.isPrewarm(CommandLine.arguments) { _exit(0) }; DebugTimings.markLaunch("main_start") // a pre-warm needs only exec and dyld; `_exit` skips atexit handlers and static destructors
         if StagedUpdatePrewarm.isChromiumPrewarm(CommandLine.arguments) { _ = cmux_early_malloc_zone_registration(); _exit(CEFStagedPrewarm().run(application: CmuxApplication.shared).rawValue) } // _exit: no static destructors under Chromium's threads
         announceBenchHooksBuild()
         ScrollerStylePin().apply(to: .standard); FontSmoothingSetting.applyBeforeLaunch() // defaults AppKit reads once as it starts: overlay scrollers, any mouse or setting; appearance.fontSmoothing
@@ -60,8 +60,8 @@ public struct CmuxNextApp {
         StateFolderMove().run(build: environment.launch.build)
         environment.sidebarSnapshotFile = SidebarSnapshotFile.standard(launch: environment.launch)
         environment.layoutTemplatesFile = environment.sidebarSnapshotFile?.url.deletingLastPathComponent().appending(path: "layout-templates.json")
-        environment.homeCachesDirectory = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
-            ?? FileManager.default.temporaryDirectory
+        // `~/Library/Caches`, a DEV build's own caches folder (BuildStatePaths): Home's blob cache is not keyed by owner.
+        environment.homeCachesDirectory = BuildStatePaths.current.homeCachesRoot
         // Each chat's unsent chips, beside it, so reopening or restoring a chat brings them back.
         AgentPaneDraftAttachments.shared = AgentPaneDraftAttachments(directory: environment.sidebarSnapshotFile?.url.deletingLastPathComponent())
         // The last quit's agent pages, terminal frames and chat composers are read and decoded off the main thread

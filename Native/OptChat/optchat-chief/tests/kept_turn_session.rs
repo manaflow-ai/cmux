@@ -369,15 +369,45 @@ fn a_turn_the_owner_stops_does_not_keep_its_session() {
     h.agents.inner.lock().unwrap().system_prompts = true;
     fill(&h.chat, 120);
     h.agents.hold(true);
+    // The turn worker sends the stop's cancel on its own thread: a loaded
+    // machine can let the held turn go before it does, so it ends clean
+    // (CI: "left 1 right 2"). The first cancel is lost here, every time.
+    h.agents.inner.lock().unwrap().ignore_cancels = 1;
     h.connect();
     h.say("user_local", "one");
-    while h.agents.inner.lock().unwrap().prompts.is_empty() {
+    // The brain knows the turn's session before the stop, so the stop is
+    // the running turn's.
+    while h
+        .brain
+        .state()
+        .turn
+        .as_ref()
+        .and_then(|t| t.session_id.as_ref())
+        .is_none()
+    {
         h.step();
     }
     let (tx, rx) = std::sync::mpsc::channel();
     h.brain
         .step(optchat_chief::brain::Input::Stop { reply: tx });
-    let _ = rx.recv_timeout(std::time::Duration::from_secs(5));
+    let answer = rx
+        .recv_timeout(std::time::Duration::from_secs(5))
+        .expect("the stop answered");
+    assert_eq!(answer["stopped"], true, "the stop found the running turn");
+    // The held turn answers only once a cancel reached its session (the
+    // worker sends it again after the lost one), so it ends cancelled, not
+    // clean.
+    let deadline = std::time::Instant::now() + WAIT;
+    while h.agents.inner.lock().unwrap().answered_turns == 0 {
+        let cancels = h.agents.inner.lock().unwrap().cancels.clone();
+        assert!(
+            std::time::Instant::now() < deadline,
+            "no cancel reached s1 (cancels {cancels:?})"
+        );
+        if let Ok(input) = h.rx.recv_timeout(std::time::Duration::from_millis(20)) {
+            h.brain.step(input);
+        }
+    }
     h.agents.hold(false);
     h.settle_posts();
     h.say("user_local", "two");

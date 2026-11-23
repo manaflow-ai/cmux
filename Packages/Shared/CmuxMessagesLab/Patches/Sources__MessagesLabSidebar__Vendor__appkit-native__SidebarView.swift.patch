@@ -101,6 +101,15 @@
  
      /// Counters for the bench and the self-test.
      struct Stats {
+@@ -177,7 +225,7 @@
+         filterButton.bezelStyle = .accessoryBarAction
+         (filterButton.cell as? NSPopUpButtonCell)?.arrowPosition = .noArrow
+         filterButton.setAccessibilityLabel(SidebarStrings.filter)
+-        filterButton.toolTip = SidebarStrings.filter
++        filterButton.setSidebarToolTip(SidebarStrings.filter)  // cmux: the host's themed tooltip (SidebarToolTip.swift)
+         updateFilterButton()
+         root.addSubview(filterButton)
+ 
 @@ -209,8 +257,19 @@
          noResults.font = Self.noResultsFont
          noResults.textColor = .secondaryLabelColor

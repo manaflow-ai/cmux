@@ -91,9 +91,6 @@ impl Brain {
         // The turn that starts now takes the cut turn's resume note: its
         // hold (a backoff, or a network cut's wait) is over.
         self.resume_at = None;
-        // What the shared screen showed since the last turn joins the log
-        // first, so this turn's delta carries it (screen_share.rs).
-        self.ingest_screen_share();
         if self.state.stopped_reply.take().is_some() {
             self.save();
         }
@@ -387,6 +384,7 @@ impl Brain {
         let (items, rest): (Vec<Queued>, Vec<Queued>) =
             self.queue.drain(..).partition(|q| q.conversation == side);
         self.queue.extend(rest);
+        self.turn_from_automation = items.iter().any(super::automations::is_automation_note);
         // The messages, their bookkeeping (floors, children) and the pending
         // turn commit together: a crash leaves all of it or none of it, so a
         // restart never logs a message twice and never loses one.
@@ -422,6 +420,14 @@ impl Brain {
             .filter(|_| self.prewarm_ours != Some(false));
         let mut answers = self.state.carry_answers.clone();
         add_answers(&mut answers, self.answers_of(&items));
+        // A new turn: what it saw and posted starts empty (landed_told.rs),
+        // before its items are logged.
+        self.turn_landed.clear();
+        self.turn_posts.clear();
+        self.landed_refused = false;
+        // The person wrote: the loop guard's hold ends, and what it kept
+        // from being told goes in this turn (budget_hold.rs).
+        let held_news = self.end_budget_hold(side.as_deref(), &items);
         let done = self.log_items(&items, move |next, done| {
             next.carry_answers.clear();
             let first = done.ids.first().copied().unwrap_or(first_id);
@@ -499,6 +505,9 @@ impl Brain {
         // (`turn_permission`), with no question to anyone.
         self.turn_ask = items.iter().any(Queued::requires_approval);
         self.last_turn_ask = self.turn_ask;
+        // A turn only wake notes started is a wake run (memory.rs): its
+        // outcome and cost are recorded, and a cost limit applies.
+        let budget = self.begin_wake_run(&items, &key, family == crate::acpmux::Family::Codex);
         self.turn_relay = if self.turn_ask {
             super::steer::trusted_relays(&items)
         } else {
@@ -565,6 +574,7 @@ impl Brain {
         // never before a cache mark: the subagents at work now (the reference
         // client's line). Never logged.
         let at_work = self.at_work_line();
+        let open_items = self.open_items_block();
         // The person's clock (weekday, time, zone): day words and sleep
         // seconds count from it. After the delta, so it never breaks a cache
         // mark.
@@ -573,11 +583,23 @@ impl Brain {
         // every turn, so a file saved in the last turn holds in this one.
         // In another person's turn, only the open loops.
         let (memory, memory_seen) = self.turn_memory_block();
+        // The Cloud computer the owner attached (engine.json `computer`, read
+        // now like the turn's engine): one line, never in the cached prompt.
+        let computer = self
+            .settings
+            .engine_file
+            .as_deref()
+            .map(crate::engine::load)
+            .as_ref()
+            .and_then(crate::engine::computer_line);
         // The person's Home workspace as it is now: after the view, never logged.
         let tail: Vec<String> = now
             .iter()
             .chain(memory.iter())
             .chain(at_work.iter())
+            .chain(open_items.iter())
+            .chain(held_news.iter())
+            .chain(computer.iter())
             .chain(home.iter())
             .chain(resumes.iter())
             .cloned()
@@ -697,6 +719,15 @@ impl Brain {
             _ => None,
         };
         let retire = match (&kept, &reuse) {
+            // Its moved work still runs: followed until it reports, not ended.
+            (Some(k), None) if k.moved => {
+                self.draining.push(super::background::Draining {
+                    session: k.kept.session.clone(),
+                    after: k.kept.after,
+                    conversation: k.conversation.clone(),
+                });
+                None
+            }
             (Some(k), None) => Some(k.kept.session.clone()),
             _ => None,
         }
@@ -752,6 +783,9 @@ impl Brain {
         if let Some(line) = &at_work {
             layout["at_work"] = serde_json::json!(line);
         }
+        if let Some(line) = &computer {
+            layout["computer"] = serde_json::json!(line);
+        }
         if let Some(block) = &home {
             layout["home_workspace"] = serde_json::json!(block);
         }
@@ -761,6 +795,11 @@ impl Brain {
                 "retire": retire,
                 "from": kept.as_ref().map(|k| k.seen_end),
             });
+        }
+        // A kept session that read this memory block last turn did not get it
+        // again: the inspector leaves it out of this turn's input.
+        if reuse.is_some() && memory_seen && memory.is_some() {
+            layout["memory_block_sent"] = serde_json::json!(false);
         }
         if let Some(route) = &self.turn_route {
             self.trace.emit(
@@ -817,6 +856,7 @@ impl Brain {
             key,
             limit: self.settings.turn_limit,
             idle_limit: self.settings.turn_idle_limit,
+            budget,
             reuse,
             keep,
             retire,
@@ -903,6 +943,9 @@ impl Brain {
                 for item in items {
                     if let Source::Spawn(r) = &item.source {
                         self.trace_report_logged(r, &item.text);
+                        if !r.quiet {
+                            self.saw_report(r, &item.text);
+                        }
                     }
                 }
                 Some(done)
@@ -964,6 +1007,9 @@ impl Brain {
     /// turn's own. False: the write failed (the host stops).
     pub(super) fn log_delivered(&mut self, items: &[Queued]) -> bool {
         self.taint_approval(items);
+        if items.iter().any(super::automations::is_automation_note) {
+            self.turn_from_automation = true;
+        }
         let at = self.chat.status().messages;
         let batch: Vec<Item> = items.iter().map(item).collect();
         let answers = self.answers_of(items);
@@ -1432,7 +1478,26 @@ impl Brain {
         true
     }
 
+    /// A turn whose harness reported tokens but no dollars is priced from the shared table
+    /// (turn_price.rs): its engine's model, else a brain's home model.
+    fn price_unpriced(&self, outcome: &mut TurnOutcome) {
+        if outcome.stats.cost.is_some() {
+            return;
+        }
+        let Some((usage, _)) = outcome.stats.totals.as_ref() else {
+            return;
+        };
+        let engine = self.turn_engine.as_ref();
+        let model = engine.and_then(|e| e.model.clone()).or_else(|| {
+            engine
+                .filter(|e| self.settings.brains.get(&e.harness).is_some())
+                .and_then(|_| self.settings.brains.model.clone())
+        });
+        outcome.stats.cost = model.and_then(|m| crate::turn_price::price(&m, usage));
+    }
+
     pub(super) fn turn_ended(&mut self, key: &str, mut outcome: TurnOutcome) {
+        self.price_unpriced(&mut outcome);
         // A failed turn on an open-source brain is cut and runs again on the default harness
         // (turn_engine_choice), so the person's message still gets its answer.
         // A lost acpmux link is no fault of the brain: that cut runs again on the brain.
@@ -1445,6 +1510,12 @@ impl Brain {
             return;
         }
         self.cuts = 0;
+        // A wake run its cost limit stopped ends like a Chief stop: nothing
+        // more posts, no failure (memory.rs `end_wake_run` notes it).
+        if outcome.budget_stopped.is_some() {
+            self.tool_stopped = true;
+            outcome.error = None;
+        }
         let ran_before = std::mem::take(&mut self.cut_ran);
         if ran_before {
             outcome.unstarted = false;
@@ -1492,6 +1563,13 @@ impl Brain {
         // A turn the owner stopped posts nothing, even one that ended
         // normally before it saw the interrupt (the stop was accepted).
         let quiet = superseded || owner_stopped;
+        let final_posted = !quiet
+            && !tool_stopped
+            && outcome
+                .reply
+                .as_deref()
+                .is_some_and(|r| !r.trim().is_empty() && r.trim() != "NO_REPLY");
+        self.end_wake_run(&outcome, final_posted);
         // A turn whose start stalled before its prompt reached a harness
         // (`unstarted_stall`), past its cuts: its error is the harness
         // start's, for host.log and the trace, never a reply. Its messages
@@ -1568,6 +1646,25 @@ impl Brain {
                 "turn {key} ended by the Chief's stop: nothing more posted"
             ));
         }
+        // A refused turn names the person's last message it answers and how many refused in a row.
+        let refused_post = outcome.refused && !(quiet || tool_stopped || unstarted);
+        self.refused_in_row = if refused_post {
+            self.refused_in_row.saturating_add(1)
+        } else {
+            0
+        };
+        let asked = self
+            .state
+            .turn
+            .as_ref()
+            .filter(|t| t.key == key && refused_post)
+            .and_then(|t| {
+                t.answers
+                    .iter()
+                    .rev()
+                    .find_map(|id| self.state.awaiting.iter().find(|a| &a.id == id))
+            })
+            .map(|a| a.preview.clone());
         let text = if ((stalled && !held) || hung_after_run) && !(quiet || tool_stopped) {
             UNSTARTED_TEXT.to_owned()
         } else {
@@ -1575,7 +1672,9 @@ impl Brain {
                 outcome.reply,
                 outcome.error,
                 quiet || tool_stopped || unstarted,
-                outcome.refused,
+                outcome
+                    .refused
+                    .then_some((asked.as_deref(), self.refused_in_row)),
                 &failed,
             )
         };
@@ -1917,7 +2016,8 @@ impl Brain {
     /// never one the owner or a newer message stopped, at most `MAX_CUTS` in
     /// a row.
     fn is_cut(&self, key: &str, outcome: &TurnOutcome) -> Option<Cut> {
-        if !self.may_cut(key) {
+        // A wake run its cost limit stopped is never run again.
+        if outcome.budget_stopped.is_some() || !self.may_cut(key) {
             return None;
         }
         cut_kind(outcome)
@@ -1983,6 +2083,8 @@ impl Brain {
 
     fn turn_cut(&mut self, key: &str, outcome: TurnOutcome, cut: Cut) {
         self.cuts += 1;
+        // A cut wake run goes on in its resume turn (memory.rs).
+        self.cut_wake_run = self.wake_run.take();
         let error = outcome.error.clone().unwrap_or_default();
         let wait = self
             .upstream_backoff
@@ -2293,16 +2395,18 @@ fn ended_turn_text(
     reply: Option<String>,
     error: Option<String>,
     quiet: bool,
-    refused: bool,
+    refused: Option<(Option<&str>, u32)>,
     failed: &str,
 ) -> String {
-    match (reply, error) {
+    match (reply, error, refused) {
         _ if quiet => String::new(),
-        (None, Some(error)) if refused => format!("(turn {error})"),
-        (Some(reply), Some(error)) => format!("{reply}\n\n({failed}: {error})"),
-        (Some(reply), None) => reply,
-        (None, Some(error)) => format!("({failed}: {error})"),
-        (None, None) => String::new(),
+        (None, Some(error), Some((asked, in_row))) => {
+            crate::harness_gate::refused_reply(&error, asked, in_row)
+        }
+        (Some(reply), Some(error), _) => format!("{reply}\n\n({failed}: {error})"),
+        (Some(reply), None, _) => reply,
+        (None, Some(error), None) => format!("({failed}: {error})"),
+        (None, None, _) => String::new(),
     }
 }
 
@@ -2342,7 +2446,7 @@ mod ended_turn_text_tests {
     #[test]
     fn owner_stopped_turn_posts_nothing() {
         for reply in [None, Some("Let me check.".to_owned())] {
-            let text = ended_turn_text(reply, Some("cancelled".into()), true, false, "turn failed");
+            let text = ended_turn_text(reply, Some("cancelled".into()), true, None, "turn failed");
             assert_eq!(text, "");
             assert!(!text.contains("turn stopped"));
         }
@@ -2351,11 +2455,11 @@ mod ended_turn_text_tests {
     #[test]
     fn failures_and_replies_still_post() {
         assert_eq!(
-            ended_turn_text(Some("hi".into()), None, false, false, "turn failed"),
+            ended_turn_text(Some("hi".into()), None, false, None, "turn failed"),
             "hi"
         );
         assert_eq!(
-            ended_turn_text(None, Some("boom".into()), false, false, "turn failed"),
+            ended_turn_text(None, Some("boom".into()), false, None, "turn failed"),
             "(turn failed: boom)"
         );
         assert_eq!(
@@ -2363,14 +2467,20 @@ mod ended_turn_text_tests {
                 Some("a".into()),
                 Some("boom".into()),
                 false,
-                false,
+                None,
                 "turn failed"
             ),
             "a\n\n(turn failed: boom)"
         );
         assert_eq!(
-            ended_turn_text(None, Some("refused".into()), false, true, "x"),
-            "(turn refused)"
+            ended_turn_text(
+                None,
+                Some("refused: Chief couldn't start this reply. Send again.".into()),
+                false,
+                Some((Some("hello?"), 2)),
+                "x"
+            ),
+            "Still can't answer “hello?” (2 in a row). Send again."
         );
     }
 }
@@ -2561,11 +2671,21 @@ pub(super) struct KeptTurn {
     pub seen_end: u64,
     /// The kept turn's first request's prompt tokens (its context size).
     pub tokens: u64,
+    /// The conversation the kept turn answered (where a background reply
+    /// of its session goes, `background.rs`).
+    pub conversation: Option<String>,
+    /// Its session runs work the turn moved to the background, whose report
+    /// has not come yet: never retired, drained instead (`background.rs`).
+    pub moved: bool,
 }
 
 /// A kept session's context past this many tokens is not prompted again:
-/// a fresh session reads the view, which compaction keeps small.
-const KEEP_MAX_TOKENS: u64 = 120_000;
+/// a fresh session reads the view, which compaction keeps small. 160k since
+/// 2026-11-19: a live Chief's fresh first request is already 80-107k (the
+/// system prompt and the view), so at 120k a kept session served one turn at
+/// most and the next wrote the whole input to the cache again; its reads stay
+/// at a tenth of the input price.
+const KEEP_MAX_TOKENS: u64 = 160_000;
 
 /// A first request this large that read and wrote no cache ran with Claude
 /// Code's caching off (a pooled process started for our marks): not kept.
@@ -2607,17 +2727,55 @@ impl Brain {
             return;
         };
         let first = outcome.stats.first.unwrap_or_default();
-        let tokens = first.input + first.cache_read + first.cache_write;
+        // The session's size at the turn's end (its last request), which the
+        // next turn's first request starts from; else its first request.
+        let tokens = kept
+            .context
+            .unwrap_or(first.input + first.cache_read + first.cache_write);
+        // A cancelled turn with a message written to its harness and not read
+        // (a steer the cancel left in Claude Code's queue, which acpmux takes
+        // back only for another agent's message): the harness may still act
+        // on it, and the next turn sends it again. Not kept.
+        // Also a turn that ended by itself while a withdraw was asked: the
+        // steer may still be read in a turn the session carries on.
+        let steer_left = self.steer_left.as_deref() == Some(key)
+            || (outcome.cancelled && self.steering.iter().any(|st| st.key == key));
+        if steer_left {
+            (self.log)(&format!(
+                "turn {key}: a message it was sent is still unread in its session; not kept"
+            ));
+        }
         let uncached =
             first.cache_read == 0 && first.cache_write == 0 && first.input > UNCACHED_LIMIT;
+        let conversation = self
+            .state
+            .turn
+            .as_ref()
+            .filter(|t| t.key == key)
+            .and_then(|t| t.conversation.clone());
+        // The turn moved its running work to the background (`steer.rs`):
+        // ending the session would kill that work and its promised report.
+        let moved = self.moved.as_deref() == Some(key);
         match pending {
-            Some((_, sig)) if !uncached && tokens < KEEP_MAX_TOKENS => {
+            Some((_, sig)) if !uncached && !steer_left && tokens < KEEP_MAX_TOKENS => {
                 self.state.kept_session = Some(kept.session.clone());
                 self.kept = Some(KeptTurn {
                     kept,
                     sig,
                     seen_end: self.chat.status().messages,
                     tokens,
+                    conversation,
+                    moved,
+                });
+            }
+            _ if moved => {
+                (self.log)(&format!(
+                    "turn {key}: its session is not kept, but it runs work moved to the background; following it until that work reports"
+                ));
+                self.draining.push(super::background::Draining {
+                    session: kept.session.clone(),
+                    after: kept.after,
+                    conversation,
                 });
             }
             _ => {

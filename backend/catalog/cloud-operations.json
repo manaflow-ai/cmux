@@ -294,6 +294,55 @@
       "pattern": "^auto_[a-z0-9]{20}$",
       "description": "An automation definition, owned by its team's SchedulerDO."
     },
+    "AutomationSecretName": {
+      "kind": "primitive",
+      "name": "string",
+      "pattern": "^[A-Z][A-Z0-9_]{0,63}$",
+      "description": "An environment variable name: capital letters, digits and _, starting with a letter (at most 64)."
+    },
+    "AutomationSecretState": {
+      "kind": "object",
+      "fields": {
+        "name": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "AutomationSecretName"
+          }
+        },
+        "hint": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        },
+        "generation": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "updated_at": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "updated_by": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "UserId"
+          }
+        }
+      }
+    },
     "AutomationSettings": {
       "kind": "object",
       "fields": {
@@ -2463,6 +2512,158 @@
         }
       }
     },
+    "CloudSurgePreview": {
+      "kind": "object",
+      "fields": {
+        "count": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "ttl_seconds": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "provider": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        },
+        "available": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        "reason": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "estimated_cost_usd": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "union",
+              "variants": [
+                {
+                  "kind": "primitive",
+                  "name": "float64"
+                },
+                {
+                  "kind": "enum",
+                  "values": [
+                    "Infinity",
+                    "-Infinity",
+                    "NaN"
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    "CloudSurgeReceipt": {
+      "kind": "object",
+      "fields": {
+        "count": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "ttl_seconds": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "slots": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "CloudSurgeSlot"
+            }
+          }
+        }
+      }
+    },
+    "CloudSurgeSlot": {
+      "kind": "object",
+      "fields": {
+        "index": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "status": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "created",
+              "queued",
+              "refused"
+            ]
+          }
+        },
+        "machine_id": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "ref",
+              "name": "MachineId"
+            }
+          }
+        },
+        "provider": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        },
+        "reason": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "retryable": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        }
+      }
+    },
     "CloudVmNetwork": {
       "kind": "object",
       "fields": {
@@ -2930,6 +3131,13 @@
                       "name": "string"
                     }
                   }
+                }
+              },
+              "linked_by_github_id": {
+                "required": false,
+                "type": {
+                  "kind": "primitive",
+                  "name": "int64"
                 }
               }
             }
@@ -18229,6 +18437,509 @@
               "finished_at",
               "error",
               "outcome"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "automation.secret.list": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "automation",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "automation": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "AutomationId"
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "object",
+        "fields": {
+          "automation": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "AutomationId"
+            }
+          },
+          "secrets": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "AutomationSecretState"
+              }
+            }
+          }
+        }
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "selector.not_found"
+      ],
+      "owner": "cloud:SchedulerDO",
+      "risk": "read",
+      "principals": [
+        "session"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "automation secret list",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "automation"
+      },
+      "docs": "The names of an automation's secrets (who may edit it). Never returns a value.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "automation": {
+            "$ref": "#/$defs/AutomationId"
+          }
+        },
+        "required": [
+          "automation"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "AutomationId": {
+            "type": "string",
+            "pattern": "^auto_[a-z0-9]{20}$",
+            "description": "An automation definition, owned by its team's SchedulerDO."
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "automation": {
+            "$ref": "#/$defs/AutomationId"
+          },
+          "secrets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/AutomationSecretState"
+            }
+          }
+        },
+        "required": [
+          "automation",
+          "secrets"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "AutomationId": {
+            "type": "string",
+            "pattern": "^auto_[a-z0-9]{20}$",
+            "description": "An automation definition, owned by its team's SchedulerDO."
+          },
+          "AutomationSecretName": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Z0-9_]{0,63}$",
+            "description": "An environment variable name: capital letters, digits and _, starting with a letter (at most 64)."
+          },
+          "UserId": {
+            "type": "string",
+            "pattern": "^user_[a-z0-9]{20}$",
+            "description": "A cmux user (Stack user id kept as an external id)."
+          },
+          "AutomationSecretState": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "$ref": "#/$defs/AutomationSecretName"
+              },
+              "hint": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "generation": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "updated_at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "updated_by": {
+                "$ref": "#/$defs/UserId"
+              }
+            },
+            "required": [
+              "name",
+              "hint",
+              "generation",
+              "updated_at",
+              "updated_by"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "automation.secret.remove": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "automation",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "automation": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "AutomationId"
+            }
+          },
+          "name": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "AutomationSecretName"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "object",
+            "fields": {
+              "automation": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "AutomationId"
+                }
+              },
+              "name": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "AutomationSecretName"
+                }
+              },
+              "removed": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "boolean"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "revision.conflict",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "owner": "cloud:SchedulerDO",
+      "risk": "destructive",
+      "principals": [
+        "session"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "automation secret remove",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "automation"
+      },
+      "docs": "Remove one secret of an automation (its creator, editors and team admins).",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "automation": {
+            "$ref": "#/$defs/AutomationId"
+          },
+          "name": {
+            "$ref": "#/$defs/AutomationSecretName"
+          }
+        },
+        "required": [
+          "automation",
+          "name"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "AutomationId": {
+            "type": "string",
+            "pattern": "^auto_[a-z0-9]{20}$",
+            "description": "An automation definition, owned by its team's SchedulerDO."
+          },
+          "AutomationSecretName": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Z0-9_]{0,63}$",
+            "description": "An environment variable name: capital letters, digits and _, starting with a letter (at most 64)."
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "automation": {
+            "$ref": "#/$defs/AutomationId"
+          },
+          "name": {
+            "$ref": "#/$defs/AutomationSecretName"
+          },
+          "removed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "automation",
+          "name",
+          "removed"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "AutomationId": {
+            "type": "string",
+            "pattern": "^auto_[a-z0-9]{20}$",
+            "description": "An automation definition, owned by its team's SchedulerDO."
+          },
+          "AutomationSecretName": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Z0-9_]{0,63}$",
+            "description": "An environment variable name: capital letters, digits and _, starting with a letter (at most 64)."
+          }
+        }
+      }
+    },
+    "automation.secret.set": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "automation",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "automation": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "AutomationId"
+            }
+          },
+          "name": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "AutomationSecretName"
+            }
+          },
+          "value": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 32768
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "AutomationSecretState"
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "automation_secret.not_configured",
+        "automation_secret.too_many",
+        "idempotency.conflict",
+        "revision.conflict",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "owner": "cloud:SchedulerDO",
+      "risk": "mutate-shared",
+      "principals": [
+        "session"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "automation secret set",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "automation"
+      },
+      "docs": "Add or replace one secret of an automation (its creator, editors and team admins, in a person's session). Its machine steps get it as the environment variable NAME. The value is never returned.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "automation": {
+            "$ref": "#/$defs/AutomationId"
+          },
+          "name": {
+            "$ref": "#/$defs/AutomationSecretName"
+          },
+          "value": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 32768
+          }
+        },
+        "required": [
+          "automation",
+          "name",
+          "value"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "AutomationId": {
+            "type": "string",
+            "pattern": "^auto_[a-z0-9]{20}$",
+            "description": "An automation definition, owned by its team's SchedulerDO."
+          },
+          "AutomationSecretName": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Z0-9_]{0,63}$",
+            "description": "An environment variable name: capital letters, digits and _, starting with a letter (at most 64)."
+          }
+        }
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/AutomationSecretState",
+        "$defs": {
+          "AutomationSecretName": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Z0-9_]{0,63}$",
+            "description": "An environment variable name: capital letters, digits and _, starting with a letter (at most 64)."
+          },
+          "UserId": {
+            "type": "string",
+            "pattern": "^user_[a-z0-9]{20}$",
+            "description": "A cmux user (Stack user id kept as an external id)."
+          },
+          "AutomationSecretState": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "$ref": "#/$defs/AutomationSecretName"
+              },
+              "hint": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "generation": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "updated_at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "updated_by": {
+                "$ref": "#/$defs/UserId"
+              }
+            },
+            "required": [
+              "name",
+              "hint",
+              "generation",
+              "updated_at",
+              "updated_by"
             ],
             "additionalProperties": true
           }
@@ -35657,6 +36368,349 @@
               "idle_policy",
               "error",
               "revision"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "cloud.surge.create": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "team",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "count": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          },
+          "ttl_seconds": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "CloudSurgeReceipt"
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.sso_required",
+        "auth.unauthenticated",
+        "client.too_old",
+        "cloud.surge.capacity",
+        "cloud.surge.unavailable",
+        "idempotency.conflict",
+        "owner.unreachable",
+        "revision.conflict",
+        "validation.invalid"
+      ],
+      "owner": "cloud:CloudDO",
+      "risk": "money",
+      "principals": [
+        "session"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "cloud surge create",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "cloud"
+      },
+      "docs": "Request an expiring burst through the team's Cloud provider. Each slot reports whether its create was accepted. Agent principals are refused; the client asks a person first.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "count": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 8
+          },
+          "ttl_seconds": {
+            "type": "integer",
+            "minimum": 300,
+            "maximum": 3600
+          }
+        },
+        "required": [
+          "count",
+          "ttl_seconds"
+        ],
+        "additionalProperties": true,
+        "$defs": {}
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/CloudSurgeReceipt",
+        "$defs": {
+          "MachineId": {
+            "type": "string",
+            "pattern": "^vm_[a-z0-9]{20}$",
+            "description": "A Cloud machine."
+          },
+          "CloudSurgeSlot": {
+            "type": "object",
+            "properties": {
+              "index": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "created",
+                  "queued",
+                  "refused"
+                ]
+              },
+              "machine_id": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/MachineId"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "provider": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "reason": {
+                "type": "string"
+              },
+              "retryable": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "index",
+              "status",
+              "machine_id",
+              "provider",
+              "reason",
+              "retryable"
+            ],
+            "additionalProperties": true
+          },
+          "CloudSurgeReceipt": {
+            "type": "object",
+            "properties": {
+              "count": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 8
+              },
+              "ttl_seconds": {
+                "type": "integer",
+                "minimum": 300,
+                "maximum": 3600
+              },
+              "slots": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/CloudSurgeSlot"
+                }
+              }
+            },
+            "required": [
+              "count",
+              "ttl_seconds",
+              "slots"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "cloud.surge.preview": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "team",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "count": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          },
+          "ttl_seconds": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "CloudSurgePreview"
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.sso_required",
+        "auth.unauthenticated",
+        "client.too_old",
+        "owner.unreachable",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "owner": "cloud:CloudDO",
+      "risk": "read",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "cloud surge preview",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "cloud"
+      },
+      "docs": "Estimate a bounded Cloud capacity burst at the current running list rate and report whether the team can request it.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "count": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 8
+          },
+          "ttl_seconds": {
+            "type": "integer",
+            "minimum": 300,
+            "maximum": 3600
+          }
+        },
+        "required": [
+          "count",
+          "ttl_seconds"
+        ],
+        "additionalProperties": true,
+        "$defs": {}
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/CloudSurgePreview",
+        "$defs": {
+          "CloudSurgePreview": {
+            "type": "object",
+            "properties": {
+              "count": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 8
+              },
+              "ttl_seconds": {
+                "type": "integer",
+                "minimum": 300,
+                "maximum": 3600
+              },
+              "provider": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "available": {
+                "type": "boolean"
+              },
+              "reason": {
+                "type": "string"
+              },
+              "estimated_cost_usd": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "count",
+              "ttl_seconds",
+              "provider",
+              "available",
+              "reason",
+              "estimated_cost_usd"
             ],
             "additionalProperties": true
           }
@@ -60161,6 +61215,13 @@
                           }
                         }
                       }
+                    },
+                    "linked_by_github_id": {
+                      "required": false,
+                      "type": {
+                        "kind": "primitive",
+                        "name": "int64"
+                      }
                     }
                   }
                 }
@@ -60340,6 +61401,11 @@
                     "type": "null"
                   }
                 ]
+              },
+              "linked_by_github_id": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
               }
             },
             "required": [
@@ -60740,6 +61806,11 @@
                         "type": "null"
                       }
                     ]
+                  },
+                  "linked_by_github_id": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
                   }
                 },
                 "required": [
@@ -61026,6 +62097,11 @@
                         "type": "null"
                       }
                     ]
+                  },
+                  "linked_by_github_id": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
                   }
                 },
                 "required": [
@@ -61751,6 +62827,11 @@
                         "type": "null"
                       }
                     ]
+                  },
+                  "linked_by_github_id": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
                   }
                 },
                 "required": [

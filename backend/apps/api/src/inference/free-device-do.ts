@@ -1,7 +1,8 @@
+import { envForObject } from "../build-space.ts"
 import { DurableObject } from "cloudflare:workers"
 import { verifyAppAttestData, type AppAttestKey } from "@cmux/home-core/user"
 import type { AttestedKey } from "../app-attest.ts"
-import type { Env } from "../env.ts"
+import type { Env, RawEnv } from "../env.ts"
 import { utcDay } from "./spend-guard-do.ts"
 
 /**
@@ -27,6 +28,10 @@ const intVar = (v: string | undefined, d: number) => {
 }
 
 export class FreeDeviceDO extends DurableObject<Env> {
+  constructor(ctx: DurableObjectState, raw: RawEnv) {
+    super(ctx, envForObject(ctx, raw))
+  }
+
   /**
    * Tables exist only after a successful attestation (register): a request for a random key id
    * reads nothing and writes nothing, so nobody can fill storage with empty devices.

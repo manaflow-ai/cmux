@@ -9,8 +9,8 @@ nonisolated private let focusLogger = Logger(subsystem: "com.cmuxterm.app.next",
 /// The focus actions act on the newest live session the host lists, as classic's menu
 /// bar item acted on its first row, or on the session a `session` argument names (the menu bar's
 /// per-agent Show Window); Stop ends every session, or the one `session` names (the menu bar's
-/// per-agent Stop: its calls are refused with `stopped_by_person` until Resume)
-/// (plans/cmux-next/computer-use.md section 6: "re-bound to the store"). The work is tracked, so a
+/// per-agent Stop: its calls are refused with `stopped_by_person` until Resume) or a row's `terminals` started
+/// (plans/cmux-next/computer-use.md section 6). The work is tracked, so a
 /// CLI or MCP run answers when it is done and gets the reason when there is nothing to act on.
 enum ComputerUseHandlers {
     static func bind(into registry: ActionRegistry, sessions: any ComputerUseSessionControlling, focus: any ComputerUseFocusing) {
@@ -54,14 +54,14 @@ enum ComputerUseHandlers {
                 throw ComputerUseSessionError.failed(ComputerUseSessionStrings.noCallingTerminal)
             }
         }
-        // Stops the session a `session` argument names (the menu bar's per-agent Stop), else every
-        // session: the person's stop must not depend on a session list the host may not give.
+        // Stops the session a `session` argument names (the menu bar's per-agent Stop), else the one a row's drive
+        // indicator's `terminals` started, else every session (`stop(terminals:)`).
         _ = registry.bindEffect("computerUseStop", effect: { invocation in
-            let named = invocation.arguments["session"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
+            let named = invocation.arguments["session"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }, terminals = invocation.arguments["terminals"]?.stringValue
             // action-wait-allow: the stop runs in cmux Remote's Computer Use worker, another process, through the daemon.
             return .waiting(.externalProcess) {
                 do {
-                    if let named { try await sessions.stop(named) } else { try await sessions.stopAll() }
+                    if let named { try await sessions.stop(named) } else { try await sessions.stop(terminals: terminals) }
                     return nil
                 } catch {
                     return ActionWorkFailure(refusal: .unavailable,
