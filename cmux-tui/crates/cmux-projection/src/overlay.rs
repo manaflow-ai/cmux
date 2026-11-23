@@ -372,6 +372,8 @@ pub struct Overlay {
     cache_hits: AtomicU64,
     /// Files kept on the Mac whose refusal was logged already (once each, not once per open).
     told: Mutex<HashSet<u32>>,
+    /// Told of every read the agent asked for that failed because the Mac is away.
+    away: Option<Arc<crate::away::Away>>,
     cache_index: Mutex<CacheIndex>,
     cache_max: u64,
     cache_evicted: AtomicU64,
@@ -683,6 +685,7 @@ impl Overlay {
             remote_bytes: AtomicU64::new(0),
             cache_hits: AtomicU64::new(0),
             told: Mutex::new(HashSet::new()),
+            away: None,
             cache_index,
             cache_max: DEFAULT_CACHE_MAX_BYTES,
             cache_evicted: AtomicU64::new(0),
@@ -703,6 +706,24 @@ impl Overlay {
         // A cache an earlier daemon (or a bigger cap) left goes down to the cap now.
         overlay.evict_to_fit(&mut overlay.cache_lock(), 0);
         Ok(overlay)
+    }
+
+    /// Tells `away` of each read of a file that failed because the Mac is away (a file read ahead
+    /// beside it is no read of the agent's, and is not told).
+    #[must_use]
+    pub fn with_away(mut self, away: Arc<crate::away::Away>) -> Self {
+        self.away = Some(away);
+        self
+    }
+
+    /// `errno` of a fetch of file `index` that failed; an away one is told to [`Self::with_away`]'s.
+    fn fetch_failed(&self, index: u32, error: FetchError) -> i32 {
+        if error == FetchError::Away
+            && let Some(away) = &self.away
+        {
+            away.failed(&self.manifest.path_of(index));
+        }
+        error.errno()
     }
 
     /// This overlay with its cache capped at `bytes` (what is over goes now).
@@ -1409,9 +1430,12 @@ impl Overlay {
         let mut mine = Err(EIO);
         for (other, answer) in batch.iter().zip(answers) {
             let expected = self.manifest.entry(*other).map_or(0, |entry| entry.size);
-            let answer = answer.map_err(FetchError::errno).and_then(|bytes| {
-                if bytes.len() as u64 == expected { Ok(bytes) } else { Err(EIO) }
-            });
+            let answer = match answer {
+                Ok(bytes) if bytes.len() as u64 == expected => Ok(bytes),
+                Ok(_) => Err(EIO),
+                Err(error) if *other == index => Err(self.fetch_failed(index, error)),
+                Err(error) => Err(error.errno()),
+            };
             if let Ok(bytes) = &answer {
                 self.count(bytes.len() as u64);
                 self.store((*other, WHOLE), bytes);
@@ -1483,7 +1507,7 @@ impl Overlay {
         let bytes = self
             .fetch
             .read(index, start, u32::try_from(len).map_err(|_| EIO)?)
-            .map_err(FetchError::errno)?;
+            .map_err(|error| self.fetch_failed(index, error))?;
         if bytes.len() as u64 != len {
             return Err(EIO);
         }
@@ -1545,6 +1569,12 @@ impl Overlay {
     /// Copies lower `path` (entry `index`) into the upper layer, unless it is there already.
     fn copy_up(&self, path: &str, index: u32) -> Result<(), i32> {
         self.refuse_kept(index)?;
+        self.copy_up_keeping(path, index, true)
+    }
+
+    /// Copies `path` up; with `bytes` false a file lands empty, never fetched: an open that
+    /// truncates throws the old bytes away, so it must not fail because the Mac changed them.
+    fn copy_up_keeping(&self, path: &str, index: u32, bytes: bool) -> Result<(), i32> {
         let _claim = self.claim((index, COPY_UP));
         if self.upper.stat(path).is_ok() {
             return Ok(());
@@ -1565,9 +1595,9 @@ impl Overlay {
         }
         let temp = self.scratch_path();
         let mut file = fs::File::create(&temp).map_err(|error| io_errno(&error))?;
-        if entry.size <= CHUNK {
+        if bytes && entry.size <= CHUNK {
             file.write_all(&self.whole(index)?).map_err(|error| io_errno(&error))?;
-        } else {
+        } else if bytes {
             let chunks = entry.size.div_ceil(CHUNK);
             for chunk in 0..chunks {
                 let chunk = u32::try_from(chunk).map_err(|_| EIO)?;
@@ -1610,7 +1640,12 @@ impl Overlay {
         }
         let write = flags & libc::O_ACCMODE != libc::O_RDONLY || flags & libc::O_TRUNC != 0;
         if write {
-            self.ensure_upper(&path)?;
+            match self.node(&path).ok_or(ENOENT)? {
+                Node::Lower(index) if flags & libc::O_TRUNC != 0 => {
+                    self.copy_up_keeping(&path, index, false)?;
+                }
+                _ => self.ensure_upper(&path)?,
+            }
         }
         let (file, lower) = match self.node(&path).ok_or(ENOENT)? {
             Node::Upper(stat) if stat.format() == libc::S_IFREG => {
@@ -2057,7 +2092,13 @@ impl Overlay {
             return self.getattr(ino);
         }
         if let Some(path) = &path {
-            self.ensure_upper(path)?;
+            match self.node(path) {
+                // Truncated to nothing: the old bytes are dropped, so none are fetched.
+                Some(Node::Lower(index)) if set.size == Some(0) => {
+                    self.copy_up_keeping(path, index, false)?;
+                }
+                _ => self.ensure_upper(path)?,
+            }
         }
         if let Some(size) = set.size {
             match (&file, &path) {

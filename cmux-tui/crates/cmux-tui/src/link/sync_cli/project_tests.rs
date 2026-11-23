@@ -175,7 +175,7 @@ fn a_redial_prefers_the_quiet_socket_and_falls_back_when_there_is_none() {
 
     // No quiet socket (an older carrier serve, or a daemon's own socket): the main one.
     assert_eq!(quiet_socket(&socket), None);
-    let (dialed, quiet) = redial(&socket, "p1", "/w", &[]);
+    let (dialed, quiet) = redial(&socket, "p1", "/w", &[], None);
     assert!(ok(&dialed.unwrap().1));
     assert!(!quiet, "no quiet socket: the main one, as before");
     assert_eq!(main.load(Ordering::SeqCst), 1);
@@ -184,7 +184,7 @@ fn a_redial_prefers_the_quiet_socket_and_falls_back_when_there_is_none() {
     let quiet_path = dir.path().join("carrier.sock.quiet");
     std::fs::write(&quiet_path, "").unwrap();
     assert_eq!(quiet_socket(&socket), None);
-    let (dialed, quiet) = redial(&socket, "p1", "/w", &[]);
+    let (dialed, quiet) = redial(&socket, "p1", "/w", &[], None);
     assert!(ok(&dialed.unwrap().1) && !quiet);
     assert_eq!(main.load(Ordering::SeqCst), 2);
     std::fs::remove_file(&quiet_path).unwrap();
@@ -192,7 +192,7 @@ fn a_redial_prefers_the_quiet_socket_and_falls_back_when_there_is_none() {
     // A stale quiet socket (nothing accepts on it): the main one.
     drop(std::os::unix::net::UnixListener::bind(&quiet_path).unwrap());
     assert_eq!(quiet_socket(&socket), Some(quiet_path.clone()));
-    let (dialed, quiet) = redial(&socket, "p1", "/w", &[]);
+    let (dialed, quiet) = redial(&socket, "p1", "/w", &[], None);
     assert!(ok(&dialed.unwrap().1) && !quiet);
     assert_eq!(main.load(Ordering::SeqCst), 3);
     std::fs::remove_file(&quiet_path).unwrap();
@@ -200,7 +200,7 @@ fn a_redial_prefers_the_quiet_socket_and_falls_back_when_there_is_none() {
     // A live quiet socket: every redial goes there and none to the main one.
     let hushed = answering(&quiet_path);
     for n in 1..=2 {
-        let (dialed, quiet) = redial(&socket, "p1", "/w", &[]);
+        let (dialed, quiet) = redial(&socket, "p1", "/w", &[], None);
         assert!(ok(&dialed.unwrap().1));
         assert!(quiet, "the quiet socket is preferred");
         assert_eq!(hushed.load(Ordering::SeqCst), n);
@@ -220,7 +220,7 @@ fn a_quiet_refusal_is_a_failed_dial_and_the_redial_waits_half_a_second_flat() {
             drop(stream);
         }
     });
-    let (dialed, went_quiet) = redial(&socket, "p1", "/w", &[]);
+    let (dialed, went_quiet) = redial(&socket, "p1", "/w", &[], None);
     assert!(went_quiet);
     let Err(error) = dialed else { panic!("an unanswered dial fails") };
     let error = format!("{error:#}");
