@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import CmuxNextHomeModel
 public import Foundation
 import CmuxNextDaemon
@@ -230,7 +231,7 @@ public nonisolated struct HomeChiefFiles: Sendable {
         guard let square = image.cropping(to: CGRect(x: (image.width - side) / 2, y: (image.height - side) / 2,
                                                      width: side, height: side)) else { return nil }
         let modified = (try? file.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
-        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
+        let caches = NextSupport.cachesDirectory()
         let directory = caches.appendingPathComponent(Bundle.main.bundleIdentifier ?? "cmux", isDirectory: true)
             .appendingPathComponent("ChiefAvatar", isDirectory: true)
         let stamp = Int(modified?.timeIntervalSince1970 ?? 0)

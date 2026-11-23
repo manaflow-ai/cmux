@@ -201,7 +201,7 @@ extension SidebarBridge {
     func layoutItemMenu(_ id: LayoutItemID) -> NSMenu? {
         let tile = model.layout.item(id), item = tile ?? model.listedItem(id)
         let entries = services.registry.contextMenuEntries(for: .sidebarItem, removing: ChiefSidebar.menuRemovals(isApp: item?.owningAppID != nil, isChief: item.map { SidebarTransientItem.chiefAnchors.contains($0.ref) } == true, isTile: tile != nil)
-            .union(Self.pendingEdits(id, document: services.sidebarDoc.store)))
+            .union(Self.pendingEdits(id, document: services.sidebarDoc.store)).union(services.sidebarLayout.document.isTopRow(id) ? ["sidebar.item.remove"] : []))
         return services.registry.makeContextMenu(for: .sidebarItem, target: ActionTargetRef(kind: .sidebarItem, id: id.rawValue),
                                                  entries: entries, customize: true)
     }
