@@ -13,7 +13,7 @@
       "export": "renderThreads",
       "title": "Activity",
       "symbol": "bell",
-      "options": { "defaultRegion": "top", "maxRows": 60 }
+      "options": { "defaultRegion": "top", "maxRows": 50 }
     }
   },
   "scopes": {
