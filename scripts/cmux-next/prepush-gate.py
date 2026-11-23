@@ -182,6 +182,7 @@ import argparse
 import ast
 import collections
 import concurrent.futures
+import contextlib
 import fcntl
 import hashlib
 import importlib.util
@@ -192,6 +193,7 @@ import re
 import shlex
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import sysconfig
@@ -2896,7 +2898,7 @@ def highlight_problems(repo: Path, base: str, head: str, trusted_scripts: Path |
         blobs = git_batch.cat_file(repo, [f"{code_rev}:{p}" for p in HIGHLIGHTS_CODE] + [f"{head}:{p}" for p in files])
         if any(blobs[f"{code_rev}:{p}"] is None for p in HIGHLIGHTS_CODE):
             return []  # a validator older than the highlights' rules: CI's test is older too
-        with tempfile.TemporaryDirectory(prefix="cmux-prepush-highlights-") as tmp:
+        with scratch_dir(prefix="cmux-prepush-highlights-") as tmp:
             work = absolute(Path(tmp))
             for p in HIGHLIGHTS_CODE:
                 (work / Path(p).name).write_bytes(blobs[f"{code_rev}:{p}"])
@@ -3281,7 +3283,7 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
     sources = [p for p in swift if p.startswith(PKG + "/Sources/")]
     started = time.monotonic()
     found: list[tuple[str, list[str]]] = list(reserved)
-    with tempfile.TemporaryDirectory(prefix="cmux-prepush-") as tmp:
+    with scratch_dir() as tmp:
         base_tree, head_tree = build_trees(repo, base, head, changed + deleted, absolute(Path(tmp)), trusted_scripts)
         # The tool rules and pins: on a hook run, only the installed reviewed copy's (head_tree/SCRIPTS is that copy);
         # a pin names a binary the gate downloads and runs, and its sha256 proves nothing when the same file names it.
@@ -4316,6 +4318,7 @@ def start_watchdog(limit: float) -> None:
             sys.stderr.flush()
             faulthandler.dump_traceback(file=sys.stderr, all_threads=True)
             stop(_descendants(os.getpid()))
+            remove_live_scratch()
             sys.stdout.flush()
             os._exit(1)
         sys.stderr.write(f"prepush-gate: WARNING: the gate ran past its {limit:g}s limit "
@@ -4324,6 +4327,7 @@ def start_watchdog(limit: float) -> None:
         sys.stderr.flush()
         faulthandler.dump_traceback(file=sys.stderr, all_threads=True)
         stop(_descendants(os.getpid()))
+        remove_live_scratch()
         sys.stdout.flush()
         os._exit(0)
 
@@ -4371,6 +4375,228 @@ def gate_limit() -> float:
     return loaded_limit(GATE_LIMIT_SECONDS, load, os.cpu_count() or 1)
 
 
+# The gate's scratch: the base and head trees it checks out (about 200 MB a run) in the temp dir. A `with
+# TemporaryDirectory` removed it only on a clean return, so every run the watchdog ended (os._exit), the hook's
+# limit stopped (SIGTERM, then SIGKILL) or a terminal closed (SIGHUP) left its copy: 25 of them, 5.1 GB, on one
+# Linux host on 2026-11-23, the oldest four days old, with nothing that ever removed them. Now each run removes its
+# own on every exit it can see (return, exception, SIGTERM, SIGHUP, the watchdog), and each start sweeps what a run
+# it could not see (SIGKILL, a crash) left: handbook a-finished-builds-cache-outlives-it and
+# killed-launch-leaves-its-copy.
+SCRATCH_PREFIX = "cmux-prepush-"
+SCRATCH_NAME = re.compile(r"cmux-prepush-(?:highlights-)?[a-z0-9_]{8}\Z")  # mkdtemp's names for this gate's prefixes only
+SCRATCH_OWNER = ".cmux-prepush-owner"  # inside each scratch dir: {"pid", "start"} of the run that made it
+# A dir with no owner file (made before this change) is swept by age: older than twice the longest a gate can run
+# (GATE_LIMIT_MAX_SECONDS, the watchdog's ceiling on the most loaded host; a normal gate takes under a minute), and
+# on Linux only when no process has its cwd, an open file or its path in its command line under it. Without /proc
+# (macOS) the age is the only evidence, so the bound is three times longer.
+SCRATCH_SWEEP_AGE_SECONDS = 2 * GATE_LIMIT_MAX_SECONDS
+SCRATCH_SWEEP_AGE_NO_PROC_SECONDS = 6 * GATE_LIMIT_MAX_SECONDS
+SCRATCH_SWEEP_OFF = "CMUX_NEXT_PREPUSH_SCRATCH_SWEEP"  # "0" turns the start-up sweep off; delete on finish stays
+_LIVE_SCRATCH: list[str] = []
+
+
+def _process_start(pid: int) -> str | None:
+    """PID's start time in clock ticks since boot (Linux /proc/PID/stat field 22), else None: with the pid it tells
+    the run that wrote an owner file from a later process that reuses its pid."""
+    try:
+        line = Path(f"/proc/{pid}/stat").read_text()
+    except OSError:
+        return None
+    fields = line[line.rfind(")") + 2:].split()
+    return fields[19] if len(fields) > 19 else None
+
+
+def _owner_alive(owner: dict) -> bool:
+    pid = owner.get("pid")
+    if not isinstance(pid, int) or pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True  # another account's live process: alive
+    except OSError:
+        return True  # cannot tell: keep it
+    start = owner.get("start")
+    return start is None or _process_start(pid) in (None, start)
+
+
+def _remove_scratch(path: str) -> bool:
+    """Remove the scratch dir PATH without following a link: a link is never removed through, and rmtree never
+    descends one (its fd-based walk). True when it is gone."""
+    try:
+        st = os.lstat(path)
+    except FileNotFoundError:
+        return True
+    except OSError:
+        return False
+    if not stat.S_ISDIR(st.st_mode):
+        return False
+    shutil.rmtree(path, ignore_errors=True)
+    return not os.path.lexists(path)
+
+
+@contextlib.contextmanager
+def scratch_dir(prefix: str = SCRATCH_PREFIX):
+    """A scratch dir in the temp dir that this run removes however it ends: on return or an exception here, on
+    SIGTERM or SIGHUP (remove_live_scratch from the handler) and at the watchdog's exit. Its owner file lets the
+    next run's sweep tell a live run's dir from a dead one's."""
+    path = tempfile.mkdtemp(prefix=prefix)
+    _LIVE_SCRATCH.append(path)
+    try:
+        try:
+            Path(path, SCRATCH_OWNER).write_text(json.dumps({"pid": os.getpid(), "start": _process_start(os.getpid())}))
+        except OSError:
+            pass  # no owner file: the sweep then judges it by age and holders, as an old one
+        yield path
+    finally:
+        try:
+            _LIVE_SCRATCH.remove(path)
+        except ValueError:
+            pass
+        _remove_scratch(path)
+
+
+def remove_live_scratch() -> None:
+    """Remove every scratch dir this run still has (a signal handler's or the watchdog's last step)."""
+    for path in list(_LIVE_SCRATCH):
+        try:
+            _remove_scratch(path)
+        except Exception:  # noqa: BLE001 (an exit path: never raise)
+            pass
+
+
+def _proc_holders(paths: list[str], proc: str = "/proc") -> set[str] | None:
+    """The PATHS some live process holds: its cwd, its root or an open file under one, or the path in its command
+    line. None when there is no /proc to read (macOS)."""
+    try:
+        pids = [p for p in os.listdir(proc) if p.isdigit()]
+    except OSError:
+        return None
+    if not pids:
+        return None
+    me = str(os.getpid())
+    held: set[str] = set()
+
+    def under(target: str) -> None:
+        for path in paths:
+            if target == path or target.startswith(path + "/"):
+                held.add(path)
+
+    for pid in pids:
+        if pid == me:
+            continue
+        base = f"{proc}/{pid}"
+        links = [f"{base}/cwd", f"{base}/root"]
+        try:
+            links += [f"{base}/fd/{fd}" for fd in os.listdir(f"{base}/fd")]
+        except OSError:
+            pass
+        for link in links:
+            try:
+                under(os.readlink(link))
+            except OSError:
+                continue
+        try:
+            argv = Path(base, "cmdline").read_bytes().decode(errors="replace").split("\0")
+        except OSError:
+            continue
+        for arg in argv:
+            for path in paths:
+                if path in arg:
+                    held.add(path)
+    return held
+
+
+def sweep_scratch(root: str | None = None, now: float | None = None, proc: str = "/proc") -> list[str]:
+    """Remove the scratch dirs of ended gate runs directly in ROOT (the temp dir): a dir whose owner file names a
+    process that is gone, or one with no owner file older than the bound that no process holds. Kept: a live
+    owner's, a held one, a young one, a link, anything not a real dir of this account. Returns what it removed."""
+    root = os.path.realpath(root or tempfile.gettempdir())
+    now = time.time() if now is None else now
+    uid = os.getuid()
+    candidates: list[tuple[str, dict | None, float]] = []
+    with os.scandir(root) as entries:
+        for entry in entries:
+            if not SCRATCH_NAME.match(entry.name) or entry.is_symlink() or not entry.is_dir(follow_symlinks=False):
+                continue
+            path = os.path.join(root, entry.name)
+            if path in _LIVE_SCRATCH:
+                continue
+            try:
+                st = entry.stat(follow_symlinks=False)
+            except OSError:
+                continue
+            if st.st_uid != uid:
+                continue
+            owner = None
+            try:
+                with open(os.path.join(path, SCRATCH_OWNER), "rb", opener=lambda p, f: os.open(p, f | os.O_NOFOLLOW)) as fh:
+                    loaded = json.loads(fh.read(4096))
+                owner = loaded if isinstance(loaded, dict) else {}
+            except (OSError, ValueError):
+                owner = None
+            if owner is not None and _owner_alive(owner):
+                continue  # the run that made it is still going
+            newest = st.st_mtime  # the dir and its top entries (base, head, materials): what a run touches as it works
+            try:
+                with os.scandir(path) as inner:
+                    for child in inner:
+                        try:
+                            newest = max(newest, child.stat(follow_symlinks=False).st_mtime)
+                        except OSError:
+                            pass
+            except OSError:
+                continue
+            candidates.append((path, owner, now - newest))
+    if not candidates:
+        return []
+    holders = _proc_holders([path for path, _, _ in candidates], proc)
+    removed = []
+    for path, owner, age in candidates:
+        if holders is not None and path in holders:
+            continue
+        if owner is None:
+            bound = SCRATCH_SWEEP_AGE_SECONDS if holders is not None else SCRATCH_SWEEP_AGE_NO_PROC_SECONDS
+            if age < bound:
+                continue
+        if _remove_scratch(path):
+            removed.append(path)
+    return removed
+
+
+def sweep_scratch_safely() -> None:
+    """sweep_scratch for a push: one line either way, and never an exception into the push."""
+    if os.environ.get(SCRATCH_SWEEP_OFF, "").strip() == "0":
+        return
+    try:
+        removed = sweep_scratch()
+    except Exception as error:  # noqa: BLE001 (a failed sweep never stops a push)
+        safe_print(f"prepush-gate: scratch sweep failed ({type(error).__name__}: {error}); the push goes on",
+                   file=sys.stderr)
+        return
+    if removed:
+        safe_print(f"prepush-gate: removed {len(removed)} scratch dir(s) of ended gate runs from "
+                   f"{os.path.dirname(removed[0])}", file=sys.stderr)
+
+
+def remove_scratch_on_signals(signums=(signal.SIGTERM, signal.SIGHUP)) -> None:
+    """On SIGNUMS: remove this run's scratch, then die of the same signal (the caller sees what it saw before)."""
+    def handler(signum, frame):
+        remove_live_scratch()
+        signal.signal(signum, signal.SIG_DFL)
+        os.kill(os.getpid(), signum)
+
+    for signum in signums:
+        try:
+            signal.signal(signum, handler)
+        except (OSError, ValueError):
+            pass
+
+
 if __name__ == "__main__":
     start_watchdog(gate_limit())
+    remove_scratch_on_signals()
+    sweep_scratch_safely()
     sys.exit(main())
