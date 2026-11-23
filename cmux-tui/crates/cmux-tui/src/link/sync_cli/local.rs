@@ -819,7 +819,9 @@ pub(super) fn git(folder: &Path, args: &[&str]) -> anyhow::Result<String> {
 /// names (an fsmonitor or a hook) and never taking a bare repository in it
 /// for its own.
 pub(super) fn git_bytes(folder: &Path, args: &[&str]) -> anyhow::Result<Vec<u8>> {
-    let output = git_command(folder, args).output().context("cannot run git")?;
+    let name = format!("git {}", args.first().copied().unwrap_or("?"));
+    let output = crate::link::spans::time(&name, || git_command(folder, args).output())
+        .context("cannot run git")?;
     if !output.status.success() {
         bail!("git {}: {}", args.join(" "), String::from_utf8_lossy(&output.stderr).trim());
     }
