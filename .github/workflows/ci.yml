@@ -1278,6 +1278,11 @@ jobs:
           # response turned this check red on every feat-cmux-next PR.
           GHOSTTYKIT_DOWNLOAD_RETRIES: "3"
           GHOSTTYKIT_DOWNLOAD_RETRY_DELAY: "5"
+          # A PR with Mac jobs (they download, check and unpack the archive) checks the
+          # release by its published digest, not a 123 MB download (17 min at 100 KB/s on
+          # 2026-11-23). A provenance-only PR (macos=false) still downloads it in full.
+          GHOSTTYKIT_VERIFY_BY_DIGEST: ${{ needs.changes.outputs.macos == 'true' && '1' || '0' }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: ./scripts/download-prebuilt-ghosttykit.sh --verify-only
 
   browser:
