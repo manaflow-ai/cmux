@@ -4,7 +4,7 @@ use std::os::unix::fs::PermissionsExt;
 
 /// Stand in only for the three SSH operations the CLI needs. No host SSH, credentials or
 /// network are used; the socket symlink reaches the other test daemon's real RPC server.
-pub(super) fn fake_ssh(home: &Path, target: &Daemon) -> String {
+pub(super) fn fake_ssh(home: &Path, target_home: &Path, target_socket: &Path) -> String {
     let bin = home.join("bin");
     std::fs::create_dir(&bin).unwrap();
     let script = format!(
@@ -32,8 +32,8 @@ elif 'mkdir -p' in command and 'read -r d' in command:
 else:
     sys.exit(1)
 "#,
-        home = serde_json::to_string(&target.home.to_string_lossy()).unwrap(),
-        socket = serde_json::to_string(&target.socket.to_string_lossy()).unwrap(),
+        home = serde_json::to_string(&target_home.to_string_lossy()).unwrap(),
+        socket = serde_json::to_string(&target_socket.to_string_lossy()).unwrap(),
     );
     let ssh = bin.join("ssh");
     std::fs::write(&ssh, script).unwrap();
@@ -42,14 +42,14 @@ else:
 }
 
 impl Rpc {
-    async fn send_prompt(&mut self, id: &str, prompt_id: &str, text: &str) {
+    pub(super) async fn send_prompt(&mut self, id: &str, prompt_id: &str, text: &str) {
         self.next += 1;
         let request = json!({"jsonrpc": "2.0", "id": self.next, "method": "session/prompt",
             "params": prompt(id, prompt_id, text)});
         self.wr.write_all(format!("{request}\n").as_bytes()).await.unwrap();
     }
 
-    async fn notification(&mut self, method: &str, predicate: impl Fn(&Value) -> bool) {
+    pub(super) async fn notification(&mut self, method: &str, predicate: impl Fn(&Value) -> bool) {
         tokio::time::timeout(Duration::from_secs(20), async {
             loop {
                 let line = self.lines.next_line().await.unwrap().expect("daemon connected");
@@ -63,7 +63,7 @@ impl Rpc {
         .unwrap_or_else(|_| panic!("did not receive {method}"));
     }
 
-    async fn texts(&mut self, id: &str, kind: &str) -> Vec<String> {
+    pub(super) async fn texts(&mut self, id: &str, kind: &str) -> Vec<String> {
         let page = self
             .call("_acpmux/events", json!({"sessionId": id, "afterSeq": 0, "limit": 5000}))
             .await;
@@ -84,7 +84,7 @@ impl Rpc {
     }
 }
 
-fn prompt(id: &str, prompt_id: &str, text: &str) -> Value {
+pub(super) fn prompt(id: &str, prompt_id: &str, text: &str) -> Value {
     json!({"sessionId": id, "prompt": [{"type": "text", "text": text}],
         "_meta": {"acpmux": {"promptId": prompt_id}}})
 }
