@@ -56,7 +56,8 @@
   display: flex;
   align-items: stretch;
   flex: 0 0 auto;
-  padding-right: var(--ds-space-2);
+  /* The end side, so right to left the corner still sits over the rail and its divider meets the rail's. */
+  padding-inline-end: var(--ds-space-2);
 }
 .acpmux-cols-search > svg {
   width: var(--ds-icon-14);
@@ -268,6 +269,19 @@
      strips' rule beside it (.acpmux-cols-sep). */
   box-shadow:
     inset var(--cmux-hairline, 0.5px) 0 0 var(--acpmux-cols-line),
+    inset 0 var(--cmux-hairline, 0.5px) 0 var(--acpmux-cols-line);
+}
+/* Right to left the grid mirrors, so each divider moves to the other edge of its column. */
+.acpmux-cols-corner:dir(rtl),
+.acpmux-cols-lists > .acpmux-cols-rail:dir(rtl) {
+  box-shadow: inset var(--cmux-hairline, 0.5px) 0 0 var(--acpmux-cols-line);
+}
+.acpmux-cols-body > .acpmux-cols-tune-head:dir(rtl) {
+  box-shadow: inset calc(-1 * var(--cmux-hairline, 0.5px)) 0 0 var(--acpmux-cols-line);
+}
+.acpmux-cols-body > .acpmux-cols-tune:dir(rtl) {
+  box-shadow:
+    inset calc(-1 * var(--cmux-hairline, 0.5px)) 0 0 var(--acpmux-cols-line),
     inset 0 var(--cmux-hairline, 0.5px) 0 var(--acpmux-cols-line);
 }
 /* Its levels and providers scroll on their own; Fast stays fixed under them, at the column's bottom,
