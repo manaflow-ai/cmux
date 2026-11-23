@@ -80,8 +80,13 @@ class UiReviewAdvisoryTests(unittest.TestCase):
 
     def test_heading_and_verdict_are_required_only_when_ui_paths_change(self):
         files = [{"filename": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Home.swift"}]
-        self.assertEqual(module.inspect("## Summary", files)["missing"], ["the `## UI review` heading", "a `Verdict:` line"])
-        self.assertEqual(module.inspect("## UI review\nVerdict: ship it", files)["missing"], [])
+        self.assertEqual(module.inspect("## Summary", files)["missing"],
+                         ["the `## UI review` heading", "a `Verdict:` line", "a `Try:` line"])
+        self.assertEqual(module.inspect("## UI review\nVerdict: ship it", files)["missing"], ["a `Try:` line"])
+        self.assertEqual(module.inspect("## UI review\nVerdict: ship it\nTry: `scripts/cmux-next/try-pr.sh 12`",
+                                        files)["missing"], [])
+        self.assertEqual(module.inspect("## UI review\nVerdict: ship it\nTry: none, iOS only", files)["missing"], [])
+        self.assertEqual(module.inspect("## UI review\nVerdict: ship it\nTry:", files)["missing"], ["a `Try:` line"])
         self.assertEqual(module.inspect("", [{"filename": "docs/ui.md"}])["missing"], [])
 
     def test_cli_is_advisory_and_never_fails(self):
@@ -99,6 +104,19 @@ class UiReviewAdvisoryTests(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 0)
             self.assertIn("::warning", result.stdout)
+            # The warning names this pull request's own try command.
+            result = subprocess.run(
+                [sys.executable, str(SCRIPT), "--body-file", str(body), "--files-json", str(files), "--pr", "4321"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0)
+            self.assertIn("Try: `scripts/cmux-next/try-pr.sh 4321`", result.stdout)
+
+    def test_template_carries_the_try_line(self):
+        template = (ROOT / ".github/pull_request_template.md").read_text()
+        self.assertRegex(template, module.TRY)
 
 
 if __name__ == "__main__":

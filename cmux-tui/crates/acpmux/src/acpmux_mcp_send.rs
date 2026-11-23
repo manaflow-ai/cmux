@@ -958,6 +958,13 @@ fn row_ok(row: &Value) -> bool {
 fn sent_line(row: &Value) -> String {
     let s = |k: &str| row.get(k).and_then(Value::as_str).unwrap_or_default();
     let (to, prompt_id, delivery) = (s("to"), s("promptId"), s("deliveryId"));
+    // The target's given name, from its acceptance, first: "Sent to Mango · HOST/NAME".
+    let given = row
+        .pointer("/accepted/displayName")
+        .and_then(Value::as_str)
+        .filter(|n| crate::session_handle::valid(n));
+    let label = crate::prompt_provenance::display_label(given, to);
+    let to = label.as_str();
     if !row_ok(row) {
         if to.is_empty() {
             let index = row.get("index").cloned().unwrap_or(Value::Null);
@@ -997,4 +1004,32 @@ fn batch_result(results: Vec<Value>) -> Value {
         out.set("isError", json!(true));
     }
     out
+}
+
+#[cfg(test)]
+mod sent_line_tests {
+    use super::sent_line;
+    use serde_json::json;
+
+    /// Leo: "the send/recieve messages are still only the older names". The confirmation names
+    /// the target by its given name, its HOST/NAME beside it; a target without one reads as before.
+    #[test]
+    fn a_send_confirmation_names_the_target_by_its_given_name() {
+        let row = |accepted| {
+            json!({"ok": true, "to": "studio-mac/coord-old", "promptId": "p1",
+                   "deliveryId": "d1", "delivery": "started", "accepted": accepted})
+        };
+        assert_eq!(
+            sent_line(&row(json!({"sessionId": "s1", "displayName": "Mango"}))),
+            "Sent to Mango · studio-mac/coord-old: it started a turn with it (promptId p1)."
+        );
+        assert_eq!(
+            sent_line(&row(json!({"sessionId": "s1"}))),
+            "Sent to studio-mac/coord-old: it started a turn with it (promptId p1)."
+        );
+        // Sent by the given name: said once.
+        let mut by_given = row(json!({"sessionId": "s1", "displayName": "Mango"}));
+        by_given["to"] = json!("Mango");
+        assert_eq!(sent_line(&by_given), "Sent to Mango: it started a turn with it (promptId p1).");
+    }
 }
