@@ -3,17 +3,20 @@
 // each model family), the family's models, then the shown model's settings (its effort levels and
 // Fast mode). The account is an avatar above the rail, as a browser's profile button: it shows the
 // family's account with the family's mark at its corner, and a click opens a card that switches it.
-// A pick of a model, a level or a provider applies at once and closes the menu, by click or by Return,
-// as the list menu's does (David Beyer 2026-11-20: "the model menu should close after switching").
-// The Fast switch flips in place and keeps it open. Left and Right move between the columns, Up and
-// Down within one: the arrows only move the highlight, so Down, Right and a level's click land
-// another model at that level in one go.
+// A click on a model, a level, a provider or an account applies at once and the menu stays open, as
+// the Fast switch, a star, the search and the rail do: a press outside it or Escape closes it
+// (https://github.com/manaflow-ai/cmux/issues/50998: "the model picker should not disappear until i
+// click outside of it"). Return and a digit are the keyboard's commit: they land the highlighted row
+// and close it. A control that hands off to another surface (Add account, Sign in, Install, Add
+// harness, Update, a harness that only launches) closes it too. Left and Right move between the
+// columns, Up and Down within one: the arrows only move the highlight.
 import { HarnessUpdatesSection } from "./HarnessUpdates";
 import React, { Fragment, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Spinner } from "./conversation/icons";
 import { AgentMark } from "../shared/AgentMark";
 import { Popover, type UiVirtualAnchor } from "../../ui/Popover";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
+import { focusRoute } from "../../ui/focusRoute";
 import { DrivenList, DrivenRow, InlineCard } from "../../ui/DrivenList";
 import { isMousePress } from "../../ui/pressRelease";
 import { useOpenSide } from "../../ui/openSide";
@@ -62,10 +65,6 @@ import { RESIZE_HANDLE_PROPS } from "../../scrollers";
 import "./quickModelColumns.css";
 
 type Column = 0 | 1 | 2;
-/// What a pick did: `landed` a model, level or provider (the menu closes), started setting its harness
-/// up (`setup`: an install or a sign-in, whose progress the menu shows, so it stays open), or `none`.
-type Outcome = "landed" | "setup" | "none";
-const outcome = (setsUp: boolean): Outcome => (setsUp ? "setup" : "landed");
 
 /// A row of the settings column: an effort level, a provider of a model several serve, or Fast mode.
 type TuneRow =
@@ -298,6 +297,8 @@ function Columns({
   const [tuneHl, setTuneHl] = useState(0);
   // Return runs the settings row the arrows reached; after a click on one it only closes, so it never
   // turns a Fast just switched on off again.
+  // The last level picked in this opening, on any model: the next model clicked carries it.
+  const [chosenLevel, setChosenLevel] = useState<string>();
   const [tuneKeys, setTuneKeys] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   // The running model's level or Fast shows at once, until the session reports its own.
@@ -620,6 +621,7 @@ function Columns({
       setModelHl(-1);
       setHeld(undefined);
       setPending(undefined);
+      setChosenLevel(undefined);
       setHandPickedUnder(undefined);
       setFastOffFor(undefined);
     }
@@ -682,7 +684,7 @@ function Columns({
   const carriedLevel = (model: QuickModel) => {
     const choices = levelsOf(model);
     if (!choices.length) return undefined;
-    const now = held?.effort ?? effort?.current;
+    const now = chosenLevel ?? held?.effort ?? effort?.current;
     if (now === "ultracode" && choices.some((choice) => choice.id === "xhigh")) return "xhigh";
     return nearestLevel(now, choices) ?? model.defaultEffort ?? choices.find((choice) => choice.recommended)?.id;
   };
@@ -939,53 +941,56 @@ function Columns({
     grip.addEventListener("pointercancel", end);
   };
   /// Lands `model` at once, with a level and Fast set exactly (never copied from a searched row). The
-  /// caller closes the menu, except after the Fast switch. True when the pick sets its harness up
-  /// instead (installs it, signs it in): the menu stays open on that progress (`setup`).
-  const hold = (model: QuickModel, choice: { effort?: string; fast?: boolean }): boolean => {
-    if (model.disabled) return false;
+  /// menu stays open; a pick that sets its harness up shows that progress in it.
+  const hold = (model: QuickModel, choice: { effort?: string; fast?: boolean }) => {
+    if (model.disabled) return;
     const { effort: _effort, fast: _fast, ...base } = model;
     const pick: Pending = {
       model: { ...base, ...(choice.effort ? { effort: choice.effort } : {}), ...(choice.fast ? { fast: true } : {}) },
       viaSearch: !!query,
     };
     setPending(pick);
-    const setsUp = pick.viaSearch && menu.search ? menu.search.pick(pick.model) : menu.families.onPick(pick.model);
-    return setsUp === true;
+    if (pick.viaSearch && menu.search) menu.search.pick(pick.model);
+    else menu.families.onPick(pick.model);
   };
   /// The level another model lands with: the carried one. None when there is no way to land one
   /// with the model.
   const inheritedLevel = (model: QuickModel) => (menu.inlineEffort === true ? carriedLevel(model) : undefined);
-  const pickModel = (index: number): Outcome => {
+  const pickModel = (index: number) => {
     const model = rows[index];
-    if (!model || model.disabled) return "none";
+    if (!model || model.disabled) return;
     setModelHl(index);
     setTuneHl(0);
+    // The model already picked in this opening: a click again keeps its level and Fast (#50998).
+    if (pending && keyOf(pending.model) === keyOf(model) && !model.effort && !model.fast) return;
     // The running model again: nothing to land, unless a search named a level or Fast for it. With
-    // another harness's model held, it is a pick again: it drops the hold.
+    // another harness's model held, or another model picked in this opening, it is a pick again: it
+    // drops the hold, and lands the running model back.
     if (isRunning(model) && !model.effort && !model.fast) {
+      const repick = heldFor || !!pending;
       setPending(undefined);
-      if (heldFor) menu.families.onPick(model);
-      return "landed";
+      if (repick) menu.families.onPick(model);
+      return;
     }
-    const result = outcome(hold(model, { effort: model.effort ?? inheritedLevel(model), fast: carriedFast(model) }));
+    hold(model, { effort: model.effort ?? inheritedLevel(model), fast: carriedFast(model) });
     // Fast switched off on this row before its pick: the chat's own Fast goes off with it.
     if (fastOffFor === keyOf(model) && !model.fast && model.family === families.current && fast?.checked)
       fast.onChange(false);
-    return result;
   };
-  const pickLevel = (value: string): Outcome => {
-    if (!focus || focusOff || !canLandEffort) return "none";
+  const pickLevel = (value: string) => {
+    if (!focus || focusOff || !canLandEffort) return;
+    setChosenLevel(value);
     setHandPickedUnder(query);
     if (focusRuns && effort && !picked) {
       setHeld({ ...mine, key: focusKey, effort: value });
       effort.onPick(value);
-      return "landed";
+      return;
     }
-    return outcome(hold(picked ?? focus, { effort: value, fast: fastOn }));
+    hold(picked ?? focus, { effort: value, fast: fastOn });
   };
-  /// Fast is a switch: it never closes the menu, also when it lands another model with Fast.
-  const toggleFast = (): Outcome => {
-    if (!focus || focusOff) return "none";
+  /// Fast is a switch, also when it lands another model with Fast.
+  const toggleFast = () => {
+    if (!focus || focusOff) return;
     setHandPickedUnder(query);
     const on = !fastOn;
     // A pick lands Fast only on (a combo never turns it off): off on a model that runs goes through
@@ -1004,16 +1009,15 @@ function Columns({
       if (!picked) setFastOffFor(undefined);
       hold(picked ?? focus, { ...(picked?.effort ? { effort: picked.effort } : {}), fast: on });
     }
-    return "none";
   };
   /// A provider of the shown model: it keeps the level and Fast already picked here.
-  const pickOffer = (offer: QuickModel): Outcome => {
-    if (focusOff) return "none";
-    return outcome(hold(offer, { ...(picked?.effort ? { effort: picked.effort } : {}), fast: fastOn }));
+  const pickOffer = (offer: QuickModel) => {
+    if (focusOff) return;
+    hold(offer, { ...(picked?.effort ? { effort: picked.effort } : {}), fast: fastOn });
   };
-  const runTune = (index: number): Outcome => {
+  const runTune = (index: number) => {
     const row = tuneRows[index];
-    if (!row) return "none";
+    if (!row) return;
     if (row.kind === "level") return pickLevel(row.choice.id);
     if (row.kind === "offer") return pickOffer(row.offer);
     return toggleFast();
@@ -1103,9 +1107,10 @@ function Columns({
         families.onLaunch?.(launchOnly.id);
         return;
       }
-      // Return closes the menu, after a pick or with none, unless the pick sets its harness up.
-      const done = col === 2 && tuneKeys ? runTune(tuneHl) : col === 1 && focus && !picked ? pickModel(hl) : "none";
-      if (done !== "setup") close();
+      // Return is the keyboard's commit: it lands the highlighted row and closes the menu.
+      if (col === 2 && tuneKeys) runTune(tuneHl);
+      else if (col === 1 && focus && !picked) pickModel(hl);
+      close();
       return;
     }
     // 1 to 9 on an empty field pick the tab's rows, as in the list menu.
@@ -1113,7 +1118,8 @@ function Columns({
       const index = Number(event.key) - 1;
       if (!rows[index]) return;
       event.preventDefault();
-      if (pickModel(index) !== "setup") close();
+      pickModel(index);
+      close();
     }
   };
 
@@ -1181,8 +1187,13 @@ function Columns({
     setAdding({ family: addFamily, apiKey: signedOut });
     setAddingAccount(true);
   };
+  /// An account switches in place: its card folds back to the avatar, which shows it, and the menu stays.
   const pickAccount = (routeId: string | null) => {
-    close();
+    setProfileOpen(false);
+    // Return on a card row unmounts the row it focused: the keyboard goes back to the search field.
+    focusRoute(field.current, "person", "an account picked on the card: back to the search field", {
+      preventScroll: true,
+    });
     accounts.pick(routeId);
   };
   // The card lists only the accounts the harness is not on: its other routes (transports, logins,
@@ -1334,7 +1345,7 @@ function Columns({
         aria-description={model.hint ?? model.provider}
         onPick={() => {
           setCol(1);
-          if (pickModel(index) === "landed") close();
+          pickModel(index);
         }}
       >
         {/* The name's tooltip is the name alone, only while the row cuts it off (titleTooltips repeatsLabel), at
@@ -1405,7 +1416,7 @@ function Columns({
     key: string,
     checked: boolean,
     disabled: boolean,
-    onClick: () => Outcome,
+    onClick: () => void,
     body: React.ReactNode,
     kind: "radio" | "switch" = "radio",
     title?: string,
@@ -1430,8 +1441,8 @@ function Columns({
           setCol(2);
           setTuneKeys(false);
           setTuneHl(index);
-          // A level or a provider is a pick, which closes the menu as Return does; Fast is a switch.
-          if (onClick() === "landed") close();
+          // A level, a provider or Fast lands at once; the menu stays open (#50998).
+          onClick();
         }}
       >
         {body}

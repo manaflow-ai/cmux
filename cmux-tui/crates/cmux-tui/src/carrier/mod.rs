@@ -145,6 +145,7 @@ mod secrets;
 mod serve;
 mod serve_machine;
 mod serve_policy;
+mod serve_quiet;
 mod source;
 mod ssh;
 mod state_root;
@@ -153,6 +154,7 @@ mod supervise_wire;
 pub(crate) mod tunnel;
 mod tunnel_cli;
 pub(crate) mod tunnel_keeper;
+pub(crate) mod workspace;
 
 use std::io::Write as _;
 use std::path::PathBuf;
