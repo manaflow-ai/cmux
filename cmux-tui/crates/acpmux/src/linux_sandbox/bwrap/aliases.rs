@@ -249,6 +249,28 @@ fn visible_below<'a>(
     Err("cyclic mount ancestry".into())
 }
 
+/// Whether `path`, read in `mount`, is hidden by a mount visible below `mount` at `path` or one
+/// of its ancestors: a lookup of `path` crosses into that mount, so `mount`'s files there are
+/// out of reach. systemd's `PrivateTmp=yes` binds `/tmp/systemd-private-*/tmp` over `/tmp`; the
+/// root mount still holds that folder at its own `/tmp/systemd-private-*/tmp`, which the private
+/// `/tmp` covers (this check read it as a second view of every tree under `/tmp`). A
+/// covering mount that shows the tree again is its own pair, checked as `other` in turn.
+fn covered_below(path: &Path, mount: &MountEntry, mounts: &[MountEntry]) -> Result<bool, String> {
+    for cover in mounts {
+        if cover.id == mount.id
+            || cover.point == mount.point
+            || !cover.point.starts_with(&mount.point)
+            || !path.starts_with(&cover.point)
+        {
+            continue;
+        }
+        if visible_below(cover, mount.id, mounts)? {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 /// A tree is (canonical path, resolved containing mount ID, writable).
 /// Every visible descendant filesystem is a separate piece. All comparisons
 /// consume finite trees, pieces and mount entries. Unknown topology refuses.
@@ -325,6 +347,11 @@ fn home_views_listed(
         let Ok(rest) = underlying.strip_prefix(other_root) else { continue };
         let view = join_path(&mount.point, rest);
         if view.starts_with(home) || home.starts_with(&view) {
+            continue;
+        }
+        // A view a mount below covers (systemd's PrivateTmp under `/tmp`) is out of reach, and
+        // the plan could not make its folders: no view.
+        if covered_below(&view, mount, &mounts)? {
             continue;
         }
         path_arg(&view)?;
@@ -495,6 +522,7 @@ fn check_trees(
                 // at the view the session did not name).
                 if source != alternate
                     && !masked_by_rebuild(&source, mount.id, &alternate, other.id, rebuilt)
+                    && !covered_below(&alternate, other, &mounts)?
                 {
                     reasons.insert(format!(
                         "{} is also visible at {}",
@@ -525,6 +553,36 @@ mod tests {
     /// A second mount of the home: /home/u is also mounted at /alias/u.
     const SECOND_HOME: &str =
         "1 0 8:1 / / rw - ext4 root rw\n57 1 8:1 /home/u /alias/u rw - ext4 root rw\n";
+
+    /// systemd `PrivateTmp=yes` (a CI runner's unit): the private folder is bound over `/tmp`, so
+    /// the root mount's copy of it at `/tmp/systemd-private-*/tmp` is covered, not a second view.
+    #[test]
+    fn regression_private_tmp_is_no_alias_of_a_tree_under_tmp() {
+        let private = "/tmp/systemd-private-39c3-runner.service-LCB624/tmp";
+        let info = format!("{ROOT}30 1 8:1 {private} /tmp rw - ext4 root rw\n");
+        let trees = [(Path::new("/tmp/fixture/spawn-tmp"), 30, true)];
+        assert_eq!(guarded_aliases(&trees, &info), Vec::<String>::new());
+        // Nor is the root mount's covered copy a second view of a HOME under /tmp to rebuild.
+        assert!(home_views(Path::new("/tmp/fixture/home"), 30, &info).unwrap().is_empty());
+        // The same folder bound somewhere uncovered is still a second view.
+        let exposed = format!("{info}31 1 8:1 {private} /mnt/tmp-again rw - ext4 root rw\n");
+        let reasons = guarded_aliases(&trees, &exposed);
+        assert!(
+            reasons.contains(
+                &"/tmp/fixture/spawn-tmp is also visible at /mnt/tmp-again/fixture/spawn-tmp"
+                    .into()
+            ),
+            "{reasons:?}"
+        );
+        // A second mount of the whole root at /srv shows the private folder with nothing over it.
+        let beside = format!("{info}32 1 8:1 / /srv rw - ext4 root rw\n");
+        let reasons = guarded_aliases(&trees, &beside);
+        assert!(
+            reasons.iter().any(|r| r
+                .starts_with("/tmp/fixture/spawn-tmp is also visible at /srv/tmp/systemd-private")),
+            "{reasons:?}"
+        );
+    }
 
     #[test]
     fn regression_home_alias_refuses_without_a_rebuilt_view() {
