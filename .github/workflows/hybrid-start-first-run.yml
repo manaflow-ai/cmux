@@ -126,8 +126,10 @@ jobs:
         run: |
           set -euo pipefail
           python3 scripts/cmux-next/hybrid-start-first-run.py --app "$HFR_APP" --cli "$HFR_CLI" \
-            --credentials-file "$HFR_CREDENTIALS" --out "$RUNNER_TEMP/hfr/out"
-          cat "$RUNNER_TEMP/hfr/out/summary.md" >> "$GITHUB_STEP_SUMMARY"
+            --credentials-file "$HFR_CREDENTIALS" --out "$RUNNER_TEMP/hfr/out" || status=$?
+          cat "$RUNNER_TEMP/hfr/out/summary.md" >> "$GITHUB_STEP_SUMMARY" || true
+          # A run that measured nothing (no app on the socket, not signed in, no hybrid start) is red.
+          exit "${status:-0}"
       - name: Keep the evidence and the driver logs
         if: always()
         run: |

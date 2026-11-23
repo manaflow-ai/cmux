@@ -264,6 +264,17 @@ def hybrid_run(index: int) -> dict:
     return r
 
 
+KEYCHAIN_ITEMS: set = set()
+
+
+def harness_names(config: Path) -> list | None:
+    """The harness names in an acpmux config.json (names only), or None when there is none."""
+    try:
+        return sorted((json.loads(config.read_text()).get("harnesses") or {}).keys())
+    except (OSError, ValueError, AttributeError):
+        return None
+
+
 def kill_all(before: set) -> None:
     named = {r.get("machine") for r in evidence["runs"] if r.get("machine")} | {evidence.get("control_machine")}
     after = machines()
@@ -320,7 +331,8 @@ def diagnose(why: str) -> None:
         f"why: {why}", f"open exit: {app.poll()}", f"open output: {launch_log.read_text()[-4000:] if launch_log.exists() else ''}",
         f"app pids: {pids}", "ps:", sh(["/bin/ps", "-axo", "pid,ppid,etime,command"]),
         "app sockets:", *[sh(["/usr/sbin/lsof", "-a", "-p", str(pid), "-U"]) for pid in pids],
-        "tmp sockets:", sh(["/bin/ls", "-la", "/tmp"]),
+        "tmp sockets:", sh(["/bin/ls", "-la", "/tmp/"]),
+        "state sockets:", sh(["/bin/ls", "-la", str(Path.home() / ".local/state/cmux") + "/"]),
         "unified log:", sh(["/usr/bin/log", "show", "--style", "compact", "--info", "--start", launched_at,
                              "--predicate", 'process CONTAINS[c] "cmux" OR subsystem CONTAINS[c] "cmux"'], timeout=120),
     ]))
@@ -329,12 +341,22 @@ def diagnose(why: str) -> None:
 
 
 def find_socket() -> str | None:
-    """The socket the launched app listens on when it is not the one asked for: from lsof on its pids."""
+    """The socket the launched app listens on when it is not the one asked for. The app binds in a
+    private `.cmuxsock.XXXXXX/s` beside its real path and renames it, so lsof names the staging
+    dir's parent; the published app ignores CMUX_NEXT_SOCKET_PATH and binds its build default
+    (`~/.local/state/cmux/cmux-debug-<tag>.sock`). Probe every socket in those directories."""
+    dirs = {Path.home() / ".local/state/cmux", Path("/tmp")}
     for pid in app_pids():
-        for path in re.findall(r"(/\S+\.sock)\b", sh(["/usr/sbin/lsof", "-a", "-p", str(pid), "-U"])):
+        for path in re.findall(r"(/\S+)", sh(["/usr/sbin/lsof", "-a", "-p", str(pid), "-U"])):
+            if path.endswith(".sock"):
+                dirs.add(Path(path).parent)
+            elif "/.cmuxsock." in path:
+                dirs.add(Path(path.split("/.cmuxsock.")[0]))
+    for folder in sorted(dirs):
+        for path in sorted(str(p) for p in folder.glob("cmux*.sock")):
             probe = subprocess.run([APP_CLI, "app", "identify", "--json"], env={**ENV, "CMUX_SOCKET_PATH": path,
                                    "CMUX_NEXT_SOCKET_PATH": path}, capture_output=True, text=True, timeout=30)
-            if probe.returncode == 0 and parsed(probe.stdout).get("pid"):
+            if probe.returncode == 0 and parsed(probe.stdout).get("pid") in app_pids():
                 return path
     return None
 
@@ -347,7 +369,7 @@ try:
         got = run(["app", "identify", "--json"], cli=APP_CLI, timeout=30)
         if got["code"] == 0 and parsed(got["out"]).get("pid"):
             break
-        if not switched and time.monotonic() > deadline - 180:
+        if not switched and time.monotonic() > deadline - 220:
             other = find_socket()
             if other:
                 switched = True
@@ -359,6 +381,8 @@ try:
             break
         time.sleep(1)
     step("app identify", got)
+    IDENT = parsed(got["out"]) if got["code"] == 0 else {}
+    IDENT = (IDENT.get("result") or IDENT) if isinstance(IDENT, dict) else {}
     if got["code"] != 0:
         diagnose("app identify never answered")
         FAILED.append("app identify: " + (got["err"] or got["out"])[-300:])
@@ -379,6 +403,43 @@ try:
         for entry in claude_login_cache.names(status):
             code, err = claude_login_cache.store(APP_CLI, ENV, entry, TOKEN)
             step("cache claude login", {"words": ["cloud", "secret", "set", "<entry>"], "code": code, "ms": 0, "out": "", "err": redact(err)})
+    # Blocker (1), run 45268577702: the PR CLI sits outside any app bundle, and with only CMUX_SOCKET_PATH it
+    # resolved NIGHTLY's ~/.acpmux, a daemon with no harnesses ("no harnesses configured"), while the app's own
+    # acpmux lives in ~/.acpmux/builds/<bundle id>. Give both CLIs the identity an app terminal exports.
+    bundle = IDENT.get("bundle_id") or "com.cmuxterm.app.debug.next"
+    tag = IDENT.get("tag") or "next"
+    acp_home = Path.home() / ".acpmux" / "builds" / bundle
+    evidence["acpmux"] = {"app_home": str(acp_home), "app_home_exists": acp_home.is_dir(),
+                          "harnesses_app_home": harness_names(acp_home / "config.json"),
+                          "harnesses_default_home": harness_names(Path.home() / ".acpmux" / "config.json")}
+    ENV.update({"CMUX_BUNDLE_ID": bundle, "CMUX_TAG": tag})
+    if acp_home.is_dir():
+        ENV["ACPMUX_HOME"] = str(acp_home)
+    print(f"acpmux: {json.dumps(evidence['acpmux'])}", flush=True)
+    # Blocker (2): the app's Set up Cloud gate (CloudSetup.refusal) reads the app acpmux's model connections; a
+    # cached login is not one. Add the agent test account's setup-token as a Claude connection the way
+    # `cmux cloud connect claude` does for a person, with CMUX_CLAUDE_BIN printing the token in place of
+    # `claude setup-token` (a 0600 file, removed at once; the token never reaches argv or the log).
+    conns = step("cloud connections (before)", run(["cloud", "connections", "--json"], cli=APP_CLI))
+    if TOKEN and claude_login_cache.valid(TOKEN) and "claude-token" not in conns["out"]:
+        holder = Path(tempfile.mkdtemp(prefix="hfr-claude-bin-"))
+        secret_file, fake = holder / "token", holder / "claude"
+        secret_file.touch(mode=0o600)
+        secret_file.write_text(TOKEN + "\n")
+        fake.write_text(f"#!/bin/sh\n/bin/cat '{secret_file}'\n")
+        fake.chmod(0o700)
+        try:
+            connect = run(["cloud", "connect", "claude", "--label", "hybrid first run", "--json"], cli=APP_CLI,
+                          env={**ENV, "CMUX_CLAUDE_BIN": str(fake)}, timeout=120)
+        finally:
+            secret_file.unlink(missing_ok=True)
+            fake.unlink(missing_ok=True)
+            holder.rmdir()
+        KEYCHAIN_ITEMS.update(re.findall(r"claude-token-[0-9a-f]{8}", connect["out"] + connect["err"]))
+        step("cloud connect claude (agent test account's setup-token)", {**connect, "out": redact(connect["out"])[-800:],
+                                                                        "err": redact(connect["err"])[-800:]})
+        conns = step("cloud connections (after)", run(["cloud", "connections", "--json"], cli=APP_CLI))
+    evidence["claude_connection"] = "claude-token" in conns["out"]
     step("cli version (PR build)", run(["--version"]))
     hs = step("hybrid-status", run(["cloud", "hybrid-status", "--json"]))
     hv = parsed(hs["out"])
@@ -416,6 +477,8 @@ except SystemExit:
     pass
 finally:
     kill_all(before)
+    for item in sorted(KEYCHAIN_ITEMS):  # the Claude connection's Keychain item this run added
+        sh(["/usr/bin/security", "delete-generic-password", "-s", "cmux-model-key", "-a", item])
     if FAILED:
         diagnose("; ".join(FAILED)) if not (OUT / "launch-diagnostics.txt").exists() else None
     run(["app", "quit"], cli=APP_CLI, timeout=30)
@@ -436,7 +499,7 @@ for r in evidence["runs"]:
 summary = "\n".join(["## Hybrid start first run", "", f"plan: {evidence.get('plan')}", "", *rows, "",
                      *(f"FAILED: {f}" for f in FAILED),
                      f"control (HYBRID=0): exit {evidence.get('control', {}).get('code')} in {evidence.get('control', {}).get('total_ms')} ms",
-                     f"follow-up: {json.dumps({k: evidence['follow_up'].get(k) for k in ('code', 'ms', 'skipped')})}",
+                     f"follow-up: {json.dumps({k: evidence.get('follow_up', {}).get(k) for k in ('code', 'ms', 'skipped')})}",
                      f"killed: {json.dumps(evidence['machines_killed'])}", f"left: {evidence['machines_left']}"])
 (OUT / "summary.md").write_text(redact(summary) + "\n")
 print(summary)
