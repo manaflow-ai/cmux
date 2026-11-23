@@ -906,6 +906,18 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/pause",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/wake",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/keep",
       "params": true,
       "result": true
@@ -2643,6 +2655,7 @@
         "requestId": true,
         "requireFullAccess": true,
         "resend": true,
+        "restricted": true,
         "route": true,
         "senderHarness": true,
         "senderHarnessChecked": true,

@@ -86,6 +86,7 @@ export interface AcpmuxRequestMeta {
   requestId?: unknown;
   requireFullAccess?: unknown;
   resend?: unknown;
+  restricted?: unknown;
   route?: unknown;
   senderHarness?: unknown;
   senderHarnessChecked?: unknown;
