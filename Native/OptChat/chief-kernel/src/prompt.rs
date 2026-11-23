@@ -884,8 +884,8 @@ change; `{chief} profile '{{\"role\": \"...\"}}'` changes those fields, and\n  \
         Tools::Cloud(offered) => cloud_instructions(offered),
     };
     match user.map(str::trim).filter(|u| !u.is_empty()) {
-        Some(user) => format!("{base}\n\n{cmux}\n\n{user}\n"),
-        None => format!("{base}\n\n{cmux}\n"),
+        Some(user) => format!("{base}\n{cmux}\n\n{user}\n"),
+        None => format!("{base}\n{cmux}\n"),
     }
 }
 
