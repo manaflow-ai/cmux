@@ -1,4 +1,5 @@
 #if DEBUG && os(iOS)
+import CmuxMobileAgentChat
 import CmuxMobileChief
 import CmuxMobileDesign
 import CmuxMobileModel
@@ -33,6 +34,8 @@ import SwiftUI
 /// - `chiplist`: a list's connection state (the Workspaces list, Home, Agent Chats) as a chip over
 ///   the rows, which never move: A, top center (the one `cmuxMobileBanner` draws), in the link
 ///   states and over the signed-out banner; B, top leading; C, symbol only at the top trailing edge.
+/// - `stills`: what a tab card's picture draws for math, a running tool's spinner and a menu, A (the
+///   app's), B and C, each through `ImageRenderer` (`StillPictureGallery`).
 /// - `keybar`: the terminal key row's layouts, A (the default), B and C (`TerminalKeyBarGallery`).
 /// - `reconnect`: a list riding out a dropped or quiet connection to the Mac with its rows kept
 ///   (Leo 2026-11-21: no "didn't answer in time"): A, the line the Chats list shows
@@ -91,6 +94,8 @@ public struct RecoveryGalleryRoot: View {
                 MacThemeGallery(variant: scene)
             case "keybar":
                 TerminalKeyBarGallery()
+            case "stills":
+                StillPictureGallery()
             default:
                 states
             }
