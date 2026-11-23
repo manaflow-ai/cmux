@@ -12,7 +12,7 @@ import SwiftUI
 /// points, or `full` for the whole window), default `466x678,full`: the
 /// foldable's outer screen (cmux-tui `emulated-devices.json`, "iPhone Duo")
 /// and the iPad mini's 744 x 1133 window in place of the unfolded one.
-/// `debug.fold.step` (a small button in the status bar's strip) moves to the
+/// `debug.fold.step` (a small button at the top trailing corner) moves to the
 /// next size; with `CMUX_MOBILE_FOLD_SIM_INTERVAL=S`, the first tap also starts
 /// stepping on its own every S seconds, so a UI test can scroll while the
 /// window resizes.
@@ -50,7 +50,11 @@ public struct FoldSimulatorFrame<Content: View>: View {
             .ignoresSafeArea()
             // The resize is animated, so the app lays out at every size in between, as it does mid-fold.
             .animation(.smooth(duration: 0.6), value: step)
-            .overlay(alignment: .top) { controls(size) }
+            // Below the status bar and off the centered regular-width tab bar: a tap in the
+            // status bar's strip never reaches the app on iPad.
+            .overlay(alignment: .topTrailing) {
+                controls(size).padding(.top, max(window.safeAreaInsets.top, 24) + 4).padding(.trailing, 12)
+            }
         }
         .ignoresSafeArea()
         .task(id: stepping) {
@@ -70,7 +74,7 @@ public struct FoldSimulatorFrame<Content: View>: View {
 
     private func controls(_ size: CGSize) -> some View {
         HStack(spacing: 8) {
-            Text("step \(step) \(Int(size.width))x\(Int(size.height))")
+            Text(verbatim: "step \(step) \(Int(size.width))x\(Int(size.height))")
                 .font(.caption2.monospaced())
                 .accessibilityIdentifier("debug.fold.state")
             Button("Fold step") {
@@ -83,7 +87,6 @@ public struct FoldSimulatorFrame<Content: View>: View {
         .padding(.horizontal, 8)
         .background(.thinMaterial, in: Capsule())
         .opacity(0.8)
-        .padding(.top, 2)
     }
 
     static func sizes(_ spec: String) -> [CGSize?] {
