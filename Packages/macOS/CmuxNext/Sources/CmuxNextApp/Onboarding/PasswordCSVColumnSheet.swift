@@ -18,7 +18,7 @@ enum PasswordCSVColumnSheet {
             CmuxDialogOption(label: name.isEmpty ? PasswordCSVColumnStrings.unnamed(index + 1) : name, value: String(index))
         }
         let guess = guess(header.names)
-        let spec = CmuxDialogSpec(
+        let spec = CmuxDialogSpec(usesTransientMaterial: true,
             title: PasswordCSVColumnStrings.title,
             lines: [PasswordCSVColumnStrings.message(fileName, rows: header.rows)],
             fields: [
@@ -56,7 +56,7 @@ enum PasswordCSVColumnSheet {
 /// Strings of the column sheet (table Passwords).
 nonisolated enum PasswordCSVColumnStrings {
     private static func t(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, table: "Passwords", bundle: .module)
+        String(localized: key, defaultValue: value, table: "Passwords", bundle: .module.inAppLanguage)
     }
 
     static var title: String { t("passwords.csv.columns.title", "Match the Columns") }

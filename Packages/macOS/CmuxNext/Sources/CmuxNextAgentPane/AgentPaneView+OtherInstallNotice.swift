@@ -30,3 +30,34 @@ extension AgentPaneView {
         otherInstall && requestWaiting
     }
 }
+
+/// One line above the composer while this pane's connection did not prove the person to its
+/// acpmux (`hub/person.rs`): the daemon would record what the person types here as an unverified
+/// sender's, and the agent would read it as not theirs (Leo, 2026-11-10: "Oh, it's turned me into
+/// an unverified sender."). The transport gets the key to the daemon again and reconnects
+/// (``AgentPaneTransport/recoverPersonProof``); the line goes when a connection proves the person.
+extension AgentPaneView {
+    func showPersonProof(_ proven: Bool) {
+        // Nothing the person can do about it: the line waits ``NoticeTiming/connectionQuiet`` before it shows, so a
+        // reconnect that proves them again inside it never pushes the composer up (Leo, 2026-11-21).
+        personUnprovenHold.update(!proven) { [weak self] in
+            guard let self, personUnprovenNotice == nil else { return }
+            personUnprovenNotice = AgentPaneNotice(id: "personUnproven", title: Self.personUnprovenMessage)
+            pushPaneNotices()
+        }
+        guard proven, personUnprovenNotice != nil else { return }
+        personUnprovenNotice = nil
+        pushPaneNotices()
+    }
+
+    /// The host's full lookup for this chat: it hands off a daemon an update replaced and gives
+    /// the daemon this launch's person key. True when it finished.
+    func recoverPersonProof() async -> Bool {
+        do {
+            _ = try await model.host.handshake(sessionId: model.sessionId)
+            return true
+        } catch {
+            return false
+        }
+    }
+}

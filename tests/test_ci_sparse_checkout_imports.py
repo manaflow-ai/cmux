@@ -27,6 +27,16 @@ Optional imports are skipped: an import inside a `try:` body whose handlers catc
 ModuleNotFoundError (or a bare `except:`/`except Exception`/`BaseException`) is not followed, since
 the script runs without it. There is no allowlist.
 
+The same lists must also hold the repo files their tests read. #41164 at af61f28e added a test to
+tests/test_risk_tier.py that reads `ROOT / ".github/workflows/risk-tier.yml"`; risk-tier-tests.yml
+checked out only the test and its script, so CI died with FileNotFoundError. For each test file
+(test_*.py or *_test.py) the list names by exact path and the job's `run:` steps name, every path
+it builds statically (`ROOT / "a/b"`, `ROOT / "a" / "b"`, `ROOT.joinpath(...)`, `.parents[n]`,
+`os.path.join(HERE, ...)`, `open("a/b")`, `Path("a/b")`) that is a file in the repo must be
+checked out, by the same git oracle. A name counts only when every assignment to it gives the same
+repo path, so tmp fixtures never count. Scripts are not checked this way: a subcommand may never
+reach a read, while a test file runs all of its tests.
+
 Run: python3 tests/test_ci_sparse_checkout_imports.py
 """
 
@@ -34,6 +44,8 @@ from __future__ import annotations
 
 import ast
 import os
+import posixpath
+import re
 import subprocess
 import tempfile
 import textwrap
@@ -42,6 +54,13 @@ from functools import lru_cache
 from pathlib import Path
 
 import yaml
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 ROOT = Path(__file__).resolve().parents[1]
 CI_DIR = "scripts/ci"
@@ -293,6 +312,214 @@ def find_misses(root: Path) -> list[str]:
     return misses
 
 
+# --- files a run script reads ------------------------------------------------------------------
+
+
+def is_test_file(rel: str) -> bool:
+    """A unittest/pytest file: it runs every test in it, so every file it reads must be there."""
+    name = rel.rsplit("/", 1)[-1]
+    return name.startswith("test_") or name.endswith("_test.py")
+
+
+def listed_run_scripts(entries: list[str], run_text: str, root: Path, tests_only: bool = True) -> list[str]:
+    """.py files the entries name by exact path that the job's `run:` steps also name.
+
+    By default only test files: a script's run may take a subcommand that never reaches a read,
+    while a test file runs all of its tests.
+    """
+    out = []
+    for entry in entries:
+        if entry.startswith("!"):
+            continue
+        rel = entry.lstrip("/")
+        if not rel.endswith(".py") or any(ch in rel for ch in "*?["):
+            continue
+        if tests_only and not is_test_file(rel):
+            continue
+        if (root / rel).is_file() and re.search(rf"(?<![\w.-]){re.escape(rel)}\b", run_text):
+            out.append(rel)
+    return out
+
+
+def _norm(rel: str) -> str | None:
+    """A repo-relative posix path, normalized; None if it is absolute or leaves the repo."""
+    if rel.startswith("/"):
+        return None
+    out = posixpath.normpath(rel) if rel else ""
+    if out == ".":
+        return ""
+    if out == ".." or out.startswith("../"):
+        return None
+    return out
+
+
+def _join(base: str, *parts: str) -> str | None:
+    return _norm(posixpath.join(base, *parts) if base else posixpath.join(*parts))
+
+
+def _dirname(rel: str) -> str | None:
+    return None if rel == "" else rel.rsplit("/", 1)[0] if "/" in rel else ""
+
+
+_PATH_CALLS = {"Path", "PurePath", "PosixPath", "pathlib.Path"}
+_IDENTITY_METHODS = {"resolve", "absolute", "expanduser"}
+_IDENTITY_OS = {"os.path.abspath", "os.path.realpath", "os.path.normpath", "os.fspath", "str"}
+
+
+def _dotted(node: ast.AST) -> str | None:
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        head = _dotted(node.value)
+        return f"{head}.{node.attr}" if head else None
+    return None
+
+
+def _literal(node: ast.AST) -> str | None:
+    return node.value if isinstance(node, ast.Constant) and isinstance(node.value, str) else None
+
+
+class _RepoPaths:
+    """Evaluates expressions that name a repo-relative path statically.
+
+    `__file__` is the script's own path; `Path("x")` and `open("x")` with a relative literal are
+    taken from the repo root, where the workflow runs them. A name counts only when every
+    assignment to it in the file evaluates to the same path, so a fixture variable reassigned to a
+    tmp dir is never taken for the repo.
+    """
+
+    def __init__(self, script: str, tree: ast.AST) -> None:
+        self.script = script
+        self.env: dict[str, str] = {}
+        assigns: dict[str, list[ast.AST]] = {}
+        for node in ast.walk(tree):
+            targets: list[ast.AST] = []
+            value = None
+            if isinstance(node, ast.Assign):
+                targets, value = node.targets, node.value
+            elif isinstance(node, (ast.AnnAssign, ast.AugAssign, ast.NamedExpr)):
+                targets, value = [node.target], node.value
+            elif isinstance(node, (ast.For, ast.AsyncFor, ast.comprehension)):
+                targets, value = [node.target], None
+            elif isinstance(node, (ast.With, ast.AsyncWith)):
+                targets = [item.optional_vars for item in node.items if item.optional_vars is not None]
+            elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+                args = node.args
+                targets = [ast.Name(id=a.arg) for a in [*args.posonlyargs, *args.args, *args.kwonlyargs]]
+            for target in targets:
+                for name in ast.walk(target):
+                    if isinstance(name, ast.Name):
+                        ok = isinstance(target, ast.Name) and value is not None and not isinstance(node, ast.AugAssign)
+                        assigns.setdefault(name.id, []).append(value if ok else None)
+        changed = True
+        while changed:
+            changed = False
+            for name, values in assigns.items():
+                if name in self.env or any(v is None for v in values):
+                    continue
+                results = {self.eval(v) for v in values}
+                if len(results) == 1 and None not in results:
+                    self.env[name] = results.pop()
+                    changed = True
+
+    def eval(self, node: ast.AST) -> str | None:
+        if isinstance(node, ast.Name):
+            if node.id == "__file__":
+                return self.script
+            return self.env.get(node.id)
+        if isinstance(node, ast.Attribute):
+            if node.attr == "parent":
+                base = self.eval(node.value)
+                return None if base is None else _dirname(base)
+            return None
+        if isinstance(node, ast.Subscript):
+            if isinstance(node.value, ast.Attribute) and node.value.attr == "parents":
+                index = node.slice
+                if isinstance(index, ast.Constant) and isinstance(index.value, int) and index.value >= 0:
+                    out = self.eval(node.value.value)
+                    for _ in range(index.value + 1):
+                        out = None if out is None else _dirname(out)
+                    return out
+            return None
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div):
+            base, part = self.eval(node.left), _literal(node.right)
+            return None if base is None or part is None else _join(base, part)
+        if isinstance(node, ast.Call):
+            func = _dotted(node.func)
+            if node.keywords:
+                return None
+            if func in _PATH_CALLS or func in _IDENTITY_OS:
+                if len(node.args) != 1:
+                    return None
+                arg = node.args[0]
+                literal = _literal(arg)
+                if literal is not None:
+                    return _norm(literal) if func in _PATH_CALLS and literal else None
+                return self.eval(arg)
+            if func == "os.path.dirname" and len(node.args) == 1:
+                base = self.eval(node.args[0])
+                return None if base is None else _dirname(base)
+            if func == "os.path.join" and node.args:
+                base = self.eval(node.args[0])
+                parts = [_literal(a) for a in node.args[1:]]
+                return None if base is None or None in parts else _join(base, *parts)
+            if isinstance(node.func, ast.Attribute):
+                method = node.func.attr
+                if method in _IDENTITY_METHODS and not node.args:
+                    return self.eval(node.func.value)
+                if method == "joinpath" and node.args:
+                    base = self.eval(node.func.value)
+                    parts = [_literal(a) for a in node.args]
+                    return None if base is None or None in parts else _join(base, *parts)
+        return None
+
+
+def read_paths(script: str, root: Path) -> set[str]:
+    """Repo files `script` names by a statically known path (`ROOT / "a/b"`, `open("a/b")`, ...).
+
+    Only paths that are files in `root` count; directories, globs and anything built from a
+    variable that is not always the same repo path are skipped.
+    """
+    try:
+        tree = ast.parse((root / script).read_text(encoding="utf-8"))
+    except (OSError, SyntaxError, UnicodeDecodeError):
+        return set()
+    paths = _RepoPaths(script, tree)
+    found: set[str] = set()
+    for node in ast.walk(tree):
+        rel = None
+        if isinstance(node, ast.Call) and _dotted(node.func) in {"open", "io.open"} and node.args:
+            literal = _literal(node.args[0])
+            rel = _norm(literal) if literal else paths.eval(node.args[0])
+        elif isinstance(node, (ast.BinOp, ast.Call, ast.Subscript, ast.Attribute)):
+            rel = paths.eval(node)
+        if rel and rel != script and (root / rel).is_file():
+            found.add(rel)
+    return found
+
+
+def _job_run_text(root: Path, workflow: str, job: str) -> str:
+    doc = yaml.safe_load((root / ".github" / "workflows" / workflow).read_text(encoding="utf-8")) or {}
+    steps = ((doc.get("jobs") or {}).get(job) or {}).get("steps") or []
+    return "\n".join(str(step.get("run") or "") for step in steps if isinstance(step, dict))
+
+
+def find_read_misses(root: Path, tests_only: bool = True) -> list[str]:
+    """One line per (step, run test file, repo file it reads that the sparse list leaves out)."""
+    misses = []
+    for workflow, job, step, entries in non_cone_sparse_steps(root):
+        scripts = listed_run_scripts(entries, _job_run_text(root, workflow, job), root, tests_only)
+        reads = {script: read_paths(script, root) for script in scripts}
+        candidates = set(scripts).union(*reads.values())
+        present = checked_out(entries, candidates, root)
+        for script in scripts:
+            if script not in present:
+                continue
+            for rel in sorted(reads[script] - present):
+                misses.append(f"{workflow} {job} {step}: {script} reads {rel}, not in its sparse checkout")
+    return misses
+
+
 # --- tests ------------------------------------------------------------------------------------
 
 
@@ -301,6 +528,10 @@ class SparseCheckoutImportTests(unittest.TestCase):
         steps = list(non_cone_sparse_steps(ROOT))
         self.assertTrue(steps, "expected at least one non-cone sparse checkout in .github/workflows")
         misses = find_misses(ROOT)
+        self.assertEqual(misses, [], "\n" + "\n".join(misses))
+
+    def test_workflows_list_every_repo_file_their_tests_read(self) -> None:
+        misses = find_read_misses(ROOT)
         self.assertEqual(misses, [], "\n" + "\n".join(misses))
 
     def _fixture(self, tmp: Path, sparse: str) -> Path:
@@ -430,6 +661,130 @@ class SparseCheckoutImportTests(unittest.TestCase):
 
     def test_fixture_skips_imports_guarded_by_import_error(self) -> None:
         self.assertEqual(self._misses(self.block("scripts/ci/optional_user.py")), [])
+
+
+# The workflow and test of #41164 at af61f28e, cut to what the check reads: the test opens
+# .github/workflows/risk-tier.yml, which the job's sparse list left out (FileNotFoundError in CI).
+RISK_TIER_TESTS_YML = """\
+on: pull_request
+jobs:
+  tests:
+    name: risk tier tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/ci/risk_tier.py
+            tests/test_risk_tier.py
+            tests/git_fixture_env.py
+EXTRA          sparse-checkout-cone-mode: false
+      - run: python3 tests/test_risk_tier.py -v
+"""
+
+TEST_RISK_TIER_PY = """\
+import importlib.util
+import os
+import tempfile
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+spec = importlib.util.spec_from_file_location("risk_tier", ROOT / "scripts/ci/risk_tier.py")
+
+
+def test_a_held_takeback_names_the_line_to_paste_in_its_error():
+    held = (ROOT / ".github/workflows/risk-tier.yml").read_text()
+    with tempfile.TemporaryDirectory() as tmp:
+        out = Path(tmp) / "out"
+        out.write_text(held)
+        path = os.path.join(tmp, "f")
+        open(path, "w").write("x")
+"""
+
+
+class SparseCheckoutReadTests(unittest.TestCase):
+    def _misses(self, files: dict[str, str], extra: str = "", tests_only: bool = True) -> list[str]:
+        base = {
+            "scripts/ci/risk_tier.py": "",
+            "tests/git_fixture_env.py": "",
+            ".github/workflows/risk-tier.yml": "on: pull_request\n",
+            "tests/test_risk_tier.py": TEST_RISK_TIER_PY,
+            ".github/workflows/risk-tier-tests.yml": RISK_TIER_TESTS_YML.replace("EXTRA", extra),
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for rel, body in {**base, **files}.items():
+                (root / rel).parent.mkdir(parents=True, exist_ok=True)
+                (root / rel).write_text(body, encoding="utf-8")
+            return find_read_misses(root, tests_only)
+
+    def test_pr_41164_at_af61f28e_reports_the_unlisted_workflow_read(self) -> None:
+        self.assertEqual(
+            self._misses({}),
+            [
+                "risk-tier-tests.yml tests step 0: tests/test_risk_tier.py reads "
+                ".github/workflows/risk-tier.yml, not in its sparse checkout"
+            ],
+        )
+
+    def test_pr_41164_fix_passes(self) -> None:
+        for entry in (".github/workflows/risk-tier.yml", "/.github/workflows/", ".github/workflows/*.yml"):
+            with self.subTest(entry=entry):
+                self.assertEqual(self._misses({}, extra=f"            {entry}\n"), [])
+
+    def test_exclusion_uncovers_a_read(self) -> None:
+        misses = self._misses({}, extra="            /.github/\n            !.github/workflows/risk-tier.yml\n")
+        self.assertEqual(len(misses), 1, misses)
+
+    def test_path_forms_resolve_to_repo_files(self) -> None:
+        body = textwrap.dedent(
+            """\
+            import os
+            from pathlib import Path
+            REPO_ROOT = Path(__file__).resolve().parent.parent
+            CI = REPO_ROOT / "scripts" / "ci"
+            HERE = os.path.dirname(os.path.abspath(__file__))
+            a = (CI / "a.json").read_text()
+            b = REPO_ROOT.joinpath("docs", "b.md").read_text()
+            c = open("docs/c.txt").read()
+            d = Path("docs/d.txt").read_text()
+            e = open(os.path.join(HERE, "..", "docs", "e.txt")).read()
+            """
+        )
+        files = {f"docs/{n}": "" for n in ("b.md", "c.txt", "d.txt", "e.txt")}
+        misses = self._misses({"tests/test_risk_tier.py": body, "scripts/ci/a.json": "{}", **files})
+        self.assertEqual(
+            sorted(m.split(": ", 1)[1].split(" reads ")[1].split(",")[0] for m in misses),
+            ["docs/b.md", "docs/c.txt", "docs/d.txt", "docs/e.txt", "scripts/ci/a.json"],
+        )
+
+    def test_tmp_fixtures_missing_files_and_reassigned_names_are_not_reads(self) -> None:
+        body = textwrap.dedent(
+            """\
+            import tempfile
+            from pathlib import Path
+            ROOT = Path(__file__).resolve().parents[1]
+            base = ROOT
+            with tempfile.TemporaryDirectory() as tmp:
+                base = Path(tmp)
+                (base / "docs/x.md").write_text("")
+                (Path(tmp) / "docs/x.md").read_text()
+            (ROOT / "docs/not-in-repo.md").exists()
+            (ROOT / "docs").is_dir()
+            """
+        )
+        self.assertEqual(self._misses({"tests/test_risk_tier.py": body, "docs/x.md": ""}), [])
+
+    def test_scripts_are_skipped_unless_asked(self) -> None:
+        # A script's subcommand may never reach a read; a test file runs every test.
+        workflow = RISK_TIER_TESTS_YML.replace("tests/test_risk_tier.py", "tools/run_me.py").replace("EXTRA", "")
+        files = {
+            ".github/workflows/risk-tier-tests.yml": workflow,
+            "tools/run_me.py": TEST_RISK_TIER_PY,
+        }
+        self.assertEqual(self._misses(files), [])
+        self.assertEqual(len(self._misses(files, tests_only=False)), 1)
 
 
 if __name__ == "__main__":

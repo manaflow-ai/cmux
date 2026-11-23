@@ -298,6 +298,38 @@
   "refused": true
  },
  {
+  "name": "turn_shots of the pane's own session passes",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "_acpmux/turn_shots",
+   "params": {
+    "sessionId": "a",
+    "turnId": "t1"
+   }
+  },
+  "sessions": [
+   "a"
+  ],
+  "refused": false
+ },
+ {
+  "name": "turn_shots of another session is refused",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "_acpmux/turn_shots",
+   "params": {
+    "sessionId": "b",
+    "turnId": "t1"
+   }
+  },
+  "sessions": [
+   "a"
+  ],
+  "refused": true
+ },
+ {
   "name": "offer_respond accepted with the chat and the child in scope passes",
   "frame": {
    "jsonrpc": "2.0",
@@ -842,6 +874,42 @@
    "params": {
     "sessionId": "b",
     "held": true
+   }
+  },
+  "sessions": [
+   "a"
+  ],
+  "refused": true
+ },
+ {
+  "name": "preset approval for own session",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "_acpmux/presets",
+   "params": {
+    "name": "night",
+    "approveMode": true,
+    "approveDigest": "sha256:ab",
+    "sessionId": "a"
+   }
+  },
+  "sessions": [
+   "a"
+  ],
+  "refused": false
+ },
+ {
+  "name": "preset approval for other session",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "_acpmux/presets",
+   "params": {
+    "name": "night",
+    "approveMode": true,
+    "approveDigest": "sha256:ab",
+    "sessionId": "b"
    }
   },
   "sessions": [

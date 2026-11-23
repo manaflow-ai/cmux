@@ -141,7 +141,10 @@ fn cell_pixel_fanout_returns_when_an_operation_ignores_its_deadline() {
         caller.join().unwrap();
 
         let Ok(results) = returned else {
-            panic!("fanout joined an operation after its shared deadline elapsed");
+            panic!(
+                "the fanout did not return in {SAFETY_LIMIT:?} while its operation was blocked: it joined the \
+                 operation after the shared deadline (or the host stopped this test for that long)"
+            );
         };
         match results.as_slice() {
             // Admitted and not complete at the deadline: the caller has the result while the operation is

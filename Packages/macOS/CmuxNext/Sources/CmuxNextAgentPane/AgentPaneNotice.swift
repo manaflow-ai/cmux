@@ -8,7 +8,7 @@ import Foundation
 /// over the page, which floated over the transcript's first message (Leo, 2026-11-01: "yuck more
 /// garbage"); the pane now adds no view of its own for it.
 @MainActor final class AgentPaneNotice {
-    /// Which notice: `otherInstall` or `remoteApprovals`; the page's button names it back.
+    /// Which notice: `personUnproven`, `otherInstall` or `remoteApprovals`; the page's button names it back.
     let id: String
     let title: String
     /// The line under the title; an action that failed says why here.
@@ -61,7 +61,7 @@ extension AgentPaneModel {
 
 extension AgentPaneView {
     /// The native notices shown now, in the order the page draws them.
-    var paneNotices: [AgentPaneNotice] { [otherInstallNotice, remoteApprovalsNotice].compactMap { $0 } }
+    var paneNotices: [AgentPaneNotice] { [personUnprovenNotice, otherInstallNotice, remoteApprovalsNotice].compactMap { $0 } }
 
     /// Pushes the shown notices to the page, and takes their buttons' clicks.
     func pushPaneNotices() {

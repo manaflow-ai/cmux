@@ -23,4 +23,19 @@ struct CloudSignInRecoveryTests {
         #expect(CloudStrings.signInToContinue != CloudStrings.signInFirst)
         #expect(!CloudStrings.signInToContinue.contains("command palette"))
     }
+
+    @Test func signedInReplayCollectsMissingSubjectBeforeRunning() {
+        let registry = ActionRegistry.standard()
+        var collected: ActionID?, ran = false
+        registry.bind("cloudOpenDesktop", invoke: { _ in ran = true })
+        registry.argumentCollector = { id, invocation in
+            collected = id
+            #expect(invocation.target == nil)
+        }
+        CloudSignInRecovery.resume("cloudOpenDesktop", ActionInvocation(), in: registry)
+        #expect(collected == "cloudOpenDesktop")
+        #expect(!ran)
+        CloudSignInRecovery.resume("cloudOpenDesktop", ActionInvocation(target: ActionTargetRef(kind: .machine, id: "chosen")), in: registry)
+        #expect(ran)
+    }
 }

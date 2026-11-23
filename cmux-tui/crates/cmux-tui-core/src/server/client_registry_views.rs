@@ -394,6 +394,7 @@ impl ClientRegistry {
         &self,
         client: u64,
         surface: SurfaceId,
+        routes: &crate::route_table::RouteGenerations,
     ) -> Option<(Arc<crate::Surface>, bool)> {
         let state = self.state.lock().recover_poison();
         let attached = state.clients.get(&client)?.attached.get(&surface)?;
@@ -401,7 +402,7 @@ impl ClientRegistry {
         let can_type = attached.can_type();
         // A change of this id's route since it was kept (respawn, close, move): the id may name another terminal now.
         // Only this id's route counts: a tab created or closed elsewhere keeps it (TYPING FIX 2).
-        if *generation != crate::route_table::route_generation(surface) {
+        if *generation != routes.of(surface) {
             return None;
         }
         let input = kept.upgrade()?;
@@ -604,7 +605,10 @@ impl ClientRegistry {
         Some((changed, record.name.clone(), record.kind.clone()))
     }
 
-    pub(super) fn remove(&self, client: u64) -> Option<ClientRecord> {
+    /// Removes `client`; the bool is true when it held a pending daemon
+    /// handoff reservation, which goes with it (the caller then settles the
+    /// idle-stop fence, `Mux::settle_idle_stop_fence`).
+    pub(super) fn remove(&self, client: u64) -> Option<(ClientRecord, bool)> {
         self.url_opens.disconnect(client);
         self.clipboard_reads.disconnect(client);
         self.loopback.disconnect(client);
@@ -619,7 +623,9 @@ impl ClientRegistry {
         // After the record goes: a start that ends later sees the connection gone.
         #[cfg(unix)]
         self.browser_runtimes.disconnect(client);
-        if state.daemon_handoff == Some(DaemonHandoffReservation::Pending(client)) {
+        let released_handoff =
+            state.daemon_handoff == Some(DaemonHandoffReservation::Pending(client));
+        if released_handoff {
             state.daemon_handoff = None;
             state.daemon_handoff_restart = None;
         }
@@ -638,7 +644,7 @@ impl ClientRegistry {
             self.notify_detach();
         }
         self.notify_client_presence();
-        Some(record)
+        Some((record, released_handoff))
     }
 
     pub(crate) fn contains(&self, client: u64) -> bool {

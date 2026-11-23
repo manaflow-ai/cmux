@@ -114,6 +114,7 @@ enum CoalescedEventKey {
     ProgramStatus(SurfaceId),
     SurfaceOutput(SurfaceId),
     Scroll(SurfaceId),
+    Bell(SurfaceId),
 }
 
 impl MuxEventBroadcaster {
@@ -275,8 +276,9 @@ impl SurfaceSessionScope {
             MuxEvent::TreeDelta(delta) => self.accepts_tree_delta(delta),
             // A surface-only client always renders its target across the full
             // host terminal. Screen layout churn therefore carries no useful
-            // state and would only force repeated whole-tree refreshes.
-            MuxEvent::LayoutChanged(..) => false,
+            // state and would only force repeated whole-tree refreshes. Host
+            // screen identity also belongs to the GUI's opted-in subscription.
+            MuxEvent::LayoutChanged(..) | MuxEvent::ScreenDeviceChanged(_) => false,
             MuxEvent::ClientAttached { .. }
             | MuxEvent::ClientChanged { .. }
             | MuxEvent::ClientDetached(_)
@@ -294,8 +296,10 @@ impl SurfaceSessionScope {
             | MuxEvent::HistoryChanged { .. }
             | MuxEvent::FeedViewChanged { .. }
             | MuxEvent::FeedReportsChanged { .. }
+            | MuxEvent::GitHubChanged { .. }
             | MuxEvent::SettingsChanged(_)
             | MuxEvent::KeybindingsChanged(_)
+            | MuxEvent::AgentSessionShareChanged { .. }
             | MuxEvent::Conversation(_)
             | MuxEvent::CloudConversation(_)
             | MuxEvent::TerminalRegistryChanged { .. }
@@ -306,6 +310,9 @@ impl SurfaceSessionScope {
             | MuxEvent::AppsChanged(_)
             | MuxEvent::StashChanged { .. }
             | MuxEvent::TasksChanged(_)
+            | MuxEvent::ComputerUseActivity(_)
+            | MuxEvent::ComputerUsePreview(_)
+            | MuxEvent::ChatsChanged { .. }
             | MuxEvent::Empty => true,
         }
     }
@@ -374,6 +381,11 @@ impl MuxEventMailbox {
             }
             event @ MuxEvent::ScrollChanged { surface, .. } => {
                 state.push_coalesced(sequence, CoalescedEventKey::Scroll(surface), event)
+            }
+            // A bell that is still pending says all a later one would: a burst of them
+            // takes one slot, so it can never overflow the subscriber.
+            event @ MuxEvent::Bell(surface) => {
+                state.push_coalesced(sequence, CoalescedEventKey::Bell(surface), event)
             }
             MuxEvent::ConfigReloadRequested => state.push_coalesced(
                 sequence,
@@ -466,6 +478,7 @@ impl MuxEventMailboxState {
         self.discard_coalesced(CoalescedEventKey::ProgramStatus(surface));
         self.discard_coalesced(CoalescedEventKey::SurfaceOutput(surface));
         self.discard_coalesced(CoalescedEventKey::Scroll(surface));
+        self.discard_coalesced(CoalescedEventKey::Bell(surface));
     }
 
     /// Whether the newest pending event is a `TreeChanged` (no coalesced
@@ -554,6 +567,16 @@ impl MuxEventReceiver {
         &self,
         interrupt: &crate::stream_interrupt::StreamInterrupt,
     ) -> Result<MuxEvent, RecvTimeoutError> {
+        self.recv_until_interrupted_or(interrupt, None)
+    }
+
+    /// [`Self::recv_until_interrupted`] that also returns `Timeout` at
+    /// `deadline`.
+    pub(crate) fn recv_until_interrupted_or(
+        &self,
+        interrupt: &crate::stream_interrupt::StreamInterrupt,
+        deadline: Option<Instant>,
+    ) -> Result<MuxEvent, RecvTimeoutError> {
         let mut state = self.mailbox.state.lock().recover_poison();
         loop {
             if let Some(event) = state.pop() {
@@ -565,7 +588,15 @@ impl MuxEventReceiver {
             if interrupt.is_fired() {
                 return Err(RecvTimeoutError::Timeout);
             }
-            state = self.mailbox.changed.wait(state).recover_poison();
+            state = match deadline {
+                None => self.mailbox.changed.wait(state).recover_poison(),
+                Some(deadline) => {
+                    let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                        return Err(RecvTimeoutError::Timeout);
+                    };
+                    self.mailbox.changed.wait_timeout(state, remaining).recover_poison().0
+                }
+            };
         }
     }
 

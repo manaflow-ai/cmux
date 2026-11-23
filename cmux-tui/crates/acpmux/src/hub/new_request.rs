@@ -5,7 +5,7 @@ use super::*;
 
 /// The agent name, or `agent-N` for the first N not taken in `sessions`.
 pub(super) fn unique_name_among(sessions: &HashMap<String, Arc<Session>>, agent: &str) -> String {
-    let taken: Vec<String> = sessions.values().map(|s| s.meta().name).collect();
+    let taken: Vec<String> = sessions.values().map(|s| s.read_meta(|m| m.name.clone())).collect();
     for n in 0.. {
         let candidate = if n == 0 { agent.to_owned() } else { format!("{agent}-{n}") };
         if !taken.contains(&candidate) {
@@ -114,6 +114,12 @@ pub struct NewRequest {
     /// Folders the chat sees beside its own (`additional_dirs.rs`), already checked by the
     /// caller.
     pub additional_directories: Vec<PathBuf>,
+    /// When the chat's agent may stop (`_meta.acpmux.stopCondition`, `stop_condition.rs`),
+    /// already checked by the caller; None for none.
+    pub stop_condition: Option<String>,
+    /// `_meta.acpmux.restricted` (`restricted.rs`): read-only work in a folder the person chose
+    /// not to trust; its policy was already held to review by the caller.
+    pub restricted: bool,
     /// The person asks for this chat (`Session::person`): this host's app, or a connection that
     /// proved it is the person (`server/requests.rs` `person_asks`), never an agent's or a lane's
     /// create. Its start waits as long as its harness works on it (`lifecycle.rs`).
@@ -121,9 +127,15 @@ pub struct NewRequest {
     /// The create asked to wait on its harness (`_meta.acpmux.waitStart`, `Session::wait_start`):
     /// never honored from an agent's, a lane's or a remote connection (`server/requests.rs`).
     pub wait_start: bool,
+    /// `_meta.acpmux.throwaway` (`SessionMeta::throwaway`): its creator purges it
+    /// after its work.
+    pub throwaway: bool,
     /// `_meta.acpmux.requireAsking` (`require_asking.rs`): the start runs only on a harness the
     /// asking table lists, as it resolves it, and its policy fails the start where it is not kept.
     pub require_asking: bool,
+    /// The owner's Cloud credential for this chat's agent (`_meta.acpmux.credentials`, unix
+    /// socket only, `agent_credentials.rs`): kept on the session in memory, never in its meta.
+    pub credential: Option<crate::agent_credentials::AgentCredential>,
 }
 
 /// Why the Claude conversation `sid` cannot be resumed on `profile` (None:

@@ -43,9 +43,10 @@ extension PaneTabRowSharing {
     /// the leading tools. Tools that never reported are offered the row once, to learn their width.
     public func fitsTabRow(room: CGFloat) -> Bool { (tabRowToolsNeed ?? 0) <= max(0, room / 2) }
 
-    /// Whether the view's tools are in a row `room` wide now: a pane then holds the view whole with its strip through a key
-    /// resize, the tools being page pixels the strip cannot follow (FRAME OWNER S1; stages S5/S6). Decided for the view
-    /// shown at the hold's start (S1B), never kept from the view the pane showed before.
+    /// Whether the view's tools are in a row `room` wide now. A view that keeps its size through a key resize (the stated
+    /// exception ``PaneKeyResizeHeld``: the Home) is then held whole with its pane's strip, the tools being page pixels the
+    /// strip cannot follow (``PaneContentAreaView/holdArea(for:drawsInTabRow:)``); every other view (a chat) follows its
+    /// pane with its tools. Decided for the view shown at the hold's start, never kept from the view the pane showed before.
     public func drawsInTabRow(room: CGFloat) -> Bool { fitsTabRow(room: room) && tabRowWidth(room: room) > 0 }
 
     /// Offers the view the row (`height` 0: none); a change in its tools' width lays `pane` out

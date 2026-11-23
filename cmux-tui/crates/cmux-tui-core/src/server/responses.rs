@@ -52,7 +52,7 @@ pub(super) fn send_request_error_with_delivery(
 
 pub(super) fn send_response(writer: &MessageWriter, response: Response) -> bool {
     crate::diagnostics::request_log::reply_follows(response.ok, response.error_code.as_deref());
-    serde_json::to_value(response).is_ok_and(|value| writer.send_control(&value).is_ok())
+    writer.send_control(&response.into_value()).is_ok()
 }
 
 /// Sends `response` with the stable `reason` of a conversation reject next to
@@ -67,7 +67,7 @@ pub(super) fn send_response_with_details(
     details: Option<Value>,
 ) -> bool {
     crate::diagnostics::request_log::reply_follows(response.ok, response.error_code.as_deref());
-    let Ok(mut value) = serde_json::to_value(response) else { return false };
+    let mut value = response.into_value();
     if let Some(reason) = reason {
         value.insert("reason", Value::String(reason));
     }
@@ -78,6 +78,17 @@ pub(super) fn send_response_with_details(
         value.insert("error_details", details);
     }
     writer.send_control(&value).is_ok()
+}
+
+/// [`send_response_with_details`] of a successful `list-workspaces` reply whose tree is its
+/// build's shared text: the same bytes (tree_reply_text.rs).
+pub(super) fn send_tree_reply(
+    writer: &MessageWriter,
+    response: Response,
+    tree: &super::tree_reply_text::TreeReply,
+) -> bool {
+    crate::diagnostics::request_log::reply_follows(response.ok, response.error_code.as_deref());
+    writer.send_tree_reply(tree, response.id.as_ref()).is_ok()
 }
 
 /// The stable `error_code` of a rejected command, when its error has one.
@@ -110,6 +121,7 @@ pub(super) fn response_error_code(error: &anyhow::Error) -> Option<String> {
         .or_else(|| resource_refusal_code(error, crate::mux::PINNED_COLUMN_CODE))
         .or_else(|| agent_chat_column_code(error))
         .or_else(|| super::rows::error_code(error))
+        .or_else(|| super::floating_panes::error_code(error))
         .or_else(|| super::column_move::error_code(error))
         .or_else(|| super::bookmarks::error_code(error))
         .or_else(|| crate::mux::creating_input::error_code(error))
@@ -121,12 +133,14 @@ pub(super) fn response_error_code(error: &anyhow::Error) -> Option<String> {
         .or_else(|| super::conversations::error_code(error))
         .or_else(|| super::cloud_conversations::error_code(error))
         .or_else(|| super::new_screen::error_code(error))
+        .or_else(|| super::stop_if_idle::error_code(error))
         .or_else(|| crate::state::home_error_code(error))
         .or_else(|| crate::mux::workspace_not_empty_code(error))
         .or_else(|| crate::state::frontend_browser_keys::error_code(error))
         .or_else(|| super::renderer_grant::error_code(error))
         .or_else(|| super::browser_host_command::error_code(error))
         .or_else(|| super::remote_host_command::error_code(error))
+        .or_else(|| super::computer_use_command::error_code(error))
         .or_else(|| super::tab_restart::error_code(error))
         .or_else(|| super::conversation_tabs_wire::error_code(error))
 }

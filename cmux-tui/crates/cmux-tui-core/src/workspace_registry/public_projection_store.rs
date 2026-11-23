@@ -24,6 +24,26 @@ use cmux_json::JsonSet as _;
 
 const NOTIFICATION_LEDGER_CAPACITY: usize = 256;
 
+#[cfg(test)]
+thread_local! {
+    static AGENT_PROJECTION_ROWS_READ: Cell<usize> = const { Cell::new(0) };
+    static AGENT_HOOK_FENCE_ROWS_READ: Cell<usize> = const { Cell::new(0) };
+}
+
+/// How many agent projection rows this thread has read from the registry (test hook): a test
+/// counts the rows a reader pays for, with no clock (AGENT RECORDS, 2026-11-10).
+#[cfg(test)]
+pub(crate) fn agent_projection_rows_read_on_this_thread() -> usize {
+    AGENT_PROJECTION_ROWS_READ.with(Cell::get)
+}
+
+/// How many hook fence rows (`resource_agent_hook_state`) this thread has read from the registry
+/// (test hook): each daemon start reads all of them into memory.
+#[cfg(test)]
+pub(crate) fn agent_hook_fence_rows_read_on_this_thread() -> usize {
+    AGENT_HOOK_FENCE_ROWS_READ.with(Cell::get)
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RegistryNotificationProjection {
     pub id: NotificationPublicId,
@@ -234,8 +254,11 @@ pub(crate) struct ProjectionReader<'a> {
 
 impl ProjectionReader<'_> {
     /// Reconstruct public auxiliary state while the registry is the sole
-    /// writer. Missing or tombstoned terminals remove notification links, while
-    /// agent reports remain durable historical projections keyed by terminal.
+    /// writer. Missing or tombstoned terminals remove notification links. An
+    /// agent record is the current projection of a live terminal: the tombstone
+    /// of the terminal deletes it and its hook fence in the same transaction,
+    /// and the open deletes the ones older builds left, so no row read here
+    /// belongs to a closed terminal.
     pub fn public_projections(&self) -> anyhow::Result<RegistryPublicProjections> {
         let live_terminals = self.live_terminal_public_ids()?;
         let notifications = self.durable_notifications(&live_terminals)?;
@@ -453,6 +476,8 @@ impl ProjectionReader<'_> {
                 Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)?))
             })?
             .collect::<Result<Vec<_>, _>>()?;
+        #[cfg(test)]
+        AGENT_PROJECTION_ROWS_READ.with(|read| read.set(read.get() + rows.len()));
         let mut agents = Vec::with_capacity(rows.len());
         for (projected_terminal_id, result_json, committed_revision) in rows {
             let stored: StoredAgent = serde_json::from_str(&result_json).with_context(|| {
@@ -514,7 +539,7 @@ impl ProjectionReader<'_> {
              FROM resource_agent_hook_state
              ORDER BY terminal_id ASC",
         )?;
-        statement
+        let rows = statement
             .query_map([], |row| {
                 Ok((
                     row.get::<_, String>(0)?,
@@ -524,8 +549,12 @@ impl ProjectionReader<'_> {
                     row.get::<_, Option<i64>>(4)?,
                 ))
             })?
+            .collect::<Result<Vec<_>, _>>()?;
+        #[cfg(test)]
+        AGENT_HOOK_FENCE_ROWS_READ.with(|read| read.set(read.get() + rows.len()));
+        rows.into_iter()
             .map(|row| {
-                let (terminal_id, agent_session_id, applied_sequence, ended, ended_at_ms) = row?;
+                let (terminal_id, agent_session_id, applied_sequence, ended, ended_at_ms) = row;
                 Ok(RegistryAgentHookState {
                     terminal_id: TerminalPublicId::parse(terminal_id)?,
                     agent_session_id,

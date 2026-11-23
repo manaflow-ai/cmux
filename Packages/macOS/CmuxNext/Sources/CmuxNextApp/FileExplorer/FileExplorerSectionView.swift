@@ -25,7 +25,7 @@ final class FileExplorerSectionView: NSView, RightSidebarRefreshing, NSTableView
     /// Shown while the root is a protected folder the person has not asked to see (``FileExplorerModel/held``).
     private let showContents = NSButton(title: FileExplorerStrings.showProtectedContents, target: nil, action: nil)
     let table = FileExplorerTableView()
-    private let scroll = NSScrollView()
+    private let scroll = OverlayScrollView()
     private var rows: [FileExplorerRow] = []
     private var observation: Task<Void, Never>?
     private var following: Task<Void, Never>?
@@ -53,7 +53,7 @@ final class FileExplorerSectionView: NSView, RightSidebarRefreshing, NSTableView
         self.rowMenu = rowMenu
         openWithMenu = openWith
         self.apps = apps
-        super.init(frame: NSRect(x: 0, y: 0, width: RightSidebarModel.width, height: 400))
+        super.init(frame: NSRect(x: 0, y: 0, width: 260, height: 400))
         build()
         observation = Task { [weak self] in
             guard let model = self?.model else { return }

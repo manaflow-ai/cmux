@@ -7,6 +7,7 @@ import {
   resetTranscriptDisclosure,
   useTranscriptDisclosure,
 } from "../src/agent-session/acpmux/conversation/transcriptDisclosureModel";
+import { settleReact } from "./support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -53,6 +54,7 @@ afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
   resetTranscriptDisclosure();
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

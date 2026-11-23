@@ -3,7 +3,8 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::b64;
+use base64::Engine;
+use base64::engine::general_purpose::STANDARD;
 
 /// A sync older than this refuses new logins (seconds).
 pub const STALE_AFTER_SECS: u64 = 120;
@@ -49,7 +50,7 @@ fn valid_ca_line(line: &str) -> bool {
     let (Some(kind), Some(body)) = (parts.next(), parts.next()) else { return false };
     kind == "ssh-ed25519"
         && !line.contains(['\n', '\r', '\0'])
-        && b64::decode(body).is_some_and(|blob| blob.len() == 51)
+        && STANDARD.decode(body).is_ok_and(|blob| blob.len() == 51)
 }
 
 /// The version in an OpenSSH KRL header (format 1), `None` when `krl` is
@@ -77,7 +78,7 @@ pub fn verify(snapshot: &Snapshot) -> Result<Verified, String> {
     if snapshot.krl.len() > MAX_KRL_BYTES / 3 * 4 + 4 {
         return Err("krl: too large".into());
     }
-    let krl = b64::decode(&snapshot.krl).ok_or("krl: not standard base64")?;
+    let krl = STANDARD.decode(&snapshot.krl).ok().ok_or("krl: not standard base64")?;
     let version = krl_header_version(&krl).ok_or("krl: not an OpenSSH KRL (format 1)")?;
     if version != snapshot.krl_version {
         return Err("krl: header version differs from krl_version".into());

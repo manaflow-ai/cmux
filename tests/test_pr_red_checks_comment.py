@@ -8,6 +8,7 @@ pass, the old red-checks comment edited into the status comment, and no write fo
 import json
 import os
 import subprocess
+import tempfile
 import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -17,6 +18,13 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "ci" / "pr_red_checks_comment.py"
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 import pr_status  # noqa: E402
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 LEGACY = "<!-- cmux-red-checks -->"
 BOT = {"login": "github-actions[bot]"}
@@ -151,7 +159,13 @@ class FakeGitHub:
         if self.base_runs is not None:
             env["BASE_SHA"] = "b" * 40
         env.update(self.env)
-        out = subprocess.run([sys.executable, str(SCRIPT)], env=env, capture_output=True, text=True, timeout=60)
+        # The script fetches the merge ref into the repository it runs in (changed_files), and a fetch with
+        # --filter writes remote.<url>.promisor into that repository's config: a scratch repository takes it,
+        # never this checkout (whose config a worktree mirror shares).
+        with tempfile.TemporaryDirectory() as scratch:
+            subprocess.run(["git", "init", "-q", scratch], check=True)
+            out = subprocess.run([sys.executable, str(SCRIPT)], env=env, capture_output=True, text=True, timeout=60,
+                                 cwd=scratch)
         self.server.shutdown()
         assert out.returncode == 0, out.stderr
         return self.writes
@@ -263,7 +277,8 @@ def test_the_line_quotes_the_failing_steps_red_never_a_passing_steps_negative_ca
     # changed"), printed by a passing negative-case test. This line is built from the failed steps' names and the
     # job's failure annotations (`##[error]` lines), never from plain log text, so a passing step's stderr is never
     # quoted or compared here (base_red_excuse.failed_steps_log keeps any step whose section has an `##[error]`).
-    name = "cmux-next static checks (vt-link-graph, nightly static capabilities, defaults snapshot, page strings)"
+    # The name as GitHub reports it: its 101-character `name:` cut to 97 characters and "...".
+    name = "cmux-next static checks (vt-link-graph, nightly static capabilities, defaults snapshot, page stri..."
     licenses = "The nightly's Ghostty license checks pass on fixtures"
     strings = "Every page's strings generate with no missing translation"
     exit_line = {"annotation_level": "failure", "message": "Process completed with exit code 1."}
@@ -471,7 +486,10 @@ def test_the_head_is_read_with_git_not_the_api():
         remote = head_remote(tmp, sha)
         fake = FakeGitHub([run("web / react-apps-check", "failure")], [], env={"PR_HEAD_REMOTE": remote, "HEAD_SHA": sha[0]})
         writes = fake.run()
+        remotes = subprocess.run(["git", "config", "--get-regexp", r"^remote\."], cwd=Path(__file__).resolve().parents[1],
+                                 capture_output=True, text=True).stdout
     assert len(writes) == 1 and RED_LINE in writes[0][2], writes
+    assert remote not in remotes, "the fetch wrote its remote into this checkout's git config"
     assert "/repos/o/r/pulls/7" not in fake.gets, fake.gets
 
 

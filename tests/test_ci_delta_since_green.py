@@ -19,6 +19,13 @@ import unittest
 from pathlib import Path
 
 import yaml
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 ROOT = Path(__file__).resolve().parents[1]
 HELPER = ROOT / "scripts" / "ci" / "delta_since_green.py"
@@ -542,6 +549,63 @@ class WorkflowTests(unittest.TestCase):
         self.assertLess(run.index('BASE_SHA="$(git rev-parse "$MERGE_SHA^1")"'), override)
         self.assertLess(override, run.index("> /tmp/cmux-ci-changed-files.txt"))
 
+    def test_a_drafts_base_merge_on_a_green_head_routes_nothing(self) -> None:
+        # A draft does not land; its own changes passed at the green head the
+        # delta step found, and the base's changes run on the base push. Over
+        # 11-13..19 heads that only merged the base were 37% of PR minutes.
+        detect = self.steps["detect"]
+        flag = detect["env"]["DRAFT_BASE_MERGE"]
+        for needed in ("github.event.pull_request.draft == true",
+                       "steps.delta.outputs.base_sha != ''",
+                       "!contains(github.event.pull_request.labels.*.name, 'full-ci')",
+                       "(vars.CI_DRAFT_BASE_MERGE_SKIP || '1') != '0'"):
+            self.assertIn(needed, flag)
+        self.assertNotIn("||", flag.replace("(vars.CI_DRAFT_BASE_MERGE_SKIP || '1')", ""))
+        run = detect["run"]
+        skip = run.index('if [ "${DRAFT_BASE_MERGE:-}" = "true" ]; then')
+        # after the delta override, so it wins; before the diff, so the diff is empty
+        self.assertLess(run.index('BASE_SHA="$DELTA_BASE_SHA"'), skip)
+        self.assertLess(run.index('BASE_SHA="$MERGE_SHA"', skip), run.index("> /tmp/cmux-ci-changed-files.txt"))
+        # an empty diff routes every product area off
+        self.assertLess(run.index("> /tmp/cmux-ci-changed-files.txt"), run.index("PR diff is empty; skipping product-area CI."))
+
+    def test_draft_base_merge_skip_routes_an_empty_diff(self) -> None:
+        # The detector's own lines, run in a repository: a draft's base merge
+        # diffs the tested merge against itself.
+        run = self.steps["detect"]["run"]
+        start = run.index('if git rev-parse -q --verify "$MERGE_SHA^2"')
+        end = run.index("> /tmp/cmux-ci-changed-files.txt")
+        end = run.index("\n", end)
+        snippet = run[start:end].replace("> /tmp/cmux-ci-changed-files.txt", '> "$OUT"')
+        snippet = snippet.replace("if ! git diff", "git diff", 1).rstrip().removesuffix("; then")
+        with tempfile.TemporaryDirectory() as directory:
+            env = git_fixture_env.write_env()
+            env.update(GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t", GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@t")
+            def git(*args: str) -> str:
+                return subprocess.run(["git", *args], cwd=directory, env=env, check=True,
+                                      capture_output=True, text=True).stdout.strip()
+            git("init", "-q", "-b", "main")
+            Path(directory, "a.txt").write_text("a\n")
+            git("add", "."); git("commit", "-qm", "base")
+            base = git("rev-parse", "HEAD")
+            git("checkout", "-qb", "pr")
+            Path(directory, "b.txt").write_text("b\n")
+            git("add", "."); git("commit", "-qm", "pr")
+            green = git("rev-parse", "HEAD")  # the head the delta step found green
+            git("checkout", "-q", "main")
+            Path(directory, "c.txt").write_text("c\n")
+            git("add", "."); git("commit", "-qm", "main moves")
+            git("merge", "-q", "--no-ff", "-m", "tested merge", "pr")
+            merge = git("rev-parse", "HEAD")
+            # off: the delta routes what the base gained since the green head; on: nothing
+            for flag, expected in (("true", ""), ("false", "c.txt")):
+                out = Path(directory, f"out-{flag}")
+                script = (f"set -euo pipefail\nMERGE_SHA={merge}\nBASE_SHA={base}\nDELTA_BASE_SHA={green}\n"
+                          f"DRAFT_BASE_MERGE={flag}\nOUT={out}\n{snippet}\n")
+                subprocess.run(["bash", "-c", script], cwd=directory, env=env, check=True, capture_output=True)
+                with self.subTest(draft_base_merge=flag):
+                    self.assertEqual(out.read_text().strip(), expected)
+
     def test_dev_build_label_builds_a_head_that_only_merged_main(self) -> None:
         # The delta routes a merge-only head from its last green head, so the
         # macOS area reads false; the label still asks for this exact head.
@@ -552,7 +616,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn(label, condition)
         condition = condition.replace(label, "github.has_dev_build == 'true'")
         # These runs are not cancelled; why the job calls !cancelled() is tested in
-        # tests/test_ci_portable_job_placement.py (SkippedPlacementKeepsRouting).
+        # tests/test_ci_routed_jobs_check_needs.py.
         self.assertIn("(!cancelled() && ", condition)
         condition = condition.replace("(!cancelled() && ", "(", 1)
         # The label-event guard is tested in tests/test_ci_label_events_skip_full_ci.py.

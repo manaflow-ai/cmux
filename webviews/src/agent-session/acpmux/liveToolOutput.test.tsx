@@ -5,6 +5,7 @@
 // (`useLiveToolRow`). Leo, 2026-11-04: "It should just never, ever ... be [freaking] acceptable
 // for there to be some sort of linear time growth degradation".
 import { afterEach, expect, test } from "bun:test";
+import { settleReact } from "../../../test/support/domTeardown";
 import { act, memo } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
@@ -291,9 +292,10 @@ let root: Root | undefined;
 const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, unknown>();
 
-afterEach(() => {
+afterEach(async () => {
   act(() => root?.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

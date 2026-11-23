@@ -1,5 +1,11 @@
 # CmuxTabsKit upstream requests (from cmux-next-ios design/terminal)
 
+> **Retired 2026-11-11.** CmuxTabsKit and CmuxConversation now live in
+> feat-cmux-next, which holds the only copy; there is no upstream branch to sync
+> with or to file requests against. Make a change listed here directly in
+> `Packages/iOS/`. This file is kept as history. See `Packages/iOS/AGENTS.md`.
+
+
 For the owner of `feat-cmux-next-tabs-kit`. These come from the design pass in
 [SPEC.md](SPEC.md) (P6, P7, M8, B1 point 5). cmux-next-ios does not patch
 `Packages/iOS/CmuxTabsKit`; it stays byte-identical to the tabs-kit branch, and

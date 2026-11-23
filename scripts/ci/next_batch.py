@@ -24,6 +24,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import fnmatch
+import importlib.util
 import json
 import os
 import re
@@ -51,6 +52,9 @@ HEAVY_WORKFLOW = "cmux-next.yml"
 TUI_WORKFLOW = "cmux-tui-artifacts.yml"
 # A group's extra lanes (docs/ci/cmux-next-batch.md#groups), dispatched on its branch.
 WEB_WORKFLOW = "cmux-next-web.yml"
+# The base's own web verdict: since 2026-11-21 feat-cmux-next's ci-web.yml runs in the post-merge batch tier (suite
+# `web`, the same 'web / ...' job names), not on each push of WEB_WORKFLOW, which stays for the dispatch above.
+BASE_WEB_WORKFLOW = "cmux-next-post-merge.yml"
 MEDIA_WORKFLOW = "cmux-next-media.yml"
 TOUR_JOB = "Tour the app"
 STICKY_MARKER = "<!-- cmux-next-batch-queue -->"
@@ -155,6 +159,7 @@ def settings_exports() -> tuple[str, ...]:
 # Written by Swift tests under CMUX_UPDATE_*; only a mini can rebuild them.
 SWIFT_GENERATED = (
     "plans/cmux-next/action-surfaces.json",
+    "plans/cmux-next/action-catalog.json",
     "plans/cmux-next/actions.md",
     "plans/cmux-next/links.json",
     "plans/cmux-next/daemon-capabilities.json",
@@ -195,6 +200,26 @@ def touches_tree(changed: list[str], root: Path) -> bool:
 SECRET_ENV = re.compile(r"(TOKEN|SECRET|KEY|PASSWORD|CREDENTIAL)", re.I)
 
 
+_GENERATED_CATALOG: list[Any] = []
+
+
+def generated_family(path: str) -> str | None:
+    """The family of every other generated file a merge keeps one side of and rebuilds
+    (scripts/cmux-next/generated_merge.py, which reads the generated-files check's rules from the
+    trusted tools checkout). None for a file it calls hand-written, or merges by line."""
+    if not _GENERATED_CATALOG:
+        spec = importlib.util.spec_from_file_location("generated_merge", TOOLS_ROOT / "scripts/cmux-next/generated_merge.py")
+        module = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        sys.modules[spec.name] = module  # dataclasses look their module up while the class is made
+        spec.loader.exec_module(module)
+        _GENERATED_CATALOG[:] = [module, module.Catalog(TOOLS_ROOT)]
+    module, catalog = _GENERATED_CATALOG
+    family = catalog.family(path)
+    entry = module.REGENERATE.get(family) if family else None
+    return family if entry is not None and entry.driver == module.GENERATED_DRIVER else None
+
+
 def classify(path: str) -> str:
     def matches(globs: tuple[str, ...]) -> bool:
         return any(fnmatch.fnmatchcase(path, glob) for glob in globs)
@@ -203,8 +228,12 @@ def classify(path: str) -> str:
         return "web"
     if matches(SWIFT_GENERATED):
         return "swift"
-    if matches(SDK_GENERATED):
+    # go/raw and the Java raw package mix hand-written files into generated ones; only the files
+    # their .cmux-sdk-manifest.json lists (generated_merge.py) are kept and rebuilt.
+    if matches(SDK_GENERATED) and generated_family(path):
         return "sdk"
+    if generated_family(path):
+        return "generated"
     if matches(SPEC_JSON):
         return "spec"
     if path.endswith(".xcstrings"):
@@ -1040,9 +1069,9 @@ def merge_pr(repo: mmr.Repo, pr: PullRequest, tools_root: Path) -> Merge:
         unmerged = repo.unmerged()
         for path, stages in sorted(unmerged.items()):
             kind = classify(path)
-            if kind in {"web", "swift", "sdk"}:
+            if kind in {"web", "swift", "sdk", "generated"}:
                 take_side(repo, path, stages)
-                result.regen.add(kind)
+                result.regen.add(regen_kind(kind, path))
                 result.resolved.append({"path": path, "method": f"kept the stack's copy; {kind} regeneration"})
             elif stages != {1, 2, 3}:
                 side = "added on both sides" if 1 not in stages else "deleted on one side and changed on the other"
@@ -1078,8 +1107,8 @@ def merge_pr(repo: mmr.Repo, pr: PullRequest, tools_root: Path) -> Merge:
             theirs = set(repo.text("diff", "--name-only", bases[0], "MERGE_HEAD").splitlines())
             for path in ours & theirs:
                 kind = classify(path)
-                if kind in {"web", "swift", "sdk"}:
-                    result.regen.add(kind)
+                if kind in {"web", "swift", "sdk", "generated"}:
+                    result.regen.add(regen_kind(kind, path))
                 elif kind == "spec":
                     result.regen.add("sdk")
         message = f"next-batch: merge #{pr.number}\n\n{pr.title}\n"
@@ -1100,12 +1129,28 @@ def scrubbed_env() -> dict[str, str]:
             if not SECRET_ENV.search(key) and not key.startswith(("GITHUB_TOKEN", "ACTIONS_"))}
 
 
+GENERATED_KIND = "generated="
+
+
+def regen_kind(kind: str, path: str) -> str:
+    """The regen entry for a kept path: its kind, or `generated=FAMILY` for generated_merge.py's families."""
+    return GENERATED_KIND + (generated_family(path) or "") if kind == "generated" else kind
+
+
+def generated_families(regen: set[str]) -> list[str]:
+    """The generated_merge.py families a stack's regen entries name."""
+    return sorted(kind[len(GENERATED_KIND):] for kind in regen if kind.startswith(GENERATED_KIND))
+
+
 def regenerate(repo: mmr.Repo, stack: Stack) -> None:
     steps = []
     if "web" in stack.regen:
         steps.append(("web bundles", ["sh", "scripts/cmux-next/regenerate-web-bundles.sh"]))
     if "sdk" in stack.regen:
         steps.append(("cmux-tui SDK", [sys.executable, "cmux-tui/bindings/codegen/generate.py", "--write"]))
+    if families := generated_families(stack.regen):
+        steps.append(("generated files", [sys.executable, "scripts/cmux-next/generated_merge.py", "regenerate",
+                                          "--families", ",".join(families)]))
     for name, command in steps:
         log(f"regenerating {name}")
         completed = subprocess.run(command, cwd=repo.path, env=scrubbed_env(), capture_output=True, text=True)
@@ -1339,6 +1384,10 @@ class Controller:
         # The job's log, readable while the rest of its run still goes. The classifier
         # strips ANSI in Python; use its compatible flag-first request here too.
         route = f"repos/{self.args.repo}/actions/jobs/{job_id}/logs"
+        kept = base_red_excuse.glaeda_log.cached_job_log(self.args.repo, job_id) \
+            if base_red_excuse.glaeda_log is not None else None  # this host's glaeda-gh kept it: no API call
+        if kept is not None:
+            return kept
         got = self.gh.gh("api", base_red_excuse.ESCAPE_FLAG, route, check=False)
         if got.returncode != 0 and base_red_excuse.escape_flag_unknown(got.stderr):
             got = self.gh.gh("api", route, check=False)
@@ -1400,10 +1449,12 @@ class Controller:
             return {f"{name}: no compile verdict (job {job_id}, never a base red)"}
         # A crash or a run cut short is never the base's (scripts/ci/test_reds.py): keyed by
         # this job's id, no base failure can match it, whatever the base shows.
-        own = base_red_excuse.test_reds.read(log)
+        view = base_red_excuse.failed_view(job, log, step_names=self.step_names(job), base=base)
+        # A failure no parser names is this red's only when a failed step printed it (owned_unnamed: #41244's review F1).
+        own = base_red_excuse.owned_unnamed(base_red_excuse.test_reds.read(log), view,
+                                            base_red_excuse.test_reds.unjudged(log))
         if own.crashes or own.truncated:
             return {f"{name}: {why} (job {job_id}, never a base red)" for why in own.crashes + own.truncated[:1]}
-        view = base_red_excuse.failed_view(job, log, step_names=self.step_names(job), base=base)
         if view is base_red_excuse.UNPLACED:
             # No line of a log step_owners does not place is proven its failed step's, so its signature is not
             # read: keyed by this job's id, a head's red is its own and a base's inherits nothing (#40542's Codex
@@ -1618,7 +1669,10 @@ class Controller:
         lands on the stack here and is pushed before the next job.
         """
         steps = []
-        if linux := sorted(stack.regen & {"web", "sdk"}):
+        linux = sorted(stack.regen & {"web", "sdk"})
+        if families := generated_families(stack.regen):
+            linux.append(GENERATED_KIND + ",".join(families))  # family keys have no spaces or commas
+        if linux:
             steps.append(("regen-linux", " ".join(linux)))
         if "swift" in stack.regen:
             steps.append(("regen", "swift"))
@@ -1819,23 +1873,22 @@ class Controller:
         def finished(items: list[dict]) -> list[dict]:
             return [item for item in items if item.get("head_branch") == BASE and item.get("status") == "completed"]
 
-        def coalesced(item: dict) -> bool:
-            """A push run cmux-next-web.yml's coalescing left without web checks (web_coalesce.py): replaced while
-            pending (cancelled), or yielded to a newer push after its wait (success, its checks skipped), and no job
-            but `coalesce` gave a verdict. Its jobs are read first: a run cancelled by hand after a job passed or
-            failed is still the base's verdict."""
-            if item.get("event") != "push" or item.get("conclusion") not in ("cancelled", "success"):
-                return False
+        def no_batch_verdict(item: dict) -> bool:
+            """A post-merge batch run with no web verdict for its head: a probe (one job of an older commit, its
+            head_sha the tip it was dispatched from), or a batch whose web suite gave no job a verdict."""
+            if (item.get("display_title") or "").startswith("probe "):
+                return True
             jobs = self.gh.api(f"repos/{self.args.repo}/actions/runs/{item['id']}/jobs?per_page=100&filter=latest")["jobs"]
-            return all(job.get("name") == "coalesce" or (job.get("conclusion") or "") in ("cancelled", "skipped")
-                       for job in jobs)
+            return not any(str(job.get("name") or "").startswith("web / ")
+                           and (job.get("conclusion") or "") in ("success", "failure") for job in jobs)
 
-        # A coalesced run is no verdict for its commit: the newest run on an ancestor stands in.
-        base = next(([item] for item in finished(self.gh.runs(WEB_WORKFLOW, f"head_sha={base_sha}&per_page=20"))
-                     if not coalesced(item)), [])
+        # A run with no web verdict (a probe, or a batch whose web jobs never ran) is none for its commit: the
+        # newest run on an ancestor stands in. A run cancelled after a web job passed or failed still counts.
+        base = next(([item] for item in finished(self.gh.runs(BASE_WEB_WORKFLOW, f"head_sha={base_sha}&per_page=20"))
+                     if not no_batch_verdict(item)), [])
         if not base:
-            base = next(([item] for item in finished(self.gh.runs(WEB_WORKFLOW, f"branch={BASE}&per_page=100"))
-                         if self.is_ancestor(item["head_sha"], base_sha) and not coalesced(item)), [])
+            base = next(([item] for item in finished(self.gh.runs(BASE_WEB_WORKFLOW, f"branch={BASE}&per_page=100"))
+                         if self.is_ancestor(item["head_sha"], base_sha) and not no_batch_verdict(item)), [])
         inherited = set(self.failed_jobs(base[0]["id"], detail=True, base=True)) if base else set()
         new = sorted(failed - inherited)
         return "passed" if not new else "failed: " + ", ".join(new)

@@ -12,6 +12,35 @@
 # nightly-next runs are pushes to nightly-next; their PRs merge into feat-cmux-next.
 set -euo pipefail
 read -ra feeds <<< "$NIGHTLY_FEEDS"
+# `prefetch` (nightly-next-one's one-job.sh deltas-start, in the background beside the bundle's checks, with no
+# token): only the git fetch of the span the notes cover, from the same live-feed commit as below, so this
+# step's own fetch finds it there. Run 44893172356 spent 30 s of this step's 91 s on it (2026-11-21).
+if [ "${1:-}" = prefetch ]; then
+  since="$(python3 "$PUBLISH_TOOLING/ci/nightly_version.py" published-source --feed "${NIGHTLY_NEXT_FEED_BASE}/${feeds[0]}")" \
+    || since="${PUBLISHED_SHA:-}"
+  [[ "$since" =~ ^[0-9a-f]{40}$ && "$since" != "$NOTES_HEAD" ]] || exit 0
+  exec ./scripts/cmux-next/fetch-release-notes-span.sh origin "$NOTES_HEAD" nightly-next "$since"
+fi
+# nightly-next: the previous published commit is the live feed's newest cmux:sourceCommit. The feed is written
+# by the publishing job itself (a compare-and-swap that only moves to a descendant source); the release body and
+# tag that decide read come from the previous run's tail, after its feed, and the push slot no longer waits for
+# that tail (nightly.yml's concurrency, nightly-next-one-push). An unreadable feed, a newest item with no
+# source, or this build's own source (a re-attempt after its feed write) keeps decide's commit.
+notes_base=()
+if [ "$NIGHTLY_TRACK" = nightly-next ] && [ -n "${NIGHTLY_NEXT_FEED_BASE:-}" ] && [ "${#feeds[@]}" -gt 0 ]; then
+  if from_feed="$(python3 "$PUBLISH_TOOLING/ci/nightly_version.py" published-source \
+      --feed "${NIGHTLY_NEXT_FEED_BASE}/${feeds[0]}")" && [[ "$from_feed" =~ ^[0-9a-f]{40}$ ]] \
+      && [ "$from_feed" != "$NOTES_HEAD" ]; then
+    if [ "$from_feed" != "${PUBLISHED_SHA:-}" ]; then
+      echo "::notice title=Published commit from the feed::the live feed serves $from_feed; decide read ${PUBLISHED_SHA:-nothing} from the release body"
+    fi
+    PUBLISHED_SHA="$from_feed"
+    notes_base=(--base "$from_feed")
+  else
+    echo "::warning::could not read the published commit from ${NIGHTLY_NEXT_FEED_BASE}/${feeds[0]}; using decide's ${PUBLISHED_SHA:-<none>}"
+  fi
+fi
+echo "published_sha=${PUBLISHED_SHA:-}" >> "$GITHUB_OUTPUT"
 download="https://github.com/${GITHUB_REPOSITORY}/releases/download/${CHANNEL_RELEASE_TAG}"
 arm64_line="- [Apple silicon: ${CHANNEL_DMG_PREFIX}-arm64.dmg](${download}/${CHANNEL_DMG_PREFIX}-arm64.dmg), feed \`appcast-arm64.xml\`"
 if [ "$NIGHTLY_TRACK" = nightly-next ]; then
@@ -51,7 +80,7 @@ python3 "$PUBLISH_TOOLING/ci/nightly_release_notes.py" \
   --repo "$GITHUB_REPOSITORY" --tag "$CHANNEL_RELEASE_TAG" \
   --head "$NOTES_HEAD" --branch "$NOTES_BRANCH" \
   --details nightly-downloads.md --out nightly-notes.md \
-  --appcasts nightly-out --build "$NIGHTLY_BUILD" --feeds "${feeds[@]}"
+  --appcasts nightly-out --build "$NIGHTLY_BUILD" --feeds "${feeds[@]}" ${notes_base[@]+"${notes_base[@]}"}
 # cmux-next lands commits, not PRs: its appcast item carries a short
 # changelog of the user-facing commit subjects since the previous
 # published build (New / Fixed / Changed, at most 8 lines, plain

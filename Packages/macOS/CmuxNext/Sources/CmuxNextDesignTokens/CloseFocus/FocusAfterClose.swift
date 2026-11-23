@@ -3,36 +3,11 @@ import CCmuxLayoutReducerFFI
 /// The focus successor rules for every close kind (plans/cmux-next/close-focus.md), run by
 /// cmux-focus-core (cmux-tui/crates/cmux-focus-core, `close_focus`) over the app FFI's typed
 /// `cmux_close_focus_*` calls: one in-process call per close, no JSON. The focus reducer runs the
-/// pane rule there too; tab selection calls these (a window's workspace pick is `CloseSelection.workspace`). Nothing else decides a
+/// pane rule there too (a pane's tab pick is `CloseSelection.successor(ofTab:)`, a window's workspace pick `CloseSelection.workspace`). Nothing else decides a
 /// successor, and no rule is in Swift: these number the caller's ids for the call and map the
 /// answer back (the rules compare ids only by identity). The contract (C1-C4) and its model checks
 /// are in the crate's tests (`tests/focus_rules`, closefocus.tla's cases).
 public nonisolated enum FocusAfterClose {
-    /// The tab a pane selects after `selected` closed: the shown tab immediately before it, else
-    /// the shown one after it (Lawrence 2026-11-08: "it should always focus the tab before it if it
-    /// exists"). `old` is the strip order before the close, `shown` the tabs that survive and are not
-    /// hidden (a collapsed group's members are hidden). When no shown tab survives, the first
-    /// surviving tab (its group then expands). A `selected` that survives stays. Every close entry
-    /// point (Cmd-W, the close button, middle-click, the tab menu, the CLI, an exited terminal) and
-    /// the daemon pick with this one rule; no opener, history or "next to the right" order.
-    public static func tab<ID: Hashable>(selected: ID?, old: [ID], surviving: [ID], shown: Set<ID>) -> ID? {
-        var map = IDNumbering<ID>()
-        let selected = map.optional(selected)
-        let old = map.numbers(old)
-        let surviving = map.numbers(surviving)
-        let shown = map.numbers(shown)
-        let pick = old.withUnsafeBufferPointer { old in
-            surviving.withUnsafeBufferPointer { surviving in
-                shown.withUnsafeBufferPointer { shown in
-                    // The ABI's opener arrays no longer pick (cmux_close_focus_tab): none are sent.
-                    cmux_close_focus_tab(selected, old.baseAddress, old.count, surviving.baseAddress, surviving.count,
-                                         shown.baseAddress, shown.count, nil, nil, 0)
-                }
-            }
-        }
-        return map.id(pick)
-    }
-
     /// The opener relations among `order`, from `opener` (child to opener, possibly naming tabs
     /// that are gone). A tab whose opener is not in `order` takes that opener's own opener, as
     /// Chrome's `FixOpeners` does when a tab leaves the strip; a relation back to the tab itself is

@@ -4,6 +4,7 @@
 // it kept only the first block, so words after an attachment were lost).
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
+import { settleReact } from "../../../test/support/domTeardown";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
@@ -12,7 +13,8 @@ const saved = { had: "window" in scope, value: scope.window };
 beforeAll(() => {
   scope.window = dom.window;
 });
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   if (saved.had) scope.window = saved.value;
   else delete scope.window;
 });

@@ -10,14 +10,24 @@ enum InstantClose {
     static func begin(_ ids: [String], in window: String?, windows: WindowManager) -> [String] {
         guard let window, let controller = windows.controller(for: window) else { return [] }
         let room = WindowProfiles.visible(windows.registry.members(of: window), profile: controller.state.profileID, machines: windows.services.machines)
+        // Another window on the same space lists these rows too (a shared space): its order before the close, as `room`.
+        let machines = windows.services.machines
+        let sharing = windows.controllers.count > 1 ? windows.controllers.filter { other in
+            other.state.id != window && ids.contains { windows.registry.value.lists($0, in: other.state.id) }
+        }.map { ($0, WindowProfiles.visible(windows.registry.members(of: $0.state.id), profile: $0.state.profileID, machines: machines)) } : []
         let hidden = ids.filter { ClosingWorkspaces.shared.begin($0, among: room) }
         guard !hidden.isEmpty else { return [] }
         // Preserve the pre-close order. ClosingWorkspaces hides the rows before
         // repairSelections runs; reconstructing the old order afterward can
         // make a last-row close fall back to the first surviving workspace.
-        windows.repairSelections(previous: [window: room], only: window, batch: ids.count > 1) // several rows: by position, no opener rank
+        windows.repairSelections(previous: [window: room], only: window, pressed: true) // the press: the close can still be cancelled or refused
         controller.sidebar.sameTurn.syncNow(rows: true)
         controller.showWorkspace(requested: controller.state.workspaceID)
+        for (other, order) in sharing {
+            windows.repairSelections(previous: [other.state.id: order], only: other.state.id)
+            other.sidebar.sameTurn.syncNow(rows: true)
+            other.showWorkspace(requested: other.state.workspaceID)
+        }
         return hidden
     }
 }

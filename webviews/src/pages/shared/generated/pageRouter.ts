@@ -24,19 +24,22 @@ export const PAGE_OPERATIONS: Readonly<Record<string, PageOperations>> = {
       "apps.asset.get",
       "apps.catalog.get",
       "apps.catalog.list",
+      "apps.catalog.sections",
       "apps.grants.get",
       "apps.installed.list",
-      "apps.logs"
+      "apps.logs",
+      "apps.updates.list"
     ],
     "gesture": [
       "apps.grant.revoke",
-      "apps.hidden.set"
+      "apps.hidden.set",
+      "apps.install"
     ],
     "confirm": [
       "apps.grant.set",
-      "apps.install",
       "apps.set",
-      "apps.uninstall"
+      "apps.uninstall",
+      "apps.update"
     ]
   },
   "bookmarks": {
@@ -47,13 +50,6 @@ export const PAGE_OPERATIONS: Readonly<Record<string, PageOperations>> = {
     "gesture": [
       "bookmarks.apply"
     ],
-    "confirm": []
-  },
-  "bookmarks-bar": {
-    "read": [
-      "bookmarks.children"
-    ],
-    "gesture": [],
     "confirm": []
   },
   "feed": {
@@ -148,9 +144,11 @@ export const ROUTED_NAMESPACES: Readonly<Record<string, RoutedNamespace>> = {
       "apps.asset.get",
       "apps.catalog.get",
       "apps.catalog.list",
+      "apps.catalog.sections",
       "apps.grants.get",
       "apps.installed.list",
-      "apps.logs"
+      "apps.logs",
+      "apps.updates.list"
     ],
     "mutation": [
       "apps.grant.revoke",
@@ -158,7 +156,8 @@ export const ROUTED_NAMESPACES: Readonly<Record<string, RoutedNamespace>> = {
       "apps.hidden.set",
       "apps.install",
       "apps.set",
-      "apps.uninstall"
+      "apps.uninstall",
+      "apps.update"
     ]
   },
   "bookmarks": {

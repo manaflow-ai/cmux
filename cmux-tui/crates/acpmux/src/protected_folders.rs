@@ -153,23 +153,18 @@ pub fn unattended_cwd_in(acpmux_home: &Path, home: Option<&Path>) -> PathBuf {
 /// Makes `dir` (and missing parents) owner-only whatever the umask: under 002 it would be
 /// group-writable. One an older build made with the umask is narrowed when it is this user's own
 /// folder; a link or another user's folder is left alone.
+///
+/// Made through the folder this daemon holds (`home_fs`): a home replaced after the check never
+/// gets it.
 fn owner_only_dir(dir: &Path) -> std::io::Result<()> {
-    let mut made = std::fs::DirBuilder::new();
-    made.recursive(true);
-    #[cfg(unix)]
-    std::os::unix::fs::DirBuilderExt::mode(&mut made, 0o700);
-    made.create(dir)?;
     #[cfg(unix)]
     {
-        use std::os::unix::fs::{MetadataExt, PermissionsExt};
-        let meta = std::fs::symlink_metadata(dir)?;
-        // SAFETY: getuid has no preconditions.
-        let mine = meta.uid() == unsafe { libc::getuid() };
-        if meta.is_dir() && mine && meta.mode() & 0o077 != 0 {
-            std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;
-        }
+        crate::home_fs::private_dir(dir)
     }
-    Ok(())
+    #[cfg(not(unix))]
+    {
+        crate::home_fs::create_dir_all(dir, 0o700)
+    }
 }
 
 fn guarded(path: &Path, homes: &[PathBuf]) -> Option<&'static str> {

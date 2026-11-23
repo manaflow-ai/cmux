@@ -203,7 +203,7 @@ public final class SidebarContainerView: NSView {
         sidePins = Self.pins(panel: panel, clip: clip)
         NSLayoutConstraint.activate(sidePins[side] ?? [])
         mountHandle()
-        panel.isHidden = isPanelCollapsed
+        SidebarHiddenState.apply(isPanelCollapsed, to: panel)
         syncHandleVisibility()
         handle.restingLineWidth = Metrics.sidebarBorderWidth
         handle.onDrag = { [weak self] phase in self?.handleDrag(phase) }
@@ -264,7 +264,7 @@ public final class SidebarContainerView: NSView {
 
     /// The handle shows while the sidebar is shown and this view is not hidden.
     func syncHandleVisibility() {
-        handle.isHidden = isPanelCollapsed || isFloatOverlay || isHiddenOrHasHiddenAncestor
+        SidebarHiddenState.apply(isPanelCollapsed || isFloatOverlay || isHiddenOrHasHiddenAncestor, to: handle)
     }
 
     /// The user's sidebar background (`appearance.surfaces.sidebar`, `Palette.surfaceOverride`), the rail's
@@ -297,6 +297,16 @@ public final class SidebarContainerView: NSView {
     public func beginRename(group id: GroupID) {
         revealForEditing()
         sidebarView.beginRename(group: id)
+    }
+
+    /// Rename on the first group the sidebar lists (its editor), as that header's menu does; false with no group
+    /// (`debug.overlay_open_bench`).
+    public func beginRenameFirstGroup() -> Bool {
+        let first = model.sections.lazy.flatMap(\.nodes).compactMap { node -> GroupID? in if case let .group(group) = node { group.id } else { nil } }.first
+        guard let first else { return false }
+        sidebarView.list.groupEditor.forgetLastClose()
+        beginRename(group: first)
+        return true
     }
 
     /// Turns the sidebar's edit mode on or off (`SidebarView+EditItems`), showing a hidden sidebar first.
@@ -389,7 +399,7 @@ public final class SidebarContainerView: NSView {
         panelWidth.constant = model.width + paneReach
         lastPaneReach = paneReach
         setClipReach(paneReach, collapsed: isPanelCollapsed, animated: false)
-        panel.isHidden = isPanelCollapsed
+        SidebarHiddenState.apply(isPanelCollapsed, to: panel)
         panel.alphaValue = 1
         syncHandleVisibility()
         syncRail()
@@ -433,7 +443,7 @@ public final class SidebarContainerView: NSView {
         guard targetWidth != target || targetCollapseMotion != collapseMotion else { return }
         targetWidth = target
         targetCollapseMotion = collapseMotion
-        if !hidden { panel.isHidden = false }
+        if !hidden { SidebarHiddenState.apply(false, to: panel) }
         // The slide-and-fade prototype starts an expansion transparent and
         // lets the same timed transition reveal it. Slide keeps the current
         // opaque panel behavior, including when a user switches variants
@@ -486,7 +496,7 @@ public final class SidebarContainerView: NSView {
               widthCompletedGeneration == generation,
               !fadesPanel || fadeCompletedGeneration == generation else { return }
         panel.alphaValue = fadesPanel ? 0 : 1
-        panel.isHidden = true
+        SidebarHiddenState.apply(true, to: panel)
         isFloatOverlay = false
         PointerHover.refresh(in: window)
     }

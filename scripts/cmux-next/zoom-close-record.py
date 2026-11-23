@@ -427,10 +427,12 @@ def springs():
     split("green", "right", "blue")
     for label, response, damping in CANDIDATES["zoom"]:
         print("tune zoom", label, json.dumps(tune("zoom", response, damping))[:120], flush=True)
+        tune("unzoom", response, damping)  # the way back has its own token: a candidate moves the pane both ways
         focus("green")
         record(f"spring-zoom-{label}", toggle)
         record(f"spring-unzoom-{label}", toggle)
     tune("zoom", None, None)
+    tune("unzoom", None, None)
     for label, response, damping in CANDIDATES["exit"]:
         print("tune exit", label, json.dumps(tune("exit", response, damping))[:120], flush=True)
         first_terminal("red")

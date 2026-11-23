@@ -17,9 +17,11 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
+import { PromptHeads } from "../src/agent-session/acpmux/promptHeads";
 import { HANDOFF_OPS } from "../src/agent-session/acpmux/handoff/protocol";
 import { PERMISSION_GROUP_OPS } from "../src/agent-session/acpmux/permissions/protocol";
 import { askOnSingleCard } from "../src/agent-session/acpmux/permissionKeys";
+import { settleReact } from "./support/domTeardown";
 
 const START = Date.UTC(2026, 10, 1, 9, 0, 0);
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
@@ -31,7 +33,8 @@ beforeAll(() => {
   scope.document = dom.window.document;
 });
 
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   if (saved.had) Object.assign(scope, { window: saved.window, document: saved.document });
   else {
     delete scope.window;
@@ -279,7 +282,9 @@ test("a cold tail draws before the full prompt index is read, then fills its lab
     expect(indexReads()).toHaveLength(0);
     await turns();
     expect(indexReads()).toHaveLength(1);
-    expect(last().earlierPrompts?.map((row) => row.text)).toEqual(["Earlier"]);
+    const earlier = last().earlierPrompts;
+    expect(earlier?.length).toBe(1);
+    expect(earlier && PromptHeads.text(earlier, 0)).toBe("Earlier");
     expect(text(last())).toContain("Tail ready.");
   } finally {
     client.close();

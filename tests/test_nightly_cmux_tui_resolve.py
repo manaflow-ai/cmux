@@ -107,7 +107,7 @@ blocks = dict(re.findall(r"^  ([A-Za-z0-9_-]+):\n(.*?)(?=^  [A-Za-z0-9_-]+:\n|\Z
 # The advisory attester uses workflow controls and the already-built artifact;
 # its checkout contributes no shipped bytes. republish-nightly-next runs this
 # workflow's fetch script against another run's already-verified artifacts.
-exempt = {"republish-nightly-next", "attest-nightly-remote-daemon", "decide", RESOLVE, "route-visual-gate-nightly", "visual-gate-nightly-verdict", "refresh-compilation-cache", "refresh-test-compilation-cache", "probe-nightly-tag-permission",
+exempt = {"republish-nightly-next", "attest-nightly-remote-daemon", "decide", "runner-preflight", RESOLVE, "route-visual-gate-nightly", "visual-gate-nightly-verdict", "refresh-compilation-cache", "refresh-test-compilation-cache", "probe-nightly-tag-permission",
           "find-nightly-next-recovery", "recover-nightly-next-notarization", "verify-recovered-nightly-next",
           "sign-nightly-identity-legacy", "verify-nightly-identity-legacy", "verify-nightly-identity-legacy-pool",
           "publish-nightly-identity-legacy", "legacy-identity-target", "promote-nightly-next", "promote-nightly-next-acked"}

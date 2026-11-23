@@ -14,6 +14,13 @@
 //! The same holds for a key directory another user owns or others can write.
 //! On Windows the file gets the platform's private-file treatment only; there
 //! is no owner or mode check.
+//!
+//! A field this build does not know (a newer build's, read after a rollback)
+//! does not make the file untrusted: making new keys then would stop every
+//! surviving terminal's credential. The field is kept and written back with
+//! the next rotation. Credentials themselves stay strict ([`Claims`]): a claim
+//! this build does not know may narrow what the credential allows, so such a
+//! credential does not verify here.
 
 use std::collections::{BTreeMap, HashMap};
 use std::io::Write as _;
@@ -123,24 +130,31 @@ struct LaunchKeys {
     /// The last rotation, so a retry of the same request (also after a
     /// restart) rotates once.
     last_rotation: Option<Rotation>,
+    /// Fields of the key file this build does not know (a newer build's),
+    /// written back unchanged.
+    newer: serde_json::Map<String, serde_json::Value>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 struct Rotation {
     idempotency_key: String,
     kid: String,
+    /// Fields this build does not know, written back unchanged.
+    #[serde(flatten)]
+    newer: serde_json::Map<String, serde_json::Value>,
 }
 
 /// The key file's JSON form: `{current: kid, keys: {kid: base64url},
-/// last_rotation?: {idempotency_key, kid}}`.
+/// last_rotation?: {idempotency_key, kid}}`, and any fields a newer build
+/// added, kept as they are.
 #[derive(Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 struct StoredKeys {
     current: String,
     keys: BTreeMap<String, String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     last_rotation: Option<Rotation>,
+    #[serde(flatten)]
+    newer: serde_json::Map<String, serde_json::Value>,
 }
 
 impl LaunchKeys {
@@ -148,7 +162,7 @@ impl LaunchKeys {
         let mut keys = BTreeMap::new();
         let kid = new_kid()?;
         keys.insert(kid.clone(), random_key()?);
-        Ok(Self { current: kid, keys, last_rotation: None })
+        Ok(Self { current: kid, keys, last_rotation: None, newer: serde_json::Map::new() })
     }
 
     /// A new current key; only the previous current key stays besides it.
@@ -159,9 +173,12 @@ impl LaunchKeys {
         }
         let kid = new_kid()?;
         keys.insert(kid.clone(), random_key()?);
-        let last_rotation =
-            Some(Rotation { idempotency_key: idempotency_key.to_string(), kid: kid.clone() });
-        Ok(Self { current: kid, keys, last_rotation })
+        let last_rotation = Some(Rotation {
+            idempotency_key: idempotency_key.to_string(),
+            kid: kid.clone(),
+            newer: serde_json::Map::new(),
+        });
+        Ok(Self { current: kid, keys, last_rotation, newer: self.newer.clone() })
     }
 
     fn from_stored(stored: StoredKeys) -> Option<Self> {
@@ -177,6 +194,7 @@ impl LaunchKeys {
             current: stored.current,
             keys,
             last_rotation: stored.last_rotation,
+            newer: stored.newer,
         })
     }
 
@@ -189,6 +207,7 @@ impl LaunchKeys {
                 .map(|(kid, key)| (kid.clone(), URL_SAFE_NO_PAD.encode(key)))
                 .collect(),
             last_rotation: self.last_rotation.clone(),
+            newer: self.newer.clone(),
         }
     }
 
@@ -452,3 +471,7 @@ fn valid_kid(kid: &str) -> bool {
         && kid.len() <= 32
         && kid.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
 }
+
+#[cfg(test)]
+#[path = "launch_credential_tests.rs"]
+mod tests;

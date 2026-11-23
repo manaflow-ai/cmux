@@ -475,7 +475,7 @@ struct NotificationContentView: View {
             .padding(.vertical, 9)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(NotificationPressFillStyle())
         .accessibilityIdentifier("cmux.push.option.\(row.id)")
         .accessibilityAddTraits(form.isSelected(row) ? .isSelected : [])
     }
@@ -572,11 +572,25 @@ struct AttachTray: View {
                     .foregroundStyle(.white, .black.opacity(0.6))
                     .font(.body)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(NotificationPressFillStyle())
             .offset(x: 6, y: -6)
             .accessibilityLabel(String(localized: "Remove \(item.title)"))
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(item.title)
+    }
+}
+
+/// The app's pressed look (CmuxMobileDesign's `CmuxMobilePressFillStyle`, which this extension does not link): the
+/// label never dims or changes while held; only a wash behind it shows (design/pressed-state.md).
+private struct NotificationPressFillStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .tint(Color.primary)
+            .background {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color.primary.opacity(0.13))
+                    .opacity(configuration.isPressed ? 1 : 0)
+            }
     }
 }

@@ -66,6 +66,7 @@ use kitty_budget_state::KITTY_IMAGE_PROCESS_BUDGET_BYTES;
 use kitty_budget_state::KITTY_IMAGE_PROCESS_BUDGET_COUNT;
 #[cfg(test)]
 use kitty_budget_state::KITTY_OBJECT_OWNERS_PER_SURFACE;
+pub(crate) use kitty_budget_state::KittyImageAdoptionExpectation;
 use kitty_budget_state::KittyImageBudgetEntry;
 pub(crate) use kitty_budget_state::KittyImageBudgetReservation;
 use kitty_budget_state::KittyImageBudgetState;
@@ -192,6 +193,7 @@ mod agent_chat_notices;
 pub(crate) mod agent_message_pump;
 pub(crate) mod app_terminals;
 mod cell_pixels;
+pub(crate) mod chat_index;
 mod client_resize;
 mod cloud_conversations;
 mod construct;
@@ -228,6 +230,7 @@ mod pinned_columns;
 #[cfg(unix)]
 mod project_chats;
 mod pty_reclaim;
+mod tree_revision;
 mod viewport_scroll;
 mod workspace_name;
 use kitty_reservation::kitty_image_limits_exceed;
@@ -237,6 +240,7 @@ pub use agent_presence::{AgentActivity, AgentPresence};
 pub(crate) use agent_prompts::{
     with_agent_list_replies, with_agent_session, with_kept_session, with_last_reply,
 };
+mod agent_notification_delivery;
 mod agent_types;
 pub use agent_types::{AgentRecord, AgentSource, AgentState};
 use agent_types::{
@@ -254,8 +258,8 @@ mod layout_types;
 mod layout_undo;
 mod lifecycle;
 pub use layout_types::{
-    AppliedLayout, AppliedPane, Direction, LayoutLeafSpec, LayoutSpec, LayoutUndoError,
-    LayoutUndoResult, ViewportWidthError, ZoomMode, ZoomState,
+    AppliedLayout, AppliedPane, Direction, FloatPaneError, FloatPaneOutcome, LayoutLeafSpec,
+    LayoutSpec, LayoutUndoError, LayoutUndoResult, ViewportWidthError, ZoomMode, ZoomState,
 };
 mod layout_undo_commit;
 pub use events::{
@@ -321,6 +325,8 @@ pub(crate) use time::now_ms;
 pub(crate) use crate::state::{PersonalChange, ScreenChange, WorkspaceStatusChange};
 pub(crate) use tab_strip::StripRequest;
 pub(crate) mod creating_input;
+#[cfg(unix)]
+mod holder_late;
 mod loss_causes;
 mod orphan_hosts;
 mod pending_terminals;
@@ -345,9 +351,11 @@ mod terminal_live;
 pub(crate) use terminal_live::TerminalProgressFollower;
 mod terminal_move;
 mod terminal_move_topology;
+mod terminal_port_watch;
 mod terminal_progress;
 mod terminal_publisher;
 mod terminal_reap;
+pub(crate) use terminal_port_watch::PortMark;
 mod terminal_tail_pins;
 pub(crate) use terminal_tail_pins::RESERVED_TAIL_KEY_PREFIX;
 #[cfg(unix)]
@@ -401,7 +409,7 @@ use resource_content::ensure_screen_split_public_ids;
 #[cfg(unix)]
 pub(crate) use resource_topology::AgentCLIJobBusy;
 pub(crate) use resource_topology::{
-    BatchCloseOutcome, BatchCloseTarget, CloseReason, PANE_BROWSER_URL_FIELD,
+    BatchCloseOutcome, BatchCloseTarget, CloseReason, PANE_BROWSER_URL_FIELD, PANE_SPLIT_FIT_FIELD,
     PANE_SPLIT_FOCUS_FIELD, RoomClose, SCREEN_CREATE_FOCUS_FIELD, TabSplit,
     WORKSPACE_CREATE_FOCUS_FIELD,
 };
@@ -518,6 +526,15 @@ const WORKSPACE_NAME_MAX_BYTES: usize = 1_024;
 const TERMINAL_HOST_CLOSE_WAIT: Duration = crate::terminal_host_runtime::HOST_TERMINATE_WAIT;
 const TERMINAL_READER_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(1);
 
+/// The index `delta` steps from `active` in a ring of `len` items (`len > 0`,
+/// `active < len`). `delta` comes from a client and can be any `isize`: it is
+/// reduced into the ring first, so the sum is below `2 * len` and never overflows.
+pub(crate) fn ring_step(active: usize, delta: isize, len: usize) -> usize {
+    let len_signed = isize::try_from(len).unwrap_or(isize::MAX);
+    let step = usize::try_from(delta.rem_euclid(len_signed)).unwrap_or(0);
+    active.saturating_add(step) % len
+}
+
 /// A durable client install identity: non-empty, at most 128 ASCII graphic
 /// bytes. Shared by per-client focus memory and per-client notification reads.
 pub(crate) fn validate_client_id(client_id: &str) -> anyhow::Result<()> {
@@ -556,6 +573,9 @@ pub struct Mux {
     /// Clone of the registry's projection spans, read without its lock.
     resource_projection_stats: Arc<crate::diagnostics::ResourceProjectionStats>,
     started_at: Instant,
+    /// The route generations of `state`'s routing tables, read without the session lock
+    /// (`crate::route_table::RouteGenerations`).
+    pub(crate) route_generations: crate::route_table::RouteGenerations,
     pub(crate) state: signaled_mutex::StateMutex,
     subscribers: MuxEventBroadcaster,
     config_reload: Mutex<ConfigReloadState>,
@@ -713,6 +733,10 @@ pub struct Mux {
     /// The chat-index project import's wake (`project_chats.rs`).
     #[cfg(unix)]
     project_chats: project_chats::ProjectChatsWake,
+    /// Every ACP chat acpmux knows, for `chat.list` (`chat_index.rs`).
+    chat_index: chat_index::ChatIndex,
+    /// The editor and app project sources' file watch (`state/project_watch.rs`).
+    pub(crate) project_watch: crate::state::project_watch::ProjectWatch,
     /// Nonterminal notifications remain placement-local. Terminal unread state is keyed by
     /// stable content identity so every view of one terminal shares the same attention marker.
     placement_notifications: Mutex<HashMap<SurfaceId, SurfaceNotification>>,
@@ -732,7 +756,9 @@ pub struct Mux {
     /// The terminals whose live facts changed (`mux/terminal_live.rs`).
     terminal_live: terminal_live::TerminalLiveLog,
     /// Pinned terminals' last lines and their publisher (`terminal-tail-pin-v1`).
-    terminal_tail_pins: terminal_tail_pins::TerminalTailPins,
+    terminal_tail_pins: Arc<terminal_tail_pins::TerminalTailPins>,
+    /// The terminals that printed, for their workspaces' `ports` entries.
+    terminal_port_watch: Arc<terminal_port_watch::TerminalPortWatch>,
     notification_ledger: Mutex<VecDeque<ResourceNotification>>,
     /// Per-client read marks. The shared unread marker above answers "does this terminal need
     /// attention on the shared console"; this map answers "has this client install seen this
@@ -751,8 +777,10 @@ pub struct Mux {
     /// Shared presentation metadata (workspace groups and workspace
     /// presentation fields), replaced after each registry commit.
     presentation: Mutex<Arc<crate::workspace_registry::PresentationSnapshot>>,
-    /// Git HEAD lookups keyed by directory, with the time they were read.
-    git_heads: Mutex<HashMap<String, (Instant, Option<presentation::GitHead>)>>,
+    /// Git HEAD lookups keyed by directory, with their background refresh.
+    git_heads: Arc<presentation::GitHeadCache>,
+    /// One revision of everything `list-workspaces` shows (mux/tree_revision.rs).
+    tree_revision: tree_revision::TreeRevision,
     resource_machine_service: OnceLock<Arc<dyn crate::ResourceMachineService>>,
     journal_kernel: Arc<crate::journal_kernel::JournalKernel>,
     journal_ingress: crate::journal_ingress::JournalIngressSender,
@@ -843,9 +871,15 @@ pub struct Mux {
     /// Lets a start's adoption threads go before the owner says ready: a
     /// creation the crash interrupted waits on its host's adoption.
     startup_adoptions_released: AtomicBool,
-    /// The laps of this owner's open (registry, restore, adoption), until
-    /// the owner's start takes them for `startup-timings.jsonl`.
-    startup_timings: Mutex<Option<crate::startup_timings::StartupTimings>>,
+    /// Terminals the start kept, by host id: for a terminal holder that was
+    /// late (mux/holder_late.rs), until the late thread re-attached or ended
+    /// them, or for the next start (the holder runs the shell and the
+    /// re-attach failed), for the life of this owner. A creation that waits
+    /// on one of them does not hold the start back. A leaf lock.
+    late_holder_terminals: Mutex<HashSet<String>>,
+    /// The laps of this owner's open (registry, restore, adoption), until the owner's start
+    /// takes them, and the start line with the laps after ready (mux/startup_record.rs).
+    startup_timings: startup_record::StartupLaps,
     /// Terminals with a possibly live host and no runtime surface (R41),
     /// keyed by public terminal id (`term_…`, what the tab JSON reads), with
     /// the host terminal id. A leaf lock: nothing else is locked under it.
@@ -871,6 +905,8 @@ pub struct Mux {
     /// for it blocks instead of polling the flag.
     daemon_shutdown_waker: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
     pub(crate) control_clients: crate::server::ClientRegistry,
+    /// One whole-tree `list-workspaces` build for concurrent readers.
+    pub(crate) tree_reply_flight: crate::server::tree_reply_flight::TreeReplyFlight,
     /// Guarded chat moves (`agent-transfer-v1`, server/agent_transfer.rs).
     #[cfg(unix)]
     pub(crate) agent_transfers: crate::server::agent_transfer::AgentTransfers,
@@ -1093,17 +1129,6 @@ impl Mux {
         f(&self.state.lock().unwrap())
     }
 
-    /// Run `f` with the session state if its lock is free now; `None`
-    /// instead of waiting while another thread holds it. A poisoned lock is
-    /// still read: its caller (the accept loop) must not stop on it.
-    pub(crate) fn try_with_state<R>(&self, f: impl FnOnce(&State) -> R) -> Option<R> {
-        match self.state.try_lock() {
-            Ok(state) => Some(f(&state)),
-            Err(std::sync::TryLockError::Poisoned(poison)) => Some(f(&poison.into_inner())),
-            Err(std::sync::TryLockError::WouldBlock) => None,
-        }
-    }
-
     pub fn surface_count(&self) -> usize {
         self.state.lock().unwrap().surfaces.len()
     }
@@ -1169,26 +1194,6 @@ impl Mux {
             let _ = surface.persist_host_workspace(&workspace_key);
         }
     }
-
-    fn sidebar_surface_exited(&self, id: SurfaceId) -> bool {
-        let mut runtime = self.sidebar_plugin.lock().unwrap();
-        if runtime.surface != Some(id) {
-            return false;
-        }
-        runtime.surface = None;
-        runtime.failures = runtime.failures.saturating_add(1);
-        let delay = sidebar_retry_delay(runtime.failures);
-        runtime.last_error = Some("sidebar plugin exited".to_string());
-        runtime.retry_at = Some(Instant::now() + delay);
-        drop(runtime);
-        self.state.lock().unwrap().surfaces.remove(&id);
-        true
-    }
-}
-
-fn sidebar_retry_delay(failures: u32) -> Duration {
-    let shift = failures.saturating_sub(1).min(5);
-    Duration::from_secs(1u64 << shift)
 }
 
 impl Drop for Mux {
@@ -1211,4 +1216,4 @@ impl Drop for Mux {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

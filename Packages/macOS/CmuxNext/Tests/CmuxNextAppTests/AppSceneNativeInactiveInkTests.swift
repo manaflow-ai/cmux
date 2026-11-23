@@ -5,13 +5,14 @@ import CmuxNextTestSupport
 import Testing
 
 /// The native renderer's progress bar and menu chevron against the SwiftUI controls they replaced
-/// (native-controls Before|After, controls-tour-full, 2026-11-09). In a window that is not key the
-/// SwiftUI bar drew its done part grey ((170, 170, 170) in light and dark); the native bar painted the
-/// primary ink in every window. The SwiftUI borderless pull-down drew its chevron in its title's ink;
-/// the native one painted it secondary (title 0, chevron 134 in light). Pixels are read the way a
-/// capture reads them: each control's layer rendered, over white.
+/// (native-controls Before|After, controls-tour-full, 2026-11-09 and 2026-11-11). In a window that is
+/// not key the SwiftUI bar drew its done part an opaque grey, (170, 170, 170) in light and dark; the
+/// native bar painted the primary ink, then the tertiary ink ((130, 130, 130) light, (131, 131, 131)
+/// dark). The SwiftUI borderless pull-down drew its chevron in its title's tone (title 36, chevron 39
+/// in light); the native one stayed lighter (title 0, chevron 62). Pixels are read the way a capture
+/// reads them: each control's layer rendered at its display's scale, over white.
 @MainActor @Suite(.serialized, .closesItsWindows) struct AppSceneNativeInactiveInkTests {
-    private static func host() -> (NSWindow, AppSceneHostingView) {
+    private static func host(_ appearance: NSAppearance.Name = .aqua) -> (NSWindow, AppSceneHostingView) {
         let model = AppSceneModel()
         model.apply([
             .create(id: "col", type: "VStack", props: ["spacing": 6]),
@@ -22,7 +23,7 @@ import Testing
         ])
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 220, height: 120), styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
-        window.appearance = NSAppearance(named: .aqua)
+        window.appearance = NSAppearance(named: appearance)
         let hosting = AppSceneHostingView(model: model, bundleDirectory: nil)
         hosting.frame = NSRect(x: 0, y: 0, width: 220, height: 120)
         window.contentView = hosting
@@ -34,14 +35,15 @@ import Testing
 
     private static func all(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(all) }
 
-    /// The darkest luminance (0 black, 1 white) in `view`'s layer, rendered over white, in the
-    /// horizontal span `from`..`to` (fractions of its width).
+    /// The darkest luminance (0 black, 1 white) in `view`'s layer, rendered over white at its window's
+    /// backing scale (what that display shows: 1x on the capture minis), in the horizontal span
+    /// `from`..`to` (fractions of its width). Rendering a 2x layer at 1x would blur a crisp stroke.
     private static func darkest(_ view: NSView, from: CGFloat = 0, to: CGFloat = 1) -> CGFloat? {
         view.needsDisplay = true
         view.displayIfNeeded()
         guard let layer = view.layer else { return nil }
         layer.displayIfNeeded()
-        let scale: CGFloat = 2
+        let scale = view.window?.backingScaleFactor ?? 1
         let w = max(1, Int(ceil(view.bounds.width * scale))), h = max(1, Int(ceil(view.bounds.height * scale)))
         guard let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
                                   space: CGColorSpace(name: CGColorSpace.sRGB)!,
@@ -73,8 +75,9 @@ import Testing
         return 0.299 * mix[0] + 0.587 * mix[1] + 0.114 * mix[2]
     }
 
-    @Test func aBarInAWindowThatIsNotKeyFillsGrey() throws {
-        let (window, hosting) = Self.host()
+    @Test(arguments: [NSAppearance.Name.aqua, .darkAqua])
+    func aBarInAWindowThatIsNotKeyFillsAppKitsInactiveGrey(_ appearance: NSAppearance.Name) throws {
+        let (window, hosting) = Self.host(appearance)
         defer { window.contentView = nil; window.close() }
         try #require(!window.isKeyWindow, "fixture: the test window is not key")
         let bar = try #require(Self.all(hosting).first { $0 is AppSceneProgressNSView })
@@ -82,31 +85,47 @@ import Testing
         bar.displayIfNeeded()
         let layers = (bar.layer?.sublayers ?? []).filter { $0.cornerRadius > 0 && $0.frame.height > 0 }.sorted { $0.frame.width < $1.frame.width }
         let done = try #require(layers.first)
-        let base = Palette.sidebarBackground.cgColor, primary = try #require(Self.over(Palette.textPrimary.cgColor, base))
-        let fill = try #require(Self.over(done.backgroundColor, base)), ground = try #require(Self.over(base, base))
-        // AppKit's inactive bar sits about a third of the way from the ground to the ink (170 on white, 170 on dark).
-        #expect(abs(fill - primary) > 0.2, "the done part paints the primary ink (\(fill), primary \(primary)) in a window that is not key")
-        #expect(abs(fill - ground) > 0.15, "the done part still shows against the ground: fill \(fill), ground \(ground)")
+        // A ground of each appearance's sidebar tone: a translucent fill would show it, an opaque one not.
+        let base = appearance == .darkAqua ? CGColor(gray: 0.15, alpha: 1) : CGColor(gray: 0.95, alpha: 1)
+        let fill = try #require(Self.over(done.backgroundColor, base))
+        // AppKit's inactive bar: an opaque (170, 170, 170) on any ground, in light and dark.
+        #expect(abs(fill - 170.0 / 255) < 0.02, "the done part composites to \(fill * 255), not AppKit's inactive 170")
     }
 
-    @Test func aMenuChevronTakesItsTitleInk() throws {
+    /// The strongest ink coverage (0 none, 1 a whole pixel) in `view`'s layer, rendered on a clear ground at
+    /// its window's backing scale (1x on the capture minis): the pixel alpha, whatever the ink's color.
+    private static func coverage(_ view: NSView) -> CGFloat? {
+        view.needsDisplay = true
+        view.displayIfNeeded()
+        guard let layer = view.layer else { return nil }
+        layer.displayIfNeeded()
+        let scale = view.window?.backingScaleFactor ?? 1
+        let w = max(1, Int(ceil(view.bounds.width * scale))), h = max(1, Int(ceil(view.bounds.height * scale)))
+        guard let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                                  space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        ctx.scaleBy(x: scale, y: scale)
+        layer.render(in: ctx)
+        guard let data = ctx.data?.assumingMemoryBound(to: UInt8.self) else { return nil }
+        var best: UInt8 = 0
+        for i in 0..<(w * h) { best = max(best, data[i * 4 + 3]) }
+        return CGFloat(best) / 255
+    }
+
+    @Test func aMenuChevronTakesItsTitlesTone() throws {
         let (window, hosting) = Self.host()
         defer { window.contentView = nil; window.close() }
         let menu = try #require(Self.all(hosting).first { $0 is AppSceneMenuNSView })
-        let chevron = try #require(menu.subviews.first { $0 is NSImageView })
-        let title = try #require(menu.subviews.first { !($0 is NSImageView) })
-        // The same glyph tinted in the title's ink, beside it: a 1x display antialiases a thin chevron
-        // short of full ink, so the chevron is held to its own glyph in that ink, not to the title's stems.
-        let reference = NSImageView(frame: chevron.frame)
-        reference.wantsLayer = true
-        reference.image = (chevron as? NSImageView)?.image
-        reference.contentTintColor = Palette.textPrimary
-        menu.addSubview(reference)
-        menu.layoutSubtreeIfNeeded()
-        let chevronInk = try #require(Self.darkest(chevron)), titleInk = try #require(Self.darkest(title))
-        let referenceInk = try #require(Self.darkest(reference))
-        #expect(titleInk < 0.5, "fixture: the title drew: \(titleInk)")
-        #expect(referenceInk < 0.8, "fixture: the reference chevron drew: \(referenceInk)")
-        #expect(abs(chevronInk - referenceInk) < 0.05, "chevron \(chevronInk), the same glyph in the title's ink \(referenceInk), title \(titleInk)")
+        // The menu paints its inks when it displays (updateLayer), as it does on screen.
+        menu.needsDisplay = true
+        menu.displayIfNeeded()
+        let chevron = try #require(menu.subviews.first { $0 is NSImageView } as? NSImageView)
+        let title = try #require(menu.subviews.first { $0 is ChromeLabel } as? ChromeLabel)
+        #expect(chevron.contentTintColor == title.textColor, "the chevron's tint is its title's ink")
+        let chevronInk = try #require(Self.coverage(chevron)), titleInk = try #require(Self.coverage(title))
+        #expect(titleInk > 0.9, "fixture: the title drew: \(titleInk)")
+        // The SwiftUI pull-down: title 36, chevron 39 on white (0.01 apart). A chevron whose stroke never
+        // covers a whole pixel at 1x stays lighter than its title however it is tinted.
+        #expect(titleInk - chevronInk < 0.05, "chevron coverage \(chevronInk), title \(titleInk)")
     }
 }

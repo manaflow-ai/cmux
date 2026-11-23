@@ -78,22 +78,25 @@ final class AcpmuxPermissionFeedBridge {
     private var reconnect: Task<Void, Never>?
     private var backoff = Backoff(initial: .milliseconds(500), maximum: .seconds(30))
     private var nextID = 10
+    /// Recovery's info reads, kept for the bridge's life: one outstanding per session, a late answer posted.
+    private let pendingReads: AcpmuxPendingReads
+    /// The session-list filters this connection's acpmux serves (its `initialize`).
+    private var listGate = AcpmuxSessionListGate(capabilities: [])
     /// Waiting requests by id; a reply is its `result` as JSON bytes (Sendable).
     private var replies: [Int: CheckedContinuation<Data?, Never>] = [:]
     /// Feed item id -> the prompt it carries. This launch only.
     private(set) var posted: [String: Posted] = [:]
     /// Permission ids being posted or posted (one item per prompt).
     private var postedPermissions: Set<String> = []
+    /// `_acpmux/permission_pending` notices handled to the end (posted or skipped): a test's wait before it reads ``posted``.
+    private(set) var pendingNoticesHandled = 0
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "acpmux.feed-bridge")
 
     init(environment: AcpmuxEnvironment, owner: @escaping Owner, isSignedIn: @escaping @MainActor () -> Bool,
          ownInstall: @escaping @Sendable () async -> String?,
-         presenceKeys: @escaping PresenceKeys) {
-        self.environment = environment
-        self.owner = owner
-        self.isSignedIn = isSignedIn
-        self.ownInstall = ownInstall
-        self.presenceKeys = presenceKeys
+         presenceKeys: @escaping PresenceKeys, pendingReads: AcpmuxPendingReads = .feed) {
+        (self.environment, self.pendingReads, self.owner) = (environment, pendingReads, owner)
+        (self.isSignedIn, self.ownInstall, self.presenceKeys) = (isSignedIn, ownInstall, presenceKeys)
     }
 
     /// Starts the watch (idempotent).
@@ -128,6 +131,7 @@ final class AcpmuxPermissionFeedBridge {
     /// The `initialize` reply: the person proof for its challenge as the SECOND request (acpmux
     /// `hub/person.rs`, transport unix), then `_acpmux/watch` over every session.
     private func initialized(_ result: [String: Any]?, on line: AcpmuxCheckedLine) {
+        listGate = AcpmuxSessionListGate(initialize: result)
         let challenge = ((result?["_meta"] as? [String: Any])?["acpmux"] as? [String: Any])?["personChallenge"] as? [String: Any]
         if let nonce = challenge?["nonce"] as? String, let id = challenge?["connection"] as? String,
            let proof = line.personProof(nonce: nonce, connection: id) {
@@ -135,7 +139,7 @@ final class AcpmuxPermissionFeedBridge {
         } else {
             logger.error("feed bridge: no person challenge or no key for this daemon; phone answers stay refused")
         }
-        line.send(Data(acpmuxRequest: 3, method: "_acpmux/watch", params: ["enabled": true]))
+        line.send(.acpmuxFeedWatch)
     }
 
     private func lost(_ line: AcpmuxCheckedLine) {
@@ -163,9 +167,7 @@ final class AcpmuxPermissionFeedBridge {
         guard let connection else { return nil }
         nextID += 1
         let id = nextID
-        let request: [String: Any] = ["jsonrpc": "2.0", "id": id, "method": method, "params": params]
-        guard var data = try? JSONSerialization.data(withJSONObject: request) else { return nil }
-        data.append(0x0A)
+        let data = Data(acpmuxRequest: id, method: method, params: params)
         let reply: Data? = await withCheckedContinuation { waiter in
             replies[id] = waiter
             connection.send(data)
@@ -178,16 +180,11 @@ final class AcpmuxPermissionFeedBridge {
         if let id = (message["id"] as? NSNumber)?.intValue {
             if id == 1 {
                 if let connection { initialized(message["result"] as? [String: Any], on: connection) }
-            } else if id == 2 {
-                let person = (message["result"] as? [String: Any])?["person"] as? Bool ?? false
-                if !person { logger.error("feed bridge: acpmux refused the person proof; phone answers stay refused") }
-            } else if id == 3, let result = message["result"] as? [String: Any] {
+            } else if id == 2, (message["result"] as? [String: Any])?["person"] as? Bool != true {
+                logger.error("feed bridge: acpmux refused the person proof; phone answers stay refused")
+            } else if id == 3, message["result"] != nil {
                 backoff.reset()
-                // Prompts that were pending before this connection.
-                for summary in result["sessions"] as? [[String: Any]] ?? []
-                    where (summary["pendingPermissions"] as? NSNumber)?.intValue ?? 0 > 0 {
-                    if let session = summary["sessionId"] as? String { Task { await self.postPending(of: session) } }
-                }
+                Task { await self.recoverPending() }
             } else if let waiter = replies.removeValue(forKey: id) {
                 let result = message["error"] == nil
                     ? try? JSONSerialization.data(withJSONObject: message["result"] as? [String: Any] ?? [:]) : nil
@@ -198,13 +195,13 @@ final class AcpmuxPermissionFeedBridge {
         guard let method = message["method"] as? String, let params = message["params"] as? [String: Any] else { return }
         switch method {
         case "_acpmux/permission_pending":
-            guard let session = params["sessionId"] as? String, let permission = params["permissionId"] as? String,
+            guard let session = AcpmuxPendingReads.sessionKey(params), let permission = params["permissionId"] as? String,
                   let request = params["request"] as? [String: Any] else { return }
-            Task { await self.post(session: session, permission: permission, request: request) }
+            Task { await self.post(session: session, permission: permission, request: request); self.pendingNoticesHandled += 1 }
         case "_acpmux/session_changed":
             let kind = params["kind"] as? String
             if kind == "permission_decision" || kind == "permission_resolved",
-               let session = params["sessionId"] as? String {
+               let session = AcpmuxPendingReads.sessionKey(params) {
                 Task { await self.withdrawResolved(in: session) }
             }
         default:
@@ -217,10 +214,11 @@ final class AcpmuxPermissionFeedBridge {
         (await call("_acpmux/info", ["sessionId": session]))?["pending"] as? [[String: Any]] ?? []
     }
 
-    private func postPending(of session: String) async {
-        for entry in await pending(of: session) {
-            guard let permission = entry["permissionId"] as? String, let request = entry["request"] as? [String: Any] else { continue }
-            await post(session: session, permission: permission, request: request)
+    /// Prompts pending before this connection, each session read on its own (``AcpmuxPendingReads/feed``).
+    private func recoverPending() async {
+        guard let rows = await listGate.pendingSessions(call: { await self.call($0, $1) }) else { return }
+        await pendingReads.forEachPrompt(rows, read: { [weak self] in await self?.call("_acpmux/info", ["sessionId": $0]) }) { [weak self] session, permission, request in
+            await self?.post(session: session, permission: permission, request: request)
         }
     }
 
@@ -246,14 +244,14 @@ final class AcpmuxPermissionFeedBridge {
             || redacted || (summary?.truncated ?? false)
         var action: [String: Any] = [
             "type": kind == "execute" ? "command" : kind == "edit" || kind == "delete" || kind == "move" ? "edit" : "tool",
-            "summary": (title.isEmpty ? String(localized: "feed.bridge.summary", defaultValue: "An agent asks to run a tool", bundle: .module) : title).acpmuxCut(500),
+            "summary": (title.isEmpty ? String(localized: "feed.bridge.summary", defaultValue: "An agent asks to run a tool", bundle: .module.inAppLanguage) : title).acpmuxCut(500),
         ]
         if !kind.isEmpty { action["tool"] = kind.acpmuxCut(200) }
         if let command, !command.isEmpty { action["command"] = command.acpmuxCut(8000) }
         if let summary { action["input"] = summary.fields }
         if truncated { action["truncated"] = true }
         let key = "acpmux:\(permission)"
-        let heading = String(localized: "feed.bridge.title", defaultValue: "Allow \((title.isEmpty ? kind : title).acpmuxCut(120))?", bundle: .module)
+        let heading = String(localized: "feed.bridge.title", defaultValue: "Allow \((title.isEmpty ? kind : title).acpmuxCut(120))?", bundle: .module.inAppLanguage)
         var params: [String: Any] = [
             "type": "request",
             "kind": "approve",
@@ -263,7 +261,7 @@ final class AcpmuxPermissionFeedBridge {
             "context": ["host": String(host.prefix(128)), "acp_session": String(session.prefix(128))],
             "dedupe_key": String(key.prefix(200)),
             "thread": String("acpmux:\(session)".prefix(200)),
-            "poster": ["label": String(localized: "feed.bridge.poster", defaultValue: "Agent", bundle: .module)],
+            "poster": ["label": String(localized: "feed.bridge.poster", defaultValue: "Agent", bundle: .module.inAppLanguage)],
         ]
         if let command, !command.isEmpty { params["body"] = command.acpmuxCut(4096) }
         return ["op": "feed.post", "params": params, "idempotency_key": String(key.prefix(200)), "origin": "script"]
@@ -280,11 +278,11 @@ final class AcpmuxPermissionFeedBridge {
         let text = (firstItem?["prompt"] as? String ?? asked?["question"] as? String ?? call["title"] as? String ?? "")
             .secretsScrubbed.acpmuxVisible.acpmuxCut(160)
         let agent = (normalized?["agent"] as? String).map { $0.acpmuxVisible.acpmuxCut(60) }.flatMap { $0.isEmpty ? nil : $0 }
-            ?? String(localized: "feed.bridge.question.agent", defaultValue: "An agent", bundle: .module)
+            ?? String(localized: "feed.bridge.question.agent", defaultValue: "An agent", bundle: .module.inAppLanguage)
         let key = "acpmux:\(permission)"
         let heading = text.isEmpty
-            ? String(localized: "feed.bridge.question.untitled", defaultValue: "\(agent) asks a question", bundle: .module)
-            : String(localized: "feed.bridge.question.title", defaultValue: "\(agent) asks: \(text)", bundle: .module)
+            ? String(localized: "feed.bridge.question.untitled", defaultValue: "\(agent) asks a question", bundle: .module.inAppLanguage)
+            : String(localized: "feed.bridge.question.title", defaultValue: "\(agent) asks: \(text)", bundle: .module.inAppLanguage)
         let params: [String: Any] = [
             "type": "notice",
             "kind": "notice",
@@ -296,7 +294,7 @@ final class AcpmuxPermissionFeedBridge {
             "context": ["host": String(host.prefix(128)), "acp_session": String(session.prefix(128))],
             "dedupe_key": String(key.prefix(200)),
             "thread": String("acpmux:\(session)".prefix(200)),
-            "poster": ["label": String(localized: "feed.bridge.poster", defaultValue: "Agent", bundle: .module)],
+            "poster": ["label": String(localized: "feed.bridge.poster", defaultValue: "Agent", bundle: .module.inAppLanguage)],
         ]
         return ["op": "feed.post", "params": params, "idempotency_key": String(key.prefix(200)), "origin": "script"]
     }

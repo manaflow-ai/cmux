@@ -97,15 +97,24 @@ confirm an invite's address before you send it.
   Ask first before adding a machine the user did not name.
   `cmux setup status` lists every peer with `connected` and `outdated`, and
   the `fix` for each one that needs it.
-- MCP outside cmux: `cmux setup mcp [claude|codex ...]` gives Claude Code
-  and Codex started outside cmux (a terminal, another app) the cmux MCP
-  server, through their own `mcp add`; chats cmux starts already have it.
-  `needs_user` with `user_action.kind` `setting` means the person turns on
-  `"mcp": {"enabled": true}` in the settings file the text names; hand them
-  that line, do not edit the file. Kind `conflict` means their own server
-  is named `cmux`: ask before removing it. `undo` is the shell line that
-  puts each changed config back. With neither installed it is `ok`:
-  nothing to wire, and the switch is not needed.
+- MCP: `cmux setup mcp [claude|codex ...]` reports whether Claude Code and
+  Codex started in cmux (its terminals, agent chats) get the cmux MCP server;
+  it writes nothing. cmux gives the server only through the launch, once the
+  person turned on `agents.cmuxMcp`; it never writes an agent's own config.
+  For agents started elsewhere, show the person the report's `manual` lines
+  to run themselves; never run them. The only cmux commands that write an
+  agent's own config are `cmux acp desktop link` and `cmux acp bridge
+  connect`, and only when the person runs them.
+  `needs_user` with `user_action.kind` `setting` means the person answers
+  the question (`agents.cmuxMcp`) or turns `"mcp": {"enabled": false}` off in
+  the settings file the text names; hand them that line, do not edit the
+  file. With neither installed it is `ok`.
+  A client row's `leftover` is a `cmux` entry in that agent's own settings,
+  used outside cmux. Never run `cmux setup mcp --remove`, and never pass it
+  `--confirm`: it refuses without a person at a terminal or Settings' Remove
+  button. That check is a consent step, not a lock, so it relies on you not
+  bypassing it. Tell the person the entry is there and that Settings > Agents
+  has a Remove button for it.
 - Computer Use: `cmux setup computer-use` turns it on: cmux shows the user
   a sheet to allow it (tell them to click Allow), then each missing macOS
   grant comes back as `user_action` kind `grant`; run its `command` to

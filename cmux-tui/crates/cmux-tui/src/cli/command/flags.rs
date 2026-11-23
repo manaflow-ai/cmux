@@ -6,8 +6,17 @@
 /// single place to extend when a command adds a boolean option. This is the
 /// same distinction Clap models with `ArgAction::SetTrue`, while retaining
 /// cmux's custom forwarding and error text.
+/// Flags that are a switch for one command and take a value for another:
+/// `pane <p> split --right --fit` (a column that shares the window) and
+/// `tab <t> emulate --fit 16:9`. Such a flag takes the next word as its value
+/// only when one follows that is not itself a flag, so `split --right --fit`
+/// and `split --right --fit --json` read it as a switch.
+pub(super) const SWITCH_OR_VALUE_FLAGS: &[&str] = &["fit"];
+
 pub(super) const BOOLEAN_FLAGS: &[&str] = &[
     "ack",
+    // `app publish --include-dirty`: without this it would swallow a following `--json`.
+    "include-dirty",
     // `terminal <t> screen read --details`: the screen record's fields, not its text alone.
     "details",
     // `cloud kill-machine --confirm`: without this it would swallow a following `--json`.
@@ -16,6 +25,12 @@ pub(super) const BOOLEAN_FLAGS: &[&str] = &[
     "yes",
     // `setup trust --dry-run`: plan only; without this it would swallow a following `--json`.
     "dry-run",
+    // `agent move`: forwarded to acpmux's session move without swallowing the
+    // following session name during global option scanning.
+    "interrupt",
+    "after-turn",
+    "leave-dirty",
+    "carry-changes",
     // `workspace create --no-focus`: accepted and ignored (creation does not
     // move focus without `--focus`); agents pass it out of habit.
     "no-focus",
@@ -53,6 +68,8 @@ pub(super) const BOOLEAN_FLAGS: &[&str] = &[
     "focus",
     "force",
     "end-terminals",
+    // `daemon stop --if-idle`: stop only while nothing uses the daemon.
+    "if-idle",
     // `server ensure`: private app contract, the install key comes on stdin.
     "install-key-stdin",
     // `server ensure`: private app contract, restore progress lines on stdout.
@@ -114,6 +131,8 @@ pub(super) const BOOLEAN_FLAGS: &[&str] = &[
     "new",
     // `terminal <t> close --if-unplaced`: end it only when nothing shows it.
     "if-unplaced",
+    // `workspace list --tree`: each workspace's panes, tabs and creator.
+    "tree",
 ];
 
 /// `--name` ends the command without a value: it needs one, or it is no

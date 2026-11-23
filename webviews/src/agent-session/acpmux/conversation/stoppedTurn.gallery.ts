@@ -34,16 +34,9 @@ const stoppedTurn = (fields: Parameters<typeof summary>[1] = {}) => [
   summary(5.3, { status: "cancelled", durationMs: 41_000, ...fields }),
 ];
 
-const footerLook = (kind: "before" | "chosen" | "roomy") => async (ctx: PlayContext) => {
-  const style = ctx.document.createElement("style");
-  const before =
-    ".cv-turn-actions .cv-iconbtn.cv-turn-continue { height: var(--cv-footer-row); gap: 4px; padding-inline: 6px; font-size: var(--cv-font-size); }";
-  const roomy =
-    ".cv-turn-actions .cv-iconbtn.cv-turn-continue { height: var(--cv-footer-row); gap: 6px; padding-inline: 8px; font-size: var(--cv-font-size); }";
-  style.textContent =
-    kind === "before" ? before : kind === "roomy" ? roomy : ":root { --gallery-footer-look: chosen; }";
-  ctx.document.head.append(style);
-  await ctx.waitFor(() => ctx.document.querySelector(".cv-turn-continue"), { capMs: 10_000 });
+const resumeReady = async (ctx: PlayContext) => {
+  await ctx.waitFor(() => ctx.document.querySelector('button[aria-label="Resume"]'));
+  if (ctx.document.querySelector(".cv-turn-continue")) throw new Error("Stopped turns resume from the composer");
 };
 
 export default agentPaneEntry({
@@ -63,11 +56,11 @@ export default agentPaneEntry({
       snapshot: chat(stoppedTurn()),
     },
     "forced-stop-message-after": {
-      note: "Another agent's message steered in after the Stop never reached the agent: it draws below the stop, and a prompt after the stop takes Continue away.",
+      note: "Another agent's message steered in after the Stop never reached the agent: it draws below the stop, and a prompt after the stop takes Resume away.",
       snapshot: chat([...stoppedTurn({ stopForced: true }), coordinator(5.2, { afterStop: true })]),
     },
     "forced-stop-queued-next": {
-      note: "acpmux queued that message to run next: its waiting card, and no Continue beside it.",
+      note: "acpmux queued that message to run next: its waiting card, and no idle Resume while it hands over.",
       snapshot: chat(stoppedTurn({ stopForced: true }), {
         queue: [
           {
@@ -79,19 +72,19 @@ export default agentPaneEntry({
       }),
     },
     "footer-before": {
-      note: "Before: the Continue label uses the body type and roomy 6px padding, making it taller and wider than the footer's 24px controls.",
+      note: "The stopped turn uses its empty composer's play Resume control. The historical footer URL remains available.",
       snapshot: chat(stoppedTurn()),
-      play: footerLook("before"),
+      play: resumeReady,
     },
     "footer-chosen": {
-      note: "Chosen: Continue uses the footer's 24px control height, caption type and 2px padding; the visible label needs no tooltip.",
+      note: "Resume lives in the primary composer slot; the footer keeps its normal message actions.",
       snapshot: chat(stoppedTurn()),
-      play: footerLook("chosen"),
+      play: resumeReady,
     },
     "footer-roomy": {
-      note: "Alternative: a 14px label with 8px padding; readable, but still too prominent beside the icon controls.",
+      note: "The stopped turn retains its usual footer spacing with Resume in the composer.",
       snapshot: chat(stoppedTurn()),
-      play: footerLook("roomy"),
+      play: resumeReady,
     },
     before: {
       note: "Before (for comparison): the old notice line under Continue. Not drawn any more.",

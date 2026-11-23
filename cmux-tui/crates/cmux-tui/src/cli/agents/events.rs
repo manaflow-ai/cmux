@@ -6,9 +6,12 @@
 //!
 //! Tab, workspace, notification and terminal-agent events come from the
 //! daemon's `session.events` journal, resumed from the cursor's revision.
-//! Dialogs and agent chat state live only in the app, which publishes no
-//! event for them, so they are polled every second (as `agents wait` does)
-//! and diffed against the state the cursor carries.
+//! Dialogs live only in the app, which publishes no event for them, so they
+//! are polled every second (as `agents wait` does) and diffed against the
+//! state the cursor carries. Agent chats are read on the same tick: the
+//! session's conversation tabs name their chats, and the daemon's `chat.list`
+//! (its chat index, kept from acpmux's own pushes, so the read costs no
+//! acpmux call) says each chat's turn state, one read for every chat.
 //!
 //! Events carry ids, states and short titles only: no terminal text, no
 //! chat text, no tool input. A notification's title and body are cut.
@@ -26,6 +29,9 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
+use cmux_tui_core::resource::ResourceOperation;
+
+use super::super::command::{RequestPlan, ResponseView, WireOperation};
 use super::super::event_match::EventMatch;
 use super::super::mcp::{self, Backend, CallFailure, FailureKind};
 use super::super::{UsageError, app};
@@ -51,6 +57,9 @@ const CATCH_UP: Duration = Duration::from_millis(500);
 /// Less time than this left for an app read: skip it.
 const MIN_APP_READ: Duration = Duration::from_millis(50);
 const TITLE_CHARS: usize = 80;
+/// A chat tab the cursor saw before any read said its state (no state is
+/// ever empty).
+const UNKNOWN_CHAT_STATE: &str = "";
 const BODY_CHARS: usize = 160;
 const CURSOR_PREFIX: &str = "evc1_";
 const MAX_CURSOR_BYTES: usize = 64 << 10;
@@ -152,8 +161,8 @@ impl Cursor {
         let daemon = self.daemon.as_ref()?;
         let mut cursor =
             json!({"generation": daemon.generation, "revision": daemon.revision.to_string()});
-        if let Some(live) = &daemon.live {
-            cursor["live"] = json!(live);
+        if let (Some(live), Some(fields)) = (&daemon.live, cursor.as_object_mut()) {
+            fields.insert("live".to_owned(), json!(live));
         }
         Some(cursor)
     }
@@ -677,9 +686,29 @@ impl<'a> Poll<'a> {
             self.diff_dialogs(&scoped_dialogs(feed, &snapshot));
         }
         if topology.is_some() {
-            self.diff_chats(chat_states(&snapshot));
+            let rows = self.chat_rows(backend, session, &snapshot);
+            self.diff_chats(chat_states(&snapshot, rows.as_ref()));
         }
         true
+    }
+
+    /// The daemon's `chat.list` rows by chat id, read only when a tab of
+    /// this session shows a chat: one read for every chat, answered from the
+    /// daemon's chat index (no acpmux call). `None` when no tab needs it, no
+    /// time is left, or the read failed.
+    fn chat_rows<B: Backend>(
+        &self,
+        backend: &B,
+        session: Option<&str>,
+        snapshot: &Value,
+    ) -> Option<ChatRows> {
+        if !snapshot_tabs(snapshot).any(|tab| tab_chat(tab).is_some()) {
+            return None;
+        }
+        if self.bound.saturating_duration_since(Instant::now()) < MIN_APP_READ {
+            return None;
+        }
+        backend.resource(session, chat_list_plan(), &[]).ok().map(|rows| ChatRows::new(&rows))
     }
 
     /// One app read, bounded by the time the call has left; `None` when it
@@ -733,15 +762,33 @@ impl<'a> Poll<'a> {
         self.cursor.dialogs = Some(known);
     }
 
-    fn diff_chats(&mut self, now: Vec<(String, String, Value)>) {
+    /// Diffs the chat tabs' states with the cursor's. A tab shown with no
+    /// state this time (its chat not in the chat index yet, or the read
+    /// failed) keeps the state it had, so a missed read never repeats an
+    /// event; a tab no longer shown is forgotten. A tab first seen with no
+    /// state is kept as [`UNKNOWN_CHAT_STATE`], and the first state it then
+    /// gets is its baseline, not an event: a missed first read never reads
+    /// as every chat's turn ending.
+    fn diff_chats(&mut self, now: Vec<(String, Option<String>, Value)>) {
         let Some(mut known) = self.cursor.chats.take() else {
-            self.cursor.chats = Some(now.into_iter().map(|(tab, state, _)| (tab, state)).collect());
+            self.cursor.chats = Some(
+                now.into_iter().map(|(tab, state, _)| (tab, state.unwrap_or_default())).collect(),
+            );
             return;
         };
         known.retain(|tab, _| now.iter().any(|(shown, _, _)| shown == tab));
         for (tab, state, agent_session) in now {
-            if known.get(&tab) == Some(&state) {
+            let Some(state) = state else {
+                known.entry(tab).or_insert_with(|| UNKNOWN_CHAT_STATE.to_owned());
                 continue;
+            };
+            match known.get(&tab).map(String::as_str) {
+                Some(seen) if seen == state => continue,
+                Some(UNKNOWN_CHAT_STATE) => {
+                    known.insert(tab, state);
+                    continue;
+                }
+                _ => {}
             }
             let fields = json!({
                 "change": "state",
@@ -809,20 +856,85 @@ fn scoped_dialogs<'a>(feed: &'a Value, snapshot: &Value) -> Vec<(String, &'a Val
         .collect()
 }
 
-/// `(tab, state, agent_session)` for each agent chat tab in this session.
-fn chat_states(snapshot: &Value) -> Vec<(String, String, Value)> {
-    snapshot["tabs"]
-        .as_array()
-        .into_iter()
-        .flatten()
+/// `(tab, state, agent_session)` for each agent chat tab in this session:
+/// the state of the tab's chat in `rows` (`chat.list`: working, input, idle,
+/// failed, lost), else the state the app gives the tab. A conversation tab
+/// carries its chat's `agent_session` and no `agent_state` (the app's
+/// `agent_state` is a terminal agent's), so acpmux's state through the
+/// daemon's chat index is what says a chat's turn ended. A chat tab whose
+/// state is not known this time has `None`.
+fn chat_states(snapshot: &Value, rows: Option<&ChatRows>) -> Vec<(String, Option<String>, Value)> {
+    snapshot_tabs(snapshot)
         .filter_map(|tab| {
-            Some((
-                tab["id"].as_str()?.to_owned(),
-                tab["agent_state"].as_str()?.to_owned(),
-                tab["agent_session"].clone(),
-            ))
+            let id = tab["id"].as_str()?.to_owned();
+            let chat = tab_chat(tab);
+            let state = chat
+                .and_then(|chat| rows?.state(chat))
+                .or_else(|| tab["agent_state"].as_str())
+                .map(str::to_owned);
+            if chat.is_none() && state.is_none() {
+                return None;
+            }
+            let agent_session = match &tab["agent_session"] {
+                Value::Null => chat.map_or(Value::Null, |chat| json!(chat)),
+                shown => shown.clone(),
+            };
+            Some((id, state, agent_session))
         })
         .collect()
+}
+
+fn snapshot_tabs(snapshot: &Value) -> impl Iterator<Item = &Value> {
+    snapshot["tabs"].as_array().into_iter().flatten()
+}
+
+/// The acpmux chat a tab shows: its `agent_session`, else its
+/// conversation's (`extra.conversation.agent_session.session`), without an
+/// `acp:` prefix.
+fn tab_chat(tab: &Value) -> Option<&str> {
+    let session = tab["agent_session"]
+        .as_str()
+        .or_else(|| tab["extra"]["conversation"]["agent_session"]["session"].as_str())
+        .filter(|session| !session.is_empty())?;
+    Some(session.strip_prefix("acp:").unwrap_or(session))
+}
+
+/// The daemon's `chat.list` (spec/resource-operations-v2.json).
+fn chat_list_plan() -> RequestPlan {
+    RequestPlan {
+        operation: WireOperation::Typed(ResourceOperation::ChatList),
+        params: json!({"machine": "current", "session": "current"}),
+        idempotency_key: None,
+        stream: false,
+        resolve: Vec::new(),
+        view: ResponseView::Full,
+        filter: Default::default(),
+    }
+}
+
+/// `chat.list`'s states by chat id, this machine's row before a peer's
+/// of the same id.
+struct ChatRows(BTreeMap<String, (bool, String)>);
+
+impl ChatRows {
+    fn new(rows: &Value) -> Self {
+        let mut states = BTreeMap::new();
+        for row in rows.as_array().into_iter().flatten() {
+            let (Some(id), Some(state)) = (row["id"].as_str(), row["state"].as_str()) else {
+                continue;
+            };
+            let local = row["machine"].is_null();
+            let slot = states.entry(id.to_owned()).or_insert((local, state.to_owned()));
+            if local && !slot.0 {
+                *slot = (local, state.to_owned());
+            }
+        }
+        Self(states)
+    }
+
+    fn state(&self, chat: &str) -> Option<&str> {
+        self.0.get(chat).map(|(_, state)| state.as_str())
+    }
 }
 
 /// A string cut to `chars` characters, and whether it was cut.
@@ -854,11 +966,52 @@ fn now_ms() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|since| since.as_millis() as u64).unwrap_or(0)
 }
 
+/// Every event `cmux agents events --kind KINDS` answers from now on, handed
+/// to `each` in order until it answers false. Each read is one long-poll
+/// (the daemon's pushed journal, and the app's state as `agents events`
+/// reads it), resumed from the last read's cursor, so nothing between two
+/// reads is lost. `cmux automation events agent-idle` is this. A read that
+/// fails ends it with the error object.
+pub(in crate::cli) fn follow(
+    global: &super::super::GlobalArgs,
+    kinds: &str,
+    each: &mut dyn FnMut(&Value) -> bool,
+) -> Result<(), Value> {
+    let backend = mcp::cli_backend(global.clone());
+    let session = global.session.as_deref();
+    let mut after: Option<String> = None;
+    loop {
+        let timeout = MAX_TIMEOUT_SECONDS.to_string();
+        let mut words = vec!["--kind", kinds, "--timeout", timeout.as_str()];
+        if let Some(cursor) = &after {
+            words.extend(["--after", cursor.as_str()]);
+        }
+        let request = parse(&words).map_err(|error| {
+            json!({"code": "usage.invalid", "message": error.0, "details": {}, "retryable": false})
+        })?;
+        let answer = match run(&backend, session, &request) {
+            Ok(answer) => answer,
+            Err(AgentFailure::Usage(message)) => {
+                return Err(
+                    json!({"code": "usage.invalid", "message": message, "details": {}, "retryable": false}),
+                );
+            }
+            Err(AgentFailure::Owner(failure)) => return Err(mcp::agent_failure_value(failure)),
+        };
+        for event in answer.get("events").and_then(Value::as_array).into_iter().flatten() {
+            if !each(event) {
+                return Ok(());
+            }
+        }
+        after = answer.get("next_after").and_then(Value::as_str).map(str::to_owned).or(after);
+    }
+}
+
 /// One line per event for `cmux agents events` without `--json`:
 /// `seq kind change id detail`.
 pub(in crate::cli) fn human_lines(answer: &Value) -> String {
     let mut out = String::new();
-    for event in answer["events"].as_array().into_iter().flatten() {
+    for event in answer.get("events").and_then(Value::as_array).into_iter().flatten() {
         let text = |name: &str| event[name].as_str().unwrap_or("").to_owned();
         let detail = match event["kind"].as_str() {
             Some("agent") => text("state"),

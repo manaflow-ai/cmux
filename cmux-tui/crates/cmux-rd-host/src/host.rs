@@ -28,7 +28,8 @@ use std::time::Duration;
 const DEFAULT_DISPLAY: &str = ":99";
 #[cfg(target_os = "macos")]
 const DEFAULT_DISPLAY: &str = "main";
-/// Linux: Cisco's OpenH264 binary. macOS: the hardware encoder, fed the captured IOSurface.
+/// Linux: Cisco's OpenH264 binary (`--codec auto` opts into the GPU through VAAPI, else OpenH264;
+/// it becomes the default once it is measured on GPUs, hq#12040). macOS: the hardware encoder.
 #[cfg(target_os = "linux")]
 pub(crate) const DEFAULT_CODEC: &str = "openh264";
 #[cfg(target_os = "macos")]
@@ -41,7 +42,7 @@ pub(crate) const DEFAULT_SETTLE_US: u64 = 1000;
 pub(crate) const DEFAULT_SETTLE_US: u64 = 0;
 
 pub fn run(opts: &Opts) -> Res<()> {
-    set_xauthority(opts)?;
+    check_xauthority(opts)?;
     if opts.flag("listen-systemd") {
         return run_systemd(opts);
     }
@@ -122,31 +123,57 @@ fn session_cfg(opts: &Opts) -> Res<SessionCfg> {
         Some(_) => opts.num_or("max-fps", 60)?,
         None => crate::desktop::default_max_fps(&display),
     };
+    let encode_profile = opts.encode_profile()?;
+    let explicit_max_kbps = opts.get("max-kbps").map(|_| opts.num_or("max-kbps", 0)).transpose()?;
     Ok(SessionCfg {
         display,
-        max_fps,
+        display_pick: opts.get("monitor").map(str::to_owned),
+        max_fps: encode_profile.stream_fps(max_fps),
+        encode_profile,
         start_kbps: opts.num_or("start-kbps", 8000)?,
-        max_kbps: opts.num_or("max-kbps", 50_000)?,
+        max_kbps: cmux_rd_core::profile::max_kbps(encode_profile, explicit_max_kbps, 50_000),
         preset: opts.str_or("preset", "ultrafast"),
         // High for hardware decoders (VideoToolbox); the Linux bench decoder needs baseline.
         profile: opts.str_or("profile", "high"),
         codec: opts.str_or("codec", DEFAULT_CODEC),
         content: opts.str_or("content", "screen"),
         openh264_lib: opts.get("openh264-lib").map(str::to_owned),
-        threads: opts.num_or("threads", 2)?,
+        threads: opts.num_or("threads", crate::encoder::default_threads())?,
         stats_every_ms: opts.num_or("stats-ms", 1000)?,
         settle_us: opts.num_or("settle-us", DEFAULT_SETTLE_US)?,
         upstream_record: opts.get("upstream-record").map(std::path::PathBuf::from),
         upstream_record_max_bytes: opts
             .num_or::<u64>("upstream-record-max-mb", 1024)?
             .saturating_mul(1 << 20),
-        frames_in_flight: 1,
+        // The hybrid link sizes this after its first RTT event; two keeps the
+        // stream moving while that measurement is still unknown.
+        frames_in_flight: 2,
         input_frame_now: opts.flag("input-frame-now"),
+        resolution_ladder: opts.flag("resolution-ladder"),
+        max_qp: ladder_max_qp(opts)?,
         max_width: opts
             .get("max-width")
             .map(|w| w.parse().map_err(|_| format!("--max-width {w}: a pixel count")))
             .transpose()?,
+        show_cursor: true,
+        // The Cloud host streams its own virtual X display unless `--capture portal` asks
+        // for the compositor's screen (a Wayland desktop).
+        capture: opts
+            .get("capture")
+            .map(crate::capture_backend::CaptureBackend::parse)
+            .transpose()?
+            .unwrap_or_default(),
     })
+}
+
+/// The resolution ladder's QP ceiling (`--max-qp N`, an H.264 QP: 0 to 51), else
+/// `cmux_rd_core::resolution::DEFAULT_MAX_QP`. `host` and `serve` both read it.
+pub(crate) fn ladder_max_qp(opts: &Opts) -> Res<u8> {
+    let qp = opts.num_or("max-qp", cmux_rd_core::resolution::DEFAULT_MAX_QP)?;
+    if qp > 51 {
+        return Err(format!("--max-qp {qp}: an H.264 QP, 0 to 51").into());
+    }
+    Ok(qp)
 }
 
 /// The host's owner is the only principal admitted without a grant.
@@ -161,15 +188,21 @@ fn owner_policy(owner: String) -> HostPolicy {
 }
 
 /// `--xauthority PATH`: the X cookie for the display connections (Linux), as `XAUTHORITY`.
-/// Set before any thread or X connection starts.
-fn set_xauthority(opts: &Opts) -> Res<()> {
+/// cmux-rd's `main` sets it before any thread starts ([`crate::prepare_process_env`]); this
+/// safe function only checks that it did, since writing the environment here could race a
+/// thread reading it.
+pub(crate) fn check_xauthority(opts: &Opts) -> Res<()> {
     let Some(path) = opts.get("xauthority") else {
         return Ok(());
     };
     #[cfg(target_os = "linux")]
     {
-        std::fs::File::open(path).map_err(|e| format!("--xauthority {path}: {e}"))?;
-        std::env::set_var("XAUTHORITY", path);
+        if std::env::var_os("XAUTHORITY").as_deref() != Some(std::ffi::OsStr::new(path)) {
+            return Err(format!(
+                "--xauthority {path}: XAUTHORITY was not set at start (only the cmux-rd executable applies --xauthority)"
+            )
+            .into());
+        }
         Ok(())
     }
     #[cfg(not(target_os = "linux"))]
@@ -491,6 +524,23 @@ fn serve_viewer<S: ViewerStream>(
     if cfg!(feature = "link") && link.is_some() && udp.is_none() {
         host_caps.push(caps::LINK_UDP);
     }
+    // The cursor as metadata where this desktop reports it: the viewer draws one cursor.
+    if crate::desktop::reports_cursor() {
+        host_caps.push(caps::CURSOR);
+    }
+    // Frames over one FEC block keep their parity, in interleaved blocks (design D6).
+    host_caps.push(caps::FEC_BLOCKS);
+    if crate::desktop::scales_pictures() {
+        host_caps.push(caps::VIDEO_SCALED);
+    }
+    // An OpenH264 viewer asks for Constrained Baseline (cmux#50591).
+    if crate::stream::offers_h264_baseline(&cfg.codec) {
+        host_caps.push(caps::H264_BASELINE);
+    }
+    // The session clock (C8; the engine answers every ping) and the stage ledger (D8).
+    host_caps.extend([caps::CLOCK, caps::LEDGER]);
+    // No clipboard.text here: clipboard sync is opt-in per session, and only `serve` (the
+    // app's share, whose setup carries the person's choice) offers it (clipboard.rs).
     let negotiated = match negotiate(&service, &caps, &[SERVICE_DESKTOP], &host_caps) {
         Ok(n) => n,
         Err(refusal) => {
@@ -651,6 +701,26 @@ fn stream_session<S: ViewerStream>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `host::run` and `serve::run` are safe and may run with threads up (the cmux binary
+    /// calls `run_cli` too), and `set_var` races every concurrent `getenv`, a C library's
+    /// included. So the safe path must not write `XAUTHORITY`: only `main` may, before any
+    /// thread exists.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn the_safe_xauthority_path_leaves_the_environment_alone() {
+        let cookie =
+            std::env::temp_dir().join(format!("cmux-rd-xauthority-test-{}", std::process::id()));
+        std::fs::write(&cookie, b"").expect("cookie file");
+        let path = cookie.to_str().expect("utf-8 temp path").to_owned();
+        let opts = Opts::parse(&["--xauthority".to_owned(), path.clone()]).expect("parse");
+        let checked = check_xauthority(&opts);
+        let now = std::env::var_os("XAUTHORITY");
+        std::fs::remove_file(&cookie).ok();
+        assert_ne!(now.as_deref(), Some(std::ffi::OsStr::new(&path)), "a safe fn wrote XAUTHORITY");
+        // `main` did not set it in this process, so the host refuses to go on without it.
+        assert!(checked.expect_err("unset").to_string().contains("was not set at start"));
+    }
 
     #[test]
     fn a_real_loopback_connection_passes_the_default_check() {

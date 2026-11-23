@@ -52,7 +52,7 @@ const list: CheckpointList = {
   limits: base.limits,
 };
 
-type Props = { mode: "create" | "receipt" | "copy-replacement" | "retained" };
+type Props = { mode: "create" | "receipt" | "copy-replacement" | "retained"; many?: boolean };
 
 const createSelection: Play = async (ctx) => {
   await ctx.click({ role: "checkbox", name: "src/agent.test.ts" });
@@ -85,18 +85,42 @@ export default componentEntry<Props>({
   widths: { narrow: 360, normal: 520, wide: 720 },
   covers: ["agent-session/acpmux/checkpoints/Review.tsx#CheckpointReview"],
   load: async () => {
-    function GalleryCheckpointReview({ mode }: Props) {
+    function GalleryCheckpointReview({ mode, many = false }: Props) {
       // Resolve after the gallery frame installs __cmuxPaneStrings. Resolving this at module
       // load time falls back to raw checkpoint keys in the static gallery bundle.
       const strings = checkpointStrings();
       const [record, setRecord] = useState<Checkpoint | undefined>(
-        mode === "create" ? undefined : mode === "retained" ? retained : base,
+        mode === "create"
+          ? undefined
+          : mode === "retained"
+            ? retained
+            : many
+              ? {
+                  ...base,
+                  skipped: Array.from({ length: 40 }, (_, index) => ({
+                    path: `dist/generated-${index}.js`,
+                    code: "too_large",
+                  })),
+                  skipped_total: 40,
+                }
+              : base,
       );
       const next = { ...base, checkpoint_id: "checkpoint-b", ref: "refs/cmux/checkpoints/gallery-b" };
       if (!record) {
         return (
           <CheckpointReview
-            list={list}
+            list={
+              many
+                ? {
+                    ...list,
+                    candidates: Array.from({ length: 40 }, (_, index) => ({
+                      path: `src/candidate-${index}.ts`,
+                      bytes: 1024,
+                      eligible: true,
+                    })),
+                  }
+                : list
+            }
             strings={strings}
             onCreate={() => setRecord(base)}
             onRefresh={() => undefined}
@@ -131,5 +155,13 @@ export default componentEntry<Props>({
     "partial-receipt": { props: { mode: "receipt" } },
     "copy-replacement": { props: { mode: "copy-replacement" }, play: copyReplacement },
     retained: { props: { mode: "retained" } },
+    "candidates-overflow": {
+      props: { mode: "create", many: true },
+      note: "Forty candidate files in the capped selection list.",
+    },
+    "skipped-overflow": {
+      props: { mode: "receipt", many: true },
+      note: "Forty omitted files in the capped receipt list.",
+    },
   },
 });

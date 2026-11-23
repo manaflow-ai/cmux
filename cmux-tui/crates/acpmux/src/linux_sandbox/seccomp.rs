@@ -289,6 +289,8 @@ pub(crate) fn filter(notify: bool) -> Result<Vec<libc::sock_filter>, String> {
 
     if notify {
         // Write opens and every name/metadata mutation follow the deny rules.
+        // One element on aarch64 (no SYS_open), two on x86_64.
+        #[allow(clippy::single_element_loop)]
         for (nr, argument) in [
             (libc::SYS_openat, SECCOMP_DATA_ARG2_LO),
             #[cfg(target_arch = "x86_64")]
@@ -626,6 +628,8 @@ mod tests {
     #[test]
     fn supervisor_filter_notifies_write_opens_and_preserves_denials() {
         let program = super::filter(true).unwrap();
+        // One element on aarch64 (no SYS_open), two on x86_64.
+        #[allow(clippy::single_element_loop)]
         for (nr, flag_arg) in [
             (SYS_openat, 2),
             #[cfg(target_arch = "x86_64")]
@@ -750,6 +754,8 @@ mod tests {
             );
             assert_eq!(evaluate(&deny_only, ARCH, nr as u32, [0; 6]), SECCOMP_RET_ALLOW, "nr {nr}");
         }
+        // One element on aarch64 (no SYS_link), two on x86_64.
+        #[allow(clippy::single_element_loop)]
         for nr in [
             SYS_linkat,
             #[cfg(target_arch = "x86_64")]

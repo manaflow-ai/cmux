@@ -43,6 +43,40 @@ impl Mux {
         effects: StateEffects,
         apply: impl FnOnce(&Transaction<'_>, &State) -> anyhow::Result<StateChanges>,
     ) -> anyhow::Result<StateCommit> {
+        self.commit_state_refreshing(
+            mutation,
+            operation,
+            fingerprint,
+            expected_revision,
+            effects.tree,
+            apply,
+            |registry| {
+                if effects.presentation {
+                    self.reload_presentation(registry)?;
+                }
+                Ok(())
+            },
+        )
+    }
+
+    /// [`Self::commit_state`] for a mutation that knows which rows of the
+    /// presentation cache it changed. `refresh` runs once after a commit that
+    /// was applied (not a replay, not unchanged), under the same hold of the
+    /// registry lock, so no other commit comes between the commit and the
+    /// cache. It brings the cache up to date by its own rows instead of
+    /// reading the whole presentation again; `tree` emits `tree-changed`.
+    #[allow(clippy::too_many_arguments)]
+    #[track_caller]
+    pub(crate) fn commit_state_refreshing(
+        &self,
+        mutation: &WorkspaceMutation,
+        operation: &str,
+        fingerprint: &Value,
+        expected_revision: Option<u64>,
+        tree: bool,
+        apply: impl FnOnce(&Transaction<'_>, &State) -> anyhow::Result<StateChanges>,
+        refresh: impl FnOnce(&crate::workspace_registry::WorkspaceRegistry) -> anyhow::Result<()>,
+    ) -> anyhow::Result<StateCommit> {
         let mut registry = self.workspace_registry.lock().unwrap();
         let unchanged = std::cell::Cell::new(false);
         let commit = {
@@ -81,8 +115,8 @@ impl Mux {
             }
             commit
         };
-        if !commit.replayed && effects.presentation {
-            self.reload_presentation(&registry)?;
+        if !commit.replayed {
+            refresh(&registry)?;
         }
         drop(registry);
         if !commit.replayed {
@@ -90,7 +124,7 @@ impl Mux {
             if let Some(personal_revision) = commit.personal_revision {
                 self.emit(MuxEvent::PersonalChanged { personal_revision });
             }
-            if effects.tree {
+            if tree {
                 self.emit(MuxEvent::TreeChanged);
             }
         }

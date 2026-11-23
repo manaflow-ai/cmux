@@ -4,6 +4,7 @@
 // come from the app's key dispatcher as page commands, never from page key handlers.
 import { lazy, Suspense, useRef, useState, useSyncExternalStore, type ChangeEvent, type ReactNode } from "react";
 import type { Strings } from "../shared/i18n";
+import { useLasting } from "../../ui/lasting";
 import { Toolbar, ToolbarButton, ToolbarGroup, ToolbarToggleGroup } from "../../ui/Toolbar";
 import type { EditorFind } from "../editor/editorFind";
 import { MarkdownFindBar } from "./MarkdownFindBar";
@@ -64,8 +65,14 @@ export function MarkdownPage({
   const [readingOpen, setReadingOpen] = useState(false);
   const readingAnchor = useRef<HTMLSpanElement | null>(null);
   const { t } = strings;
+  // A lost link says so only once it lasts (a launch, a daemon restart: the store reads again when the
+  // link is back, `linkChanged`); until then the page stays blank.
+  const downLasting = useLasting(state.phase === "disconnected");
 
   if (state.phase === "empty" && emptyState) return emptyState();
+
+  if (state.phase === "disconnected" && !downLasting)
+    return <div className="md-page md-page-message" aria-busy="true" />;
 
   if (state.phase === "disconnected" || state.phase === "failed") {
     return (

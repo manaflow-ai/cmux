@@ -501,3 +501,63 @@ async fn a_steer_the_turn_ended_before_reading_answers_no_turn() {
     assert!(refused.starts_with(STEER_NO_TURN), "it runs next, not \"Not sent\": {refused}");
     assert!(t.steers.lock().await.is_empty());
 }
+
+/// Leo's coordinator (2026-11-21): about 56 helpers running in the background, their messages and
+/// Claude Code's notices flooding in, and the person's message unread: "They have tons of helpers
+/// and they're not really responding to my messages". The person's Send now stops the step even
+/// with every helper running, goes in as its own line, never into the helpers' batch, and is the
+/// line Claude Code reads first after the stop; no helper is stopped.
+#[tokio::test]
+async fn a_persons_send_now_stops_the_step_through_a_flood_of_helpers() {
+    let (t, mut q) = stepping().await;
+    let mut calls: Vec<Value> = (0..56)
+        .map(|i| json!({"type": "tool_use", "id": format!("toolu_helper{i}"), "name": "Agent",
+            "input": {"description": format!("helper {i}"), "prompt": "work", "run_in_background": true}}))
+        .collect();
+    calls.push(json!({"type": "tool_use", "id": "toolu_step", "name": "Bash", "input": {"command": "sleep 600"}}));
+    t.inbound(&json!({"type": "assistant", "message": {"content": calls}})).await;
+    for i in 0..40 {
+        write(&t, &mut q, &from(i + 2, SENDERS[i as usize % 3], &format!("helper report {i}")))
+            .await;
+        if i % 5 == 0 {
+            q.settle(&t).await;
+        }
+    }
+    q.settle(&t).await;
+    assert_eq!(q.waiting.len(), 1, "the helpers' messages wait as one line: {:#?}", q.waiting);
+
+    let person = steer(
+        100,
+        "Stop and answer me",
+        json!({"steer": true, "steerNow": true, "promptId": "p100"}),
+    );
+    let Outbound::Lines(lines) = t.outbound(&person).await else { panic!("answered at once") };
+    let interrupts = lines
+        .iter()
+        .filter(|l| l["type"] == "control_request" && l["request"]["subtype"] == "interrupt");
+    assert_eq!(
+        interrupts.count(),
+        1,
+        "Send now stopped nothing beside 56 background helpers: {lines:#?}"
+    );
+    let own: Vec<&Value> = lines.iter().filter(|l| l["type"] == "user").collect();
+    assert_eq!(own.len(), 1, "{lines:#?}");
+    assert_eq!(text_of(own[0]), "Stop and answer me", "the person's words went into a batch");
+    q.take(lines.clone());
+    q.settle(&t).await;
+    assert!(
+        !text_of(&q.waiting[0]).contains("Stop and answer me"),
+        "the person's message joined the helpers' batch"
+    );
+
+    // Claude Code ends the stopped step, then reads the person's line: the steer is answered.
+    let mut msgs = t
+        .inbound(&json!({"type": "result", "subtype": "error_during_execution", "is_error": true, "result": null, "num_turns": 1}))
+        .await;
+    msgs.extend(t.inbound(&echo(own[0])).await);
+    assert_eq!(
+        answer(&msgs, 100).expect("the person's steer was never answered").unwrap()["stopReason"],
+        "steered"
+    );
+    assert_eq!(t.subagents.lock().await.len(), 56, "a helper stopped with the step");
+}

@@ -56,7 +56,16 @@ impl Hub {
             }
             None => {
                 let resolved = cfg.resolve_harness(&head).map_err(|e| {
-                    RpcError::invalid_params(self.with_model_hint(cfg, &head, model, e))
+                    let mut text = self.with_model_hint(cfg, &head, model, e);
+                    // A harness discovery adds from PATH was looked for again at this start
+                    // (`rediscover_head`): say when the login PATH, where a profile puts its
+                    // CLI, was never read, not only how to configure it.
+                    if crate::config::discoverable(&head)
+                        && let Some(note) = self.login_path_note()
+                    {
+                        text.push_str(&format!(". Also, {note}"));
+                    }
+                    RpcError::invalid_params(text)
                 })?;
                 if let Some(reason) = cfg.unavailable.get(&resolved) {
                     return Err(RpcError::invalid_params(format!(
@@ -115,7 +124,9 @@ impl Hub {
         model: Option<String>,
         cwd: Option<PathBuf>,
     ) -> Result<Result<Vec<String>, String>, RpcError> {
-        self.wait_startup().await;
+        // As `session/new`: the catalog and launcher checks, not every chat's adoption.
+        self.wait_spawn_ready().await;
+        self.rediscover_head(harness.as_deref(), preset.as_deref()).await;
         let cfg = self.config.read().await;
         let resolved =
             self.resolve_new(&cfg, harness, &preset, model.as_deref(), true, cwd.as_deref())?;
@@ -304,7 +315,9 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         schema: META_SCHEMA.into(),
         id: d.id,
         name: String::new(),
+        handle: None,
         name_given: false,
+        former_names: Vec::new(),
         harness: d.agent.into(),
         harness_argv: d.profile.argv.clone(),
         spawn_argv: None,
@@ -312,8 +325,12 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         family: Some(d.family.to_owned()),
         preset: d.preset,
         model_request: d.model_request,
+        effort_request: None,
         cwd: d.cwd,
         additional_directories: Vec::new(),
+        stop_condition: None,
+        stop_condition_sent: false,
+        restricted: false,
         agent_session_id: d.agent_session_id,
         previous_agent_session_ids: Vec::new(),
         retired_agent_session_ids: Vec::new(),
@@ -323,6 +340,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         updated_at: now,
         last_seq: 0,
         transcript_seq: 0,
+        recovered_after: None,
         parent_id: None,
         fork_seq: None,
         fork_before: None,
@@ -360,17 +378,25 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         usage_limits: None,
         available_commands: None,
         goal: None,
+        task_list: None,
         permission_rules: None,
         tags: Default::default(),
         unread: false,
         seen_seq: None,
         unread_turns: 0,
         last_return: None,
+        away_recap: None,
+        rolling_summary: None,
+        read_through: Default::default(),
         claude_unstored: false,
+        claude_unstored_work: false,
         // Never the parent's: only its creator asks (`SessionMeta::wait_start`).
         wait_start: false,
+        throwaway: false,
+        agent_behind_seq: None,
         hibernated_ms: 0,
         idle_launch: None,
+        start_level: None,
         moved_to: None,
         claude_profile: None,
         last_turn: None,
@@ -394,6 +420,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         harness_cost_usd: None,
         pull_requests: vec![],
         pull_request_times: Default::default(),
+        closed_pull_requests: vec![],
         touched_files: vec![],
         git_branch: None,
         git_head: None,

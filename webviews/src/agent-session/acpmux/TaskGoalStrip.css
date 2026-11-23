@@ -131,8 +131,8 @@
   padding: calc((var(--acpmux-goal-row) - var(--acpmux-goal-line)) / 2) var(--acpmux-goal-inset);
   overflow: clip;
   border-radius: var(--acpmux-goal-radius);
-  background: color-mix(in srgb, var(--agent-text) 8%, transparent);
-  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge, transparent);
+  background: var(--acpmux-stack-tint);
+  box-shadow: var(--acpmux-stack-shadow);
   color: var(--agent-text);
   font-family: var(--cv-font);
   font-size: var(--text-control);
@@ -354,7 +354,10 @@
 .acpmux-goal[data-look]:is(:focus-within, [data-open]) .acpmux-goal-actions {
   opacity: 1;
 }
-.acpmux-goal[data-look]:not(:hover, :has([data-popup-open]), :focus-within, [data-open]) .acpmux-goal-actions button { pointer-events: none; }
+/* Its buttons by class, never a bare `button` after a `:has()`: Chromium keeps one restyle list for every
+   `:has()` rule, so a bare tag there restyled every button in the pane on each `:has()` change
+   (test/css-invalidation-scope.test.ts). */
+.acpmux-goal[data-look]:not(:hover, :has([data-popup-open]), :focus-within, [data-open]) .acpmux-goal-actions .acpmux-goal-action { pointer-events: none; }
 .acpmux-goal[data-look] .acpmux-goal-action {
   width: var(--ds-control-icon);
   height: var(--ds-control-icon);
@@ -386,6 +389,29 @@
     inset 0 var(--cmux-hairline, 0.5px) 0 var(--acpmux-composer-edge, transparent),
     inset var(--cmux-hairline, 0.5px) 0 0 var(--acpmux-composer-edge, transparent),
     inset calc(-1 * var(--cmux-hairline, 0.5px)) 0 0 var(--acpmux-composer-edge, transparent);
+}
+/* The banner at the top of a joined stack takes the card's light, as the tray does when it heads the
+   stack (bottomStack.css): the soft band into the top corners and the sheen, inside the edge, at the
+   card's glint (composerStates.css .acpmux-stack-material). The card and a tray joined under it give
+   their top light up, so no bright line runs along the seam (user 2026-11-20, "ensure all border colors
+   are the same"; test/composer-one-edge.test.ts). Reduce Transparency, Lens and Spectrum over art keep
+   the edge alone. */
+@media not (prefers-reduced-transparency: reduce) {
+  :root:not([data-reduce-transparency], [data-bottom-stack="cards"]):not(
+      [data-cmux-see-through]:is([data-glass="lens"], [data-glass="spectrum"])
+    )
+    .acpmux-dock
+    > .acpmux-goal:is([data-look="head"], [data-look="foot"]:not(.acpmux-running-tray[data-card] + *)):has(
+      + .acpmux-composer > .acpmux-composer-box.ui-glass-material,
+      + .acpmux-running-tray[data-card] + .acpmux-composer > .acpmux-composer-box.ui-glass-material
+    ) {
+    box-shadow:
+      inset 0 var(--cmux-hairline, 0.5px) 0 var(--acpmux-composer-edge, transparent),
+      inset var(--cmux-hairline, 0.5px) 0 0 var(--acpmux-composer-edge, transparent),
+      inset calc(-1 * var(--cmux-hairline, 0.5px)) 0 0 var(--acpmux-composer-edge, transparent),
+      inset 1px 1.5px 1px -1px var(--glass-material-specular),
+      inset 0 16px 20px -16px var(--glass-material-sheen);
+  }
 }
 :root:not([data-bottom-stack="cards"])
   .acpmux-dock
@@ -435,41 +461,3 @@
   .acpmux-goal-chevron > svg,
   .acpmux-goal-actions { transition: none; }
 }
-
-/* A Claude Code /loop (cmux#38051): one quiet chip. It says only when the loop checks back; the
-   agent's wake prompt is in its tooltip and, on demand, in the details, which wrap inside the column
-   and scroll past a few lines instead of widening or growing the stack. */
-.acpmux-goal[data-kind="loop"] .acpmux-goal-copy {
-  flex: 0 1 auto;
-  align-items: center;
-  gap: var(--ds-space-1);
-}
-.acpmux-goal-loop-mark {
-  display: inline-grid;
-  flex: none;
-  place-items: center;
-  color: var(--agent-muted);
-}
-.acpmux-goal[data-kind="loop"] .acpmux-goal-state {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--agent-muted);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.acpmux-goal[data-kind="loop"] .acpmux-goal-action {
-  width: var(--ds-control-icon);
-  height: var(--ds-control-icon);
-}
-.acpmux-goal-loop-details {
-  min-width: 0;
-  max-height: calc(6 * var(--text-caption--line-height, 18px));
-  margin-left: 0;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-}
-.acpmux-goal-loop-details p {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-.acpmux-goal-loop-prompt { color: var(--agent-soft); }

@@ -65,6 +65,7 @@ mod offers;
 mod search;
 mod stats;
 mod team_audit;
+pub(crate) use team_audit::usage_upload_loop;
 mod workspace_purge;
 
 use crate::no_panic::JsonExt;
@@ -91,19 +92,31 @@ pub(super) async fn route(
     conn: &Arc<Conn>,
     m: &str,
     params: Value,
+    sender_token: Option<crate::sender_token::Presented>,
 ) -> Result<Value, RpcError> {
     // A read-only paired machine reads, nothing else (`pairing.rs`), before any dispatcher.
     let params = super::pairing::gate(conn, m, params)?;
     // So does a teammate through the Cloud carrier, to its verbs (`carrier.rs`).
     let params = super::carrier::gate(hub, conn, m, params)?;
     hub.prepare_store_request(m, &params).await;
+    // A browser's own device on the mesh hub (`web_device.rs`): web connections only.
+    if let Some(reply) = super::web_device::dispatch(hub, conn, m, &params).await {
+        return reply;
+    }
     if let Some(reply) = super::pairing::dispatch(hub, conn, m, &params).await {
         return reply;
     }
     if let Some(reply) = super::machine_tunnel::dispatch(hub, conn, m, &params).await {
         return reply;
     }
+    #[cfg(feature = "hub-carrier")]
+    if let Some(reply) = super::machine_routes::dispatch(hub, conn, m, &params).await {
+        return reply;
+    }
     if let Some(reply) = super::vault::dispatch(conn, m).await {
+        return reply;
+    }
+    if let Some(reply) = super::share_host::dispatch(conn, m) {
         return reply;
     }
     // The secret methods check their own callers and never reach a peer (`secrets.rs`).
@@ -158,6 +171,9 @@ pub(super) async fn route(
     if let Some(reply) = super::goal::dispatch(hub, conn, m, &params) {
         return reply;
     }
+    if let Some(reply) = super::task_list::dispatch(hub, conn, m, &params) {
+        return reply;
+    }
     // The plan approval card's builds (`plan_build.rs`): sub-sessions of this daemon.
     if let Some(reply) = heap(|| super::plan_build::dispatch(hub, conn, m, &params)).await {
         return reply;
@@ -206,7 +222,7 @@ pub(super) async fn route(
     }
     // A chat's route (`routes.rs`) is a session method, not the chat index.
     if !m.starts_with(PREFIX) || m == crate::rpc::method::MUX_CHAT_ROUTE_SET {
-        return heap(|| super::requests::handle_request(hub, conn, m, params)).await;
+        return heap(|| super::requests::handle_request(hub, conn, m, params, sender_token)).await;
     }
     if conn.origin != Origin::Local {
         return Err(RpcError::method_not_found(&format!(
@@ -606,6 +622,13 @@ pub(super) async fn watch_take_over(hub: &Arc<Hub>, params: &Value) -> Result<Va
     let if_live = crate::adopt::IfLive::parse(super::str_param(params, "ifLive"))
         .map_err(RpcError::invalid_params)?;
     hub.watch_take_over(&s, if_live).await
+}
+
+/// `_acpmux/release_to_watch {sessionId}`: once idle, the chat's harness stops and the chat
+/// watches its own transcript, which a terminal now runs (`hub/release_to_watch.rs`).
+pub(super) async fn release_to_watch(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcError> {
+    let s = hub.resolve(super::session_key(params)?)?;
+    hub.release_to_watch(&s).await
 }
 
 #[cfg(test)]

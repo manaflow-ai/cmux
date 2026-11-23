@@ -82,6 +82,7 @@ fn paths(peer: &FakePeer) -> Paths {
         cloud_vm: peer.home.join("etc/cmux/vm-kind"),
         unit: peer.home.join(format!("{UNITS}/acpmux.service")),
         target: TARGET,
+        rd: None,
     }
 }
 
@@ -115,7 +116,7 @@ async fn ready(peer: &FakePeer, files: &Files) -> Plan {
         Prepared::Ready(plan) => plan,
         Prepared::Off => panic!("automatic updates are off"),
         Prepared::Locked => panic!("the lock is held"),
-        Prepared::RolledBackBefore(_) => panic!("the build was rolled back before"),
+        Prepared::RolledBackBefore(..) => panic!("the build was rolled back before"),
     }
 }
 
@@ -167,7 +168,7 @@ async fn a_host_that_has_the_channels_binary_is_left_alone() {
     let files = serving(&installed);
     let plan = ready(&peer, &files).await;
     assert!(matches!(&plan.step, Step::Current(Some(build)) if build == OLD));
-    let up = apply(&peer, &plan, TARGET);
+    let up = apply(&peer, &plan, TARGET, true);
     assert_eq!(up.outcome, Outcome::Current, "{up:?}");
     assert_eq!(up.build.as_deref(), Some(OLD));
     assert_eq!(files.asked(), [channel_url(CHANNEL).unwrap()], "nothing is downloaded");
@@ -183,7 +184,7 @@ async fn a_newer_build_is_downloaded_checked_and_installed() {
     let dir = peer.home.join(".acpmux/update").join(sha_of(&new));
     assert!(matches!(&plan.step, Step::Install(d) if *d == dir));
     assert_eq!(peer.read(&format!(".acpmux/update/{}/acpmux-{TARGET}", sha_of(&new))), new);
-    let up = apply(&peer, &plan, TARGET);
+    let up = apply(&peer, &plan, TARGET, true);
     assert_eq!(up.outcome, Outcome::Updated, "{up:?}");
     assert_eq!(up.build.as_deref(), Some(NEW));
     assert_eq!(peer.read(".local/bin/acpmux"), new);
@@ -219,7 +220,7 @@ async fn an_install_that_never_restarted_is_finished_by_the_next_run() {
     let plan = ready(&peer, &files).await;
     assert!(matches!(&plan.step, Step::Current(Some(build)) if build == NEW));
     assert_eq!(files.asked().len(), 1, "nothing is downloaded");
-    let up = apply(&peer, &plan, TARGET);
+    let up = apply(&peer, &plan, TARGET, true);
     assert_eq!((up.outcome, up.build.as_deref()), (Outcome::Updated, Some(NEW)), "{up:?}");
     assert_eq!(peer.daemon(), NEW);
     assert_eq!(peer.read(".local/bin/acpmux"), new);
@@ -241,7 +242,7 @@ async fn an_install_that_never_restarted_keeps_the_last_build_that_ran_as_the_ba
     let newer = "b2c3d4e5f 2026-10-22";
     let files = serving(&fake_acpmux(newer, Some(newer)));
     let plan = ready(&peer, &files).await;
-    let up = apply(&peer, &plan, TARGET);
+    let up = apply(&peer, &plan, TARGET, true);
     assert_eq!((up.outcome, up.build.as_deref()), (Outcome::Updated, Some(newer)), "{up:?}");
     assert_eq!(peer.read(".local/bin/acpmux.prev"), old, "the backup is the build that last ran");
 }
@@ -259,7 +260,7 @@ async fn a_retry_with_no_daemon_keeps_the_backup() {
     let _ = std::fs::remove_file(peer.home.join("daemon"));
     let files = serving(&new);
     let plan = ready(&peer, &files).await;
-    let up = apply(&peer, &plan, TARGET);
+    let up = apply(&peer, &plan, TARGET, true);
     assert_eq!((up.outcome, up.build.as_deref()), (Outcome::Updated, Some(NEW)), "{up:?}");
     assert_eq!(peer.read(".local/bin/acpmux.prev"), old, "the backup is the build that last ran");
 
@@ -270,7 +271,7 @@ async fn a_retry_with_no_daemon_keeps_the_backup() {
     let newer = "b2c3d4e5f 2026-10-22";
     let files = serving(&fake_acpmux(newer, Some(newer)));
     let plan = ready(&peer, &files).await;
-    let up = apply(&peer, &plan, TARGET);
+    let up = apply(&peer, &plan, TARGET, true);
     assert_eq!((up.outcome, up.build.as_deref()), (Outcome::Updated, Some(newer)), "{up:?}");
     assert_eq!(peer.read(".local/bin/acpmux.prev"), old, "the backup is the build that last ran");
 }
@@ -306,7 +307,7 @@ async fn a_build_whose_daemon_does_not_come_back_is_rolled_back_and_not_tried_ag
     let bad = fake_acpmux(NEW, Some("fedcba987 2026-10-21"));
     let files = serving(&bad);
     let plan = ready(&peer, &files).await;
-    let up = apply(&peer, &plan, TARGET);
+    let up = apply(&peer, &plan, TARGET, true);
     assert_eq!(
         (up.outcome, up.reason.as_deref()),
         (Outcome::RolledBack, Some("buildMismatch")),
@@ -325,7 +326,7 @@ async fn a_build_whose_daemon_does_not_come_back_is_rolled_back_and_not_tried_ag
     // The next run leaves that build alone: no download, no restart.
     let files = serving(&bad);
     let again = prepared(&peer, &files).await;
-    assert!(matches!(&again, Prepared::RolledBackBefore(commit) if commit == COMMIT));
+    assert!(matches!(&again, Prepared::RolledBackBefore(commit, _) if commit == COMMIT));
     assert!(peer.take_calls().is_empty(), "the daemon is not restarted again");
     assert_eq!(files.asked().len(), 1);
 
@@ -334,7 +335,7 @@ async fn a_build_whose_daemon_does_not_come_back_is_rolled_back_and_not_tried_ag
     let newer = "b2c3d4e5f 2026-10-22";
     let files = serving(&fake_acpmux(newer, Some(newer)));
     let plan = ready(&peer, &files).await;
-    let up = apply(&peer, &plan, TARGET);
+    let up = apply(&peer, &plan, TARGET, true);
     assert_eq!((up.outcome, up.build.as_deref()), (Outcome::Updated, Some(newer)), "{up:?}");
     assert!(!peer.exists(&format!(".acpmux/update/{}/acpmux-{TARGET}", sha_of(&bad))));
     assert!(peer.exists(&format!(".acpmux/update/{}/{ROLLED_BACK}", sha_of(&bad))));
@@ -345,7 +346,7 @@ async fn a_build_whose_daemon_does_not_come_back_is_rolled_back_and_not_tried_ag
     // channel that moved back to the bad build installed it again.
     let files = serving(&bad);
     let again = prepared(&peer, &files).await;
-    assert!(matches!(&again, Prepared::RolledBackBefore(commit) if commit == COMMIT));
+    assert!(matches!(&again, Prepared::RolledBackBefore(commit, _) if commit == COMMIT));
     assert!(peer.take_calls().is_empty(), "the healthy daemon is not restarted");
     assert_eq!(files.asked().len(), 1, "the bad build is not downloaded again");
     assert_eq!(peer.daemon(), newer);
@@ -362,7 +363,7 @@ async fn a_rollback_that_cannot_be_marked_says_the_build_will_be_tried_again() {
     // The mark's path is taken by a folder, so writing it fails.
     let mark = format!(".acpmux/update/{}/{ROLLED_BACK}", sha_of(&bad));
     std::fs::create_dir_all(peer.home.join(&mark)).unwrap();
-    let up = apply(&peer, &plan, TARGET);
+    let up = apply(&peer, &plan, TARGET, true);
     assert_eq!(up.outcome, Outcome::RolledBack, "{up:?}");
     let why = up.error.as_deref().unwrap_or("");
     assert!(why.contains("marking the build rolled back failed"), "{why}");
@@ -420,7 +421,7 @@ async fn a_cloud_vm_running_acpmux_service_updates_itself() {
     let new = fake_acpmux(NEW, Some(NEW));
     let files = serving(&new);
     let plan = ready(&peer, &files).await;
-    let up = apply(&peer, &plan, TARGET);
+    let up = apply(&peer, &plan, TARGET, true);
     assert_eq!(up.outcome, Outcome::Updated, "{up:?}");
     assert_eq!(peer.read(".local/bin/acpmux"), new);
     assert_eq!(peer.daemon(), NEW);
@@ -439,7 +440,9 @@ async fn a_host_update_and_a_self_update_of_one_host_never_run_at_once() {
         binary_dir: Some(peer.home.join("binaries")),
         if_idle: false,
         keep_newer: false,
+        allow_downgrade: false,
         caller: None,
+        now: true,
     };
 
     // The timer holds it: an update from another machine changes nothing.
@@ -489,7 +492,7 @@ async fn a_daemon_whose_socket_a_drop_in_moved_is_checked_where_it_listens() {
     let new = listening_at(&socket, &fake_acpmux(NEW, Some(NEW)));
     let files = serving(&new);
     let plan = ready(&peer, &files).await;
-    let up = apply(&peer, &plan, TARGET);
+    let up = apply(&peer, &plan, TARGET, true);
     assert_eq!((up.outcome, up.build.as_deref()), (Outcome::Updated, Some(NEW)), "{up:?}");
     assert_eq!(peer.read(".local/bin/acpmux"), new);
     assert!(!peer.exists(&format!(".acpmux/update/{}/{ROLLED_BACK}", sha_of(&new))));
@@ -500,7 +503,7 @@ async fn a_daemon_whose_socket_a_drop_in_moved_is_checked_where_it_listens() {
     let bad = listening_at(&socket, &fake_acpmux(newer, Some("fedcba987 2026-10-21")));
     let files = serving(&bad);
     let plan = ready(&peer, &files).await;
-    let up = apply(&peer, &plan, TARGET);
+    let up = apply(&peer, &plan, TARGET, true);
     assert_eq!(
         (up.outcome, up.reason.as_deref(), up.build.as_deref()),
         (Outcome::RolledBack, Some("buildMismatch"), Some(NEW)),
@@ -519,13 +522,131 @@ async fn a_self_update_whose_lease_another_update_took_changes_nothing_and_marks
     let plan = ready(&peer, &files).await;
     let theirs = format!("{} {}\n", "f".repeat(32), std::process::id());
     peer.write(".acpmux/update.owner", &theirs);
-    let up = apply(&peer, &plan, TARGET);
+    let up = apply(&peer, &plan, TARGET, true);
     assert_eq!((up.outcome, up.reason.as_deref()), (Outcome::Failed, Some("lockLost")), "{up:?}");
     assert_eq!(peer.read(".local/bin/acpmux"), fake_acpmux(OLD, Some(OLD)));
     assert!(!peer.exists(".local/bin/acpmux.prev"));
     assert!(!peer.exists(&format!(".acpmux/update/{}/{ROLLED_BACK}", sha_of(&new))));
     drop(plan);
     assert_eq!(peer.read(".acpmux/update.owner"), theirs, "the other update's lease stays");
+}
+
+/// Seconds since 1970 on this machine, the fake host's clock.
+fn clock() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs()
+}
+
+/// The fake host's restart stamp says an update restarted its daemon
+/// `ago` seconds ago (negative: in the future, a clock that went back).
+fn restarted_ago(peer: &FakePeer, ago: i64) {
+    let at = clock() as i64 - ago;
+    peer.write(".acpmux/update.restarted", &format!("{at}\n"));
+}
+
+/// [`update_locked`], as `host update` from another machine runs it, pushing
+/// `build`, with `--now` when `now`.
+fn host_update(peer: &FakePeer, build: &str, now: bool) -> PeerUpdate {
+    peer.offer(build, Some(build));
+    let opts = UpdateOptions {
+        binary_dir: Some(peer.home.join("binaries")),
+        if_idle: false,
+        keep_newer: false,
+        allow_downgrade: false,
+        caller: None,
+        now,
+    };
+    once_free(|| {
+        let up = update_locked(peer, &opts);
+        (up.reason.as_deref() != Some("updateRunning")).then_some(up)
+    })
+    .expect("the lock is free")
+}
+
+/// A 2 vCPU fleet host, 2026-11-15: its acpmux-update.timer restarted the
+/// daemon for each new build, and a `host update` from another machine 1-3
+/// minutes later restarted it again: 13 restarts in 160 minutes, each waking
+/// every harness at once. Whichever comes first restarts it; the other, within
+/// the hour, changes nothing, both ways round.
+#[tokio::test]
+async fn a_self_update_and_a_host_update_restart_a_daemon_once_an_hour() {
+    let peer = FakePeer::new("self-window");
+    let new = fake_acpmux(NEW, Some(NEW));
+    let files = serving(&new);
+    let plan = ready(&peer, &files).await;
+    let up = apply(&peer, &plan, TARGET, false);
+    assert_eq!((up.outcome, up.build.as_deref()), (Outcome::Updated, Some(NEW)), "{up:?}");
+    drop(plan);
+    let stamped: u64 = peer.read(".acpmux/update.restarted").trim().parse().unwrap_or(0);
+
+    // Five minutes later another machine's `host update` pushes a newer
+    // build: the daemon is left alone and nothing is installed.
+    restarted_ago(&peer, 5 * 60);
+    peer.take_calls();
+    let newer = "b2c3d4e5f 2026-10-22";
+    let up = host_update(&peer, newer, false);
+    assert_eq!(
+        (up.outcome, up.reason.as_deref()),
+        (Outcome::Busy, Some("restartWindow")),
+        "{up:?}"
+    );
+    assert!(!up.outcome.failed(), "the app retries a busy host quietly");
+    assert_eq!(up.build.as_deref(), Some(NEW));
+    let line = up.line();
+    assert!(line.contains("last update restart 5 min ago; next after "), "{line}");
+    peer.assert_only_read(&new, NEW);
+    assert!((clock() - 60..=clock()).contains(&stamped), "the self-update stamped its restart");
+
+    // An hour after, the host update restarts it; then the timer, five
+    // minutes later with an even newer build, leaves it alone.
+    restarted_ago(&peer, 61 * 60);
+    let up = host_update(&peer, newer, false);
+    assert_eq!((up.outcome, up.build.as_deref()), (Outcome::Updated, Some(newer)), "{up:?}");
+    restarted_ago(&peer, 5 * 60);
+    peer.take_calls();
+    let installed = peer.read(".local/bin/acpmux");
+    let newest = "c3d4e5f6a 2026-10-23";
+    let files = serving(&fake_acpmux(newest, Some(newest)));
+    let plan = ready(&peer, &files).await;
+    let up = apply(&peer, &plan, TARGET, false);
+    assert_eq!(
+        (up.outcome, up.reason.as_deref()),
+        (Outcome::Busy, Some("restartWindow")),
+        "{up:?}"
+    );
+    peer.assert_only_read(&installed, newer);
+}
+
+/// A person's `--now` (no window) restarts it within the hour.
+#[test]
+#[cfg(unix)]
+fn now_restarts_a_daemon_an_update_restarted_minutes_ago() {
+    let peer = FakePeer::new("window-now");
+    restarted_ago(&peer, 5 * 60);
+    let up = host_update(&peer, NEW, true);
+    assert_eq!((up.outcome, up.build.as_deref()), (Outcome::Updated, Some(NEW)), "{up:?}");
+}
+
+/// A daemon that does not run is started on the new build whatever the
+/// window: nothing runs on it to wake, and a host left down is worse.
+#[test]
+#[cfg(unix)]
+fn a_daemon_that_does_not_run_is_updated_within_the_window() {
+    let peer = FakePeer::new("window-down");
+    restarted_ago(&peer, 5 * 60);
+    let _ = std::fs::remove_file(peer.home.join("daemon"));
+    let up = host_update(&peer, NEW, false);
+    assert_eq!((up.outcome, up.build.as_deref()), (Outcome::Updated, Some(NEW)), "{up:?}");
+}
+
+/// A stamp from the future (the host's clock went back) does not hold the
+/// host off updates for good.
+#[test]
+#[cfg(unix)]
+fn a_restart_stamp_from_the_future_is_ignored() {
+    let peer = FakePeer::new("window-future");
+    restarted_ago(&peer, -(2 * 60 * 60));
+    let up = host_update(&peer, NEW, false);
+    assert_eq!((up.outcome, up.build.as_deref()), (Outcome::Updated, Some(NEW)), "{up:?}");
 }
 
 /// A user manager as the fake `systemctl` answers `show`: its unit search

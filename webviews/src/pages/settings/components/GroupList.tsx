@@ -1,7 +1,10 @@
-import { startTransition, useEffect, useState } from "react";
+import { Fragment, startTransition, useEffect, useState } from "react";
 import type { CategoryGroup } from "../categories";
 import { text } from "../strings";
+import { APP_LANGUAGE_KEY, LanguageRelaunchRow } from "./LanguageRelaunchRow";
 import { SettingRow } from "./SettingRow";
+import { MoreOptions } from "./MoreOptions";
+import type { ArrangedGroup } from "../rowLevels";
 
 /** Rows a category draws in its first frame: more than a tall window shows. */
 const FIRST_FRAME_ROWS = 24;
@@ -13,6 +16,12 @@ const FIRST_FRAME_ROWS = 24;
  * (test/settings-open-frames.test.ts). Opening another category later still draws 24 rows first.
  */
 let drewFirstCategory = false;
+
+/** The next category drawn draws whole, as the first does: a language change draws the shown
+ * category again (SettingsPage), and a page cut to 24 rows would shorten under its scroll offset. */
+export function drawNextCategoryWhole(): void {
+  drewFirstCategory = false;
+}
 
 /**
  * A group's title as its page draws it (leo-workspace design/settings.md, "No title repeats its
@@ -43,7 +52,7 @@ export function GroupList({
   mounted,
   pageTitle,
 }: {
-  groups: CategoryGroup[];
+  groups: (CategoryGroup | ArrangedGroup)[];
   query?: string;
   focus?: string | null;
   shown?: ReadonlySet<string>;
@@ -68,7 +77,8 @@ export function GroupList({
     if (first >= limit) return null;
     const rows = group.rows.slice(0, limit - first);
     const open = !shown || group.rows.some((row) => shown.has(row.key));
-    const title = shownGroupTitle(text(group.title), pageTitle);
+    const proposed = group as ArrangedGroup;
+    const title = proposed.untitled ? "" : shownGroupTitle(text(group.title), pageTitle);
     return (
       <section
         className={shown ? "group collapse" : "group"}
@@ -95,9 +105,15 @@ export function GroupList({
                   </div>
                 </div>
               ) : (
-                <SettingRow key={row.key} row={row} query={query} focused={row.key === focus} />
+                <Fragment key={row.key}>
+                  <SettingRow row={row} query={query} focused={row.key === focus} />
+                  {/* The menus keep the launch language: a Relaunch row under Language while they differ. */}
+                  {row.key === APP_LANGUAGE_KEY && <LanguageRelaunchRow />}
+                </Fragment>
               ),
             )}
+            {/* The card's More Options row and the rows it opens (rowLevels.ts). */}
+            {!shown && proposed.more && proposed.more.length > 0 && <MoreOptions rows={proposed.more} focus={focus} />}
           </div>
         </div>
       </section>

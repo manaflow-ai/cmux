@@ -3,7 +3,7 @@ import Foundation
 /// App strings for history (table History.xcstrings).
 enum HistoryAppStrings {
     private static func t(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, table: "History", bundle: .module)
+        String(localized: key, defaultValue: value, table: "History", bundle: .module.inAppLanguage)
     }
 
     static var nothingBack: String { t("history.refusal.nothingBack", "No earlier location to go back to") }
@@ -15,6 +15,7 @@ enum HistoryAppStrings {
     static var machineOffline: String { t("history.refusal.machineOffline", "That machine is not connected") }
     static var noPane: String { t("history.refusal.noPane", "Open a window on that machine first") }
     static var entryGone: String { t("history.refusal.entryGone", "That history entry is gone") }
+    static var stillLoading: String { t("history.refusal.stillLoading", "History is still loading. Try again in a moment.") }
     static var nothingFromPreviousLaunch: String {
         t("history.refusal.nothingFromPreviousLaunch", "Nothing from the previous app launch to restore")
     }
@@ -25,10 +26,6 @@ enum HistoryAppStrings {
         String(format: t("history.commands.deleteBody",
                          "Recording is off. Each connected machine keeps the commands it already recorded until they are %lld days old."),
                days)
-    }
-
-    static func undoClosesPanes(_ count: Int) -> String {
-        String(format: t("history.refusal.undoClosesPanes", "Undo closes %lld pane(s). Run Undo Layout Change again to confirm."), count)
     }
 
     static func screenTitle(_ number: Int) -> String {

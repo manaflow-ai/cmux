@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { useAppPanelSections } from "./panels";
 import { MockAppPanelsClient } from "./panelsMock";
+import { teardownDom } from "../../../test/support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", { url: "http://localhost/" });
 const globals = globalThis as Record<string, unknown>;
@@ -18,12 +19,8 @@ const replacements = {
 };
 const saved = Object.keys(replacements).map((key) => [key, key in globals, globals[key]] as const);
 Object.assign(globals, replacements);
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) globals[key] = value;
-    else delete globals[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope: globals });
 });
 
 class Host extends MockAppPanelsClient {

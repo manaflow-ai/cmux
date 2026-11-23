@@ -750,6 +750,7 @@ fn the_bundle_copy_is_private_and_removed() {
 mod export;
 mod head_first;
 mod hold;
+mod moves;
 
 #[test]
 fn clone_job_releases_only_successful_repository_sync() {

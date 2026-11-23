@@ -22,13 +22,30 @@ import sys
 import time
 import unittest
 from unittest import mock
-import git_fixture_env  # disables git auto maintenance
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 
 SOURCE = Path(__file__).resolve().parents[1]
 INSTALLER = "scripts/install-git-hooks.sh"
 AGENT_VARS = ("CMUX_AGENT", "CMUX_REQUIRE_FORMATTERS", "CI", "CLAUDECODE", "CODEX_CI", "CODEX_THREAD_ID",
-              "CODEX_SANDBOX", "CMUX_WEB_LINT_SKIP_REASON", "CMUX_LOCAL_HEAVY_CHECKS")
+              "CODEX_SANDBOX", "CMUX_WEB_LINT_SKIP_REASON", "CMUX_LOCAL_HEAVY_CHECKS", "CMUX_WEB_LINT_STRICT",
+              "CMUX_WEB_LINT_TIMEOUT_SECONDS", "CMUX_PREPUSH_GATE_TIMEOUT_SECONDS")
+# A web lint finding never stops a push in the hook unless CMUX_WEB_LINT_STRICT=1 (lint never stops a push). The
+# fixture runs strict, so the tests about what the lint finds read it as a refusal; HOOK_DEFAULT is the person's hook.
+HOOK_DEFAULT = {"CMUX_WEB_LINT_STRICT": ""}
+# A stand-in for an installed check that never ends: it starts a grandchild in its own process (the way bun or tsgolint
+# would), writes that grandchild's pid, and both sleep.
+SLOW_CHECK = """import subprocess, sys, time
+child = subprocess.Popen(["sleep", "300"])
+open(sys.argv[1], "w").write(str(child.pid))
+time.sleep(300)
+"""
 # A host that runs no heavy checks, outside CI: CI (CI or GITHUB_ACTIONS=true) always runs every piece, so a test
 # run on a CI runner must clear both or it would test CI's behaviour instead.
 LIGHT_HOST = {"CMUX_LOCAL_HEAVY_CHECKS": "0", "CI": "", "GITHUB_ACTIONS": ""}
@@ -92,12 +109,11 @@ class WebLintPrePushTests(unittest.TestCase):
         self.env = {key: value for key, value in os.environ.items()
                     if not key.startswith("GIT_") and key not in AGENT_VARS}
         self.env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=str(self.global_config),
-                        HOME=str(self.root), ESLINT_LOG=str(self.eslint_log))
+                        HOME=str(self.root), ESLINT_LOG=str(self.eslint_log), CMUX_WEB_LINT_STRICT="1")
         git_fixture_env.without_auto_maintenance(self.env)
         self.stub_lint_tools()
 
-        subprocess.run(["git", "init", "--quiet", "--bare", "--initial-branch=feat-cmux-next", str(self.origin)],
-                       env=self.env, check=True, capture_output=True)
+        git_fixture_env.init_repo(self.origin, "--bare", "--initial-branch=feat-cmux-next", env=self.env)
         self.repo.mkdir()
         self.git("init", "--quiet", "--initial-branch=feat-cmux-next")
         self.git("remote", "add", "origin", str(self.origin))
@@ -116,6 +132,8 @@ class WebLintPrePushTests(unittest.TestCase):
         self.write(".gitignore", "node_modules/\n")
         self.write("scripts/cmux-next/lint-tools.lock", self.lint_tools_lock)
         self.commit("base")
+        # A checkout's installed webviews (the hook installs nothing: an area with no node_modules is left to CI).
+        (self.repo / "webviews/node_modules").mkdir()
         eslint = self.repo / "web/node_modules/.bin/eslint"
         eslint.parent.mkdir(parents=True)
         eslint.write_text(FAKE_ESLINT)
@@ -137,7 +155,9 @@ class WebLintPrePushTests(unittest.TestCase):
                 rows.append(f"{tool}\tfixture\t{platform_key}\tfile:///nonexistent\t{'0' * 64}\t{tool}")
                 binary = tools / f"{tool}-fixture-{platform_key}" / tool
                 binary.parent.mkdir(parents=True, exist_ok=True)
-                binary.write_text("#!/bin/sh\nexit 0\n")
+                # A clean run of each, as the real one prints it: ast-grep's `scan --json=compact` prints `[]` when
+                # nothing matches. An empty answer is output the gate cannot read, so no verdict (cmux#41827).
+                binary.write_text("#!/bin/sh\necho '[]'\nexit 0\n" if tool == "ast-grep" else "#!/bin/sh\nexit 0\n")
                 binary.chmod(0o755)
         self.lint_tools_lock = "\n".join(rows) + "\n"
         self.env["CMUX_LINT_TOOLS_DIR"] = str(tools)
@@ -164,7 +184,9 @@ class WebLintPrePushTests(unittest.TestCase):
             "scripts/ci/validate_test_execution_registry.py",
             "scripts/ci/test_execution_registry.py",
             "scripts/ci/workload_entrypoints.py",
+            "scripts/ci/workflow_job_bounds.py",
             "scripts/normalize-pbxproj.py",
+            "scripts/webviews_bun_version.py",
             "scripts/lint_swift_namespaces.py",
             "scripts/swift_source_mask.py",
         ):
@@ -381,6 +403,68 @@ class WebLintPrePushTests(unittest.TestCase):
         self.assertEqual(self.remote_head(), before, "the field with a ring must not reach origin")
         self.assertIn(f"{self.SWIFT_SOURCE}:3", result.stderr, "must name the pushed field")
         self.assertEqual(trees(), [])
+
+    # 2026-11-11: pushes from sparse worktrees (RATCHET's, W7-A's, W5-L's) linted the checkout as if it were the
+    # commit. One without the CmuxNext sources failed check:text-focus with "no Packages/macOS/CmuxNext/Sources", one
+    # without webviews/ crashed in spawn with FileNotFoundError. A sparse checkout never holds the whole commit.
+    def test_a_swift_only_push_from_a_sparse_worktree_lints_the_pushed_sources(self):
+        self.text_focus_fixture()
+        self.write(self.SWIFT_SOURCE, 'struct Field {\n    var body: some View {\n'
+                   '        SecureField("Key", text: $key)\n            .focusEffectDisabled()\n    }\n}\n')
+        self.commit("a field without a ring")
+        clean = self.git("rev-parse", "HEAD").stdout.strip()
+        self.git("sparse-checkout", "set", "webviews", "scripts", "web")
+        self.assertFalse((self.repo / "Packages").exists(), "the sparse worktree holds no Swift sources")
+
+        result = self.push()
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("no Packages/macOS/CmuxNext/Sources", result.stderr)
+        self.assertIn("sparse checkout", result.stderr, "the note says where the checks ran")
+        self.assertEqual(self.remote_head(), clean)
+
+        self.git("sparse-checkout", "disable")
+        self.write(self.SWIFT_SOURCE, self.RINGED_FIELD)
+        self.commit("a field with a focus ring")
+        self.git("sparse-checkout", "set", "webviews", "scripts", "web")
+
+        result = self.push()
+
+        self.assertNotEqual(result.returncode, 0, result.stderr)
+        self.assertIn(f"{self.SWIFT_SOURCE}:3", result.stderr, "must name the pushed field")
+        self.assertEqual(self.remote_head(), clean, "the field with a ring must not reach origin")
+
+    def test_a_web_push_from_a_sparse_worktree_is_refused_with_what_to_do(self):
+        before = self.remote_head()
+        self.write("webviews/src/app.ts", "export const app = 2;\n")
+        self.commit("a web change")
+        # The worktree holds webviews/ and its node_modules but leaves the rest of the repository out (.gitignore).
+        self.git("sparse-checkout", "set", "--no-cone", "/scripts/", "/web/", "/webviews/")
+        self.assertTrue((self.repo / "webviews/node_modules").is_dir())
+        self.assertFalse((self.repo / ".gitignore").exists(), "the worktree must be sparse")
+
+        result = self.push()
+
+        self.assertNotEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+        self.assertIn("sparse checkout", result.stderr)
+        self.assertIn("webviews/", result.stderr)
+        self.assertIn("git sparse-checkout disable", result.stderr)
+        self.assertIn("scripts/cmux-next/push-from-host.sh", result.stderr)
+        self.assertEqual(self.remote_head(), before, "nothing reaches origin unlinted")
+
+    def test_a_web_push_from_a_sparse_worktree_with_no_webviews_goes_on_and_names_ci(self):
+        self.write("webviews/src/app.ts", "export const app = 2;\n")
+        self.commit("a web change")
+        self.git("sparse-checkout", "set", "scripts", "web")
+        self.assertFalse((self.repo / "webviews").exists(), "the sparse worktree holds no webviews/")
+
+        result = self.push(**HOOK_DEFAULT)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("pre-push: webviews: not linted here, it has no node_modules; CI's `web lint` job checks it",
+                      result.stderr)
+        self.assertEqual(self.remote_head(), self.git("rev-parse", "HEAD").stdout.strip())
 
     def test_a_lone_piece_tree_holds_what_the_piece_reads_and_no_more(self):
         self.text_focus_fixture()
@@ -677,6 +761,117 @@ class WebLintPrePushTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("app/page.tsx: error no-bad", result.stderr)
 
+    def test_a_web_lint_finding_in_the_hook_is_printed_and_the_push_goes_on(self):
+        self.write("web/app/page.tsx", "export const page = BAD_ESLINT;\n")
+        self.commit("bad web")
+
+        result = self.push(**HOOK_DEFAULT)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("app/page.tsx: error no-bad", result.stderr)
+        self.assertIn("pre-push: web lint found problems (exit 1, above); the push goes on", result.stderr)
+        self.assertIn("CMUX_WEB_LINT_STRICT=1 refuses instead", result.stderr)
+        self.assertEqual(subprocess.run(["git", "-C", str(self.origin), "rev-parse", "feat-cmux-next"], env=self.env,
+                                        text=True, capture_output=True).stdout.strip(),
+                         self.git("rev-parse", "HEAD").stdout.strip())
+
+    def test_strict_mode_still_refuses_a_web_lint_finding(self):
+        self.write("web/app/page.tsx", "export const page = BAD_ESLINT;\n")
+        self.commit("bad web")
+
+        result = self.push(CMUX_WEB_LINT_STRICT="1")
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("app/page.tsx: error no-bad", result.stderr)
+        self.assertIn("pre-push: refused in web-lint", result.stderr)
+
+    def test_web_lint_by_hand_still_fails_on_a_finding(self):
+        self.write("web/app/page.tsx", "export const page = BAD_ESLINT;\n")
+
+        result = subprocess.run(["scripts/web-lint.sh"], cwd=self.repo, env={**self.env, **HOOK_DEFAULT},
+                                text=True, capture_output=True)
+
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("app/page.tsx: error no-bad", result.stderr)
+
+    def assert_stopped_at_limit(self, installed_name, limit_name, label):
+        """The installed INSTALLED_NAME never ends: the hook stops it and every process it started at LIMIT_NAME's
+        limit, says so in one line, and the push goes on."""
+        hooks = Path(self.git("config", "--get", "core.hooksPath").stdout.strip())
+        pid_file = self.root / "grandchild.pid"
+        (hooks / installed_name).write_text(SLOW_CHECK.replace("sys.argv[1]", repr(str(pid_file))))
+        self.write("web/app/page.tsx", "export const page = 2;\n")
+        self.commit("touch one web file")
+
+        started = time.monotonic()
+        result = self.push(**HOOK_DEFAULT, **{limit_name: "2"})
+        took = time.monotonic() - started
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(f"pre-push: {label} ran past its 2s limit ({limit_name}); stopped it and every process it "
+                      "started. The push goes on;", result.stderr)
+        self.assertLess(took, 60, "the limit must end the step, not the 300 s sleep")
+        grandchild = int(pid_file.read_text())
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            try:
+                os.kill(grandchild, 0)
+            except ProcessLookupError:
+                break
+            time.sleep(0.1)
+        else:
+            os.kill(grandchild, 9)
+            self.fail("the step's grandchild outlived the limit: the hook must stop the whole process group")
+
+    def test_a_web_lint_past_its_limit_is_stopped_with_its_children_and_the_push_goes_on(self):
+        self.assert_stopped_at_limit("web_lint_prepush.py", "CMUX_WEB_LINT_TIMEOUT_SECONDS", "web lint")
+
+    def test_a_cmux_next_gate_past_its_limit_is_stopped_with_its_children_and_the_push_goes_on(self):
+        self.assert_stopped_at_limit("cmux_next_prepush_gate.py", "CMUX_PREPUSH_GATE_TIMEOUT_SECONDS", "cmux-next gate")
+
+    def test_the_limit_gives_a_grandchild_its_grace_even_when_the_leader_dies_at_once(self):
+        """A step that dies at once on SIGTERM must not cut short the cleanup of a child still in its group (a git
+        removing its index.lock): the grace runs until the whole group is gone, not until the leader is."""
+        hooks = Path(self.git("config", "--get", "core.hooksPath").stdout.strip())
+        marker = self.root / "cleaned-up"
+        ready = self.root / "ready"
+        grandchild = (f"import signal, sys, time\n"
+                      f"def done(*_):\n    time.sleep(1)\n    open({str(marker)!r}, \"w\").write(\"ok\")\n"
+                      f"    sys.exit(0)\n"
+                      f"signal.signal(signal.SIGTERM, done)\nopen({str(ready)!r}, \"w\").write(\"ok\")\n"
+                      f"time.sleep(300)\n")
+        leader = (f"import subprocess, sys, time\n"
+                  f"subprocess.Popen([sys.executable, \"-c\", {grandchild!r}])\n"
+                  f"while True:\n    time.sleep(300)\n")
+        (hooks / "web_lint_prepush.py").write_text(leader)
+        self.write("web/app/page.tsx", "export const page = 2;\n")
+        self.commit("touch one web file")
+
+        result = self.push(**HOOK_DEFAULT, CMUX_WEB_LINT_TIMEOUT_SECONDS="2")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(ready.exists(), result.stderr)
+        self.assertIn("pre-push: web lint ran past its 2s limit", result.stderr)
+        self.assertTrue(marker.exists(), "the grandchild was killed before its SIGTERM cleanup finished")
+
+    def test_the_hook_installs_nothing_for_an_area_with_no_node_modules(self):
+        shutil.rmtree(self.repo / "web/node_modules")
+        bun_log = self.root / "bun.log"
+        bin_dir = self.root / "bin"
+        bin_dir.mkdir()
+        (bin_dir / "bun").write_text(f"#!/bin/sh\necho \"$@\" >> {shlex.quote(str(bun_log))}\n")
+        (bin_dir / "bun").chmod(0o755)
+        self.write("web/app/page.tsx", "export const page = BAD_ESLINT;\n")
+        self.commit("bad web")
+        trace, trees = self.logged_trees()
+
+        result = self.push(**trace, PATH=f"{bin_dir}{os.pathsep}{self.env['PATH']}")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("pre-push: web: not linted here, it has no node_modules", result.stderr)
+        self.assertFalse(bun_log.exists(), "the hook must never run bun install")
+        self.assertEqual(trees(), [], "nothing to lint here: no lint tree either")
+
     def test_fix_option_repairs_what_the_tools_can_fix(self):
         self.write("webviews/src/app.ts", "export const app = BAD_FORMAT;\n")
         self.write("web/app/page.tsx", "export const page = BAD_ESLINT;\n")
@@ -749,6 +944,28 @@ class WebLintPrePushTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("::warning title=web lint (base)::webviews: sh check-lanes.sh", result.stderr)
 
+    def test_new_only_hands_the_checks_the_changed_files_and_a_full_lint_none(self):
+        # check:compiler-bails compiled every agent-chat file on every pull request (65 s of the fast gates' step,
+        # 2026-11-21); with --new-only it reads the change's files from CMUX_WEB_LINT_CHANGED_FILES and checks only
+        # those. Without --new-only (the push lint, the pre-push hook) the variable is unset: every file is checked.
+        seen = Path(self.temporary.name) / "seen.txt"
+        self.write("webviews/check-lanes.sh",
+                   'if [ -n "$CMUX_WEB_LINT_CHANGED_FILES" ]; then cat "$CMUX_WEB_LINT_CHANGED_FILES" >> "$SEEN"; '
+                   'else echo unset >> "$SEEN"; fi\n' + CHECK_LANES)
+        self.commit("a check that records the changed files")
+        self.write("webviews/src/app.ts", "export const app = 4;\n")
+        self.commit("a change")
+        self.env["SEEN"] = str(seen)
+
+        result = self.lint_range("--new-only")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(seen.read_text(), "webviews/src/app.ts\n")
+        self.assertNotIn("CMUX_WEB_LINT_CHANGED_FILES", os.environ)
+        seen.unlink()
+        self.assertEqual(self.lint_range().returncode, 0)
+        self.assertEqual(seen.read_text(), "unset\n")
+
     # The trust boundary (docs/contributor-verification.md): the hook runs only check code the push did not change.
     # Each test below plants a marker-writing script that only pushed content can reach, and the hook must never run
     # it, on a build host or a host that runs no heavy checks.
@@ -812,8 +1029,7 @@ class WebLintPrePushTests(unittest.TestCase):
         self.seed_reviewed_check()
         marker = self.root / "pushed-code-ran"
         fork = self.root / "fork.git"
-        subprocess.run(["git", "init", "--quiet", "--bare", "--initial-branch=feat-cmux-next", str(fork)],
-                       env=self.env, check=True, capture_output=True)
+        git_fixture_env.init_repo(fork, "--bare", "--initial-branch=feat-cmux-next", env=self.env)
         self.git("remote", "add", "fork", str(fork))
         self.git("checkout", "--quiet", "-b", "topic")
         self.write("scripts/cmux-next/check_x.py", f"open({str(marker)!r}, 'w').close()\n")
@@ -1320,10 +1536,11 @@ class WebLintPrePushTests(unittest.TestCase):
 
         self.assertNotIn("web-lint: webviews: bun install", run_lint(), "without --timings the log stays as it was")
 
-    def test_in_ci_the_type_aware_checks_take_one_slot_per_two_cores_and_light_ones_run_beside_them(self):
+    def test_checks_run_one_per_core_and_the_type_aware_ones_one_per_two_cores_in_ci_or_not(self):
         # All the vp checks at once on a 4 vCPU fast-gates runner: the web lint took 185 to 698 s and once outgrew the
-        # job's 15 min. In CI the type-aware ones now share a slot per two cores (99.9 and 135.8 s); elsewhere
-        # capped_env and nice already keep them off a person's machine.
+        # job's 15 min; sharing a slot per two cores took 99.9 and 135.8 s. On a 2 vCPU lane VM outside CI the hook had
+        # about 8 checks running for 141 s at load 17.8 (2026-11-15): nice lowers priority, not the run
+        # queue. So everywhere: at most one check per core, the type-aware ones one per two cores, light ones beside.
         self.heavy_fixture()
         lint = load_lint(self.repo)
         real = subprocess.run
@@ -1347,6 +1564,8 @@ class WebLintPrePushTests(unittest.TestCase):
                 running.add(name)
                 heavy_now = [n for n in running if weighty(n.split())]
                 peak["heavy"] = max(peak.get("heavy", 0), len(heavy_now))
+                peak["all"] = max(peak.get("all", 0), len(running))
+                peak["seen"] = peak.get("seen", 0) + 1
                 if not weighty(words) and heavy_now:
                     overlapped.append(name)
             time.sleep(0.3)  # long enough for the pool to start whatever it would run beside this one
@@ -1355,17 +1574,19 @@ class WebLintPrePushTests(unittest.TestCase):
             return subprocess.CompletedProcess(command, 0, "", "")
 
         head = self.git("rev-parse", "HEAD").stdout.strip()
-        for ci, expected in (("true", 1), ("", 2)):
+        for ci in ("true", ""):
             peak.clear()
             overlapped.clear()
             with mock.patch.dict(os.environ, {"CMUX_LOCAL_HEAVY_CHECKS": "1", "GITHUB_ACTIONS": ci, "CI": ""}), \
                     mock.patch.object(lint.subprocess, "run", spy), \
                     mock.patch.object(lint.os, "sched_getaffinity", lambda pid: {0, 1}, create=True), \
                     mock.patch("sys.stderr", new_callable=lambda: open(os.devnull, "w")):
+                self.assertEqual(lint.heavy_slots(), 1, f"CI={ci!r}: type-aware slots on 2 cores")
                 self.assertEqual(lint.main(["--repo", str(self.repo), "--base", "HEAD~1", "--head", head]), 0)
-            self.assertEqual(peak.get("heavy"), expected, f"CI={ci!r}: type-aware checks at once on 2 cores")
-            if ci:
-                self.assertTrue(overlapped, "light checks run beside the type-aware one, not after it")
+            self.assertGreater(peak.get("seen", 0), 2, f"CI={ci!r}: the fixture runs more checks than cores")
+            self.assertEqual(peak.get("heavy"), 1, f"CI={ci!r}: type-aware checks at once on 2 cores")
+            self.assertLessEqual(peak.get("all", 0), 2, f"CI={ci!r}: checks at once on 2 cores")
+            self.assertTrue(overlapped, f"CI={ci!r}: light checks run beside the type-aware one, not after it")
 
     def test_new_only_reruns_a_piece_on_the_base_niced_and_capped(self):
         # Both the head and the base fail `vp lint` with the same finding: the base rerun is a second type check,
@@ -1697,6 +1918,34 @@ class TuiBindingsTests(unittest.TestCase):
         self.assertEqual((fixes, jobs), ([], []))
         self.assertEqual(len(setup), 1)
         self.assertIn("neither npm nor bun is on PATH", lint.shown(setup[0]))
+
+    def test_an_all_run_in_a_shallow_ci_clone_lints_every_package(self):
+        # cmux-ci test at 491d6f30 (run 44991179215): `web-lint.sh --all` in Actions' depth-1 checkout of a snapshot
+        # two commits over the remote said "cannot tell which commits are this push's own ... refused; nothing was
+        # linted". --all lints every package whatever changed, so it needs no push range.
+        self.add_tui_packages()
+        self.git("push", "--quiet", "--no-verify", "origin", "HEAD:feat-cmux-next")
+        # Two snapshot commits over the branch, on a ref of their own; Actions checks out only the top one.
+        for n in (1, 2):
+            self.write(f"snapshot-{n}.txt", f"{n}\n")
+            self.commit(f"snapshot {n}")
+        self.git("push", "--quiet", "--no-verify", "origin", "HEAD:refs/heads/snapshot")
+        shallow = self.root / "shallow"
+        subprocess.run(["git", "clone", "--quiet", "--depth", "1", "--branch", "snapshot",
+                        f"file://{self.origin}", str(shallow)], env=self.env, check=True, capture_output=True)
+        # As actions/checkout leaves it: the commit detached, no remote ref names it, and no base to fetch.
+        for argv in (["checkout", "--quiet", "--detach"], ["update-ref", "-d", "refs/remotes/origin/snapshot"],
+                     ["remote", "set-url", "origin", str(self.root / "gone.git")]):
+            subprocess.run(["git", *argv], cwd=shallow, env=self.env, check=True)
+        self.assertEqual(subprocess.run(["git", "rev-parse", "--is-shallow-repository"], cwd=shallow, env=self.env,
+                                        text=True, capture_output=True).stdout.strip(), "true")
+        self.tool_log.write_text("")
+        result = subprocess.run(["scripts/web-lint.sh", "--all"], cwd=shallow, env=self.env, text=True,
+                                capture_output=True)
+        self.assertNotIn("nothing was linted", result.stderr)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("web lint passed", result.stderr)
+        self.assertIn("check web", self.tool_log.read_text())
 
     def test_an_all_run_builds_the_bindings_before_the_frontend_check_and_is_clean(self):
         self.add_tui_packages()
@@ -2398,6 +2647,110 @@ class TrustBoundaryTests(unittest.TestCase):
         for package in lint.ESLINT_PACKAGES:
             self.assertEqual(lint.executed_symlinks(SOURCE, head, package.executed, (),
                                                     lint.package_directories(package)), [])
+
+
+class InstalledBunTests(unittest.TestCase):
+    """A lane VM had bun at ~/.bun/bin/bun, off PATH; the hook said "bun is not on PATH" and refused the push."""
+
+    def setUp(self):
+        self.lint = load_lint(Path(__file__).resolve().parents[1])
+        self.temporary = tempfile.TemporaryDirectory(prefix="cmux-bun-home-")
+        self.addCleanup(self.temporary.cleanup)
+        self.home = Path(self.temporary.name)
+        self.empty = self.home / "empty-bin"
+        self.empty.mkdir()
+
+    def install(self, root):
+        bun = root / "bin" / "bun"
+        bun.parent.mkdir(parents=True)
+        bun.write_text("#!/bin/sh\n")
+        bun.chmod(0o755)
+        return bun
+
+    def test_the_installers_bun_is_put_on_path_when_none_is_there(self):
+        bun = self.install(self.home / ".bun")
+        environ = {"PATH": str(self.empty)}
+        self.assertTrue(self.lint.add_installed_bun_to_path(environ, home=self.home))
+        self.assertEqual(environ["PATH"], os.pathsep.join([str(bun.parent), str(self.empty)]))
+        self.assertEqual(shutil.which("bun", path=environ["PATH"]), str(bun))
+
+    def test_bun_install_names_the_directory(self):
+        bun = self.install(self.home / "custom")
+        environ = {"PATH": str(self.empty), "BUN_INSTALL": str(self.home / "custom")}
+        self.assertTrue(self.lint.add_installed_bun_to_path(environ, home=self.home))
+        self.assertTrue(environ["PATH"].startswith(str(bun.parent)))
+
+    def test_a_bun_already_on_path_wins_and_path_is_left_alone(self):
+        self.install(self.home / ".bun")
+        on_path = self.install(self.home / "first")
+        environ = {"PATH": str(on_path.parent)}
+        self.assertFalse(self.lint.add_installed_bun_to_path(environ, home=self.home))
+        self.assertEqual(environ["PATH"], str(on_path.parent))
+
+    def test_no_bun_anywhere_leaves_path_alone(self):
+        environ = {"PATH": str(self.empty)}
+        self.assertFalse(self.lint.add_installed_bun_to_path(environ, home=self.home))
+        self.assertEqual(environ["PATH"], str(self.empty))
+
+
+class FreeMemoryHeavyTests(unittest.TestCase):
+    """A no-heavy host that names a free-memory floor runs the type check when it has the memory and no other push
+    on the host holds the lock (Leo, 2026-11-22: "should've been caught and fixed faster")."""
+
+    def setUp(self):
+        self.lint = load_lint(Path(__file__).resolve().parent.parent)
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.addCleanup(self.release)
+
+    def release(self):
+        if self.lint._heavy_lock is not None:
+            self.lint._heavy_lock.close()
+            self.lint._heavy_lock = None
+
+    def meminfo(self, kib):
+        path = self.tmp / "meminfo"
+        path.write_text(f"MemTotal: 999999999 kB\nMemAvailable: {kib} kB\n")
+        return str(path)
+
+    def env(self, floor):
+        return {"CMUX_LOCAL_HEAVY_CHECKS": "0", "CMUX_LOCAL_HEAVY_WHEN_FREE_GB": floor, "XDG_RUNTIME_DIR": str(self.tmp),
+                "GITHUB_ACTIONS": "", "CI": ""}
+
+    def run_it(self, floor, kib):
+        err = io.StringIO()
+        with mock.patch.dict(os.environ, self.env(floor)), mock.patch("sys.stderr", err):
+            return self.lint.free_memory_heavy("pre-push", self.meminfo(kib)), err.getvalue()
+
+    def test_unset_stays_light(self):
+        with mock.patch.dict(os.environ, {"CMUX_LOCAL_HEAVY_CHECKS": "0", "CMUX_LOCAL_HEAVY_WHEN_FREE_GB": "",
+                                          "GITHUB_ACTIONS": "", "CI": ""}):
+            self.assertFalse(self.lint.local_heavy_checks())
+
+    def test_enough_free_memory_runs_heavy_and_holds_the_lock(self):
+        ok, err = self.run_it("16", 32 * 1024 * 1024)
+        self.assertTrue(ok)
+        self.assertIn("running the type check", err)
+        self.assertIsNotNone(self.lint._heavy_lock)
+
+    def test_under_the_floor_stays_light(self):
+        ok, err = self.run_it("16", 8 * 1024 * 1024)
+        self.assertFalse(ok)
+        self.assertIn("under 16 GiB", err)
+
+    def test_a_second_push_while_one_holds_the_lock_stays_light(self):
+        import fcntl
+        holder = open(self.tmp / self.lint.HEAVY_LOCK, "a")
+        self.addCleanup(holder.close)
+        fcntl.flock(holder, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        ok, err = self.run_it("16", 32 * 1024 * 1024)
+        self.assertFalse(ok)
+        self.assertIn("another push", err)
+
+    def test_a_bad_floor_stays_light(self):
+        ok, err = self.run_it("lots", 32 * 1024 * 1024)
+        self.assertFalse(ok)
+        self.assertIn("not a number", err)
 
 
 if __name__ == "__main__":

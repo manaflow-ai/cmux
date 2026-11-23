@@ -59,13 +59,21 @@
 //! The cleanup runs once per registry ([`DONE_META_KEY`], version 2). A
 //! registry the version 1 cleanup finished or found without output runs it
 //! once more when its journal holds enough session puts to compact.
+//!
+//! The same pipeline runs a second, opt-in transformation
+//! ([`CleanupMode::Compact`], `journal_compact.rs`): it drops nothing and
+//! rewrites the resource records that restate the whole session. It has its
+//! own bounds and its own done marker.
 
 mod build;
 mod chunks;
 mod codec;
+pub(crate) mod journal_compact;
+mod mode;
 mod pruned;
 mod session_puts;
 mod stage;
+mod stated_fold;
 mod swap;
 
 use std::path::{Path, PathBuf};
@@ -75,8 +83,11 @@ use rusqlite::{Connection, params};
 use super::open_guard::sidecar_path;
 use super::{WorkspaceRegistry, meta_value};
 
+pub(crate) use mode::CleanupMode;
 pub(crate) use pruned::{PRUNED_RANGES_SCHEMA, pruned_gap};
-pub(crate) use stage::{StageControl, StageOutcome, stage_registry};
+#[cfg(test)]
+pub(crate) use stage::stage_registry;
+pub(crate) use stage::{StageControl, StageOutcome, stage_registry_in};
 pub(super) use swap::{
     finish_pending_rollback, note_full_start, refuse_open_beside_backup,
     remove_previous_registry_when_started, restore_interrupted_swap, roll_back_swap,
@@ -231,9 +242,32 @@ fn kept_refusal(kept: u64, total: u64) -> Option<String> {
     }
 }
 
-/// `Some(reason)` when the staging database is over [`MAX_STAGED_BYTES`].
+/// [`kept_refusal`] for a staging file of `mode`: a compaction copies every
+/// record by design, so only its own record bound applies.
+fn kept_refusal_in(mode: CleanupMode, kept: u64, total: u64) -> Option<String> {
+    match mode {
+        CleanupMode::Output => kept_refusal(kept, total),
+        CleanupMode::Compact => journal_compact::kept_refusal(kept, total),
+    }
+}
+
+/// The kept records past which a staging file of `mode` is abandoned.
+fn max_kept_records(mode: CleanupMode) -> u64 {
+    match mode {
+        CleanupMode::Output => MAX_KEPT_RECORDS,
+        CleanupMode::Compact => journal_compact::MAX_KEPT_RECORDS,
+    }
+}
+
+/// `Some(reason)` when the staging database is over its size bound:
+/// [`MAX_STAGED_BYTES`], or the bound a compaction recorded when it created
+/// the file (the registry's size plus the margin).
 fn staged_bytes_refusal(staging: &Connection) -> anyhow::Result<Option<String>> {
-    staged_bytes_over(staging, max_staged_bytes())
+    let limit = match CleanupMode::of(staging)? {
+        CleanupMode::Output => max_staged_bytes(),
+        CleanupMode::Compact => stage::state_u64(staging, "compact_staged_limit")?,
+    };
+    staged_bytes_over(staging, limit)
 }
 
 /// The staging database's logical size (its pages, read through
@@ -259,9 +293,19 @@ fn staged_bytes_over(staging: &Connection, limit: u64) -> anyhow::Result<Option<
 /// entries; the total is the sequence range (two index seeks). Session puts
 /// count with `puts`: the ones its read kept that are still live, and every
 /// live put after its bound. Without it (before the read) no put counts.
+#[cfg(test)]
 fn live_records(
     source: &Connection,
     puts: Option<&session_puts::SessionPuts>,
+) -> anyhow::Result<(u64, u64)> {
+    live_records_within(source, puts, MAX_KEPT_RECORDS)
+}
+
+/// [`live_records`] whose kept count stops one past `max_kept`.
+fn live_records_within(
+    source: &Connection,
+    puts: Option<&session_puts::SessionPuts>,
+    max_kept: u64,
 ) -> anyhow::Result<(u64, u64)> {
     let archive_end: i64 = source.query_row(
         "SELECT COALESCE(MAX(end_sequence), 0) FROM journal_segments",
@@ -280,7 +324,7 @@ fn live_records(
     let put_range = format!("kind = ?4 AND sequence > {}", puts.map_or(0, |puts| puts.bound()));
     let ranges = ranges.iter().copied().chain(puts.map(|_| put_range.as_str()));
     for range in ranges {
-        let limit = i64::try_from((MAX_KEPT_RECORDS + 1).saturating_sub(kept))?;
+        let limit = i64::try_from((max_kept + 1).saturating_sub(kept))?;
         let rows: i64 = source.query_row(
             &format!(
                 "SELECT COUNT(*) FROM (
@@ -391,6 +435,14 @@ fn is_temporary(error: &anyhow::Error) -> bool {
 /// The message of an error that makes the staged work unusable.
 const STAGED_WORK_CHANGED: &str = "the registry's sealed segments changed after staging";
 
+/// The registry meta key that marks the cleanup of `mode` done.
+fn done_meta_key(mode: CleanupMode) -> &'static str {
+    match mode {
+        CleanupMode::Output => DONE_META_KEY,
+        CleanupMode::Compact => journal_compact::DONE_META_KEY,
+    }
+}
+
 fn file_len(path: &Path) -> u64 {
     std::fs::metadata(path).map(|metadata| metadata.len()).unwrap_or(0)
 }
@@ -421,18 +473,28 @@ fn mebibytes(bytes: u64) -> String {
 #[path = "output_cleanup/guard_tests.rs"]
 mod guard_tests;
 
+#[cfg(test)]
+#[path = "output_cleanup/journal_compact_tests.rs"]
+mod journal_compact_tests;
+
 impl WorkspaceRegistry {
     /// The cleanup ran (or found no output) for this registry.
     pub(crate) fn output_cleanup_done(&self) -> anyhow::Result<bool> {
         Ok(meta_value(&self.connection.get(), DONE_META_KEY)?.is_some())
     }
 
-    /// Records that this registry holds no stored terminal output.
-    pub(crate) fn mark_output_cleanup_done(&self, value: &str) -> anyhow::Result<()> {
+    /// The cleanup of `mode` ran (or was not needed) for this registry.
+    pub(crate) fn cleanup_done(&self, mode: CleanupMode) -> anyhow::Result<bool> {
+        Ok(meta_value(&self.connection.get(), done_meta_key(mode))?.is_some())
+    }
+
+    /// Records that the cleanup of `mode` has nothing to do in this registry
+    /// (for the output cleanup: it holds no stored terminal output).
+    pub(crate) fn mark_cleanup_done(&self, mode: CleanupMode, value: &str) -> anyhow::Result<()> {
         self.connection.get().execute(
             "INSERT INTO meta(key, value) VALUES(?1, ?2)
              ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-            [DONE_META_KEY, value],
+            [done_meta_key(mode), value],
         )?;
         Ok(())
     }

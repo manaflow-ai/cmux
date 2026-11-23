@@ -8,13 +8,21 @@ import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ARGV, sys.argv = sys.argv, [sys.argv[0], "--app", "/nonexistent.app"]  # the bench parses its options on import
-if sys.platform != "darwin":  # bench_memory and bench_power load libproc, which only macOS has; background() uses neither
-    sys.modules.setdefault("bench_memory", types.ModuleType("bench_memory"))
-    sys.modules.setdefault("bench_power", types.SimpleNamespace(wipe_state=None))
-spec = importlib.util.spec_from_file_location("split_scale_bench", os.path.join(HERE, "split-scale-bench.py"))
-bench = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(bench)
-sys.argv = ARGV
+# bench_memory and bench_power load libproc, which only macOS has; background() uses neither. The stubs are for this
+# load only: left in sys.modules, a later suite's `import bench_memory` would get one (#41653 review).
+STUBS = {} if sys.platform == "darwin" else {
+    "bench_memory": types.ModuleType("bench_memory"), "bench_power": types.SimpleNamespace(wipe_state=None)}
+for name, stub in STUBS.items():
+    sys.modules.setdefault(name, stub)
+try:
+    spec = importlib.util.spec_from_file_location("split_scale_bench", os.path.join(HERE, "split-scale-bench.py"))
+    bench = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(bench)
+finally:
+    sys.argv = ARGV
+    for name, stub in STUBS.items():
+        if sys.modules.get(name) is stub:
+            del sys.modules[name]
 
 
 class FakeStress:

@@ -7,8 +7,9 @@ path built from `__file__`, and lists every such input the event's filter does n
 that input starts no run of the workflow, merges green, and leaves the red for the next PR that touches a listed
 path (cmuxterm-hq#8984: a suite imported a sibling tool's module its workflow did not list).
 
-A gap is excused when cmux-next-guards.yml, which runs on every feat-cmux-next pull request and push with no path
-filter, runs the same test for that input: `guards-local.sh --feat-routes` runs ci-guards.yml's `ci` group plus the
+A gap is excused when cmux-next-guards.yml, which runs on every feat-cmux-next push and every pull request but a
+docs-only one (its only filter is scripts/ci/docs_only_paths.py's block; an input that block leaves out is never
+excused), runs the same test for that input: `guards-local.sh --feat-routes` runs ci-guards.yml's `ci` group plus the
 groups detect_linux_guard_changes.classify_feat routes the changed path to (scripts/ci/run_ci_guards.py plans
 them).
 """
@@ -23,14 +24,35 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 
 import workflow_paths_cover_inputs as detector  # noqa: E402
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 # (workflow, event) -> why its filter deliberately leaves out inputs of the tests it runs. Each needs a reason; an
 # entry with no gap left behind it fails.
-EXEMPT: dict[tuple[str, str], str] = {
-    (".github/workflows/cmux-next.yml", "push"): (
-        "a feat-cmux-next push starts every tier, the Mac compiles included, so its push list stays the product "
-        "list (#21504); pull requests admit every CI input and the router picks the tier "
-        "(tests/test_ci_workflow_path_filter_parity.py PULL_REQUEST_ONLY_PATTERNS)"
+# cmux-next.yml's push list no longer stays the product list (#21504): a pull request skips its checks and fast
+# tier (cargo) jobs (scripts/ci/affected-jobs.json pull_request_skip), so its push starts on every path its pull
+# request does, and no push gap is left to excuse.
+EXEMPT: dict[tuple[str, str], str] = {}
+
+# (workflow, input) -> why the "read" is a path the test names as data, not a file it opens. Each needs a reason; an
+# entry with no gap left behind it fails.
+NAMED_NOT_READ: dict[tuple[str, str], str] = {
+    (".github/workflows/ci.yml", "README.md"): (
+        "tests/test_ci_linux_guard_routing.py passes the name to the router as a changed path (docs skip the guards)"
+    ),
+    (".github/workflows/ci.yml", "README.ja.md"): (
+        "tests/test_ci_linux_guard_routing.py passes the name to the router as a changed path (docs skip the guards)"
+    ),
+    (".github/workflows/cmux-next.yml", "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLive/LinkController.swift"): (
+        "tests/test_base_red_excuse.py names it as a pull request's changed path (KitFixedOnBaseGitHub), never opens it"
+    ),
+    (".github/workflows/cmux-next.yml", "cmux-next-ios/rust/Cargo.lock"): (
+        "tests/test_base_red_excuse.py names it as a pull request's changed path (KitFixedOnBaseGitHub), never opens it"
     ),
 }
 
@@ -40,7 +62,7 @@ def guard_router():
     a change to `path` every time `event` starts the workflow.
 
     cmux-next-guards runs for feat-cmux-next pull requests and pushes only, so it covers an event only when that
-    event is limited to feat-cmux-next; a push run leaves out release-notary (it runs in nightly-guards)."""
+    event is limited to feat-cmux-next. A push run routes every group, release-notary included."""
     import detect_linux_guard_changes  # noqa: PLC0415 - scripts/ci, the router
     import run_ci_guards  # noqa: PLC0415
 
@@ -59,14 +81,18 @@ def guard_router():
         branches = config.get("branches") if isinstance(config, dict) else None
         return isinstance(branches, list) and set(map(str, branches)) == {"feat-cmux-next"}
 
+    # cmux-next-guards' own pull_request filter (the docs-only block, scripts/ci/docs_only_paths.py): a path it
+    # leaves out starts no guards run, so the router covers nothing for it.
+    guards = detector.filtered_events(detector.load_yaml(ROOT / ".github/workflows/cmux-next-guards.yml"))
+
     def covered(test: str, path: str, workflow: str, event: str, document) -> bool:
         if not feat_only(document, event):
+            return False
+        if event in guards and not detector.admits(*guards[event], path):
             return False
         key = (path, event)
         if key not in cache:
             groups = set(run_ci_guards.FAST_GROUPS) | set(detect_linux_guard_changes.classify_feat([path]))
-            if event == "push":
-                groups.discard("release-notary")
             cache[key] = set().union(*(tests.get(group, set()) for group in groups))
         return test in cache[key]
 
@@ -79,10 +105,17 @@ class WorkflowPathsCoverInputs(unittest.TestCase):
         cls.gaps, cls.unknown, cls.checked = detector.find_gaps(ROOT, covered=guard_router())
 
     def test_every_input_of_a_filtered_workflows_tests_starts_it(self):
-        open_gaps = [g for g in self.gaps if (g.workflow, g.event) not in EXEMPT]
+        open_gaps = [g for g in self.gaps if (g.workflow, g.event) not in EXEMPT
+                     and (g.workflow, str(g.input)) not in NAMED_NOT_READ]
         lines = [f"{g.workflow} ({g.event}): {g.input}  [{' -> '.join(g.chain)}]" for g in open_gaps]
         self.assertEqual(lines, [], "add each input to the workflow's paths (both lists), or the test misses its "
                                     "changes (docs: scripts/ci/workflow_paths_cover_inputs.py)")
+
+    def test_every_named_not_read_entry_still_has_a_gap_and_a_reason(self):
+        found = {(g.workflow, str(g.input)) for g in self.gaps}
+        for key, reason in NAMED_NOT_READ.items():
+            self.assertTrue(reason.strip(), key)
+            self.assertIn(key, found, f"{key} has no gap left: remove its NAMED_NOT_READ entry")
 
     def test_every_exemption_still_has_a_gap_and_a_reason(self):
         exempted = {(g.workflow, g.event) for g in self.gaps}

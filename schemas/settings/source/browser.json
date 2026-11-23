@@ -18,7 +18,7 @@
           },
           "help": {
             "key": "settings.browser.toolbarButtons.help",
-            "text": "Buttons shown next to the address bar. The rest are in the More menu, where Show in Toolbar pins them back."
+            "text": "The rest are in the More menu."
           },
           "kind": "choice_set",
           "swift_owner": "BrowserToolbarButtonsSetting",
@@ -94,6 +94,27 @@
             "devtools",
             "bookmarks"
           ]
+        },
+        {
+          "key": "browser.showLoadingBar",
+          "title": {
+            "key": "settings.browser.showLoadingBar",
+            "text": "Show Loading Bar"
+          },
+          "help": {
+            "key": "settings.browser.showLoadingBar.help",
+            "text": "A thin line under the address bar while a page loads."
+          },
+          "kind": "toggle",
+          "swift_owner": "BrowserLoadingBarSetting",
+          "default": false,
+          "keywords": [
+            "loading",
+            "progress",
+            "bar",
+            "line",
+            "omnibar"
+          ]
         }
       ]
     },
@@ -155,7 +176,7 @@
           },
           "help": {
             "key": "settings.browser.siteEngines.help",
-            "text": "Sites that always open in one engine: a site, such as spotify.com, and chromium or webkit. Spotify, Netflix and other protected media sites open in WebKit, because their media does not play in Chromium."
+            "text": "Sites that always open in chromium or webkit, such as spotify.com."
           },
           "kind": "string_map",
           "swift_owner": {
@@ -249,7 +270,7 @@
           },
           "help": {
             "key": "settings.browser.importEnabled.help",
-            "text": "Offers to bring bookmarks, history, passwords and sign-ins over from other browsers: Import from Browser in the File menu and the palette, and the import cards in Settings. Off hides them and nothing imports by itself. Data already imported stays."
+            "text": "Offers to import bookmarks, history, passwords and sign-ins. Off hides the offers."
           },
           "kind": "toggle",
           "swift_owner": "BrowserImportSetting",
@@ -276,7 +297,7 @@
           },
           "help": {
             "key": "settings.browser.importCookieBanner.help",
-            "text": "Browser tabs offer to import cookies from your other browsers, so you stay signed in. Nothing imports until you click Import. Don't Show Again on the banner turns this off."
+            "text": "Browser tabs offer to import cookies from your other browsers."
           },
           "kind": "toggle",
           "swift_owner": "BrowserCookieBannerSetting",
@@ -303,7 +324,7 @@
           },
           "help": {
             "key": "settings.browser.importCookieSync.help",
-            "text": "After you import cookies from Chrome or another Chromium browser, cmux brings over the sites whose cookies changed there, so you stay signed in. It reads only the profile you imported from, on this Mac; nothing leaves it."
+            "text": "Brings over changed cookies from the browser you imported from. Stays on this Mac."
           },
           "kind": "toggle",
           "swift_owner": "BrowserCookieSyncSetting",
@@ -337,7 +358,7 @@
           },
           "help": {
             "key": "settings.browser.showAgentCursor.help",
-            "text": "When an agent drives a browser tab, show its cursor, clicks and typed keys on the page. Password fields show dots."
+            "text": "Shows an agent's cursor, clicks and typing in browser tabs. Passwords show dots."
           },
           "kind": "toggle",
           "swift_owner": "AgentCursorSetting",
@@ -360,7 +381,7 @@
           },
           "help": {
             "key": "settings.browser.agentMouseMotion.help",
-            "text": "How an agent moves the pointer in browser tabs. Human moves along a curved path and rests before each click, as a person does, so pages see hover and timing like a person's. Instant jumps to the target and clicks at once."
+            "text": "Human moves along a curve and pauses before clicks; Instant jumps."
           },
           "kind": "choice",
           "swift_enum": {
@@ -440,7 +461,7 @@
           },
           "help": {
             "key": "settings.browser.builtInAdBlocker.help",
-            "text": "The full uBlock Origin blocks ads and trackers in Chromium tabs. Takes effect after cmux restarts."
+            "text": "Blocks ads and trackers in Chromium tabs. Takes effect after cmux restarts."
           },
           "kind": "toggle",
           "swift_owner": "BuiltInAdBlockerSetting",
@@ -559,7 +580,7 @@
           },
           "help": {
             "key": "settings.browser.freezeHiddenTabs.help",
-            "text": "Saves power: a hidden Chromium tab stops running until you show it. Pinned tabs and Never Hibernate hosts stay awake."
+            "text": "A hidden Chromium tab stops running until you show it, to save power."
           },
           "kind": "choice_or_number",
           "choices": [
@@ -597,7 +618,7 @@
           },
           "help": {
             "key": "settings.browser.keepNeighborTabsAwake.help",
-            "text": "Tabs on each side of the shown tab stay loaded and running, so switching to them is instant. 0 turns it off. Memory pressure and Low Power Mode turn it off."
+            "text": "Tabs beside the shown one stay loaded so switching is instant. 0 turns it off."
           },
           "kind": "number",
           "range": {
@@ -628,7 +649,7 @@
           },
           "help": {
             "key": "settings.browser.wakeTabsOnHover.help",
-            "text": "When the pointer rests on a tab or a workspace, its sleeping pages start to load before you click. Uses more memory."
+            "text": "Sleeping pages start loading when the pointer rests on their tab. Uses more memory."
           },
           "kind": "toggle",
           "default": false,
@@ -769,7 +790,7 @@
           },
           "help": {
             "key": "settings.browser.customSuggest.help",
-            "text": "Optional. Answers in the OpenSearch suggestions format, with {searchTerms} for the typed text."
+            "text": "An OpenSearch suggestions URL, with {searchTerms} for the typed text."
           },
           "kind": "url",
           "default": "",
@@ -788,7 +809,7 @@
           },
           "help": {
             "key": "settings.browser.omnibar.remoteSuggestions.help",
-            "text": "Sends what you type to the search engine for suggestions. Never addresses, files or local hosts."
+            "text": "Sends what you type to the search engine. Never addresses, files or local hosts."
           },
           "summary": {
             "key": "settings.browser.omnibar.remoteSuggestions.summary",
@@ -834,7 +855,7 @@
             "step": 1,
             "unit": "count"
           },
-          "default": 8,
+          "default": 6,
           "keywords": [
             "suggestions",
             "rows",
@@ -888,10 +909,6 @@
             "key": "settings.browser.omnibar.glass",
             "text": "Address Bar Glass"
           },
-          "help": {
-            "key": "settings.browser.omnibar.glass.help",
-            "text": "The material of the address bar. Transparent draws no fill. Clear glass shows more of what is behind it. Off uses the flat theme color."
-          },
           "kind": "choice",
           "choices": [
             {
@@ -941,7 +958,7 @@
           },
           "help": {
             "key": "settings.browser.omnibar.glassTint.help",
-            "text": "The color over the glass, from the terminal theme. Accent is the theme's own accent color, or gray when the theme has none."
+            "text": "The color over the glass, from the terminal theme."
           },
           "kind": "choice",
           "choices": [
@@ -1068,7 +1085,7 @@
           },
           "help": {
             "key": "settings.browser.omnibar.backgroundOpacity.help",
-            "text": "How much the address bar covers a see-through window. At 0 it is as see-through as the window, but never so clear that its text stops being readable."
+            "text": "How much the address bar covers a see-through window."
           },
           "kind": "number",
           "range": {
@@ -1504,6 +1521,28 @@
             "middle",
             "wheel"
           ]
+        },
+        {
+          "key": "browser.vimKeys",
+          "title": {
+            "key": "settings.browser.vimKeys",
+            "text": "Vim Keys in Pages"
+          },
+          "help": {
+            "key": "settings.browser.vimKeys.help",
+            "text": "Outside text fields: f clicks a link, j and k scroll, gg and Shift-G jump to the ends."
+          },
+          "kind": "toggle",
+          "swift_owner": "BrowserVimKeysSetting",
+          "default": true,
+          "keywords": [
+            "vim",
+            "vimium",
+            "link hints",
+            "keyboard",
+            "scroll",
+            "hjkl"
+          ]
         }
       ]
     },
@@ -1525,7 +1564,7 @@
           },
           "help": {
             "key": "settings.browser.enabled.help",
-            "text": "When off, cmux opens no browser tabs for web pages and every link opens in your default browser."
+            "text": "Off: every link opens in your default browser."
           },
           "kind": "toggle",
           "default": true,
@@ -1546,7 +1585,7 @@
           },
           "help": {
             "key": "settings.browser.openLinks.help",
-            "text": "When off, links you click in terminals, agent chats, Home and cmux pages open in your default browser. Shift-Command-click opens a link in the other browser."
+            "text": "Off: links open in your default browser. Shift-Cmd-click opens the other one."
           },
           "kind": "toggle",
           "default": true,
@@ -1568,7 +1607,7 @@
           },
           "help": {
             "key": "settings.browser.openSignInPages.help",
-            "text": "Sign-in and device-code pages, such as GitHub's device page or a page gh, aws or an agent opens to sign in, open in a cmux browser tab even when other links open in your default browser. URLs to Always Open Externally still win."
+            "text": "Sign-in pages open in cmux even when other links open in your default browser."
           },
           "kind": "toggle",
           "default": true,
@@ -1592,7 +1631,7 @@
           },
           "help": {
             "key": "settings.browser.openPullRequestsInGitHubPage.help",
-            "text": "A GitHub pull request link you click in an agent chat opens cmux's own GitHub page. When off, it opens github.com in a cmux browser tab. Right-click the link to open it the other way."
+            "text": "Pull request links in agent chats open cmux's GitHub page. Off: github.com in a tab."
           },
           "kind": "toggle",
           "default": false,
@@ -1636,7 +1675,7 @@
           },
           "help": {
             "key": "settings.browser.hostWhitelist.help",
-            "text": "Only these hosts open in cmux, such as example.com or *.example.com. Empty opens every host in cmux."
+            "text": "Only these hosts open in cmux, such as *.example.com. Empty opens all."
           },
           "kind": "host_list",
           "default": [],
@@ -1656,7 +1695,7 @@
           },
           "help": {
             "key": "settings.browser.externalLinkPatterns.help",
-            "text": "Links that match open in your default browser. Text matches anywhere in the URL, * and ? are wildcards, and re: starts a regular expression."
+            "text": "Text matches anywhere; * and ? are wildcards; re: starts a regular expression."
           },
           "summary": {
             "key": "settings.browser.externalLinkPatterns.summary",
@@ -1694,7 +1733,7 @@
           },
           "help": {
             "key": "settings.files.textEditor.help",
-            "text": "The app Open in Text Editor uses for a path: an app name, a bundle ID or the path of an app. Empty uses the app that opens source code."
+            "text": "An app name, bundle ID or app path. Empty uses your source code app."
           },
           "kind": "text",
           "swift_owner": "TextEditorSetting",
@@ -1767,7 +1806,7 @@
           },
           "help": {
             "key": "settings.browser.passwords.allowExport.help",
-            "text": "Lets the Passwords page write every saved password to a plain-text CSV file, after you confirm with Touch ID or your password."
+            "text": "The Passwords page can export every password to a plain-text CSV, after Touch ID."
           },
           "kind": "toggle",
           "default": false,
@@ -1798,7 +1837,7 @@
           },
           "help": {
             "key": "settings.browser.verificationAutofill.enabled.help",
-            "text": "When a site emails you a code or link, its tab offers it. Only on the sender's own site, never filled without your click, and never stored."
+            "text": "Offers emailed codes on the sender's own site. Never filled without your click."
           },
           "kind": "toggle",
           "default": false,
@@ -1811,6 +1850,36 @@
             "2fa",
             "autofill",
             "magic link"
+          ]
+        },
+        {
+          "key": "browser.verificationAutofill.accounts",
+          "note": "Per-account opt-in: mail of any other address is never read for codes.",
+          "title": {
+            "key": "settings.browser.verificationAutofill.accounts",
+            "text": "Email Accounts for Codes"
+          },
+          "help": {
+            "key": "settings.browser.verificationAutofill.accounts.help",
+            "text": "Codes come only from these addresses. Mail is read on this Mac, never stored or sent."
+          },
+          "summary": {
+            "key": "settings.browser.verificationAutofill.accounts.summary",
+            "text": "Addresses cmux may read codes from"
+          },
+          "kind": "string_list",
+          "default": [],
+          "placeholder": {
+            "key": null,
+            "text": "you@example.com"
+          },
+          "keywords": [
+            "email",
+            "gmail",
+            "mail",
+            "account",
+            "verification",
+            "code"
           ]
         }
       ]

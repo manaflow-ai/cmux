@@ -29,6 +29,7 @@ import { activity, assistant, chat, tool } from "../src/gallery/fixtures/acpmux"
 import { setChipHost } from "../src/agent-session/acpmux/chips/host";
 import { resetLinkStore } from "../src/agent-session/acpmux/chips/linkStore";
 import { until } from "./support/until";
+import { settleReact } from "./support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -66,6 +67,7 @@ beforeEach(() => {
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

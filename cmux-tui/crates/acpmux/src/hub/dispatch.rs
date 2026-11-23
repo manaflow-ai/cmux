@@ -92,11 +92,12 @@ impl Briefs {
     fn save(&self, rows: &BTreeMap<String, Value>) {
         let Some(path) = &self.path else { return };
         if let Some(dir) = path.parent() {
-            let _ = std::fs::create_dir_all(dir);
+            let _ = crate::home_fs::create_dirs(dir);
         }
         if let Ok(bytes) = serde_json::to_vec(rows) {
             let tmp = path.with_extension("json.tmp");
-            if let Err(error) = std::fs::write(&tmp, bytes).and_then(|_| std::fs::rename(tmp, path))
+            if let Err(error) =
+                crate::home_fs::write(&tmp, bytes).and_then(|_| crate::home_fs::rename(tmp, path))
             {
                 eprintln!("acpmux: brief persistence warning: {error}");
             }

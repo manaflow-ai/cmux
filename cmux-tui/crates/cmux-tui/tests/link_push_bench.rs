@@ -423,6 +423,8 @@ fn digest(folder: &Path) -> u64 {
 /// Back Local (`seed pull --or-copy` into this Mac's folder) then Move to Cloud (`seed push`,
 /// the machine cloning from the origin); after, `seed move`, git VM to VM with this Mac's
 /// folder untouched (`seed_cli::hop`); and the file-by-file relay (`sync relay`) beside them.
+/// Then a folder that started on VM one (its own clone, no folder of this Mac's): before, the
+/// file-by-file relay it took; after, `seed move` with no Mac folder, git from its upstream.
 /// Run with `cargo test -p cmux-tui --test link_push_bench link_relay_bench -- --ignored
 /// --nocapture`; it prints one JSON line (`{"bench":"link_relay",...}`).
 #[test]
@@ -440,6 +442,8 @@ fn link_relay_bench() {
     let two = seeding_vm(&root, "two", &github);
     let three = seeding_vm(&root, "three", &github);
     let four = seeding_vm(&root, "four", &github);
+    let five = seeding_vm(&root, "five", &github);
+    let six = seeding_vm(&root, "six", &github);
     let repo = fixture(&root.join("mac"), files, blob_mb);
     publish(&repo, &github);
     let (local_bytes, local_files) = tree_size(&repo);
@@ -551,6 +555,66 @@ fn link_relay_bench() {
     assert_eq!(fs::read(fourth.join("assets/vm-output.bin")).unwrap(), written);
     assert_eq!(fs::read(third.join("assets/vm-output.bin")).unwrap(), written);
 
+    // A folder that started on VM one: its own clone of the origin, with the same work.
+    let cloned = one.home().join("work/cloned");
+    let bare = github.join("acme/app.git");
+    git(
+        &one.home(),
+        &[
+            "clone",
+            "-q",
+            "--no-local",
+            "-b",
+            "main",
+            bare.to_str().unwrap(),
+            cloned.to_str().unwrap(),
+        ],
+    );
+    git(&cloned, &["remote", "set-url", "origin", "https://github.com/acme/app.git"]);
+    fs::write(cloned.join("assets/vm-output.bin"), &written).unwrap();
+    let edited = cloned.join("src/m01/f1.rs");
+    let text = fs::read_to_string(&edited).unwrap() + "// edited on vm one\n";
+    fs::write(&edited, text).unwrap();
+    let (one_vm_relay, five_link) = (root.join("one-vm-relay.sock"), root.join("five.sock"));
+    let wire_one_vm_relay = proxy(&one_vm_relay, one.socket.clone(), link);
+    let wire_five = proxy(&five_link, five.socket.clone(), link);
+    let fifth = five.home().join("work/app");
+    let (_, vm_relay_wall) = timed(
+        &root,
+        &[
+            &os("sync"),
+            &os("relay"),
+            &os("--from-socket"),
+            one_vm_relay.as_os_str(),
+            &os("--socket"),
+            five_link.as_os_str(),
+            cloned.as_os_str(),
+            fifth.as_os_str(),
+        ],
+    );
+    let vm_relay_wire = wire_total(&[&wire_one_vm_relay, &wire_five]);
+    let (one_vm_hop, six_link) = (root.join("one-vm-hop.sock"), root.join("six.sock"));
+    let wire_one_vm_hop = proxy(&one_vm_hop, one.socket.clone(), link);
+    let wire_six = proxy(&six_link, six.socket.clone(), link);
+    let sixth = six.home().join("work/app");
+    let (_, vm_hop_wall) = timed(
+        &root,
+        &[
+            &os("seed"),
+            &os("move"),
+            &os("--from-socket"),
+            one_vm_hop.as_os_str(),
+            &os("--socket"),
+            six_link.as_os_str(),
+            cloned.as_os_str(),
+            sixth.as_os_str(),
+        ],
+    );
+    let vm_hop_wire = wire_total(&[&wire_one_vm_hop, &wire_six]);
+    assert_eq!(git(&fifth, &status), git(&cloned, &status), "VM five differs");
+    assert_eq!(git(&sixth, &status), git(&cloned, &status), "VM six differs");
+    assert_eq!(fs::read(sixth.join("assets/vm-output.bin")).unwrap(), written);
+
     let line = json!({
         "bench": "link_relay",
         "rate_bytes_per_s": link.rate,
@@ -570,6 +634,10 @@ fn link_relay_bench() {
         "after_ms": hop_wall.as_millis() as u64,
         "after_wire_bytes": hop_wire,
         "mac_folder_untouched": mac_untouched,
+        "started_on_vm_relay_ms": vm_relay_wall.as_millis() as u64,
+        "started_on_vm_relay_wire_bytes": vm_relay_wire,
+        "started_on_vm_git_ms": vm_hop_wall.as_millis() as u64,
+        "started_on_vm_git_wire_bytes": vm_hop_wire,
     });
     println!("{line}");
 }

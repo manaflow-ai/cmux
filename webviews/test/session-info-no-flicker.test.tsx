@@ -23,6 +23,8 @@ import * as outputsSection from "../src/agent-session/acpmux/session-info/Output
 import * as environmentSection from "../src/agent-session/acpmux/session-info/EnvironmentSection";
 import type { SessionInfoProcess } from "../src/agent-session/acpmux/session-info/processes";
 import { activity, assistant, chat, tool, user } from "../src/gallery/fixtures/acpmux";
+import { settleReact } from "./support/domTeardown";
+import { SESSION_INFO } from "../src/agent-session/acpmux/session-info/sessionInfoSelectors";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -71,6 +73,7 @@ afterEach(async () => {
   root = undefined;
   resetSessionInfoState();
   setHeaderState({ inspector: false });
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -169,7 +172,7 @@ test(`${UPDATES} streamed tokens, tool calls and usage ticks paint nothing in Se
   await act(async () => push(streamed(first, 0)));
   // fixed-wait: timers and frames the updates scheduled run inside the observed window.
   await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
-  const panel = container.querySelector<HTMLElement>("aside.acpmux-session-info");
+  const panel = container.querySelector<HTMLElement>(SESSION_INFO);
   expect(panel).not.toBeNull();
   expect(panel!.querySelector('[data-section="outputs"]')).not.toBeNull();
   // The spies count the sections' renders: they drew at the mount.
@@ -204,7 +207,7 @@ test(`${UPDATES} streamed tokens, tool calls and usage ticks paint nothing in Se
   record(observer.takeRecords());
   observer.disconnect();
 
-  expect(container.querySelector("aside.acpmux-session-info")).toBe(panel);
+  expect(container.querySelector(SESSION_INFO)).toBe(panel);
   // The same section elements, none mounted again.
   expect(sections().every((element, index) => element === drawn[index])).toBe(true);
   expect(sections()).toHaveLength(drawn.length);

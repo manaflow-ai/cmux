@@ -17,8 +17,14 @@ A cell is one Cloud chat started from one folder on this Mac with `cmux cloud st
 
 Workspaces (WORKSPACES): an empty folder, a small repo, a big monorepo (a cmux clone), a repo whose
 remote is private, submodules, Git LFS, a dirty tree, a big non-Git folder, a folder past the copy's
-limits (`huge-plain`: a sparse 21 GiB file, no disk spent, which must be refused fast with `copy.too_large`
-and no machine made; link/sync_cli/size_cap.rs), a folder of secrets, and odd names and symlinks. `--folder NAME=PATH` adds a person's own folder, read only: nothing is written
+limits (`huge-plain`: a sparse 21 GiB file, no disk spent; `huge-repo`: one repository with one), a parent folder of repositories that is no
+repository itself, under the limits (`parent-repos`, copied whole) and past them (`huge-parent-repos`,
+~/Projects' shape). A folder past the limits is never refused: the chat starts in it at once from a first pass of
+its files (link/sync_cli/size_cap.rs) and its reply must read the folder's word, within FIRST_PASS_REPLY_WITHIN_S;
+its tree is not compared, the rest staying on the Mac (Leo, 2026-11-10: "then there's this limit", "did you guys
+not test these"; 2026-11-15: "why are you guys still blocking on these?"). Every cell's start must carry the copy's
+estimate, made before any machine (`estimate`: whole, first pass or seed); a first-pass cell's says first pass, and a
+cell whose link made it a first pass by time is judged as one. The last cells: a folder of secrets, and odd names and symlinks. `--folder NAME=PATH` adds a person's own folder, read only: nothing is written
 into it, so its cell has no word check. Agents (AGENTS) run on the small repo; the workspace cells use
 the first agent.
 
@@ -30,6 +36,8 @@ run kills any machine still named after it at the end.
     python3 -I scripts/cmux-next/cloud-chat-matrix.py --cli "/Applications/cmux NIGHTLY.app/Contents/Resources/bin/cmux" \\
         --out /tmp/matrix --only small-repo,secrets
 """
+from __future__ import annotations
+
 import argparse
 import base64
 import concurrent.futures
@@ -46,15 +54,27 @@ import tempfile
 import threading
 import time
 from pathlib import Path
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import claude_login_cache  # noqa: E402
 
 AGENTS = ("claude", "codex")
 WORKSPACES = ("empty", "small-repo", "monorepo", "private-remote", "submodules", "lfs", "dirty",
-              "big-plain", "huge-plain", "secrets", "odd-names")
+              "big-plain", "huge-plain", "huge-repo", "parent-repos", "huge-parent-repos", "secrets", "odd-names")
+# The cells past the copy's limits: the chat starts from a first pass, never a refusal; no tree or git compare
+# (a first pass sends no history), and the big file must stay on the Mac (left_on_mac >= 1).
+FIRST_PASS_CELLS = ("huge-plain", "huge-repo", "huge-parent-repos")
+# The file each first-pass cell leaves on the Mac.
+FIRST_PASS_LEFT = "disk.img"
+# The repositories inside parent-repos and huge-parent-repos.
+PARENT_REPOS = ("api", "web", "work/tools")
 WORD_FILE = "cmux-matrix-word.txt"
 # huge-plain: past the copy's 20 GiB limit (link/sync_cli/size_cap.rs), sparse so it costs no disk.
 HUGE_PLAIN_BYTES = 21 * 1024 ** 3
-# How long the copy may take to refuse huge-plain, from the call to its answer.
-HUGE_PLAIN_REFUSED_WITHIN_S = 30
+# How long a first-pass cell may take from the call to its reply.
+FIRST_PASS_REPLY_WITHIN_S = 300
 
 # What a copy leaves out (link/sync_cli/skips.rs): keep these in step with it.
 CREDENTIAL_FOLDERS = (".ssh", ".aws", ".gnupg", ".config/gcloud", ".config/gh", ".kube", ".docker", ".secrets",
@@ -88,7 +108,11 @@ def parse_args(argv=None):
                              "on My Own Cloud Machines (a Release build's claude chat waits for that consent)")
     parser.add_argument("--login", choices=("", "none", "machine", "pass"), default="",
                         help="a Claude chat's `start-chat --login` (default: none given, so --grant-claude-login's consent "
-                             "decides; `none` is the machine's own team mode, the SR2/CodeRouter gateway)")
+                             "decides; `pass` copies the account's cached login, see --cache-claude-login; `none` "
+                             "copies nothing, which leaves Claude signed out on a team the gateway does not serve)")
+    parser.add_argument("--cache-claude-login", action="store_true",
+                        help="with --app: store CLAUDE_CODE_OAUTH_TOKEN (environment only) as the signed-in account's "
+                             "cached Claude login for this run (claude_login_cache.py); removed when the run ends")
     parser.add_argument("--agents", default="claude", help=f"comma list of {','.join(AGENTS)}")
     parser.add_argument("--only", default="", help="comma list of workspace cells (default: all)")
     parser.add_argument("--folder", action="append", default=[], metavar="NAME=PATH",
@@ -108,6 +132,11 @@ def parse_args(argv=None):
     if args.grant_claude_login and not args.app:
         # Never on --cli: that is a person's own app, and their consent is theirs to give.
         parser.error("--grant-claude-login works only with --app, the app this run launches")
+    if args.cache_claude_login and not args.app:
+        # Never on --cli: a person's own app keeps their own login.
+        parser.error("--cache-claude-login works only with --app, the app this run launches")
+    if args.cache_claude_login and not claude_login_cache.valid(claude_login_cache.token_from(os.environ)):
+        parser.error(f"--cache-claude-login needs {claude_login_cache.TOKEN_ENV} set to a `claude setup-token` login")
     # The Cloud backend holds a script's creates and kills for approval, at most 5 pending per
     # install (approval-gate.ts MAX_PENDING_PER_IDENTITY): 2 cells at once leave room for their kills.
     args.parallel = max(1, min(args.parallel, 2))
@@ -132,7 +161,11 @@ GIT_ENV = {**os.environ, "GIT_AUTHOR_NAME": "cmux matrix", "GIT_AUTHOR_EMAIL": "
 
 
 def git(path: Path, *words: str, timeout=1800) -> str:
-    return sh("git", "-c", "init.defaultBranch=main", "-c", "protocol.file.allow=always", *words,
+    # No automatic maintenance: after a commit, git (2.47+) detaches a `maintenance run --auto` that can still be
+    # rewriting a fixture's .git (packs, commit-graph) while its manifest is taken, so a fixture holding repositories
+    # (parent-repos) hashed differently from one read to the next (base red in cmux-next checks).
+    return sh("git", "-c", "init.defaultBranch=main", "-c", "protocol.file.allow=always",
+              "-c", "maintenance.auto=false", "-c", "gc.auto=0", *words,
               cwd=path, env=GIT_ENV, timeout=timeout)
 
 
@@ -209,6 +242,21 @@ def build_fixture(kind: str, root: Path, args, canary: str) -> tuple[Path | None
         write(path / "src/app.py", "print('hi')\n")
         with open(path / "disk.img", "wb") as sparse:
             sparse.truncate(HUGE_PLAIN_BYTES)
+    elif kind == "huge-repo":
+        # One repository past the limits, its own folder for the chat (cmuxterm-hq#11697): a sparse 21 GiB
+        # untracked build product beside its sources.
+        small_repo(path)
+        with open(path / "disk.img", "wb") as sparse:
+            sparse.truncate(HUGE_PLAIN_BYTES)
+    elif kind in ("parent-repos", "huge-parent-repos"):
+        # ~/Projects' shape: no repository itself, repositories right inside it and one level down.
+        path.mkdir(parents=True)
+        for name in PARENT_REPOS:
+            small_repo(path / name)
+        write(path / "notes.md", "a parent of repositories\n")
+        if kind == "huge-parent-repos":
+            with open(path / "disk.img", "wb") as sparse:
+                sparse.truncate(HUGE_PLAIN_BYTES)
     elif kind == "secrets":
         path.mkdir(parents=True)
         write(path / "app.py", "print('uses env')\n")
@@ -429,6 +477,10 @@ class Matrix:
         self.args = args
         self.cli = args.cli or str(Path(args.app) / "Contents/Resources/bin/cmux")
         self.env = dict(os.environ)
+        # The token goes to `cloud secret set` on stdin only; no CLI call inherits it.
+        self.claude_token = claude_login_cache.token_from(self.env) if args.cache_claude_login else ""
+        self.env.pop(claude_login_cache.TOKEN_ENV, None)
+        self.cached_logins: list[str] = []
         self.config_dir = None
         if args.app:
             socket = f"/tmp/cmux-debug-{args.tag}.sock"
@@ -445,6 +497,8 @@ class Matrix:
         # Nothing holds children_lock across a call that can be interrupted by a signal handler that then
         # needs it: the handler only reads a snapshot (`list()` is atomic under the GIL) and never waits.
         self.children_lock = threading.Lock()
+        # (folder, the level it held before): the trust decisions this run wrote, put back at teardown.
+        self.trusted: list[tuple[str, str]] = []
         self.children: set[subprocess.Popen] = set()
 
     def cmux(self, *words: str, timeout: int = 120) -> tuple[int, str, str]:
@@ -507,7 +561,7 @@ class Matrix:
         if args.app:
             launch = launch_argv(args.app, self.env["CMUX_NEXT_SOCKET_PATH"], args.credentials_file,
                                  args.cloud_backend, str(self.config))
-            self.launcher = subprocess.Popen(launch, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            self.launcher = subprocess.Popen(launch, env=self.env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         # As cloud-chat-proof.py waits: the launched app answers `app identify`, then `auth.status` says it
         # is signed in on the selected backend (the first CI run read `cloud list-machines` too early and
         # gave up at 300 s, run 42808502162). Then the machine list loads.
@@ -522,21 +576,45 @@ class Matrix:
                           and str(v.get("backend", "")).rstrip("/") == origin))
         steps.append(("cloud list-machines", ("cloud", "list-machines", "--json"), 300,
                       lambda v: bool((v.get("account") or {}).get("signed_in")) and v.get("loaded") is not False))
+        status = {}
         for name, words, limit, ready in steps:
             deadline, last = time.monotonic() + limit, ""
             while True:
                 code, out, err = self.cmux(*words, timeout=30)
                 value = self.parsed(out) if code == 0 else {}
                 if code == 0 and ready(value):
+                    status = value if name == "auth.status" else status
                     break
                 last = clean(self.error(out, err).get("message") or err or json.dumps(
                     {k: value.get(k) for k in ("signed_in", "backend", "cloud_environment", "loaded") if k in value}), 300)
                 if time.monotonic() >= deadline:
                     return f"the app is not ready: {name} after {limit} s ({last})"
                 time.sleep(3)
+        if args.cache_claude_login:
+            # The entries a start reads for this account (CloudCredentialLogin.loadAny): its team's, then its personal one.
+            entries = claude_login_cache.names(status)
+            if not entries:
+                return "the app is not ready: auth.status names no user to cache a Claude login for"
+            for entry in entries:
+                self.cached_logins.append(entry)
+                code, err = claude_login_cache.store(self.cli, self.env, entry, self.claude_token)
+                if code != 0:
+                    return f"cache claude login: exit {code} ({clean(err, 300)})"
         return ""
 
+    def remove_logins(self) -> list[str]:
+        """Removes every cached Claude login from the Keychain; answers the ones that could not be removed."""
+        left = []
+        while self.cached_logins:
+            entry = self.cached_logins.pop()
+            code, err = claude_login_cache.remove(self.cli, self.env, entry)
+            if code != 0:
+                left.append(f"{entry}: exit {code} ({clean(err, 200)})")
+        return left
+
     def quit(self) -> None:
+        for problem in self.remove_logins():  # the backstop of a cancelled or crashed run: never silent
+            print(f"cached claude login NOT removed: {problem}", file=sys.stderr, flush=True)
         if self.launcher is not None:
             self.cmux("app", "quit", "--json", timeout=30)
             try:
@@ -547,6 +625,35 @@ class Matrix:
         if self.config_dir is not None:
             shutil.rmtree(self.config_dir, ignore_errors=True)
             self.config_dir = None
+
+    def trust(self, folder: Path) -> str:
+        """Trusts a fixture this run made, as a person does on this Mac before a Cloud start: a start from a folder
+        this Mac doesn't trust is refused before any machine (#41079), which left every cell red at 0.0 s. Never
+        called on a --folder (a person's own folder): its refusal is the finding. Answers "" or the cell's failure.
+
+        The decision lands in this Mac's real trust record (acpmux's trust.json, which the app's start check reads),
+        so each one written is kept with the level it replaced and put back by ``forget_trust`` at teardown: a run
+        leaves no trusted temp path behind for a later folder at that path to inherit."""
+        code, out, err = self.cmux("--json", "setup", "trust", str(folder))
+        if code != 0:
+            return f"fail: trust: {clean(self.error(out, err).get('message') or err or out, 300)}"
+        report = self.parsed(out)
+        if report.get("written"):
+            with self.children_lock:
+                self.trusted.append((str(report["written"]), str(report.get("recorded") or "unknown")))
+        return ""
+
+    def forget_trust(self) -> list[str]:
+        """Puts back every trust decision ``trust`` wrote, newest first (`unknown` forgets it). Runs before the
+        fixtures are deleted, while their paths still resolve. Answers the folders it could not put back."""
+        left = []
+        with self.children_lock:
+            trusted, self.trusted = self.trusted, []
+        for folder, level in reversed(trusted):
+            code, _, _ = self.cmux("--json", "setup", "trust", folder, "--level", level)
+            if code != 0:
+                left.append(folder)
+        return left
 
     def kill(self, machine: str) -> bool:
         for _ in range(2):
@@ -613,10 +720,11 @@ class Matrix:
         if folder is None:
             cell["result"] = note or "skipped"
             return cell
-        if name == "huge-plain":
-            return self.refused_cell(cell, folder, agent)
         started = time.monotonic()
-        expected = local_manifest(folder, canary)
+        # A first-pass cell's tree is not compared (the rest stays on the Mac), and hashing its 21 GiB
+        # sparse file would read 21 GiB of zeros.
+        expected = {"files": None, "bytes": None, "left_out": {}, "sha256": None, "tops": {}, "lines": []} \
+            if name in FIRST_PASS_CELLS else local_manifest(folder, canary)
         cell["local"] = {key: expected[key] for key in ("files", "bytes", "left_out")}
         cell["local"]["manifest_s"] = round(time.monotonic() - started, 1)
         cell["local_git"] = git_state(folder)
@@ -670,6 +778,10 @@ class Matrix:
                                         or err or out, 800)
         reply = answer.get("reply") if isinstance(answer.get("reply"), str) else ""
         # The start's own stage times (CloudStartSession: stages_ms, stages_detail_ms) and the copy's counts.
+        # The copy's estimate, made before any machine (link/sync_cli/estimate.rs): the verdict checks it.
+        if isinstance(answer.get("estimate"), dict):
+            cell["estimate"] = {key: answer["estimate"].get(key) for key in
+                                ("mode", "copy_mode", "files", "bytes", "seconds", "left_bytes", "why", "complete")}
         for key in ("stages_ms", "stages_detail_ms", "ready_ms", "copy", "seed", "mode", "skipped_counts"):
             if isinstance(answer.get(key), (dict, list, int, str)):
                 cell.setdefault("answer_timing", {})[key] = json.loads(clean(json.dumps(answer[key]), 4000)) \
@@ -711,7 +823,9 @@ class Matrix:
                         mine, theirs = set(expected["lines"]), set(got["lines"])
                         cell["only_here"] = sorted(line.split(" ", 2)[2] for line in mine - theirs)[:40]
                         cell["only_there"] = sorted(line.split(" ", 2)[2] for line in theirs - mine)[:40]
-            if cell["local_git"]:
+            if name in FIRST_PASS_CELLS:
+                cell["left_on_mac"] = self.left_on_mac(answer, machine, remote)
+            if cell["local_git"] and name not in FIRST_PASS_CELLS:
                 git_probe = (f"cd {shlex_quote(remote)} && python3 -c \"import json,subprocess,hashlib;"
                              "r=lambda *a: subprocess.run(['git',*a],capture_output=True,text=True).stdout;"
                              "s=r('status','--porcelain=v1','--untracked-files=no');"
@@ -726,32 +840,19 @@ class Matrix:
         return cell
 
 
-def _refused_cell(self, cell: dict, folder: Path, agent: str) -> dict:
-    """huge-plain: start-chat refuses the folder with copy.too_large, fast, before any machine is made."""
-    started = time.monotonic()
-    code, out, err = self.cmux("cloud", "start-chat", "--from-folder", str(folder), "--prompt", "x",
-                               "--agent", agent, "--json", timeout=HUGE_PLAIN_REFUSED_WITHIN_S + 60)
-    cell["create_to_reply_s"] = round(time.monotonic() - started, 1)
-    failure = self.error(out, err)
-    cell["start_exit"] = code
-    cell["start_error"] = clean(f"{failure.get('code', '')}: {failure.get('message', '')}", 800)
-    machine = (failure.get("details") or {}).get("machine_id")
-    if machine:
-        with self.lock:
-            self.machines.add(machine)
-        cell["machine_killed"] = self.kill(machine)
-    problems = []
-    if code != 2 or failure.get("code") != "copy.too_large":
-        problems.append(f"not refused as copy.too_large (exit {code}, {failure.get('code')})")
-    if cell["create_to_reply_s"] > HUGE_PLAIN_REFUSED_WITHIN_S:
-        problems.append(f"refused after {cell['create_to_reply_s']} s")
-    if machine:
-        problems.append("a machine was made")
-    cell["result"] = "pass" if not problems else "fail: " + ", ".join(problems)
-    return cell
+def _left_on_mac(self, answer: dict, machine: str, remote: str) -> int:
+    """How many files a first-pass cell left on the Mac: the copy's `left_on_mac` count when the answer carries it,
+    else 1 when the cell's big file is not on the machine (0 when it is)."""
+    counts = answer.get("skipped_counts") if isinstance(answer.get("skipped_counts"), dict) else {}
+    if isinstance(counts.get("left_on_mac"), int):
+        return counts["left_on_mac"]
+    path = shlex_quote(f"{remote}/{FIRST_PASS_LEFT}")
+    got, _ = self.exec_json(machine, f"if [ -e {path} ]; then echo '{{\"there\":true}}'; "
+                                     f"else echo '{{\"there\":false}}'; fi", timeout=120)
+    return 0 if got.get("there") is not False else 1
 
 
-Matrix.refused_cell = _refused_cell
+Matrix.left_on_mac = _left_on_mac
 
 
 def shlex_quote(text: str) -> str:
@@ -769,8 +870,24 @@ def verdict(cell: dict, canary: str) -> str:
         problems.append("word not read")
     if reply.get("canary_in_reply") or cell.get("canary_on_machine"):
         problems.append("SECRET LEAKED")
-    if cell.get("hash_match") is False:
+    # Every start says what its copy sends before any machine is made (Leo, 2026-11-10: a 20 GB copy began after a
+    # machine was leased). A first-pass cell's must say first pass; any cell on a slow link may too, and is then
+    # judged as one (its tree is partial by design).
+    estimate = cell.get("estimate")
+    copy_mode = None
+    if not isinstance(estimate, dict):
+        problems.append("no copy estimate before the lease")
+    else:
+        copy_mode = estimate.get("copy_mode") if estimate.get("mode") == "seed" else estimate.get("mode")
+        if cell.get("workspace") in FIRST_PASS_CELLS and copy_mode != "first_pass":
+            problems.append(f"estimate said {copy_mode}")
+    first_pass = cell.get("workspace") in FIRST_PASS_CELLS or copy_mode == "first_pass"
+    if cell.get("hash_match") is False and not first_pass:
         problems.append("tree differs")
+    if first_pass and (cell.get("create_to_reply_s") or 0) > FIRST_PASS_REPLY_WITHIN_S:
+        problems.append(f"first reply after {cell.get('create_to_reply_s')} s")
+    if first_pass and (cell.get("left_on_mac") or 0) < 1:
+        problems.append("nothing left on the Mac")
     if cell.get("hash_match") is None:
         problems.append("tree not checked")
     if cell.get("git_match") is False:
@@ -828,6 +945,9 @@ def main(argv=None) -> int:
             word = f"w{random.token_hex(5)}"
             if folder is not None and kind != "empty":
                 write(folder / WORD_FILE, word + "\n")
+            if folder is not None:
+                note = matrix.trust(folder) or note
+                folder = None if note else folder
             jobs.append((kind, agents[0], folder, note, word, canary if kind == "secrets" else "", False,
                          round(time.monotonic() - started, 1)))
         for agent in agents[1:]:
@@ -835,7 +955,8 @@ def main(argv=None) -> int:
             small_repo(folder)
             word = f"w{random.token_hex(5)}"
             write(folder / WORD_FILE, word + "\n")
-            jobs.append(("small-repo", agent, folder, "", word, "", False, 0.0))
+            note = matrix.trust(folder)
+            jobs.append(("small-repo", agent, None if note else folder, note, word, "", False, 0.0))
         for spec in args.folder:
             name, _, path = spec.partition("=")
             folder = Path(path).expanduser()
@@ -853,20 +974,26 @@ def main(argv=None) -> int:
                     cell = {"workspace": job[0], "agent": job[1], "result": f"fail: {clean(repr(error), 300)}"}
                 cell["fixture_s"] = job[7]
                 report["cells"].append(cell)
-                print(f"[{cell['result']}] {cell['workspace']} ({cell['agent']})", flush=True)
+                safe_print(f"[{cell['result']}] {cell['workspace']} ({cell['agent']})", flush=True)
         finally:
             # A `with` would wait for every queued cell: on SystemExit, drop the ones not yet started.
             pool.shutdown(wait=True, cancel_futures=True)
         left = matrix.sweep()
         swept = True
         report["machines_left"] = left
+        logins_left = matrix.remove_logins()
+        report["claude_logins_left"] = logins_left
         failed = [cell for cell in report["cells"] if not cell["result"].startswith(("pass", "skipped"))]
-        report["result"] = "pass" if not failed and not left else f"fail: {len(failed)} cells" + (
-            f", {len(left)} machines left" if left else "")
+        report["result"] = "pass" if not failed and not left and not logins_left else f"fail: {len(failed)} cells" + (
+            f", {len(left)} machines left" if left else "") + (
+            f", {len(logins_left)} cached claude logins not removed" if logins_left else "")
         return finish(report, out, 0 if report["result"] == "pass" else 1)
     finally:
         if not swept:
             matrix.sweep()  # a cancelled or crashed run still deletes the machines it made
+        untrusted = matrix.forget_trust()  # before the fixtures go, while their paths still resolve
+        if untrusted:
+            print(f"warning: trust left on {len(untrusted)} fixture folder(s): {', '.join(untrusted)}", file=sys.stderr)
         matrix.quit()
         if not args.keep_fixtures:
             shutil.rmtree(root, ignore_errors=True)

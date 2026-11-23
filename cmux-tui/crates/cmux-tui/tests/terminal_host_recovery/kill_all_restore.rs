@@ -830,3 +830,270 @@ fn a_shown_terminal_lost_behind_a_respawn_backlog_respawns_without_waiting_for_i
          {HOLD_MS} ms, so it waited behind the hidden respawns, not for the next slot"
     );
 }
+
+/// A case of the quit-then-reboot matrix: a terminal's name, the commands
+/// typed into it (each waits for its marker on the screen) and whether the
+/// terminal is resized between them.
+struct QuitCase {
+    name: &'static str,
+    steps: &'static [(&'static str, &'static str)],
+    resize_before_last: bool,
+}
+
+const QUIT_CASES: &[QuitCase] = &[
+    // Output after the generation's first snapshot: at quit only the tail
+    // holds it (the 30 s interval has not passed).
+    QuitCase {
+        name: "tail",
+        steps: &[("seq -f 'tail-line-%g' 1 400; printf 'tail-%s\\n' done", "tail-done\n")],
+        resize_before_last: false,
+    },
+    // A full-screen program on the alternate screen at quit.
+    QuitCase {
+        name: "alt",
+        steps: &[
+            ("seq -f 'alt-before-%g' 1 60; printf 'alt-%s\\n' before", "alt-before\n"),
+            (
+                "printf '\\033[?1049h\\033[2J\\033[H'; seq -f 'alt-line-%g' 1 20; \
+                 printf 'alt-%s\\n' shown; read x",
+                // The last row of the alternate screen: no line feed after it
+                // (`read x` waits on that row).
+                "alt-shown",
+            ),
+        ],
+        resize_before_last: false,
+    },
+    // A terminal at a new size: the tail cannot carry it, the quit writes a
+    // snapshot.
+    QuitCase {
+        name: "resized",
+        steps: &[
+            ("seq -f 'size-line-%g' 1 100; printf 'size-%s\\n' one", "size-one\n"),
+            ("seq -f 'resized-line-%g' 1 50; printf 'size-%s\\n' two", "size-two\n"),
+        ],
+        resize_before_last: true,
+    },
+    // The primary screen with the states a replay restores: a title, bracketed
+    // paste and mouse modes on, a saved cursor and a scroll region.
+    QuitCase {
+        name: "modes",
+        steps: &[(
+            "printf '\\033]0;quit-title\\007\\033[?2004h\\033[?1000h\\0337\\033[5;20r'; \
+             seq -f 'modes-line-%g' 1 40; printf '\\0338modes-%s' done",
+            "modes-done",
+        )],
+        resize_before_last: false,
+    },
+    // About 18 MB: past the tail's cap (1 MiB), its flood cap (16 MiB) and
+    // what one terminal keeps unwritten (8 MiB).
+    QuitCase {
+        name: "flood",
+        steps: &[(
+            "seq -f 'flood-%09g-abcdefghijklmnopqrstuvwxyzabcdefghij' 1 300000; \
+             printf 'flood-%s\\n' done",
+            "flood-done\n",
+        )],
+        resize_before_last: false,
+    },
+];
+
+/// One terminal of the matrix: its case, its transcript at quit, and the
+/// lines each reader restored, in reader order.
+struct MatrixRow {
+    case: &'static str,
+    at_quit: Vec<String>,
+    restored: Vec<Vec<String>>,
+}
+
+/// Copy the regular files and folders below `from` to `to`.
+fn copy_tree(from: &Path, to: &Path) {
+    fs::create_dir_all(to).unwrap();
+    for entry in fs::read_dir(from).unwrap().flatten() {
+        let target = to.join(entry.file_name());
+        let kind = entry.file_type().unwrap();
+        if kind.is_dir() {
+            copy_tree(&entry.path(), &target);
+        } else if kind.is_file() {
+            fs::copy(entry.path(), &target).unwrap();
+        }
+    }
+}
+
+/// The restored part of a respawned transcript: the lines above the
+/// session line.
+fn restored_lines(after: &[String]) -> Vec<String> {
+    let end = after.iter().position(|line| line.contains(RESPAWN_MARKER)).unwrap_or(after.len());
+    after[..end].to_vec()
+}
+
+/// Stop the daemon and kill every terminal host it runs (a reboot).
+fn reboot(harness: &mut RecoveryHarness, hosts: usize) {
+    let records = wait_for_host_records(&harness.host_root(), hosts);
+    harness.signal_daemon(libc::SIGSTOP);
+    for (record_path, record) in &records {
+        kill_shell_then_host(record_path, record);
+    }
+    harness.sigkill();
+}
+
+/// `writer` (None: this build) runs [`QUIT_CASES`], stops on SIGTERM (an
+/// update or a logout) and the shells and hosts die (a reboot). Then each
+/// build of `readers` starts on the same stored bytes (the state folder is
+/// copied back between them) and gives each terminal's restored transcript.
+/// Returns (case, the writer's transcript at quit, each reader's restored
+/// lines).
+fn quit_then_reboot_matrix(
+    name: &str,
+    writer: Option<PathBuf>,
+    readers: &[Option<PathBuf>],
+) -> Vec<MatrixRow> {
+    let mut harness = RecoveryHarness::start_unstarted(name);
+    harness.extra_env.push(("CMUX_TUI_TERMINAL_PERSISTENCE".into(), "snapshot".into()));
+    eprintln!("QUIT-MATRIX start writer {writer:?}");
+    harness.binary = writer;
+    harness.restart();
+    let home = harness.dir.clone();
+    let mut terminals = Vec::new();
+    for case in QUIT_CASES {
+        let (terminal_id, incarnation, surface) = start_shell_in(&harness, case.name, &home);
+        for (index, (line, marker)) in case.steps.iter().enumerate() {
+            if case.resize_before_last && index + 1 == case.steps.len() {
+                request(
+                    &harness.socket,
+                    serde_json::json!({"cmd":"resize-surface","surface":surface,"cols":90,"rows":30}),
+                );
+                std::thread::sleep(Duration::from_millis(500));
+            }
+            send_line(&harness.socket, surface, line);
+            let deadline = Instant::now() + test_timeout(Duration::from_secs(60));
+            loop {
+                let screen = request(
+                    &harness.socket,
+                    serde_json::json!({"cmd":"read-screen","surface":surface}),
+                )["text"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_string();
+                if screen.contains(marker) {
+                    break;
+                }
+                assert!(Instant::now() < deadline, "{}: no {marker:?}: {screen}", case.name);
+                std::thread::sleep(Duration::from_millis(100));
+            }
+        }
+        terminals.push((case.name, terminal_id, incarnation, surface));
+    }
+    // Far less than the 30 s snapshot interval; past the tail's flush.
+    std::thread::sleep(Duration::from_secs(2));
+    let before = terminals
+        .iter()
+        .map(|(_, _, _, surface)| transcript(&harness, *surface))
+        .collect::<Vec<_>>();
+    let records = wait_for_host_records(&harness.host_root(), terminals.len());
+    harness.terminate();
+    for (record_path, record) in &records {
+        kill_shell_then_host(record_path, record);
+    }
+    let saved = harness.dir.join("state-at-quit");
+    copy_tree(&harness.state, &saved);
+
+    let mut restored = vec![Vec::new(); terminals.len()];
+    for (round, reader) in readers.iter().enumerate() {
+        if round > 0 {
+            reboot(&mut harness, terminals.len());
+            fs::remove_dir_all(&harness.state).unwrap();
+            copy_tree(&saved, &harness.state);
+        }
+        eprintln!("QUIT-MATRIX start reader {round} {reader:?}");
+        harness.binary = reader.clone();
+        harness.restart();
+        for (index, (_, terminal_id, incarnation, _)) in terminals.iter().enumerate() {
+            let surface = respawned_surface(&harness, terminal_id, incarnation);
+            wait_for_screen(&harness.socket, surface, RESPAWN_MARKER);
+            restored[index].push(restored_lines(&transcript(&harness, surface)));
+        }
+    }
+    reboot(&mut harness, terminals.len());
+    terminals
+        .iter()
+        .zip(before)
+        .zip(restored)
+        .map(|((&(case, _, _, _), at_quit), restored)| MatrixRow { case, at_quit, restored })
+        .collect()
+}
+
+/// Lines and bytes of `expected` that `actual` lacks or changed.
+fn lost(expected: &[String], actual: &[String]) -> (usize, usize) {
+    let lines = expected.iter().zip(actual).filter(|(e, a)| e != a).count()
+        + expected.len().saturating_sub(actual.len());
+    let bytes = |lines: &[String]| lines.iter().map(|line| line.len() + 1).sum::<usize>();
+    (lines, bytes(expected).saturating_sub(bytes(actual)))
+}
+
+/// Assert that every reader restored the same text as the first one, and
+/// print one row per case: the reader, then same or lost lines/bytes.
+fn assert_readers_agree(direction: &str, labels: &[&str], rows: &[MatrixRow]) {
+    let mut differences = Vec::new();
+    for MatrixRow { case, at_quit, restored } in rows {
+        let reference = &restored[0];
+        for (label, lines) in labels.iter().zip(restored) {
+            let (lines_lost, bytes_lost) = lost(reference, lines);
+            let (vs_quit_lines, _) = lost(at_quit, lines);
+            let verdict = if lines == reference {
+                "same".to_string()
+            } else {
+                format!("lost {lines_lost} lines / {bytes_lost} bytes")
+            };
+            eprintln!(
+                "QUIT-MATRIX {direction} case={case} reader={label} lines={} {verdict} \
+                 (vs the screen at quit: {vs_quit_lines} lines differ)",
+                lines.len()
+            );
+            if lines != reference {
+                differences.push(format!("{case} {label}: {verdict}"));
+            }
+        }
+    }
+    assert!(
+        differences.is_empty(),
+        "{direction}: the readers restored different text: {differences:?}"
+    );
+}
+
+fn previous_build() -> PathBuf {
+    let previous = PathBuf::from(
+        std::env::var("CMUX_TUI_PREVIOUS_BIN").expect("CMUX_TUI_PREVIOUS_BIN is required"),
+    );
+    assert_ne!(
+        fs::canonicalize(&previous).unwrap(),
+        fs::canonicalize(bin()).unwrap(),
+        "the previous build must be a different binary"
+    );
+    previous
+}
+
+/// An update rolled back after a reboot: this build quits, and the earlier
+/// build restores exactly what this build would.
+#[test]
+#[ignore = "needs CMUX_TUI_PREVIOUS_BIN, a cmux-tui binary from an earlier build"]
+fn a_previous_build_restores_what_this_build_stores_at_quit() {
+    let _exclusive = exclusive_process_test();
+    let rows =
+        quit_then_reboot_matrix("quit-matrix-rollback", None, &[None, Some(previous_build())]);
+    assert_readers_agree("this-quits", &["this", "previous"], &rows);
+}
+
+/// An update after a reboot: the earlier build quits, and this build restores
+/// exactly what the earlier build would.
+#[test]
+#[ignore = "needs CMUX_TUI_PREVIOUS_BIN, a cmux-tui binary from an earlier build"]
+fn this_build_restores_what_a_previous_build_stores_at_quit() {
+    let _exclusive = exclusive_process_test();
+    let previous = previous_build();
+    let rows = quit_then_reboot_matrix(
+        "quit-matrix-update",
+        Some(previous.clone()),
+        &[Some(previous), None],
+    );
+    assert_readers_agree("previous-quits", &["previous", "this"], &rows);
+}

@@ -123,6 +123,7 @@ pub const ACPMUX_REQUEST_META: &[&str] = &[
     "parent",
     "peer",
     "peerHops",
+    "peerRowBatches",
     "personDecision",
     "personKey",
     "personStop",
@@ -137,9 +138,12 @@ pub const ACPMUX_REQUEST_META: &[&str] = &[
     "requestId",
     "requireFullAccess",
     "resend",
+    "restricted",
     "route",
+    "sessionCreatedAt",
     "senderHarness",
     "senderHarnessChecked",
+    "senderToken",
     "spawnToolCallId",
     "startLater",
     "steer",
@@ -150,6 +154,7 @@ pub const ACPMUX_REQUEST_META: &[&str] = &[
     "tags",
     "teamMessage",
     "throughSeq",
+    "throwaway",
     "topic",
     "via",
     "vmBoundary",
@@ -178,6 +183,8 @@ keyed! {
     ArchiveParams: ["sessionId", "archived"];
     /// `_acpmux/attachment`.
     AttachmentParams: ["sessionId", "id"];
+    /// `_acpmux/turn_shots`.
+    TurnShotsParams: ["sessionId", "turnId"];
     /// `_acpmux/bookmark_get`.
     BookmarkGetParams: ["sessionId"];
     /// `_acpmux/bookmark_set`.
@@ -217,11 +224,13 @@ keyed! {
     /// `initialize`.
     InitializeParams: ["protocolVersion", "clientCapabilities", "clientInfo"];
     /// `_acpmux/kill`.
-    KillParams: ["sessionId", "purge", "cancelFork", "cancelToken"];
+    KillParams: ["sessionId", "purge", "cancelFork", "cancelToken", "ifIdle", "expectRevision"];
     /// `_acpmux/mcp/reconnect`.
     McpReconnectParams: ["sessionId", "server"];
     /// `_acpmux/models`.
     ModelsParams: ["refresh", "probe", "localOnly"];
+    /// `_acpmux/move_targets`.
+    MoveTargetsParams: ["source", "sourceKind"];
     /// `_acpmux/native_history`.
     NativeHistoryParams: ["sessionId", "before", "mark"];
     /// `_acpmux/offer_respond`.
@@ -233,11 +242,11 @@ keyed! {
     /// `_acpmux/peers`.
     PeersParams: [];
     /// `_acpmux/prewarm`.
-    PrewarmParams: ["harness", "cwd", "release"];
+    PrewarmParams: ["harness", "cwd", "release", "model", "workspaceId", "credentials"];
     /// `_acpmux/process/kill`.
     ProcessKillParams: ["sessionId", "processId", "signal"];
     /// `_acpmux/process/list`.
-    ProcessListParams: ["sessionId", "cursor", "limit"];
+    ProcessListParams: ["sessionId", "cursor", "limit", "recent", "endedWithin", "calls"];
     /// `_acpmux/process/tail`.
     ProcessTailParams: ["sessionId", "processId", "fromByte", "maxBytes"];
     /// `_acpmux/queue_approve`.
@@ -290,4 +299,6 @@ keyed! {
     WarmParams: ["sessionIds", "limit"];
     /// `_acpmux/watch_take_over`.
     WatchTakeOverParams: ["sessionId", "ifLive"];
+    /// `_acpmux/release_to_watch`.
+    ReleaseToWatchParams: ["sessionId"];
 }

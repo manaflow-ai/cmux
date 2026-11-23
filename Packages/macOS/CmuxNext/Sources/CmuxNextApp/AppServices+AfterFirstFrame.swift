@@ -18,14 +18,13 @@ extension AppServices {
         chatsFeed?.keepCurrent()
         if let feed = chatsFeed { AgentPageChats.wire(agentTabs, to: feed, opener: chatsOpener) }
         NewTabPlacesFeed.wire(agentTabs, services: self)
-        NewTabWeather.wire(agentTabs, services: self)
         dockMenu.start()
         DebugTimings.markLaunch("launch.post_frame_feeds")
     }
 
     /// The free-tier attest, SSH, server reach, the updater (Sparkle), the marked-tab watch and the link places.
     func startNonPaintServices() {
-        FreeTierAttestStarter(build: environment.build, bundle: .main, apiBaseURL: feed.apiBaseURL, settings: settings, signedIn: { [weak self] in self.map { $0.cloud.isSignedIn || $0.cloud.auth.isRestoring } ?? true }).start()
+        FreeTierAttestStarter(build: environment.build, bundle: .main, apiBaseURL: feed.apiBaseURL, settings: settings, loginKeychain: loginKeychain, signedIn: { [weak self] in self.map { $0.cloud.isSignedIn || $0.cloud.auth.isRestoring } ?? true }).start()
         ssh.start()
         serverReach.start()
         updater.start()

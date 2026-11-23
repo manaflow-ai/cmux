@@ -5,7 +5,7 @@
 // its name. Return and Escape hand the keyboard back to the prompt. And the refusal above the card
 // when acpmux makes no folder.
 import "./newProject.css";
-import { useT } from "../i18n";
+import { translate, useT } from "../i18n";
 import { projectNameTyping } from "./newProject";
 
 export function NewProjectName({
@@ -49,11 +49,20 @@ export function NewProjectName({
   );
 }
 
-export function NewProjectFailure({ error, onDismiss }: { error: string; onDismiss(): void }) {
+/// New Project on a Mac whose cmux can't make projects: the one refusal the notice words itself.
+export class NewProjectUnsupported extends Error {
+  constructor() {
+    super(translate("project.new.unavailable"));
+  }
+}
+
+/// New Project's refusal: plain words (the prompt stays in the field to send again) and Dismiss.
+/// `reason`: the pane's own words for why, when it has them; acpmux's are in the log.
+export function NewProjectFailure({ reason, onDismiss }: { reason?: string; onDismiss(): void }) {
   const t = useT();
   return (
     <output className="acpmux-switch-notice acpmux-folder-choice">
-      <span role="alert">{t("project.new.failedBecause", { reason: error })}</span>{" "}
+      <span role="alert">{reason ? t("project.new.failedBecause", { reason }) : t("project.new.failed")}</span>{" "}
       <button type="button" className="acpmux-folder-choice-button" onClick={onDismiss}>
         {t("worktree.dismiss")}
       </button>

@@ -157,6 +157,79 @@ async fn a_connection_that_proved_nothing_reaches_no_task() {
     }
 }
 
+/// Own tasks first (incident 2026-11-14: a subagent called `acpmux_bg_list`, got every task of
+/// its chat, and stopped all ten running ones, none its own). The chat's own agent lists the
+/// tasks its caller started (a subagent's, or with no subagent the lead's) and is told how many
+/// it left out; `all: true` lists every task with who started it. A stop of another caller's
+/// task is refused, names who started it and `force_other_owner`, and signals nothing; with
+/// `force_other_owner: true` it stops. The person still lists and stops every task.
+#[cfg(unix)]
+#[tokio::test]
+async fn an_agent_lists_and_stops_only_the_tasks_its_caller_started() {
+    let mut r = rig(PermissionPolicy::ApproveAll).await;
+    r.hub.set_bg_runner(crate::daemon_env::bg_runner(), acpmux::bg_run::SEGMENT);
+    let id = new_session(&mut r.c, "owners").await;
+    let mut agent = acpmux_caller(&r.hub, &id).await;
+    let a1 = json!({"id": "a1", "type": "general-purpose"});
+    let b2 = json!({"id": "b2", "type": "general-purpose"});
+    let mut started = Vec::new();
+    for (sub, what) in [(Value::Null, "lead watcher"), (a1.clone(), "a1 ci"), (b2.clone(), "b2 ci")]
+    {
+        let params = json!({"sessionId": id, "command": "sleep 60", "description": what,
+            "callerSubagent": sub});
+        let task = agent.request(method::MUX_BG_START, params).await.unwrap();
+        started.push(task["id"].as_str().unwrap().to_owned());
+    }
+    let (lead_task, a1_task, b2_task) = (&started[0], &started[1], &started[2]);
+    let ids = |list: &Value| -> Vec<String> {
+        let tasks = list["tasks"].as_array().unwrap();
+        tasks.iter().map(|t| t["id"].as_str().unwrap().to_owned()).collect()
+    };
+
+    // b2 sees its own task only, and how many it left out.
+    let list = json!({"sessionId": id, "callerSubagent": b2});
+    let mine = agent.request(method::MUX_BG_LIST, list).await.unwrap();
+    assert_eq!(ids(&mine), vec![b2_task.clone()], "{mine}");
+    assert_eq!(mine["otherOwners"], 2, "{mine}");
+    // The lead (no subagent) sees its own.
+    let lead = agent.request(method::MUX_BG_LIST, json!({"sessionId": id})).await.unwrap();
+    assert_eq!(ids(&lead), vec![lead_task.clone()], "{lead}");
+    // all: true lists every task, each with who started it.
+    let list = json!({"sessionId": id, "callerSubagent": b2, "all": true});
+    let every = agent.request(method::MUX_BG_LIST, list).await.unwrap();
+    assert_eq!(ids(&every).len(), 3, "{every}");
+    let a1_view = every["tasks"].as_array().unwrap().iter().find(|t| t["id"] == *a1_task);
+    assert_eq!(a1_view.unwrap()["startedBy"], a1, "{every}");
+
+    // b2 stopping a1's task (the incident) is refused and names a1; the task keeps running.
+    let stop = json!({"sessionId": id, "id": a1_task, "callerSubagent": b2});
+    let refused = agent.request(method::MUX_BG_STOP, stop).await.unwrap_err();
+    assert!(refused.contains("started by the general-purpose subagent a1"), "{refused}");
+    assert!(refused.contains("force_other_owner: true"), "{refused}");
+    assert_eq!(state(&r, &id, a1_task), "running", "a refused stop stopped the task");
+    // So is stopping the lead's task, and the lead stopping b2's.
+    let stop = json!({"sessionId": id, "id": lead_task, "callerSubagent": b2});
+    let refused = agent.request(method::MUX_BG_STOP, stop).await.unwrap_err();
+    assert!(refused.contains("lead agent"), "{refused}");
+    let stop = json!({"sessionId": id, "id": b2_task});
+    assert!(agent.request(method::MUX_BG_STOP, stop).await.is_err(), "the lead stopped b2's");
+    assert_eq!(state(&r, &id, lead_task), "running");
+    assert_eq!(state(&r, &id, b2_task), "running");
+
+    // Its own task stops; another's stops with force_other_owner: true.
+    let stop = json!({"sessionId": id, "id": b2_task, "callerSubagent": b2});
+    assert_eq!(agent.request(method::MUX_BG_STOP, stop).await.unwrap()["state"], "stopped");
+    let stop =
+        json!({"sessionId": id, "id": a1_task, "callerSubagent": b2, "force_other_owner": true});
+    assert_eq!(agent.request(method::MUX_BG_STOP, stop).await.unwrap()["state"], "stopped");
+
+    // The person lists and stops every task, as before.
+    let every = r.c.request(method::MUX_BG_LIST, json!({"sessionId": id})).await.unwrap();
+    assert_eq!(ids(&every).len(), 3, "{every}");
+    let stop = json!({"sessionId": id, "id": lead_task});
+    assert_eq!(r.c.request(method::MUX_BG_STOP, stop).await.unwrap()["state"], "stopped");
+}
+
 /// The task's whole output so far, as text.
 fn text(r: &Rig, id: &str, task: &str) -> String {
     let s = r.hub.resolve(id).unwrap();
@@ -214,6 +287,64 @@ async fn a_stop_kills_a_child_that_ignores_sigterm_and_holds_no_pipe() {
     let stopped = r.c.request(method::MUX_BG_STOP, json!({"sessionId": id, "id": task})).await;
     assert_eq!(stopped.unwrap()["state"], "stopped");
     r.until("a child that ignored SIGTERM outlived the stop", || !alive(child)).await;
+}
+
+/// The processes under `root` (pid, process group, command name), from `ps`.
+#[cfg(unix)]
+fn under(root: u32) -> Vec<(u32, u32, String)> {
+    let out = std::process::Command::new("ps").args(["-axo", "pid=,ppid=,pgid=,comm="]).output();
+    let table: Vec<(u32, u32, u32, String)> = String::from_utf8_lossy(&out.unwrap().stdout)
+        .lines()
+        .filter_map(|line| {
+            let mut f = line.split_whitespace();
+            let (pid, ppid, pgid) =
+                (f.next()?.parse().ok()?, f.next()?.parse().ok()?, f.next()?.parse().ok()?);
+            Some((pid, ppid, pgid, f.collect::<Vec<_>>().join(" ")))
+        })
+        .collect();
+    let (mut found, mut frontier) = (Vec::new(), vec![root]);
+    while let Some(parent) = frontier.pop() {
+        for (pid, _, pgid, comm) in table.iter().filter(|p| p.1 == parent) {
+            found.push((*pid, *pgid, comm.clone()));
+            frontier.push(*pid);
+        }
+    }
+    found
+}
+
+/// A stop ends every process the task started, also those that left its process group: GNU
+/// `timeout` puts itself and its child in a group of their own (setpgid), and a shell with job
+/// control (`set -m`, where there is no `timeout`) does the same for each background job. A bg_stop
+/// that signalled only the task's group left such `timeout` children running `glaeda-gh wait`
+/// and `gh` loops, polling GitHub's REST API until someone killed them by hand.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_stop_ends_processes_that_left_the_tasks_process_group() {
+    let mut r = rig(PermissionPolicy::ApproveAll).await;
+    r.hub.set_bg_runner(crate::daemon_env::bg_runner(), acpmux::bg_run::SEGMENT);
+    let id = new_session(&mut r.c, "regroup").await;
+    let command = "if command -v timeout >/dev/null 2>&1; then t='timeout 300'; else set -m; t=; fi; \
+        $t sleep 300 & $t sh -c 'sleep 300; :' & echo started; wait";
+    let task = start(&mut r, &id, command).await;
+    let (task_id, leader) =
+        (task["id"].as_str().unwrap().to_owned(), task["pid"].as_u64().unwrap() as u32);
+    let sleeping = || under(leader).iter().filter(|p| p.2.ends_with("sleep")).count() == 2;
+    r.until("the task never started both of its sleeps", sleeping).await;
+    let started = under(leader);
+    let regrouped: Vec<_> = started.iter().filter(|p| p.1 != leader).collect();
+    assert!(regrouped.len() >= 2, "nothing left the task's group: {started:?}");
+    let stopped = r.c.request(method::MUX_BG_STOP, json!({"sessionId": id, "id": task_id})).await;
+    assert_eq!(stopped.unwrap()["state"], "stopped");
+    // Within a moment of the stop's answer, not 20 s: each one left is still polling.
+    let deadline = std::time::Instant::now() + Duration::from_secs(3);
+    loop {
+        let left: Vec<_> = started.iter().filter(|p| alive(p.0)).collect();
+        if left.is_empty() {
+            break;
+        }
+        assert!(std::time::Instant::now() < deadline, "the stop left {left:?} of {started:?}");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
 }
 
 /// A task runs in the environment the chat's agent runs with, built by the daemon from the
@@ -374,12 +505,18 @@ async fn a_task_with_notify_tells_its_chat_once_when_it_ends() {
     let quiet = json!({"sessionId": id, "command": "echo quiet; exit 0", "notify": false});
     let quiet = r.c.request(method::MUX_BG_START, quiet).await.unwrap();
     let quiet = quiet["id"].as_str().unwrap().to_owned();
-    let loud = json!({"sessionId": id, "command": "seq 1 30; exit 3",
+    // The task holds its end until the test has read the start's answer: the answer reads the
+    // task's state when it is built, and a bare `seq 1 30` had often ended by then on a loaded
+    // runner, so the answer said "failed".
+    let go = acpmux::config::home().join("loud-may-end");
+    let command = format!("seq 1 30; until [ -e '{}' ]; do sleep 0.01; done; exit 3", go.display());
+    let loud = json!({"sessionId": id, "command": command,
         "description": "count to thirty", "notify": true});
     let task = r.c.request(method::MUX_BG_START, loud).await.unwrap();
     assert_eq!((task["status"].as_str(), task["notify"].as_bool()), (Some("running"), Some(true)));
     assert_eq!(task["summary"], "Background command running: count to thirty", "{task}");
     let loud = task["id"].as_str().unwrap().to_owned();
+    std::fs::write(&go, "").unwrap();
     r.until("the quiet task never ended", || state(&r, &id, &quiet) == "exited").await;
     r.until("the task's end never reached its chat", || ends(&r.hub, &id).len() == 1).await;
     let dir = acpmux::config::home().join("bg").join(&id);
@@ -398,6 +535,79 @@ async fn a_task_with_notify_tells_its_chat_once_when_it_ends() {
     let list = r.hub.bg_list(&r.hub.resolve(&id).unwrap());
     let statuses: Vec<_> = list["tasks"].as_array().unwrap().iter().map(|t| &t["status"]).collect();
     assert_eq!(statuses, [&json!("ok"), &json!("failed")], "{list}");
+}
+
+/// A task its own agent stops brings no end to the chat: the stop's answer told that agent how it
+/// ended, and the notice only woke the chat to say it again (hq#15820: 45 of 115 such notices in
+/// 48 h started a turn with no tool call). A stop by the person still brings the end, once.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_task_its_own_agent_stops_tells_the_chat_nothing_more() {
+    let mut r = rig(PermissionPolicy::ApproveAll).await;
+    r.hub.set_bg_runner(crate::daemon_env::bg_runner(), acpmux::bg_run::SEGMENT);
+    let id = new_session(&mut r.c, "self-stopped").await;
+    let mut agent = acpmux_caller(&r.hub, &id).await;
+    let start = |what: &str| json!({"sessionId": id, "command": "sleep 60", "description": what, "notify": true});
+    let own = agent.request(method::MUX_BG_START, start("own stop")).await.unwrap();
+    let own = own["id"].as_str().unwrap().to_owned();
+    let theirs = agent.request(method::MUX_BG_START, start("person's stop")).await.unwrap();
+    let theirs = theirs["id"].as_str().unwrap().to_owned();
+    let stopped = agent.request(method::MUX_BG_STOP, json!({"sessionId": id, "id": own})).await;
+    assert_eq!(stopped.unwrap()["state"], "stopped", "the stop's answer carries the end");
+    let stopped = r.c.request(method::MUX_BG_STOP, json!({"sessionId": id, "id": theirs})).await;
+    assert_eq!(stopped.unwrap()["state"], "stopped");
+    r.until("the person's stop never reached the chat", || ends(&r.hub, &id).len() == 1).await;
+    // Time for the own stop's end to come, which must not.
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let ends = ends(&r.hub, &id);
+    assert_eq!(ends.len(), 1, "{ends:?}");
+    assert!(ends[0].contains("Background command stopped: person's stop"), "{ends:?}");
+    let dir = acpmux::config::home().join("bg").join(&id);
+    assert!(acpmux::bg_run::notified_path(&dir, &own).exists(), "a restart would owe it");
+}
+
+/// A task end its own agent read while its turn ran wakes the chat to nothing: the read showed
+/// how it ended, so the notice waiting behind the turn leaves the queue and no restart owes it
+/// (hq#15820: notices "I'd already acted on"). An end the agent read only part of, or did not
+/// read, still comes once the turn ends.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_task_end_its_agent_read_mid_turn_brings_no_notice_after_it() {
+    let mut r = rig(PermissionPolicy::ApproveAll).await;
+    r.hub.set_bg_runner(crate::daemon_env::bg_runner(), acpmux::bg_run::SEGMENT);
+    let id = new_session(&mut r.c, "read-mid-turn").await;
+    let mut agent = acpmux_caller(&r.hub, &id).await;
+    r.c.send(
+        method::SESSION_PROMPT,
+        json!({"sessionId": id, "prompt": [{"type": "text", "text": "until-cancel"}]}),
+    )
+    .await;
+    r.c.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "running").await;
+    let start = |what: &str| json!({"sessionId": id, "command": "seq 1 5", "description": what, "notify": true});
+    let read = agent.request(method::MUX_BG_START, start("read whole")).await.unwrap();
+    let read = read["id"].as_str().unwrap().to_owned();
+    let part = agent.request(method::MUX_BG_START, start("read in part")).await.unwrap();
+    let part = part["id"].as_str().unwrap().to_owned();
+    let session = r.hub.resolve(&id).unwrap();
+    let queued = |task: &str| {
+        let want = format!("bg-done-{task}");
+        session.queue().iter().any(|q| q.prompt_id == want)
+    };
+    r.until("the ends never queued behind the turn", || queued(&read) && queued(&part)).await;
+    let whole = agent.request(method::MUX_BG_OUTPUT, json!({"sessionId": id, "id": read})).await;
+    assert_eq!(whole.unwrap()["state"], "exited");
+    let first = json!({"sessionId": id, "id": part, "fromByte": 0, "maxBytes": 2});
+    assert_eq!(agent.request(method::MUX_BG_OUTPUT, first).await.unwrap()["text"], "1\n");
+    assert!(!queued(&read), "the end its agent read still waits to wake the chat");
+    assert!(queued(&part), "a part read took the end's notice");
+    r.hub.cancel(&session).await.unwrap();
+    r.until("the part-read end never reached the chat", || ends(&r.hub, &id).len() == 1).await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let ends = ends(&r.hub, &id);
+    assert_eq!(ends.len(), 1, "{ends:?}");
+    assert!(ends[0].contains("read in part"), "{ends:?}");
+    let dir = acpmux::config::home().join("bg").join(&id);
+    assert!(acpmux::bg_run::notified_path(&dir, &read).exists(), "a restart would owe it");
 }
 
 /// Waits up to 20 s for `done`.

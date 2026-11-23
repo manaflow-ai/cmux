@@ -13,12 +13,12 @@ import { useState } from "react";
 import { createRoot } from "react-dom/client";
 import { createPageClient, type PageClient } from "../shared/pageClient";
 import { PAGE_COMMAND, type PageCommand } from "../shared/pageStreams";
-import { createStrings, type Strings } from "../shared/i18n";
+import type { StringTable, Strings } from "../shared/i18n";
+import { renderLocalized } from "../shared/localizedRoot";
 import type { DaemonSocket } from "../shared/daemonSocket";
 import { UiProvider, languageDirection } from "../../ui/UiProvider";
 import "./paneStrings";
-import { HomeChannelsPage } from "./HomeChannelsPage";
-import table from "./generated/strings.json";
+import { APP_ACTION_RUN, HomeChannelsPage, RESTART_SERVER } from "./HomeChannelsPage";
 import { MockHomeProvider } from "./mockProvider";
 import { HomeChannelsStore, PendingCarry } from "./store";
 import { DaemonGate, type DaemonSource, type HostCredential } from "./DaemonGate";
@@ -32,17 +32,33 @@ import "./styles.css";
 import "./ledger.css";
 import { appPopupHost } from "../shared/pagePopupHost";
 
+declare global {
+  // eslint-disable-next-line no-var
+  var __cmuxStrings: Record<string, Record<string, string>> | undefined;
+}
+
+// The page's strings. As shipped (build-pages-web.sh SPLIT_STRINGS), the head's locales/<locale>.js
+// scripts have already put English and the app's language in `__cmuxStrings`, so the 21-locale table
+// (about 440 KB) is not in the startup JS. The dev server has no locale scripts and loads the whole
+// table; so does a shipped page whose locale script failed, as a chunk of its own.
+const table: StringTable = globalThis.__cmuxStrings?.en
+  ? globalThis.__cmuxStrings
+  : ((await import("./generated/strings.json")).default as StringTable);
+
 export function mountHomeChannelsPage(
   root: HTMLElement,
   client: PageClient | null = defaultClient(),
 ): HomeChannelsStore {
   const store = new HomeChannelsStore(client);
-  const strings = createStrings(table);
-  document.title = strings.t("page.title");
-  createRoot(root).render(
-    <UiProvider container={root} popupHost={appPopupHost(client)} dir={languageDirection(strings.language)}>
-      <HomeChannelsPage store={store} strings={strings} />
-    </UiProvider>,
+  renderLocalized(
+    createRoot(root),
+    table,
+    (strings) => (
+      <UiProvider container={root} popupHost={appPopupHost(client)} dir={languageDirection(strings.language)}>
+        <HomeChannelsPage store={store} strings={strings} />
+      </UiProvider>
+    ),
+    (strings) => strings.t("page.title"),
   );
   return store;
 }
@@ -58,8 +74,6 @@ export function mountDaemonHomeChannelsPage(
   source: DaemonSource,
   client: PageClient | null = null,
 ): void {
-  const strings = createStrings(table);
-  document.title = strings.t("page.title");
   // One per mount: each reconnect makes a new store, and unsent messages carry over to it.
   const carry = new PendingCarry();
   // In the app, the composers' Cut, Copy and Paste run as the page view's own edits.
@@ -70,18 +84,27 @@ export function mountDaemonHomeChannelsPage(
       if (data.command === QUOTE_COMMAND) quoteSelection(document);
     })
     .catch(() => {});
-  createRoot(root).render(
-    <UiProvider container={root} popupHost={appPopupHost(client)} dir={languageDirection(strings.language)}>
-      <ComposerEdit.Provider value={edit}>
-        <DaemonGate source={source} strings={strings}>
-          {(daemon, _pages, owner) => (
-            <div className="hc-daemon">
-              <DaemonHome daemon={daemon} owner={owner} host={client} strings={strings} carry={carry} />
-            </div>
-          )}
-        </DaemonGate>
-      </ComposerEdit.Provider>
-    </UiProvider>,
+  // In the app, a refused page listener's fix: the app's Restart cmux-tui (it asks first).
+  const restart = client
+    ? () => void client.call(APP_ACTION_RUN, { action: RESTART_SERVER }).catch(() => undefined)
+    : undefined;
+  renderLocalized(
+    createRoot(root),
+    table,
+    (strings) => (
+      <UiProvider container={root} popupHost={appPopupHost(client)} dir={languageDirection(strings.language)}>
+        <ComposerEdit.Provider value={edit}>
+          <DaemonGate source={source} strings={strings} restart={restart}>
+            {(daemon, _pages, owner) => (
+              <div className="hc-daemon">
+                <DaemonHome daemon={daemon} owner={owner} host={client} strings={strings} carry={carry} />
+              </div>
+            )}
+          </DaemonGate>
+        </ComposerEdit.Provider>
+      </UiProvider>
+    ),
+    (strings) => strings.t("page.title"),
   );
 }
 
@@ -102,7 +125,7 @@ function DaemonHome({
   carry: PendingCarry;
 }) {
   const [store] = useState(() => new HomeChannelsStore(new DaemonHomeClient(daemon, owner), carry, host));
-  // Web links: homeLinks.ts sends them to workspace.open_url, but the daemon takes that operation
+  // Web links: the page could send them to workspace.open_url, but the daemon takes that operation
   // from a page only with the person's confirmation (page-router gesture list), which this
   // WebSocket cannot present yet. Until the host relays the click with a confirmation
   // (cx-ebm.59.6), the page leaves link clicks to the host.

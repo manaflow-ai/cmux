@@ -98,19 +98,45 @@ import Testing
     /// folders ("Move ▸"), and each folder holds at least two rows.
     /// Reachability inside folders is checked by the tests above, which
     /// walk submenus.
+    ///
+    /// The cap is for the rows a person sees at one time. A menu whose builder always hides
+    /// some of its catalog rows is counted where it is built (``countedAtItsBuilder``), with
+    /// the rows that builder hides; its catalog list here is longer than any menu it shows.
+    /// A row the registry leaves out of every menu is not counted either: a catalog row whose App
+    /// handler has not landed is bound unavailable and hidden (``HandlerPlaceholders``,
+    /// #44082), so it is never seen. The catalog's own test (cmux-action-catalog
+    /// `swift_parity.rs`, `menus_keep_a_short_top_level`) counts every row the crate places, so
+    /// the next pin cannot bring them back over the cap once their handlers land.
     @Test func everyMenuKeepsAShortTopLevel() {
+        let registry = ActionRegistry.standard()
+        HandlerPlaceholders.bind(into: registry)
         for context in ActionMenuContext.allCases {
             let entries = ContextMenuCatalog.shared.entries(for: context)
-            let rows = entries.filter { if case .separator = $0 { false } else { true } }
+            let target = ActionInvocation(target: context.targetKind.map { ActionTargetRef(kind: $0, id: "t1") })
+            let rows = entries.filter { entry in
+                switch entry {
+                case .separator: false
+                case .action(let id): !ActionTargetVisibility.isHidden(id, invocation: target, in: registry)
+                default: true
+                }
+            }
             // A workspace row's and a tab's menu also have Copy ▸ (ContextMenuEssentials.copyFolder, Leo 2026-10-29).
-            let cap = [.agentChat, .terminalSelection, .workspaceRow, .tab].contains(context) ? 13 : 12
-            #expect(rows.count <= cap, "\(context) has \(rows.count) top-level rows")
+            let cap = [.terminalSelection, .workspaceRow, .tab].contains(context) ? 13 : 12
+            if !Self.countedAtItsBuilder.contains(context) {
+                #expect(rows.count <= cap, "\(context) has \(rows.count) top-level rows")
+            }
             for case .folder(let folder, let children) in entries {
                 let count = ContextMenuCatalog.shared.referencedIDs(children).count
                 #expect(count >= 2, "\(context) folder \(folder) has \(count) rows")
             }
         }
     }
+
+    /// The menus whose top level is counted in the App's tests, from the same code that builds
+    /// them. The chat menu: its three Cloud rows are never shown together (the builder takes
+    /// `CloudMove.hiddenMenuItems` away, `AgentTabs+Header`), so `ChatMenuLengthTests`
+    /// (CmuxNextAppTests) holds it to its 13 rows (12 and the fork commands) for each kind of chat.
+    static let countedAtItsBuilder: Set<ActionMenuContext> = [.agentChat]
 
     @Test func cliNamesAndShortcutsAreUnique() {
         var byName: [String: ActionID] = [:]

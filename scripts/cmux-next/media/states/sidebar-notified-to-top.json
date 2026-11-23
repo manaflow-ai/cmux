@@ -1,5 +1,5 @@
 {
-  "title": "A notification moves its workspace to the top of the sidebar (notifications.attention.moveToTop, on by default since 2026-11-09). Four workspaces, the shown one first; a cmux notify for the last one moves it up to the top of the unpinned rows. Record with: cmux-ci capture SHA --state scripts/cmux-next/media/states/sidebar-notified-to-top.json",
+  "title": "A notification moves its workspace to the top of the sidebar (notifications.attention.moveToTop, on by default since 2026-11-09). Four workspaces with Delta at the bottom; a cmux notify from Delta's terminal while Alpha shows moves it up to the top of the unpinned rows. Record with: cmux-ci capture SHA --state scripts/cmux-next/media/states/sidebar-notified-to-top.json",
   "steps": [
     {
       "title": "Launch",
@@ -7,23 +7,12 @@
       "shot": false
     },
     {
-      "title": "Workspace Alpha",
+      "title": "Workspace Delta (made first, so new workspaces push it to the bottom)",
       "cmux": [
         "workspace",
         "new",
         "--name",
-        "Alpha"
-      ],
-      "wait": 1,
-      "shot": false
-    },
-    {
-      "title": "Workspace Bravo",
-      "cmux": [
-        "workspace",
-        "new",
-        "--name",
-        "Bravo"
+        "Delta"
       ],
       "wait": 1,
       "shot": false
@@ -40,15 +29,38 @@
       "shot": false
     },
     {
-      "title": "Workspace Delta",
+      "title": "Workspace Bravo",
       "cmux": [
         "workspace",
         "new",
         "--name",
-        "Delta"
+        "Bravo"
       ],
       "wait": 1,
       "shot": false
+    },
+    {
+      "title": "Workspace Alpha",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "Alpha"
+      ],
+      "wait": 1,
+      "shot": false
+    },
+    {
+      "title": "Before the notification: Delta is the bottom row",
+      "rpc": {
+        "method": "debug.window_snapshot",
+        "params": {
+          "kind": "main",
+          "path": "{collect}"
+        }
+      },
+      "collect": "sidebar-before-notify.png",
+      "wait": 0.5
     },
     {
       "title": "Show Alpha: the user looks at Alpha",
@@ -98,7 +110,7 @@
       "wait": 2.5
     },
     {
-      "title": "Sidebar after the notification: Delta is first with the unread mark (After); Delta stays last (Before)",
+      "title": "Sidebar after the notification: Delta moves to the top with its unread mark (on); Delta stays at the bottom (off)",
       "rpc": {
         "method": "debug.window_snapshot",
         "params": {

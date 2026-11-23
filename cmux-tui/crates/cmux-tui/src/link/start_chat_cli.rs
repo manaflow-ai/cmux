@@ -11,13 +11,14 @@
 //!   (`credential_on_stdin`): the platform's workspace machine, as `ensure`
 //!   makes it, pinned like any other and answered with `ensured`; the App
 //!   makes it only when the platform made none)
-//!   the one its first try took while that machine exists; for a send from a
-//!   Mac workspace, the machine that workspace already has; else a new one
-//!   named for chats; and the send's keys ([`Keys`]). One workspace per
-//!   machine: the plan's ensure names no project, so the platform gives each
-//!   workspace its own machine, and new ones until the plan's machine cap
-//!   (leo-workspace `design/cloud.md`; Leo, 2026-11-06: "one workspace per
-//!   machine ... just arbitrarily many until you hit the cap"). A machine
+//!   the one its first try took while that machine exists; else a new one
+//!   named for chats, even for a send from a Mac workspace that already has
+//!   one; and the send's keys ([`Keys`]). One machine per Cloud start: the
+//!   plan's ensure names no project and, as its workspace, the send's own
+//!   create key, so the platform makes each start its own machine, new ones
+//!   until the plan's machine cap (leo-workspace `design/cloud.md`; Leo,
+//!   2026-11-06: "one workspace per machine ... just arbitrarily many until
+//!   you hit the cap"). A machine
 //!   that exists is pinned to the send before anything runs there, so a
 //!   retry of the send names it.
 //! - `pin --key K --account A --machine ID [--workspace W]`: pins the send
@@ -34,6 +35,9 @@
 //!   when a seed answered at the chat's head while the machine fills the rest
 //!   ([`push`]). The push's
 //!   progress lines go to stderr; `--acpmux-home H` adds `source_trusted` ([`trust`]).
+//! - `trust --folder F --acpmux-home H`: the same trust answer for `F`, read
+//!   before any machine is taken, so a start from a folder this Mac does not
+//!   trust is refused here, never after a lease ([`trust::cli`]).
 //! - `ensure --workspace W --key K [--repo OWNER/NAME] [--project-key KEY] [--ref REF] [--environment env_...]
 //!   [--platform URL]`, the cmux credential on stdin: the workspace's own
 //!   machine from the cmux platform (`POST /v1/workspaces/{W}/machine`), made
@@ -42,6 +46,9 @@
 //!   set-up snapshot once that is ready (zero-setup hot start), keyed by the
 //!   chosen cloud environment (`cloud.startChat`'s `environment`; absent: the
 //!   personal Default).
+//! - `preflight --local FOLDER`: asked before any machine or lease is made for the send: every
+//!   absolute folder goes on, whatever its size; one past the copy's limits goes as a first pass
+//!   ([`preflight`], `sync_cli::size_cap`).
 //! - `import --entries JSON`: takes in the sends the App kept in its user
 //!   defaults before this did ([`Ledger::import`]), once, on upgrade.
 //!
@@ -54,7 +61,10 @@
 
 mod ledger;
 mod pick;
+mod preflight;
 mod project;
+#[cfg(test)]
+mod refusal_table_tests;
 mod reservations;
 mod spare_warm;
 #[cfg(test)]
@@ -73,13 +83,16 @@ use pick::{Candidate, Destination};
 const USAGE: &str = "usage: cmux link start-chat plan --request JSON\n       \
 cmux link start-chat pin --key KEY --account ACCOUNT --machine ID [--workspace ID]\n       \
 cmux link start-chat create-begin --key KEY --account ACCOUNT --name NAME --create-key CREATE_KEY\n       \
-cmux link start-chat create-sent --key KEY --account ACCOUNT --team TEAM --create-key CREATE_KEY\n       \
+cmux link start-chat create-sent --key KEY --account ACCOUNT --team TEAM --create-key CREATE_KEY [--route relay|direct]\n       \
 cmux link start-chat create-refused --key KEY --account ACCOUNT --create-key CREATE_KEY\n       \
 cmux link start-chat target-pane --key KEY --account ACCOUNT --machine ID --pane PANE\n       \
+cmux link start-chat strand --key KEY --account ACCOUNT --machine ID\n       \
 cmux link start-chat ensure --workspace ID --key KEY [--repo OWNER/NAME] [--project-key KEY] [--ref REF] [--environment env_ID] [--platform URL] (the cmux credential on stdin)\n       \
 cmux link start-chat import --entries JSON\n       \
+cmux link start-chat preflight --local FOLDER\n       \
 cmux link start-chat reserve|release|warm-spare --request JSON (the session credential, then the install token, on stdin), wait-copy --machine ID --provider P\n       \
-cmux link start-chat copy --key KEY --account ACCOUNT --machine ID --socket PATH --local FOLDER [--subpath PATH] --work-root PATH... [--acpmux-home PATH] [--store PLATFORM|default] (with --store, the cmux credential on stdin)";
+cmux link start-chat copy --key KEY --account ACCOUNT --machine ID --socket PATH --local FOLDER [--subpath PATH] --work-root PATH... [--acpmux-home PATH] [--store PLATFORM|default] [--on-seed-refusal copy|ask] (with --store, the cmux credential on stdin)\n       \
+cmux link start-chat trust --folder FOLDER --acpmux-home PATH";
 
 /// The error code a work root the machine's user cannot write answers with:
 /// the next root is tried.
@@ -126,9 +139,21 @@ pub(super) fn run(args: &[String]) -> i32 {
             }
         }
         "create-sent" => {
-            match (flags.key(), flags.account(), flags.one("--team"), flags.one("--create-key")) {
-                (Some(key), Some(account), Some(team), Some(create_key)) => {
-                    Some(create_sent(&ledger, &key, account, team, create_key))
+            // `--route relay|direct`: how the create goes out; not given, the relay.
+            let route = match flags.all("--route").as_slice() {
+                [] => Some(None),
+                [route] if ["relay", "direct"].contains(route) => Some(Some(*route)),
+                _ => None,
+            };
+            match (
+                flags.key(),
+                flags.account(),
+                flags.one("--team"),
+                flags.one("--create-key"),
+                route,
+            ) {
+                (Some(key), Some(account), Some(team), Some(create_key), Some(route)) => {
+                    Some(create_sent(&ledger, &key, account, team, create_key, route))
                 }
                 _ => None,
             }
@@ -147,6 +172,12 @@ pub(super) fn run(args: &[String]) -> i32 {
                 _ => None,
             }
         }
+        "strand" => match (flags.key(), flags.account(), flags.one("--machine")) {
+            (Some(key), Some(account), Some(machine)) => {
+                Some(strand(&ledger, &key, account, machine))
+            }
+            _ => None,
+        },
         "copy" => StartCopy::of(&flags).map(|copy| {
             // `--store PLATFORM|default`: through the content-addressed store, the cmux
             // credential on stdin; without one the copy goes over the link as before.
@@ -157,10 +188,16 @@ pub(super) fn run(args: &[String]) -> i32 {
                 eprintln!("{}", json!({"store": {"used": false, "error": error}}));
             }
             copy.run(&ledger, &|socket: &Path, local: &Path, remote: &str| {
-                push(socket, local, remote, &copy.subpath)
+                if copy.seed_only {
+                    push_seed_only(socket, local, remote, &copy.subpath, &copy.key)
+                } else {
+                    push(socket, local, remote, &copy.subpath, &copy.key)
+                }
             })
         }),
         "import" => flags.one("--entries").map(|entries| import(&ledger, entries)),
+        "preflight" => flags.one("--local").map(preflight::run),
+        "trust" => trust::cli(&flags),
         "ensure" => Ensure::of(&flags).map(|ensure| ensure.run(&mut std::io::stdin().lock())),
         "reserve" => {
             reservations::run(&flags, reservations::Action::Reserve, &mut std::io::stdin().lock())
@@ -206,8 +243,10 @@ impl Keys {
         }
     }
 
+    /// `create_routes`: this ledger keeps a sent create's route (`create-sent --route`), so the
+    /// App may send a person's own create direct; without it every create is the relay's.
     fn json(&self) -> Value {
-        json!({"create_key": self.create, "tab_key": self.tab, "remote_place": self.place})
+        json!({"create_key": self.create, "tab_key": self.tab, "remote_place": self.place, "create_routes": true})
     }
 }
 
@@ -260,8 +299,9 @@ pub(super) fn valid_workspace(workspace: &str) -> bool {
 }
 
 /// What `plan` reads: the send, the account it began in, the Mac workspace it
-/// came from, who is signed in, and the Cloud machines the App's list for
-/// that account named.
+/// came from, and the Cloud machines the App's list for that account named.
+/// (The App also sends who is signed in, `user`; no plan reads it now that a
+/// new send never reuses a listed machine.)
 #[derive(serde::Deserialize)]
 struct PlanRequest {
     key: String,
@@ -269,13 +309,12 @@ struct PlanRequest {
     /// The Mac workspace of the tab that sent; None for a send from no workspace.
     #[serde(default)]
     workspace: Option<String>,
-    #[serde(default)]
-    user: Option<String>,
     /// Whether the App has loaded its machine list: before it has, a machine
     /// a pin names is kept (it may be one made for this send, not listed yet).
     #[serde(default)]
     loaded: bool,
-    /// The machines the account's list named: the only ones a send may take.
+    /// The machines the account's list named: a pinned retry keeps one while it
+    /// is listed; a new send takes none, and their titles keep its name unique.
     #[serde(default)]
     machines: Vec<Candidate>,
     /// Machines in the App's store that its list did not name yet (made
@@ -299,6 +338,19 @@ struct PlanRequest {
     reservation_key: Option<String>,
     #[serde(default)]
     platform: Option<String>,
+    /// The size a new machine needs for the chat's folder (`preflight`'s `needed_size`: `md`, `lg`, `xl`); none or
+    /// `sm` is the platform's chat size. A larger one is never a warm spare: those are all `sm`.
+    #[serde(default)]
+    size: Option<String>,
+    /// The bytes the chat's folder or repository puts on the machine (`preflight`'s `estimate_bytes`), for a refusal
+    /// and a disk grown past the size's own (`disk_gib`).
+    #[serde(default)]
+    bytes: Option<u64>,
+    /// The largest size the account's plan gives, as the App read it (`cloudMachine.list` `plan.max_size`): with it a
+    /// size grows its disk (`disk_gib`, at most the plan's largest disk); none or a size off the ladder: not known, and
+    /// nothing grows.
+    #[serde(default)]
+    plan_max: Option<String>,
 }
 
 /// How `plan` asks the cmux platform for a workspace's machine: `ensure` with a credential.
@@ -330,7 +382,7 @@ fn plan_with_calls(
     ensure: EnsureCall<'_>,
     reservation: reservations::Transport<'_>,
 ) -> Value {
-    let request: PlanRequest = match serde_json::from_str(request) {
+    let mut request: PlanRequest = match serde_json::from_str(request) {
         Ok(request) => request,
         Err(error) => return refused("bad_request", error),
     };
@@ -339,6 +391,20 @@ fn plan_with_calls(
     }
     if !valid_account(&request.account) {
         return refused("bad_request", "the account is too long or has control characters");
+    }
+    if request
+        .size
+        .as_deref()
+        .is_some_and(|size| !matches!(size, "sm" | "md" | "lg" | "xl" | "2xl"))
+    {
+        return refused(
+            "bad_request",
+            "the size is not a Cloud machine size (sm, md, lg, xl, 2xl)",
+        );
+    }
+    // A machine larger than the chat size is never a warm spare (every spare is `sm`): no reservation goes for it.
+    if larger_than_chat(request.size.as_deref()) {
+        request.reservation_key = None;
     }
     let workspace = request.workspace.as_deref();
     if workspace.is_some_and(|workspace| !valid_workspace(workspace)) {
@@ -363,6 +429,7 @@ fn plan_with_calls(
             if !pending.refused {
                 return json!({"ok": true, "machine": null, "new_name": pending.name,
             "create_team": pending.team, "create_sent": pending.sent, "create_key": keys.create,
+            "create_route": pending.route, "create_routes": true,
             "tab_key": keys.tab, "remote_place": keys.place});
             }
         }
@@ -370,16 +437,8 @@ fn plan_with_calls(
         Err(error) => return refused("ledger_failed", format!("{error:#}")),
     }
     let planned = Ledger::update(ledger, |pins| {
-        let destination = pick::destination(
-            &send,
-            &request.account,
-            workspace,
-            pins,
-            &request.machines,
-            &request.stored,
-            request.user.as_deref(),
-            request.loaded,
-        );
+        let destination =
+            pick::destination(&send, pins, &request.machines, &request.stored, request.loaded);
         if let Destination::Machine(id) = &destination {
             pins.record(id, &send);
             // A retry of an older send keeps its machine, never the workspace's newer one,
@@ -410,16 +469,34 @@ fn plan_with_calls(
     let mut line = keys.json();
     let fields = match planned {
         Ok(Destination::Machine(id)) => {
-            let pane = match Ledger::update(ledger, |pins| pins.target_pane(&send, &id)) {
-                Ok(pane) => pane,
+            let (pane, made) = match Ledger::update(ledger, |pins| pins.retry_facts(&send, &id)) {
+                Ok(facts) => facts,
                 Err(error) => return refused("ledger_failed", format!("{error:#}")),
             };
-            json!({"ok": true, "machine": id, "target_pane": pane})
+            // A pinned machine whose disk the App's list names smaller than the size asked: nothing goes there.
+            let listed = request.machines.iter().find(|machine| machine.id == id);
+            let machine = preflight::Machine {
+                id: &id,
+                title: listed.map_or(id.as_str(), |machine| machine.title.as_str()),
+                disk_bytes: listed
+                    .and_then(|machine| u64::try_from(machine.disk_mb?).ok())
+                    .map(|mb| mb.saturating_mul(1024 * 1024)),
+            };
+            if let Some(refusal) =
+                preflight::too_small(request.size.as_deref(), request.bytes, &machine)
+            {
+                return refusal;
+            }
+            json!({"ok": true, "machine": id, "target_pane": pane, "ensured": made})
         }
         Ok(Destination::New) if ensures(&request, project_key.as_deref()) => {
             let ask = Ensure {
-                // A send from no Mac workspace is a workspace of its own.
-                workspace: workspace.map_or_else(|| keys.create.clone(), str::to_string),
+                // The send's own create key, never the Mac workspace's id: the platform binds
+                // one machine per workspace it is named, so a second chat from the same Mac
+                // workspace would get the first chat's machine back. Every new Cloud start is a
+                // workspace, and a machine, of its own; a retry of this send names the same key
+                // and so reaches the machine its first try made.
+                workspace: keys.create.clone(),
                 create_key: keys.create,
                 repo: repo.clone(),
                 // No project key: the platform binds one workspace per machine, never a project's shared one.
@@ -432,24 +509,64 @@ fn plan_with_calls(
                     .reservation_key
                     .as_ref()
                     .map(|_| request.key.to_lowercase()),
+                size: request.size.clone().filter(|_| larger_than_chat(request.size.as_deref())),
+                // Sent only with a size above the chat size (`body`).
+                disk_gib: preflight::grown_disk_gib(
+                    request.size.as_deref(),
+                    request.bytes,
+                    request.plan_max.as_deref(),
+                ),
             };
             let answer = if credential.0.is_empty() {
-                Err(crate::cli::PlatformCallError::Status { status: 401, code: "" })
+                Err(crate::cli::PlatformCallError::Status { status: 401, code: "", facts: None })
             } else {
                 ensure(&ask, credential.0)
             };
             match answer {
                 Ok(body) => {
+                    let disk = preflight::ensured_disk_bytes(&body);
+                    let body_title = ["/machine/name", "/machine/title", "/machine/slug"]
+                        .iter()
+                        .find_map(|pointer| body.pointer(pointer).and_then(Value::as_str))
+                        .map(str::to_owned);
                     let line = ensure_answer(Ok(body));
                     let Some(id) = line.get("machine").and_then(Value::as_str) else { return line };
-                    // Pinned before the App opens anything there, as a machine the App made.
+                    let made = line.get("created") == Some(&json!(true)); // pinned before the App opens anything there
                     if let Err(error) = Ledger::update(ledger, |pins| {
-                        pins.record(id, &send);
+                        pins.record_made(id, &send, made);
                         if let Some(workspace) = workspace {
                             pick::claim(pins, workspace, &request.account, id);
                         }
                     }) {
                         return refused("ledger_failed", format!("{error:#}"));
+                    }
+                    // The platform answers the workspace's machine at whatever size it is: one smaller than the size
+                    // asked takes no clone or copy (pinned above, so a retry reaches the same machine, never another).
+                    // The platform's answer names no machine: its name is the App's list's, else the id.
+                    let listed = request.machines.iter().find(|machine| machine.id == id);
+                    let machine = preflight::Machine {
+                        id,
+                        title: body_title
+                            .as_deref()
+                            .or(listed.map(|machine| machine.title.as_str()))
+                            .unwrap_or(id),
+                        disk_bytes: disk,
+                    };
+                    // The plan's largest size asked grown for a folder no size within the plan holds, made at a
+                    // disk below its floor (a platform that ignores `disk_gib`): the plan's size refusal, with its
+                    // upgrade, as a start past the plan's sizes gets from the platform.
+                    if let Some(refusal) = preflight::outgrown_plan(
+                        ask.size.as_deref(),
+                        request.bytes,
+                        request.plan_max.as_deref(),
+                        &machine,
+                    ) {
+                        return refusal;
+                    }
+                    if let Some(refusal) =
+                        preflight::too_small(ask.size.as_deref(), request.bytes, &machine)
+                    {
+                        return refusal;
                     }
                     json!({"ok": true, "machine": id, "ensured": {
                         "created": line.get("created"), "snapshot": line.get("snapshot"),
@@ -532,6 +649,11 @@ fn reservation_destination(
     json!({"ok": true, "machine": machine})
 }
 
+/// Whether `size` asks for more than the platform's chat size (`sm`, also what no size means).
+fn larger_than_chat(size: Option<&str>) -> bool {
+    size.is_some_and(|size| size != "sm")
+}
+
 /// Whether the send's new machine is the platform's workspace machine: the folder has a project key (a local folder),
 /// the account is the personal one (the App spells it `user/` with no team: workspace machines are made in
 /// the personal team) and the App handed over the credential.
@@ -548,10 +670,20 @@ fn ensures(request: &PlanRequest, project_key: Option<&str>) -> bool {
 
 /// Whether a failed ensure made no machine, so the App may make one: the platform has no workspace machines here (a
 /// 404 that is not a refused environment), refused the sign-in, has none configured, or admitted none.
+///
+/// Never a refusal of the platform's Cloud table (cmux-platform#1192) but a refused sign-in: a cap, the plan, a rate
+/// limit or a machine's state is the platform's answer for this send, final or retried with the same key, and the
+/// App's own create would only meet it again (a 403 at the team's VM limit went to that create and hit the limit).
 pub(super) fn made_no_machine(error: &crate::cli::PlatformCallError) -> bool {
     use crate::cli::PlatformCallError as E;
     match error {
         E::Status { code: "cloud_environment.not_found", .. } => false,
+        E::Status { code, .. }
+            if *code != "auth.forbidden"
+                && cmux_cloud_machine::refusals::platform(code).is_some() =>
+        {
+            false
+        }
         E::Status { status: 401 | 403 | 404, .. } => true,
         E::Status {
             code: "workspace_machine.unconfigured" | "workspace_machine.not_admitted",
@@ -674,7 +806,18 @@ pub(super) struct Ensure {
     platform: Option<String>,
     reservation_key: Option<String>,
     reservation_send_key: Option<String>,
+    /// The ladder size the chat's folder needs, sent only above the chat size ([`ENSURE_SIZE_FIELD`]).
+    size: Option<String>,
+    /// The disk in GiB the folder needs past that size's own ([`preflight::grown_disk_gib`], [`ENSURE_DISK_FIELD`]).
+    disk_gib: Option<u64>,
 }
+
+/// The ensure body's field for the machine's size (a ladder name; omitted for `sm`, so an older platform is unaffected).
+pub(super) const ENSURE_SIZE_FIELD: &str = "size";
+/// The ensure body's field for a disk grown past the size's own, in GiB (additive: a platform that does not know it
+/// ignores it and makes the size's own disk, which goes on while it holds the folder and the reserve, and is otherwise
+/// the plan's size refusal, [`preflight::outgrown_plan`]).
+pub(super) const ENSURE_DISK_FIELD: &str = "disk_gib";
 
 impl Ensure {
     fn of(flags: &Flags) -> Option<Self> {
@@ -714,6 +857,8 @@ impl Ensure {
             platform: optional("--platform")?,
             reservation_key: None,
             reservation_send_key: None,
+            size: None,
+            disk_gib: None,
         })
     }
 
@@ -735,6 +880,12 @@ impl Ensure {
         }
         if let Some(environment) = &self.environment {
             body.set("environment", json!(environment));
+        }
+        if let Some(size) = &self.size {
+            body.set(ENSURE_SIZE_FIELD, json!(size));
+            if let Some(disk_gib) = self.disk_gib {
+                body.set(ENSURE_DISK_FIELD, json!(disk_gib));
+            }
         }
         body
     }
@@ -874,16 +1025,21 @@ pub(super) fn ensure_answer(answer: Result<Value, crate::cli::PlatformCallError>
                 None => refused("bad_answer", "the cmux platform answered without the machine"),
             }
         }
-        Err(E::Status { status: 404, code: "" | "not_found" }) => {
+        Err(E::Status { status: 404, code: "" | "not_found", .. }) => {
             refused("unavailable", "this cmux platform has no workspace machines (it answered 404)")
         }
-        Err(E::Status { status, code }) => refused(
-            if code.is_empty() { "refused" } else { code },
-            format!(
-                "the cmux platform refused the workspace's machine: {}",
-                format!("{status} {code}").trim_end()
-            ),
-        ),
+        Err(E::Status { status, code, facts }) => {
+            let mut line = refused(
+                if code.is_empty() { "refused" } else { code },
+                format!(
+                    "the cmux platform refused the workspace's machine: {}{}",
+                    format!("{status} {code}").trim_end(),
+                    crate::cli::platform_refusal_reason(code, facts.as_ref())
+                ),
+            );
+            with_handling(&mut line, status, code, facts);
+            line
+        }
         Err(E::Unreachable(reason)) => {
             refused("unreachable", format!("the cmux platform did not answer: {reason}"))
         }
@@ -891,6 +1047,47 @@ pub(super) fn ensure_answer(answer: Result<Value, crate::cli::PlatformCallError>
             "bad_answer",
             format!("the cmux platform answered {status} with no readable body"),
         ),
+    }
+}
+
+/// Adds to a refused `line` how the refusal is handled: final (shown, never retried), a rate
+/// limit's wait (`retry_after_s`: the body's `retryAfterSeconds`, the Retry-After header or
+/// `details.retry_after_ms`), or a retry with the same key. The body's `retryable` decides for
+/// any code, in the platform's Cloud table or not (a workspace's 503
+/// `machine.placement_unavailable`); a code of the table with no flag takes its row's. A code of
+/// neither, with no flag, adds nothing: the App reads the code alone, as before.
+pub(super) fn with_handling(
+    line: &mut Value,
+    status: u16,
+    code: &str,
+    facts: Option<cmux_cloud_machine::refusals::Facts>,
+) {
+    use cmux_cloud_machine::refusals::{self, Handling};
+    let facts = facts.unwrap_or_default();
+    let Value::Object(object) = line else { return };
+    // A size the plan does not give: the size asked, the largest the plan gives and the plan that lifts it, for the
+    // App's start card (`cloud_size_locked`).
+    if code == "cloud.size.locked" {
+        // Only what the platform said: an absent `upgrade_plan` is not `nothing`.
+        let sizes = [
+            ("needed", facts.needed.map(|size| json!(size))),
+            ("allowed", facts.allowed.map(|size| json!(size))),
+            ("upgrade_plan", facts.upgrade_plan.map(|plan| json!(plan))),
+        ];
+        let sizes: serde_json::Map<String, Value> = sizes
+            .into_iter()
+            .filter_map(|(key, value)| value.map(|value| (key.to_owned(), value)))
+            .collect();
+        object.insert("size_locked".into(), Value::Object(sizes));
+    }
+    if refusals::platform(code).is_none() && facts.retryable.is_none() {
+        return;
+    }
+    let handling = refusals::handling(status, Some(code), facts.retryable);
+    object.insert("handling".into(), json!(handling));
+    object.insert("retryable".into(), json!(handling != Handling::Final));
+    if handling == Handling::RetryAfter {
+        object.insert("retry_after_s".into(), json!(facts.wait_s()));
     }
 }
 
@@ -911,7 +1108,7 @@ pub(super) fn pin(
     match Ledger::update(ledger, |pins| {
         let send = Send::new(key, account);
         let before = pins.machine(&send);
-        pins.record(machine, &send);
+        pins.record_pin(machine, &send);
         if let Some(workspace) = workspace {
             let repick = before.as_deref().is_some_and(|before| {
                 before != machine
@@ -939,9 +1136,16 @@ fn create_begin(ledger: &Path, key: &str, account: &str, name: &str, create_key:
     }
 }
 
-fn create_sent(ledger: &Path, key: &str, account: &str, team: &str, create_key: &str) -> Value {
+fn create_sent(
+    ledger: &Path,
+    key: &str,
+    account: &str,
+    team: &str,
+    create_key: &str,
+    route: Option<&str>,
+) -> Value {
     match Ledger::update(ledger, |pins| {
-        pins.mark_create_sent(&Send::new(key, account), team, create_key)
+        pins.mark_create_sent(&Send::new(key, account), team, create_key, route)
     }) {
         Ok(true) => json!({"ok": true}),
         Ok(false) => refused("not_found", "no pending create"),
@@ -967,6 +1171,17 @@ fn target_pane(ledger: &Path, key: &str, account: &str, machine: &str, pane: &st
     }
 }
 
+/// `strand`: the start of the send `key` can't go on and gives up `machine`, the one made for it
+/// ([`Ledger::strand`]). `delete`: true only when no other send is on it, so the App may delete
+/// it; false keeps it for the other sends. A ledger that can't be read answers not ok, and the
+/// App deletes nothing.
+pub(super) fn strand(ledger: &Path, key: &str, account: &str, machine: &str) -> Value {
+    match Ledger::update(ledger, |pins| pins.strand(&Send::new(key, account), machine)) {
+        Ok(delete) => json!({"ok": true, "delete": delete}),
+        Err(error) => refused("ledger_failed", format!("{error:#}")),
+    }
+}
+
 /// `import`: the sends the App kept before cmux-tui did, a JSON list of its
 /// entries ([`ledger::AppEntry`]).
 pub(super) fn import(ledger: &Path, entries: &str) -> Value {
@@ -983,7 +1198,7 @@ pub(super) fn import(ledger: &Path, entries: &str) -> Value {
 /// One push of a folder to a machine: `(socket, local, remote)` to what the
 /// answer adds about it ([`pushed_fields`]), or the push's error code and
 /// message.
-pub(super) type Push<'a> = dyn Fn(&Path, &Path, &str) -> Result<Value, (String, String)> + 'a;
+pub(super) type Push<'a> = dyn Fn(&Path, &Path, &str) -> Result<Value, Value> + 'a;
 
 /// `cmux link seed push` (design/cloud.md, "Getting the project onto the
 /// machine"): a git folder with a GitHub remote is seeded from it, anything
@@ -994,16 +1209,84 @@ pub(super) type Push<'a> = dyn Fn(&Path, &Path, &str) -> Result<Value, (String, 
 /// chat still sees the whole checkout. The send's copy counts as finished then
 /// ([`StartCopy::run`]): the chat may open in that folder, so a retry of the send
 /// never pushes over it. What a later delta builds on waits for the fill to be
-/// done (`seed_cli`'s record).
+/// done (`seed_cli`'s record). A folder outside git that the machine has nothing of
+/// takes the held copy (`seed_cli::held`), which answers at its head the same way.
+/// A projection goes before all of these ([`project_first`]).
 fn push(
     socket: &Path,
     local: &Path,
     remote: &str,
     subpath: &str,
-) -> Result<Value, (String, String)> {
-    super::seed_cli::push(socket, local, remote, Some(subpath))
+    chat: &str,
+) -> Result<Value, Value> {
+    projected_or(
+        || project_first(socket, local, remote, chat),
+        || super::seed_cli::push(socket, local, remote, Some(subpath)),
+    )
+}
+
+/// The projection when `project` makes one, else `seed_or_copy`'s push: the head-first
+/// seed or held copy with the chat's subpath, which opens the chat at its head while the
+/// machine fills the rest, never the whole copy first. A machine without `projection-v1`
+/// (every one whose image predates it) takes that path.
+fn projected_or(
+    project: impl FnOnce() -> Option<Result<Value, Value>>,
+    seed_or_copy: impl FnOnce() -> anyhow::Result<super::seed_cli::Pushed>,
+) -> Result<Value, Value> {
+    if let Some(projected) = project() {
+        return projected;
+    }
+    seed_or_copy()
         .map(|pushed| pushed_fields(&pushed.json()))
         .map_err(|error| super::seed_cli::failure(&error))
+}
+
+/// An attached folder is projected when that is on, whatever its size or whether it is a git
+/// repository (sync_cli/project.rs); only a GitHub repository the person picked is cloned: the chat
+/// opens on all of it at once, its files read from this Mac on first use. None when it is not, and for any failure to project, so the
+/// caller seeds or copies as before (head first). Both pushes try it first: the App's first copy asks
+/// (`--on-seed-refusal ask`), and a folder its machine's disk cannot hold would end there,
+/// refused, before a projection that needs no room was tried.
+fn project_first(
+    socket: &Path,
+    local: &Path,
+    remote: &str,
+    chat: &str,
+) -> Option<Result<Value, Value>> {
+    match super::sync_cli::project::start(socket, local, remote, chat) {
+        Ok(Ok(answer)) => {
+            Some(Ok(json!({"mode": "projected", "projected": answer.get("data").cloned()})))
+        }
+        Ok(Err(why)) => {
+            eprintln!(
+                "cmux link start-chat: {} is not projected ({why:?}); seeding or copying it",
+                local.display()
+            );
+            None
+        }
+        Err(error) => {
+            eprintln!(
+                "cmux link start-chat: projecting {} failed: {error:#}; seeding or copying it",
+                local.display()
+            );
+            None
+        }
+    }
+}
+
+/// [`push`] that never copies: a refused seed is `seed_refused`
+/// (`--on-seed-refusal ask`). A projection is no copy: it is tried first, as in [`push`].
+fn push_seed_only(
+    socket: &Path,
+    local: &Path,
+    remote: &str,
+    subpath: &str,
+    chat: &str,
+) -> Result<Value, Value> {
+    projected_or(
+        || project_first(socket, local, remote, chat),
+        || super::seed_cli::push_seed_only(socket, local, remote, Some(subpath)),
+    )
 }
 
 /// What the copy's answer carries of the push's own line: how it went
@@ -1075,6 +1358,9 @@ pub(super) struct StartCopy {
     pub(super) work_roots: Vec<String>,
     /// This Mac's acpmux home (`--acpmux-home`) for `source_trusted`; none: never trusted.
     pub(super) acpmux_home: Option<PathBuf>,
+    /// `--on-seed-refusal ask`: a refused seed is `seed_refused` and nothing
+    /// is copied, so the person decides; `copy` (the default) copies.
+    pub(super) seed_only: bool,
 }
 
 impl StartCopy {
@@ -1100,6 +1386,11 @@ impl StartCopy {
             subpath,
             work_roots,
             acpmux_home: trust::acpmux_home(flags),
+            seed_only: match flags.all("--on-seed-refusal").as_slice() {
+                [] | ["copy"] => false,
+                ["ask"] => true,
+                _ => return None,
+            },
         })
     }
 
@@ -1208,7 +1499,7 @@ impl StartCopy {
             Ok(None) => {}
             Err(error) => return refused("ledger_failed", format!("{error:#}")),
         }
-        let mut last = ("sync_failed".to_string(), "no work root to copy to".to_string());
+        let mut last = refused("sync_failed", "no work root to copy to");
         for root in &self.work_roots {
             let (folder, chat) = self.remote(root, &place);
             match push(&self.socket, Path::new(&self.local), &folder) {
@@ -1232,7 +1523,8 @@ impl StartCopy {
                     };
                 }
                 Err(failure) => {
-                    let next = failure.0 == PERMISSION_DENIED;
+                    let next =
+                        failure.get("error_code").is_some_and(|code| *code == PERMISSION_DENIED);
                     last = failure;
                     // Not this machine's home (an image without the work user): the next root.
                     if !next {
@@ -1241,7 +1533,7 @@ impl StartCopy {
                 }
             }
         }
-        refused(&last.0, last.1)
+        last
     }
 
     fn cached_copy(&self, pins: &Ledger, send: &Send, chat: &str) -> Value {
@@ -1304,19 +1596,14 @@ fn join(base: &str, name: &str) -> String {
     if base.ends_with('/') { format!("{base}{name}") } else { format!("{base}/{name}") }
 }
 
-/// A copied folder's name on a machine: its own name and a short hash
-/// (32-bit FNV-1a, low 24 bits) of where it is on this Mac, so two folders
-/// with one name never share a copy. The same name Move to Cloud gives
-/// (`CloudMoveFolder.remoteName`).
+/// A copied folder's name on a machine: its own name, as on this Mac. Two folders with one
+/// name never share a copy, as each copy has its own place (Move to Cloud, which has none,
+/// keeps its hashed name: `CloudMoveFolder.remoteName`).
 pub(super) fn remote_name(root: &str) -> String {
-    let mut hash: u32 = 0x811c_9dc5;
-    for byte in root.bytes() {
-        hash ^= u32::from(byte);
-        hash = hash.wrapping_mul(0x0100_0193);
-    }
+    // The folder's own name: each copy already has a place of its own (`fresh_place`), so the
+    // chat sees `cmuxterm-hq`, as on the Mac, not a name with a hash after it.
     let name = root.trim_end_matches('/').rsplit('/').next().unwrap_or("");
-    let name = if name.is_empty() { "folder" } else { name };
-    format!("{name}-{:06x}", hash & 0x00ff_ffff)
+    if name.is_empty() { "folder".to_owned() } else { name.to_owned() }
 }
 
 /// `--flag value` pairs; a flag may repeat (`--work-root`).

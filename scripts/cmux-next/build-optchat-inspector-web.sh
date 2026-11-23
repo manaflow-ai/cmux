@@ -6,6 +6,7 @@ set -eu
 ROOT="$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)"
 OUT="$ROOT/Native/OptChat/optchat-chief/inspector/index.html"
 MODE=build
+REPORT_DIR="${CMUX_BUNDLE_REPORT_DIR:-}"
 if [ "$#" -gt 0 ]; then
   case "$1" in
     --check) MODE=check ;;
@@ -21,8 +22,13 @@ command -v bun >/dev/null 2>&1 || { echo "error: bun is required" >&2; exit 1; }
 WORK="$(mktemp -d)"; trap 'rm -rf "$WORK"' EXIT
 cd "$ROOT/webviews"
 [ -d node_modules ] || bun install --frozen-lockfile >/dev/null
+metafile_args=""
+if [ -n "$REPORT_DIR" ]; then
+  mkdir -p "$REPORT_DIR"
+  metafile_args="--metafile=$REPORT_DIR/optchat-inspector.json"
+fi
 bun x esbuild src/optchat-inspector/main.tsx --bundle --format=esm --platform=browser --target=es2022 --minify \
-  --define:process.env.NODE_ENV='"production"' --outfile="$WORK/app.js" --log-level=warning
+  --define:process.env.NODE_ENV='"production"' --outfile="$WORK/app.js" --log-level=warning $metafile_args
 CSP="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'self'"
 {
   printf '<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8" />\n<meta http-equiv="Content-Security-Policy" content="%s" />\n<meta name="viewport" content="width=device-width, initial-scale=1" />\n<title>Chief Memory Inspector</title>\n<style>\n' "$CSP"

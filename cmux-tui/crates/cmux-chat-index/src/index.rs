@@ -14,7 +14,7 @@ use crate::adapters::{PathRole, classify_path};
 use crate::entry::{ChatEntry, ChatKey};
 use crate::roots::ChatRoot;
 use crate::scan::{RootScan, read_file, scan_root};
-use crate::stamp::FileStamp;
+use crate::stamp::{FileStamp, FileState};
 use crate::store_file;
 
 // 2: Codex rollouts count their typed prompts from message items (current Codex writes no
@@ -117,8 +117,20 @@ impl ChatIndex {
     /// Writes the cache (mode 0600). Titles are user data; nothing else of a
     /// transcript is stored.
     pub fn save(&self, cache: &Path) -> io::Result<()> {
+        self.save_with(cache, &store_file::write_private)
+    }
+
+    /// [`Self::save`] through `write` ([`crate::write_private`]'s shape): the caller's own way to
+    /// write the file (acpmux writes under the home it holds through the folder it locked).
+    pub fn save_with(
+        &self,
+        cache: &Path,
+        write: &dyn Fn(&Path, &[u8]) -> io::Result<()>,
+    ) -> io::Result<()> {
         let roots = self.slots.iter().map(|slot| (slot.root.id(), slot.scan.clone())).collect();
-        store_file::write_json_private(cache, &CacheFile { version: CACHE_VERSION, roots })
+        let bytes = serde_json::to_vec(&CacheFile { version: CACHE_VERSION, roots })
+            .map_err(io::Error::other)?;
+        write(cache, &bytes)
     }
 
     /// Replaces the root set, keeping scans of roots that stay.
@@ -363,9 +375,12 @@ impl ChatIndex {
 }
 
 fn rescan(slot: &mut Slot) {
-    let prior = slot.scan.files.iter().cloned().collect();
-    if let Ok(scan) = scan_root(&slot.root.config(), &prior) {
-        slot.scan = scan;
+    // Moved, not cloned: each state holds its kept read.
+    let prior: HashMap<PathBuf, FileState> =
+        std::mem::take(&mut slot.scan.files).into_iter().collect();
+    match scan_root(&slot.root.config(), &prior) {
+        Ok(scan) => slot.scan = scan,
+        Err(_) => slot.scan.files = prior.into_iter().collect(),
     }
 }
 

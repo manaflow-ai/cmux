@@ -1,6 +1,6 @@
 // l10n-allow-file: gallery fixtures (a prompt, a reply and model names), not shipped UI.
-// A prompt's action row (its age, Copy, Retry and Retry's model chevron) above a reply's footer
-// (Copy, Retry and its chevron, Pin, Read aloud, its time), drawn with one button box and one glyph
+// A prompt's action row (its age, Copy and Pin) above a reply's footer. Failed recovery retains
+// Retry and its model chevron; completed replies omit that split control. Both rows use one button box and glyph
 // for both (conversation.css --cv-action-*). Leo, 2026-11-08: "the symbols for yours and the
 // symbols for mine, the sizes are different. Like mine are a bit bigger than yours" and, of Retry's
 // model chevron, "on the left side, it's too tucked in, and on the right side, it's too far away.
@@ -15,7 +15,7 @@ import type { Play } from "../../../gallery/play";
 import type { AcpmuxRow } from "../model";
 
 /// `gap`: the chevron gap tried; `boxes`: outline each button box; `sentSeconds`: the prompt's age.
-type Props = { gap?: number; boxes?: boolean; sentSeconds?: number };
+type Props = { gap?: number; boxes?: boolean; sentSeconds?: number; failed?: boolean };
 
 const models = [
   { id: "opus", name: "Opus 5.5" },
@@ -31,7 +31,7 @@ const prompt: AcpmuxRow = {
   text: "Add retry with backoff to the uploader",
 };
 
-// The chat's last turn: its footer carries Retry and the model chevron (turns.ts retryTarget).
+// The chat's last turn: the failed-recovery variants add Retry and its model chevron.
 const footer: AcpmuxRow = {
   id: "summary-1",
   version: 1,
@@ -44,10 +44,11 @@ const footer: AcpmuxRow = {
   retryTarget: true,
   prompt: prompt.text,
   retryRowId: prompt.id,
+  seq: 2,
 };
 
 const pointRetry: Play = async (ctx) => {
-  await ctx.hover({ selector: ".cv-user__actions .cv-message-retry > .cv-iconbtn:first-child" });
+  await ctx.hover({ selector: ".cv-turn-actions .cv-turn-retry > .cv-iconbtn:first-child" });
 };
 
 export default componentEntry<Props>({
@@ -67,8 +68,10 @@ export default componentEntry<Props>({
     const actions = {
       retry: () => {},
       retryWith: { models, current: "opus", harness: "Claude Code", retry: () => {} },
+      fork: () => {},
+      forkSeq: 2,
     };
-    return function GalleryMessageActionRows({ gap, boxes, sentSeconds }: Props) {
+    return function GalleryMessageActionRows({ gap, boxes, sentSeconds, failed }: Props) {
       const sent = sentSeconds === undefined ? prompt : { ...prompt, at: GALLERY_NOW - sentSeconds * 1000 };
       const style = gap === undefined ? undefined : ({ "--cv-action-chevron-gap": `${gap}px` } as CSSProperties);
       return (
@@ -82,7 +85,7 @@ export default componentEntry<Props>({
             {boxes && (
               <style>{`.cv-gallery-action-boxes .cv-iconbtn { outline: 1px dashed color-mix(in srgb, var(--cv-text-muted) 60%, transparent); outline-offset: -1px; }`}</style>
             )}
-            {/* The prompt's row keeps its Retry in the Messages view (MessageActions.tsx PromptActions). */}
+            {/* Resend stays out of the prompt's row in either presentation. */}
             <PresentationContext.Provider value="messages">
               <div
                 className="cv-user"
@@ -99,7 +102,7 @@ export default componentEntry<Props>({
               className="acpmux-row acpmux-turnSummary acpmux-row--final-footer"
               style={{ position: "relative", insetInline: 0, contain: "layout" }}
             >
-              <TurnFooter row={footer} />
+              <TurnFooter row={failed ? { ...footer, status: "failed", error: "The request failed." } : footer} />
             </div>
           </div>
         </TurnActionsContext.Provider>
@@ -110,24 +113,28 @@ export default componentEntry<Props>({
   variants: {
     tight: {
       note: "2px from Retry's glyph to its chevron, the reply footer's before: the chevron reads as part of Retry's glyph.",
-      props: { gap: 2, boxes: true },
+      props: { gap: 2, boxes: true, failed: true },
     },
     snug: {
       note: "4px, Retry's own inset: the chevron sits as close to Retry as Retry's box edge, one split control with the same room on each end.",
-      props: { gap: 4, boxes: true },
+      props: { gap: 4, boxes: true, failed: true },
     },
     even: {
       note: "6px: between the two, the chevron starts to read as its own button.",
-      props: { gap: 6, boxes: true },
+      props: { gap: 6, boxes: true, failed: true },
     },
     loose: {
       note: "12px, the prompt row's before (a full 28 box for a 16 chevron): the chevron reads as a separate control.",
-      props: { gap: 12, boxes: true },
+      props: { gap: 12, boxes: true, failed: true },
     },
     pointed: {
-      note: "The shipped gap, Retry under the pointer: one hover box over Retry and its chevron, 4px of room at each end.",
-      props: {},
+      note: "Failed recovery: Retry under the pointer, one hover box over Retry and its model chevron, 4px of room at each end.",
+      props: { failed: true },
       play: pointRetry,
+    },
+    completed: {
+      note: "Completed turns keep Copy, Fork and the other actions, with resend in the message menu rather than inline.",
+      props: {},
     },
     "just-now": {
       note: 'A prompt sent half a minute ago: "just now" in the same box "1 minute ago" takes when the minute turns, set against Copy, so nothing moves as it ticks.',

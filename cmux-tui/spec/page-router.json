@@ -54,22 +54,25 @@
       ]
     },
     "apps": {
-      "description": "App Store. Reads the catalog and the installed-app panels (grants, logs, icons). Hide/Show and revoking a scope need the person's gesture (they never widen what an app may do); an install, uninstall, allowed scope or other change needs the person's confirmation on a native sheet (never a click alone: a change can turn off an app's sandbox). It hears apps-changed, so an open page shows an install, removal or instance change made elsewhere (the CLI, another window) without a reload.",
+      "description": "App Store. Reads the catalog and the installed-app panels (grants, logs, icons). Hide/Show, revoking a scope and an install need the person's gesture: an install's Install click is its consent, with what the app may do shown on its listing before the click, and it never turns off the sandbox or allows an optional scope (Leo, 2026-11-16: \"if i click install it means it works\"). An uninstall, allowed scope or other change needs the person's confirmation on a native sheet (never a click alone: a change can turn off an app's sandbox). It hears apps-changed, so an open page shows an install, removal or instance change made elsewhere (the CLI, another window) without a reload.",
       "read": [
         "apps.catalog.list",
         "apps.catalog.get",
+        "apps.catalog.sections",
         "apps.installed.list",
+        "apps.updates.list",
         "apps.grants.get",
         "apps.logs",
         "apps.asset.get"
       ],
       "gesture": [
         "apps.hidden.set",
-        "apps.grant.revoke"
+        "apps.grant.revoke",
+        "apps.install"
       ],
       "confirm": [
         "apps.set",
-        "apps.install",
+        "apps.update",
         "apps.uninstall",
         "apps.grant.set"
       ],
@@ -97,17 +100,6 @@
       "gesture": [
         "bookmarks.apply"
       ],
-      "confirm": [],
-      "events": [
-        "bookmarks-changed"
-      ]
-    },
-    "bookmarks-bar": {
-      "description": "The bookmarks bar under a browser tab's toolbar. Reads only what it draws (the bar's row, whether Other Bookmarks has any, a folder menu's subtree on a click) with bookmarks.children; a link dropped on it or an item dragged along it is written by the app (which keeps its own copy and the last folder up to date), never by the page; it hears bookmarks-changed and re-reads its row.",
-      "read": [
-        "bookmarks.children"
-      ],
-      "gesture": [],
       "confirm": [],
       "events": [
         "bookmarks-changed"
@@ -158,7 +150,9 @@
       "read": [
         "apps.catalog.list",
         "apps.catalog.get",
+        "apps.catalog.sections",
         "apps.installed.list",
+        "apps.updates.list",
         "apps.grants.get",
         "apps.logs",
         "apps.asset.get"
@@ -166,6 +160,7 @@
       "mutation": [
         "apps.set",
         "apps.install",
+        "apps.update",
         "apps.uninstall",
         "apps.hidden.set",
         "apps.grant.set",

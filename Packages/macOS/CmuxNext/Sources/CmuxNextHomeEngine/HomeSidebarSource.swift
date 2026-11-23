@@ -290,6 +290,13 @@ public final class HomeSidebarSource {
         return true
     }
 
+    /// Lists `id` again after ``hide(_:)`` (its toast's Undo), across launches too.
+    public func unhide(_ id: ConversationID) {
+        hidden = store.hidden(account: account())
+        guard hidden.removeValue(forKey: id) != nil else { return }
+        store.save(hidden: hidden, account: account())
+    }
+
     /// Lists every deleted conversation again; returns how many were hidden.
     @discardableResult
     public func unhideAll() -> Int {

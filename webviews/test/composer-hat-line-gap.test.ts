@@ -11,6 +11,10 @@
 // sits on need not span the tab's column: a narrow pane's card and queue reach 8 px past it, and
 // Codex's location strip sits 22 px inside it, so with the handle at the left or the right the gap
 // must still land under the pill there; and a queue's or strip's gap moves with the pill's width.
+// Beside the pill, over the card's line, the hat draws nothing of its own (Leo, 2026-11-11: "did this
+// line behind the count box get removed yet?"): the pill's old 8px stubs ran 2px over the card's line
+// and poked out on both sides as a second line behind the count. `bridge-before` (those stubs drawn
+// again, gallery only) must fail that check, so the check sees the stubs it guards against.
 // CI fails the file when it cannot launch (requireBrowserLane). Locally:
 // CMUX_BROWSER_TESTS=1 bun test test/composer-hat-line-gap.test.ts
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -105,7 +109,7 @@ await requireBrowserLane("composer-hat-line-gap.test.ts", async () => {
   const diff = (a: PNG, b: PNG, from: number, to: number) => {
     let most = 0;
     for (let y = 0; y < a.height; y += 1)
-      for (let x = Math.round(from * SCALE); x < Math.round(to * SCALE); x += 1)
+      for (let x = Math.max(0, Math.round(from * SCALE)); x < Math.min(a.width, Math.round(to * SCALE)); x += 1)
         for (let c = 0; c < 3; c += 1) {
           const i = (y * a.width + x) * 4 + c;
           most = Math.max(most, Math.abs(a.data[i]! - b.data[i]!));
@@ -126,10 +130,21 @@ await requireBrowserLane("composer-hat-line-gap.test.ts", async () => {
     const plain = await shot(page, band);
     await bare.evaluate((node) => (node as HTMLStyleElement).remove());
     const width = band.right - band.left;
+    // Beside the pill, 1-12px out from each side, from its top down to just over the card's line: the
+    // same page with the pill not drawn must match, so the pill hangs no line out past its rim.
+    const side = { left: pill.left - 12, right: pill.right + 12, top: pill.top, bottom: card.top - 1 };
+    const withPill = await shot(page, side);
+    const hidden = await page.addStyleTag({ content: ".acpmux-tray-pull { visibility: hidden !important; }" });
+    const withoutPill = await shot(page, side);
+    await hidden.evaluate((node) => (node as HTMLStyleElement).remove());
+    // The shot's own width: a clip at a fractional edge comes back a device pixel narrower.
+    const sideWidth = withPill.width / SCALE;
     return {
       inside: diff(drawn, plain, 8 + 2, width - 8 - 2),
       left: diff(drawn, plain, 8 - 6, 8 - 2),
       right: diff(drawn, plain, width - 8 + 2, width - 8 + 6),
+      besideLeft: diff(withPill, withoutPill, 0, 12 - 1),
+      besideRight: diff(withPill, withoutPill, sideWidth - 12 + 1, sideWidth),
     };
   };
   const measure = async (variant: string, theme: string) => {
@@ -142,6 +157,8 @@ await requireBrowserLane("composer-hat-line-gap.test.ts", async () => {
     expect(seen.inside, `${label}: the card's line paints nothing inside the pill`).toBeLessThanOrEqual(3);
     expect(seen.left, `${label}: the line still runs up to the pill's left rim`).toBeGreaterThan(6);
     expect(seen.right, `${label}: the line still runs up to the pill's right rim`).toBeGreaterThan(6);
+    expect(seen.besideLeft, `${label}: no line of the pill's own pokes out on its left`).toBeLessThanOrEqual(3);
+    expect(seen.besideRight, `${label}: no line of the pill's own pokes out on its right`).toBeLessThanOrEqual(3);
   };
 
   const THEMES = ["Catppuccin Mocha", "Apple System Colors Light"];
@@ -164,6 +181,10 @@ await requireBrowserLane("composer-hat-line-gap.test.ts", async () => {
       "line-queue",
       "line-queue-many",
       "line-queue-narrow-left",
+      // The pill's place on the line (gallery candidates): neither hangs a line out past the pill.
+      // (bridge-perched sits on the line, so the line runs under its foot: not this check's shape.)
+      "bridge-none",
+      "bridge-seated",
     ])
       test(`${theme}, ${variant}: no line behind the pill's glass, the line runs up to its rim`, async () => {
         clean(await measure(variant, theme), `${theme}, ${variant}`);
@@ -172,6 +193,12 @@ await requireBrowserLane("composer-hat-line-gap.test.ts", async () => {
     test(`${theme}, line-before: the check sees the line through the old pill`, async () => {
       const seen = await measure("line-before", theme);
       expect(seen.inside, "the old pairing draws the card's line through the pill").toBeGreaterThan(6);
+    });
+
+    test(`${theme}, bridge-before: the check sees the old stubs beside the pill`, async () => {
+      const seen = await measure("bridge-before", theme);
+      expect(seen.besideLeft, "the old stub pokes out on the pill's left").toBeGreaterThan(6);
+      expect(seen.besideRight, "the old stub pokes out on the pill's right").toBeGreaterThan(6);
     });
   }
 

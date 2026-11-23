@@ -8,6 +8,7 @@ use super::MessageWriter;
 use super::OutboundStream;
 use super::ResourceWorkerPermit;
 use super::journal_filter::{JournalCompiledRegex, JournalStreamFilter};
+use super::message_writer::long_connection::stream_start_error;
 use super::register_resource_outbound;
 use super::resource_session_id;
 use super::resource_stream_end;
@@ -184,6 +185,22 @@ pub(super) fn handle_journal_extension_request(
                         })?;
                     mux.note_agent_question(&terminal, question).then_some(terminal)
                 });
+            // An approval hook's approval rides the same way, for the phone's Allow / Deny card.
+            let approval = request
+                .fields
+                .get("live_approval")
+                .and_then(Value::as_str)
+                .filter(|_| ingress.producer_id == crate::AGENT_HOOK_PRODUCER_ID)
+                .and_then(|approval| {
+                    let terminal = ingress
+                        .subjects
+                        .iter()
+                        .find(|subject| subject.kind == "terminal")
+                        .and_then(|subject| {
+                            crate::resource::TerminalPublicId::parse(subject.id.clone()).ok()
+                        })?;
+                    mux.note_agent_approval(&terminal, approval).then_some(terminal)
+                });
             let idempotency_key = super::wire_values::required_idempotency_key(request)?;
             let appended = mux.append_journal_ingress(&ingress, origin, idempotency_key);
             if let Some((terminal, previous)) = noted
@@ -201,6 +218,9 @@ pub(super) fn handle_journal_extension_request(
             }
             if let Some(terminal) = question {
                 mux.forget_noted_agent_question(&terminal);
+            }
+            if let Some(terminal) = approval {
+                mux.forget_noted_agent_approval(&terminal);
             }
             appended
                 .map(|commit| {
@@ -520,7 +540,7 @@ pub(super) fn prepare_session_journal_stream(
     );
     let outbound = writer
         .start_stream(&overflow)
-        .map_err(|_| ResourceError::transport_closed("could not allocate an outbound stream"))?;
+        .map_err(|error| stream_start_error("session.journal.subscribe", &error))?;
     let (canceled, worker_permit) = register_resource_outbound(
         mux,
         client,

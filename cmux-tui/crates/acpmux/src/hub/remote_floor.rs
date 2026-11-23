@@ -34,6 +34,15 @@ pub(crate) struct FloorState {
     /// The last turn was a Web turn: an agent request between turns is
     /// held to the floor.
     pub(super) last_turn_web: AtomicBool,
+    /// The paired device that drove the last Web turn (`TurnInfo::device`, set and narrowed
+    /// beside `last_turn_web`), read between turns: the owner's phone with Full access keeps the
+    /// chat's mode for its agent's background work too (a helper the turn started that runs on
+    /// after it), as it does inside the turn (`Hub::remote_floor_breach`). None for a Local turn
+    /// and a Web turn more than one client touched; logged with the turn (`turn_started`,
+    /// `turn_control` `device`), so a restart reads it back (`hosts.rs`). Leo,
+    /// 2026-11-21, after his phone's prompt to a bypass chat refused every helper's tool call:
+    /// "i did not mean to pause you. it must be a bug?"
+    pub(super) last_turn_device: StdMutex<Option<String>>,
     /// The active Web turn was started by the native Cloud mobile relay.
     /// Unlike an ordinary Web client, it may not use Codex's any-mode bridge.
     pub(super) cloud_mobile_turn: AtomicBool,
@@ -87,6 +96,21 @@ pub(crate) struct FloorState {
     pub(super) unsandboxed: AtomicBool,
 }
 
+impl FloorState {
+    /// Who drove the last turn: whether it was a Web turn and, for one, the one paired device
+    /// that sent every Web prompt and steer in it (`TurnInfo::device`). The device goes with the
+    /// mark, so a Local turn or another client's never leaves an earlier phone's behind.
+    pub(super) fn mark_last_turn(&self, web: bool, device: Option<String>) {
+        *self.last_turn_device.lock().unwrap_or_else(|e| e.into_inner()) = device.filter(|_| web);
+        self.last_turn_web.store(web, Ordering::SeqCst);
+    }
+
+    /// The device `mark_last_turn` kept (between turns).
+    pub(super) fn last_turn_device(&self) -> Option<String> {
+        self.last_turn_device.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+}
+
 impl Hub {
     /// Whether `session`'s current turn was started or steered by a remote
     /// device. A turn adopted after a restart keeps its recorded control.
@@ -102,6 +126,7 @@ impl Hub {
     /// current mode does not ask.
     pub(super) fn remote_floor_breach(&self, session: &Session) -> Option<&'static str> {
         let turn = session.turn().map(|t| t.turn_id);
+        let device = Self::floor_device(session);
         if turn.is_some()
             && *session.floor.floor_cancelled_turn.lock().unwrap_or_else(|e| e.into_inner()) == turn
         {
@@ -110,11 +135,51 @@ impl Hub {
         if session.floor.unsandboxed.load(Ordering::SeqCst) {
             return Some("remote.unsandboxed_agent");
         }
+        // The owner's own phone with Full access on drives the chat in the mode it has
+        // (`Hub::owner_phone_full_access`), read again here, so removing the phone or turning
+        // its setting off holds the turn at its next request. The device is the turn's own,
+        // read with its id (`TurnInfo::device`).
+        if self.owner_phone_full_access(device.as_deref()) {
+            return None;
+        }
         if session.web_control_ended.load(Ordering::SeqCst) {
             return Some("remote.mode_left_asking_table");
         }
         let meta = session.meta();
         (!self.session_asks_now(session, &meta)).then_some("remote.mode_not_asking")
+    }
+
+    /// The paired device the floor reads for `session`: the running turn's (`TurnInfo::device`)
+    /// or, between turns (an agent's background request, a helper the last turn started), the
+    /// one that drove the last turn. Without the latter the owner's phone's own turn left every
+    /// later tool call of its helpers refused `remote.mode_not_asking` until a local turn.
+    pub(super) fn floor_device(session: &Session) -> Option<String> {
+        match session.turn() {
+            Some(t) => t.device,
+            None => session.floor.last_turn_device(),
+        }
+    }
+
+    /// What the agent and the person read when the floor refuses a tool (the preToolUse
+    /// gate's reason, shown in the chat on the phone too): the reason code, then the one thing
+    /// that lifts it. A mode that does not ask runs from a paired device only when it is the
+    /// owner's own phone with Full access on, so that refusal names the switch (Mac: Settings >
+    /// Mobile > Phones) instead of a bare code.
+    pub(super) fn floor_refusal_text(&self, session: &Session, reason: &str) -> String {
+        let device = Self::floor_device(session);
+        let own_phone = device.as_deref().is_some_and(|d| self.pairing.own_phone(d));
+        match reason {
+            "remote.mode_not_asking" if own_phone => format!(
+                "{reason}: this chat runs in a mode that does not ask, and Full access is off for this phone. Turn on Full access for it on the Mac (Settings > Mobile > Phones), or set an asking mode."
+            ),
+            "remote.mode_not_asking" => format!(
+                "{reason}: this chat runs in a mode that does not ask, and a paired device runs it only from your own phone with Full access on (Mac: Settings > Mobile > Phones). Prompt it from the Mac, or set an asking mode."
+            ),
+            "remote.mode_left_asking_table" => format!(
+                "{reason}: this chat's mode left the asking modes during a turn from a paired device; set an asking mode on the Mac, or turn on Full access for your own phone (Settings > Mobile > Phones)."
+            ),
+            _ => reason.to_owned(),
+        }
     }
 
     /// Whether the session's mode asks: the declared one (`web_modes.rs`),
@@ -267,8 +332,8 @@ pub(super) fn open_read_target(_t: &ReadTarget) -> std::io::Result<std::fs::File
 #[cfg(unix)]
 pub(super) fn write_approved(target: &Path, content: &[u8]) -> std::io::Result<()> {
     use std::io::Write;
-    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
-    let mut file = std::fs::OpenOptions::new()
+    use std::os::unix::fs::MetadataExt;
+    let mut file = crate::home_fs::OpenOptions::new()
         .write(true)
         .create(true)
         .truncate(false)

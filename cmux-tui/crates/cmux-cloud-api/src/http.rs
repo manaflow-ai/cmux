@@ -33,6 +33,10 @@ pub enum Failure {
         message: Option<String>,
         action: Option<String>,
         trace_id: Option<String>,
+        /// The body's own `retryable` (cmux-platform#1192 sends one on every Cloud refusal).
+        retryable: Option<bool>,
+        /// A rate limit's window: the body's `retryAfterSeconds`.
+        retry_after_s: Option<u64>,
     },
     /// A refusal a paid plan lifts (`pro` or `max`).
     PlanRequired {
@@ -79,7 +83,15 @@ impl Failure {
     }
 
     pub(crate) fn http(status: u16, code: Option<String>, message: Option<String>) -> Self {
-        Failure::Http { status, code, message, action: None, trace_id: None }
+        Failure::Http {
+            status,
+            code,
+            message,
+            action: None,
+            trace_id: None,
+            retryable: None,
+            retry_after_s: None,
+        }
     }
 
     pub fn json(&self) -> Value {
@@ -87,10 +99,22 @@ impl Failure {
             Failure::TimedOut(path) => json!({ "kind": "timed_out", "path": path }),
             Failure::Transport(message) => json!({ "kind": "transport", "message": message }),
             Failure::NoBackend => json!({ "kind": "no_backend" }),
-            Failure::Http { status, code, message, action, trace_id } => json!({
-                "kind": "http", "status": status, "code": code, "message": message,
-                "action": action, "trace_id": trace_id,
-            }),
+            Failure::Http { status, code, message, action, trace_id, retryable, retry_after_s } => {
+                let mut line = json!({
+                    "kind": "http", "status": status, "code": code, "message": message,
+                    "action": action, "trace_id": trace_id,
+                });
+                // Only when the refusal said: the app's error cases stay as they were otherwise.
+                if let Value::Object(object) = &mut line {
+                    if let Some(retryable) = retryable {
+                        object.insert("retryable".into(), json!(retryable));
+                    }
+                    if let Some(seconds) = retry_after_s {
+                        object.insert("retry_after_s".into(), json!(seconds));
+                    }
+                }
+                line
+            }
             Failure::PlanRequired { message, upgrade_url, plan } => json!({
                 "kind": "plan_required", "message": message, "upgrade_url": upgrade_url, "plan": plan,
             }),
@@ -112,6 +136,8 @@ pub(crate) struct Reply {
     pub(crate) status: u16,
     /// `x-cmux-vm-error`, classic's code header.
     pub(crate) header_code: Option<String>,
+    /// `Retry-After`: a rate limit's window, in seconds.
+    pub(crate) retry_after: Option<String>,
     pub(crate) body: Vec<u8>,
 }
 
@@ -127,7 +153,7 @@ impl Reply {
 
 /// One call's session: the client, the base URL and the credentials.
 pub struct Http {
-    client: reqwest::Client,
+    clients: cmux_cloud_client::connect_retry::Clients,
     base: reqwest::Url,
     pub(crate) auth: Auth,
     credential: String,
@@ -141,13 +167,20 @@ impl Http {
     pub fn new(request: &Request) -> Result<Self, Failure> {
         let base = base_url(&request.api).map_err(Failure::Transport)?;
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let client = reqwest::Client::builder()
-            .redirect(reqwest::redirect::Policy::none())
-            .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))
-            .build()
-            .map_err(|e| Failure::Transport(e.to_string()))?;
+        // A dev build's space on every request (`x-cmux-build-space`); a dev build
+        // without a usable one calls nothing rather than nightly's backend.
+        let space = cmux_build_space::headers().map_err(|e| Failure::Transport(e.to_string()))?;
+        // A black-holed SYN costs 1 s per address, then a new socket (`connect_retry`); the last
+        // try connects with no connect timeout. Both clients carry the space.
+        let clients = cmux_cloud_client::connect_retry::Clients::build(|| {
+            reqwest::Client::builder()
+                .default_headers(space.clone())
+                .redirect(reqwest::redirect::Policy::none())
+                .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))
+        })
+        .map_err(|e| Failure::Transport(e.to_string()))?;
         Ok(Http {
-            client,
+            clients,
             base,
             auth: request.auth,
             credential: request.credential.clone(),
@@ -184,7 +217,7 @@ impl Http {
         path: &str,
     ) -> Result<Reply, Failure> {
         let mut builder =
-            self.client.request(method, url).bearer_auth(&self.credential).timeout(timeout);
+            self.clients.fast.request(method, url).bearer_auth(&self.credential).timeout(timeout);
         match self.auth {
             Auth::Stack => {
                 builder = builder
@@ -196,8 +229,9 @@ impl Http {
                 }
             }
             // RULE (cx-kvmz, hq-84): Authorization, Content-Type, Content-Length and x-cmux-team
-            // only. The Worker's invocation log records every other header and the URL, so no
-            // other header, no query and no path part that could hold a key is ever added.
+            // only, plus the client's x-cmux-build-space (a dev build's tag, no secret). The
+            // Worker's invocation log records every other header and the URL, so no other
+            // header, no query and no path part that could hold a key is ever added.
             Auth::Owner | Auth::Worker => {
                 if let Some(team) = &self.team {
                     builder = builder.header(crate::session::TEAM_HEADER, team);
@@ -214,7 +248,9 @@ impl Http {
                 .body(bytes::Bytes::from_owner(bytes)),
             None => builder,
         };
-        let response = match tokio::time::timeout(timeout, builder.send()).await {
+        // Sent again only when it did not connect: no byte of it reached the server.
+        let send = cmux_cloud_client::connect_retry::send(&self.clients, builder);
+        let response = match tokio::time::timeout(timeout, send).await {
             Err(_) => return Err(Failure::TimedOut(path.to_owned())),
             Ok(Err(e)) if e.is_timeout() => return Err(Failure::TimedOut(path.to_owned())),
             Ok(Err(e)) if self.local_only && e.is_connect() => return Err(Failure::NoBackend),
@@ -225,6 +261,11 @@ impl Http {
         let header_code = response
             .headers()
             .get("x-cmux-vm-error")
+            .and_then(|v| v.to_str().ok())
+            .map(str::to_owned);
+        let retry_after = response
+            .headers()
+            .get(reqwest::header::RETRY_AFTER)
             .and_then(|v| v.to_str().ok())
             .map(str::to_owned);
         let body =
@@ -243,24 +284,24 @@ impl Http {
                 }
                 Ok(Ok(bytes)) => bytes,
             };
-        Ok(Reply { status, header_code, body })
+        Ok(Reply { status, header_code, retry_after, body })
     }
 
-    /// A classic call (`/api/runs`): a 2xx body as JSON (`null` when it has none),
-    /// a refusal read by [`vm_error`].
+    /// A classic call (`/api/runs`, [`crate::classic_runs`]: an incognito send's Run, and one made
+    /// before the daemon ran Runs) with its JSON `body` and `idempotency_key`, if any: a 2xx body
+    /// as JSON (`null` when it has none), a refusal read by [`vm_error`].
     pub(crate) async fn classic(
         &self,
         method: reqwest::Method,
         segments: &[&str],
         query: &[(&str, String)],
-        body: Option<Value>,
-        idempotency_key: Option<&str>,
+        sent: (Option<Value>, Option<&str>),
         timeout: Duration,
     ) -> Result<Value, Failure> {
         let path = path_text(segments);
         let url = self.url(segments, query);
-        let reply =
-            self.send(method, url, body.map(Body::Json), idempotency_key, timeout, &path).await?;
+        let (body, key) = sent;
+        let reply = self.send(method, url, body.map(Body::Json), key, timeout, &path).await?;
         if !reply.ok() {
             return Err(vm_error(reply.status, &reply.body, reply.header_code.as_deref()));
         }
@@ -346,9 +387,15 @@ pub(crate) fn vm_error(status: u16, body: &[u8], header_code: Option<&str>) -> F
         ApiError::PlanRequired { message, upgrade_url, plan } => {
             Failure::PlanRequired { message, upgrade_url, plan }
         }
-        ApiError::Http { code, message, action, trace_id, .. } => {
-            Failure::Http { status, code, message, action, trace_id }
-        }
+        ApiError::Http { code, message, action, trace_id, .. } => Failure::Http {
+            status,
+            code,
+            message,
+            action,
+            trace_id,
+            retryable: None,
+            retry_after_s: None,
+        },
         // `from_response` reads a response, so it answers one of the two above.
         _ => Failure::http(status, None, None),
     }

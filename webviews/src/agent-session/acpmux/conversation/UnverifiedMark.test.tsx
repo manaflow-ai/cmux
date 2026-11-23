@@ -1,9 +1,10 @@
 // l10n-allow-file: test fixtures.
-// A received message's unverified mark (UnverifiedMark.tsx): "Sender not verified" for a sender
-// that only named itself, and for a program acpmux saw send it (incomingMessage.ts
-// `senderProgram`), what acpmux checked: the program, the machine its send named, that no agent was
-// proven, and the program's path.
+// A received message's unverified mark (UnverifiedMark.tsx): "Claimed to be NAME, not proven" for a
+// sender that only named itself, none for one the host's sender token verified, and for a program
+// acpmux saw send it (incomingMessage.ts `senderProgram`), what acpmux checked: the program, the
+// machine its send named, that no agent was proven, and the program's path.
 import { afterEach, expect, test } from "bun:test";
+import { settleReact } from "../../../../test/support/domTeardown";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -21,6 +22,7 @@ const saved = new Map<string, unknown>();
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -65,22 +67,72 @@ test("a sender that only named itself keeps the plain mark", () => {
   expect(markup).not.toContain("is-program");
 });
 
+test("a sender's own name is its claim, not proven", () => {
+  const markup = decode(renderToStaticMarkup(<UnverifiedMark claimed="ci-watch" />));
+  expect(markup).toContain('aria-label="Claimed to be ci-watch, not proven"');
+  expect(markup).toContain('title="Claimed to be ci-watch, not proven"');
+  // A blank claim is none.
+  expect(renderToStaticMarkup(<UnverifiedMark claimed="  " />)).toContain('aria-label="Sender not verified"');
+});
+
+const readMessage = (provenance: Record<string, unknown>) => {
+  const prompt = incomingPrompt("#40611 conflicts with feat-cmux-next", { _meta: { provenance } });
+  if (prompt?.kind !== "message") throw new Error("not a message");
+  return prompt.message;
+};
+const namedSender = {
+  kind: "agent_message",
+  from: "fromAgent",
+  fromName: "outbox-relay",
+  to: "s-1",
+  transport: "unix",
+};
+
+test("a named sender verified by the host token draws no mark", async () => {
+  const verified = readMessage({ ...namedSender, verified: true, verifiedBy: "host-token" });
+  expect(verified.unverified).not.toBe(true);
+  const line = await renderLine(verified);
+  expect(line.querySelector(".cv-received__from")?.textContent).toBe("outbox-relay");
+  expect(line.querySelector(".cv-unverified")).toBeNull();
+  // A sender record acpmux wrote says the same.
+  const recorded = readMessage({
+    ...namedSender,
+    verified: true,
+    verifiedBy: "host-token",
+    sender: { verification: "verified", verifiedBy: "host-token" },
+  });
+  expect(recorded.unverified).not.toBe(true);
+});
+
+test("the same name with no token, or a label no daemon gave, is a claim", async () => {
+  for (const provenance of [
+    { ...namedSender, verifiedBy: "host-token" },
+    { ...namedSender, verified: true, verifiedBy: "elsewhere" },
+  ]) {
+    expect(readMessage(provenance).unverified).toBe(true);
+  }
+  const line = await renderLine(readMessage(namedSender));
+  expect(line.querySelector(".cv-unverified")?.getAttribute("aria-label")).toBe(
+    "Claimed to be outbox-relay, not proven",
+  );
+});
+
 test("a program's mark says acpmux checked it, and no agent was proven", () => {
   const program = { name: "next-autoland", path: "/Users/cmux/Projects/leo-workspace/tools/next-autoland" };
   expect(programMarkText(translate, program)).toEqual({
-    label: "Program checked by acpmux: next-autoland",
+    label: "Program checked by cmux: next-autoland",
     title:
-      "Program checked by acpmux: next-autoland\nNot proven to be an agent\n/Users/cmux/Projects/leo-workspace/tools/next-autoland",
+      "Program checked by cmux: next-autoland\nNot proven to be an agent\n/Users/cmux/Projects/leo-workspace/tools/next-autoland",
   });
   const markup = decode(renderToStaticMarkup(<UnverifiedMark program={program} />));
   expect(markup).toContain("cv-unverified is-program");
-  expect(markup).toContain('aria-label="Program checked by acpmux: next-autoland"');
+  expect(markup).toContain('aria-label="Program checked by cmux: next-autoland"');
 });
 
 test("a peer-forwarded program names the machine its send claimed", () => {
   expect(programMarkText(translate, { name: "stall-reconciler", host: "build-box" })).toEqual({
-    label: "Program checked by acpmux: stall-reconciler on build-box",
-    title: "Program checked by acpmux: stall-reconciler on build-box\nNot proven to be an agent",
+    label: "Program checked by cmux: stall-reconciler on build-box",
+    title: "Program checked by cmux: stall-reconciler on build-box\nNot proven to be an agent",
   });
 });
 
@@ -94,7 +146,7 @@ test("the received line names the program, not an unverified sender", async () =
   const named = await renderLine(read({ ...unverified, program: { name: "next-autoland" } }));
   expect(named.querySelector(".cv-received__from")?.textContent).toBe("next-autoland");
   expect(named.querySelector(".cv-unverified.is-program")?.getAttribute("aria-label")).toBe(
-    "Program checked by acpmux: next-autoland",
+    "Program checked by cmux: next-autoland",
   );
   expect(named.textContent).not.toContain("Unverified sender");
 });

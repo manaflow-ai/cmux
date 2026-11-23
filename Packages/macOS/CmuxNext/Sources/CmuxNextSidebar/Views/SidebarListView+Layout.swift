@@ -13,13 +13,13 @@ extension SidebarListViewComponents {
         if animated, !fromModel { model.noteUserIntent() }
         reloads &+= 1
         holdsModelChange = false // this reload shows the model as it is now
-        // No drag holds the rows: this reload shows every held patch (the model has them).
-        if !holdsRowPatches { rowHold = SidebarRowHold() }
         // One loose row added (a create): spliced in, its row cached; nothing else is listed again (SIDEBAR INSERT 2).
         let spliced = spliceInsertion()
         // One loose row closed or moved: taken out (and put back), the caches changed for it alone.
         let removed = spliced == nil ? spliceRemoval() : nil
-        if spliced == nil, removed == nil { rebuildRowCaches() }
+        // A space shown again with the rows it was left with: its kept layout and row caches (`SidebarSpacePage`).
+        let page = spliced == nil && removed == nil ? takeSpacePage() : nil
+        if spliced == nil, removed == nil, page == nil { rebuildRowCaches() }
         refreshHoverTab()
         if let drag, !drag.isValid(in: model) { cancelDrag() }
         // The rows changed under a held drag (a batch, an adopt, a close): its hit geometry is rebuilt at the next move.
@@ -35,8 +35,9 @@ extension SidebarListViewComponents {
         // rows apply (its anchor is gone); a kept one updates in place.
         if let shown = hoverCard.shownID { hoverCards.contentChanged(WorkspaceHoverCardController.targetID(shown)) }
         // Without a drag the full layout is the model's under `options` (`displayLayout`): a one-row insert splices onto it.
-        let plain = shownDrag == nil && external == nil ? spliced?.options ?? removed?.options ?? options(includeGap: true) : nil
-        let layout = spliced?.layout ?? removed?.layout ?? plain.map { SidebarLayout.make(sections: listSections, metrics: metrics, options: $0) } ?? displayLayout()
+        let plain = shownDrag == nil && external == nil ? spliced?.options ?? removed?.options ?? page?.options ?? options(includeGap: true) : nil
+        let layout = spliced?.layout ?? removed?.layout ?? page?.layout
+            ?? plain.map { SidebarLayout.make(sections: listSections, metrics: metrics, options: $0) } ?? displayLayout()
         // Focus belongs to a displayed disclosure, so a structural reload clears it before
         // row reuse can configure the same view for a later fold.
         if let key = focusedFold, layout.row(for: key) == nil {
@@ -47,12 +48,12 @@ extension SidebarListViewComponents {
         SidebarPerfCounters.timed { applyKeepingViewport(layout, animated: animated) }
         (splicedRow, splicedOut) = (nil, nil)
         spliceBase = plain.map { (model.sectionsRevision, $0) } // after the apply, which forgets any other base
+        // The metrics and the model structure of that full layout, for the page kept from it.
+        spacePages.showsFullLayout(metrics: plain == nil ? nil : metrics, structure: model.structureRevision)
         if let settled { landSettled(settled) } else { followLanding() }
         inlineRename.follow()
         groupEditor.follow(groups)
         if let shown = groupEditor.shownGroup { (rowViews[.group(shown)] as? GroupHeaderRowView)?.isEditing = true }
-        // The settle ended in this reload with its card already gone (no landing to finish): the held rows show now.
-        releaseRowHold()
     }
     /// The rows' caches (workspaces, groups and their subtrees, sections, listed items) from the sections the list draws.
     private func rebuildRowCaches() {
@@ -84,6 +85,10 @@ extension SidebarListViewComponents {
                 }
             }
         }
+        setDrawnTints(ordered)
+    }
+    /// What the placed groups draw in (`drawnTints`), from the groups in the order the sections list them.
+    func setDrawnTints(_ ordered: [SidebarGroup]) {
         let sections = DesignSettings.shared.sidebarSections
         drawnTints = SidebarGroup.drawnTints(ordered, palette: sections.groupPalette, gradient: sections.groupGradient,
                                              wallpaper: DesignSettings.shared.groupWallpaperTint?.bands ?? [])
@@ -93,9 +98,14 @@ extension SidebarListViewComponents {
         o.showsSoleMachineHeader = true
         o.pullRequests = SidebarSessionTree.shared.pullRequests
         if let tree = SidebarSessionTree.shared.drawn {
-            (o.sessionTree, o.keycaps) = (tree, model.workspaceKeycaps(DesignSettings.shared.sidebarSections.navigation))
+            o.sessionTree = tree
             o.parentTitles = SidebarLayout.parentTitles(tree.parents, workspaces: model.allWorkspaces)
-            o.chatHistory = SidebarChatHistory.shared.state
+            // Lineage nesting alone (`SidebarTunables.lineageNesting`) nests rows; the keycaps and the chat history
+            // stay `sidebar.sessionTree`'s.
+            if DesignSettings.shared.sidebarSections.sessionTree {
+                o.keycaps = model.workspaceKeycaps(DesignSettings.shared.sidebarSections.navigation)
+                o.chatHistory = SidebarChatHistory.shared.state
+            }
         }
         o.excludedWorkspaces.formUnion(leaving)
         // A drag keeps the "Done (N)" rows folded, so its lift and its drop move no other row (ask-13d9bbd5e3): a drop
@@ -105,7 +115,7 @@ extension SidebarListViewComponents {
         // drop's result would show different rows.
         if shownDrag != nil || external != nil { o.rowLimit = 0 }
         // External tab drops still use the older reducer: keep its unfolded group-exit geometry and visible tab slots.
-        if external != nil { (o.foldsDone, o.foldsArchived, o.archiveSection) = (false, false, false) }
+        if external != nil { o.unfoldsAll() }
         if includeGap, case let .newWorkspace(section, group, index)? = external?.proposal {
             o.gap = DropPosition(section: section, group: group, index: index)
             o.gapHeight = metrics.rowHeight
@@ -129,7 +139,9 @@ extension SidebarListViewComponents {
             o.excludedWorkspaces.formUnion(ids)
             o.dragClosesArchive = true
             // A drag that carries a Done row draws unfolded: the fold would move it out of the slot or add a fold row.
-            if SidebarLayout.dragUnfolds(ids.compactMap { model.workspace($0) }, options: o) { (o.foldsDone, o.foldsArchived, o.archiveSection) = (false, false, false) }
+            if SidebarLayout.dragUnfolds(ids.compactMap { model.workspace($0) }, workspace: { model.workspace($0) }, options: o) {
+                o.unfoldsAll()
+            }
         case let .group(group):
             o.excludedGroup = group
         case let .item(item):
@@ -157,7 +169,8 @@ extension SidebarListViewComponents {
     /// How far left of its members' x `row` starts: a group header's reach over its rail (`SidebarStyle.groupLineX`)
     /// and the line layout's overhang past it (`groupHeaderOverhang`), never past the list's edge; 0 for other rows.
     func railReach(for row: SidebarRow) -> CGFloat {
-        guard case .group = row.key else { return 0 }
+        // A plain folder draws no rail: its header keeps the rows' own frame.
+        guard case .group = row.key, !indent.indentsTopLevel else { return 0 }
         let membersX = inset + indentOffset(for: row)
         return membersX - SidebarStyle.groupBarX(membersMinX: membersX)
     }
@@ -172,12 +185,19 @@ extension SidebarListViewComponents {
         return false
     }
     /// The indent rule every row, rail, lifted card and drop line of this list uses.
-    var indent: SidebarIndent { SidebarIndent(step: SidebarStyle.groupGutter) }
+    var indent: SidebarIndent {
+        let folders = model.groupHeaderDetails.background.indentsMembers
+        return SidebarIndent(step: folders ? SidebarStyle.folderMemberStep : SidebarStyle.groupGutter, indentsTopLevel: folders)
+    }
     /// The width a level-0 row has: the indent cap is computed from it.
     var indentWidth: CGFloat { max(0, bounds.width - inset * 2 - SidebarStyle.rowTrailingTrim) }
     /// How far `row` moves in from the list's inset.
     func indentOffset(for row: SidebarRow) -> CGFloat {
-        indent.offset(level: row.indentLevel, width: indentWidth)
+        let indent = indent
+        // A folder's header sits at its parent's members' x, one step left of its own members (a group header
+        // shares its members' level, `SidebarRow.indentLevel`).
+        let level = indent.indentsTopLevel && row.key.isGroupHeader ? row.indentLevel - 1 : row.indentLevel
+        return indent.offset(level: level, width: indentWidth)
     }
     func realizationRect() -> NSRect {
         // A space page never scrolls: the rows in its frame, no overscan.
@@ -275,8 +295,8 @@ extension SidebarListViewComponents {
             // motion and replay it when realized later.
             for key in reopened { openingRows[key] = nil }
         }
-        // Without motion the rows that leave park first (as they would after the loop), so the rows that
-        // come take their views: a space switch reuses the old space's views, it makes none (space-switch-fast).
+        // Without motion the rows that leave park first (as they would after the loop), so the rows that come
+        // can take a parked view: their own, or with no spare left the oldest one, and make none (space-switch-fast).
         // RowMotion also snaps when sidebar movement is disabled (Reduce Motion or the sidebar switch),
         // even though `animate` is true. Park leaving views before that snap realizes replacements too.
         if (!animate || !Motion.sidebar.animatesMovement(in: window)), !adopting {
@@ -306,9 +326,11 @@ extension SidebarListViewComponents {
             let existing = rowViews[row.key]
             guard existing != nil || target.intersects(realize) else { continue }
             keep.insert(row.key)
-            // Without motion (a space switch, a page) any parked view of the kind serves, as a scroll's
-            // does: a space's rows then make no new views once the pool holds some (space-switch-fast).
-            let view = existing ?? dequeue(row.key, rebinding: !animate && !adopting)
+            // Without motion (a space switch, a page) any parked view of the kind serves, as a scroll's does. On a
+            // space switch a workspace row with no view of its own takes a spare first: a space shown for the first
+            // time makes no view and takes none of the space that leaves, which then has its own views when it
+            // shows again (space-switch-fast).
+            let view = existing ?? dequeue(row.key, rebinding: !animate && !adopting, spareFirst: spacePages.entering != nil)
             view.targetSize = target.size
             // A recycled view (a block's region from another time) takes its content at once, not on a spring.
             configure(view, row: row, animated: animate || (adopting && existing != nil))
@@ -403,7 +425,7 @@ extension SidebarListViewComponents {
         let gapFrame = layout.gapHeight > 0 ? layout.gapY.map { NSRect(x: inset, y: $0, width: indentWidth, height: layout.gapHeight) } : nil
         decorations.frame = bounds
         decorations.setGap(gapFrame, animated: animate || adopting)
-        let history = chatHistory.place(layout, state: SidebarChatHistory.shared.state, metrics: model.minimal ? metrics.minimal : metrics,
+        let history = chatHistory.place(layout, state: SidebarChatHistory.shared.state, metrics: metrics,
                                         in: self, animated: animate || adopting)
         let lines = groupLineViews.update(groupLines(layout), from: animate || adopting ? groupLines(layout, current: true) : [], in: self, above: decorations,
                                           animated: animate || adopting)
@@ -494,7 +516,9 @@ extension SidebarListViewComponents {
             view.standingGroup = row.standsForGroup ? row.group.map(standingGroupAccess) : nil
         case let (.item(id), view as SidebarItemListRowView):
             guard let item = listItems[id] else { return }
-            view.configure(item, favicon: item.iconAddress.flatMap { model.itemFavicon?($0) }, row: row)
+            // A built-in (the Chief) keeps its band look here: its picture, status and badge.
+            let info = item.ref.builtIn == nil ? nil : model.resolvedItemInfo[LayoutItemID(item.id)]
+            view.configure(item, favicon: item.iconAddress.flatMap { model.itemFavicon?($0) }, info: info, row: row)
         case let (.block(id), view as SidebarBlockRowView):
             guard let content = blockContent(id, includeGap: true) else { return }
             view.region.activeItem = activeTopItem
@@ -535,7 +559,9 @@ extension SidebarListViewComponents {
         case let (.emptyGroup(id), view as EmptyGroupRowView): view.configure(groupID: id, groupName: groups[id]?.name ?? model.group(id)?.name ?? "")
         case let (.folder(_, folder), view as FolderHeaderRowView): view.configure(folder: folder)
         case let (.status, view as StatusHeaderRowView): view.configure(row)
-        case let (.listHeader(header), view as ListHeaderRowView): view.configure(header, count: row.childCount)
+        case let (.listHeader(header), view as ListHeaderRowView):
+            view.configure(header, count: row.childCount, sharesLocalScreen: model.sections.contains { $0.machine?.kind == .local },
+                           sharing: model.sections.contains { $0.machine?.screenShared == true })
         case (.doneFold, let view as SidebarDoneFoldRowView), (.showMore, let view as SidebarDoneFoldRowView):
             view.isKeyboardFocused = showsFocusRing && focusedFold == row.key
             view.configure(row)
@@ -555,7 +581,9 @@ extension SidebarListViewComponents {
         let width = Self.rowsWidth(in: scroll)
         if frame.width != width { setFrameSize(NSSize(width: width, height: frame.height)) }
         // The pool parks two realization rects of rows: a space switch's leaving and returning pages.
-        rowPool.limit = SidebarRowViewPool.limit(forHeight: realizationRect().height, rowHeight: metrics.rowHeight)
+        let rowHeight = poolRowHeight ?? metrics.rowHeight
+        poolRowHeight = rowHeight
+        rowPool.limit = SidebarRowViewPool.limit(forHeight: realizationRect().height, rowHeight: rowHeight)
         updateDocumentHeight()
         revealFirstViewport()
         realizeVisibleRows()

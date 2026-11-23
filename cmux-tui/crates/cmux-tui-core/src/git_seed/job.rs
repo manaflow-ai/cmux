@@ -213,6 +213,9 @@ pub struct GitSeedService {
     jobs: Mutex<Jobs>,
     /// The running holds' owner threads, and whether each still runs, by job ([`super::hold`]).
     holds: Arc<Mutex<HashMap<String, Holder>>>,
+    /// Holds taken while set run on [`hold::Lease::Ticks`] (tests; see [`Self::lease_tick`]).
+    #[cfg(test)]
+    pub(super) ticked_leases: std::sync::atomic::AtomicBool,
 }
 
 /// A running hold's owner thread, and whether the hold still runs.
@@ -230,7 +233,14 @@ impl GitSeedService {
     }
 
     pub(crate) fn with_config(roots: Roots, config: Config) -> Self {
-        Self { roots, config, jobs: Mutex::new(Jobs::default()), holds: Arc::default() }
+        Self {
+            roots,
+            config,
+            jobs: Mutex::new(Jobs::default()),
+            holds: Arc::default(),
+            #[cfg(test)]
+            ticked_leases: std::sync::atomic::AtomicBool::new(false),
+        }
     }
 
     /// For tests (and the debug-only daemon seam in [`super::installed`]):
@@ -443,7 +453,13 @@ impl GitSeedService {
         let id = job.id.clone();
         let alive = hold::Alive::new(std::sync::RwLock::new(true));
         let mut owners = self.holds.lock().unwrap_or_else(PoisonError::into_inner);
-        let lease = params.lease();
+        let lease = hold::Lease::Wall(params.lease());
+        #[cfg(test)]
+        let lease = if self.ticked_leases.load(std::sync::atomic::Ordering::Relaxed) {
+            hold::Lease::Ticks
+        } else {
+            lease
+        };
         let owner =
             hold::spawn(job.clone(), folder, head, lease, barrier, alive.clone(), move || {
                 holds.lock().unwrap_or_else(PoisonError::into_inner).remove(&id);
@@ -478,6 +494,15 @@ impl GitSeedService {
         let _finished: Result<(), Failed> = ended.recv().map_err(|_| hold_ended())?;
         let job = self.jobs().by_id.get(&job).cloned().ok_or_else(hold_ended)?;
         Ok(job.answer())
+    }
+
+    /// Ends one lease window of the ticked hold `job` (tests): the hold ends unless an op came
+    /// since the window before.
+    #[cfg(test)]
+    pub(super) fn lease_tick(&self, job: &str) {
+        if let Some(owner) = self.holder(job) {
+            let _ = owner.send(hold::Op::LeaseTick);
+        }
     }
 
     fn holder(&self, job: &str) -> Option<mpsc::Sender<hold::Op>> {

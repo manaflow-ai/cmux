@@ -60,6 +60,23 @@ impl Surface {
             .last_command()
     }
 
+    /// The newest command the terminal's shell finished, read from its screen
+    /// now (`terminal-command-context`); `None` without one to read.
+    pub(crate) fn terminal_command_context(
+        &self,
+    ) -> Option<crate::command_context::CommandContext> {
+        // The status is read under the terminal lock too: the output thread
+        // writes a command's screen and its `D` mark under that lock, so all
+        // three belong to the same command.
+        let (read, exit_code, cwd) = self.with_terminal(|term| {
+            let read = term.last_command_output(crate::command_context::MAX_OUTPUT_ROWS)?;
+            let exit_code = self.terminal_last_command().and_then(|last| last.exit_code);
+            let cwd = term.pwd().as_deref().and_then(crate::shell_history::command_cwd);
+            Some((read, exit_code, cwd))
+        })??;
+        Some(crate::command_context::CommandContext::new(read, exit_code, cwd))
+    }
+
     /// When a client last wrote input: `extra.last_input`
     /// (`terminal-activity-v1`, read-time only).
     pub(crate) fn terminal_last_input(&self) -> Option<u64> {
@@ -346,6 +363,21 @@ impl PtyTerminalRuntime {
     /// Called in the serialized parser stream; publication happens after releasing VT locks.
     /// `None` is a real report too: the VT keeps its pwd across output until the
     /// shell clears it, so a change to `None` must reach the graph like any other.
+    /// [`PtyTerminalRuntime::record_directory`] of `term`'s pwd, after an
+    /// output chunk: the pwd is read into a `String` only when it changed.
+    pub(super) fn record_terminal_directory(&self, term: &Terminal) {
+        {
+            let previous = self.pwd.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            if term.pwd_is(previous.as_deref()) {
+                if previous.is_some() {
+                    self.directory_reported.store(true, Ordering::Release);
+                }
+                return;
+            }
+        }
+        self.record_directory(term.pwd());
+    }
+
     pub(super) fn record_directory(&self, value: Option<String>) {
         if value.is_some() {
             self.directory_reported.store(true, Ordering::Release);

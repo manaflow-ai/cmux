@@ -5,9 +5,17 @@
 // in exactly one row at each step, and that row keeps its id across them, so it updates in place.
 // His capture: a pending Write's own row ("Writing a file") over the live line naming the same call
 // ("Write 12s").
-import { expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, test } from "bun:test";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { turnView } from "./turns";
+
+// This file covers the `line` arm of liveTurnWork.experiment.ts (the shipped arm is `runs`).
+beforeEach(() => {
+  globalThis.cmuxExperiments = { ...globalThis.cmuxExperiments, "live-turn-work": "line" };
+});
+afterEach(() => {
+  delete globalThis.cmuxExperiments;
+});
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 const J = JSON.stringify;
@@ -97,19 +105,20 @@ function rowsShowing(rows: AcpmuxRow[]): string[] {
     .map((row) => row.id);
 }
 
-// Drawn once at every step: the live line while it is pending and runs, then, the moment it
-// completes, its run, with the line on Thinking (Leo, 2026-11-07: "Why don't we just immediately
-// switch to the thinking?"; takes back the held finished call of #29938 and #37568).
+// Drawn once while it is pending and runs: the live line. The moment it completes the line reads
+// Thinking (Leo, 2026-11-07: "Why don't we just immediately switch to the thinking?"; takes back the
+// held finished call of #29938 and #37568), and the call draws no row while the turn runs
+// (liveTurnWork.experiment.ts `line`, as chatgpt.com draws a running turn).
 for (const [kind, states] of Object.entries(KINDS))
-  test(`${kind}: one row from pending to running, then its run the moment it completes`, () => {
+  test(`${kind}: one row from pending to running, then none the moment it completes`, () => {
     const steps = [
       rowsShowing(view([call(states.pending, "pending")])),
       rowsShowing(view([call(states.running, "in_progress")])),
       rowsShowing(view([call(states.done, "completed")])),
     ];
-    for (const step of steps) expect(step).toHaveLength(1);
+    for (const step of steps.slice(0, 2)) expect(step).toHaveLength(1);
     expect(new Set(steps.slice(0, 2).flat()).size).toBe(1);
-    expect(steps[2]).toEqual(["a1"]);
+    expect(steps[2]).toEqual([]);
   });
 
 test("a Write named before its input reads as the row it becomes: Writing a file, then Writing gen.py", () => {
@@ -123,7 +132,7 @@ test("a Write named before its input reads as the row it becomes: Writing a file
   expect(line([call(KINDS.Write!.done, "completed")])?.doing).toBeUndefined();
 });
 
-test("a finished Write folds into its run once the next call starts, as any finished step does", () => {
+test("a finished Write leaves no row once the next call starts, as any finished step does", () => {
   const rows = view([
     call(KINDS.Write!.done, "completed"),
     {
@@ -131,7 +140,7 @@ test("a finished Write folds into its run once the next call starts, as any fini
       tool: { ...call(KINDS.Read!.running, "in_progress").tool!, id: "c2" },
     },
   ]);
-  expect(rowsShowing(rows)).toEqual(["a1"]);
+  expect(rowsShowing(rows)).toEqual([]);
   expect(rows.find((row) => row.kind === "thinking")?.doingCall).toBe("c2");
 });
 

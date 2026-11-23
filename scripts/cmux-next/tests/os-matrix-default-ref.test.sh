@@ -11,6 +11,7 @@ ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
 OS_MATRIX=${OS_MATRIX:-$ROOT/scripts/cmux-next/os-matrix.sh}
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 # git_q, and no background git maintenance in the scratch repositories.
+# shellcheck source=scripts/cmux-next/tests/lib/git-fixture.sh
 source "$ROOT/scripts/cmux-next/tests/lib/git-fixture.sh"
 # Local-path submodules (case 4) need the file transport, which git >= 2.38.1 refuses by default.
 export "GIT_CONFIG_KEY_${GIT_CONFIG_COUNT}=protocol.file.allow" "GIT_CONFIG_VALUE_${GIT_CONFIG_COUNT}=always"
@@ -24,7 +25,7 @@ cp "$ROOT/scripts/fuzz/macos-matrix/images.json" "$TMP/src/scripts/fuzz/macos-ma
 git_q -C "$TMP/src" add -A
 git_q -C "$TMP/src" commit -m base
 git_q -C "$TMP/src" branch -M feat-cmux-next
-git_q clone --bare "$TMP/src" "$TMP/origin.git"
+git_fixture_clone --bare "$TMP/src" "$TMP/origin.git"
 git_q clone -b feat-cmux-next "$TMP/origin.git" "$TMP/work"
 
 # The stub: `run` records its arguments and gives a verdict; `artifact` writes an empty results tarball.
@@ -92,7 +93,7 @@ echo one >"$TMP/subsrc/f"
 git_q -C "$TMP/subsrc" add -A
 git_q -C "$TMP/subsrc" commit -m one
 git_q -C "$TMP/subsrc" branch -M main
-git_q clone --bare "$TMP/subsrc" "$TMP/sub.git"
+git_fixture_clone --bare "$TMP/subsrc" "$TMP/sub.git"
 git_q -C "$TMP/src" submodule add "$TMP/sub.git" mod
 git_q -C "$TMP/src" commit -m "add mod"
 git_q -C "$TMP/src" push "$TMP/origin.git" feat-cmux-next

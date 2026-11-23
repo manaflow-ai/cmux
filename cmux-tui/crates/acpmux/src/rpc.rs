@@ -7,6 +7,32 @@ use crate::no_panic::JsonExt;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
+/// A [`Message`] borrowed for serializing ([`Message::to_line`]): its keys in the sorted order
+/// `to_value().to_string()` writes.
+#[derive(Serialize)]
+struct Line<'a> {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<ErrorLine<'a>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    id: Option<&'a Value>,
+    jsonrpc: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    method: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    params: Option<&'a Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    result: Option<&'a Value>,
+}
+
+/// [`RpcError`] with its keys sorted, as `to_value` writes it.
+#[derive(Serialize)]
+struct ErrorLine<'a> {
+    code: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    data: Option<&'a Value>,
+    message: &'a str,
+}
+
 /// A request id. ACP peers use integers or strings.
 pub type Id = Value;
 
@@ -24,6 +50,9 @@ pub struct RpcError {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub data: Option<Value>,
 }
+
+/// `data.reason` of [`RpcError::no_peer`].
+pub const NO_PEER: &str = "no_peer";
 
 impl RpcError {
     pub fn new(code: i64, message: impl Into<String>) -> Self {
@@ -44,6 +73,13 @@ impl RpcError {
     }
     pub fn not_found(message: impl Into<String>) -> Self {
         Self::new(-32002, message)
+    }
+    /// A request for a machine `name` that names no peer of this daemon. `data.reason` is
+    /// [`NO_PEER`] and `data.peer` the name, so a client tells it from a peer that is only down
+    /// (`cli/new_relay.rs`).
+    pub fn no_peer(name: &str) -> Self {
+        Self::not_found(format!("no peer {name:?}"))
+            .with_data(serde_json::json!({"reason": NO_PEER, "peer": name}))
     }
     /// A request whose handler waited on an agent past its deadline
     /// (cx-m5up). `data.reason` is `deadline_exceeded`, `data.wait` names
@@ -70,7 +106,31 @@ pub const MAX_MESSAGE_BYTES: usize = 31 << 20;
 /// ends the wait sooner, on its closed connection.
 pub const ANSWER_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
 
+/// The size a message past [`MAX_MESSAGE_BYTES`] is counted at when it was not serialized whole
+/// ([`Message::line_within`]): one byte past the cap.
+pub const OVER_CAP: usize = MAX_MESSAGE_BYTES + 1;
+
+/// The most one reply line on a client path takes: a session list, a process list or any page a
+/// client reads in a loop goes in pages of at most this many bytes, each with the cursor of the
+/// rest. A connection sends its replies in order, so every small reply behind a large one (a
+/// prompt's acknowledgement) waits for it to be written and parsed: a 31 MB watch list near the
+/// frame cap made a prompt acpmux took in milliseconds read "Not sent yet" (2026-11-11). The
+/// detector is `server/reply_size_tests.rs`.
+pub const REPLY_PAGE_BYTES: usize = 1 << 20;
+
 impl RpcError {
+    /// A message past [`MAX_MESSAGE_BYTES`], not serialized whole to learn its size
+    /// ([`Message::line_within`]).
+    pub fn too_large_past_cap() -> Self {
+        Self::new(
+            -32000,
+            format!("message too large to send: more than the limit of {MAX_MESSAGE_BYTES} bytes"),
+        )
+        // `bytes`: at least this many (readers that size the refused reply read it).
+        .with_data(json!({"reason": "message.too_large", "bytes": OVER_CAP, "atLeast": true,
+            "limit": MAX_MESSAGE_BYTES}))
+    }
+
     /// A message over [`MAX_MESSAGE_BYTES`]: it fails alone, the connection stays.
     pub fn too_large(bytes: usize) -> Self {
         Self::new(
@@ -194,30 +254,51 @@ impl Message {
     /// the bytes are the same as before: `server/list_reply.rs` writes reply lines
     /// itself and relies on that.
     pub fn to_line(&self) -> String {
-        #[derive(Serialize)]
-        struct Line<'a> {
-            #[serde(skip_serializing_if = "Option::is_none")]
-            error: Option<ErrorLine<'a>>,
-            #[serde(skip_serializing_if = "Option::is_none")]
-            id: Option<&'a Value>,
-            jsonrpc: &'static str,
-            #[serde(skip_serializing_if = "Option::is_none")]
-            method: Option<&'a str>,
-            #[serde(skip_serializing_if = "Option::is_none")]
-            params: Option<&'a Value>,
-            #[serde(skip_serializing_if = "Option::is_none")]
-            result: Option<&'a Value>,
+        let mut s =
+            serde_json::to_string(&self.line()).unwrap_or_else(|_| self.to_value().to_string());
+        s.push('\n');
+        s
+    }
+
+    /// [`Self::to_line`] when the line is at most `cap` bytes; else None, having written no more
+    /// than `cap` bytes of it: a message too large to send is never serialized whole (a 34 MB
+    /// `_acpmux/process/list` reply was, only to be refused, 2026-11-11).
+    pub fn line_within(&self, cap: usize) -> Option<String> {
+        /// A writer that refuses the write that would take it past `cap`.
+        struct Capped {
+            buf: Vec<u8>,
+            cap: usize,
         }
-        /// [`RpcError`] with its keys sorted, as `to_value` writes it.
-        #[derive(Serialize)]
-        struct ErrorLine<'a> {
-            code: i64,
-            #[serde(skip_serializing_if = "Option::is_none")]
-            data: Option<&'a Value>,
-            message: &'a str,
+        impl std::io::Write for Capped {
+            fn write(&mut self, data: &[u8]) -> std::io::Result<usize> {
+                if self.buf.len().saturating_add(data.len()) > self.cap {
+                    return Err(std::io::Error::other("past the cap"));
+                }
+                self.buf.extend_from_slice(data);
+                Ok(data.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
         }
-        const NULL: Value = Value::Null;
-        let line = match self {
+        // One byte of the cap is the newline.
+        let mut out = Capped { buf: Vec::new(), cap: cap.saturating_sub(1) };
+        match serde_json::to_writer(&mut out, &self.line()) {
+            Ok(()) => {
+                out.buf.push(b'\n');
+                // serde_json writes UTF-8 only; a failure here would be a serde_json bug.
+                String::from_utf8(out.buf).ok()
+            }
+            Err(error) if error.is_io() => None,
+            // Not an I/O error: the borrowed form failed to serialize; the value's form decides.
+            Err(_) => Some(self.to_line()).filter(|line| line.len() <= cap),
+        }
+    }
+
+    /// The borrowed form [`Self::to_line`] and [`Self::line_within`] serialize.
+    fn line(&self) -> Line<'_> {
+        static NULL: Value = Value::Null;
+        match self {
             Message::Request { id, method, params } => Line {
                 jsonrpc: "2.0",
                 id: Some(id),
@@ -246,10 +327,7 @@ impl Message {
                     message: &error.message,
                 }),
             },
-        };
-        let mut s = serde_json::to_string(&line).unwrap_or_else(|_| self.to_value().to_string());
-        s.push('\n');
-        s
+        }
     }
 
     /// The line to send when it fits in [`MAX_MESSAGE_BYTES`]. A reply that does not is sent as
@@ -262,17 +340,20 @@ impl Message {
 
     /// [`Self::bounded_line`] for a reply whose request's method the sender knows: the size
     /// watch names it (`reply to <method>`).
+    /// The line is serialized only up to the cap ([`Self::line_within`]): one past it is refused
+    /// as [`OVER_CAP`] bytes, never written whole first.
     pub fn bounded_line_replying(&self, reply_to: Option<&str>) -> Result<String, usize> {
-        let line = self.to_line();
-        crate::wire_size::observe(crate::wire_size::What::of(self, reply_to), line.len());
-        if line.len() <= MAX_MESSAGE_BYTES {
+        let what = crate::wire_size::What::of(self, reply_to);
+        if let Some(line) = self.line_within(MAX_MESSAGE_BYTES) {
+            crate::wire_size::observe(what, line.len());
             return Ok(line);
         }
+        crate::wire_size::observe(what, OVER_CAP);
         match self {
             Message::Response { id, .. } => {
-                Ok(Message::err(id.clone(), RpcError::too_large(line.len())).to_line())
+                Ok(Message::err(id.clone(), RpcError::too_large_past_cap()).to_line())
             }
-            _ => Err(line.len()),
+            _ => Err(OVER_CAP),
         }
     }
 
@@ -348,7 +429,19 @@ pub mod method {
 
     // acpmux extension namespace. Everything a plain ACP client does not need.
     pub const MUX_STATUS: &str = "_acpmux/status";
+    /// The live perf commentator (`perf_watch.rs`): `{op: on|off|status|read|snapshot|report|
+    /// budgets}`; local app and unix socket only.
+    pub const MUX_PERF: &str = "_acpmux/perf";
+    /// One-request v2 upgrade. The JSON-RPC reply is the last v1 message; the
+    /// transport hands the same stream to the framed v2 connection afterward.
+    pub const MUX_V2: &str = "_acpmux/v2";
+    /// The unix socket's first line that turns the connection into a pipe to a machine's cmux-tui
+    /// remote daemon over the hub carrier (`cmux_tui_service.rs`); the reply is the last line.
+    pub const MUX_REMOTE_PIPE: &str = "_acpmux/remote.pipe";
     pub const MUX_SESSIONS: &str = "_acpmux/sessions";
+    /// Every listed chat's `usageStats` by its list id, and nothing else, kept by list position
+    /// (`hub/usage_answer.rs`): Session Info's Usage.
+    pub const MUX_USAGE: &str = "_acpmux/usage";
     /// The asking-mode table and the remote guard's lists, for the native
     /// relay; unix socket only.
     pub const MUX_WEB_MODES: &str = "_acpmux/web_modes";
@@ -370,6 +463,11 @@ pub mod method {
     pub const MUX_ATTACH: &str = "_acpmux/attach";
     pub const MUX_VIEW: &str = "_acpmux/view";
     pub const MUX_MARK_UNREAD: &str = "_acpmux/markUnread";
+    /// The person marks a chat read without showing it (`hub/seen.rs`, cmux's `chat.mark_read`).
+    pub const MUX_MARK_READ: &str = "_acpmux/markRead";
+    /// The person saw a chat through a log seq (`hub/seen.rs` `read_through`): moves their seen
+    /// cursor forward only.
+    pub const MUX_SEEN: &str = "_acpmux/seen";
     /// A person in an attached chat starts or stops typing (`hub/presence.rs`).
     pub const MUX_TYPING: &str = "_acpmux/typing";
     /// Who has a chat open and who types in it, to its attached connections.
@@ -380,9 +478,21 @@ pub mod method {
     /// `acpmux register NAME`: the session the caller's shell runs in takes a stable name
     /// (`hub/register.rs`). Local unix socket only.
     pub const MUX_REGISTER: &str = "_acpmux/register";
+    /// A Claude Code session's own MCP server polls for the deliveries into that session's inbox
+    /// and writes them itself (`claude_inbox_relay.rs`). Local unix socket only.
+    pub const MUX_INBOX_RELAY: &str = "_acpmux/inbox_relay";
     pub const MUX_KILL: &str = "_acpmux/kill";
+    /// Hibernate an idle session now: its harness exits, its conversation stays resumable
+    /// (`hub/pause.rs`): `{sessionId}`.
+    pub const MUX_PAUSE: &str = "_acpmux/pause";
+    /// Start a hibernated session's agent now, on its conversation (`hub/pause.rs`):
+    /// `{sessionId}`.
+    pub const MUX_WAKE: &str = "_acpmux/wake";
     pub const MUX_KEEP: &str = "_acpmux/keep";
     pub const MUX_WATCH_TAKE_OVER: &str = "_acpmux/watch_take_over";
+    /// A chat hands its Claude Code or Codex conversation to a terminal: once idle, its harness
+    /// stops and it watches its own transcript (`hub/release_to_watch.rs`): `{sessionId}`.
+    pub const MUX_RELEASE_TO_WATCH: &str = "_acpmux/release_to_watch";
     /// Stop one of a session's background subagents (a Claude background
     /// agent or workflow): `{sessionId, subagentSessionId}`.
     pub const MUX_SUBAGENT_STOP: &str = "_acpmux/subagent_stop";
@@ -412,6 +522,11 @@ pub mod method {
     /// `{sessionId, promptId, turnId, text, prompt, fromAgent, fromSessionId, fromHarness}`
     /// (`hub/queue_text.rs`); the queue list carries a 200-character preview only.
     pub const MUX_QUEUE_TEXT: &str = "_acpmux/queue_text";
+    /// One page of a chat's transcript rows, folded in the daemon (`rows/`),
+    /// `{sessionId, afterSeq | beforeSeq, maxBytes, follow}` → `{rows, hasMore, version, count,
+    /// lastSeq, cut}`. `follow` (on an attached chat) sends the rows' later changes as
+    /// `_acpmux/rows_patch`.
+    pub const MUX_ROWS: &str = "_acpmux/rows";
     /// The owner reads a queued prompt whole before answering it, `{sessionId, promptId}`
     /// (`hub/queue_approve.rs`): `{promptId, turnId, revision, text, prompt, inlineParts, author,
     /// provenance, awaitingOwner}`.
@@ -468,11 +583,18 @@ pub mod method {
     pub const MUX_TEAM_ACK: &str = "_acpmux/team/ack";
     /// An image a session's prompt sent, by its id (`hub/prompt_images.rs`).
     pub const MUX_ATTACHMENT: &str = "_acpmux/attachment";
+    /// A turn's before and after picture of the chat's page (`hub/turn_shots.rs`).
+    pub const MUX_TURN_SHOTS: &str = "_acpmux/turn_shots";
     pub const MUX_PERMISSION_RESPOND: &str = "_acpmux/permission_respond";
     /// The signed app gives this launch's person key (`hub/person.rs`).
     pub const MUX_PERSON_ENROLL: &str = "_acpmux/person_enroll";
-    /// The signed app gives the daemon its legacy Computer Use agent endpoint.
-    pub const MUX_COMPUTER_USE_ENROLL: &str = "_acpmux/computer_use_enroll";
+    /// One Computer Use call on another of the person's machines, over the
+    /// peer link (`server/computer_use_relay.rs`).
+    pub const MUX_COMPUTER_USE_CALL: &str = "_acpmux/computer_use_call";
+    /// The person's other machines and whether Computer Use is on there (local only).
+    pub const MUX_COMPUTER_USE_MACHINES: &str = "_acpmux/computer_use_machines";
+    /// Whether Computer Use is on here (asked by a peer for its machine list).
+    pub const MUX_COMPUTER_USE_STATE: &str = "_acpmux/computer_use_state";
     /// The person proof for this connection's challenge (`hub/person.rs`).
     pub const MUX_PERSON_PROVE: &str = "_acpmux/person_prove";
     pub const MUX_PERSON_HOLDS: &str = "_acpmux/person_holds";
@@ -486,6 +608,12 @@ pub mod method {
     /// The person's app: the folders of the workspaces its daemon lists now,
     /// which a remote (Web) connection may also start sessions in.
     pub const MUX_WORKSPACE_ROOTS_SET: &str = "_acpmux/workspace_roots_set";
+    /// The person's app: the cmux-tui daemon socket and agent tab host whose workspaces a
+    /// browser's NEXT sidebar groups its chats by (`server/browser_workspaces.rs`).
+    pub const MUX_BROWSER_WORKSPACE_SOURCE_SET: &str = "_acpmux/browser_workspace_source_set";
+    /// A browser that presented its enrolled device: the app's workspaces and their chats
+    /// (`server/browser_workspaces.rs`).
+    pub const MUX_BROWSER_WORKSPACES: &str = "_acpmux/browser_workspaces";
     /// The person's app: the agent and model its New Tab page picked last,
     /// anywhere and per folder (`newTab.lastPicks`), which `_acpmux/harnesses`
     /// shows a remote device so its New Agent Chat starts where the app's does.
@@ -512,6 +640,12 @@ pub mod method {
     pub const MUX_INBOX_THREAD: &str = "_acpmux/inbox_thread";
     /// An answer in an inbox thread, to its sender's inbox: `{sessionId, threadId, text}`.
     pub const MUX_INBOX_REPLY: &str = "_acpmux/inbox_reply";
+    /// Bind a surge thread to its resolved recipient session: `{sessionId, threadId}`.
+    pub const MUX_INBOX_SUBSCRIPTION_SET: &str = "_acpmux/inbox_subscription_set";
+    /// Remove a surge thread binding: `{sessionId, threadId}`.
+    pub const MUX_INBOX_SUBSCRIPTION_REMOVE: &str = "_acpmux/inbox_subscription_remove";
+    /// List active surge thread bindings: `{sessionId}`.
+    pub const MUX_INBOX_SUBSCRIPTIONS: &str = "_acpmux/inbox_subscriptions";
     pub const MUX_TAG: &str = "_acpmux/tag";
     /// Ends a session's link to the session that started it (`acpmux session detach`,
     /// `hub/lane_reports.rs`): `{sessionId}` -> `{sessionId, detached}`. Its turns no longer go
@@ -606,6 +740,9 @@ pub mod method {
     /// The other sessions, here and on peers, that work on the files, topic, branch or folder
     /// a query names (`hub/touched.rs`, `touched_files.rs`).
     pub const MUX_WHO_ELSE: &str = "_acpmux/who_else";
+    /// A send noted: the daemon answers when one caller sent the same prompt to many sessions
+    /// within a minute (`send_fanout.rs`). It refuses nothing.
+    pub const MUX_SEND_FANOUT: &str = "_acpmux/send_fanout";
     /// A chat's image or video, read on the machine that runs it (`hub/media_read.rs`).
     pub const MUX_MEDIA_OPEN: &str = "_acpmux/media_open";
     pub const MUX_MEDIA_RANGE: &str = "_acpmux/media_range";
@@ -686,6 +823,25 @@ pub mod method {
     pub const MUX_ACCOUNTS: &str = "_acpmux/accounts";
     pub const MUX_ACCOUNT_SET: &str = "_acpmux/account/set";
     pub const MUX_ACCOUNT_USAGE: &str = "_acpmux/account/usage";
+    // Model connections: the person's ordered ways to pay for a model, for Settings > Models and
+    // the inference gateway (server/connections.rs, cmux-tui/docs/model-connections.md). The list:
+    // also the local app; every change and every ChatGPT call: the unix socket only.
+    pub const MUX_CONNECTIONS: &str = "_acpmux/connections";
+    pub const MUX_CONNECTIONS_ORDER_SET: &str = "_acpmux/connections/order.set";
+    pub const MUX_CONNECTIONS_SPREAD_SET: &str = "_acpmux/connections/spread.set";
+    pub const MUX_CONNECTIONS_REMOVE: &str = "_acpmux/connections/remove";
+    pub const MUX_CONNECTIONS_KEY_ADD: &str = "_acpmux/connections/key.add";
+    pub const MUX_CONNECTIONS_CHATGPT_BEGIN: &str = "_acpmux/connections/chatgpt.begin";
+    pub const MUX_CONNECTIONS_CHATGPT_WAIT: &str = "_acpmux/connections/chatgpt.wait";
+    pub const MUX_CONNECTIONS_CHATGPT_CANCEL: &str = "_acpmux/connections/chatgpt.cancel";
+    pub const MUX_CONNECTIONS_CHATGPT_TOKEN: &str = "_acpmux/connections/chatgpt.token";
+    /// CI only: a Codex auth.json as a `chatgpt-plan` connection, local socket and an env switch.
+    pub const MUX_CONNECTIONS_CHATGPT_IMPORT: &str = "_acpmux/connections/chatgpt.import";
+    pub const MUX_CONNECTIONS_CLAUDE_TOKEN_ADD: &str = "_acpmux/connections/claude_token.add";
+    /// A Cloud-serving connection's credential for one machine agent launch (Revision 2).
+    pub const MUX_CONNECTIONS_CREDENTIAL: &str = "_acpmux/connections/credential";
+    /// Sent to watching unix-socket and local-app connections with the `ConnectionsState`.
+    pub const MUX_CONNECTIONS_CHANGED: &str = "_acpmux/connections.changed";
     /// Create a fix chat from a GitHub issue URL (`{url, cwd?}`).
     pub const CHAT_FIX_FROM_LINK: &str = "chat.fix_from_link";
     pub const CHAT_FIX_FROM_LINK_PREPARE: &str = "chat.fix_from_link.prepare";
@@ -761,6 +917,10 @@ pub mod method {
     pub const MUX_GOAL_SET: &str = "_acpmux/goal/set";
     pub const MUX_GOAL_UPDATE: &str = "_acpmux/goal/update";
     pub const MUX_GOAL_GET: &str = "_acpmux/goal/get";
+    /// A chat's task list across its turns (`server/task_list.rs`, `task_list.rs`): kept by its
+    /// agent or its Chief when the harness writes no plan of its own, and read back.
+    pub const MUX_TASK_LIST_SET: &str = "_acpmux/task_list/set";
+    pub const MUX_TASK_LIST_GET: &str = "_acpmux/task_list/get";
     /// Building an approved plan here, in a new worktree, or on two agents to compare
     /// (`server/plan_build.rs`, `hub/plan_build.rs`).
     pub const MUX_PLAN_BUILD: &str = "_acpmux/plan/build";
@@ -784,6 +944,41 @@ pub mod method {
     pub const MUX_MACHINE_CONSENT_SET: &str = "_acpmux/machine_consent_set";
     pub const MUX_MACHINE_CONSENT_REFUSED: &str = "_acpmux/machine_consent_refused";
     pub const MUX_MACHINE_CONSENT_GET: &str = "_acpmux/machine_consent_get";
+    /// The share host's status (`share_host/`): `{}` -> `acpmux.share-host.status/1`, what
+    /// `acpmux share-host status` prints. Local socket only.
+    pub const MUX_SHARE_HOST_STATUS: &str = "_acpmux/share_host_status";
+    /// The person's other machines' workspace routes (`machine_routes.rs`): `{}` ->
+    /// `{machines: [{host, daemonId, via, route, socket, state, refusal}]}`. Local socket only.
+    pub const MUX_MACHINE_ROUTES: &str = "_acpmux/machine_routes";
+    /// One session circuit to a listed machine, opened and closed: `{daemonId}` -> `{ok}` or the
+    /// refusal (`reason`). What New Workspace asks first: the far machine asks its person once.
+    pub const MUX_MACHINE_ROUTE_PROBE: &str = "_acpmux/machine_route_probe";
+    /// Signing in enrolls this machine (`server/machine_enroll.rs`): `{accessToken, hub?, userId?,
+    /// buildTag?}` -> `{outcome, relay?}`. Local socket only.
+    pub const MUX_MACHINE_ENROLL: &str = "_acpmux/machine_enroll";
+    /// Signing out leaves the hub only when signing in joined this machine for the account signing
+    /// out: `{userId?}` -> `{left, kept?, hub?}`. Local socket only.
+    pub const MUX_MACHINE_LEAVE_IF_AUTO: &str = "_acpmux/machine_leave_if_auto";
+    /// The app's signed-in person changed (`server/sign_in_follow.rs`): `{userId|null, previous?,
+    /// accessToken?, hub?, buildTag?}` -> `{accepted, recorded?, leave, enroll}`. acpmux records the
+    /// account signing out, leaves its sign-in join and enrolls the next person, with its retry.
+    /// Local socket only.
+    pub const MUX_MACHINE_SIGNED_IN: &str = "_acpmux/machine_signed_in";
+    /// A browser on the web listener presents its own enrolled device credential
+    /// (`server/web_device.rs`): `{credential}` -> `{auth: "webDevice"}`. Once per connection;
+    /// the connection's hub reads and prompts then go with that credential only. Web only.
+    pub const MUX_DEVICE_HELLO: &str = "_acpmux/device_hello";
+    /// A browser on the web listener enrolls as its own device on the mesh hub, as a new machine
+    /// joins (`server/web_device.rs`): `{accessToken, publicKey}` -> `{credential, machineId,
+    /// userId}`, to that connection only. Nothing is written to disk. Web only.
+    pub const MUX_DEVICE_ENROLL: &str = "_acpmux/device_enroll";
+    /// A browser on the web listener starts its own email-code sign-in for this daemon's owner
+    /// (`server/web_device.rs`): `{email, publicKey}` -> `{expiresIn: 300}`. One pending sign-in
+    /// per connection; a new start replaces it. Web only.
+    pub const MUX_BROWSER_SIGN_IN_START: &str = "_acpmux/browser_sign_in_start";
+    /// Completes it with the emailed code: `{code}` -> `{accessToken, publicKey}`, the browser's
+    /// own credential for `_acpmux/device_enroll`, to that connection only. Single-use. Web only.
+    pub const MUX_BROWSER_SIGN_IN_COMPLETE: &str = "_acpmux/browser_sign_in_complete";
     // This Mac's Cloud tunnel on the team mesh (`crate::machine_tunnel`,
     // `server/machine_tunnel.rs`): the app's person-proved connection only, with the person's
     // cmux access token in `token`. `attach|detach {token, networkId?}` -> the platform's
@@ -799,10 +994,19 @@ pub mod method {
     pub const MUX_VAULT_STATUS: &str = "_acpmux/vault_status";
     // Notifications from acpmux to attached clients.
     pub const MUX_EVENT: &str = "_acpmux/event";
+    /// A followed chat's row changes since the last, `{sessionId, version, lastSeq, patches}`
+    /// (`rows/`).
+    pub const MUX_ROWS_PATCH: &str = "_acpmux/rows_patch";
+    /// A followed chat's row changes went past what acpmux keeps: read a page again,
+    /// `{sessionId, version, lastSeq}`.
+    pub const MUX_ROWS_LAGGED: &str = "_acpmux/rows_lagged";
     /// A persisted session-to-session message, projected separately so chat clients can render
     /// incoming and outgoing bubbles without decoding the generic event stream.
     pub const MUX_MESSAGE: &str = "_acpmux/message";
     pub const MUX_SESSION_CHANGED: &str = "_acpmux/session_changed";
+    /// One peer's burst of row changes, to a watcher that asked for batches (`hub/list_guard.rs`
+    /// `send_remote_batch`).
+    pub const MUX_PEER_ROWS_CHANGED: &str = "_acpmux/peer_rows_changed";
     pub const MUX_PERMISSION_PENDING: &str = "_acpmux/permission_pending";
     /// To watchers when a harness profile source changed and the catalog
     /// reloaded: `{harnesses: string[], diagnostics}`.
@@ -816,6 +1020,10 @@ pub mod method {
     /// Sent to the prompting connection as soon as a `session/prompt` is
     /// recorded, before the turn ends: `{sessionId, promptId, turnId, queued}`.
     pub const MUX_PROMPT_ACCEPTED: &str = "_acpmux/prompt_accepted";
+    /// To a peer daemon's link, for a record of an attached session it is not sent live (an
+    /// agent request or answer, `server/mod.rs` `deliver`): `{sessionId, seq}`, so the owner's
+    /// copy (`hub/peer_snapshot.rs`) continues past that seq instead of stopping there.
+    pub const MUX_UNSENT: &str = "_acpmux/unsent";
     /// To the connection whose `session/cancel` notification was refused, which has no answer to
     /// read: `{sessionId, message, reason?, peer?}` (`server/requests/cancel_refused.rs`).
     pub const MUX_CANCEL_REFUSED: &str = "_acpmux/cancel_refused";
@@ -844,6 +1052,21 @@ mod bounded_tests {
         assert!(Message::notification("_acpmux/event", big).bounded_line().is_err());
         let small = Message::ok(json!(9), json!({"ok": true}));
         assert_eq!(small.bounded_line().unwrap(), small.to_line());
+    }
+
+    /// `line_within` is `to_line` up to its cap, byte for byte, and nothing past it: a line one
+    /// byte over is refused, and one of a frame and more is refused without being written whole.
+    #[test]
+    fn a_line_is_written_only_up_to_its_cap() {
+        let reply = Message::ok(json!(1), json!({"text": "x".repeat(1000), "n": [1, 2, 3]}));
+        let line = reply.to_line();
+        assert_eq!(reply.line_within(line.len()).as_deref(), Some(line.as_str()));
+        assert_eq!(reply.line_within(line.len() - 1), None);
+        let big = Message::ok(json!(2), json!({"text": "x".repeat(2 * MAX_MESSAGE_BYTES)}));
+        assert_eq!(big.line_within(MAX_MESSAGE_BYTES), None);
+        let refused = big.bounded_line().unwrap();
+        assert!(refused.contains("message.too_large"), "{refused}");
+        assert!(refused.len() < 1024, "{} bytes", refused.len());
     }
 }
 

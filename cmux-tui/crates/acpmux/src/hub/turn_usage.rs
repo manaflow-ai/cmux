@@ -113,6 +113,19 @@ pub(super) fn turn_usage(session: &Session, result: &Value) -> (Map<String, Valu
         return (fields, budget);
     }
     meta.totals.get_or_insert_with(TurnUsage::default).add(&reported);
+    // Opt-in usage patterns: the turn's token counts as its harness reported them.
+    if let Some(recorder) = cmux_usage_patterns::global().filter(|r| r.enabled()) {
+        for (kind, n) in [
+            ("input", reported.input_tokens),
+            ("output", reported.output_tokens),
+            ("cache-read", reported.cache_read_tokens),
+            ("cache-write", reported.cache_write_tokens),
+        ] {
+            if let Some(n) = n {
+                recorder.count_n("tokens", kind, n);
+            }
+        }
+    }
     if let Ok(Value::Object(spent)) = serde_json::to_value(&turn) {
         fields.extend(spent);
     }

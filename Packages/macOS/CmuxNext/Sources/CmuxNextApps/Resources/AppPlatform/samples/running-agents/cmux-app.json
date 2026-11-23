@@ -4,7 +4,7 @@
   "id": "cmux/running-agents",
   "name": { "en": "Running Agents", "ja": "実行中のエージェント" },
   "version": "1.0.0",
-  "description": "Every coding agent in your terminals, grouped by what it is doing. Click one to jump to its terminal.",
+  "description": "A sidebar list of every coding agent running in your terminals, grouped by what it is doing. Click one to jump to its terminal.",
   "publisher": { "name": "cmux", "url": "https://cmux.dev" },
   "repository": "https://github.com/manaflow-ai/cmux",
   "license": "GPL-3.0-or-later",
@@ -13,9 +13,9 @@
   "engines": { "cmux": "^1.0" },
   "main": "dist/main.js",
   "scopes": {
-    "agent:read": "List the agents running in your terminals.",
-    "terminal:read": "Find the tab of an agent's terminal.",
-    "workspace:write": "Show an agent's tab when you click it."
+    "agent:read": "See the coding agents running in your terminals and what each one is doing.",
+    "terminal:read": "Find which tab holds an agent's terminal.",
+    "workspace:write": "Switch to an agent's tab when you click it."
   },
   "contributes": {
     "sidebarSections": [{ "id": "agents", "title": { "en": "Agents", "ja": "エージェント" }, "symbol": "sparkles", "defaultRegion": "middle", "render": "renderAgents", "maxRows": 12 }],

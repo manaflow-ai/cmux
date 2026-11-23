@@ -36,6 +36,13 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts/cmux-next"))
 import hybrid_ref_capture as cap  # noqa: E402
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 WORKFLOW = ROOT / ".github/workflows/cmux-next.yml"
 COMPILE_SCRIPT = ROOT / "scripts/cmux-next/check-cmux-scheme-compile.sh"
@@ -390,7 +397,9 @@ class Workflow(unittest.TestCase):
                       "a failed jobs read (a rate limit that outlasted the lookup) falls back to the decide step's start")
         self.assertEqual(capture["env"]["DECIDE_STARTED"], "${{ steps.hybrid-ref.outputs.started }}")
         self.assertIn("hybrid_ref_capture.py have --key", decide["run"], "the lookup that retries a rate limit")
-        self.assertEqual(upload["with"]["retention-days"], 14, "the manifest lives as long as the store keeps the packs")
+        # Every upload keeps 7 days at most (#43466, test_ci_upload_artifact_retention MAX_ALLOWED_DAYS); `have`
+        # counts only unexpired manifests, so a capture older than that is taken again.
+        self.assertEqual(upload["with"]["retention-days"], 7, "every upload-artifact step is bounded to 7 days")
         self.assertIn("steps.hybrid-ref.outputs.capture == 'true'", capture["if"])
         self.assertIn("outputs.build_mode == 'host'", capture["if"])
         self.assertIn("steps.compile-cmux-next-dev-release.outcome == 'success'", capture["if"])

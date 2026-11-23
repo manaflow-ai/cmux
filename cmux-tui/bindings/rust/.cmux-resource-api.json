@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "8a85f44920f9e48db988ec9828d804432b634a85d2453bb98375654fe6cd47e0",
+  "catalog_sha256": "cc981d12cb04b0a5fec675c072b70593a7ec85d841dd735743fc6b420becb95d",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -94,6 +94,24 @@
     "browser.viewer.resize": {
       "class": "connection_control"
     },
+    "browser_import.read": {
+      "class": "read"
+    },
+    "chat.list": {
+      "class": "read"
+    },
+    "chat.mark_read": {
+      "class": "mutation"
+    },
+    "chat.pin": {
+      "class": "mutation"
+    },
+    "chief.automation.list": {
+      "class": "read"
+    },
+    "chief.automation.update": {
+      "class": "mutation"
+    },
     "chief.continue": {
       "class": "mutation"
     },
@@ -175,7 +193,16 @@
     "closed.reopen": {
       "class": "mutation"
     },
+    "cloud.machine.chat_access": {
+      "class": "read"
+    },
+    "cloud.machine.chief_start": {
+      "class": "mutation"
+    },
     "cloud.machine.io": {
+      "class": "mutation"
+    },
+    "cloud.machine.share_chat": {
       "class": "mutation"
     },
     "cloud.owner.acpmux_keyed_start": {
@@ -188,6 +215,12 @@
       "class": "mutation"
     },
     "cloud.owner.github_app": {
+      "class": "read"
+    },
+    "cloud.owner.github_connect": {
+      "class": "mutation"
+    },
+    "cloud.owner.github_repos": {
       "class": "read"
     },
     "cloud.owner.handoff_begin_turn": {
@@ -337,6 +370,9 @@
     "diff.comments.save": {
       "class": "mutation"
     },
+    "diff.comments.send": {
+      "class": "mutation"
+    },
     "frontend_projection.get": {
       "class": "read"
     },
@@ -374,6 +410,9 @@
       "class": "read"
     },
     "git.files.search": {
+      "class": "read"
+    },
+    "git.fingerprint": {
       "class": "read"
     },
     "git.push": {
@@ -441,6 +480,9 @@
     },
     "keybindings.set": {
       "class": "mutation"
+    },
+    "language_packs.ensure": {
+      "class": "read"
     },
     "layout.bulk": {
       "class": "mutation"
@@ -721,6 +763,9 @@
     "session.window.title.set": {
       "class": "mutation"
     },
+    "settings.edit": {
+      "class": "mutation"
+    },
     "settings.get": {
       "class": "read"
     },
@@ -965,6 +1010,15 @@
       "class": "read"
     },
     "terminal.wait_exit": {
+      "class": "read"
+    },
+    "theme.scheme.convert": {
+      "class": "read"
+    },
+    "theme.scheme.export": {
+      "class": "read"
+    },
+    "theme.scheme.from_image": {
       "class": "read"
     },
     "window_record.delete": {

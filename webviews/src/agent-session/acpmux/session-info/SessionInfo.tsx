@@ -81,6 +81,7 @@ import type { OutputArtifact } from "./outputsSectionModel";
 import { ServersSection } from "./ServersSection";
 import { SubagentLimitStepper } from "./SubagentLimitStepper";
 import { SubagentCountsMeta, SubagentsSection } from "./SubagentsSection";
+import type { ResumeActions } from "../subagents/ResumeControl";
 import { AlsoHereSection } from "./AlsoHereSection";
 import { useAlsoHere } from "./alsoHereSectionModel";
 import { sessionStatus } from "./childSessionRowsModel";
@@ -115,6 +116,7 @@ import {
   openOutputFile,
 } from "./sessionInfoModel";
 import { tooltipProps } from "../shortcuts";
+import { intl } from "../../../ui/intl";
 
 type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
 /// A chat with no folders beside its own (one shared empty list, so the section's props keep their identity).
@@ -352,6 +354,7 @@ export function SessionInfo({
   agents = [],
   waiting = new Set(),
   onOpenSubagent,
+  resumeSubagent,
   statuses = {},
   processes = [],
   listed = false,
@@ -430,6 +433,8 @@ export function SessionInfo({
   agents?: readonly Subagent[];
   waiting?: ReadonlySet<string>;
   onOpenSubagent?: (id: string) => void;
+  /// Resume on a stopped subagent's line (subagents/ResumeControl.tsx).
+  resumeSubagent?: ResumeActions;
   /// What the App read of the pull requests, by URL.
   statuses?: Readonly<Record<string, SessionInfoPullRequestStatus>>;
   /// The chat's background processes, in the order they started.
@@ -691,7 +696,7 @@ export function SessionInfo({
   // its breakdown from Messages down (Lucas, 2026-11-06: "clicking on context should no longer open the
   // context modal. instead it will just expand"). The composer's context card's Details opens Session
   // Info on it, unfolded and lit (App.tsx `onOpenContext`, as main has it).
-  const contextTokens = new Intl.NumberFormat(language, { notation: "compact", maximumFractionDigits: 1 });
+  const contextTokens = intl.NumberFormat(language, { notation: "compact", maximumFractionDigits: 1 });
   const context = known ? (
     <SessionInfoSection
       id="context"
@@ -856,6 +861,7 @@ export function SessionInfo({
           agents={listedAgents}
           waiting={waiting}
           onOpen={onOpenSubagent}
+          resume={resumeSubagent}
           sessions={sessions}
           onOpenSession={onOpenSession}
           harness={summary?.harness}

@@ -14,7 +14,8 @@
   --pcd-gap: 8px;
   /* The sidebar's glass: the chrome level (sidebar and sticky headers); none under Reduce Transparency, where the veil alone stands. */
   --pcd-blur: var(--ds-glass-chrome-blur);
-  --pcd-veil: color-mix(in srgb, var(--pcd-tone) 90%, transparent);
+  /* The chrome level's fill share too: a veil at 90% reads as solid under its blur (glass-never-opaque). */
+  --pcd-veil: color-mix(in srgb, var(--pcd-tone) var(--ds-glass-chrome-tint), transparent);
   --pcd-dot: 8px; /* SidebarStyle.unreadDotSize */
   --pcd-chip: var(--grid-icon-box, 16px);
   --pcd-fade: 12px;
@@ -262,7 +263,7 @@ button.pcd-header {
   background: var(--pcd-veil);
   backdrop-filter: var(--pcd-blur);
   -webkit-backdrop-filter: var(--pcd-blur);
-  box-shadow: 0 0 0 0.5px color-mix(in srgb, var(--pcd-ink) 8%, transparent);
+  box-shadow: 0 0 0 var(--cmux-hairline, 0.5px) color-mix(in srgb, var(--pcd-ink) 8%, transparent);
 }
 
 /* Revealed rows: a grid track opening from 0fr to 1fr, so the rows below slide down together. */

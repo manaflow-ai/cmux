@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import concurrent.futures
 import dataclasses
+import tempfile
 import datetime as dt
 import glob
 import json
@@ -1611,7 +1612,8 @@ def main() -> int:
     args = parser.parse_args()
 
     tag = safe_name(args.tag) if args.tag else None
-    artifacts_dir = pathlib.Path(args.artifacts or f"/tmp/cmux-cli-socket-stress-{now_slug()}").expanduser()
+    # The default is a folder mkdtemp makes, never a guessable /tmp name another account could make first.
+    artifacts_dir = pathlib.Path(args.artifacts or tempfile.mkdtemp(prefix=f"cmux-cli-socket-stress-{now_slug()}-", dir="/tmp")).expanduser()
     artifacts_dir.mkdir(parents=True, exist_ok=True)
     cli_path = resolve_cli_path(args.cli, tag)
     socket_path = resolve_socket_path(args.socket, tag)

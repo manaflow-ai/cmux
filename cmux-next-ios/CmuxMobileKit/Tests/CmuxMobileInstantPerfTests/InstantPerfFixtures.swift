@@ -143,6 +143,10 @@ struct AgentChatLog: Sendable {
     /// Each turn's id and the index of its last record (`turn_result`), oldest first.
     let turnIDs: [String]
     let turnEnds: [Int]
+    /// Records as acpmux sends them cut (`toolOutputMaxBytes`), made once per log and shared by
+    /// every fake over it: the Mac's cost of a page is not the phone's, and the fake's own cost
+    /// does not grow with the record (``InstantPerfAcpmux``).
+    let cuts = CutLines()
 
     var count: Int { records.count }
     var totalBytes: Int { bytes.reduce(0, +) }
@@ -339,14 +343,23 @@ enum AgentChatFixture {
 // MARK: - A fake acpmux over a fixture log
 
 /// A fake Mac's acpmux serving `log`'s first `end` records, as acpmux pages them
-/// (`daemon_chat_open.rs`: newest page before `beforeSeq`, or oldest first after `afterSeq`;
+/// (`daemon_chat_open.rs`: the newest page between `afterSeq` and `beforeSeq`, or oldest first
+/// after `afterSeq` when it comes alone;
 /// `limit` records, `maxBytes` of whole records with at least one). Moving `end` is the Mac
 /// writing records while the phone is away. Pages are cut by index arithmetic, so the fake's
 /// own cost does not grow with the log's length; only the page it sends costs.
+/// `toolOutputMaxBytes` cuts a tool call record past it as acpmux does (`hub/tool_output_cut.rs`):
+/// each record's cut line is made once per log and kept (``AgentChatLog/cuts``), as every other
+/// record is a prebuilt line: the Mac's own cost is not the phone's.
 final class InstantPerfAcpmux: @unchecked Sendable {
     let log: AgentChatLog
     private let lock = NSLock()
     private var visible: Int
+    /// Each page sent (`_acpmux/attach` and `_acpmux/events` replies), oldest first: the record
+    /// indices it held and its bytes.
+    private var eventReplies: [(records: ClosedRange<Int>?, bytes: Int)] = []
+
+    var eventReplyLog: [(records: ClosedRange<Int>?, bytes: Int)] { lock.withLock { eventReplies } }
 
     init(_ log: AgentChatLog, end: Int? = nil) {
         self.log = log
@@ -359,64 +372,227 @@ final class InstantPerfAcpmux: @unchecked Sendable {
     }
 
     func link() -> MockMacLink {
-        MockMacLink { [self] _, data in
-            guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let method = object["method"] as? String else { return [] }
-            let id = object["id"].map { "\($0)" } ?? "null"
-            let params = object["params"] as? [String: Any] ?? [:]
-            func reply(_ result: String) -> Data { Data(#"{"jsonrpc":"2.0","id":\#(id),"result":\#(result)}"#.utf8) }
-            let end = self.end
-            switch method {
-            case "initialize": return [reply(#"{"protocolVersion":1}"#)]
-            case "_acpmux/watch":
-                return [reply(#"{"sessions":[{"sessionId":"s1","name":"Fix","harness":"codex","cwd":"/tmp/w","status":"idle"}]}"#)]
-            case "_acpmux/attach":
-                return [reply(#"{"session":{"sessionId":"s1","status":"idle","pending":[]},"lastSeq":\#(end),\#(page(params, end: end))}"#)]
-            case "_acpmux/events":
-                return [reply("{\(page(params, end: end))}")]
-            default:
-                return [reply("{}")]
-            }
+        MockMacLink { [self] _, data in respond(data) }
+    }
+
+    /// A channel to this fake over a phone's link: each reply lands `rtt` after its request,
+    /// and the link carries `bytesPerSecond`, one reply after another (`LatencyChannel`).
+    func channel(rtt: Duration, bytesPerSecond: Double) -> LatencyChannel {
+        LatencyChannel(rtt: rtt, bytesPerSecond: bytesPerSecond) { [self] data in respond(data) }
+    }
+
+    /// acpmux's replies to one request line.
+    func respond(_ data: Data) -> [Data] {
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let method = object["method"] as? String else { return [] }
+        let id = object["id"].map { "\($0)" } ?? "null"
+        let params = object["params"] as? [String: Any] ?? [:]
+        func reply(_ result: String) -> Data { Data(#"{"jsonrpc":"2.0","id":\#(id),"result":\#(result)}"#.utf8) }
+        let end = self.end
+        switch method {
+        case "initialize": return [reply(#"{"protocolVersion":1}"#)]
+        case "_acpmux/watch":
+            return [reply(#"{"sessions":[{"sessionId":"s1","name":"Fix","harness":"codex","cwd":"/tmp/w","status":"idle"}]}"#)]
+        case "_acpmux/attach":
+            let (json, records) = page(params, end: end)
+            let data = reply(#"{"session":{"sessionId":"s1","status":"idle","pending":[]},"lastSeq":\#(end),\#(json)}"#)
+            lock.withLock { eventReplies.append((records, data.count)) }
+            return [data]
+        case "_acpmux/events":
+            let (json, records) = page(params, end: end)
+            let data = reply("{\(json)}")
+            lock.withLock { eventReplies.append((records, data.count)) }
+            return [data]
+        default:
+            return [reply("{}")]
         }
     }
 
-    private func page(_ params: [String: Any], end: Int) -> String {
+    private func page(_ params: [String: Any], end: Int) -> (json: String, records: ClosedRange<Int>?) {
+        let cutOver = (params["toolOutputMaxBytes"] as? NSNumber)?.intValue
+        /// Record `index` as sent, and its bytes.
+        func sent(_ index: Int) -> (line: String, bytes: Int) {
+            guard let cutOver, cutOver > 0, log.bytes[index] > cutOver else { return (log.records[index], log.bytes[index]) }
+            let line = log.cuts.line(index, cap: cutOver) {
+                ToolOutputCutModel.cut(log.records[index], bytes: log.bytes[index], max: cutOver)
+            }
+            return (line, line.utf8.count)
+        }
         let limit = max((params["limit"] as? NSNumber)?.intValue ?? 400, 1)
         // acpmux caps a page at 1 MiB when the request names no cap (hub/paging.rs `page_bytes`).
         let maxBytes = (params["maxBytes"] as? NSNumber)?.intValue ?? 1_048_576
         var picked: [Int] = []
         var more = false
-        if let after = (params["afterSeq"] as? NSNumber)?.intValue {
+        let after = (params["afterSeq"] as? NSNumber)?.intValue
+        let beforeSeq = (params["beforeSeq"] as? NSNumber)?.intValue
+        if let after, beforeSeq == nil {
             // Oldest first after `after`: seq after + 1 is index `after`.
             var index = max(after, 0)
             var bytes = 0
             while index < end, picked.count < limit {
-                if !picked.isEmpty, bytes + log.bytes[index] > maxBytes { break }
-                bytes += log.bytes[index]
+                let size = sent(index).bytes
+                if !picked.isEmpty, bytes + size > maxBytes { break }
+                bytes += size
                 picked.append(index)
                 index += 1
             }
             more = index < end
         } else {
-            let before = (params["beforeSeq"] as? NSNumber)?.intValue ?? (end + 1)
+            // The newest records with `after < seq < before` (both optional), as acpmux reads
+            // an attach with no `afterSeq` or with `beforeSeq` (server/requests.rs).
+            let lower = max(after ?? 0, 0) // indices from this one
+            let before = beforeSeq ?? (end + 1)
             let upper = min(before - 1, end) // indices below this
             if params["kinds"] as? [String] == ["user_message"] {
-                let eligible = log.prompts.prefix(while: { $0 < upper })
+                let eligible = log.prompts.prefix(while: { $0 < upper }).filter { $0 >= lower }
                 picked = Array(eligible.suffix(limit))
                 more = eligible.count > picked.count
             } else {
                 var index = upper - 1
                 var bytes = 0
-                while index >= 0, picked.count < limit {
-                    if !picked.isEmpty, bytes + log.bytes[index] > maxBytes { break }
-                    bytes += log.bytes[index]
+                while index >= lower, picked.count < limit {
+                    let size = sent(index).bytes
+                    if !picked.isEmpty, bytes + size > maxBytes { break }
+                    bytes += size
                     picked.append(index)
                     index -= 1
                 }
                 picked.reverse()
-                more = index >= 0
+                more = index >= lower
             }
         }
-        return #""hasMore":\#(more),"events":[\#(picked.map { log.records[$0] }.joined(separator: ","))]"#
+        let json = #""hasMore":\#(more),"events":[\#(picked.map { sent($0).line }.joined(separator: ","))]"#
+        return (json, picked.first.flatMap { first in picked.last.map { first...$0 } })
+    }
+}
+
+/// Cut record lines by index and cap (``AgentChatLog/cuts``).
+final class CutLines: @unchecked Sendable {
+    private let lock = NSLock()
+    private var lines: [Int: [Int: String]] = [:]
+
+    func line(_ index: Int, cap: Int, make: () -> String) -> String {
+        if let line = lock.withLock({ lines[index]?[cap] }) { return line }
+        let line = make()
+        lock.withLock { lines[index, default: [:]][cap] = line }
+        return line
+    }
+}
+
+/// acpmux's cut of a tool call record's oversized output (cmux-tui acpmux
+/// `hub/tool_output_cut.rs`, `cut_tool_output`), for the fake: each output string over 1 KiB (a
+/// `content` text block's text, every `rawOutput` string) keeps its head, an even share of half
+/// of `max`, ending after a newline in its second half; the update says
+/// `_meta.acpmux.cut {bytes, seq}`. Diffs and other records go whole.
+enum ToolOutputCutModel {
+    static let minBytes = 1024
+
+    static func cut(_ line: String, bytes: Int, max: Int) -> String {
+        guard var record = (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any],
+              record["dir"] as? String == "in",
+              ["tool_call", "tool_call_update"].contains(record["kind"] as? String ?? ""),
+              var msg = record["msg"] as? [String: Any], var params = msg["params"] as? [String: Any],
+              var update = params["update"] as? [String: Any] else { return line }
+        var count = 0
+        func countLong(_ value: Any) {
+            if let text = value as? String, text.utf8.count > minBytes { count += 1 }
+            (value as? [Any])?.forEach(countLong)
+            (value as? [String: Any])?.values.forEach(countLong)
+        }
+        let blocks = update["content"] as? [[String: Any]] ?? []
+        for block in blocks where block["type"] as? String == "content" {
+            if let inner = block["content"] as? [String: Any], inner["type"] as? String == "text", let text = inner["text"] { countLong(text) }
+        }
+        if let raw = update["rawOutput"] { countLong(raw) }
+        guard count > 0 else { return line }
+        let share = Swift.max(Swift.max(max / 2, minBytes) / count, minBytes)
+        var cutAny = false
+        func head(_ text: String) -> String {
+            let utf8 = Array(text.utf8)
+            guard utf8.count > minBytes, utf8.count > share else { return text }
+            var end = share
+            while end > 0, (utf8[end] & 0xC0) == 0x80 { end -= 1 }
+            var kept = Array(utf8[..<end])
+            if let newline = kept.lastIndex(of: 0x0A), newline >= end / 2 { kept = Array(kept[...newline]) }
+            cutAny = true
+            return String(decoding: kept, as: UTF8.self)
+        }
+        func cutStrings(_ value: Any) -> Any {
+            if let text = value as? String { return head(text) }
+            if let items = value as? [Any] { return items.map(cutStrings) }
+            if let map = value as? [String: Any] { return map.mapValues(cutStrings) }
+            return value
+        }
+        if update["content"] != nil { update["content"] = blocks.map { block -> [String: Any] in
+            guard block["type"] as? String == "content", var inner = block["content"] as? [String: Any],
+                  inner["type"] as? String == "text", let text = inner["text"] as? String else { return block }
+            var block = block
+            inner["text"] = head(text)
+            block["content"] = inner
+            return block
+        } }
+        if let raw = update["rawOutput"] { update["rawOutput"] = cutStrings(raw) }
+        guard cutAny else { return line }
+        var meta = update["_meta"] as? [String: Any] ?? [:]
+        var acpmux = meta["acpmux"] as? [String: Any] ?? [:]
+        acpmux["cut"] = ["bytes": bytes, "seq": record["seq"] ?? 0]
+        meta["acpmux"] = acpmux
+        update["_meta"] = meta
+        params["update"] = update
+        msg["params"] = params
+        record["msg"] = msg
+        guard let data = try? JSONSerialization.data(withJSONObject: record) else { return line }
+        return String(decoding: data, as: UTF8.self)
+    }
+}
+
+// MARK: - A phone's link to the fake
+
+/// A channel with a phone's link between it and the fake Mac: each reply lands `rtt` after its
+/// request at the soonest, and the link carries `bytesPerSecond`, one reply after another (a
+/// big page holds up the replies behind it, as one link does). In-process links answer in
+/// microseconds, which hides what a read costs a person scrolling up a chat on a phone.
+final class LatencyChannel: LinkChannel, @unchecked Sendable {
+    let id: UInt32 = 1
+    private let rtt: Duration
+    private let bytesPerSecond: Double
+    private let respond: @Sendable (Data) -> [Data]
+    private let inbox: AsyncStream<Data>
+    private let continuation: AsyncStream<Data>.Continuation
+    private let lock = NSLock()
+    private var iterator: AsyncStream<Data>.AsyncIterator
+    /// When the link is done carrying the replies sent so far.
+    private var linkFree = ContinuousClock.now
+
+    init(rtt: Duration, bytesPerSecond: Double, respond: @escaping @Sendable (Data) -> [Data]) {
+        self.rtt = rtt
+        self.bytesPerSecond = bytesPerSecond
+        self.respond = respond
+        (inbox, continuation) = AsyncStream.makeStream()
+        iterator = inbox.makeAsyncIterator()
+    }
+
+    func send(_ data: Data) async throws {
+        let sent = ContinuousClock.now
+        for reply in respond(data) {
+            let carry = Duration.seconds(Double(reply.count) / bytesPerSecond)
+            let lands = lock.withLock { () -> ContinuousClock.Instant in
+                linkFree = max(linkFree, sent + rtt) + carry
+                return linkFree
+            }
+            let continuation = continuation
+            Task.detached {
+                try? await Task.sleep(until: lands, clock: .continuous) // test: the link's delay
+                continuation.yield(reply)
+            }
+        }
+    }
+
+    func receive() async throws -> Data? {
+        await iterator.next()
+    }
+
+    func close(code: String, reason: String) async {
+        continuation.finish()
     }
 }

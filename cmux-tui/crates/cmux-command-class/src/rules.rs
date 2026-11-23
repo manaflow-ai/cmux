@@ -123,7 +123,7 @@ impl Classifier {
         let targets = redirects.iter().map(|(_, _, target)| target);
         for word in words.iter().chain(targets) {
             for sub in &word.subs {
-                verdict.merge(self.classify_script(sub, depth + 1));
+                verdict.merge(self.classify_script(sub, depth.saturating_add(1)));
             }
         }
         for (kind, op, target) in redirects {
@@ -147,8 +147,10 @@ impl Classifier {
         let mut i = 0;
         while let Some(&word) = argv.get(i) {
             match word {
-                _ if is_assignment(word) => i += 1,
-                "if" | "then" | "else" | "elif" | "do" | "while" | "until" | "!" | "{" => i += 1,
+                _ if is_assignment(word) => i = i.saturating_add(1),
+                "if" | "then" | "else" | "elif" | "do" | "while" | "until" | "!" | "{" => {
+                    i = i.saturating_add(1);
+                }
                 // The loop header runs nothing; its substitutions are classified
                 // with the words.
                 "for" | "select" | "fi" | "done" | "esac" | "}" => {
@@ -173,7 +175,7 @@ impl Classifier {
         let Some(name) = command_name(first) else {
             return Classification::new(Machine, first);
         };
-        let next = depth + 1;
+        let next = depth.saturating_add(1);
         match name {
             "timeout" => {
                 self.wrapped(name, tail, &["-s", "-k", "--signal", "--kill-after"], 1, next)
@@ -226,15 +228,15 @@ impl Classifier {
         let mut j = 0;
         while let Some(&word) = tail.get(j) {
             if word == "--" {
-                j += 1;
+                j = j.saturating_add(1);
                 break;
             }
             if !is_flag(word) {
                 break;
             }
-            j += if valued.contains(&word) { 2 } else { 1 };
+            j = j.saturating_add(if valued.contains(&word) { 2 } else { 1 });
         }
-        j += positional;
+        j = j.saturating_add(positional);
         match tail.get(j..) {
             Some(rest) if !rest.is_empty() => self.argv(rest, depth),
             // `xargs` with no command runs `echo`; the rest run nothing.
@@ -246,9 +248,9 @@ impl Classifier {
         let mut j = 0;
         while let Some(&word) = tail.get(j) {
             match word {
-                "-u" | "-C" | "--unset" | "--chdir" => j += 2,
+                "-u" | "-C" | "--unset" | "--chdir" => j = j.saturating_add(2),
                 "-S" | "--split-string" => {
-                    let script = tail.get(j + 1..).unwrap_or_default().join(" ");
+                    let script = tail.get(j.saturating_add(1)..).unwrap_or_default().join(" ");
                     return self.classify_script(&script, depth);
                 }
                 _ if word.starts_with("--split-string=") || word.starts_with("-S") => {
@@ -257,14 +259,14 @@ impl Classifier {
                         .or_else(|| word.strip_prefix("-S"))
                         .unwrap_or_default();
                     let mut script = first.to_owned();
-                    for rest in tail.get(j + 1..).unwrap_or_default() {
+                    for rest in tail.get(j.saturating_add(1)..).unwrap_or_default() {
                         script.push(' ');
                         script.push_str(rest);
                     }
                     return self.classify_script(&script, depth);
                 }
-                "-" => j += 1,
-                _ if is_flag(word) || is_assignment(word) => j += 1,
+                "-" => j = j.saturating_add(1),
+                _ if is_flag(word) || is_assignment(word) => j = j.saturating_add(1),
                 _ => return self.argv(tail.get(j..).unwrap_or_default(), depth),
             }
         }
@@ -279,16 +281,16 @@ impl Classifier {
         while let Some(&word) = tail.get(j) {
             match word {
                 "--" => {
-                    j += 1;
+                    j = j.saturating_add(1);
                     break;
                 }
-                "-o" | "+o" | "-O" | "+O" | "--rcfile" | "--init-file" => j += 2,
-                _ if word.starts_with("--") => j += 1,
+                "-o" | "+o" | "-O" | "+O" | "--rcfile" | "--init-file" => j = j.saturating_add(2),
+                _ if word.starts_with("--") => j = j.saturating_add(1),
                 _ if word.len() > 1 && (word.starts_with('-') || word.starts_with('+')) => {
                     let flags = word.get(1..).unwrap_or_default();
                     has_c |= word.starts_with('-') && flags.contains('c');
                     // `-euo pipefail`: a cluster with `o` takes the next word.
-                    j += if flags.contains(['o', 'O']) { 2 } else { 1 };
+                    j = j.saturating_add(if flags.contains(['o', 'O']) { 2 } else { 1 });
                 }
                 _ => break,
             }
@@ -306,7 +308,7 @@ impl Classifier {
         verdict.add(FileRead, "find");
         let mut j = 0;
         while let Some(&word) = tail.get(j) {
-            j += 1;
+            j = j.saturating_add(1);
             match word {
                 "-delete" => verdict.add(FileWrite, "find -delete"),
                 "-fprint" | "-fprint0" | "-fprintf" | "-fls" => {
@@ -315,14 +317,14 @@ impl Classifier {
                 "-exec" | "-execdir" | "-ok" | "-okdir" => {
                     let start = j;
                     while tail.get(j).is_some_and(|w| *w != ";" && *w != "+") {
-                        j += 1;
+                        j = j.saturating_add(1);
                     }
                     verdict.merge(self.per_match(
                         tail.get(start..j.min(tail.len())).unwrap_or_default(),
                         depth,
                         "find",
                     ));
-                    j += 1;
+                    j = j.saturating_add(1);
                 }
                 _ => {}
             }
@@ -336,7 +338,7 @@ impl Classifier {
         verdict.add(FileRead, name);
         let exec = ["-x", "--exec", "-X", "--exec-batch"];
         if let Some(at) = tail.iter().position(|w| exec.contains(w)) {
-            let rest = tail.get(at + 1..).unwrap_or_default();
+            let rest = tail.get(at.saturating_add(1)..).unwrap_or_default();
             let end = rest.iter().position(|w| *w == ";").unwrap_or(rest.len());
             verdict.merge(self.per_match(rest.get(..end).unwrap_or_default(), depth, name));
         }

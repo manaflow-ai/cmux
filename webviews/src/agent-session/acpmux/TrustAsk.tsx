@@ -17,6 +17,7 @@ export function TrustAsk({
   onDistrust,
   onUndo,
   onContinueWithoutFolder,
+  onContinueReadOnly,
   answers = true,
 }: {
   ask: FolderTrustAsk;
@@ -33,6 +34,8 @@ export function TrustAsk({
   onUndo(): void;
   /// Continue in the private no-project chat after explicitly declining this folder.
   onContinueWithoutFolder?(): void | Promise<void>;
+  /// Continue in this same folder, read-only (acpmux hub/restricted.rs), after declining it.
+  onContinueReadOnly?(): void | Promise<void>;
 }) {
   const t = useT();
   const [continuing, setContinuing] = useState(false);
@@ -42,9 +45,28 @@ export function TrustAsk({
   const owned = isAgentHome(ask.cwd);
   const subject = trustSubject(ask);
   const { folder, repo } = subject;
-  const recovery = ask.state === "decided" && ask.level === "untrusted" && answers && !!onContinueWithoutFolder;
+  const recovery =
+    ask.state === "decided" &&
+    ask.level === "untrusted" &&
+    answers &&
+    !!(onContinueWithoutFolder || onContinueReadOnly);
+  // One recovery at a time: both start a chat that takes this one's draft.
+  const runRecovery = (action: () => void | Promise<void>) => {
+    if (continuingRef.current) return;
+    continuingRef.current = true;
+    setContinuing(true);
+    setContinueError(false);
+    void Promise.resolve()
+      .then(action)
+      .catch(() => setContinueError(true))
+      .finally(() => {
+        continuingRef.current = false;
+        setContinuing(false);
+      });
+  };
   const asking = ask.state === "ask" || ask.state === "failed";
-  // Why the last save failed, as the host said it: a refusal that can never pass reads as one.
+  // Why the last save failed, in the pane's own words (useFolderTrustAsk `failedAsk`): a refusal
+  // that can never pass reads as one. The host's raw text never shows here.
   const failedReason = ask.state === "failed" ? ask.reason : undefined;
   // The repository is offered whole only when the pane can record it (`onTrustRepo`).
   const offersRepo = Boolean(repo && onTrustRepo && !owned);
@@ -73,6 +95,9 @@ export function TrustAsk({
             </span>
             {answers && onContinueWithoutFolder && (
               <span className="acpmux-trust-ask-detail">{t("trust.continueWithoutFolder")}</span>
+            )}
+            {answers && onContinueReadOnly && (
+              <span className="acpmux-trust-ask-detail">{t("trust.continueReadOnly")}</span>
             )}
             {continueError && <span role="alert">{t("trust.failed")}</span>}
           </span>
@@ -103,21 +128,19 @@ export function TrustAsk({
                     type="button"
                     className="acpmux-trust-ask-action"
                     disabled={continuing}
-                    onClick={() => {
-                      if (continuingRef.current) return;
-                      continuingRef.current = true;
-                      setContinuing(true);
-                      setContinueError(false);
-                      void Promise.resolve()
-                        .then(onContinueWithoutFolder)
-                        .catch(() => setContinueError(true))
-                        .finally(() => {
-                          continuingRef.current = false;
-                          setContinuing(false);
-                        });
-                    }}
+                    onClick={() => runRecovery(onContinueWithoutFolder)}
                   >
                     {t("trust.continueWithoutFolderLabel")}
+                  </button>
+                )}
+                {onContinueReadOnly && (
+                  <button
+                    type="button"
+                    className="acpmux-trust-ask-action"
+                    disabled={continuing}
+                    onClick={() => runRecovery(onContinueReadOnly)}
+                  >
+                    {t("trust.continueReadOnlyLabel")}
                   </button>
                 )}
                 <button type="button" className="acpmux-trust-ask-action" disabled={continuing} onClick={onUndo}>

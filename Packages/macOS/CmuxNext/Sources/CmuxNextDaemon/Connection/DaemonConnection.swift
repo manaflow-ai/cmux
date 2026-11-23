@@ -68,6 +68,8 @@ public actor DaemonConnection {
     /// The ready connection's `client-hello` `user_origin_allowed` (`HandshakeLines.Replies`); false when not ready.
     public var userOriginAllowed: Bool { if case .ready(let ready) = phase { ready.userOriginAllowed } else { false } }
     public private(set) var endpoint: DaemonEndpoint?
+    /// Workspaces the next first-terminal request makes too (``makesWorkspace(with:)``), by key.
+    var workspacesToMake: [WorkspaceKey: NewTerminalWorkspace] = [:]
     /// Quiet handoff (`DaemonConnection+QuietHandoff`): requests in flight, the waits for none, and
     /// the requests held while a handoff runs (nil: none runs).
     var inFlight = 0

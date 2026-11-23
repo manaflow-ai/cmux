@@ -416,6 +416,52 @@ test("records a navigation failure and continues the matrix", async () => {
   }
 });
 
+test("renders cases concurrently, one browser per worker, and keeps manifest order", async () => {
+  const { runLocal } = await import("./runner");
+  const dir = mkdtempSync(join(process.cwd(), "gallery-concurrency-"));
+  const manifest = join(dir, "manifest.json");
+  // The first case is the slowest, so a worker that took a later case finishes first.
+  const ids = ["a", "b", "c", "d", "e", "f", "g"];
+  writeFileSync(manifest, JSON.stringify(ids.map((id) => ({ id, path_or_url: `https://example.test/${id}` }))));
+  let launches = 0; let inFlight = 0; let most = 0;
+  const browserTypes = { chromium: { launch: async () => {
+    launches++;
+    return {
+      newContext: async () => {
+        let target = "";
+        return {
+          newPage: async () => ({
+            exposeFunction: async () => {}, addInitScript: async () => {}, waitForFunction: async () => {},
+            goto: async (url: string) => {
+              target = url;
+              inFlight++; most = Math.max(most, inFlight);
+              await new Promise((done) => setTimeout(done, url.endsWith("/a") ? 40 : 5));
+              inFlight--;
+            },
+            evaluate: async () => null,
+            screenshot: async ({ path }: { path: string }) => writeFileSync(path, target),
+          }),
+          newCDPSession: cdpSession(0.5),
+          close: async () => {},
+        };
+      },
+      close: async () => {},
+    };
+  } } };
+  const exitCode = process.exitCode;
+  try {
+    const results = await runLocal({ manifest, galleryDir: dir, outputDir: dir, threshold: 0, engines: ["chromium"], shardCount: 1, shardIndex: 0, concurrency: 3 }, browserTypes as never);
+    expect(results.map((r) => r.id)).toEqual(ids);
+    expect(most).toBe(3);
+    expect(launches).toBe(3);
+    expect(readFileSync(join(dir, "e-chromium.png"), "utf8")).toBe("https://example.test/e");
+    await expect(runLocal({ manifest, galleryDir: dir, outputDir: dir, threshold: 0, engines: ["chromium"], shardCount: 1, shardIndex: 0, concurrency: 0 }, browserTypes as never)).rejects.toThrow("concurrency");
+  } finally {
+    process.exitCode = exitCode;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("allocation failure waits for late VM ids before finally cleanup", async () => {
   const { createAllVms } = await import("./runner");
   const late = Promise.withResolvers<void>();

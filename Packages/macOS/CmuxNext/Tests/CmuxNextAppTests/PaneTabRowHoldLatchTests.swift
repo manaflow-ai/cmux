@@ -8,11 +8,11 @@ import CmuxNextTabs
 import CmuxNextTestSupport
 import Testing
 
-/// FRAME OWNER REFACTOR S1, review of #33874 at 9830311fd9b (the chat-in-tab-row gap). A key resize holds only a pane's
-/// content area and the pane lays out at its pane's rect in every frame. A page that draws its tools in the tab row (a
-/// chat) decides from the pane's width whether they fit there (`PaneTabRowSharing`).
-/// The page itself is held until stage S5, so its row must not change while it is held: the decision the hold started
-/// with stays until the landing, and at the landing the row and the content area change in the same layout pass.
+/// A page that draws its tools in the tab row (a chat) decides from the pane's width whether they fit there
+/// (`PaneTabRowSharing`). In a key resize the pane lays out in every frame as at rest (PANE RESIZE ALL KINDS, Lawrence
+/// 2026-11-11), so a fit that flips during the spring flips in that frame, and the row and the content area change in
+/// the same layout pass. History (FRAME OWNER S1, review of #33874 at 9830311fd9b): while the page was held through the
+/// spring, the decision waited for the landing.
 @MainActor
 @Suite(.serialized, .closesItsWindows)
 struct PaneTabRowHoldLatchTests {
@@ -45,8 +45,9 @@ struct PaneTabRowHoldLatchTests {
     }
 
     /// p1 | p2, a chat in p1 whose tools fit its tab row only once p1 is wider than at rest; Ctrl-Shift-L on p1 grows
-    /// it past that width during the spring. No frame of the spring changes p1's row; the landing does, in one pass.
-    @Test func aRowFitThatFlipsDuringAKeyResizeWaitsForTheLanding() throws {
+    /// it past that width during the spring. In every frame the page has the row exactly when the content area covers
+    /// it (one pass), the flip is in a frame of the spring, and the landing changes nothing.
+    @Test func aRowFitThatFlipsDuringAKeyResizeFlipsInThatFrameInOnePass() throws {
         _ = NSApplication.shared
         let provider = Panes()
         let columns = [LayoutColumn(id: "c0", width: 1, root: .split("x", axis: .horizontal, ratio: 0.5, a: .leaf("p1"), b: .leaf("p2")))]
@@ -71,21 +72,27 @@ struct PaneTabRowHoldLatchTests {
         page.offered.removeAll()
 
         #expect(PaneResize.press("p1", .right, model: model, view: root))
-        var changed: [String] = [], frames = 0, flipped = false
+        var off: [String] = [], frames = 0, grewPast = false, flippedAt: Int?
         while frames < 240, root.advanceFrame(1.0 / 120) {
             root.layoutSubtreeIfNeeded()
             frames += 1
-            if pane.bounds.width >= start + 30 { flipped = true }
-            if page.offered.contains(where: { $0 > 0 }) { changed.append("frame \(frames): the page was offered the row \(page.offered)") }
-            if pane.contentHost.frame.minY <= 0 { changed.append("frame \(frames): the content area grew over the row \(pane.contentHost.frame)") }
+            if pane.bounds.width >= start + 30 { grewPast = true }
+            let offered = (page.offered.last ?? 0) > 0, covers = pane.contentHost.frame.minY <= 0
+            if offered != covers { off.append("frame \(frames): the page \(offered ? "has" : "has not") the row, the content area \(covers ? "covers" : "does not cover") it") }
+            if page.frame != pane.contentHost.bounds { off.append("frame \(frames): the page at \(page.frame) in an area of \(pane.contentHost.bounds)") }
+            if offered, flippedAt == nil { flippedAt = frames }
         }
-        try #require(frames > 3 && flipped, "the press did not spring past the width where the tools fit (\(frames) frames, \(pane.bounds.width) pt)")
-        #expect(changed.isEmpty, "the tab row changed while the page was held: \(changed.prefix(4))")
+        try #require(frames > 3 && grewPast, "the press did not spring past the width where the tools fit (\(frames) frames, \(pane.bounds.width) pt)")
+        #expect(off.isEmpty, "the row and the content area did not change in one pass: \(off.prefix(4))")
+        #expect(flippedAt != nil, "the page did not get the row in a frame of the spring; it waited for the landing")
 
-        // The landing: its release lays the pane out once, and the row and the content area change in that pass.
+        // The landing and its release change nothing: the row is the page's and the content area covers it.
         root.layoutSubtreeIfNeeded()
+        let offers = page.offered.filter { $0 <= 0 }.count
         for work in afterCommit { work() }
-        #expect(page.offered.last.map { $0 > 0 } == true, "the landing did not offer the page the row: \(page.offered.suffix(3))")
-        #expect(pane.contentHost.frame == pane.bounds, "the landing did not give the content area the row: \(pane.contentHost.frame) in \(pane.bounds)")
+        root.layoutSubtreeIfNeeded()
+        #expect(page.offered.last.map { $0 > 0 } == true && page.offered.filter { $0 <= 0 }.count == offers,
+                "the landing took the row from the page: \(page.offered.suffix(3))")
+        #expect(pane.contentHost.frame == pane.bounds, "the content area does not cover the row after the landing: \(pane.contentHost.frame) in \(pane.bounds)")
     }
 }

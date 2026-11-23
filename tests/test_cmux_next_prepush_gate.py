@@ -31,11 +31,15 @@ def _load_git_fixture_env():
 
 
 git_fixture_env = _load_git_fixture_env()
+_process_gone_spec = importlib.util.spec_from_file_location("process_gone", Path(__file__).resolve().parent / "process_gone.py")
+process_gone = importlib.util.module_from_spec(_process_gone_spec)
+_process_gone_spec.loader.exec_module(process_gone)
 
 
 SOURCE = Path(__file__).resolve().parents[1]
 INSTALLER = "scripts/install-git-hooks.sh"
 GATE = "scripts/cmux-next/prepush-gate.py"
+
 # The fixture is a developer's own push: GITHUB_ACTIONS (set on CI) would turn the guardrails off in the hook
 # (prepush-gate.py runs them locally only), and the tests that expect a guardrails line would fail only on CI.
 AGENT_VARS = ("CMUX_AGENT", "CMUX_REQUIRE_FORMATTERS", "CI", "CLAUDECODE", "CODEX_CI", "CODEX_THREAD_ID",
@@ -192,8 +196,7 @@ class PrePushGateTests(unittest.TestCase):
                         HOME=str(self.root), CMUX_LINT_TOOLS_DIR=str(TOOLS))
         git_fixture_env.without_auto_maintenance(self.env)
 
-        subprocess.run(["git", "init", "--quiet", "--bare", "--initial-branch=feat-cmux-next", str(self.origin)],
-                       env=self.env, check=True, capture_output=True)
+        git_fixture_env.init_repo(self.origin, "--bare", "--initial-branch=feat-cmux-next", env=self.env)
         self.repo.mkdir()
         self.git("init", "--quiet", "--initial-branch=feat-cmux-next")
         self.git("remote", "add", "origin", str(self.origin))
@@ -216,8 +219,12 @@ class PrePushGateTests(unittest.TestCase):
             INSTALLER,
             "scripts/web_lint_prepush.py",
             "scripts/ci/base_merge_warning.py",
+            "scripts/ci/workflow_job_bounds.py",
             "scripts/ci/github_release_download.py",
             "scripts/ci/deadline_http.py",
+            # The generated-file check the gate runs (GENERATED_CHECK) and the helper it imports from beside itself.
+            "scripts/ci/generated_files_guard.py",
+            "scripts/ci/ci_process_tree.py",
             "scripts/web-lint.sh",
             "scripts/merge-xcstrings.py",
             "scripts/merge-pbxproj.py",
@@ -229,6 +236,7 @@ class PrePushGateTests(unittest.TestCase):
             "scripts/ci/test_execution_registry.py",
             "scripts/ci/workload_entrypoints.py",
             "scripts/normalize-pbxproj.py",
+            "scripts/webviews_bun_version.py",
             "scripts/swift_source_mask.py",
             # The What's New validator the highlights layer runs (origin/feat-cmux-next's copy for the hook).
             "scripts/whats-new/digest.py",
@@ -391,7 +399,7 @@ class PrePushGateTests(unittest.TestCase):
                         + result.stdout + result.stderr)
 
     def test_ci_advisory_names_an_arch_and_a_guardrails_violation_as_warnings_and_keeps_the_exit_code(self):
-        # CI never runs the arch ratchet or the guardrails line rules (CLAUDE.md: no new CI gates), so a push that
+        # CI never runs the arch ratchet or the guardrails line rules (the 2026-10-23 no-new-CI rule, since lifted), so a push that
         # skipped the hook landed them unseen. --advisory (the fast gates' prepush gate) names each finding as a
         # ::warning on its file and line and a summary row; the gate's exit code is what it is without it.
         self.copy_arch_rules()
@@ -458,8 +466,7 @@ class PrePushGateTests(unittest.TestCase):
         self.assertIn("| arch ratchet | incomplete: timed out after 3s |", table)
         pgid = int(mark.read_text())
         self.assertNotEqual(pgid, os.getpgrp(), "the advisory runs in its own process group")
-        with self.assertRaises(ProcessLookupError, msg=f"process group {pgid} outlived the gate"):
-            os.killpg(pgid, 0)
+        self.assertTrue(process_gone.group_died(pgid), f"process group {pgid} outlived the gate")
 
     def test_ci_advisory_marks_a_layer_whose_rule_failed_incomplete_and_names_the_failure(self):
         # Codex review of #40811 (F2): the checkers' own failure notes were dropped, so a broken rule read "clean".
@@ -570,8 +577,9 @@ class PrePushGateTests(unittest.TestCase):
         self.assertIn("2 own commit(s)", output)
 
     def test_a_push_nothing_bounds_is_refused_with_what_to_fetch(self):
-        # No ref of the remote at all in this clone: the gate cannot tell the push's own commits, so it refuses
-        # on purpose (one line per ref, no traceback) instead of judging HEAD~1 alone.
+        # No ref of the remote at all in this clone: nothing can tell the push's own commits (one line per ref, no
+        # traceback), and nothing judges HEAD~1 alone. The cmux-next gate now warns and passes here (Leo 2026-11-22:
+        # refuse only for the pusher's own diff); the web lint, which runs first, still refuses it.
         for ref in self.git("for-each-ref", "--format=%(refname)", "refs/remotes/").stdout.split():
             self.git("update-ref", "-d", ref)
         self.git("checkout", "--quiet", "-b", "fresh")
@@ -589,6 +597,7 @@ class PrePushGateTests(unittest.TestCase):
         self.assertNotIn("Traceback", output)
 
     def test_a_snapshot_without_push_range_refuses_the_push_and_says_how_to_fix_it(self):
+        # The web lint, which runs first, refuses; the cmux-next gate alone would warn and pass (CannotDecide).
         snapshot = Path(self.git("config", "--get", "core.hooksPath").stdout.strip()) / "cmux-next-checks"
         (snapshot.resolve() / "push_range.py").unlink()
         self.kit("Fresh", NEW_CLEAN)
@@ -603,9 +612,10 @@ class PrePushGateTests(unittest.TestCase):
 
     STALE = "the installed hook is older than the checks this push needs: rerun scripts/install-git-hooks.sh"
 
-    def test_a_stale_install_refuses_and_never_runs_the_pushed_check(self):
-        # The hook never runs code the push controls. A reviewed copy older than a check must refuse with how to fix
-        # it, never fall back to the pushed head's copy of that check.
+    def test_a_stale_install_warns_and_never_runs_the_pushed_check(self):
+        # The hook never runs code the push controls. A reviewed copy older than a check says how to fix it and never
+        # falls back to the pushed head's copy of that check; the stale install is the clone's, not the push's diff,
+        # so the push goes through with that warning (Leo 2026-11-22).
         snapshot = Path(self.git("config", "--get", "core.hooksPath").stdout.strip()) / "cmux-next-checks"
         marker = self.root / "pushed-code-ran"
         payload = f"open({str(marker)!r}, 'w').close()\n"
@@ -628,9 +638,10 @@ class PrePushGateTests(unittest.TestCase):
 
                 output = result.stdout + result.stderr
                 self.assertFalse(marker.exists(), f"the hook ran the pushed {name}")
-                self.assertNotEqual(result.returncode, 0, output)
-                self.assertEqual(self.remote_head(), before)
+                self.assertEqual(result.returncode, 0, output)
+                self.assertNotEqual(self.remote_head(), before)
                 self.assertIn(self.STALE, output)
+                self.assertIn("goes through UNCHECKED", output)
                 self.assertNotIn("Traceback", output)
 
     def test_a_stale_install_never_takes_the_tool_pins_from_the_checkout(self):
@@ -663,9 +674,10 @@ class PrePushGateTests(unittest.TestCase):
         output = result.stdout + result.stderr
         self.assertFalse(marker.exists(), "the hook ran a binary the pushed lock named")
         self.assertFalse(tools.exists() and any(tools.iterdir()), "the hook downloaded what the pushed lock named")
-        self.assertNotEqual(result.returncode, 0, output)
-        self.assertEqual(self.remote_head(), before)
+        self.assertEqual(result.returncode, 0, output)
+        self.assertNotEqual(self.remote_head(), before)
         self.assertIn(self.STALE, output)
+        self.assertIn("goes through UNCHECKED", output)
         self.assertNotIn("Traceback", output)
 
     def test_a_merge_cannot_use_an_upstream_removal_to_pay_for_the_branch_s_own_debt(self):
@@ -959,6 +971,81 @@ class PrePushGateTests(unittest.TestCase):
         for name in ("stale-b", "stale-c"):
             self.assertFalse(self.remote_has(f"refs/heads/{name}"), name)
 
+    def bare_mirror(self):
+        """(the git dir, its worktree) of a wt mirror: a bare clone of the remote with a linked worktree, whose
+        hooks the installer run there puts in the bare clone (its common dir), as repo_publish's mirror has them."""
+        mirror, tree = self.root / "mirror.git", self.root / "mirror-tree"
+        git_fixture_env.clone_repo(self.origin, mirror, "--bare", env=self.env)
+        for args in (("config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*"),
+                     ("fetch", "--quiet", "origin"),
+                     ("worktree", "add", "--quiet", str(tree), "feat-cmux-next")):
+            subprocess.run(["git", "-C", str(mirror), *args], env=self.env, check=True, capture_output=True)
+        installed = subprocess.run(["bash", INSTALLER], cwd=tree, env=self.env, text=True, capture_output=True)
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+        return mirror, tree
+
+    def test_a_push_from_a_clone_without_a_work_tree_runs_every_check_on_the_pushed_objects(self):
+        # 2026-11-15: repo_publish pushes from the bare wt mirror, and the hook died in `git rev-parse
+        # --show-toplevel` ("fatal: this operation must be run in a work tree", exit 128) before any check ran. The
+        # checks read the pushed commits from git objects, so a clone with no work tree is judged like any other:
+        # a try! is refused, a clean commit passes every phase. Both layouts: a bare mirror with a linked worktree
+        # (the commits are made there, the push from the mirror), and a clone root with core.bare set.
+        mirror, tree = self.bare_mirror()
+        layouts = (("bare mirror", mirror, tree), ("core.bare clone", self.repo / ".git", self.repo))
+        for label, git_dir, work in layouts:
+            core_bare = work == self.repo
+
+            def run(*args, where=work):
+                if core_bare:
+                    self.git("config", "core.bare", "false")
+                done = subprocess.run(["git", "-C", str(where), *args], env=self.env, text=True, capture_output=True)
+                if core_bare:
+                    self.git("config", "core.bare", "true")
+                return done
+
+            def push():
+                done = subprocess.run(["git", "-C", str(git_dir), "push", "origin", "feat-cmux-next"],
+                                      env=self.env, text=True, capture_output=True)
+                return done, done.stdout + done.stderr
+
+            def commit(name, text):
+                path = work / f"{PKG}/Sources/CmuxNextKit/{name}.swift"
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(text.replace("Fresh", name))
+                for args in (("add", "-A"), ("commit", "--quiet", "--no-verify", "-m", name)):
+                    self.assertEqual(run(*args).returncode, 0, f"{label}: git {args[0]}")
+
+            for args in (("fetch", "--quiet", "origin"), ("reset", "--quiet", "--hard", "origin/feat-cmux-next")):
+                self.assertEqual(run(*args).returncode, 0, f"{label}: git {args[0]}")
+            if core_bare:
+                self.git("config", "core.bare", "true")
+            self.assertEqual(subprocess.run(["git", "-C", str(git_dir), "rev-parse", "--is-inside-work-tree"],
+                                            env=self.env, text=True, capture_output=True).stdout.strip(), "false",
+                             label)
+            before = self.remote_head()
+            stem = label.split()[0].replace(".", "").title()
+
+            commit(f"{stem}Try", NEW_WITH_TRY)
+            refused, output = push()
+            self.assertNotEqual(refused.returncode, 0, f"{label}: {output}")
+            self.assertNotIn("must be run in a work tree", output, label)
+            self.assertIn(f"{stem}Try.swift", output, label)
+            self.assertIn("try!", output, label)
+            self.assertEqual(self.remote_head(), before, label)
+
+            # Drop the refused commit; a clean one passes every phase and lands.
+            self.assertEqual(run("reset", "--quiet", "--hard", "HEAD~1").returncode, 0, label)
+            commit(f"{stem}Clean", NEW_CLEAN)
+            passed, output = push()
+            self.assertEqual(passed.returncode, 0, f"{label}: {output}")
+            self.assertNotIn("must be run in a work tree", output, label)
+            self.assertIn("pre-push: passed", output, label)
+            for phase in ("web-lint", "cmux-next-gate"):
+                self.assertIn(phase, output, f"{label}: the {phase} phase ran")
+            self.assertNotEqual(self.remote_head(), before, label)
+            if core_bare:
+                self.git("config", "core.bare", "false")
+
     def test_a_push_with_any_real_ref_still_runs_every_check(self):
         # The delete-only pass must not reach a push that also sends commits: a delete next to a real ref, or a
         # real ref alone, still runs the gate and is refused for the try! it adds.
@@ -1073,7 +1160,7 @@ class PrePushGateTests(unittest.TestCase):
         # A branch cut from a contributor's fork (git checkout -b topic fork/contrib) pushed to origin: the fork's
         # commits are not on origin, so they are the push's own.
         fork = self.root / "fork.git"
-        subprocess.run(["git", "init", "--quiet", "--bare", str(fork)], env=self.env, check=True, capture_output=True)
+        git_fixture_env.init_repo(fork, "--bare", env=self.env)
         self.git("remote", "add", "fork", str(fork))
         self.git("checkout", "--quiet", "-b", "contrib")
         self.kit("ForkDebt", self.with_try("ForkDebt"))
@@ -1595,6 +1682,62 @@ let package = Package(
                                 text=True, capture_output=True)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_push_that_adds_a_raw_file_lock_is_refused(self):
+        # The lock-by-close audit (lane c-agenthost): a lock that only its close releases stays held in a child forked
+        # while the descriptor was open; new code takes file locks through cmux_file_lock::FileLock.
+        self.write("cmux-tui/crates/cmux-tui-core/src/fresh.rs",
+                   "pub fn run(f: &std::fs::File) { let _ = f.lock_exclusive(); }\n")
+        self.commit("adds a raw file lock")
+        before = self.remote_head()
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(self.remote_head(), before, "the raw file lock must not reach origin")
+        self.assertIn("check-no-raw-flock", output)
+        self.assertIn("fresh.rs", output)
+
+    def test_push_with_a_file_lock_through_cmux_file_lock_or_in_a_test_passes(self):
+        self.write("cmux-tui/crates/cmux-tui-core/src/fresh.rs",
+                   "pub fn run(f: std::fs::File) { let _ = cmux_file_lock::FileLock::take(f, Kind::Exclusive); }\n")
+        self.write("cmux-tui/crates/cmux-tui-core/tests/fresh.rs",
+                   "#[test] fn t() { let f = std::fs::File::open(\"x\").unwrap(); let _ = f.lock_exclusive(); }\n")
+        self.write("cmux-tui/crates/cmux-file-lock/src/fresh.rs",
+                   "pub fn run(fd: i32) { unsafe { libc::flock(fd, libc::LOCK_EX) }; }\n")
+        self.commit("locks through cmux_file_lock, in a test and in the lock crate")
+
+        result = self.push()
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_the_raw_file_lock_guard_rules_hold(self):
+        # The guard's own rule tests (per-file counts, the ratchet, scope), with the pre-push set.
+        result = subprocess.run(["bash", str(SOURCE / "scripts/cmux-next/tests/check-no-raw-flock.test.sh")],
+                                text=True, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_push_that_adds_an_eager_list_is_refused(self):
+        # Leo 2026-11-18: "we draw the visible area, right? ... we need to be able to guard against that."
+        self.write("Packages/macOS/CmuxNext/Sources/CmuxNextApp/EagerList.swift",
+                   "func refresh(table: NSTableView) {\n    table.reloadData()\n}\n")
+        self.commit("adds an unconditional reloadData")
+        before = self.remote_head()
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(self.remote_head(), before, "the eager list must not reach origin")
+        self.assertIn("visible-only-reload-data", output)
+        self.assertIn("EagerList.swift", output)
+
+    def test_the_visible_only_guard_rules_hold(self):
+        # Each visible-only-* ast-grep rule, its escapes and scope, and the per-file ratchet.
+        result = subprocess.run(["bash", str(SOURCE / "scripts/cmux-next/tests/check-visible-only.test.sh")],
+                                text=True, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_the_app_id_special_cases_guard_rules_hold(self):
         # Zero first-party privilege (docs/app-store-platonic-ideal.md 5): the guard's own rule tests.
         result = subprocess.run(["bash", str(SOURCE / "scripts/cmux-next/tests/check-app-id-special-cases.test.sh")],
@@ -1637,6 +1780,36 @@ let package = Package(
         self.assertIn("Merge conflict markers", output)
         self.assertIn("MergedTests.swift:2: <<<<<<< HEAD", output)
 
+    def test_push_that_commits_a_file_a_build_time_generator_writes_is_refused(self):
+        # 2026-11-22: #49757 committed SettingsSchema+Appearance5.generated.swift after #50929 moved the settings
+        # sources into a SwiftPM build plugin (generated-files.json: settings-sources, status "build"), and the
+        # package stopped compiling (two definitions of each setting). The guard that knew (cmux-next-guards.yml,
+        # "cmux-next no new generated files") runs on a feat-cmux-next pull request only with full-ci and on a
+        # push once per 30-minute window, so nothing judged the merge before it landed.
+        output = f"{PKG}/Sources/CmuxNextSettings/Schema/SettingsSchema+Appearance5.generated.swift"
+        shutil.copyfile(SOURCE / "scripts/ci/generated-files.json", self.repo / "scripts/ci/generated-files.json")
+        self.commit("the generated-files manifest")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        before = self.remote_head()
+        self.write(output, "// GENERATED by settings-sources. Do not edit.\nenum Appearance5 {}\n")
+        self.commit("commits a build-time output")
+
+        result = self.push()
+
+        text = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, text)
+        self.assertEqual(self.remote_head(), before, "the generated file must not reach origin")
+        self.assertIn("No new committed generated files", text)
+        self.assertIn(f"{output}: a new committed generated file", text)
+        self.assertIn("settings-sources, status build", text)
+
+        # The same push without the generated file goes through: only the file is refused.
+        self.git("rm", "--quiet", output)
+        self.write(f"{PKG}/Sources/CmuxNextSettings/Schema/Appearance5.swift", "enum Appearance5Source {}\n")
+        self.commit("the source only")
+        result = self.push()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def cargo_workspace(self):
         """A two-crate cmux-tui workspace with a matching Cargo.lock; the push env cargo needs under this HOME."""
         cargo = shutil.which("cargo")
@@ -1673,6 +1846,35 @@ let package = Package(
         self.assertEqual(self.remote_head(), before)
         self.assertIn("cmux-tui/Cargo.lock: does not match its manifests", output)
 
+    def test_a_manifest_change_that_leaves_another_workspaces_lock_stale_is_refused(self):
+        # 2026-11-10: eb4f3eb1d94 changed cmux-tui/Cargo.toml and cmux-tui/Cargo.lock only; cmux-app-ffi, a workspace
+        # of its own that builds cmux-tui's crates by path, kept a stale lock and every --locked step there stopped.
+        env = self.cargo_workspace()
+        self.write("cmux-tui/crates/ffi/Cargo.toml", '[package]\nname = "ffi"\nversion = "0.1.0"\nedition = "2021"\n'
+                   '\n[dependencies]\na = { path = "../a" }\n\n[workspace]\n')
+        self.write("cmux-tui/crates/ffi/src/lib.rs", "")
+        made = subprocess.run(["cargo", "generate-lockfile", "--offline"], cwd=self.repo / "cmux-tui/crates/ffi",
+                              env={**self.env, **env}, text=True, capture_output=True)
+        self.assertEqual(made.returncode, 0, made.stderr)
+        self.commit("ffi workspace")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        before = self.remote_head()
+        self.write("cmux-tui/crates/a/Cargo.toml", '[package]\nname = "a"\nversion = "0.1.0"\nedition = "2021"\n'
+                   '\n[dependencies]\nb = { path = "../b" }\n')
+        locked = subprocess.run(["cargo", "metadata", "--offline", "--format-version", "1"], cwd=self.repo / "cmux-tui",
+                                env={**self.env, **env}, capture_output=True, text=True)
+        self.assertEqual(locked.returncode, 0, locked.stderr)
+        self.commit("a uses b, with cmux-tui's lock only")
+
+        result = self.push(**env)
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(self.remote_head(), before)
+        self.assertIn("cmux-tui/crates/ffi/Cargo.lock: does not match its manifests", output)
+        self.assertNotIn("cmux-tui/Cargo.lock: does not match", output)
+        self.assertIn("cargo-locks.py fix", output)
+
     def test_a_cargo_dependency_with_its_lock_pushes(self):
         env = self.cargo_workspace()
         self.write("cmux-tui/crates/a/Cargo.toml", '[package]\nname = "a"\nversion = "0.1.0"\nedition = "2021"\n'
@@ -1685,6 +1887,91 @@ let package = Package(
         result = self.push(**env)
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    CHROME_VECTORS = "schemas/theme/chrome-layer-colors.json"
+    CHROME_PALETTE = f"{PKG}/Sources/CmuxNextDesign/MainPane.swift"
+
+    def test_a_chrome_colour_change_without_a_chrome_look_trailer_is_refused_even_with_a_skip_reason(self):
+        # #39984 dimmed the sidebar for a non-Leo issue (Leo 2026-11-11: "bro why is the sidebar now a different
+        # color?"): the recorded chrome colours change only on Leo's words.
+        before = self.remote_head()
+        self.write(self.CHROME_VECTORS, '{"cases": [{"theme": "dark", "sidebar": "#141414"}]}\n')
+        self.commit("sidebar: dim the list")
+
+        result = self.push(CMUX_NEXT_CHECKS_SKIP_REASON="unrelated")
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(self.remote_head(), before)
+        self.assertIn("Chrome layer look", output)
+        self.assertIn("no `Chrome-Look-OK:` trailer", output)
+
+    def test_a_chrome_look_trailer_without_leo_is_refused(self):
+        # The Sidebar-Look trailer on #39984 quoted another person's issue; this one must quote Leo.
+        self.write(self.CHROME_VECTORS, '{"cases": [{"theme": "dark", "sidebar": "#141414"}]}\n')
+        self.commit('sidebar: dim the list\n\nChrome-Look-OK: issue 39956 "match the Codex sidebar"')
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertIn("does not quote Leo", output)
+
+    def test_a_chrome_look_trailer_naming_leo_without_his_words_is_refused(self):
+        self.write(self.CHROME_VECTORS, '{"cases": [{"theme": "dark", "sidebar": "#141414"}]}\n')
+        self.commit("sidebar: dim the list\n\nChrome-Look-OK: Leo said it was fine")
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertIn("does not quote Leo", output)
+
+    def test_a_chrome_colour_change_quoting_leo_pushes(self):
+        self.write(self.CHROME_VECTORS, '{"cases": [{"theme": "dark", "sidebar": "#1E1E1E"}]}\n')
+        self.commit('chrome: one surface\n\nChrome-Look-OK: Leo 2026-11-11 "bro why is the sidebar now a different color?"')
+
+        result = self.push()
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_a_chrome_token_source_hunk_naming_a_chrome_token_needs_the_trailer(self):
+        self.write(self.CHROME_PALETTE, "struct Palette {\n    // the window\n    static let windowBackground = 1\n"
+                   "    static let textPrimary = 2\n}\n")
+        self.commit('palette: start\n\nChrome-Look-OK: Leo 2026-11-11 "one surface with the chrome"')
+        self.write(self.CHROME_PALETTE, "struct Palette {\n    // the window\n    static let windowBackground = 3\n"
+                   "    static let textPrimary = 2\n}\n")
+        self.commit("palette: a darker window")
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertIn("palette: a darker window", output)
+        self.assertIn("no `Chrome-Look-OK:` trailer", output)
+
+    def test_a_chrome_token_source_change_away_from_chrome_tokens_needs_no_trailer(self):
+        lines = ["struct Palette {", "    static let windowBackground = 1"] + [f"    // {i}" for i in range(12)]
+        self.write(self.CHROME_PALETTE, "\n".join(lines + ["    static let textPrimary = 2", "}"]) + "\n")
+        self.commit('palette: start\n\nChrome-Look-OK: Leo 2026-11-11 "one surface with the chrome"')
+        self.write(self.CHROME_PALETTE, "\n".join(lines + ["    static let textPrimary = 4", "}"]) + "\n")
+        self.commit("palette: brighter text")
+
+        result = self.push()
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_a_later_commit_does_not_launder_an_earlier_chrome_change(self):
+        self.write(self.CHROME_VECTORS, '{"cases": [{"theme": "dark", "sidebar": "#141414"}]}\n')
+        self.commit("sidebar: dim the list")
+        self.write(self.CHROME_VECTORS, '{"cases": [{"theme": "dark", "sidebar": "#151515"}]}\n')
+        self.commit('sidebar: dim less\n\nChrome-Look-OK: Leo 2026-11-11 "one surface with the chrome"')
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertIn("sidebar: dim the list", output)
 
     SIDEBAR_VIEW = f"{PKG}/Sources/CmuxNextSidebar/Views/RowView.swift"
 
@@ -1944,6 +2231,29 @@ pub fn twice(value: u32) -> u32 {
         self.assertNotIn("CmuxNextApp.swift", output)
         self.assertNotIn("did not run cleanly", output)
 
+    def test_a_main_based_push_touching_a_shared_package_is_judged_without_the_cmux_next_package(self):
+        # main has no Packages/macOS/CmuxNext at all. A main push touching Packages/Shared/ (2026-11-17, a CmuxHomeCore
+        # test) ran "Main-thread concurrency", whose check-concurrency.sh opened the missing Package.swift, died with
+        # FileNotFoundError in package_targets, and the hook refused the push without a verdict.
+        self.main_branch()
+        self.git("rm", "-r", "--quiet", PKG)
+        self.commit("main: no CmuxNext package")
+        self.assertEqual(self.push_ref("HEAD:main", "--no-verify").returncode, 0)
+        self.git("fetch", "--quiet", "origin")
+        self.git("reset", "--quiet", "--hard", "origin/main")
+        self.write("Packages/Shared/CmuxHomeCore/Tests/CmuxHomeCoreTests/FixtureTests.swift",
+                   "import Testing\n\n@Test func fixture() {\n    #expect(1 + 1 == 2)\n}\n")
+        self.commit("main-based: a shared package test")
+
+        result = self.push_ref("topic")
+
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 0, output)
+        self.assertIn("cut from origin/main", output, "control: the push is judged as main-based")
+        self.assertNotIn("FileNotFoundError", output)
+        self.assertNotIn("did not run cleanly", output)
+        self.assertEqual(self.remote_head_of("topic"), self.git("rev-parse", "HEAD").stdout.strip())
+
     def test_a_feat_based_push_that_adds_a_lock_unwrap_is_refused(self):
         self.write(self.CRATE_FILE, self.RUST_CLEAN)
         self.commit("base: a clean crate file")
@@ -2012,6 +2322,55 @@ mod tests {
         self.git("fetch", "--quiet", "origin")
         installed = subprocess.run(["bash", INSTALLER], cwd=self.repo, env=self.env, text=True, capture_output=True)
         self.assertEqual(installed.returncode, 0, installed.stderr)
+
+    # Packages/iOS: of the scanners only the visible-only one (and the fixture host names) judge it, so the fixture
+    # repo needs none of the macOS package scanners' data.
+    EAGER = "Packages/iOS/CmuxFixture/Sources/CmuxFixture/EagerTable.swift"
+
+    def install_with_eager_reloads(self, sites):
+        """A base with SITES reloadData() calls in EAGER and their visible-only row, and the hook installed from it."""
+        calls = "".join(f"    table{i}.reloadData()\n" for i in range(sites))
+        self.write(self.EAGER, "func refresh() {\n" + calls + "}\n")
+        self.set_eager_row(sites)
+        self.commit(f"base: {sites} reloadData calls")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("fetch", "--quiet", "origin")
+        installed = subprocess.run(["bash", INSTALLER], cwd=self.repo, env=self.env, text=True, capture_output=True)
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+
+    def set_eager_row(self, count):
+        path = self.repo / "scripts/cmux-next/visible-only-baseline.tsv"
+        lines = [line for line in path.read_text().splitlines() if not line.startswith(self.EAGER + "\t")]
+        if count:
+            lines.append(f"{self.EAGER}\tvisible-only-reload-data\t{count}")
+        path.write_text("\n".join(lines) + "\n")
+
+    def test_a_push_that_fixes_an_eager_list_must_lower_its_visible_only_row(self):
+        self.install_with_eager_reloads(2)
+        self.write(self.EAGER, "func refresh() {\n    table0.reloadData()\n}\n")
+        self.commit("diffs one table, keeps its row")
+        before = self.remote_head()
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertIn("lower the baseline", output)
+        self.assertEqual(self.remote_head(), before)
+
+        self.set_eager_row(1)
+        self.commit("lowers the visible-only row")
+        self.assertEqual(self.push().returncode, 0)
+
+    def test_an_edit_to_a_baselined_eager_list_line_passes(self):
+        # Counts, not lines: rewording a listed reloadData() line is not a new hit.
+        self.install_with_eager_reloads(1)
+        self.write(self.EAGER, "func refresh() {\n    self.renamedTable.reloadData()\n}\n")
+        self.commit("renames the table")
+
+        result = self.push()
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_a_push_that_lowers_a_ratchet_row_with_its_fix_passes(self):
         self.install_with_scan_sites(2)
@@ -2096,7 +2455,26 @@ mod tests {
         self.assertEqual(sorted(taken), [f"{name}: A.swift size 3 -> 1", f"{name}: B.swift size 1 -> 0 (row deleted)"])
         self.assertEqual(set(gate.RATCHET_BASELINES), {
             "process-scan-baseline.tsv", "state-roots-baseline.tsv", "raw-spawn-baseline.tsv",
-            "app-id-special-cases-baseline.tsv", "swift-type-scale-baseline.tsv"})
+            "raw-flock-baseline.tsv", "spawn-owner-baseline.tsv", "app-id-special-cases-baseline.tsv",
+            "swift-type-scale-baseline.tsv", "focus-routes-baseline.tsv", "visible-only-baseline.tsv",
+            "keychain-no-prompt-baseline.tsv"})
+
+    def test_a_line_baseline_takes_only_the_lines_the_push_removed(self):
+        spec = importlib.util.spec_from_file_location("prepush_gate_line_baselines", SOURCE / GATE)
+        gate = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(gate)
+        name = "concentric-containers-baseline.txt"
+        self.write(f"scripts/cmux-next/{name}", "# only shrinks\nA.swift: kept\nC.swift: added\n")
+        self.commit("pushed concentric baseline: one line fixed and removed, one added")
+        installed = self.root / "installed"
+        installed.mkdir()
+        (installed / name).write_text("# only shrinks\nA.swift: kept\nB.swift: fixed\n")
+
+        taken = gate.lower_ratchet_baselines(self.repo, "HEAD", installed)
+
+        self.assertEqual((installed / name).read_text(), "# only shrinks\nA.swift: kept\n")
+        self.assertEqual(taken, [f"{name}: B.swift: fixed (line removed)"])
+        self.assertEqual(gate.LINE_BASELINES, (name,))
 
     def test_push_that_touches_a_file_with_old_debt_passes(self):
         self.write(f"{PKG}/Sources/CmuxNextKit/Old.swift", OLD.replace('"old"', '"renamed"'))
@@ -2147,8 +2525,8 @@ mod tests {
 
     @NEEDS_SWIFTFORMAT
     def test_ci_modes_do_not_run_the_swiftformat_layer(self):
-        # SwiftFormat findings are refused by the local pre-push hook only (lead 2026-10-27, CLAUDE.md: no new CI
-        # gates). CI and the merge-time gates run the gate as --base/--head (fast gates, car guards, pull requests)
+        # SwiftFormat findings are refused by the local pre-push hook only (lead 2026-10-27, the 2026-10-23 no-new-CI
+        # rule, since lifted). CI and the merge-time gates run the gate as --base/--head (fast gates, car guards, pull requests)
         # or --commits (pushes); none of them may refuse a SwiftFormat finding.
         self.kit("Fresh", SWIFTFORMAT_HIT)
         self.commit("adds two blank lines in a row")
@@ -2316,7 +2694,7 @@ mod tests {
         self.assertIn(f"{self.HIGHLIGHTS}/continue-retry.md: entries[0] (continue-retry): "
                       "needs a tryIt action/deeplink or a docs link", output)
         self.assertIn("add docs: https://cmux.com/docs/<page> or a tryIt; at most 2 sentences, 240 characters", output)
-        # The rule stays out of CI and the merge-time gates (CLAUDE.md: no new CI gates): they run --base/--head
+        # The rule stays out of CI and the merge-time gates (the 2026-10-23 no-new-CI rule, since lifted): they run --base/--head
         # (pull requests, fast gates, car guards) or --commits (pushes).
         for args in (["--base", "HEAD~1", "--head", "HEAD"], ["--commits", "HEAD~1..HEAD"]):
             with self.subTest(args=args):
@@ -2363,6 +2741,97 @@ mod tests {
 
         self.assertEqual(passed.returncode, 0, passed.stdout + passed.stderr)
         self.assertEqual(self.remote_head(), self.git("rev-parse", "HEAD").stdout.strip())
+
+    # 2026-11-11: a plain base merge on lane/workflow-jobs-parser (#40784) was refused for
+    # ios-screen-sharing-paste-image.md, a highlight feat-cmux-next had (e877ee43879), because the clone's
+    # origin/feat-cmux-next was older than the base it merged: the gate counted the base's commits as the push's own.
+    HIGHLIGHT_BARE = "title: Paste a photo\ncategory: new\n\nTap the photo button to paste a photo.\n"
+
+    def base_gains_a_refused_highlight_this_clone_never_fetched(self):
+        """The topic is pushed once; feat-cmux-next then gains a highlight with no link and no picture (pushed past the
+        hook), and this clone's origin/feat-cmux-next stays on the old base (only a stacked parent was fetched)."""
+        self.pushed_topic(APP.replace("CmuxNextApp", "Earlier"))
+        old = self.git("rev-parse", "origin/feat-cmux-next").stdout.strip()
+        self.git("checkout", "--quiet", "feat-cmux-next")
+        self.write(f"{self.HIGHLIGHTS}/base-photo.md", self.HIGHLIGHT_BARE)
+        self.commit("someone else's highlight with no link and no picture")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("update-ref", "refs/remotes/origin/feat-cmux-next", old)
+        self.git("checkout", "--quiet", "topic")
+
+    def test_a_base_merge_newer_than_the_clone_s_upstream_is_not_judged_as_the_branch_s_own(self):
+        self.base_gains_a_refused_highlight_this_clone_never_fetched()
+        self.git("merge", "--quiet", "--no-edit", "--no-ff", "feat-cmux-next")
+
+        result = self.push_ref("topic")
+
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 0, output)
+        self.assertNotIn("base-photo.md", output, "a highlight the base merge brought in is not the branch's")
+        self.assertEqual(self.git("rev-parse", "origin/feat-cmux-next").stdout.strip(),
+                         self.remote_head(), "the push fetched the shared base first")
+
+    def test_a_branch_that_adds_a_refused_highlight_and_merges_the_base_is_still_refused(self):
+        self.base_gains_a_refused_highlight_this_clone_never_fetched()
+        self.write(f"{self.HIGHLIGHTS}/own-photo.md", self.HIGHLIGHT_BARE)
+        self.commit("the branch's own highlight with no link and no picture")
+        self.git("merge", "--quiet", "--no-edit", "--no-ff", "feat-cmux-next")
+        before = self.remote_head_of("topic")
+
+        result = self.push_ref("topic")
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(self.remote_head_of("topic"), before)
+        self.assertIn(f"{self.HIGHLIGHTS}/own-photo.md: a new highlight with no picture source", output)
+        self.assertIn(f"{self.HIGHLIGHTS}/own-photo.md: entries[0]", output)
+        self.assertNotIn("base-photo.md", output, "only the branch's own highlight is named")
+
+    def test_a_stale_local_branch_named_like_the_upstream_never_becomes_the_base(self):
+        # 2026-11-20: a shared clone held a local branch literally named `origin/feat-cmux-next`
+        # (refs/heads/origin/feat-cmux-next, left behind by some tool) at an old base. Git reads the short name
+        # `origin/feat-cmux-next` as that local branch, so the gate judged a plain base merge (its merged parent the
+        # remote tip) over the stale twin and refused it for files only the base changed.
+        self.base_gains_a_refused_highlight_this_clone_never_fetched()
+        old = self.git("rev-parse", "refs/remotes/origin/feat-cmux-next").stdout.strip()
+        self.git("fetch", "--quiet", "origin")
+        self.git("update-ref", "refs/heads/origin/feat-cmux-next", old)
+        # The remote's HEAD names main there (a fetch here pointed it at feat-cmux-next, which bounded the walk alone).
+        self.git("symbolic-ref", "--delete", "refs/remotes/origin/HEAD", check=False)
+        self.git("merge", "--quiet", "--no-edit", "--no-ff", "feat-cmux-next")
+        self.assertNotEqual(self.git("rev-parse", "refs/remotes/origin/feat-cmux-next").stdout.strip(), old)
+
+        result = self.push_ref("topic")
+
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 0, output)
+        self.assertNotIn("base-photo.md", output, "a highlight the base merge brought in is not the branch's")
+        self.assertEqual(self.remote_head_of("topic"), self.git("rev-parse", "HEAD").stdout.strip())
+
+    def test_a_refused_push_retried_after_the_base_moved_fetches_the_base_again(self):
+        # cmux#41310 review: the fetch stamp outlived its hook run, keyed only by the pushed rows, so the same push
+        # tried again after feat-cmux-next moved skipped the fetch and measured from the stale copy.
+        self.base_gains_a_refused_highlight_this_clone_never_fetched()
+        self.write(f"{self.HIGHLIGHTS}/own-photo.md", self.HIGHLIGHT_BARE)
+        self.commit("the branch's own highlight with no link and no picture")
+        self.git("merge", "--quiet", "--no-edit", "--no-ff", "feat-cmux-next")
+        refused = self.push_ref("topic")
+        self.assertNotEqual(refused.returncode, 0, refused.stdout + refused.stderr)
+        self.assertEqual(self.git("rev-parse", "origin/feat-cmux-next").stdout.strip(), self.remote_head())
+
+        old = self.git("rev-parse", "origin/feat-cmux-next").stdout.strip()
+        self.git("checkout", "--quiet", "feat-cmux-next")
+        self.write("later.md", "the base moves again\n")
+        self.commit("the base moves again")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("update-ref", "refs/remotes/origin/feat-cmux-next", old)
+        self.git("checkout", "--quiet", "topic")
+
+        retried = self.push_ref("topic")
+
+        self.assertNotEqual(retried.returncode, 0, retried.stdout + retried.stderr)
+        self.assertEqual(self.git("rev-parse", "origin/feat-cmux-next").stdout.strip(), self.remote_head(),
+                         "the retry is its own hook run, so it fetched the shared base again")
 
     def test_the_hook_runs_origin_s_highlight_validator_not_the_pushed_one(self):
         # A push that also weakens the validator cannot pass its own highlight: the hook reads
@@ -2507,6 +2976,84 @@ mod tests {
                       "needs a tryIt action/deeplink or a docs link", output)
         self.assertNotIn("were not validated", output)
 
+
+class AmbiguousUpstreamTests(unittest.TestCase):
+    """2026-11-20: a clone with a local branch literally named `origin/feat-cmux-next` (refs/heads/origin/...) at a
+    stale commit. Git reads the short name as that local branch ("refname is ambiguous"), so push_range judged a base
+    merge over the stale twin (e8c36a3) instead of the remote-tracking tip it merged (7209f01). Every remote-tracking
+    ref push_range hands git is its full name, refs/remotes/<remote>/<name>."""
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(prefix="cmux-push-range-ambiguous-")
+        self.addCleanup(temporary.cleanup)
+        root = Path(temporary.name)
+        self.repo, origin = root / "repository", root / "origin.git"
+        config = root / "gitconfig"
+        config.write_text("[user]\n\tname = Fixture\n\temail = fixture@example.com\n"
+                          + git_fixture_env.CONFIG_FILE_OPT_OUT)
+        self.env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+        self.env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=str(config), HOME=str(root))
+        git_fixture_env.without_auto_maintenance(self.env)
+        git_fixture_env.init_repo(origin, "--bare", "--initial-branch=feat-cmux-next", env=self.env)
+        self.repo.mkdir()
+        self.git("init", "--quiet", "--initial-branch=feat-cmux-next")
+        self.git("remote", "add", "origin", str(origin))
+        self.stale = self.commit("base.txt", "base\n")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("checkout", "--quiet", "-b", "topic")
+        self.commit("topic.txt", "topic\n")
+        self.git("push", "--quiet", "--no-verify", "origin", "topic")
+        self.git("checkout", "--quiet", "feat-cmux-next")
+        self.tip = self.commit("base-only.txt", "only the base changed this\n")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("fetch", "--quiet", "origin")
+        # The stale local twin: what some tool's `git branch origin/feat-cmux-next ...` leaves behind.
+        self.git("update-ref", "refs/heads/origin/feat-cmux-next", self.stale)
+        # The remote's HEAD names main there; a fetch here may point it at feat-cmux-next, which alone would bound the
+        # walk at the tip and hide the bug.
+        subprocess.run(["git", "-C", str(self.repo), "symbolic-ref", "--delete", "refs/remotes/origin/HEAD"],
+                       env=self.env, capture_output=True)
+        self.git("checkout", "--quiet", "topic")
+        self.git("merge", "--quiet", "--no-edit", "--no-ff", "feat-cmux-next")
+        self.head = self.git("rev-parse", "HEAD").stdout.strip()
+        spec = importlib.util.spec_from_file_location("cmux_push_range_ambiguous_test",
+                                                      SOURCE / "scripts/cmux-next/push_range.py")
+        self.push_range = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = self.push_range  # dataclasses resolve their module through sys.modules
+        self.addCleanup(sys.modules.pop, spec.name, None)
+        spec.loader.exec_module(self.push_range)
+
+    def git(self, *args):
+        return subprocess.run(["git", "-C", str(self.repo), *args], env=self.env, text=True, capture_output=True,
+                              check=True)
+
+    def commit(self, name, text):
+        (self.repo / name).write_text(text)
+        self.git("add", "-A")
+        self.git("commit", "--quiet", "--no-verify", "-m", name)
+        return self.git("rev-parse", "HEAD").stdout.strip()
+
+    def test_the_fixture_is_ambiguous_to_git(self):
+        short = subprocess.run(["git", "-C", str(self.repo), "rev-parse", "origin/feat-cmux-next"], env=self.env,
+                               text=True, capture_output=True)
+        self.assertEqual(short.stdout.strip(), self.stale, "git reads the short name as the local twin")
+        self.assertIn("ambiguous", short.stderr)
+
+    def test_a_push_of_a_base_merge_is_judged_over_the_remote_tracking_tip(self):
+        old = self.git("rev-parse", "refs/remotes/origin/topic").stdout.strip()
+        line = f"refs/heads/topic {self.head} refs/heads/topic {old}"
+        with unittest.mock.patch.dict(os.environ, {"CMUX_PREPUSH_RUN": ""}):
+            ranges, errors = self.push_range.pushed_ranges(self.repo, [line], "origin")
+        self.assertEqual(errors, [])
+        self.assertEqual(len(ranges), 1)
+        self.assertEqual(ranges[0].base, self.tip, ranges[0].describe())
+        self.assertNotIn("ambiguous", ranges[0].note)
+
+    def test_a_run_by_hand_is_judged_over_the_remote_tracking_tip(self):
+        own = self.push_range.own_range(self.repo, "HEAD")
+        self.assertEqual(own.base, self.tip, own.describe())
+        own = self.push_range.own_range(self.repo, "HEAD", [], "origin/feat-cmux-next")  # a caller's short name
+        self.assertEqual(own.base, self.tip, own.describe())
 
 
 class ToolDownloadFallbackTests(unittest.TestCase):
@@ -2688,6 +3235,19 @@ class ToolDownloadFallbackTests(unittest.TestCase):
         self.assertEqual(asked, [url])
 
 
+class SideWorkersTests(unittest.TestCase):
+    def test_the_job_cpu_share_caps_the_scanner_pool(self):
+        # On a CI mini the runner hook grants the checks job 5 of 14 cores (CMUX_CI_CPU_BUDGET); every gate this suite
+        # runs started one scanner per core of the whole mini beside the job's other checks (job 131984422217).
+        gate = load_gate_tools()
+        self.assertEqual(gate.side_workers({}, cpus=14), 14)
+        self.assertEqual(gate.side_workers({}, cpus=32), 16)
+        self.assertEqual(gate.side_workers({"CMUX_CI_CPU_BUDGET": "5"}, cpus=14), 5)
+        self.assertEqual(gate.side_workers({"CMUX_CI_CPU_BUDGET": "20"}, cpus=14), 14)
+        for malformed in ("", "0", "-3", "five"):
+            self.assertEqual(gate.side_workers({"CMUX_CI_CPU_BUDGET": malformed}, cpus=14), 14, malformed)
+
+
 class StaleInstallTests(unittest.TestCase):
     """The check trees never take the pushed head's scripts/swift_source_mask.py on a hook run."""
 
@@ -2842,6 +3402,112 @@ class RustfmtLayerTests(unittest.TestCase):
         self.assertEqual(out, "")
 
 
+    def fake_rustfmt(self, stderr=None, code=1):
+        """judge() with only a stand-in `rustfmt` on PATH that prints STDERR and exits CODE; with STDERR None, a
+        `rustfmt` file that is there but cannot be run."""
+        folder = Path(self.tmp.name) / "bin"
+        folder.mkdir(exist_ok=True)
+        fake = folder / "rustfmt"
+        if stderr is None:
+            fake.write_text("not a program\n")
+            fake.chmod(0o644)
+        else:
+            (folder / "stderr.txt").write_text(stderr + "\n")
+            # PATH is only this folder, so the stand-in names cat by its path.
+            fake.write_text(f"#!/bin/sh\n/bin/cat '{folder / 'stderr.txt'}' >&2\nexit {code}\n")
+            fake.chmod(0o755)
+        saved = os.environ.get("PATH", "")
+        os.environ["PATH"] = str(folder)
+        try:
+            return self.judge({"cmux-tui/crates/x/src/hint.rs": RUST_UNFORMATTED})
+        finally:
+            os.environ["PATH"] = saved
+
+    def test_a_rustfmt_that_cannot_be_started_is_no_verdict(self):
+        # #41888 review (F2): every OSError launching rustfmt warned and passed. Only "no rustfmt at all"
+        # (FileNotFoundError) is "not available here"; a rustfmt that is there and will not start is no verdict.
+        out = self.fake_rustfmt(None)
+        self.assertTrue(out.startswith("rustfmt gave no verdict: "), out)
+        self.assertIn("PermissionError", out)
+
+    def test_a_rustfmt_diagnostic_that_names_toolchain_is_a_finding_not_a_missing_component(self):
+        # #41888 review (F3): any stderr holding "toolchain" or "not installed" read as rustup's missing component and
+        # passed; real rustfmt diagnostics quote the source, which can hold either.
+        for line in ("error: expected item, found `toolchain`", "error: expected one of `!` or `::`, found `not`\n"
+                     " --> <stdin>:1:9\n  |\n1 | fn f() { not installed }\n"):
+            with self.subTest(line=line):
+                out = self.fake_rustfmt(line)
+                self.assertIn("cmux-tui/crates/x/src/hint.rs: rustfmt cannot parse it: ", out)
+
+    def test_rustups_own_missing_toolchain_or_component_still_warns(self):
+        for line in ("error: 'rustfmt' is not installed for the toolchain '1.90.0-x86_64-unknown-linux-gnu'.\n"
+                     "help: run `rustup component add rustfmt` to install it",
+                     "error: 'rustfmt' is not installed for the toolchain '1.80.0-aarch64-apple-darwin'\n"
+                     "To install, run `rustup component add rustfmt --toolchain 1.80.0-aarch64-apple-darwin`",
+                     "error: toolchain '1.90.0-x86_64-unknown-linux-gnu' is not installed\n"
+                     "help: run `rustup toolchain install 1.90.0-x86_64-unknown-linux-gnu` to install it",
+                     "error: override toolchain '1.90.0-x86_64-unknown-linux-gnu' is not installed"):
+            with self.subTest(line=line):
+                self.assertEqual(self.fake_rustfmt(line), "")
+
+    def test_a_rustfmt_that_fails_with_no_diagnostic_is_no_verdict(self):
+        out = self.fake_rustfmt("thread 'main' panicked at src/lib.rs:1:1", code=101)
+        self.assertTrue(out.startswith("rustfmt gave no verdict: exit 101"), out)
+
+    def test_a_rustfmt_whose_interpreter_is_missing_is_no_verdict(self):
+        # #41927 review (F1): an executable rustfmt whose `#!` interpreter is gone raises FileNotFoundError, which read
+        # as "no rustfmt on PATH" and passed. The file is on PATH; only a PATH with no rustfmt warns.
+        folder = Path(self.tmp.name) / "bin"
+        folder.mkdir(exist_ok=True)
+        fake = folder / "rustfmt"
+        fake.write_text("#!/nonexistent/interpreter\n")
+        fake.chmod(0o755)
+        saved = os.environ.get("PATH", "")
+        os.environ["PATH"] = str(folder)
+        try:
+            out = self.judge({"cmux-tui/crates/x/src/hint.rs": RUST_UNFORMATTED})
+        finally:
+            os.environ["PATH"] = saved
+        self.assertTrue(out.startswith("rustfmt gave no verdict: "), out)
+
+    def test_a_dyld_loader_error_naming_the_toolchain_is_no_verdict(self):
+        # #41888 review (F1): a macOS loader failure names the rustfmt binary's own path under
+        # ~/.rustup/toolchains/..., so a match on "toolchain" anywhere in stderr read it as rustup's "not installed"
+        # and passed. Only rustup's own answer as the whole of stderr warns (#41945); this is a crash, no verdict.
+        # Self-contained (no fake_rustfmt helper) so it also runs against the gate at #41888's head.
+        folder = Path(self.tmp.name) / "dyld-bin"
+        folder.mkdir(exist_ok=True)
+        (folder / "stderr.txt").write_text(
+            "dyld[4242]: Library not loaded: @rpath/librustc_driver-5f3e0e1b6a2d.dylib\n"
+            "  Referenced from: <0D1F2E3A-4B5C-6D7E-8F90-A1B2C3D4E5F6> "
+            "/Users/fixture/.rustup/toolchains/1.90.0-aarch64-apple-darwin/bin/rustfmt\n"
+            "  Reason: tried: '/Users/fixture/.rustup/toolchains/1.90.0-aarch64-apple-darwin/lib/"
+            "librustc_driver-5f3e0e1b6a2d.dylib' (no such file)\n")
+        fake = folder / "rustfmt"
+        fake.write_text(f"#!/bin/sh\n/bin/cat '{folder / 'stderr.txt'}' >&2\nexit 134\n")
+        fake.chmod(0o755)
+        saved = os.environ.get("PATH", "")
+        os.environ["PATH"] = str(folder)
+        try:
+            out = self.judge({"cmux-tui/crates/x/src/hint.rs": RUST_UNFORMATTED})
+        finally:
+            os.environ["PATH"] = saved
+        self.assertTrue(out.startswith("rustfmt gave no verdict: "), out)
+
+    def test_rustups_answer_counts_only_as_the_whole_stderr(self):
+        # #41888 review (F1): a rustfmt diagnostic that quotes `toolchain` passed as rustup's missing component. Rustup
+        # answers alone: its error line first, then only its own help line. A rustup-shaped line after a rustfmt
+        # diagnostic is still the diagnostic's finding.
+        stderr = ("error: expected expression, found `;`\n --> <stdin>:1:17\n  |\n1 | let toolchain = ;\n  |\n"
+                  "error: toolchain 'stable' is not installed")
+        out = self.fake_rustfmt(stderr)
+        self.assertIn("cmux-tui/crates/x/src/hint.rs: rustfmt cannot parse it: error: expected expression", out)
+        # A panic whose message carries a rustup-shaped line is a crash, no verdict.
+        out = self.fake_rustfmt("thread 'main' panicked at src/config.rs:9:5:\nerror: toolchain 'stable' is not "
+                                "installed\nnote: run with `RUST_BACKTRACE=1`", code=101)
+        self.assertTrue(out.startswith("rustfmt gave no verdict: exit 101"), out)
+
+
 class StopCleanlyTests(unittest.TestCase):
     """The gate stops what it started with SIGTERM first, so a `git` under it clears `.git/index.lock`.
 
@@ -2934,5 +3600,76 @@ class AdvisoryGuardrailsDiagnosticsTests(unittest.TestCase):
         self.assertEqual(diagnostics, ["rule app-type failed (KeyError: x)"])
 
 
+class MergeUpstreamRunTests(unittest.TestCase):
+    """2026-11-21: a merge push's gate took 798 s on big-red (the hook's 600 s limit): gate_own's run over the range
+    the merge does not own ran every check again, whole-package dependency and surface material trees among them
+    (293 s), though only the checks the push's own run found something in are ever read from it."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.gate = load_gate_tools()
+        cls.gate.load_push_range(SOURCE, SOURCE / "scripts/cmux-next")  # gate_own reads it from sys.modules
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.repo = git_fixture_env.init_repo(Path(self.tmp.name) / "repo")
+
+    def commit(self, relative: str, text: str) -> str:
+        path = self.repo / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
+        git = ["git", "-C", str(self.repo), "-c", "user.name=t", "-c", "user.email=t@example.invalid",
+               "-c", "commit.gpgsign=false"]
+        subprocess.run([*git, "add", "-A"], check=True, capture_output=True)
+        subprocess.run([*git, "commit", "-qm", relative], check=True, capture_output=True)
+        return subprocess.run([*git, "rev-parse", "HEAD"], check=True, capture_output=True, text=True).stdout.strip()
+
+    def own_range(self, **fields):
+        return sys.modules[self.gate.PUSH_RANGE_MODULE].OwnRange(**fields)
+
+    def test_the_upstream_run_runs_only_the_checks_the_own_run_found(self):
+        base = self.commit(f"{PKG}/Sources/A.swift", "let a = 1\n")
+        upstream = self.commit(f"{PKG}/Sources/B.swift", "let b = 1\n")
+        head = self.commit(f"{PKG}/Sources/C.swift", "let c = 1\n")
+        found = "Sources/C.swift:1: [fake] own finding"
+        calls = []
+
+        def fake_gate(repo, b, a, only, timings, trusted_scripts=None, **kwargs):
+            calls.append((b, a, kwargs.get("checks")))
+            return [("Fake check", [found])] if (b, a) == (upstream, head) else []
+
+        own = self.own_range(head=head, base=upstream, before=((base, upstream),))
+        with unittest.mock.patch.object(self.gate, "gate", side_effect=fake_gate):
+            kept = self.gate.gate_own(self.repo, own, None, False)
+        self.assertEqual(calls, [(upstream, head, None), (base, upstream, {"Fake check"})])
+        self.assertEqual(kept, [("Fake check", [found])])
+
+    def test_a_run_that_wants_no_tree_check_builds_no_tree(self):
+        base = self.commit(f"{PKG}/Sources/A.swift", "let a = 1\n")
+        head = self.commit(f"{PKG}/Sources/A.swift", "let a = 2\n")
+
+        class Built(Exception):
+            pass
+
+        with unittest.mock.patch.object(self.gate, "build_trees", side_effect=Built):
+            self.assertEqual(self.gate.gate(self.repo, base, head, {"scanners"}, False,
+                                            checks={self.gate.RESERVED_CHECK}), [])
+            # The control: the same run with every check wanted, or a tree check wanted, builds its trees.
+            for checks in (None, {self.gate.DEPS_CHECK}):
+                with self.assertRaises(Built, msg=f"checks={checks}"):
+                    self.gate.gate(self.repo, base, head, {"scanners"}, False, checks=checks)
+
+    def test_a_push_already_on_the_remote_judges_nothing(self):
+        head = self.commit("a.txt", "a\n")
+        own = self.own_range(head=head, base=head)
+        with unittest.mock.patch.object(self.gate, "gate", side_effect=AssertionError("judged an empty range")):
+            self.assertEqual(self.gate.gate_own(self.repo, own, None, False), [])
+
+
 if __name__ == "__main__":
-    unittest.main()
+    # `--shard I/N`: the checks job runs this file as four pool commands (tests/unittest_shard.py).
+    _shard_spec = importlib.util.spec_from_file_location("unittest_shard", Path(__file__).resolve().parent / "unittest_shard.py")
+    unittest_shard = importlib.util.module_from_spec(_shard_spec)
+    _shard_spec.loader.exec_module(unittest_shard)
+    unittest_shard.main()

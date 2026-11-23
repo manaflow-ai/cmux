@@ -14,7 +14,7 @@ pub(super) fn write_json_atomic(path: &Path, value: &Value) -> Result<()> {
         return Err(anyhow::anyhow!("transaction marker temporary path is occupied"));
     }
     let bytes = serde_json::to_vec(value)?;
-    let mut file = std::fs::OpenOptions::new().write(true).create_new(true).open(&tmp)?;
+    let mut file = crate::home_fs::OpenOptions::new().write(true).create_new(true).open(&tmp)?;
     // The temporary file is this call's own (`create_new`): a failure before the rename takes it
     // away, so the next write of `path` is not refused as occupied.
     let written = (|| -> std::io::Result<()> {
@@ -22,10 +22,10 @@ pub(super) fn write_json_atomic(path: &Path, value: &Value) -> Result<()> {
         file.write_all(&bytes)?;
         file.sync_all()?;
         drop(file);
-        std::fs::rename(&tmp, path)
+        crate::home_fs::rename(&tmp, path)
     })();
     if let Err(e) = written {
-        let _ = std::fs::remove_file(&tmp);
+        let _ = crate::home_fs::remove_file(&tmp);
         return Err(e.into());
     }
     if let Some(parent) = path.parent() {

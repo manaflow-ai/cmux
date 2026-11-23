@@ -139,11 +139,10 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
         metrics base: SidebarLayoutMetrics,
         options o: SidebarLayoutOptions = SidebarLayoutOptions()
     ) -> SidebarLayout {
-        // Minimal mode is visibly compact: shorter rows, thin group headers (cx-7swgy); Expanded rows
-        // and headers are two lines. One `resolved` for every sizing site.
+        // Expanded rows and headers are two lines. One `resolved` for every sizing site.
         let m = base.resolved(for: o)
-        // A new workspace's drop gap is a row: as short as minimal mode's rows.
-        let gapHeight = max(0, o.gapHeight - (base.rowHeight - m.rowHeight))
+        // A new workspace's drop gap is a row.
+        let gapHeight = max(0, o.gapHeight)
         if o.hidesWorkspaces { return .empty }
         // A row per key: a workspace id two machines list draws once (`listingEachWorkspaceOnce`).
         let once = Self.listingEachWorkspaceOnce(sections)
@@ -180,7 +179,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
         let lastMachine = sections.lastIndex { $0.machine != nil }
 
         var firstSection = true, statusShown = false, statusListed = false
-        var projectsHeaded = false, recentsPlaced = false, workspacesHeaded = false
+        var projectsHeaded = false, recentsPlaced = false
         // Projects' "Show N more" and the Recents list, once, right after the last computer's rows.
         func placeRecents() {
             guard let recents, !recentsPlaced else { return }
@@ -283,12 +282,6 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                 projectsHeaded = true
                 Self.appendProjectsHeader(recents, section: section.id, metrics: m, to: &rows, y: &y)
             }
-            // One list's "Workspaces" heading, once, over the first computer's rows (never with a filter, Recents, the
-            // session tree or Group by Status, which head or replace the list themselves).
-            if o.headsWorkspaceList, !workspacesHeaded, recents == nil, flat, !filtering, o.sessionTree == nil, !nodes.isEmpty {
-                workspacesHeaded = true
-                Self.appendWorkspacesHeader(section: section.id, count: nodes.count, metrics: m, to: &rows, y: &y)
-            }
             if section.machine != nil { chats.placePinned(&y) }
             // This section's own rows under its block: its groups, or its empty drop zone (or the drop's gap in the zone's
             // place, so the rows below stay put). Any other gap alone opens right under the block and moves the rows
@@ -350,8 +343,10 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
 
             // One node at its model index (drops resolve by it, whatever the drawn order).
             // `tree`: the session tree's depth, chevron and roll-up (`treeRows`).
-            func emit(_ index: Int, _ entry: (node: SidebarNode, children: [SidebarWorkspace]), tree: TreeRow = TreeRow()) {
-                openGapIfNeeded(section: section.id, group: nil, index: index)
+            // `opensGap` false: the list placed its drop gap by drawn order (`gapEntry`).
+            func emit(_ index: Int, _ entry: (node: SidebarNode, children: [SidebarWorkspace]), tree: TreeRow = TreeRow(),
+                      opensGap: Bool = true) {
+                if opensGap { openGapIfNeeded(section: section.id, group: nil, index: index) }
                 switch entry.node {
                 case let .workspace(ws):
                     var content = o.rowContent(ws, machine: machineLabel)
@@ -394,9 +389,13 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                 let foldedGap = Self.gapEntry(drawn, gap: o.gap, section: section.id, group: nil, count: nodes.count)
                 for (index, depth) in drawn {
                     if index == foldedGap, let gap = o.gap { openGapIfNeeded(section: section.id, group: nil, index: gap.index) }
-                    guard index < 0 else { emit(index, nodes[index], tree: treeRow[index] ?? TreeRow(index: index, depth: depth)); continue }
+                    guard index < 0 else {
+                        emit(index, nodes[index], tree: treeRow[index] ?? TreeRow(index: index, depth: depth), opensGap: foldedGap == nil)
+                        continue
+                    }
                     Self.appendFold(index, fold, count: depth, parent: nil, color: nil, last: false, options: o, to: &rows, y: &y, metrics: m)
                 }
+                if foldedGap == Self.gapAtEnd, let gap = o.gap { openGapIfNeeded(section: section.id, group: nil, index: gap.index) }
                 openGapIfNeeded(section: section.id, group: nil, index: nodes.count)
                 continue
             }
@@ -412,7 +411,22 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                     isCollapsed: false, childCount: indices.count, groupColor: nil
                 ))
                 y += m.groupHeaderHeight + m.rowSpacing
-                for index in indices { emit(index, nodes[index]) }
+                guard !o.settled.isEmpty || !o.automatic.isEmpty else {
+                    for index in indices { emit(index, nodes[index]) }
+                    continue
+                }
+                // Settled chats (`sidebar.settleFinished`) and automatic sessions (`sidebar.showAutomaticSessions`
+                // off) fold at the end of their project's rows. Only them: a
+                // folder keeps its Done and archived rows, and every row, as it always did.
+                var settling = o
+                (settling.foldsDone, settling.foldsArchived, settling.rowLimit) = (false, false, 0)
+                let fold = SidebarDoneFoldID(section: section.id, group: nil, kind: .settled, folder: folder)
+                let drawn = Self.foldingDone(indices.map { ($0, 0) }, workspace: { if case let .workspace(ws) = nodes[$0].node { ws } else { nil } },
+                                             fold: fold, options: settling)
+                for (index, depth) in drawn {
+                    guard index < 0 else { emit(index, nodes[index]); continue }
+                    Self.appendFold(index, fold, count: depth, parent: nil, color: nil, last: false, options: o, to: &rows, y: &y, metrics: m)
+                }
             }
             openGapIfNeeded(section: section.id, group: nil, index: nodes.count)
         }

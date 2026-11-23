@@ -9,6 +9,8 @@ extension CloudMoveFailure {
     /// A failed copy's failure: an outdated machine's Retry updates it first.
     public static func syncing(_ answer: CloudMoveCLI.Answer, machine: String, retry: CloudMoveRetries.Retry) -> Self {
         if answer.errorCode == CloudMoveStrings.outdatedCode { return Self(message: CloudMoveStrings.outdatedMachine(machine), retry: retry.updating) }
+        // Past the copy's limits (`copy.too_large`): another try fails the same way, so no Retry (the start then deletes its machine).
+        if answer.errorCode == CloudMoveCLI.StartChatPreflightRefusal.code { return Self(message: CloudMoveStrings.syncFailed(machine, answer.error ?? "")) }
         return Self(message: CloudMoveStrings.syncFailed(machine, answer.error ?? answer.errorCode ?? ""), retry: retry)
     }
 

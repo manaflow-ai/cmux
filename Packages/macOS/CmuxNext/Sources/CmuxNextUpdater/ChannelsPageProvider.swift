@@ -41,6 +41,9 @@ public final class ChannelsPageProvider: PageProvider {
     /// subscribes: a failure that comes while Settings > Updates shows (or its Details opened it)
     /// shows in the row at once.
     public static let machinesStream = "cmux.settings.channels.machines.changed"
+    /// The switch or rollback the person started, each step as it moves (its new value, null once
+    /// it ends): the pressed button reads what is happening instead of only going grey.
+    public static let progressStream = "cmux.settings.channels.switch.changed"
 
     public init(updater: UpdaterService, daemon: (@Sendable () async -> (title: String, value: String)?)? = nil,
                 machines: (@MainActor @Sendable () -> Machines?)? = nil,
@@ -63,10 +66,10 @@ public final class ChannelsPageProvider: PageProvider {
             guard var state = JSONValue(foundation: page), case .object(var fields) = state else {
                 throw PageError(code: "cmux.page.unavailable", message: "no channels")
             }
-            if let machines = machines?() {
-                fields["machines"] = Self.json(machines)
-                state = .object(fields)
-            }
+            if let machines = machines?() { fields["machines"] = Self.json(machines) }
+            // A card opened while a switch runs shows its step at once.
+            fields["progress"] = Self.json(updater.buildSwitchProgress)
+            state = .object(fields)
             return state
         case "cmux.settings.channels.go_back":
             // It restarts the app into another build: the person's own click in Settings only.
@@ -99,12 +102,20 @@ public final class ChannelsPageProvider: PageProvider {
         }
     }
 
-    /// ``machinesStream``: one event per change of the row, until the page unsubscribes (the
+    /// ``machinesStream`` and ``progressStream``: one event per change, until the page unsubscribes (the
     /// subscription's cancel ends the watch).
     public func subscribe(_ stream: String, filter: JSONValue, context: PageCallContext,
                           onEvent: @escaping @MainActor (JSONValue) -> Void) async throws -> PageSubscription {
-        guard stream == Self.machinesStream, let machines else { throw PageError.unknownOp(stream) }
-        let read: @MainActor @Sendable () -> JSONValue = { Self.json(machines()) }
+        let read: @MainActor @Sendable () -> JSONValue
+        switch stream {
+        case Self.machinesStream:
+            guard let machines else { throw PageError.unknownOp(stream) }
+            read = { Self.json(machines()) }
+        case Self.progressStream:
+            read = { [updater] in Self.json(updater.buildSwitchProgress) }
+        default:
+            throw PageError.unknownOp(stream)
+        }
         // task-owner: the page's subscription; its cancel ends this loop
         let task = Task { @MainActor in
             var last = read()
@@ -114,6 +125,10 @@ public final class ChannelsPageProvider: PageProvider {
             }
         }
         return PageSubscription { task.cancel() }
+    }
+
+    nonisolated static func json(_ progress: BuildSwitchProgress?) -> JSONValue {
+        progress.flatMap { JSONValue(foundation: $0.page) } ?? .null
     }
 
     nonisolated static func json(_ machines: Machines?) -> JSONValue {

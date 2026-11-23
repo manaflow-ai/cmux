@@ -104,9 +104,12 @@ impl Mux {
         let layout_changed = self.with_state(|state| {
             let (workspace, screen) = state.screen_of(pane)?;
             let screen = &state.workspaces[workspace].screens[screen];
-            (screen.active_pane != pane
+            // A focus that changes the floating panes (one comes to the front, the quick terminal shows)
+            // changes the layout fields too.
+            ((screen.active_pane != pane
                 && (screen.root.contains_stack_pane(screen.active_pane)
                     || screen.root.contains_stack_pane(pane)))
+                || screen.focus_changes_floating_panes(pane))
             .then_some(screen.id)
         });
         let Some(selectors) = self.ordinary_pane_selectors(pane) else { return false };
@@ -365,7 +368,7 @@ impl Mux {
             let selected = if let Some(index) = index.filter(|index| *index < len) {
                 index
             } else if let Some(delta) = delta {
-                ((ws.active_screen as isize + delta).rem_euclid(len as isize)) as usize
+                ring_step(ws.active_screen, delta, len)
             } else {
                 ws.active_screen
             };
@@ -402,7 +405,7 @@ impl Mux {
             let selected = if let Some(index) = index.filter(|index| *index < len) {
                 index
             } else if let Some(delta) = delta {
-                ((state.active_workspace as isize + delta).rem_euclid(len as isize)) as usize
+                ring_step(state.active_workspace, delta, len)
             } else {
                 state.active_workspace
             };

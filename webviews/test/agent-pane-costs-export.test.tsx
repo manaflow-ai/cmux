@@ -12,6 +12,8 @@ import { translate } from "../src/agent-session/acpmux/i18n";
 import { LedgerScreen } from "../src/agent-session/acpmux/ledger/LedgerScreen";
 import { UNKNOWN } from "../src/agent-session/acpmux/usageStats";
 import { LEDGER_EXPORT_LIMIT, type LedgerExportKind } from "../src/agent-session/acpmux/ledger/ledgerModel";
+import { settleReact } from "./support/domTeardown";
+import { factsCardText } from "./support/factsCard";
 
 const NOW = 1_800_000_000_000;
 let dom: JSDOM | undefined;
@@ -54,6 +56,7 @@ function installDom(): HTMLElement {
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   for (const [key, value] of saved) {
     if (value === undefined) delete scope[key];
     else scope[key] = value;
@@ -196,8 +199,9 @@ test("a row with no input says its share from cache is unknown, in every look", 
     });
     await act(async () => undefined);
     if (look === "table") {
-      const title = container.querySelector<HTMLElement>(".cst-label")?.title ?? "";
-      expect(title).toEndWith(` · ${unknown}`);
+      // A narrow page drops the cache columns: the label's hover card keeps them.
+      const card = await factsCardText(container.querySelector<HTMLElement>(".cst-label")!);
+      expect(card).toEndWith(` · ${unknown}`);
     } else {
       const detail = container.querySelector(".cst-detail")?.textContent ?? "";
       expect(detail).toEndWith(` · ${unknown}`);

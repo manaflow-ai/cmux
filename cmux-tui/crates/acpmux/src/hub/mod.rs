@@ -6,8 +6,11 @@
 
 // A reply's checkable claims against the turn's runs (`claim_checks`).
 mod claim_check;
+mod control_asks;
 
 mod activity;
+// Opt-in team usage sharing: one record per turn (`cmux-usage-share`).
+mod usage_share;
 // A foreground shell still running after a minute goes to the background (Claude Code).
 mod auto_background;
 pub use auto_background::AUTO_BACKGROUND_ENV;
@@ -17,20 +20,28 @@ mod adopted_fences;
 mod adoption;
 pub(crate) mod agent_hold;
 mod agent_pairs;
+pub(crate) mod agent_vm;
 mod away_recap;
 mod memory_inbox;
 mod prompt_coach;
+// The person's prompts to a held chat wait to go in together (`person_hold.rs`).
+mod person_hold;
+pub use person_hold::PromptTriager;
+pub(crate) mod restricted;
+mod rolling_summary;
+pub(crate) mod stop_condition;
+mod surge_triage;
 pub use prompt_coach::CoachRewriter;
 mod message_events;
 pub use agent_pairs::PairGuard;
 mod aside;
 mod asks_below;
 mod atomic_json;
-mod build;
-pub use build::{build, install_build, version_line};
+pub use crate::build_info::{build, install_build, version_line};
 pub(crate) mod auto_resume;
 mod bg_notify;
 mod bg_tasks;
+pub use bg_tasks::{BgScope, bg_owner_words};
 mod bounded;
 mod btw;
 mod workflow_activity;
@@ -42,9 +53,11 @@ pub(crate) mod clone_boot;
 mod exit_reason;
 mod fallback_start;
 pub(crate) mod session_auth;
+pub(crate) mod settled_view;
+mod subagent_expiry;
+pub(crate) mod subagent_resume;
 pub(crate) mod subagent_retry;
-pub(crate) mod turn_errors;
-pub(crate) use btw::SIDE_TAG;
+pub(crate) use crate::turn_errors;
 pub(crate) use lane_reports::TAG as REPORTS_TO_TAG;
 pub(crate) use policy_mode::SetRequest;
 mod audit_entries;
@@ -62,27 +75,45 @@ mod gemini_plan;
 pub use file_uploads::FEATURE as FILE_PUT_FEATURE;
 #[cfg(test)]
 mod agent_messaging_tests;
+mod ephemeral;
 #[cfg(test)]
 mod first_work_tests;
 mod fork;
+pub use fork::Retarget;
+#[cfg(test)]
+mod forum_held_turn_tests;
 #[cfg(test)]
 mod host_notice_tests;
 #[cfg(test)]
 mod ledger_hub_tests;
 #[cfg(test)]
+mod long_chat_tests;
+#[cfg(test)]
+mod owned_scope_bench_tests;
+#[cfg(test)]
 mod peer_notice_cost_tests;
 #[cfg(test)]
+mod phone_floor_tests;
+#[cfg(test)]
 mod prompt_accept_tests;
+#[cfg(test)]
+mod remote_table_bench;
 #[cfg(test)]
 mod review_queue_tests;
 #[cfg(test)]
 mod sender_claim_tests;
+#[cfg(test)]
+mod shared_row_tests;
 #[cfg(test)]
 mod shutdown_scan_tests;
 #[cfg(test)]
 mod shutdown_tests;
 #[cfg(test)]
 mod startup_wait_tests;
+#[cfg(test)]
+mod steer_on_start_tests;
+#[cfg(test)]
+mod time_breakdown_restore_tests;
 #[cfg(test)]
 mod transcript_seq_tests;
 pub(crate) use fork::offers_fork;
@@ -99,6 +130,7 @@ mod harness_view;
 mod harness_watch;
 mod health_view;
 mod held_asks;
+mod host_level;
 pub(super) mod idle;
 mod idle_census;
 mod person_prompt_at;
@@ -106,15 +138,17 @@ pub(crate) mod unattended_presets;
 pub(crate) use idle::SessionAtWork;
 mod tool_start;
 pub(crate) use idle_census::LaunchServers;
-#[cfg(unix)]
-pub(crate) use idle_census::host_census;
 pub use idle_census::{Sidecar, StoredLaunch};
 pub use tool_start::{ToolStart, tool_start};
+pub(crate) mod book_tee;
 mod closed_rows;
 mod launch_roots;
 mod launchers;
 pub mod lineage;
 pub(crate) mod list_guard;
+pub(crate) mod list_tee;
+// Row 3b's first PR: the source, driven by tests. Its second PR (the tee at v1's append and the
+// chat registry in the daemon's v2 handle) is its first caller in the daemon.
 mod live_ages;
 #[cfg(test)]
 mod live_ages_tests;
@@ -124,23 +158,38 @@ pub mod media_handles;
 pub mod media_read;
 mod mesh_book;
 mod mesh_rows;
+mod peer_row;
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) mod v1_source;
+pub use peer_row::PeerRow;
 pub(crate) mod native_history;
+pub(crate) mod page_replies;
+pub(crate) mod row_log;
 pub(crate) mod subagent_transcript;
 mod team_information;
 mod team_sent;
+mod usage_answer;
 pub(crate) mod workflow_index;
 pub use handoff::{HANDOFF_OPERATIONS, MAX_CAPSULE_BYTES};
+pub use list_guard::{RequestHold, RequestStage};
 pub use media_read::FEATURE as MEDIA_READ_FEATURE;
 pub use native_history::FEATURE as NATIVE_HISTORY_FEATURE;
 pub use subagent_transcript::FEATURE as SUBAGENT_TRANSCRIPT_FEATURE;
 mod adopt_retry;
 mod hosts;
+pub mod journal_restore;
+#[cfg(test)]
+mod journal_restore_tests;
 mod lifecycle;
 mod log_deferral;
 mod log_load;
+mod restore_writer;
+#[cfg(debug_assertions)]
+pub(crate) use log_load::test_hold;
 #[cfg(test)]
 pub(crate) use log_load::{NOTE_BEFORE_CATCH_UP_LOCK, NOTE_BEFORE_REPLAY_SCAN, NOTE_IN_CATCH_UP};
 mod cold_archive;
+pub(crate) mod inactive_archive;
 pub(crate) use cold_archive::COLD_CHANGED;
 mod machine_info;
 mod repo_sync;
@@ -151,19 +200,29 @@ pub(crate) use log_load::AdoptionReady;
 mod model_options;
 mod new_request;
 pub use model_options::{
-    current_effort, current_model, current_option, resolve_config_id, web_url, web_url_for_session,
+    current_effort, current_model, current_option, resolve_config_id, spawn_effort, web_url,
+    web_url_for_session,
 };
 pub mod ledger;
+mod list_order;
+mod model_alias;
 mod model_hint;
 mod model_probe;
 mod models_view;
+pub(crate) mod native_messaging;
+mod page_first;
 mod paging;
+pub(crate) mod permission_modes;
 mod personal_stats;
 mod policy_gate;
 mod policy_mode;
 mod policy_source;
 mod pool;
+mod tool_output_cut;
 pub(crate) use pool::SESSION_NEW_BUDGET;
+#[cfg(test)]
+mod fork_retarget_tests;
+mod image_dims;
 mod prompt_attribution;
 pub(crate) mod prompt_images;
 mod prompt_ledger;
@@ -186,20 +245,25 @@ pub(crate) fn prompt_attribution_mark(
 }
 mod prompt_sender;
 mod protected_hold;
+// The account's rate limit holds every turn of a chat until its reset.
 mod queue;
 mod queue_admission;
 mod queue_edit;
+pub(crate) mod rate_hold;
 pub(crate) mod reply_fit;
-pub use digest::{MAX_FROM_AGENT_CHARS, declared_sender};
+pub use digest::{MAX_FROM_AGENT_CHARS, declared_sender, on_peer_host};
 pub(crate) use queue::approved_prompts_error;
 pub use queue::{Approver, QueuedPrompt, Withdrawn, supersede::key as supersede_key};
+pub(crate) use transfer_out::TOOL_IN_FLIGHT;
+mod credentials;
 mod live_name;
 mod profile_respawn;
+mod rediscover;
 pub(crate) mod require_asking;
 mod resolve;
 mod route_switch;
 mod stale_host_respawn;
-pub use pool::{PrewarmRequest, RssProbe, tree_rss_bytes};
+pub use pool::{PrewarmRequest, PrewarmShape, RssProbe, tree_rss_bytes};
 pub use route_switch::HarnessRestarts;
 pub(crate) use route_switch::route_error;
 pub(crate) use turn_errors::is_limit_error;
@@ -224,6 +288,7 @@ mod question_replies;
 mod resume;
 mod secrets;
 mod seen;
+pub(crate) use seen::{Look, reader_of};
 mod session;
 pub(crate) mod session_pages;
 mod settings_watch;
@@ -232,19 +297,32 @@ mod silent_turn;
 mod stalled_turn;
 mod start_retry;
 mod start_watch;
+pub(crate) mod task_list;
 pub(crate) mod tasks;
 pub use session::{Session, live_tags};
+/// A line of session text as every view may show it: masked (`secret_scan`), then cut to `max`
+/// characters (`task_list.rs`'s steps).
+pub(crate) fn masked_step(s: &str, max: usize) -> String {
+    session::masked_preview(s, max)
+}
+
+/// [`Hub::withdraws`]: each withdraw's answer once its notice is accepted or refused.
+type WithdrawsInFlight =
+    HashMap<(String, String), tokio::sync::watch::Receiver<Option<Result<Value, RpcError>>>>;
+pub(crate) use crate::shell_readonly;
 pub(super) use session::{newest_first, prompt_text, short_text};
-pub(crate) mod shell_readonly;
 mod shutdown;
 pub use shutdown::SHUTTING_DOWN;
 mod bridge;
 pub(crate) mod desktop_bridge;
 pub(crate) mod register;
-pub(crate) use shutdown::{CREATED as REFUSED_CREATED, shutting_down_before_create};
+pub(crate) use shutdown::{
+    AGENT_END_BUDGET, CREATED as REFUSED_CREATED, shutting_down_before_create,
+};
 mod caller_registry;
 mod history_timing;
 pub(crate) mod inbox;
+pub(crate) mod inbox_subscription;
 mod spawn;
 mod start_defaults;
 pub(crate) mod start_mode;
@@ -256,22 +334,28 @@ mod stream;
 mod tags;
 mod tailnet_controller;
 mod tap;
-pub(crate) mod time_breakdown;
+pub(crate) use crate::time_breakdown;
 mod titles;
+mod tool_installs;
 mod tool_paths;
 mod tool_read_images;
 mod tool_shell;
 mod tools;
 pub(crate) mod turn_cap;
 mod turn_retry;
+mod unread_steer;
 mod update_repeats;
 mod watch;
 pub use new_request::{
     NewRequest, declared_model_json, profile_takes_model_at_spawn, terminal_harness_refusal,
 };
-pub use paging::{EventFilter, EventPage, MAX_PAGE_BYTES, fit_reply, page_bytes};
+pub use paging::{
+    DEFAULT_PAGE_BYTES, EventFilter, EventPage, MAX_PAGE_BYTES, fit_reply, page_bytes,
+};
 pub use spawn::expand_env_value;
 pub mod approvers;
+mod former_names;
+mod harness_key;
 pub(crate) mod key_route;
 pub mod mac_approvers;
 pub mod no_session;
@@ -280,6 +364,7 @@ mod peer_cache;
 pub(crate) mod peer_cache_disk;
 #[cfg(test)]
 mod peer_cache_disk_tests;
+mod peer_closed_bound;
 #[cfg(all(test, target_os = "linux"))]
 mod peer_flap_soak;
 mod peer_grace;
@@ -287,22 +372,41 @@ mod peer_grace;
 mod peer_grace_tests;
 mod peer_lease;
 pub(crate) mod peer_snapshot;
+mod spoken_handles;
+mod task_names;
 pub use peer_lease::PeerLease;
+/// Debug builds only: the next `n` reads of whether a copy of `peer` is ahead fail, as a timed
+/// out or dead store would (`peer_snapshot/restore.rs`).
+#[cfg(debug_assertions)]
+#[doc(hidden)]
+pub fn peer_snapshot_reads_fail(peer: &str, n: u32) {
+    peer_snapshot::reads_fail(peer, n);
+}
+
+/// Debug builds only: each copy keeps at most `n` records from its next change on (0: the
+/// bound as built), as a turn past the bound would leave it (`peer_snapshot.rs` `bound`).
+#[cfg(debug_assertions)]
+#[doc(hidden)]
+pub fn peer_snapshot_bound(n: usize) {
+    peer_snapshot::BOUND_EVENTS.store(n, std::sync::atomic::Ordering::SeqCst);
+}
 mod peers;
 mod remote_rows;
+mod remote_table;
 pub(crate) use peers::{
-    PEER_LAGGED, PEER_PERMISSION_PENDING, PEER_SETTLE_BUDGET, is_permission_ask,
+    PEER_LAGGED, PEER_PERMISSION_PENDING, PEER_ROWS_CHANGED, PEER_SETTLE_BUDGET, is_permission_ask,
 };
 mod permission_groups;
 mod permissions;
 pub(crate) use permissions::drop_display_lines;
+pub mod cmux_tools_answer;
 mod hunk_summary;
 pub mod person;
 pub mod presence;
 mod processes;
 mod pull_requests;
 pub(crate) mod purge_tombstones;
-pub(crate) mod questions;
+pub(crate) use crate::questions;
 mod remote_cwd;
 mod remote_floor;
 pub(crate) mod remote_sandbox;
@@ -318,13 +422,23 @@ pub mod races;
 mod subsession_answer;
 mod subsession_guard;
 mod subsession_results;
+mod subsession_resume;
 mod subsession_runs;
 mod subsession_send;
 pub mod subsessions;
 pub use permission_groups::PERMISSION_GROUP_OPERATIONS;
 pub use subsession_send::Delivery;
 mod drafts;
+pub(crate) mod history_search;
+pub(crate) mod open_delivery;
 pub(crate) mod outbox;
+#[cfg(test)]
+mod outbox_open_tests;
+#[cfg(test)]
+pub(crate) mod outbox_oracle;
+pub(crate) mod pause;
+pub(crate) mod release_to_watch;
+mod restore_point;
 pub mod rules;
 pub(crate) mod stop_if_idle;
 #[cfg(test)]
@@ -336,16 +450,23 @@ mod transfer_guard;
 mod transfer_in;
 mod transfer_out;
 mod transfer_watch;
+#[cfg(test)]
+mod translator_queue_tests;
 mod trust_wait;
 mod turn_attestation;
 mod turn_git;
+pub(crate) mod turn_shots;
 mod turn_usage;
 mod usage_view;
 pub(crate) use usage_view::READ_WAIT as USAGE_READ_WAIT;
 mod background_cause;
 pub mod background_turn;
+#[cfg(test)]
+mod background_turn_end_tests;
 mod goal_tools;
 pub mod plan_build;
+#[cfg(test)]
+mod refused_append_tests;
 #[cfg(feature = "sim")]
 mod sim_startup;
 #[cfg(all(test, unix))]
@@ -360,6 +481,37 @@ pub(crate) mod views;
 mod warm;
 mod watch_events;
 pub(crate) mod watches;
+
+/// The longest `match` a durable watch takes (`_acpmux/watch_add`): a stubbed reply chunk keeps
+/// that much of its text's end (`paging.rs` `stub_msg`), so a match across chunks is never lost.
+pub const MAX_MATCH_BYTES: usize = 2 * 1024;
+
+/// Every `match` a request brings (`_acpmux/events`, `_acpmux/watch_add`) passes here: one past
+/// [`MAX_MATCH_BYTES`] would make each stub keep that much of both its text's ends, past any page's
+/// bound.
+pub fn validate_match(pattern: Option<&str>) -> Result<(), crate::rpc::RpcError> {
+    match pattern {
+        Some(p) if p.len() > MAX_MATCH_BYTES => Err(crate::rpc::RpcError::invalid_params(format!(
+            "match is at most {MAX_MATCH_BYTES} bytes: a watch on a peer chat keeps that much of each long reply's end to find a match across replies"
+        ))),
+        _ => Ok(()),
+    }
+}
+
+/// A `match` saved before the cap, cut to [`MAX_MATCH_BYTES`] at a char boundary. Returns whether
+/// it was cut.
+pub(crate) fn cap_match(pattern: &mut Option<String>) -> bool {
+    let Some(p) = pattern else { return false };
+    if p.len() <= MAX_MATCH_BYTES {
+        return false;
+    }
+    let mut end = MAX_MATCH_BYTES;
+    while !p.is_char_boundary(end) {
+        end -= 1;
+    }
+    p.truncate(end);
+    true
+}
 
 impl Hub {
     /// Run durable watches: the loop that reconciles them on hub events and the
@@ -409,12 +561,16 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use tokio::sync::{Mutex, Notify, RwLock, broadcast, mpsc, oneshot};
 
-pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+pub use crate::build_info::VERSION;
 
 /// How long a session's harness may sit unused (no turn, nothing queued, no
 /// question waiting, no activity) before it hibernates: it exits and the
 /// session resumes on its next prompt (`idle.rs`).
 pub const IDLE_CHILD: std::time::Duration = std::time::Duration::from_secs(2 * 60);
+
+/// Events the hub's background readers missed because they fell behind its event ring
+/// ([`Hub::lagged_reader`]), since the daemon started.
+pub(crate) static READER_LAGS: AtomicU64 = AtomicU64::new(0);
 
 /// Fan-out item: one appended record for one session, shared by every receiver, never copied.
 /// `remote` carries the peer name and the peer's summary when the session lives elsewhere.
@@ -430,8 +586,46 @@ pub struct HubEvent {
     pub update_line: Arc<std::sync::OnceLock<Option<Arc<str>>>>,
     /// The session's row as a watcher's `_acpmux/session_changed` carries it, without and with
     /// its tools, built by the first watching connection that sends it and shared by the rest
-    /// (`server::deliver`): one build per record, not one per watching connection.
-    pub row: Arc<[std::sync::OnceLock<Value>; 2]>,
+    /// (`server::deliver`): one build per record, not one per watching connection. The ring
+    /// keeps no row once its watchers sent it ([`SharedRow`]). Its fan-out clock rides in the
+    /// same allocation (`gauges.fanout`).
+    pub row: Arc<EventRow>,
+    /// The list position its row change took (`row_log.rs`), stamped as it is sent; 0 for an
+    /// event that changes no row.
+    pub list_seq: u64,
+    /// A row of one peer's burst, sent as a batch (`Events::send_remote_batch`): a watcher that
+    /// asked for batches (`peerRowBatches`, `server::deliver`) hears the burst as one
+    /// `_acpmux/peer_rows_changed` after its last row instead of each row's `session_changed`.
+    pub peer_batch: bool,
+}
+
+/// A [`HubEvent`]'s cells its receivers share: its row, without and with its tools, and the clock
+/// of its fan-out to the connections (`gauges::FanoutClock`).
+#[derive(Debug, Default)]
+pub struct EventRow {
+    pub cells: [SharedRow; 2],
+    pub fanout: crate::gauges::FanoutClock,
+}
+
+/// One record's row, shared by the watchers sending it at the same time and held only while one
+/// does. The event ring keeps its last 8,192 events (`Events::new`), so a row each event kept
+/// stayed until 8,192 later records pushed it out: a full row carries up to 512 time spans,
+/// the tools and the MCP servers as `Value`s, and huge-blue's daemon grew about 1.1 GB an hour
+/// to 17 GB (cmuxterm-hq#14649); a lane VM's held 1.6 million spans in 6.4 GB after 6 hours.
+#[derive(Debug, Default)]
+pub struct SharedRow(std::sync::Mutex<std::sync::Weak<Value>>);
+
+impl SharedRow {
+    /// The row a watcher is still sending, else `build`'s, which the next one shares.
+    pub(crate) fn get_or_build(&self, build: impl FnOnce() -> Option<Value>) -> Option<Arc<Value>> {
+        let mut held = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(row) = held.upgrade() {
+            return Some(row);
+        }
+        let row = Arc::new(build()?);
+        *held = Arc::downgrade(&row);
+        Some(row)
+    }
 }
 
 /// One `_acpmux/message` copy in a journal: its message id, plus for a sender's copy the chat
@@ -447,14 +641,29 @@ fn message_key(id: &str, target: Option<&str>, peer: Option<&str>) -> String {
 #[derive(Debug, Clone)]
 pub struct RemoteRef {
     pub peer: String,
-    pub summary: Value,
+    /// The peer's row, packed (`peer_row.rs`), sharing its text with the table's row. The hub's
+    /// event ring holds up to 8,192 events, and an outage of a peer announces every row of it:
+    /// as a parsed `Value` each held a tree several times the row's text, and a host with ~100
+    /// sessions and peers that came and went grew about 55 MB a minute. A connection parses it
+    /// as it sends it, and frees it then.
+    pub summary: PeerRow,
+}
+
+impl RemoteRef {
+    /// The id this daemon's list row names the peer's session `mux_id` by (its
+    /// `qualifiedSessionId`, `Hub::remote_summary`): the one key a client matches the
+    /// peer's notices of that session to its row and to what it found by that row.
+    pub fn qualified_id(&self, mux_id: &str) -> String {
+        SessionReceipt::new(self.peer.as_str(), mux_id, None, 0).qualified_id()
+    }
 }
 
 /// A session that lives on a peer daemon.
 #[derive(Debug, Clone)]
 pub struct RemoteSession {
     pub peer: String,
-    pub summary: Value,
+    /// Its row, packed (`peer_row.rs`).
+    pub summary: PeerRow,
     pub receipt: SessionReceipt,
 }
 
@@ -511,6 +720,11 @@ pub struct TurnInfo {
     /// once every check that can refuse it has passed (`run_prompt`). Only from then on does a
     /// second copy of the prompt hear this turn (`turns.rs` `pending_turn`).
     pub accepted: bool,
+    /// The paired device that sent this Web turn, while every Web prompt and steer in it came
+    /// from that one device (`Hub::owner_phone_full_access` reads it again); None for a Local
+    /// turn, one another client touched and one recovered after a restart. Set with the turn
+    /// and narrowed beside `control`, under the turn lock (review of cmux#43251, P1-F1).
+    pub device: Option<String>,
 }
 
 /// Options for `Hub::prompt_with`.
@@ -596,9 +810,10 @@ pub struct PromptOptions {
     /// Validated display-only metadata from the app's ordered composer. It is persisted in the
     /// mux record and never forwarded to the agent's ACP prompt.
     pub display_parts: Option<Value>,
-    /// The paired machine whose Full-access setting covered the request that sent it
-    /// (`server/remote_guard.rs` `full_access_device`), read again at dispatch
-    /// (`Hub::full_access_hold`).
+    /// The paired machine that sent it (`server/remote_guard.rs` `sending_device`). It grants
+    /// nothing by itself: each rule reads the pairing store again at dispatch, its Full-access
+    /// setting (`Hub::full_access_hold`) and whether it is the owner's own phone (D13,
+    /// `Hub::local_claude_refusal`).
     pub full_access_device: Option<String>,
     /// A person's subagent retry (`subagent_retry_manual.rs`): refused with `retry.busy` where it
     /// would wait (behind a turn, the queue, the turn lock or a run slot), never queued.
@@ -613,9 +828,9 @@ pub struct PromptOptions {
     /// The thread another agent's message goes in (`inbox.rs` `explicit_thread`): `pr:N` or
     /// `topic:T`; `None` derives it.
     pub thread: Option<String>,
-    /// A plain send from another agent on this host (`session/prompt`, `inbox::plain_send`): the
-    /// chat's inbox takes it. Every other path that prompts (reports, task cards, a paused pair's
-    /// release, a peer's or the mesh relay's forward) keeps the queue.
+    /// A plain send from another agent, on this host or forwarded by a peer daemon or the mesh
+    /// relay (`session/prompt`, `inbox::plain_send`): the chat's inbox takes it. Every other path
+    /// that prompts (reports, task cards, a paused pair's release) keeps the queue.
     pub inbox: bool,
     /// The sender waits for the reply (`_meta.acpmux.wakeOrFail`): a message the inbox would
     /// hold in an idle chat that it does not wake is refused at once (`inbox.rs`
@@ -648,6 +863,23 @@ pub(super) struct StreamState {
     pub(super) trailing_text: String,
     pub(super) trailing_seqs: Vec<u64>,
     pub(super) trailing_overflow: bool,
+    /// The reply segment streaming now (`stream.rs` `reply_segment`): the id stamped on each of
+    /// its `agent_message_chunk` records, until a new message or a prompt (a steer) ends it.
+    pub(super) reply_segment: Option<String>,
+    /// Reply segments started in this turn, which numbers the next one.
+    pub(super) reply_segments: u32,
+    /// The turn `reply_segments` counts in, and the `messageId` of the segment streaming now.
+    pub(super) segment_turn: Option<String>,
+    pub(super) segment_message: Option<String>,
+    /// The turn `plan_shown` is of, and whether that turn has drawn a checklist in the pane (a
+    /// plan with entries, not cleared since): its first plan or TodoWrite call cuts a reply's row
+    /// there, a later one does not (`stream.rs` `cuts_reply`). A prompt starts a new checklist.
+    pub(super) plan_turn: Option<String>,
+    pub(super) plan_shown: bool,
+    /// This turn's agent thought, planned or called a tool (`stream.rs`), and how much reply
+    /// text it streamed (`after_agent_update`): what `unstored_turn_worked` reads.
+    pub(super) agent_worked: bool,
+    pub(super) reply_chars: usize,
 }
 
 /// An inline `/btw` side session's transcript owner: its family and the parent chat's env.
@@ -661,6 +893,17 @@ pub struct Hub {
     /// The hub carrier once it starts (`hub_carrier.rs`); every peer holds this slot.
     #[cfg(feature = "hub-carrier")]
     pub hub_carrier: crate::hub_carrier::HubCarrierSlot,
+    /// The carrier's registration the daemon's start made from the join config
+    /// (`hub_carrier::start_kept`); a sign-out's leave drops it, which unregisters.
+    #[cfg(feature = "hub-carrier")]
+    pub(crate) hub_carrier_serve: std::sync::Mutex<Option<crate::hub_carrier::HubServe>>,
+    /// The loopback WebSocket address the start gave the carrier, so an enroll that replaces the
+    /// join starts it again on the new join (`server/machine_enroll.rs`).
+    #[cfg(feature = "hub-carrier")]
+    pub(crate) hub_carrier_websocket: std::sync::OnceLock<std::net::SocketAddr>,
+    /// A local route to each of the person's other machines' cmux-tui session (`machine_routes.rs`).
+    #[cfg(feature = "hub-carrier")]
+    pub(crate) machine_routes: crate::machine_routes::Routes,
     /// Each peer's last-known-good path (`peer_last_good.rs`), beside the peer caches.
     pub(crate) peer_paths: Arc<crate::peer_last_good::LastGood>,
     /// The daemon's store, read through each fork's referenced history (`store/fork_view.rs`).
@@ -669,23 +912,30 @@ pub struct Hub {
     /// The forum log (`forum.rs`, `hub/forum.rs`).
     pub(super) forum: std::sync::OnceLock<crate::forum::Forum>,
     pub(super) sessions: StdMutex<HashMap<String, Arc<Session>>>,
+    spoken_handle_renames: StdMutex<()>,
     /// Session ids whose metadata is still live. Closed records remain in `sessions` and on
     /// disk for history, search, export and restore, but list/peer hot paths never walk them.
     pub(super) live_session_ids: StdMutex<std::collections::HashSet<String>>,
-    /// Serialized summaries for closed sessions, in list order (`closed_rows.rs`). Metadata
-    /// commits replace the row before the next full list, so full callers do not rebuild
-    /// closed-session projections, and a list neither parses nor sorts them.
+    /// Serialized summaries for closed sessions (`closed_rows.rs`). Metadata commits replace the
+    /// row before the next list, so no list rebuilds closed-session projections, and a list
+    /// page copies their bytes unparsed.
     pub(super) closed_summary_cache: StdMutex<closed_rows::ClosedRows>,
-    /// One walk of the closed rows at a time (`Hub::own_rows_in_order`).
-    pub(super) closed_rows_walk: StdMutex<()>,
     /// The closed sessions' chat activity, built once for every chats reader (`chats/activity.rs`).
     pub(crate) chat_activity_cache: crate::chats::ActivityCache,
+    /// v2's book tee (`book_tee.rs`), when the daemon writes books: with none, v1's append is
+    /// as it was.
+    pub(super) book_tee: std::sync::OnceLock<Arc<book_tee::BookTee>>,
+    /// The transcript rows of the chats a client reads rows of (`rows/serve.rs`).
+    pub(crate) rows: crate::rows::RowsCache,
     /// Closed rows built anew because their cached bytes were missing or stale (tests).
     #[cfg(test)]
     pub(super) closed_summary_builds: AtomicU64,
     /// Closed rows parsed back from their cached bytes (tests).
     #[cfg(test)]
     pub(super) closed_summary_parses: AtomicU64,
+    /// Session summaries built, live or closed, with tools or without (tests).
+    #[cfg(test)]
+    pub(crate) summaries_built: AtomicU64,
     /// Projection-only message repairs in flight, keyed by destination and delivery id. These
     /// retries never resend a prompt and are bounded in `message_events.rs`.
     pub(super) message_repairs: StdMutex<std::collections::HashSet<(String, String)>>,
@@ -697,12 +947,22 @@ pub struct Hub {
     /// parent env their transcript cleanup reads (`btw.rs` `InlineOwned`). A creation that fails
     /// and is discarded inside `new_session` or `fork` removes that harness transcript too.
     pub(super) inline_btw: StdMutex<HashMap<String, InlineBtwOwner>>,
-    /// Every change watchers hear of, counted for the session list guard (`list_guard.rs`).
+    /// Every change watchers hear of, each a list position (`list_guard.rs`, `row_log.rs`).
     pub(super) events: list_guard::Events,
-    /// The shared, paced full session list (`list_guard.rs`).
+    /// The v2 list stream on peer links: the v2 handle when `peers` is on, and the counters
+    /// (`link_v2.rs`).
+    pub(crate) link_v2: Arc<crate::link_v2::Shared>,
+    /// A test's hold on list requests (`list_guard.rs`).
     pub(crate) list_guard: list_guard::ListGuard,
+    /// This daemon's rows in list order, kept as they change (`list_order.rs`).
+    pub(super) list_order: list_order::ListOrder,
+    /// Client requests every connection serves now, each holding its work slot
+    /// (`server/in_flight.rs`, `Hub::requests_in_flight`).
+    pub(crate) requests_in_flight: Arc<std::sync::atomic::AtomicUsize>,
     /// Each chat's spend and context as its harness recorded them (`usage_view.rs`).
     pub(crate) usage_stats: usage_view::UsageCache,
+    /// `_acpmux/usage`'s last answer, kept by its list position (`usage_answer.rs`).
+    pub(crate) usage_answers: usage_answer::UsageAnswers,
     /// What every turn here cost, indexed by day and session (`hub/ledger`, `_acpmux/ledger`).
     pub(crate) ledger: ledger::Ledger,
     /// `_acpmux/models` replies now asking peers for theirs
@@ -714,6 +974,14 @@ pub struct Hub {
     /// The approvals audit trail (`audit_log.rs`).
     pub(crate) audit: audit_log::AuditLog,
     pub shutdown: Notify,
+    /// The owner of the hub's own tasks (`cmux_scope`). Every task that lives off the hub (the
+    /// idle reaper, each chat's inbound loop, pool starts, carried turns, retries, message
+    /// projections) is spawned here, never with a bare `tokio::spawn`: then the shutdown cancels
+    /// them all and joins them within a deadline (`Hub::close_owned_tasks`, after the agents),
+    /// naming any that did not end, instead of leaving them parked on a wake nobody sends with a
+    /// handle that keeps the hub alive. A connection's scope is a child of this one. New hub
+    /// code spawns through it; the spawn-owner ratchet counts the bare spawns left.
+    pub(crate) scope: cmux_scope::Scope,
     /// Latched daemon restart and drain shared by TCP and embedded-tailnet listeners.
     pub(crate) ws_shutdown: crate::server::WsShutdown,
     /// Set only by an explicit daemon restart/update handoff. Ordinary stops
@@ -724,7 +992,9 @@ pub struct Hub {
     pub(crate) fatal: crate::supervise::Fatal,
     pub started_at: u64,
     pub(super) peers: StdMutex<HashMap<String, Arc<crate::peer::Peer>>>,
-    pub(super) remote_sessions: StdMutex<remote_rows::RemoteRows>,
+    /// The peers' rows, published as a snapshot (`remote_table.rs`): a reader loads it with no
+    /// lock and never holds up a writer; writers (peer notices, purges) take turns.
+    pub(super) remote_sessions: remote_table::RemoteTable,
     /// The same person's machines and sessions the mesh hub lists (`mesh_book.rs`).
     pub(super) mesh_book: StdMutex<mesh_book::MeshBook>,
     /// Read answers larger than one hub message, held for their asker (`mesh_read_parts.rs`).
@@ -744,6 +1014,9 @@ pub struct Hub {
     pub(super) cache_write_gate: Arc<StdMutex<()>>,
     #[cfg(test)]
     pub(super) cache_test_writes: AtomicU64,
+    /// Peer rows `visit_remote_sessions` copied out (`peer_notice_cost_tests.rs`).
+    #[cfg(test)]
+    pub(super) remote_rows_copied: AtomicU64,
     /// Bytes the peer cache saves wrote, both files (`peer_cache_disk_tests.rs`).
     #[cfg(test)]
     pub(super) cache_test_bytes: AtomicU64,
@@ -773,11 +1046,20 @@ pub struct Hub {
     /// (`peer_snapshot.rs`): a paused or offline peer's chat paints from it.
     pub(super) peer_snapshots: peer_snapshot::PeerSnapshots,
     pub(super) peer_notices: mpsc::Sender<(String, u64, crate::peer::PeerNotice)>,
+    /// `peerWake`'s argv (config `peerWake`), handed to every peer (`Peer::wake`); a config
+    /// reload swaps it in place (`catalog_reload.rs`).
+    pub(super) peer_wake: crate::peer::WakeHook,
     pub(super) peer_notices_rx:
         Mutex<Option<mpsc::Receiver<(String, u64, crate::peer::PeerNotice)>>>,
     pub(super) peer_notices_stop: tokio::sync::watch::Sender<bool>,
     pub(super) peer_notices_finished: AtomicBool,
     pub(super) peer_notices_done: Arc<Notify>,
+    /// A peer cache save was put off (`save_peer_cache`): the notice loop arms its one cache
+    /// deadline. With nothing put off it sets no timer (`peer_grace.rs`).
+    pub(super) peer_cache_kick: Notify,
+    /// `SAVE_EVERY_MS` in tests that wait for a put-off save (`peer_cache.rs`).
+    #[cfg(test)]
+    pub(super) cache_test_save_every_ms: AtomicU64,
     /// Models each agent has advertised, keyed by agent profile name. Filled
     /// whenever a session starts, so the picker can list a harness that has
     /// no live session.
@@ -789,6 +1071,10 @@ pub struct Hub {
     /// The harnesses whose `known_models` entry is that disk copy, not a report of this
     /// daemon's: the probe still runs for them.
     pub(super) acp_from_disk: StdMutex<std::collections::HashSet<String>>,
+    /// What each ACP harness's startup probe's `session/new` answered about a new chat's choices,
+    /// by profile name: its `modes` and `configOptions`, as sent. A `_acpmux/harnesses` row's
+    /// `reported` falls back to it until a chat of the harness reports (`start_mode.rs`).
+    pub(super) probed_choices: StdMutex<HashMap<String, (Option<Value>, Option<Value>)>>,
     /// Model lists from Claude Code's and Codex's own CLIs, by profile name
     /// (`hub/live_models.rs`): richer than `known_models` (efforts, fast).
     pub(super) live_models: StdMutex<HashMap<String, Vec<crate::live_models::LiveModel>>>,
@@ -803,6 +1089,14 @@ pub struct Hub {
     /// launcher checks) in the background. Session creation and agent
     /// spawns wait for it; every other request is answered at once.
     pub(super) startup_ready: tokio::sync::watch::Sender<bool>,
+    /// The first local client reached the daemon. Deferred peer dials wait for this so remote
+    /// handshakes cannot consume the runtime while the app paints its first chat.
+    pub(super) local_ready: tokio::sync::watch::Sender<bool>,
+    /// Whether an agent may start: the login environment, the catalog, the launcher checks and
+    /// the vault are ready (`startup.rs` `prepare_spawns`). Apart from `startup_ready`: a new chat
+    /// or a chat's own start waits for this and for its own adoption only, never for every
+    /// other chat's adoption or log (`daemon.rs`).
+    pub(super) spawn_ready: tokio::sync::watch::Sender<bool>,
     /// False while the daemon's startup task runs (`daemon.rs`: logs, adoption,
     /// `finish_startup`, the chat index's start). `_acpmux/status` `loading.startupDone`.
     pub(super) startup_work_done: tokio::sync::watch::Sender<bool>,
@@ -826,6 +1120,8 @@ pub struct Hub {
     /// False from a deferred start with running agent hosts until adoption ends: prompts to
     /// those chats wait for it (`log_load.rs` `wait_adopted`).
     pub(crate) adoption_ready: tokio::sync::watch::Sender<bool>,
+    /// One chat's adoption ended (`log_load.rs` `chat_adopted`): its waiting prompts look again.
+    pub(crate) chat_adopted_wake: Notify,
     /// Startup has read the login environment: the catalog sees its PATH.
     pub(super) catalog_ready: tokio::sync::watch::Sender<bool>,
     /// Startup has served the model lists kept on disk: `_acpmux/models` waits for it.
@@ -897,10 +1193,29 @@ pub struct Hub {
     pub(super) session_recap: AtomicBool,
     /// When each away chat's recap is asked for, in hub clock nanos (`away_recap.rs`).
     pub(super) recap_due: StdMutex<HashMap<String, u64>>,
+    /// Chats whose host below the level moved, or will not, in this daemon's run (`host_level.rs`).
+    pub(super) host_moved: StdMutex<HashSet<String>>,
     /// Wakes the recap loop when `recap_due` changes.
     pub(super) recap_wake: Arc<Notify>,
     /// What writes prompt coach rewrites instead of the small model (tests; `prompt_coach.rs`).
     pub(super) coach_rewriter: StdMutex<Option<prompt_coach::CoachRewriter>>,
+    /// Chats with a surge triage pass due or running, and whether another is asked after it
+    /// (`surge_triage.rs`).
+    pub(super) surge_triage_due: StdMutex<HashMap<String, bool>>,
+    /// What answers surge triage instead of the small model (tests; `surge_triage.rs`).
+    pub(super) surge_triager: StdMutex<Option<surge_triage::SurgeTriager>>,
+    /// Whether surge admission holds messages, set by tests; `None` reads Settings >
+    /// Experimental > Labs > Show Preview Features (`inbox_surge.rs` `surge_inbox_on`).
+    pub(super) surge_inbox: StdMutex<Option<bool>>,
+    /// Each chat's surge triage state between passes (`surge_triage.rs` `Journal`).
+    pub(super) surge_triage_journals: StdMutex<HashMap<String, surge_triage::Journal>>,
+    /// The thread owners every chat subscribed itself to (`surge_triage.rs`).
+    pub(super) surge_subscribers: StdMutex<surge_triage::Subscribers>,
+    /// Each digest recipient's digest turn under way and its measured reply period
+    /// (`surge_triage.rs` `DigestPace`): one entry per session a digest reached.
+    pub(super) surge_digest_pace: StdMutex<HashMap<String, surge_triage::DigestPace>>,
+    /// What triages held prompts instead of the small model (tests; `person_hold.rs`).
+    pub(super) prompt_triager: StdMutex<Option<person_hold::PromptTriager>>,
     /// The forced start mode and the setting's change count (`start_mode_state.rs`).
     pub(super) start_mode_state: start_mode_state::StartModeCell,
     /// The caller tokens earlier daemon runs gave out, by session (`caller_registry.rs`).
@@ -916,6 +1231,9 @@ pub struct Hub {
     /// The fence of an ancestor's answer, by permission id, for the write that delivers it
     /// (`subsession_answer.rs`).
     pub(super) answer_fences: StdMutex<HashMap<String, crate::agent::Fence>>,
+    /// Withdraws whose retraction notice is on its way, by session and prompt id: a second
+    /// withdraw of the same message answers as the first (`withdraw.rs`).
+    pub(super) withdraws: StdMutex<WithdrawsInFlight>,
     /// Tests only: a pause before a family message's write (`full_access_bound::WriteSeam`).
     #[cfg(test)]
     pub(super) family_write_seam: full_access_bound::WriteSeam,
@@ -940,6 +1258,9 @@ pub struct Hub {
     /// Tests only: pause purge after store deletion, before ID-keyed cleanup.
     #[cfg(test)]
     pub(super) purge_seam: full_access_bound::WriteSeam,
+    /// Tests only: the rules of an earlier head this hub replays (`journal_restore::AT_91B`).
+    #[cfg(test)]
+    pub(super) old_rules: std::sync::atomic::AtomicU8,
     /// Tests only: pause a retry's task before it sets its wait (`auto_resume.rs`).
     #[cfg(test)]
     pub(super) retry_seam: full_access_bound::WriteSeam,
@@ -966,9 +1287,15 @@ pub struct Hub {
     pub(super) watch_ticker: watch::WatchTicker,
     /// The settings file watched for start-mode changes (`settings_watch.rs`).
     pub(super) settings_watch: settings_watch::SettingsWatchState,
+    /// Moves on each time the settings watch saw the settings file change (written, created,
+    /// replaced): what waits for a setting with no timer subscribes (the desktop bridge while it
+    /// is off, `desktop_bridge.rs`).
+    pub(super) settings_changes: tokio::sync::watch::Sender<u64>,
     /// The HEAD of each attached session's folder, watched for a checkout (`git_watch.rs`).
     pub(super) git_watch: git_watch::GitWatchState,
     pub catalog: Arc<crate::catalog::CatalogService>,
+    /// Sign in with ChatGPT: its attempts and per-account refresh locks (`crate::chatgpt`).
+    pub chatgpt: Arc<crate::chatgpt::Service>,
     /// Agent CLI health (`harness_health`, `hub/health_view.rs`).
     pub health: Arc<crate::harness_health::HealthService>,
     /// The token the web listener checks now (`web_token.rs`).
@@ -1016,6 +1343,8 @@ pub struct Hub {
     pub(crate) wait_evaluations: std::sync::atomic::AtomicU64,
     /// Failed subagents waiting to be resumed, by chat (`subagent_retry.rs`).
     pub(super) subagent_retries: subagent_retry::Retries,
+    /// Each chat's top-level subagents and their briefs, for a Resume (`subagent_resume.rs`).
+    pub(super) subagent_resumes: subagent_resume::Resumes,
     /// Fired by `set_transfer_lease`: each move's watch reads the new lease now.
     pub(super) transfer_lease_changed: Notify,
     /// Secrets agents asked the person for, and their one-use refs (`secrets.rs`).
@@ -1026,9 +1355,20 @@ pub struct Hub {
     /// Messages `send --no-wait` handed over, and forwarded prompts waiting for a peer's
     /// acceptance (`outbox.rs`).
     pub(crate) outbox: outbox::Outbox,
-    /// The team hub a send to a name nobody here resolves goes through, once the mesh relay
-    /// started (`server/mesh_relay.rs`); unset without one, or in a hub a test builds.
-    pub mesh: std::sync::OnceLock<Arc<dyn crate::mesh::MeshHub>>,
+    /// The team hub a send to a name nobody here resolves goes through, while a mesh relay
+    /// runs (`server/mesh_relay.rs`); unset without one, or in a hub a test builds. A sign-out's
+    /// leave clears it and a later enroll sets the new hub's (`server/machine_enroll.rs`).
+    pub mesh: crate::mesh::MeshSlot,
+    /// The running mesh relay's loops: the one the daemon started, or one a sign-in enroll
+    /// started live (`server/machine_enroll.rs`). Stopped at shutdown.
+    pub mesh_relay: tokio::sync::Mutex<Option<crate::server::mesh_relay::MeshRelay>>,
+    /// Held across every change of this daemon's join (`server/machine_enroll.rs`): the daemon
+    /// start's leave and relay start, a sign-in's enroll, a sign-out's leave, and shutdown. Each
+    /// reads the join's state on disk once it holds it, so none acts on what another changed.
+    pub join_transition: Arc<tokio::sync::Mutex<()>>,
+    /// The daemon start's join task (a leave the last run did not finish, then the relay), while
+    /// it may run: shutdown ends it before it stops the relay.
+    pub join_start: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
     pub(crate) watches: watches::Watches,
     pub(crate) peer_accepts: outbox::PeerAccepts,
     /// A peer's live asks for sessions it has not listed yet (`held_asks.rs`).
@@ -1048,6 +1388,9 @@ pub struct Hub {
     /// Which predicted next prompts reach the person (`suggestion_gate.rs`): this daemon's own
     /// chats and the peers' chats it relays to its person.
     pub(crate) suggestion_gate: StdMutex<crate::suggestion_gate::Gate>,
+    /// The last few `_acpmux/events` replies, kept while their chat's log is unchanged
+    /// (`page_replies.rs`).
+    pub(crate) page_replies: page_replies::PageReplies,
 }
 
 /// What a cached closed row was built after: every row's changes (`Events::summary_generation`),
@@ -1061,6 +1404,10 @@ pub(super) struct SummaryStamp {
 }
 
 impl Hub {
+    pub fn run_id(&self) -> String {
+        self.person.instance().to_owned()
+    }
+
     pub fn new(config: Config, store: Box<dyn Store>) -> Arc<Self> {
         Self::new_with_mailbox(config, store, Mailbox::memory())
     }
@@ -1069,16 +1416,16 @@ impl Hub {
     /// logs (their tails, queues and unsettled turns) load in `load_logs`, after
     /// the ready line (2026-10-20: reading 3.9 GB of logs first took 26.8 s).
     pub fn new_deferred(config: Config, store: Box<dyn Store>, mailbox: Mailbox) -> Arc<Self> {
-        Self::build(config, store, mailbox, true, false, None)
+        Self::build(config, store, mailbox, true, false, None, true)
     }
 
     pub fn new_with_mailbox(config: Config, store: Box<dyn Store>, mailbox: Mailbox) -> Arc<Self> {
-        Self::build(config, store, mailbox, false, false, None)
+        Self::build(config, store, mailbox, false, false, None, true)
     }
 
     /// A daemon serves immediately; metadata is read after its ready line.
     pub fn new_loading(config: Config, store: Box<dyn Store>, mailbox: Mailbox) -> Arc<Self> {
-        Self::build(config, store, mailbox, true, true, None)
+        Self::build(config, store, mailbox, true, true, None, true)
     }
 
     /// A hub whose configured peers may dial over `wireguard` first, as a daemon's do: for tests
@@ -1089,7 +1436,7 @@ impl Hub {
         store: Box<dyn Store>,
         wireguard: Arc<crate::wireguard::Transport>,
     ) -> Arc<Self> {
-        Self::build(config, store, Mailbox::memory(), false, false, Some(wireguard))
+        Self::build(config, store, Mailbox::memory(), false, false, Some(wireguard), true)
     }
 
     pub(crate) fn new_loading_with_wireguard(
@@ -1098,7 +1445,7 @@ impl Hub {
         mailbox: Mailbox,
         wireguard: Option<Arc<crate::wireguard::Transport>>,
     ) -> Arc<Self> {
-        Self::build(config, store, mailbox, true, true, wireguard)
+        Self::build(config, store, mailbox, true, true, wireguard, false)
     }
 
     fn build(
@@ -1108,6 +1455,7 @@ impl Hub {
         deferred: bool,
         loading: bool,
         wireguard: Option<Arc<crate::wireguard::Transport>>,
+        start_peers: bool,
     ) -> Arc<Self> {
         let events = list_guard::Events::new(8192);
         let (peer_notices, peer_notices_rx) = mpsc::channel(4096);
@@ -1124,6 +1472,10 @@ impl Hub {
         // Beside the peer caches, in the home they are in; a memory store keeps neither.
         let home = store.peer_cache_dir().and_then(|p| p.parent().map(Path::to_path_buf));
         let peer_paths = Arc::new(crate::peer_last_good::LastGood::open(home.as_deref()));
+        // A removed peer's kept remote tokens go with it (`peer_kept_tokens.rs`).
+        peer_paths
+            .tokens
+            .retain(peers_cfg.iter().map(|(name, pc)| (name.as_str(), pc.url.as_str())));
         let suggestion_gate = StdMutex::new(crate::suggestion_gate::Gate::open(home.as_deref()));
         // Beside the session store in its home; a memory store keeps it in memory only.
         let ledger = ledger::Ledger::open(home.as_ref().map(|h| h.join("ledger")));
@@ -1131,6 +1483,7 @@ impl Hub {
         let briefs = dispatch::Briefs::open(store.briefs_path());
         let audit = audit_log::AuditLog::open(store.audit_dir());
         let usage_limits = StdMutex::new(config.usage_warnings.limits());
+        let peer_wake = Arc::new(StdMutex::new(config.peer_wake.as_ref().map(|w| w.argv.clone())));
         #[cfg(feature = "hub-carrier")]
         let hub_carrier =
             crate::hub_carrier::HubCarrierSlot::for_daemon(&config, wireguard.as_ref());
@@ -1141,32 +1494,47 @@ impl Hub {
             wireguard,
             #[cfg(feature = "hub-carrier")]
             hub_carrier,
+            #[cfg(feature = "hub-carrier")]
+            hub_carrier_serve: Default::default(),
+            #[cfg(feature = "hub-carrier")]
+            hub_carrier_websocket: std::sync::OnceLock::new(),
+            #[cfg(feature = "hub-carrier")]
+            machine_routes: Default::default(),
             peer_paths,
             store: Box::new(crate::store::ForkView::new(store)),
             mailbox,
             forum: std::sync::OnceLock::new(),
             sessions: StdMutex::new(HashMap::new()),
+            spoken_handle_renames: StdMutex::new(()),
             live_session_ids: StdMutex::new(std::collections::HashSet::new()),
             closed_summary_cache: StdMutex::new(Default::default()),
-            closed_rows_walk: StdMutex::new(()),
             chat_activity_cache: Default::default(),
+            book_tee: std::sync::OnceLock::new(),
+            rows: Default::default(),
             #[cfg(test)]
             closed_summary_builds: AtomicU64::new(0),
             #[cfg(test)]
             closed_summary_parses: AtomicU64::new(0),
+            #[cfg(test)]
+            summaries_built: AtomicU64::new(0),
             message_repairs: StdMutex::new(std::collections::HashSet::new()),
             #[cfg(test)]
             message_projection_failures: StdMutex::new(std::collections::HashSet::new()),
             harness_homes: StdMutex::new(crate::adopt::HarnessHomes::from_env()),
             inline_btw: StdMutex::new(HashMap::new()),
             events,
+            link_v2: Arc::default(),
             list_guard: Default::default(),
+            list_order: Default::default(),
+            requests_in_flight: Default::default(),
             usage_stats: Default::default(),
+            usage_answers: Default::default(),
             ledger,
             models_fanouts: std::sync::atomic::AtomicUsize::new(0),
             review_index: Default::default(),
             audit,
             shutdown: Notify::new(),
+            scope: cmux_scope::Scope::new("acpmux hub"),
             ws_shutdown: Default::default(),
             restart_requested: std::sync::atomic::AtomicBool::new(false),
             fatal: crate::supervise::Fatal::default(),
@@ -1181,6 +1549,8 @@ impl Hub {
             cache_write_gate: Arc::new(StdMutex::new(())),
             #[cfg(test)]
             cache_test_writes: AtomicU64::new(0),
+            #[cfg(test)]
+            remote_rows_copied: AtomicU64::new(0),
             #[cfg(test)]
             cache_test_bytes: AtomicU64::new(0),
             #[cfg(test)]
@@ -1198,18 +1568,25 @@ impl Hub {
             github_app: Default::default(),
             peer_snapshots,
             peer_notices,
+            peer_wake,
             peer_notices_rx: Mutex::new(Some(peer_notices_rx)),
             peer_notices_stop: tokio::sync::watch::channel(false).0,
             peer_notices_finished: AtomicBool::new(false),
             peer_notices_done: Arc::new(Notify::new()),
+            peer_cache_kick: Notify::new(),
+            #[cfg(test)]
+            cache_test_save_every_ms: AtomicU64::new(peer_cache::SAVE_EVERY_MS),
             known_models: StdMutex::new(HashMap::new()),
             acp_cached: StdMutex::new(HashMap::new()),
             acp_from_disk: StdMutex::new(std::collections::HashSet::new()),
+            probed_choices: StdMutex::new(HashMap::new()),
             live_models: StdMutex::new(HashMap::new()),
             live_rechecks: StdMutex::new(HashMap::new()),
             live_ages: StdMutex::new(live_ages::LiveAges::default()),
             refused_models: StdMutex::new(HashMap::new()),
             startup_ready: tokio::sync::watch::channel(true).0,
+            local_ready: tokio::sync::watch::channel(start_peers).0,
+            spawn_ready: tokio::sync::watch::channel(true).0,
             startup_work_done: tokio::sync::watch::channel(true).0,
             store_load: store_load::StoreLoad::new(loading),
             logs_ready: tokio::sync::watch::channel(true).0,
@@ -1220,6 +1597,7 @@ impl Hub {
             cold_rehydrated: Default::default(),
             cold_wake: Arc::new(Notify::new()),
             adoption_ready: tokio::sync::watch::channel(true).0,
+            chat_adopted_wake: Notify::new(),
             catalog_ready: tokio::sync::watch::channel(true).0,
             model_caches_ready: tokio::sync::watch::channel(true).0,
             login_env_requested: AtomicBool::new(false),
@@ -1257,14 +1635,23 @@ impl Hub {
             chats_waiters: StdMutex::new(Vec::new()),
             session_recap: AtomicBool::new(away_recap::saved_setting()),
             recap_due: StdMutex::new(HashMap::new()),
+            host_moved: StdMutex::new(HashSet::new()),
             recap_wake: Arc::new(Notify::new()),
             coach_rewriter: StdMutex::new(None),
+            surge_triage_due: StdMutex::new(HashMap::new()),
+            surge_triager: StdMutex::new(None),
+            surge_inbox: StdMutex::new(None),
+            surge_triage_journals: StdMutex::new(HashMap::new()),
+            surge_subscribers: StdMutex::new(None),
+            surge_digest_pace: StdMutex::new(HashMap::new()),
+            prompt_triager: StdMutex::new(None),
             start_mode_state,
             caller_registry,
             full_access_pushes: tokio::sync::Mutex::new(()),
             family_gate: Arc::new(tokio::sync::RwLock::new(())),
             family_cut: tokio::sync::watch::channel(0).0,
             answer_fences: StdMutex::new(HashMap::new()),
+            withdraws: StdMutex::new(HashMap::new()),
             #[cfg(test)]
             family_write_seam: Default::default(),
             #[cfg(test)]
@@ -1288,6 +1675,8 @@ impl Hub {
             #[cfg(test)]
             purge_seam: Default::default(),
             #[cfg(test)]
+            old_rules: std::sync::atomic::AtomicU8::new(0),
+            #[cfg(test)]
             retry_seam: Default::default(),
             #[cfg(test)]
             settle_seam: Default::default(),
@@ -1296,14 +1685,17 @@ impl Hub {
             harness_watch: Default::default(),
             watch_ticker: Default::default(),
             settings_watch: Default::default(),
+            settings_changes: tokio::sync::watch::channel(0).0,
             git_watch: Default::default(),
             catalog: Arc::new(crate::catalog::CatalogService::new()),
+            chatgpt: Arc::new(crate::chatgpt::Service::default()),
             health: Arc::new(crate::harness_health::HealthService::new()),
             web_token: WebToken::new(String::new()),
             person: Default::default(),
             presence: Default::default(),
             workflow_index: Default::default(),
             suggestion_gate,
+            page_replies: Default::default(),
             transfer_lease: StdMutex::new(transfer_watch::TRANSFER_LEASE),
             watched_moves: Default::default(),
             background_timeout: StdMutex::new(processes::STOP_TIMEOUT),
@@ -1323,12 +1715,16 @@ impl Hub {
             session_update_encodes: Default::default(),
             wait_evaluations: Default::default(),
             subagent_retries: Default::default(),
+            subagent_resumes: Default::default(),
             transfer_lease_changed: Notify::new(),
             secrets: Default::default(),
             mcp_connects: Default::default(),
             trust_waits: Default::default(),
             outbox: Default::default(),
             mesh: Default::default(),
+            mesh_relay: Default::default(),
+            join_transition: Default::default(),
+            join_start: Default::default(),
             watches: Default::default(),
             peer_accepts: Default::default(),
             held_peer_asks: Default::default(),
@@ -1357,17 +1753,34 @@ impl Hub {
             // runtime-backed hubs; tests that construct one outside Tokio retain a unique Arc so
             // they can configure fields before entering their runtime.
             let _ = hub.hub_ref.set(Arc::downgrade(&hub));
+            // Chats made before it read their inboxes through it from now on (`Session::inbox`).
+            for session in hub.sessions.lock().unwrap_or_else(|e| e.into_inner()).values() {
+                let _ = session.hub_ref.set(Arc::downgrade(&hub));
+            }
+            // A copy's write tells the records of prompts it put on disk: their deliveries keep
+            // them as proof (`open_delivery.rs`). Only a runtime-backed hub has peers to copy;
+            // one built outside Tokio keeps a unique Arc, so a test can set fields first.
+            let weak = Arc::downgrade(&hub);
+            let written: peer_snapshot::Written =
+                Arc::new(move |key, generation, link, records, since| {
+                    weak.upgrade().is_none_or(|hub| {
+                        hub.proof_written(&key.0, &key.1, (generation, link), &records, since)
+                    })
+                });
+            *hub.peer_snapshots.written.lock().unwrap_or_else(|e| e.into_inner()) = Some(written);
             // It takes the notices' receiver: it cannot run twice.
             crate::supervise::once("peer notice", &hub.fatal, hub.clone().peer_notice_loop());
             hub.rehydrate_worker();
             if !loading {
                 hub.watch_orphans();
-                hub.bg_notify_resume();
+                hub.bg_notify_resume_in_background();
             }
             hub.watch_titles();
             hub.watch_recaps();
-            for (name, pc) in peers_cfg {
-                hub.start_peer(&name, &pc);
+            if start_peers {
+                for (name, pc) in peers_cfg {
+                    hub.start_peer(&name, &pc);
+                }
             }
         }
         hub
@@ -1412,8 +1825,30 @@ impl Hub {
         self.outbox.unsettled()
     }
 
+    /// A background reader of [`Hub::subscribe`] fell `missed` events behind (rework stage 3,
+    /// E4): counted, logged, and the chats it may have missed a turn's end of, the idle ones, to
+    /// look at again.
+    pub(super) fn lagged_reader(&self, reader: &'static str, missed: u64) -> Vec<Arc<Session>> {
+        READER_LAGS.fetch_add(missed, Ordering::Relaxed);
+        tracing::warn!(
+            reader,
+            missed,
+            "a background event reader fell behind: it reads its chats again"
+        );
+        let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
+        sessions.values().filter(|s| s.turn().is_none()).cloned().collect()
+    }
+
     pub fn subscribe(&self) -> broadcast::Receiver<HubEvent> {
         self.events.subscribe()
+    }
+
+    /// [`Hub::subscribe`] for a connection's fan-out task: each event's fan-out clock waits for
+    /// it until the seat drops (`gauges.fanout`).
+    pub(crate) fn subscribe_fanout(
+        &self,
+    ) -> (broadcast::Receiver<HubEvent>, list_guard::FanoutSeat) {
+        self.events.subscribe_fanout()
     }
 
     pub fn mailbox(&self) -> &Mailbox {
@@ -1457,7 +1892,7 @@ impl Hub {
             plan.hosted.extend(hosted.iter().cloned());
         }
         // An older daemon's approve-all that could be vmHost's asks now (`policy_source.rs`).
-        self.settle_legacy_grants(&mut metas);
+        let unsaved = self.settle_legacy_grants(&mut metas);
         self.store_load.total.store(metas.len(), Ordering::SeqCst);
         // A first start with no ledger file: each session's running totals (`hub/ledger`).
         if self.ledger.wants_seed() {
@@ -1468,7 +1903,8 @@ impl Hub {
         }
         for meta in metas {
             let hosted = hosted.contains(&meta.id);
-            self.install_stored_session(meta, deferred, hosted);
+            let saved = !unsaved.contains(&meta.id);
+            self.install_stored_session(meta, deferred, hosted, saved);
         }
         tracing::info!(
             "loaded {} sessions from store",
@@ -1480,13 +1916,20 @@ impl Hub {
         self.resume_races();
     }
 
-    pub(super) fn install_stored_session(&self, meta: SessionMeta, deferred: bool, hosted: bool) {
+    pub(super) fn install_stored_session(
+        &self,
+        meta: SessionMeta,
+        deferred: bool,
+        hosted: bool,
+        saved: bool,
+    ) {
         // An on-demand read may already have installed and updated this chat. Never replace it
         // with the snapshot the background list read earlier.
         let mut sessions = self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if sessions.contains_key(&meta.id) {
             return;
         }
+        let saved_meta = saved.then(|| meta.clone());
         let mut meta = meta;
         // An agent whose host still runs keeps its saved status until adoption reaches it:
         // it works on meanwhile, never shown idle (claude-sr2, 2026-10-26).
@@ -1509,6 +1952,9 @@ impl Hub {
             self.subsessions.note_status(&link.started_by, &meta.id, meta.status);
         }
         let session = self.make_session(meta);
+        if let Some(meta) = saved_meta {
+            session.meta_writer.note_saved(&meta);
+        }
         session.caught_up.store(false, Ordering::SeqCst);
         *session.transfer_authority.lock().unwrap_or_else(|e| e.into_inner()) = None;
         // Its log is read after the ready line (`log_load.rs`).
@@ -1517,8 +1963,10 @@ impl Hub {
         sessions.insert(session.id.clone(), session.clone());
         drop(sessions);
         self.update_live_session_index(&session);
-        // A session that came may be another row's parent: every closed row is built again.
-        self.events.changed();
+        // A session read from the store may be another row's parent: every closed row is built
+        // again, and no cursor from before it is followed (`Events::changed`), which costs one
+        // barrier, not a walk of every session per session read at start.
+        self.events.changed(Some(&session));
     }
 
     /// Wait until every chat log is read, or their load failed (immediate outside a deferred
@@ -1549,7 +1997,9 @@ impl Hub {
         let after =
             session.meta.lock().unwrap_or_else(|e| e.into_inner()).harness_failures.through_seq;
         let mut results = Vec::new();
-        let restored = self.store.scan_back(
+        // Under the append lock: `turn_result` is indexed, so a chat whose results are all
+        // failures reads only the index copies back, not its whole log.
+        let restored = self.store.scan_back_indexed(
             &session.id,
             after,
             u64::MAX,
@@ -1566,6 +2016,12 @@ impl Hub {
         let rebuilt = restored.is_ok() && !results.is_empty();
         if rebuilt {
             let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+            // A result past the saved metadata is one a kill lost the save of: its summary is the
+            // chat's last turn before any request reads it (every chat request waits for this
+            // read, `log_load.rs`), not only once the queue resume corrects it.
+            if let Some(newest) = results.first() {
+                Self::correct_last_turn(&mut meta, newest);
+            }
             for record in results.into_iter().rev() {
                 meta.harness_failures.observe(&record.msg, record.seq, record.at);
             }
@@ -1575,7 +2031,12 @@ impl Hub {
         if let Ok((extra, last)) = self.store.tail_after(&session.id, last_seq)
             && extra > 0
         {
+            // Where its own recovery at the log's end begins, read from the log: the saved one
+            // is of before that tail (review of #37284 at 8b5f3063, F2). Unread, it names none,
+            // and the owner compares by `lastSeq` alone.
+            let recovered = self.recovery_tail(session, last).ok().flatten();
             let mut meta = session.meta.lock().unwrap();
+            meta.recovered_after = recovered;
             meta.event_count += extra;
             meta.last_seq = last;
             // Whether the tail held a transcript record is not read here: say it may have.
@@ -1584,6 +2045,18 @@ impl Hub {
             // in that tail, so a client reads the log for it instead of trusting the saved one.
             meta.available_commands = None;
             session.seq.fetch_max(last, Ordering::SeqCst);
+        }
+        // What an earlier run kept while a restore held the chat, and had not stored, is kept
+        // again (review of #37284 at b7496c3f, F1). Until that list reads, the chat is not
+        // caught up: the next append or read tries again, and its log is not read, so no queue
+        // is rebuilt without the edits and removals it holds (review of #37284 at 23e76b07, F2).
+        // Then the tool output bodies a killed run held back and wrote beside the log are stored,
+        // before any record of this run and before its log is read (`store/deferred.rs`).
+        if !self.take_back_kept(session) || !self.take_back_held(session) {
+            if rebuilt {
+                self.save_meta(session);
+            }
+            return;
         }
         session.caught_up.store(true, Ordering::SeqCst);
         // Kept, so the next start scans only past what this one read.
@@ -1612,7 +2085,8 @@ impl Hub {
     }
 
     pub(super) fn make_session(&self, mut meta: SessionMeta) -> Arc<Session> {
-        // Hibernated before a restart: marked again, so it wakes on a click and draws no row.
+        // Hibernated before a restart: marked again, so it draws no row; it wakes on its next
+        // turn or typing, never on an open alone (`idle.rs` `wake_for`).
         let hibernated_at = if meta.hibernated_ms != 0 { self.clock_now().max(1) } else { 0 };
         let (inbound_tx, inbound_rx) = mpsc::channel(1024);
         // A Claude chat saved without `steering` (an older build) still steers once adopted.
@@ -1629,6 +2103,9 @@ impl Hub {
         let session = Arc::new(Session {
             id: meta.id.clone(),
             seq: AtomicU64::new(meta.last_seq),
+            book_hint: Arc::new(AtomicU64::new(meta.last_seq)),
+            found_at_start: meta.last_seq,
+            book_opened: Arc::default(),
             meta: StdMutex::new(meta),
             child: Mutex::new(None),
             spawn_lock: Mutex::new(()),
@@ -1650,14 +2127,28 @@ impl Hub {
             auto_resume_restored: AtomicBool::new(false),
             protected_hold: AtomicBool::new(false),
             auto_resume: Default::default(),
+            rate_hold: Default::default(),
+            rate_note: Default::default(),
             turn_lock: Mutex::new(()),
+            releasing: AtomicBool::new(false),
             turn_claimed: AtomicBool::new(false),
             admit: StdMutex::new(()),
+            restoring: AtomicBool::new(false),
+            restore_done: tokio::sync::Notify::new(),
+            recovery_pending: AtomicBool::new(false),
+            parked: StdMutex::new(None),
+            unparked: StdMutex::new(Vec::new()),
+            unflushed: StdMutex::new(Vec::new()),
+            kept_read: AtomicBool::new(false),
+            held_read: AtomicBool::new(false),
+            restore_token: AtomicU64::new(0),
+            restore_lease: StdMutex::new(None),
             input_handoff: std::sync::Arc::new(Mutex::new(())),
             #[cfg(test)]
             sent_seam: Default::default(),
             turn: StdMutex::new(None),
             away: StdMutex::new(Default::default()),
+            rolling: StdMutex::new(Default::default()),
             coach: StdMutex::new(Default::default()),
             queued: AtomicU64::new(0),
             queue: StdMutex::new(Vec::new()),
@@ -1684,21 +2175,27 @@ impl Hub {
             input_since: AtomicU64::new(0),
             work_below_since: StdMutex::new(0),
             asks_below: StdMutex::new((0, 0)),
+            held_messages: StdMutex::new(std::collections::VecDeque::new()),
             unread_after_work: AtomicBool::new(false),
             asks_in_flight: std::sync::atomic::AtomicUsize::new(0),
             asks_landed: Notify::new(),
             rehydrate: AtomicBool::new(false),
+            rehydrate_note: StdMutex::new(None),
             forum_retell: AtomicBool::new(false),
             forum_retold: std::sync::Mutex::default(),
             forum_telling: std::sync::Mutex::default(),
             launched_with_tools: std::sync::atomic::AtomicU8::new(0),
+            codex_answer: StdMutex::default(),
+            codex_answer_asked: StdMutex::default(),
             launch_env: StdMutex::new(None),
+            credential: StdMutex::new(None),
             route_switch: AtomicBool::new(false),
             profile_respawn: AtomicBool::new(false),
             ending: StdMutex::new(None),
             detaching: AtomicBool::new(false),
             inbound_tx,
             inbound_rx: Mutex::new(Some(inbound_rx)),
+            closed: tokio::sync::watch::channel(false).0,
             steering: AtomicBool::new(steering),
             backgrounds_work: AtomicBool::new(backgrounds_work),
             person: AtomicBool::new(false),
@@ -1709,6 +2206,7 @@ impl Hub {
             applied: StdMutex::new(session::Applied::default()),
             purged: Arc::new(AtomicBool::new(false)),
             replaced: AtomicBool::new(false),
+            purging: AtomicBool::new(false),
             closing: AtomicBool::new(false),
             stops: AtomicU64::new(0),
             cancels: AtomicU64::new(0),
@@ -1718,6 +2216,8 @@ impl Hub {
             start_retry_cancels: AtomicU64::new(start_retry::NO_RETRY),
             cancel_forced_turn: StdMutex::new(None),
             unwritten_prompt: StdMutex::new(None),
+            gathering: StdMutex::new(None),
+            person_hold: StdMutex::new(None),
             cancel_forced_result_turn: StdMutex::new(None),
             stopping: StdMutex::new(None),
             stop_restart: StdMutex::new(None),
@@ -1736,6 +2236,8 @@ impl Hub {
             parent_print: AtomicU64::new(parent_print),
             attached: std::sync::atomic::AtomicUsize::new(0),
             hidden: std::sync::atomic::AtomicUsize::new(0),
+            idle: std::sync::atomic::AtomicUsize::new(0),
+            turn_ended_seq: AtomicU64::new(0),
             stderr_tail: StdMutex::new(std::collections::VecDeque::new()),
             stderr_stream: StdMutex::new(session::SessionStderr::default()),
             prompts: StdMutex::new(std::collections::VecDeque::new()),
@@ -1754,10 +2256,15 @@ impl Hub {
             last_model_at: AtomicU64::new(0),
             silent_turn: StdMutex::new(None),
             turn_cap_timer: StdMutex::new(None),
-            inbox: StdMutex::new(inbox::Inbox::default()),
+            inbox_state: StdMutex::new(inbox::Inbox::default()),
+            inbox_loaded: AtomicBool::new(false),
+            inbox_load: StdMutex::new(()),
+            hub_ref: std::sync::OnceLock::new(),
             last_active: AtomicU64::new(self.clock_now()),
+            start_for: std::sync::atomic::AtomicU8::new(0),
             hibernated_at: AtomicU64::new(hibernated_at),
             wake_cause: StdMutex::new(None),
+            policy_refusal: Default::default(),
             agent_requests: std::sync::atomic::AtomicUsize::new(0),
             web_control_ended: AtomicBool::new(false),
             floor: Default::default(),
@@ -1768,11 +2275,15 @@ impl Hub {
             background_turns: StdMutex::new(Default::default()),
             processes: StdMutex::new(Default::default()),
             pr_creates: StdMutex::new(Default::default()),
+            pr_closes: StdMutex::new(Default::default()),
             touch_queue: StdMutex::new(Default::default()),
             overlaps_told: StdMutex::new(Default::default()),
             start_calls: StdMutex::new(Default::default()),
             composers: StdMutex::new(Default::default()),
         });
+        if let Some(hub) = self.hub_ref.get() {
+            let _ = session.hub_ref.set(hub.clone());
+        }
         // Found by its tags from now on (`permissions/display.rs`).
         self.child_tags.note(&session);
         // Its pull requests wait for a review verdict (`review_queue.rs`).
@@ -1784,15 +2295,17 @@ impl Hub {
     #[cfg(test)]
     pub(crate) fn edit_test_meta(&self, session: &Session, edit: impl FnOnce(&mut SessionMeta)) {
         edit(&mut session.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
+        // A change no record carries, as any direct metadata write is (`list_order.rs`).
+        self.events.row_changed(session);
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn insert_test_session(&self, meta: SessionMeta) -> Arc<Session> {
         let id = meta.id.clone();
         let session = self.make_session(meta);
         self.sessions.lock().unwrap().insert(id, session.clone());
         self.update_live_session_index(&session);
-        self.events.changed();
+        self.session_came(&session);
         session
     }
 
@@ -1837,6 +2350,14 @@ impl Hub {
         ids.into_iter().filter_map(|id| sessions.get(&id).cloned()).collect()
     }
 
+    /// How many sessions the map holds, and how many of them are not closed, each read under
+    /// its own lock (never both at once, as [`Hub::live_session_handles`]): not one snapshot.
+    pub(super) fn session_counts(&self) -> (usize, usize) {
+        let live = self.live_session_ids.lock().unwrap_or_else(|e| e.into_inner()).len();
+        let all = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).len();
+        (all, live)
+    }
+
     // ------------------------------------------------------------ lookup
 
     pub fn sessions(&self) -> Vec<Arc<Session>> {
@@ -1846,6 +2367,18 @@ impl Hub {
     /// Every session, in no order and with no metadata read.
     pub(crate) fn session_handles(&self) -> Vec<Arc<Session>> {
         self.sessions.lock().unwrap_or_else(|e| e.into_inner()).values().cloned().collect()
+    }
+
+    /// Connect the optional v2 list tee. The v1 event path remains unchanged when no tee is
+    /// installed, which is the default for an empty `acpmux.v2` setting.
+    pub(crate) fn install_v2_tee(&self, tee: Arc<list_tee::TeeHandle>) {
+        self.events.install_tee(tee);
+    }
+
+    /// The v2 list holds the hub machines' rows: `initialize` names
+    /// [`list_tee::HUB_ROWS_FEATURE`] on every connection.
+    pub(crate) fn v2_lists_hub_rows(&self) -> bool {
+        self.events.tee_lists_hub_rows()
     }
 
     pub(crate) fn session_count(&self) -> usize {
@@ -1883,19 +2416,32 @@ impl Hub {
         let (mut by_name, mut by_segment, mut by_prefix) = (Vec::new(), Vec::new(), Vec::new());
         for s in sessions.values() {
             let meta = s.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            if meta.name == key {
+            let alias = meta.tags.get("session.alias").map(|tag| tag.value.as_str());
+            if meta.name == key || alias == Some(key) {
                 by_name.push(s.clone());
             }
             if bare && crate::session_name::ends_with_segments(&meta.name, key) {
                 by_segment.push((s.clone(), meta.status == SessionStatus::Closed));
             }
-            if s.id.starts_with(key) || meta.name.starts_with(key) {
+            if s.id.starts_with(key)
+                || meta.name.starts_with(key)
+                || alias.is_some_and(|alias| alias.starts_with(key))
+            {
                 by_prefix.push(s.clone());
             }
         }
         drop(sessions);
         if by_name.len() == 1 {
             return Ok(by_name.remove(0));
+        }
+        // No session has it as its name now: one that had it before a rename
+        // (`former_names.rs`), ahead of short names and prefixes. A peer's session that has it
+        // as its name now wins (`resolve_remote`).
+        if by_name.is_empty()
+            && let Some(found) = self.resolve_former_here(key)
+            && self.remote_strict_matches(key) == 0
+        {
+            return found;
         }
         let named = |matched: &[Arc<Session>]| -> Vec<String> {
             matched
@@ -1960,7 +2506,11 @@ impl Hub {
         let mut counts = [0_usize; 3];
         for s in sessions.values() {
             let meta = s.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            if s.id.starts_with(key) || meta.name.starts_with(key) {
+            let alias = meta.tags.get("session.alias").map(|tag| tag.value.as_str());
+            if s.id.starts_with(key)
+                || meta.name.starts_with(key)
+                || alias.is_some_and(|alias| alias.starts_with(key))
+            {
                 counts[0] = counts[0].saturating_add(1);
             } else if bare && crate::session_name::ends_with_segments(&meta.name, key) {
                 let slot = if meta.status == SessionStatus::Closed { 2 } else { 1 };
@@ -2219,6 +2769,10 @@ impl Hub {
         at: Option<u64>,
     ) -> (EventRecord, bool) {
         let mut msg = msg;
+        // A prompt (a steer too) starts a new checklist in the pane (`stream.rs` `cuts_reply`).
+        if dir == "mux" && kind == "user_message" {
+            session.stream.lock().unwrap_or_else(|e| e.into_inner()).plan_shown = false;
+        }
         // Off the append lock: it reads the disk.
         tool_paths::add_canonical_paths(session, kind, &mut msg);
         let _order = session.append_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -2226,9 +2780,10 @@ impl Hub {
         self.append_at_locked(session, dir, kind, msg, host_seq, at, false, true)
     }
 
-    /// [`Hub::append_at_locked`] of one record. `stored_only`: a record the store refused is
-    /// neither counted nor published (its caller appends it again), so no client or peer hears a
-    /// copy the journal does not hold. `kept`: what the log stores for it.
+    /// [`Hub::append_at_locked`] of one record. A record the store refused is neither counted nor
+    /// published, so no client or peer hears a copy the journal does not hold. `stored_only`: its
+    /// caller appends it again when it is not stored (a restore parks it only otherwise,
+    /// `restore_writer.rs`). `kept`: what the log stores for it.
     #[allow(clippy::too_many_arguments)]
     fn append_record_locked(
         &self,
@@ -2242,6 +2797,54 @@ impl Hub {
         kept: log_deferral::Kept,
         notify: bool,
     ) -> (EventRecord, bool) {
+        let msg = restore_writer::marked(msg);
+        // A restore owns the chat: the record waits for it to end (`restore_writer.rs`).
+        let (msg, kept) = match self.parked_write(
+            session,
+            dir,
+            kind,
+            msg,
+            host_seq,
+            at,
+            stored_only,
+            kept,
+            notify,
+        ) {
+            Ok(parked) => return parked,
+            Err(back) => back,
+        };
+        // What a restore's end could not store yet goes in first, and this one after it.
+        let (msg, kept) = match self.behind_unparked(
+            session,
+            dir,
+            kind,
+            msg,
+            host_seq,
+            at,
+            stored_only,
+            kept,
+            notify,
+        ) {
+            Ok(behind) => return behind,
+            Err(back) => back,
+        };
+        self.write_record_locked(session, dir, kind, msg, host_seq, at, kept, notify)
+    }
+
+    /// [`Hub::append_record_locked`]'s write, once nothing holds the record back.
+    #[allow(clippy::too_many_arguments)]
+    fn write_record_locked(
+        &self,
+        session: &Session,
+        dir: &str,
+        kind: &str,
+        msg: Value,
+        host_seq: Option<u64>,
+        at: Option<u64>,
+        kept: log_deferral::Kept,
+        notify: bool,
+    ) -> (EventRecord, bool) {
+        let started = std::time::Instant::now();
         let seq = session.seq.fetch_add(1, Ordering::SeqCst) + 1;
         let at = at.unwrap_or_else(now_ms);
         // Record a harmless mux receipt instead of ambiguous completion metadata.
@@ -2273,6 +2876,9 @@ impl Hub {
         if !(dir == "mux" && kind == usage_view::RECORD_KIND) {
             self.touch(session);
         }
+        // A stub goes in without the record's recovery mark (`restore_writer.rs`).
+        let stub = matches!(kept, log_deferral::Kept::Stub(_)) && !fenced;
+        let appending = std::time::Instant::now();
         let appended = match kept {
             // A fenced record keeps its receipt.
             log_deferral::Kept::Stub(msg) if !fenced => self.store.append(
@@ -2281,6 +2887,7 @@ impl Hub {
             ),
             _ => self.store.append(&session.id, &record),
         };
+        let store_time = appending.elapsed();
         let stored = match appended {
             Ok(()) => true,
             Err(e) => {
@@ -2291,12 +2898,32 @@ impl Hub {
         };
         if stored {
             session.note_transfer_event(&record);
-            {
+            let (save, backfill) = {
                 let mut breakdown =
                     session.time_breakdown.lock().unwrap_or_else(|e| e.into_inner());
                 if breakdown.initialized {
                     breakdown.record(&record);
+                    // Keep the saved copy within `SAVE_EVERY` records of the log, so a restart
+                    // folds a few records and never the whole journal.
+                    let due =
+                        breakdown.last_seq() >= breakdown.saved_seq + time_breakdown::SAVE_EVERY;
+                    let save = due.then(|| breakdown.save()).flatten();
+                    if let Some((_, seq)) = &save {
+                        breakdown.saved_seq = *seq;
+                    }
+                    (save, false)
+                } else {
+                    // A chat with no saved copy is folded once, here, never by an open.
+                    (None, record.kind == "turn_result")
                 }
+            };
+            if let Some((bytes, seq)) = save
+                && let Some(dir) = self.store.session_path(&session.id)
+            {
+                self.write_time_breakdown(session, &dir.join(time_breakdown::FILE), &bytes, seq);
+            }
+            if backfill {
+                self.start_time_breakdown_backfill(session);
             }
             // The review queue's index and the audit trail: O(1), never blocking on a write.
             self.observe_for_review(session, &record);
@@ -2306,8 +2933,21 @@ impl Hub {
         if session.status() == SessionStatus::Closed {
             self.store.close_log(&session.id);
         }
-        if stored_only && !stored {
+        // A record the store refused (its journal's backlog full, a failed write) is neither
+        // counted nor published: no viewer sees an event no log holds, which a later catch-up
+        // from the log would contradict (rework stage 3, C3). It leaves a gap in the chat's
+        // sequence, which every reader skips; a caller that must keep it appends it again.
+        if !stored {
             return (record, false);
+        }
+        // The line is in the store: v2's book tee marks the chat, whatever `notify` says (a mark
+        // and an atomic store, no I/O, never a wait; nothing with no tee installed).
+        if let Some(tee) = self.book_tee.get() {
+            #[cfg(test)]
+            let started = std::time::Instant::now();
+            tee.mark(session, seq);
+            #[cfg(test)]
+            book_tee::note_hook(started.elapsed());
         }
         {
             let mut m = session.meta.lock().unwrap();
@@ -2319,6 +2959,12 @@ impl Hub {
             }
             if record.dir == "mux" && record.kind == "turn_result" {
                 m.harness_failures.observe(&record.msg, record.seq, record.at);
+            }
+            // Where the journal's own recovery at its end begins, as the list names it.
+            if stub {
+                m.recovered_after = None;
+            } else {
+                restore_writer::note_recovery(&mut m, &record);
             }
             if record.dir == "mux" {
                 m.harness_sandbox.observe(&record.kind, &record.msg, record.at);
@@ -2371,6 +3017,8 @@ impl Hub {
                 remote: None,
                 update_line: Default::default(),
                 row: Default::default(),
+                list_seq: 0,
+                peer_batch: false,
             };
             // A live chat's streamed text changes only its own row, which is never cached, so the
             // closed rows keep their bytes while agents stream. Read after the metadata update
@@ -2380,13 +3028,16 @@ impl Hub {
             {
                 self.events.send_live_stream(event)
             } else if list_guard::reaches_other_rows(&record.dir, &record.kind) {
-                self.events.send(event)
+                let sent = self.events.send(event);
+                self.note_rows_reading(session);
+                sent
             } else {
                 // Any other record changes its own chat's row only: the other closed rows keep
                 // their bytes (`list_guard::Events::send_row`).
                 self.events.send_row(session, event)
             };
         }
+        crate::gauges::record_writes().note(store_time, started.elapsed());
         (record, stored)
     }
 
@@ -2425,6 +3076,9 @@ impl Hub {
             meta.composer_draft = draft.clone();
             meta.updated_at = now_ms();
         }
+        // It dates the chat with no record: told before the next list read, and placed again in
+        // the list's order (`list_order.rs`).
+        self.events.row_changed(session);
         self.chat_activity_cache.note(
             &session.id,
             "composer_draft",
@@ -2621,6 +3275,10 @@ impl Hub {
     /// [`Session::stops`] when the request came. Its status leaves Closed for Idle, logged
     /// `reopened`. False when it was not closed, or was stopped again since: it stays closed.
     pub(super) fn reopen(&self, session: &Session, stops: u64) -> bool {
+        // A chat being deleted stays closed (`Session::purging`).
+        if session.purging.load(Ordering::SeqCst) {
+            return false;
+        }
         let reopened = self.write_status(session, SessionStatus::Idle, Some(stops));
         if reopened {
             self.append(session, "mux", "reopened", json!({}));
@@ -2669,6 +3327,8 @@ impl Hub {
         };
         self.update_live_session_index(session);
         if was != status {
+            // Its inbound loop parks once the chat closes, and a reopen starts it again.
+            session.closed.send_replace(status == SessionStatus::Closed);
             // A closed snapshot partitions sessions by status. Invalidate on both sides of a
             // closed transition, including reopen before its `reopened` record is appended, so a
             // build that observed the old partition cannot publish it after the transition.
@@ -2726,6 +3386,19 @@ impl Hub {
         self.store.scan(id, after, &mut |record| record.seq <= last && visit(record))
     }
 
+    /// Where a replay of chat `id`'s newest `n` records starts ([`crate::store::NewestWindow`]),
+    /// read up to the same `last_seq` [`Self::scan_events`] stops at: `scan_events` from its
+    /// `after` sends those `n` and the few appended since. Costs `n` line heads read back from
+    /// the end however long the log is.
+    pub fn newest_window(&self, id: &str, n: u64) -> Result<crate::store::NewestWindow> {
+        let live = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned();
+        let Some(session) = live else { return self.store.newest_window(id, u64::MAX, n) };
+        self.warm_chat(&session);
+        self.catch_up_tail(&session);
+        let last = session.meta().last_seq;
+        self.store.newest_window(id, last.saturating_add(1), n)
+    }
+
     /// Counts `session`'s log tail past its saved `lastSeq` if no one has yet ([`Self::catch_up`]):
     /// a read that compares a client's cursor with `lastSeq` (`_acpmux/events`) reads it after
     /// this, or after a hard stop it refuses the records the log holds and the saved session does
@@ -2741,24 +3414,7 @@ impl Hub {
     }
 }
 
-/// Add `fields` under `_meta.acpmux` of an object, keeping any `_meta` the
-/// agent sent.
-pub(crate) fn merge_mux_meta(v: &mut Value, fields: Value) {
-    let Some(obj) = v.as_object_mut() else { return };
-    let meta = obj.entry("_meta").or_insert_with(|| json!({}));
-    if !meta.is_object() {
-        *meta = json!({});
-    }
-    let mux = meta.as_object_mut().unwrap().entry("acpmux").or_insert_with(|| json!({}));
-    if !mux.is_object() {
-        *mux = json!({});
-    }
-    if let (Some(dst), Some(src)) = (mux.as_object_mut(), fields.as_object()) {
-        for (k, v) in src {
-            dst.insert(k.clone(), v.clone());
-        }
-    }
-}
+pub(crate) use crate::protocol::merge_mux_meta;
 
 /// Ends the startup log load (`Hub::load_logs`) however it stops. A load that panicked
 /// leaves the daemon on the session list and whatever the load finished before the panic
@@ -2782,3 +3438,8 @@ impl Drop for LogsReady<'_> {
 #[cfg(test)]
 #[path = "update_cost_bench.rs"]
 mod update_cost_bench;
+
+// What appending a held tool output snapshot costs, small chat and god chat (manual, `--ignored`).
+#[cfg(test)]
+#[path = "held_append_bench.rs"]
+mod held_append_bench;

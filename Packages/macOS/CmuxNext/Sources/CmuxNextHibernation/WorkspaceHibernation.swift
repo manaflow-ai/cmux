@@ -282,6 +282,9 @@ public final class WorkspaceHibernation {
         return plan.nextCheck
     }
 
+    /// Whether a window shows `workspace`: Hibernate Workspace does not apply to it.
+    public func isShown(_ workspace: String) -> Bool { host.hibernationShownWorkspaces().contains(workspace) }
+
     /// Hibernate Workspace (palette, CLI): hibernates `workspace` now, idle or not, unless it is shown.
     public func hibernateNow(_ workspace: String) throws(WorkspaceHibernationRefusal) {
         guard !host.hibernationShownWorkspaces().contains(workspace) else { throw .shown }

@@ -26,8 +26,17 @@ public final class PersonalStore {
     /// Sessions each room follows.
     public internal(set) var follows: [ProfileID: Set<String>] = [:]
     public internal(set) var pins: [WorkspacePin] = [] {
-        didSet { pinIndex = personalPinIndex(pins) }
+        didSet {
+            if !expectedPins.isEmpty { dropSettledExpectations() }
+            rebuildPinIndex()
+        }
     }
+    /// Pins this client sent before a workspace's create that no snapshot carries yet, by session then key (client
+    /// state, never from the daemon). The pin's reply comes before `personal-changed`'s refetch, and the workspace's own
+    /// delta can come first: without these a new space's first workspace showed unpinned, so in `default`, and its window
+    /// fell back to the space it came from, the row sliding over when the pin landed (Leo 2026-11-11, "it shouldn't just
+    /// bounce you back"). A snapshot that pins the workspace, or its create failing, drops one.
+    public private(set) var expectedPins: [String: [String: ProfileID]] = [:]
     /// Personal workspace groups in order, each in one room.
     public internal(set) var groups: [WorkspaceGroupModel] = []
     /// Room of each personal group.
@@ -108,7 +117,47 @@ public final class PersonalStore {
     /// index kept with it: no work per call.
     public var pinnedRooms: [String: [String: ProfileID]] {
         _ = pins
+        _ = expectedPins
         return pinIndex
+    }
+
+    /// Workspace `key` of `session` is in room `room` from now until a snapshot pins it (`expectedPins`). A key the
+    /// daemon already pins needs none: its pin wins, and a pin that changes nothing brings no refetch to drop one.
+    public func expectPin(session: String, key: WorkspaceKey, room: ProfileID) {
+        guard pins.allSatisfy({ $0.sessionID != session || $0.workspaceKey != key }),
+              expectedPins[session]?[key.rawValue] != room else { return }
+        expectedPins[session, default: [:]][key.rawValue] = room
+        rebuildPinIndex()
+    }
+
+    /// The create of workspace `key` ended without it: its expected pin goes, on whichever session it was.
+    public func forgetExpectedPin(key: String) {
+        guard expectedPins.values.contains(where: { $0[key] != nil }) else { return }
+        for session in Array(expectedPins.keys) {
+            expectedPins[session]?[key] = nil
+            if expectedPins[session]?.isEmpty == true { expectedPins[session] = nil }
+        }
+        rebuildPinIndex()
+    }
+
+    /// Drops the expectations a snapshot now pins (to any room: the daemon's pin wins).
+    private func dropSettledExpectations() {
+        let pinned = personalPinIndex(pins)
+        var kept: [String: [String: ProfileID]] = [:]
+        for (session, keys) in expectedPins {
+            let open = keys.filter { pinned[session]?[$0.key] == nil }
+            if !open.isEmpty { kept[session] = open }
+        }
+        if kept != expectedPins { expectedPins = kept }
+    }
+
+    /// `pins` as the index, with each expected pin no snapshot carries yet laid over it.
+    private func rebuildPinIndex() {
+        var index = personalPinIndex(pins)
+        for (session, keys) in expectedPins {
+            for (key, room) in keys where index[session]?[key] == nil { index[session, default: [:]][key] = room }
+        }
+        pinIndex = index
     }
 
     public func workspace(session: String, key: String) -> PersonalWorkspace? {

@@ -15,12 +15,15 @@ final class WorkspaceStatusView: NSView {
     private var pills: [NSView] = []
     private var status = SidebarWorkspaceStatus()
     private var reservesBar = false
+    /// The font the lines were placed for (`layout`): a draw under another font places them again.
+    private var placedFont: NSFont?
 
     nonisolated override var isFlipped: Bool { true }
     nonisolated override var wantsUpdateLayer: Bool { true }
 
     /// `reservesBar`: the row has a progress bar, drawn between the log line and the label.
     func configure(_ status: SidebarWorkspaceStatus, reservesBar: Bool) {
+        let hadLines = !self.status.lines.isEmpty
         self.status = status
         self.reservesBar = reservesBar
         while labels.count < status.lines.count {
@@ -39,6 +42,8 @@ final class WorkspaceStatusView: NSView {
             label.isHidden = hidden
             pills[index].isHidden = hidden
         }
+        // No line before and none now (most rows): nothing to place and nothing to draw.
+        guard hadLines || !status.lines.isEmpty else { return }
         needsLayout = true
         needsDisplay = true
     }
@@ -52,25 +57,41 @@ final class WorkspaceStatusView: NSView {
 
     override func updateLayer() {
         // Built here so palette colors resolve in the row's theme scope.
+        // The pill width is content-sized, so a theme or font change needs a fresh layout after the attributed text
+        // is rebuilt: only for a pill whose width the new text changed, or one still hidden for its first text, and
+        // for lines placed for another font. A plain line's frame does not depend on its text, so a draw with the
+        // same font asks for no second layout in the frame's commit.
+        var placesPill = !status.lines.isEmpty && placedFont != SidebarStyle.subtitleFont
         performWithTheme {
             for (index, line) in status.lines.enumerated() where index < labels.count {
                 labels[index].attributedStringValue = Self.text(for: line)
                 Self.paint(pill: pills[index], for: line)
+                guard Self.isPill(line), !placesPill else { continue }
+                placesPill = pills[index].isHidden || pills[index].frame.width != Self.pillWidth(for: labels[index], maxWidth: bounds.width)
             }
         }
-        // The pill width is content-sized, so a theme or font change needs a
-        // fresh layout after the attributed text is rebuilt.
-        needsLayout = true
+        if placesPill { needsLayout = true }
+    }
+
+    /// A plain line is as wide as the block and a pill is capped at its width (`layout`): a new width places the
+    /// lines again. The draw asks for a layout only for a pill or a font change, so the resize asks here.
+    override func setFrameSize(_ newSize: NSSize) {
+        let changed = newSize.width != frame.width
+        super.setFrameSize(newSize)
+        if changed, !status.lines.isEmpty { needsLayout = true }
     }
 
     override func layout() {
         super.layout()
-        let metrics = SidebarLayoutMetrics.standard
-        let lineHeight = metrics.statusLineHeight
+        // No line, no frame to set. With lines, only the two values the block places them with are read
+        // (`statusPitch`), not the full metrics with the sidebar's density tokens.
+        guard !status.lines.isEmpty else { return }
+        placedFont = SidebarStyle.subtitleFont
+        let (lineHeight, barHeight) = SidebarLayoutMetrics.statusPitch
         let labelHeight = max(lineHeight, ceil(SidebarStyle.subtitleFont.boundingRectForFont.height))
         var y: CGFloat = 0
         for (index, line) in status.lines.enumerated() {
-            if case .progressLabel = line, reservesBar { y += metrics.progressBarHeight }
+            if case .progressLabel = line, reservesBar { y += barHeight }
             let rowY = y - (labelHeight - lineHeight) / 2
             guard Self.isPill(line) else {
                 pills[index].isHidden = true

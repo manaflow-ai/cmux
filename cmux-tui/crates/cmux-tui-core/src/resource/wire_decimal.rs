@@ -14,6 +14,15 @@ impl WireDecimal {
     pub const fn get(self) -> u64 {
         self.0
     }
+
+    /// The value of its wire text: decimal digits with no sign and no leading zero, at most
+    /// `u64::MAX`. `None` for any other text.
+    pub fn parse(text: &str) -> Option<Self> {
+        if text.len() > 20 || text.starts_with('+') || (text.starts_with('0') && text.len() != 1) {
+            return None;
+        }
+        text.parse::<u64>().ok().map(Self)
+    }
 }
 
 impl Serialize for WireDecimal {
@@ -31,15 +40,7 @@ impl<'de> Deserialize<'de> for WireDecimal {
         D: serde::Deserializer<'de>,
     {
         let value = String::deserialize(deserializer)?;
-        if value.len() > 20
-            || value.starts_with('+')
-            || (value.starts_with('0') && value.len() != 1)
-        {
-            return Err(serde::de::Error::custom("invalid unsigned decimal string"));
-        }
-        value
-            .parse::<u64>()
-            .map(Self)
-            .map_err(|_| serde::de::Error::custom("invalid unsigned decimal string"))
+        Self::parse(&value)
+            .ok_or_else(|| serde::de::Error::custom("invalid unsigned decimal string"))
     }
 }

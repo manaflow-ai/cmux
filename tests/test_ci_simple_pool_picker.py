@@ -15,11 +15,11 @@ from pathlib import Path
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
-spec = importlib.util.spec_from_file_location("simple_pool_picker", ROOT / "scripts/ci/simple_pool_picker.py")
-assert spec and spec.loader
-picker = importlib.util.module_from_spec(spec)
-sys.modules[spec.name] = picker
-spec.loader.exec_module(picker)
+# Imported by name, never loaded by path: one module object per file, so a test that patches it
+# patches what every other test reads (tests/test_script_module_loads.py).
+if str(ROOT / "scripts/ci") not in sys.path:
+    sys.path.insert(0, str(ROOT / "scripts/ci"))
+import simple_pool_picker as picker  # noqa: E402
 
 
 def pool(label: str, capacity: int, running: int = 0, queued: int = 0, *, reserved: int = 0,
@@ -265,6 +265,20 @@ class BlacksmithStallTests(unittest.TestCase):
         state = picker.state_from(jobs=1, env={}, fork=False, runners=None, snapshot=snap,
                                   fallback=small, owned_enabled=False)
         self.assertFalse({item.label: item for item in state.blacksmith}[large].stalled)
+
+    def test_both_macos_26_labels_dead_with_jobs_left_waiting_have_no_free_slot(self):
+        """Every label showing nothing used to read as none dead. A job left waiting proves a label is not idle."""
+        large, small = picker.BLACKSMITH[0], picker.BLACKSMITH[1]
+        generated = dt.datetime.now(dt.timezone.utc) - dt.timedelta(minutes=2)
+        snap = {"generated_at": generated.strftime("%Y-%m-%dT%H:%M:%SZ"), "label_started": {},
+                "pools": {large: {"queued": 0, "running": 0}, small: {"queued": 0, "running": 0}}}
+        self.assertEqual(picker.dead_macos_26(snap), set())  # a quiet hour: both may just be idle
+        snap["pools"] = {large: {"queued": 4, "running": 0, "oldest_queued_minutes": 90},
+                         small: {"queued": 2, "running": 0, "oldest_queued_minutes": 75}}
+        self.assertEqual(picker.dead_macos_26(snap), {large, small})
+        state = picker.state_from(jobs=1, env={}, fork=False, runners=None, snapshot=snap,
+                                  fallback=small, owned_enabled=False)
+        self.assertTrue(all(item.stalled for item in state.blacksmith if item.label in (large, small)))
 
     def test_with_every_label_full_a_moving_one_beats_a_stalled_one(self):
         state = picker.State(jobs=1, blacksmith=(
@@ -707,6 +721,63 @@ class AQueuedReleaseBuildHoldsItsLabel(unittest.TestCase):
         state = picker.State(jobs=1, blacksmith=(dead, pool(small, 10, running=10, queued=2, reserved=1),
                                                  pool(mac15, 10, running=10, queued=5, reserved=1)))
         self.assertEqual(picker.pick(state).label, small)
+
+
+
+class ExpectedWaitAdmissionTests(unittest.TestCase):
+    """An owned pool the probe's RUNNER_POOLS `_admission` verdict calls saturated is skipped (cmuxterm-hq#16113)."""
+
+    NOW = dt.datetime(2026, 11, 20, 18, 0, tzinfo=dt.timezone.utc)
+
+    def pools(self, at=None, **saturated):
+        at = at or self.NOW
+        return json.dumps({"linux": "blacksmith-4vcpu-ubuntu-2404",
+                           "_admission": {"at": at.strftime("%Y-%m-%dT%H:%M:%SZ"), "target_s": 300,
+                                          "pools": {STD: {"saturated": saturated.get("std", True)}}}})
+
+    def state(self, band=picker.PRIORITY_PR, saturated=frozenset({STD})):
+        return picker.State(jobs=1, owned=(pool(STD, 8, free=8), pool(LIGHT, 4, free=4)),
+                            blacksmith=(pool(picker.BLACKSMITH[1], 10),), owned_enabled=True, band=band,
+                            saturated=saturated)
+
+    def test_a_saturated_owned_pool_takes_the_next_rung(self):
+        self.assertEqual(picker.pick(self.state()).label, LIGHT)
+        both = self.state(saturated=frozenset({STD, LIGHT}))
+        self.assertEqual(picker.pick(both).label, picker.BLACKSMITH[1])
+        self.assertEqual(picker.pick(self.state(saturated=frozenset())).label, STD)
+
+    def test_nightly_and_promote_never_skip_an_owned_pool(self):
+        for band in (picker.PRIORITY_NIGHTLY, picker.PRIORITY_PROMOTE):
+            with self.subTest(band=band):
+                self.assertEqual(picker.pick(self.state(band=band)).label, STD)
+
+    def test_only_a_fresh_saturated_verdict_counts(self):
+        self.assertEqual(picker.saturated_labels(self.pools(), now=self.NOW), frozenset({STD}))
+        self.assertEqual(picker.saturated_labels(self.pools(std=False), now=self.NOW), frozenset())
+        stale = self.NOW - dt.timedelta(minutes=picker.VERDICT_MAX_MINUTES + 1)
+        self.assertEqual(picker.saturated_labels(self.pools(at=stale), now=self.NOW), frozenset())
+        future = self.NOW + dt.timedelta(hours=1)
+        self.assertEqual(picker.saturated_labels(self.pools(at=future), now=self.NOW), frozenset())
+        for raw in (None, "", "not json", "[]", '{"_admission": "x"}', '{"_admission": {"pools": {}}}',
+                    '{"_admission": {"at": "nope", "pools": {}}}'):
+            with self.subTest(raw=raw):
+                self.assertEqual(picker.saturated_labels(raw, now=self.NOW), frozenset())
+
+    def test_state_from_reads_the_verdict_from_runner_pools(self):
+        with mock.patch.object(picker, "saturated_labels", return_value=frozenset({STD})) as read:
+            state = picker.state_from(jobs=1, env={"RUNNER_POOLS": self.pools()}, fork=False, runners=None,
+                                      snapshot=None, fallback=picker.BLACKSMITH[1], owned_enabled=True)
+        read.assert_called_once_with(self.pools())
+        self.assertEqual(state.saturated, frozenset({STD}))
+        no_env = picker.state_from(jobs=1, env={}, fork=False, runners=None, snapshot=None,
+                                   fallback=picker.BLACKSMITH[1], owned_enabled=True)
+        self.assertEqual(no_env.saturated, frozenset())
+
+    def test_ci_passes_runner_pools_to_the_picker(self):
+        text = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+        step = text[:text.index("run: python3 scripts/ci/simple_pool_picker.py")]
+        step = step[step.rindex("env:"):]
+        self.assertIn("RUNNER_POOLS: ${{ vars.RUNNER_POOLS }}", step)
 
 
 if __name__ == "__main__":

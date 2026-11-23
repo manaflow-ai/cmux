@@ -183,6 +183,9 @@ pub(crate) struct PromptId {
     /// (`_meta.acpmux.callerSubagent`, `cli/sender.rs` `SUBAGENT_ENV`): a label the daemon puts
     /// on the provenance it binds to the caller's proven session.
     pub subagent: Option<Value>,
+    /// This host's sender token, presented to prove a named sender (`sender_token.rs`): sent as
+    /// `_meta.acpmux.senderToken`, which the daemon takes out before it reads anything else.
+    pub sender_token: Option<crate::sender_token::Presented>,
     /// The sender waits for the reply (`_meta.acpmux.wakeOrFail`): a message the receiver's
     /// inbox would hold without waking it is refused at once (`send.not_woken`) instead of
     /// leaving the send waiting for a turn that does not come (`hub/inbox.rs`).
@@ -207,6 +210,7 @@ impl PromptId {
                 relay: None,
                 sender_harness: None,
                 subagent: None,
+                sender_token: None,
                 wake_or_fail: false,
             },
             None => Self {
@@ -224,6 +228,7 @@ impl PromptId {
                 relay: None,
                 sender_harness: None,
                 subagent: None,
+                sender_token: None,
                 wake_or_fail: false,
             },
         }
@@ -283,6 +288,9 @@ impl PromptId {
         }
         if self.wake_or_fail {
             mux.set(WAKE_OR_FAIL_META, json!(true));
+        }
+        if let Some(token) = &self.sender_token {
+            mux.set(crate::sender_token::META_KEY, token.to_value());
         }
         if let Some(Value::Object(relay)) = &self.relay {
             for (key, value) in relay {
@@ -824,7 +832,9 @@ async fn stream_prompt_once(
 pub(crate) async fn plain_attach(client: Arc<Client>, id: &str) -> Result<()> {
     let mut notes =
         client.notifications().await.ok_or_else(|| anyhow!("notifications already taken"))?;
-    let v = client.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 200})).await?;
+    // Shown in the person's terminal: an open (`server/requests.rs` `attach_shows`).
+    let page = json!({"sessionId": id, "limit": 200, "visible": true});
+    let v = client.request(method::MUX_ATTACH, page).await?;
     let mut t = Transcript::default();
     for e in v.get("events").and_then(Value::as_array).cloned().unwrap_or_default() {
         t.apply_event(&e);
@@ -1258,7 +1268,7 @@ pub(crate) async fn turn_reply(
     Ok(reply_of_turn(&events, turn))
 }
 
-fn page_events(page: &Value) -> (Vec<Value>, bool) {
+pub(crate) fn page_events(page: &Value) -> (Vec<Value>, bool) {
     let events = page.get("events").and_then(Value::as_array).cloned().unwrap_or_default();
     (events, page.get("hasMore").and_then(Value::as_bool).unwrap_or(false))
 }
@@ -1287,35 +1297,6 @@ async fn paged_events(client: &Arc<Client>, query: Value, first: &str) -> Result
         }
         more = has_more;
         events.splice(0..0, older);
-    }
-    Ok(events)
-}
-
-/// Up to `limit` events of a chat after seq `after`, oldest first, a page of at most 100000 at a
-/// time.
-pub(crate) async fn events_after(
-    client: &Arc<Client>,
-    id: &str,
-    mut after: u64,
-    limit: usize,
-) -> Result<Vec<Value>> {
-    let mut events = Vec::new();
-    while events.len() < limit {
-        let v = client
-            .request(
-                method::MUX_EVENTS,
-                json!({"sessionId": id, "afterSeq": after, "limit": (limit - events.len()).min(100_000)}),
-            )
-            .await?;
-        let (page, more) = page_events(&v);
-        let Some(last) = page.last().and_then(|e| e.get("seq")).and_then(Value::as_u64) else {
-            break;
-        };
-        after = last;
-        events.extend(page);
-        if !more {
-            break;
-        }
     }
     Ok(events)
 }
@@ -1349,36 +1330,8 @@ fn reply_of_turn(events: &[Value], turn: &str) -> Option<String> {
     })
 }
 
-/// The last `count` assistant replies of a session, oldest first.
-pub(crate) async fn last_replies(
-    client: &Arc<Client>,
-    id: &str,
-    count: usize,
-) -> Result<Vec<String>> {
-    // Transcript records only, in the largest page the daemon gives (`TRANSCRIPT_PAGE_BYTES`).
-    let page = json!({
-        "sessionId": id, "limit": 5000, "kinds": ["transcript"], "maxBytes": TRANSCRIPT_PAGE_BYTES,
-        // Events with beforeSeq read newest first. This one-shot read must not attach the
-        // shared daemon-to-daemon link to a running chat's live stream.
-        "beforeSeq": u64::MAX
-    });
-    let mut t = Transcript::default();
-    for e in paged_events(client, page, method::MUX_EVENTS).await? {
-        t.apply_event(&e);
-    }
-    let mut out: Vec<String> = t
-        .items
-        .iter()
-        .rev()
-        .filter_map(|i| match i {
-            Item::Assistant { text } => Some(text.clone()),
-            _ => None,
-        })
-        .take(count.max(1))
-        .collect();
-    out.reverse();
-    Ok(out)
-}
+/// The last `count` assistant replies of a session, oldest first (`cli/last_reply.rs`).
+pub(crate) use super::last_reply::last_replies;
 
 #[cfg(test)]
 mod prompt_tests {
@@ -1584,7 +1537,13 @@ mod prompt_tests {
         }
         assert_eq!(last_replies(&client, &id, 1).await.unwrap(), vec!["the reply".to_owned()]);
         // `session tail --since`: every event after the cursor, through the newest.
-        let after = events_after(&client, &id, 0, 100000).await.unwrap();
+        let mut after = Vec::new();
+        crate::cli::session_tail::stream_after(&client, &id, 0, None, |page| {
+            after.extend(page);
+            Ok(crate::cli::session_tail::Flow::Go)
+        })
+        .await
+        .unwrap();
         assert_eq!(after.last().unwrap()["seq"], session.meta().last_seq);
         assert!(after.len() > 13, "{} events", after.len());
         drop(dir);

@@ -1,6 +1,7 @@
 // u2647 follow-up: the image viewer's icon buttons name the key that presses them, to VoiceOver
 // (aria-keyshortcuts) and in the tooltip, as every dialog button does: Close ⎋, Previous ←, Next →.
 import { afterAll, afterEach, expect, test } from "bun:test";
+import { settleReact } from "../../../../test/support/domTeardown";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
@@ -13,8 +14,9 @@ const frames = {
   cancelAnimationFrame: globalThis.cancelAnimationFrame,
 };
 installFrames();
-afterAll(() => {
+afterAll(async () => {
   const globals = globalThis as Record<string, unknown>;
+  await settleReact();
   for (const [key, value] of Object.entries(frames)) {
     if (value === undefined) delete globals[key];
     else globals[key] = value;
@@ -42,9 +44,10 @@ function installFrames() {
   globals.cancelAnimationFrame ??= (id: number) => clearTimeout(id);
 }
 
-afterEach(() => {
+afterEach(async () => {
   act(() => root?.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

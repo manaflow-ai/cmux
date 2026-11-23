@@ -13,6 +13,8 @@ Usage: agent-stream-e2e.py --tag <tag> --variant before=/dir/with/index.html --v
     [--rows 2000] [--seconds 6] [--chunk-chars 24] [--chunk-ms 12] [--runs 3]
 """
 import argparse, glob, json, os, socket, statistics, subprocess, sys, tempfile, time
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -97,12 +99,12 @@ def run_variant(name, directory):
         if not wait(lambda: "error" not in (rpc("debug.agent_pane", {"action": "pid"}) or {"error": 1}), 60, 0.5):
             sys.exit(f"{name}: no agent tab")
         time.sleep(3)
-        print(f"{name}: full rate {rpc('debug.agent_pane', {'action': 'full_rate', 'enabled': True})}", flush=True)
+        safe_print(f"{name}: full rate {rpc('debug.agent_pane', {'action': 'full_rate', 'enabled': True})}", flush=True)
         for run in range(opts.runs):
             result = rpc("debug.agent_pane", {"action": "stream", "rows": opts.rows, "seconds": opts.seconds,
                                               "chunk_chars": opts.chunk_chars, "chunk_ms": opts.chunk_ms},
                          timeout=opts.seconds + 120)
-            print(f"{name} run {run + 1}: {json.dumps(result)}", flush=True)
+            safe_print(f"{name} run {run + 1}: {json.dumps(result)}", flush=True)
             results.append(result)
     finally:
         app.terminate()

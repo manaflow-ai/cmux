@@ -9,6 +9,7 @@ import { CloudPage } from "./CloudPage";
 import table from "./generated/strings.json";
 import { MockCloudProvider } from "./mockProvider";
 import { CloudStore } from "./store";
+import { teardownDom } from "../../../test/support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", {
   url: "http://localhost/",
@@ -38,12 +39,8 @@ const settle = async () => {
   for (let i = 0; i < 8; i++) await new Promise((resolve) => setTimeout(resolve, 0));
 };
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) globals[key] = value;
-    else delete globals[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope: globals });
 });
 
 test("at the running-machines limit, Get opens the create sheet and Create is enabled", async () => {

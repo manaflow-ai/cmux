@@ -122,6 +122,11 @@ impl App {
                 self.idle_wait(now)
             };
             let timeout = terminal_paints.wait_timeout(timeout, now);
+            // A pane holding a synchronized update is drawn live at the
+            // hold's end even when no output comes (synchronized_output.rs);
+            // with no hold the wait is unchanged, so an idle loop still
+            // blocks until an event.
+            let timeout = self.synchronized_output.cap_wait(timeout, now);
             let mut toast_expired_on_timeout = false;
             let received = match timeout {
                 Some(timeout) => rx.recv_timeout(timeout),
@@ -139,6 +144,9 @@ impl App {
                     if self.expire_toast() {
                         toast_expired_on_timeout = true;
                         action = action.merge(RenderAction::Draw);
+                    }
+                    if self.synchronized_output.release_expired(Instant::now()) {
+                        action = action.merge(RenderAction::Paint);
                     }
                     None
                 }

@@ -52,15 +52,12 @@ final class BookmarkService {
 
     final class WeakChrome {
         weak var entry: BrowserEntry?
-        let bar: BookmarksBarHostView
-        init(entry: BrowserEntry, bar: BookmarksBarHostView) {
+        let bar: BookmarksBarView
+        init(entry: BrowserEntry, bar: BookmarksBarView) {
             self.entry = entry
             self.bar = bar
         }
     }
-
-    /// The pages of the bookmarks bars on screen, lent to the tab whose bar is in a window.
-    @ObservationIgnored lazy var barPages = BookmarksBarPages { [weak self] in self?.services.bookmarksBarPage() }
 
     init(services: AppServices) {
         self.services = services

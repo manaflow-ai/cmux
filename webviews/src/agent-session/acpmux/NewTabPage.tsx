@@ -7,7 +7,6 @@ import { AgentMark as BrandMark } from "../shared/AgentMark";
 import { agentDisplayName } from "./agents";
 import { useLastPick } from "./lastPick";
 import { ArrowUpIcon } from "./ComposerPickers";
-import { useComposerLook } from "./composerLook";
 import { ComposerFoot } from "./ComposerFoot";
 import { useRowFit } from "./composerRowFit";
 import { MarkdownField, type MarkdownFieldHandle } from "./MarkdownField";
@@ -20,7 +19,7 @@ import { BrowseFailure } from "./BrowseFailure";
 import { ErrorDetails } from "./conversation/ErrorDetails";
 import { browseFailureMessage } from "./browseFailureModel";
 import { defaultRow, stepSelection, EMPTY_OMNIBAR, omnibarRows, type OmnibarContext, type OmnibarRow } from "./omnibar";
-import { firstProject, homePath, mostRecentProject, projectLabel } from "./sessionList";
+import { firstProject, homePath, isTemporaryFolder, mostRecentProject, projectLabel } from "./sessionList";
 import { useT } from "./i18n";
 import { isStartableProject, rememberedStartedProject } from "./newtab/startedProject";
 import { useNoEntryMotion } from "./newtab/noEntryMotion";
@@ -32,7 +31,9 @@ import { backspacedAttachment, useAttachmentIntake, useSendWhenAttached } from "
 import { reordered } from "./composer/stripReorder";
 import { DropOverlay } from "./composer/DropOverlay";
 import { useHarnessesListed } from "./catalog";
+import { customizeMessage } from "./customizeCommand";
 import { useNewTabCommand, type NewTabCommandActions } from "./newtab/useNewTabCommand";
+import { reportInputReadyWhenFocused } from "./newtab/inputReady";
 import {
   TAB_KINDS,
   type TabKind,
@@ -199,11 +200,16 @@ export function NewTabPage({
   const [started] = useState(() => (home ? (rememberedStartedProject() ?? startedProject) : undefined));
   const projectCwd =
     picked ??
-    (isStartableProject(cwd) || !home
+    ((isStartableProject(cwd) && !isTemporaryFolder(cwd)) || !home
       ? cwd
       : (firstProject(started ? [started.replace(/(.)\/+$/, "$1")] : [], home, knownProjects) ??
         mostRecentProject(snapshot.sessions, home, knownProjects) ??
         cwd));
+  // Where the chips' picks start the chat: the project, never the tab's inherited `~` or agent-home
+  // folder by itself (cmux#40938: a Codex pick then started in the home folder, which the pane
+  // refuses). None: the host starts the chat in its own start folder. A terminal still opens in
+  // the tab's folder (`projectCwd`).
+  const chatCwd = projectCwd === cwd && !isStartableProject(cwd) ? undefined : projectCwd;
   // Agent's harness and model before a pick, as the New Tab screen reads them (newTabStart): the
   // chips pick on this snapshot, and Return starts the chat on the same harness and model.
   const remembered = useLastPick(projectCwd);
@@ -238,7 +244,10 @@ export function NewTabPage({
     const attachments = next === "agent" ? attachmentRef.current : [];
     const chat = next === "agent" && harness ? { harness, ...(chipModel ? { model: chipModel } : {}) } : undefined;
     if (next === "agent" && command.intercept(value, harness, attachments.length)) return;
-    const result = onSubmit(next, value, folder, attachments.length ? attachments : undefined, chat);
+    // `/customize …` goes as the ask it stands for (customizeCommand.ts). Here, the one place every
+    // way of starting a chat passes: Enter on the field, Enter on the Ask row, a click on that row.
+    const sent = next === "agent" ? (customizeMessage(value.trim()) ?? value) : value;
+    const result = onSubmit(next, sent, folder, attachments.length ? attachments : undefined, chat);
     // The suggestions float over the note: they close until the next edit, so it shows.
     if (result)
       void result.catch((error: unknown) => {
@@ -262,10 +271,9 @@ export function NewTabPage({
   const attachList = useCallback(
     (node: HTMLDivElement | null) => {
       list.current = node;
-      listEdges(node);
       escape?.(node);
     },
-    [escape, listEdges],
+    [escape],
   );
   // The kind a prefix switched from, so Backspace in the empty field switches back.
   const [beforePrefix, setBeforePrefix] = useState<TabKind>();
@@ -345,27 +353,29 @@ export function NewTabPage({
     return true;
   });
   const composing = useRef(false);
-  const recent = useMemo(() => recentSessions(snapshot.sessions), [snapshot.sessions]);
   // The suggestions float over the page under the field (cx-6k6cg), so they show only while the
   // field has the keyboard and something is typed: at rest nothing covers the page below.
   const [focused, setFocused] = useState(false);
   const queryRef = useRef(query);
   queryRef.current = query;
   const open = focused && query.trim() !== "" && query !== dismissed;
-  const suggestions = useMemo(
+  // The recent chats are sorted only while the rows show: a page at rest never sorts every chat.
+  const recent = useMemo(() => (open ? recentSessions(snapshot.sessions) : []), [open, snapshot.sessions]);
+  const rows = useMemo(
     () =>
-      omnibarRows(query, kind, {
-        ...omnibar,
-        sessions: recent.map((session) => ({
-          sessionId: session.sessionId,
-          title: session.displayTitle ?? session.sessionId,
-          ...(session.harness ? { harness: session.harness } : {}),
-          detail: projectLabel(session.cwd),
-        })),
-      }),
-    [query, kind, omnibar, recent],
+      open
+        ? omnibarRows(query, kind, {
+            ...omnibar,
+            sessions: recent.map((session) => ({
+              sessionId: session.sessionId,
+              title: session.displayTitle ?? session.sessionId,
+              ...(session.harness ? { harness: session.harness } : {}),
+              detail: projectLabel(session.cwd),
+            })),
+          })
+        : [],
+    [open, query, kind, omnibar, recent],
   );
-  const rows = useMemo(() => (open ? suggestions : []), [open, suggestions]);
   useEffect(() => setSelected(defaultRow(rows, kind, query)), [rows, kind, query]);
   useEffect(() => {
     // Rows past the window's edge draw in the host; the invisible list never scrolls the page.
@@ -421,14 +431,23 @@ export function NewTabPage({
       // A page shown in a window that is not key yet gets no focus event until it is.
       setFocused(input.focused());
     };
-    focus();
-    if (inputToken && inputReadyReported.current !== inputToken) {
-      inputReadyReported.current = inputToken;
-      inputReady.current?.(inputToken);
-    }
+    // Not again while the field has the keyboard: a token change after the readiness selected the keys typed so far
+    // (the screen's show-focus has the same rule).
+    if (!field.current?.focused()) focus();
     const host = fieldElement()?.ownerDocument.defaultView;
+    // The app replays the keys typed after Cmd-T at this readiness: it waits for the page's focus.
+    let cancelReady = () => {};
+    if (inputToken && inputReadyReported.current !== inputToken) {
+      cancelReady = reportInputReadyWhenFocused(host, () => {
+        inputReadyReported.current = inputToken;
+        inputReady.current?.(inputToken);
+      });
+    }
     host?.addEventListener(FOCUS_LOCATION_EVENT, focus);
-    return () => host?.removeEventListener(FOCUS_LOCATION_EVENT, focus);
+    return () => {
+      cancelReady();
+      host?.removeEventListener(FOCUS_LOCATION_EVENT, focus);
+    };
   }, [inputToken, fieldReady]);
   const choose = (next: TabKind) => {
     changeKind(next);
@@ -551,14 +570,11 @@ export function NewTabPage({
     }
     setText(next);
   };
-  // The composer's look (composerLook.ts; the page's first two dots, newtab/PageDots.tsx): both lay
-  // the row under the field out the same; Codex's names Full access in the accent (composerLook.css).
-  const look = useComposerLook();
   const foot = useRef<HTMLDivElement>(null);
-  useRowFit(foot, `${kind}:${plainFooter}:${look}`);
+  useRowFit(foot, `${kind}:${plainFooter}`);
 
   return (
-    <div className="acpmux-newtab" data-kind={kind} data-composer-look={look === "codex" ? "codex" : undefined}>
+    <div className="acpmux-newtab" data-kind={kind}>
       {/* The suggestions float under the field (cx-6k6cg): opening them moves nothing below. */}
       <div className="acpmux-newtab-anchor">
         <form className="acpmux-newtab-box" onSubmit={submit}>
@@ -698,50 +714,52 @@ export function NewTabPage({
         {kind === "agent" && Chips && (
           <div className="acpmux-newtab-foot">
             <ComposerFoot ref={foot} plain={plainFooter}>
-              <Chips snapshot={chipSnapshot} cwd={projectCwd} />
+              <Chips snapshot={chipSnapshot} {...(chatCwd ? { cwd: chatCwd } : {})} />
             </ComposerFoot>
           </div>
         )}
         {rows.length > 0 && (
           <div
             ref={attachList}
-            className="acpmux-omni ui-popup ui-glass ui-scroll-edge-fade"
+            className="acpmux-omni ui-popup ui-glass ui-popup-scroll-shell"
             id="acpmux-omni"
             // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
             role="listbox"
             aria-label={t(NEW_TAB_LABELS.suggestions)}
           >
-            {/* Virtual focus, as the composer's slash menu: the field keeps focus and names the row. */}
-            {rows.map((row, index) => (
-              <div
-                key={rowKey(row)}
-                id={`acpmux-omni-${index}`}
-                // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-                role="option"
-                tabIndex={-1}
-                aria-selected={index === selected}
-                className={index === selected ? "acpmux-omni-row is-selected" : "acpmux-omni-row"}
-                // Hover only lights the row (styles.css); Return stays the keyboard's row, as on
-                // the New Tab screen (newtab/NewTabScreen.tsx). A press still runs the row.
-                onMouseDown={(event) => {
-                  event.preventDefault();
-                  activate(row);
-                }}
-              >
-                <RowIcon row={row} agent={snapshot.summary?.harness ?? snapshot.catalog[0]?.id} />
-                <span className="acpmux-omni-text">
-                  <span className="acpmux-omni-title">
-                    {row.type === "ask" && <b>{t(NEW_TAB_LABELS.ask, { agent })}: </b>}
-                    {rowTitle(row)}
-                  </span>{" "}
-                  {rowDetail(row) && <span className="acpmux-omni-detail">{rowDetail(row)}</span>}
-                </span>
-                <span className="acpmux-omni-action" data-popup-skip>
-                  {row.type === "ask" ? t(NEW_TAB_LABELS.ask, { agent }) : t(NEW_TAB_LABELS.rows[row.type])}
-                  {index === selected && <kbd>↵</kbd>}
-                </span>
-              </div>
-            ))}
+            <div ref={listEdges} className="ui-popup-scroll ui-scroll-edge-fade">
+              {/* Virtual focus, as the composer's slash menu: the field keeps focus and names the row. */}
+              {rows.map((row, index) => (
+                <div
+                  key={rowKey(row)}
+                  id={`acpmux-omni-${index}`}
+                  // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+                  role="option"
+                  tabIndex={-1}
+                  aria-selected={index === selected}
+                  className={index === selected ? "acpmux-omni-row is-selected" : "acpmux-omni-row"}
+                  // Hover only lights the row (styles.css); Return stays the keyboard's row, as on
+                  // the New Tab screen (newtab/NewTabScreen.tsx). A press still runs the row.
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    activate(row);
+                  }}
+                >
+                  <RowIcon row={row} agent={snapshot.summary?.harness ?? snapshot.catalog[0]?.id} />
+                  <span className="acpmux-omni-text">
+                    <span className="acpmux-omni-title">
+                      {row.type === "ask" && <b>{t(NEW_TAB_LABELS.ask, { agent })}: </b>}
+                      {rowTitle(row)}
+                    </span>{" "}
+                    {rowDetail(row) && <span className="acpmux-omni-detail">{rowDetail(row)}</span>}
+                  </span>
+                  <span className="acpmux-omni-action" data-popup-skip>
+                    {row.type === "ask" ? t(NEW_TAB_LABELS.ask, { agent }) : t(NEW_TAB_LABELS.rows[row.type])}
+                    {index === selected && <kbd>↵</kbd>}
+                  </span>
+                </div>
+              ))}
+            </div>
           </div>
         )}
       </div>

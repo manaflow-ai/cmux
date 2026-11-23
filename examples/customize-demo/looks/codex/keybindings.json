@@ -1,0 +1,10 @@
+// The Codex app's keys (the codex look). Shift-Command-O was Restore Previous App Launch; it stays
+// in the Command Palette. `cmux customize discard` puts your own keys back.
+[
+  { "key": "cmd+shift+o", "command": "palette.newAgentChat", "args": { "harness": "codex" } },
+  { "key": "ctrl+shift+g", "command": "openDiffViewer" },
+  { "key": "ctrl+shift+m", "command": "agentPane.switchModel" },
+  { "key": "cmd+shift+leftbracket", "command": "prevSidebarTab" },
+  { "key": "cmd+shift+rightbracket", "command": "nextSidebarTab" },
+  { "key": "cmd+slash", "command": "palette.searchShortcuts" }
+]

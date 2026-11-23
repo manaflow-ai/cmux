@@ -4,7 +4,7 @@
 // (Leo, on a chat message that said only "Nothing new for you yet.": "why do you guys keep sending
 // me this/get pinged to send this"). The person's own turns, and a log from before acpmux wrote
 // these records, draw exactly as before.
-import { expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { BackgroundTurnLine } from "../src/agent-session/acpmux/conversation/BackgroundTurnLine";
@@ -24,9 +24,18 @@ import { withSubagentLines } from "../src/agent-session/acpmux/subagents/running
 import { SUBAGENT_DONE } from "../src/agent-session/acpmux/subagents/subagentRows";
 import { SubagentDoneLine } from "../src/agent-session/acpmux/subagents/SubagentDoneLine";
 import { OrderedRows } from "../src/agent-session/acpmux/direct";
-import { gridMark, type AcpmuxRow } from "../src/agent-session/acpmux/model";
+import { gridMark, layoutConversation, type AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { TRANSCRIPT_TURN_GAP, transcriptGap } from "../src/agent-session/acpmux/transcriptGrid";
 import { connect, fakeDaemon, record, type Step } from "./support/agentPairDaemon";
+
+// These pin the line look (backgroundTurnLook.experiment.ts `line`): the default draws a background
+// turn's calls inline, with no line (backgroundTurnInline.test.ts).
+beforeAll(() => {
+  globalThis.cmuxExperiments = { ...globalThis.cmuxExperiments, "background-turn-look": "line" };
+});
+afterAll(() => {
+  globalThis.cmuxExperiments = undefined;
+});
 
 const update = (update: Record<string, unknown>) => ({ method: "session/update", params: { update } });
 const say = (text: string): Step => [
@@ -992,7 +1001,8 @@ test("a quiet failure's short reply draws under its named line, never folded ins
     const at = view.findIndex((row) => row.kind === BACKGROUND_TURN);
     expect(at).toBeGreaterThanOrEqual(0);
     expect(lineHtml(view[at]!)).toContain("Background command failed (exit code 1)");
-    expect(lineHtml(view[at]!)).not.toContain("aria-expanded");
+    // It opens to its task (backgroundTurnTask.ts), never folds the reply under it.
+    expect(lineHtml(view[at]!)).toContain('data-opens="task"');
     expect(view[at + 1]).toMatchObject({
       kind: "assistant",
       text: "The suite failed on one flaky test; rerunning it.",
@@ -1003,7 +1013,8 @@ test("a quiet failure's short reply draws under its named line, never folded ins
 });
 
 // #33319: a failure that ended with something to say keeps its named line over its rows, so a long
-// reply never hides what failed. The line heads rows that already show, so it opens nothing.
+// reply never hides what failed. The line heads rows that already show, so it opens only to its task
+// (Leo, 2026-11-21: "background tasks not expandable"), never to them.
 test("a failure with a long reply keeps its named line over the reply", async () => {
   const daemon = fakeDaemon(
     record([
@@ -1029,7 +1040,7 @@ test("a failure with a long reply keeps its named line over the reply", async ()
     expect(at).toBeGreaterThanOrEqual(0);
     const line = view[at]!;
     expect(lineHtml(line)).toContain("Background command failed (exit code 101)");
-    expect(lineHtml(line)).not.toContain("aria-expanded");
+    expect(lineHtml(line)).toContain('data-opens="task"');
     expect(lineHtml(line)).toContain('data-background-turn="failed"');
     expect(view.slice(at + 1).some((row) => row.text?.includes("Here is what broke"))).toBe(true);
   } finally {
@@ -1128,6 +1139,109 @@ test("a background turn's long reply is the agent's own turn, never the subagent
     }
     // The first follows the subagent's done line, not inside it.
     expect(view[own[0]!.at - 1]?.kind).toBe(SUBAGENT_DONE);
+  } finally {
+    client.close();
+  }
+});
+
+// Leo, 2026-11-10: "too much space in between here", on "Worked for 1m 6s · 1 tool call" with an
+// empty band between its rule and the fold's first row. "Worked for" is its turn's header and
+// keeps its own room under its rule (transcriptGrid.ts MARK_WORKED), so the row right under it is
+// inside the turn the header opened, whoever started the work: it never takes a turn gap of its
+// own on top (model.ts `opensBackgroundTurn`).
+const think = (text: string): Step => [
+  "in",
+  "agent_thought_chunk",
+  update({ sessionUpdate: "agent_thought_chunk", content: { type: "text", text } }),
+];
+const gateWork: Step[] = [
+  think("I'm checking whether the gate accepts the marker."),
+  ran("gate"),
+  think("The gate accepts the result, so I'm waiting on the waiter."),
+  say("The gate accepts it. Landed."),
+];
+const workedShapes: Record<string, Step[]> = {
+  "a prompt's own work": [
+    ["mux", "user_message", { text: "Land it", turnId: "t2" }],
+    ["mux", "turn_started", { turnId: "t2" }],
+    ...gateWork,
+    ["mux", "turn_result", { turnId: "t2", status: "completed" }],
+  ],
+  "a background task's turn": [
+    started("bg"),
+    ["mux", "user_message", { text: "<task-notification><summary>Done</summary></task-notification>", turnId: "t2" }],
+    ["mux", "turn_started", { turnId: "t2" }],
+    ...gateWork,
+    ["mux", "turn_result", { turnId: "t2", status: "completed" }],
+    ended("bg", false),
+  ],
+  "background work inside a prompt's turn": [
+    ["mux", "user_message", { text: "Land it", turnId: "t2" }],
+    ["mux", "turn_started", { turnId: "t2" }],
+    say("Waiting."),
+    started("bg"),
+    ...gateWork,
+    ended("bg", false),
+    ["mux", "turn_result", { turnId: "t2", status: "completed" }],
+  ],
+};
+for (const [shape, steps] of Object.entries(workedShapes))
+  for (const open of [false, true])
+    test(`no gap follows "Worked for" over ${shape} (${open ? "open" : "closed"})`, async () => {
+      const daemon = fakeDaemon(record([...personTurn("Hi", "Landing.", "t1"), ...steps]));
+      const { client, rows } = await connect(daemon);
+      try {
+        const closed = drawn(rows());
+        const view = open
+          ? drawn(
+              rows(),
+              closed.filter((row) => row.kind === "worked").map((row) => row.id),
+            )
+          : closed;
+        const header = view.findIndex((row) => row.kind === "worked");
+        expect(header).toBeGreaterThan(0);
+        expect(view.length).toBeGreaterThan(header + 1);
+        expect(
+          transcriptGap(gridMark(view[header]!, view[header - 1]), gridMark(view[header + 1]!, view[header])),
+        ).toBe(0);
+        const layout = layoutConversation(view as never, 720);
+        expect(layout.tops[header + 1]! - layout.tops[header]! - layout.heights[header]!).toBe(0);
+      } finally {
+        client.close();
+      }
+    });
+
+// A background task's notice that comes in during a turn is what the agent answers with the work
+// under it: the run under it opens nothing, so it sits flush on the 22 pitch, never the 32 turn gap
+// (Leo, 2026-11-16: "why is the background task space after so big").
+test("the run under a background task's notice sits flush under it", async () => {
+  const notification = "<task-notification><summary>Background command finished (exit 0)</summary></task-notification>";
+  const daemon = fakeDaemon(
+    record([
+      ...personTurn("Hi", "Landing.", "t1"),
+      ["mux", "user_message", { text: "Push it", turnId: "t2" }],
+      ["mux", "turn_started", { turnId: "t2" }],
+      ran("push"),
+      started("bg"),
+      ["mux", "user_message", { text: notification, client: "adopt" }],
+      ran("after"),
+      ended("bg", false),
+      say("Pushed."),
+      ["mux", "turn_result", { turnId: "t2", status: "completed" }],
+    ]),
+  );
+  const { client, rows } = await connect(daemon);
+  try {
+    const closed = drawn(rows());
+    const view = drawn(
+      rows(),
+      closed.filter((row) => row.kind === "worked" || row.kind === BACKGROUND_TURN).map((row) => row.id),
+    );
+    const notice = view.findIndex((row) => row.kind === "user" && row.incoming?.kind === "notice");
+    expect(notice).toBeGreaterThan(0);
+    const next = view[notice + 1]!;
+    expect(next.kind).toBe("activity");
+    expect(transcriptGap(gridMark(view[notice]!, view[notice - 1]), gridMark(next, view[notice]))).toBe(0);
   } finally {
     client.close();
   }

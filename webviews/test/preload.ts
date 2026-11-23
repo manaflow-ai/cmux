@@ -16,15 +16,31 @@ export {};
 {
   const { writeStrings } = await import("../scripts/pages/gen-strings.mjs");
   writeStrings({ ifStale: true, bestEffort: true, log: () => {} });
-  // The agent pane table is consumed immediately below. Regenerate it unconditionally so a
-  // restored ignored output cache cannot leave tests rendering localization keys.
-  writeStrings({ only: ["agentPane"], bestEffort: true, log: () => {} });
+  // The agent pane table is consumed immediately below. Check it by content, not time, so a
+  // restored ignored output cache cannot leave tests rendering localization keys. A rebuild from
+  // its 12 MB catalog took about 200 ms of every `bun test` process; the content check about 20.
+  writeStrings({ only: ["agentPane"], ifUnchanged: true, bestEffort: true, log: () => {} });
   // The feature tips table is build output too (gen-feature-tips.mjs): made from this tree's highlights.
   const { writeFeatureTips } = await import("../scripts/pages/gen-feature-tips.mjs");
   writeFeatureTips({ log: () => {} });
   // The design scale's Tailwind theme and token list (gen-design-scale.mjs) are build output as well.
   const { writeDesignScale } = await import("../scripts/pages/gen-design-scale.mjs");
   writeDesignScale({ log: () => {} });
+  // So are the pane and acpmux protocol types (pane-protocol-codegen.ts, acpmux-protocol-codegen.ts),
+  // made from the committed IR; each file is written only when its content changed.
+  const { writePaneProtocol } = await import("../scripts/pane-protocol-codegen");
+  writePaneProtocol({ log: () => {} });
+  const { writeAcpmuxProtocol } = await import("../scripts/acpmux-protocol-codegen");
+  writeAcpmuxProtocol({ log: () => {} });
+}
+
+// React's scheduler keeps its queue private, and react-dom copies its entry points when it first
+// loads: count the tasks it queues from here on, before anything loads react-dom, so a teardown can
+// wait for them (support/domTeardown.ts: a scheduler task that runs after a file deletes its DOM
+// globals fails the file with "window is not defined" between tests).
+{
+  const { trackReactScheduler } = await import("./support/domTeardown");
+  trackReactScheduler();
 }
 
 // react-dom picks the animationend event name once, when it first loads: without
@@ -45,6 +61,13 @@ export {};
   });
   await import("react-dom");
   await import("react-dom/client");
+  // Floating UI's React bindings (under every Base UI tooltip, menu and popover) make the same
+  // once-only check as Base UI above: loaded with no global `document`, their layout effects are a
+  // no-op, so a popup never positions and its positioner keeps Base UI's `opacity: 0` for the rest
+  // of the run. session-info-subagent-card-stays failed so behind session-info-motion in one
+  // `bun test` process, and passed alone. Loaded here, after react-dom, which it imports: the copy
+  // Base UI itself resolves (a dependency of @base-ui/react, not of this package).
+  await import(Bun.resolveSync("@floating-ui/react-dom", Bun.resolveSync("@base-ui/react/tooltip", import.meta.path)));
   for (const [key, had, value] of saved)
     if (had) scope[key] = value;
     else delete scope[key];

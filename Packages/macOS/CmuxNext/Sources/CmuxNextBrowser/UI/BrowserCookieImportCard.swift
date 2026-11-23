@@ -50,10 +50,11 @@ final class BrowserCookieImportCard: NSView {
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
         let body = NSView()
-        let glass = Glass.makeSurface(.toast, content: body, cornerRadius: Self.cornerRadius)
-        // It floats on the overlay host, a clear window over the page's own window: where this Mac
-        // draws the blur (macOS 14 and 15), it blurs the page behind that window, not the clear
-        // panel. Liquid Glass ignores it.
+        let glass = Glass.makeOverlayPanel(content: body, cornerRadius: Self.cornerRadius, tone: .neutralGlass(.transient))
+        // It floats on the overlay host, a clear window over the page's own window: its Liquid Glass bends
+        // that page, as the dialog card's does (Lawrence 2026-11-09: "i need to be able to see liquid glass
+        // effect"). The blur (macOS 14 and 15) samples the page behind the window; Reduce Transparency
+        // keeps the opaque surface.
         glass.samplesBehindWindow = true
         glass.translatesAutoresizingMaskIntoConstraints = false
         addSubview(glass)

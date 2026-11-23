@@ -80,6 +80,7 @@ mod key_forward;
 mod mouse_dispatch;
 mod pty_mouse;
 mod pty_write;
+pub(crate) mod synchronized_output;
 mod tab_moves;
 mod workspace_pins;
 pub(crate) use workspace_pins::{WorkspaceDropGeometry, WorkspaceDropSlot};
@@ -386,6 +387,8 @@ pub struct App {
     pub tree: TreeView,
     tab_locations: HashMap<SurfaceId, [usize; 4]>,
     pub render_states: HashMap<SurfaceId, RenderState>,
+    /// Each drawn terminal's last frame, held while a synchronized update runs.
+    pub(crate) synchronized_output: synchronized_output::SynchronizedOutput,
     pub(crate) chrome_row_scratch: ReusableRowBuffer,
     /// Reusable storage for the ordered sidebar kind snapshot taken during a
     /// frame. The draw loop takes this out while dispatching so mutable rail

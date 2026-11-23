@@ -1,4 +1,4 @@
-//! DAEMON LISTS STOP 800 (2026-11-10): at the person's session size (826 workspaces, 798
+//! DAEMON LISTS STOP 800 (2026-11-10): at a large session's size (826 workspaces, 798
 //! terminals) the CLI's `terminal list` took 223.8 ms and `pane list` 74.7 ms (13.1 ms and 11.7 ms
 //! at 60 workspaces; SESSION 800, headless daemon). A list with no scope built the whole session
 //! snapshot (each workspace, screen, pane, tab, terminal, browser, notification, agent and
@@ -25,10 +25,20 @@ use serde_json::{Value, json};
 use super::read_paths::{resource, touched};
 use super::*;
 
+mod parked_terminals;
+mod tab_state_fields;
+mod workspace_state_fields;
+
 /// A session in the shape of the person's: each workspace has one screen with one pane and one
 /// terminal; each eighth workspace has a second terminal tab. No terminal has a process.
 fn session_of(workspaces: usize) -> Arc<Mux> {
     let mux = test_mux();
+    fill(&mux, workspaces);
+    mux
+}
+
+/// Add `workspaces` workspaces in the shape of [`session_of`] to `mux`.
+fn fill(mux: &Arc<Mux>, workspaces: usize) {
     for index in 0..workspaces {
         let surface = mux.new_workspace(Some(format!("w{index}")), Some((80, 24))).unwrap();
         if index % 8 == 0 {
@@ -36,7 +46,6 @@ fn session_of(workspaces: usize) -> Arc<Mux> {
             mux.new_tab(Some(pane), None, Some((80, 24))).unwrap();
         }
     }
-    mux
 }
 
 /// `request`'s result, and whether a whole session snapshot was built for it.

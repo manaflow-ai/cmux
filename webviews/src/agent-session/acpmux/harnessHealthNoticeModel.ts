@@ -13,6 +13,10 @@ export function skipped(): Record<string, string> {
 /// (`harness.health`).
 export type HarnessHealth = {
   id: string;
+  /// Where acpmux found the program, and the npm package or Homebrew formula behind it: two
+  /// profiles with the same are one install (harnessInstalls.ts).
+  path?: string | null;
+  package?: string | null;
   version?: string | null;
   latest?: string | null;
   outdated?: boolean;
@@ -48,6 +52,10 @@ export type UpdateOffer = {
   version: string;
   latest: string;
   update(): void;
+  /// Starts it on an update already asked of the host (`reply`, its `harness.update` answer): the
+  /// model menus' Update all runs every agent's update on the person's one click. Optional: an
+  /// offer without it has Update all call its own `update()`.
+  updateWith?(reply: Promise<unknown>): void;
   skip(): void;
 };
 

@@ -4,6 +4,7 @@
 // budget the largest of them upload at the Send, under the Send's ticket (the host's
 // chat.upload.begin holds it instead of spending the gesture), and go as links.
 import { afterAll, beforeAll, expect, test } from "bun:test";
+import { settleReact } from "../../../test/support/domTeardown";
 import { JSDOM } from "jsdom";
 import { promptBlocks, type ComposerAttachment, type PromptBlock } from "./attachments";
 import { PROMPT_INLINE_BUDGET, inlineBytes, uploadsToFit } from "./promptBudget";
@@ -86,7 +87,8 @@ beforeAll(() => {
   scope.window = dom.window;
   scope.document = dom.window.document;
 });
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   for (const [key, value] of Object.entries(saved)) {
     if (value === undefined) delete scope[key];
     else scope[key] = value;

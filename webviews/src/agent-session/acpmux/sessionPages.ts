@@ -1,9 +1,13 @@
 // The pane's session list in keyset pages (cx-2lv1k). `_acpmux/watch` with `limit` answers the
 // newest sessions and a `nextCursor`; `_acpmux/sessions` with that cursor answers the next page.
-// The first page draws the pane and opens its chat; the rest arrive behind it, so a long list on
-// a remote link never holds up the transcript. Search, project groups and pinned rows need every
-// session, so the list is always read to the end. A daemon that ignores `limit` answers the whole
-// list with no cursor, as before, or (past its largest reply) its first rows and a cursor.
+// The first page draws the pane and opens its chat, and the pane then follows the list's changes
+// from the first page's cursor (`session-list-follow-v1`). The later pages are read only when
+// something on screen asks for every chat (`wantAllSessions`: the composer's @ chat search): read
+// at every mount, each pane cost the whole list at 10,000 sessions, about 1 MB a mount (Leo,
+// 2026-11-04: "never ... acceptable ... linear time growth degradation"). All Chats pages itself
+// (`chats.page`), and one chat the pane needs that the page lacks is asked by `_acpmux/resolve`.
+// A daemon that ignores `limit` answers the whole list with no cursor, as before, or (past its
+// largest reply) its first rows and a cursor.
 
 import { translate } from "./i18n";
 
@@ -11,6 +15,29 @@ import { translate } from "./i18n";
 export const SESSION_PAGE = 200;
 /** Later pages one list reads at most (a million sessions) before reading the whole list instead. */
 const MAX_PAGES = 5000;
+/** Times a later page that failed for another reason is asked again, from the same cursor, before
+ * the whole list is read instead. */
+const PAGE_RETRIES = 3;
+/** The wait before a failed page is asked again, when acpmux names none. */
+const PAGE_RETRY_MS = 500;
+/** The longest wait a refusal's `retryAfterMs` is followed for. */
+const MAX_PAGE_RETRY_MS = 10_000;
+
+/** acpmux's reply to a list read past its pace (`list.paced`): the page is asked again after its
+ * `retryAfterMs`, from the same cursor, for as long as this list is current. Read whole instead,
+ * every paced page cost the whole list in one reply, itself paced and read again 2 s later: 31 MB
+ * replies about seven times a minute on one Mac (2026-11-11: "im at 100% cpu rn"). */
+function paced(error: unknown): boolean {
+  const data = (error as { data?: { reason?: unknown; retryable?: unknown } } | undefined)?.data;
+  return data?.reason === "list.paced" || data?.retryable === true;
+}
+
+/** How long to wait before asking a page again after `error`: acpmux's `retryAfterMs`, else a moment. */
+function retryWait(error: unknown): number {
+  const data = (error as { data?: { retryAfterMs?: unknown } } | undefined)?.data;
+  const ms = Number(data?.retryAfterMs);
+  return Number.isFinite(ms) && ms > 0 ? Math.min(ms, MAX_PAGE_RETRY_MS) : PAGE_RETRY_MS;
+}
 
 type Request = (method: string, params: Record<string, unknown>) => Promise<any>;
 type Summary = { sessionId: string } & Record<string, any>;
@@ -27,6 +54,71 @@ export class SessionPageError extends Error {
  * `tab`: a chat on another machine's wire names the session that machine's daemon attached as the
  * tab's own (RemoteAcpmuxWire `tabSessionId`). */
 export type SessionPage<S extends Summary> = { sessions: S[]; next?: string; run?: number; tab?: string };
+
+/** The `initialize` capability of an acpmux that stamps `listSeq` and follows a watch from
+ *  `afterSeq` (acpmux hub/row_log.rs). */
+export const LIST_FOLLOW_CAPABILITY = "session-list-follow-v1";
+
+/** The `initialize` capability of an acpmux that answers `_acpmux/usage`: every listed chat's
+ *  `usageStats` and nothing else, `unchanged` while the digest the client holds is current
+ *  (acpmux hub/usage_answer.rs). */
+export const USAGE_CAPABILITY = "session-usage-v1";
+
+/** A list position: the daemon run's `listEpoch` and a `listSeq` in it. */
+type Cursor = { epoch: string; seq: number };
+
+/** The position a list reply is current to, when acpmux names one. */
+function cursorOf(reply: any): Cursor | undefined {
+  const seq = reply?.listSeq;
+  const epoch = reply?.listEpoch;
+  return typeof epoch === "string" && Number.isSafeInteger(seq) && seq >= 0 ? { epoch, seq } : undefined;
+}
+
+/** The list a page holds for one daemon connection (`SessionPager.share`): its rows, the cursor
+ *  they are current to, and the page after them when they are not the whole list. Kept for the
+ *  page's life, one per connection identity, so the next client of that connection in this page (a
+ *  reconnect, a new chat in the same page) follows from the cursor instead of reading the list
+ *  again. A daemon that restarted answers the cursor with a reset, which replaces it. */
+type HeldList = { rows: Summary[]; cursor: Cursor; more?: string };
+const heldLists = new Map<string, HeldList>();
+
+/** Forgets every held list (tests). */
+export function forgetHeldLists(): void {
+  heldLists.clear();
+  allWanted = false;
+}
+
+/** What asks for every chat (`wantAllSessions`), and the pagers that answer it. */
+const wantsAll = new Set<() => void>();
+
+/** Whether something in this page asked for every chat (`wantAllSessions`): a list read anew
+ *  after that (a reconnect, a daemon restart) reads its later pages too. */
+let allWanted = false;
+export function allSessionsWanted(): boolean {
+  return allWanted;
+}
+
+/** Something on screen needs every chat, not only the first page's (the composer's @ chat
+ *  search): each connected pane reads the later pages once, and follows from then on. */
+export function wantAllSessions(): void {
+  allWanted = true;
+  for (const want of wantsAll) want();
+}
+
+/** `list` with `row` in place of its own copy (the same id and peer), newest first as acpmux sorts. */
+export function withSession<S extends Summary>(list: readonly S[], row: S): S[] {
+  const key = goneKey(row.sessionId, row.peer);
+  return [...list.filter((held) => goneKey(held.sessionId, held.peer) !== key), row].sort(newestFirst);
+}
+
+/** Listens for `wantAllSessions`; the answer stops listening. */
+export function onWantAllSessions(want: () => void): () => void {
+  wantsAll.add(want);
+  return () => wantsAll.delete(want);
+}
+
+/** A row a follow names gone: this daemon's own (no `peer`) or a peer's copy. */
+const goneKey = (sessionId: string, peer: unknown) => `${sessionId}\u0000${typeof peer === "string" ? peer : ""}`;
 
 function pageOf<S extends Summary>(reply: any): SessionPage<S> {
   const sessions = (Array.isArray(reply?.sessions) ? reply.sessions : []).filter(
@@ -58,6 +150,13 @@ function wholePageOf<S extends Summary>(reply: any, after?: string): SessionPage
     );
   return { sessions: pageOf<S>(reply).sessions, ...(typeof cursor === "string" ? { next: cursor } : {}) };
 }
+/** `list` in acpmux's order, the same array when it already is: a chat that changed or was added while
+ *  later pages came is put where its change sorts it, as the list read at once sorts it. */
+export function inNewestOrder<S extends Summary>(list: S[]): S[] {
+  for (let index = 1; index < list.length; index += 1)
+    if (newestFirst(list[index - 1]!, list[index]!) > 0) return [...list].sort(newestFirst);
+  return list;
+}
 
 /** acpmux's order (hub/session_pages.rs `sort_session_summaries`): newest first, then by
  * `sessionId`, then by `peer`, this daemon's own row (no `peer`) first. */
@@ -86,17 +185,219 @@ export class SessionPager<S extends Summary> {
   private wholeReads = 0;
   private purged = new Set<string>();
   private changed = new Map<string, S>();
+  /** The `listSeq` each kept change came with (`changedSession`, `purgedSession`). */
+  private changedAt = new Map<string, number>();
+  /**
+   * The session list as a row log (acpmux hub/row_log.rs, Leo, 2026-11-12: "it's unacceptable to
+   * be having so many of these connectivity issues"). `follows`: this connection's acpmux has
+   * `LIST_FOLLOW_CAPABILITY`. `cursor`: the highest `listSeq` of a list held whole, kept across
+   * reconnects of this client, so a reconnect or a lagged watch asks only the rows changed since
+   * (`first`) instead of the whole list. `reading`: the position of the list being read, the
+   * cursor once it is whole (`done`). `listedAt`: the position the held list is current to; a
+   * notice below it is older than the row held (`fresh`).
+   */
+  follows = false;
+  /** This connection's acpmux has `USAGE_CAPABILITY`: `usage` asks it alone, not every page. */
+  usageAlone = false;
+  /** The last `_acpmux/usage` answer and its digest, which the next ask sends (`usage`). */
+  private usageHeld?: { digest: string; usage: Map<string, unknown> };
+  private cursor?: Cursor;
+  private reading?: Cursor;
+  private listedAt = 0;
+  /** Some notices were deliberately deferred: no cursor can describe the rows held now. */
+  private missedChanges = false;
+  private invalidations = 0;
+  private readInvalidations = 0;
+  /** The connection identity this page's held list is kept under (`share`, `heldLists`). */
+  private key?: string;
+  /** The page after the rows held, while they are the first page and its follows rather than the
+   *  whole list: read only when something asks for every chat (`later`). */
+  private more?: string;
 
-  constructor(private readonly request: Request) {}
+  /**
+   * Rows of peer batches (`_acpmux/peer_rows_changed`, acpmux hub/list_guard.rs
+   * `send_remote_batch`) that no list or follow read here holds yet: the position before the
+   * first (`after`) and the last (`through`). acpmux sends a batch, in place of a `session_changed`
+   * per row, only to a client whose `initialize` asked (`peerRowBatches`): a peer's list of 400
+   * rows was 400 notices ahead of every reply on the connection. The cursor stays at most `after`
+   * until a read holds them, so a follow from it reads them.
+   */
+  private owed?: { after: number; through: number };
 
-  /** Turns the watch on and answers its first page, or undefined when a newer list started meanwhile. */
+  /** `held`: the rows the client holds now, which a follow lays its changes over. `readOwed`: asks
+   *  for a list read (`first`), called when peer batch rows are owed and no read is out for them. */
+  constructor(
+    private readonly request: Request,
+    private readonly held: () => S[] = () => [],
+    private readonly readOwed: () => void = () => {},
+  ) {}
+
+  /** One peer's rows changed at once (`_acpmux/peer_rows_changed {afterSeq, listSeq}`): read them
+   *  with the next follow. One with no positions asks for a read all the same. */
+  peerRowsChanged(afterSeq: unknown, listSeq: unknown): void {
+    if (
+      typeof afterSeq === "number" &&
+      Number.isSafeInteger(afterSeq) &&
+      typeof listSeq === "number" &&
+      Number.isSafeInteger(listSeq)
+    ) {
+      this.owed = this.owed
+        ? { after: Math.min(this.owed.after, afterSeq), through: Math.max(this.owed.through, listSeq) }
+        : { after: afterSeq, through: listSeq };
+      this.keepBelowOwed();
+    }
+    if (!this.loading) this.readOwed();
+  }
+
+  /** The cursor, and the position of the list being read, kept at most the owed rows' `after`. */
+  private keepBelowOwed(): void {
+    const owed = this.owed;
+    if (!owed) return;
+    if (this.cursor && this.cursor.seq > owed.after) this.cursor = { ...this.cursor, seq: owed.after };
+    if (this.reading && this.reading.seq > owed.after) this.reading = { ...this.reading, seq: owed.after };
+  }
+
+  /** A reply current to `seq` of a read of the rows changed after `from` (0: a whole list) holds the
+   *  owed rows up to `seq` when it started at or below them; none are owed once that reaches the last. */
+  private readOwedTo(from: number, seq: number): void {
+    const owed = this.owed;
+    if (!owed || from > owed.after) return;
+    const after = Math.max(owed.after, seq);
+    this.owed = after < owed.through ? { after, through: owed.through } : undefined;
+  }
+
+  /** Keeps this pager's list under `key`, the daemon connection it reads (`heldLists`): a pager of
+   *  the same connection that holds no cursor yet follows from the one kept there. */
+  share(key: string): void {
+    this.key = key;
+  }
+
+  /** Whether the rows held are the whole list: no later page waits to be read (`later`). */
+  get holdsAll(): boolean {
+    return this.more === undefined;
+  }
+
+  /** A hidden page discarded a notice; its next read must reset, even if later notices arrive. */
+  invalidate(): void {
+    this.missedChanges = true;
+    this.invalidations += 1;
+    this.cursor = undefined;
+    this.reading = undefined;
+    if (this.key) heldLists.delete(this.key);
+  }
+
+  /** Turns the watch on and answers its first page, or undefined when a newer list started meanwhile.
+   *  With a cursor (`follows`) it answers the held rows with every change since laid over them, as
+   *  one whole page; a cursor acpmux cannot follow is answered with the first page (`reset`). */
   async first(): Promise<SessionPage<S> | undefined> {
     const run = ++this.run;
     this.purged.clear();
     this.changed.clear();
+    this.changedAt.clear();
     this.loading = true;
-    const page = pageOf<S>(await this.request("_acpmux/watch", { enabled: true, limit: SESSION_PAGE }));
-    return run === this.run ? { ...page, run } : undefined;
+    this.reading = undefined;
+    // Positions start again on another daemon run; until this list's reply says where it is, every
+    // notice is kept (and one older than the reply dropped then, `listedFrom`).
+    this.listedAt = 0;
+    let from = this.follows && !this.missedChanges ? this.cursor : undefined;
+    // A new client of a connection this page read before (a reconnect, a client made again): the
+    // list kept for it, followed from its cursor, never read again.
+    const kept = this.follows && !this.missedChanges && !from && this.key ? heldLists.get(this.key) : undefined;
+    this.readInvalidations = this.invalidations;
+    if (kept) {
+      from = kept.cursor;
+      this.more = kept.more;
+    }
+    // The position the follow out now reads after, for the peer rows owed (`readOwedTo`).
+    let asked = from?.seq ?? 0;
+    const params = from ? { enabled: true, afterSeq: from.seq, listEpoch: from.epoch } : {};
+    let reply = await this.request("_acpmux/watch", { enabled: true, limit: SESSION_PAGE, ...params });
+    if (run !== this.run) return undefined;
+    if (reply?.follow !== true) return this.reset(reply, run);
+    let list = kept ? (kept.rows as S[]) : this.held();
+    for (;;) {
+      list = this.applyFollow(list, reply);
+      this.listedFrom(reply, asked);
+      const at = cursorOf(reply);
+      if (reply.more !== true || at === undefined) break;
+      asked = at.seq;
+      reply = await this.request("_acpmux/watch", {
+        enabled: true,
+        limit: SESSION_PAGE,
+        afterSeq: at.seq,
+        listEpoch: at.epoch,
+      });
+      if (run !== this.run) return undefined;
+      // One acpmux cannot follow from its own position (it restarted between the two): its first page.
+      if (reply?.follow !== true) return this.reset(reply, run);
+    }
+    return { sessions: list, run };
+  }
+
+  /** A list read anew (no cursor, or one acpmux could not follow): its first page, and the page
+   *  after it, which is read only when asked (`later`). */
+  private reset(reply: any, run: number): SessionPage<S> {
+    this.listedFrom(reply);
+    const page = pageOf<S>(reply);
+    this.more = page.next;
+    return { ...page, run };
+  }
+
+  /** `list` with a follow's rows put in place of the ones held (or added) and its `gone` rows
+   *  removed, newest first. */
+  private applyFollow(list: S[], reply: any): S[] {
+    const rows = pageOf<S>(reply).sessions;
+    const gone = new Set(
+      (Array.isArray(reply?.gone) ? reply.gone : [])
+        .filter((row: any) => typeof row?.sessionId === "string")
+        .map((row: any) => goneKey(row.sessionId, row.peer)),
+    );
+    if (rows.length === 0 && gone.size === 0) return list;
+    // A row is its id and its peer's: this daemon's chat and a peer's of the same id are two rows.
+    const changed = new Set(rows.map((row) => goneKey(row.sessionId, row.peer)));
+    const kept = list.filter((row) => {
+      const key = goneKey(row.sessionId, row.peer);
+      return !changed.has(key) && !gone.has(key);
+    });
+    return [...kept, ...rows].sort(newestFirst);
+  }
+
+  /** A list reply current to its `listSeq`: the list being read is, and a change kept while it was
+   *  out with a lower position is in it already (a newer row than the change's), so it is dropped.
+   *  `asked`: the position a follow read after (a whole list holds every row). */
+  private listedFrom(reply: any, asked = 0): void {
+    // A list read anew replaces the rows held: until it is whole, there is nothing to follow from.
+    if (reply?.follow !== true) this.cursor = undefined;
+    const at = cursorOf(reply);
+    if (!at) return;
+    this.readOwedTo(reply?.follow === true ? asked : 0, at.seq);
+    this.listedAt = at.seq;
+    let seq = at.seq;
+    for (const [sessionId, changedAt] of this.changedAt) {
+      if (changedAt >= at.seq) {
+        seq = Math.max(seq, changedAt);
+        continue;
+      }
+      this.changed.delete(sessionId);
+      this.purged.delete(sessionId);
+      this.changedAt.delete(sessionId);
+    }
+    this.reading = { epoch: at.epoch, seq };
+    this.keepBelowOwed();
+  }
+
+  /**
+   * Whether a `session_changed` at `listSeq` may replace the row held: not when its position is
+   * lower than the list the row came with. A newer one moves the cursor of a list held whole. A
+   * notice with no position (an older acpmux) always may.
+   */
+  fresh(listSeq: unknown): boolean {
+    if (typeof listSeq !== "number" || !Number.isSafeInteger(listSeq)) return true;
+    if (listSeq < this.listedAt) return false;
+    if (this.cursor && !this.loading && listSeq > this.cursor.seq) this.cursor = { ...this.cursor, seq: listSeq };
+    if (this.reading && listSeq > this.reading.seq) this.reading = { ...this.reading, seq: listSeq };
+    this.keepBelowOwed();
+    return true;
   }
 
   /**
@@ -105,7 +406,9 @@ export class SessionPager<S extends Summary> {
    * comes as its first rows and a `nextCursor`; the rest is read by `_acpmux/sessions` from it.
    */
   async whole(): Promise<S[]> {
-    let page = wholePageOf<S>(await this.request("_acpmux/watch", { enabled: true }));
+    const reply = await this.pacedRequest("_acpmux/watch", { enabled: true });
+    let page = wholePageOf<S>(reply);
+    this.listedFrom(reply);
     const sessions = page.sessions;
     const seen = new Set<string>();
     for (let next = page.next; next !== undefined; next = page.next) {
@@ -115,11 +418,24 @@ export class SessionPager<S extends Summary> {
           `acpmux gave the page cursor ${JSON.stringify(next)} twice`,
         );
       seen.add(next);
-      page = wholePageOf<S>(await this.request("_acpmux/sessions", { cursor: next }), next);
+      page = wholePageOf<S>(await this.pacedRequest("_acpmux/sessions", { cursor: next }), next);
       for (const session of page.sessions) sessions.push(session);
     }
     // The pages come in an order updates do not change (hash order), not newest first.
     return seen.size > 0 ? sessions.sort(newestFirst) : sessions;
+  }
+
+  /** `request`, asked again after acpmux's wait while acpmux paces it (`paced`), so a whole-list
+   *  read resumes from the page it reached instead of starting over. Any other failure throws. */
+  private async pacedRequest(method: string, params: Record<string, unknown>): Promise<any> {
+    for (;;) {
+      try {
+        return await this.request(method, params);
+      } catch (error) {
+        if (!paced(error)) throw error;
+        await new Promise((resolve) => setTimeout(resolve, retryWait(error)));
+      }
+    }
   }
 
   /**
@@ -144,20 +460,28 @@ export class SessionPager<S extends Summary> {
   private forget(): void {
     this.purged.clear();
     this.changed.clear();
+    this.changedAt.clear();
   }
 
-  /** A `session_changed` seen while the list loads. */
-  changedSession(session: S): void {
+  /** A `session_changed` seen while the list loads, at its `listSeq` when acpmux names one. */
+  changedSession(session: S, listSeq?: unknown): void {
     if (!this.tracking) return;
     this.purged.delete(session.sessionId);
     this.changed.set(session.sessionId, session);
+    this.noteAt(session.sessionId, listSeq);
   }
 
   /** A `session_changed` purge seen while the list loads. */
-  purgedSession(sessionId: string): void {
+  purgedSession(sessionId: string, listSeq?: unknown): void {
     if (!this.tracking) return;
     this.changed.delete(sessionId);
     this.purged.add(sessionId);
+    this.noteAt(sessionId, listSeq);
+  }
+
+  private noteAt(sessionId: string, listSeq: unknown): void {
+    if (typeof listSeq === "number" && Number.isSafeInteger(listSeq)) this.changedAt.set(sessionId, listSeq);
+    else this.changedAt.delete(sessionId);
   }
 
   /** The list `run` started is whole and settled into the pane's: its changes are forgotten. A newer
@@ -165,8 +489,49 @@ export class SessionPager<S extends Summary> {
   done(run: number | undefined): void {
     if (run === undefined || run !== this.run) return;
     this.loading = false;
+    if (this.readInvalidations === this.invalidations) this.missedChanges = false;
+    // Held now (the first page and its follows, or the whole list): a reconnect or a lag follows
+    // from here. A list with no position (an older acpmux) leaves none, and the next one is read
+    // anew as before.
+    this.cursor = this.missedChanges ? undefined : this.reading;
+    this.keepBelowOwed();
     // A whole-list read still out keeps them until it lands (`settledWhole`).
     if (this.wholeReads === 0) this.forget();
+    // Peer batch rows that came after this list was read: the next follow reads them.
+    if (this.owed) this.readOwed();
+    this.keep();
+  }
+
+  /** Keeps the rows held and their cursor for this page's next client of the connection
+   *  (`heldLists`): at each list settled, and when the client closes (its cursor moved with every
+   *  notice since). */
+  keep(): void {
+    if (!this.key || !this.cursor || this.loading || this.missedChanges) return;
+    heldLists.set(this.key, { rows: this.held(), cursor: this.cursor, ...(this.more ? { more: this.more } : {}) });
+  }
+
+  /**
+   * The pages after the rows held, read when something asks for every chat (`wantAllSessions`),
+   * handing `add` the sessions the client lacks, as `rest` does. True once the list is whole (or
+   * already was); false when a newer list started meanwhile, which reads its own.
+   */
+  async later(held: () => S[], add: (sessions: S[]) => void): Promise<boolean> {
+    const next = this.more;
+    if (next === undefined) return true;
+    const run = this.run;
+    // Every notice while the pages are out is laid over them, as for a list being read (`rest`).
+    this.loading = true;
+    try {
+      return await this.rest({ sessions: [], next, run }, held, add);
+    } finally {
+      if (run === this.run) {
+        this.loading = false;
+        // A page that fell back to the whole list (`whole`) read the list anew from its position.
+        if (!this.missedChanges) this.cursor ??= this.reading;
+        if (this.wholeReads === 0) this.forget();
+        this.keep();
+      }
+    }
   }
 
   /** `list` with every change since the list started laid over it, newest first as acpmux sorts. */
@@ -177,8 +542,10 @@ export class SessionPager<S extends Summary> {
 
   /**
    * Reads every page after `first`, handing `add` the sessions the pane lacks. Answers false when
-   * a newer list replaced the one `first` started. A page that fails, a cursor that comes back,
-   * or a list past `MAX_PAGES` falls back to the whole list (`whole`); when that fails too, it throws.
+   * a newer list replaced the one `first` started. A paced page is asked again from its cursor
+   * after acpmux's wait until it comes (`paced`); one that fails otherwise, `PAGE_RETRIES` times.
+   * One that still fails, a cursor that comes back, or a list past `MAX_PAGES` falls back to the
+   * whole list (`whole`); when that fails too, it throws.
    */
   async rest(first: SessionPage<S>, held: () => S[], add: (sessions: S[]) => void): Promise<boolean> {
     const run = first.run;
@@ -193,12 +560,18 @@ export class SessionPager<S extends Summary> {
       if (seen.has(next) || seen.size >= MAX_PAGES) page = { sessions: await this.whole() };
       else {
         seen.add(next);
-        try {
-          page = pageOf<S>(await this.request("_acpmux/sessions", { limit: SESSION_PAGE, cursor: next }));
-        } catch {
-          if (run !== this.run) return false;
-          page = { sessions: await this.whole() };
+        let read: SessionPage<S> | undefined;
+        for (let tries = 0; read === undefined; tries += 1) {
+          try {
+            read = pageOf<S>(await this.request("_acpmux/sessions", { limit: SESSION_PAGE, cursor: next }));
+          } catch (error) {
+            if (run !== this.run) return false;
+            if (!paced(error) && tries >= PAGE_RETRIES) break;
+            await new Promise((resolve) => setTimeout(resolve, retryWait(error)));
+            if (run !== this.run) return false;
+          }
         }
+        page = read ?? { sessions: await this.whole() };
       }
       if (run !== this.run) return false;
       const fresh = page.sessions.filter(
@@ -213,6 +586,7 @@ export class SessionPager<S extends Summary> {
       }
       next = page.next;
     }
+    if (run === this.run) this.more = undefined;
     return true;
   }
 
@@ -224,6 +598,12 @@ export class SessionPager<S extends Summary> {
    * `MAX_PAGES` ends it with what came.
    */
   async usage(): Promise<Map<string, unknown>> {
+    if (this.usageAlone) return this.usageByDigest();
+    return this.usagePages();
+  }
+
+  /** `usage` read from every page of the list. */
+  private async usagePages(): Promise<Map<string, unknown>> {
     const found = new Map<string, unknown>();
     const seen = new Set<string>();
     let cursor: string | undefined;
@@ -238,6 +618,33 @@ export class SessionPager<S extends Summary> {
       if (cursor !== undefined) seen.add(cursor);
     } while (cursor !== undefined);
     return found;
+  }
+
+  /**
+   * `usage` from an acpmux with `USAGE_CAPABILITY`: one `_acpmux/usage`, its cost the chats that
+   * report usage, not the list. It sends the digest of the answer held, and an `unchanged` reply
+   * keeps that answer, so Session Info shown again reads no stats while none changed. A refusal (a
+   * host whose pane policy predates the method) reads the pages from then on; a failed request
+   * (a timeout, a dropped link) or a reply without stats (stats past a reply page) reads them this
+   * time only.
+   */
+  private async usageByDigest(): Promise<Map<string, unknown>> {
+    const held = this.usageHeld;
+    let refused = false;
+    const reply: any = await this.request("_acpmux/usage", held ? { known: held.digest } : {}).catch((error) => {
+      refused = methodRefused(error);
+      return undefined;
+    });
+    const digest = typeof reply?.digest === "string" ? reply.digest : undefined;
+    if (digest && held && reply.unchanged === true && held.digest === digest) return held.usage;
+    if (digest && reply.usage && typeof reply.usage === "object") {
+      const usage = new Map<string, unknown>(Object.entries(reply.usage));
+      this.usageHeld = { digest, usage };
+      return usage;
+    }
+    this.usageHeld = undefined;
+    if (refused) this.usageAlone = false;
+    return this.usagePages();
   }
 
   /** Ends the pages in flight. */
@@ -274,4 +681,11 @@ export function withUsage<S extends Summary>(list: S[], usage: ReadonlyMap<strin
     return { ...session, usageStats: stats };
   });
   return changed ? next : list;
+}
+
+/** A host or acpmux without the method: acpmux's unknown method, the host's allowlist, or a
+ *  remote chat's wire without the relay (as `cloudAgentLogin.ts` `methodMissing`). */
+function methodRefused(error: unknown): boolean {
+  const code = (error as { code?: unknown } | null)?.code;
+  return code === -32601 || code === "transport.method_refused" || code === "remote.unsupported";
 }

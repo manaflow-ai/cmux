@@ -18,6 +18,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
 import { installPaintedFrames } from "./support/paintedFrames";
+import { CLOCK_ON_LINE, pinArms } from "./support/pinArms";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -54,6 +55,8 @@ await requireBrowserLane("transcript-live-line-continuous-browser.test.ts", asyn
     const { port } = vite!.httpServer!.address() as { port: number };
     const page = await browser!.newPage({ viewport: { width: 900, height: 900 } });
     await installPaintedFrames(page);
+    // The clock on the line, which this file reads at every frame.
+    await pinArms(page, CLOCK_ON_LINE);
     // The shimmer runs: no Reduce Motion.
     await page.emulateMedia({ reducedMotion: "no-preference" });
     await page.goto(`http://127.0.0.1:${port}/test/browser/transcript-follow.html`);
