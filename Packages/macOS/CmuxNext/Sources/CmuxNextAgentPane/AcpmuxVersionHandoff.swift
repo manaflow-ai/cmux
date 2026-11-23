@@ -144,9 +144,11 @@ nonisolated enum AcpmuxVersionHandoff {
         }
         logger.info("acpmux \(pid) runs build \(status.build ?? "?", privacy: .public)\(isReplaced ? " from a replaced bundle" : "", privacy: .public)\(status.agentHosts ? "" : " without agent hosts; its chats resume from disk", privacy: .public); handing off to \(bundled ?? "?", privacy: .public)")
         let trigger = isReplaced ? "replaced executable" : policy ? "agent launch policy differs" : "another build"
+        let reason = "version handoff: \(trigger) (build \(status.build ?? "?") -> \(bundled ?? "?"))"
+        // A replaced bundle's daemon swaps to the installed build itself, make-before-break.
+        if isReplaced, await swapReplaced(environment, pid: pid, reason: reason) { return true }
         do {
-            try await handOffShutdown(environment, pid: pid,
-                                      reason: "version handoff: \(trigger) (build \(status.build ?? "?") -> \(bundled ?? "?"))")
+            try await handOffShutdown(environment, pid: pid, reason: reason)
             AgentPaneLaunchTimings.shared.mark("acpmux.handoff_shutdown_sent")
         } catch {
             logger.error("acpmux handoff request failed: \(String(describing: error), privacy: .public); the next lookup tries again")
@@ -163,6 +165,38 @@ nonisolated enum AcpmuxVersionHandoff {
         let exited = await AgentPaneProcessExit(pid: pid).event(within: .seconds(15))
         if !exited { daemons.mark(home: environment.home, restarting: false) }
         return exited
+    }
+
+    /// How long a replaced daemon's own swap may take: the new build's `--version` (10 s), its
+    /// take-over start asking for the home (15 s), and the old daemon's stop (acpmux
+    /// `daemon/exe_swap.rs` `READY_WITHIN`, `HANDOVER_WITHIN`).
+    static let swapWithin: Duration = .seconds(45)
+
+    /// For daemon `pid`, whose executable an update replaced: asks it to swap to the installed
+    /// build itself (``AcpmuxStatusClient/swapOrStop(socketPath:home:reason:deadline:)``) instead of
+    /// stopping it. The app cannot check that daemon, so cannot hand it this launch's person key;
+    /// its stop left every chat with no daemon until the app's next one started (Leo's NIGHTLY,
+    /// 2026-11-22 23:44Z, 4.6 s), and a new build that does not run then had none at all. The old
+    /// daemon serves until the new one takes the home. True once `pid` exited (the installed build
+    /// serves the home, or starts to); false when the ask did not reach it or its swap did not end
+    /// within ``swapWithin``: the caller stops it as before.
+    static func swapReplaced(_ environment: AcpmuxEnvironment, pid: Int32, reason: String) async -> Bool {
+        let swapping: Bool
+        do {
+            swapping = try await AcpmuxStatusClient.swapOrStop(socketPath: environment.socketPath, home: environment.home,
+                                                               reason: reason, deadline: AcpmuxEnvironment.answerDeadline)
+        } catch {
+            logger.error("acpmux \(pid) swap request failed: \(String(describing: error), privacy: .public); stopping it instead")
+            return false
+        }
+        // A daemon from before `swapIfReplaced` took the ask as a stop: wait for it as for one.
+        let within: Duration = swapping ? swapWithin : .seconds(15)
+        if await AgentPaneProcessExit(pid: pid).event(within: within) {
+            logger.info("acpmux \(pid) runs a replaced bundle; \(swapping ? "it swapped to the installed build" : "it stopped", privacy: .public)")
+            return true
+        }
+        logger.error("acpmux \(pid) runs a replaced bundle and did not \(swapping ? "swap" : "stop", privacy: .public) within \(String(describing: within), privacy: .public); stopping it")
+        return false
     }
 
     /// Stops `environment`'s daemon `pid` for a handoff: `_acpmux/shutdown` (agents kept), and when

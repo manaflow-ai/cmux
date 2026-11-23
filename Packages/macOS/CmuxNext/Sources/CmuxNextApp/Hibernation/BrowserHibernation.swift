@@ -868,7 +868,7 @@ final class BrowserHibernation {
             guard case .string(let json) = value, let data = json.data(using: .utf8),
                   let object = try? JSONSerialization.jsonObject(with: data) as? [String: Bool] else { return unanswered(tab) }
             // The recorder knows the person's edits (`BrowserPageBusy`); a page loaded before it compares every field.
-            return PageProbe(playingMedia: PageProbe.tabPlays(tab.state.media, muted: tab.state.isAudioMuted) || (object["media"] ?? true), editedForm: busy.editedForm ?? object["form"] ?? true,
+            return PageProbe(playingMedia: PageProbe.tabPlays(tab.state.media, muted: tab.state.isAudioMuted) || (object["media"] ?? true), mediaSession: PageProbe.resumable(tab.state.media), editedForm: busy.editedForm ?? object["form"] ?? true,
                              capturing: busy.capturing, webAudio: busy.audio, beforeUnload: busy.beforeUnload,
                              unloadHandler: busy.unloadHandler, webRTC: busy.webRTC,
                              connectedDevice: busy.connectedDevice, unreadableFrame: busy.unreadableFrame)
