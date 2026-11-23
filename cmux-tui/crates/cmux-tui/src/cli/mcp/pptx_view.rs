@@ -11,6 +11,10 @@
 //! One listener and one accept thread for the life of this server, started with the first
 //! deck; each connection is answered on its own short thread. At most [`MAX_DECKS`] decks
 //! are served; a newer one drops the oldest.
+//!
+//! A Markdown deck (`md_deck`) is served here too: its page is the deck compiled from the
+//! file on each load, and the files in its folder (pictures the slides name) are served
+//! read-only beside it.
 
 use std::collections::VecDeque;
 use std::io::{BufRead, BufReader, Read, Write};
@@ -22,6 +26,8 @@ use std::time::Duration;
 
 use base64::Engine as _;
 use sha2::{Digest, Sha256};
+
+use super::md_deck;
 
 pub(super) const MAX_DECKS: usize = 64;
 /// Connections answered at once; one tab makes two or three.
@@ -44,7 +50,15 @@ pub(super) fn is_deck(path: &str) -> bool {
         .is_some_and(|extension| extension.eq_ignore_ascii_case("pptx"))
 }
 
-type Served = Arc<Mutex<VecDeque<(String, PathBuf)>>>;
+/// What a served deck is: a PowerPoint file the viewer renders, or Markdown compiled to
+/// the deck page.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(super) enum Kind {
+    Pptx,
+    Markdown,
+}
+
+type Served = Arc<Mutex<VecDeque<(String, PathBuf, Kind)>>>;
 
 /// The decks this server shows, and the loopback listener that serves them.
 pub(super) struct Decks {
@@ -89,21 +103,21 @@ impl Decks {
 
     /// The viewer's address for `path`: the same one for a deck already served, so its
     /// open slide survives a second `open`.
-    pub(super) fn url(&self, path: &Path) -> Result<String, String> {
+    pub(super) fn url(&self, path: &Path, kind: Kind) -> Result<String, String> {
         // One token per file however it is named (macOS: /tmp is /private/tmp).
         let path = &path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
         let mut served = self.served.lock().map_err(|_| "deck viewer lock".to_owned())?;
-        let known = served.iter().position(|(_, served)| served == path);
+        let known = served.iter().position(|(_, served, _)| served == path);
         let token = match known.and_then(|at| served.remove(at)) {
-            Some((token, path)) => {
-                served.push_back((token.clone(), path));
+            Some((token, path, _)) => {
+                served.push_back((token.clone(), path, kind));
                 token
             }
             None => {
                 let mut bytes = [0u8; 16];
                 getrandom::fill(&mut bytes).map_err(|error| error.to_string())?;
                 let token: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
-                served.push_back((token.clone(), path.to_path_buf()));
+                served.push_back((token.clone(), path.to_path_buf(), kind));
                 let excess = served.len().saturating_sub(MAX_DECKS);
                 served.drain(..excess);
                 token
@@ -203,18 +217,121 @@ fn respond(head: &Head, port: u16, served: &Served) -> Response {
     let Some((token, rest)) = target.strip_prefix('/').and_then(|path| path.split_once('/')) else {
         return text("404 Not Found", "not found");
     };
-    let path = match served.lock() {
-        Ok(served) => {
-            served.iter().find(|(served, _)| served == token).map(|(_, path)| path.clone())
-        }
+    let found = match served.lock() {
+        Ok(served) => served
+            .iter()
+            .find(|(served, _, _)| served == token)
+            .map(|(_, path, kind)| (path.clone(), *kind)),
         Err(_) => None,
     };
-    let Some(path) = path else { return text("404 Not Found", "not found") };
-    match rest {
-        "" => page(&path),
-        "deck.pptx" => deck(&path),
+    let Some((path, kind)) = found else { return text("404 Not Found", "not found") };
+    match (kind, rest) {
+        (Kind::Pptx, "") => page(&path),
+        (Kind::Pptx, "deck.pptx") => deck(&path),
+        (Kind::Markdown, "") => markdown_page(&path),
+        (Kind::Markdown, rest) => asset(&path, rest),
         _ => text("404 Not Found", "not found"),
     }
+}
+
+/// The one CDN script a deck page may load: the PowerPoint writer its runtime loads on
+/// Export .pptx. A path source matches that file only, so a slide's raw HTML cannot load
+/// any other script from the host.
+const WRITER_URL: &str = "https://cdn.jsdelivr.net/npm/pptxgenjs@4.0.1/dist/pptxgen.bundle.js";
+
+/// The Markdown deck at `path`, compiled now, under a policy that runs only the deck
+/// runtime (and the PowerPoint writer it loads from the CDN on Export .pptx) and reaches
+/// only this listener.
+fn markdown_page(path: &Path) -> Response {
+    let Ok(source) = std::fs::read_to_string(path) else {
+        return text("404 Not Found", "the file is gone");
+    };
+    let name = path.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default();
+    let html = md_deck::compile(&source, &name);
+    let hash = base64::engine::general_purpose::STANDARD
+        .encode(Sha256::digest(md_deck::runtime_script().as_bytes()));
+    let policy = format!(
+        "default-src 'none'; script-src 'sha256-{hash}' {WRITER_URL}; connect-src 'self'; \
+         style-src 'unsafe-inline'; img-src 'self' blob: data:; media-src 'self' blob: data:; \
+         font-src data:; base-uri 'none'; form-action 'none'"
+    );
+    Response {
+        status: "200 OK",
+        headers: vec![
+            ("Content-Type", "text/html; charset=utf-8".into()),
+            ("Content-Security-Policy", policy),
+            ("Cache-Control", "no-store".into()),
+            ("Referrer-Policy", "no-referrer".into()),
+            ("X-Content-Type-Options", "nosniff".into()),
+        ],
+        body: Body::Text(html),
+    }
+}
+
+/// A file in the Markdown deck's folder (a picture a slide names), never one above it.
+fn asset(deck: &Path, relative: &str) -> Response {
+    let not_found = || text("404 Not Found", "not found");
+    let Some(relative) = percent_decode(relative) else { return not_found() };
+    if relative.split('/').any(|part| part.is_empty() || part == "." || part == "..")
+        || relative.contains('\\')
+    {
+        return not_found();
+    }
+    let Some(folder) = deck.parent().and_then(|folder| folder.canonicalize().ok()) else {
+        return not_found();
+    };
+    let Ok(file_path) = folder.join(&relative).canonicalize() else { return not_found() };
+    if !file_path.starts_with(&folder) || !file_path.is_file() {
+        return not_found();
+    }
+    let content_type = match file_path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .map(str::to_ascii_lowercase)
+        .as_deref()
+    {
+        Some("png") => "image/png",
+        Some("jpg" | "jpeg") => "image/jpeg",
+        Some("gif") => "image/gif",
+        Some("webp") => "image/webp",
+        Some("avif") => "image/avif",
+        Some("svg") => "image/svg+xml",
+        Some("mp4") => "video/mp4",
+        Some("webm") => "video/webm",
+        // Only pictures and video: a slide's script or page stays unserved.
+        _ => return not_found(),
+    };
+    let file = std::fs::File::open(&file_path);
+    let length = file.as_ref().ok().and_then(|file| file.metadata().ok()).map(|meta| meta.len());
+    match (file, length) {
+        (Ok(file), Some(length)) => Response {
+            status: "200 OK",
+            headers: vec![
+                ("Content-Type", content_type.into()),
+                ("Cache-Control", "no-store".into()),
+                ("X-Content-Type-Options", "nosniff".into()),
+                // An SVG opened on its own runs nothing.
+                ("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'".into()),
+            ],
+            body: Body::File(file, length),
+        },
+        _ => not_found(),
+    }
+}
+
+/// `%XX` escapes decoded; `None` for a bad escape or text that is not UTF-8.
+fn percent_decode(text: &str) -> Option<String> {
+    let mut out = Vec::with_capacity(text.len());
+    let mut bytes = text.bytes();
+    while let Some(byte) = bytes.next() {
+        if byte == b'%' {
+            let hex = [bytes.next()?, bytes.next()?];
+            out.push(u8::from_str_radix(std::str::from_utf8(&hex).ok()?, 16).ok()?);
+        } else {
+            out.push(byte);
+        }
+    }
+    String::from_utf8(out).ok()
 }
 
 /// The viewer page for `path`, with a policy that lets it run only its own script and

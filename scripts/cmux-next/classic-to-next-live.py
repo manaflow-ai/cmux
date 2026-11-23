@@ -30,6 +30,7 @@ from safe_log import safe_print  # noqa: E402  (a line before a kill never skips
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from tag_teardown import TagTeardown  # noqa: E402
+from state_wait import wait_stable  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--app", required=True, help="the cmux-next build under test")
@@ -128,7 +129,10 @@ def same_dir(a, b):
 
 def capture(name):
     """A still of each cmux-next window through cua-driver (it holds the Screen Recording grant)."""
-    time.sleep(2)  # let the sidebar settle before the still (screenshot only)
+    # The sidebar settles before the still (screenshot only): its rows and the published topology hold still.
+    wait_stable(lambda: (call(NEXT_SOCKET, "debug.sidebar_rows", timeout=10).get("result"),
+                         (call(NEXT_SOCKET, "snapshot.get", timeout=10).get("result") or {}).get("topology")),
+                "the sidebar", timeout=10, interval=0.2, reads=3, raise_on_timeout=False)
     def cua(tool, args):
         r = subprocess.run(["cua-driver", "call", tool, json.dumps(args)], capture_output=True, text=True, timeout=60)
         try:
