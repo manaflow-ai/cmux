@@ -216,3 +216,19 @@ fn a_kept_listing_answers_without_git_and_matches_it() {
     let kept = ls_tree_cached(&dir.path().join("nowhere"), &commit, &cache).unwrap();
     assert_eq!(kept, listed);
 }
+
+#[test]
+fn a_new_commits_listing_takes_its_sizes_from_a_kept_one_and_matches_git() {
+    let (dir, git_dir, commit) = repo();
+    let trees = dir.path().join("keep/trees");
+    ls_tree_cached(&git_dir, &commit, &trees.join(&commit)).unwrap();
+    let work = dir.path().join("work");
+    std::fs::write(work.join("README.md"), "hello, a longer line\n").unwrap();
+    std::fs::write(work.join("new.txt"), "new\n").unwrap();
+    std::fs::remove_file(work.join("a-b")).unwrap();
+    run(&work, &["add", "-A"]);
+    run(&work, &["commit", "-q", "-m", "two"]);
+    let two = run(&work, &["rev-parse", "HEAD"]).trim().to_owned();
+    let listed = ls_tree_cached(&git_dir, &two, &trees.join(&two)).unwrap();
+    assert_eq!(listed, ls_tree(&git_dir, &two).unwrap());
+}

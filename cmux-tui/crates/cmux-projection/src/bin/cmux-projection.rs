@@ -4,7 +4,7 @@
 //! cmux-projection git-mount --git-dir MIRROR --commit REV --at PATH [--keep DIR] [--fresh]
 //!                           [--name NAME] [--ready-file FILE]
 //! cmux-projection git-lower --git-dir MIRROR --commit REV --at PATH --index FILE [--sparse FILE]
-//!                           [--keep DIR] [--ready-file FILE] [--allow-other]
+//!                           [--keep DIR] [--trees DIR] [--ready-file FILE] [--allow-other]
 //! cmux-projection git-unmount --at PATH
 //! cmux-projection seed --git-dir MIRROR --listen ADDR [--rate BYTES_PER_S] [--conns N]
 //! ```
@@ -13,8 +13,9 @@
 //! checkouts to share as the lower layer of their own overlays, and writes its git index to FILE:
 //! stat data as the mount serves it, so `git status` over the lower finds every file clean
 //! without reading (fetching) it. No `.git`, no worktree, no build output links: each checkout on
-//! top keeps its own. `--sparse FILE` (cone-mode folders, or git's pattern file for them) leaves
-//! the rest out of the tree and the index. Blobs come as `git-mount`'s do, on first read.
+//! top keeps its own. `--sparse FILE` (a sparse-checkout pattern file, cone or not) leaves the
+//! rest out of the tree and the index. `--trees DIR` (default `KEEP/trees`) holds each commit's
+//! listing: lowers of one mirror that share it list a new commit from the last one's sizes. Blobs come as `git-mount`'s do, on first read.
 //! `--allow-other` lets other users in, root among them: a kernel overlay mounted with `sudo`
 //! reads its lower as root (it needs `user_allow_other` in `/etc/fuse.conf`).
 //!
@@ -63,7 +64,7 @@ mod linux {
     const USAGE: &str = "usage: cmux-projection git-mount --git-dir MIRROR --commit REV --at PATH \
                          [--keep DIR] [--fresh] [--name NAME] [--ready-file FILE]\n       \
                          cmux-projection git-lower --git-dir MIRROR --commit REV --at PATH \
-                         --index FILE [--sparse FILE] [--keep DIR] [--ready-file FILE] [--allow-other]\n       \
+                         --index FILE [--sparse FILE] [--keep DIR] [--trees DIR] [--ready-file FILE] [--allow-other]\n       \
                          cmux-projection git-unmount --at PATH\n       \
                          cmux-projection seed --git-dir MIRROR --listen ADDR [--rate BYTES_PER_S] \
                          [--conns N]";
@@ -78,6 +79,7 @@ mod linux {
         ready_file: Option<PathBuf>,
         index: Option<PathBuf>,
         sparse: Option<PathBuf>,
+        trees: Option<PathBuf>,
         listen: Option<String>,
         rate: Option<u64>,
         conns: Option<usize>,
@@ -110,6 +112,7 @@ mod linux {
                 "--ready-file" => parsed.ready_file = Some(value.into()),
                 "--index" => parsed.index = Some(value.into()),
                 "--sparse" => parsed.sparse = Some(value.into()),
+                "--trees" => parsed.trees = Some(value.into()),
                 "--listen" => parsed.listen = Some(value.clone()),
                 "--rate" => parsed.rate = Some(value.parse()?),
                 "--conns" => parsed.conns = Some(value.parse()?),
@@ -324,7 +327,7 @@ mod linux {
 
         let phase = Instant::now();
         let (commit, commit_s) = git::resolve(&git_dir, &rev)?;
-        let listing = keep.join("trees").join(&commit);
+        let listing = args.trees.clone().unwrap_or_else(|| keep.join("trees")).join(&commit);
         // A listing kept from an earlier mount of this commit means its blobs were all fetched
         // then: skip the walk of its trees.
         let missing = if listing.exists() { 0 } else { fill_missing(&git_dir, &commit)? };
@@ -442,7 +445,7 @@ mod linux {
 
         let phase = Instant::now();
         let (commit, commit_s) = git::resolve(&git_dir, &rev)?;
-        let listing = keep.join("trees").join(&commit);
+        let listing = args.trees.clone().unwrap_or_else(|| keep.join("trees")).join(&commit);
         // A listing kept from an earlier mount of this commit means its blobs were all fetched
         // then: skip the walk of its trees.
         let missing = if listing.exists() { 0 } else { fill_missing(&git_dir, &commit)? };

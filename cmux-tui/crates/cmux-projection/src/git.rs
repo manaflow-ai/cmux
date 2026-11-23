@@ -118,14 +118,22 @@ pub fn ls_tree(git_dir: &Path, commit: &str) -> anyhow::Result<Vec<TreeItem>> {
 
 /// [`ls_tree`], kept in `cache` (a file for this commit): the listing of a commit never changes,
 /// and with a cold page cache `ls-tree -l` reads every blob's header out of the packs (about 11 s
-/// for cmux's 58,000 files, against 0.2 s warm), so a remount after a reboot skips git.
+/// for cmux's 58,000 files, against 0.2 s warm), so a remount after a reboot skips git. A commit
+/// with no listing yet takes its sizes from the newest other listing in `cache`'s folder and asks
+/// git only for the blobs that one lacks: `ls-tree` without sizes reads only trees (1.2 s cold
+/// for cmux, against 11.9 s with them).
 pub fn ls_tree_cached(git_dir: &Path, commit: &str, cache: &Path) -> anyhow::Result<Vec<TreeItem>> {
     if let Some(items) = std::fs::read(cache).ok().and_then(|bytes| parse_ls_tree(&bytes).ok()) {
         return Ok(items);
     }
-    let mut command = git(git_dir);
-    command.args(["ls-tree", "-r", "-l", "-z", "--full-tree", commit]);
-    let bytes = output(command)?;
+    let bytes = match sizes_kept_beside(cache) {
+        Some(sizes) => listing_with_sizes(git_dir, commit, &sizes)?,
+        None => {
+            let mut command = git(git_dir);
+            command.args(["ls-tree", "-r", "-l", "-z", "--full-tree", commit]);
+            output(command)?
+        }
+    };
     let items = parse_ls_tree(&bytes)?;
     if let Some(parent) = cache.parent() {
         std::fs::create_dir_all(parent)?;
@@ -134,6 +142,94 @@ pub fn ls_tree_cached(git_dir: &Path, commit: &str, cache: &Path) -> anyhow::Res
     std::fs::write(&temp, &bytes)?;
     std::fs::rename(&temp, cache)?;
     Ok(items)
+}
+
+/// Each blob's size in the newest listing beside `cache` (its folder's other files), if any.
+fn sizes_kept_beside(cache: &Path) -> Option<HashMap<String, u64>> {
+    let newest = std::fs::read_dir(cache.parent()?)
+        .ok()?
+        .flatten()
+        .filter(|entry| entry.path() != cache && !entry.file_name().to_string_lossy().contains('.'))
+        .filter_map(|entry| Some((entry.metadata().ok()?.modified().ok()?, entry.path())))
+        .max()?
+        .1;
+    let items = parse_ls_tree(&std::fs::read(newest).ok()?).ok()?;
+    Some(items.into_iter().map(|item| (item.oid, item.size)).collect())
+}
+
+/// `ls-tree -r -l -z` output for `commit`, its sizes from `sizes` and, for blobs not in it,
+/// from one `cat-file --batch-check`.
+fn listing_with_sizes(
+    git_dir: &Path,
+    commit: &str,
+    sizes: &HashMap<String, u64>,
+) -> anyhow::Result<Vec<u8>> {
+    let mut command = git(git_dir);
+    command.args(["ls-tree", "-r", "-z", "--full-tree", commit]);
+    let bytes = output(command)?;
+    let mut rows = Vec::new();
+    let mut unknown = BTreeSet::new();
+    for record in bytes.split(|byte| *byte == 0).filter(|record| !record.is_empty()) {
+        let record = std::str::from_utf8(record)?;
+        let (head, path) =
+            record.split_once('\t').ok_or_else(|| anyhow::anyhow!("bad ls-tree line"))?;
+        let mut fields = head.split_whitespace();
+        let (Some(mode), Some(kind), Some(oid)) = (fields.next(), fields.next(), fields.next())
+        else {
+            anyhow::bail!("bad ls-tree line {record:?}");
+        };
+        if kind == "blob" && !sizes.contains_key(oid) {
+            unknown.insert(oid);
+        }
+        rows.push((mode, kind, oid, path));
+    }
+    let found = object_sizes(git_dir, &unknown)?;
+    let mut listing = Vec::with_capacity(bytes.len() + rows.len() * 8);
+    for (mode, kind, oid, path) in rows {
+        if kind == "blob" {
+            let size = sizes
+                .get(oid)
+                .or_else(|| found.get(oid))
+                .ok_or_else(|| anyhow::anyhow!("no size for blob {oid}"))?;
+            write!(listing, "{mode} {kind} {oid} {size}\t{path}\0")?;
+        } else {
+            write!(listing, "{mode} {kind} {oid} -\t{path}\0")?;
+        }
+    }
+    Ok(listing)
+}
+
+/// The sizes of `oids` in one `cat-file --batch-check`.
+fn object_sizes(git_dir: &Path, oids: &BTreeSet<&str>) -> anyhow::Result<HashMap<String, u64>> {
+    if oids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    // The ids come from a file, not a pipe: a long answer can never block git while the ids are
+    // still being written to it.
+    let input: String = oids.iter().map(|oid| format!("{oid}\n")).collect();
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |since| since.as_nanos());
+    let path =
+        std::env::temp_dir().join(format!("cmux-projection-oids-{}-{nanos}", std::process::id()));
+    std::fs::write(&path, input)?;
+    let file = std::fs::File::open(&path);
+    let _ = std::fs::remove_file(&path);
+    let mut command = git(git_dir);
+    command
+        .args(["cat-file", "--batch-check=%(objectname) %(objectsize)"])
+        .stdin(Stdio::from(file?))
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    let out = command.output()?;
+    anyhow::ensure!(out.status.success(), "cat-file --batch-check failed");
+    Ok(String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .filter_map(|line| {
+            let (oid, size) = line.split_once(' ')?;
+            Some((oid.to_owned(), size.parse().ok()?))
+        })
+        .collect())
 }
 
 /// `git ls-tree -r -l -z` output as items: `MODE TYPE OID SIZE\tPATH\0`.
