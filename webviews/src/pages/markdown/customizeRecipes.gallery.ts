@@ -1,7 +1,7 @@
 // l10n-allow-file: gallery fixtures (sample documents), not shipped UI.
 // The Customize recipes guide (docs/cmux-next/customize-recipes.md, written into the customize state
 // folder by `cmux customize recipes --open`) in the Markdown page, where each recipe's shell block
-// gets a Run button: the one-click Try it. Three layouts of the same twelve recipes; the docs page is
+// gets a Run button: the one-click Try it. Three layouts of the same thirteen recipes; the docs page is
 // the chosen one ("grouped"). References: extension browsers with one action per item, and Codex's
 // automation templates (the wish as an editable starting point).
 import { markdownPageEntry } from "../../gallery/format";
@@ -17,7 +17,7 @@ interface Recipe {
   ask: string;
 }
 
-// The same twelve as cmux-customize-recipes' RECIPES, in the guide's order.
+// The same thirteen as cmux-customize-recipes' RECIPES, in the guide's order.
 const RECIPES: Recipe[] = [
   {
     name: "tiling-look",
@@ -97,6 +97,13 @@ const RECIPES: Recipe[] = [
     ask: "make cmux look and work like the Codex app",
   },
   {
+    name: "true-black",
+    title: "True black, chats by project",
+    group: "App looks",
+    line: "True black, a dense sidebar of chats by project with the branch under each name, a narrow chat column.",
+    ask: "make cmux true black with a dense sidebar of chats by project",
+  },
+  {
     name: "claude-code-app",
     title: "Like the Claude desktop app",
     group: "App looks",
@@ -109,7 +116,7 @@ const GROUPS = ["Look", "Layout", "Type", "Widgets", "Keys", "App looks"] as con
 
 const INTRO = `# Customize recipes
 
-Twelve ready-made changes to cmux. Press **Run** on a recipe's command to try it: cmux changes at
+Thirteen ready-made changes to cmux. Press **Run** on a recipe's command to try it: cmux changes at
 once, as a preview. Nothing is kept until you apply it.
 
 - Keep it: \`cmux customize apply\`
@@ -159,12 +166,12 @@ export default markdownPageEntry({
   covers: ["page:cmux.markdown", "pages/markdown/MarkdownPage.tsx", "pages/markdown/runButtons.ts"],
   variants: {
     grouped: {
-      note: "Chosen version: grouped by what it changes (Look, Layout, Type, Widgets, Keys, App looks); each recipe has one line, its Run block (Try it) and the wish to ask instead. Twelve Run buttons, one per recipe, and the groups keep a long page scannable.",
+      note: "Chosen version: grouped by what it changes (Look, Layout, Type, Widgets, Keys, App looks); each recipe has one line, its Run block (Try it) and the wish to ask instead. Thirteen Run buttons, one per recipe, and the groups keep a long page scannable.",
       path: PATH,
       text: GROUPED,
     },
     flat: {
-      note: "Comparison: every recipe at the same level, no groups. Shorter outline, but twelve same-weight sections read as one long list.",
+      note: "Comparison: every recipe at the same level, no groups. Shorter outline, but thirteen same-weight sections read as one long list.",
       path: PATH,
       text: FLAT,
     },

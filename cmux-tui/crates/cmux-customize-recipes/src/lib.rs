@@ -97,6 +97,21 @@ const CODEX_APP: &[(&str, &str)] = &[
     ("agent-pane/theme.css", include_str!("../recipes/apps/codex-app/agent-pane.css")),
 ];
 
+/// True black also brings the Threads section (the chats that need you
+/// first), the skill's tested threads template.
+const TRUE_BLACK: &[(&str, &str)] = &[
+    ("themes/true-black.json", include_str!("../recipes/apps/true-black/theme.json")),
+    ("agent-pane/theme.css", include_str!("../recipes/apps/true-black/agent-pane.css")),
+    (
+        "customize/cmux-app.json",
+        include_str!("../../../../skills/cmux-customization/templates/threads/cmux-app.json"),
+    ),
+    (
+        "customize/main.js",
+        include_str!("../../../../skills/cmux-customization/templates/threads/main.js"),
+    ),
+];
+
 const CLAUDE_CODE_APP: &[(&str, &str)] = &[
     ("themes/claude-code-app.json", include_str!("../recipes/apps/claude-code-app/theme.json")),
     ("agent-pane/theme.css", include_str!("../recipes/apps/claude-code-app/agent-pane.css")),
@@ -315,6 +330,14 @@ pub const RECIPES: &[Recipe] = &[
         ask: "make cmux look and work like the Codex app",
         profile: include_str!("../recipes/codex-app.json"),
         includes: CODEX_APP,
+    },
+    Recipe {
+        name: "true-black",
+        title: "True black, chats by project",
+        group: Group::Apps,
+        ask: "make cmux true black with a dense sidebar of chats by project",
+        profile: include_str!("../recipes/true-black.json"),
+        includes: TRUE_BLACK,
     },
     Recipe {
         name: "claude-code-app",
