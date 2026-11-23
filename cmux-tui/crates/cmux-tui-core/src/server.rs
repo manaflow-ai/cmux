@@ -3063,6 +3063,7 @@ use journal_stream::{
     handle_journal_extension_request, prepare_session_journal_stream, start_session_journal_stream,
 };
 
+mod agent_app_control;
 mod incognito_orphans;
 mod incognito_remote;
 mod resource_connection;
