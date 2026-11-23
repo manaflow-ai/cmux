@@ -20,6 +20,7 @@ mod follow_camera;
 mod link_side;
 mod terminal_chat;
 mod terminal_prediction;
+mod terminal_projection;
 mod window_layout;
 
 pub use browser::{BrowserFrame, BrowserObserver, BrowserStats, BrowserStream};
@@ -30,6 +31,7 @@ pub use terminal_chat::{
     TabFace, TerminalChatCandidate, TerminalChatFaces, TerminalChatFacts, TerminalChatSwap,
 };
 pub use terminal_prediction::{PredictedGlyph, PredictionLayout, TerminalPrediction};
+pub use terminal_projection::{ProjectionSegment, ProjectionStats, TerminalProjection};
 pub use window_layout::{WindowLayout, overview_columns, window_layout};
 
 uniffi::setup_scaffolding!();
