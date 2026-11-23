@@ -1,14 +1,15 @@
 {
   "caption": "Choose cmux > Customizations > Agent Badges and agent tabs and sidebar rows show their counts and status at once.",
   "frameInterval": 0.25,
+  "menus": true,
   "steps": [
     {"title": "Launch", "wait": 2},
     {"title": "A workspace", "cmux": ["workspace", "new", "--name", "app"], "wait": 1.5},
     {"title": "Show it", "cmux": ["workspace", "name:app", "focus"], "wait": 1},
-    {"title": "An agent chat", "cmux": ["action", "run", "palette.newAgentChat"], "wait": 3},
-    {"title": "Agent Badges on, as its Customizations row does", "cmux": ["settings", "set", "experiments.agentBadges", "true"], "wait": 2, "clip": true},
-    {"title": "Counts on the tab, status in the sidebar", "wait": 2, "clip": true},
-    {"title": "End", "wait": 0.3}
+    {"title": "cmux > Customizations", "rpc": {"method": "debug.object_menu", "params": {"menu": "customizations"}}, "wait": 1.5, "clip": true},
+    {"title": "Choose Agent Badges", "rpc": {"method": "debug.object_menu", "params": {"choose": "Agent Badges"}}, "wait": 1.2, "clip": true},
+    {"title": "Open it again: Agent Badges is checked", "rpc": {"method": "debug.object_menu", "params": {"menu": "customizations"}}, "wait": 2, "clip": true},
+    {"title": "Close the menu", "rpc": {"method": "debug.object_menu", "params": {"dismiss": true}}, "wait": 0.5}
   ],
-  "crop": [0, 0, 0.6, 0.4]
+  "crop": [0, 0, 0.45, 0.9]
 }
