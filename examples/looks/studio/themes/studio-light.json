@@ -19,7 +19,7 @@
   "appearance.borders": "default",
 
   "appearance.sidebarSurface": "separate",
-  "appearance.surfaces.sidebar.color": "#f4f4f5",
+  "appearance.surfaces.sidebar.color": "#fbfbfc",
   "appearance.surfaces.sidebar.opacity": 1,
   "appearance.surfaces.agentPane.color": "#fcfcfc",
   "appearance.surfaces.agentPane.opacity": 1,

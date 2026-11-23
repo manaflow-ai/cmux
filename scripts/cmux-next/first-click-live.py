@@ -109,7 +109,8 @@ class Run:
         self.click(target)
         first = wait(lambda: (lambda n: n if n is not None and n > before else None)(workspace_count(self.rpc)), 3)
         click_ms = round((time.monotonic() - start) * 1000, 1) if first else None
-        time.sleep(0.5)  # settle: a second workspace from a double delivery shows by now
+        # sleep-ok: an observation window for a doubled click; a second workspace has no signal but its arrival.
+        time.sleep(0.5)
         after = workspace_count(self.rpc) if first else before
         row.update(before=before, after=after, acted=bool(first) and after == before + 1, target=target["class"], click_ms=click_ms)
         if first:

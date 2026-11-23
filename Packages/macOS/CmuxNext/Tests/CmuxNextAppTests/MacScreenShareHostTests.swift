@@ -63,22 +63,34 @@ struct MacScreenShareHostTests {
         #expect(host.grantHolderName == nil)
     }
 
-    /// The helper is the one `* Screen Sharing.app` in Contents/Library with its executable;
-    /// a bundle without one has no helper.
+    /// The helper is the one `* Helper.app` in Contents/Library with its executable (another
+    /// bundle ending in " Helper.app" is not it), else, in an app built before the rename, the
+    /// one `* Screen Sharing.app`; a bundle without one has no helper.
     @Test func theHelperIsFoundInTheAppsLibrary() throws {
         let root = FileManager.default.temporaryDirectory.appending(path: "mac-screen-helper-\(UUID().uuidString)", directoryHint: .isDirectory)
         defer { try? FileManager.default.removeItem(at: root) }
         let app = root.appending(path: "cmux TEST.app", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: app.appending(path: "Contents/Library/Other.app"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: app.appending(path: "Contents/Library/Another Helper.app/Contents/MacOS"), withIntermediateDirectories: true)
         let bundle = try #require(Bundle(url: app))
         #expect(MacScreenHelper.bundled(bundle) == nil)
 
-        let helper = app.appending(path: "Contents/Library/cmux TEST Screen Sharing.app", directoryHint: .isDirectory)
-        let executable = helper.appending(path: "Contents/MacOS/\(MacScreenHelper.executableName)")
-        try FileManager.default.createDirectory(at: executable.deletingLastPathComponent(), withIntermediateDirectories: true)
-        #expect(FileManager.default.createFile(atPath: executable.path, contents: Data("#!/bin/sh\n".utf8), attributes: [.posixPermissions: 0o755]))
+        func makeHelper(_ name: String) throws -> URL {
+            let helper = app.appending(path: "Contents/Library/\(name).app", directoryHint: .isDirectory)
+            let executable = helper.appending(path: "Contents/MacOS/\(MacScreenHelper.executableName)")
+            try FileManager.default.createDirectory(at: executable.deletingLastPathComponent(), withIntermediateDirectories: true)
+            #expect(FileManager.default.createFile(atPath: executable.path, contents: Data("#!/bin/sh\n".utf8), attributes: [.posixPermissions: 0o755]))
+            return helper
+        }
+
+        let legacy = try makeHelper("cmux TEST Screen Sharing")
+        let foundLegacy = try #require(MacScreenHelper.bundled(bundle))
+        #expect(foundLegacy.name == "cmux TEST Screen Sharing")
+        #expect(foundLegacy.app.standardizedFileURL == legacy.standardizedFileURL)
+
+        let helper = try makeHelper("cmux TEST Helper")
         let found = try #require(MacScreenHelper.bundled(bundle))
-        #expect(found.name == "cmux TEST Screen Sharing")
+        #expect(found.name == "cmux TEST Helper")
         #expect(found.app.standardizedFileURL == helper.standardizedFileURL)
     }
 

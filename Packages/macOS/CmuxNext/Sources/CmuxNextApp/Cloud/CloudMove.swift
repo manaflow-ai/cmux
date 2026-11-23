@@ -371,10 +371,8 @@ struct CloudMove {
         return session
     }
 
-    /// Opens a moved chat (Move to Cloud's, Bring Back Local's) on `daemon`, bound to `shown.session` through `host`: a workspace placed
-    /// like Cmd-N whose only tab is the chat's (made once: `mutation` + `shown.key`), selected. No terminal first: as the first tab it took
-    /// the window and `--focus` (capture baf4f76ab502); a new terminal beside the chat starts in its folder. Each window that
-    /// showed `tab`, the tab the chat leaves, shows it there even for a run with no `--focus`, as focus follows a moved tab.
+    /// Opens a moved chat (Move to Cloud's, Bring Back Local's) on `daemon`, bound to `shown.session` through `host`: a workspace placed like Cmd-N whose only tab is the chat's (made once: `mutation` + `shown.key`), selected.
+    /// No terminal first: as the first tab it took the window and `--focus` (capture baf4f76ab502); a new terminal beside the chat starts in its folder. Each window that showed `tab`, the tab the chat leaves, shows it there even for a run with no `--focus`, as focus follows a moved tab.
     static func open(_ shown: CloudMoveRetries.Shown, host: String?, hostName: String?, on daemon: DaemonService, repair: EmptyWorkspaceRepair,
                      mutation: String, leaving tab: TabModel, services: AppServices) async throws {
         guard let connection = daemon.connection, let host else { throw DaemonError.notConnected }

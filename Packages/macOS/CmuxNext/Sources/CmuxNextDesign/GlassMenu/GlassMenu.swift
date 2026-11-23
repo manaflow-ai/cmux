@@ -26,7 +26,8 @@ public final class GlassMenu {
     let list = GlassMenuListView()
     private let surface: OverlaySurfaceView
     private weak var parentMenu: GlassMenu?
-    private var child: GlassMenu?
+    /// The submenu open beside this menu, else nil.
+    private(set) var child: GlassMenu?
     private var scope: ThemeScope?
     /// The control the menu opened from: a click on it is the control's (it closes the menu
     /// itself, a toggle), not a click outside that closes and then reopens it.

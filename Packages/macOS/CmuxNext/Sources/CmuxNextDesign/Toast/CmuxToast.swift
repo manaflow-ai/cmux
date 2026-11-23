@@ -71,7 +71,8 @@ public nonisolated struct CmuxToast: Equatable, Sendable {
 
     public init(id: String, kind: String? = nil, message: String, detail: String? = nil, action: Action? = nil,
                 secondaryAction: Action? = nil, duration: Duration = .seconds(6), tone: CmuxToastTone? = nil,
-                oneWindow: Bool = false, keepsDuration: Bool = false, style: CmuxToastStyle? = nil, working: Bool = false) {
+                oneWindow: Bool = false, keepsDuration: Bool = false, style: CmuxToastStyle? = nil,
+                working: Bool = false) {
         self.id = id
         self.secondaryAction = secondaryAction
         self.tone = tone ?? (id == Self.refusalID ? .error : .neutral)
