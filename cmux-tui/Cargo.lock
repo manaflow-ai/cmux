@@ -1766,6 +1766,7 @@ dependencies = [
 name = "cmux-daemon-launch-core"
 version = "0.1.0"
 dependencies = [
+ "cmux-cloud-environment",
  "cmux-local-auth",
  "libc",
  "serde",
@@ -2467,7 +2468,9 @@ dependencies = [
 name = "cmux-signed-bundle"
 version = "0.1.0"
 dependencies = [
+ "cmux-file-lock",
  "cmux-process",
+ "libc",
  "sha2 0.10.9",
  "tempfile",
 ]
@@ -2667,6 +2670,7 @@ dependencies = [
  "cmux-cloud-client",
  "cmux-cloud-config",
  "cmux-cloud-environment",
+ "cmux-cloud-handlers",
  "cmux-cloud-machine",
  "cmux-cloud-start-core",
  "cmux-cloud-wire",
@@ -2735,6 +2739,7 @@ dependencies = [
  "parking_lot",
  "plist",
  "png",
+ "pulldown-cmark",
  "ratatui",
  "regex",
  "reqwest",

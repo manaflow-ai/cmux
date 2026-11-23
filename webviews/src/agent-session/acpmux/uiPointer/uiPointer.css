@@ -184,3 +184,9 @@
     background: var(--surface-popup, var(--agent-page-bg));
   }
 }
+/* Liquid Glass off (appearance.liquidGlass): the same solid label. */
+:where(:root[data-glass="off"]) :is(.cmux-ui-pointer-label, .cmux-ui-pointer-hint) {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  background: var(--surface-popup, var(--agent-page-bg));
+}
