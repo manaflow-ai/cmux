@@ -10,6 +10,7 @@ enum AnimationFrameBench {
     private static let prefix = "dev.cmux.mobile.animationframe."
     private static let recorder = FrameIntervalLog()
     private static var activeLabel: String?
+    private static var firstTick: FrameClock.Token?
 
     static func installIfRequested() {
         guard FrameLogSwitch.isEnabled,
@@ -34,6 +35,14 @@ enum AnimationFrameBench {
             guard activeLabel == nil else { return }
             activeLabel = label
             recorder.begin(label)
+            // The first tick establishes the delta's starting timestamp and CPU
+            // sample. The gesture can start as soon as that callback has run.
+            firstTick = FrameClock.shared.subscribe { _ in
+                guard let token = firstTick else { return }
+                FrameClock.shared.unsubscribe(token)
+                firstTick = nil
+                acknowledge(name)
+            }
         } else {
             guard activeLabel == label else { return }
             let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
@@ -41,7 +50,11 @@ enum AnimationFrameBench {
             recorder.end(displayMaximumHz: scene?.screen.maximumFramesPerSecond)
             FrameLogFile.flush()
             activeLabel = nil
+            acknowledge(name)
         }
+    }
+
+    private static func acknowledge(_ name: String) {
         CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(),
                                             CFNotificationName((name + ".ack") as CFString), nil, nil, true)
     }
