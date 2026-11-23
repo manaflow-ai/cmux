@@ -26,7 +26,8 @@ Claude Code or Codex CLI be. N counts the launch workspace: N=10 is 9 chat works
 So every run also says where the memory is (report.json `breakdown`, and report-only rows under
 memory.app_agents.breakdown., perf-cron.py REPORT_ONLY_ROW_RE): the footprint per process kind empty and at each full
 count, each kind's cost per chat workspace ((N - empty) / (N - 1)), the largest processes, and the V8 heap of the renderers
-that host cmux's pages, each renderer once (bench_memory --js-heap).
+that host cmux's pages, each renderer once, and the pages' live DOM nodes and decoded images per chat (bench_memory
+--js-heap).
 """
 from __future__ import annotations
 
@@ -183,6 +184,10 @@ def sample_view(sample: dict, keep: set[str], top: int = 8) -> dict:
     heap = sample.get("js_heap")
     if isinstance(heap, dict):
         view["js_heap"] = {k: heap[k] for k in ("pages", "hidden_pages", "renderers", "used_mb", "total_mb", "by_renderer", "by_path", "error", "error_count") if k in heap}
+        dom = heap.get("dom")
+        if isinstance(dom, dict):
+            view["js_heap"]["dom"] = {k: dom[k] for k in ("pages", "hidden_pages", "nodes", "images", "decoded_images", "decoded_mb",
+                                                          "per_hidden_page", "by_renderer", "error_count") if k in dom}
     return view
 
 
@@ -231,6 +236,14 @@ def breakdown_from(report: dict) -> tuple[dict, list[dict]]:
                 value = round((heaps[0]["total_mb"] - heaps[1]["total_mb"]) / chats, 1)
                 out["per_chat"]["js_heap_total_mb"] = value
                 row("per_chat.js_heap_total_mb", value)
+            # DOM per idle chat: the growth of every cmux page's live DOM nodes and decoded images (bench_memory
+            # js_heap.dom), only when both samples read every page.
+            doms = [(h.get("js_heap") or {}).get("dom") or {} for h in (high, low)]
+            if all(d.get("pages") and not d.get("error_count") for d in doms):
+                for key, unit in (("nodes", "count"), ("decoded_images", "count"), ("decoded_mb", "MB")):
+                    value = round((doms[0].get(key, 0) - doms[1].get(key, 0)) / chats, 1)
+                    out["per_chat"][f"dom_{key}"] = value
+                    row(f"per_chat.dom_{key}", value, unit)
     return out, rows
 
 
