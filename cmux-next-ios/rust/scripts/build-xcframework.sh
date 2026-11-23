@@ -41,6 +41,25 @@ done
 # restored afterwards; host builds and tests use stock nix.
 cargo fetch --locked
 cargo_home="${CARGO_HOME:-$HOME/.cargo}"
+# No builder path in the library: panic and log locations name the crates
+# registry and this checkout by fixed prefixes, so the same source gives the same
+# bytes on every build host and the app's update does not change with the
+# runner's home or work folder. Encoded flags keep a path with spaces whole.
+repo_root="$(cd "$cmux_mobile_dir/.." && pwd)"
+rustflags=()
+[[ -z "${CARGO_ENCODED_RUSTFLAGS:-}" ]] || IFS=$'\x1f' read -ra rustflags <<<"$CARGO_ENCODED_RUSTFLAGS"
+[[ -n "${CARGO_ENCODED_RUSTFLAGS:-}" || -z "${RUSTFLAGS:-}" ]] || read -ra rustflags <<<"$RUSTFLAGS"
+rustflags+=("--remap-path-prefix=$cargo_home=/cargo" "--remap-path-prefix=$repo_root=/cmux")
+CARGO_ENCODED_RUSTFLAGS="$(IFS=$'\x1f'; printf '%s' "${rustflags[*]}")"
+export CARGO_ENCODED_RUSTFLAGS
+unset RUSTFLAGS
+# The same for the C that crates compile through cc (ring's __FILE__ strings).
+# cc splits CFLAGS on whitespace, so a path with a space (a fleet worker's
+# "Application Support" work folder) is left unmapped rather than breaking clang.
+for map in "$cargo_home=/cargo" "$repo_root=/cmux"; do
+  [[ "$map" =~ [[:space:]] ]] || CFLAGS="${CFLAGS:+$CFLAGS }-ffile-prefix-map=$map"
+done
+export CFLAGS
 nix_src="$(ls -d "$cargo_home"/registry/src/*/nix-0.26.4 2>/dev/null | head -1)"
 [[ -d "$nix_src" ]] || { echo "error: nix-0.26.4 source not found under $cargo_home/registry/src" >&2; exit 1; }
 patched="$rust_dir/target/ios-patches/nix-0.26.4"

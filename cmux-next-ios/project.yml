@@ -267,14 +267,25 @@ targets:
         CMUX_MOBILE_APPLE_SIGN_IN: "NO"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         "EXCLUDED_ARCHS[sdk=iphonesimulator*]": x86_64
+      # The shipping configurations link the app with no exported symbols
+      # (-no_exported_symbols): nothing loads into the app and looks its symbols
+      # up (no unit-test bundle uses it as TEST_HOST; the UI tests run out of
+      # process; no dlsym of its own symbols), and the export trie was 1.9 MB of
+      # the executable that changed with every build. Demo and Debug keep their
+      # exports: Swift live code (scripts/live-code) interposes the app's own
+      # symbols in those DEBUG configurations.
       configs:
+        Release:
+          OTHER_LDFLAGS: $(inherited) -Wl,-no_exported_symbols
         Production:
+          OTHER_LDFLAGS: $(inherited) -Wl,-no_exported_symbols
           # Its own keychain access group ($(AppIdentifierPrefix)dev.cmux.mobile.prod):
           # Stack tokens never mix with the Demo or Debug installs. No app group:
           # the app shares no container with anything.
           CMUX_MOBILE_ENTITLEMENTS_NO: App/CmuxMobileApp-Production.entitlements
           CMUX_MOBILE_ENTITLEMENTS_YES: App/CmuxMobileApp-Production-Group.entitlements
         TestFlight:
+          OTHER_LDFLAGS: $(inherited) -Wl,-no_exported_symbols
           # Push (production APNs), Sign in with Apple, and its own keychain
           # group. The "cmux Internal Distribution" App Store profile
           # authorizes each key; testflight-build.sh signs manually with it.
@@ -286,6 +297,7 @@ targets:
           CODE_SIGN_IDENTITY: Apple Distribution
           PROVISIONING_PROFILE_SPECIFIER: $(CMUX_MOBILE_APP_PROFILE)
         TestFlightStaging:
+          OTHER_LDFLAGS: $(inherited) -Wl,-no_exported_symbols
           # Push (production APNs), Sign in with Apple, and its own keychain
           # group. The "cmux Internal Distribution" App Store profile
           # authorizes each key; testflight-build.sh signs manually with it.
@@ -297,6 +309,7 @@ targets:
           CODE_SIGN_IDENTITY: Apple Distribution
           PROVISIONING_PROFILE_SPECIFIER: $(CMUX_MOBILE_APP_PROFILE)
         AppStore:
+          OTHER_LDFLAGS: $(inherited) -Wl,-no_exported_symbols
           # The TestFlight entitlements: every value comes from the bundle id
           # (push, Time Sensitive notifications, Sign in with Apple,
           # $(AppIdentifierPrefix)com.cmux.app and the .push group; the

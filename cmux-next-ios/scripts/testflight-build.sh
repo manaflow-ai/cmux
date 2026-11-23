@@ -782,6 +782,27 @@ fi
 | Apple validation | $validated |
 | Uploaded | $([[ $upload == 1 ]] && echo yes || echo "no (upload with --upload)") |
 EOF
+  # What an update downloads: the IPA (once signed) and the app's largest files, as built and
+  # deflated (the IPA's compression), so a build that grows or churns a file shows here.
+  printf '\n## Size\n\n'
+  [[ -z "$ipa" ]] || printf 'IPA: %s bytes\n\n' "$(stat -f %z "$ipa")"
+  if python3 -I - "$archived_app" <<'PY'
+import os, sys, zlib
+app, rows = sys.argv[1], []
+for d, _, files in os.walk(app):
+    for f in files:
+        p = os.path.join(d, f)
+        if os.path.islink(p):
+            continue
+        b = open(p, "rb").read()
+        z = zlib.compressobj(6, zlib.DEFLATED, -15)
+        rows.append((len(b), len(z.compress(b)) + len(z.flush()), os.path.relpath(p, os.path.dirname(app))))
+print(f"App: {sum(r[0] for r in rows)} bytes in {len(rows)} files, {sum(r[1] for r in rows)} deflated\n")
+print("| Bytes | Deflated | File |\n| ---: | ---: | --- |")
+for size, deflated, path in sorted(rows, reverse=True)[:20]:
+    print(f"| {size} | {deflated} | `{path}` |")
+PY
+  then :; else echo "(the size table failed; the build is unaffected)"; fi
   [[ ${#notes[@]} == 0 ]] || printf '\n## Notes\n\n'
   for n in "${notes[@]+"${notes[@]}"}"; do echo "- $n"; done
 } > "$out/MANIFEST.md"
