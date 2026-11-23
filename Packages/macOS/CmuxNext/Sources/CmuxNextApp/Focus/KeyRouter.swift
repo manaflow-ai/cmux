@@ -230,6 +230,7 @@ final class KeyRouter: BrowserKeyRouting, ParkedTypingRouter {
             dropTypeAhead()
         }
         guard chords.isPending || isChord else {
+            if routesKeyModeKey(event, in: window) { trace?("binding: key mode \(keyMode ?? "")"); return true }
             if routesBareKey(event, in: window) { trace?("binding: bare key"); return true }
             if typesAhead(event, in: window) { trace?("hold: page type-ahead"); return true }
             if typesIntoPrimaryInput(event, in: window) { trace?("redirect: primary input"); return true }
@@ -381,6 +382,11 @@ final class KeyRouter: BrowserKeyRouting, ParkedTypingRouter {
     // MARK: Chords
 
     var chords = ChordTracker()
+
+    /// The user key mode the keys are in (`keyMode.enter`, KeyRouter+KeyModes), nil outside one.
+    var keyMode: String?
+    /// Names the mode and lists its keys while it is on; not ``whichKey``, which every chord step hides.
+    let keyModeIndicator = WhichKeyController()
 
     /// The key-down a page has first, with the action to run if it reports the key unhandled.
     var pageFirstOffer = PageFirstKeyOffer()

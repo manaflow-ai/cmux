@@ -26,7 +26,9 @@ extension KeyRouter {
 
     /// The context keys for a key in a window with `focus`.
     func keyContext(for focus: FocusState, facts: Facts) -> KeyContext {
-        Self.keyContext(for: focus, appContext: registry.context, facts: facts)
+        var context = Self.keyContext(for: focus, appContext: registry.context, facts: facts)
+        if let keyMode { context[KeyContext.keyMode] = .string(keyMode) }  // a user key mode (KeyRouter+KeyModes)
+        return context
     }
 
     /// Pure: the focus-independent bits of `appContext` (signed in, Cloud
