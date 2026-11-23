@@ -29,7 +29,7 @@ final class CloudPlaceApp: CloudPlaceHost {
     static let retry: ActionID = "chatMove.retry"
     static let evacuate: ActionID = "cloudEvacuate"
 
-    private unowned let services: AppServices
+    private let services: AppServices
     private var tabs: [String: TabModel] = [:]
 
     init(services: AppServices) { self.services = services }
