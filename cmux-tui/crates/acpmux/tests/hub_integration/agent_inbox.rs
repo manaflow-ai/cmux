@@ -115,9 +115,11 @@ async fn three_hundred_agent_messages_go_in_as_one_notice_at_the_next_tool_step(
     c.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "before-gate").await;
     let running = hub.resolve(&id).unwrap().turn().unwrap().turn_id;
 
-    // The first message goes in as a notice at once; the agent reads it at its next tool step.
+    // The first message, a blocker, goes in as a notice at once; the agent reads it at its next
+    // tool step. (Results alone would wait `STEER_COALESCE_MS` to go in together.)
+    let blocker = json!({"class": "blocker"});
     let first = c
-        .send(method::SESSION_PROMPT, from_agent(&id, "m-first", "lane-0", "merged #1", result()))
+        .send(method::SESSION_PROMPT, from_agent(&id, "m-first", "lane-0", "merged #1", blocker))
         .await;
     until(&hub, &id, "the first notice", |p| p.iter().any(|m| m["steer"] == true)).await;
     let mut sent = vec![first];
@@ -127,7 +129,8 @@ async fn three_hundred_agent_messages_go_in_as_one_notice_at_the_next_tool_step(
             &format!("m-{i}"),
             &format!("lane-{i}"),
             &format!("result {i}"),
-            result(),
+            // The last is a question: it brings the 299 results before it at once.
+            if i == 300 { json!({"class": "question"}) } else { result() },
         );
         sent.push(c.send(method::SESSION_PROMPT, msg).await);
     }
@@ -603,7 +606,7 @@ async fn threads_are_read_whole_and_answered_into_the_senders_inbox() {
     let mut coord_agent = agent_of(&hub, &id).await;
     let read = json!({"sessionId": id, "threadId": "pr:27133", "markRead": true});
     let thread = coord_agent.request(method::MUX_INBOX_THREAD, read).await.unwrap();
-    assert_eq!(thread["messages"][0]["text"], "landed", "{thread}");
+    assert_eq!(thread["messages"][0]["text"], signed(&hub, &lane, "landed"), "{thread}");
     let threads = c.request(method::MUX_INBOX_THREADS, json!({"sessionId": id})).await.unwrap();
     assert_eq!(threads["threads"][2]["unread"], 0, "{threads}");
     let reply = json!({"sessionId": id, "threadId": "pr:27133", "text": "thanks, merging"});
@@ -925,6 +928,7 @@ async fn with_team_messaging_off_a_chat_reads_its_inbox_whole() {
     let thread = threads["threads"][0]["threadId"].as_str().unwrap().to_owned();
     let read = json!({"sessionId": id, "threadId": thread, "markRead": false});
     let whole = agent.request(method::MUX_INBOX_THREAD, read).await.unwrap();
+    let order = signed(&hub, &owner, &order);
     assert_eq!(whole["messages"][0]["text"], order, "{whole}");
 
     // The team mailbox's methods read the same inbox while team messaging is off.
@@ -974,6 +978,7 @@ async fn a_chat_whose_agent_has_no_tools_gets_its_messages_as_prompts() {
     let accepted =
         lane_agent.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == "m-1").await;
     assert_ne!(accepted["inbox"], true, "{accepted}");
+    let text = signed(&hub, &lane, text);
     until(&hub, &id, "the message's own turn", |p| p.iter().any(|m| m["text"] == text)).await;
     assert!(notices(&hub, &id).is_empty(), "no notice of a thread it cannot read");
     let threads = c.request(method::MUX_INBOX_THREADS, json!({"sessionId": id})).await.unwrap();

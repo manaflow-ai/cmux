@@ -1,0 +1,10 @@
+{
+  "family": "palette",
+  "ops": {
+    "palette.rank": {
+      "source": "local",
+      "class": "read",
+      "digest": "cdfcc9c6be5fae93"
+    }
+  }
+}

@@ -1,9 +1,16 @@
 // l10n-allow-file: gallery fixtures, not shipped UI.
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
 import { Spinner } from "./conversation/icons";
-import { HostError, HostUnavailableLine, HostWaitingLine } from "./HostError";
+import {
+  type ConnectionChipVariant,
+  HostError,
+  HostLineSlot,
+  HostRecoveringLine,
+  HostUnavailableLine,
+  HostWaitingLine,
+} from "./HostError";
 
 type Props = {
   message: string;
@@ -34,7 +41,34 @@ type Props = {
   /// machine hosting the agent rebooting, Leo 2026-11-12), not shipped: the machine named
   /// (`named`), the time waited (`timed`), or the line before this change (`before`).
   outage?: "named" | "timed" | "before";
+  /// The connection chip (HostError.tsx ConnectionChip) as a lost link past the 10 s bound draws it
+  /// over a mock transcript and composer: `chip` is shipped, `dot` and `corner` are the alternates;
+  /// `restoring` is the host's "Restoring sessions" as a chip.
+  chip?: ConnectionChipVariant | "restoring";
 };
+
+/// The pane's dock around the host line: three transcript rows above, the composer under. The slot sits
+/// between them, so a chip over it shows where the line is drawn and that the rows never move.
+function MockDock({ children, slotted }: { children: ReactNode; slotted: boolean }) {
+  return (
+    <div className="acpmux-dock" style={{ width: "100%" }}>
+      {[0.9, 0.7, 0.5].map((width) => (
+        <p key={width} style={{ margin: "0 16px 8px", opacity: 0.7, width: `${width * 70}%` }}>
+          A line of the chat above the composer
+        </p>
+      ))}
+      {slotted ? <HostLineSlot>{children}</HostLineSlot> : children}
+      <div
+        style={{
+          height: 44,
+          margin: "0 16px",
+          border: "1px solid color-mix(in srgb, currentColor 18%, transparent)",
+          borderRadius: 12,
+        }}
+      />
+    </div>
+  );
+}
 
 /// The gallery's unshipped long-outage alternates, drawn with the shipped classes.
 function AlternateOutage({ kind }: { kind: NonNullable<Props["outage"]> }) {
@@ -111,48 +145,60 @@ function GalleryHostError({
   pair,
   selfRetrying,
   outage,
+  chip,
 }: Props) {
   const [retrying, setRetrying] = useState(initialRetrying);
   const [restarting, setRestarting] = useState(false);
+  // What the pane draws out of flow goes in the slot; the alternates and the before lines are rows.
+  const slotted = !pair && !outage && !alternate && !connecting && !harness;
   return (
     <div className="acpmux-shell" data-host-error-fixture>
-      {pair ? (
-        <div style={{ display: "flex", flexDirection: "column", width: "100%" }}>
-          <HostWaitingLine since={0} now={waitedMs ?? 95_000} onRestart={() => undefined} />
-          <HostUnavailableLine message={message} detail={detail} onRetry={() => undefined} />
-        </div>
-      ) : outage ? (
-        <AlternateOutage kind={outage} />
-      ) : alternate ? (
-        <AlternateWaiting kind={alternate} waited="1:35" />
-      ) : connecting ? (
-        <output className="acpmux-host-line" aria-live="polite">
-          {connecting === "spinner" && <Spinner size={14} loading />}
-          <span className="acpmux-host-line-message">{message}</span>
-        </output>
-      ) : waitedMs !== undefined ? (
-        <HostWaitingLine since={0} now={waitedMs} restarting={restarting} onRestart={() => setRestarting(true)} />
-      ) : harness ? (
-        <HostError
-          message={message}
-          hint={harness.hint}
-          action={harness.action}
-          retrying={retrying}
-          onRetry={() => setRetrying(true)}
-        />
-      ) : (
-        shown && (
-          <HostUnavailableLine
-            message={message}
-            detail={detail}
-            retrying={retrying}
-            onRetry={withRetry ? () => setRetrying(true) : undefined}
-            restarting={restarting}
-            onRestart={withRestart ? () => setRestarting(true) : undefined}
-            selfRetrying={selfRetrying}
+      <MockDock slotted={slotted}>
+        {chip ? (
+          <HostRecoveringLine
+            relinkingSince={0}
+            restoring={chip === "restoring" ? { waitedMs: 12_000, at: 0 } : undefined}
+            now={12_000}
+            variant={chip === "restoring" ? undefined : chip}
           />
-        )
-      )}
+        ) : pair ? (
+          <div style={{ display: "flex", flexDirection: "column", width: "100%" }}>
+            <HostWaitingLine since={0} now={waitedMs ?? 95_000} onRestart={() => undefined} />
+            <HostUnavailableLine message={message} detail={detail} onRetry={() => undefined} />
+          </div>
+        ) : outage ? (
+          <AlternateOutage kind={outage} />
+        ) : alternate ? (
+          <AlternateWaiting kind={alternate} waited="1:35" />
+        ) : connecting ? (
+          <output className="acpmux-host-line" aria-live="polite">
+            {connecting === "spinner" && <Spinner size={14} loading />}
+            <span className="acpmux-host-line-message">{message}</span>
+          </output>
+        ) : waitedMs !== undefined ? (
+          <HostWaitingLine since={0} now={waitedMs} restarting={restarting} onRestart={() => setRestarting(true)} />
+        ) : harness ? (
+          <HostError
+            message={message}
+            hint={harness.hint}
+            action={harness.action}
+            retrying={retrying}
+            onRetry={() => setRetrying(true)}
+          />
+        ) : (
+          shown && (
+            <HostUnavailableLine
+              message={message}
+              detail={detail}
+              retrying={retrying}
+              onRetry={withRetry ? () => setRetrying(true) : undefined}
+              restarting={restarting}
+              onRestart={withRestart ? () => setRestarting(true) : undefined}
+              selfRetrying={selfRetrying}
+            />
+          )
+        )}
+      </MockDock>
     </div>
   );
 }
@@ -193,7 +239,7 @@ export default componentEntry<Props>({
   id: "agent-pane.host-error",
   title: "Agent host error",
   area: "Agent pane",
-  height: 210,
+  height: 250,
   widths: { narrow: 360, normal: 520, wide: 720 },
   anchors: [{ selector: "[data-host-error-fixture]" }],
   covers: [
@@ -216,6 +262,25 @@ export default componentEntry<Props>({
     // Leo, 2026-11-12, after the machine hosting the agent rebooted: "the recovery needs to be a lot
     // better and it shouldn't talk so much bullshit"; "try what? no, it should just automatically
     // do stuff". Picked: "automatic", one quiet line however long the outage, no button.
+    // Leo, 2026-11-21: "these messages should not be pushing up the text... a small unobtrusive thing
+    // somewhere without needing to block any content ... as a symbol or short thing, not a sentence.
+    // stop layout shifting". Picked: "chip".
+    chip: {
+      props: { message: "", initialRetrying: false, withRetry: false, chip: "chip" },
+      note: "Picked. A link down past 10 s: a dot and one word over the composer's top edge, out of flow, so the rows above never move (noLayoutShift.test.tsx). Nothing before 10 s.",
+    },
+    "chip-dot": {
+      props: { message: "", initialRetrying: false, withRetry: false, chip: "dot" },
+      note: "Alternate, not shipped: only the dot (its words are the label and tooltip). Least to look at, but a symbol alone is easy to miss and asks to be learned.",
+    },
+    "chip-corner": {
+      props: { message: "", initialRetrying: false, withRetry: false, chip: "corner" },
+      note: "Alternate, not shipped: the chip fixed in the pane's top end corner, away from the composer. Never over the text being read, but far from where the person is typing.",
+    },
+    "chip-restoring": {
+      props: { message: "", initialRetrying: false, withRetry: false, chip: "restoring" },
+      note: "The host's Restoring sessions, with its clock, as the same chip.",
+    },
     automatic: {
       props: {
         message: "Couldn't connect to the agent.",

@@ -38,8 +38,10 @@
           ],
           "inputs": [
             "scripts/cmux-next/run-v2-gates.sh", "scripts/cmux-next/v2-gates.d/",
-            "scripts/ci/cargo_test_verdict.py", "scripts/ci/git_tree.py", "scripts/ci/test_reds.py",
-            "tests/test_cargo_test_verdict.py", ".github/actions/cache-restore/", ".github/actions/cache-save/"
+            "scripts/ci/apt-ensure.sh", "scripts/ci/cargo_test_verdict.py", "scripts/ci/git_tree.py", "scripts/ci/test_reds.py",
+            "tests/test_cargo_test_verdict.py", ".github/actions/cache-restore/", ".github/actions/cache-save/",
+            "scripts/ci/cargo-lib-tests-at-once.sh", "scripts/ci/tests/cargo-lib-tests-at-once.test.sh",
+            "scripts/ci/acpmux-tests-pr-deferred.txt"
           ]
         },
         "acpmux-sim": {
@@ -52,7 +54,7 @@
           "crates": ["cmux-tui/crates/cmux-remote", "cmux-tui/crates/cmux-link", "cmux-tui/crates/cmux-relay"],
           "inputs": [
             "cmux-tui/crates/cmux-tui/src/carrier/", "ghostty-next", "scripts/install-zig-ci.sh",
-            "scripts/ci/init-submodule.sh"
+            "scripts/ci/init-submodule.sh", "scripts/ci/apt-ensure.sh"
           ]
         },
         "acpmux-protocol-ir": {
@@ -119,7 +121,7 @@
             "scripts/ci/stage-agent-detector.sh", "scripts/ci/cmux-tui-mac-cargo-builds.sh",
             "scripts/select-ci-xcode.sh",
             "plans/cmux-next/daemon-capabilities.json", "scripts/cmux-next/pin-cmux-tui.sh",
-            "scripts/cmux-next/check-daemon-capabilities.sh", "scripts/cmux-next/cmux-tui.pin",
+            "scripts/cmux-next/check-daemon-capabilities.sh", "scripts/cmux-next/generated-autofixable.sh", "scripts/cmux-next/autofix-areas.sh", "scripts/cmux-next/cmux-tui.pin",
             "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/FirstLaunchTests.swift",
             "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/MarkdownPageFindTests.swift",
             "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/FileSourceSwitchTests.swift",
@@ -186,9 +188,6 @@
       },
       ".github/workflows/swift-linux-packages.yml": {
         "swift-linux-packages": "10 runs on 52 merged pull requests, 0 with a red, 0 of them the pull request's own; 178 job-minutes"
-      },
-      ".github/workflows/cmux-next-ios-kit.yml": {
-        "kit-tests": "4 runs on 52 merged pull requests, 3 with a red, 1 of them the pull request's own (#43289): Tier B, fixed forward on the push; 140 job-minutes"
       },
       ".github/workflows/cmux-next-react-doctor.yml": {
         "react-doctor": "48 runs on 52 merged pull requests, 1 with a red, 1 of them the pull request's own (#46860): Tier B, fixed forward on the push; 90 job-minutes; the miss is #46860: an eslint complexity red in web/ it changed"

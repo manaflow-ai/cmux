@@ -22,6 +22,7 @@
     {
       "agent": "settable",
       "keys": [
+        "agentPane.links.openCitationsInEditor",
         "window.titlebar"
       ]
     },
@@ -63,6 +64,7 @@
         "sidebar.detailedStatusIcons",
         "sidebar.showTimestamps",
         "sidebar.settleFinished",
+        "sidebar.showAutomaticSessions",
         "sidebar.showColors",
         "sidebar.showLocalMachine",
         "workspaceColors.indicatorStyle"
@@ -139,6 +141,13 @@
     },
     {
       "agent": "settable",
+      "why": "Cmd-Q's warning against an accidental quit; a quit keeps every session either way.",
+      "keys": [
+        "app.warnBeforeQuitShortcut"
+      ]
+    },
+    {
+      "agent": "settable",
       "why": "The language cmux's own text is in; ends no work.",
       "keys": [
         "app.language"
@@ -147,7 +156,8 @@
     {
       "agent": "settable",
       "keys": [
-        "tabs.overflow"
+        "tabs.overflow",
+        "tabs.shellIconTheme"
       ]
     },
     {
@@ -206,7 +216,8 @@
         "layout.minimumPaneHeight",
         "appearance.theme",
         "appearance.appTheme",
-        "appearance.accent"
+        "appearance.accent",
+        "appearance.selection"
       ]
     },
     {
@@ -267,7 +278,9 @@
         "appearance.backgroundSchedule",
         "appearance.backgroundDynamic",
         "appearance.backgroundLocation",
-        "appearance.backgroundMemory"
+        "appearance.backgroundMemory",
+        "appearance.backgroundPlacement",
+        "appearance.backgroundRecents"
       ]
     },
     {
@@ -296,6 +309,7 @@
         "appearance.fontSmoothing",
         "appearance.interfaceScale",
         "appearance.borders",
+        "appearance.liquidGlass",
         "appearance.previousGlass",
         "appearance.sidebarSurface",
         "appearance.chromeStyle",
@@ -399,6 +413,7 @@
         "sidebar.chromeGroups",
         "sidebar.sideBySide",
         "sidebar.groupBy",
+        "sidebar.nav",
         "sidebar.priorityView.enabled",
         "sidebar.priorityView.shown",
         "browser.defaultEngine",
@@ -455,6 +470,7 @@
         "notifications.attention.showOnTab",
         "notifications.attention.showOnSidebar",
         "notifications.attention.mark",
+        "notifications.toast.style",
         "notifications.attention.moveToTop",
         "notifications.attention.moveToTopOnAgentFinish"
       ]
@@ -486,7 +502,17 @@
         "experiments.glassToolbarGroups",
         "experiments.composerV2",
         "experiments.agentBadges",
-        "experiments.agentBadgesBeam"
+        "experiments.agentBadgesBeam",
+        "experiments.menuStyleV2",
+        "experiments.menuRowStates",
+        "experiments.toastsV2"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "Extension chat widgets draw installed extensions' cards in agent chat; only the person turns them on.",
+      "keys": [
+        "experiments.chatWidgets"
       ]
     },
     {
@@ -527,6 +553,21 @@
       "keys": [
         "agentPane.newChatsIn",
         "agentPane.sessionWorktrees"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "The composer's look and where an empty chat's composer sits: layout choices a profile or the person's agent may set, like the chat's other looks.",
+      "keys": [
+        "agentPane.composerLook",
+        "agentPane.emptyChatComposerPosition"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "What Return does with a message sent mid-turn (steer or queue): a chat preference a profile or the person's agent may set, like the composer's other choices.",
+      "keys": [
+        "agentPane.followUpMode"
       ]
     },
     {
@@ -785,6 +826,8 @@
         "agentPane.display.minimap",
         "agentPane.display.transcriptView",
         "agentPane.display.presentation",
+        "agentPane.display.transcriptLook",
+        "agentPane.display.transcriptTokens",
         "agentPane.display.promptCoach",
         "agentPane.display.statusVerbs.mode",
         "agentPane.display.statusVerbs.custom",
@@ -1014,6 +1057,21 @@
       ]
     },
     {
+      "agent": "destructive",
+      "why": "Machine cleanup removes worktrees and build caches from this Mac's disk: only the person turns it on or off.",
+      "keys": [
+        "worktrees.autoCleanup",
+        "worktrees.cleanBuildCaches"
+      ]
+    },
+    {
+      "agent": "destructive",
+      "why": "Deleting old chats removes their history from this machine for good: only the person sets it.",
+      "keys": [
+        "agents.chats.deleteHistoryAfterDays"
+      ]
+    },
+    {
       "agent": "settable",
       "why": "Whether inactive chats are archived on their own, and after how long: reversible (Unarchive brings a chat back), it only moves chats off the lists.",
       "keys": [
@@ -1201,8 +1259,9 @@
     },
     {
       "agent": "userOnly",
-      "why": "The app that opens your files from a menu: an agent must not pick what runs them.",
+      "why": "The apps that open your folders and files: an agent must not pick what runs them.",
       "keys": [
+        "editor.default",
         "files.textEditor"
       ]
     },
@@ -1240,6 +1299,13 @@
       "why": "Whether attached photos and videos send their location.",
       "keys": [
         "home.attachments.keepLocation"
+      ]
+    },
+    {
+      "agent": "privacy",
+      "why": "Whether cmux reads the person's clipboard for the Chief's + menu.",
+      "keys": [
+        "home.clipboardHistory"
       ]
     },
     {
@@ -1301,6 +1367,13 @@
     },
     {
       "agent": "userOnly",
+      "why": "Whether new nonpersistent Cloud agent machines opt into the Mac pause/resume experiment: the person decides this lifecycle change.",
+      "keys": [
+        "labs.pauseAgentMachines"
+      ]
+    },
+    {
+      "agent": "userOnly",
       "why": "On, a live code build loads Swift patches into the running app: only the person turns that on.",
       "keys": [
         "labs.liveCode"
@@ -1311,6 +1384,13 @@
       "why": "On, Settings shows and edits Claude Code's and Codex's own settings, MCP servers, skills, commands and hooks in their own config files: only the person turns that on.",
       "keys": [
         "labs.agentCustomization"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "Whether the Rex-style Hosts section is visible in the sidebar: the person decides when this preview surface appears.",
+      "keys": [
+        "labs.hostsSidebar"
       ]
     },
     {
@@ -1414,7 +1494,9 @@
       "agent": "userOnly",
       "why": "Whether cmux adds its tools to the person's own coding agents (their config files and each terminal launch): the onboarding step asks the person, and only the person answers; an agent must not grant itself or other agents cmux's tools.",
       "keys": [
-        "agents.cmuxMcp"
+        "agents.cmuxMcp",
+        "agents.cmuxMcpClaude",
+        "agents.cmuxMcpCodex"
       ]
     },
     {
@@ -1558,6 +1640,13 @@
       ]
     },
     {
+      "agent": "network",
+      "why": "Which computers cmux dials over ssh and checks from the sidebar: the person declares a host, so an agent cannot point cmux at an address of its choosing.",
+      "keys": [
+        "machines.hosts"
+      ]
+    },
+    {
       "agent": "userOnly",
       "keys": [
         "phone.keepAwake"
@@ -1595,6 +1684,13 @@
     },
     {
       "agent": "userOnly",
+      "why": "It decides whether an agent may start viewing the person's own screens without their click; an agent never loosens it.",
+      "keys": [
+        "macScreen.onlyPersonStartsViewing"
+      ]
+    },
+    {
+      "agent": "userOnly",
       "why": "It is the person's standing yes to Share This Mac; an agent that could set it would approve its own share request. cmux Remote: the person's call.",
       "keys": [
         "macScreen.shareWithoutAsking"
@@ -1609,9 +1705,23 @@
     },
     {
       "agent": "userOnly",
+      "why": "Bounds how long an agent's share of this Mac lasts with no viewer; an agent never lengthens its own window.",
+      "keys": [
+        "remote.agentShareIdleMinutes"
+      ]
+    },
+    {
+      "agent": "userOnly",
       "why": "Always spends about 2 to 3 times the data on every remote connection, and Off gives up loss protection; only the person picks it.",
       "keys": [
         "remote.ultra"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "Ultra spends up to 150 Mbps on every Screen Sharing session this Mac views; only the person picks it.",
+      "keys": [
+        "remote.screenSharingProfile"
       ]
     },
     {
