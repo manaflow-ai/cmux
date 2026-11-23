@@ -206,7 +206,7 @@ pub fn serve_terminal_host_stdio(
     let mut backoff = host_accept::accept_backoff();
     // No client stream since this instant: the owner daemon is gone. After
     // the orphan grace (tagged DEV, staging, debug builds: 10 minutes; every
-    // other build: ABANDONED_HOST_GRACE, a week) with still no client the
+    // other build: ABANDONED_HOST_GRACE, also 10 minutes) with still no client the
     // host ends its terminal the way an owner's Terminate does (exit record
     // included), so a deleted build or a renamed tag does not hold a PTY
     // until reboot. Any accepted connection restarts the clock, so a

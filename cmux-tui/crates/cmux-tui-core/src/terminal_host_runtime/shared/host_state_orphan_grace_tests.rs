@@ -1,9 +1,9 @@
 use super::*;
 
 #[test]
-fn a_normal_install_ends_an_abandoned_host_after_a_week() {
+fn a_normal_install_ends_an_abandoned_host_after_ten_minutes() {
     assert_eq!(orphan_grace_in_force(None, false), ABANDONED_HOST_GRACE);
-    assert_eq!(ABANDONED_HOST_GRACE, Duration::from_secs(7 * 24 * 60 * 60));
+    assert_eq!(ABANDONED_HOST_GRACE, Duration::from_secs(10 * 60));
 }
 
 #[cfg(unix)]
