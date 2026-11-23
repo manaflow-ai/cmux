@@ -141,6 +141,13 @@ jobs:
       # The engine and this workflow's helper come from the base branch (the same rules for every PR, as the
       # fleet step's engine does); the PR head is fetched as git objects and planned as `sha:` (no worktree
       # of it). A PR that brings the engine itself, before the base has one, is planned with its own scripts/.
+      # A persistent pool runner reuses the workspace. After an earlier job's checkout of other paths, this sparse
+      # checkout stops at "Path '...' not uptodate; will not remove from working tree" and the job dies before it
+      # reads anything: run 45077133789 lost a finished look's receipt that way. Without a .git, actions/checkout
+      # empties the directory and clones fresh; an ephemeral runner has nothing to drop.
+      - name: Drop a reused workspace's repository
+        if: runner.environment == 'self-hosted'
+        run: rm -rf "$GITHUB_WORKSPACE/.git"
       - name: Checkout the base branch's scripts
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -332,6 +339,10 @@ jobs:
       attempt: ${{ steps.check.outputs.attempt }}
       event_at: ${{ steps.check.outputs.event_at }}
     steps:
+      # A reused pool workspace breaks this sparse checkout (see the plan job).
+      - name: Drop a reused workspace's repository
+        if: runner.environment == 'self-hosted'
+        run: rm -rf "$GITHUB_WORKSPACE/.git"
       - name: Checkout the pull request check
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -393,6 +404,10 @@ jobs:
     outputs:
       key: ${{ steps.key.outputs.key }}
     steps:
+      # A reused pool workspace breaks this sparse checkout (see the plan job).
+      - name: Drop a reused workspace's repository
+        if: runner.environment == 'self-hosted'
+        run: rm -rf "$GITHUB_WORKSPACE/.git"
       - name: Checkout the pull request head (trees only)
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -462,6 +477,10 @@ jobs:
       pull-requests: write
       actions: write
     steps:
+      # A reused pool workspace breaks this sparse checkout (see the plan job).
+      - name: Drop a reused workspace's repository
+        if: runner.environment == 'self-hosted'
+        run: rm -rf "$GITHUB_WORKSPACE/.git"
       - name: Checkout the publisher
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
