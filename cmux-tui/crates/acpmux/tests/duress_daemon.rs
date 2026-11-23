@@ -1350,7 +1350,9 @@ async fn leg(name: &str, k: &Knobs) -> LegOut {
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
     let mut config = json!({
         "peers": peer_config,
-        "harnesses": {"fake": {"argv": ["python3", fake]}},
+        // `claude` too: the desktop bridge lists the external session as a `claude` chat and
+        // refuses one this host has no profile for ("unknown harness \"claude\"").
+        "harnesses": {"fake": {"argv": ["python3", fake]}, "claude": {"argv": ["python3", fake]}},
         "defaultHarness": "fake",
         "permissionPolicy": "approve-all",
         "meshRelay": {"url": format!("http://127.0.0.1:{}", hub.port), "tokenCommand": ["/bin/echo", "duress-token"]},
