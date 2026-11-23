@@ -93,6 +93,8 @@ export type SettingsPageVariant = VariantBase & {
   channelSwitch?: ChannelSwitch | null;
   /** The host's refusal of every Switch; default none (Switch runs). */
   switchRefusal?: string;
+  /** An in-place sign-in's finish never answers, so the card stays on its code (logins done right). */
+  signInHold?: boolean;
   /** Settings > Agents > Agent integrations; default the mock's four (focus `agents.integrations` opens it). */
   integrations?: IntegrationsState;
   /** Public-safe thumbnail data URLs for native-origin backdrop images. */

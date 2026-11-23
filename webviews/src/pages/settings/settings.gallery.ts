@@ -533,6 +533,25 @@ Object.assign(variants, {
       harnesses: codexHarness,
     },
   }),
+  // Logins done right (Leo, 2026-11-22: "this is simply logins, done righr."): on a host that signs
+  // in in place, the harness row's Sign In shows the code under the row, not a terminal tab.
+  "agents-harnesses-sign-in-in-place": variant("agents", {
+    note: "Codex's Sign In on a host that signs in in place: the code under the row, waiting for the approval.",
+    accounts: accounts({}, { signInAccounts: ACCOUNT_LISTS.signedOut }),
+    signInHold: true,
+    harnesses: {
+      loading: false,
+      problem: null,
+      accounts: providerAccounts.map((account) =>
+        account.id === "codex-login" ? { ...account, signedIn: false, email: null, plan: null } : account,
+      ),
+      harnesses: codexHarness,
+    },
+    steps: [
+      click('[data-harness="codex"] [data-harness-action="signIn"]'),
+      wait('[data-harness-sign-in="codex"] .signin[data-state="waiting"]'),
+    ],
+  }),
   "agents-harnesses-unreachable": variant("agents", {
     note: "Harnesses when the acpmux daemon did not answer.",
     harnesses: { loading: false, problem: "unreachable", harnesses: [] },
