@@ -374,3 +374,38 @@ fn keep_awake_is_off_by_default() {
     let (_, host) = quiet_gaps(&mut pair, &lan, 2_000);
     assert!(host.0 >= 100_000, "the host kept sending without keep-awake: {host:?}");
 }
+
+#[test]
+fn a_candidate_trickled_after_the_first_handshake_is_tried_without_waiting_for_a_retry() {
+    let viewer_key = KeyPair::generate().unwrap();
+    let host_key = KeyPair::generate().unwrap();
+    let mut viewer =
+        Endpoint::new(Role::Initiator, b"trickle", &viewer_key, host_key.public, 0).unwrap();
+    let mut host =
+        Endpoint::new(Role::Responder, b"trickle", &host_key, viewer_key.public, 0).unwrap();
+
+    // The answer's first candidate does not deliver; message 1 goes out on it and is lost.
+    viewer.add_path(Route::Udp(addr(HOST_WAN)), PathKind::DirectWan, 0);
+    assert_eq!(viewer.poll_transmit(0).unwrap().len(), 1);
+    // The working one trickles in 20 ms later, well before the 250 ms retry.
+    let at = 20_000;
+    assert!(at < HANDSHAKE_RETRY_US);
+    viewer.add_path(Route::Udp(addr(HOST_LAN)), PathKind::DirectLan, at);
+    let sent = viewer.poll_transmit(at).unwrap();
+    assert_eq!(
+        sent.iter().map(|t| t.route).collect::<Vec<_>>(),
+        vec![Route::Udp(addr(HOST_LAN))],
+        "only the new route gets the message in flight"
+    );
+    host.on_packet(Route::Udp(addr(VIEWER_WAN)), &sent[0].packet, at).unwrap();
+    for t in host.poll_transmit(at).unwrap() {
+        viewer.on_packet(Route::Udp(addr(HOST_LAN)), &t.packet, at).unwrap();
+    }
+    for t in viewer.poll_transmit(at).unwrap() {
+        host.on_packet(Route::Udp(addr(VIEWER_WAN)), &t.packet, at).unwrap();
+    }
+    assert!(viewer.link().is_established() && host.link().is_established());
+    // A later poll does not send it again.
+    let viewer_again = viewer.poll_transmit(at + 10_000).unwrap();
+    assert!(viewer_again.iter().all(|t| t.packet.first() != sent[0].packet.first()));
+}
