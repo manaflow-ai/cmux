@@ -13,7 +13,7 @@ use super::OutputMode;
 use super::hosts_check::{self, DEFAULT_TIMEOUT, MAX_TIMEOUT, Status};
 
 const USAGE: &str = "\
-cmux hosts: the computers declared in ~/.config/cmux/cmux-next.json, under machines.hosts:
+cmux hosts: the computers declared in cmux-next.json (this build's config), under machines.hosts:
   \"machines\": { \"hosts\": [ { \"label\": \"studio\", \"endpoints\": [\"studio.local\", \"ssh://leo@100.64.0.7:2222\"], \"icon\": \"desktopcomputer\" } ] }
   cmux hosts [list] [--json]                         the declared hosts, and any entry that is not one
   cmux hosts check [LABEL...] [--timeout SECS] [--json]
@@ -41,6 +41,10 @@ enum Request {
 fn parse(rest: &[String]) -> Result<Request, String> {
     let words: Vec<&str> =
         rest.iter().map(String::as_str).filter(|word| *word != "--json").collect();
+    // `--help` anywhere (`cmux hosts check --help`) is the help, never an unknown option.
+    if words.iter().any(|word| matches!(*word, "-h" | "--help")) {
+        return Ok(Request::Help);
+    }
     match words.split_first() {
         None | Some((&"list" | &"ls", [])) => Ok(Request::List),
         Some((&"help" | &"-h" | &"--help", _)) => Ok(Request::Help),
@@ -226,5 +230,7 @@ mod tests {
         assert!(parse(&words("check --timeout 99")).is_err());
         assert!(parse(&words("check --bogus")).is_err());
         assert!(parse(&words("frobnicate")).is_err());
+        assert_eq!(parse(&words("check --help")), Ok(Request::Help));
+        assert_eq!(parse(&words("--help")), Ok(Request::Help));
     }
 }
