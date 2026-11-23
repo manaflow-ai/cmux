@@ -97,7 +97,14 @@ export interface NativePopupRow {
   icon?: string;
   shortcut?: string;
   disabled?: boolean;
+  /** Why the row is disabled: its tooltip; with `experiments.menuRowStates`, also a one-line amber caption. */
   disabledReason?: string;
+  /**
+   * The row's work is running (`experiments.menuRowStates`): a small spinner in its trailing slot,
+   * the row and popup the same size, and the row takes no pick. The page sets it through the
+   * popup's update path while its work runs, then hides the popup. Not on section, separator or text rows.
+   */
+  loading?: boolean;
   checked?: boolean;
   value?: string;
   keepOpen?: boolean;

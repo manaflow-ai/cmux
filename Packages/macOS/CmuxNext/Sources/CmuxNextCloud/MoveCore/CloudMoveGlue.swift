@@ -30,12 +30,15 @@ public nonisolated struct CloudMoveFailure: Error {
     public var retry: CloudMoveRetries.Retry?
     /// The code a Cloud start's page card reads instead of its generic failure (`seed.needs_github`: Connect GitHub); nil for that one.
     public var code: String?
+    /// A Cloud start's refusal the same send may pass later, as the CLI's answer said (``CloudMoveCLI/Answer/retryable``).
+    public var sendAgain = false
 
     /// Creates a failure without changing the chat or its retry policy.
-    public init(message: String, code: String? = nil, retry: CloudMoveRetries.Retry? = nil) {
+    public init(message: String, code: String? = nil, retry: CloudMoveRetries.Retry? = nil, sendAgain: Bool = false) {
         self.message = message
         self.code = code
         self.retry = retry
+        self.sendAgain = sendAgain
     }
 }
 

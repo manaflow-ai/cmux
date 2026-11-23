@@ -45,6 +45,9 @@ public nonisolated struct ActionSuggestions: Sendable, Hashable {
     public static let layoutTemplates = "layoutTemplates"
     /// Backgrounds a pane may take (`pane.setBackground`): the bundled art, by title.
     public static let paneBackgrounds = "paneBackgrounds"
+    /// The window's recent backgrounds (Recent Backgrounds…'s `background`, appearance.backgroundRecents),
+    /// newest first, by background value.
+    public static let backgroundRecents = "backgroundRecents"
     /// Marker tints a pane may take (`pane.setTint`): the pinned named colors.
     public static let paneTints = "paneTints"
     /// The cmux Cloud teams of the signed-in account (Team Picker's `team`), by team id.
@@ -61,4 +64,6 @@ public nonisolated struct ActionSuggestions: Sendable, Hashable {
     /// The hosts New Remote Group offers (its `destination`): connected machines, online Tailscale
     /// peers, then `~/.ssh/config` aliases, each once, by SSH destination.
     public static let remoteHosts = "remoteHosts"
+    /// The code editors installed on this Mac, the default first (Open In ▸'s `app`; the App lists them).
+    public static let editors = "editors"
 }

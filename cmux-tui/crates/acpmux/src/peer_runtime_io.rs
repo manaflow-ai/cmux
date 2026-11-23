@@ -918,7 +918,7 @@ impl Peer {
         let mut last_frame = tokio::time::Instant::now();
         let mut stale_settled = false;
         let mut handshake_ended = false;
-        let mut ticks: u64 = 0;
+        let mut health_asked: Option<tokio::time::Instant> = None;
         // Holds until the link is ready and its list is in (`listed`), also a list read after
         // ready. Moved on by each page of a list read in pages, up to `HANDSHAKE_MOST` in all: a
         // peer that paces its lists still links, one that stops answering does not hold it.
@@ -1195,8 +1195,9 @@ impl Peer {
                         Ok(Err(e)) => break Err(e.to_string()),
                         Err(_) => break Err(write_late(budget, wake_probe)),
                     }
-                    ticks += 1;
-                    if ticks.is_multiple_of(health::HEALTH_EVERY) && self.link().is_ready() {
+                    let now = tokio::time::Instant::now();
+                    if self.link().is_ready() && health::health_due(health_asked, now) {
+                        health_asked = Some(now);
                         self.refresh_health();
                     }
                 }
@@ -1273,7 +1274,7 @@ impl Peer {
                             watch_reply!(key, reply, tx);
                         }
                         Message::Notification { method: m, params } => {
-                            let p = params.unwrap_or(Value::Null);
+                            let mut p = params.unwrap_or(Value::Null);
                             if m == crate::server::controls::NOTICE {
                                 if let Err(error) = self.controls_notice(link, p).await {
                                     tracing::warn!(peer = %self.name, error = %error.message, "controls stream ended; keeping link up");
@@ -1343,7 +1344,8 @@ impl Peer {
                                 *self.list_cursor.lock_or_recover() = None;
                             }
                             let notice = if m == method::MUX_SESSION_CHANGED {
-                                let session = p.get("session").cloned().unwrap_or(Value::Null);
+                                // Taken, not copied: nothing below reads it from `p`.
+                                let session = p.get_mut("session").map(Value::take).unwrap_or(Value::Null);
                                 // Remote session_changed notifications carry the
                                 // peer name at the top level; older summaries
                                 // also carry it inside `session`.
