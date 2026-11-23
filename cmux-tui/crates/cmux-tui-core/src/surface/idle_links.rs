@@ -73,9 +73,9 @@ fn idle_links() -> Option<&'static IdleLinks> {
         .as_ref()
 }
 
-/// Park `stream` until it turns readable, then run `resume` on the poller's
-/// thread (it starts its own thread, see
-/// [`super::host_frames::spawn_or`]). `Err(resume)` when it could not be
+/// Park `stream` until it turns readable, then run `resume(work)` on the
+/// poller's thread (it starts its own thread, see
+/// [`super::host_frames::spawn_or`]). `Err(work)` when it could not be
 /// parked; the caller keeps reading itself, as it did before parking
 /// existed.
 pub(super) fn park<T: Send + 'static>(
@@ -84,26 +84,6 @@ pub(super) fn park<T: Send + 'static>(
     resume: fn(T),
 ) -> Result<ParkedLink, T> {
     let Some(links) = idle_links() else { return Err(work) };
-    // The work comes back out of the slot when it could not be parked.
-    let slot = Arc::new(Mutex::new(Some(work)));
-    let resume_slot = slot.clone();
-    let resume: Resume = Box::new(move || {
-        let work = resume_slot.lock().recover_poison().take();
-        if let Some(work) = work {
-            resume(work);
-        }
-    });
-    park_resume(links, stream, resume).map_err(|resume| {
-        drop(resume);
-        slot.lock().recover_poison().take().expect("unparked work is still in its slot")
-    })
-}
-
-fn park_resume(
-    links: &'static IdleLinks,
-    stream: Arc<HostStream>,
-    resume: Resume,
-) -> Result<ParkedLink, Resume> {
     let mut state = links.state.lock().recover_poison();
     let token = state.next_token;
     state.next_token = state.next_token.wrapping_add(1) % WAKE.0;
@@ -111,26 +91,22 @@ fn park_resume(
     // A socket that already holds bytes reports readable at registration, so
     // nothing that arrived before this call is missed.
     if links.registry.register(&mut SourceFd(&fd), Token(token), Interest::READABLE).is_err() {
-        return Err(resume);
+        return Err(work);
     }
-    state.parked.insert(token, Parked { stream, resume, deadline: None });
     if !state.running {
-        let Some(poll) = state.poll.take() else {
-            return Err(unpark(links, &mut state, token));
-        };
-        state.running = true;
+        // The thread takes the poll instance from the state once this lock
+        // is released; a failed start leaves it there.
         let started = std::thread::Builder::new()
             .name("terminal-idle-links".into())
-            .spawn(move || wait_for_links(links, poll));
+            .spawn(move || wait_for_links(links));
         if started.is_err() {
-            // The poll instance went with the closure; make a new one next time.
-            state.running = false;
-            if let Ok(poll) = Poll::new() {
-                state.poll = Some(poll);
-            }
-            return Err(unpark(links, &mut state, token));
+            let _ = links.registry.deregister(&mut SourceFd(&fd));
+            return Err(work);
         }
+        state.running = true;
     }
+    let resume: Resume = Box::new(move || resume(work));
+    state.parked.insert(token, Parked { stream, resume, deadline: None });
     Ok(ParkedLink(token))
 }
 
@@ -153,10 +129,6 @@ pub(super) fn resume_at(link: ParkedLink, deadline: Instant) {
     }
 }
 
-fn unpark(links: &IdleLinks, state: &mut State, token: usize) -> Resume {
-    take(links, state, token).expect("the link was just parked").resume
-}
-
 /// Remove a parked link and stop watching its socket.
 fn take(links: &IdleLinks, state: &mut State, token: usize) -> Option<Parked> {
     let parked = state.parked.remove(&token)?;
@@ -172,7 +144,22 @@ const WAKE: Token = Token(usize::MAX);
 
 /// The poller thread: resume each link whose socket woke; end once none is
 /// parked.
-fn wait_for_links(links: &'static IdleLinks, mut poll: Poll) {
+fn wait_for_links(links: &'static IdleLinks) {
+    let Some(mut poll) = links.state.lock().recover_poison().poll.take() else {
+        // Unreachable: one poller thread runs at a time and hands the
+        // instance back before it ends. Wake every link so none waits on a
+        // poller that does not run.
+        let woken: Vec<Parked> = {
+            let mut state = links.state.lock().recover_poison();
+            state.running = false;
+            let tokens: Vec<usize> = state.parked.keys().copied().collect();
+            tokens.into_iter().filter_map(|t| take(links, &mut state, t)).collect()
+        };
+        for parked in woken {
+            (parked.resume)();
+        }
+        return;
+    };
     let mut events = Events::with_capacity(64);
     loop {
         let timeout = {

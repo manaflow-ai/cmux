@@ -48,6 +48,7 @@ use std::collections::VecDeque;
 use std::io::Read;
 use std::sync::{Arc, Condvar, Mutex};
 
+use crate::panic_free::RecoverPoison;
 use crate::terminal_host_protocol::{Frame, MAX_FRAME_PAYLOAD, MessageKind, read_frame};
 use crate::terminal_host_runtime::HostStream as UnixStream;
 use crate::terminal_host_runtime::{CONTROL_RESPONSE_TIMEOUT, ControlResponses};
@@ -167,7 +168,7 @@ impl ConsumerSlot {
     /// when a frame or the end is already here or the link reads again: the
     /// caller goes on with `recv`.
     pub(super) fn park<T: Send + 'static>(&self, work: T, resume: fn(T)) -> Result<(), T> {
-        let mut state = self.0.state.lock().unwrap();
+        let mut state = self.0.state.lock().recover_poison();
         if !state.frames.is_empty() || state.ended || !state.link_parked || state.abandoned {
             return Err(work);
         }
@@ -239,7 +240,7 @@ impl HostFrames {
 
     /// The next frame in stream order; blocks until one arrives.
     pub(super) fn recv(&self) -> HostFrame {
-        let mut state = self.queue.state.lock().unwrap();
+        let mut state = self.queue.state.lock().recover_poison();
         loop {
             if let Some(frame) = state.frames.pop_front() {
                 if let HostFrame::Frame(frame) = &frame {
@@ -254,7 +255,7 @@ impl HostFrames {
             if state.link_parked {
                 return HostFrame::Idle;
             }
-            state = self.queue.changed.wait(state).unwrap();
+            state = self.queue.changed.wait(state).recover_poison();
         }
     }
 
@@ -294,7 +295,7 @@ impl HostFrames {
     /// waiter when the stream ends.
     pub(super) fn abandon(&self) {
         let ended = {
-            let mut state = self.queue.state.lock().unwrap();
+            let mut state = self.queue.state.lock().recover_poison();
             state.abandoned = true;
             state.queued_bytes = 0;
             // A clear-history acknowledgement already queued behind the frame
@@ -332,7 +333,7 @@ impl Drop for HostFrames {
         self.abandon();
         let early = self.early;
         let (owed, parked_link) = {
-            let mut state = self.queue.state.lock().unwrap();
+            let mut state = self.queue.state.lock().recover_poison();
             let owed = !state.ended
                 && self
                     .control_responses
@@ -566,12 +567,12 @@ impl LinkTask {
                     #[cfg(unix)]
                     {
                         let queue = self.queue.clone();
-                        queue.state.lock().unwrap().link_parked = true;
+                        queue.state.lock().recover_poison().link_parked = true;
                         queue.changed.notify_all();
                         let stream = self.reader.stream.0.clone();
                         match super::idle_links::park(stream, self, LinkTask::resume) {
                             Ok(link) => {
-                                let mut state = queue.state.lock().unwrap();
+                                let mut state = queue.state.lock().recover_poison();
                                 if state.link_parked {
                                     state.parked_link = Some(link);
                                 }
@@ -579,7 +580,7 @@ impl LinkTask {
                             }
                             // No poller: keep this thread and read on.
                             Err(task) => {
-                                task.queue.state.lock().unwrap().link_parked = false;
+                                task.queue.state.lock().recover_poison().link_parked = false;
                                 self = task;
                                 parking = false;
                             }
@@ -595,7 +596,7 @@ impl LinkTask {
     #[cfg(unix)]
     fn resume(self) {
         {
-            let mut state = self.queue.state.lock().unwrap();
+            let mut state = self.queue.state.lock().recover_poison();
             state.link_parked = false;
             state.parked_link = None;
         }
@@ -699,7 +700,7 @@ fn read_frames<R: Read>(
     mut between: impl FnMut(&LinkReader<R>) -> Between,
 ) -> ReadEnd {
     loop {
-        let draining = queue.state.lock().unwrap().draining;
+        let draining = queue.state.lock().recover_poison().draining;
         if draining.is_some_and(|deadline| {
             std::time::Instant::now() >= deadline
                 || !control_responses.has_waiter_where(|kind| early.resolves_after_abandon(kind))
@@ -708,7 +709,7 @@ fn read_frames<R: Read>(
         }
         // A draining link keeps its thread: its read timeout bounds the drain.
         if draining.is_none() && matches!(between(stream), Between::Park) {
-            if queue.state.lock().unwrap().draining.is_none() {
+            if queue.state.lock().recover_poison().draining.is_none() {
                 return ReadEnd::Parked;
             }
             continue;
@@ -747,7 +748,7 @@ fn read_frames<R: Read>(
             // did when the surface's reader resolved it inline.
             return ReadEnd::Ended;
         }
-        let mut state = queue.state.lock().unwrap();
+        let mut state = queue.state.lock().recover_poison();
         while !state.abandoned
             && !state.frames.is_empty()
             && state.queued_bytes + queued_cost(&frame) > QUEUED_BYTES_BUDGET
@@ -757,7 +758,7 @@ fn read_frames<R: Read>(
                 state.budget_waits += 1;
                 queue.changed.notify_all();
             }
-            state = queue.changed.wait(state).unwrap();
+            state = queue.changed.wait(state).recover_poison();
         }
         if state.abandoned {
             if frame.kind == MessageKind::ClearHistoryAck {
@@ -781,7 +782,7 @@ fn read_frames<R: Read>(
 /// surface's reader.
 fn finish_stream(control_responses: &ControlResponses, early: EarlyResponses, queue: &Queue) {
     control_responses.end_clipboard_reads();
-    let mut state = queue.state.lock().unwrap();
+    let mut state = queue.state.lock().recover_poison();
     if state.abandoned {
         drop(state);
         control_responses.fail_all();
