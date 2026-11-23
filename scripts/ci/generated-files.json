@@ -50,6 +50,13 @@
       "status": "build"
     },
     {
+      "id": "instrument-tokens",
+      "generator": "scripts/cmux-next/gen-instrument-tokens.py",
+      "outputs": ["webviews/src/ui/instrument.generated.css"],
+      "inputs": ["schemas/instrument/**"],
+      "status": "build"
+    },
+    {
       "id": "feature-tips",
       "generator": "webviews/scripts/pages/gen-feature-tips.mjs",
       "outputs": ["webviews/src/ui/featureTips/tips.generated.json"],

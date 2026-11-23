@@ -398,6 +398,24 @@ impl Row {
         }
         v
     }
+
+    /// Whether `verb` (`link`, `unlink`) failed for this app: it could not write, or (an
+    /// `unlink`) could not read the config, so it cannot say the entry is gone. A dry run's
+    /// "would ..." and a foreign entry left alone on purpose are not failures.
+    pub fn failed(&self, verb: &str) -> bool {
+        if self.note.as_deref().is_some_and(|n| n.starts_with("would ")) {
+            return false;
+        }
+        match verb {
+            "link" => matches!(self.state, State::NotLinked | State::Stale),
+            // `status` names a config it could not read as not linked, with the reason as the note.
+            "unlink" => {
+                matches!(self.state, State::Linked | State::Stale)
+                    || (self.state == State::NotLinked && self.note.is_some())
+            }
+            _ => false,
+        }
+    }
 }
 
 /// The state of `app`'s entry, read only.

@@ -142,7 +142,7 @@ impl Hub {
 
     /// Whether anything runs or waits in `session`, as the idle reaper reads it
     /// (`idle.rs` `idle_eligible`), whatever its status.
-    fn archive_held(&self, session: &Session) -> bool {
+    pub(super) fn archive_held(&self, session: &Session) -> bool {
         session.turn().is_some()
             || session.harness_turn.load(Ordering::SeqCst)
             || session.asks_in_flight.load(Ordering::SeqCst) > 0

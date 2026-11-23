@@ -41,6 +41,13 @@
     },
     {
       "agent": "settable",
+      "why": "Whether the app shows a toast naming files or layers that change the person's setup: a notice only, it changes nothing; on is the default.",
+      "keys": [
+        "customize.doctorNotice"
+      ]
+    },
+    {
+      "agent": "settable",
       "why": "Whether right-click menus end with Customize Menu… (looks only; the layouts stay the person's).",
       "keys": [
         "contextMenus.showCustomizeItem"
@@ -317,6 +324,7 @@
         "appearance.titleAreaContrast",
         "appearance.twoTone",
         "appearance.cornerFlush",
+        "appearance.tabShape",
         "appearance.focusIndicator",
         "focus.inactiveTabStyle",
         "ui.animationSpeed",
@@ -375,6 +383,8 @@
         "terminal.fontSize",
         "terminal.term",
         "sidebar.sectionLook",
+        "sidebar.sections.hidden",
+        "sidebar.sections.order",
         "sidebar.topBandMaxShare",
         "sidebar.bottomBandMaxShare",
         "sidebar.pinnedBandsScroll",
@@ -501,6 +511,7 @@
       "keys": [
         "experiments.glassToolbarGroups",
         "experiments.composerV2",
+        "experiments.hoverLook",
         "experiments.agentBadges",
         "experiments.agentBadgesBeam",
         "experiments.menuStyleV2",
@@ -561,6 +572,13 @@
       "keys": [
         "agentPane.composerLook",
         "agentPane.emptyChatComposerPosition"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "What Return does with a message sent mid-turn (steer or queue): a chat preference a profile or the person's agent may set, like the composer's other choices.",
+      "keys": [
+        "agentPane.followUpMode"
       ]
     },
     {
@@ -698,6 +716,9 @@
         "sidebar.workspaceRow.log",
         "sidebar.workspaceRow.notification",
         "sidebar.workspaceRow.secondLineOrder",
+        "sidebar.workspaceRow.lines",
+        "sidebar.workspaceRow.linesByKind",
+        "sidebar.workspaceRow.linesByAgent",
         "sidebar.workspaceRow.terminal.icon",
         "sidebar.workspaceRow.terminal.directory",
         "sidebar.workspaceRow.terminal.branch",
@@ -1042,6 +1063,13 @@
       ]
     },
     {
+      "agent": "userOnly",
+      "why": "Whether a chat writes into the person's own terminal session (its harness runs with that terminal's permissions): theirs to turn on or off.",
+      "keys": [
+        "agents.chats.terminalChatWritable"
+      ]
+    },
+    {
       "agent": "settable",
       "why": "Whether old chats' logs are compressed on disk, and after how long: lossless (opening a chat brings its log back), a local disk policy.",
       "keys": [
@@ -1055,6 +1083,13 @@
       "keys": [
         "worktrees.autoCleanup",
         "worktrees.cleanBuildCaches"
+      ]
+    },
+    {
+      "agent": "destructive",
+      "why": "Deleting old chats removes their history from this machine for good: only the person sets it.",
+      "keys": [
+        "agents.chats.deleteHistoryAfterDays"
       ]
     },
     {
@@ -1245,8 +1280,9 @@
     },
     {
       "agent": "userOnly",
-      "why": "The app that opens your files from a menu: an agent must not pick what runs them.",
+      "why": "The apps that open your folders and files: an agent must not pick what runs them.",
       "keys": [
+        "editor.default",
         "files.textEditor"
       ]
     },
@@ -1284,6 +1320,13 @@
       "why": "Whether attached photos and videos send their location.",
       "keys": [
         "home.attachments.keepLocation"
+      ]
+    },
+    {
+      "agent": "privacy",
+      "why": "Whether cmux reads the person's clipboard for the Chief's + menu.",
+      "keys": [
+        "home.clipboardHistory"
       ]
     },
     {
@@ -1359,9 +1402,23 @@
     },
     {
       "agent": "userOnly",
+      "why": "On, new Codex chats run the binary in cmux's bundle folder instead of the installed CLI: only the person turns that on.",
+      "keys": [
+        "labs.bundledCodexAppServer"
+      ]
+    },
+    {
+      "agent": "userOnly",
       "why": "On, Settings shows and edits Claude Code's and Codex's own settings, MCP servers, skills, commands and hooks in their own config files: only the person turns that on.",
       "keys": [
         "labs.agentCustomization"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "Whether the Rex-style Hosts section is visible in the sidebar: the person decides when this preview surface appears.",
+      "keys": [
+        "labs.hostsSidebar"
       ]
     },
     {
@@ -1419,6 +1476,13 @@
       ]
     },
     {
+      "agent": "network",
+      "why": "Live background updates download and run new daemon binaries from files.cmux.com.",
+      "keys": [
+        "updates.daemon"
+      ]
+    },
+    {
       "agent": "userOnly",
       "why": "How long a nightly waits before it restarts into an update: the person's call.",
       "keys": [
@@ -1465,7 +1529,16 @@
       "agent": "userOnly",
       "why": "Whether cmux adds its tools to the person's own coding agents (their config files and each terminal launch): the onboarding step asks the person, and only the person answers; an agent must not grant itself or other agents cmux's tools.",
       "keys": [
-        "agents.cmuxMcp"
+        "agents.cmuxMcp",
+        "agents.cmuxMcpClaude",
+        "agents.cmuxMcpCodex"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "Whether agents may change the app or only read it: the person's switch over every agent, so an agent must not widen (or even change) it.",
+      "keys": [
+        "agents.appControl"
       ]
     },
     {
@@ -1609,6 +1682,13 @@
       ]
     },
     {
+      "agent": "network",
+      "why": "Which computers cmux dials over ssh and checks from the sidebar: the person declares a host, so an agent cannot point cmux at an address of its choosing.",
+      "keys": [
+        "machines.hosts"
+      ]
+    },
+    {
       "agent": "userOnly",
       "keys": [
         "phone.keepAwake"
@@ -1663,6 +1743,13 @@
       "why": "cmux Remote: the person's call.",
       "keys": [
         "remote.endSharingOnQuit"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "Bounds how long an agent's share of this Mac lasts with no viewer; an agent never lengthens its own window.",
+      "keys": [
+        "remote.agentShareIdleMinutes"
       ]
     },
     {
