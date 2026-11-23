@@ -1,3 +1,5 @@
+import CmuxNextCompat
+
 /// A client-only top item and its look (`SidebarModel.transientTopItems`). Never in the layout
 /// document: it cannot be moved, edited or hidden, and activates like any item.
 public nonisolated struct SidebarTransientItem: Hashable, Sendable {
@@ -36,27 +38,61 @@ extension SidebarModel {
     /// `sections` (a band's shown sections) with the transient items placed: each anchored item right
     /// after the first of its `after` items that `sections` show; the others, unless `anchoredOnly`, in
     /// one untitled section first (built-in look, one row per item).
+    ///
+    /// An item may anchor after one placed before it (a machine's chats after its header, each after the
+    /// last), and one placed later after the same item goes right after it, before the earlier ones. So
+    /// the items form a tree under the shown items, each node's children newest first, and the band is its
+    /// walk in order: one pass over the shown items and one per transient item, O(rows), where inserting
+    /// each item into the list it searched again was O(rows²) (2,000 attached sessions' rows).
     func placingTransientItems(in sections: [LayoutSection], anchoredOnly: Bool = false) -> [LayoutSection] {
-        var placed = sections
+        let transients = transientTopItems
+        guard !transients.isEmpty else { return sections }
+        // Nodes: the shown items in order (0..<shownCount), then the transient items (shownCount + k).
+        var node: [LayoutItemRef: Int] = [:]
+        var shownCount = 0
+        for section in sections {
+            for item in section.items {
+                if node[item.ref] == nil { node[item.ref] = shownCount }
+                shownCount += 1
+            }
+        }
+        var visited = shownCount
+        var children: [Int: [Int]] = [:]
         var loose: [LayoutItem] = []
-        for transient in transientTopItems {
-            guard let (s, i) = Self.anchor(transient.after, in: placed) else {
+        for (k, transient) in transients.enumerated() {
+            visited += 1
+            guard let anchor = transient.after.lazy.compactMap({ node[$0] }).first else {
                 if !transient.anchoredOnly { loose.append(transient.item) }
                 continue
             }
-            placed[s].items.insert(transient.item, at: i + 1)
+            children[anchor, default: []].append(shownCount + k)
+            if node[transient.item.ref] == nil { node[transient.item.ref] = shownCount + k }
         }
+        var placed = sections
+        if !children.isEmpty {
+            var at = 0
+            for s in sections.indices {
+                let range = at..<(at + sections[s].items.count)
+                at = range.upperBound
+                guard range.contains(where: { children[$0] != nil }) else { continue }
+                var items: [LayoutItem] = []
+                items.reserveCapacity(sections[s].items.count)
+                for (offset, item) in sections[s].items.enumerated() {
+                    items.append(item)
+                    // The anchor's subtree in order: a stack of nodes whose children come newest first.
+                    var stack = children[range.lowerBound + offset] ?? []
+                    while let next = stack.popLast() {
+                        visited += 1
+                        items.append(transients[next - shownCount].item)
+                        stack += children[next] ?? []
+                    }
+                }
+                placed[s].items = items
+            }
+        }
+        ScaleWork.add(.bandRows, visited)
         guard !anchoredOnly, !loose.isEmpty else { return placed }
         return [LayoutSection(id: LayoutSectionID(LayoutItemID.transientPrefix + "top"), showsTitle: false,
                               region: .top, look: .builtIn, items: loose)] + placed
-    }
-
-    private static func anchor(_ refs: [LayoutItemRef], in sections: [LayoutSection]) -> (Int, Int)? {
-        for ref in refs {
-            for (s, section) in sections.enumerated() {
-                if let i = section.items.firstIndex(where: { $0.ref == ref }) { return (s, i) }
-            }
-        }
-        return nil
     }
 }

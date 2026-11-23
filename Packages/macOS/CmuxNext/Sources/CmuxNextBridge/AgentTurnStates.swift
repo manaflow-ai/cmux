@@ -1,4 +1,5 @@
 public import CmuxNextDaemon
+import CmuxNextCompat
 public import Foundation
 public import Observation
 import os
@@ -536,6 +537,9 @@ public final class AgentTurnStateStore {
                         titles: [String: String], generatedTitles: [String: String] = [:], sessionNames: [String: String] = [:], details: [String: AgentChatDetail],
                         source: String = AgentTurnStateStore.localSource, peers: [String: [String: AgentPeerRow]] = [:], keeping: Set<String> = [],
                         keepingPeers: [String: Set<String>] = [:]) {
+        ScaleWork.add(.listReloads)
+        ScaleWork.add(.setsBuilt, 2)
+        ScaleWork.add(.lanesWalked, sessions.count + states.bySession.count + details.count + peers.count)
         let own = sessions.compactMap { $0.value.source == source ? $0.key : nil }
         let listed = Set(states.bySession.keys).union(lastMessages.keys).union(muted)
             .union(titles.keys).union(generatedTitles.keys).union(sessionNames.keys).union(details.keys).union(peers.keys)
@@ -561,10 +565,40 @@ public final class AgentTurnStateStore {
         }
     }
 
+    /// ``replace(states:lastMessages:muted:titles:generatedTitles:sessionNames:details:source:peers:keeping:keepingPeers:)``
+    /// for the sessions `only` alone: a follow's rows laid over a list the store already holds, so every other
+    /// session stands as it is. Each of them ends up as the whole replace leaves it, at O(`only`), not O(sessions).
+    public func replace(only: Set<String>, states: AgentTurnStates, lastMessages: [String: String], muted: Set<String>,
+                        titles: [String: String], generatedTitles: [String: String] = [:], sessionNames: [String: String] = [:],
+                        details: [String: AgentChatDetail], source: String = AgentTurnStateStore.localSource,
+                        peers: [String: [String: AgentPeerRow]] = [:]) {
+        ScaleWork.add(.lanesWalked, only.count)
+        for id in only {
+            let listed = states[id] != nil || lastMessages[id] != nil || muted.contains(id) || titles[id] != nil
+                || generatedTitles[id] != nil || sessionNames[id] != nil || details[id] != nil || peers[id] != nil
+            let own = sessions[id]?.source == source
+            guard listed || own else { continue }
+            apply(session: id, sessionName: sessionNames[id], state: states[id], lastMessage: lastMessages[id], muted: muted.contains(id),
+                  title: titles[id], generatedTitle: generatedTitles[id], detail: details[id], source: source)
+            let rows = peers[id] ?? [:]
+            let held = record(id)
+            if held.peers != rows {
+                // A peer's turn that ran ended when the follow has its row no longer working (or gone), as the whole replace rings it.
+                if held.peers.contains(where: { $0.value.state == .working && rows[$0.key]?.state != .working }) {
+                    turnEnded(id, folder: (details[id] ?? held.detail)?.cwd)
+                }
+                held.peers = rows
+            }
+            // A session of this watch that its list no longer has: acpmux dropped it.
+            if own, !listed { sessionEnded(id) }
+        }
+    }
+
     /// Lays a usage read's numbers (`_acpmux/sessions` with `usage: true`, by session id) over
     /// `source`'s sessions, leaving every other fact as it is; writes only what changed. A session
     /// the store does not hold from `source` is skipped: the watch has not listed it.
     public func applyUsage(_ usage: [String: AgentChatDetail], source: String = AgentTurnStateStore.localSource) {
+        ScaleWork.add(.lanesWalked, usage.count)
         for (id, numbers) in usage {
             guard let record = sessions[id], record.source == source else { continue }
             let detail = (record.detail ?? AgentChatDetail()).withUsage(of: numbers)

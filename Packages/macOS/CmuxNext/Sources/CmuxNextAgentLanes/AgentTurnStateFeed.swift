@@ -1,5 +1,6 @@
 public import CmuxNextAgentActivity
 public import CmuxNextBridge
+import CmuxNextCompat
 import CmuxNextWakeups
 import Foundation
 import os
@@ -68,6 +69,12 @@ public final class AgentTurnStateFeed {
     private var pageBackoff = Backoff(initial: .milliseconds(500), maximum: .seconds(30))
     /// A list read again on the open connection after dropped lines (``resync()``) and not yet whole.
     private var resyncing = false
+    /// The stores hold `held` as it is (a page or a follow applied, and every push since): a follow's reply then
+    /// writes its rows alone, not the whole list again. A lost watch clears the stores, and this.
+    private var storesHoldHeld = false
+    /// The sessions whose usage numbers the list read's end lays again (``listRead()``): nil for every one (a
+    /// whole list was laid), else the rows the follows since wrote.
+    private var usageOwed: Set<String>? = []
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-turn-states")
 
     /// - Parameters:
@@ -311,7 +318,24 @@ public final class AgentTurnStateFeed {
         // session or of a peer's row is newer than the page, a purge's missing lane included.
         var lanes = page.lanes
         for id in keeping.union(keepingPeers.keys) { lanes[id] = self.lanes.lanes[id] }
+        ScaleWork.add(.lanesWalked, lanes.count) // the comparison below
         if self.lanes.lanes != lanes { self.lanes.lanes = lanes }
+    }
+
+    /// Lays a follow's rows over stores that hold the list it follows (``storesHoldHeld``): `whole` is that list
+    /// with the reply laid over it. Each row it names ends up as ``applyPage(_:keeping:keepingPeers:)`` of
+    /// `whole` would leave it, and no other session is read: O(rows), not O(sessions).
+    private func applyRows(_ ids: Set<String>, of whole: AgentWatchPage) {
+        backoff.reset()
+        if !isMirror, !turns.watching { turns.watching = true }
+        turns.replace(only: ids, states: whole.states, lastMessages: whole.lastMessages, muted: whole.muted, titles: whole.titles,
+                      generatedTitles: whole.generatedTitles, sessionNames: whole.sessionNames, details: whole.details, source: source,
+                      peers: whole.peers)
+        turns.replaceStartedBy(whole.startedBy, only: ids, source: source)
+        for id in ids {
+            let lane = whole.lanes[id]
+            if lanes.lanes[id] != lane { lanes.set(id, lane) }
+        }
     }
 
     func handle(_ message: Message) {
@@ -347,6 +371,8 @@ public final class AgentTurnStateFeed {
                 self.held = nil
             }
             applyPage(held.page, keeping: held.changed, keepingPeers: held.changedPeers)
+            storesHoldHeld = self.held != nil
+            usageOwed = nil
             listRead()
         case .follow(let reply):
             // Only a watch with a cursor is answered so, and the list it follows is held; without
@@ -360,7 +386,17 @@ public final class AgentTurnStateFeed {
             whole.lay(reply)
             held = whole
             listFollow.followed(reply)
-            applyPage(whole, keeping: [], keepingPeers: [:])
+            if storesHoldHeld {
+                // The stores hold the list this follows: only the rows it names change.
+                let ids = Set(reply.rows.map(\.session)).union(reply.gone.map(\.session))
+                applyRows(ids, of: whole)
+                usageOwed?.formUnion(ids)
+            } else {
+                // After a lost watch the stores are empty: the whole list held, once.
+                applyPage(whole, keeping: [], keepingPeers: [:])
+                storesHoldHeld = true
+                usageOwed = nil
+            }
             if reply.more {
                 // Cut at a page's size: the rest from where it stopped.
                 subscription?.send(Self.watchOnlyRequest(listFollow.watchParams))
@@ -421,7 +457,15 @@ public final class AgentTurnStateFeed {
         if !isMirror { peerStateChanged?(nil, nil) }
         // A usage read that answered first: its numbers are newer than the page's.
         usageRead.paged = true
-        if !usageRead.numbers.isEmpty { turns.applyUsage(usageRead.numbers, source: source) }
+        defer { usageOwed = [] }
+        guard !usageRead.numbers.isEmpty else { return }
+        if let owed = usageOwed {
+            // Only the rows written since: every other session still has its numbers.
+            let numbers = Dictionary(uniqueKeysWithValues: owed.compactMap { id in usageRead.numbers[id].map { (id, $0) } })
+            if !numbers.isEmpty { turns.applyUsage(numbers, source: source) }
+        } else {
+            turns.applyUsage(usageRead.numbers, source: source)
+        }
     }
 
     /// Lays push `message` over `page`, the list held for a follow, as the store takes it.
@@ -445,6 +489,7 @@ public final class AgentTurnStateFeed {
         // A closed watch knows nothing: no stale working dots until it reconnects. The cursor and
         // the list held stay (`listFollow`, `held`): the reconnect follows them.
         if !isMirror { turns.watching = false }
+        storesHoldHeld = false
         // Titles stay: a tab keeps reading as its chat while the watch reconnects.
         turns.clearLive(source: source)
         lanes.live = false // first: the store keeps the sessions it listed for the gap (`AgentLaneStore.beforeGap`)
