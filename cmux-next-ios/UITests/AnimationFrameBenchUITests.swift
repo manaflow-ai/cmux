@@ -174,7 +174,7 @@ final class AnimationFrameBenchUITests: XCTestCase {
         let name = "dev.cmux.mobile.animationframe.\(phase).\(label)"
         let ack = XCTestExpectation(description: "\(phase) \(label) acknowledged by the app")
         var token: Int32 = 0
-        let registered = notify_register_dispatch(name + ".ack", &token, .main) { _ in ack.fulfill() }
+        let registered = notify_register_dispatch(name + ".ack", &token, .global(qos: .userInitiated)) { _ in ack.fulfill() }
         XCTAssertEqual(registered, 0, "register \(name).ack")
         defer { notify_cancel(token) }
         XCTAssertEqual(notify_post(name), 0, "post \(name)")

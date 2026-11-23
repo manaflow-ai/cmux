@@ -17,10 +17,10 @@ enum AnimationFrameBench {
         let center = CFNotificationCenterGetDarwinNotifyCenter()
         for label in Set(labels.split(separator: ",")) {
             for mark in ["begin", "end"] {
-                let name = prefix + mark + "." + label
+                let name = "\(prefix)\(mark).\(label)"
                 CFNotificationCenterAddObserver(center, nil, { _, _, name, _, _ in
                     guard let name = name?.rawValue as String? else { return }
-                    Task { @MainActor in receive(name) }
+                    Task { @MainActor in AnimationFrameBench.receive(name) }
                 }, name as CFString, nil, .deliverImmediately)
             }
         }
