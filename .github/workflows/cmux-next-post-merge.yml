@@ -318,14 +318,14 @@ jobs:
         timeout-minutes: 5
         with:
           persist-credentials: false
-          ref: ${{ github.ref_name }}
+          ref: ${{ github.ref }}
       - name: Check out again
         if: steps.checkout.outcome != 'success'
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         timeout-minutes: 5
         with:
           persist-credentials: false
-          ref: ${{ github.ref_name }}
+          ref: ${{ github.ref }}
       - name: Fetch this ref's history
         timeout-minutes: 4
         run: |
