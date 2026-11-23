@@ -116,7 +116,8 @@ class HarnessCopyImportsTests(unittest.TestCase):
         missing = missing_imports(old, ROOT)
         self.assertIn((Path("scripts/cmux-next/update-harness/run.py"), Path("scripts/cmux-next/tag_teardown.py")),
                       missing)
-        fixed = old.rstrip("\n") + ' \\\n    && cp scripts/cmux-next/tag_teardown.py "$tools/"  # run.py imports it\n'
+        fixed = old.rstrip("\n") + (' \\\n    && cp scripts/cmux-next/tag_teardown.py scripts/cmux-next/state_wait.py "$tools/"'
+                                     '  # run.py imports them\n')
         self.assertEqual(missing_imports(fixed, ROOT), [])
 
     def test_follows_a_copied_module_into_its_own_imports(self):
