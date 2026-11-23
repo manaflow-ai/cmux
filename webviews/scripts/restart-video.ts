@@ -76,7 +76,7 @@ const page_html = (marks: Marks) => `<!doctype html><meta charset="utf-8"><style
   .clock { font: 600 30px/1 ui-monospace, "JetBrains Mono", Menlo, monospace; min-width: 190px; }
   .stage { font-weight: 600; padding: 3px 10px; border-radius: 6px; background: #333; }
   .scene { margin-left: auto; color: #aaa; font-size: 13px; }
-  .line { position: relative; height: 34px; margin-top: 14px; }
+  .line { position: relative; height: 48px; margin-top: 8px; }
   .track { position: absolute; left: 0; right: 0; top: 6px; height: 4px; background: #333; border-radius: 2px; }
   .fill { position: absolute; left: 0; top: 6px; height: 4px; background: #6aa9ff; border-radius: 2px; }
   .mark { position: absolute; top: 0; width: 2px; height: 16px; }
@@ -117,12 +117,19 @@ try {
     await page.evaluate(
       ({ stages, startMs, endMs }) => {
         const line = document.getElementById("line")!;
+        // Marks closer than a label's width stack their labels a row lower, so none print over another.
+        let lastLeft = -Infinity;
+        let row = 0;
         for (const stage of stages) {
+          const left = ((stage.at - startMs) / (endMs - startMs)) * line.clientWidth;
+          row = left - lastLeft < 140 ? row + 1 : 0;
+          lastLeft = left;
           const mark = document.createElement("div");
           mark.className = "mark";
-          mark.style.left = `${((stage.at - startMs) / (endMs - startMs)) * 100}%`;
+          mark.style.left = `${left}px`;
+          mark.style.height = `${16 + row * 14}px`;
           mark.style.background = stage.color;
-          mark.innerHTML = `<span style="color:${stage.color}">${stage.label} ${stage.at} ms</span>`;
+          mark.innerHTML = `<span style="color:${stage.color};top:${18 + row * 14}px">${stage.label} ${stage.at} ms</span>`;
           line.append(mark);
         }
       },
