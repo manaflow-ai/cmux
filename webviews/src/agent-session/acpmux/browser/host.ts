@@ -18,9 +18,13 @@ export function browserSocketURL(launch: URL): URL {
   return endpoint;
 }
 
-export function installBrowserHost(): void {
+/** What the sign-in screen needs before the pane mounts (browser/signInGate.tsx). */
+export type BrowserLaunch = { endpoint: string; token: string | null; secure: boolean; host: string };
+
+/** Installs the browser host on a page served at `/app/`; undefined anywhere else (the app). */
+export function installBrowserHost(): BrowserLaunch | undefined {
   const launch = new URL(location.href);
-  if (!isBrowserPane(launch)) return;
+  if (!isBrowserPane(launch)) return undefined;
 
   const fragment = new URLSearchParams(launch.hash.slice(1));
   const listener = fragment.get("token");
@@ -74,6 +78,7 @@ export function installBrowserHost(): void {
   // Back, Forward and in-page chat links select through the pane's own chat.select. The first
   // route rides the handshake's sessionId, so a route read before the pane mounts is not replayed.
   installBrowserNavigation(selectBrowserRoute);
+  return { endpoint: endpoint.href, token, secure: window.isSecureContext, host: launch.host };
 }
 
 function selectBrowserRoute(route: BrowserChatRoute | undefined): void {
