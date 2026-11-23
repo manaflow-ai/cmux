@@ -1022,6 +1022,8 @@ async fn redeliver_one(
         }
         Step::Release => close_open(hub, d, od::release).await,
         Step::Wait | Step::Check => {}
+        // Answered a duplicate with its final outcome already: closed, not sent again (`done_on_peer`).
+        Step::Again if od::done_on_peer(d) => close_open(hub, d, od::release).await,
         Step::Again | Step::Unproven => {
             if step == Step::Unproven {
                 // Proven by records no restore gave back and no journal holds (review of #37284

@@ -924,6 +924,10 @@ impl Peer {
         // `wake_probe` was set by a request sent on a link already silent a ping interval: a link
         // it drops tells the budget (`SilenceBudget::probe_dropped`).
         let mut request_probe = false;
+        // When the oldest stamped ping still without its pong went out: its pong measures how
+        // late the peer answers (`SilenceBudget::answered_in`). A peer that answers only its
+        // latest ping makes this the time it stayed silent, which is what the probe must wait.
+        let mut ping_out: Option<tokio::time::Instant> = None;
         // The clocks are read before every write too, not only on `wake_check`'s tick: after a wake
         // the regular ping's tick may be served first, and its write must be held to the probe's
         // deadline, never the whole send budget.
@@ -1066,10 +1070,20 @@ impl Peer {
                 _ = self.stop_signal.notified() => break Ok(LinkEnd::Stopped),
                 _ = wake_check.tick() => check_wake!(),
                 _ = tokio::time::sleep_until(wake_probe.unwrap_or_else(tokio::time::Instant::now)), if wake_probe.is_some() => {
+                    let now = tokio::time::Instant::now();
+                    let wait = self.with_silence(|b| b.probe_wait(network::NETWORK_PROBE));
                     // A request's probe on a link still reading bytes (a large frame on its way, the
-                    // pong queued behind it) is moving: wait another `NETWORK_PROBE`, not drop it.
-                    if request_probe && heard.as_ref().is_some_and(|h| h.silent() < network::NETWORK_PROBE) {
-                        wake_probe = Some(tokio::time::Instant::now() + network::NETWORK_PROBE);
+                    // pong queued behind it) is moving: wait another probe, not drop it.
+                    if request_probe && heard.as_ref().is_some_and(|h| h.silent() < wait) {
+                        wake_probe = Some(now + wait);
+                        continue;
+                    }
+                    // This loop ran late (`stalled`): this computer, not the peer, was stuck, and
+                    // the answer may wait unread. Read first; the next probe that runs on time
+                    // decides.
+                    if request_probe && wake_probe.is_some_and(|due| stalled(now, due)) {
+                        tracing::debug!(peer = %self.name, "the link's loop ran {}ms late; its probe waits again", now.saturating_duration_since(wake_probe.unwrap_or(now)).as_millis());
+                        wake_probe = Some(now + wait);
                         continue;
                     }
                     if request_probe {
@@ -1143,7 +1157,7 @@ impl Peer {
                 _ = &mut handshake_deadline, if !self.link().is_ready() || !listed => {
                     break Err(timed_out(handshake_started));
                 }
-                _ = ping.tick() => {
+                due = ping.tick() => {
                     // The selector moved the session to a faster path: the link moves while no
                     // request is out on it, and its list is in (one read after ready has no
                     // request out between its pages).
@@ -1163,7 +1177,12 @@ impl Peer {
                         tracing::info!(peer = %self.name, "silence budget {}s (was {}s; longest wait for an answer {}ms)", silence.as_secs(), was.as_secs(), gap.as_millis());
                     }
                     let silent = heard.as_ref().map_or(last_frame.elapsed(), |h| h.silent().min(last_frame.elapsed()));
-                    if silent >= silence {
+                    // The time this tick came late, this loop stuck (a loaded Mac, a write or a
+                    // full notice queue), was no read of the peer: not its silence. Bytes it sent
+                    // meanwhile wait unread. cosmic-gray at load 100 dropped 493 links in 3 h for
+                    // 6 to 19 s of such "silence".
+                    let late = now.saturating_duration_since(due);
+                    if silent.saturating_sub(late) >= silence {
                         self.with_silence(|b| b.dropped(now));
                         break Err(format!("peer stopped answering ({}s without a frame)", silent.as_secs()));
                     }
@@ -1174,7 +1193,9 @@ impl Peer {
                     let until = write_deadline(tokio::time::Instant::now(), budget, wake_probe);
                     // Stamped, so its pong measures this path's round trip (`peer_paths.rs`).
                     match tokio::time::timeout_at(until, sink.send(Frame::Ping(carriers::ping_stamp().into()))).await {
-                        Ok(Ok(())) => {}
+                        Ok(Ok(())) => {
+                            ping_out.get_or_insert_with(tokio::time::Instant::now);
+                        }
                         Ok(Err(e)) => break Err(e.to_string()),
                         Err(_) => break Err(write_late(budget, wake_probe)),
                     }
@@ -1216,8 +1237,15 @@ impl Peer {
                         }
                         Frame::Close(_) => break Err("peer closed the connection".to_owned()),
                         Frame::Pong(payload) => {
-                            if let (Some(rtt), Some(via)) = (carriers::pong_rtt(&payload), self.serving()) {
+                            let rtt = carriers::pong_rtt(&payload);
+                            if let (Some(rtt), Some(via)) = (rtt, self.serving()) {
                                 self.path_pong(via, rtt);
+                            }
+                            // Measured on this loop's clock, from the ping's send to its pong's
+                            // read: what the probe and the budget must wait for.
+                            if rtt.is_some() && let Some(at) = ping_out.take() {
+                                let now = tokio::time::Instant::now();
+                                self.with_silence(|b| b.answered_in(now.saturating_duration_since(at), now));
                             }
                             continue;
                         }
@@ -1429,22 +1457,25 @@ impl Peer {
                     // goes out with it and the link is dropped and redialed when nothing answers
                     // within `NETWORK_PROBE`, not after the whole silence budget. Not for a peer
                     // that proved slow (`SilenceBudget::may_probe`).
-                    if wake_probe.is_none() && silent >= timings.ping_every && self.with_silence(|b| b.may_probe()) {
-                        let deadline = tokio::time::Instant::now() + network::NETWORK_PROBE;
+                    // It waits what this peer's measured round trip needs (`SilenceBudget::probe_wait`):
+                    // 2 s at first and for a fast peer, longer for one that answers late.
+                    let wait = self.with_silence(|b| b.probe_wait(network::NETWORK_PROBE));
+                    if wake_probe.is_none() && silent >= timings.ping_every.max(wait) && self.with_silence(|b| b.may_probe()) {
+                        let deadline = tokio::time::Instant::now() + wait;
                         match tokio::time::timeout_at(deadline, sink.send(Frame::Ping(Vec::new().into()))).await {
                             Ok(Ok(())) => {
                                 wake_probe = Some(deadline);
                                 request_probe = true;
                                 probe_cause = Some(format!(
                                     "no answer {}s after a request on a link silent {}s",
-                                    network::NETWORK_PROBE.as_secs(),
+                                    wait.as_secs(),
                                     silent.as_secs()
                                 ));
                             }
                             Ok(Err(e)) => break Err(e.to_string()),
                             Err(_) => {
                                 self.with_silence(SilenceBudget::probe_dropped);
-                                break Err(stopped_reading(network::NETWORK_PROBE));
+                                break Err(stopped_reading(wait));
                             }
                         }
                     }
@@ -1455,6 +1486,16 @@ impl Peer {
         self.stop_controls(link);
         result
     }
+}
+
+/// How late a timer of a link's loop may fire before the loop counts as stuck, not the peer
+/// silent (`stalled`).
+pub(crate) const LOOP_STALL: Duration = Duration::from_secs(1);
+
+/// Whether a timer due at `due` that fired at `now` shows this link's loop stuck: on a Mac at
+/// load 100 a task waits seconds for a thread, and the peer's answer waits unread meanwhile.
+pub(crate) fn stalled(now: tokio::time::Instant, due: tokio::time::Instant) -> bool {
+    now.saturating_duration_since(due) >= LOOP_STALL
 }
 
 /// Whether GitHub may be lent over a link to `url`: ssh (what Add Machine saves) or TLS, or a

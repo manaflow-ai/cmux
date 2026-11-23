@@ -241,3 +241,108 @@ async fn a_network_change_keeps_a_link_that_answers() {
     serving.abort();
     answering.abort();
 }
+
+/// cosmic-gray at load 80 to 100 (2026-11-22): its daemon's link loops waited seconds for a
+/// thread, and 493 links in 3 h were dropped for "6 to 19 s without a frame" that were this
+/// Mac's stalls, the peer's answers waiting unread. A stall of this loop is not the peer's
+/// silence: a link to a peer that answers survives ten 7 s stalls.
+#[tokio::test(start_paused = true)]
+async fn a_stall_of_this_computer_is_not_the_peers_silence() {
+    use futures_util::StreamExt;
+    let (tx, _rx) = mpsc::channel(8);
+    let mut peer = Peer::new("p", "ws://127.0.0.1:9", None, None, tx);
+    Arc::get_mut(&mut peer).expect("only this test holds it").timings.handshake =
+        Duration::from_secs(3_600);
+    let (ours, theirs) = tokio::io::duplex(1 << 16);
+    let client = WebSocketStream::from_raw_socket(ours, Role::Client, None).await;
+    let mut server = WebSocketStream::from_raw_socket(theirs, Role::Server, None).await;
+    // Reading answers each ping with a pong.
+    let answering = tokio::spawn(async move { while server.next().await.is_some() {} });
+    let mut out_rx = peer.out_rx.lock().await.take().unwrap();
+    let link = peer.clone();
+    let serving = tokio::spawn(async move { link.serve(client, &mut out_rx).await });
+    for stall in 0..10 {
+        tokio::time::sleep(Duration::from_secs(3)).await;
+        peer.out
+            .try_send(Outbound { epoch: peer.link_epoch(), key: None, line: "{}".into() })
+            .unwrap();
+        // Nothing runs for 7 s, then every timer due meanwhile fires at once.
+        tokio::time::advance(Duration::from_secs(7)).await;
+        assert!(!serving.is_finished(), "dropped after stall {stall}");
+    }
+    tokio::time::sleep(Duration::from_secs(5)).await;
+    assert!(!serving.is_finished(), "a link that answers is kept");
+    serving.abort();
+    answering.abort();
+}
+
+/// A dead link is still found when a stall came first: the first tick that runs on time after
+/// it counts the whole silence.
+#[tokio::test(start_paused = true)]
+async fn a_dead_link_is_still_found_after_a_stall() {
+    let (tx, _rx) = mpsc::channel(8);
+    let mut peer = Peer::new("p", "ws://127.0.0.1:9", None, None, tx);
+    Arc::get_mut(&mut peer).expect("only this test holds it").timings.handshake =
+        Duration::from_secs(3_600);
+    let (ours, _theirs) = tokio::io::duplex(1 << 16);
+    let client = WebSocketStream::from_raw_socket(ours, Role::Client, None).await;
+    let mut out_rx = peer.out_rx.lock().await.take().unwrap();
+    let link = peer.clone();
+    let serving = tokio::spawn(async move { link.serve(client, &mut out_rx).await });
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    tokio::time::advance(Duration::from_secs(7)).await;
+    let resumed = tokio::time::Instant::now();
+    let ended = tokio::time::timeout(Duration::from_secs(10), serving)
+        .await
+        .expect("the link ends")
+        .unwrap()
+        .expect_err("the link ends with why");
+    assert!(ended.contains("stopped answering"), "{ended}");
+    assert!(resumed.elapsed() <= peer.timings.ping_every * 2, "{:?}", resumed.elapsed());
+}
+
+/// A peer on a loaded host: each of its reads comes 4.5 s after the last, and it then answers
+/// everything sent meanwhile. Its pongs measure that, and a request on its link silent 2 s
+/// waits for the answer, not the fixed 2 s probe that dropped such a link every few minutes.
+#[tokio::test(start_paused = true)]
+async fn a_request_waits_for_a_peer_whose_round_trip_is_measured_slow() {
+    use futures_util::StreamExt;
+    let (tx, _rx) = mpsc::channel(8);
+    let mut peer = Peer::new("p", "ws://127.0.0.1:9", None, None, tx);
+    Arc::get_mut(&mut peer).expect("only this test holds it").timings.handshake =
+        Duration::from_secs(3_600);
+    // Learned on the links before this one (the budget is the peer's, across links).
+    peer.with_silence(|b| {
+        for _ in 0..8 {
+            b.answered_in(Duration::from_millis(4_500), tokio::time::Instant::now());
+        }
+    });
+    let (ours, theirs) = tokio::io::duplex(1 << 16);
+    let client = WebSocketStream::from_raw_socket(ours, Role::Client, None).await;
+    let mut server = WebSocketStream::from_raw_socket(theirs, Role::Server, None).await;
+    let answering = tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(Duration::from_millis(4_500)).await;
+            // Reads what came meanwhile; each read answers its ping.
+            loop {
+                match tokio::time::timeout(Duration::from_millis(1), server.next()).await {
+                    Ok(Some(_)) => continue,
+                    Ok(None) => return,
+                    Err(_) => break,
+                }
+            }
+        }
+    });
+    let mut out_rx = peer.out_rx.lock().await.take().unwrap();
+    let link = peer.clone();
+    let serving = tokio::spawn(async move { link.serve(client, &mut out_rx).await });
+    for _ in 0..120 {
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        peer.out
+            .try_send(Outbound { epoch: peer.link_epoch(), key: None, line: "{}".into() })
+            .unwrap();
+        assert!(!serving.is_finished(), "a slow peer that answers keeps its link");
+    }
+    serving.abort();
+    answering.abort();
+}
