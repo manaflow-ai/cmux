@@ -401,7 +401,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.configActions.start(settings: settings)
         services.personInput.start(); services.cache.cef.personInput = { [ledger = services.personInput] in ledger.isPerson($0) }
         services.joinConsent.follow(settings: settings)
-        if !environment.noActivate { services.signInEnroll.follow() } // an agent-launched build enrolls no machine
+        // An agent-launched build enrolls no machine, unless a test sets CMUX_NEXT_ENROLL_ON_SIGN_IN=1 (the own-machine-parity CI job).
+        if !environment.noActivate || ProcessInfo.processInfo.environment["CMUX_NEXT_ENROLL_ON_SIGN_IN"] == "1" { services.signInEnroll.follow() }
         // Agent-launched builds never take system-wide keys from the person's app, nor a menu bar item.
         if !environment.noActivate { services.globalHotKeys.start(); services.menuBarExtra.follow(settings, background: services.background) }
         services.cache.browserTabs.preference.follow(settings)
