@@ -5,10 +5,14 @@
 //!
 //! ```text
 //! {"id":48211,"rev":1,"kind":"tool","turn":9120,"group":48190,"at":1794480726,"open":false,
-//!  "body":{...},"est":3,"blob":{"bytes":5242880,"preview":"..."}}
+//!  "phase":"settled","body":{...},"est":3,"blob":{"bytes":5242880,"preview":"..."}}
 //! ```
 //!
-//! (one line; `turn`, `group` and `blob` only when present). It is encoded once, by
+//! (one line; `turn`, `group` and `blob` only when present). `phase` is where the row is in its
+//! one life (design: transcript-motion-model.md, "The model in ten lines" 1-2): the page plays a
+//! row's motion from it and never guesses it from the row's other fields. A text written before
+//! `phase` existed has none; [`RowHead::parse`] reads it as `live` when open and `settled` when
+//! not. It is encoded once, by
 //! [`Row::encode`], when the row settles; the log stores those bytes and every reader is handed
 //! them as they are. Nothing in the daemon parses a row text again.
 //!
@@ -93,6 +97,41 @@ impl RowKind {
     }
 }
 
+/// Where a row is in its one life: `entering -> live -> settled -> leaving`. Its id and kind never
+/// change across them; only this and its fields do (transcript-motion-model.md, rules 1-2).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum Phase {
+    /// Born on the latest line the daemon read: the page plays its entrance once.
+    Entering,
+    /// Open after that: it grows only at its end.
+    #[default]
+    Live,
+    /// Done: it changes height only by disclosure or width.
+    Settled,
+    /// Taken back (a superseded reply, a prompt that never ran): the page plays its exit and
+    /// draws nothing of it after.
+    Leaving,
+}
+
+impl Phase {
+    pub const ALL: [Phase; 4] = [Phase::Entering, Phase::Live, Phase::Settled, Phase::Leaving];
+
+    /// The phase's name on the wire.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Phase::Entering => "entering",
+            Phase::Live => "live",
+            Phase::Settled => "settled",
+            Phase::Leaving => "leaving",
+        }
+    }
+
+    /// The phase with this wire name.
+    pub fn parse(name: &str) -> Option<Phase> {
+        Phase::ALL.into_iter().find(|phase| phase.as_str() == name)
+    }
+}
+
 /// One row, ready to encode. `body` is the row's per-kind JSON, already compact, built by the
 /// translator; this crate copies it and never looks inside.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -111,6 +150,9 @@ pub struct Row<'a> {
     pub at: u64,
     /// True only for a live row (one that can still grow). A row in a segment is never open.
     pub open: bool,
+    /// Where the row is in its life. An open row is `entering` or `live`, a closed one
+    /// `settled` or `leaving`.
+    pub phase: Phase,
     /// The per-kind body: one compact JSON value.
     pub body: &'a str,
     /// Lines, for the page's height estimate.
@@ -249,7 +291,9 @@ impl Row<'_> {
         out.extend_from_slice(b",\"at\":");
         number(out, self.at);
         out.extend_from_slice(if self.open { b",\"open\":true" } else { b",\"open\":false" });
-        out.extend_from_slice(b",\"body\":");
+        out.extend_from_slice(b",\"phase\":\"");
+        out.extend_from_slice(self.phase.as_str().as_bytes());
+        out.extend_from_slice(b"\",\"body\":");
         out.extend_from_slice(body.as_bytes());
         out.extend_from_slice(b",\"est\":");
         number(out, u64::from(self.est));
@@ -312,6 +356,8 @@ pub struct RowHead {
     pub group: Option<u64>,
     pub at: u64,
     pub open: bool,
+    /// The row's phase; for a text written before phases, `live` when open, else `settled`.
+    pub phase: Phase,
     /// Where the body's JSON starts in the text.
     pub body_at: usize,
 }
@@ -343,8 +389,17 @@ impl RowHead {
             front.step(b",\"open\":false")?;
             false
         };
+        let phase = match front.step(b",\"phase\":\"") {
+            Some(()) => {
+                let phase = Phase::parse(front.word()?)?;
+                front.step(b"\"")?;
+                phase
+            }
+            None if open => Phase::Live,
+            None => Phase::Settled,
+        };
         front.step(b",\"body\":")?;
-        Some(RowHead { id, rev, kind, turn, group, at, open, body_at: front.at })
+        Some(RowHead { id, rev, kind, turn, group, at, open, phase, body_at: front.at })
     }
 }
 
