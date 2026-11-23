@@ -184,6 +184,10 @@ extension AgentPaneTransport {
                 }
             }
             guard let entry = pending.first else { break }
+            guard entry.valid?() != false else {
+                complete(.stop(.staleConnection))
+                continue
+            }
             guard !entry.frames.isEmpty else {
                 finishFirst()
                 continue
@@ -195,6 +199,7 @@ extension AgentPaneTransport {
             var texts: [String] = []
             for waiting in pending {
                 guard waiting.connection == entry.connection, texts.count < Self.framesPerPass else { break }
+                if waiting !== entry && (waiting.valid != nil || entry.valid != nil) { break }
                 texts += waiting.frames.prefix(Self.framesPerPass - texts.count)
             }
             // The page's first frame goes alone: the person proof is the connection's second request.
@@ -218,7 +223,7 @@ extension AgentPaneTransport {
                 _ = gestures.redeem(ticket, connection: entry.connection, pick: nil)
                 complete(Self.refuse(decision, socket: socket))
             case .decide(let facts, let box):
-                complete(await decide(facts, box, connection: entry.connection, socket: socket, ids: ids))
+                complete(await decide(facts, box, connection: entry.connection, socket: socket, ids: ids, valid: entry.valid))
             }
             if wasFirst, sentFirst {
                 let relay = promptRelay
@@ -368,11 +373,11 @@ extension AgentPaneTransport {
     }
 
     /// The main actor's part of one frame: small values only (the frame stays in its box).
-    private func decide(_ facts: Facts, _ box: FrameBox, connection id: Int, socket: AcpmuxPaneSocket, ids: AcpmuxRequestIds) async -> Step {
+    private func decide(_ facts: Facts, _ box: FrameBox, connection id: Int, socket: AcpmuxPaneSocket, ids: AcpmuxRequestIds, valid: (@MainActor () -> Bool)? = nil) async -> Step {
         // The pane reconnected while the frame was read off the main actor: it goes nowhere, and it
         // spends nothing, so the person's send ticket it names stays for the prompt on the next
         // connection (``AgentPaneUserGestures/carrySendTickets(to:)``).
-        guard id == current, self.socket === socket else { return .stop(.staleConnection) }
+        guard valid?() != false, id == current, self.socket === socket else { return .stop(.staleConnection) }
         // A start or open while a Sandboxed send runs is refused before it spends the gesture or
         // leaves a start credit (the count below still decides).
         if socket.refusesPageFrame(method: facts.method) {
@@ -570,8 +575,12 @@ extension AgentPaneTransport {
         }
         // The person's prompt is on disk before it goes, until acpmux acknowledges it.
         let relay = facts.method == "session/prompt" ? promptRelay : nil
+        guard valid?() != false else {
+            if let relayID { ids.cancel(relayID) }
+            return .stop(.staleConnection)
+        }
         let journaled = await relay?.record(box, ids: ids, relayID: relayID)
-        if let relay, journaled != nil, id != current || self.socket !== socket {
+        if let relay, journaled != nil, id != current || self.socket !== socket || valid?() == false {
             socket.pageFrameNotSent(method: facts.method)
             return await relay.withdraw(journaled, relayID: relayID, ids: ids)
         }
@@ -603,7 +612,16 @@ extension AgentPaneTransport {
             let retry = proved && single && !remoteWire && peerApprover?.enroll != nil ? box.encoded(id: nil) : nil
             decisions.sent(pageID: pageID, proved: proved, single: single, retry: retry)
         }
-        if let error = await Self.encodeAndSend(box, relayID: relayID, socket: socket) {
+        let sendError: AgentPaneTransportError?
+        if let valid {
+            // Voice prompts are small and scoped. Recheck and enqueue synchronously on the main
+            // actor so cancel cannot interleave between validity and the actual socket send.
+            sendError = valid() ? Self.sendNow(box, relayID: relayID, socket: socket) : .staleConnection
+            box.free()
+        } else {
+            sendError = await Self.encodeAndSend(box, relayID: relayID, socket: socket)
+        }
+        if let error = sendError {
             socket.pageFrameNotSent(method: facts.method)
             if answer, let pageID = facts.pageID { decisions.notSent(pageID: pageID) }
             if let relayID { ids.cancel(relayID) }

@@ -157,6 +157,7 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
             view.model.attentionTabs?.places.push(to: view)
             view.announceSessionInfo()
             view.model.readAloud?.push(to: view)
+            view.voice.push()
             view.pushPaneNotices()
         }
         return view.model

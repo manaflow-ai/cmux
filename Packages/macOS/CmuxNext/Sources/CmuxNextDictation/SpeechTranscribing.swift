@@ -23,4 +23,22 @@ public protocol SpeechTranscribing: Sendable {
     /// hypothesis, then ends the event stream. Safe to call at any time,
     /// including before ``transcribe(locale:)``.
     func finishTranscribing() async
+
+    /// How long ``DictationSession`` waits in finalizing after stop before it
+    /// ends the session itself; `nil` uses the session's own deadline (3 s).
+    /// ``RecordedDictationTranscriber`` waits for its provider to answer.
+    var finalizingDeadline: Duration? { get }
+
+    /// Ends the session without a result: Esc, or a stop before capture
+    /// started. An engine that sends audio somewhere on finish (a provider)
+    /// must not send it here. The default is ``finishTranscribing()``.
+    func cancelTranscribing() async
+}
+
+extension SpeechTranscribing {
+    public var finalizingDeadline: Duration? { nil }
+
+    public func cancelTranscribing() async {
+        await finishTranscribing()
+    }
 }

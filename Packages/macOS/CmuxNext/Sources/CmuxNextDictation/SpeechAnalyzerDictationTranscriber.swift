@@ -17,6 +17,7 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
     private var analyzer: SpeechAnalyzer?
     private var transcriber: SpeechTranscriber?
     private var audioEngine: AVAudioEngine?
+    private let voiceProcessing: Bool
     private var analyzerFormat: AVAudioFormat?
     private var converter: AVAudioConverter?
     private var timeline = AnalyzerTimeline()
@@ -42,7 +43,10 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
     private static let eventBufferCapacity = 32
 
     /// Creates an engine for one session; `levelMeter` feeds the dictation meter.
-    public init(levelMeter: DictationAudioLevelMeter? = nil) { self.levelMeter = levelMeter }
+    public init(levelMeter: DictationAudioLevelMeter? = nil, voiceProcessing: Bool = false) {
+        self.levelMeter = levelMeter
+        self.voiceProcessing = voiceProcessing
+    }
 
     public func transcribe(
         locale: Locale
@@ -237,6 +241,7 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
         #endif
         let engine = AVAudioEngine()
         let inputNode = engine.inputNode
+        if voiceProcessing { try inputNode.setVoiceProcessingEnabled(true) }
         let format = inputNode.outputFormat(forBus: 0)
         guard format.sampleRate > 0, format.channelCount > 0 else {
             throw DictationFailure.audioCaptureFailed("no audio input device")
