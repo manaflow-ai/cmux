@@ -1,0 +1,36 @@
+name: fixit-handoff
+
+# Registration only. The real fixit-handoff lives on feat-cmux-next (.github/workflows/fixit-handoff.yml there,
+# scripts/ci/oops/fixit_handoff.py). GitHub resolves a workflow by file name only when the file exists on the default
+# branch, so without this file the nightly's and the post-merge batch's `gh workflow run fixit-handoff.yml --ref
+# feat-cmux-next` 404s. A dispatch with ref feat-cmux-next runs feat-cmux-next's own copy, never this one. This copy
+# has no schedule, pull_request or push trigger, so it never runs on main by itself, and a dispatch on main does
+# nothing. The inputs mirror feat-cmux-next's so a dispatch's inputs validate wherever GitHub checks them.
+# Leo, 2026-11-22: "should've been caught and fixed faster. hell, maybe even should've been automatic."
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: "The commit whose type check was red (empty: the branch tip)."
+        type: string
+        default: ""
+      check:
+        description: "Which type check (webviews or web)."
+        type: choice
+        options: [webviews, web]
+        default: webviews
+      origin:
+        description: "The run that found the red."
+        type: string
+        default: ""
+
+permissions: {}
+
+jobs:
+  registration:
+    if: github.ref != 'refs/heads/main'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+    timeout-minutes: 1
+    steps:
+      - name: Nothing to do outside feat-cmux-next
+        run: echo "fixit-handoff runs from feat-cmux-next's fixit-handoff.yml"
