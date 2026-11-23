@@ -17,9 +17,10 @@ target dir, next to the artifacts those mtimes describe.
 `restore` runs on the next box after checkout. A file whose content is
 byte-identical to the recorded one, or a directory whose entry names are
 identical, gets its recorded mtime back, which is the exact state the
-committed artifacts were built against. Anything changed, added, or missing
-from the manifest keeps its fresh mtime, so Cargo rebuilds it. Correctness therefore never depends on the manifest: a wrong or
-hostile manifest can only make a file look as old as an identical file did.
+committed artifacts were built against. Changed entries get a current mtime
+(never backdated), even if an archive or copy preserved their old timestamps.
+Added entries and entries missing from the manifest keep their checkout mtimes.
+A wrong or hostile manifest can only backdate byte-identical inputs.
 
 Both commands also handle CPU-specific build output. ghostty-vt-sys builds
 libghostty-vt for zig's native CPU, so a warm target dir written on one
@@ -45,6 +46,7 @@ import json
 import os
 import shutil
 import sys
+import time
 
 SKIP_DIRS = {".git", "target", ".zig-cache", "zig-cache", "zig-out", "node_modules", ".build", "DerivedData", "testbox-benchmark"}
 MANIFEST_VERSION = "cmux-testbox-source-mtimes-v2"
@@ -304,6 +306,12 @@ def restore(repo: str, manifest: str) -> int:
                 skipped += 1
                 continue
             if (blob_id(path) if kind == "F" else listing_id(path)) != blob:
+                # A copy can retain the old timestamp while changing the bytes
+                # or directory listing. Cargo cannot detect that edit by mtime.
+                # Keep future timestamps dirty too; never backdate changed input.
+                stat = os.lstat(path)
+                os.utime(path, ns=(stat.st_atime_ns, max(stat.st_mtime_ns, time.time_ns())),
+                         follow_symlinks=False)
                 changed += 1
                 continue
             mtime = int(mtime_ns)

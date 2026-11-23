@@ -6,9 +6,12 @@ import hashlib
 import json
 import os
 import pathlib
+import re
+import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
 SCRIPT = pathlib.Path(__file__).resolve().parents[1] / "scripts" / "blacksmith-testbox-source-mtimes.py"
@@ -88,6 +91,26 @@ class SourceMtimesTests(unittest.TestCase):
         run("restore", self.box2.name, self.manifest)
         self.assertEqual(self.mtime("cmux-tui/src/same.rs"), OLD - 10**9)
 
+    def test_changed_bytes_with_preserved_mtime_become_dirty(self) -> None:
+        path = os.path.join(self.box2.name, "cmux-tui/src/changed.rs")
+        os.utime(path, ns=(OLD, OLD))
+        run("restore", self.box2.name, self.manifest)
+        self.assertGreater(self.mtime("cmux-tui/src/changed.rs"), OLD)
+        self.assertEqual(self.mtime("cmux-tui/src/same.rs"), OLD)
+
+    def test_changed_directory_with_preserved_mtime_becomes_dirty(self) -> None:
+        path = os.path.join(self.box2.name, "ghostty/include")
+        os.utime(path, ns=(OLD, OLD))
+        run("restore", self.box2.name, self.manifest)
+        self.assertGreater(self.mtime("ghostty/include"), OLD)
+
+    def test_changed_input_with_future_mtime_is_not_backdated(self) -> None:
+        future = 4_000_000_000 * 10**9
+        path = os.path.join(self.box2.name, "cmux-tui/src/changed.rs")
+        os.utime(path, ns=(future, future))
+        run("restore", self.box2.name, self.manifest)
+        self.assertEqual(self.mtime("cmux-tui/src/changed.rs"), future)
+
     def test_a_hostile_manifest_cannot_leave_the_repository_or_follow_links(self) -> None:
         outside = os.path.join(self.box1.name, "outside.txt")
         pathlib.Path(outside).write_text("fn same() {}\n", encoding="utf-8")
@@ -106,6 +129,94 @@ class SourceMtimesTests(unittest.TestCase):
     def test_a_missing_manifest_is_a_cold_build(self) -> None:
         run("restore", self.box2.name, os.path.join(self.box2.name, "absent.tsv"))
         self.assertGreater(self.mtime("cmux-tui/src/same.rs"), OLD)
+
+
+@unittest.skipUnless(os.environ.get("CMUX_TEST_SOURCE_MTIMES_CARGO") == "1",
+                     "opt in on the Rust fleet with CMUX_TEST_SOURCE_MTIMES_CARGO=1")
+class CargoFreshnessTests(unittest.TestCase):
+    """Exercise the pinned compiler, build-script inputs and the resulting binary.
+
+    Timings describe this disposable fixture, not full application CI savings.
+    """
+
+    def test_restored_target_reuses_identical_inputs_and_rebuilds_edits(self) -> None:
+        pin = (SCRIPT.parent.parent / "cmux-tui/rust-toolchain.toml").read_text()
+        toolchain = re.search(r'channel\s*=\s*"([^"]+)"', pin).group(1)
+        env = {**os.environ, "RUSTUP_TOOLCHAIN": toolchain, "RUSTC_WRAPPER": "",
+               "RUSTC_WORKSPACE_WRAPPER": "", "CARGO_INCREMENTAL": "1"}
+        rustc = subprocess.check_output(["rustc", "-vV"], env=env, text=True, timeout=30)
+        host = re.search(r"^host: (.+)$", rustc, re.MULTILINE).group(1)
+        env["CARGO_BUILD_TARGET"] = host
+        print(json.dumps({"rustc": rustc, "cargo": subprocess.check_output(
+            ["cargo", "--version"], env=env, text=True, timeout=30).strip(),
+            "target": host, "profile": "dev", "incremental": True,
+            "wrappers": {key: env[key] for key in ("RUSTC_WRAPPER", "RUSTC_WORKSPACE_WRAPPER")}}), flush=True)
+        with tempfile.TemporaryDirectory(prefix="cargo-freshness-") as td:
+            root = pathlib.Path(td)
+            repo = root / "repo"
+            (repo / "src").mkdir(parents=True)
+            (repo / "Cargo.toml").write_text(
+                '[package]\nname="freshness_probe"\nversion="0.1.0"\nedition="2021"\n')
+            source = repo / "src/main.rs"
+            source.write_text('fn main(){println!("11:{}",env!("BUILD_VALUE"));}\n')
+            (repo / "build.rs").write_text(
+                'fn main(){println!("cargo:rerun-if-changed=input.txt");'
+                'println!("cargo:rustc-env=BUILD_VALUE={}",'
+                'std::fs::read_to_string("input.txt").unwrap().trim());}\n')
+            build_input = repo / "input.txt"
+            build_input.write_text("7\n")
+            target = repo / "target"
+            manifest = target / "source-mtimes.tsv"
+
+            def build(label, expected, target_dir=target):
+                start = time.monotonic()
+                result = subprocess.run(
+                    ["cargo", "build", "--offline", "--message-format=json"], cwd=repo,
+                    env={**env, "CARGO_TARGET_DIR": str(target_dir)},
+                    capture_output=True, text=True, timeout=120)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                rows = [json.loads(line) for line in result.stdout.splitlines()]
+                artifacts = [row for row in rows if row.get("reason") == "compiler-artifact"]
+                executable = next(row["executable"] for row in artifacts if row.get("executable"))
+                output = subprocess.check_output([executable], text=True, timeout=10).strip()
+                counts = {"case": label, "cargo_and_link_ms": round((time.monotonic() - start) * 1000, 2),
+                          "fresh": sum(row["fresh"] for row in artifacts),
+                          "compiled": sum(not row["fresh"] for row in artifacts), "output": output}
+                print(json.dumps(counts), flush=True)
+                self.assertEqual(output, expected, counts)
+                return counts
+
+            build("cold", "11:7")
+            run("record", str(repo), str(manifest))
+            snapshot = root / "saved-target"
+            shutil.copytree(target, snapshot)
+            source_stat = source.stat()
+            os.utime(source, None)
+            self.assertGreater(build("new_mtime_without_restore", "11:7")["compiled"], 0)
+
+            # Round-trip the whole target, including its source manifest.
+            start = time.monotonic()
+            shutil.rmtree(target)
+            shutil.copytree(snapshot, target)
+            print(json.dumps({"target_restore_ms": round((time.monotonic() - start) * 1000, 2)}), flush=True)
+            start = time.monotonic()
+            run("restore", str(repo), str(manifest))
+            print(json.dumps({"source_restore_ms": round((time.monotonic() - start) * 1000, 2)}), flush=True)
+            self.assertEqual(source.stat().st_mtime_ns, source_stat.st_mtime_ns)
+            self.assertEqual(build("identical_bytes_restored", "11:7")["compiled"], 0)
+
+            for path, contents, expected in (
+                (source, 'fn main(){println!("22:{}",env!("BUILD_VALUE"));}\n', "22:7"),
+                (build_input, "8\n", "22:8"),
+            ):
+                stat = path.stat()
+                path.write_text(contents)
+                os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+                run("restore", str(repo), str(manifest))
+                self.assertGreater(build("changed_old_mtime_" + path.name, expected)["compiled"], 0)
+                build("clean_reference_" + path.name, expected, root / ("clean-" + path.name))
+                run("record", str(repo), str(manifest))
+                self.assertEqual(build("warm_after_edit_" + path.name, expected)["compiled"], 0)
 
 
 class NativeCpuOutputTests(unittest.TestCase):
