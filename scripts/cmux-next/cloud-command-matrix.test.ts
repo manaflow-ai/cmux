@@ -15,6 +15,8 @@ describe("cloud-command-matrix", () => {
     for (const v of ["doctor", "trust"]) expect(remote).not.toContain(v);
     const machine = acpmuxMachineVerbs();
     for (const v of ["add", "ls", "enroll-self", "tunnel", "consent"]) expect(machine).toContain(v);
+    // Nested verbs are rows too (Greptile on #52473: a one-word regex dropped them).
+    for (const v of ["ticket new", "consent grant", "vault keep"]) expect(machine).toContain(v);
   });
 
   test("every row asks for help and short verbs are checked under vm and cloud", () => {
@@ -24,6 +26,8 @@ describe("cloud-command-matrix", () => {
     expect(cmds).toContain("cmux vm status --help");
     expect(cmds).toContain("cmux cloud status --help");
     expect(cmds).toContain("acpmux machine enroll-self --help");
+    const nested = rows.find((r) => r.words.join(" ") === "machine ticket new --help");
+    expect(nested?.parent).toEqual(["machine", "ticket", "--help"]);
   });
 
   test("judges the parent's text as the overview, not the verb's help", () => {

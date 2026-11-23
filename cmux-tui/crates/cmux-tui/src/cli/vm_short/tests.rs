@@ -1,8 +1,8 @@
 use serde_json::json;
 
 use super::{
-    Resolved, Short, app_list, cloud_words, confirmed, misuse, not_listed, parse, pausable,
-    pause_all_misuse, resolve, restore_machine, table,
+    Resolved, Short, app_list, cloud_words, confirmed, misuse, not_listed, not_loaded, parse,
+    pausable, pause_all_misuse, resolve, restore_machine, table,
 };
 
 fn words(list: &[&str]) -> Vec<String> {
@@ -324,6 +324,17 @@ fn pause_all_picks_the_running_vms() {
     let short = parse(&words(&["vm", "pause", "--all"])).expect("pause --all parses");
     assert_eq!(short.cloud_verb, "pause-machine");
     assert!(short.named.is_none() && short.tail == words(&["--all"]));
+}
+
+/// Greptile P1 on #52473: an app that has not loaded its VMs lists none; `vm pause --all` must
+/// refuse with a retry, never print "No running Cloud VMs to pause." and exit 0.
+#[test]
+fn pause_all_on_an_unloaded_list_is_a_retry_not_a_success() {
+    let unloaded = json!({"account": {"signed_in": true}, "loaded": false, "machines": []});
+    let error = not_loaded(&unloaded).expect("an unloaded list is refused");
+    assert_eq!(error.get("code"), Some(&json!("cloud.not_loaded")));
+    assert!(not_loaded(&json!({"loaded": true, "machines": []})).is_none());
+    assert!(not_loaded(&json!({"machines": []})).is_none());
 }
 
 /// Review F2 on #48221: `vm pause --all --minutes 15` was a silent mass pause; it is refused.

@@ -88,11 +88,14 @@ export function offeredVerbs(scope: string, surfaces = readFileSync(path.join(RO
   return [...new Set(verbs)].sort();
 }
 
-/** `acpmux machine VERB`: every verb acpmux's own help examples name (acpmux cli/help_examples/host.rs). */
+/**
+ * `acpmux machine VERB [SUBVERB]`: every command acpmux's own help examples name (acpmux
+ * cli/help_examples/host.rs), nested ones (`ticket new`, `vault keep`) included, as space-joined words.
+ */
 export function acpmuxMachineVerbs(
   src = readFileSync(path.join(ROOT, "cmux-tui/crates/acpmux/src/cli/help_examples/host.rs"), "utf8"),
 ): string[] {
-  return [...new Set([...src.matchAll(/"machine ([a-z][a-z-]*)"/g)].map((m) => m[1]))].sort();
+  return [...new Set([...src.matchAll(/"machine ([a-z][a-z-]*(?: [a-z][a-z-]*)*)"/g)].map((m) => m[1]))].sort();
 }
 const ACPMUX_TOP = ["new", "run", "ensure", "send", "wait", "last", "ls", "dispatch", "resolve", "machine-auth"];
 
@@ -130,7 +133,11 @@ export function helpRows(): Row[] {
   for (const v of remoteVerbs()) rows.push(help("cmux", ["remote", v], cls(v), ["remote"]));
   rows.push(help("acpmux", [], "help"));
   rows.push(help("acpmux", ["machine"], "help", []));
-  for (const v of acpmuxMachineVerbs()) rows.push(help("acpmux", ["machine", v], cls(v), ["machine"]));
+  for (const v of acpmuxMachineVerbs()) {
+    const words = v.split(" ");
+    // A nested verb's parent is its own group (`machine ticket new` vs `machine ticket`).
+    rows.push(help("acpmux", ["machine", ...words], cls(words[0]), ["machine", ...words.slice(0, -1)]));
+  }
   for (const v of ACPMUX_TOP) rows.push(help("acpmux", [v], cls(v), []));
   rows.push(help("acpmux", ["session", "move"], "resume", ["session"], "move"));
   rows.push(help("acpmux", ["hand"], "start", []));
