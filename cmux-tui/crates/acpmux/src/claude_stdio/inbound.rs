@@ -557,7 +557,7 @@ impl Translator {
                             "kind": tool_kind(name),
                             "status": "pending",
                             "rawInput": input,
-                            "_meta": {"claude": {"tool": name, "interactive": interactive, "suggestions": req.get("permission_suggestions"), "description": req.get("description")}}
+                            "_meta": {"claude": {"tool": name, "interactive": interactive, "suggestions": req.get("permission_suggestions"), "description": ask_description(&req)}}
                         });
                         with_edit(&mut call, name, &input);
                         out.push(Message::request(
@@ -1331,4 +1331,15 @@ pub(super) fn summary_exit_code(summary: &str) -> Option<i64> {
         .find(|&(i, c)| !(c.is_ascii_digit() || (i == 0 && c == '-')))
         .map_or(rest.len(), |(i, _)| i);
     rest.get(..end)?.parse().ok()
+}
+
+/// Claude Code's own one-line description of a `can_use_tool` ask, unless it is only the head of
+/// acpmux's subagent mark line: for a subagent's Bash call with no description of its own (a
+/// safety check's ask), Claude Code describes it by the command's first line, which is
+/// `export ACPMUX_CALLER_SUBAGENT=...` (`bg_hook::subagent_mark`). Leo, 2026-11-23, on a card
+/// that read so: "this is \"ok\" but could be improved".
+fn ask_description(req: &Value) -> Option<&str> {
+    req.get("description")
+        .and_then(Value::as_str)
+        .filter(|d| !crate::bg_hook::starts_with_subagent_mark(d))
 }

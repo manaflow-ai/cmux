@@ -498,10 +498,15 @@ impl Hub {
                 // controls, which cannot drive Claude's checklist (review on #34457).
             }
             "current_mode_update" => {
-                // A mode the harness moves to by itself is not cmux's: the mark goes, so moving
-                // back to it later is not cmux's either (`trust_wait.rs` `full_access_by_cmux`).
+                // A mode the harness moves to by itself is not cmux's: a full-access mark goes, so
+                // moving back to it later is not cmux's either (`trust_wait.rs`
+                // `full_access_by_cmux`). A narrower mark stays: it is the mode the person or a
+                // policy picked, which a harness that moves itself into full access does not
+                // erase, so its asks still go to the person (`full_access_allow`).
                 let reported = update.get("currentModeId").and_then(Value::as_str);
-                if m.mode_set_by_cmux.is_some() && reported != m.mode_set_by_cmux.as_deref() {
+                if m.mode_set_by_cmux.as_deref().is_some_and(super::start_mode::is_full_access)
+                    && reported != m.mode_set_by_cmux.as_deref()
+                {
                     m.mode_set_by_cmux = None;
                     // Saved now, so a restart does not load the mark back.
                     mark_cleared = true;
@@ -1072,6 +1077,21 @@ impl Hub {
         // pending asks before this request takes the lock and inserts itself. Judge its mode
         // only under the permission lock below, so that request cannot miss the switch.
         let full_access_on = off.allows_full_access();
+        // The full-access mode the chat runs, when it is the one its profile's new chats start in
+        // now (`Hub::plain_session_is`: the person's start level), though cmux's own mark on it is
+        // gone (a mode the harness reported again, a respawn): the chat could move to it without
+        // the person (`may_move_without_person`), so the harness reporting it widens nothing.
+        // Judged here, as it reads the settings; `full_access_allow` reads the mode again under
+        // the permission lock. Leo, 2026-11-23, on a subagent's safety check that asked him in a
+        // chat in Bypass permissions: "i also dont know why you asked me this".
+        let start_full_access = {
+            let meta = session.meta();
+            match crate::web_modes::mode_of(&meta).filter(|m| super::start_mode::is_full_access(m))
+            {
+                Some(mode) if self.plain_session_is(&meta, &mode).await => Some(mode),
+                _ => None,
+            }
+        };
         let (rx, prev, grouping, permission_id) = {
             let cfg = self.config.read().await;
             let mut state = session.permissions.lock().unwrap_or_else(|e| e.into_inner());
@@ -1184,7 +1204,7 @@ impl Hub {
             // off is looked at again here (memory only): a push since the read above answers
             // nothing.
             let full_access = (full_access_on && !off.off() && rule.is_none() && !denied)
-                .then(|| full_access_allow(session, &request))
+                .then(|| full_access_allow(session, &request, start_full_access.as_deref()))
                 .flatten();
             let auto = if denied {
                 pick(&["reject_once", "reject_always"])
@@ -1689,12 +1709,26 @@ fn full_access_mode(m: &SessionMeta) -> Option<String> {
 /// question, a plan approval or a folder-trust card, which stay the person's), only while the
 /// current mode is Full access (a chat switched out of it asks again from its next request), and
 /// only with a one-time allow: never an "always" option, which writes a rule. The caller keeps
-/// deny-all, rules and Web turns ahead of it.
-fn full_access_allow(session: &Session, request: &Value) -> Option<(String, String)> {
+/// deny-all, rules and Web turns ahead of it. `start`: the full-access mode new chats of its
+/// profile start in now, when the chat ran it as the ask began (`Hub::plain_session_is`), which
+/// counts as cmux's own while the chat still runs it and no narrower mode cmux set stands.
+fn full_access_allow(
+    session: &Session,
+    request: &Value,
+    start: Option<&str>,
+) -> Option<(String, String)> {
     if !super::permission_groups::plain_tool_ask(request) {
         return None;
     }
-    let mode = full_access_mode(&session.meta())?;
+    let meta = session.meta();
+    let mode = full_access_mode(&meta).or_else(|| {
+        // Only with no mark at all: a narrower mode cmux set (the person's pick) still holds.
+        meta.mode_set_by_cmux
+            .is_none()
+            .then(|| crate::web_modes::mode_of(&meta))
+            .flatten()
+            .filter(|now| start == Some(now.as_str()))
+    })?;
     Some((mode, super::permission_groups::option(request, "allow_once")?))
 }
 
