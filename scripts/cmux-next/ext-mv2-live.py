@@ -42,6 +42,7 @@ from bench_cli_storm import Client  # noqa: E402
 from ext_e2e import cdp  # noqa: E402
 from ext_e2e.app import free_port  # noqa: E402
 import kit_downloads  # noqa: E402
+from state_wait import wait_stable, wait_until  # noqa: E402
 
 STORE_EXTENSION = ("eimadpbcbfnmbkopoojfekhnkhdbieeh", "Dark Reader")  # MV3 on the store
 UBO_NAME = "uBlock Origin"
@@ -327,7 +328,8 @@ def observed_load(job, url, label, watch):
             if message.get("method", "").startswith("Network."):
                 events.append(message)
         state = poll(session, "window.mv2 && window.mv2.done && window.mv2", 10) or {}
-        time.sleep(2)
+        # A late cosmetic filter hides the slot after load: until it does, or 5 s.
+        poll(session, "getComputedStyle(document.getElementById('ad-slot')).display === 'none'", 5, interval=0.2)
         state["slot_late"] = session.evaluate("getComputedStyle(document.getElementById('ad-slot')).display")
         state["ubo_world"] = ubo_world_state(session)
         state["shot"] = job.page_shot(session, f"{label}-page")
@@ -526,12 +528,17 @@ def phase_store(args):
             job.row("store: no Switch to Chrome banner", banner == {"flag": True, "text": False}, banner)
             job.row("store: the install button says Add to cmux", button[2] == "Add to cmux", button[2])
             # The Google bar's "Switch to Chrome?" card (an ogs.google.com callout iframe) opens a few
-            # seconds after load when the page does not see the Google Chrome brand.
-            time.sleep(8)
+            # seconds after load when the page does not see the Google Chrome brand: watched for 8 s (the
+            # window is the check), ending early once it shows.
+            poll(session, "document.getElementsByName('callout').length > 0", 8)
             card = session.evaluate("document.getElementsByName('callout').length")
             job.row("store: no Switch to Chrome? card", card == 0, {"callout_frames": card})
+            dark = "matchMedia('(prefers-color-scheme: dark)').matches"
+            system_dark = session.evaluate(dark)
             appearance_shots(job, session, "store-detail")
-            time.sleep(1)
+            # The page is back in the system's scheme before the button is found again and clicked.
+            wait_until(lambda: session.evaluate(dark) == system_dark, "the store page back in the system appearance",
+                       timeout=10, interval=0.1, raise_on_timeout=False)
             button = poll(session, find, 5) or button
             session.click(button[0], button[1])  # a trusted click: user gesture
             prompt = None
@@ -592,7 +599,9 @@ def phase_ublock(args):
         result = job.call("action.run", {"action": "browser.extensions.loadUnpacked",
                                          "args": {"path": args.load_unpacked}, "origin": "remote"})
         job.row("person: Load Unpacked of a uBlock Origin copy", "error" not in result, result)
-        time.sleep(3)
+        # The copy is listed (loaded() then checks it is enabled).
+        wait_until(lambda: any(e.get("name") == UBO_NAME for e in job.extensions_report()),
+                   "the Load Unpacked copy in browser.extensions", timeout=30, interval=0.25, raise_on_timeout=False)
 
     def loaded():
         ubo = None
@@ -640,7 +649,8 @@ def phase_ublock(args):
                                       ".then(() => 'loaded', () => 'blocked')")
             finally:
                 page.close()
-            time.sleep(1)
+            # The background page's listeners recorded the probe page's requests.
+            poll(bg, "self.mv2probe.requests.some(r => r[3].includes('probe=1'))", 5, interval=0.1)
             seen = bg.evaluate("""new Promise(r => chrome.tabs.query({}, tabs => r({
               probe: self.mv2probe, tabs: tabs.map(t => [t.id, t.windowId, t.active, (t.url || '').slice(0, 90)])})))""")
         finally:
@@ -689,7 +699,15 @@ def phase_ublock(args):
             session.call("Runtime.enable")
             session.call("Page.navigate", {"url": url + "?verdict=1"})
             state = poll(session, "window.mv2 && window.mv2.done && window.mv2", 25) or {}
-            time.sleep(2)  # uBlock Origin commits its page journal about once a second
+            # uBlock Origin commits its page journal about once a second: until the tab's journal is empty.
+            bg = cdp.Session(ctx["bg"]["webSocketDebuggerUrl"])
+            try:
+                poll(bg, """new Promise(r => chrome.tabs.query({}, tabs => {
+                  const t = tabs.find(t => (t.url || '').includes('?verdict=1'));
+                  const ps = t && self.µBlock.pageStoreFromTabId(t.id);
+                  r(!!ps && (ps.journal || []).length === 0); }))""", 10, interval=0.2)
+            finally:
+                bg.close()
             # executionContextCreated events arrived on this socket while we waited; read them.
             contexts = drain_contexts(session)
             tab_url = url + "?verdict=1"
@@ -712,7 +730,12 @@ def phase_ublock(args):
         job.row("diagnose: extension worlds in the page (content scripts)", bool(contexts), contexts, gating=False)
 
     def blocking():
-        time.sleep(3)
+        # uBlock Origin filters once its lists are compiled.
+        bg = cdp.Session(ctx["bg"]["webSocketDebuggerUrl"])
+        try:
+            poll(bg, "self.µBlock && self.µBlock.readyToFilter === true", 30, interval=0.25)
+        finally:
+            bg.close()
         # Controls: the host reaches both scripts, so "blocked" in the page is uBlock Origin.
         for name, address in (("ad server", AD_BEACON), ("jQuery CDN", JQUERY)):
             status = host_reaches(address)
@@ -732,7 +755,9 @@ def phase_ublock(args):
         session = job.open_tab("https://example.com/", match="example.com")
         try:
             poll(session, "location.host === 'example.com' && document.readyState === 'complete' && !!document.body", 30)
-            time.sleep(1)
+            # uBlock Origin's content script runs its DOM filterer in the page before the slot goes in.
+            wait_until(lambda: '"filterer":true' in str(ubo_world_state(session)), "uBlock Origin's filterer on example.com",
+                       timeout=10, interval=0.25, raise_on_timeout=False)
             session.evaluate("document.body.insertAdjacentHTML('beforeend', '<div id=\"mv2-slot\" class=\"adsbygoogle-box\" "
                              "style=\"width:300px;height:100px;background:#fdd\">ad slot</div>'); true")
             hidden = poll(session, "(() => { const e = document.getElementById('mv2-slot');"
@@ -752,15 +777,16 @@ def phase_ublock(args):
         bg = cdp.Session(ctx["bg"]["webSocketDebuggerUrl"])
         try:
             poll(session, "window.mv2 && window.mv2.done", 20)
-            time.sleep(2)  # the tab's URL reaches chrome.tabs after load
+            # The tab's URL reaches chrome.tabs after load.
+            poll(bg, "new Promise(r => chrome.tabs.query({}, tabs => r(tabs.some(t => (t.url || '').includes('?css=1')))))",
+                 10, interval=0.1)
             result = bg.evaluate("""new Promise(r => chrome.tabs.query({}, tabs => {
               const t = tabs.find(t => (t.url || '').includes('?css=1'));
               if (!t) return r({error: 'no tab'});
               chrome.tabs.insertCSS(t.id, {code: '#state{display:none!important}', cssOrigin: 'user'},
                 () => r({tab: t.id, lastError: chrome.runtime.lastError ? chrome.runtime.lastError.message : null}));
             }))""")
-            time.sleep(1)
-            hidden = session.evaluate("getComputedStyle(document.getElementById('state')).display === 'none'")
+            hidden = poll(session, "getComputedStyle(document.getElementById('state')).display === 'none'", 5, interval=0.1)
         finally:
             bg.close()
             session.close()
@@ -779,7 +805,9 @@ def phase_ublock(args):
                 detail["size"] = poll(session, "(() => { const r = document.body.getBoundingClientRect();"
                                                " return r.width > 100 && r.height > 100 && document.body.innerText.length > 10"
                                                " ? [r.width, r.height] : null; })()", 15)
-                time.sleep(1)
+                # The popup's text and size hold still before they are read and shot.
+                wait_stable(lambda: session.evaluate("[document.body.innerText, document.body.scrollWidth, document.body.scrollHeight]"),
+                            "the uBlock Origin popup", timeout=5, interval=0.1, reads=3, raise_on_timeout=False)
                 detail["text"] = (session.evaluate("document.body.innerText") or "")[:300]
                 detail["shot"] = job.page_shot(session, "ublock-popup")
                 # Dynamic filtering through uBlock Origin's own privileged messaging (an
@@ -832,7 +860,9 @@ def phase_ublock(args):
                         time.sleep(0.5)
                 finally:
                     ui.close()
-            time.sleep(1)
+            # The picker's overlay drew: the page's pixels hold still before the shot.
+            wait_stable(lambda: session.call("Page.captureScreenshot", {"format": "png"}, timeout=30)["data"],
+                        "the element picker overlay", timeout=8, interval=0.2, reads=2, raise_on_timeout=False)
             detail["shot"] = job.page_shot(session, "ublock-picker")
             detail["window_shot"] = job.window_shot("ublock-picker-window")
             session.call("Input.dispatchKeyEvent", {"type": "keyDown", "key": "Escape", "code": "Escape", "windowsVirtualKeyCode": 27})
@@ -916,7 +946,10 @@ def phase_ublock(args):
                                   " && f.contentDocument.readyState === 'complete'"
                                   " && f.contentDocument.body.innerText.length > 50 ? f.src : null; })()", 20)
             if ready:
-                time.sleep(1)
+                # The dashboard pane's content holds still before the shot.
+                wait_stable(lambda: session.evaluate("(() => { const d = document.querySelector('iframe').contentDocument;"
+                                                     " return [d.body.innerText.length, d.body.scrollHeight]; })()"),
+                            "the uBlock Origin dashboard", timeout=5, interval=0.1, reads=3, raise_on_timeout=False)
             shot = job.page_shot(session, "ublock-dashboard")
             where = session.evaluate("location.href")
         finally:
