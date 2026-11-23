@@ -73,14 +73,14 @@ pub(super) fn tools() -> Vec<Value> {
 /// The daemon request for a call (`{machine, action, params}`), or the refusal the agent reads.
 pub(super) fn request(name: &str, args: &Value) -> Result<Value, String> {
     let machine = arg(args, "machine").ok_or("machine is required")?;
-    let copy = |keys: &[&str]| -> Value {
+    let copy = |keys: &[&str]| -> serde_json::Map<String, Value> {
         let mut out = serde_json::Map::new();
         for key in keys {
             if let Some(v) = args.get(*key).filter(|v| !v.is_null()) {
                 out.insert((*key).to_owned(), v.clone());
             }
         }
-        Value::Object(out)
+        out
     };
     let path = || arg(args, "path").ok_or("path is required");
     let (action, params) = match name {
@@ -89,8 +89,8 @@ pub(super) fn request(name: &str, args: &Value) -> Result<Value, String> {
             "list" => ("fs.list", copy(&["path"])),
             op @ ("glob" | "grep") => {
                 let mut p = copy(&["pattern", "glob", "limit"]);
-                p["root"] = json!(path()?);
-                if p.get("pattern").is_none() {
+                p.insert("root".to_owned(), json!(path()?));
+                if !p.contains_key("pattern") {
                     return Err(format!("{op} needs pattern"));
                 }
                 (if op == "glob" { "fs.glob" } else { "fs.grep" }, p)
@@ -110,7 +110,7 @@ pub(super) fn request(name: &str, args: &Value) -> Result<Value, String> {
             let mut p = copy(&["argv", "cwd", "timeout_ms"]);
             match (args.get("command").and_then(Value::as_str), p.get("argv").is_some()) {
                 (Some(line), false) if !line.trim().is_empty() => {
-                    p["argv"] = json!(["/bin/sh", "-c", line]);
+                    p.insert("argv".to_owned(), json!(["/bin/sh", "-c", line]));
                 }
                 (None, true) => {}
                 _ => return Err("give exactly one of command or argv".to_owned()),
@@ -133,10 +133,12 @@ pub(super) fn text(action: &str, reply: &Value) -> String {
         "exec" => {
             let mut out = match reply.get("exit").and_then(Value::as_i64) {
                 Some(code) => format!("exit {code}"),
-                None if reply["timed_out"] == true => "timed out".to_owned(),
+                None if reply.get("timed_out") == Some(&Value::Bool(true)) => {
+                    "timed out".to_owned()
+                }
                 None => "ended by a signal".to_owned(),
             };
-            if reply["truncated"] == true {
+            if reply.get("truncated") == Some(&Value::Bool(true)) {
                 out.push_str(" (output cut at 256 KB per stream)");
             }
             for (label, key) in [("stdout", "stdout"), ("stderr", "stderr")] {
@@ -155,7 +157,7 @@ pub(super) async fn call(daemon: &Arc<Client>, name: &str, args: &Value) -> Valu
         Ok(p) => p,
         Err(e) => return error_result(e),
     };
-    let action = params["action"].as_str().unwrap_or_default().to_owned();
+    let action = params.get("action").and_then(Value::as_str).unwrap_or_default().to_owned();
     match daemon.request(method::MUX_MACHINE_FILES_CALL, params).await {
         Ok(reply) => ok(text(&action, &reply), reply),
         Err(e) => refusal(e),

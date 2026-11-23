@@ -97,11 +97,11 @@ pub(crate) async fn run_with<C>(
 where
     C: Fn() -> Result<(), HandError>,
 {
-    if !ACTIONS.contains(&action) || !params.is_object() {
+    let Some(fields) = params.as_object_mut().filter(|_| ACTIONS.contains(&action)) else {
         return Err(refused("unknown_action", format!("unknown action {action:?}")));
-    }
-    params["_level"] = json!("auto");
-    params["_verdict"] = json!("allow");
+    };
+    fields.insert("_level".to_owned(), json!("auto"));
+    fields.insert("_verdict".to_owned(), json!("allow"));
     let agents = Agents::default();
     // No action of ACTIONS sends an event.
     let (sink, _events) = tokio::sync::mpsc::channel(1);
