@@ -94,3 +94,47 @@ div.acpmux-edited {
   outline: var(--cmux-hairline) solid var(--ds-color-focus);
   outline-offset: var(--ds-space-1);
 }
+
+/* A Markdown file's row: the row's own button (its diff) and, at its end, Open (its Markdown page),
+   inside the row's 36px so editedCardHeight holds. A row without a diff keeps Open inside itself. */
+.acpmux-edited-line {
+  display: flex;
+  align-items: center;
+  padding-inline-end: var(--ds-space-3);
+}
+.acpmux-edited-line > .acpmux-edited-file {
+  flex: 1;
+  min-width: 0;
+}
+.acpmux-edited .acpmux-edited-open {
+  flex: none;
+  margin-inline-start: var(--ds-space-2);
+}
+
+/* A narrow card (the chat beside a page, #47831's air-blue capture): Undo, Open preview and View changes
+   took the whole head, the title shrank to nothing and its text drew under Undo. The title now clips to its
+   own box with an ellipsis, and below 520px of head Undo keeps only its glyph (its label stays for screen
+   readers and as the tooltip), which leaves the title room for the file's name. The container is the head,
+   not the card, so the card's popups and rows keep their containing block. */
+.acpmux-edited .acpmux-edited-head {
+  container: acpmux-edited-head / inline-size;
+}
+.acpmux-edited .acpmux-edited-title > * {
+  max-width: 100%;
+  min-width: 0;
+}
+@container acpmux-edited-head (max-width: 520px) {
+  .acpmux-edited .acpmux-edited-undo-label {
+    position: absolute;
+    width: 1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border: 0;
+  }
+  .acpmux-edited .acpmux-edited-actions {
+    gap: var(--ds-space-2);
+  }
+}

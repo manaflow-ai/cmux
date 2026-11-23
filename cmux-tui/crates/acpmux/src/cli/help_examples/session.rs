@@ -55,6 +55,16 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
+        "session route",
+        &[
+            (
+                "Decide the next step for a dead session from its facts",
+                "acpmux session route --facts facts.json",
+            ),
+            ("Read the facts from stdin", "acpmux session route --facts -"),
+        ],
+    ),
+    (
         "session cancel",
         &[
             ("Cancel the turn coord is running", "acpmux session cancel coord"),
@@ -111,13 +121,10 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
     ),
     (
         "session route",
-        &[
-            (
-                "Ask what to do next with a dead session's work",
-                "acpmux session route --facts facts.json",
-            ),
-            ("The same, with the facts on stdin", "acpmux session route --facts -"),
-        ],
+        &[(
+            "Ask what to do with a dead session: restart, move or a successor",
+            "acpmux session route --facts /tmp/review-27-death.json",
+        )],
     ),
     (
         "session rename",

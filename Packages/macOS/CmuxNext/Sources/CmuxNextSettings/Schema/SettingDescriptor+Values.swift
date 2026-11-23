@@ -92,6 +92,13 @@ extension SettingDescriptor {
         case .orderedChoices(let choices), .choiceSet(let choices):
             guard case .array(let items) = value else { return false }
             return items.allSatisfy { item in item.stringValue.map { text in choices.contains { $0.value == text } } ?? false }
+        case .json(let shape):
+            // The top-level type only: the shape and its domain are the daemon's (cmux-config schema::shape).
+            switch shape["type"]?.stringValue {
+            case "array": return value.arrayValue != nil
+            case "object": return value.objectValue != nil
+            default: return true
+            }
         }
     }
 
