@@ -11,11 +11,12 @@ fn v6(n: u16) -> SocketAddr {
 }
 
 #[test]
-fn interleave_starts_with_the_first_family_and_keeps_order() {
+fn interleave_starts_with_ipv6_and_keeps_order_within_a_family() {
     let got = interleave(&[v6(1), v6(2), v4(1), v4(2), v4(3)]);
     assert_eq!(got, vec![v6(1), v4(1), v6(2), v4(2), v4(3)]);
+    // musl's order on a ULA-only host puts every A record first; IPv6 still goes first.
     let got = interleave(&[v4(1), v4(2), v6(1)]);
-    assert_eq!(got, vec![v4(1), v6(1), v4(2)]);
+    assert_eq!(got, vec![v6(1), v4(1), v4(2)]);
     assert!(interleave(&[]).is_empty());
 }
 
