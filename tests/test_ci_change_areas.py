@@ -2124,6 +2124,7 @@ def run_web_status(
             "instant": "true",
             "production_build": "true",
             "react_apps": "true",
+            "agent_pane": "true",
             "typecheck": "true",
             "unit_tests": "true",
         } if scope_required else {
@@ -2132,6 +2133,7 @@ def run_web_status(
             "instant": "false",
             "production_build": "false",
             "react_apps": "false",
+            "agent_pane": "false",
             "typecheck": "false",
             "unit_tests": "false",
         }
@@ -5021,6 +5023,41 @@ def test_web_subarea_router_keeps_expensive_lanes_narrow() -> None:
         ) == expected, (paths, actual)
 
 
+def test_agent_pane_real_daemon_lane_is_narrower_than_react_apps() -> None:
+    for path in (
+        "webviews/test/agent-pane-picks-hold.test.ts",
+        "webviews/test/agent-pane-new-chat-settles.test.ts",
+        "webviews/test/support/realAcpmux.ts",
+        "webviews/test/support/warmDevServer.ts",
+        "webviews/test/support/fixture.test.ts",
+        "webviews/test/preload.ts",
+        "webviews/vite.config.acpmux-pane.mjs",
+        "webviews/src/ui/NoticeDeck.tsx",
+        "webviews/src/agent-session/acpmux/Composer.tsx",
+        "cmux-tui/crates/acpmux/src/lib.rs",
+        "cmux-tui/crates/acpmux-book/src/lib.rs",
+        "cmux-tui/Cargo.lock",
+    ):
+        areas = web_subareas.classify_paths([path], ROOT)
+        assert areas.react_apps is (path.startswith("webviews/"))
+        assert areas.agent_pane is True, path
+
+    for path in ("webviews/test/diff.test.ts", "webviews/test/agent-activity.test.tsx"):
+        areas = web_subareas.classify_paths([path], ROOT)
+        assert areas.react_apps is True, path
+        assert areas.agent_pane is False, path
+
+
+def test_agent_pane_scope_keeps_shared_inputs_and_mixed_changes() -> None:
+    for path in web_subareas.ALL_SUBAREA_INPUTS:
+        assert web_subareas.classify_paths([path], ROOT).agent_pane, path
+    for paths in (
+        ["webviews/test/diff.test.ts", "webviews/test/support/warmDevServer.ts"],
+        ["webviews/test/diff.test.ts", "webviews/src/ui/NoticeDeck.tsx"],
+        ["webviews/src/ui/NoticeDeck.tsx", "webviews/test/diff.test.ts"],
+    ):
+        assert web_subareas.classify_paths(paths, ROOT).agent_pane, paths
+
 
 def test_docs_reference_inputs_run_web_unit_tests() -> None:
     # web/tests/next-docs.test.ts reads these outside web/; a change to them that
@@ -5048,6 +5085,7 @@ def test_web_status_allows_unselected_subarea_jobs_to_skip() -> None:
             "instant": "false",
             "production_build": "false",
             "react_apps": "false",
+            "agent_pane": "false",
             "typecheck": "false",
             "unit_tests": "false",
         },
@@ -5060,6 +5098,22 @@ def test_web_status_rejects_selected_skip_failure_or_cancellation() -> None:
         for outcome in ("skipped", "failure", "cancelled"):
             result = run_web_status(results={web_job: outcome})
             assert result.returncode != 0, (web_job, outcome)
+
+
+def test_web_status_checks_react_when_real_daemon_tests_are_unselected() -> None:
+    # An unrelated standalone test still needs React validation even though it
+    # does not need another acpmux build. The summary must distinguish the two.
+    subareas = {name: "true" for name in (
+        "db", "diff_sidecar", "instant", "production_build", "react_apps",
+        "typecheck", "unit_tests",
+    )}
+    subareas["agent_pane"] = "false"
+    for react_result, expected in (("success", 0), ("skipped", 3), ("failure", 1)):
+        result = run_web_status(
+            results={"agent-pane-real-acpmux": "skipped", "react-apps-check": react_result},
+            subareas=subareas,
+        )
+        assert result.returncode == expected, (react_result, result.stdout, result.stderr)
 
 
 def test_web_status_rejects_a_scope_that_succeeded_with_no_subareas() -> None:

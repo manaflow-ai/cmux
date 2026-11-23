@@ -29,6 +29,7 @@ Exit 0 only when every check passed and nothing of the bundle is left.
 import json, os, pwd, shutil, signal, socket, sqlite3, subprocess, sys, tempfile, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
+from state_wait import wait_until  # noqa: E402
 
 TAG, APP, OUT = sys.argv[1], sys.argv[2], sys.argv[3]
 BINARY = os.path.join(APP, "Contents/MacOS/cmux DEV")
@@ -148,6 +149,11 @@ def page_entries(listing):
     return items, text
 
 
+def bundle_leftovers():
+    ps = subprocess.run(["ps", "-axo", "pid=,ppid=,command="], capture_output=True, text=True).stdout
+    return [l for l in ps.splitlines() if (APP + "/") in l and "history-preflight" not in l]
+
+
 def teardown(app):
     reply = rpc("debug.quit", {"fixture_quit": "end-sessions"}, timeout=10)
     # A build without the fixture answers a plain report (quitting false): use the action.
@@ -163,9 +169,10 @@ def teardown(app):
                    "ACPMUX_SOCKET": os.path.join(ACPMUX_HOME, "acpmux.sock")}, capture_output=True, timeout=30)
     subprocess.run([CLI, "server", "stop", "--session", "cmux-app-%s" % TAG, "--end-terminals"],
                    env={k: v for k, v in os.environ.items() if not k.startswith("CMUX_")}, capture_output=True, timeout=30)
-    time.sleep(3)  # test harness: let daemons exit before the leftover check
-    ps = subprocess.run(["ps", "-axo", "pid=,ppid=,command="], capture_output=True, text=True).stdout
-    left = [l for l in ps.splitlines() if (APP + "/") in l and "history-preflight" not in l]
+    # Wait until every bundle process but the known router leak has exited (best effort: the check below reports).
+    wait_until(lambda: all("router serve" in l for l in bundle_leftovers()),
+               "the bundle's daemons to exit", timeout=15, raise_on_timeout=False)
+    left = bundle_leftovers()
     note("leftovers", lines=left)
     # Known tip leak: `acpmux router serve` of this bundle survives the quit. It runs from this
     # job's own APP path, so this run started it; stop it by its exact PID and report it.
@@ -177,9 +184,9 @@ def teardown(app):
             pass
     RESULTS["survivors_stopped_by_pid"] = [l[:200] for l in routers]
     if routers:
-        time.sleep(2)  # test harness: let the router exit before the second check
-        ps = subprocess.run(["ps", "-axo", "pid=,ppid=,command="], capture_output=True, text=True).stdout
-        left = [l for l in ps.splitlines() if (APP + "/") in l and "history-preflight" not in l]
+        # Wait until the SIGTERMed survivors are gone (best effort: the check below reports what is left).
+        wait_until(lambda: not bundle_leftovers(), "the stopped survivors to exit", timeout=10, raise_on_timeout=False)
+        left = bundle_leftovers()
         note("leftovers-after-router", lines=left)
     safe_print("leftovers of this bundle: %d" % len(left), flush=True)
     return not left
