@@ -1,6 +1,7 @@
 import CmuxNextAgentActivity
 @testable import CmuxNextAgentLanes
 import CmuxNextDesign
+import CoreGraphics
 import Foundation
 @testable import CmuxNextApp
 import CmuxNextChiefPetWiring
@@ -84,6 +85,42 @@ struct ChiefSidebarItemTests {
         let layout = SidebarLayoutDocument(sections: [LayoutSection(id: LayoutSectionID("sec_top"), region: .top, items: [Self.chiefItem])])
         #expect(SidebarBridge.itemInfo(for: layout, registered: { _ in true })[Self.chiefItem.id]?.favicon == nil)
         #expect(ChiefSidebarPictures().favicon(still: nil, image: nil) == nil, "no upload: no picture")
+    }
+
+    /// Leo 2026-10-21: the Chief dragged into a group or a machine list is still the Chief there: the list
+    /// draws its picture, status and badge (no band holds it).
+    @Test func aChiefListedInAGroupKeepsItsLook() throws {
+        let shown = ChiefSidebar.shared.status
+        defer { ChiefSidebar.shared.status = shown }
+        ChiefSidebar.shared.status = ChiefSidebar.Status(activity: .waiting, badge: 2)
+        let model = SidebarModel()
+        let listed = SidebarListItem(id: "itm_chief", ref: .builtIn(.chief), title: SidebarBuiltIn.chief.title)
+        let link = SidebarListItem(id: "itm_link", ref: .url("https://cmux.dev"), title: "cmux")
+        model.sections = [SidebarSection(kind: .custom(SidebarCustomSection(id: "sec_pinned")), nodes: [.item(listed), .item(link)])]
+        #expect(model.listedBuiltIns.map(\.id) == [Self.chiefItem.id])
+        // The Chief's worn picture, as the App hands it over (`ChiefSidebarPictures`).
+        let picture = try #require(CGContext(data: nil, width: 2, height: 2, bitsPerComponent: 8, bytesPerRow: 0,
+                                             space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)?.makeImage())
+        let info = SidebarBridge.itemInfo(for: SidebarLayoutDocument(sections: []), registered: { _ in true },
+                                          chiefFavicon: SidebarFavicon(picture), listed: model.listedBuiltIns)[Self.chiefItem.id]
+        #expect(info?.activity == .waiting)
+        #expect(info?.badge == 2)
+        #expect(info?.favicon != nil)
+    }
+
+    /// An unread Chief conversation shows a dot on the item, unless a badge already counts subagents that need you.
+    @Test func anUnreadChiefConversationShowsADotWhereNoBadgeCounts() {
+        var info = SidebarBuiltIn.chief.defaultInfo
+        ChiefSidebar(lanes: AgentLaneStore()).decorate(&info)
+        #expect(!info.unreadDot)
+        let chief = ChiefSidebar(lanes: AgentLaneStore())
+        chief.status = ChiefSidebar.Status(unread: true)
+        chief.decorate(&info)
+        #expect(info.unreadDot)
+        chief.status = ChiefSidebar.Status(activity: .waiting, badge: 1, unread: true)
+        chief.decorate(&info)
+        #expect(!info.unreadDot)
+        #expect(info.badge == 1)
     }
 
     @Test func foldedHidesOnlyIdleSubagentsInNumberOrder() {
