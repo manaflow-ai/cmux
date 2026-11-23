@@ -131,7 +131,7 @@ export default componentEntry<StageProps>({
       play: pickCloud,
     },
     "drop-up-list": {
-      note: "Shipped. The drop-up opens up, never over the composer: Auto, the project's recent environments, New environment…, Edit Default…, then New Cloud machine… after a hairline. One line each, no headers.",
+      note: "Shipped. The drop-up opens up, never over the composer: Auto, the project's recent environments, New environment…, Edit Default environment…, then New Cloud machine… after a hairline. One line each, no headers; each row says what it does in its tooltip.",
       props: base,
       play: openDropUp,
     },
@@ -156,7 +156,7 @@ export default componentEntry<StageProps>({
       play: openDropUp,
     },
     "first-chat": {
-      note: "A first Cloud chat with no environments yet: Auto, New environment…, Edit Default…, New Cloud machine….",
+      note: "A first Cloud chat with no environments yet: Auto, New environment…, Edit Default environment…, New Cloud machine….",
       props: { ...base, recent: 0 },
       play: openDropUp,
     },

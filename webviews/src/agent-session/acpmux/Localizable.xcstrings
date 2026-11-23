@@ -364021,6 +364021,930 @@
         }
       }
     },
+    "composer.envEditDefault": {
+      "comment": "Agent pane: the Cloud Environment chip's drop-up, the Edit row while Auto is the pick and the account's Default environment has no other name (or is not known yet); it opens the Default environment's settings, which Auto runs in",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعديل البيئة الافتراضية…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uredi zadano okruženje…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rediger standardmiljø…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Standardumgebung bearbeiten…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edit Default environment…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Editar entorno predeterminado…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Modifier l’environnement par défaut…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Modifica ambiente predefinito…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "デフォルト環境を編集…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កែបរិស្ថានលំនាំដើម…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "기본 환경 편집…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rediger standardmiljø…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Edytuj środowisko domyślne…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Editar ambiente padrão…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Изменить окружение по умолчанию…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แก้ไขสภาพแวดล้อมเริ่มต้น…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Varsayılan ortamı düzenle…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Змінити типове середовище…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sửa môi trường mặc định…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "编辑默认环境…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "編輯預設環境…"
+          }
+        }
+      }
+    },
+    "composer.envEditNamedDefault": {
+      "comment": "Agent pane: the Cloud Environment chip's drop-up, the Edit row while Auto is the pick and the account's Default environment has its own name; {name} is that environment's name",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعديل {name} (الافتراضية)…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uredi {name} (zadano)…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rediger {name} (standard)…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{name} (Standard) bearbeiten…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edit {name} (Default)…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Editar {name} (predeterminado)…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Modifier {name} (par défaut)…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Modifica {name} (predefinito)…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{name}（デフォルト）を編集…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កែ {name} (លំនាំដើម)…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{name}(기본) 편집…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rediger {name} (standard)…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Edytuj {name} (domyślne)…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Editar {name} (padrão)…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Изменить {name} (по умолчанию)…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แก้ไข {name} (เริ่มต้น)…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{name} (Varsayılan) ortamını düzenle…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Змінити {name} (типове)…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sửa {name} (mặc định)…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "编辑 {name}（默认）…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "編輯 {name}（預設）…"
+          }
+        }
+      }
+    },
+    "composer.envAutoHint": {
+      "comment": "Agent pane: the Cloud Environment chip's drop-up, the tooltip and screen reader text of its Auto row: what Auto does",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يبدأ في بيئتك الافتراضية، مُعدّة من هذا المجلد أو المستودع"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokreće se u tvom zadanom okruženju, postavljenom iz ove mape ili repozitorija"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Starter i dit standardmiljø, sat op ud fra denne mappe eller dette repository"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Startet in deiner Standardumgebung, eingerichtet aus diesem Ordner oder Repository"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Starts in your Default environment, set up from this folder or repository"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Empieza en tu entorno predeterminado, configurado a partir de esta carpeta o repositorio"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Démarre dans votre environnement par défaut, configuré à partir de ce dossier ou de ce dépôt"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Parte nel tuo ambiente predefinito, configurato da questa cartella o repository"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このフォルダまたはリポジトリから設定された、デフォルト環境で開始します"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ចាប់ផ្ដើមក្នុងបរិស្ថានលំនាំដើមរបស់អ្នក ដែលរៀបចំពីថត ឬឃ្លាំងនេះ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 폴더나 저장소로 설정된 기본 환경에서 시작합니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Starter i standardmiljøet ditt, satt opp fra denne mappen eller dette repositoryet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Startuje w Twoim środowisku domyślnym, przygotowanym na podstawie tego folderu lub repozytorium"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Começa no seu ambiente padrão, configurado a partir desta pasta ou repositório"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запускается в вашем окружении по умолчанию, настроенном по этой папке или репозиторию"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เริ่มในสภาพแวดล้อมเริ่มต้นของคุณ ซึ่งตั้งค่าจากโฟลเดอร์หรือรีโพนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu klasörden veya depodan kurulan Varsayılan ortamında başlar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запускається у вашому типовому середовищі, налаштованому з цієї папки чи репозиторію"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bắt đầu trong môi trường mặc định của bạn, được thiết lập từ thư mục hoặc kho mã này"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在你的默认环境中启动，按此文件夹或仓库设置"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在你的預設環境中啟動，依此資料夾或儲存庫設定"
+          }
+        }
+      }
+    },
+    "composer.envNewHint": {
+      "comment": "Agent pane: the Cloud Environment chip's drop-up, the tooltip and screen reader text of its New environment… row: what an environment is",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أنشئ بيئة جديدة: نص إعداد ومتغيرات بيئة وأسرار تبدأ بها دردشاتك السحابية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Napravi novo okruženje: skriptu za postavljanje, varijable okruženja i tajne s kojima počinju tvoji Cloud razgovori"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lav et nyt miljø: et opsætningsscript, miljøvariabler og hemmeligheder, som dine Cloud-chats starter med"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Neue Umgebung anlegen: Setup-Skript, Umgebungsvariablen und Secrets, mit denen deine Cloud-Chats starten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Make a new environment: a setup script, env vars and secrets your Cloud chats start with"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Crea un entorno nuevo: un script de configuración, variables de entorno y secretos con los que empiezan tus chats en la nube"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Créez un environnement : un script d’installation, des variables d’environnement et des secrets avec lesquels vos discussions Cloud démarrent"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Crea un nuovo ambiente: script di configurazione, variabili d’ambiente e segreti con cui partono le tue chat Cloud"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新しい環境を作成：Cloud チャットの開始時に使うセットアップスクリプト、環境変数、シークレット"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្កើតបរិស្ថានថ្មី៖ ស្គ្រីបរៀបចំ អថេរបរិស្ថាន និងអាថ៌កំបាំង ដែលការជជែក Cloud របស់អ្នកចាប់ផ្ដើមជាមួយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "새 환경 만들기: Cloud 채팅이 시작할 때 쓰는 설정 스크립트, 환경 변수, 시크릿"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lag et nytt miljø: et oppsettsskript, miljøvariabler og hemmeligheter som Cloud-chattene dine starter med"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Utwórz nowe środowisko: skrypt konfiguracji, zmienne środowiskowe i sekrety, z którymi startują Twoje czaty w Cloud"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Crie um ambiente: um script de configuração, variáveis de ambiente e segredos com que seus chats na nuvem começam"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Создать окружение: скрипт настройки, переменные окружения и секреты, с которыми запускаются ваши облачные чаты"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "สร้างสภาพแวดล้อมใหม่: สคริปต์ตั้งค่า ตัวแปรสภาพแวดล้อม และข้อมูลลับที่แชต Cloud ของคุณใช้เริ่มต้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yeni ortam oluştur: Cloud sohbetlerinin başladığı kurulum betiği, ortam değişkenleri ve gizli anahtarlar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Створити середовище: скрипт налаштування, змінні середовища й секрети, з якими запускаються ваші хмарні чати"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tạo môi trường mới: tập lệnh thiết lập, biến môi trường và bí mật mà các cuộc trò chuyện Cloud của bạn khởi động cùng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新建环境：你的 Cloud 对话启动时使用的设置脚本、环境变量和密钥"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新增環境：你的 Cloud 對話啟動時使用的設定腳本、環境變數與密鑰"
+          }
+        }
+      }
+    },
+    "composer.envEditHint": {
+      "comment": "Agent pane: the Cloud Environment chip's drop-up, the tooltip and screen reader text of its Edit row: what the environment's settings hold",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "غيّر نص الإعداد ومتغيرات البيئة والأسرار والشبكة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Promijeni skriptu za postavljanje, varijable okruženja, tajne i mrežu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skift opsætningsscript, miljøvariabler, hemmeligheder og netværk"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Setup-Skript, Umgebungsvariablen, Secrets und Netzwerk ändern"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Change the setup script, env vars, secrets and network"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cambia el script de configuración, las variables de entorno, los secretos y la red"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Modifier le script d’installation, les variables d’environnement, les secrets et le réseau"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Modifica script di configurazione, variabili d’ambiente, segreti e rete"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "セットアップスクリプト、環境変数、シークレット、ネットワークを変更"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ប្ដូរស្គ្រីបរៀបចំ អថេរបរិស្ថាន អាថ៌កំបាំង និងបណ្ដាញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "설정 스크립트, 환경 변수, 시크릿, 네트워크 변경"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Endre oppsettsskript, miljøvariabler, hemmeligheter og nettverk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zmień skrypt konfiguracji, zmienne środowiskowe, sekrety i sieć"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Altere o script de configuração, as variáveis de ambiente, os segredos e a rede"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Изменить скрипт настройки, переменные окружения, секреты и сеть"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เปลี่ยนสคริปต์ตั้งค่า ตัวแปรสภาพแวดล้อม ข้อมูลลับ และเครือข่าย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kurulum betiğini, ortam değişkenlerini, gizli anahtarları ve ağı değiştir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Змінити скрипт налаштування, змінні середовища, секрети й мережу"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đổi tập lệnh thiết lập, biến môi trường, bí mật và mạng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "更改设置脚本、环境变量、密钥和网络"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "變更設定腳本、環境變數、密鑰與網路"
+          }
+        }
+      }
+    },
+    "composer.envNewMachineHint": {
+      "comment": "Agent pane: the Cloud Environment chip's drop-up, the tooltip and screen reader text of its New Cloud machine… row",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أنشئ جهازًا سحابيًا من هذه البيئة وافتح طرفية عليه"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Napravi Cloud mašinu iz ovog okruženja i otvori terminal na njoj"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lav en Cloud-maskine ud fra dette miljø, og åbn en terminal på den"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eine Cloud-Maschine aus dieser Umgebung erstellen und ein Terminal darauf öffnen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Make a Cloud machine from this environment and open a terminal on it"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Crea una máquina en la nube a partir de este entorno y abre una terminal en ella"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Créer une machine Cloud à partir de cet environnement et y ouvrir un terminal"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Crea una macchina Cloud da questo ambiente e apri un terminale su di essa"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "この環境から Cloud マシンを作成し、そのターミナルを開きます"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្កើតម៉ាស៊ីន Cloud ពីបរិស្ថាននេះ ហើយបើកទែមីណាល់នៅលើវា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 환경으로 Cloud 머신을 만들고 터미널을 엽니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lag en Cloud-maskin fra dette miljøet og åpne en terminal på den"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Utwórz maszynę Cloud z tego środowiska i otwórz na niej terminal"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Crie uma máquina na nuvem a partir deste ambiente e abra um terminal nela"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Создать облачную машину из этого окружения и открыть на ней терминал"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "สร้างเครื่อง Cloud จากสภาพแวดล้อมนี้และเปิดเทอร์มินัลบนเครื่องนั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu ortamdan bir Cloud makinesi oluştur ve üzerinde terminal aç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Створити хмарну машину з цього середовища й відкрити на ній термінал"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tạo máy Cloud từ môi trường này và mở terminal trên máy đó"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "用此环境创建 Cloud 机器并在其上打开终端"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "以此環境建立 Cloud 機器並在其上開啟終端機"
+          }
+        }
+      }
+    },
+    "composer.envChipHint": {
+      "comment": "Agent pane: the Cloud Environment chip's tooltip, after its name and value (\"Cloud environment: Auto. …\"): what an environment is",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "المصدر الذي يُعدّ منه جهاز الدردشة السحابية: نص الإعداد ومتغيرات البيئة والأسرار"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Odakle se postavlja mašina Cloud razgovora: skripta za postavljanje, varijable okruženja i tajne"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Det, en Cloud-chats maskine sættes op fra: opsætningsscript, miljøvariabler og hemmeligheder"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Woraus die Maschine eines Cloud-Chats eingerichtet wird: Setup-Skript, Umgebungsvariablen und Secrets"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Where a Cloud chat's machine is set up from: setup script, env vars and secrets"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "De dónde se configura la máquina de un chat en la nube: script de configuración, variables de entorno y secretos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ce à partir de quoi la machine d’une discussion Cloud est configurée : script d’installation, variables d’environnement et secrets"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Da dove viene configurata la macchina di una chat Cloud: script di configurazione, variabili d’ambiente e segreti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud チャットのマシンの設定元：セットアップスクリプト、環境変数、シークレット"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ប្រភពដែលម៉ាស៊ីនរបស់ការជជែក Cloud ត្រូវបានរៀបចំ៖ ស្គ្រីបរៀបចំ អថេរបរិស្ថាន និងអាថ៌កំបាំង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud 채팅 머신을 설정하는 기준: 설정 스크립트, 환경 변수, 시크릿"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Det en Cloud-chats maskin settes opp fra: oppsettsskript, miljøvariabler og hemmeligheter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Na podstawie czego przygotowywana jest maszyna czatu w Cloud: skrypt konfiguracji, zmienne środowiskowe i sekrety"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "De onde a máquina de um chat na nuvem é configurada: script de configuração, variáveis de ambiente e segredos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Из чего настраивается машина облачного чата: скрипт настройки, переменные окружения и секреты"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แหล่งที่ใช้ตั้งค่าเครื่องของแชต Cloud: สคริปต์ตั้งค่า ตัวแปรสภาพแวดล้อม และข้อมูลลับ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bir Cloud sohbetinin makinesinin kurulduğu kaynak: kurulum betiği, ortam değişkenleri ve gizli anahtarlar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "З чого налаштовується машина хмарного чату: скрипт налаштування, змінні середовища й секрети"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nơi máy của cuộc trò chuyện Cloud được thiết lập: tập lệnh thiết lập, biến môi trường và bí mật"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud 对话的机器从何设置：设置脚本、环境变量和密钥"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud 對話的機器從何設定：設定腳本、環境變數與密鑰"
+          }
+        }
+      }
+    },
     "sessionInfo.subagents.limit.queued": {
       "comment": "Agent pane Inspector, Subagents: how many of the chats this chat's agent started wait for a free slot under the running limit. {n} is the count.",
       "extractionState": "manual",
