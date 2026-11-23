@@ -424,25 +424,34 @@ fn a_stalled_relay_listing_never_holds_or_fails_ls() {
     let report_only = std::env::var_os("ACPMUX_LS_STALL_REPORT").is_some();
     let runs: usize =
         std::env::var("ACPMUX_LS_STALL_RUNS").ok().and_then(|n| n.parse().ok()).unwrap_or(10);
-    let idle = stall_leg(&dir, "idle", runs, 0);
     let cores = std::thread::available_parallelism().map_or(4, |n| n.get());
-    let hogged = stall_leg(&dir, "cpu hogs", runs, cores * 10);
+    let mut legs = Vec::new();
+    for mode in [Mode::Cold, Mode::Local] {
+        legs.push((mode, stall_leg(&dir, "idle", runs, 0, mode)));
+        legs.push((mode, stall_leg(&dir, "cpu hogs", runs, cores * 10, mode)));
+    }
+    // A kept listing (a minute old): plain `ls` serves it and does not wait on the relay.
+    write_kept_listing(&dir);
+    if !report_only {
+        legs.push((Mode::Warm, stall_leg(&dir, "idle", runs, 0, Mode::Warm)));
+        legs.push((Mode::Warm, stall_leg(&dir, "cpu hogs", runs, cores * 10, Mode::Warm)));
+    }
     if report_only {
         return;
     }
-    assert!(idle.failures.is_empty(), "{}", idle.failures.join("\n"));
-    assert!(hogged.failures.is_empty(), "{}", hogged.failures.join("\n"));
-    assert!(idle.max < Duration::from_secs(2), "idle max {:?}", idle.max);
+    for (mode, leg) in &legs {
+        assert!(leg.failures.is_empty(), "{}", leg.failures.join("\n"));
+        let bound = match mode {
+            Mode::Cold => Duration::from_secs(2),
+            Mode::Local | Mode::Warm => Duration::from_millis(500),
+        };
+        // The bound holds idle; under the hogs the numbers are reported, not asserted.
+        if leg.hogs == 0 {
+            assert!(leg.p99 < bound, "{mode:?} idle p99 {:?} (bound {bound:?})", leg.p99);
+        }
+    }
 
-    // A kept listing is listed, marked stale.
-    let row = json!({"sessionId": "01far-kept", "name": "kept", "peer": "far", "status": "idle",
-        "updatedAt": 1_794_884_348_976_u64});
-    fs::write(
-        dir.join("relay-ls-cache.json"),
-        json!({"version": 1, "readAtMs": now_ms() - 60_000, "source": "relay-ls", "sessions": [row]})
-            .to_string(),
-    )
-    .unwrap();
+    // The kept listing's rows are listed, marked stale.
     let ls = cli(&dir, &["--json", "ls"]);
     assert!(ls.status.success(), "{}", text(&ls));
     let v: serde_json::Value = serde_json::from_slice(&ls.stdout).unwrap();
@@ -455,17 +464,44 @@ fn a_stalled_relay_listing_never_holds_or_fails_ls() {
         .collect();
     assert_eq!(kept.len(), 1, "{v}");
     assert_eq!(kept[0]["stale"], true, "{v}");
-    assert!(String::from_utf8_lossy(&ls.stderr).contains("listed as of 1m ago"), "{}", text(&ls));
+    let said = String::from_utf8_lossy(&ls.stderr);
+    assert!(
+        said.contains("from the last listing, refreshing; listed as of 1m ago"),
+        "{}",
+        text(&ls)
+    );
+}
+
+/// Writes a kept relay listing, read a minute ago, with the one row `01far-kept`.
+fn write_kept_listing(dir: &Path) {
+    let row = json!({"sessionId": "01far-kept", "name": "kept", "peer": "far", "status": "idle",
+        "updatedAt": 1_794_884_348_976_u64});
+    fs::write(
+        dir.join("relay-ls-cache.json"),
+        json!({"version": 1, "readAtMs": now_ms() - 60_000, "source": "relay-ls", "sessions": [row]})
+            .to_string(),
+    )
+    .unwrap();
+}
+
+/// What a stall leg lists: plain `ls` with no kept listing (waits the far budget), `ls --machine
+/// local` (no far reads), or plain `ls` with a kept listing (served, no wait).
+#[derive(Clone, Copy, Debug)]
+enum Mode {
+    Cold,
+    Local,
+    Warm,
 }
 
 struct Leg {
-    max: Duration,
+    hogs: usize,
+    p99: Duration,
     failures: Vec<String>,
 }
 
 /// Times `runs` each of `ls --all` and `--json ls` with `hogs` busy-loop processes running, and
 /// prints p50, p99, max and each outcome (exit code and error code) with its count.
-fn stall_leg(dir: &Path, label: &str, runs: usize, hogs: usize) -> Leg {
+fn stall_leg(dir: &Path, label: &str, runs: usize, hogs: usize, mode: Mode) -> Leg {
     let mut busy: Vec<std::process::Child> = (0..hogs)
         .map(|_| {
             std::process::Command::new("sh")
@@ -481,7 +517,12 @@ fn stall_leg(dir: &Path, label: &str, runs: usize, hogs: usize) -> Leg {
     let mut outcomes = std::collections::BTreeMap::<String, usize>::new();
     for n in 0..runs * 2 {
         let json_out = n % 2 == 1;
-        let args: &[&str] = if json_out { &["--json", "ls"] } else { &["ls", "--all"] };
+        let args: &[&str] = match (mode, json_out) {
+            (Mode::Local, true) => &["--json", "ls", "--machine", "local"],
+            (Mode::Local, false) => &["ls", "--all", "--machine", "local"],
+            (_, true) => &["--json", "ls"],
+            (_, false) => &["ls", "--all"],
+        };
         let started = Instant::now();
         let ls = cli(dir, args);
         let took = started.elapsed();
@@ -493,11 +534,23 @@ fn stall_leg(dir: &Path, label: &str, runs: usize, hogs: usize) -> Leg {
             failures.push(format!("{label} {args:?} after {took:?}: {}", text(&ls)));
         } else if json_out {
             let v: serde_json::Value = serde_json::from_str(&out).unwrap();
-            if v["remote"]["state"] != "missing" {
-                failures.push(format!("{label}: remote {}", v["remote"]));
+            let want = match mode {
+                Mode::Cold => json!("missing"),
+                Mode::Local => serde_json::Value::Null,
+                Mode::Warm => json!("stale"),
+            };
+            if v["remote"]["state"] != want {
+                failures.push(format!("{label} {mode:?}: remote {}", v["remote"]));
             }
-        } else if !said.contains("not read within 1.5s; not listed") {
-            failures.push(format!("{label}: no stale line: {said}"));
+        } else {
+            let want = match mode {
+                Mode::Cold => Some("not read within 1.5s; not listed"),
+                Mode::Local => None,
+                Mode::Warm => Some("from the last listing, refreshing"),
+            };
+            if want.is_some_and(|w| !said.contains(w)) {
+                failures.push(format!("{label} {mode:?}: no stale line: {said}"));
+            }
         }
     }
     for hog in &mut busy {
@@ -509,13 +562,13 @@ fn stall_leg(dir: &Path, label: &str, runs: usize, hogs: usize) -> Leg {
     let at = |q: f64| sorted[((sorted.len() as f64 - 1.0) * q).round() as usize];
     let max = *sorted.last().unwrap();
     eprintln!(
-        "ls with a stalled relay, {label} ({hogs} busy loops): {} runs, p50 {:?}, p99 {:?}, max {:?}, outcomes {outcomes:?}",
+        "ls with a stalled relay, {mode:?} {label} ({hogs} busy loops): {} runs, p50 {:?}, p99 {:?}, max {:?}, outcomes {outcomes:?}",
         sorted.len(),
         at(0.5),
         at(0.99),
         max,
     );
-    Leg { max, failures }
+    Leg { hogs, p99: at(0.99), failures }
 }
 
 /// `exit N` and, on a failure, the error's code (the JSON `code`, else the text label).
