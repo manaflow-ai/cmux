@@ -193,7 +193,7 @@ nonisolated final class MacScreenStreamChildSession: Sendable {
 /// (plans/cmux-next/screen-sharing-helper.md). It serves one session in ``MacScreenStreamLine`` JSON
 /// lines on stdin and stdout, logs on stderr, and exits when the session ends or its input closes. It
 /// starts no part of the app: no window, no daemon, no NSApplication.
-public struct MacScreenStreamChild: Sendable, Equatable {
+nonisolated public struct MacScreenStreamChild: Sendable, Equatable {
     /// The mode argument (``MacScreenStreamProcess`` passes it).
     public static let flag = "--screen-stream-host"
     /// How long the child may take to end its session once its input closed.
