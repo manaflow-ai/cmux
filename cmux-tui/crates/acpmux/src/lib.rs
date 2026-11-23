@@ -297,6 +297,7 @@ mod single_shot_list_tests;
 mod source_scan_smoke;
 pub mod sr2_cost_labels;
 pub(crate) mod ssh_forward;
+pub(crate) mod ssh_forward_owners;
 pub mod stats;
 pub(crate) mod stderr;
 pub mod store;
