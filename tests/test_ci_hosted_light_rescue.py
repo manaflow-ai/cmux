@@ -96,9 +96,10 @@ def sweep(fake: Fake, *, dry_run: bool = False, workflows=("pr-checks.yml",)) ->
 
 class Scope(unittest.TestCase):
     def test_declared_workflows_come_from_both_key_forms_and_skip_the_nightly(self):
-        runners = {"hosted_light_jobs": {"$comment": ["x"], "pr-checks.yml#size": {}, "pr-checks.yml#ui-review": {},
+        runners = {"hosted_light_jobs": {"$comment": ["x"], "pr-checks.yml#advisory": {}, "pr-body-checks.yml#body": {},
                                          "ci.yml#changes": {}, "fast-checks.yml:admit": {}, "nightly.yml#decide": {}}}
-        self.assertEqual(rescue.declared_workflows(runners), ["ci.yml", "fast-checks.yml", "pr-checks.yml"])
+        self.assertEqual(rescue.declared_workflows(runners),
+                         ["ci.yml", "fast-checks.yml", "pr-body-checks.yml", "pr-checks.yml"])
         self.assertEqual(rescue.declared_workflows({}), [])
 
     def test_the_repository_declaration_scopes_real_workflow_files(self):
@@ -111,7 +112,7 @@ class Scope(unittest.TestCase):
         # the caller walk reads a declaration of the reusable workflows it used to hold.
         self.assertEqual(rescue.declared_workflows(json.loads((ROOT / ".github" / "runners.json").read_text())), [])
         runners = {"hosted_light_jobs": {"pr-red-checks-comment.yml#comment": {}, "ci-guards.yml#guard-status": {},
-                                         "ci.yml#changes": {}, "pr-checks.yml#size": {}}}
+                                         "ci.yml#changes": {}, "pr-checks.yml#advisory": {}}}
         names = rescue.with_callers(rescue.declared_workflows(runners), ROOT / ".github" / "workflows")
         for caller in ("cmux-next.yml", "cmux-next-guards.yml", "ci.yml", "pr-checks.yml"):
             self.assertIn(caller, names)
@@ -121,11 +122,11 @@ class Scope(unittest.TestCase):
         self.assertEqual(rescue.with_callers(["b.yml", "a.yml"], None), ["a.yml", "b.yml"])
 
     def test_only_a_job_with_no_runner_on_hosted_ubuntu_past_the_bound_is_stalled(self):
-        self.assertTrue(rescue.stalled(job("PR size", waited=121), NOW))
-        self.assertFalse(rescue.stalled(job("PR size", waited=60), NOW))
-        self.assertFalse(rescue.stalled(job("PR size", runner_id=1000291949), NOW))
-        self.assertFalse(rescue.stalled(job("PR size", status="in_progress"), NOW))
-        self.assertFalse(rescue.stalled(job("PR size", status="waiting"), NOW))
+        self.assertTrue(rescue.stalled(job("PR checks (advisory)", waited=121), NOW))
+        self.assertFalse(rescue.stalled(job("PR checks (advisory)", waited=60), NOW))
+        self.assertFalse(rescue.stalled(job("PR checks (advisory)", runner_id=1000291949), NOW))
+        self.assertFalse(rescue.stalled(job("PR checks (advisory)", status="in_progress"), NOW))
+        self.assertFalse(rescue.stalled(job("PR checks (advisory)", status="waiting"), NOW))
         self.assertFalse(rescue.stalled(job("build", labels=("blacksmith-4vcpu-ubuntu-2404",)), NOW))
         self.assertFalse(rescue.stalled(job("mixed", labels=("ubuntu-24.04", "self-hosted")), NOW))
         self.assertFalse(rescue.stalled(job("macos", labels=("macos-15",)), NOW))
@@ -143,14 +144,14 @@ class Scope(unittest.TestCase):
 
 class Sweep(unittest.TestCase):
     def test_a_stalled_report_job_is_cancelled_and_its_failed_jobs_re_run(self):
-        jobs = [job("Changes", status="completed", runner_id=1, waited=900), job("PR size"), job("UI review advisory")]
+        jobs = [job("Changes", status="completed", runner_id=1, waited=900), job("PR checks (advisory)"), job("pr-capture-check, design spec, perf section, cloud backend")]
         fake = Fake({"pr-checks.yml": [run(7)]}, {7: jobs}, settles_after=3)
         lines = sweep(fake)
         self.assertEqual(mutations(fake), [("cancel", 7), ("rerun", 7)])
         self.assertIn("1 failed over", lines[-1])
 
     def test_a_run_with_other_unfinished_jobs_is_left_alone(self):
-        jobs = [job("PR size"), job("build", status="in_progress", labels=("blacksmith-4vcpu-ubuntu-2404",),
+        jobs = [job("PR checks (advisory)"), job("build", status="in_progress", labels=("blacksmith-4vcpu-ubuntu-2404",),
                                     runner_id=5)]
         fake = Fake({"pr-checks.yml": [run(7)]}, {7: jobs})
         lines = sweep(fake)
@@ -159,102 +160,102 @@ class Sweep(unittest.TestCase):
 
     def test_a_fresh_or_assigned_hosted_job_is_not_touched(self):
         fake = Fake({"pr-checks.yml": [run(7), run(8)]},
-                    {7: [job("PR size", waited=30)], 8: [job("PR size", runner_id=1000292032)]})
+                    {7: [job("PR checks (advisory)", waited=30)], 8: [job("PR checks (advisory)", runner_id=1000292032)]})
         sweep(fake)
         self.assertEqual(mutations(fake), [])
 
     def test_a_cancel_that_never_settles_is_not_re_run(self):
-        fake = Fake({"pr-checks.yml": [run(7)]}, {7: [job("PR size")]}, settles_after=10**9)
+        fake = Fake({"pr-checks.yml": [run(7)]}, {7: [job("PR checks (advisory)")]}, settles_after=10**9)
         lines = sweep(fake)
         self.assertEqual(mutations(fake), [("cancel", 7)])
         self.assertTrue(any("did not settle" in line for line in lines))
 
     def test_a_refused_cancel_is_reported_and_not_re_run(self):
-        fake = Fake({"pr-checks.yml": [run(7)]}, {7: [job("PR size")]}, cancel_error=RuntimeError("HTTP 409"))
+        fake = Fake({"pr-checks.yml": [run(7)]}, {7: [job("PR checks (advisory)")]}, cancel_error=RuntimeError("HTTP 409"))
         lines = sweep(fake)
         self.assertEqual(mutations(fake), [("cancel", 7)])
         self.assertTrue(any("cancel refused" in line for line in lines))
 
     def test_a_pull_request_that_moved_on_is_not_cancelled(self):
-        fake = Fake({"pr-checks.yml": [run(7)]}, {7: [job("PR size")]})
+        fake = Fake({"pr-checks.yml": [run(7)]}, {7: [job("PR checks (advisory)")]})
         fake.heads[7] = "d" * 40
         lines = sweep(fake)
         self.assertEqual(mutations(fake), [])
         self.assertTrue(any("moved on" in line for line in lines))
 
     def test_a_run_re_run_meanwhile_is_not_cancelled(self):
-        fake = Fake({"pr-checks.yml": [run(7)]}, {7: [job("PR size")]})
+        fake = Fake({"pr-checks.yml": [run(7)]}, {7: [job("PR checks (advisory)")]})
         fake.fresh[7] = {"run_attempt": 2}
         lines = sweep(fake)
         self.assertEqual(mutations(fake), [])
         self.assertTrue(any("moved on" in line for line in lines))
 
     def test_a_token_that_may_not_read_pull_requests_falls_back_to_the_fresh_run(self):
-        fake = Fake({"pr-checks.yml": [run(7)]}, {7: [job("PR size")]})
+        fake = Fake({"pr-checks.yml": [run(7)]}, {7: [job("PR checks (advisory)")]})
         fake.pull_error = RuntimeError("GET /pulls/7: HTTP 403")
         sweep(fake)
         self.assertEqual(mutations(fake), [("cancel", 7), ("rerun", 7)])
-        fake = Fake({"pr-checks.yml": [run(8)]}, {8: [job("PR size")]})
+        fake = Fake({"pr-checks.yml": [run(8)]}, {8: [job("PR checks (advisory)")]})
         fake.pull_error = RuntimeError("GET /pulls/8: HTTP 403")
         fake.fresh[8] = {"pull_requests": [{"number": 8, "head": {"sha": "e" * 40}}]}
         sweep(fake)
         self.assertEqual(mutations(fake), [])
 
     def test_a_pull_request_read_that_fails_otherwise_leaves_the_run(self):
-        fake = Fake({"pr-checks.yml": [run(7)]}, {7: [job("PR size")]})
+        fake = Fake({"pr-checks.yml": [run(7)]}, {7: [job("PR checks (advisory)")]})
         fake.pull_error = RuntimeError("GET /pulls/7: HTTP 502")
         lines = sweep(fake)
         self.assertEqual(mutations(fake), [])
         self.assertTrue(any("could not re-read" in line for line in lines))
 
     def test_a_job_a_runner_took_after_the_read_is_not_cancelled(self):
-        fake = Fake({"pr-checks.yml": [run(7)]}, {7: [job("PR size")]})
-        fake.second_jobs[7] = [job("PR size", status="in_progress", runner_id=1000292999)]
+        fake = Fake({"pr-checks.yml": [run(7)]}, {7: [job("PR checks (advisory)")]})
+        fake.second_jobs[7] = [job("PR checks (advisory)", status="in_progress", runner_id=1000292999)]
         lines = sweep(fake)
         self.assertEqual(mutations(fake), [])
         self.assertTrue(any("since the read" in line for line in lines))
 
     def test_no_cancel_once_the_settle_time_is_spent(self):
-        fake = Fake({"pr-checks.yml": [run(7), run(8)]}, {7: [job("PR size")], 8: [job("PR size")]},
+        fake = Fake({"pr-checks.yml": [run(7), run(8)]}, {7: [job("PR checks (advisory)")], 8: [job("PR checks (advisory)")]},
                     settles_after=10**9)
         lines = sweep(fake)
         self.assertEqual(mutations(fake), [("cancel", 7)])
         self.assertTrue(any("settle time is spent" in line for line in lines))
 
     def test_a_run_with_a_second_page_of_jobs_is_gated(self):
-        jobs = [job("PR size"), {"name": "(jobs past the first page)", "status": "unknown"}]
+        jobs = [job("PR checks (advisory)"), {"name": "(jobs past the first page)", "status": "unknown"}]
         self.assertEqual(rescue.verdict(jobs, NOW)[0], "gated")
 
     def test_jobs_past_the_first_page_stand_in_as_unfinished(self):
         client = rescue.GitHub("t", "o/r")
-        client.request = lambda method, path: {"total_count": 120, "jobs": [job("PR size")]}
+        client.request = lambda method, path: {"total_count": 120, "jobs": [job("PR checks (advisory)")]}
         self.assertEqual(rescue.verdict(client.jobs(7), NOW)[0], "gated")
 
     def test_a_dry_run_mutates_nothing(self):
-        fake = Fake({"pr-checks.yml": [run(7)]}, {7: [job("PR size")]})
+        fake = Fake({"pr-checks.yml": [run(7)]}, {7: [job("PR checks (advisory)")]})
         lines = sweep(fake, dry_run=True)
         self.assertEqual(mutations(fake), [])
         self.assertTrue(any("dry run" in line for line in lines))
 
     def test_re_runs_and_job_reads_are_bounded(self):
         many = [run(100 + index) for index in range(rescue.MAX_RUNS + 5)]
-        fake = Fake({"pr-checks.yml": many}, {r["id"]: [job("PR size")] for r in many})
+        fake = Fake({"pr-checks.yml": many}, {r["id"]: [job("PR checks (advisory)")] for r in many})
         sweep(fake)
         self.assertEqual(len([c for c in fake.calls if c[0] == "jobs"]), rescue.MAX_RUNS)
         self.assertEqual(len([c for c in fake.calls if c[0] == "rerun"]), rescue.MAX_RESCUES)
 
     def test_non_candidate_runs_are_never_read(self):
         fake = Fake({"pr-checks.yml": [run(7, attempt=2), run(8, event="push"), run(9, pr_head="c" * 40)]},
-                    {7: [job("PR size")], 8: [job("PR size")], 9: [job("PR size")]})
+                    {7: [job("PR checks (advisory)")], 8: [job("PR checks (advisory)")], 9: [job("PR checks (advisory)")]})
         sweep(fake)
         self.assertEqual([c for c in fake.calls if c[0] != "runs"], [])
 
     def test_main_reads_the_declaration_and_writes_the_summary(self):
         with tempfile.TemporaryDirectory() as tmp:
             runners = Path(tmp) / "runners.json"
-            runners.write_text(json.dumps({"hosted_light_jobs": {"pr-checks.yml#size": {}}}))
+            runners.write_text(json.dumps({"hosted_light_jobs": {"pr-checks.yml#advisory": {}}}))
             summary = Path(tmp) / "summary.md"
-            fake = Fake({"pr-checks.yml": [run(7)]}, {7: [job("PR size")]})
+            fake = Fake({"pr-checks.yml": [run(7)]}, {7: [job("PR checks (advisory)")]})
             code = rescue.main(["--runners", str(runners)], {"GITHUB_STEP_SUMMARY": str(summary)}, client=fake,
                                now=NOW, sleep=lambda _s: None)
             self.assertEqual(code, 0)
@@ -264,7 +265,7 @@ class Sweep(unittest.TestCase):
     def test_main_with_no_token_does_nothing_and_passes(self):
         with tempfile.TemporaryDirectory() as tmp:
             runners = Path(tmp) / "runners.json"
-            runners.write_text(json.dumps({"hosted_light_jobs": {"pr-checks.yml#size": {}}}))
+            runners.write_text(json.dumps({"hosted_light_jobs": {"pr-checks.yml#advisory": {}}}))
             self.assertEqual(rescue.main(["--runners", str(runners)], {}), 0)
 
 

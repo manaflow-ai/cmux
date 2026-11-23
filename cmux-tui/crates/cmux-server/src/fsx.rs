@@ -146,6 +146,81 @@ pub fn write_if_changed(path: &Path, bytes: &[u8], mode: u32) -> Result<bool> {
     }
 }
 
+/// Writes `bytes` to `path` as a new file every time ([`atomic_write`]: a new
+/// inode with `mode`, one rename), and returns whether the content changed.
+/// For a file a service manager runs: a file left in place keeps every
+/// descriptor opened on it before, also one another account opened for
+/// writing while it could (a group write bit or an ACL entry since taken
+/// away), and keeps its macOS ACL entries, which `chmod` does not reach. A
+/// new inode has neither. When the bytes are the same, the new file gets the
+/// old one's modification time, so systemd does not call the unit changed
+/// on disk (`NeedDaemonReload`).
+pub fn write_fresh(path: &Path, bytes: &[u8], mode: u32) -> Result<bool> {
+    if write_fresh_if(path, mode, |old| (old == Some(bytes)).then(|| bytes.to_vec()))? {
+        return Ok(false);
+    }
+    atomic_write(path, bytes, mode)?;
+    Ok(true)
+}
+
+/// Reads the plain file at `path` (this account's, not followed if it is a
+/// symlink) through one descriptor and asks `keep` which bytes to keep. Some:
+/// those bytes go into a new file with `mode` and the old modification time,
+/// renamed over `path`; returns true. None, or no plain file of this
+/// account's at `path`: nothing is written; returns false.
+fn write_fresh_if(
+    path: &Path,
+    mode: u32,
+    keep: impl FnOnce(Option<&[u8]>) -> Option<Vec<u8>>,
+) -> Result<bool> {
+    use std::io::Read as _;
+    let mut options = OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+    }
+    let old = match options.open(path) {
+        Ok(mut file) => {
+            let meta = file.metadata().ctx(path.display())?;
+            if meta.is_file() && sys::owner_uid(&meta) == sys::euid() {
+                let mut text = Vec::new();
+                file.read_to_end(&mut text).ctx(path.display())?;
+                Some((text, meta.modified().ok()))
+            } else {
+                None
+            }
+        }
+        Err(_) => None,
+    };
+    let Some(bytes) = keep(old.as_ref().map(|(text, _)| text.as_slice())) else {
+        return Ok(false);
+    };
+    let modified = old.and_then(|(_, modified)| modified);
+    let tmp = temp_sibling(path, "tmp");
+    let result = (|| -> io::Result<()> {
+        let mut file = open_new(&tmp, mode)?;
+        file.write_all(&bytes)?;
+        file.sync_all()?;
+        if let Some(modified) = modified {
+            file.set_modified(modified)?;
+        }
+        drop(file);
+        set_mode(&tmp, mode)?;
+        fs::rename(&tmp, path)?;
+        if let Some(dir) = path.parent() {
+            sys::fsync_dir(dir)?;
+        }
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&tmp);
+    }
+    result.ctx(path.display())?;
+    Ok(true)
+}
+
 /// Creates `path` when it is missing: missing parents get `mode` (less the
 /// umask), and `path` itself, created by one non-recursive `mkdir`, gets
 /// exactly `mode`. An existing directory is left as it is, mode included,
@@ -338,7 +413,9 @@ pub fn remove_tree(path: &Path) -> Result<()> {
 /// else goes back to its name, never over a new entry there, and the call
 /// fails. A descriptor another account opened for writing before all this
 /// (when it still could) is not revoked by it: it can change the bytes of
-/// the file being removed, never make cmux remove another file.
+/// the file being removed, never make cmux remove another file. (Uninstall
+/// first puts each unit into a new file, [`write_fresh`], so such a
+/// descriptor reaches only a file nothing reads.)
 #[cfg(unix)]
 pub fn remove_if_unchanged(path: &Path, ours: impl Fn(&[u8]) -> bool) -> Result<bool> {
     use std::io::Read as _;

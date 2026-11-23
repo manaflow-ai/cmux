@@ -90,6 +90,9 @@ done
 sha="$(git rev-parse HEAD)"
 out="artifacts/perf-bench"
 work=".build/perf-bench"
+# A launched nightly installs a read-only copy of itself under the profile home; make the trees
+# writable first so a previous run's leftovers are removable.
+chmod -R u+w "$out" "$work" /private/tmp/xbench 2>/dev/null || true
 rm -rf "$out" "$work" /private/tmp/xbench
 mkdir -p "$out" "$work"
 chip="$(sysctl -n machdep.cpu.brand_string)"

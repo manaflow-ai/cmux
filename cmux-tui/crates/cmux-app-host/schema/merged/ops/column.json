@@ -1,0 +1,10 @@
+{
+  "family": "column",
+  "ops": {
+    "column.update": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "1f50d6e6d0eca14b"
+    }
+  }
+}
