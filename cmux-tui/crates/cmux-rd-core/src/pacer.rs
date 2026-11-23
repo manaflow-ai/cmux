@@ -51,9 +51,12 @@ pub const MAX_SPREAD_US: f64 = 8_000.0;
 /// Uncapped, a 1080p motion keyframe (0.5 MB) left in 8 ms, about 550 Mbit/s, on a path
 /// of under 20 Mbit/s: the bottleneck dropped its tail, every keyframe lost datagrams,
 /// each loss asked for another keyframe, and a Linux host to Mac viewer showed 3 fps with
-/// 20 % loss (hq#19915). An at-budget frame (a P-frame at the target's per-frame size)
-/// needs under 4.2 times the target at 30 fps, so it still leaves within 8 ms.
+/// 20 % loss (hq#19915). The cap holds only past [`LARGE_FRAME_BYTES`] queued.
 pub const LARGE_FRAME_FACTOR: f64 = 6.0;
+/// What is queued up to this many bytes still leaves within [`MAX_SPREAD_US`] at any
+/// rate: an at-budget frame at 30 Mbit/s and 15 fps (about 260 KB on the wire), or a
+/// 64-datagram repair ahead of a frame. A 1080p motion keyframe (0.4 to 0.6 MB) is past it.
+pub const LARGE_FRAME_BYTES: usize = 320 * 1024;
 /// ... unless that would take longer than this: a frame still leaves well inside the
 /// viewer's reassembly deadline (200 ms from its newest shard).
 pub const MAX_LARGE_SPREAD_US: f64 = 150_000.0;
@@ -420,15 +423,18 @@ impl Pacer {
 
     /// `PACING_FACTOR` times the target, or faster when that would hold what is
     /// queued longer than `SPREAD_SHARE` of a frame interval or `MAX_SPREAD_US`, but
-    /// no faster than `LARGE_FRAME_FACTOR` times the target unless what is queued
-    /// would then take longer than `MAX_LARGE_SPREAD_US`.
+    /// past `LARGE_FRAME_BYTES` queued, no faster than `LARGE_FRAME_FACTOR` times the
+    /// target unless what is queued would then take longer than `MAX_LARGE_SPREAD_US`.
     fn set_rate(&mut self, target_bps: u64) {
         let interval_us = if self.frame_interval_us == 0 { 16_667 } else { self.frame_interval_us };
         let window_us = (interval_us as f64 * SPREAD_SHARE).clamp(1_000.0, MAX_SPREAD_US);
         let floor = target_bps as f64 * PACING_FACTOR / 8.0 / 1e6;
         let queued = self.queued_bytes as f64;
-        let ceiling =
-            (target_bps as f64 * LARGE_FRAME_FACTOR / 8.0 / 1e6).max(queued / MAX_LARGE_SPREAD_US);
+        let ceiling = if self.queued_bytes <= LARGE_FRAME_BYTES {
+            f64::INFINITY
+        } else {
+            (target_bps as f64 * LARGE_FRAME_FACTOR / 8.0 / 1e6).max(queued / MAX_LARGE_SPREAD_US)
+        };
         let fit = (queued / window_us).min(ceiling);
         self.rate_bytes_per_us = floor.max(fit);
         if self.budget_bytes <= 0.0 {

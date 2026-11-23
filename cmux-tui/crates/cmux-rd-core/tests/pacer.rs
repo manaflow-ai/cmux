@@ -26,8 +26,10 @@ fn balanced_default_preserves_frame_pacing() {
     let sent = drain(&mut pacer, 1_000);
     assert_eq!(sent.len(), 300);
     let last = sent.last().expect("frame").0;
-    assert!(last - 1_000 <= 8_400, "keyframe took {} us", last - 1_000);
-    assert!(last - 1_000 >= 5_500, "frame was not spread: {} us", last - 1_000);
+    // 345 KB is past LARGE_FRAME_BYTES, so it goes at LARGE_FRAME_FACTOR (6) times the
+    // target, about 15 ms, not in 8 ms at 345 Mbit/s into a slower path (hq#19915).
+    assert!(last - 1_000 <= 15_600, "keyframe took {} us", last - 1_000);
+    assert!(last - 1_000 >= 12_000, "frame was not spread: {} us", last - 1_000);
 }
 
 #[test]
