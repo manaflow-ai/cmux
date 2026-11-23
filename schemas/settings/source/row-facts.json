@@ -1,5 +1,5 @@
 {
-  "$comment": "HAND-EDITED per-row facts of the settings schema that are not a row's own definition. kept_on_reset_all: keys Reset All Settings leaves alone, the look picked at onboarding (the app theme and the terminal font), which each row still resets (SettingsController.resetAllSettings). shared_with_browser: cmux-next keys cmux-browser reads too (cmux-browser #567 moved its copies to cmux.json); their consumers are cmux-next and cmux-browser (rows moved to schemas/settings/source say so themselves, in their consumers). validation: how another validator checks a row's value: portable (the export's fixed rule and samples), or domain:<name> when only the app knows the valid values (theme names, installed fonts, system sounds) or the value has its own shape; keys wins over kinds. scripts/cmux-next/gen-settings-sources.py writes the Swift copy (SettingsSchema+RowFacts.generated.swift); the schema export writes kept_on_reset_all, consumers and validation per row from it. former_defaults: each key's earlier defaults that held for a day or more (from the history of schemas/defaults/cmux-next.json, 2026-10-12 to 2026-11-08); the one-time launch migration SettingsController.forgetStoredDefaults drops a stored value equal to one of them or to the current default, so the key follows the default again (Leo 2026-11-08). Since then a write of the default removes the key (setSetting), so a later default change needs no entry here. An opt-in whose default went from on to off has no entry (updates.downloadAutomatically, off since Leo 2026-10-27): a stored true is the person's pick, and dropping it turned their automatic updates off (Lawrence 2026-11-08).",
+  "$comment": "HAND-EDITED per-row facts of the settings schema that are not a row's own definition. kept_on_reset_all: keys Reset All Settings leaves alone, the look picked at onboarding (the app theme and the terminal font), which each row still resets (SettingsController.resetAllSettings). shared_with_browser: cmux-next keys cmux-browser reads too (cmux-browser #567 moved its copies to cmux.json); their consumers are cmux-next and cmux-browser (rows moved to schemas/settings/source say so themselves, in their consumers). validation: how another validator checks a row's value: portable (the export's fixed rule and samples), or domain:<name> when only the app knows the valid values (theme names, installed fonts, system sounds) or the value has its own shape; keys wins over kinds. scripts/cmux-next/gen-settings-sources.py writes the Swift copy (SettingsSchema+RowFacts.generated.swift); the schema export writes kept_on_reset_all, consumers and validation per row from it. former_defaults: each key's earlier defaults that held for a day or more (from the history of schemas/defaults/cmux-next.json, 2026-10-12 to 2026-11-08); the one-time launch migration SettingsController.forgetStoredDefaults drops a stored value equal to one of them or to the current default, so the key follows the default again (Leo 2026-11-08). Since then a write of the default removes the key (setSetting), so a later default change needs no entry here. updates.downloadAutomatically has no entry: off from Leo 2026-10-27, a stored true was the person's pick, and dropping it turned their automatic updates off (Lawrence 2026-11-08); on by default again since Leo 2026-11-07, a stored false is the person's pick. app_id_pattern: the app manifest schema's properties.id.pattern (cmux-tui/crates/cmux-app-host/schema/v2/cmux-app.schema.json), the one app id rule for domain:app_id rows, copied here so the generator reads only schemas/settings and scripts (a SwiftPM build of the package has no cmux-tui); gen-settings-sources.py --check fails when it differs from that schema.",
   "kept_on_reset_all": [
     "appearance.theme",
     "appearance.appTheme",
@@ -24,11 +24,15 @@
       "appearance.backgroundSchedule": "domain:backdrop_schedule",
       "appearance.backgroundLocation": "domain:backdrop_location",
       "appearance.backgroundMemory": "domain:backdrop_memory",
+      "appearance.backgroundPlacement": "domain:backdrop_placement",
+      "appearance.backgroundRecents": "domain:backdrop_recents",
       "appearance.customDensities": "domain:custom_densities",
       "agentPane.display.commandLabels": "domain:command_labels",
       "browser.customSearchEngine.search": "domain:search_template",
       "browser.customSearchEngine.suggest": "domain:search_template",
-      "tabs.newTabApp": "domain:app_id"
+      "tabs.newTabApp": "domain:app_id",
+      "agentPane.display.transcriptTokens": "domain:transcript_tokens",
+      "machines.hosts": "domain:hosts"
     },
     "kinds": {
       "theme": "domain:theme",
@@ -37,6 +41,7 @@
     },
     "default": "portable"
   },
+  "app_id_pattern": "^(local|[a-z0-9](?:[a-z0-9-]{0,38}))/[a-z0-9][a-z0-9-]{0,63}$",
   "former_defaults": {
     "agents.subsessions.maxChildren": [
       50

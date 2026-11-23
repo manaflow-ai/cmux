@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 675,
+  "count": 674,
   "sections": [
     {
       "id": "general",
@@ -106,6 +106,14 @@
             "never",
             "always"
           ]
+        },
+        {
+          "key": "agentPane.links.openCitationsInEditor",
+          "title": "Open File Citations in Text Editor",
+          "help": "Open local chat links that name a line in your chosen text editor.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Agent Chat"
         },
         {
           "key": "agentPane.links.outsideRoots",
@@ -332,12 +340,11 @@
         {
           "key": "agents.cmuxMcp",
           "title": "cmux Tools for Agents in cmux",
-          "help": "Agents you start in cmux get cmux’s tools, Computer Use included: Claude Code and Codex in cmux’s terminals and agent chats. Until you choose, they get nothing. cmux never changes your agents’ own settings.",
+          "help": "Agents you start in cmux get cmux’s tools, Computer Use included: Claude Code and Codex in cmux’s terminals and agent chats. cmux never changes your agents’ own settings.",
           "kind": "choice",
-          "default": "ask",
+          "default": "on",
           "group": "cmux Tools",
           "values": [
-            "ask",
             "on",
             "off"
           ]
@@ -1385,6 +1392,18 @@
           "group": "cmux Remote"
         },
         {
+          "key": "remote.screenSharingProfile",
+          "title": "Screen Sharing Profile",
+          "help": "Ultra spends the link on a fast direct connection when viewing another Mac: up to 120 fps, up to 150 Mbps, near-lossless text. Balanced is the default. Not Ultra Connection Mode, which repairs a lossy network.",
+          "kind": "choice",
+          "default": "balanced",
+          "group": "cmux Remote",
+          "values": [
+            "balanced",
+            "ultra"
+          ]
+        },
+        {
           "key": "remote.ultra",
           "title": "Ultra Connection Mode",
           "help": "Sends repair data so lossy networks stay fast. Always uses 2 to 3 times the data.",
@@ -1594,6 +1613,18 @@
           ]
         },
         {
+          "key": "tabs.shellIconTheme",
+          "title": "Shell Tab Icons",
+          "help": "Machines shows each shell tab with the icon of the machine it runs on.",
+          "kind": "choice",
+          "default": "default",
+          "group": "Tabs",
+          "values": [
+            "default",
+            "machine"
+          ]
+        },
+        {
           "key": "tabs.swapCmdTAndCmdN",
           "title": "Swap Cmd-T and Cmd-N",
           "help": "Cmd-T opens a workspace and Cmd-N opens a tab.",
@@ -1670,7 +1701,7 @@
           "title": "Download Updates Automatically",
           "help": "Off: cmux asks before downloading. It always asks before restarting.",
           "kind": "toggle",
-          "default": false,
+          "default": true,
           "group": "Updates"
         },
         {
@@ -2165,6 +2196,33 @@
           "group": "Agent Chat"
         },
         {
+          "key": "agentPane.display.rail.control",
+          "title": "Prompt Rail Button",
+          "help": "Shows what the rail lists above it while you point at it.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Agent Chat"
+        },
+        {
+          "key": "agentPane.display.rail.show",
+          "title": "Prompt Rail Shows",
+          "help": "Right-click the rail to change it.",
+          "kind": "choice",
+          "default": "prompts",
+          "group": "Agent Chat",
+          "values": [
+            "prompts",
+            "mine",
+            "received",
+            "replies",
+            "everything",
+            "errors",
+            "edits",
+            "tools",
+            "subagents"
+          ]
+        },
+        {
           "key": "agentPane.display.rail.side",
           "title": "Prompt Rail Side",
           "help": "Right-click the rail to move it.",
@@ -2357,14 +2415,9 @@
           "key": "agentPane.display.width",
           "title": "Chat Text Width",
           "help": "The widest the chat's column gets. On a wider pane the chat stays centered.",
-          "kind": "number",
+          "kind": "choice_or_number",
           "default": 800,
-          "group": "Agent Chat",
-          "range": {
-            "min": 480,
-            "max": 4000,
-            "unit": "points"
-          }
+          "group": "Agent Chat"
         },
         {
           "key": "app.uiScale",
@@ -2397,48 +2450,6 @@
             "magenta",
             "cyan"
           ]
-        },
-        {
-          "key": "appearance.accentGlow.dark",
-          "title": "Accent Glow (Dark)",
-          "help": "A soft glow in this color around the focused pane in the dark appearance. Unset, no glow.",
-          "kind": "color",
-          "default": null,
-          "group": "Theme Flourishes"
-        },
-        {
-          "key": "appearance.accentGlow.light",
-          "title": "Accent Glow (Light)",
-          "help": "The glow's color in the light appearance. Unset, the dark color.",
-          "kind": "color",
-          "default": null,
-          "group": "Theme Flourishes"
-        },
-        {
-          "key": "appearance.accentGlow.opacity",
-          "title": "Accent Glow Opacity",
-          "help": "How strong the accent glow is.",
-          "kind": "number",
-          "default": null,
-          "group": "Theme Flourishes",
-          "range": {
-            "min": 0,
-            "max": 1,
-            "unit": "fraction"
-          }
-        },
-        {
-          "key": "appearance.accentGlow.radius",
-          "title": "Accent Glow Radius",
-          "help": "How far the accent glow spreads from the focused pane.",
-          "kind": "number",
-          "default": null,
-          "group": "Theme Flourishes",
-          "range": {
-            "min": 0,
-            "max": 200,
-            "unit": "points"
-          }
         },
         {
           "key": "appearance.agentGlow",
@@ -2702,6 +2713,22 @@
             "max": 1,
             "unit": "fraction"
           }
+        },
+        {
+          "key": "appearance.backgroundPlacement",
+          "title": "Background Placement",
+          "help": "Picture ID to fill, fit, center or stretch, with optional X Y anchor and zoom.",
+          "kind": "string_map",
+          "default": null,
+          "group": "Window Background"
+        },
+        {
+          "key": "appearance.backgroundRecents",
+          "title": "Recent Backgrounds",
+          "help": "The backgrounds shown before, newest first, so one click goes back.",
+          "kind": "string_list",
+          "default": null,
+          "group": "Window Background"
         },
         {
           "key": "appearance.backgroundRotation",
@@ -3120,22 +3147,6 @@
           }
         },
         {
-          "key": "appearance.paneArt.dark",
-          "title": "Pane Art (Dark)",
-          "help": "Pictures behind panes in the dark appearance, one per pane in turn. Empty, panes show the window background as set above.",
-          "kind": "string_list",
-          "default": [],
-          "group": "Theme Flourishes"
-        },
-        {
-          "key": "appearance.paneArt.light",
-          "title": "Pane Art (Light)",
-          "help": "Pictures behind panes in the light appearance. Empty, the dark list.",
-          "kind": "string_list",
-          "default": [],
-          "group": "Theme Flourishes"
-        },
-        {
           "key": "appearance.paneBackgrounds",
           "title": "Pane Backgrounds",
           "help": "One background behind the window, or a copy in each pane.",
@@ -3182,20 +3193,16 @@
           }
         },
         {
-          "key": "appearance.sidebarHeader.dark",
-          "title": "Sidebar Header Image (Dark)",
-          "help": "A picture across the top of the sidebar in the dark appearance (file: and an absolute path). Unset, none.",
-          "kind": "text",
-          "default": null,
-          "group": "Theme Flourishes"
-        },
-        {
-          "key": "appearance.sidebarHeader.light",
-          "title": "Sidebar Header Image (Light)",
-          "help": "The sidebar header picture in the light appearance. Unset, the dark picture.",
-          "kind": "text",
-          "default": null,
-          "group": "Theme Flourishes"
+          "key": "appearance.selection",
+          "title": "Selection",
+          "help": "Accent tints the selected row and tab with the accent. Neutral keeps them gray.",
+          "kind": "choice",
+          "default": "accent",
+          "group": "App Theme",
+          "values": [
+            "accent",
+            "neutral"
+          ]
         },
         {
           "key": "appearance.sidebarSurface",
@@ -3587,42 +3594,6 @@
             "max": 1,
             "unit": "fraction"
           }
-        },
-        {
-          "key": "appearance.tabClose.from",
-          "title": "Tab Close Color",
-          "help": "The color of a tab's close button. Unset, the text color.",
-          "kind": "color",
-          "default": null,
-          "group": "Theme Flourishes"
-        },
-        {
-          "key": "appearance.tabClose.interpolation",
-          "title": "Tab Close Blend",
-          "help": "How the close button's color blends to its hover color.",
-          "kind": "choice",
-          "default": null,
-          "group": "Theme Flourishes",
-          "values": [
-            "oklab",
-            "srgb"
-          ]
-        },
-        {
-          "key": "appearance.tabClose.toDark",
-          "title": "Tab Close Hover Color (Dark)",
-          "help": "The color a tab's close button turns to under the pointer in the dark appearance. Unset, the standard hover.",
-          "kind": "color",
-          "default": null,
-          "group": "Theme Flourishes"
-        },
-        {
-          "key": "appearance.tabClose.toLight",
-          "title": "Tab Close Hover Color (Light)",
-          "help": "The close button's hover color in the light appearance. Unset, the dark color.",
-          "kind": "color",
-          "default": null,
-          "group": "Theme Flourishes"
         },
         {
           "key": "appearance.theme",
@@ -4579,6 +4550,14 @@
           "group": "Sidebar"
         },
         {
+          "key": "sidebar.showAutomaticSessions",
+          "title": "Show Automatic Sessions",
+          "help": "Sessions that scripts and tools start show in place. Off, they wait in Automatic at the end of their list.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Sidebar"
+        },
+        {
           "key": "sidebar.showChats",
           "title": "Show All Chats on New Tab",
           "help": "New Tab lists every agent chat on this computer, not only recent ones.",
@@ -5091,32 +5070,6 @@
       "id": "terminal",
       "title": "Terminal",
       "rows": [
-        {
-          "key": "terminal.cursorBlink",
-          "title": "Cursor Blink",
-          "help": "Whether the terminal cursor blinks. Unset, the Ghostty config's cursor-style-blink.",
-          "kind": "choice",
-          "default": null,
-          "group": "Cursor",
-          "values": [
-            "on",
-            "off"
-          ]
-        },
-        {
-          "key": "terminal.cursorStyle",
-          "title": "Cursor Style",
-          "help": "The terminal cursor's shape. Unset, the Ghostty config's cursor-style.",
-          "kind": "choice",
-          "default": null,
-          "group": "Cursor",
-          "values": [
-            "block",
-            "bar",
-            "underline",
-            "block_hollow"
-          ]
-        },
         {
           "key": "terminal.fontFamily",
           "title": "Font Family",
@@ -5989,7 +5942,7 @@
           "title": "Suggestions Shown",
           "help": "",
           "kind": "number",
-          "default": 8,
+          "default": 6,
           "group": "Address Bar",
           "range": {
             "min": 3,
@@ -7212,6 +7165,14 @@
           "group": "Cloud Workspaces"
         },
         {
+          "key": "macScreen.onlyPersonStartsViewing",
+          "title": "Only Your Click Starts Viewing a Screen",
+          "help": "On, a Screen Sharing tab an agent or the cmux CLI opens waits until you choose View Only or Full Control. Off, it starts viewing your own devices at once and says who started it. A device someone else owns always asks first.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Screen Sharing"
+        },
+        {
           "key": "phone.cloudDesktop",
           "title": "Show Your Cloud Machine's Screen on Your Phone",
           "help": "View only, streamed by this Mac while the page is open.",
@@ -7287,6 +7248,14 @@
           "group": "Experiments"
         },
         {
+          "key": "experiments.chatWidgets",
+          "title": "Extension Chat Widgets",
+          "help": "Installed extensions can show a card under a finished tool call in agent chat.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Experiments"
+        },
+        {
           "key": "experiments.composerV2",
           "title": "Composer Refresh",
           "help": "A glass composer with mode chips, mention chips and a round send button. Still being shaped.",
@@ -7298,6 +7267,14 @@
           "key": "experiments.glassToolbarGroups",
           "title": "Glass Toolbar Groups",
           "help": "The chat header's buttons become round glass buttons, with related actions sharing one glass capsule, a search chip and shortcut keycaps.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Experiments"
+        },
+        {
+          "key": "experiments.toastsV2",
+          "title": "Toasts v2",
+          "help": "Spinner toasts that turn into their result in place, and an Undo after closing a tab or workspace or archiving a chat.",
           "kind": "toggle",
           "default": false,
           "group": "Experiments"
@@ -7330,6 +7307,14 @@
           "key": "labs.machineJoin",
           "title": "Screen Sharing for Joined Machines",
           "help": "Shows Screen sharing and Control in Settings > Devices once this Mac joins.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Labs"
+        },
+        {
+          "key": "labs.pauseAgentMachines",
+          "title": "Pause Agent Machines",
+          "help": "Pause a new agent machine after 15 idle minutes; it resumes when work arrives.",
           "kind": "toggle",
           "default": false,
           "group": "Labs"

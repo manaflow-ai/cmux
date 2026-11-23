@@ -262,6 +262,26 @@
         [1]
       ]
     },
+    "domain:hosts": {
+      "accept": [
+        [],
+        [{"label": "studio", "endpoints": ["studio.local", "ssh://leo@100.64.0.7:2222"], "icon": "desktopcomputer"}],
+        [{"label": "a", "endpoint": "leo@a"}, {"label": "b", "endpoint": "b", "id": "b1"}]
+      ],
+      "refuse": [
+        "studio",
+        [{"endpoints": ["a"]}],
+        [{"label": " ", "endpoints": ["a"]}],
+        [{"label": "a", "endpoints": []}],
+        [{"label": "a", "endpoint": "a", "endpoints": ["a"]}],
+        [{"label": "a", "endpoints": ["http://a"]}],
+        [{"label": "a", "endpoints": ["-oProxyCommand=x"]}],
+        [{"label": "a", "endpoints": ["a b"]}],
+        [{"label": "a", "endpoints": ["a"], "icon": 1}],
+        [{"label": "a", "endpoint": "a"}, {"label": "A", "endpoint": "b"}],
+        [1]
+      ]
+    },
     "domain:backdrop_selection": {
       "accept": [
         "none",
@@ -540,6 +560,40 @@
         {"off": "__not_a_backdrop__"},
         {"light": "munch-scream"},
         {"rotate": 1}
+      ]
+    },
+    "domain:backdrop_placement": {
+      "accept": [
+        {},
+        {"munch-scream": "fit"},
+        {"file:/Users/Shared/Harbor.png": "fill 0.2 0.8 1.5", "desktop": "center 0.5 0"}
+      ],
+      "refuse": [
+        "fit",
+        [],
+        {"munch-scream": "cover"},
+        {"munch-scream": "fill 2 0"},
+        {"munch-scream": "fill 0.5"},
+        {"munch-scream": "fill 0.5 0.5 9"},
+        {"": "fit"},
+        {"munch-scream": 1}
+      ]
+    },
+    "domain:backdrop_recents": {
+      "accept": [
+        [],
+        ["folder:/Users/Shared/Wallpapers", "file:/Users/Shared/Harbor.png", "daily"],
+        ["munch-scream", "desktop", "none", "system:/System/Library/Desktop Pictures/Sonoma.heic"]
+      ],
+      "refuse": [
+        "daily",
+        {},
+        ["daily", "daily"],
+        ["folder:/"],
+        ["folder:relative"],
+        ["__not_a_backdrop__"],
+        [1],
+        ["file:/a.png", "file:/b.png", "file:/c.png", "file:/d.png", "file:/e.png", "file:/f.png", "file:/g.png", "file:/h.png", "file:/i.png"]
       ]
     },
     "domain:backdrop_location": {
