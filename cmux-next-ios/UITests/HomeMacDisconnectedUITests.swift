@@ -87,7 +87,8 @@ final class HomeMacDisconnectedUITests: XCTestCase {
     @MainActor
     private func expectToast(_ app: XCUIApplication, saying text: String, above row: XCUIElement) throws {
         let toast = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", text)).firstMatch
-        XCTAssertTrue(toast.waitForExistence(timeout: 10), "the connection toast\n\(app.debugDescription)")
+        // A link chip waits the 10 s quiet bound before it shows.
+        XCTAssertTrue(toast.waitForExistence(timeout: 25), "the connection toast\n\(app.debugDescription)")
         XCTAssertTrue(retryControl(app).exists, "Retry on the toast\n\(app.debugDescription)")
         // A link state is a chip a few words wide floating over the rows, not a full-width
         // row that pushes them down (Leo, 2026-11-21: "stop layout shifting").

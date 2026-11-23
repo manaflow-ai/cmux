@@ -12,6 +12,14 @@ private let theme = CmuxMobileTheme.standard
 /// any content ... toast type thing ... as a symbol or short thing, not a
 /// sentence. stop layout shifting"). The full sentence is its accessibility
 /// label. With `retry`, the chip is the Retry button.
+///
+/// A link state the person can do nothing about says nothing for its first
+/// ``QuietStatusGate/threshold`` (10 s, the shared bound in
+/// `schemas/notice-timing/notice-timing.json`): the chip is laid out but drawn clear,
+/// untappable and hidden from VoiceOver until it has lasted that long, so a blip, a
+/// foreground reattach or a daemon handoff shows nothing and moves nothing. Past it,
+/// it shows, carrying its Retry when the caller gave one. A caller that already held
+/// the state for the bound passes `heldFor: .zero`.
 public struct ConnectionChip: View {
     /// Every link state a chip can show, each with its one word pair and one symbol, so a state
     /// reads the same on every surface (the Home list, Workspaces, agent chat, the browser, the
@@ -64,13 +72,26 @@ public struct ConnectionChip: View {
 
     let content: Content
     let retry: (@MainActor () async -> Void)?
+    @State private var quiet: QuietStatusGate
 
-    public init(_ content: Content, retry: (@MainActor () async -> Void)? = nil) {
+    public init(_ content: Content, heldFor: Duration = QuietStatusGate.threshold,
+                retry: (@MainActor () async -> Void)? = nil) {
         self.content = content
         self.retry = retry
+        _quiet = State(initialValue: QuietStatusGate(delay: heldFor))
     }
 
     public var body: some View {
+        chip
+            .opacity(quiet.isShown ? 1 : 0)
+            .allowsHitTesting(quiet.isShown)
+            .accessibilityHidden(!quiet.isShown)
+            .animation(.easeOut(duration: 0.2), value: quiet.isShown)
+            .onAppear { quiet.update(down: true) }
+            .onDisappear { quiet.update(down: false) }
+    }
+
+    private var chip: some View {
         Group {
             if let retry {
                 Button { Task { await retry() } } label: { label(retrying: true) }
@@ -113,12 +134,26 @@ public struct ConnectionChip: View {
 public extension ConnectionChip {
     /// The chip as its symbol alone (a spinner while still trying), for a corner where even two
     /// words are too many. The words are its VoiceOver label with the sentence.
+    /// Held quiet for the same bound as the chip.
     struct SymbolOnly: View {
         let content: Content
+        @State private var quiet: QuietStatusGate
 
-        public init(_ content: Content) { self.content = content }
+        public init(_ content: Content, heldFor: Duration = QuietStatusGate.threshold) {
+            self.content = content
+            _quiet = State(initialValue: QuietStatusGate(delay: heldFor))
+        }
 
         public var body: some View {
+            symbol
+                .opacity(quiet.isShown ? 1 : 0)
+                .accessibilityHidden(!quiet.isShown)
+                .animation(.easeOut(duration: 0.2), value: quiet.isShown)
+                .onAppear { quiet.update(down: true) }
+                .onDisappear { quiet.update(down: false) }
+        }
+
+        private var symbol: some View {
             Group {
                 if let symbol = content.symbol {
                     Image(systemName: symbol).imageScale(.small)
