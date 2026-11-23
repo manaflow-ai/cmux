@@ -17,8 +17,9 @@ enum PagedListFollow {
     /// previous frame's order, of which the longest run still in the same order now are the ones in
     /// place; a row outside it moved within the list (a re-sort, the load's moveToNewest, the row
     /// read going to the newest end) and its trip is not a shift. The row being read when it is in
-    /// place, else the first row in place. A row that arrives or goes next to the one read changes
-    /// nothing in place, so a jump drawn in that frame still counts in full.
+    /// place, else the row in place drawn nearest where the read row was (what the reader was
+    /// looking at; on a tie, the one below it). A row that arrives or goes next to the one read
+    /// changes nothing in place, so a jump drawn in that frame still counts in full.
     static func pick<ID: Hashable>(previous: [Row<ID>], current: [Row<ID>], reading: ID?) -> (id: ID, was: CGFloat, now: CGFloat)? {
         var rank: [ID: Int] = [:]
         for (i, row) in current.enumerated() where rank[row.id] == nil { rank[row.id] = i }
@@ -41,8 +42,18 @@ enum PagedListFollow {
             inPlace.insert(both[i].row.id)
             i = before[i]
         }
-        let followed = both.first { $0.row.id == reading && inPlace.contains($0.row.id) }
-            ?? both.first { inPlace.contains($0.row.id) }
+        let candidates = both.filter { inPlace.contains($0.row.id) }
+        let followed: (row: Row<ID>, rank: Int)?
+        if let read = candidates.first(where: { $0.row.id == reading }) {
+            followed = read
+        } else if let eye = previous.first(where: { $0.id == reading })?.y {
+            followed = candidates.min { a, b in
+                let da = abs(a.row.y - eye), db = abs(b.row.y - eye)
+                return da != db ? da < db : a.row.y > b.row.y
+            }
+        } else {
+            followed = candidates.first
+        }
         guard let followed else { return nil }
         return (followed.row.id, followed.row.y, current[followed.rank].y)
     }
