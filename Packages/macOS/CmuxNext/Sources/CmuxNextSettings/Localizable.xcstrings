@@ -244759,6 +244759,530 @@
         "zh-Hans": {"stringUnit": {"state": "translated", "value": "关闭后，输入框、菜单、弹出窗口和卡片显示为带简单边框的不透明表面。"}},
         "zh-Hant": {"stringUnit": {"state": "translated", "value": "關閉後，輸入框、選單、彈出視窗和卡片會顯示為帶簡單邊框的不透明表面。"}}
       }
+    },
+    "settings.group.screenSharing": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مشاركة الشاشة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dijeljenje ekrana"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skærmdeling"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bildschirmfreigabe"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Screen Sharing"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compartir pantalla"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Partage d’écran"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Condivisione schermo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画面共有"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការចែករំលែកអេក្រង់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "화면 공유"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skjermdeling"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Udostępnianie ekranu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compartilhamento de Tela"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Общий экран"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การแชร์หน้าจอ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ekran Paylaşma"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Спільний екран"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chia sẻ màn hình"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "屏幕共享"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "螢幕共享"
+          }
+        }
+      }
+    },
+    "settings.macScreen.onlyPersonStartsViewing": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يبدأ عرض الشاشة إلا بنقرتك"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Samo vaš klik pokreće pregled ekrana"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kun dit klik starter visning af en skærm"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nur dein Klick startet die Bildschirmansicht"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only Your Click Starts Viewing a Screen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo tu clic inicia la visualización de una pantalla"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seul votre clic lance l’affichage d’un écran"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo il tuo clic avvia la visualizzazione di uno schermo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画面の表示はクリックでのみ開始"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មានតែការចុចរបស់អ្នកទេដែលចាប់ផ្ដើមមើលអេក្រង់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "내가 클릭할 때만 화면 보기 시작"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bare ditt klikk starter visning av en skjerm"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tylko Twoje kliknięcie rozpoczyna podgląd ekranu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Só Seu Clique Inicia a Visualização de uma Tela"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Просмотр экрана только по вашему щелчку"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เริ่มดูหน้าจอได้เมื่อคุณคลิกเท่านั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ekran Görüntülemeyi Yalnızca Tıklamanız Başlatır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перегляд екрана лише після вашого клацання"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chỉ cú nhấp của bạn mới bắt đầu xem màn hình"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仅在你点按时开始查看屏幕"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "僅在你點按時開始檢視螢幕"
+          }
+        }
+      }
+    },
+    "settings.macScreen.onlyPersonStartsViewing.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عند التشغيل، تنتظر علامة تبويب مشاركة الشاشة التي يفتحها وكيل أو cmux CLI حتى تختار عرض فقط أو تحكم كامل. عند الإيقاف، تبدأ عرض أجهزتك فورًا وتوضح من بدأها. الجهاز الذي يملكه شخص آخر يطلب الإذن أولًا دائمًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kad je uključeno, kartica Dijeljenje ekrana koju otvori agent ili cmux CLI čeka dok ne odaberete Samo pregled ili Puna kontrola. Kad je isključeno, odmah počinje prikazivati vaše uređaje i navodi ko ju je pokrenuo. Uređaj čiji je vlasnik neko drugi uvijek prvo pita."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Til: En Skærmdeling-fane, som en agent eller cmux CLI åbner, venter, til du vælger Kun visning eller Fuld kontrol. Fra: Den begynder straks at vise dine egne enheder og viser, hvem der startede den. En enhed, som en anden ejer, spørger altid først."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein: Ein Bildschirmfreigabe-Tab, den ein Agent oder die cmux CLI öffnet, wartet, bis du „Nur ansehen“ oder „Volle Kontrolle“ wählst. Aus: Er zeigt deine eigenen Geräte sofort an und nennt, wer ihn gestartet hat. Ein Gerät, das jemand anderem gehört, fragt immer zuerst."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On, a Screen Sharing tab an agent or the cmux CLI opens waits until you choose View Only or Full Control. Off, it starts viewing your own devices at once and says who started it. A device someone else owns always asks first."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activado, una pestaña de Compartir pantalla que abre un agente o la CLI de cmux espera hasta que elijas Solo ver o Control total. Desactivado, empieza a mostrar tus propios dispositivos al instante e indica quién la inició. Un dispositivo de otra persona siempre pregunta primero."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activé, un onglet Partage d’écran ouvert par un agent ou la CLI cmux attend que vous choisissiez Affichage seul ou Contrôle total. Désactivé, il affiche aussitôt vos propres appareils et indique qui l’a lancé. Un appareil qui appartient à quelqu’un d’autre demande toujours d’abord."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attivo: una scheda Condivisione schermo aperta da un agente o dalla CLI di cmux attende finché non scegli Solo visualizzazione o Controllo completo. Disattivo: inizia subito a mostrare i tuoi dispositivi e indica chi l’ha avviata. Un dispositivo di proprietà di altri chiede sempre prima."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オンにすると、エージェントや cmux CLI が開いた画面共有タブは、「表示のみ」か「フルコントロール」を選ぶまで待機します。オフにすると、自分のデバイスはすぐに表示が始まり、誰が開始したかが表示されます。他の人が所有するデバイスは常に先に確認を求めます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពេលបើក ផ្ទាំងការចែករំលែកអេក្រង់ដែលភ្នាក់ងារ ឬ cmux CLI បើក នឹងរង់ចាំរហូតដល់អ្នកជ្រើស មើលតែប៉ុណ្ណោះ ឬ ការគ្រប់គ្រងពេញលេញ។ ពេលបិទ វាចាប់ផ្ដើមមើលឧបករណ៍ផ្ទាល់ខ្លួនរបស់អ្នកភ្លាមៗ ហើយបង្ហាញថាអ្នកណាជាអ្នកចាប់ផ្ដើម។ ឧបករណ៍ដែលអ្នកផ្សេងជាម្ចាស់ តែងតែសួរមុនជានិច្ច។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "켜면 에이전트나 cmux CLI가 연 화면 공유 탭은 보기 전용 또는 전체 제어를 선택할 때까지 기다립니다. 끄면 내 기기는 바로 보기가 시작되고 누가 시작했는지 표시됩니다. 다른 사람이 소유한 기기는 항상 먼저 묻습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "På: En Skjermdeling-fane som en agent eller cmux CLI åpner, venter til du velger Kun visning eller Full kontroll. Av: Den begynner straks å vise dine egne enheter og viser hvem som startet den. En enhet som noen andre eier, spør alltid først."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Włączone: karta Udostępnianie ekranu otwarta przez agenta lub cmux CLI czeka, aż wybierzesz Tylko podgląd lub Pełna kontrola. Wyłączone: od razu zaczyna pokazywać Twoje urządzenia i informuje, kto ją uruchomił. Urządzenie należące do kogoś innego zawsze najpierw pyta."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ativado, uma aba de Compartilhamento de Tela aberta por um agente ou pela CLI do cmux espera até você escolher Somente Visualização ou Controle Total. Desativado, ela começa a mostrar seus próprios dispositivos na hora e diz quem a iniciou. Um dispositivo de outra pessoa sempre pergunta antes."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Если включено, вкладка «Общий экран», открытая агентом или cmux CLI, ждёт, пока вы не выберете «Только просмотр» или «Полный контроль». Если выключено, она сразу начинает показывать ваши устройства и сообщает, кто её запустил. Устройство другого владельца всегда сначала спрашивает."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เมื่อเปิด แท็บการแชร์หน้าจอที่เอเจนต์หรือ cmux CLI เปิดจะรอจนกว่าคุณจะเลือก ดูเท่านั้น หรือ ควบคุมทั้งหมด เมื่อปิด แท็บจะเริ่มแสดงอุปกรณ์ของคุณเองทันทีและบอกว่าใครเป็นผู้เริ่ม อุปกรณ์ที่ผู้อื่นเป็นเจ้าของจะถามก่อนเสมอ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Açıkken, bir ajanın veya cmux CLI’ın açtığı Ekran Paylaşma sekmesi siz Yalnızca Görüntüleme veya Tam Denetim’i seçene kadar bekler. Kapalıyken kendi aygıtlarınızı hemen göstermeye başlar ve kimin başlattığını belirtir. Başka birine ait bir aygıt her zaman önce sorar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Якщо ввімкнено, вкладка «Спільний екран», яку відкрив агент або cmux CLI, чекає, доки ви не виберете «Лише перегляд» або «Повний контроль». Якщо вимкнено, вона одразу починає показувати ваші пристрої й повідомляє, хто її запустив. Пристрій іншого власника завжди спершу питає."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Khi bật, tab Chia sẻ màn hình do tác tử hoặc cmux CLI mở sẽ chờ đến khi bạn chọn Chỉ xem hoặc Toàn quyền điều khiển. Khi tắt, tab bắt đầu hiển thị thiết bị của chính bạn ngay và cho biết ai đã bắt đầu. Thiết bị của người khác luôn hỏi trước."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开后，智能体或 cmux CLI 打开的屏幕共享标签页会等你选择“仅查看”或“完全控制”。关闭后，它会立即开始查看你自己的设备，并显示是谁发起的。他人拥有的设备始终会先询问。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開啟後，代理或 cmux CLI 開啟的螢幕共享分頁會等你選擇「僅檢視」或「完全控制」。關閉後，它會立即開始檢視你自己的裝置，並顯示是誰發起的。他人擁有的裝置一律會先詢問。"
+          }
+        }
+      }
+    },
+    "settings.macScreen.onlyPersonStartsViewing.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يمكن للوكلاء بدء عرض شاشاتك"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenti ne mogu pokrenuti pregled vaših ekrana"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenter kan ikke starte visning af dine skærme"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenten können deine Bildschirme nicht von selbst anzeigen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agents can't start viewing your screens"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los agentes no pueden empezar a ver tus pantallas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les agents ne peuvent pas lancer l’affichage de vos écrans"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gli agenti non possono aprire i tuoi schermi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントは画面の表示を開始できない"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ភ្នាក់ងារមិនអាចចាប់ផ្ដើមមើលអេក្រង់របស់អ្នកបានទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트가 화면 보기를 시작할 수 없음"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenter kan ikke starte visning av skjermene dine"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenci nie mogą rozpocząć podglądu Twoich ekranów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentes não podem começar a ver suas telas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Агенты не могут начать просмотр ваших экранов"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เอเจนต์เริ่มดูหน้าจอของคุณไม่ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajanlar ekranlarınızı görüntülemeyi başlatamaz"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Агенти не можуть почати перегляд ваших екранів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tác tử không thể bắt đầu xem màn hình của bạn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "智能体无法开始查看你的屏幕"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理無法開始檢視你的螢幕"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
