@@ -511,6 +511,10 @@ fn serve_session(
     if crate::desktop::scales_pictures() {
         host_caps.push(cmux_rd_core::service::caps::VIDEO_SCALED);
     }
+    // An OpenH264 viewer asks for Constrained Baseline (cmux#50591).
+    if crate::stream::offers_h264_baseline(&opts.str_or("codec", crate::host::DEFAULT_CODEC)) {
+        host_caps.push(cmux_rd_core::service::caps::H264_BASELINE);
+    }
     // The session clock (C8; the engine answers every ping) and the stage ledger (D8).
     host_caps.extend([cmux_rd_core::service::caps::CLOCK, cmux_rd_core::service::caps::LEDGER]);
     // Clipboard text only when the app's setup turned it on and this host has a clipboard it

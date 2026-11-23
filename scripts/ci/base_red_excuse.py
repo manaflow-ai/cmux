@@ -1198,7 +1198,7 @@ BASE_DISPATCH_EVERY = timedelta(minutes=60)
 ROUTE_IF = re.compile(r"\$\{\{ *inputs\.(\w+) *== *'true' *\}\}")
 # A job a feat-cmux-next pull request runs as a ci/steps.toml step instead (pr-pipeline.yml): it skips only there, and
 # its rollup counts that skip as fine, so it has no route input and every other run is judged as an unrouted job's.
-STEP_TABLE_SKIP_IF = "${{ github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next' }}"
+STEP_TABLE_SKIP_IF = "${{ github.event_name != 'pull_request' || !startsWith(github.base_ref, 'feat-cmux-next') }}"
 # A route report the Guard status prints: always read, even for a job the contract does not name (refused as unknown).
 ROUTE_REPORT = r"workflow-guard-[\w-]+|linux_guard_\w+"
 HOOK_REFUSAL = "glaeda-cmux-runner-hook: refused"
