@@ -10,7 +10,10 @@
 //     as the host does (MakeItYoursStepModel: "Skip keeps what is set"), so this reads false until the host's Skip
 //     restores the opening settings and the mock follows it.
 //
-//   bun scripts/intro-walk.mjs [--out report.json]   (builds dist/gallery first when it is missing)
+//   bun scripts/intro-walk.mjs [--out report.json] [--reuse-build]
+//
+// Builds dist/gallery from this checkout first: a dist/gallery left by another branch walks that branch's code
+// (a stale build once read Skip as fixed). `--reuse-build` walks an existing dist/gallery as is.
 //
 // Writes one JSON report: per arm and pick the ops sent, the CLS and the moved parts, and the summary values the
 // cmuxterm-hq probe records (`checks`, `passed`, `pass_share`, `shift_max_px`, `cls_max`, `publishes_per_pick_max`,
@@ -47,7 +50,7 @@ const PARTS = {
 const SHIFT_TOLERANCE_PX = 0.5;
 
 async function buildGallery() {
-  if (fs.existsSync(path.join(root, "dist/gallery")) && process.env.CMUX_CAPTURE_BUILD !== "1") return;
+  if (args.includes("--reuse-build") && fs.existsSync(path.join(root, "dist/gallery"))) return;
   const build = spawn("bun", ["run", "gallery:build"], { cwd: root, stdio: "inherit" });
   await new Promise((resolve, reject) => {
     build.once("error", reject);
