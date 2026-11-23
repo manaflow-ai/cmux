@@ -710,6 +710,7 @@ fn edit_keys<R>(
 ) -> std::io::Result<R> {
     use std::io::{Read, Seek, Write};
     use std::os::fd::AsRawFd;
+    // Through `home_fs`: the denied-calls file is under the home the daemon holds.
     let mut file = crate::home_fs::OpenOptions::new()
         .read(true)
         .write(true)

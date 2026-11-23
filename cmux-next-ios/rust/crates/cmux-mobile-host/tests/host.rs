@@ -465,6 +465,7 @@ async fn exercise_services_with(fixture: &Fixture, kind: TransportKind, options:
             "appearance-v1",
             "pair-requests-v1",
             "phone-frames-v1",
+            "tab-snapshots-v1",
             "browser-stream-v1",
             "browser-video-track-v1",
             "surface-stream-v1",
@@ -2162,4 +2163,3 @@ async fn a_paired_mac_lists_and_allows_a_waiting_request_over_its_link_socket() 
     );
     server.abort();
 }
-||||||| 4b816cb17582
