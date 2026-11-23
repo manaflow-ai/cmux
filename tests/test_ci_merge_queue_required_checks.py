@@ -102,6 +102,16 @@ def merge_group_check_names() -> dict[str, list[str]]:
             if "merge_group" in condition and "!=" in condition:
                 continue
             name = str(job.get("name", job_id))
+            if "${{" in name:
+                # An expression name (backend-migrations.yml's gate) publishes what it
+                # resolves to on a merge_group event, not its literal text.
+                from test_ci_pr_runs_cancel_superseded import ExpressionError, resolve
+                context = {"github": {"event_name": "merge_group", "run_id": 1,
+                                      "event": {"merge_group": {"head_sha": "0" * 40}}}, "vars": {}}
+                try:
+                    name = str(resolve(name, context))
+                except (ExpressionError, KeyError, IndexError, TypeError, ValueError):
+                    pass
             if path.name == "web-complexity-trusted.yml" and job_id == "complexity":
                 # The required workflow must publish its literal verdict on
                 # every event, including metadata edits and merge groups.
