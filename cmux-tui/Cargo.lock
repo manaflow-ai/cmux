@@ -2085,6 +2085,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-launch-image"
+version = "0.1.0"
+
+[[package]]
 name = "cmux-layout-reducer"
 version = "0.1.0"
 dependencies = [
@@ -3046,6 +3050,7 @@ name = "cmux-tui-util"
 version = "0.1.0"
 dependencies = [
  "arc-swap",
+ "cmux-config",
  "cmux-tui-platform",
  "getrandom 0.3.4",
  "libc",

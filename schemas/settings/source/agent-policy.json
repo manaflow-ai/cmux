@@ -503,6 +503,8 @@
         "experiments.composerV2",
         "experiments.agentBadges",
         "experiments.agentBadgesBeam",
+        "experiments.menuStyleV2",
+        "experiments.menuRowStates",
         "experiments.toastsV2",
         "experiments.forum"
       ]
