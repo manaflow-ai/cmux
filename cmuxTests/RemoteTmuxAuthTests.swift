@@ -104,6 +104,24 @@ import Testing
         #expect(RemoteTmuxHost.controlSocketPathFitsUnixLimit(host.controlSocketPath))
     }
 
+    /// Each build gets its own socket, and the release app keeps the name it already had so an
+    /// upgrade does not strand a live master.
+    @Test func eachCmuxBuildGetsItsOwnSocketAndTheReleaseAppKeepsItsName() {
+        let host = RemoteTmuxHost(destination: "user@host")
+        let release = host.controlSocketPath(
+            namespace: RemoteTmuxHost.controlSocketNamespace(bundleIdentifier: "com.cmuxterm.app"))
+        let nightly = host.controlSocketPath(
+            namespace: RemoteTmuxHost.controlSocketNamespace(bundleIdentifier: "com.cmuxterm.app.nightly"))
+        let tagged = host.controlSocketPath(
+            namespace: RemoteTmuxHost.controlSocketNamespace(bundleIdentifier: "com.cmuxterm.app.debug.feature"))
+        #expect(release.hasSuffix("-\(host.connectionHash).sock"))
+        #expect(Set([release, nightly, tagged]).count == 3)
+        #expect(nightly == host.controlSocketPath(
+            namespace: RemoteTmuxHost.controlSocketNamespace(bundleIdentifier: "com.cmuxterm.app.nightly")))
+        #expect(RemoteTmuxHost.controlSocketNamespace(bundleIdentifier: nil) == nil)
+        #expect(RemoteTmuxHost.controlSocketNamespace(bundleIdentifier: "") == nil)
+    }
+
     @Test func tmuxSocketPermissionErrorIsNotAnAuthPrompt() {
         // ssh authenticated fine here; tmux could not open its socket. listSessions
         // asks about auth before it asks about the server, so classifying this as
@@ -355,7 +373,8 @@ import Testing
         let host = RemoteTmuxHost(destination: String(repeating: "very-long-host.example.com.", count: 20))
         #expect(RemoteTmuxHost.controlSocketPathFitsUnixLimit(host.controlSocketPath))
         // The collision-resistant hash is never trimmed away.
-        #expect(host.controlSocketPath.hasSuffix("-\(host.connectionHash).sock"))
+        let key = host.controlSocketKey(namespace: RemoteTmuxHost.controlSocketNamespace)
+        #expect(host.controlSocketPath.hasSuffix("-\(key).sock"))
     }
 
     @Test func controlSocketPathTrimmingPreservesEndpointUniqueness() {

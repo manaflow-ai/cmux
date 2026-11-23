@@ -598,6 +598,41 @@ final class RemoteTmuxViewConnection {
         }
     }
 
+    /// Detaches control clients that earlier streams of this install left on its view session.
+    ///
+    /// The view session belongs to one cmux install, since its name carries the install's owner
+    /// id, and that install runs one view stream per host. So any other control client on it is a
+    /// stream this install already gave up on. One is left behind whenever a stream ends without
+    /// tmux hearing a `detach-client`: et keeps its server side up after the local client dies,
+    /// and a stream torn down before it reported `.connected` never sends one. On a host where
+    /// an app's reconnect loop ran for 40 minutes, 89 control clients were attached to one view
+    /// session, each still holding a size claim on every window it could see. Clients that are
+    /// not in control mode are people, and are left alone.
+    private func detachStaleViewClients(_ conn: RemoteTmuxControlConnection) async {
+        guard let own = await conn.queryWithTimeout("display-message -p '#{client_name}'", timeout: 15)?
+            .first?.trimmingCharacters(in: .whitespaces), !own.isEmpty else { return }
+        guard let lines = await conn.queryWithTimeout(
+            "list-clients -t \(quoted("=" + view.sessionName)) -F '#{client_control_mode} #{client_name}'",
+            timeout: 15
+        ) else { return }
+        guard !isStopped, connection === conn else { return }
+        for name in Self.staleViewClientNames(lines, ownClientName: own) {
+            _ = conn.send("detach-client -t \(quoted(name))")
+        }
+    }
+
+    /// Reads `list-clients -F '#{client_control_mode} #{client_name}'` into the control clients
+    /// to detach: every control-mode client except this stream's own. Pure, so the rule can be
+    /// checked without a server.
+    nonisolated static func staleViewClientNames(_ lines: [String], ownClientName: String) -> [String] {
+        lines.compactMap { line in
+            let fields = line.split(separator: " ", maxSplits: 1, omittingEmptySubsequences: true)
+                .map(String.init)
+            guard fields.count == 2, fields[0] == "1", fields[1] != ownClientName else { return nil }
+            return fields[1]
+        }
+    }
+
     // MARK: - Reconcile (over the live stream)
 
     private func scheduleReconcile() {
@@ -702,6 +737,7 @@ final class RemoteTmuxViewConnection {
                   conn.connectionState == .connected else { return }
             didBootstrapView = true
             bringupRetries = 0
+            Task { @MainActor [weak self] in await self?.detachStaleViewClients(conn) }
         }
 
         // Bounded: an alive-but-slow server gets one longer retry before we decide

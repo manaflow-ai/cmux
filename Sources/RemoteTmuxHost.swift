@@ -202,15 +202,51 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
     /// ``connectionHash`` is never trimmed, so uniqueness is preserved even when
     /// the slug is dropped entirely. ``ensureControlSocketDirectory()`` rejects
     /// the rare case where even an empty slug overflows (an unusually long home).
+    ///
+    /// The socket also belongs to one cmux app. The release app, a nightly and a tagged
+    /// development build all share `~/.cmux/ssh/`, and a host that allows one session per
+    /// connection lets only one of them use a master at a time: the first app's `tmux -CC`
+    /// takes the session, and every other app's command on that master is refused
+    /// ("Session open refused by peer"), falls back to a new connection, and asks for a sign-in
+    /// that cannot help. See ``controlSocketNamespace``.
     var controlSocketPath: String {
+        controlSocketPath(namespace: Self.controlSocketNamespace)
+    }
+
+    /// The control socket path for the app named by `namespace`, or the shared default path
+    /// when it is `nil`. Split out so tests can name an app other than the test host.
+    func controlSocketPath(namespace: String?) -> String {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         // Fixed parts that can never be trimmed: directory, the `tmux-` prefix,
         // the `-<hash>.sock` tail, and the transient suffix OpenSSH binds first.
         let prefix = "\(home)/.cmux/ssh/tmux-"
-        let suffix = "-\(connectionHash).sock"
+        let suffix = "-\(controlSocketKey(namespace: namespace)).sock"
         let fixedBytes = prefix.utf8.count + suffix.utf8.count + Self.opensshTransientSuffixLength
         let slugBudget = max(0, Self.maxUnixSocketPathLength - fixedBytes)
         return "\(prefix)\(Self.trimmedToUTF8ByteBudget(slug, slugBudget))\(suffix)"
+    }
+
+    /// The release app's bundle identifier. It keeps the socket name it has always had, so an
+    /// existing master survives the upgrade that introduced the per-app name.
+    static let releaseBundleIdentifier = "com.cmuxterm.app"
+
+    /// The app this process's control sockets belong to: `nil` for the release app, the bundle
+    /// identifier for any other cmux build.
+    static var controlSocketNamespace: String? {
+        controlSocketNamespace(bundleIdentifier: Bundle.main.bundleIdentifier)
+    }
+
+    static func controlSocketNamespace(bundleIdentifier: String?) -> String? {
+        guard let bundleIdentifier, !bundleIdentifier.isEmpty,
+              bundleIdentifier != releaseBundleIdentifier else { return nil }
+        return bundleIdentifier
+    }
+
+    /// The digest in the socket filename: the endpoint's ``connectionHash``, mixed with the app
+    /// when there is one. Same length either way, so the path budget does not change.
+    func controlSocketKey(namespace: String?) -> String {
+        guard let namespace else { return connectionHash }
+        return Self.fnv1a64Hex("\(connectionHash)\u{1f}\(namespace)")
     }
 
     /// macOS caps an AF_UNIX `sun_path` at 104 bytes (including the NUL

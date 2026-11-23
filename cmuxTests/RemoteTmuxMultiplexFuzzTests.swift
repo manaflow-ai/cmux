@@ -422,6 +422,25 @@ struct RemoteTmuxMultiplexFuzzTests {
         #expect(empty.placeholder == nil)
         #expect(empty.adopted.isEmpty)
     }
+
+    /// A stream that ended without tmux hearing a `detach-client` leaves its control client on
+    /// the view session. The next stream detaches every such control client, never its own and
+    /// never a person's ordinary client.
+    @Test func aNewViewStreamDetachesTheControlClientsEarlierStreamsLeft() {
+        let lines = [
+            "1 /dev/pts/209",
+            "1 /dev/pts/200",
+            "0 /dev/pts/3",
+            "1 /dev/pts/288",
+            "",
+            "garbage",
+        ]
+        #expect(RemoteTmuxViewConnection.staleViewClientNames(lines, ownClientName: "/dev/pts/288")
+            == ["/dev/pts/209", "/dev/pts/200"])
+        // Alone on the session: nothing to detach.
+        #expect(RemoteTmuxViewConnection.staleViewClientNames(
+            ["1 /dev/pts/288"], ownClientName: "/dev/pts/288").isEmpty)
+    }
 }
 
 /// One session in the reference model: its rename-stable id, ordered windows,
