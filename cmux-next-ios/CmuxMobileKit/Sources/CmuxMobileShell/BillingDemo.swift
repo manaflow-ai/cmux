@@ -7,13 +7,16 @@ import Foundation
 /// so the fleet's `shots` mode can capture every state without an App Store
 /// account. Compiled out of every shipping configuration.
 ///
-/// `CMUX_MOBILE_BILLING_DEMO` picks the state: `free` (Free, Go/Pro/Max
-/// offers), `pro` (an App Store Pro subscriber), `stripe` (pays on the web: no
-/// purchase buttons), `team` (team billing), `unavailable` (the server sells
-/// nothing to this bundle, today's state for cmux NEXT), `testflight` (production's
-/// answer to a TestFlight or dev build: not eligible, `purchases_unavailable`, no
-/// products, on Pro) and `testflight-free` (the same on Free). `CMUX_MOBILE_BILLING_DEMO_OPEN=1`
-/// opens the plans screen at launch. Prices are the server's USD list prices
+/// `CMUX_MOBILE_BILLING_DEMO` picks the state: `free` (Free, the NEXT
+/// Plus/Pro/Max offers, monthly), `pro` (an App Store NEXT Pro subscriber),
+/// `stripe` (pays on the web: no purchase buttons), `team` (team billing),
+/// `unavailable` (the server sells nothing to this bundle), `testflight`
+/// (production's answer to a TestFlight or dev build: not eligible,
+/// `purchases_unavailable`, no products, on NEXT Pro), `testflight-free` (the
+/// same on Free) and `classic` (Free, the classic Go/Pro/Max offers, monthly
+/// and yearly). Every other state sells the NEXT plans, as the server does to a
+/// cmux-next bundle. `CMUX_MOBILE_BILLING_DEMO_OPEN=1` opens the plans screen at
+/// launch. Prices are the server's USD list prices
 /// (`web/services/billing/apple/config.ts` `APPLE_USD_LIST_PRICE`, yearly at 9.6×).
 struct BillingDemo {
     let state: String
@@ -42,17 +45,22 @@ private actor DemoBillingServer: BillingAPI {
         self.state = state
         self.bundleIdentifier = bundleIdentifier
         switch state {
-        case "pro": plan = BillingCurrentPlan(planID: .pro, source: .apple)
-        case "stripe": plan = BillingCurrentPlan(planID: .pro, source: .stripe)
-        case "testflight": plan = BillingCurrentPlan(planID: .pro, source: .none)
+        case "pro": plan = BillingCurrentPlan(planID: .nextPro, source: .apple)
+        case "stripe": plan = BillingCurrentPlan(planID: .nextPro, source: .stripe)
+        case "testflight": plan = BillingCurrentPlan(planID: .nextPro, source: .none)
         default: plan = BillingCurrentPlan(planID: .free, source: .none)
         }
     }
 
     func accountToken() async throws -> BillingAccount {
         let sellsNothing = ["unavailable", "testflight", "testflight-free"].contains(state)
-        let products = sellsNothing ? [] : [BillingPlanID.go, .pro, .max].flatMap { plan in
-            BillingPeriod.allCases.map { period in
+        // The server sells a cmux-next bundle the NEXT plans, highest first,
+        // monthly only (config.ts `APPLE_NEXT_PLAN_IDS`, `APPLE_PLAN_BILLING_PERIODS`).
+        let catalog: [(BillingPlanID, [BillingPeriod])] = state == "classic"
+            ? [(.go, [.monthly]), (.pro, BillingPeriod.allCases), (.max, BillingPeriod.allCases)]
+            : [(.nextMax, [.monthly]), (.nextPro, [.monthly]), (.nextPlus, [.monthly])]
+        let products = sellsNothing ? [] : catalog.flatMap { plan, periods in
+            periods.map { period in
                 BillingProductReference(productID: "\(bundleIdentifier).\(plan.rawValue).\(period.rawValue)",
                                         planID: plan, billingPeriod: period)
             }
@@ -68,7 +76,7 @@ private actor DemoBillingServer: BillingAPI {
     }
 
     func submitTransaction(signedTransactionInfo: String) async throws -> BillingTransactionReceipt {
-        let planID = BillingPlanID(rawValue: signedTransactionInfo.split(separator: ".").dropLast().last.map(String.init) ?? "pro")
+        let planID = BillingPlanID(rawValue: signedTransactionInfo.split(separator: ".").dropLast().last.map(String.init) ?? "next_pro")
         plan = BillingCurrentPlan(planID: planID, source: .apple)
         return BillingTransactionReceipt(planID: planID, status: "active", expiresAt: nil)
     }
@@ -80,6 +88,8 @@ private struct DemoStoreKit: StoreKitClient {
     /// Server list prices: monthly, and yearly at 9.6× (`appleUsdListPrice`).
     private static let prices: [String: (name: String, monthly: String, yearly: String)] = [
         "go": ("Go", "14.99", "143.90"), "pro": ("Pro", "74.99", "719.90"), "max": ("Max", "299.99", "2879.90"),
+        "next_plus": ("Plus", "29.99", "287.90"), "next_pro": ("Pro", "74.99", "719.90"),
+        "next_max": ("Max", "299.99", "2879.90"),
     ]
 
     func products(for ids: [String]) async throws -> [StoreProduct] {

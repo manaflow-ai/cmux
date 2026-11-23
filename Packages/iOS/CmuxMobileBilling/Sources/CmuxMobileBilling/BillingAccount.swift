@@ -40,12 +40,13 @@ public struct BillingAccount: Sendable, Equatable, Codable {
     }
 
     /// The paid plans the plans screen describes when this build sells none
-    /// (an ineligible account gets no products): Pro and Max, plus Go when the
-    /// account is on it or it is on sale, smallest first. Without these an
-    /// ineligible account, such as every TestFlight and dev build in
-    /// production, saw a plans screen with no plans on it.
+    /// (an ineligible account gets no products): the NEXT plans this package's
+    /// app sells (Plus, Pro, Max), plus any other plan, such as classic Go,
+    /// only when the account is on it or it is on sale, smallest first.
+    /// Without these an ineligible account, such as every TestFlight and dev
+    /// build in production, saw a plans screen with no plans on it.
     public var catalogPlanIDs: [BillingPlanID] {
-        var plans: Set<BillingPlanID> = [.pro, .max]
+        var plans: Set<BillingPlanID> = [.nextPlus, .nextPro, .nextMax]
         plans.formUnion(products.map(\.planID).filter { $0.rank > 0 })
         if currentPlan.planID.rank > 0 { plans.insert(currentPlan.planID) }
         return plans.sorted()
