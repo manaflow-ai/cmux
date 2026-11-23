@@ -127,6 +127,7 @@
     "CmuxNextHome/NativeTranscript/HomeNativeTranscriptView+Find.swift": "native-overlay",
     "CmuxNextHome/NewMessage/HomeRecipientSuggestionsView.swift": "native-overlay",
     "CmuxNextHome/Sidebar/HomeSidebarView.swift": "window-chrome",
+    "CmuxNextHomeEngine/HomeChiefComputerPopup.swift": "native-overlay",
     "CmuxNextHomeEngine/HomeChiefSettingsPopover.swift": "native-overlay",
     "CmuxNextLayout/Views/ChiefPanelView.swift": "native-overlay",
     "CmuxNextLayout/Views/DockBackdropView.swift": "window-chrome",
