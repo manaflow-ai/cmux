@@ -4,6 +4,7 @@ import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextDaemon
 import CmuxNextPages
+import CmuxNextTabs
 import CmuxNextTestSupport
 import Foundation
 import Testing
