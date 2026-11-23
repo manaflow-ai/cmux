@@ -36,7 +36,9 @@ final class TabGridScrollHoldStillUITests: XCTestCase {
         let high = window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25))
         for round in 1 ... 2 {
             for (direction, from, to) in [("down", low, high), ("up", high, low)] {
-                for fling in 0 ..< 3 {
+                // Two more flings up than down: momentum differs per fling, and the
+                // comparison below needs the grid all the way back at its top.
+                for fling in 0 ..< (direction == "up" ? 5 : 3) {
                     // A quick flick: the grid keeps going on its own momentum.
                     from.press(forDuration: 0.01, thenDragTo: to, withVelocity: .fast, thenHoldForDuration: 0)
                     for frame in 0 ..< 3 {
