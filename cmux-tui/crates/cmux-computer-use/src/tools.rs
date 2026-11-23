@@ -109,7 +109,7 @@ fn delivery() -> Value {
 }
 
 fn window_id() -> Value {
-    json!({"type": "string", "description": "The window, from list_windows or a screenshot."})
+    json!({"type": "string", "description": "The window: its id from list_windows or a screenshot, or its title or app name (no list_windows needed; several matches are refused with the matches)."})
 }
 
 pub static TOOLS: &[Tool] = &[
@@ -418,15 +418,14 @@ pub fn mcp_list() -> Value {
 
 /// The instructions an agent gets with the server (MCP `instructions`).
 pub const INSTRUCTIONS: &str = "cmux Computer Use is built in (nothing to install; `machine` \
-reaches your other machines). For a task about this computer, look before you answer: \
-list_windows (or list_apps), then screenshot or get_ui_tree a window, and act on element ids or \
-pixels. Menu commands are in the tree's menu bar: click the menu's id, then the item. Each action \
-returns what changed and a screenshot; \"No change\" means it did nothing, so try another way \
-before saying it worked. batch runs a fixed sequence of steps on one window in one call. Act in \
-the background; use delivery foreground only when status says the person allowed it, and only for \
-a system-wide shortcut or to bring a window to them. If a call is refused, call status and tell \
-the person which Settings > Computer Use setting would allow it; never change those settings \
-yourself.";
+reaches your other machines). Use the fewest calls: a window_id can be the window's title or app \
+name, and each action returns what changed and a screenshot, so no look is needed before or after \
+it. When the task names the window and its controls, act at once: one batch whose steps name \
+elements by target {role, label}. Otherwise get_ui_tree the window, then act on element ids. Menu \
+commands are in the tree's menu bar. \"No change\" means it did nothing, so try another way before \
+saying it worked. Act in the background; use delivery foreground only when status says the person \
+allowed it, and only for a system-wide shortcut or to bring a window to them. If a call is refused, call status and tell the person which Settings > Computer Use \
+setting would allow it; never change those settings yourself.";
 
 #[cfg(test)]
 mod tests {
