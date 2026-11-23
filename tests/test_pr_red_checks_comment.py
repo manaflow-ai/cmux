@@ -8,6 +8,7 @@ pass, the old red-checks comment edited into the status comment, and no write fo
 import json
 import os
 import subprocess
+import tempfile
 import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -158,7 +159,13 @@ class FakeGitHub:
         if self.base_runs is not None:
             env["BASE_SHA"] = "b" * 40
         env.update(self.env)
-        out = subprocess.run([sys.executable, str(SCRIPT)], env=env, capture_output=True, text=True, timeout=60)
+        # The script fetches the merge ref into the repository it runs in (changed_files), and a fetch with
+        # --filter writes remote.<url>.promisor into that repository's config: a scratch repository takes it,
+        # never this checkout (whose config a worktree mirror shares).
+        with tempfile.TemporaryDirectory() as scratch:
+            subprocess.run(["git", "init", "-q", scratch], check=True)
+            out = subprocess.run([sys.executable, str(SCRIPT)], env=env, capture_output=True, text=True, timeout=60,
+                                 cwd=scratch)
         self.server.shutdown()
         assert out.returncode == 0, out.stderr
         return self.writes
@@ -479,7 +486,10 @@ def test_the_head_is_read_with_git_not_the_api():
         remote = head_remote(tmp, sha)
         fake = FakeGitHub([run("web / react-apps-check", "failure")], [], env={"PR_HEAD_REMOTE": remote, "HEAD_SHA": sha[0]})
         writes = fake.run()
+        remotes = subprocess.run(["git", "config", "--get-regexp", r"^remote\."], cwd=Path(__file__).resolve().parents[1],
+                                 capture_output=True, text=True).stdout
     assert len(writes) == 1 and RED_LINE in writes[0][2], writes
+    assert remote not in remotes, "the fetch wrote its remote into this checkout's git config"
     assert "/repos/o/r/pulls/7" not in fake.gets, fake.gets
 
 

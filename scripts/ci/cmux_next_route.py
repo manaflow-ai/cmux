@@ -169,6 +169,7 @@ SWIFT_JOB_INPUTS = (
     "cmux-tui/crates/cmux-cloud-start-core/",
     "cmux-tui/crates/cmux-tab-discard/",
     "cmux-tui/crates/cmux-cloud-config/",
+    "cmux-tui/crates/cmux-cloud-environment/",
     "cmux-tui/crates/cmux-cloud-handlers/",
     "cmux-tui/crates/cmux-cloud-machine/",
     "cmux-tui/crates/cmux-cloud-tasks/",
@@ -305,6 +306,8 @@ BUNDLE_INPUTS = (
     "schemas/design-scale/design-scale.json",
     # The theme slots the slot registry imports (src/slots/registry.ts).
     "schemas/theme/slots.json",
+    # The layout-motion contract the motion judge imports (src/layout/motionContract.ts).
+    "schemas/layout-motion/contract.json",
     # The transcript look the transcript imports (src/agent-session/acpmux/conversation/transcriptLook.ts).
     "schemas/transcript-look/transcript-look.json",
     # The gallery index and looks the Customize checklist imports (src/pages/settings/customizeLooks.ts).
@@ -972,7 +975,7 @@ def split_top(text: str, operator: str) -> list[str] | None:
 
 def linux_values(expression: str) -> bool:
     """Whether every value an expression can give is a Linux label: `a && b || c` gives b or c, so each
-    `||` alternative's last `&&` operand must be a literal naming ubuntu or a variable whose name says
+    `||` alternative's last `&&` operand must be a literal naming ubuntu, 'cmux-linux', or a variable whose name says
     LINUX (a parenthesised group is read the same way). Anything else may be a Mac."""
     alternatives = split_top(expression.strip(), "||")
     if not alternatives:
@@ -986,18 +989,11 @@ def linux_values(expression: str) -> bool:
             if not linux_values(value[1:-1]):
                 return False
         elif re.fullmatch(r"'[^']*'", value):
-            if "ubuntu" not in value:
+            if "ubuntu" not in value and value != "'cmux-linux'":
                 return False
-        elif not (re.fullmatch(r"vars\.\w+", value) and "LINUX" in value) and value not in PORTABLE_RUNNERS:
+        elif not (re.fullmatch(r"vars\.\w+", value) and "LINUX" in value):
             return False
     return True
-
-
-# Portable placement (scripts/ci/portable_job_placement.py) puts a job that needs neither Linux nor
-# Blacksmith on fleet Linux or a free mini. The job runs the same scripts either way, none of the
-# app's Mac tiers, so its outputs count as Linux here: an edit to such a job runs no Mac tier.
-PORTABLE_RUNNERS = frozenset(
-    f"needs.portable-placement.outputs.{output}" for output in ("linux_runner", "mini_runner"))
 
 
 def linux_runs_on(value) -> bool:
