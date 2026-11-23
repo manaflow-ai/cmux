@@ -510,7 +510,8 @@ extension AgentPaneRequest {
         case "machine.folder.list":
             let path = params?["path"] as? String
             if path.map({ $0.utf8.count <= 4096 && !$0.contains("\0") }) ?? true {
-                self = .listMachineFolder(path: path, files: params?["files"] as? Bool ?? false)
+                let machine = (params?["machine"] as? String).flatMap { $0.utf8.count <= 256 && !$0.contains("\0") ? $0 : nil }
+                self = .listMachineFolder(path: path, files: params?["files"] as? Bool ?? false, machine: machine)
             } else { self = .unsupported(method) }
         case "project.icon":
             if let cwd = params?["cwd"] as? String, cwd.hasPrefix("/"), cwd.utf8.count <= 4096 { self = .projectIcon(cwd) }

@@ -228,7 +228,7 @@ export function ComposerContext({
   /// folder menu while the chat's own machine is picked; a pick there is this chat's folder.
   machineFolders?: Project[];
   onBrowseProject?(request?: BrowseRequest): Promise<BrowseResult> | BrowseResult | void;
-  /// A new chat on its own other machine: Add folder… lists that machine's folders (RemoteFolderChooser.tsx),
+  /// A new chat on a machine picked (this Mac's composer, or the chat's own): Add folder… lists that machine's folders (RemoteFolderChooser.tsx),
   /// not this Mac's panel. Named by the machine's label; answers the picked path.
   onBrowseMachine?(machine: string): Promise<string | undefined>;
   /// New Worktree (cx-lyqio.2): a new chat on this Mac starts in a worktree of its folder.
@@ -675,7 +675,7 @@ export function ComposerContext({
   // did, the panel only answers (deferPick) and the pick commits here, so a folder picked while the
   // panel was open wins over its late answer; a refused or failed panel says why beside a Retry.
   const browseMachine =
-    onBrowseMachine && !readOnly && selectedComputer !== "local" && selectedComputer === initialComputer
+    onBrowseMachine && !readOnly && selectedComputer !== "local"
       ? () => onBrowseMachine(currentComputer?.label ?? selectedComputer)
       : undefined;
   const browseSource = browseMachine ?? (onBrowseProject ? () => onBrowseProject({ deferPick: true }) : undefined);

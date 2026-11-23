@@ -34,3 +34,14 @@ test("starts where the machine says, then maps ~ to its home", async () => {
   await host.list("/srv");
   expect(asked).toEqual([{}, { path: "/home/dev" }, { path: "/home/dev/api" }, { path: "/srv" }]);
 });
+
+test("names the picked machine on every listing so the host addresses it", async () => {
+  const asked: unknown[] = [];
+  const host = machineDirectoryHost(async (_method, params) => {
+    asked.push(params);
+    return listing("/home/dev");
+  }, "lab-box");
+  await host.list("");
+  await host.list("/srv");
+  expect(asked).toEqual([{ machine: "lab-box" }, { path: "/srv", machine: "lab-box" }]);
+});

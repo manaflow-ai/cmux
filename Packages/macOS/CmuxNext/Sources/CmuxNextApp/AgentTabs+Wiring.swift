@@ -383,6 +383,10 @@ extension AgentTabStore {
                   let daemon = try? services.machines.agentDaemon(forTab: tab), !daemon.isLocal else { return nil }
             return AgentRemoteMachineDisk(surface: tab.surface.rawValue, endpoint: AgentTabRemoteHost.endpoint(on: daemon), supports: daemon.supports)
         }
+        tabs.remoteMachineDiskNamed = { [weak services] name in
+            guard let services, let id = services.machines.machineID(peer: name), let daemon = services.machines.anyDaemon(machine: id), !daemon.isLocal else { return nil }
+            return AgentRemoteMachineDisk(surface: 0, endpoint: AgentTabRemoteHost.endpoint(on: daemon), supports: daemon.supports)
+        }
         tabs.shareMachineWithMeScoped = { [weak services, weak tabs] key in
             guard let services, let session = services.machines.session(key.machine) else {
                 return .refused(code: "unavailable", message: CloudShareStrings.notCloudMachine)

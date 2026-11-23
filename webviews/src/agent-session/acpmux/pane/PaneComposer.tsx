@@ -1370,7 +1370,7 @@ export function drawPaneComposer({
                   },
                 }
               : {})}
-            {...(freshChat && !quick && remoteChat ? { onBrowseMachine: chooseRemoteFolder } : {})}
+            {...(freshChat && !quick ? { onBrowseMachine: chooseRemoteFolder } : {})}
             onBrowseProject={
               folderChoiceOffered
                 ? chooseWorkspaceFolder

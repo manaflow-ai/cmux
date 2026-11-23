@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from "react";
 import { callNative } from "./callNative";
 import { AddProjectDialog } from "./AddProjectPanel";
+import type { ProjectDirectoryHost } from "./projectDirectory";
 import { machineDirectoryHost, type MachineListing } from "./remoteMachineDirectory";
 
 /// The folder chooser of a new chat on another machine: its Add folder… opens this dialog over that
@@ -28,7 +29,15 @@ export function chooseRemoteFolder(machine: string): Promise<string | undefined>
   });
 }
 
-const host = machineDirectoryHost((method, params) => callNative<MachineListing | undefined>(method, params));
+const hosts = new Map<string, ProjectDirectoryHost>();
+const hostFor = (machine: string) => {
+  let host = hosts.get(machine);
+  if (!host) {
+    host = machineDirectoryHost((method, params) => callNative<MachineListing | undefined>(method, params), machine);
+    hosts.set(machine, host);
+  }
+  return host;
+};
 
 export function RemoteFolderChooser() {
   const current = useSyncExternalStore(
@@ -43,7 +52,7 @@ export function RemoteFolderChooser() {
     <AddProjectDialog
       open
       machine={current.machine}
-      host={host}
+      host={hostFor(current.machine)}
       onPick={(path) => current.settle(path)}
       onClose={() => current.settle(undefined)}
     />

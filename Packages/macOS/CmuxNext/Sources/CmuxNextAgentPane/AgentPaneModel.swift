@@ -218,7 +218,7 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onListRemoteProjects: ((String?) async -> [String])?
     /// One folder of the chat's own machine's disk (`machine.folder.list`): the daemon there lists it
     /// (`agent-session-list-dir`). The reply is the daemon's listing, or `error` {code, message}.
-    @ObservationIgnored public var onListMachineFolder: ((String?, Bool) async -> [String: Any])?
+    @ObservationIgnored public var onListMachineFolder: ((String?, Bool, String?) async -> [String: Any])?
     /// The new chat folder picker's GitHub section (`github.status`, `github.connect`, `github.repos.list`);
     /// nil: the picker shows none.
     @ObservationIgnored public var gitHub: AgentPaneGitHub?
@@ -742,10 +742,11 @@ public final class AgentPaneModel {
         case .projectIcon where remoteChat:
             // A chat on another machine: its folders are there, and this Mac's disk is never read (cx-k21v).
             return AgentPaneReply.success()
-        case .listMachineFolder(let path, let files):
-            // Only a chat on another machine has a disk of its own to list; this Mac's is the open panel's.
-            guard remoteChat, let onListMachineFolder else { return Self.unsupported("machine.folder.list") }
-            return AgentPaneReply.success(await onListMachineFolder(path, files))
+        case .listMachineFolder(let path, let files, let machine):
+            // A chat on another machine lists its own; a new chat here lists the machine its composer picked.
+            // This Mac's disk is the open panel's, never listed here.
+            guard remoteChat || machine != nil, let onListMachineFolder else { return Self.unsupported("machine.folder.list") }
+            return AgentPaneReply.success(await onListMachineFolder(path, files, machine))
         case .completeFolder where remoteChat:
             // A chat on another machine: its folders are there, and this Mac's disk is never listed.
             return AgentPaneReply.success(["folders": [String]()])

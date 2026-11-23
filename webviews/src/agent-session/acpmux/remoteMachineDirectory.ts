@@ -27,16 +27,21 @@ export function machineDirectory(listing: MachineListing | undefined): ProjectDi
   };
 }
 
-/// The chooser's directory host for one machine. It starts where the machine says (its work folder, else its home);
+/// The chooser's directory host for one machine, `machine` named when it is not the chat's own (the host addresses that one). It starts where the machine says (its work folder, else its home);
 /// a typed `~` or `~/x` is that machine's home, which the first listing names.
-export function machineDirectoryHost(call: Call): ProjectDirectoryHost {
+export function machineDirectoryHost(call: Call, machine?: string): ProjectDirectoryHost {
   let home: string | undefined;
   return {
     list: async (requested) => {
       const path = requested.trim();
       let asked: string | undefined = path === "" || (path === "~" && !home) ? undefined : path;
       if (home && (path === "~" || path.startsWith("~/"))) asked = home + path.slice(1);
-      const directory = machineDirectory(await call("machine.folder.list", asked === undefined ? {} : { path: asked }));
+      const directory = machineDirectory(
+        await call("machine.folder.list", {
+          ...(asked === undefined ? {} : { path: asked }),
+          ...(machine ? { machine } : {}),
+        }),
+      );
       home = directory.home;
       return directory;
     },
