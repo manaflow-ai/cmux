@@ -315,12 +315,13 @@ fn close_extra(mux: &Arc<Mux>, key: &str) {
 /// another workspace, a one-step move of a middle workspace, an empty workspace's create and a
 /// pane opened in the middle workspace.
 fn single_change_costs(n: usize) -> BTreeMap<&'static str, Cost> {
+    // The test-only whole-tree check of each delta entity is not daemon work (this thread only:
+    // before the session is built, or a build of thousands is quadratic).
+    crate::server::skip_tree_entity_check();
     change_costs(&session(n))
 }
 
 fn change_costs(s: &Session) -> BTreeMap<&'static str, Cost> {
-    // The test-only whole-tree check of each delta entity is not daemon work.
-    crate::server::skip_tree_entity_check();
     let mux = &s.mux;
     let n = mux.with_state(|state| state.workspaces.len());
     let middle = n / 2;
@@ -449,11 +450,12 @@ fn timed_costs(s: &Session) -> BTreeMap<&'static str, f64> {
 #[cfg(unix)]
 #[test]
 fn open_pane_switch_and_create_cost_the_same_at_five_thousand_workspaces() {
-    let built = Instant::now();
+    crate::server::skip_tree_entity_check();
     let few = session_with(FEW, 1);
     let few_counts = change_costs(&few);
     let few_times = timed_costs(&few);
     drop(few);
+    let built = Instant::now();
     let many = session_with(THOUSANDS, 1);
     eprintln!("workspace scale: {THOUSANDS} workspaces built in {:?}", built.elapsed());
     let many_counts = change_costs(&many);
