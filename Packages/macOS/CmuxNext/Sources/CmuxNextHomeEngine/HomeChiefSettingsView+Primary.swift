@@ -15,7 +15,7 @@ extension HomeChiefSettingsView {
         primaryNote.preferredMaxLayoutWidth = Self.width - 2 * Self.inset
         addFullWidth(primaryRowView)
         addFullWidth(primaryNote)
-        stack.setCustomSpacing(Metrics.space4, after: primaryNote)
+        gap(after: primaryNote)
         setPrimary(nil)
     }
 

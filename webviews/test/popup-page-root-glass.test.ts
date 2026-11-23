@@ -32,7 +32,7 @@ const POPUP_PAGES: Record<string, string[]> = {
     "ui/ui.css",
     "pages/shared/pageBase.css",
     "pages/setup-card/styles.css",
-    "pages/home-messages/cards/cards.css",
+    "pages/setup-card/cards.css",
   ],
   "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/GroupEditor/GroupEditorService.swift": [
     "pages/group-editor/styles.css",

@@ -24,6 +24,8 @@ cmux-transport.workspace = true
 # The shared rd media engine: the in-hostd host of a simulator surface (src/surface.rs).
 cmux-rd-engine.workspace = true
 cmux-rd-proto.workspace = true
+# The `tabs` service's frames, producer and sessions (src/tab_snapshots.rs).
+cmux-tab-snapshots.workspace = true
 # Compressed acpmux messages on the phone link (src/link_deflate.rs).
 flate2.workspace = true
 futures-util.workspace = true
@@ -56,6 +58,7 @@ name = "cmux-mobile-fake-backend"
 required-features = ["fake-backend"]
 
 [dev-dependencies]
+cmux-fault.workspace = true
 cmux-mobile-link = { workspace = true, features = ["testing"] }
 cmux-rd-core.workspace = true
 cmux-rd-engine.workspace = true

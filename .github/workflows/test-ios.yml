@@ -916,8 +916,9 @@ jobs:
       - name: Prepare iOS build paths
         run: |
           set -euo pipefail
-          IOS_DERIVED_DATA="${RUNNER_TEMP:-$PWD/.tmp}/cmux-ios-build"
-          rm -rf "$IOS_DERIVED_DATA"
+          IOS_DERIVED_DATA="${CMUX_DERIVED_DATA_SLOT:-${RUNNER_TEMP:-$PWD/.tmp}/cmux-ios-build}"
+          # A per-stream slot (CMUX_DERIVED_DATA_SLOT) is the kept cache: only the default path is reset.
+          [ -n "${CMUX_DERIVED_DATA_SLOT:-}" ] || rm -rf "$IOS_DERIVED_DATA"
           mkdir -p "$IOS_DERIVED_DATA/logs"
           echo "IOS_DERIVED_DATA=$IOS_DERIVED_DATA" >> "$GITHUB_ENV"
 
