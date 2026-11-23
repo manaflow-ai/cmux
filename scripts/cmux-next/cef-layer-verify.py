@@ -818,17 +818,26 @@ def check_devtools():
     # Opening DevTools can make its window key by itself: the click proves something only when it was not key before.
     key_before = bool(devtools_key())
     point = rect_center(entry["devtools_frame"])
+    # The page click above made the app active and gave the page the keys: from here one click into DevTools must
+    # move them (the person clicks the console once and types). A second click is still tried, so the row says which.
+    app_active = bool((rpc("debug.focus") or {}).get("app_active"))
     key = None
-    for _ in (1, 2):  # the first click may only activate
+    clicks = 0
+    for _ in (1, 2):
         hid_click(point)
+        clicks += 1
         key = wait(devtools_key, 2)
         if key:
             break
     final = key or devtools_entry() or {}
-    row("devtools.click", bool(key) and not key_before,
-        {"at": [round(v) for v in point], "key_before_click": key_before, "child_windows": (final.get("child_windows") or [])[:4],
-         "appkit": [(w.get("appkit") or {}) for w in ((rpc("debug.focus") or {}).get("windows") or []) if isinstance(w, dict)][:2],
-         "note": "DevTools was key before the click (the page click did not take the key)" if key_before else None})
+    detail = {"at": [round(v) for v in point], "key_before_click": key_before, "clicks": clicks, "app_active_before": app_active,
+              "child_windows": (final.get("child_windows") or [])[:4],
+              "appkit": [(w.get("appkit") or {}) for w in ((rpc("debug.focus") or {}).get("windows") or []) if isinstance(w, dict)][:2],
+              "note": "DevTools was key before the click (the page click did not take the key)" if key_before else None}
+    row("devtools.click", bool(key) and not key_before, detail)
+    # In tree the cmux window is already key and active after the page click, so no click is spent activating it.
+    if opts.mode == "intree" and app_active and not key_before:
+        row("devtools.first_click", bool(key) and clicks == 1, detail)
     action("devtools.close")
 
 
