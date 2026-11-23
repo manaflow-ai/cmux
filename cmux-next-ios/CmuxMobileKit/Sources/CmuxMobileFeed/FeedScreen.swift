@@ -100,6 +100,16 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
                     }
                 }
             }
+            // Screenshot rig: CMUX_MOBILE_FEED_SHOT_ANSWER=<event id> allows that permission request
+            // (the ask leaves the pinned group for its place in time).
+            if let event = ProcessInfo.processInfo.environment["CMUX_MOBILE_FEED_SHOT_ANSWER"], !event.isEmpty {
+                Task { @MainActor in
+                    try? await Task.sleep(for: .seconds(1.5))
+                    guard case .permission(let request) = store.item(id: event)?.kind,
+                          let option = request.options.first(where: \.isAllow) else { return }
+                    store.respond(event, option: option)
+                }
+            }
             // Screenshot rig: CMUX_MOBILE_FEED_SHOT_FILTER=needsYou|finished|errors|all picks the filter;
             // CMUX_MOBILE_FEED_SHOT_CAUGHT_UP=1 marks every open ask done (the "All caught up" state).
             let env = ProcessInfo.processInfo.environment
