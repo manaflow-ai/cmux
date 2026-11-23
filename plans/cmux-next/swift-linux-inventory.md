@@ -16,8 +16,8 @@ imports. Imports inside `#if canImport/os()/targetEnvironment/arch` blocks do no
 
 | | linux | shims | mac | all |
 | --- | ---: | ---: | ---: | ---: |
-| targets | 42 | 22 | 288 | 352 |
-| of them test suites | 17 | 6 | 93 | 116 |
+| targets | 44 | 22 | 287 | 353 |
+| of them test suites | 18 | 6 | 92 | 116 |
 
 ## Packages and projects
 
@@ -56,13 +56,13 @@ imports. Imports inside `#if canImport/os()/targetEnvironment/arch` blocks do no
 | `Packages/iOS/CmuxConversation` | 0 | 0 | 9 | - |
 | `Packages/iOS/CmuxMobileBilling` | 2 | 0 | 1 | CI swift-linux-packages (2 of 3 targets) |
 | `Packages/iOS/CmuxMobilePairedMac` | 3 | 0 | 0 | CI swift-linux-packages (portable) (3 of 3 targets) |
-| `Packages/iOS/CmuxMobileRPC` | 0 | 0 | 2 | - |
+| `Packages/iOS/CmuxMobileRPC` | 2 | 0 | 0 | CI swift-linux-packages (2 of 2 targets) |
 | `Packages/iOS/CmuxMobileSSH` | 0 | 0 | 2 | - |
 | `Packages/iOS/CmuxMobileShellModel` | 2 | 0 | 0 | CI swift-linux-packages (portable) (2 of 2 targets) |
 | `Packages/iOS/CmuxMobileSupport` | 0 | 0 | 2 | - |
 | `Packages/iOS/CmuxMobileTunnel` | 0 | 0 | 2 | - |
 | `Packages/iOS/CmuxTabsKit` | 0 | 2 | 0 | - |
-| `Packages/macOS/CmuxNext` | 2 | 5 | 172 | - |
+| `Packages/macOS/CmuxNext` | 2 | 5 | 173 | - |
 | `Packages/macOS/CmuxPhonePush` | 0 | 0 | 2 | - |
 | `Packages/macOS/CmuxRemote` | 1 | 1 | 6 | - |
 | `Packages/macOS/CmuxUpdater` | 0 | 0 | 2 | - |
@@ -223,8 +223,8 @@ imports. Imports inside `#if canImport/os()/targetEnvironment/arch` blocks do no
 | Target | Kind | Class | Proof | Why | Guarded |
 | --- | --- | --- | --- | --- | --- |
 | CmuxScreenKit | target | mac | scan | imports QuartzCore; shim CoreGraphics | - |
-| CmuxScreenKitUI | target | mac | scan | its Apple code sits behind #if, so a Linux build compiles only the rest; via CmuxScreenKit | GameController, PhotosUI, SwiftUI, UIKit, VisionKit |
-| CmuxScreenKitTests | testTarget | mac | scan | shim CoreGraphics; via CmuxScreenKit | - |
+| CmuxScreenKitUI | target | mac | scan | its Apple code sits behind #if, so a Linux build compiles only the rest; via CmuxScreenKit | GameController, ImageIO, PhotosUI, SwiftUI, UIKit, VisionKit |
+| CmuxScreenKitTests | testTarget | mac | scan | imports ImageIO; shim CoreGraphics, UniformTypeIdentifiers | - |
 
 ## `Packages/Shared/CmuxSentryTelemetry`
 
@@ -281,7 +281,7 @@ imports. Imports inside `#if canImport/os()/targetEnvironment/arch` blocks do no
 
 | Target | Kind | Class | Proof | Why | Guarded |
 | --- | --- | --- | --- | --- | --- |
-| CmuxVNCWebRTC | target | mac | scan | imports CoreVideo, Network, Security, VideoToolbox, WebRTC; shim CoreGraphics, CryptoKit, Darwin, os | AVFoundation, AppKit, CoreMedia, CoreVideo, MetalKit, QuartzCore, ScreenCaptureKit, UIKit, WebRTC |
+| CmuxVNCWebRTC | target | mac | scan | imports CoreVideo, ImageIO, Network, Security, VideoToolbox, WebRTC; shim CoreGraphics, CryptoKit, Darwin, os | AVFoundation, AppKit, CoreMedia, CoreVideo, ImageIO, MetalKit, QuartzCore, ScreenCaptureKit, UIKit, WebRTC |
 | WebRTC | binaryTarget | shims | scan | binary framework (needs a Linux build of its library) | - |
 | cmux-vnc-host | executableTarget | mac | scan | imports CoreImage | - |
 | CmuxVNCWebRTCTests | testTarget | mac | scan | imports CoreImage, CoreVideo, ImageIO, WebRTC; shim CoreGraphics, CryptoKit, Darwin, UniformTypeIdentifiers | CoreVideo, WebRTC |
@@ -327,8 +327,8 @@ imports. Imports inside `#if canImport/os()/targetEnvironment/arch` blocks do no
 
 | Target | Kind | Class | Proof | Why | Guarded |
 | --- | --- | --- | --- | --- | --- |
-| CmuxMobileRPC | target | mac | scan | shim Darwin, OSLog, os; via CmuxMobileSupport | - |
-| CmuxMobileRPCTests | testTarget | mac | scan | via CmuxMobileRPC | - |
+| CmuxMobileRPC | target | linux | CI swift-linux-packages | - | - |
+| CmuxMobileRPCTests | testTarget | linux | CI swift-linux-packages | - | - |
 
 ## `Packages/iOS/CmuxMobileSSH`
 
@@ -384,6 +384,7 @@ imports. Imports inside `#if canImport/os()/targetEnvironment/arch` blocks do no
 | CmuxNextApp | target | mac | scan | imports AVFoundation, AppKit, ApplicationServices, CoreText, ImageIO, LocalAuthentication, MediaPlayer, Network, ObjectiveC, QuartzCore, ServiceManagement, SwiftUI, SystemConfiguration, WebKit; shim CoreGraphics, CryptoKit, Darwin, OSLog, UniformTypeIdentifiers, os | - |
 | CmuxNextAppCore | target | mac | scan | imports AppKit | - |
 | CmuxNextAppHealth | target | mac | scan | imports AppKit; shim Darwin, os | - |
+| CmuxNextAppTry | target | mac | scan | imports AppKit; shim os | - |
 | CmuxNextApps | target | mac | scan | imports AppKit, QuartzCore; shim CoreGraphics | - |
 | CmuxNextBookmarks | target | mac | scan | imports AppKit, SwiftUI; shim os | - |
 | CmuxNextBridge | target | mac | scan | imports AppKit, CoreText, ImageIO, QuartzCore; shim CoreGraphics, UniformTypeIdentifiers, os; unknown module CCmuxLayoutReducerFFI | - |
@@ -406,7 +407,7 @@ imports. Imports inside `#if canImport/os()/targetEnvironment/arch` blocks do no
 | CmuxNextCloudUI | target | mac | scan | imports AppKit, SwiftUI; shim os | - |
 | CmuxNextCodeRouter | target | mac | scan | imports LocalAuthentication, Security; shim CryptoKit, os | - |
 | CmuxNextCompat | target | mac | scan | imports AppKit, LocalAuthentication, MachO, Network, ObjectiveC, QuartzCore, Security, SystemConfiguration, XPC; shim CoreGraphics, Darwin, os | - |
-| CmuxNextComputerUse | target | mac | scan | imports Security; shim Darwin, os | - |
+| CmuxNextComputerUse | target | mac | scan | imports Security; shim CryptoKit, Darwin, os | - |
 | CmuxNextComputerUsePreview | target | mac | scan | imports AppKit; shim os | - |
 | CmuxNextControl | target | mac | scan | imports MachO; shim CoreGraphics, Darwin, os; unknown module CCmuxLaunchRecordFFI | - |
 | CmuxNextCookieImport | target | mac | scan | imports AppKit | - |
@@ -431,7 +432,7 @@ imports. Imports inside `#if canImport/os()/targetEnvironment/arch` blocks do no
 | CmuxNextFocusUI | target | mac | scan | imports AppKit, Carbon, WebKit; shim os | - |
 | CmuxNextGitHubViewer | target | mac | scan | imports AppKit | - |
 | CmuxNextHangReports | target | mac | scan | imports MachO; shim Darwin, os; unknown module MetricKit | - |
-| CmuxNextHibernation | target | mac | scan | shim CoreGraphics, os; via CmuxNextBridge | - |
+| CmuxNextHibernation | target | mac | scan | imports ImageIO; shim CoreGraphics, os | - |
 | CmuxNextHistory | target | mac | scan | imports AppKit, SwiftUI; shim Darwin, os | - |
 | CmuxNextHistoryDaemon | target | mac | scan | shim CryptoKit, os; via CmuxNextBrowserCore | - |
 | CmuxNextHistoryPages | target | mac | scan | imports AppKit; shim os | - |
@@ -439,7 +440,7 @@ imports. Imports inside `#if canImport/os()/targetEnvironment/arch` blocks do no
 | CmuxNextHomeEngine | target | mac | scan | imports AppKit, ImageIO; shim CoreGraphics, CryptoKit, Darwin, UniformTypeIdentifiers, os | - |
 | CmuxNextHomeModel | target | mac | scan | via CmuxHomeCore | - |
 | CmuxNextHostPressure | target | shims | scan | shim Darwin, os | - |
-| CmuxNextHostedChief | target | mac | scan | shim os; via CmuxNextCompat | - |
+| CmuxNextHostedChief | target | mac | scan | imports AppKit; shim OSLog, os | - |
 | CmuxNextIcons | target | mac | scan | imports AppKit, ImageIO, SwiftUI; shim CoreGraphics, UniformTypeIdentifiers, os | - |
 | CmuxNextImportCards | target | mac | scan | imports AppKit; shim os | - |
 | CmuxNextImportSuggestions | target | mac | scan | via CmuxNextBrowserImport | - |
@@ -450,7 +451,7 @@ imports. Imports inside `#if canImport/os()/targetEnvironment/arch` blocks do no
 | CmuxNextMacScreen | target | mac | scan | imports AppKit, ApplicationServices, Network, Security, SystemConfiguration; shim CoreGraphics, CryptoKit, Darwin, os; unknown module CCmuxDaemonConnFFI | - |
 | CmuxNextMallocZone | target | mac | scan | C/ObjC: <mach>, <malloc/malloc> | - |
 | CmuxNextMobile | target | mac | scan | imports LocalAuthentication, Security; shim CryptoKit, os | - |
-| CmuxNextMobileHost | target | mac | scan | imports AppKit, CoreImage, UserNotifications; shim os | - |
+| CmuxNextMobileHost | target | mac | scan | imports AppKit, CoreImage, UserNotifications; shim CryptoKit, os | - |
 | CmuxNextNotifications | target | mac | scan | imports AppKit, UserNotifications; shim os | - |
 | CmuxNextNowPlaying | target | mac | scan | imports AVFoundation, AppKit, ImageIO; shim CoreGraphics, UniformTypeIdentifiers, os | - |
 | CmuxNextOnboarding | target | mac | scan | imports AppKit, ApplicationServices, ImageIO, WebKit; shim UniformTypeIdentifiers, os | - |
@@ -467,7 +468,7 @@ imports. Imports inside `#if canImport/os()/targetEnvironment/arch` blocks do no
 | CmuxNextRemoteLayer | target | mac | scan | C/ObjC: .m, <QuartzCore> | - |
 | CmuxNextRemoteLocalhost | target | mac | scan | imports Network, Security; shim CryptoKit, Darwin, os | - |
 | CmuxNextRemoteLocalhostService | target | mac | scan | shim CryptoKit, os; via CmuxNextActions | - |
-| CmuxNextRemoteView | target | mac | scan | imports AVFoundation, AppKit, Carbon, CoreMedia, CoreVideo, IOSurface, Metal, Network, QuartzCore, VideoToolbox; shim CoreGraphics, os; unknown module CCmuxRdFFI | - |
+| CmuxNextRemoteView | target | mac | scan | imports AVFoundation, AppKit, Carbon, CoreMedia, CoreVideo, IOSurface, Metal, Network, QuartzCore, VideoToolbox; shim CoreGraphics, OSLog, os; unknown module CCmuxRdFFI | - |
 | CmuxNextRemoteViewSessions | target | mac | scan | imports AppKit, CoreVideo, Security; shim os | - |
 | CmuxNextResources | target | mac | scan | imports WebKit; shim Darwin | - |
 | CmuxNextScreenshots | target | mac | scan | imports AppKit, WebKit | - |
@@ -501,7 +502,7 @@ imports. Imports inside `#if canImport/os()/targetEnvironment/arch` blocks do no
 | CmuxNextAgentIntegrationsTests | testTarget | mac | scan | via CmuxNextAgentIntegrations | - |
 | CmuxNextAgentPaneTests | testTarget | mac | scan | imports AVFoundation, AppKit, CoreVideo, ImageIO, JavaScriptCore, Network, Security, Speech, WebKit; shim CoreGraphics, CryptoKit, Darwin, UniformTypeIdentifiers, os | - |
 | CmuxNextAgentPermissionsTests | testTarget | mac | scan | imports AppKit | - |
-| CmuxNextAppTests | testTarget | mac | scan | imports AVFoundation, AppKit, CoreImage, CoreVideo, IOSurface, ImageIO, Network, ObjectiveC, QuartzCore, Security, Sentry, SwiftUI, UserNotifications, WebKit; shim CoreGraphics, CryptoKit, Darwin, UniformTypeIdentifiers, os; unknown module CCmuxLayoutReducerFFI | - |
+| CmuxNextAppTests | testTarget | mac | scan | imports AVFoundation, AppKit, CoreImage, CoreVideo, IOSurface, ImageIO, Metal, Network, ObjectiveC, QuartzCore, Security, Sentry, SwiftUI, UserNotifications, WebKit; shim CoreGraphics, CryptoKit, Darwin, UniformTypeIdentifiers, os; unknown module CCmuxLayoutReducerFFI | - |
 | CmuxNextAppsTests | testTarget | mac | scan | imports AppKit, WebKit | - |
 | CmuxNextBrowserAutomationTests | testTarget | mac | scan | imports ImageIO; shim CoreGraphics, UniformTypeIdentifiers | - |
 | CmuxNextBrowserHostTests | testTarget | mac | scan | imports AppKit; shim Darwin | - |
@@ -524,13 +525,13 @@ imports. Imports inside `#if canImport/os()/targetEnvironment/arch` blocks do no
 | CmuxNextFloatingTests | testTarget | mac | scan | imports AppKit | - |
 | CmuxNextGitHubViewerTests | testTarget | mac | scan | via CmuxNextAgentPane | - |
 | CmuxNextHangReportsTests | testTarget | mac | scan | via CmuxNextCompat | - |
-| CmuxNextHomeEngineTests | testTarget | mac | scan | imports AppKit; shim os | - |
+| CmuxNextHomeEngineTests | testTarget | mac | scan | imports AppKit; shim CoreGraphics, os | - |
 | CmuxNextHostPressureTests | testTarget | shims | scan | shim os | - |
 | CmuxNextImportSuggestionsTests | testTarget | mac | scan | via CmuxNextBrowserImport | - |
 | CmuxNextKeepAwakeTests | testTarget | mac | scan | via CmuxNextKeepAwake | - |
 | CmuxNextKeysTests | testTarget | mac | scan | via CmuxNextKeys | - |
 | CmuxNextLiveCodeTests | testTarget | mac | scan | via CmuxNextLiveCode | - |
-| CmuxNextMacScreenTests | testTarget | mac | scan | shim CryptoKit, os; via CmuxNextCompat | - |
+| CmuxNextMacScreenTests | testTarget | mac | scan | shim CryptoKit, os; via CmuxNextActions | - |
 | CmuxNextMobileHostTests | testTarget | mac | scan | imports AppKit, ImageIO, Security; shim CoreGraphics, CryptoKit, UniformTypeIdentifiers | - |
 | CmuxNextMobileTests | testTarget | mac | scan | imports LocalAuthentication, Security; shim os | - |
 | CmuxNextPagesTests | testTarget | mac | scan | imports AppKit, CoreText, ImageIO, JavaScriptCore, WebKit; shim CoreGraphics, Darwin, UniformTypeIdentifiers | - |

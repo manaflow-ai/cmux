@@ -36,6 +36,8 @@ public struct ChiefSettingsView: View {
     @State private var stopNote: String?
     @State private var muted: Bool
     @State private var receipts: Bool
+    /// ``ChiefAIConsent``: off, the next send asks again.
+    @State private var aiConsent = ChiefAIConsent.isGranted
     /// The window's top safe inset (the status bar): Messages' avatar top.
     @State private var windowSafeTop: CGFloat = Self.lastWindowSafeTop
     /// The header row's top at rest, in the window (the list runs under the
@@ -72,6 +74,7 @@ public struct ChiefSettingsView: View {
             // Messages' Find My slot: the account's Cloud machine (hidden unless it pays and one ran).
             ChiefComputerSection(computer: computer)
             notificationsSection
+            aiSection
             #if DEBUG
             diagnosticsSection
             #endif
@@ -345,6 +348,26 @@ public struct ChiefSettingsView: View {
             Text(String(localized: "mobile.chief.notificationsFooter", defaultValue: "These settings apply to this iPhone.", bundle: .module))
         }
         .disabled(session.conversationID == nil)
+        .listRowBackground(ChiefInfoGeometry.card)
+    }
+
+    /// App Review 5.1.2(i) and 1.2: the AI sharing the person agreed to, which they can
+    /// withdraw here, and a way to report a reply.
+    private var aiSection: some View {
+        Section {
+            Toggle(String(localized: "mobile.chief.aiConsent.toggle", defaultValue: "Share Messages with AI", bundle: .module),
+                   isOn: $aiConsent)
+                .tint(Color(uiColor: .systemGreen))
+                .accessibilityIdentifier("chief.settings.aiConsent")
+                .onChange(of: aiConsent) { _, on in ChiefAIConsent.set(on) }
+            Button(ChiefReport.title) { ChiefReport.open(conversationID: session.conversationID) }
+                .accessibilityIdentifier("chief.settings.report")
+        } footer: {
+            Text(String(format: String(localized: "mobile.chief.aiConsent.footer",
+                                       defaultValue: "Chief's replies come from third-party AI models: %@. With sharing off, Chief asks before your next message. %@",
+                                       bundle: .module),
+                        ChiefAIConsent.providers, ChiefReport.footer))
+        }
         .listRowBackground(ChiefInfoGeometry.card)
     }
 
