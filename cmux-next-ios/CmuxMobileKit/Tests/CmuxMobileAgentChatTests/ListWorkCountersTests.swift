@@ -2,6 +2,7 @@
 @testable import CmuxMobileAgentChat
 import Foundation
 import Observation
+import SwiftUI
 import Testing
 import UIKit
 
