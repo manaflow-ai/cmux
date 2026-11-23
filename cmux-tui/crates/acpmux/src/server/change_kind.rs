@@ -44,6 +44,9 @@ pub(crate) fn session_change_kind(record_kind: &str) -> Option<&str> {
         | "subagents_working"
         // A sub-session below it started or stopped waiting on the person (`hub/asks_below.rs`).
         | "subsessions_waiting"
+        // What it waits on that wakes it by itself changed: the row's `backgroundWaits`
+        // (`hub/background_waits.rs`), the working shelf.
+        | "background_waits"
         // How many subagents run changed, or a background command started or ended: the
         // summary's `subagentsRunning`, `subagentNames` and `commandsRunning` (`hub/views.rs`).
         | "subagents_running"

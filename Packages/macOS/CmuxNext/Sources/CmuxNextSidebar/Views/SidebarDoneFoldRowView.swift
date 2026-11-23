@@ -35,6 +35,8 @@ final class SidebarDoneFoldRowView: SidebarRowView, SidebarFoldRingView {
         switch row.key {
         case .showMore:
             name.setString(row.isCollapsed ? Strings.showMore(row.childCount) : Strings.showFewer)
+        case let .doneFold(fold) where fold.kind == .working:
+            name.setString(Strings.workingFold(row.childCount))
         case let .doneFold(fold) where fold.kind == .settled:
             name.setString(Strings.settledFold(row.childCount))
         case let .doneFold(fold) where fold.kind == .archived:

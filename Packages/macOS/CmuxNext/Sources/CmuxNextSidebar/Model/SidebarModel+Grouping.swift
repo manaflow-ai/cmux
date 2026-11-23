@@ -44,6 +44,6 @@ extension SidebarModel {
             // Projects past the first five fold behind Show more: needing you keeps a row out of it, as the row limit does.
             if (old.agentChip == .needsYou) != (new.agentChip == .needsYou) { return true }
         }
-        return Self.movesRows(from: old, to: new, groupsByFolder: groupsByFolder, settles: settlesFinished)
+        return Self.movesRows(from: old, to: new, groupsByFolder: groupsByFolder, settles: settlesFinished, shelves: shelvesWaiting)
     }
 }

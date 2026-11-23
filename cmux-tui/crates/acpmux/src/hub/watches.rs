@@ -62,6 +62,16 @@ struct Saved {
     watches: BTreeMap<String, Watch>,
     pending: BTreeMap<String, Delivery>,
 }
+impl Saved {
+    /// The chats live watches wake, each with how many (`background_waits.rs`).
+    fn waking(&self) -> BTreeMap<&str, usize> {
+        let mut to = BTreeMap::new();
+        for w in self.watches.values().filter(|w| w.active) {
+            *to.entry(w.to.as_str()).or_default() += 1;
+        }
+        to
+    }
+}
 #[derive(Default)]
 struct Inner {
     saved: Saved,
@@ -176,21 +186,42 @@ impl Watches {
     }
     // Do not acknowledge a mutation that could not be saved; keep the previous
     // checkpoint so a later event/restart can retry without losing the wake.
-    fn change<T>(&self, f: impl FnOnce(&mut Saved) -> T) -> Result<T, RpcError> {
-        let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
-        let mut next = inner.saved.clone();
-        let result = f(&mut next);
-        if let Some(path) = &inner.path {
-            let bytes = serde_json::to_vec(&next).map_err(|e| RpcError::internal(e.to_string()))?;
-            crate::config::write_atomic(path, &bytes)
-                .map_err(|e| RpcError::internal(format!("cannot save watches: {e}")))?;
+    // A change in which live watches wake a chat recounts its background waits
+    // (`background_waits.rs`), once the watches are let go.
+    fn change<T>(&self, hub: &Hub, f: impl FnOnce(&mut Saved) -> T) -> Result<T, RpcError> {
+        let (result, moved) = {
+            let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+            let mut next = inner.saved.clone();
+            let result = f(&mut next);
+            if let Some(path) = &inner.path {
+                let bytes =
+                    serde_json::to_vec(&next).map_err(|e| RpcError::internal(e.to_string()))?;
+                crate::config::write_atomic(path, &bytes)
+                    .map_err(|e| RpcError::internal(format!("cannot save watches: {e}")))?;
+            }
+            let (before, after) = (inner.saved.waking(), next.waking());
+            let moved: BTreeSet<String> = before
+                .keys()
+                .chain(after.keys())
+                .filter(|to| before.get(*to) != after.get(*to))
+                .map(|to| (*to).to_owned())
+                .collect();
+            inner.saved = next;
+            (result, moved)
+        };
+        for to in moved {
+            hub.refresh_background_waits_of(&to);
         }
-        inner.saved = next;
         Ok(result)
     }
-    pub fn add(&self, watch: Watch) -> Result<Value, RpcError> {
+    /// How many live watches wake chat `to` (`background_waits.rs`).
+    pub(super) fn waking(&self, to: &str) -> usize {
+        let inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        inner.saved.watches.values().filter(|w| w.active && w.to == to).count()
+    }
+    pub fn add(&self, hub: &Hub, watch: Watch) -> Result<Value, RpcError> {
         let result = watch.status();
-        self.change(|s| s.watches.insert(watch.id.clone(), watch))?;
+        self.change(hub, |s| s.watches.insert(watch.id.clone(), watch))?;
         self.wake.notify_one();
         self.timers.notify_one();
         Ok(result)
@@ -207,8 +238,8 @@ impl Watches {
     }
     /// Remove a watch: it makes no new wake. Wakes it already owes stay pending and are still
     /// delivered (`drain`), since their events happened before the removal; returns how many.
-    pub fn remove(&self, id: &str) -> Result<Option<usize>, RpcError> {
-        let removed = self.change(|s| {
+    pub fn remove(&self, hub: &Hub, id: &str) -> Result<Option<usize>, RpcError> {
+        let removed = self.change(hub, |s| {
             s.watches.remove(id)?;
             Some(s.pending.values().filter(|d| watch_of(d) == Some(id)).count())
         })?;
@@ -276,6 +307,14 @@ impl Watches {
                 let mut events = hub.subscribe(); // Subscribe before startup/reconciliation.
                 hub.wait_logs().await;
                 hub.wait_startup().await;
+                // The chats the saved watches wake count them (`background_waits.rs`).
+                let to: BTreeSet<String> = {
+                    let inner = hub.watches.inner.lock().unwrap_or_else(|e| e.into_inner());
+                    inner.saved.waking().into_keys().map(str::to_owned).collect()
+                };
+                for to in to {
+                    hub.refresh_background_waits_of(&to);
+                }
                 let mut refresh = true;
                 loop {
                     #[cfg(test)]
@@ -359,7 +398,7 @@ fn commit(
     if old.cursors == next.cursors && old.offline == next.offline && lines.is_empty() {
         return Ok(());
     }
-    hub.watches.change(|saved| {
+    hub.watches.change(hub, |saved| {
         let Some(w) = saved.watches.get_mut(&old.id) else { return };
         if !w.active || w.cursors.get(key) != old.cursors.get(key) {
             return;
@@ -529,7 +568,7 @@ fn drain(hub: &Arc<Hub>, retry: bool) {
     for d in pending.into_values() {
         match hub.outbox.get(&d.id) {
             Some(sent) if matches!(sent.state, State::Delivered | State::Held) => {
-                if let Err(e) = hub.watches.change(|s| {
+                if let Err(e) = hub.watches.change(hub, |s| {
                     s.pending.remove(&d.id);
                     if d.request.pointer("/_meta/acpmux/watchDone") == Some(&json!(true))
                         && let Some(id) = watch_of(&d)
