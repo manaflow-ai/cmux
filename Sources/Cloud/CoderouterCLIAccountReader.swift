@@ -2,27 +2,112 @@ import Darwin
 import Foundation
 import OSLog
 
-/// How a CodeRouter command is pinned to the selected team without relying on
-/// the CLI's shared, persisted active organization.
-enum CoderouterTeamScope: Equatable, Sendable {
-    /// The CLI accepts `--team <id>` on `accounts`, `remove`, and `add`.
-    case teamOption
-    /// Older CLIs: `org switch` plus the command, inside a private copy of the
-    /// config so the user's terminals never see the switch.
-    case isolatedConfiguration
+/// Why the sidebar could not read or change the team's CodeRouter accounts.
+/// Each case maps to one actionable message; raw CLI output stays in the log.
+enum CoderouterCLIFailure: Error, Equatable, Sendable, LocalizedError {
+    /// No CodeRouter CLI is bundled or installed.
+    case notInstalled
+    /// The resolved CLI predates team-scoped commands (`--team`, 0.3.16).
+    case outdated
+    /// The app is signed out, or the CLI rejected the app session.
+    case signInRequired
+    /// The signed-in account is not a member of the selected team.
+    case notMember
+    /// The team's plan does not include CodeRouter.
+    case planRequired
+    /// The network or the control plane is down.
+    case unreachable
+    /// Anything else.
+    case unavailable
+    /// The app's session was being revalidated or replaced while it was
+    /// captured. Transient: the next refresh retries, nothing is reported.
+    case sessionChanging
+
+    var message: String {
+        switch self {
+        case .notInstalled:
+            return String(localized: "coderouter.failure.notInstalled", defaultValue: "Coderouter is missing from this cmux install. Update cmux, then retry.")
+        case .outdated:
+            return String(localized: "coderouter.failure.outdated", defaultValue: "This Coderouter version can't load team accounts. Update cmux, then retry.")
+        case .signInRequired:
+            return String(localized: "coderouter.failure.signIn", defaultValue: "Your cmux sign-in expired. Sign in again, then retry.")
+        case .notMember:
+            return String(localized: "coderouter.failure.notMember", defaultValue: "Your cmux account can't manage Coderouter for this team.")
+        case .planRequired:
+            return String(localized: "coderouter.failure.plan", defaultValue: "Coderouter needs a cmux Pro or Team plan.")
+        case .unreachable:
+            return String(localized: "coderouter.failure.network", defaultValue: "Coderouter is unreachable. Check your connection, then retry.")
+        case .unavailable, .sessionChanging:
+            return String(localized: "coderouter.failure.unknown", defaultValue: "Coderouter accounts didn't load. Retry in a moment.")
+        }
+    }
+
+    /// The hint after a failed removal. Read-specific copy ("didn't load",
+    /// "can't load") is replaced; the rest already fits.
+    var removalMessage: String {
+        switch self {
+        case .outdated:
+            return String(localized: "coderouter.failure.removeOutdated", defaultValue: "This Coderouter version can't remove team accounts. Update cmux, then retry.")
+        case .unavailable, .sessionChanging:
+            return String(localized: "coderouter.failure.remove", defaultValue: "Coderouter couldn't remove this account. Retry in a moment.")
+        case .notInstalled, .signInRequired, .notMember, .planRequired, .unreachable:
+            return message
+        }
+    }
+
+    /// The hint after New Account setup fails. Read-specific copy ("didn't
+    /// load", "can't load") is replaced with setup guidance.
+    var addMessage: String {
+        switch self {
+        case .outdated:
+            return String(localized: "coderouter.failure.addOutdated", defaultValue: "This Coderouter version can't add team accounts. Update cmux, then retry.")
+        case .unavailable, .sessionChanging:
+            return String(localized: "coderouter.failure.add", defaultValue: "Coderouter couldn't start account setup. Retry in a moment.")
+        case .notInstalled, .signInRequired, .notMember, .planRequired, .unreachable:
+            return message
+        }
+    }
+
+    var errorDescription: String? { message }
+
+    /// Classifies a CLI failure from its stderr (`coderouter: <message>`),
+    /// whose HTTP suffixes and phrases are stable in coderouter 0.3.x.
+    static func classify(_ error: Error) -> CoderouterCLIFailure {
+        if let failure = error as? CoderouterCLIFailure { return failure }
+        let failure = error as NSError
+        guard failure.domain == "CoderouterCLI" else { return .unavailable }
+        let message = failure.localizedDescription.lowercased()
+        func mentions(_ phrases: String...) -> Bool { phrases.contains { message.contains($0) } }
+        if message.hasPrefix("coderouter: usage:") && !message.contains("--team") {
+            return .outdated
+        }
+        if mentions("[http 401]", "not signed in", "authorization expired", "session expired") {
+            return .signInRequired
+        }
+        if mentions("[http 402]", "requires cmux pro") {
+            return .planRequired
+        }
+        if mentions("[http 403]", "does not have permission", "was not found", "not mapped") {
+            return .notMember
+        }
+        if mentions("timed out", "could not connect", "could not send the request", "network request failed", "temporarily", "[http 429]", "[http 5") {
+            return .unreachable
+        }
+        return .unavailable
+    }
 }
 
-/// Reads the same CodeRouter Cloud account view shown by `cmux cr accounts`.
-/// CodeRouter's organization catalog is keyed by the Stack team UUID. Newer
-/// CLI versions accept that ID on the account read, so a sidebar refresh does
-/// not need to mutate the user's active organization.
+/// Reads the selected team's CodeRouter accounts with the CLI's team-scoped
+/// commands. CodeRouter's organization catalog is keyed by the Stack team UUID,
+/// so `--team <id>` reaches it directly. Every caller supplies `run`, normally
+/// from ``CoderouterAppCLISession``, so the sidebar always acts as the cmux
+/// app's signed-in account and never as the CLI's own saved sign-in.
 enum CoderouterCLIAccountReader {
     typealias Run = @Sendable (_ arguments: [String]) async throws -> Data
 
     struct Snapshot {
         let organizationID: String
         let accounts: [CloudTreeNode.CoderouterAccount]
-        let scope: CoderouterTeamScope
     }
 
     private static let logger = Logger(subsystem: "com.cmuxterm.app", category: "coderouter-accounts")
@@ -35,7 +120,7 @@ enum CoderouterCLIAccountReader {
     static func accounts(
         for cmuxTeamID: String?,
         name cmuxTeamName: String?,
-        run: Run? = nil
+        run: Run
     ) async throws -> [CloudTreeNode.CoderouterAccount] {
         let snapshot = try await snapshot(for: cmuxTeamID, name: cmuxTeamName, run: run)
         return snapshot.accounts
@@ -44,6 +129,7 @@ enum CoderouterCLIAccountReader {
     /// Reads the selected team's CodeRouter organization and account rows in
     /// one operation. The organization ID is retained by the sidebar so an
     /// account created from a team row can carry an explicit destination.
+    /// Failures are ``CoderouterCLIFailure`` values.
 #if compiler(>=6.2)
     @concurrent
 #else
@@ -52,59 +138,41 @@ enum CoderouterCLIAccountReader {
     static func snapshot(
         for cmuxTeamID: String?,
         name cmuxTeamName: String?,
-        run: Run? = nil
+        run: Run
     ) async throws -> Snapshot {
         try Task.checkCancellation()
         guard let teamID = normalizedID(cmuxTeamID) else {
-            throw accountError("The selected cmux team is not mapped to a coderouter organization.")
+            throw CoderouterCLIFailure.notMember
         }
-
-        let invoke = run ?? runCLI
-        guard let organizationID = try await resolvedOrganizationID(
-            for: teamID,
-            name: cmuxTeamName,
-            run: invoke
-        ) else {
-            logger.error("No CodeRouter organization matched cmux team ID \(teamID, privacy: .public), name \(String(describing: cmuxTeamName), privacy: .public)")
-            throw accountError("The selected cmux team is not mapped to a coderouter organization.")
-        }
-
-        // Prefer the team-scoped read. It sends the selected organization in the
-        // request and leaves the terminal's shared active organization untouched.
-        try Task.checkCancellation()
-        let payload: (organizationID: String?, accounts: [CloudTreeNode.CoderouterAccount])
-        let scope: CoderouterTeamScope
         do {
-            payload = try await readAccounts(arguments: ["accounts", "--json", "--team", organizationID], run: invoke)
-            scope = .teamOption
-        } catch {
-            // CodeRouter 0.3.15 and earlier predate `accounts --team`. The app
-            // bundles 0.3.16, but `resolvedExecutable` can still pick an older
-            // CLI from PATH or the installer, so keep this fallback.
-            guard isUnsupportedTeamOption(error, command: "accounts") else { throw error }
-            logger.info("Using an isolated CodeRouter configuration for the legacy CLI")
-            payload = try await withLegacyCLI(run: run) { legacyRun in
-                try Task.checkCancellation()
-                _ = try await legacyRun(["org", "switch", organizationID])
-                try Task.checkCancellation()
-                return try await readAccounts(arguments: ["accounts", "--json"], run: legacyRun)
+            guard let organizationID = try await resolvedOrganizationID(
+                for: teamID,
+                name: cmuxTeamName,
+                run: run
+            ) else {
+                logger.error("No CodeRouter organization matched cmux team ID \(teamID, privacy: .public), name \(String(describing: cmuxTeamName), privacy: .public)")
+                throw CoderouterCLIFailure.notMember
             }
-            scope = .isolatedConfiguration
+            try Task.checkCancellation()
+            let payload = try await readAccounts(arguments: ["accounts", "--json", "--team", organizationID], run: run)
+            return try verifiedSnapshot(payload, organizationID: organizationID)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            throw CoderouterCLIFailure.classify(error)
         }
-        return try verifiedSnapshot(payload, organizationID: organizationID, scope: scope)
     }
 
     private static func verifiedSnapshot(
         _ payload: (organizationID: String?, accounts: [CloudTreeNode.CoderouterAccount]),
-        organizationID: String,
-        scope: CoderouterTeamScope
+        organizationID: String
     ) throws -> Snapshot {
         guard payload.organizationID == organizationID else {
             logger.error("CodeRouter accounts were for org ID \(payload.organizationID ?? "<nil>", privacy: .public), expected \(organizationID, privacy: .public)")
-            throw accountError("coderouter returned accounts for a different team.")
+            throw CoderouterCLIFailure.unavailable
         }
         logger.info("Loaded \(payload.accounts.count, privacy: .public) CodeRouter accounts for org ID \(organizationID, privacy: .public)")
-        return Snapshot(organizationID: organizationID, accounts: payload.accounts, scope: scope)
+        return Snapshot(organizationID: organizationID, accounts: payload.accounts)
     }
 
     private static func resolvedOrganizationID(
@@ -129,35 +197,28 @@ enum CoderouterCLIAccountReader {
         accountID: String,
         for cmuxTeamID: String?,
         name cmuxTeamName: String?,
-        run: Run? = nil
+        run: Run
     ) async throws {
         try Task.checkCancellation()
         guard UUID(uuidString: accountID) != nil else {
             throw accountError("That coderouter account ID is not valid.")
         }
         guard let teamID = normalizedID(cmuxTeamID) else {
-            throw accountError("The selected cmux team is not mapped to a coderouter organization.")
-        }
-        let invoke = run ?? runCLI
-        guard let organizationID = try await resolvedOrganizationID(
-            for: teamID,
-            name: cmuxTeamName,
-            run: invoke
-        ) else {
-            throw accountError("The selected cmux team is not mapped to a coderouter organization.")
+            throw CoderouterCLIFailure.notMember
         }
         do {
-            _ = try await invoke(["remove", accountID, "--yes", "--team", organizationID])
-        } catch {
-            // Compatibility with the pre-team-scoped CLI. This legacy path is
-            // only used when the direct command is not understood.
-            guard isUnsupportedTeamOption(error, command: "remove") else { throw error }
-            try await withLegacyCLI(run: run) { legacyRun in
-                try Task.checkCancellation()
-                _ = try await legacyRun(["org", "switch", organizationID])
-                try Task.checkCancellation()
-                _ = try await legacyRun(["remove", accountID, "--yes"])
+            guard let organizationID = try await resolvedOrganizationID(
+                for: teamID,
+                name: cmuxTeamName,
+                run: run
+            ) else {
+                throw CoderouterCLIFailure.notMember
             }
+            _ = try await run(["remove", accountID, "--yes", "--team", organizationID])
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            throw CoderouterCLIFailure.classify(error)
         }
         logger.info("Removed CodeRouter account \(accountID, privacy: .public)")
     }
@@ -184,57 +245,6 @@ enum CoderouterCLIAccountReader {
             )
         }
         return (object?["teamId"] as? String, result)
-    }
-
-    /// The bundled pre-team-scoped CLI reports a command usage string that
-    /// does not mention `--team`. A newer CLI can fail for auth, network, or
-    /// membership reasons; those failures must be returned to the sidebar and
-    /// must never mutate the user's shared active organization.
-    private static func isUnsupportedTeamOption(_ error: Error, command: String) -> Bool {
-        let failure = error as NSError
-        guard failure.domain == "CoderouterCLI", failure.code == 1 else { return false }
-        let usage = command == "accounts"
-            ? "coderouter: usage: coderouter accounts [--watch | --json]"
-            : "coderouter: usage: coderouter remove [account-id-or-label] [--yes]"
-        return failure.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines) == usage
-    }
-
-    private static func withLegacyCLI<T>(run: Run?, body: (Run) async throws -> T) async throws -> T {
-        if let run { return try await body(run) }
-        return try await withIsolatedConfiguration { environment in
-            try await body { arguments in
-                try await runCLI(arguments, environment: environment)
-            }
-        }
-    }
-
-    /// Legacy CLI operations share a private config for their whole sequence.
-    /// An intervening terminal `org switch` cannot redirect a read or removal.
-#if compiler(>=6.2)
-    @concurrent
-#else
-    @Sendable
-#endif
-    static func withIsolatedConfiguration<T>(
-        environment: [String: String] = ProcessInfo.processInfo.environment,
-        body: ([String: String]) async throws -> T
-    ) async throws -> T {
-        let fileManager = FileManager.default
-        let home = environment["HOME"].flatMap { $0.isEmpty ? nil : $0 } ?? NSHomeDirectory()
-        let sourceRoot = environment["CODEROUTER_DATA_DIR"].flatMap { $0.isEmpty ? nil : $0 }
-            ?? URL(fileURLWithPath: home).appendingPathComponent("Library/Application Support").path
-        let directory = fileManager.temporaryDirectory.appendingPathComponent("cmux-coderouter-\(UUID().uuidString)")
-        let configDirectory = directory.appendingPathComponent("coderouter")
-        try fileManager.createDirectory(at: directory, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
-        defer { try? fileManager.removeItem(at: directory) }
-        try fileManager.createDirectory(at: configDirectory, withIntermediateDirectories: false)
-        try fileManager.copyItem(
-            at: URL(fileURLWithPath: sourceRoot).appendingPathComponent("coderouter/config.json"),
-            to: configDirectory.appendingPathComponent("config.json")
-        )
-        var isolatedEnvironment = environment
-        isolatedEnvironment["CODEROUTER_DATA_DIR"] = directory.path
-        return try await body(isolatedEnvironment)
     }
 
     /// The share of the account's current rate-limit window still unused, the
@@ -301,9 +311,9 @@ enum CoderouterCLIAccountReader {
     }
 
     /// The CodeRouter CLI `cmux cr` runs, in its order (`resolveCoderouterExecutable`):
-    /// the app-bundled core, then PATH (`coderouter`, then `cr`), then the
-    /// installer's bin directory. Two versions sharing one config file can make
-    /// it unreadable to each other, so the sidebar never runs a different one.
+    /// the app-bundled core (release, nightly and dev builds ship the tested
+    /// version), then PATH (`coderouter`, then `cr`), then the installer's bin
+    /// directory. The later candidates only matter for a bundle without one.
     static func resolvedExecutable(
         bundleURL: URL = Bundle.main.bundleURL,
         environment: [String: String] = ProcessInfo.processInfo.environment,
@@ -323,26 +333,6 @@ enum CoderouterCLIAccountReader {
             ?? URL(fileURLWithPath: home).appendingPathComponent(".coderouter").path
         let installed = URL(fileURLWithPath: installRoot).appendingPathComponent("bin/coderouter").path
         return isExecutable(installed) ? installed : nil
-    }
-
-    @Sendable private static func runCLI(_ arguments: [String]) async throws -> Data {
-        try await runCLI(arguments, environment: ProcessInfo.processInfo.environment)
-    }
-
-    @Sendable private static func runCLI(_ arguments: [String], environment: [String: String]) async throws -> Data {
-        guard let executable = resolvedExecutable(environment: environment) else {
-            throw accountError("coderouter is not installed. Run cmux cr in a terminal to install it.")
-        }
-        // Same isolation as `cmux cr`: CodeRouter never sees cmux's CMUX_* context.
-        let environment = environment.filter { key, _ in
-            !key.hasPrefix("CMUX_") && !key.hasPrefix("CMUXD_")
-        }
-        let result = try await runProcess(
-            executable: executable,
-            arguments: arguments,
-            environment: environment
-        )
-        return result.stdout
     }
 
     /// Runs a CLI while draining stdout and stderr concurrently. Waiting for

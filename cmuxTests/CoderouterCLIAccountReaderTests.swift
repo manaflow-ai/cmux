@@ -112,7 +112,7 @@ struct CoderouterCLIAccountReaderTests {
 
     @Test("Accounts from another organization never reach the sidebar")
     func wrongScopedPayloadIsRejected() async throws {
-        await #expect(throws: NSError.self) {
+        await #expect(throws: CoderouterCLIFailure.unavailable) {
             try await CoderouterCLIAccountReader.accounts(
                 for: Self.cmuxTeamID, name: "Austin Wang's Team", run: { arguments in
                     #expect(arguments == ["accounts", "--json", "--team", Self.austinOrganizationID])
@@ -147,49 +147,84 @@ struct CoderouterCLIAccountReaderTests {
         )
 
         #expect(snapshot.organizationID == Self.cmuxTeamID)
-        #expect(snapshot.scope == .teamOption)
     }
 
-    @Test("An unsupported team option uses a private legacy sequence")
-    func unsupportedTeamOptionUsesLegacyFallback() async throws {
+    @Test("A CLI without team-scoped commands reports that it is outdated and never switches orgs")
+    func oldCLIIsOutdated() async throws {
         let commands = CommandRecorder()
-        let snapshot = try await CoderouterCLIAccountReader.snapshot(
-            for: Self.cmuxTeamID,
-            name: nil,
-            run: { arguments in
-                await commands.append(arguments)
-                if arguments == ["accounts", "--json", "--team", Self.cmuxTeamID] {
+        await #expect(throws: CoderouterCLIFailure.outdated) {
+            try await CoderouterCLIAccountReader.snapshot(
+                for: Self.cmuxTeamID,
+                name: nil,
+                run: { arguments in
+                    await commands.append(arguments)
+                    // coderouter 0.3.15's reply to `accounts --json --team`.
                     throw NSError(domain: "CoderouterCLI", code: 1, userInfo: [
                         NSLocalizedDescriptionKey: "coderouter: usage: coderouter accounts [--watch | --json]",
                     ])
                 }
-                if arguments == ["org", "switch", Self.cmuxTeamID] { return Data() }
-                if arguments == ["accounts", "--json"] {
-                    return Data("{\"teamId\":\"\(Self.cmuxTeamID)\",\"accounts\":[]}".utf8)
-                }
-                throw NSError(domain: "UnexpectedCLICommand", code: 1)
-            }
-        )
+            )
+        }
+        #expect(await commands.value == [["accounts", "--json", "--team", Self.cmuxTeamID]])
+    }
 
-        #expect(snapshot.scope == .isolatedConfiguration)
-        #expect(await commands.value == [
-            ["accounts", "--json", "--team", Self.cmuxTeamID],
-            ["org", "switch", Self.cmuxTeamID],
-            ["accounts", "--json"],
-        ])
+    @Test("CLI errors map to an actionable failure", arguments: [
+        ("coderouter: refresh coderouter session: your authorization expired or was revoked; run `coderouter login` and retry [HTTP 401]", CoderouterCLIFailure.signInRequired),
+        ("coderouter: not signed in; run `coderouter login`", .signInRequired),
+        ("coderouter: list coderouter accounts: your account does not have permission for this team [HTTP 403]", .notMember),
+        ("coderouter: organization `17a2ba34-5a88-412e-8380-0ea4118139c3` was not found; run `coderouter org list`", .notMember),
+        ("coderouter: hosted coderouter requires cmux Pro or Team; upgrade at https://cmux.com/pricing [HTTP 402]", .planRequired),
+        ("coderouter: list coderouter accounts: could not connect; check DNS, your network, and the configured server", .unreachable),
+        ("coderouter: list coderouter accounts: coderouter is temporarily unavailable; retry shortly [HTTP 503]", .unreachable),
+        ("coderouter: usage: coderouter remove [account-id-or-label] [--yes]", .outdated),
+        ("coderouter: something new", .unavailable),
+    ])
+    func classifiesCLIErrors(stderr: String, expected: CoderouterCLIFailure) {
+        let error = NSError(domain: "CoderouterCLI", code: 1, userInfo: [NSLocalizedDescriptionKey: stderr])
+        #expect(CoderouterCLIFailure.classify(error) == expected)
+        #expect(!expected.message.isEmpty)
+    }
+
+    @Test("A failed removal never says accounts didn't load")
+    func removalCopyNamesRemoval() async {
+        // An invalid ID is rejected before the CLI runs and classifies as unavailable.
+        do {
+            try await CoderouterCLIAccountReader.remove(
+                accountID: "bad id;",
+                for: Self.cmuxTeamID,
+                name: nil,
+                run: { _ in Data() }
+            )
+            Issue.record("An invalid account ID was accepted")
+        } catch {
+            #expect(CoderouterCLIFailure.classify(error) == .unavailable)
+        }
+        for failure in [CoderouterCLIFailure.unavailable, .outdated, .sessionChanging] {
+            #expect(failure.removalMessage != failure.message)
+        }
+        for failure in [CoderouterCLIFailure.notInstalled, .signInRequired, .notMember, .planRequired, .unreachable] {
+            #expect(failure.removalMessage == failure.message)
+        }
+
+        for failure in [CoderouterCLIFailure.unavailable, .outdated, .sessionChanging] {
+            #expect(failure.addMessage != failure.message)
+        }
+        for failure in [CoderouterCLIFailure.notInstalled, .signInRequired, .notMember, .planRequired, .unreachable] {
+            #expect(failure.addMessage == failure.message)
+        }
     }
 
     @Test("Runtime errors do not trigger an unscoped fallback")
     func runtimeFailureDoesNotFallback() async {
         let commands = CommandRecorder()
-        await #expect(throws: NSError.self) {
+        await #expect(throws: CoderouterCLIFailure.unreachable) {
             try await CoderouterCLIAccountReader.snapshot(
                 for: Self.cmuxTeamID,
                 name: nil,
                 run: { arguments in
                     await commands.append(arguments)
                     throw NSError(domain: "CoderouterCLI", code: 1, userInfo: [
-                        NSLocalizedDescriptionKey: "coderouter: server returned HTTP 503",
+                        NSLocalizedDescriptionKey: "coderouter: list coderouter accounts: coderouter is temporarily unavailable; retry shortly [HTTP 503]",
                     ])
                 }
             )
@@ -371,344 +406,5 @@ private actor FakeCoderouterCLI {
             }
         let payload: [String: Any] = ["teamId": organizationID, "accounts": accounts]
         return try JSONSerialization.data(withJSONObject: payload) + Data("\n".utf8)
-    }
-}
-
-@MainActor
-@Suite("CodeRouter sidebar section")
-struct CoderouterSidebarSectionTests {
-    private func account(_ id: String, _ provider: CoderouterProvider, state: String = "active", remaining: Int? = nil) -> CloudTreeNode.CoderouterAccount {
-        CloudTreeNode.CoderouterAccount(id: id, provider: provider, label: "\(id)@example.com", state: state, remainingPercent: remaining)
-    }
-
-    @Test("Accounts group by type, each addable type led by its New Account row")
-    func groupsByProviderWithCreateRows() throws {
-        let section = CloudTreeCoderouterSection(accounts: [
-            account("a", .codex, remaining: 93),
-            account("b", .codex),
-            account("c", CoderouterProvider(id: "gemini")),
-        ])
-
-        let root = try #require(CloudTreeCreateActionBuilder.add(to: [CloudTreeNodeBuilder.coderouterNode(section)]).first)
-
-        #expect(root.kind == .coderouterSection(count: 3, refresh: CloudTreeSectionRefresh()))
-        #expect(root.children.map(\.searchableTitle) == ["Codex", "Claude", "OpenCode", "Gemini"])
-        let codex = root.children[0]
-        #expect(codex.kind == .coderouterProviderGroup(.codex, count: 2))
-        #expect(codex.children.map(\.searchableTitle) == ["New Codex Account", "a@example.com", "b@example.com"])
-        // An empty addable type still offers its New Account row.
-        #expect(root.children[1].children.map(\.searchableTitle) == ["New Claude Account"])
-        #expect(root.children[2].children.map(\.searchableTitle) == ["New OpenCode Account"])
-        // A type CodeRouter can't add lists its accounts without a create row.
-        #expect(root.children[3].children.map(\.searchableTitle) == ["c@example.com"])
-    }
-
-    @Test("New Account rows run the CLI add flow for their type")
-    func createRowAddsItsType() {
-        final class Added { var providers: [CoderouterProvider] = [] }
-        let added = Added()
-        var actions = CloudTreeNodeActions(
-            project: { _, _, _ in }, projectRemoteView: { _, _, _, _ in },
-            projectInLocalWorkspace: { _, _ in }, projectRemoteViewInLocalWorkspace: { _, _, _ in },
-            newTerminal: { _, _ in }, openGroup: { _, _, _, _ in }, openGroupAsWorkspace: { _, _, _ in },
-            newWorkspace: { _ in }, closeTerminal: { _ in }, closeWorkspace: { _, _ in }, renameWorkspace: { _, _ in },
-            renameTerminal: { _, _ in }, selectLocalWorkspace: { _ in }, copyToPasteboard: { _ in }, copyPortLink: { _ in }, refresh: {}
-        )
-        actions.addCoderouterAccount = { added.providers.append($0) }
-
-        CloudTreeCreateAction.newCoderouterAccount(.claude).perform(actions)
-
-        #expect(added.providers == [.claude])
-        #expect(CoderouterProvider.claude.addCommand == "cmux cr add claude")
-        // The server names OpenCode Go accounts `opencode-go`; the CLI verb is `opencode`.
-        #expect(CoderouterProvider(id: "opencode-go") == .opencodeGo)
-        #expect(CoderouterProvider.opencodeGo.addCommand == "cmux cr add opencode")
-        #expect(CoderouterProvider.claude.addCommand(for: "team's-id", scope: .teamOption) == "cmux cr add claude --team 'team'\\''s-id'")
-        #expect(CoderouterProvider.codex.addCommand(for: "team-a", scope: .teamOption) == "cmux cr add codex --team 'team-a'")
-    }
-
-    @Test("New Account launches a dedicated focused terminal")
-    func focusedAgentUsesDedicatedTerminal() {
-        let launch = CoderouterAccountTerminalLaunch(provider: .codex)
-
-        #expect(launch.command == ["sh", "-lc", "cmux cr add codex"])
-        #expect(launch.name == "CodeRouter")
-        #expect(launch.focus)
-    }
-
-    @Test("An unlabeled key account reads as its type and key suffix")
-    func unlabeledAccountTitle() {
-        let claude = CloudTreeNode.CoderouterAccount(
-            id: "c", provider: .claude, label: "", state: "active", identifier: "sk-ant-oat01-...JF1g"
-        )
-        #expect(claude.title == "Claude \u{2026}JF1g")
-        #expect(account("a", .codex).title == "a@example.com")
-        #expect(CloudTreeNode.CoderouterAccount(id: "d", provider: .codex, label: nil, state: nil).title == "Codex")
-    }
-
-    @Test("Account rows show usage left, or a state that is not active")
-    func usageDetail() {
-        #expect(CloudTreeRowContentView.usageDetail(for: account("a", .codex, remaining: 93)) == "93% left")
-        #expect(CloudTreeRowContentView.usageDetail(for: account("a", .codex, state: "cooldown", remaining: 93)) == "Cooldown")
-        #expect(CloudTreeRowContentView.usageDetail(for: account("a", .claude)) == nil)
-    }
-}
-
-@Suite("CodeRouter sidebar account state")
-struct CoderouterAccountStateTests {
-    private static let teamA = CoderouterAccountScope(teamID: "team-a", identityID: "user-1")!
-    private static let teamB = CoderouterAccountScope(teamID: "team-b", identityID: "user-1")!
-
-    private func account(_ id: String) -> CloudTreeNode.CoderouterAccount {
-        CloudTreeNode.CoderouterAccount(id: id, provider: .codex, label: "\(id)@example.com", state: "active")
-    }
-
-    private func loaded(_ scope: CoderouterAccountScope, _ ids: [String]) -> CoderouterAccountState {
-        var state = CoderouterAccountState()
-        state.select(scope)
-        state.apply(
-            accounts: ids.map(account),
-            organizationID: "org-\(scope.teamID)",
-            teamScope: .teamOption,
-            for: scope
-        )
-        return state
-    }
-
-    @Test("Selecting a different team clears rows and requires a new read")
-    func teamChangeClearsRows() {
-        var state = loaded(Self.teamA, ["a1", "a2"])
-        state.select(Self.teamB)
-
-        #expect(state.accounts.isEmpty)
-        #expect(state.isLoadingScope)
-        #expect(state.destination(for: Self.teamB) == nil)
-    }
-
-    @Test("A cloud scope notification drops rows before the confirmed team changes")
-    func scopeChangeNotificationClearsRows() {
-        var state = loaded(Self.teamA, ["a1"])
-        state.resetForTeamScopeChange()
-
-        #expect(state.scope == nil)
-        #expect(state.accounts.isEmpty)
-        #expect(state.destination(for: Self.teamA) == nil)
-        #expect(!state.isLoadingScope)
-    }
-
-    @Test("Changing the signed-in identity clears rows even when the team is unchanged")
-    func identityChangeClearsRows() {
-        var state = loaded(Self.teamA, ["a1"])
-        state.select(CoderouterAccountScope(teamID: "team-a", identityID: "user-2"))
-        #expect(state.accounts.isEmpty)
-    }
-
-    @Test("A late read for an old team cannot repopulate the new team")
-    func staleResultsAreDropped() {
-        var state = loaded(Self.teamA, ["a1"])
-        state.select(Self.teamB)
-
-        let applied = state.apply(
-            accounts: [account("a2")],
-            organizationID: "org-team-a",
-            teamScope: .teamOption,
-            for: Self.teamA
-        )
-
-        #expect(!applied)
-        #expect(state.accounts.isEmpty)
-        #expect(state.isLoadingScope)
-    }
-
-    @Test("A same-team failure keeps rows but disables account creation")
-    func failureKeepsRowsWithoutDestination() {
-        var state = loaded(Self.teamA, ["a1"])
-        state.fail(for: Self.teamA)
-
-        #expect(state.accounts.map(\.id) == ["a1"])
-        #expect(state.destination(for: Self.teamA) == nil)
-        #expect(!state.isLoadingScope)
-    }
-
-    @Test("An explicit refresh invalidates the last valid add destination")
-    func explicitRefreshInvalidatesDestination() {
-        var state = loaded(Self.teamA, ["a1"])
-        let destination = state.destination(for: Self.teamA)
-
-        #expect(state.destination(for: Self.teamA) == destination)
-        state.invalidateDestination(for: Self.teamA)
-        #expect(state.destination(for: Self.teamA) == nil)
-    }
-
-    @Test("An optimistic removal stays hidden from an earlier refresh")
-    func pendingRemovalWinsOverEarlierRead() {
-        var state = loaded(Self.teamA, ["a1", "a2"])
-        let index = state.removeOptimistically(accountID: "a2", for: Self.teamA)
-        #expect(index == 1)
-
-        _ = state.apply(
-            accounts: [account("a1"), account("a2")],
-            organizationID: "org-team-a",
-            teamScope: .teamOption,
-            for: Self.teamA
-        )
-        #expect(state.accounts.map(\.id) == ["a1"])
-    }
-
-    @Test("A stale post-removal read stays hidden until absence is confirmed")
-    func postRemovalReadDoesNotReinsertAccount() {
-        var state = loaded(Self.teamA, ["a1", "a2"])
-        let inFlightRead = state.beginRefresh(for: Self.teamA)
-        let removedIndex = state.removeOptimistically(accountID: "a2", for: Self.teamA)
-        #expect(removedIndex == 1)
-        let rejectedRead = state.apply(
-            accounts: [account("a1"), account("a2")],
-            organizationID: "org-team-a",
-            teamScope: .teamOption,
-            for: Self.teamA,
-            startedAt: inFlightRead
-        )
-        #expect(!rejectedRead)
-
-        // The CLI write succeeded, but the first read can still observe its
-        // old account list. Keep the row pending until a later read omits it.
-        state.finishRemoval(accountID: "a2", for: Self.teamA)
-        #expect(state.pendingRemovalIDs == ["a2"])
-        let staleRead = state.beginRefresh(for: Self.teamA)
-        let staleReadApplied = state.apply(
-            accounts: [account("a1"), account("a2")],
-            organizationID: "org-team-a",
-            teamScope: .teamOption,
-            for: Self.teamA,
-            startedAt: staleRead
-        )
-        #expect(staleReadApplied)
-        #expect(state.accounts.map(\.id) == ["a1"])
-        #expect(state.pendingRemovalIDs == ["a2"])
-
-        let confirmedRead = state.beginRefresh(for: Self.teamA)
-        let confirmedReadApplied = state.apply(
-            accounts: [account("a1")],
-            organizationID: "org-team-a",
-            teamScope: .teamOption,
-            for: Self.teamA,
-            startedAt: confirmedRead
-        )
-        #expect(confirmedReadApplied)
-        #expect(state.accounts.map(\.id) == ["a1"])
-        #expect(state.pendingRemovalIDs.isEmpty)
-    }
-
-    @Test("A team switch keeps an unconfirmed removal scoped to that team")
-    func teamRoundTripKeepsRemovalHidden() {
-        var state = loaded(Self.teamA, ["a2"])
-        let removedIndex = state.removeOptimistically(accountID: "a2", for: Self.teamA)
-        #expect(removedIndex == 0)
-        state.finishRemoval(accountID: "a2", for: Self.teamA)
-
-        state.select(Self.teamB)
-        #expect(state.pendingRemovalIDs.isEmpty)
-        state.select(Self.teamA)
-        #expect(state.pendingRemovalIDs == ["a2"])
-
-        let read = state.beginRefresh(for: Self.teamA)
-        let readApplied = state.apply(
-            accounts: [account("a2")],
-            organizationID: "org-team-a",
-            teamScope: .teamOption,
-            for: Self.teamA,
-            startedAt: read
-        )
-        #expect(readApplied)
-        #expect(state.accounts.isEmpty)
-        #expect(state.pendingRemovalIDs == ["a2"])
-    }
-}
-
-@MainActor
-@Suite("CodeRouter sidebar store")
-struct CoderouterAccountStoreTests {
-    @Test("Scope transitions clear retained rows while Machines is unmounted")
-    func scopeTransitionClearsRetainedState() {
-        let store = CoderouterAccountStore()
-        let scope = CoderouterAccountScope(teamID: "team-a", identityID: "user-1")!
-        store.state.select(scope)
-        _ = store.state.apply(
-            accounts: [CloudTreeNode.CoderouterAccount(id: "a1", provider: .codex, label: "a1@example.com", state: "active")],
-            organizationID: "org-team-a",
-            teamScope: .teamOption,
-            for: scope
-        )
-
-        store.resetForTeamScopeChange()
-
-        #expect(store.state.accounts.isEmpty)
-        #expect(store.state.scope == nil)
-        #expect(store.isRefreshing)
-        #expect(store.refreshRequest == 1)
-    }
-
-    @Test("Remounted machine panels reuse the CodeRouter state owner")
-    func remountedPanelsKeepStore() {
-        let store = CoderouterAccountStore()
-        let activationCoordinator = CloudActivationCoordinator.unconfigured()
-        let firstPanel = MachinesPanelView(
-            chromeBackgroundColor: .windowBackgroundColor,
-            activationCoordinator: activationCoordinator,
-            coderouterStore: store
-        )
-        let remountedPanel = MachinesPanelView(
-            chromeBackgroundColor: .windowBackgroundColor,
-            activationCoordinator: activationCoordinator,
-            coderouterStore: store
-        )
-
-        #expect(firstPanel.coderouterStore === remountedPanel.coderouterStore)
-        #expect(firstPanel.coderouterStore.lane === remountedPanel.coderouterStore.lane)
-        #expect(CoderouterAccountStore().lane === CoderouterAccountStore().lane)
-    }
-}
-
-@MainActor
-@Suite("CodeRouter CLI operation lane")
-struct CoderouterCLIOperationLaneTests {
-    @MainActor
-    private final class Log {
-        var events: [String] = []
-        var running = 0
-        var maxRunning = 0
-    }
-
-    @Test("Operations run in order and never overlap")
-    func operationsAreSerial() async {
-        let lane = CoderouterCLIOperationLane()
-        let log = Log()
-        let (started, startedContinuation) = AsyncStream<Void>.makeStream()
-        let (gate, openGate) = AsyncStream<Void>.makeStream()
-
-        let first = lane.enqueue {
-            log.running += 1
-            log.maxRunning = max(log.maxRunning, log.running)
-            log.events.append("start")
-            startedContinuation.yield()
-            for await _ in gate { break }
-            log.events.append("end")
-            log.running -= 1
-        }
-        let second = lane.enqueue {
-            log.running += 1
-            log.maxRunning = max(log.maxRunning, log.running)
-            log.events.append("second")
-            log.running -= 1
-        }
-
-        for await _ in started { break }
-        openGate.yield()
-        openGate.finish()
-        await first.value
-        await second.value
-
-        #expect(log.events == ["start", "end", "second"])
-        #expect(log.maxRunning == 1)
     }
 }
