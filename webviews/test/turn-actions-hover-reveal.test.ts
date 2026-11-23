@@ -55,7 +55,7 @@ describe("a turn's action row", () => {
       expect(shown).toContain(selector);
   });
 
-  test("fades in and out in 80 to 120 ms, as Claude's, keeping Reduce Motion's 0 s", () => {
+  test("fades in and out on the micro and quick motion steps, as Claude's, keeping Reduce Motion's 0 s", () => {
     const fade = rules.find(
       (rule) => rule.selectors.includes(".cv-turn-actions") && /--cv-actions-in:/.test(rule.body),
     );
