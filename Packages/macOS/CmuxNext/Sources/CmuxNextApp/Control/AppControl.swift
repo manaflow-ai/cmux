@@ -148,7 +148,7 @@ final class AppControl {
                 guard let services, let (tab, _) = services.locateTab(id) else { return .missing }
                 guard tab.agentSession != nil else { return .notAgentChat }
                 return services.madeAgentTabs.flatMap { $0.views[$0.tabKey(of: tab)] }.map { .page($0) } ?? .notLoaded
-            }.controlMethod(sources: { [weak services] in services?.madeAgentTabs?.retirer.sources }),
+            }.controlMethod(sources: { [weak services] in services?.madeAgentTabs?.retirer.sources }, pages: { [weak services] in services?.madeAgentTabs.map { .init(views: $0.views.count, newTab: $0.views.marked.count, frozen: services?.cache.hibernation?.agentPages?.pages.frozen.count ?? 0, released: services?.cache.hibernation?.agentPages?.pages.releasedCount ?? 0) } }),
         ])
         // Frames, hangs, layout counters and switch times in Release too, off by default (PerfProbes):
         // `perf.probes.enable {"on": true}` opens them for `cmux perf profile --frames`.

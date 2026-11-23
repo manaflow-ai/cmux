@@ -121,6 +121,18 @@ pub(crate) struct ChatPerfMessages {
     pub owner_animation: &'static str,
     pub owners_none: &'static str,
     pub owners_unsupported: &'static str,
+    /// `--page-source`: how the chat pages made since launch got their page (`{spare}`, `{kept}`, `{cold}`).
+    pub page_source: &'static str,
+    /// `--page-source`: opens whose spare was not used (`{empty}`, `{unready}`, `{refused}`).
+    pub page_source_spare: &'static str,
+    /// `--page-source`: cold builds by reason (`{reasons}`, `reason count, ...`).
+    pub page_source_cold_why: &'static str,
+    /// `--page-source`: the spare's refusals by reason (`{reasons}`).
+    pub page_source_refused_why: &'static str,
+    /// `--page-source`: the pages the app holds now and has let go (`{chat}`, `{frozen}`, `{new_tab}`, `{released}`).
+    pub page_source_pages: &'static str,
+    /// `--page-source` against an app that answered without the counts.
+    pub page_source_unsupported: &'static str,
 }
 
 /// `cmux live start|stop|status`: run a checkout's web UI dev server and point the running app at it.
@@ -462,7 +474,7 @@ pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
         chromium_no_checkout: "no cmux checkout here: run this inside a clone of manaflow-ai/cmux, or pass --worktree PATH (it needs scripts/cmux-next/chromium-live.py)",
     },
     chat_perf: ChatPerfMessages {
-        usage: "usage: cmux app chat perf --tab <tab> [--seconds <1-60>]\n  Measures the chat in <tab> as it runs, without focusing or showing it: frames, long tasks, layout\n  shift, and how long each record the chat receives takes to reach a painted frame, by kind. Default\n  5 seconds. A hidden or covered chat draws no frames, and the result says so. --json prints the report.",
+        usage: "usage: cmux app chat perf --tab <tab> [--seconds <1-60>]\n       cmux app chat perf --page-source\n  Measures the chat in <tab> as it runs, without focusing or showing it: frames, long tasks, layout\n  shift, and how long each record the chat receives takes to reach a painted frame, by kind. Default\n  5 seconds. A hidden or covered chat draws no frames, and the result says so. --json prints the report.\n  --page-source reads, without a tab and without measuring, how each chat page made since launch got\n  its page: the warm spare, a kept page, or a cold build and why. Read-only; an unloaded chat is fine.",
         seconds: "--seconds must be a whole number from 1 to 60",
         header: "Chat {tab}: {seconds} s, page {visibility}",
         page_hidden: "Measured nothing: the chat's page was hidden for most of the window. Show the chat, then run this again.",
@@ -481,6 +493,12 @@ pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
         owner_animation: "  animation {name} on {target}: {count} running, {iterations} iterations",
         owners_none: "  no page code asked for frames, short timers or animations",
         owners_unsupported: "Frame owners: this chat page does not report them (a build from before they were added)",
+        page_source: "Chat pages made since launch: {spare} took the warm spare, {kept} reused a kept page, {cold} built cold",
+        page_source_spare: "  Spare not used: {empty} none parked, {unready} not ready, {refused} refused",
+        page_source_cold_why: "  Built cold because: {reasons}",
+        page_source_refused_why: "  Spare refused because: {reasons}",
+        page_source_pages: "Pages now: {chat} chat pages built ({frozen} asleep), {new_tab} New Tab pages; {released} chat pages let go while hidden since launch",
+        page_source_unsupported: "This cmux does not count how chat pages were made (a build from before the count was added)",
     },
     search_text_usage: "usage: cmux {scope} search <text> [OPTIONS]; `cmux {scope} --help` lists the options",
     history_clear_range_usage: "usage: cmux history clear-range --range hour|today|week|month|all [--kind <kind,...>] [--profile <profile>]",
@@ -679,7 +697,7 @@ pub(super) const JAPANESE: AppControlMessages = AppControlMessages {
         chromium_no_checkout: "ここに cmux のチェックアウトがありません。manaflow-ai/cmux のクローン内で実行するか、--worktree パス を指定してください (scripts/cmux-next/chromium-live.py が必要です)",
     },
     chat_perf: ChatPerfMessages {
-        usage: "使い方: cmux app chat perf --tab <タブ> [--seconds <1-60>]\n  <タブ> のチャットを、フォーカスも表示もせずに動作中のまま計測します: フレーム、長いタスク、レイアウトシフト、\n  チャットが受け取る各レコードが描画済みフレームに届くまでの時間 (種類別)。既定は 5 秒。非表示や\n  隠れたチャットはフレームを描かず、結果にそう示されます。--json でレポートを表示します。",
+        usage: "使い方: cmux app chat perf --tab <タブ> [--seconds <1-60>]\n       cmux app chat perf --page-source\n  <タブ> のチャットを、フォーカスも表示もせずに動作中のまま計測します: フレーム、長いタスク、レイアウトシフト、\n  チャットが受け取る各レコードが描画済みフレームに届くまでの時間 (種類別)。既定は 5 秒。非表示や\n  隠れたチャットはフレームを描かず、結果にそう示されます。--json でレポートを表示します。\n  --page-source は、タブを指定せず計測もせずに、起動後に作られた各チャットのページの作られ方を読み取ります:\n  待機中の予備、保持ページ、新規構築とその理由。読み取り専用で、読み込まれていないチャットがあっても使えます。",
         seconds: "--seconds は 1 から 60 までの整数にしてください",
         header: "チャット {tab}: {seconds} 秒、ページ {visibility}",
         page_hidden: "計測できませんでした: 期間の大半でチャットのページが非表示でした。チャットを表示してから、もう一度実行してください。",
@@ -698,6 +716,12 @@ pub(super) const JAPANESE: AppControlMessages = AppControlMessages {
         owner_animation: "  アニメーション {name} ({target}): 実行中 {count}、反復 {iterations}",
         owners_none: "  フレーム、短いタイマー、アニメーションを要求したページのコードはありません",
         owners_unsupported: "フレームの要求元: このチャットのページは報告しません (追加される前のビルドです)",
+        page_source: "起動後に作られたチャットのページ: 待機中の予備を使用 {spare}、保持ページを再利用 {kept}、新規に構築 {cold}",
+        page_source_spare: "  予備を使わなかった: 予備なし {empty}、準備未完了 {unready}、拒否 {refused}",
+        page_source_cold_why: "  新規に構築した理由: {reasons}",
+        page_source_refused_why: "  予備が拒否した理由: {reasons}",
+        page_source_pages: "現在のページ: 構築済みのチャットのページ {chat} (スリープ中 {frozen})、新規タブのページ {new_tab}。起動後に非表示のまま解放したチャットのページ {released}",
+        page_source_unsupported: "この cmux はチャットのページの作られ方を数えていません (追加される前のビルドです)",
     },
     search_text_usage: "使い方: cmux {scope} search <テキスト> [オプション]。オプションは `cmux {scope} --help` で表示",
     history_clear_range_usage: "使い方: cmux history clear-range --range hour|today|week|month|all [--kind <種類,...>] [--profile <プロファイル>]",
