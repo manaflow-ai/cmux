@@ -58,6 +58,7 @@ final class AppsService {
 
     func start() {
         client.start()
+        client.followKeyBindings(in: services.registry) // the apps' catalog shortcuts, the binding table's app layer
         // task-owner: one off-main load of the bundled package directories and the scope table at launch
         Task { [client] in client.useBundledDirectories(await AppPlatformResources.bundledDirectories()) }
     }
