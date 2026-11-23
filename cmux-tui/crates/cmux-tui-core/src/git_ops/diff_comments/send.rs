@@ -1,5 +1,6 @@
 //! `diff.comments.send`: one review handed to an acpmux chat as one queued
-//! prompt, then the sent comments cleared.
+//! prompt, then the sent comments cleared, or, with `keep`, kept as threads
+//! waiting on the agent's reply (`crate::comment_threads`).
 //!
 //! A key is bound to its request before anything leaves: the request's
 //! fingerprint is written to a reservation file (`diff-comments/sends/<sha256
@@ -23,7 +24,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
-use super::{Store, acp_session, cleared, fingerprint, ids, io_failed, mutate, prompt, versions};
+use super::{
+    Store, acp_session, cleared, fingerprint, ids, io_failed, mutate, prompt, threaded, versions,
+};
 use crate::Mux;
 use crate::git_ops::checkpoint::ledger;
 use crate::git_ops::checkpoint::store::{hex, private_directory, read_json, write_json};
@@ -71,6 +74,8 @@ pub(super) fn send_with(
         return Err(ResourceError::validation_invalid(Some("ids"), "a send names at least one id"));
     }
     let versions = versions(&request.fields, true)?;
+    // `keep`: the comments stay as threads the agent's reply comes back to.
+    let keep = request.fields.get("keep").and_then(Value::as_bool).unwrap_or(false);
     let key = crate::git_ops::checkpoint::mutation_key(request);
     let fingerprint = fingerprint(request);
     let reservation = reservation_path(store, &key);
@@ -110,8 +115,13 @@ pub(super) fn send_with(
             }
         }
         let sent = ids.len();
-        let value =
-            mutate(mux, store, request, root, |file, _| Ok(cleared(file, &ids, &versions, sent)))?;
+        let value = mutate(mux, store, request, root, |file, _| {
+            Ok(if keep {
+                threaded(file, &ids, &versions, sent, &prompt_id, acp_session)
+            } else {
+                cleared(file, &ids, &versions, sent)
+            })
+        })?;
         // The ledger answers the key from here on.
         release(&reservation);
         Ok(value)

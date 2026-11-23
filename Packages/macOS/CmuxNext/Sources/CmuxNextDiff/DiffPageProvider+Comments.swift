@@ -19,6 +19,21 @@ public protocol DiffCommentsStoring: AnyObject {
     /// the comments still at `versions` leave the store. A resend under the same key runs once.
     func sendComments(root: String, acpSession: String, ids: [String], versions: [String: JSONValue],
                       text: String, key: String) async throws(AgentPaneGitFailure) -> JSONValue
+    /// Whether the host keeps sent comments as threads the agent's reply comes back to.
+    var keepsThreads: Bool { get }
+    /// `diff.comments.send {…, keep: true}` → `{sent, threaded}`: as ``sendComments``, but the comments
+    /// stay, each with a `thread` the host answers with the agent's reply on a later list.
+    func sendCommentThreads(root: String, acpSession: String, ids: [String], versions: [String: JSONValue],
+                            text: String, key: String) async throws(AgentPaneGitFailure) -> JSONValue
+}
+
+public extension DiffCommentsStoring {
+    var keepsThreads: Bool { false }
+
+    func sendCommentThreads(root: String, acpSession: String, ids: [String], versions: [String: JSONValue],
+                            text: String, key: String) async throws(AgentPaneGitFailure) -> JSONValue {
+        throw AgentPaneGitFailure.failed
+    }
 }
 
 /// The diff tab's review comments (hq #7563): `cmux.diff.comments {method, params}` carries the
@@ -84,6 +99,17 @@ extension DiffPageProvider {
         }
         let promptID = context.opid ?? UUID().uuidString
         let versions = params["versions"]?.objectValue ?? [:]
+        if params["keep"]?.boolValue == true, chat.deliver == nil, store.keepsThreads {
+            // The comments stay as threads; a later `comments.list` carries the agent's reply.
+            let sent: JSONValue
+            do {
+                sent = try await store.sendCommentThreads(root: root, acpSession: chat.session, ids: ids,
+                                                          versions: versions, text: text, key: promptID)
+            } catch {
+                throw Self.sendError(error) ?? (remote ? remoteError(error) : Self.pageError(error))
+            }
+            return ["sent": sent["sent"] ?? .number(Double(ids.count)), "threaded": sent["threaded"] ?? .array([])]
+        }
         guard let deliver = chat.deliver else {
             // The session host hands the prompt to the chat on its own machine and clears the
             // comments in one keyed op.
@@ -138,6 +164,7 @@ extension DiffPageProvider {
         members["ops"] = .array((members["ops"]?.arrayValue ?? []) + [.string(Self.commentsOp)])
         if chat() != nil, case .object(var payload)? = members["payload"] {
             payload["commentsSend"] = true
+            if chat()?.deliver == nil, commentStore?.keepsThreads == true { payload["commentsThreads"] = true }
             members["payload"] = .object(payload)
         }
         return .object(members)
@@ -164,6 +191,16 @@ extension DiffAgentGit: DiffCommentsStoring {
         let params: [String: JSONValue] = ["root": .string(root), "acp_session": .string(acpSession),
                                            "ids": .array(ids.map(JSONValue.string)), "text": .string(text),
                                            "versions": .object(versions)]
+        return try await mutate("diff.comments.send", .object(params), key: key)
+    }
+
+    public var keepsThreads: Bool { link.keepsCommentThreads }
+
+    public func sendCommentThreads(root: String, acpSession: String, ids: [String], versions: [String: JSONValue],
+                                   text: String, key: String) async throws(AgentPaneGitFailure) -> JSONValue {
+        let params: [String: JSONValue] = ["root": .string(root), "acp_session": .string(acpSession),
+                                           "ids": .array(ids.map(JSONValue.string)), "text": .string(text),
+                                           "versions": .object(versions), "keep": true]
         return try await mutate("diff.comments.send", .object(params), key: key)
     }
 

@@ -1523,6 +1523,22 @@ body[data-status-only="true"] #status-text {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+/* A sent comment's thread: the status line, then the agent's reply (line breaks kept). */
+.comment-thread-status {
+  color: var(--cmux-diff-muted-fg, var(--cmux-diff-fg));
+  opacity: 0.7;
+}
+.comment-thread-status[data-failed="true"] {
+  opacity: 1;
+}
+.comment-thread-reply {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding-top: 8px;
+  border-top: 1px solid var(--cmux-diff-border);
+  max-height: 320px;
+  overflow-y: auto;
+}
 
 /* Find in diff (Cmd+F): the shared find pill (ui/findPill.css), at the top right where every
    pane's find pill sits (FindPillMetrics.inset). */

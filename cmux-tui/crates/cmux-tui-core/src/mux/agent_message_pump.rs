@@ -410,6 +410,14 @@ impl Mux {
         Handover::Unreachable
     }
 
+    pub(crate) fn acp_prompt_reply(
+        &self,
+        _session: &str,
+        _prompt_id: &str,
+    ) -> Option<crate::comment_threads::TurnReply> {
+        None
+    }
+
     pub(crate) fn acp_withdraw_message(
         &self,
         _session: &str,
