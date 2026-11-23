@@ -38,7 +38,7 @@ fn assert_kept(
             assert_eq!(was, id, "{step}: tab {slot} changed identity");
         }
     }
-    let unique: std::collections::HashSet<_> = after.values().collect();
+    let unique: HashSet<_> = after.values().collect();
     assert_eq!(unique.len(), after.len(), "{step}: two tabs share an identity");
 }
 
