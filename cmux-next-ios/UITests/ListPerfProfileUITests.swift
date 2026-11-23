@@ -37,8 +37,24 @@ final class ListPerfProfileUITests: XCTestCase {
     // Not a final.sh case: a burst of 2000 records arriving while the reader stays at the top
     // (LIST_EDGE=burst at LIST_EDGE_AFTER=8 s, no passes); the rig logs it as the
     // "inspector-burst" frame-interval window.
+    // The rig holds the screen (no passes, so it does not exit): the test ends once the burst's
+    // window has its summary.
     @MainActor func testEventsBurstAtTop() {
-        run("inspector", ["LIST_COUNT": "500", "LIST_PASSES": "0", "LIST_EDGE": "burst", "LIST_EDGE_AFTER": "8"])
+        XCUIDevice.shared.orientation = .portrait
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_MOBILE_FRAMELOG"] = "1"
+        app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
+        app.launchEnvironment["CMUX_MOBILE_LIST_SCREEN"] = "inspector"
+        for (key, value) in ["LIST_COUNT": "500", "LIST_PASSES": "0", "LIST_SETTLE": "0", "LIST_EDGE": "burst", "LIST_EDGE_AFTER": "8"] {
+            app.launchEnvironment["CMUX_MOBILE_\(key)"] = value
+        }
+        app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-cmux-mobile-no-restore"]
+        app.launch()
+        let probe = app.staticTexts["list.burst.frames"].firstMatch
+        let done = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label BEGINSWITH %@", "inspector-burst "), object: probe)
+        _ = XCTWaiter().wait(for: [done], timeout: 90)
+        print("CMUX_LISTPERF_PROFILE burst-at-top \(probe.exists ? probe.label : "no summary")")
+        app.terminate()
     }
     // final.sh: "subagent-2000      subagent    LIST_COUNT=2000 LIST_PASSES=1"
     @MainActor func testSubagent2000() { run("subagent", ["LIST_COUNT": "2000", "LIST_PASSES": "1"]) }
