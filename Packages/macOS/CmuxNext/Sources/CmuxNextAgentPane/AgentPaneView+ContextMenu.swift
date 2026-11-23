@@ -143,6 +143,9 @@ extension AgentPaneView {
                 madeAt: page?.droppedEnteredAt?.timeIntervalSince1970)
             // The drop backs a gesture only when its event is the person's. WebKit: the drop's event
             // in dispatch. Chromium: the one the page host kept at the native drop (`droppedEvent`).
+            // Chromium's own page window taking the drop leaves no event to check, so no gesture
+            // (``PageWebView/droppedOnPageWindow``); its files are linked by the record above all the same.
+            guard page?.droppedOnPageWindow != true else { return }
             let event = page?.chromiumPage != nil ? page?.droppedEvent : NSApp.currentEvent
             guard let event, AgentPanePersonInput.isPerson(event, sources: eventSources) else { return }
             model.transport.gestures.record(click: false)

@@ -20,9 +20,12 @@
 //!    over, and so is one whose free disk, less what the move writes, is under its registry
 //!    floor (`placement::disk_floor`), unless every host that answers is: then the one with
 //!    the most free takes it with a warning. Each host passed over is printed with why. Chats
-//!    in one checkout go to one host.
+//!    in one checkout go to one host. A named machine no ssh peer names but the team hub lists
+//!    as one of the person's moves through the hub instead (`session_move_hub.rs`).
 //! 3. The chat is frozen here (`transfer_begin`), so nothing changes its folder or history
-//!    while the rest is made; any step below that fails gives it back (`transfer_abort`).
+//!    while the rest is made; any step below that fails gives it back (`transfer_abort`). When
+//!    both daemons list pre-copy, its history is staged on the target first, with no freeze, and
+//!    the freeze moves only what followed (`transfer::precopy`, `hub/transfer_precopy.rs`).
 //! 4. The folder (`plan_folder`, planned again now that the chat is frozen): a checkout's branch
 //!    is pushed to `origin` (never forced) and becomes a fresh worktree of that branch on the
 //!    target (`wt new` there when it has `wt`, else a fresh clone of its own under
@@ -51,6 +54,9 @@ use cmux_json::JsonSet as _;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command as StdCommand;
+
+#[path = "session_move_hub.rs"]
+mod hub;
 
 #[path = "session_move_preflight.rs"]
 mod preflight;
@@ -106,15 +112,17 @@ async fn begin_waiting(
     name: &str,
     watch: Option<Value>,
     args: &MoveArgs,
+    staged: Option<&super::transfer::Staged>,
 ) -> Result<super::transfer::Begun> {
     // Neither flag: a running turn moves with the chat, between its tool calls.
     if !args.interrupt && !args.after_turn {
-        let live = super::transfer::begin_move_live(src, id, watch, super::transfer::TOOL_WAIT);
+        let live =
+            super::transfer::begin_move_live(src, id, watch, super::transfer::TOOL_WAIT, staged);
         return waiting(name, "freezing the chat for its move", live).await;
     }
     let running = (args.interrupt, args.after_turn);
     let bound = args.after_turn.then_some(args.turn_timeout);
-    let begin = super::transfer::begin_move(src, id, watch, running, bound);
+    let begin = super::transfer::begin_move(src, id, watch, running, bound, staged);
     let Some(bound) = bound else {
         return waiting(name, "freezing the chat for its move", begin).await;
     };
@@ -316,6 +324,14 @@ pub(super) async fn run(args: MoveArgs, json_out: bool) -> Result<()> {
     let ids = if args.all_idle { idle_chats(&src).await? } else { args.sessions.clone() };
     if ids.is_empty() {
         bail!("no chat to move: name one or more, or pass --all-idle");
+    }
+    // A machine no ssh peer names, that the team hub lists as one of the person's: the move goes
+    // through the hub, the target pulling it (`session_move_hub.rs`).
+    if matches!(source, Source::Here)
+        && args.host != "auto"
+        && peer_ssh(&peers, &args.host).is_none()
+    {
+        return hub::run(&src, &ids, &args, &home, json_out).await;
     }
     let here_target = match &source {
         Source::Peer { .. } if names_here(&args.host, &here) => {
@@ -600,14 +616,34 @@ async fn move_steps(
         Source::Peer { .. } => None,
     };
     let name = o.name.clone();
-    let begun = begin_waiting(src, &id, &name, watch, args).await?;
+    // The target's daemon first: the chat's history is staged there before the freeze when both
+    // daemons can (`transfer::precopy`), so the freeze moves only what follows.
+    let (forward, dst, dst_init) = waiting(
+        &name,
+        "connecting to the target",
+        super::transfer::connect_target(&target.ssh, &remote.socket),
+    )
+    .await?;
+    let staged = waiting(
+        &name,
+        "copying its history to the target",
+        super::transfer::precopy(src, &dst, &dst_init, &id),
+    )
+    .await;
+    let begun = match begin_waiting(src, &id, &name, watch.clone(), args, staged.as_ref()).await {
+        // The log changed under the prefix (a compaction): given back, and moved in full.
+        Err(e) if super::transfer::refused_diverged(&e) => {
+            begin_waiting(src, &id, &name, watch, args, None).await?
+        }
+        begun => begun?,
+    };
     let prepared = waiting(
         &name,
         "making its folder on the target",
         prepare(&cwd, &home, &target, &remote, args, source, o),
     )
     .await;
-    let (record, forward, dst, dst_init) = match prepared {
+    let record = match prepared {
         Ok(p) => p,
         Err(e) => {
             super::transfer::abort_move(src, &id, &begun).await;
@@ -658,10 +694,9 @@ async fn move_steps(
     Ok(())
 }
 
-/// The frozen chat's folder made on the target, and a client of the target's daemon: the
-/// checkout read again (it may have changed before the freeze), its branch pushed, the folder
-/// made there. Returns the move's record (`movedTo`), the forward, the client, and the
-/// receiving daemon's own `initialize` reply on it (`transfer::receiver_takes`).
+/// The frozen chat's folder made on the target: the checkout read again (it may have changed
+/// before the freeze), its branch pushed, the folder made there. Returns the move's record
+/// (`movedTo`).
 async fn prepare(
     cwd: &Path,
     home: &Path,
@@ -670,7 +705,7 @@ async fn prepare(
     args: &MoveArgs,
     source: &Source,
     o: &mut Outcome,
-) -> Result<(Value, Option<Forward>, std::sync::Arc<Client>, Value)> {
+) -> Result<Value> {
     let checkout = checkout_unless_named(cwd, args, source).await?;
     let folder = plan::plan_folder(
         cwd,
@@ -760,21 +795,7 @@ async fn prepare(
     }
     o.cwd = Some(there.clone());
     record.set("cwd", json!(there));
-    // This machine as the target (`--machine local`): its own daemon, no forward.
-    let (forward, dst) = if target.ssh.is_empty() {
-        (None, Client::connect(Path::new(&remote.socket)).await?)
-    } else {
-        let forward = Forward::open(&target.ssh, &remote.socket).await?;
-        let dst = Client::connect(&forward.local).await?;
-        (Some(forward), dst)
-    };
-    let dst_init = dst
-        .request(
-            method::INITIALIZE,
-            json!({"protocolVersion": 1, "clientInfo": {"name": "acpmux-move"}}),
-        )
-        .await?;
-    Ok((record, forward, dst, dst_init))
+    Ok(record)
 }
 
 /// The checkout `cwd` is in, unless `--cwd` names the folder there (no checkout is carried).
@@ -1107,6 +1128,12 @@ fn prepare_folder(host: &str, folder: &Folder, at: Option<(&str, &str)>) -> Resu
         bail!("{host} answered no plain folder path for the chat");
     }
     Ok(path)
+}
+
+/// Makes `folder` on this machine (the target of a hub move, `hub/transfer_pull.rs`) as a move
+/// over ssh makes it there, and returns its path.
+pub(crate) fn prepare_folder_here(folder: &Folder) -> Result<String> {
+    prepare_folder("", folder, None)
 }
 
 /// Explain a remote folder command failure without dropping the only useful diagnostic. SSH
