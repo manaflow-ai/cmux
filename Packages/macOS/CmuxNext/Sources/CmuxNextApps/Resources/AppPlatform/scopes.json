@@ -1953,6 +1953,10 @@
       "scope": "terminal:read",
       "class": "read"
     },
+    "terminal.tail_pin.set": {
+      "scope": "terminal:write",
+      "class": "mutation"
+    },
     "terminal.viewport.scroll": {
       "scope": "terminal:write",
       "class": "mutation"
@@ -2339,7 +2343,6 @@
     "terminal.close",
     "terminal.history.clear",
     "terminal.renderer_grant.create",
-    "terminal.tail_pin.set",
     "terminal.viewer.release",
     "terminal.viewer.resize",
     "tunnel.attach",
