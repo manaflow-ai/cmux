@@ -195,11 +195,6 @@ describe("the Settings page's view (cmux ext design --show --scene)", () => {
     view = await pack(settingsView, { sdk })
   })
 
-  test("the CLI embeds the packed build of design_view/src/main.ts", () => {
-    // Stale: CMUX_EXTENSION_SDK=$PWD/cmux-tui/crates/cmux-extension-sdk/typescript/src/index.ts bun cmux-tui/crates/cmux-app-host/tools/pack.ts cmux-tui/crates/cmux-tui/src/cli/ext/design_view
-    expect(readFileSync(join(settingsView, "dist/main.js"), "utf8")).toBe(view)
-  })
-
   test("roles cmux changed since the person's base are marked and listed first; the note names the layers", async () => {
     const host = new FakeHost(view)
     const context = { surface: "pane", design: { system: { ...spec, space: [0, 4, 8, 12, 16, 24, 32] }, changed: changes, note: "Built on cmux, then design.json" } }

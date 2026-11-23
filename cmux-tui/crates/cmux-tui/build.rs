@@ -25,6 +25,7 @@ fn main() {
         }
     }
     browser_names();
+    design_view();
 }
 
 /// `cmux setup browser-import` matches a browser by its registry id or
@@ -59,4 +60,80 @@ fn browser_names() {
     let out = PathBuf::from(std::env::var_os("OUT_DIR").expect("OUT_DIR")).join("browser_names.rs");
     std::fs::write(&out, format!("&[\n{rows}]\n"))
         .unwrap_or_else(|error| panic!("write {}: {error}", out.display()));
+}
+
+/// `cmux ext design --show --scene` (Settings > Design system) draws the SDK's DesignSystemView
+/// from `src/cli/ext/design_view/src/main.ts`, packed into one script by the packer every app is
+/// built with (`cmux-app-host/tools/pack.ts`). The packed script is build output, so it is written
+/// to `$OUT_DIR/design_view/dist/main.js`, never committed (scripts/ci/generated_files_guard.py).
+/// It takes bun (`CMUX_BUN`, else PATH, else `~/.bun/bin/bun`); a build with no bun writes an
+/// empty script and warns, and that build's `--scene` says it has no view.
+fn design_view() {
+    let manifest =
+        PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
+    let crates = manifest.join("..");
+    let entry = manifest.join("src/cli/ext/design_view/src/main.ts");
+    let packer = crates.join("cmux-app-host/tools/pack.ts");
+    let sdk_dir = crates.join("cmux-extension-sdk/typescript/src");
+    let mut inputs = vec![
+        entry.clone(),
+        packer.clone(),
+        crates.join("cmux-app-host/schema/v2/events.json"),
+        crates.join("cmux-app-host/generated/scopes.json"),
+    ];
+    // The SDK's own sources only: its `generated/` folder is rewritten by every SDK build.
+    if let Ok(dir) = std::fs::read_dir(&sdk_dir) {
+        inputs.extend(
+            dir.flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == "ts")),
+        );
+    }
+    for input in &inputs {
+        println!("cargo:rerun-if-changed={}", input.display());
+    }
+    println!("cargo:rerun-if-env-changed=CMUX_BUN");
+
+    let out = PathBuf::from(std::env::var_os("OUT_DIR").expect("OUT_DIR")).join("design_view");
+    let src = out.join("src");
+    std::fs::create_dir_all(&src)
+        .unwrap_or_else(|error| panic!("create {}: {error}", src.display()));
+    std::fs::copy(&entry, src.join("main.ts"))
+        .unwrap_or_else(|error| panic!("copy {}: {error}", entry.display()));
+    let dist = out.join("dist/main.js");
+    let Some(bun) = find_bun() else {
+        println!(
+            "cargo:warning=bun not found (CMUX_BUN, PATH, ~/.bun/bin): this build's \
+             `cmux ext design --show --scene` has no design view"
+        );
+        std::fs::create_dir_all(out.join("dist")).expect("create dist");
+        std::fs::write(&dist, "").expect("write the empty design view");
+        return;
+    };
+    // The packer's SDK fallback resolves to this path, which bun takes only absolute.
+    let sdk = sdk_dir.join("index.ts");
+    let sdk = sdk.canonicalize().unwrap_or_else(|error| panic!("{}: {error}", sdk.display()));
+    let ran = std::process::Command::new(&bun)
+        .arg(&packer)
+        .arg(&out)
+        .env("CMUX_EXTENSION_SDK", &sdk)
+        .output()
+        .unwrap_or_else(|error| panic!("run {}: {error}", bun.display()));
+    if !ran.status.success() {
+        panic!(
+            "packing {} failed:\n{}{}",
+            entry.display(),
+            String::from_utf8_lossy(&ran.stdout),
+            String::from_utf8_lossy(&ran.stderr)
+        );
+    }
+}
+
+fn find_bun() -> Option<PathBuf> {
+    if let Some(bun) = std::env::var_os("CMUX_BUN").map(PathBuf::from) {
+        return bun.is_file().then_some(bun);
+    }
+    let path = std::env::var_os("PATH").unwrap_or_default();
+    std::env::split_paths(&path)
+        .map(|dir| dir.join("bun"))
+        .chain(std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".bun/bin/bun")))
+        .find(|bun| bun.is_file())
 }

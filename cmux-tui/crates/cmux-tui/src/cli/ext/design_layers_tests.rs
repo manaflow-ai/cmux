@@ -213,6 +213,10 @@ fn drawn(ops: &Value, kind: &str) -> Vec<String> {
 #[cfg(unix)]
 #[test]
 fn the_settings_scene_is_the_sdks_viewer_of_the_resolved_system_with_changes_marked() {
+    if super::DESIGN_VIEW.is_empty() {
+        eprintln!("SKIPPED: this build had no bun, so it packed no design view");
+        return;
+    }
     let cmux = Resolved::from_sources(&[]);
     let ops = cmux.scene().expect("the view draws");
     let texts = drawn(&ops, "Text");

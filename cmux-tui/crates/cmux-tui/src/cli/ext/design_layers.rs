@@ -277,6 +277,13 @@ impl Resolved {
     #[cfg(unix)]
     pub(super) fn scene(&self) -> Result<Value, String> {
         use cmux_app_host::{AppInfo, AppVm, FromHost, InitParams, Limits};
+        if DESIGN_VIEW.is_empty() {
+            return Err(
+                "this cmux was built without bun, so it has no design view (its build packs \
+                        design_view/src/main.ts with bun)"
+                    .into(),
+            );
+        }
         let mut vm = AppVm::new(Limits::default())?;
         vm.init(InitParams {
             app: AppInfo { id: "cmux/design-system".into(), version: "1.0.0".into() },
@@ -325,9 +332,11 @@ impl Resolved {
     }
 }
 
-/// The packed DesignSystemView pane (`design_view/src/main.ts`).
+/// The packed DesignSystemView pane (`design_view/src/main.ts`), packed by build.rs into
+/// `$OUT_DIR` (build output, not committed); empty in a build that had no bun.
 #[cfg(unix)]
-const DESIGN_VIEW: &str = include_str!("design_view/dist/main.js");
+pub(super) const DESIGN_VIEW: &str =
+    include_str!(concat!(env!("OUT_DIR"), "/design_view/dist/main.js"));
 
 /// The values of cmux's own system a person's file records as its `base`: every cmux type role,
 /// the spacing scale and the limits.
