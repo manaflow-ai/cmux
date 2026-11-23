@@ -1,5 +1,6 @@
 // Run the packed extension against the same scene, signal, gesture and timer runtime as cmux.
 import { beforeAll, describe, expect, test } from "bun:test"
+import { readFileSync } from "node:fs"
 import { join } from "node:path"
 import { pack } from "../../tools/pack.ts"
 import { FakeHost } from "./fake-host.ts"
@@ -45,6 +46,8 @@ function tick(h: FakeHost, time: number) {
 
 describe("media player sample", () => {
   test("draws the artwork, track and timeline in three layouts", async () => {
+    const manifest = JSON.parse(readFileSync(join(dir, "cmux-app.json"), "utf8"))
+    expect(manifest.settings.properties.layout).toMatchObject({ enum: ["compact", "card"], default: "compact" })
     const widths = []
     for (const [layout, entry] of [["compact", "renderSection"], ["card", "renderSection"], ["card", "renderPane"]] as const) {
       const { h } = player(layout)

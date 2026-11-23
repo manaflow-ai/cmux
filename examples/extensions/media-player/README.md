@@ -2,7 +2,7 @@
 
 Run `cmux ext dev examples/extensions/media-player` from the repository root with cmux open.
 Accept the install card and grant media read and control access. Place **Media player** from
-the sidebar editor. Choose **compact** for a thumbnail beside the title or **card** for an
+the sidebar editor. Under **Settings → Apps → Media player → Sidebar layout**, choose **compact** for a thumbnail beside the title or **card** for an
 album cover above it. Open **Media player** from the command palette for the larger listening pane.
 
 Start a track in cmux or play audio in a browser tab. The sample follows the same source as
