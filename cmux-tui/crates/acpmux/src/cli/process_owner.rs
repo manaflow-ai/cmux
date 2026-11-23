@@ -355,7 +355,7 @@ pub(crate) async fn session_status(client: Option<&Client>, id: &str) -> Option<
     let client = client?;
     match client.request(method::MUX_INFO, json!({"sessionId": id})).await {
         Ok(v) => v.get("status").and_then(Value::as_str).map(str::to_owned),
-        Err(e) if e.to_string().contains("no_session") => Some("gone".to_owned()),
+        Err(e) if crate::cli::process_census::refused_as_no_session(&e) => Some("gone".to_owned()),
         Err(_) => None,
     }
 }
