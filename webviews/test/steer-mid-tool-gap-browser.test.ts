@@ -17,7 +17,8 @@ type Frame = { step: string; worst: number; between: string; order: string };
 
 await requireBrowserLane("steer-mid-tool-gap-browser.test.ts", async () => {
   const PAGE = "/test/browser/thinking-gap.html";
-  const MAX_GAP = 24.5;
+  // The largest block gap the grid puts between two rows (32 under a prompt), plus rounding.
+  const MAX_GAP = 32.5;
   setDefaultTimeout(240_000);
   try {
     await (await chromium.launch({ headless: true })).close();
@@ -75,18 +76,23 @@ await requireBrowserLane("steer-mid-tool-gap-browser.test.ts", async () => {
                   const turn = from < 0 ? [] : rows.slice(from);
                   let worst = 0;
                   let between = "";
+                  const pairs: string[] = [];
                   for (let i = 1; i < turn.length; i += 1) {
                     const gapPx = turn[i]!.box.top - turn[i - 1]!.box.bottom;
-                    if (gapPx > worst) {
+                    const above = turn[i - 1]!.row.dataset.rowId ?? "";
+                    const below = turn[i]!.row.dataset.rowId ?? "";
+                    pairs.push(`${above}>${below}=${Math.round(gapPx * 10) / 10}`);
+                    // Only the gaps a steer touches: the rest are the grid's ordinary block gaps.
+                    if ((above.startsWith("steer-") || below.startsWith("steer-")) && gapPx > worst) {
                       worst = gapPx;
-                      between = `${turn[i - 1]!.row.dataset.rowId} -> ${turn[i]!.row.dataset.rowId}`;
+                      between = `${above} -> ${below}`;
                     }
                   }
                   out.push({
                     step: steps[step]!.name,
                     worst: Math.round(worst * 10) / 10,
                     between,
-                    order: turn.map(({ row }) => row.dataset.rowId).join(" "),
+                    order: pairs.join(" "),
                   });
                 }
                 frame += 1;
