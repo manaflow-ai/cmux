@@ -94,10 +94,10 @@ struct SignInPageOpensBesideTests {
 
             let second = try await Self.open(services) { back = services.linkOpener.openSignInPage(Self.page, beside: codePane.view) }
             try await PinnedPageTests.until({ codePane.stripModel.selectedID?.rawValue == second }, report: { "a second sign-in page is not selected: " + Self.describe(content) })
-            codePane.select(CmuxNextTabs.TabID(other.id))
+            codePane.select(StripTabID(other.id))
             try await PinnedPageTests.until({ codePane.stripModel.selectedID?.rawValue == other.id })
-            let endAgain = try #require(back)
-            endAgain()
+            let end2 = try #require(back)
+            end2()
             #expect(codePane.stripModel.selectedID?.rawValue == other.id, "the sign-in's end took the person off the tab they picked: \(Self.describe(content))")
         }
     }

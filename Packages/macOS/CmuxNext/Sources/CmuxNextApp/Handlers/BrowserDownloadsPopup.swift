@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextBrowser
 import CmuxNextDesign
 import Observation
@@ -18,7 +19,7 @@ import CmuxNextWakeups
 /// anchors to a toolbar cmux never shows, so it opened over the page.
 @MainActor
 final class BrowserDownloadsPopup {
-    static let shared = BrowserDownloadsPopup()
+    static let shared = BrowserDownloadsPopup() // lint:allow singleton: the app shows one downloads popup at a time.
 
     /// How long a popup that opened by itself stays without the pointer (Chrome: 5 s).
     static let autoCloseDelay: Duration = .seconds(5)
@@ -45,10 +46,10 @@ final class BrowserDownloadsPopup {
     var shownFrame: CGRect? { popup.isShown ? popup.cardFrame : nil }
 
     /// The Downloads button: opens the popup, or closes it when it is open there.
-    func toggle(_ list: BrowserDownloadList, buttons: BrowserToolbarButtonsView, showFolder: @escaping () -> Void) {
+    func toggle(_ list: BrowserDownloadList, registry: ActionRegistry, buttons: BrowserToolbarButtonsView, showFolder: @escaping () -> Void) {
         guard let anchor = buttons.popupAnchor(for: .downloads) else { return }
         if popup.isShown, self.anchor === anchor { return close() }
-        show(list, anchor: anchor, buttons: buttons, showFolder: showFolder, makeKey: true)
+        show(list, registry: registry, anchor: anchor, buttons: buttons, showFolder: showFolder, makeKey: true)
     }
 
     /// A download finished in a tab whose toolbar is on screen: opens the
@@ -57,14 +58,14 @@ final class BrowserDownloadsPopup {
     /// hidden, the app or its window is not active), so the caller falls
     /// back to the notice over the tab.
     @discardableResult
-    func showFinished(_ list: BrowserDownloadList, buttons: BrowserToolbarButtonsView, showFolder: @escaping () -> Void) -> Bool {
+    func showFinished(_ list: BrowserDownloadList, registry: ActionRegistry, buttons: BrowserToolbarButtonsView, showFolder: @escaping () -> Void) -> Bool {
         // The Downloads button itself, or More when it is collapsed; never the bare toolbar.
         guard NSApp.isActive, let anchor = buttons.popupAnchor(for: .downloads), anchor !== buttons.superview,
               let window = anchor.window, window.isKeyWindow || window.isMainWindow,
               !anchor.isHiddenOrHasHiddenAncestor else { return false }
         // Already open (a click, or another download): it stays as it is and lists the new row.
         if popup.isShown { return true }
-        guard show(list, anchor: anchor, buttons: buttons, showFolder: showFolder, makeKey: false) else { return false }
+        guard show(list, registry: registry, anchor: anchor, buttons: buttons, showFolder: showFolder, makeKey: false) else { return false }
         model.entered = false
         autoClose.schedule(after: Self.autoCloseDelay) { @MainActor [weak self] in
             guard let self, !self.model.entered else { return }
@@ -79,7 +80,7 @@ final class BrowserDownloadsPopup {
     }
 
     @discardableResult
-    private func show(_ list: BrowserDownloadList, anchor: NSView, buttons: BrowserToolbarButtonsView,
+    private func show(_ list: BrowserDownloadList, registry: ActionRegistry, anchor: NSView, buttons: BrowserToolbarButtonsView,
                       showFolder: @escaping () -> Void, makeKey: Bool) -> Bool {
         guard let window = anchor.window else { return false }
         cancelAutoClose()
@@ -88,6 +89,7 @@ final class BrowserDownloadsPopup {
         self.anchor = anchor
         self.buttons = buttons
         model.list = list
+        model.registry = registry
         if !popup.isShown { model.shows += 1 }
         model.colors = anchor.performWithTheme { BrowserDownloadsPopupColors.resolve() }
         model.onShowFolder = { [weak self] in
@@ -172,6 +174,8 @@ final class BrowserDownloadsPopup {
 @Observable
 final class BrowserDownloadsPopupModel {
     var list: BrowserDownloadList?
+    /// Runs the rows of a download's menu (`BrowserDownloadsMenu`).
+    @ObservationIgnored weak var registry: ActionRegistry?
     var colors = BrowserDownloadsPopupColors()
     /// The pointer went into the popup: it no longer closes by itself.
     var entered = false
@@ -191,7 +195,7 @@ final class BrowserDownloadsPopupModel {
 
     func menu(for download: BrowserDownload) -> NSMenu? {
         guard let list else { return nil }
-        return BrowserDownloadsMenu.actions(download, list: list)
+        return BrowserDownloadsMenu.actions(download, list: list, registry: registry)
     }
 
     func pointerEntered() {
