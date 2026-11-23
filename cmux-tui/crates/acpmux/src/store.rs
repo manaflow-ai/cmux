@@ -134,7 +134,7 @@ impl std::fmt::Display for SessionStatus {
 }
 
 /// What a watched chat follows (`hub/watch.rs`).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Watching {
     /// `claude` or `codex`.
@@ -151,6 +151,47 @@ pub struct Watching {
     /// comes, or Take Over settles it. Kept so a daemon restart goes on with it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub open: Option<WatchedTurn>,
+    /// The terminal the chat handed its conversation to (`acpmux resume-here`,
+    /// `hub/release_to_watch.rs`): the chat's prompts go into that terminal's harness
+    /// (`hub/bridge.rs`) while it runs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub terminal: Option<TerminalDriver>,
+    /// Prompts the terminal took while a turn ran (Claude Code's `queue-operation` enqueue), shown
+    /// at once, oldest first, so the line that runs each later does not show it again (`watch.rs`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub queued: Vec<String>,
+    /// Prompts the terminal took while a turn ran that did not show at once (past the cap, or
+    /// text a delivery may have): one shows as typed when the turn takes it in (`watch.rs`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unshown: Vec<String>,
+}
+
+/// The process a chat handed its conversation to (`Watching::terminal`): `acpmux resume-here`,
+/// which becomes the harness (`exec`, same pid).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TerminalDriver {
+    pub pid: u32,
+    /// When `pid` started (ms since the epoch), so a later process under a reused pid is not it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub started: Option<u64>,
+    /// The harness's store the conversation is in (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`).
+    pub store: PathBuf,
+    /// The cmux terminal that process runs in, as the environment its exec was given names it
+    /// (read from the kernel, `hub/terminal_input.rs` `of_process`): the chat's Stop,
+    /// and its prompts while the harness has no inbox, reach the harness as keys typed there
+    /// (`hub/terminal_input.rs`). None outside a cmux terminal.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input: Option<TerminalInput>,
+}
+
+/// A cmux terminal's input (`TerminalDriver::input`): its session daemon's socket
+/// (`CMUX_TUI_SOCKET`) and the terminal's id there (`CMUX_TUI_TERMINAL_ID`).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TerminalInput {
+    pub socket: PathBuf,
+    pub terminal_id: String,
 }
 
 /// A watched chat's open turn (`Watching::open`).
@@ -219,6 +260,10 @@ pub struct SessionMeta {
     /// Explicit spoken handle. Older and unnamed sessions derive one from the same stable id.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub handle: Option<String>,
+    /// The icon it set for itself or a person gave it (`session_icon.rs`): what every surface
+    /// draws for it in place of its harness mark. None draws the harness mark.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<crate::session_icon::SessionIcon>,
     /// Someone gave `name` (at the start, a fork's or a rename), not the daemon's `HARNESS-N`
     /// default (`hub/new_request.rs` `unique_name_among`). False in a log from before it was kept.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -1774,7 +1819,7 @@ pub fn catch_up_journal(config: &StoreConfig, home: &Path) -> Result<()> {
 }
 
 mod durability;
-pub use durability::{Durability, ShowAfter};
+pub use durability::{Durability, FULL_WAIT, ShowAfter};
 pub(crate) use durability::{RecordClass, record_class, streamed};
 mod journal_store;
 #[cfg(test)]
