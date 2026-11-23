@@ -20,7 +20,7 @@ import {
 import { useSyncExternalStore } from "react";
 import { configureSenderIconLook } from "./subagents/senderIconLook";
 import { HARNESS_PLACEMENT_KEY, harnessPlacement, type HarnessPlacement } from "../../ui/harnessPlacement";
-import { experimentArm, isArm } from "../../experiments/experiment";
+import { isArm, experimentArm } from "../../experiments/experiment";
 import { readingLook, readingLookValues } from "./readingLook.experiment";
 import {
   HIGH_CONTRAST_CHAT_VARIABLES,
@@ -50,6 +50,18 @@ import {
 import { configureStatusVerbs } from "./statusVerbs";
 import { configureThinkingLook } from "./conversation/thinkingLook";
 import { isUnreadBannerMode, type UnreadBannerMode } from "./conversation/unreadState";
+import {
+  DEFAULT_RESOLVED_TRANSCRIPT_LOOK,
+  gapScaleOf,
+  resolveTranscriptLook,
+  transcriptLookAttributes,
+  transcriptLookDisplayFallbacks,
+  transcriptLookVariables,
+  transcriptPartType,
+  transcriptPartTypeFromTokens,
+  type ResolvedTranscriptLook,
+  type TranscriptPartType,
+} from "./conversation/transcriptLook";
 
 /// An arm of the thread minimap experiment (`off`, `full`, `compact`, whatever its definition lists).
 export type ThreadMinimapArm = keyof typeof threadMinimapLayout.arms;
@@ -105,6 +117,16 @@ export interface ChatDisplay {
   /// The saved Session Info chip setting (EnvironmentPlacement), kept for configuration
   /// compatibility; it draws nothing.
   environmentPlacement: EnvironmentPlacement;
+  /// The transcript's look (conversation/transcriptLook.ts: `agentPane.display.transcriptLook` and
+  /// its token overrides). Part of the measured look: its bubble padding, share and gaps move rows.
+  transcriptLook: ResolvedTranscriptLook;
+  /// The agent's reply prose apart from the chat's text (the look's `reply.font` and
+  /// `reply.fontSize`; Claude's replies are a serif): null for the chat's face or size.
+  replyFont: ChatFontPreset | null;
+  replyFontSize: number | null;
+  /// The person's prompts apart from the chat's text (`userMessage.font`, `userMessage.fontSize`).
+  promptFont: ChatFontPreset | null;
+  promptFontSize: number | null;
 }
 
 /// Settings > Agent Chat > Session Info (Swift AgentPaneDisplaySettingsSchema has the same row).
@@ -129,6 +151,11 @@ export const PINNED_PLAN_KEY = "agentPane.display.pinnedPlan";
 /// collapse that one line?"). The hat's own chevron, the palette, the CLI and MCP write the same key.
 /// Not part of ChatDisplay: switching it measures no transcript row again.
 export const TRAY_TUCKED_KEY = "agentPane.display.trayTucked";
+/// Settings > Agent Chat > Pop In Sent Prompts, off by default: a sent prompt pops in and settles
+/// where it lands (conversation.css SEND-POP). On, the page's root carries `data-send-pop="claude"`,
+/// the rule's gate. Off by default because Leo, 2026-11-22: "hm im not necessarily sure if people
+/// will be wanting to do the send pop by default". Not part of ChatDisplay: no row is measured again.
+export const SEND_POP_KEY = "agentPane.display.sendPop";
 /// Settings > Agent Chat > Running Tray Handle, the middle by default: where along the composer's top
 /// edge the hat's tuck chevron and, tucked, its pull tab sit (subagents/TrayPullTab.tsx; Leo,
 /// 2026-11-04: "I also wonder if we'd want the grabber/dogear/whatever design thing on maybe the left…
@@ -227,6 +254,11 @@ export const DEFAULT_CHAT_DISPLAY: ChatDisplay = {
   railSide: "left",
   minimal: false,
   environmentPlacement: "left",
+  transcriptLook: DEFAULT_RESOLVED_TRANSCRIPT_LOOK,
+  replyFont: null,
+  replyFontSize: null,
+  promptFont: null,
+  promptFontSize: null,
 };
 
 /// The body font stacks, as the Markdown viewer's presets (pages/markdown/settings.ts).
@@ -249,7 +281,8 @@ const isEnvironmentPlacement = (value: unknown): value is EnvironmentPlacement =
   value === "left" || value === "right" || value === "off";
 const number = (value: unknown, range: { min: number; max: number }): number | null =>
   typeof value === "number" && Number.isFinite(value) ? Math.min(range.max, Math.max(range.min, value)) : null;
-function transcriptWidth(value: unknown): number {
+/// The person's own width (a named width or px), or null when unset so a look's width stands in.
+function transcriptWidth(value: unknown): number | null {
   switch (value) {
     case "narrow":
       return 640;
@@ -258,7 +291,7 @@ function transcriptWidth(value: unknown): number {
     case "wide":
       return 960;
     default:
-      return number(value, CHAT_DISPLAY.width) ?? CHAT_DISPLAY.width.fallback;
+      return number(value, CHAT_DISPLAY.width);
   }
 }
 
@@ -283,24 +316,44 @@ export function resolveThreadMinimapArm(raw: unknown): ThreadMinimapArm | null {
 /// The host's map (or anything else: the defaults).
 export function resolveChatDisplay(raw: unknown): ChatDisplay {
   const values = (raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {}) as Values;
+  // The look's width, font and sizes stand in for the defaults; the person's own key still wins
+  // (an explicit `markdown` font too: it follows the viewer).
+  const transcriptLook = resolveTranscriptLook(values);
+  const lookFallback = transcriptLookDisplayFallbacks(transcriptLook);
   const own = values[CHAT_DISPLAY.font.key];
   const font = isPreset(own)
     ? own
-    : isPreset(values[MARKDOWN_FOLLOWED.font])
-      ? (values[MARKDOWN_FOLLOWED.font] as ChatFontPreset)
-      : "system";
+    : own !== "markdown" && lookFallback.font
+      ? lookFallback.font
+      : isPreset(values[MARKDOWN_FOLLOWED.font])
+        ? (values[MARKDOWN_FOLLOWED.font] as ChatFontPreset)
+        : "system";
   const codeFamily = family(values[CHAT_DISPLAY.codeFamily.key]) ?? family(values[MARKDOWN_FOLLOWED.codeFamily]);
+  // The reply's and the prompt's own face and size: the person's tokens, else the look's unless the
+  // person set the chat's font or size themselves (then their whole-chat choice wins over a look's).
+  const partType = transcriptPartType(transcriptLook);
+  const partFromTokens = transcriptPartTypeFromTokens(values);
+  const ownFont = isPreset(own) || own === "markdown";
+  const ownSize = number(values[CHAT_DISPLAY.fontSize.key], CHAT_DISPLAY.fontSize) !== null;
+  const part = <K extends keyof TranscriptPartType>(key: K, personSet: boolean) =>
+    (partFromTokens[key] || !personSet ? partType[key] : undefined) ?? null;
   return {
     harnessPlacement: harnessPlacement(values[HARNESS_PLACEMENT_KEY]),
     managedHarnessPlacement: harnessPlacement(values[`${HARNESS_PLACEMENT_KEY}.managed`]),
-    width: transcriptWidth(values[CHAT_DISPLAY.width.key]),
+    width: transcriptWidth(values[CHAT_DISPLAY.width.key]) ?? lookFallback.width ?? DEFAULT_CHAT_DISPLAY.width,
     fullWidth: values[CHAT_DISPLAY.fullWidth.key] === true,
     font,
     uiFont: isChatUiFont(values[CHAT_UI_FONT_KEY]) ? values[CHAT_UI_FONT_KEY] : DEFAULT_CHAT_UI_FONT,
     uiFamily: family(values[UI_FAMILY_KEY]),
     proseFamily: family(values[PROSE_FAMILY_KEY]),
-    fontSize: number(values[CHAT_DISPLAY.fontSize.key], CHAT_DISPLAY.fontSize) ?? DEFAULT_CHAT_DISPLAY.fontSize,
-    lineHeight: number(values[CHAT_DISPLAY.lineHeight.key], CHAT_DISPLAY.lineHeight) ?? DEFAULT_CHAT_DISPLAY.lineHeight,
+    fontSize:
+      number(values[CHAT_DISPLAY.fontSize.key], CHAT_DISPLAY.fontSize) ??
+      lookFallback.fontSize ??
+      DEFAULT_CHAT_DISPLAY.fontSize,
+    lineHeight:
+      number(values[CHAT_DISPLAY.lineHeight.key], CHAT_DISPLAY.lineHeight) ??
+      lookFallback.lineHeight ??
+      DEFAULT_CHAT_DISPLAY.lineHeight,
     codeFamily,
     codeScale:
       number(values[CHAT_DISPLAY.codeScale.key], CHAT_DISPLAY.codeScale) ??
@@ -312,15 +365,31 @@ export function resolveChatDisplay(raw: unknown): ChatDisplay {
     environmentPlacement: isEnvironmentPlacement(values[ENVIRONMENT_PLACEMENT_KEY])
       ? values[ENVIRONMENT_PLACEMENT_KEY]
       : DEFAULT_CHAT_DISPLAY.environmentPlacement,
+    transcriptLook,
+    replyFont: part("replyFont", ownFont),
+    replyFontSize: part("replyFontSize", ownSize),
+    promptFont: part("promptFont", ownFont),
+    promptFontSize: part("promptFontSize", ownSize),
   };
+}
+
+/// One part of the transcript's text as the estimator measures it.
+export interface PartMetrics {
+  measureFont: string;
+  lineHeight: number;
 }
 
 /// The sizes the conversation draws at, in px, for the estimator and the CSS.
 export interface ChatMetrics {
   /// The canvas font the estimator measures prose with.
   measureFont: string;
-  /// The canvas font of the agent's replies: `measureFont` unless a font pack's prose family is set.
+  /// The canvas font of the agent's replies: `measureFont` unless a font pack's prose family or the
+  /// look's reply face or size is set.
   replyMeasureFont: string;
+  /// The reply's and the prompt's text: their canvas font and line, the chat's unless the look sets
+  /// their own (`reply.*`, `userMessage.font*`). model.ts measures each row kind with its own.
+  reply: PartMetrics;
+  prompt: PartMetrics;
   lineHeight: number;
   inlineCodeSize: number;
   blockCodeSize: number;
@@ -346,7 +415,8 @@ let densityTextScale = readDensityTextScale();
 
 /// The chat's drawn font size: the person's, at the density's text scale, in quarter pixels.
 export const drawnFontSize = (display: ChatDisplay, scale: number = densityTextScale): number =>
-  Math.round(display.fontSize * scale * 4) / 4;
+  drawnSize(display.fontSize, scale);
+const drawnSize = (size: number, scale: number): number => Math.round(size * scale * 4) / 4;
 
 export function chatMetrics(display: ChatDisplay, density: number = densityTextScale): ChatMetrics {
   const fontSize = drawnFontSize(display, density);
@@ -359,9 +429,25 @@ export function chatMetrics(display: ChatDisplay, density: number = densityTextS
   // A reply in a pack's prose family falls back to the chat's font (`--cv-reply-font`); its family
   // counts once its face has loaded.
   const prose = display.proseFamily ? measurableStack(display.proseFamily) : "";
+  const faceStack = (face: ChatFontPreset | null) =>
+    face === null
+      ? stack
+      : face === "system"
+        ? chatUiMeasureStack(display.uiFont, display.uiFamily)
+        : MEASURE_STACKS[face];
+  const sized = (size: number | null) => (size === null ? fontSize : drawnSize(size, density));
+  const replySize = sized(display.replyFontSize);
+  const replyStack = faceStack(display.replyFont);
+  const replyMeasureFont = `${replySize}px ${prose ? `${prose}, ${replyStack}` : replyStack}`;
+  const promptSize = sized(display.promptFontSize);
   return {
     measureFont: `${fontSize}px ${stack}`,
-    replyMeasureFont: `${fontSize}px ${prose ? `${prose}, ${stack}` : stack}`,
+    replyMeasureFont,
+    reply: { measureFont: replyMeasureFont, lineHeight: round(replySize * display.lineHeight) },
+    prompt: {
+      measureFont: `${promptSize}px ${faceStack(display.promptFont)}`,
+      lineHeight: round(promptSize * display.lineHeight),
+    },
     lineHeight: round(fontSize * display.lineHeight),
     inlineCodeSize: round(inline),
     blockCodeSize: round(block),
@@ -383,10 +469,23 @@ export function chatDisplayVariables(
   return {
     ...chatUiFontVariables(display.uiFont, display.uiFamily),
     "--cv-font": isDefault("font") ? null : FONT_STACKS[display.font],
-    // The agent's reply prose (conversation.css `.cv-reply`), the chat's font unless a pack sets one.
-    "--cv-reply-font": display.proseFamily ? `${quoteFamilyStack(display.proseFamily)}, var(--cv-font)` : null,
+    // The agent's reply prose (conversation.css `.cv-reply`), the chat's font unless a pack or the
+    // look's `reply.font` sets one (a pack's family first, the look's face behind it).
+    "--cv-reply-font": display.proseFamily
+      ? `${quoteFamilyStack(display.proseFamily)}, ${display.replyFont ? FONT_STACKS[display.replyFont] : "var(--cv-font)"}`
+      : display.replyFont
+        ? FONT_STACKS[display.replyFont]
+        : null,
     // At its designed spacing, as a pack's interface family is, whatever the Interface Font tracks.
-    "--cv-reply-tracking": display.proseFamily ? "0px" : null,
+    "--cv-reply-tracking": display.proseFamily || (display.replyFont && display.replyFont !== "system") ? "0px" : null,
+    // The reply's own size and line (conversation.css `:root[data-transcript-reply-size] .cv-reply`).
+    "--cv-reply-font-size": display.replyFontSize === null ? null : `${drawnSize(display.replyFontSize, density)}px`,
+    "--cv-reply-line-height": display.replyFontSize === null ? null : `${metrics.reply.lineHeight}px`,
+    // Your prompts' own face, size and line (conversation.css `.cv-user__bubble`).
+    "--cv-prompt-font": display.promptFont ? FONT_STACKS[display.promptFont] : null,
+    "--cv-prompt-tracking": display.promptFont && display.promptFont !== "system" ? "0px" : null,
+    "--cv-prompt-font-size": display.promptFontSize === null ? null : `${drawnSize(display.promptFontSize, density)}px`,
+    "--cv-prompt-line-height": display.promptFontSize === null ? null : `${metrics.prompt.lineHeight}px`,
     // A pack's code face draws as typed (conversation.css `.cv-code`, `.cv-codeblock__body`).
     "--cv-code-ligatures": display.codeLigatures ? null : "none",
     "--cv-code-features": display.codeLigatures ? null : '"calt" 0, "liga" 0',
@@ -410,6 +509,8 @@ export function chatDisplayVariables(
       : isDefault("width")
         ? null
         : `clamp(calc(${Math.min(720, display.width)}px / var(--cmux-ui-scale, 1)), 100%, calc(${display.width}px / var(--cmux-ui-scale, 1)))`,
+    // The transcript look's primitives (conversation/transcriptLook.ts); every one null for cmux.
+    ...transcriptLookVariables(display.transcriptLook),
   };
 }
 
@@ -421,6 +522,7 @@ let raw: Values = {};
 let minimapOn = false;
 let pinnedPlanOn = false;
 let trayTuckedOn = false;
+let sendPopOn = false;
 let trayHandle: TrayHandleSide = "middle";
 let railShow: RailShow = DEFAULT_RAIL_SHOW;
 let railControlOn = false;
@@ -450,6 +552,27 @@ export function applyChatDisplay(
     if (look === "high") root.style.setProperty(name, HIGH_CONTRAST_CHAT_VARIABLES[name]);
     else root.style.removeProperty(name);
   }
+  // The look's choices the stylesheet draws by selector (data-transcript-*); none for cmux. A
+  // style-only root (a test's shim) has no attributes to set.
+  if (typeof root.setAttribute !== "function") return;
+  for (const [name, value] of Object.entries({
+    ...transcriptLookAttributes(display.transcriptLook),
+    ...chatPartAttributes(display),
+  })) {
+    if (value === null) root.removeAttribute(name);
+    else root.setAttribute(name, value);
+  }
+}
+
+/// The root attributes that rebind the chat's type inside the reply or the prompt
+/// (conversation.css `:root[data-transcript-reply-size] .cv-md.cv-reply`, `data-transcript-prompt-*`):
+/// each only while the look sets that part apart, so the cmux look sets none.
+export function chatPartAttributes(display: ChatDisplay): Record<string, string | null> {
+  return {
+    "data-transcript-reply-size": display.replyFontSize === null ? null : "",
+    "data-transcript-prompt-font": display.promptFont === null ? null : display.promptFont,
+    "data-transcript-prompt-size": display.promptFontSize === null ? null : "",
+  };
 }
 
 /// The host's `display` event: the page follows at once.
@@ -464,6 +587,16 @@ export function setChatDisplay(value: unknown): void {
   const minimap = raw[CHAT_MINIMAP_KEY] === true;
   const pinnedPlan = raw[PINNED_PLAN_KEY] === true;
   const trayTucked = raw[TRAY_TUCKED_KEY] === true;
+  // The pop's gate: written only when the setting changes, so a page that set its own
+  // `data-send-pop` (the gallery's variants, the benches' arms) keeps it.
+  const sendPop = raw[SEND_POP_KEY] === true;
+  if (sendPop !== sendPopOn) {
+    sendPopOn = sendPop;
+    if (typeof document !== "undefined") {
+      if (sendPop) document.documentElement.setAttribute("data-send-pop", "claude");
+      else document.documentElement.removeAttribute("data-send-pop");
+    }
+  }
   const storedBanner = raw[UNREAD_BANNER_KEY];
   const banner: UnreadBannerMode = isUnreadBannerMode(storedBanner) ? storedBanner : "off";
   const show = isRailShow(raw[RAIL_SHOW_KEY]) ? (raw[RAIL_SHOW_KEY] as RailShow) : DEFAULT_RAIL_SHOW;
@@ -592,6 +725,9 @@ export const chatDisplay = (): ChatDisplay => current;
 export const currentChatMetrics = (): ChatMetrics => chatMetrics(current);
 /// The chat's text scale it draws at now (`drawnFontSize`, `--cmux-chat-text-scale`); the bubble's padding follows it too.
 export const chatDensityTextScale = (): number => densityTextScale;
+/// The factor on every gap between the transcript's rows now: the look's density times its row
+/// spacing (conversation/transcriptLook.ts gapScaleOf), 1 at cmux. model.ts places them with it.
+export const transcriptGapScale = (): number => gapScaleOf(current.transcriptLook);
 
 /// The host changed the density or Text Size (its scale script ends with `cmux-ui-scale-change`): the chat draws its text at the
 /// new size, and a new look (the same values) makes the transcript measure every row again, as a new font does.
@@ -637,6 +773,12 @@ const pinnedPlanSnapshot = () => pinnedPlanOn;
 /// Whether the running turn's todo list is pinned in the transcript (PINNED_PLAN_KEY) instead of the hat.
 export const useChatPinnedPlan = (): boolean => useSyncExternalStore(subscribe, pinnedPlanSnapshot, pinnedPlanSnapshot);
 const trayTuckedSnapshot = () => trayTuckedOn;
+/// Whether a sent prompt pops in, read when a row enters (VirtualTranscript.tsx): the root's gate,
+/// which SEND_POP_KEY sets and a bench's arm may set by hand, as the CSS rule reads it.
+export const sendPopEnabled = (): boolean => {
+  const gate = typeof document === "undefined" ? null : document.documentElement.getAttribute("data-send-pop");
+  return gate !== null && gate !== "none";
+};
 /// Whether the hat over the composer is tucked away to its pull tab (TRAY_TUCKED_KEY).
 export const useTrayTucked = (): boolean => useSyncExternalStore(subscribe, trayTuckedSnapshot, trayTuckedSnapshot);
 /// Tucks the hat away or brings it back, at once in the page; the host writes the setting.

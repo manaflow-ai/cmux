@@ -80,6 +80,8 @@ try {
   await page.waitForFunction(() => "cmuxAcpmuxDebug" in window, null, { timeout: 60_000 });
   await page.evaluate((turns) => (window as any).cmuxAcpmuxDebug.loadSeed(turns), TURNS);
   await page.locator(field).waitFor({ timeout: 60_000 });
+  // The pop is off unless switched on (agentPane.display.sendPop): the root gate the setting sets.
+  await page.evaluate(() => document.documentElement.setAttribute("data-send-pop", "claude"));
   await page.evaluate(probe);
   // A warm-up send, not judged: the first send loads lazy chunks.
   await send(page, "warmup-0", {});

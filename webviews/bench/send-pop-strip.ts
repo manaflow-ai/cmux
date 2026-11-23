@@ -60,7 +60,11 @@ try {
     ),
   );
   await page.locator(field).waitFor({ timeout: 60_000 });
-  if (POP !== "product") await page.evaluate((pop) => document.documentElement.setAttribute("data-send-pop", pop), POP);
+  // The product's pop is off unless switched on (agentPane.display.sendPop): "product" sets its root gate.
+  await page.evaluate(
+    (pop) => document.documentElement.setAttribute("data-send-pop", pop),
+    POP === "product" ? "claude" : POP,
+  );
   await page.evaluate(probe);
   await page.locator(field).click();
   await page.evaluate((shape) => (window as any).__sendPopProbe.attach(shape), SHAPE);

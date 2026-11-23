@@ -179,6 +179,35 @@
           ]
         },
         {
+          "key": "agentPane.display.sendPop",
+          "note": "A sent prompt pops in and settles where it lands, Claude's own user-message entrance (conversation.css SEND-POP; Leo, 2026-11-22: \"it does a little pop and settle\"). Off unless switched on: Leo, 2026-11-22: \"hm im not necessarily sure if people will be wanting to do the send pop by default\". The page sets data-send-pop on its root when on (chatDisplay.ts).",
+          "title": {
+            "key": "settings.agentPane.display.sendPop",
+            "text": "Pop In Sent Prompts"
+          },
+          "help": {
+            "key": "settings.agentPane.display.sendPop.help",
+            "text": "A prompt you send pops in and settles where it lands, instead of appearing at once."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "send",
+            "sent",
+            "prompt",
+            "pop",
+            "animation",
+            "motion",
+            "entrance",
+            "bubble",
+            "toggle"
+          ]
+        },
+        {
           "key": "agentPane.display.trayTucked",
           "note": "The hat over the composer tucked away to a pull tab at the composer's top middle (webviews subagents/TrayPullTab.tsx; Leo, 2026-11-04: \"what if you wanted to collapse that one line?\"). The hat's own chevron and the tab write it too.",
           "title": {
@@ -1107,6 +1136,94 @@
             "chat",
             "tools"
           ]
+        },
+        {
+          "key": "agentPane.display.transcriptLook",
+          "note": "A named look of the transcript (docs/cmux-next/transcript-customization.md): a bundle of look tokens from schemas/transcript-look/transcript-look.json. cmux sets no token, so it is the chat as it draws today.",
+          "title": {
+            "key": "settings.agentPane.display.transcriptLook",
+            "text": "Transcript Look"
+          },
+          "help": {
+            "key": "settings.agentPane.display.transcriptLook.help",
+            "text": "How messages, cards and spacing look."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "cmux",
+              "title": {
+                "key": null,
+                "text": "cmux"
+              }
+            },
+            {
+              "value": "claude",
+              "title": {
+                "key": null,
+                "text": "Claude"
+              }
+            },
+            {
+              "value": "codex",
+              "title": {
+                "key": null,
+                "text": "Codex"
+              }
+            },
+            {
+              "value": "studio",
+              "title": {
+                "key": null,
+                "text": "Studio"
+              }
+            }
+          ],
+          "default": "cmux",
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "reading",
+            "look",
+            "style",
+            "preset",
+            "claude",
+            "codex",
+            "studio",
+            "bubble",
+            "density",
+            "spacing"
+          ]
+        },
+        {
+          "key": "agentPane.display.transcriptTokens",
+          "note": "Per-token overrides of the transcript look: an object of token name to value, each checked against schemas/transcript-look/transcript-look.json (cmux-config transcript_look; the page drops a value it refuses).",
+          "title": {
+            "key": "settings.agentPane.display.transcriptTokens",
+            "text": "Transcript Look Tokens"
+          },
+          "help": {
+            "key": "settings.agentPane.display.transcriptTokens.help",
+            "text": "Token values that override the transcript look."
+          },
+          "kind": "text",
+          "default": {},
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "reading",
+            "look",
+            "token",
+            "theme",
+            "bubble",
+            "radius",
+            "spacing"
+          ],
+          "page_hidden": "an object of look tokens, edited in cmux-next.json or a theme file"
         },
         {
           "key": "agentPane.display.promptCoach",
