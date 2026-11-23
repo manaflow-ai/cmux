@@ -334,10 +334,17 @@ fn open_pty(cols: u16, rows: u16) -> (fs::File, std::os::fd::OwnedFd) {
     use std::os::fd::{FromRawFd, OwnedFd};
     let mut master: libc::c_int = -1;
     let mut slave: libc::c_int = -1;
-    let size = libc::winsize { ws_row: rows, ws_col: cols, ws_xpixel: 0, ws_ypixel: 0 };
-    // SAFETY: `openpty` writes two descriptors into the out params on success.
+    let mut size = libc::winsize { ws_row: rows, ws_col: cols, ws_xpixel: 0, ws_ypixel: 0 };
+    // SAFETY: `openpty` writes two descriptors into the out params on success. Mutable pointers
+    // fit both libc signatures: Apple's takes `*mut termios, *mut winsize`, Linux's `*const`.
     let opened = unsafe {
-        libc::openpty(&mut master, &mut slave, std::ptr::null_mut(), std::ptr::null(), &size)
+        libc::openpty(
+            &mut master,
+            &mut slave,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            &mut size,
+        )
     };
     assert_eq!(opened, 0, "openpty: {}", std::io::Error::last_os_error());
     for descriptor in [master, slave] {
