@@ -30,6 +30,7 @@ pub mod language;
 pub mod location;
 pub mod managed;
 pub mod owner;
+pub mod project;
 pub mod refusal;
 pub mod render;
 pub mod schema;
