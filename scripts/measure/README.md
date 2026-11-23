@@ -78,6 +78,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `relaunch-restore.sh` | Quit to usable time after Quit and Keep Sessions, on a published build; `base=SHA head=SHA` runs two builds as interleaved pairs with the load (`relaunch-restore-pairs.py`). | hq#7149 L5 | 2026-11-05 | active |
 | `relaunch-shift.sh` | Layout shift when the app relaunches after an update. | - | 2026-11-04 | active |
 | `first-load-after-restart.sh` | A chat's first load after a restart, frame by frame, at commits (shift and blank frames, settle time). | - | 2026-11-16 | active |
+| `host-line-shift-duress.sh` | The agent pane's chat rows and composer moving when the link drops and comes back, during a long streaming chat, optionally on a loaded machine, at commits. | - | 2026-11-23 | active |
 | `update-click-ab.sh` | Real Sparkle update, Restart to Update clicked soon after staging, base vs head. | CMUX-571 | 2026-11-15 | active |
 | `update-click-ab.py` | Summarizes update-click-ab.sh runs into medians. | CMUX-571 | 2026-11-15 | active |
 | `update-idle-e2e.sh` | Update When Idle end to end: a staged update installs by itself only after the running turn ended, the draft was cleared and the idle time passed; agent host counts and pids before and after; base as the control (`update-harness/idle_e2e.py`). | update-when-idle | 2026-11-19 | active |
@@ -115,6 +116,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `perf-10x-settings.sh` | Settings page render cost over the mock provider in bun and jsdom. | perf-10x | 2026-11-11 | active |
 | `terminal-cmd-click.sh` | Cmd-click in a terminal: no main-thread stall over 50 ms (live check). | cx-7xss | 2026-10-24 | active |
 | `terminal-throughput.sh` | 200 MB burst through a NEXT terminal and through a standalone terminal. | CMUX-571 | 2026-11-13 | active |
+| `terminal-throughput-quick.sh` | The same burst on any Mac in about a minute: an installed NEXT (a side copy of the NIGHTLY) and an installed Ghostty, no build or slot. | CMUX-571 | 2026-11-23 | active |
 | `shell-integration.sh` | Shell integration costs nothing per prompt (fork guard plus bench). | perf-lead row 20 | 2026-11-01 | active |
 | `menu-tracking-main-queue.sh` | Main-queue wait while a host context menu tracks. | - | 2026-11-11 | active |
 | `menu-tracking-main-queue.swift` | Swift probe for menu-tracking-main-queue.sh. | - | 2026-10-30 | active |

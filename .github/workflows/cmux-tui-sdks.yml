@@ -11,6 +11,7 @@ on:
       - feat-cmux-next
     paths:
       - "Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings"
+      - "schemas/agent-pane/stylesheet-guard.json"
       - "schemas/settings/source/general.json"
       - "webviews/src/apps/scene/extTemplateScenes.json"
       - "cmux-tui/**"
@@ -128,6 +129,7 @@ on:
       - "schemas/settings/source/mcp-servers.json"
       - "schemas/settings/source/subsessions.json"
       - "schemas/settings/source/trust.json"
+      - "schemas/settings/source/updates.json"
       - "schemas/terminal-sizing/fixtures.json"
       - "schemas/theme/slots.json"
       - "schemas/transcript-look/transcript-look.json"
@@ -183,6 +185,7 @@ on:
       - "skills/cmux-customization/templates/my-prs/main.js"
   pull_request:
     paths:
+      - "schemas/agent-pane/stylesheet-guard.json"
       - "Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings"
       - "schemas/settings/source/general.json"
       - "webviews/src/apps/scene/extTemplateScenes.json"
@@ -301,6 +304,7 @@ on:
       - "schemas/settings/source/mcp-servers.json"
       - "schemas/settings/source/subsessions.json"
       - "schemas/settings/source/trust.json"
+      - "schemas/settings/source/updates.json"
       - "schemas/terminal-sizing/fixtures.json"
       - "schemas/theme/slots.json"
       - "schemas/transcript-look/transcript-look.json"
