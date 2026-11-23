@@ -76,8 +76,10 @@ final class WorkspaceShiftMeasurement {
         let page = "page.\(surface)"
         let row = "workspace.row.\(workspaceID)"
         let content = "content.\(surface)"
+        // The last line ("end.") is recorded but not gated: a streaming terminal or a
+        // growing page moves it by design.
         let lastLine = "end.\(surface)"
-        let allowed = Set([page, row, content, lastLine, "accessory.\(surface)",
+        let allowed = Set([page, row, content, "accessory.\(surface)",
                            surface == "agent" ? "chat.composer.field" : "\(surface).composer.field"])
         // A slow correction can move several points in sub-point increments.
         // Keep each visible edge's last accepted position as well as the prior
