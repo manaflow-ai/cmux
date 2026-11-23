@@ -15,6 +15,14 @@ workspace = true
 # crate's dev-dependencies only; never in a shipped build.
 test-support = []
 
+# The conformance vectors (fixtures/conformance.json) against the fake store:
+# `cargo test -p cmux-auto-session --features test-support --test conformance`. The Cloud API's
+# test replays the same file against the real routes.
+[[test]]
+name = "conformance"
+path = "tests/conformance/main.rs"
+required-features = ["test-support"]
+
 [dependencies]
 hex.workspace = true
 serde.workspace = true
