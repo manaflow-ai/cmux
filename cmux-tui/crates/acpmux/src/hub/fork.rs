@@ -704,6 +704,7 @@ impl Hub {
             family: parent_meta.family.clone(),
             preset: parent_meta.preset.clone(),
             model_request: parent_meta.model_request.clone(),
+            effort_request: parent_meta.effort_request.clone(),
             cwd,
             // A fork sees what its parent saw, but never its own folder twice.
             additional_directories: fork_dirs,
@@ -711,6 +712,8 @@ impl Hub {
             // with the parent.
             stop_condition: None,
             stop_condition_sent: false,
+            // A fork of a read-only chat stays read-only (`restricted.rs`).
+            restricted: parent_meta.restricted,
             // A fork is a new chat. Its parent transcript is authorized through parent_id; it
             // must not inherit the parent's historical native session ids as its own.
             previous_agent_session_ids: Vec::new(),
@@ -883,6 +886,7 @@ impl Hub {
             meta.family = Some(t.family.clone());
             meta.preset = None;
             meta.model_request = if t.spawn_model { t.model.clone() } else { None };
+            meta.effort_request = None;
             meta.agent_info = None;
             meta.agent_capabilities = None;
             meta.mode_set_by_cmux = None;
