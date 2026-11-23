@@ -1359,6 +1359,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: bash tests/test_ci_r2_cache.sh
 
+      - name: Validate the submodule init cache
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: bash tests/test_ci_init_submodule.sh
+
       - name: Validate the R2 cache census
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_r2_cache_census.py
