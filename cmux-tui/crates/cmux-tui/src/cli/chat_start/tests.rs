@@ -356,11 +356,10 @@ fn vm_targets_are_new_or_an_existing_vm_never_made_for_them() {
 
 #[test]
 fn cloud_is_a_selector_and_needs_a_sign_in() {
-    // Four VMs, none running: which one is not guessed, for `vm` and for `cloud` (today the same).
-    for on in ["cloud", "vm"] {
-        assert_eq!(code(at(on, true)), "chat_target.which_vm");
-        assert_eq!(code(at(on, false)), "chat_target.signed_out");
-    }
+    // Four VMs, none running: `vm` asks which one; `cloud` never asks, and has none to reuse.
+    assert_eq!(code(at("vm", true)), "chat_target.which_vm");
+    assert_eq!(at("cloud", true), Ok(Route::Cloud(Machine::New)));
+    assert_eq!(code(at("cloud", false)), "chat_target.signed_out");
     // A device named "cloud" is reached by its id, never by the selector.
     assert_eq!(
         at("machine_cloud_named", true),
