@@ -19,6 +19,7 @@ pub mod analytics;
 pub mod approval;
 pub mod audit;
 pub mod auto_resume;
+pub mod automations;
 pub mod backup;
 pub mod brain;
 pub mod brain_gateway;

@@ -191,7 +191,7 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// line together (scripts/cmux-next/repin-app-ffi.sh), never anything else.
 /// scripts/cmux-next/check-app-ffi-pin.sh fails CI when the FFI sources
 /// differ from the pinned source sha.
-// app-ffi-pin-checksum: 3142513ee35346ec0b6c4d120a02cd6158019ed79caf27df0f2989e4e20799e7
+// app-ffi-pin-checksum: f8195c5b7317d2ff376b6a12ca08e3c75c4ebe0fd0ab5edfaeef629c0a6149ba
 struct AppFFIPin: Decodable {
     let url: String
     let checksum: String
@@ -737,6 +737,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextCompat",
                 "CmuxNextDaemonService",
                 "CmuxNextDesign",
+                "CmuxNextHomeEngine",
                 "CmuxNextIcons",
                 "CmuxNextOnboarding",
                 "CmuxNextPages",
@@ -988,6 +989,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextPages",
                 "CmuxNextSettings",
                 "CmuxNextTestSupport",
+                "CmuxNextWakeupsTestSupport",
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                 .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
             ],
@@ -1000,6 +1002,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextHostedChief",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextActions",
+                "CmuxNextCloud",
                 "CmuxNextCompat",
                 "CmuxNextDaemon",
                 "CmuxNextHomeEngine",
@@ -1296,6 +1300,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextFiles",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                // CCmuxAppFFI: the files lister client (cmux-app-ffi src/files_lister.rs).
+                "CCmuxAppFFI",
                 "CmuxNextCompat",
             ],
             swiftSettings: daemonSwiftSettings
@@ -1678,6 +1684,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextIcons",
                 "CmuxNextPalette",
                 "CmuxNextSidebar",
+                "CmuxNextTabs",
                 "CmuxNextWakeups",
                 .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
             ],
@@ -1786,6 +1793,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CCmuxAppFFI",
                 "CmuxNextActions",
+                "CmuxNextAgentActivity",
                 "CmuxNextCloud",
                 "CmuxNextCompat",
                 "CmuxNextComputerUse",
@@ -1836,6 +1844,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .testTarget(
             name: "CmuxNextMacScreenTests",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextActions",
                 "CmuxNextCompat",
                 "CmuxNextComputerUse",
                 "CmuxNextControl",
@@ -2614,8 +2623,12 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             resources: [
                 .process("Localizable.xcstrings"),
             ],
-            swiftSettings: daemonSwiftSettings
+            swiftSettings: daemonSwiftSettings,
+            // The generated Schema Swift files (Schema/<name>.generated.swift), from schemas/settings (RFD 0048).
+            plugins: [.plugin(name: "SettingsSchemaPlugin")]
         ),
+        // Runs scripts/cmux-next/gen-settings-sources.py --swift-out into its work directory.
+        .plugin(name: "SettingsSchemaPlugin", capability: .buildTool()),
         .testTarget(
             name: "CmuxNextSettingsTests",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
@@ -2848,6 +2861,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextKeepAwake",
                 "CmuxNextMobile",
                 "CmuxNextPages",
+                "CmuxNextPhoneAccess",
                 "CmuxNextRemoteBrowser",
                 "CmuxNextSettings",
                 "CmuxNextWakeups",
