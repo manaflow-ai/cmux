@@ -139,6 +139,11 @@
       "class": "read",
       "digest": "26233692f33bc45e"
     },
+    "cloud.machine.chief_start": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "edf066ffb33d01aa"
+    },
     "cloud.machine.connect": {
       "source": "app",
       "owner": "app:cmux/cloud",

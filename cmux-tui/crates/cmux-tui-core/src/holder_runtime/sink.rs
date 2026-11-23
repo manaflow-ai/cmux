@@ -416,18 +416,7 @@ impl HolderSink {
     /// returns how many of the bytes, from the first, take no holder offset
     /// (a reopen seed, a prologue): they are not the shell's output.
     fn read(&self, buf: &mut [u8]) -> (usize, usize) {
-        let ack = {
-            let mut state = self.state.lock().recover_poison();
-            state.confirm();
-            state.due_ack(self.acker.get().is_some())
-        };
-        if let (Some(offset), Some(acker)) = (ack, self.acker.get()) {
-            acker(offset);
-        }
-        let mut state = self.state.lock().recover_poison();
-        while state.bytes.is_empty() && state.exit.is_none() && !state.detached && !state.lost {
-            state = self.changed.wait(state).recover_poison();
-        }
+        let mut state = self.acknowledge_and_wait();
         if state.detached {
             return (0, 0);
         }
@@ -447,6 +436,32 @@ impl HolderSink {
         let unnumbered: usize =
             state.runs.iter().take_while(|run| run.offset.is_none()).map(|run| run.len).sum();
         (n, unnumbered.min(n))
+    }
+
+    /// The start of every [`Self::read`]: the acknowledgement for what the
+    /// reader parsed goes out, then it blocks until there are bytes to take
+    /// or the terminal ended, was lost or the daemon detached.
+    fn acknowledge_and_wait(&self) -> std::sync::MutexGuard<'_, SinkState> {
+        let ack = {
+            let mut state = self.state.lock().recover_poison();
+            state.confirm();
+            state.due_ack(self.acker.get().is_some())
+        };
+        if let (Some(offset), Some(acker)) = (ack, self.acker.get()) {
+            acker(offset);
+        }
+        let mut state = self.state.lock().recover_poison();
+        while state.bytes.is_empty() && state.exit.is_none() && !state.detached && !state.lost {
+            state = self.changed.wait(state).recover_poison();
+        }
+        state
+    }
+
+    /// [`Self::read`] up to its copy: once it returns, a read takes bytes
+    /// (or the end) without blocking. The reader waits here with no read
+    /// buffer, so an idle terminal holds none (CMUX-571 infinite items).
+    pub(super) fn wait_readable(&self) {
+        drop(self.acknowledge_and_wait());
     }
 
     /// Block until the terminal ended, was lost or the daemon detached.
@@ -611,13 +626,32 @@ pub(super) struct SnapshottingReader {
     /// output counts: a reopened terminal's replayed seed or a prologue is
     /// not the shell's first text.
     pub(super) terminal_id: String,
+    /// [`Self::wait_readable`] ran this read's start (the snapshot, the
+    /// acknowledgement, the wait): the read goes straight to the copy.
+    pub(super) waited: bool,
+}
+
+impl SnapshottingReader {
+    fn snapshot_if_due(&self) {
+        if let Some(base) = self.sink.snapshot_due() {
+            let reached = (self.snapshot)(base);
+            self.sink.snapshot_taken(base, reached);
+        }
+    }
+}
+
+impl crate::surface::spawn::LocalReader for SnapshottingReader {
+    fn wait_readable(&mut self) {
+        self.snapshot_if_due();
+        self.sink.wait_readable();
+        self.waited = true;
+    }
 }
 
 impl Read for SnapshottingReader {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        if let Some(base) = self.sink.snapshot_due() {
-            let reached = (self.snapshot)(base);
-            self.sink.snapshot_taken(base, reached);
+        if !std::mem::take(&mut self.waited) {
+            self.snapshot_if_due();
         }
         let (n, unnumbered) = self.sink.read(buf);
         if n > unnumbered {
