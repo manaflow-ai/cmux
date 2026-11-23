@@ -131,6 +131,10 @@
       "kind": "publish",
       "why": "a bot that regenerates files on the base"
     },
+    "cmux-next-head-compile.yml": {
+      "kind": "check",
+      "why": "compiles the head the merges make together; each pull request compiles only its own merge with the base it saw"
+    },
     "cmux-next-package-deps-heal.yml": {
       "kind": "publish",
       "why": "a bot that heals package dependency pins on the base"
