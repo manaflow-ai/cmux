@@ -11,7 +11,7 @@ use std::time::Duration;
 
 pub(crate) mod exe_path;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
-mod exe_swap;
+pub(crate) mod exe_swap;
 mod lock;
 #[cfg(unix)]
 mod log_cap;

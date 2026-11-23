@@ -41,6 +41,13 @@
     },
     {
       "agent": "settable",
+      "why": "Whether the app shows a toast naming files or layers that change the person's setup: a notice only, it changes nothing; on is the default.",
+      "keys": [
+        "customize.doctorNotice"
+      ]
+    },
+    {
+      "agent": "settable",
       "why": "Whether right-click menus end with Customize Menu… (looks only; the layouts stay the person's).",
       "keys": [
         "contextMenus.showCustomizeItem"
@@ -501,6 +508,7 @@
       "keys": [
         "experiments.glassToolbarGroups",
         "experiments.composerV2",
+        "experiments.hoverLook",
         "experiments.agentBadges",
         "experiments.agentBadgesBeam",
         "experiments.menuStyleV2",
