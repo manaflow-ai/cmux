@@ -691,6 +691,24 @@ async fn cold_and_warm(
     }
     settle(&mut link, &shaper.profile(), start + BOUND).await;
 
+    // A second reopen with nothing new since the first (warm has a turn before it; this has
+    // none): the cost of a reopen when the chat did not move.
+    let k = Key { phase: "warm-again", ..k };
+    shaper.reset_counters();
+    let start = Instant::now();
+    match link.attach(session, Some(last), start + BOUND).await {
+        Ok((at, _)) => {
+            emit(&k, "first_content_ms", Some(ms(at - start)));
+            emit_bytes(&k, shaper);
+        }
+        Err(e) => {
+            emit(&k, "first_content_ms", None);
+            emit_error(&k, "first_content_ms", &e);
+            return None;
+        }
+    }
+    settle(&mut link, &shaper.profile(), start + BOUND).await;
+
     // For comparison: a reopen that fetches the whole opening page again (afterSeq none).
     let k = Key { phase: "warm-full", ..k };
     shaper.reset_counters();
@@ -867,6 +885,13 @@ async fn reconnect(
             let after = if at >= back { ms(at - back) } else { -ms(back - at) };
             emit(k, "gap_after_link_back_ms", Some(after));
             emit(k, "gap_total_ms", Some(ms(at - t0)));
+            // The path-change gap split: the app's fixed settle before its redial, then the rest
+            // (the dial, the attach, the first record).
+            if k.phase == "path-change" {
+                let settle = ms(NETWORK_SETTLE);
+                emit(k, "settle_ms", Some(settle));
+                emit(k, "gap_after_settle_ms", Some(after - settle));
+            }
             // The dial that got through: when it went out against the link's return (negative:
             // in the dark) and how long it took to open.
             if let Some((sent, open)) = dialed {
