@@ -248,8 +248,12 @@ struct WorkspaceHoverCardContent: Equatable {
         } else if case let .count(n) = workspace.unread, n > 0 {
             facts.append(Fact(icon: .notification, text: Strings.unreadCount(n), kind: "unread"))
         }
-        if let agent = workspace.agentName {
-            facts.append(Fact(icon: .agentChat, text: [agent, detail.model].compactMap { $0 }.joined(separator: " · "), kind: "agent"))
+        let identity = workspace.agentDisplayName.map { name in
+            workspace.agentFormerName.flatMap { $0 == name ? nil : Strings.formerlyKnownAs(name, former: $0) } ?? name
+        }
+        if workspace.agentName != nil || identity != nil {
+            let text = [identity, workspace.agentName, detail.model].compactMap { $0 }.joined(separator: " · ")
+            facts.append(Fact(icon: .agentChat, text: text, kind: "agent"))
         }
         if let usage = usageFact(detail) { facts.append(usage) }
         if let task = detail.task { facts.append(Fact(icon: .textDescription, text: task, lines: 3, kind: "task")) }

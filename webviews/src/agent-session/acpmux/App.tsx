@@ -14427,7 +14427,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   <ChatHeaderStatus status={header.status} detail={header.detail}>
                     {!inTabRow && !showNewTab && snapshot.sessionId && (
                       <span className="acpmux-header-status-content">
-                        <ThreadTitle key={snapshot.sessionId} title={chatName} onRename={renameFromTitle} />
+                        <ThreadTitle
+                          key={snapshot.sessionId}
+                          title={chatName}
+                          onRename={renameFromTitle}
+                          icon={snapshot.summary?.icon}
+                          formerNames={snapshot.summary?.formerNames}
+                        />
                         {/* Where the chat stands and its next action (header/ChatSummaryLine.tsx). */}
                         <ChatSummaryLine summary={snapshot.summary?.rollingSummary} />
                       </span>

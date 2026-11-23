@@ -1,5 +1,5 @@
 import { memo, useMemo, useState } from "react";
-import { AgentMark } from "../../shared/AgentMark";
+import { SessionMark } from "../../shared/AgentMark";
 import { WithFacts } from "../chips/FactsHoverCard";
 import { useT } from "../i18n";
 import { activityTime, listed, sessionTitle, type AcpmuxSessionEntry } from "../sessionList";
@@ -98,7 +98,7 @@ export const BrowserSidebar = memo(function BrowserSidebar({
                         if (chat.local && chat.sessionId) onSelect(chat.sessionId);
                       }}
                     >
-                      <AgentMark agent={session?.harness ?? chat.harness} size={16} tint />
+                      <SessionMark icon={session?.icon} agent={session?.harness ?? chat.harness} size={16} tint />
                       <span>{title}</span>
                     </button>
                   )}
@@ -123,7 +123,7 @@ export const BrowserSidebar = memo(function BrowserSidebar({
               aria-current={row.sessionId === selected ? "page" : undefined}
               onClick={() => onSelect(row.sessionId)}
             >
-              <AgentMark agent={row.harness} size={16} tint />
+              <SessionMark icon={row.icon} agent={row.harness} size={16} tint />
               <span>{sessionTitle(row, t)}</span>
             </button>
           )}

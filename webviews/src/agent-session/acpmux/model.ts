@@ -1341,6 +1341,12 @@ export type AcpmuxSnapshot = {
     worktree?: string;
     title?: string;
     name?: string;
+    /** The name it was given (acpmux `displayName`, "Mango"): the header shows it first. */
+    displayName?: string;
+    /** Its names before its renames, oldest first (acpmux `formerNames`): the header's "fka". */
+    formerNames?: string[];
+    /** The icon it set (acpmux `icon`), drawn in place of its harness mark. */
+    icon?: HarnessIconSpec;
     /** Codex's persisted thread goal, when the harness reported one. */
     goal?: TaskGoal;
     /// The chat's task list across its turns (acpmux `taskList`, chatTaskList.ts): the harness's

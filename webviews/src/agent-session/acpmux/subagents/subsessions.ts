@@ -12,6 +12,7 @@ import type { RetryState } from "./retryState";
 import { cloudHost, listed, type AcpmuxSessionEntry, type SessionWaiting } from "../sessionList";
 import { replacedSince, sessionIndex } from "../sessionIndex";
 import { resolveSenderIdentity, type SenderIdentity, type SenderReference } from "../senderIdentity";
+import type { HarnessIconSpec } from "../../shared/harnessIcons";
 
 /// What a sub-session is doing: its turn runs, it waits on the person (a permission or a question),
 /// its turn failed or its agent went away, or it is done until it is sent more.
@@ -194,6 +195,9 @@ export function subsessionInfo(entry: AcpmuxSessionEntry): SubsessionInfo {
 function nameFields(entry: AcpmuxSessionEntry): string {
   return JSON.stringify([
     entry.name,
+    entry.displayName,
+    entry.formerNames,
+    iconKey(entry.icon),
     entry.shortName,
     entry.peer,
     entry.harness,
@@ -210,6 +214,25 @@ function nameFields(entry: AcpmuxSessionEntry): string {
     cloudHost(entry) ?? "",
     listed(entry),
   ]);
+}
+
+/// What tells a chat's icon from another (an image's own bytes stand in by length and tail, so a
+/// favicon's base64 is not copied into every key).
+function iconKey(icon: AcpmuxSessionEntry["icon"]): string | undefined {
+  if (!icon) return undefined;
+  switch (icon.kind) {
+    case "image":
+      return `image:${icon.mime}:${icon.data.length}:${icon.data.slice(-24)}`;
+    case "brand":
+      return `brand:${icon.brand}`;
+    case "symbol":
+      return `symbol:${icon.name}:${icon.text}:${icon.hue}`;
+    case "emoji":
+    case "monogram":
+      return `${icon.kind}:${icon.text}`;
+    case "glyph":
+      return `glyph:${icon.name}`;
+  }
 }
 
 /// A sub-session's row in the summary card: `depth` 0 for one this chat started, 1 for one that
@@ -339,6 +362,8 @@ export class SubsessionStore {
       };
       for (const entry of sessions) {
         addName(entry.name, entry);
+        // The name it was given ("Mango", acpmux `displayName`) signs its messages too.
+        addName(entry.displayName, entry);
         addName(entry.shortName, entry);
         // A peer chat may be listed as `<peer>/<name>` but sign a message with the
         // bare name. The bare alias is safe only when unique across listed chats.
@@ -346,6 +371,10 @@ export class SubsessionStore {
         const bare = entry.peer && name?.startsWith(`${entry.peer}/`) ? name.slice(entry.peer.length + 1) : undefined;
         addName(bare, entry);
       }
+      // A former name (acpmux `formerNames`, "fka") still names its chat where no chat has it now.
+      const current = new Set(candidates.keys());
+      for (const entry of sessions)
+        for (const former of entry.formerNames ?? []) if (!current.has(former.trim())) addName(former, entry);
       for (const [name, matches] of candidates) {
         const active = matches.live.size ? matches.live : matches.archived;
         if (active.size === 1) named.set(name, active.values().next().value!);
@@ -390,17 +419,35 @@ export class SubsessionStore {
         [...ids].sort(),
         [...sessions]
           .sort((a, b) => (a.sessionId < b.sessionId ? -1 : a.sessionId > b.sessionId ? 1 : 0))
-          .map(({ sessionId, name, shortName, peer, harness, host, hostKind, startedBy, spawnedBy }) => [
-            sessionId,
-            name,
-            shortName,
-            peer,
-            harness,
-            host,
-            hostKind,
-            startedBy,
-            spawnedBy,
-          ]),
+          .map(
+            ({
+              sessionId,
+              name,
+              displayName,
+              formerNames,
+              icon,
+              shortName,
+              peer,
+              harness,
+              host,
+              hostKind,
+              startedBy,
+              spawnedBy,
+            }) => [
+              sessionId,
+              name,
+              displayName,
+              formerNames,
+              iconKey(icon),
+              shortName,
+              peer,
+              harness,
+              host,
+              hostKind,
+              startedBy,
+              spawnedBy,
+            ],
+          ),
       ]);
       const renamed = namedKey !== this.namedKey;
       this.named = named;
@@ -596,7 +643,15 @@ export function useSenderPlace(sessionId: string | undefined): SenderPlace | und
 export function useSenderChat(
   name: string,
   sessionId: string | undefined,
-): { sessionId?: string; harness?: string; host?: string; run?: SenderRun } {
+): {
+  sessionId?: string;
+  harness?: string;
+  host?: string;
+  run?: SenderRun;
+  /// The name it was given (acpmux `displayName`) and the icon it set: a sender line shows them first.
+  displayName?: string;
+  icon?: HarnessIconSpec;
+} {
   const store = useContext(SubsessionContext)?.store ?? EMPTY;
   // `name` may be the chat's id itself (a sender acpmux proved, incomingMessage.ts `lookup`).
   const readId = () => sessionId ?? (store.has(name.trim()) ? name.trim() : store.find(name));
@@ -607,7 +662,18 @@ export function useSenderChat(
   const host = useSyncExternalStore(store.subscribeNames, readHost, readHost);
   const readRun = () => (id ? store.run(id) : undefined);
   const run = useSyncExternalStore(store.subscribeNames, readRun, readRun);
-  return { ...(id && { sessionId: id }), ...(harness && { harness }), ...(host && { host }), ...(run && { run }) };
+  const readEntry = () => (id ? store.sender(id) : undefined);
+  const entry = useSyncExternalStore(store.subscribeNames, readEntry, readEntry);
+  const displayName = entry?.displayName;
+  const icon = entry?.icon;
+  return {
+    ...(id && { sessionId: id }),
+    ...(harness && { harness }),
+    ...(host && { host }),
+    ...(run && { run }),
+    ...(displayName && { displayName }),
+    ...(icon && { icon }),
+  };
 }
 
 /// The listed chats on machine `host`, live while the component shows.

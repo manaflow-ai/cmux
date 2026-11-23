@@ -1,5 +1,6 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-22 (lane/agent-identity-icons): Sidebar-Look: Leo, 2026-11-22: "RENAMES NEED TO BE PROPAGATED TO THE VISIBLE AREAS AND IT SHOULD ALL BE REFLECTED". An agent chat's row takes its given name (acpmux `displayName`) after the person's own rename and before the chat title, and its own icon before the harness mark; the hover card's agent line adds "fka OLD".
 - 2026-11-22 (lane/cloud-icon-trailing): Sidebar-Look: Leo, 2026-11-22: "im not sure we want the cloud icon at the
   left. it makes it stick out in a slight eyesore-y way. compared to the local ones which have no icon. well. for
   consistency, what do we want?" The leading slot is for state only. A Cloud row draws no leading cloud (the old

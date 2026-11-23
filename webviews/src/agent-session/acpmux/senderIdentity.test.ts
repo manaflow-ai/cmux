@@ -1,6 +1,7 @@
 // l10n-allow-file: sender/session fixtures.
 import { expect, test } from "bun:test";
-import { sessionEntry, sessionTitle } from "./sessionList";
+import { formerName, sessionEntry, sessionTitle } from "./sessionList";
+import { newestFormerName } from "./AgentIdentityChip";
 import { incomingPrompt } from "./conversation/incomingMessage";
 import { resolveSenderIdentity } from "./senderIdentity";
 import { SubsessionStore } from "./subagents/subsessions";
@@ -125,4 +126,69 @@ test("the minimap reads the same current-session relationship as the transcript"
     );
   expect(render("parent")).toContain("Sub-session · syntax-check");
   expect(render("another-session")).toContain("syntax-check · Other session");
+});
+
+// Leo, 2026-11-22: "BUT WHO IS MANGO? ... RENAMES NEED TO BE PROPAGATED TO THE VISIBLE AREAS".
+test("a given name (acpmux displayName) is the title and the sender's name everywhere", () => {
+  const entry = sessionEntry({
+    sessionId: "mango",
+    name: "claude-sr2-coord",
+    title: "Coordinate the fleet",
+    harness: "claude",
+    displayName: "Mango",
+    formerNames: ["claude-sr2-7", "claude-sr2-coord-old"],
+    icon: { kind: "emoji", text: "🥭", source: "session" },
+  });
+  expect(entry.displayTitle).toBe("Mango");
+  expect(entry.displayName).toBe("Mango");
+  expect(entry.formerNames).toEqual(["claude-sr2-7", "claude-sr2-coord-old"]);
+  expect(entry.icon).toEqual({ kind: "emoji", text: "🥭", source: "session" });
+  expect(sessionTitle({ sessionId: "x", name: "lane-name", displayName: "  Mango " })).toBe("Mango");
+  const identity = resolveSenderIdentity(
+    { name: "claude-sr2-coord", sessionId: "mango" },
+    { ...entry, shortName: "coord" },
+  );
+  expect(identity.name).toBe("Mango");
+  expect(identity.icon?.kind).toBe("emoji");
+  expect(identity.formerNames).toEqual(["claude-sr2-7", "claude-sr2-coord-old"]);
+});
+
+test("no given name reads as before; a blank one and malformed fields are ignored", () => {
+  const entry = sessionEntry({
+    sessionId: "plain",
+    name: "pr-row",
+    displayName: "   ",
+    formerNames: ["", 3, "old-row"],
+    icon: { kind: "image", mime: "text/html", data: "PHNjcmlwdD4=" },
+  });
+  expect(entry.displayTitle).toBe("pr-row");
+  expect(entry.formerNames).toEqual(["old-row"]);
+  expect(entry.icon).toBeUndefined();
+  expect(resolveSenderIdentity({ name: "pr-row", sessionId: "plain" }, entry).name).toBe("pr-row");
+  expect(sessionEntry({ sessionId: "never", name: "x" }).formerNames).toBeUndefined();
+});
+
+test("fka is the newest former name that is not the name shown", () => {
+  expect(newestFormerName("Mango", ["claude-sr2-7", "claude-sr2-coord-old"])).toBe("claude-sr2-coord-old");
+  expect(newestFormerName("Mango", ["old", "Mango"])).toBe("old");
+  expect(newestFormerName("Mango", ["Mango"])).toBeUndefined();
+  expect(newestFormerName("Mango", undefined)).toBeUndefined();
+  expect(formerName({ displayTitle: "Mango", formerNames: ["a", "b"] })).toBe("b");
+});
+
+test("a sender signed with its given name or a former name finds its chat; a current name wins", () => {
+  const store = new SubsessionStore();
+  store.set([
+    sessionEntry({
+      sessionId: "mango",
+      name: "claude-sr2-coord",
+      displayName: "Mango",
+      formerNames: ["coord-old", "taken"],
+    }),
+    sessionEntry({ sessionId: "other", name: "taken" }),
+  ]);
+  expect(store.find("Mango")).toBe("mango");
+  expect(store.find("coord-old")).toBe("mango");
+  expect(store.find("taken")).toBe("other");
+  expect(store.sender("mango")?.displayName).toBe("Mango");
 });
