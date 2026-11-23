@@ -150,9 +150,11 @@ struct TabsScreen<Source: TabsDataSource>: View {
                            noBack: activeTab?.features.contains(.history) != true)
     }
 
-    var body: some View {
+    /// The screen and its first handlers. `body` adds the rest: one chain of all of them outran the
+    /// type checker (#51837 grew it past the limit).
+    private var screen: some View {
         let layout = toolbarLayout
-        ZStack(alignment: .topLeading) {
+        return ZStack(alignment: .topLeading) {
             overview
                 // Close All Tabs asks first, as Safari does: every tab closes with no way back.
                 .confirmationDialog(confirmingCloseAll?.confirmTitle ?? "", isPresented: Binding(
@@ -276,6 +278,10 @@ struct TabsScreen<Source: TabsDataSource>: View {
                 source.resumeLiveContent(id)
             }
         }
+    }
+
+    var body: some View {
+        screen
         // A tab that becomes active on the settled grid (the active one was
         // closed) is offered as a static card too, so it rides the reflow
         // with the other cards instead of appearing as the live page.
