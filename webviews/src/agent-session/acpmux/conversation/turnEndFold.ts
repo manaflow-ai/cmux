@@ -88,6 +88,22 @@ import { turnEndFoldLook, turnEndRecapLook, turnEndSubagentLook } from "./turnEn
 ///   seems to grow out of the first folded row down through the work;
 /// - `defer`: the old frame stays drawn until the reader scrolls, types or points (or the large step
 ///   four times over passes), then wipes: nothing changes under an eye that is reading.
+///
+/// The no-band family (Leo, 2026-11-22: "clearly there's still improper folds and stuff"): each attacks the
+/// gash at its cause, the band the work leaves before the rows around it close, without sliding or fading
+/// the work's text out first:
+/// - `pin`: zero travel. Nothing slides and no copy is drawn: the swap is placed at once, the view scrolled
+///   so the kept row the reader was on stays where it was drawn (above the view: anchor, never animate),
+///   and only the Worked for line's text fades in (`playPin`);
+/// - `compress`: the folded work squashes into the Worked for line as one surface: each copy is mapped,
+///   by one translate and one vertical scale on the rows' own clock, onto the band between the rows that
+///   close over it, so its top edge rides the line and its bottom edge the answer: never a blank band.
+///   Its ink holds until the band is nearly closed (`compressCopy`);
+/// - `fold-under`: the work holds still at full ink while the rows around it slide over it, cropped at
+///   their edges like a lid closing over it; its last sliver fades as the rows meet;
+/// - `steer-block`: `fade`, but in a steered turn (cmuxterm-hq docs/design/transcript-steer-and-fold-order.md,
+///   section C's follow-up) the work above the newest steer closes in the first frame and the steer and
+///   everything above it move as one block on the steer's own move: no motion crosses the person's message.
 export type TurnEndLook =
   | "fade"
   | "tuck"
@@ -108,7 +124,11 @@ export type TurnEndLook =
   | "snapshot"
   | "wipe"
   | "sprout"
-  | "defer";
+  | "defer"
+  | "pin"
+  | "compress"
+  | "fold-under"
+  | "steer-block";
 export const TURN_END_LOOKS: readonly TurnEndLook[] = [
   "fade",
   "tuck",
@@ -130,6 +150,10 @@ export const TURN_END_LOOKS: readonly TurnEndLook[] = [
   "wipe",
   "sprout",
   "defer",
+  "pin",
+  "compress",
+  "fold-under",
+  "steer-block",
 ];
 /// The looks that replace in place (`playReplace`) rather than slide.
 const REPLACE_LOOKS: ReadonlySet<TurnEndLook> = new Set(["snapshot", "wipe", "sprout", "defer"]);
@@ -993,6 +1017,7 @@ export function playTurnEnd(
   if (capture.silent || capture.sessionId !== sessionId || foldMs(thread) <= 0) return undefined;
   const look = turnEndLook(thread);
   if (REPLACE_LOOKS.has(look)) return playReplace(thread, capture, look, scroller);
+  if (look === "pin") return playPin(thread, capture, scroller);
   const recapLook = turnEndRecap(thread);
   const subagentLook = turnEndSubagent(thread);
   const { ms: settleMs, easing: settleEasing } = lookTiming(look, settle(thread));
@@ -1023,7 +1048,7 @@ export function playTurnEnd(
     ? 0
     : look === "wait"
       ? WAIT_HOLD_MS
-      : look === "crossfade" || look === "cascade" || ridesSheet(look)
+      : look === "crossfade" || look === "cascade" || ridesSheet(look) || holdsInk(look)
         ? 0
         : exitLeadMs(ms, 1, thread);
   /// The first painted frame (the exit's clock), and when the move's clock starts.
@@ -1067,11 +1092,19 @@ export function playTurnEnd(
   /// clock started again (`starts` has its drawn ink) goes on from that ink over the exit left.
   // With no lead (the gallery's `none` arm, the look before) the copy fades on the move's own clock,
   // gone by 60% of it, as #41078 had it.
-  const exitMs = look === "crossfade" || look === "cascade" || ridesSheet(look) ? ms : lead > 0 ? lead : ms * 0.6; // motion-allow: the `none` arm's share of the settle
+  const exitMs =
+    look === "crossfade" || look === "cascade" || ridesSheet(look) || holdsInk(look) ? ms : lead > 0 ? lead : ms * 0.6; // motion-allow: the `none` arm's share of the settle
   /// `wait`: the copies keep their ink through the hold, and fade over the house exit lead at its end.
   /// `sheet` and `water`: the copies keep their ink over the move's first half, riding in under the line.
+  /// `fold-under`: the copies keep their ink until the rows closing over them have all but met.
   const exitFrom =
-    look === "wait" ? Math.max(0, lead - exitLeadMs(settleMs, 1, thread)) : ridesSheet(look) ? ms / 2 : 0;
+    look === "wait"
+      ? Math.max(0, lead - exitLeadMs(settleMs, 1, thread))
+      : ridesSheet(look)
+        ? ms / 2
+        : look === "fold-under"
+          ? ms * FOLD_UNDER_INK
+          : 0;
   /// `morph`'s card, behind the rows, and the geometry it plays (to play it again only when that changes).
   let card: { element: HTMLElement; key: string; animations: Animation[] } | undefined;
   const exit = (copy: HTMLElement, offset: number) => {
@@ -1192,6 +1225,7 @@ export function playTurnEnd(
           dropped.add(row.copy!);
           row.copy!.remove();
         }
+    if (look === "steer-block") steerBlock(nodes, tops);
     const copies = gone.map((row) => row.copy!).filter((copy) => fold.copies.has(copy));
     const copyTops = layoutTops(copies);
     // Each box's height and paddings, read with the places (only while a copy shows): where each row's
@@ -1525,6 +1559,7 @@ export function playTurnEnd(
       }
     }
     copies.forEach((copy, order) => {
+      if (look === "compress") return compressCopy(copy, order);
       const from = copyStarts[order]!;
       const at = from - copyTops[order]!;
       let end = (look === "tuck" || look === "cascade") && line !== undefined ? line - copyTops[order]! : at;
