@@ -87,6 +87,7 @@
   outline: none;
 }
 .wn-pop-scroll:focus-visible { box-shadow: inset 0 0 0 2px var(--cmux-accent, currentColor); }
+:is(.wn-pop-all, .wn-pop-media):focus-visible { outline: 2px solid var(--cmux-accent, currentColor); outline-offset: 2px; }
 .wn-pop-list,
 .wn-pop-rest-group ul { list-style: none; margin: 0; padding: 0; }
 /* One change: its title in the text color, then its line in the quiet color, on one line cut at

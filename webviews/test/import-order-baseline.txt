@@ -153,7 +153,6 @@ test/home-chief-page.test.tsx
 test/home-composer-menu.test.tsx
 test/home-header-presence.test.tsx
 test/home-message-actions.test.tsx
-test/home-messages-composer.test.tsx
 test/home-palette-rank.test.tsx
 test/home-quote-selection.test.tsx
 test/home-run-cost.test.tsx
@@ -604,10 +603,6 @@ src/pages/github/GitHubPage.empty.test.tsx
 src/pages/github/githubHTML.test.tsx
 src/pages/home-channels/DaemonGate.test.tsx
 src/pages/home-channels/messageHoverTime.test.tsx
-src/pages/home-messages/cards/pills/agentModel.test.tsx
-src/pages/home-messages/list/ConversationList.test.tsx
-src/pages/home-messages/sheets/NewChiefSheet.test.tsx
-src/pages/home-messages/sheets/RecipientField.test.tsx
 src/pages/markdown/MarkdownPage.disconnected.test.tsx
 src/pages/onboarding/importExpress.test.tsx
 src/pages/onboarding/importList.test.tsx
