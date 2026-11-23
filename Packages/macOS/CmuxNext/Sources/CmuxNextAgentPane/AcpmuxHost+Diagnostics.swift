@@ -2,7 +2,7 @@ import Foundation
 import os
 
 /// ``AcpmuxHost``'s log lines in the `agent-pane.acpmux` category that need nothing of its state.
-private let acpmuxHostDiagnostics = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.acpmux")
+nonisolated private let acpmuxHostDiagnostics = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.acpmux")
 
 extension AcpmuxHost {
     /// The pane's error for a peer check that refused the daemon on `environment`'s socket,
