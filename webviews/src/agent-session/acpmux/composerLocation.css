@@ -880,10 +880,10 @@
    Its fill and blur are the glass's (.ui-glass, composerStates.css's tokens); this sheet loads after
    glass.css, so the card's own ring and shadow stand in for the glass's box-shadow. */
 .acpmux-composer-box {
-  box-shadow: var(--acpmux-card-ring), var(--acpmux-composer-shadow, var(--elevation-1));
+  box-shadow: var(--acpmux-card-ring), var(--acpmux-composer-halo, 0 0 transparent), var(--acpmux-composer-shadow, var(--elevation-1));
 }
 .acpmux-composer-box:has(:focus-visible) {
-  box-shadow: var(--acpmux-card-ring), var(--acpmux-composer-shadow, var(--elevation-1));
+  box-shadow: var(--acpmux-card-ring), var(--acpmux-composer-halo, 0 0 transparent), var(--acpmux-composer-shadow, var(--elevation-1));
 }
 /* Send, Stop and ↵ are the bar's control size (28 px at Default, density's --acpmux-composer-control), plain line glyphs in the secondary text color, as the mic is
    (Leo 2026-10-21: no discs; the secondary text color, only a hover background). Stop's square and a
@@ -988,7 +988,7 @@
      ChatGPT desktop's Codex tray (cg-design-judge, 2026-10-15). */
 :root[data-top-strip] .acpmux-composer:has(> .acpmux-composer-strip, > .acpmux-composer-queue) > .acpmux-composer-box,
 :root[data-top-strip] .nt-composer:has(.acpmux-composer-strip) .nt-box {
-  box-shadow: var(--acpmux-card-ring), var(--acpmux-composer-shadow, var(--elevation-1));
+  box-shadow: var(--acpmux-card-ring), var(--acpmux-composer-halo, 0 0 transparent), var(--acpmux-composer-shadow, var(--elevation-1));
 }
 :root[data-top-strip] .acpmux-composer:has(> .acpmux-composer-strip, > .acpmux-composer-queue) > .acpmux-composer-box::before,
 :root[data-top-strip] .nt-composer:has(.acpmux-composer-strip) .nt-box::before {
