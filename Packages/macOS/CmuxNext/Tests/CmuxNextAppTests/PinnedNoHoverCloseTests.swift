@@ -9,10 +9,11 @@ import CmuxNextTestSupport
 import Foundation
 import Testing
 
-/// Lawrence msg 19392: "hover on pinned tab should not have close button, should only be able to close in right
-/// click". A pinned row in the sidebar (a Pinned block's workspace, a band item such as "cmux Performance Lead", a
-/// pinned workspace drawn as a list row) and a pinned tab in a pane's tab strip show no x on hover; the ⋮ stays, on
-/// the trailing column the x took, and Close stays in the right-click menu. Unpinned rows and tabs keep their x.
+/// A pinned row in the sidebar (a Pinned block's workspace, a band item such as "cmux Performance Lead", a pinned
+/// workspace drawn as a list row) keeps its x on hover, with its ⋮ where a regular row's sits (Leo 2026-11-23,
+/// ask-b5d3e0efb6: "so what, you cant close a pinned tab? no good reason for these limitations."). A pinned tab in a
+/// pane's tab strip still shows no x on hover (Lawrence msg 19392: "hover on pinned tab should not have close button,
+/// should only be able to close in right click"); Close stays in every right-click menu.
 @MainActor @Suite(.serialized, .closesItsWindows) struct PinnedNoHoverCloseTests {
     // MARK: Sidebar
 
@@ -37,7 +38,7 @@ import Testing
         view.layoutSubtreeIfNeeded()
     }
 
-    @Test func aHoveredPinnedRowShowsItsMoreButtonOnTheColumnAndNoClose() throws {
+    @Test func aHoveredPinnedRowShowsItsCloseOnTheColumnAndItsMoreBesideIt() throws {
         Motion.reduceMotionOverride = true
         defer { Motion.reduceMotionOverride = nil }
         let harness = SidebarHomePinnedDragHarness()
@@ -49,10 +50,13 @@ import Testing
             #expect(row.showsHoverActions, "\(row.titleText): no hover controls under the pointer")
             let more = try #require(row.hoverMore, "\(row.titleText): no more button on hover")
             #expect(!more.isHiddenOrHasHiddenAncestor, "\(row.titleText): the more button hid on hover")
-            #expect(Self.visibleCloses(in: row).isEmpty, "\(row.titleText): a pinned row showed a close x on hover")
-            // The ⋮ takes the x's place, the end-most control on the trailing column: nothing else moves.
+            let close = try #require(row.hoverClose, "\(row.titleText): no close x on hover")
+            #expect(Self.visibleCloses(in: row).count == 1, "\(row.titleText): a pinned row showed no close x on hover")
+            // The x takes the trailing column, as on a regular row; the ⋮ sits one slot left of it.
             let column = SidebarStyle.trailingColumnCenterX(rowWidth: row.bounds.width - SidebarStyle.horizontalInset)
-            #expect(abs(more.frame.midX - column) < 0.5, "\(row.titleText): the more button left the column (\(more.frame.midX) vs \(column))")
+            #expect(abs(close.frame.midX - column) < 0.5, "\(row.titleText): the x left the column (\(close.frame.midX) vs \(column))")
+            #expect(abs(more.frame.midX - (column - SidebarStyle.trailingSlotPitch)) < 0.5,
+                    "\(row.titleText): the more button is not beside the x (\(more.frame.midX))")
         }
         PointerHover.setDebugPointer(nil, in: harness.window)
     }
@@ -70,9 +74,9 @@ import Testing
         #expect(!row.closeButton.isHidden && row.closeButton.alphaValue > 0, "an unpinned row lost its hover close")
     }
 
-    /// A pinned workspace drawn as a list row (an expanded row's Unpin, `SidebarModel.workspacePin`): no x on hover,
-    /// its ⋮ in the x's place. An unpinned row beside it keeps its x.
-    @Test func aHoveredPinnedListRowShowsNoClose() throws {
+    /// A pinned workspace drawn as a list row (an expanded row's Unpin, `SidebarModel.workspacePin`) draws its x and
+    /// its ⋮ where an unpinned row beside it does.
+    @Test func aHoveredPinnedListRowKeepsItsCloseAndMore() throws {
         Motion.reduceMotionOverride = true
         defer { Motion.reduceMotionOverride = nil }
         let harness = SidebarHomePinnedDragHarness()
@@ -81,8 +85,8 @@ import Testing
         harness.list.model.workspacePin = (isPinned: { $0 == pinned }, toggle: { _ in })
         harness.list.contextMenuProvider = { _ in NSMenu() }
         harness.settle()
-        // The x's place: where the unpinned row draws its hover close (the trailing column, #30232).
-        var xPlace: CGRect?
+        // The places: where the unpinned row draws its hover close (the trailing column, #30232) and its ⋮.
+        var places: (close: CGRect, more: CGRect)?
         for (id, isPinned) in [(unpinned, false), (pinned, true)] {
             harness.list.setHovered(.workspace(id))
             let row = try #require(harness.list.rowViews[.workspace(id)] as? WorkspaceRowView)
@@ -90,13 +94,14 @@ import Testing
             row.needsLayout = true
             row.layoutSubtreeIfNeeded()
             let closeShown = !row.closeButton.isHidden && row.closeButton.alphaValue > 0
-            #expect(closeShown != isPinned, "\(id.rawValue) pinned \(isPinned): close shown \(closeShown)")
+            #expect(closeShown, "\(id.rawValue) pinned \(isPinned): no close on hover")
             #expect(!row.moreButton.isHidden && row.moreButton.alphaValue > 0, "\(id.rawValue): no more button on hover")
             if isPinned {
-                let place = try #require(xPlace)
-                #expect(row.moreButton.frame == place, "the more button \(row.moreButton.frame) did not take the x's place \(place)")
+                let place = try #require(places)
+                #expect(row.closeButton.frame == place.close, "the pinned row's x \(row.closeButton.frame) moved from \(place.close)")
+                #expect(row.moreButton.frame == place.more, "the pinned row's ⋮ \(row.moreButton.frame) moved from \(place.more)")
             } else {
-                xPlace = row.closeButton.frame
+                places = (row.closeButton.frame, row.moreButton.frame)
             }
         }
     }

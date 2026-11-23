@@ -50,10 +50,12 @@ class SidebarItemRowView: NSView {
     var isEditing = false { didSet { if isEditing != oldValue { editingChanged() } } }
     var onRemove: (() -> Void)?
     var removeButton: SidebarIconButton?
-    /// A workspace tile's hover control (`SidebarItemRowView+HoverActions`): its menu. A pinned item draws no
-    /// hover close (Lawrence msg 19392); Close Workspace is in that menu.
+    /// A workspace tile's hover controls (`SidebarItemRowView+HoverActions`), as a workspace row draws them: its
+    /// close (`onClose`) at the end and its menu (`onMore`) left of it.
     var onMore: (() -> Void)?
     var hoverMore: OverflowButton?
+    var onClose: (() -> Void)?
+    var hoverClose: SidebarIconButton?
     /// A pinned workspace tile's hover Unpin, left of its more button (David Beyer 2026-11-20: pinning by drag is
     /// awkward): `isPinned` reads the workspace's pin when the controls show, nil when the App offers no pin;
     /// `onUnpin` runs Pin/Unpin Workspace (`SidebarModel.workspacePin`).

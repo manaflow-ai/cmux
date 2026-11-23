@@ -3,12 +3,12 @@ import CmuxNextDesign
 import CmuxNextIcons
 
 /// A workspace tile's hover controls, as a workspace row draws them (2026-10-25: a pinned workspace showed no more
-/// button on hover): the more button (`onMore`, the tile's menu) at the row's trailing end, on the trailing column, and Unpin
-/// (`onUnpin`) left of it while the workspace is pinned.
-/// Only a row item that names an open workspace (`SidebarItemInfo.workspace`) shows it, under the pointer or while
-/// its menu is open, never in edit mode (its ✕ removes the item instead). Every such item is pinned (a Pinned block's
-/// workspace, a band item), so it draws no close x on hover: Lawrence msg 19392, "hover on pinned tab should not
-/// have close button, should only be able to close in right click". Close Workspace stays in its menu.
+/// button on hover): the close x (`onClose`) on the trailing column, the more button (`onMore`, the row's menu) left
+/// of it, and Unpin (`onUnpin`) left of that while the workspace is pinned.
+/// Only a row item that names an open workspace (`SidebarItemInfo.workspace`) shows them, under the pointer or while
+/// its menu is open, never in edit mode (its ✕ removes the item instead). A pinned workspace keeps its x (Leo
+/// 2026-11-23, ask-b5d3e0efb6: "so what, you cant close a pinned tab? no good reason for these limitations."), so
+/// its ⋮ sits where a regular row's does.
 extension SidebarItemRowView {
     /// Whether the controls show now.
     var showsHoverActions: Bool {
@@ -25,6 +25,15 @@ extension SidebarItemRowView {
             hoverMore = button
         }
         hoverMore?.isHidden = !shown
+        if shown, hoverClose == nil, onClose != nil {
+            let button = SidebarIconButton.rowClose(label: Strings.closeButton)
+            button.onPress = { [weak self] in self?.onClose?() }
+            if let workspace = info.workspace { button.setAccessibilityIdentifier("cmux.sidebar.workspace.\(workspace.rawValue).close") }
+            addSubview(button)
+            hoverClose = button
+        }
+        let closes = shown && hoverClose != nil
+        hoverClose?.isHidden = !closes
         // The more button whose menu is open stays lit after the pointer leaves for the menu (Leo 2026-10-26).
         hoverMore?.showsMenu = shown && showsMenu
         // The hovered controls replace every trailing mark, in every case (Leo 2026-11-22: "in all cases, the
@@ -50,7 +59,13 @@ extension SidebarItemRowView {
         guard shown, let hoverMore else { return }
         // The end-most control takes the trailing column, where the dot or spinner it hides sat.
         let control = SidebarStyle.controlSize
-        hoverMore.frame = SidebarStyle.trailingColumnFrame(rowWidth: b.width - SidebarStyle.horizontalInset, centerY: b.midY, side: control)
+        let end = SidebarStyle.trailingColumnFrame(rowWidth: b.width - SidebarStyle.horizontalInset, centerY: b.midY, side: control)
+        if closes, let hoverClose {
+            hoverClose.frame = end
+            hoverMore.frame = end.offsetBy(dx: -SidebarStyle.trailingSlotPitch, dy: 0)
+        } else {
+            hoverMore.frame = end
+        }
         var leading = hoverMore.frame.minX
         if unpins, let hoverUnpin {
             hoverUnpin.frame = hoverMore.frame.offsetBy(dx: -SidebarStyle.trailingSlotPitch, dy: 0)

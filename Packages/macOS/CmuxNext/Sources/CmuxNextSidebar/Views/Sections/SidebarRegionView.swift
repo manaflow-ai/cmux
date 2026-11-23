@@ -52,6 +52,8 @@ final class SidebarRegionView: NSView {
     var contextMenuProvider: ((SidebarContextTarget) -> NSMenu?)?
     /// The App's Pin/Unpin Workspace (`SidebarModel.workspacePin`) for a band region; a list block reads its list's.
     var workspacePin: (() -> (isPinned: (WorkspaceID) -> Bool, toggle: (WorkspaceID) -> Void)?)?
+    /// Close Workspace for a band region's tile x; a list block sends its list's.
+    var onCloseWorkspace: ((WorkspaceID) -> Void)?
     private var pinHook: (isPinned: (WorkspaceID) -> Bool, toggle: (WorkspaceID) -> Void)? {
         docList?.model.workspacePin ?? workspacePin?()
     }
@@ -419,10 +421,14 @@ final class SidebarRegionView: NSView {
         case .chip: .chip
         default: section.look == .builtIn ? .builtIn : .list
         }
+        // A pinned row leads with its own icon, never a pin glyph: the glyph pushed the title right, off where the
+        // click was expected, and drew on rows of a pinned group that are not pinned themselves (Leo 2026-11-23,
+        // ask-b5d3e0efb6: "it puts a symbol at the left. immediately questionable. where ... did my expected click
+        // go?"; "these aren't pinned. they're in a ... group."). Unpin is the hover button and the menu row. The
+        // Debug look `sidebar.pinnedRowLeading` = Pin, then the row's icon still draws it, for comparison.
         var info = activeInfo(content.infos[id] ?? .fallback(for: item), id)
-        info.leadingPin = !style.isIconOnly && style != .chip && section.id == SidebarLayoutDocument.pinnedSectionID
-            && item.ref.kind == LayoutItemRef.workspaceKind
-        // A pinned row leads with its pin whatever its shown tab is (msg 40501): a tab's favicon is not the workspace's icon.
+        info.leadingPin = !SidebarStyle.pinnedRowLeadsWithOwnIcon && !style.isIconOnly && style != .chip
+            && section.id == SidebarLayoutDocument.pinnedSectionID && item.ref.kind == LayoutItemRef.workspaceKind
         if info.leadingPin { info = info.droppingShownTabIcon() }
         view.configure(info, style: style)
         view.setAccessibilityIdentifier("cmux.sidebar.item.\(id.rawValue)")
@@ -498,7 +504,6 @@ final class SidebarRegionView: NSView {
             NSMenu.popUpContextMenu(menu, with: event, for: view)
         }
         // A workspace tile's hover more button opens the same menu under itself (SidebarItemRowView+HoverActions).
-        // A pinned item has no hover x (Lawrence msg 19392): Close Workspace is in this menu.
         view.onMore = { [weak self, weak view] in
             guard let view, let button = view.hoverMore, let menu = self?.contextMenuProvider?(.layoutItem(id)) else { return }
             view.showsMenu = true
@@ -513,6 +518,11 @@ final class SidebarRegionView: NSView {
         view.onUnpin = { [weak self, weak view] in
             guard let workspace = view?.info.workspace else { return }
             self?.pinHook?.toggle(workspace)
+        }
+        // Its hover x closes the workspace, as a workspace row's does (Leo 2026-11-23, ask-b5d3e0efb6).
+        view.onClose = { [weak self, weak view] in
+            guard let self, let workspace = view?.info.workspace else { return }
+            if let list = docList { list.model.send(.close([workspace])) } else { onCloseWorkspace?(workspace) }
         }
         return view
     }
