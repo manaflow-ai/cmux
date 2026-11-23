@@ -122,7 +122,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { spawn, spawnSync } from "node:child_process";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { appendFileSync, closeSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { constants as osConstants, tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { appStartDetail } from "./cloud-chat-matrix.ts";
@@ -2047,6 +2047,30 @@ export function directExec(api: Api, machine: string, journey: Pick<Journey, "se
   };
 }
 
+/**
+ * The CLI's answer as an exec result: its JSON (`exit_code`, `stdout`, `stderr`) when it printed one, else the
+ * process's own status and output. A CLI that died on a signal has no status: the code is 128 + the signal's number
+ * (a shell's convention) and stderr names the signal, and a CLI that printed nothing says so, so a failed step
+ * never reads `exit 1` with nothing beside it. The resume matrix's first run read exactly that: a cmux-tui built with
+ * the build runner's native CPU features (libghostty-vt's zig default) killed by SIGILL on every other runner CPU.
+ */
+export function cliExecResult(done: { status: number | null; signal: NodeJS.Signals | null; stdout: string; stderr: string }): { code: number; stdout: string; stderr: string } {
+  try {
+    const result = JSON.parse(done.stdout);
+    if (Number.isInteger(result?.exit_code)) {
+      return { code: Number(result.exit_code), stdout: String(result.stdout ?? ""), stderr: String(result.stderr ?? "") };
+    }
+  } catch {
+    // Preserve the raw CLI answer below when it did not produce its JSON contract.
+  }
+  const signo = done.signal ? (osConstants.signals as Record<string, number>)[done.signal] ?? 0 : 0;
+  const code = done.status ?? (done.signal ? 128 + signo : 1);
+  const said = done.signal
+    ? `[the cmux CLI was killed by ${done.signal}${done.signal === "SIGILL" ? ": an instruction this CPU lacks (a binary built for another CPU)" : ""}]`
+    : !done.stdout.trim() && !done.stderr.trim() ? `[the cmux CLI exited ${code} and printed nothing]` : "";
+  return { code, stdout: done.stdout, stderr: said ? `${done.stderr}${done.stderr && !done.stderr.endsWith("\n") ? "\n" : ""}${said}` : done.stderr };
+}
+
 /** `cmux machine access exec` with the same credential: the journey drives the real CLI, which takes the
  * machine exec route itself on a machine whose provider has no client sessions (a VM API machine). */
 function cliExec(cmux: string, api: Api, machine: string): Exec {
@@ -2054,7 +2078,7 @@ function cliExec(cmux: string, api: Api, machine: string): Exec {
     const env = { ...process.env, CMUX_CLOUD_API_URL: api.origin, CMUX_CLOUD_ACCESS_TOKEN: api.bearer };
     const args = ["--json", "machine", "access", "exec", "--target", `machine:${machine}`, "--timeout-ms", String(Math.min(timeoutMs, 300_000)), ...(api.team ? ["--team", api.team] : []), "--", command];
     // Asynchronous, so a carrier dial this process holds (the chaos leg's) keeps being read while a command runs.
-    const done = await new Promise<{ status: number | null; stdout: string; stderr: string }>((resolve, reject) => {
+    const done = await new Promise<{ status: number | null; signal: NodeJS.Signals | null; stdout: string; stderr: string }>((resolve, reject) => {
       const child = spawn(cmux, args, { env, stdio: ["ignore", "pipe", "pipe"] });
       let stdout = "";
       let stderr = "";
@@ -2065,20 +2089,12 @@ function cliExec(cmux: string, api: Api, machine: string): Exec {
         clearTimeout(timer);
         reject(new Error(`${cmux}: ${error.message}`));
       });
-      child.on("close", (status) => {
+      child.on("close", (status, signal) => {
         clearTimeout(timer);
-        resolve({ status, stdout, stderr });
+        resolve({ status, signal, stdout, stderr });
       });
     });
-    try {
-      const result = JSON.parse(done.stdout);
-      if (Number.isInteger(result?.exit_code)) {
-        return { code: Number(result.exit_code), stdout: String(result.stdout ?? ""), stderr: String(result.stderr ?? "") };
-      }
-    } catch {
-      // Preserve the raw CLI answer below when it did not produce its JSON contract.
-    }
-    return { code: done.status ?? 1, stdout: done.stdout, stderr: done.stderr };
+    return cliExecResult(done);
   };
 }
 
@@ -3729,6 +3745,10 @@ export async function deleteJourneyMachines(ids: string[], scopes: MachineScope[
   return { deleted, failed };
 }
 
+/** The agent test account's Stack access token lasts about an hour (the first resume matrix run read 401 from
+ * 56 to 70 min after its sign-in); the resume matrix signs in again past this age, before a sample starts. */
+export const RESIGN_AFTER_MS = 30 * 60_000;
+
 /** The Stack password sign-in the journey uses: the agent test account's access token. */
 export async function passwordSignIn(stack: (typeof STACK)[StackName], email: string, password: string): Promise<{ access: string; refresh: string }> {
   const r = await http("POST", `${STACK_API}/api/v1/auth/password/sign-in`, { email, password }, {
@@ -4012,6 +4032,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   const team = argValue("--team", argv) ?? process.env.CMUX_JOURNEY_TEAM ?? undefined;
   const signIn = argValue("--sign-in", argv) ?? "password";
   if (signIn !== "password" && signIn !== "oidc") throw new Error(`--sign-in ${signIn}: password or oidc`);
+  // When the password sign-in ran: the resume matrix signs in again once it is RESIGN_AFTER_MS old.
+  let signedInAt = 0;
   // --machines (list) and --delete-ids (delete exact ids): the operator's leaked-machine cleanup, no journey.
   if (argv.includes("--machines") || argv.includes("--delete-ids")) return machinesMode(argv, backend, email, password, team);
   // --delete-kept ID: delete one machine a --keep run of this account made (named `cloud journey jr-...`), and nothing else.
@@ -4296,6 +4318,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     }
     const stack = STACK[backend.stack];
     if (signIn === "password") api.bearer = await J.step("sign in (agent test account)", async () => {
+      signedInAt = Date.now();
       const s = await passwordSignIn(stack, email!, password!);
       J.secrets.push(s.access, s.refresh);
       return { value: s.access, detail: `Stack project ${stack.project.slice(0, 8)}` };
@@ -5306,12 +5329,23 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           if (r.status !== 200 || r.body?.ok !== true) throw new Error(`cloud.machine.start: HTTP ${r.status} ${short(r.body?.error ?? r.body)}`);
           return { serverTiming: parseServerTiming(r.headers?.get("server-timing")) };
         };
+        // The CLI processes the matrix starts (its chat dial, each exec) read the token from here, so a new sign-in
+        // reaches every one started after it.
+        const matrixEnv: Record<string, string | undefined> = { ...inherited, CMUX_CLOUD_API_URL: api.origin, CMUX_CLOUD_ACCESS_TOKEN: api.bearer };
         const samples = await runResumeMatrix({
           ctx: {
             cmux, machine: created.id, team: api.team, exec, guest: GUEST, session, tag, harness: agent,
             credentials: launchCredential ? { env: { CLAUDE_CODE_OAUTH_TOKEN: login } } : undefined,
-            env: { ...inherited, CMUX_CLOUD_API_URL: api.origin, CMUX_CLOUD_ACCESS_TOKEN: api.bearer },
+            env: matrixEnv,
             log: (line) => console.log(scrub(line, J.secrets)),
+          },
+          refreshAuth: async () => {
+            if (signIn !== "password" || !email || !password || Date.now() - signedInAt < RESIGN_AFTER_MS) return;
+            const s = await passwordSignIn(STACK[backend.stack], email, password);
+            J.secrets.push(s.access, s.refresh);
+            signedInAt = Date.now();
+            api.bearer = s.access;
+            matrixEnv.CMUX_CLOUD_ACCESS_TOKEN = s.access;
           },
           pause: async () => {
             await api.op("cloud.machine.pause", { machine: created.id }, `${tag}-rm-pause-${k++}`);
@@ -5323,7 +5357,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
             await waitMachine(api, created.id, (x) => x.status === "running", 180_000);
           },
           clientSession: async (ttl) => {
-            const r = await api.raw("POST", `/v1/cloud/machines/${created.id}/client-session`, { ttl_seconds: Math.min(ttl, 86_400) });
+            const r = await api.raw("POST", `/v1/cloud/machines/${created.id}/client-session`, { ttl_seconds: ttl });
             const v = r.body?.value ?? r.body;
             if (r.status !== 200 || typeof v?.token !== "string") throw new Error(`client-session: HTTP ${r.status} ${short(r.body?.error ?? r.body)}`);
             J.secrets.push(v.token);

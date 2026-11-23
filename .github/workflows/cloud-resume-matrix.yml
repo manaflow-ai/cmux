@@ -99,6 +99,11 @@ jobs:
           CARGO_HTTP_TIMEOUT: "120"
           GHOSTTY_ZIG_SOURCE: ghostty-next
           CMUX_GHOSTTY_SRC: ""
+          # The binary runs on other runners, whose CPUs differ from this one: libghostty-vt for any x86-64 CPU
+          # (zig's default is the build CPU's own features). Without it the first run's cmux-tui died of SIGILL
+          # on every runner pool but the build's (run 45133130690: the n4* and hs1c cells ran, all others failed
+          # their first exec), as cmux-tui-spec.yml's carried binary does.
+          CMUX_GHOSTTY_VT_ZIG_CPU: baseline
         run: |
           target_dir="${CARGO_TARGET_DIR:-target}"
           cargo build -p cmux-tui --bin cmux-tui --locked

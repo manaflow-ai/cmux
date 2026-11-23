@@ -53,6 +53,9 @@ export type ResumeSample = {
   /** cmux-platform's Server-Timing on the resume answer, when it sends one (provider, vmapi, total). */
   server_timing?: Record<string, number>;
   direct_mode?: "start" | "exec";
+  /** The direct arm's client session was minted after the hold, on the paused machine: a pause longer than a
+   * session lives (CLIENT_SESSION_MAX_S). Minting one may wake the machine, so such a sample's direct times read late. */
+  session_minted_paused?: boolean;
   /** The guest's wall clock minus the runner's, ms, from the exec at the sample's end. */
   clock_offset_ms: number | null;
   /** The guest touching every page of the matrix's memory fill after the wake (--resume-fill), ms: the lazy page-in. */
@@ -70,8 +73,13 @@ export type ResumeDeps = {
   platformResume: () => Promise<{ serverTiming?: Record<string, number> }>;
   /** After a direct or send arm: tell the platform the machine runs (its own read), so the next pause is real. */
   platformSync: () => Promise<void>;
-  /** A fresh client session for the machine: the provider's API base, VM id and identity token. */
+  /** A fresh client session for the machine: the provider's API base, VM id and identity token (ttl 60..900 s). */
   clientSession: (ttlSeconds: number) => Promise<{ token: string; vm_id: string; api_base_url: string }>;
+  /**
+   * Before each sample: a sign-in that is getting old is made again (the agent test account's Stack access token
+   * lasts about an hour, and a 5 s cell runs longer; the first run's 900 s and 3600 s cells read 401 after it).
+   */
+  refreshAuth?: () => Promise<void>;
   fetchImpl?: typeof fetch;
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
@@ -182,6 +190,22 @@ export async function directWake(session: { token: string; vm_id: string; api_ba
 }
 
 const FIRST_BYTE_DEADLINE_MS = 180_000;
+/** The client-session route's ttl_seconds bounds (validation.invalid outside them). */
+export const CLIENT_SESSION_MIN_S = 60;
+export const CLIENT_SESSION_MAX_S = 900;
+/** Room a direct sample's session keeps past its hold: the pause's own wait, the wake and the reply. */
+const SESSION_SLACK_S = 240;
+
+/**
+ * When the direct arm mints its client session and for how long: before the pause while the hold and its slack fit in
+ * the longest session the route gives (minting for a paused machine may wake it), else after the hold.
+ */
+export function directSessionPlan(pauseS: number): { ttl: number; afterHold: boolean } {
+  const want = Math.ceil(pauseS) + SESSION_SLACK_S;
+  return want <= CLIENT_SESSION_MAX_S
+    ? { ttl: Math.max(CLIENT_SESSION_MIN_S, want), afterHold: false }
+    : { ttl: Math.max(CLIENT_SESSION_MIN_S, Math.min(CLIENT_SESSION_MAX_S, SESSION_SLACK_S)), afterHold: true };
+}
 const safe = (tag: string) => tag.replace(/[^A-Za-z0-9-]/g, "-");
 
 /** The whole matrix on one machine: every pause length, n samples of every arm, interleaved. */
@@ -213,12 +237,20 @@ export async function runResumeMatrix(deps: ResumeDeps, pauses: number[], n: num
           const s: ResumeSample = { pause_s, arm, i, machine: ctx.machine, at: new Date().toISOString(), paused_ms: null, answered_ms: null, running_ms: null, registered_ms: null, first_byte_ms: null, ack_ms: null, clock_offset_ms: null, error: "" };
           out.push(s);
           try {
-            // The client session is minted while the machine runs: minting one for a paused machine may wake it.
-            const session = arm === "direct" ? await deps.clientSession(pause_s + 900) : null;
+            await deps.refreshAuth?.();
+            // The client session is minted while the machine runs (minting one for a paused machine may wake it),
+            // unless the hold outlasts any session the route gives.
+            const plan = directSessionPlan(pause_s);
+            let session = arm === "direct" && !plan.afterHold ? await deps.clientSession(plan.ttl) : null;
             await chat.caughtUp(chat.held, 30_000);
             await deps.pause();
             const pausedAt = now();
             await sleep(pause_s * 1000);
+            if (arm === "direct" && plan.afterHold) {
+              await deps.refreshAuth?.();
+              session = await deps.clientSession(plan.ttl);
+              s.session_minted_paused = true;
+            }
             const t0 = now();
             s.paused_ms = t0 - pausedAt;
             const marker = feltMarker(`${safe(ctx.tag)}-rm-${pause_s}-${arm}-${i}`);

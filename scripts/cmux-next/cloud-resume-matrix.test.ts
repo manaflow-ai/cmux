@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { armOrder, parseServerTiming, parseWakeFacts, percentile, resumeMarkdown, type ResumeSample } from "./cloud-resume-matrix.ts";
+import { cliExecResult } from "./cloud-journey.ts";
+import { armOrder, CLIENT_SESSION_MAX_S, CLIENT_SESSION_MIN_S, directSessionPlan, parseServerTiming, parseWakeFacts, percentile, resumeMarkdown, type ResumeSample } from "./cloud-resume-matrix.ts";
 
 describe("parseWakeFacts", () => {
   test("takes the gap spanning the event and the first relay line after it, guest clock corrected", () => {
@@ -53,4 +54,36 @@ test("the fill holder ships its python as base64, so no shell or printf reads it
   expect(py).toContain("%256");
   expect(py.split("\n").length).toBeGreaterThan(8);
   expect(TOUCH_COMMAND).toContain("kill -USR1");
+});
+
+describe("directSessionPlan", () => {
+  test("every ttl it asks is one the client-session route takes (60..900 s; run 45133130690 asked 905 and read 400)", () => {
+    for (const pause of [0, 5, 30, 300, 660, 661, 900, 3600, 21_600]) {
+      const { ttl } = directSessionPlan(pause);
+      expect(ttl).toBeGreaterThanOrEqual(CLIENT_SESSION_MIN_S);
+      expect(ttl).toBeLessThanOrEqual(CLIENT_SESSION_MAX_S);
+    }
+  });
+  test("mints before the pause while the hold fits in a session, after it once it does not", () => {
+    expect(directSessionPlan(5)).toEqual({ ttl: 245, afterHold: false });
+    expect(directSessionPlan(300)).toEqual({ ttl: 540, afterHold: false });
+    expect(directSessionPlan(900).afterHold).toBe(true);
+    expect(directSessionPlan(3600).afterHold).toBe(true);
+  });
+});
+
+describe("cliExecResult", () => {
+  test("the CLI's JSON answer is the exec's result", () => {
+    expect(cliExecResult({ status: 0, signal: null, stdout: '{"exit_code":3,"stdout":"o","stderr":"e"}', stderr: "" })).toEqual({ code: 3, stdout: "o", stderr: "e" });
+  });
+  test("a CLI killed by a signal says so, with 128 + its number (run 45133130690 read a bare `exit 1`)", () => {
+    const r = cliExecResult({ status: null, signal: "SIGILL", stdout: "", stderr: "" });
+    expect(r.code).toBe(132);
+    expect(r.stderr).toContain("killed by SIGILL");
+    expect(r.stderr).toContain("another CPU");
+  });
+  test("a CLI that exits with no output says it printed nothing; its own output is kept", () => {
+    expect(cliExecResult({ status: 1, signal: null, stdout: "", stderr: "" }).stderr).toBe("[the cmux CLI exited 1 and printed nothing]");
+    expect(cliExecResult({ status: 2, signal: null, stdout: "", stderr: "error: no such machine\n" })).toEqual({ code: 2, stdout: "", stderr: "error: no such machine\n" });
+  });
 });
