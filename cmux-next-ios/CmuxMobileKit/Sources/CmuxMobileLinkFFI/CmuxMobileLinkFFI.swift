@@ -1328,6 +1328,313 @@ public func FfiConverterTypeChannelHandle_lower(_ value: ChannelHandle) -> UInt6
 
 
 
+public protocol ComposerOutboxProtocol: AnyObject, Sendable {
+    
+    /**
+     * The answer to the request for `seq`. A lost one goes again under its key.
+     */
+    func answer(seq: UInt64, answer: ComposerSendAnswer)  -> ComposerSendDone?
+    
+    /**
+     * Sends past the hold at `now_ms`, given up, in tap order.
+     */
+    func expire(nowMs: UInt64)  -> [ComposerSendDone]
+    
+    /**
+     * Every Send, given up now (the attached daemon takes no keys), in tap order.
+     */
+    func giveUp()  -> [ComposerSendDone]
+    
+    /**
+     * One Send, given up now (the session dropped it), unless it is in flight.
+     */
+    func giveUpSend(seq: UInt64)  -> ComposerSendDone?
+    
+    /**
+     * Whether the attached daemon takes keyed Sends (false before the first attach).
+     */
+    func isServed()  -> Bool
+    
+    /**
+     * The channel dropped: what was in flight goes again on the next one.
+     */
+    func linkLost() 
+    
+    /**
+     * Milliseconds after `now_ms` until the oldest Send runs out of hold (0 when it has), or
+     * none when empty.
+     */
+    func nextDeadlineMs(nowMs: UInt64)  -> UInt64?
+    
+    /**
+     * The next request to send, when none is in flight and a keyed daemon is attached.
+     */
+    func nextRequest()  -> ComposerSendRequest?
+    
+    /**
+     * Sends not answered yet.
+     */
+    func pending()  -> UInt32
+    
+    /**
+     * A tap on Send at `now_ms`. Returns the Send's number.
+     */
+    func push(text: String, submit: Bool, nowMs: UInt64)  -> UInt64
+    
+    /**
+     * The attached daemon's `identify` capabilities. Returns whether it takes keyed Sends; until
+     * a daemon that does is attached, Sends wait in the outbox.
+     */
+    func setCapabilities(capabilities: [String])  -> Bool
+    
+}
+open class ComposerOutbox: ComposerOutboxProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_cmux_mobile_link_ffi_fn_clone_composeroutbox(self.handle, $0) }
+    }
+    /**
+     * `nonce`: unique to this session across the daemon's key memory. `hold_ms`: how long a
+     * Send waits for the terminal before it is given up (capped below the daemon's key memory).
+     */
+public convenience init(nonce: String, holdMs: UInt64) {
+    let handle =
+        try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_constructor_composeroutbox_new(
+        FfiConverterString.lower(nonce),
+        FfiConverterUInt64.lower(holdMs),$0
+    )
+}
+    self.init(unsafeFromHandle: handle)
+}
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_cmux_mobile_link_ffi_fn_free_composeroutbox(handle, $0) }
+    }
+
+    
+
+    
+    /**
+     * The answer to the request for `seq`. A lost one goes again under its key.
+     */
+open func answer(seq: UInt64, answer: ComposerSendAnswer) -> ComposerSendDone?  {
+    return try!  FfiConverterOptionTypeComposerSendDone.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_composeroutbox_answer(
+            self.uniffiCloneHandle(),
+        FfiConverterUInt64.lower(seq),
+        FfiConverterTypeComposerSendAnswer_lower(answer),$0
+    )
+})
+}
+    
+    /**
+     * Sends past the hold at `now_ms`, given up, in tap order.
+     */
+open func expire(nowMs: UInt64) -> [ComposerSendDone]  {
+    return try!  FfiConverterSequenceTypeComposerSendDone.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_composeroutbox_expire(
+            self.uniffiCloneHandle(),
+        FfiConverterUInt64.lower(nowMs),$0
+    )
+})
+}
+    
+    /**
+     * Every Send, given up now (the attached daemon takes no keys), in tap order.
+     */
+open func giveUp() -> [ComposerSendDone]  {
+    return try!  FfiConverterSequenceTypeComposerSendDone.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_composeroutbox_give_up(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * One Send, given up now (the session dropped it), unless it is in flight.
+     */
+open func giveUpSend(seq: UInt64) -> ComposerSendDone?  {
+    return try!  FfiConverterOptionTypeComposerSendDone.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_composeroutbox_give_up_send(
+            self.uniffiCloneHandle(),
+        FfiConverterUInt64.lower(seq),$0
+    )
+})
+}
+    
+    /**
+     * Whether the attached daemon takes keyed Sends (false before the first attach).
+     */
+open func isServed() -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_composeroutbox_is_served(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * The channel dropped: what was in flight goes again on the next one.
+     */
+open func linkLost()  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_composeroutbox_link_lost(
+            self.uniffiCloneHandle(),$0
+    )
+}
+}
+    
+    /**
+     * Milliseconds after `now_ms` until the oldest Send runs out of hold (0 when it has), or
+     * none when empty.
+     */
+open func nextDeadlineMs(nowMs: UInt64) -> UInt64?  {
+    return try!  FfiConverterOptionUInt64.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_composeroutbox_next_deadline_ms(
+            self.uniffiCloneHandle(),
+        FfiConverterUInt64.lower(nowMs),$0
+    )
+})
+}
+    
+    /**
+     * The next request to send, when none is in flight and a keyed daemon is attached.
+     */
+open func nextRequest() -> ComposerSendRequest?  {
+    return try!  FfiConverterOptionTypeComposerSendRequest.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_composeroutbox_next_request(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * Sends not answered yet.
+     */
+open func pending() -> UInt32  {
+    return try!  FfiConverterUInt32.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_composeroutbox_pending(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * A tap on Send at `now_ms`. Returns the Send's number.
+     */
+open func push(text: String, submit: Bool, nowMs: UInt64) -> UInt64  {
+    return try!  FfiConverterUInt64.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_composeroutbox_push(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(text),
+        FfiConverterBool.lower(submit),
+        FfiConverterUInt64.lower(nowMs),$0
+    )
+})
+}
+    
+    /**
+     * The attached daemon's `identify` capabilities. Returns whether it takes keyed Sends; until
+     * a daemon that does is attached, Sends wait in the outbox.
+     */
+open func setCapabilities(capabilities: [String]) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_composeroutbox_set_capabilities(
+            self.uniffiCloneHandle(),
+        FfiConverterSequenceString.lower(capabilities),$0
+    )
+})
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeComposerOutbox: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = ComposerOutbox
+
+    public static func lift(_ handle: UInt64) throws -> ComposerOutbox {
+        return ComposerOutbox(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: ComposerOutbox) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ComposerOutbox {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: ComposerOutbox, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeComposerOutbox_lift(_ handle: UInt64) throws -> ComposerOutbox {
+    return try FfiConverterTypeComposerOutbox.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeComposerOutbox_lower(_ value: ComposerOutbox) -> UInt64 {
+    return FfiConverterTypeComposerOutbox.lower(value)
+}
+
+
+
+
+
+
 /**
  * One viewer's follow camera.
  */
@@ -3277,6 +3584,117 @@ public func FfiConverterTypeClassicCleanupPlan_lower(_ value: ClassicCleanupPlan
 }
 
 
+public struct ComposerSendDone: Equatable, Hashable {
+    public var seq: UInt64
+    public var outcome: ComposerSendOutcome
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(seq: UInt64, outcome: ComposerSendOutcome) {
+        self.seq = seq
+        self.outcome = outcome
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension ComposerSendDone: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeComposerSendDone: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ComposerSendDone {
+        return
+            try ComposerSendDone(
+                seq: FfiConverterUInt64.read(from: &buf), 
+                outcome: FfiConverterTypeComposerSendOutcome.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ComposerSendDone, into buf: inout [UInt8]) {
+        FfiConverterUInt64.write(value.seq, into: &buf)
+        FfiConverterTypeComposerSendOutcome.write(value.outcome, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeComposerSendDone_lift(_ buf: RustBuffer) throws -> ComposerSendDone {
+    return try FfiConverterTypeComposerSendDone.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeComposerSendDone_lower(_ value: ComposerSendDone) -> RustBuffer {
+    return FfiConverterTypeComposerSendDone.lower(value)
+}
+
+
+/**
+ * One `send` to make: `params` is the JSON object without `surface`.
+ */
+public struct ComposerSendRequest: Equatable, Hashable {
+    public var seq: UInt64
+    public var paramsJson: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(seq: UInt64, paramsJson: String) {
+        self.seq = seq
+        self.paramsJson = paramsJson
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension ComposerSendRequest: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeComposerSendRequest: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ComposerSendRequest {
+        return
+            try ComposerSendRequest(
+                seq: FfiConverterUInt64.read(from: &buf), 
+                paramsJson: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ComposerSendRequest, into buf: inout [UInt8]) {
+        FfiConverterUInt64.write(value.seq, into: &buf)
+        FfiConverterString.write(value.paramsJson, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeComposerSendRequest_lift(_ buf: RustBuffer) throws -> ComposerSendRequest {
+    return try FfiConverterTypeComposerSendRequest.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeComposerSendRequest_lower(_ value: ComposerSendRequest) -> RustBuffer {
+    return FfiConverterTypeComposerSendRequest.lower(value)
+}
+
+
 /**
  * Dial options beyond the transport. Every field has a default, so
  * `ConnectOptions()` in Swift is the plain dial.
@@ -4700,6 +5118,195 @@ public func FfiConverterTypeCmuxMobileError_lower(_ value: CmuxMobileError) -> R
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 /**
+ * What came of one attempt, as the session saw it.
+ */
+
+public enum ComposerSendAnswer: Equatable, Hashable {
+    
+    /**
+     * The daemon answered success (applied now, or earlier under the same key).
+     */
+    case applied
+    /**
+     * The daemon refused it and nothing was written.
+     */
+    case refused
+    /**
+     * No answer: the channel failed or timed out after the request may have been written.
+     */
+    case lost
+    /**
+     * An error that does not say nothing was written (no `known-not-delivered`): may be typed.
+     */
+    case uncertain
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension ComposerSendAnswer: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeComposerSendAnswer: FfiConverterRustBuffer {
+    typealias SwiftType = ComposerSendAnswer
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ComposerSendAnswer {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .applied
+        
+        case 2: return .refused
+        
+        case 3: return .lost
+        
+        case 4: return .uncertain
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: ComposerSendAnswer, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .applied:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .refused:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .lost:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .uncertain:
+            writeInt(&buf, Int32(4))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeComposerSendAnswer_lift(_ buf: RustBuffer) throws -> ComposerSendAnswer {
+    return try FfiConverterTypeComposerSendAnswer.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeComposerSendAnswer_lower(_ value: ComposerSendAnswer) -> RustBuffer {
+    return FfiConverterTypeComposerSendAnswer.lower(value)
+}
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * How a Send ended.
+ */
+
+public enum ComposerSendOutcome: Equatable, Hashable {
+    
+    /**
+     * The Mac has it, typed once.
+     */
+    case sent
+    /**
+     * The Mac never got it: the text goes back to the composer.
+     */
+    case notSent(text: String
+    )
+    /**
+     * It may have reached the Mac and the hold ran out: say so, and keep the text out of the
+     * composer, or the person sends it twice.
+     */
+    case maybeSent(text: String
+    )
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension ComposerSendOutcome: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeComposerSendOutcome: FfiConverterRustBuffer {
+    typealias SwiftType = ComposerSendOutcome
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ComposerSendOutcome {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .sent
+        
+        case 2: return .notSent(text: try FfiConverterString.read(from: &buf)
+        )
+        
+        case 3: return .maybeSent(text: try FfiConverterString.read(from: &buf)
+        )
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: ComposerSendOutcome, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .sent:
+            writeInt(&buf, Int32(1))
+        
+        
+        case let .notSent(text):
+            writeInt(&buf, Int32(2))
+            FfiConverterString.write(text, into: &buf)
+            
+        
+        case let .maybeSent(text):
+            writeInt(&buf, Int32(3))
+            FfiConverterString.write(text, into: &buf)
+            
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeComposerSendOutcome_lift(_ buf: RustBuffer) throws -> ComposerSendOutcome {
+    return try FfiConverterTypeComposerSendOutcome.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeComposerSendOutcome_lower(_ value: ComposerSendOutcome) -> RustBuffer {
+    return FfiConverterTypeComposerSendOutcome.lower(value)
+}
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
  * Who moves the crop: the camera, or the person (a pinch or a drag).
  */
 
@@ -5679,6 +6286,54 @@ fileprivate struct FfiConverterOptionTypeLinkObserver: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionTypeComposerSendDone: FfiConverterRustBuffer {
+    typealias SwiftType = ComposerSendDone?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeComposerSendDone.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeComposerSendDone.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionTypeComposerSendRequest: FfiConverterRustBuffer {
+    typealias SwiftType = ComposerSendRequest?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeComposerSendRequest.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeComposerSendRequest.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionTypePredictionLayout: FfiConverterRustBuffer {
     typealias SwiftType = PredictionLayout?
 
@@ -5744,6 +6399,31 @@ fileprivate struct FfiConverterSequenceString: FfiConverterRustBuffer {
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterString.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeComposerSendDone: FfiConverterRustBuffer {
+    typealias SwiftType = [ComposerSendDone]
+
+    public static func write(_ value: [ComposerSendDone], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeComposerSendDone.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [ComposerSendDone] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [ComposerSendDone]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeComposerSendDone.read(from: &buf))
         }
         return seq
     }
@@ -6267,10 +6947,10 @@ public func overviewColumns(width: Double) -> UInt32  {
 })
 }
 /**
- * The layout of a window `width` by `height` points. A size that is not
- * finite or not positive is a compact phone's of that width (zero when
- * unknown), so a transient zero size during a scene change never shows two
- * panes.
+ * The layout of a window `width` by `height` points. A size with either side
+ * not finite or not positive is unknown, laid out as a zero-sized compact
+ * window, so a transient zero size during a scene change never shows two
+ * panes or a wide overview.
  */
 public func windowLayout(width: Double, height: Double) -> WindowLayout  {
     return try!  FfiConverterTypeWindowLayout_lift(try! rustCall() {
@@ -6365,7 +7045,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_func_overview_columns() != 48015) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_func_window_layout() != 29754) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_window_layout() != 34233) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_channelhandle_close() != 40361) {
@@ -6473,6 +7153,39 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_method_browserstream_stats() != 19072) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_composeroutbox_answer() != 43398) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_composeroutbox_expire() != 45077) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_composeroutbox_give_up() != 17841) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_composeroutbox_give_up_send() != 32838) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_composeroutbox_is_served() != 45820) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_composeroutbox_link_lost() != 26551) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_composeroutbox_next_deadline_ms() != 21898) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_composeroutbox_next_request() != 11883) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_composeroutbox_pending() != 16018) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_composeroutbox_push() != 49833) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_composeroutbox_set_capabilities() != 28189) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_followcamera_advance() != 2575) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -6564,6 +7277,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_take_replies() != 21867) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_constructor_composeroutbox_new() != 19978) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_constructor_followcamera_new() != 52189) {

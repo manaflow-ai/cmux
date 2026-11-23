@@ -489,6 +489,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-composer-send"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-fault"
 version = "0.1.0"
 dependencies = [
@@ -588,6 +595,7 @@ name = "cmux-mobile-link-ffi"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cmux-composer-send",
  "cmux-follow-cam",
  "cmux-mobile-host",
  "cmux-mobile-link",

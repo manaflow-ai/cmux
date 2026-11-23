@@ -16,6 +16,7 @@ use tokio::runtime::Runtime;
 
 mod browser;
 mod classic_leftovers;
+mod composer_outbox;
 mod follow_camera;
 mod link_side;
 mod share_approval;
@@ -26,6 +27,9 @@ mod window_layout;
 
 pub use browser::{BrowserFrame, BrowserObserver, BrowserStats, BrowserStream};
 pub use classic_leftovers::{ClassicCleanupPlan, KeychainDelete, KeychainLeftover};
+pub use composer_outbox::{
+    ComposerOutbox, ComposerSendAnswer, ComposerSendDone, ComposerSendOutcome, ComposerSendRequest,
+};
 pub use follow_camera::{FollowCamera, FollowCameraMode, FollowRect};
 pub use link_side::{LinkOpenSide, link_open_side};
 pub use share_approval::{ShareApprovalDraft, ShareAsk, share_approval_draft, share_approval_signed};
