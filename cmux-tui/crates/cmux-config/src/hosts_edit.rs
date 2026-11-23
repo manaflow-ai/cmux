@@ -53,12 +53,13 @@ pub fn apply(items: &[Value], edit: &HostEdit) -> Result<Vec<Value>, String> {
             if index_of(&items, to).is_some_and(|other| other != at) {
                 return Err(format!("a host is already called {:?} (cmux hosts list)", to.trim()));
             }
-            member_map(&mut items[at])?.insert("label".into(), Value::String(to.trim().to_owned()));
+            member_map(items.get_mut(at))?
+                .insert("label".into(), Value::String(to.trim().to_owned()));
         }
         HostEdit::SetEndpoints { label, endpoints } => {
             check_endpoints(endpoints)?;
             let at = find(&items, label)?;
-            let host = member_map(&mut items[at])?;
+            let host = member_map(items.get_mut(at))?;
             host.remove("endpoint");
             host.insert("endpoints".into(), endpoint_list(endpoints));
         }
@@ -152,8 +153,9 @@ fn find(items: &[Value], label: &str) -> Result<usize, String> {
     index_of(items, label).ok_or_else(|| format!("no host is called {label:?} (cmux hosts list)"))
 }
 
-fn member_map(item: &mut Value) -> Result<&mut Map<String, Value>, String> {
-    item.as_object_mut().ok_or_else(|| "machines.hosts: that entry is not an object".to_owned())
+fn member_map(item: Option<&mut Value>) -> Result<&mut Map<String, Value>, String> {
+    item.and_then(Value::as_object_mut)
+        .ok_or_else(|| "machines.hosts: that entry is not an object".to_owned())
 }
 
 #[cfg(test)]
