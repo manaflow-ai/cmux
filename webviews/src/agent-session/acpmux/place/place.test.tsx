@@ -317,7 +317,7 @@ test("the calls are the app's actions, bound to the session", async () => {
     { id: "cloudEvacuate.cancel" },
     { id: "cloudBringBackAll" },
     { id: "cloudBringBackAll", sessions: ["a"] },
-    { id: "chatPlace.set", mode: "auto", session: "c" },
+    { id: "chatPlace.set", mode: "auto", sessions: ["c"] },
   ]);
 });
 
@@ -578,4 +578,26 @@ test("the app's startedMs is its monotonic clock and is ignored: the clock ticks
     expect(state && evacuateElapsed(state, arrived + 2000)).toBe(14_000);
   }
   jest.useRealTimers();
+});
+
+test("a pick and a Retry send the queue and draft the page holds then", async () => {
+  const calls: unknown[] = [];
+  installDom();
+  (dom!.window as unknown as { cmuxAcpmuxActions?: unknown }).cmuxAcpmuxActions = {
+    "action.run": (params: unknown) => {
+      calls.push(params);
+      return Promise.resolve();
+    },
+  };
+  let held = { queued: 2, hasDraft: true };
+  const place = placeActions("s-1", undefined, () => held);
+  place.setMode("cloud");
+  held = { queued: 0, hasDraft: false };
+  place.retry();
+  place.cancel();
+  expect(calls).toEqual([
+    { id: "chatPlace.set", mode: "cloud", queued: 2, hasDraft: true, session: "s-1" },
+    { id: "chatMove.retry", queued: 0, hasDraft: false, session: "s-1" },
+    { id: "chatMove.cancel", session: "s-1" },
+  ]);
 });

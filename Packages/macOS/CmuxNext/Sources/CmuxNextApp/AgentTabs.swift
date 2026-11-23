@@ -364,7 +364,7 @@ final class AgentTabStore {
     /// Session `session` (of acpmux `host`, nil: this Mac's) on tab `chat`'s right as a link opens (``LinkOpener``,
     /// `layout.linkPlacement`): a tab in the pane there, else a new split, focused; false when nothing opened.
     var openRight: (@MainActor (_ chat: String, _ session: String, _ host: String?) -> Bool)?
-    var openRightScoped: (@MainActor (_ chat: AgentTabKey, _ session: String, _ host: String?) -> Bool)?
+    var openRightScoped: (@MainActor (_ chat: AgentTabKey, _ session: String, _ host: String?, _ reveal: String?) -> Bool)? // reveal: the new tab's page gets it with its handshake (``revealTurn(_:in:machine:)``)
     /// The header's Terminal or Browser on chat tab `chat`'s right (``AgentChatTabActions/openTool``).
     var openTool: (@MainActor (_ chat: String, _ kind: RightColumnPlacement.Kind, _ cwd: String?) -> Bool)?
     var openToolScoped: (@MainActor (_ chat: AgentTabKey, _ kind: RightColumnPlacement.Kind, _ cwd: String?) -> Bool)?
@@ -373,6 +373,10 @@ final class AgentTabStore {
     var openFiles: (@MainActor (_ chat: String, _ folder: String, _ target: String?) -> Void)?, moveToFloatingChat: (@MainActor (String) -> Bool)?
     /// Where a started chat's tab can move (the composer's and the title menu's Move to…). The page
     /// receives only the current live list; it never invents or persists machine ids.
+    /// The chat's place for the header (`place`), as JSON bytes (``CloudPlaceFlows/placeJSON(session:onCloud:cloudName:)``); set by the app.
+    var placeState: @MainActor (_ record: AgentSessionRef?) -> Data? = { _ in nil }
+    /// The running Evacuate or Bring Back All, for the header's `evacuate`.
+    var evacuateState: @MainActor () -> Data? = { nil }
     var machineTargets: @MainActor (_ tab: AgentTabKey) -> [AgentPaneMoveTarget] = { _ in [] }
     /// Runs the existing CloudMove action for a validated target machine.
     var moveAgentToMachine: @MainActor (_ tab: AgentTabKey, _ machine: String) -> Bool = { _, _ in false }

@@ -106,13 +106,27 @@ await requireBrowserLane("previous-glass.test.ts", async () => {
 
     test(`${colorScheme}: without it, the tokens are the one glass system's`, async () => {
       const page = await open(colorScheme, { "data-theme": colorScheme });
-      const got = await tokens(page, ["--ds-glass-chrome-tint", "--ds-glass-menu-tint", "--ds-glass-saturation"]);
+      const got = await tokens(page, [
+        "--ds-glass-chrome-tint",
+        "--ds-glass-menu-tint",
+        "--ds-glass-saturation",
+        "--ds-glass-underlay",
+      ]);
       const level = (name: string) => designScale.glass.find((entry: { name: string }) => entry.name === name);
       const tint = (name: string) =>
         `${colorScheme === "dark" ? (level(name).darkTint ?? level(name).tint) : level(name).tint}%`;
       expect(got["--ds-glass-chrome-tint"]).toBe(tint("chrome"));
       expect(got["--ds-glass-menu-tint"]).toBe(tint("menu"));
       expect(got["--ds-glass-saturation"]).toBe(String(designScale.glassSaturation.value));
+      // A menu that cannot blur in place covers the same 88% of the text under it in dark as in light
+      // (rule 6): dark's clearer 72% menu sits over a heavier underlay, so the chat's text does not read
+      // through the Model menu (hq#13923).
+      const underlay = colorScheme === "dark" ? designScale.glassUnderlay.darkValue : designScale.glassUnderlay.value;
+      expect(got["--ds-glass-underlay"]).toBe(`${underlay}%`);
+      const menuTint = Number.parseFloat(got["--ds-glass-menu-tint"]!);
+      const cover = menuTint + ((100 - menuTint) * Number.parseFloat(got["--ds-glass-underlay"]!)) / 100;
+      expect(cover, `${colorScheme} menu cover`).toBeGreaterThanOrEqual(87.5);
+      expect(cover, `${colorScheme} menu cover`).toBeLessThan(90);
       const backdrop = await page.evaluate(() => getComputedStyle(document.getElementById("composer")!).backdropFilter);
       expect(backdrop).toContain(`saturate(${designScale.glassSaturation.value})`);
       await page.close();

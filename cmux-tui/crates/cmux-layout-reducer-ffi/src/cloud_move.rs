@@ -3,7 +3,7 @@
 //! defaults and the disk, observes its main-actor state, and asks here what each means.
 
 use cmux_cloud_start_core::moves::{
-    autosize, cli, folder, ledger, pin, place, seed, targets, wait,
+    autosize, cli, folder, ledger, pin, place, progress, seed, targets, wait,
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -46,6 +46,11 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
             }
             let request: Request = read(request)?;
             cli::read(request.reading, &request.output)
+        }
+        // The working toast's second line while a move runs: its step, why it waits, about how long is left.
+        b"cloud_move_progress" => {
+            let facts: progress::Facts = read(request)?;
+            to_value(progress::line(&facts))?
         }
         b"cloud_move_restarted_daemon" => {
             let answer: cli::Answer = read(request)?;
@@ -530,9 +535,20 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
                 chats: Vec<place::EvacuateChat>,
                 #[serde(default)]
                 selected: Option<Vec<String>>,
+                /// `toCloud` (Evacuate, the default) or `toLocal` (Bring Back All).
+                #[serde(default)]
+                direction: Option<place::Direction>,
             }
             let request: Request = read(request)?;
-            to_value(place::evacuate(&request.chats, request.selected.as_deref()))?
+            to_value(place::evacuate_toward(
+                &request.chats,
+                request.selected.as_deref(),
+                request.direction.unwrap_or(place::Direction::ToCloud),
+            ))?
+        }
+        b"cloud_move_place_vm_failure" => {
+            let error: place::VmError = read(request)?;
+            to_value(serde_json::json!({ "cause": place::vm_failure_cause(&error) }))?
         }
         b"cloud_move_place_own_machine" => {
             #[derive(Deserialize)]

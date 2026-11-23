@@ -310,6 +310,17 @@ let packageProducts: [Product] = [
 
 let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
+            name: "CmuxNextCloudPlace",
+            // The chat place flow store and Auto's signals: Swift carries facts, Rust decides (cloud_move_place_*).
+            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextCloud",
+                "CmuxNextCompat",
+                "CmuxNextDaemon",
+                "CmuxNextWakeups",
+            ],
+            swiftSettings: daemonSwiftSettings
+        ),
+        .target(
             name: "CmuxNextCloudCredentials",
             // CCmuxAppFFI: the Cloud start's harness login decision (cmux-cloud-start-core).
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
@@ -372,6 +383,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextChromiumWarmup",
                 "CmuxNextCloud",
                 "CmuxNextCloudCredentials",
+                "CmuxNextCloudPlace",
                 "CmuxNextCloudUI",
                 "CmuxNextCodeRouter",
                 "CmuxNextCompat",
@@ -696,6 +708,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextTestSupport",
                 "CmuxNextWakeups",
                 "CmuxNextWakeupsTestSupport",
+                "CmuxNextWindowRules",
             ],
             swiftSettings: uiSwiftSettings
         ),
@@ -1402,6 +1415,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // The memory pressure dispatch source, plus one 15 s timer for load and swap.
         .target(
             name: "CmuxNextHostPressure",
+            dependencies: ["CmuxNextDesignTokens"],
             swiftSettings: daemonSwiftSettings
         ),
         .testTarget(
@@ -1697,6 +1711,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextHomeModel",
                 "CmuxNextIcons",
                 "CmuxNextPalette",
+                "CmuxNextServer",
                 "CmuxNextSidebar",
                 "CmuxNextTabs",
                 "CmuxNextWakeups",
@@ -1958,6 +1973,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextUpdater",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextActions",
                 "CmuxNextCompat",
                 "CmuxNextDesign",
                 "CmuxNextIcons",
@@ -1974,6 +1990,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 .copy("Resources/WhatsNew"),
                 // The keys a web update pointer may be signed with (plans/cmux-next/web-ota.md).
                 .copy("Resources/web-update-keys.json"),
+                // The relaunch's afterimage, run by /usr/bin/osascript (RelaunchAfterimage).
+                .copy("Resources/relaunch-afterimage.js"),
             ],
             swiftSettings: uiSwiftSettings
         ),
@@ -2065,6 +2083,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextPages",
                 "CmuxNextPalette",
                 "CmuxNextSettings",
+                "CmuxNextWakeups",
             ],
             resources: [.process("Resources")],
             swiftSettings: uiSwiftSettings
@@ -2079,6 +2098,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextPages",
                 "CmuxNextSettings",
                 "CmuxNextTestSupport",
+                "CmuxNextWakeupsTestSupport",
             ],
             swiftSettings: uiSwiftSettings
         ),
@@ -2629,6 +2649,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextSettings",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CCmuxAppFFI",
                 "CmuxNextActions",
                 "CmuxNextCompat",
                 "CmuxNextDesign",
@@ -2750,6 +2771,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextAppHealth",
                 "CmuxNextAppTry",
                 "CmuxNextApps",
+                "CmuxNextBridge",
                 "CmuxNextBrowserCore",
                 "CmuxNextBrowserHistory",
                 "CmuxNextBrowserHost",
@@ -2760,6 +2782,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextChiefPetWiring",
                 "CmuxNextChromiumRuntime",
                 "CmuxNextCloudCredentials",
+                "CmuxNextCloudPlace",
                 "CmuxNextCloudUI",
                 "CmuxNextCompat",
                 "CmuxNextComputerUse",

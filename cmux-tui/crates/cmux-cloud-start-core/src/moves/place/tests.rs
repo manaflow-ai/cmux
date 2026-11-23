@@ -289,3 +289,81 @@ fn own_machine_is_never_shared() {
     let empty = vec![machine("m4", &[], false)];
     assert_eq!(own_machine("s1", Some("m4"), &empty), OwnMachine::Reuse { machine: "m4".into() });
 }
+
+#[test]
+fn evacuate_toward_local_moves_cloud_chats_whether_or_not_started() {
+    let chat = |session: &str, at: At, started: bool| EvacuateChat {
+        session: session.into(),
+        at,
+        started,
+        turn_running: false,
+        moving: false,
+    };
+    let chats = vec![
+        chat("a", At::Cloud, false),
+        chat("b", At::Local, true),
+        chat("c", At::Cloud, true),
+        EvacuateChat { moving: true, ..chat("d", At::Cloud, true) },
+    ];
+    let plan = evacuate_toward(&chats, None, Direction::ToLocal);
+    assert_eq!(plan.moves, vec!["a".to_string(), "c".to_string()]);
+    let skipped: Vec<_> = plan.skipped.iter().map(|s| (s.session.as_str(), s.reason)).collect();
+    assert_eq!(skipped, vec![("b", "alreadyLocal"), ("d", "moving")]);
+    // The same list toward Cloud keeps the old plan.
+    assert_eq!(evacuate(&chats, None).moves, vec!["b".to_string()]);
+}
+
+#[test]
+fn a_vm_that_could_not_start_names_its_cause() {
+    let cause = |error: VmError| vm_failure_cause(&error);
+    assert_eq!(cause(VmError { signed_out: true, ..VmError::default() }), Some("signIn"));
+    assert_eq!(cause(VmError { plan_required: true, ..VmError::default() }), Some("planLimit"));
+    assert_eq!(cause(VmError { status: Some(402), ..VmError::default() }), Some("planLimit"));
+    assert_eq!(cause(VmError { status: Some(429), ..VmError::default() }), Some("capacity"));
+    assert_eq!(
+        cause(VmError { code: Some("no_capacity".into()), ..VmError::default() }),
+        Some("capacity")
+    );
+    assert_eq!(
+        cause(VmError { code: Some("offline".into()), ..VmError::default() }),
+        Some("offline")
+    );
+    assert_eq!(cause(VmError { status: Some(500), ..VmError::default() }), None);
+}
+
+/// The events exactly as `CloudPlaceFlows.swift` sends them (camelCase fields, `atMs`): a
+/// field the reducer reads under another name failed `begin` and left the app no flow
+/// (review of cmux#51824, F1).
+#[test]
+fn the_apps_events_parse_as_sent() {
+    let event = |text: &str| serde_json::from_str::<Event>(text).expect(text);
+    let begin = event(
+        r#"{"event":"begin","session":"s1","direction":"toCloud","trigger":{"auto":"lowBattery"},
+            "from":"This Mac","to":"","cargo":{"turnRunning":true,"continuesTurn":false,"hasDraft":true,
+            "queued":2,"dirtyFiles":3,"branch":"feat"},"atMs":1000}"#,
+    );
+    let (flow, next) = reduce(None, begin);
+    assert_eq!(next, Next::Go);
+    let flow = flow.expect("a begin the app sends makes a flow");
+    assert_eq!(flow.started_ms, 1_000);
+    assert_eq!(flow.trigger, Trigger::Auto(AutoReason::LowBattery));
+    assert_eq!(flow.cargo.dirty_files, 3);
+    assert_eq!(flow.cargo.queued, 2);
+    assert!(flow.cargo.turn_running && flow.cargo.has_draft);
+    let (flow, _) = reduce(Some(flow), event(r#"{"event":"target","to":"vm-1"}"#));
+    let (flow, _) = reduce(flow, event(r#"{"event":"step","step":"machine","atMs":1500}"#));
+    let flow = flow.expect("flow");
+    assert_eq!(flow.step, Step::Machine);
+    for text in [
+        r#"{"event":"live","atMs":2000}"#,
+        r#"{"event":"failed","reason":"x","atMs":2000}"#,
+        r#"{"event":"cancel","atMs":2000}"#,
+    ] {
+        let _ = event(text);
+    }
+    // The flow the reducer returns comes back to it as the app keeps it (JSON round trip).
+    let (flow, _) = reduce(Some(flow), event(r#"{"event":"live","atMs":2000}"#));
+    let kept = serde_json::to_value(&flow).expect("flow serializes");
+    let again: Flow = serde_json::from_value(kept).expect("the kept flow parses");
+    assert!(matches!(again.outcome, Some(Outcome::Live { at_ms: 2000 })));
+}
