@@ -63,20 +63,34 @@ export function CloudTriToggle({
   look = "rainbow",
   form = "segments",
   named = true,
+  lit = false,
   onChange,
+  onLitChange,
 }: {
   pin: HybridPin;
   look?: HybridLook;
   form?: "segments" | "cycle";
   /// Shows the chosen mode's name beside the glyphs.
   named?: boolean;
+  /// Hybrid only: the chat is high priority (Keep Running), so the split glyph's cloud half is lit.
+  /// Only in Cloud is always lit; Only on This Mac never is.
+  lit?: boolean;
   onChange(pin: HybridPin): void;
+  /// Choosing Hybrid again while it is chosen turns its light on or off.
+  onLitChange?(lit: boolean): void;
 }) {
   const t = useT();
   const paint = useId();
   const [fresh, setFresh] = useState(false);
+  const glows = (mode: HybridPin) => mode === "cloud" || (mode === "auto" && lit);
   const pick = (next: HybridPin) => {
-    setFresh(next !== pin);
+    if (next === pin) {
+      if (pin !== "auto" || !onLitChange) return;
+      setFresh(!lit);
+      onLitChange(!lit);
+      return;
+    }
+    setFresh(glows(next));
     onChange(next);
   };
   const style = { "--acpmux-hybrid-paint": `url(#${CSS.escape(paint)})` } as React.CSSProperties;
@@ -91,6 +105,7 @@ export function CloudTriToggle({
           data-look={look}
           data-form="cycle"
           data-mode={pin}
+          data-lit={glows(pin) ? "" : undefined}
           data-fresh={fresh ? "" : undefined}
           aria-label={`${t("hybrid.pin")}: ${t(NAMES[pin])}`}
           style={style}
@@ -125,6 +140,7 @@ export function CloudTriToggle({
             data-look={look}
             data-mode={mode}
             data-on={mode === pin ? "" : undefined}
+            data-lit={mode === pin && glows(mode) ? "" : undefined}
             data-fresh={fresh && mode === pin ? "" : undefined}
             onClick={() => pick(mode)}
             onKeyDown={(event) => {
@@ -139,7 +155,11 @@ export function CloudTriToggle({
           </button>
         </Tooltip>
       ))}
-      {named && <span className="acpmux-hybrid-label acpmux-hybrid-tri__name">{t(NAMES[pin])}</span>}
+      {named && (
+        <span className="acpmux-hybrid-label acpmux-hybrid-tri__name">
+          {pin === "auto" && lit ? t("hybrid.keepRunning") : t(NAMES[pin])}
+        </span>
+      )}
     </span>
   );
 }

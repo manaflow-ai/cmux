@@ -251,15 +251,15 @@
 }
 :is(.acpmux-hybrid-tri__segment[data-on], .acpmux-hybrid-tri[data-form="cycle"]) { color: var(--agent-text); }
 :is(.acpmux-hybrid-tri__segment[data-on], .acpmux-hybrid-tri[data-form="cycle"]) .acpmux-hybrid-tri__glyph path { opacity: 1; }
-:is(.acpmux-hybrid-tri__segment[data-on], .acpmux-hybrid-tri[data-form="cycle"])[data-look="rainbow"] .acpmux-hybrid-tri__cloud {
+:is(.acpmux-hybrid-tri__segment[data-on], .acpmux-hybrid-tri[data-form="cycle"])[data-lit][data-look="rainbow"] .acpmux-hybrid-tri__cloud {
   fill: var(--acpmux-hybrid-paint);
   stroke: var(--acpmux-hybrid-paint);
 }
-:is(.acpmux-hybrid-tri__segment[data-on], .acpmux-hybrid-tri[data-form="cycle"])[data-look="sky"] .acpmux-hybrid-tri__cloud {
+:is(.acpmux-hybrid-tri__segment[data-on], .acpmux-hybrid-tri[data-form="cycle"])[data-lit][data-look="sky"] .acpmux-hybrid-tri__cloud {
   fill: var(--agent-accent, var(--acpmux-hybrid-4));
   stroke: var(--agent-accent, var(--acpmux-hybrid-4));
 }
-:is(.acpmux-hybrid-tri__segment[data-on], .acpmux-hybrid-tri[data-form="cycle"])[data-look="aurora"] .acpmux-hybrid-tri__cloud {
+:is(.acpmux-hybrid-tri__segment[data-on], .acpmux-hybrid-tri[data-form="cycle"])[data-lit][data-look="aurora"] .acpmux-hybrid-tri__cloud {
   fill: currentColor;
 }
 .acpmux-hybrid-tri__glyph { transform-origin: 50% 60%; }
