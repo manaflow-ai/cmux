@@ -47,10 +47,13 @@ use helper::{Prepared, Signing, WantedHelper};
 use live::{Change, Daemon, LivePayload, Phases, Store, Wanted};
 
 mod copy;
+mod daemon_updates;
 mod helper;
 mod live;
 mod resolve;
 mod share;
+
+pub(crate) use daemon_updates::spawn as spawn_daemon_updates;
 
 pub(crate) use share::Command as ShareCommand;
 pub(super) use share::{parse as parse_share, run as run_share};
@@ -850,7 +853,9 @@ fn apply_with_helper(
     let t = Instant::now();
     let swap = helper.swap();
     if let Some(swap) = swap {
-        swap.swap().map_err(|error| format!("the Screen Sharing helper: {error}"))?;
+        swap.keep(store)
+            .and_then(|()| swap.swap())
+            .map_err(|error| format!("the Screen Sharing helper: {error}"))?;
     }
     phases.add("helper_swap", t);
     let mut applied = match live::apply(app, changes, store, daemon, phases) {

@@ -140,6 +140,11 @@ export function clippedBottom(node: HTMLElement): number {
 /// copy is taken (tailGlide.ts, over the row gliding under it) keeps that clip on the copy: a clone
 /// takes none of the row's animations, so the copy drew its whole box at once, its last lines over
 /// the row under it (the turn-end fold's ghost of the reply over the live line).
+/// A drawn row that is a running turn's clock: the live line, or the turn's header in its running
+/// phase (turns.ts `turnHeaderId`), which holds the ended line's chevron slot unseen (WorkingFor.tsx).
+export const isLiveClockNode = (node: Element) =>
+  node.classList.contains("acpmux-working") || node.querySelector(".cv-worked__chevron.is-reserved") !== null;
+
 export function ghostOf(row: HTMLElement): HTMLElement {
   const clip = clippedBottom(row);
   const copy = row.cloneNode(true) as HTMLElement;
@@ -398,7 +403,7 @@ export function playTurnFold(
     const place = index.get(row.id);
     // A live clock is replaced by Worked for or the activity line, rather than folded work.
     // Keeping its old words as a fading copy draws two clocks while the replacement is present.
-    if (place === undefined && node.classList.contains("acpmux-working")) continue;
+    if (place === undefined && isLiveClockNode(node)) continue;
     // Still a row, past the mounted ones: the copy slides on to its place. Gone (the close hid it):
     // it fades out where it was, under the rows sliding over it, over the whole fold (a shorter fade
     // left a blank band behind).

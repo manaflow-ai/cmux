@@ -30,6 +30,9 @@ Writes roaming.json to --out. Exit 0 when every judged transport passes.
 """
 import argparse, json, os, socket, subprocess, sys, time, uuid
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from state_wait import wait_until, wait_stable
+
 parser = argparse.ArgumentParser()
 parser.add_argument("--socket", required=True)
 parser.add_argument("--pid", type=int, default=0)
@@ -139,6 +142,28 @@ def shot(name):
     return {"pictures": notes, "windows": window_summary(listed.stdout)}
 
 
+def app_windows():
+    """window_summary of the app's windows now (every layer), or None without --capture and --pid."""
+    if not (opts.capture and opts.pid):
+        return None
+    listed = subprocess.run(["bash", opts.capture, "windows", "--all-layers", "--pid", str(opts.pid)],
+                            capture_output=True, text=True, timeout=60)
+    return window_summary(listed.stdout)
+
+
+def wait_sheet(tab, before, what):
+    """Chromium's WebAuthn sheet is up: a new app window (or, with no window list, the page lost focus),
+    and its open animation ended (the window list stops changing). Best effort: the row records what is there."""
+    if before is None:
+        wait_until(lambda: js(tab, "document.hasFocus()") is False, what, timeout=15, interval=0.1, raise_on_timeout=False)
+        return
+    if wait_until(lambda: len(app_windows() or []) > len(before), what, timeout=20, interval=0.2,
+                  raise_on_timeout=False) is None:
+        print(f"note: no new window for {what} in 20 s", flush=True)
+        return
+    wait_stable(app_windows, what, timeout=10, interval=0.1, raise_on_timeout=False)
+
+
 def window_summary(text):
     """(layer, title, size) per on-screen window: a WebAuthn sheet is its own window of the app."""
     try:
@@ -165,9 +190,9 @@ def page_ready(tab):
 
 
 def load_site(tab):
-    js(tab, f"location.href = {json.dumps(opts.site + '/')}")
-    time.sleep(1)  # test harness: the old document goes away before the ready check
-    return wait(lambda: page_ready(tab), 45)
+    # The marker lives only in the old document: ready means the new one, not the page being left.
+    js(tab, f"window.__stale = true; location.href = {json.dumps(opts.site + '/')}")
+    return wait(lambda: js(tab, "!window.__stale") is True and page_ready(tab), 45)
 
 
 def fill(tab, username, attachment, discoverable=""):
@@ -257,8 +282,9 @@ def dialogs(tab):
         added = devtools("WebAuthn.addVirtualAuthenticator",
                          {"options": {**AUTHENTICATORS["usb"], "automaticPresenceSimulation": False}})
         fill(tab, f"cmux-touch-{uuid.uuid4().hex[:8]}", "cross_platform")
+        before = app_windows()
         click(tab, "register-button")
-        time.sleep(4)  # test harness: the sheet animates in
+        wait_sheet(tab, before, "the touch-your-key sheet")
         row("dialog: touch your key", "NOTE", {"authenticator": str(added)[:80], "focused": js(tab, "document.hasFocus()"),
                                                "alert": alert_text(tab), "screenshot": shot("dialog-touch-security-key")})
         devtools("WebAuthn.disable")
@@ -266,8 +292,10 @@ def dialogs(tab):
     if load_site(tab):
         devtools("WebAuthn.disable")
         fill(tab, f"cmux-real-{uuid.uuid4().hex[:8]}", "cross_platform")
+        before = app_windows()
         click(tab, "register-button")
-        time.sleep(5)  # test harness: Chromium enumerates transports and shows its first sheet
+        # Chromium enumerates transports and shows its first sheet.
+        wait_sheet(tab, before, "the cross-platform sheet")
         row("dialog: real cross-platform", "NOTE", {"focused": js(tab, "document.hasFocus()"), "alert": alert_text(tab),
                                                     "screenshot": shot("dialog-real-cross-platform")})
     # Leaving the page cancels the pending request and closes the sheet.
