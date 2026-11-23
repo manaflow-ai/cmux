@@ -208,7 +208,8 @@ final class FieldTextView: NSTextView {
     /// 1006-1023 pt in the 31 pt one-line field (field-focus-type, deactivate-activate, every
     /// send take while typing), 7 pt under the field top; 1007-1024 in the 30 pt field after a send
     /// (the first fit, 1007-1024, was of that field: ours sat 1 pt low while typing).
-    static let caretDX: CGFloat = -0.5, caretDY: CGFloat = -8.5 + 0.75
+    // cmux: plus ComposeTextCentre.caretDrop, the caret centred on the field with its text (#48467).
+    static let caretDX: CGFloat = -0.5, caretDY: CGFloat = -8.5 + 0.75 + ComposeTextCentre.caretDrop
     /// Messages' caret is 2 pt wide (62.5-64.5 pt, device columns 125-128 at 2x, in every lossless
     /// reference with the empty field: deactivate-activate, send-typed, receive-media, swipe-full; the
     /// placeholder's "i" stem shares columns 127-128, which read as a 1 pt caret before), with round ends.
@@ -1038,7 +1039,7 @@ final class ComposeView: UIView {
         tv.textContainer?.lineFragmentPadding = 0
         // AppKit puts `textContainerInset.height` above and below the text when it sizes the
         // document; the container origin puts the text at the top inset.
-        tv.textTopInset = ComposeView.textTopInset
+        tv.textTopInset = ComposeView.textTopInset - ComposeTextCentre.textLift  // cmux: the line centred in the field (#48467)
         tv.textContainerInset = NSSize(width: 0, height: (ComposeView.textTopInset + ComposeView.textBottomInset) / 2)
         tv.isRichText = false
         tv.allowsUndo = true
@@ -1155,7 +1156,7 @@ final class ComposeView: UIView {
         glass.position = CGPoint(x: f.midX, y: f.maxY)
         for l in [veil, rim, tint] { l.bounds = glass.bounds; l.position = glass.position }
         tint.backgroundColor = Fixture.background.withAlphaComponent(0.2).cgColor
-        placeholderLayer.frame = CGRect(x: f.minX, y: f.minY + chipH, width: 300, height: 30)
+        placeholderLayer.frame = CGRect(x: f.minX, y: f.minY + chipH - ComposeTextCentre.textLift, width: 300, height: 30)  // cmux: with the text (#48467)
         waveLayer.frame = CGRect(x: f.maxX - 30, y: ComposeView.waveY(f), width: 24, height: 30)
         chipsLayer.frame = CGRect(x: f.minX, y: f.minY, width: f.width, height: max(1, strip.height))
         strip.update(stripChips, width: f.width, scale: renderScale)
@@ -1478,7 +1479,7 @@ final class ComposeView: UIView {
         let base = f.minY + (strip.height) + ComposeView.firstBaseline
         CATransaction.begin(); CATransaction.setDisableActions(true)
         // Messages' caret: 1 x 17 pt, its top 7 pt under the field top (13.25 above the first baseline).
-        caret.frame = CGRect(x: cx.px, y: base - 13.25 + row * 16, width: 1, height: 17)
+        caret.frame = CGRect(x: cx.px, y: base - 13.25 - ComposeTextCentre.caretLift + row * 16, width: 1, height: 17)  // cmux: centred (#48467)
         caret.backgroundColor = color.cgColor
         caret.opacity = Float(alpha)
         CATransaction.commit()

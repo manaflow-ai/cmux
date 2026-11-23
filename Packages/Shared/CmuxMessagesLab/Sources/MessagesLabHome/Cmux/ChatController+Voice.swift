@@ -71,7 +71,7 @@ final class ComposeListeningLine: NSView {
         label.textColor = color
         label.sizeToFit()
         let size = label.frame.size
-        let origin = CGPoint(x: f.minX + 12 - 2, y: f.minY + ComposeView.firstBaseline - label.firstBaselineOffsetFromTop)
+        let origin = CGPoint(x: f.minX + 12 - 2, y: f.minY + ComposeView.firstBaseline - ComposeTextCentre.textLift - label.firstBaselineOffsetFromTop)
         let target = CGRect(origin: origin, size: CGSize(width: size.width, height: size.height))
         if frame != target { frame = target }
         label.frame = bounds
