@@ -19,7 +19,8 @@ const TYPEAHEAD_RESET_MS = 500;
 const SCROLLER = ".ui-popup-scroll";
 /** The shortest menu row, for how many rows a viewport can hold. */
 const MIN_ROW_HEIGHT = 20;
-const ROW_ATTRIBUTE = "data-menu-row";
+/** A windowed menu row's place in the menu. Only a windowed menu draws it (popupHost keeps such a menu in the page). */
+export const ROW_ATTRIBUTE = "data-menu-row";
 
 /** One open windowed menu: where the keyboard is, across its sections. Mutated by events, never read in render. */
 export class MenuWindow {
