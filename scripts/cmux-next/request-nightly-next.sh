@@ -398,7 +398,13 @@ if ! resolved="$(env -u GITHUB_OUTPUT -u GITHUB_STEP_SUMMARY CMUX_TUI_TREE_DISPA
   # started none, such as a GITHUB_TOKEN push) gets one, and so does a tip whose
   # only runs are push runs starved of a runner past the limit (starved_runs). A
   # tip whose run failed or is running gets none: a failed build is a red to
-  # fix, not to re-run here.
+  # fix, not to re-run here. A run that succeeded while the tip's tree is a
+  # confirmed 404 built nothing (a coalesced or superseded push: base-coalesce
+  # lets one feat-cmux-next push per window build), so it counts as no run.
+  # Without that, the tick walked past every coalesced tip to the window's
+  # older built commit: on 2026-11-23 it cut commits 40-87 min old. The
+  # dispatched build is then the tip's active run, so the next tick requests
+  # the tip with NIGHTLY_NEXT_TREE_AT_INSTALL.
   # Only on a confirmed miss: the CDN answers 404 for the tip's tree (verify-key
   # exit 1), never on a read failure.
   if tip_line="$(git ls-remote origin refs/heads/feat-cmux-next 2>/dev/null)" && [[ "${tip_line%%[[:space:]]*}" == "$sha" ]] \
@@ -406,7 +412,8 @@ if ! resolved="$(env -u GITHUB_OUTPUT -u GITHUB_STEP_SUMMARY CMUX_TUI_TREE_DISPA
     tip_verify=0
     bash "$script_dir/pin-cmux-tui.sh" verify-key "$tip_key" >/dev/null 2>&1 || tip_verify=$?
     if (( tip_verify == 1 )) \
-        && tip_runs="$(gh run list --repo "$repo" --workflow cmux-tui-artifacts.yml --commit "$sha" --limit 5 --json status --jq length 2>/dev/null)" \
+        && tip_runs="$(gh run list --repo "$repo" --workflow cmux-tui-artifacts.yml --commit "$sha" --limit 5 --json status,conclusion \
+             --jq '[.[] | select(.status != "completed" or .conclusion != "success")] | length' 2>/dev/null)" \
         && [[ "$tip_runs" =~ ^[0-9]+$ ]] \
         && { (( tip_runs == 0 )) || (( tip_runs - $(starved_runs "$sha") <= 0 )); }; then
       backfill "the feat-cmux-next tip ${sha:0:12} has no cmux-tui-artifacts run"
