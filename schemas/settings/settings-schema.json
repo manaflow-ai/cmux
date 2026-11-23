@@ -4921,7 +4921,7 @@
       },
       "help" : {
         "key" : "settings.tabs.newTabApp.help",
-        "text" : "An extension id that draws New Tab, such as \"local/showcase-newtab\". Unset: cmux's own."
+        "text" : "An extension that draws over the New Tab composer, by its id, such as \"local/showcase-newtab\". The composer always stays. Not used by the native New Tab page."
       },
       "kept_on_reset_all" : false,
       "key" : "tabs.newTabApp",
@@ -4958,7 +4958,7 @@
       "section" : "general",
       "summary" : {
         "key" : "settings.tabs.newTabApp.summary",
-        "text" : "An extension's New Tab page"
+        "text" : "An extension over the New Tab composer"
       },
       "surfaces" : {
         "cli" : {
