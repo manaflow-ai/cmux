@@ -275,3 +275,28 @@ fn heartbeat_meta_leaves_out_what_the_hub_would_null() {
     assert!(heartbeat_meta(&"é".repeat(MAX_META_UNITS)).is_some());
     assert_eq!(heartbeat_meta(&"😀".repeat(MAX_META_UNITS / 2 + 1)), None, "UTF-16 units");
 }
+
+/// An ssh peer's machine keeps its hub carrier route: `remote.pipe` (`tools/carrier-pipe`) names
+/// it when its ssh is what is down. Only its chats and the app's workspace targets leave it out,
+/// so it is never listed twice (2026-11-22: every fleet lane VM the controller held as an ssh peer
+/// was `machine.unknown` on the carrier).
+#[cfg(feature = "hub-carrier")]
+#[tokio::test]
+async fn an_ssh_peers_machine_keeps_its_carrier_route_but_is_listed_once() {
+    let hub = hub();
+    let (tx, _rx) = tokio::sync::mpsc::channel(8);
+    let peer = crate::peer::Peer::new("ssh-box", "ws://127.0.0.1:9", None, None, tx);
+    hub.peers.lock().unwrap().insert("ssh-box".to_owned(), peer);
+    hub.apply_mesh_book(book(), "person-1", Some("d-a"));
+
+    let machines = hub.mesh_book_machines();
+    assert!(machines.contains(&("d-s".to_owned(), "ssh-box".to_owned())), "{machines:?}");
+    assert!(machines.contains(&("d-b".to_owned(), "machine-b".to_owned())), "{machines:?}");
+    assert!(machines.iter().all(|(key, _)| key != "d-t" && key != "d-a"), "{machines:?}");
+    assert_eq!(crate::cmux_tui_service::book_machine(&machines, "ssh-box").as_deref(), Some("d-s"));
+
+    let routes = hub.mesh_book_route_machines();
+    assert_eq!(routes, [("d-b".to_owned(), "machine-b".to_owned())]);
+    let all = hub.all_session_summaries();
+    assert!(all.iter().all(|s| s["name"] != "ssh-box/linked"), "{all:?}");
+}
