@@ -85,6 +85,13 @@ LINUX_ONLY_STEPS = {
 PORTABLE_SUBSTITUTES = {
     "Run canonical CMUX CI guard profile": "scripts/ci/run_ci_guard_payload.sh",
 }
+# Steps that refuse a checkout with untracked files (the canonical profile
+# freezes the source tree). Sibling steps write and remove scratch files in the
+# checkout while they run, so these run alone, after every parallel step has
+# finished; run among them they read whichever file a sibling had open.
+QUIET_TREE_STEPS = {
+    "Run canonical CMUX CI guard profile",
+}
 GROUP_CONDITION = re.compile(r"matrix\.group\s*==\s*'([a-z0-9-]+)'")
 EXPRESSION = re.compile(r"\$\{\{\s*(.*?)\s*\}\}")
 SHELL = ["bash", "--noprofile", "--norc", "-eo", "pipefail"]
@@ -270,6 +277,23 @@ def read_env_file(path: Path) -> dict[str, str]:
             key, value = line.split("=", 1)
             values[key] = value
     return values
+
+
+def split_quiet_tasks(
+    tasks: list[tuple[Unit, list[Step]]],
+) -> tuple[list[tuple[Unit, list[Step]]], list[tuple[Unit, list[Step]]]]:
+    """Take QUIET_TREE_STEPS out of the parallel tasks; they run after the rest.
+
+    A stateful group keeps its order: a quiet step inside one stays where it is.
+    """
+    parallel: list[tuple[Unit, list[Step]]] = []
+    quiet: list[tuple[Unit, list[Step]]] = []
+    for unit, steps in tasks:
+        if len(steps) == 1 and steps[0].name in QUIET_TREE_STEPS:
+            quiet.append((unit, steps))
+        else:
+            parallel.append((unit, steps))
+    return parallel, quiet
 
 
 def is_stateful(unit: Unit) -> bool:
@@ -494,7 +518,7 @@ def main(argv: list[str]) -> int:
     step_names = {
         str(s.get("name")) for job in GUARD_JOBS for s in (workflow["jobs"].get(job) or {}).get("steps", [])
     }
-    stale = (DEPENDENCY_STEPS | LINUX_ONLY_STEPS | EVENT_CONDITION_STEPS | set(PORTABLE_SUBSTITUTES)) - step_names
+    stale = (DEPENDENCY_STEPS | LINUX_ONLY_STEPS | EVENT_CONDITION_STEPS | set(PORTABLE_SUBSTITUTES) | QUIET_TREE_STEPS) - step_names
     # An older checkout (--root, a bisect) may predate a special-cased step; the names only have to be current here.
     if stale and not args.root:
         print(f"run_ci_guards.py: ci-guards.yml has no step named {sorted(stale)}; update this script", file=sys.stderr)
@@ -560,6 +584,7 @@ def main(argv: list[str]) -> int:
         else:
             tasks.extend((unit, [step]) for step in unit.steps)
     tasks.sort(key=lambda task: -len(task[1]))
+    tasks, quiet_tasks = split_quiet_tasks(tasks)
     results: list[StepResult] = []
     # A job timeout ends this run with SIGTERM (Actions sends SIGINT first).
     # Both stop it the same way, after it names the steps still running.
@@ -568,20 +593,27 @@ def main(argv: list[str]) -> int:
     previous_term = signal.signal(signal.SIGTERM, interrupted)
     pool = concurrent.futures.ThreadPoolExecutor(max_workers=max(1, args.jobs))
     futures = [pool.submit(run_steps, unit, steps, env, base_sha, args.keep_going) for unit, steps in tasks]
-    try:
+
+    def finished():
         for future in concurrent.futures.as_completed(futures):
-            for result in future.result():
-                results.append(result)
-                elapsed = time.monotonic() - started
-                # Every step prints as it finishes, so a run cut short by a
-                # timeout still shows what finished and when.
-                if result.ok is False:
-                    print(f"  FAIL {result.seconds:6.1f}s  at {elapsed:5.0f}s  {result.unit.label}: {result.step.name}", flush=True)
+            yield from future.result()
+        # The quiet-tree steps start only once every parallel step has ended.
+        for unit, steps in quiet_tasks:
+            yield from run_steps(unit, steps, env, base_sha, args.keep_going)
+
+    try:
+        for result in finished():
+            results.append(result)
+            elapsed = time.monotonic() - started
+            # Every step prints as it finishes, so a run cut short by a
+            # timeout still shows what finished and when.
+            if result.ok is False:
+                print(f"  FAIL {result.seconds:6.1f}s  at {elapsed:5.0f}s  {result.unit.label}: {result.step.name}", flush=True)
+                print(f"::group::{result.step.name}\n{result.output.rstrip()}\n::endgroup::", flush=True)
+            elif result.ok:
+                print(f"  ok   {result.seconds:6.1f}s  at {elapsed:5.0f}s  {result.unit.label}: {result.step.name}", flush=True)
+                if args.verbose:
                     print(f"::group::{result.step.name}\n{result.output.rstrip()}\n::endgroup::", flush=True)
-                elif result.ok:
-                    print(f"  ok   {result.seconds:6.1f}s  at {elapsed:5.0f}s  {result.unit.label}: {result.step.name}", flush=True)
-                    if args.verbose:
-                        print(f"::group::{result.step.name}\n{result.output.rstrip()}\n::endgroup::", flush=True)
         pool.shutdown()
     except KeyboardInterrupt:
         signal.signal(signal.SIGTERM, signal.SIG_IGN)
