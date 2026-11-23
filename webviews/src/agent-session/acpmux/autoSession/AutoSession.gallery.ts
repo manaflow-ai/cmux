@@ -43,6 +43,16 @@ const menu: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector('[role="menuitemcheckbox"]'));
 };
 
+/// The menu plays show which rows the menu has, not its frame time (transcript.gallery.ts loosens
+/// its menu plays for the same cause).
+const menuChecks = {
+  longFrameFailMs: {
+    value: 150,
+    reason:
+      "The mock daemon's attach and the first transcript mount share the menu's first frame on the CPU-only gallery VM (53 ms measured in one of four runs, begun before the click).",
+  },
+};
+
 export default agentPaneEntry({
   id: "agent-pane.auto-session",
   title: "Auto: a chat that keeps running in the Cloud",
@@ -108,11 +118,13 @@ export default agentPaneEntry({
       note: "The chat menu's Cloud rows: Auto, off.",
       snapshot: on(auto({ auto: false })),
       play: menu,
+      checks: menuChecks,
     },
     "menu-in-cloud": {
       note: "While the Cloud runs the chat: Auto is on and cannot be turned off, and Keep in Cloud is offered.",
       snapshot: on(auto({ state: "cloud", here: false, keepInCloud: true }), true),
       play: menu,
+      checks: menuChecks,
     },
   },
 });

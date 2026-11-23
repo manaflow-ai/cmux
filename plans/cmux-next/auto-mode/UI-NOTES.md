@@ -41,8 +41,9 @@ is described under [Alternatives](#alternatives) for Leo to pick from.
    ("a chat held here shows nothing new; parked shows nothing until a send") and
    `design/agent-host-line.md`, "Before that nothing shows".
 6. **"Running in the Cloud" is the title of the `cloud` and `coming_back` lines; `coming_back` adds
-   the hint "Comes back to this Mac when this turn ends."** as the banner's second, muted line
-   (`acpmux-watch-hint`). Reference: the peer copy banner's title plus hint pair.
+   the hint "Comes back to this Mac when this turn ends."** as the banner's second line
+   (`acpmux-watch-hint`, which draws in the title's ink today). Reference: the peer copy banner's
+   title plus hint pair.
 7. **A blocked chat is one short line; only `no_machine` has an action**, drawn as the banner's quiet
    underlined text button (`acpmux-folder-choice-button`) labelled with the existing "New Cloud
    Machine…" string (`composer.newCloudMachine`), and it runs the existing Cloud start flow
@@ -57,9 +58,13 @@ is described under [Alternatives](#alternatives) for Leo to pick from.
    muted, one line each, ellipsis), at most 8 then "+N more" (`planBuild.moreFiles`); the button
    then reads Hide (`rules.hide`). Reference: `LiveChatChoice.tsx`, which draws a command in that
    line under the same kind of banner.
-10. **Discard asks once more in place**: "Discard these changes?" then Discard and Keep. Reference:
-    `header/WorktreeRemove.tsx`, whose Remove turns into a discard and a Keep button in the same
-    row instead of opening a dialog; Keep is that pill's string (`header.worktreeRemoveKeep`).
+10. **Discard asks once more in the notice**: a row under the buttons, "Discard these changes?" then
+    Discard and Keep; Show, Apply and Discard stay where they were and wait for the answer.
+    Reference: `header/WorktreeRemove.tsx`, whose Remove asks with a discard and a Keep button in
+    place instead of opening a dialog; Keep is that pill's string (`header.worktreeRemoveKeep`).
+    The question is its own row because the gallery's play checks allow no layout shift
+    (`webviews/src/gallery/ENTRIES.md`, "layout shift: 0 allowed"): replacing the buttons moved
+    them 12 px, and a second Discard must not land under the pointer that clicked the first.
 11. **Auto and Keep in Cloud are rows that are on or off on their own, drawn with the menu's
     check**, in the chat menu's Cloud submenu ("Move to…", or "Environment" when the chat can move
     nowhere), under a separator after the places the chat can move. Reference: Transcript view's
@@ -89,10 +94,10 @@ is described under [Alternatives](#alternatives) for Leo to pick from.
 |---|---|---|---|---|---|
 | Chat menu row "Auto" | Menu row, label only | The menu's row highlight | The menu's pressed fill (`design/pressed-state.md`: fill only) | The menu's keyboard highlight | On: the menu's check before the label. Disabled (the Cloud runs the chat): the menu's disabled ink, check kept |
 | Chat menu row "Keep in Cloud" | Same; shown only while the Cloud runs the chat | Same | Same | Same | On: check |
-| State line (`cloud`, `resuming`, `coming_back`, `too_large`, `offline`) | 12 px text in `--agent-text`; hint in the muted ink | None: not a control | None | None | None |
-| "New Cloud Machine…" on `no_machine` | Accent ink, underlined | Unchanged (the banner's text button has no hover fill) | Unchanged | The browser's focus ring | Runs the Cloud start flow; the line goes when acpmux drops `blocked` |
-| Notice buttons Show, Apply, Discard | Accent ink, underlined | Unchanged | Unchanged | The browser's focus ring | Show open: file list under the sentence, label Hide, `aria-expanded`. Busy (a request runs): disabled |
-| Discard, asked | "Discard these changes?" then Discard and Keep in the same row | Unchanged | Unchanged | Focus ring | Keep returns to rest; Discard sends it |
+| State line (`cloud`, `resuming`, `coming_back`, `too_large`, `offline`) | 12 px text in `--agent-text`, the hint line too; the Resuming spinner in the muted ink | None: not a control | None | None | None |
+| "New Cloud Machine…" on `no_machine` | Text ink, underlined | Unchanged (the banner's text button has no hover fill) | Unchanged | The browser's focus ring | Runs the Cloud start flow; the line goes when acpmux drops `blocked` |
+| Notice buttons Show, Apply, Discard | Text ink, underlined | Unchanged | Unchanged | The browser's focus ring | Show open: file list under the sentence (11 px mono, muted), label Hide, `aria-expanded`. Busy (a request runs) or asked: disabled |
+| Discard, asked | A row under the buttons: "Discard these changes?" then Discard and Keep | Unchanged | Unchanged | Focus ring | Keep removes the row; Discard sends it |
 
 The text buttons take the existing class as it is: it has no hover, press or disabled look of its
 own today (`styles.css` `.acpmux-folder-choice-button`). Giving it one is a change to every banner

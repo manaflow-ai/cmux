@@ -73,9 +73,9 @@ export default componentEntry<Props>({
       play: press("Show", "[data-auto-files]"),
     },
     "discard-ask": {
-      note: "Discard asks once more in place, with Keep to back out.",
+      note: "Discard asks once more in a row under the buttons, with Keep to back out; no button moves.",
       props: kept(3),
-      play: press("Discard", '[data-auto="leftover"] [role="group"]'),
+      play: press("Discard", '[data-auto="leftover"] [data-auto-ask]'),
     },
   },
 });

@@ -133,6 +133,7 @@ function AutoLeftoverNotice({
   const [state, setState] = useState<LeftoverStep>({ step: "rest" });
   const shown = "shown" in state ? state.shown : undefined;
   const busy = state.step === "loading" || state.step === "running";
+  const asking = state.step === "confirm";
   const show = () => {
     if (shown) return setState({ step: "rest" });
     setState({ step: "loading" });
@@ -172,8 +173,38 @@ function AutoLeftoverNotice({
           {more > 0 && <span>{t("planBuild.moreFiles", { n: more })}</span>}
         </p>
       )}
-      {state.step === "confirm" ? (
-        <p className="acpmux-live-chat-actions" role="group" aria-label={t("auto.leftover.discardAsk")}>
+      <p className="acpmux-live-chat-actions">
+        <button
+          type="button"
+          className="acpmux-folder-choice-button"
+          disabled={busy || asking}
+          aria-expanded={shown !== undefined}
+          onClick={show}
+        >
+          {t(shown ? "rules.hide" : "auto.leftover.show")}
+        </button>
+        <button
+          type="button"
+          className="acpmux-folder-choice-button"
+          disabled={busy || asking}
+          onClick={() => run("apply")}
+        >
+          {t("auto.leftover.apply")}
+        </button>
+        <button
+          type="button"
+          className="acpmux-folder-choice-button"
+          disabled={busy || asking}
+          aria-expanded={asking}
+          onClick={() => setState({ step: "confirm", ...(shown ? { shown } : {}) })}
+        >
+          {t("auto.leftover.discard")}
+        </button>
+      </p>
+      {/* The question is a row of its own under the buttons: the button just clicked stays where it
+          was, and the second Discard is never under the pointer that clicked the first. */}
+      {asking && (
+        <p className="acpmux-live-chat-actions" data-auto-ask>
           <span>{t("auto.leftover.discardAsk")}</span>
           <button type="button" className="acpmux-folder-choice-button" onClick={() => run("discard")}>
             {t("auto.leftover.discard")}
@@ -184,29 +215,6 @@ function AutoLeftoverNotice({
             onClick={() => setState(shown ? { step: "shown", shown } : { step: "rest" })}
           >
             {t("header.worktreeRemoveKeep")}
-          </button>
-        </p>
-      ) : (
-        <p className="acpmux-live-chat-actions">
-          <button
-            type="button"
-            className="acpmux-folder-choice-button"
-            disabled={busy}
-            aria-expanded={shown !== undefined}
-            onClick={show}
-          >
-            {t(shown ? "rules.hide" : "auto.leftover.show")}
-          </button>
-          <button type="button" className="acpmux-folder-choice-button" disabled={busy} onClick={() => run("apply")}>
-            {t("auto.leftover.apply")}
-          </button>
-          <button
-            type="button"
-            className="acpmux-folder-choice-button"
-            disabled={busy}
-            onClick={() => setState({ step: "confirm", ...(shown ? { shown } : {}) })}
-          >
-            {t("auto.leftover.discard")}
           </button>
         </p>
       )}

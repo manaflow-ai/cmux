@@ -79,13 +79,16 @@ async function render(container: HTMLElement, props: Partial<AutoSessionBannerPr
 }
 
 const click = async (container: HTMLElement, label: string) => {
-  const button = [...container.querySelectorAll("button")].find((each) => each.textContent === label);
-  if (!button) throw new Error(`no button "${label}" in: ${container.textContent}`);
+  // The button a person can press: a disabled one takes no click.
+  const button = [...container.querySelectorAll("button")].find((each) => each.textContent === label && !each.disabled);
+  if (!button) throw new Error(`no enabled button "${label}" in: ${container.textContent}`);
   await act(async () => {
     button.dispatchEvent(new dom!.window.MouseEvent("click", { bubbles: true }));
   });
 };
 const buttons = (container: HTMLElement) => [...container.querySelectorAll("button")].map((each) => each.textContent);
+const enabled = (container: HTMLElement) =>
+  [...container.querySelectorAll("button")].filter((each) => !each.disabled).map((each) => each.textContent);
 
 test("a chat this Mac runs draws nothing, and each other state draws its one line", async () => {
   const container = installDom();
@@ -187,11 +190,20 @@ test("the kept-changes notice shows the files, applies them, and discards only a
   await click(container, translate("rules.hide"));
   expect(notice().querySelector("code")).toBeNull();
 
-  // Discard asks first; Keep backs out and nothing was sent.
+  // Discard asks first, in a row of its own under the buttons, which stay where they were and wait
+  // for the answer; Keep backs out and nothing was sent.
   await click(container, translate("auto.leftover.discard"));
   expect(notice().textContent).toContain(translate("auto.leftover.discardAsk"));
-  expect(buttons(container)).toEqual([translate("auto.leftover.discard"), translate("header.worktreeRemoveKeep")]);
+  expect(buttons(container).slice(0, 3)).toEqual([
+    translate("auto.leftover.show"),
+    translate("auto.leftover.apply"),
+    translate("auto.leftover.discard"),
+  ]);
+  expect(enabled(container)).toEqual([translate("auto.leftover.discard"), translate("header.worktreeRemoveKeep")]);
+  expect(asked).toEqual(["show"]);
   await click(container, translate("header.worktreeRemoveKeep"));
+  expect(notice().textContent).not.toContain(translate("auto.leftover.discardAsk"));
+  expect(enabled(container)).toEqual(buttons(container));
   expect(asked).toEqual(["show"]);
 
   await click(container, translate("auto.leftover.discard"));
