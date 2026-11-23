@@ -5,7 +5,6 @@ import React, {
   useCallback,
   useDeferredValue,
   useEffect,
-  useImperativeHandle,
   useLayoutEffect,
   useMemo,
   useReducer,
@@ -13,6 +12,7 @@ import React, {
   useState,
   useSyncExternalStore,
   useInsertionEffect,
+  useImperativeHandle,
 } from "react";
 import { flushSync } from "react-dom";
 import { rowPresence, type RowPresenceHints } from "./conversation/rowPresence";
@@ -103,6 +103,7 @@ import { useT } from "./i18n";
 import { TRAY_GHOST } from "./subagents/trayMotionModel";
 import { noteReaderScroll, readerScroll } from "./summary/heldWhileScrolling";
 import { keepTabOnScreen } from "../../ui/tabReach";
+import { type TrailingTimer, trailingTimer } from "../../ui/trailingTimer";
 import { useRowRepositories } from "./conversation/useRowRepositories";
 import {
   type ReferenceScope,
@@ -947,7 +948,6 @@ function TranscriptView({
   /// The session whose first followed frame has painted, so its history above the view mounts in full
   /// (`deferHistory` below).
   const [historySession, setHistorySession] = useState<string | undefined>();
-  const scrollLeadTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   /// The frame guard (conversation/frameGuard.ts, `armFrameGuard` below) and the offset it last read and
   /// the one it handled. Made in the first render (one guard for the transcript's life), before the rows'
   /// observer (`observer` below), so its read runs first in a frame's ResizeObserver callbacks. Its read,
@@ -968,18 +968,21 @@ function TranscriptView({
       }),
   );
   const [, setScroll] = useState(scrollRef.current);
+  /// The scroll lead's reset, one timer per quiet stretch however many frames a scroll pushes it
+  /// (ui/trailingTimer.ts). Held in a ref, made at its first push, so the scroll writers that call it
+  /// (setScrollAt below) read only refs and stay stable for the hooks that use them.
+  const scrollLeadTimer = useRef<TrailingTimer | undefined>(undefined);
   const scheduleScrollLeadReset = () => {
-    clearTimeout(scrollLeadTimer.current);
     if (scrollRef.current.delta === 0) {
-      scrollLeadTimer.current = undefined;
+      scrollLeadTimer.current?.cancel();
       return;
     }
-    scrollLeadTimer.current = setTimeout(() => {
-      scrollLeadTimer.current = undefined;
+    scrollLeadTimer.current ??= trailingTimer(() => {
       if (scrollRef.current.delta === 0) return;
       scrollRef.current = { ...scrollRef.current, delta: 0 };
       setScroll(scrollRef.current);
-    }, SCROLL_LEAD_IDLE_MS);
+    });
+    scrollLeadTimer.current.push(SCROLL_LEAD_IDLE_MS);
   };
   const setScrollAt = (top: number, delta?: number) => {
     const next = { top, delta: delta ?? top - scrollRef.current.top };
@@ -1212,7 +1215,7 @@ function TranscriptView({
     return () => {
       transcriptMounted.current = false;
       scrollPacer.current?.cancel();
-      clearTimeout(scrollLeadTimer.current);
+      scrollLeadTimer.current?.stop();
       guard.stop();
     };
   }, [guard]);
@@ -4941,12 +4944,18 @@ function TranscriptView({
       clearTimeout(floorTimer.current);
       floorTimer.current = setTimeout(
         () => {
+          floorTimer.current = undefined;
           floor.current = { ...floor.current, height: 0 };
           releaseFloor();
         },
         forSent ? FLOOR_HOLD_MS : WITHDRAWN_HOLD_MS,
       );
-    } else if (!holding) clearTimeout(floorTimer.current);
+    } else if (!holding && floorTimer.current !== undefined) {
+      // Only a timer that waits is cleared: every pass of a reader scrolled up came here, a native call
+      // per frame with nothing to clear.
+      clearTimeout(floorTimer.current);
+      floorTimer.current = undefined;
+    }
     floor.current = {
       height: holding ? floorHeight : 0,
       width,
