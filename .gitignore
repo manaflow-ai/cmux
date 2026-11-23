@@ -112,12 +112,19 @@ tmux-*.log
 /webviews/src/pages/diff/generated/locales/
 /webviews/src/pages/diff/generated/localeLoaders.ts
 /webviews/src/**/generated/*.tmp
+# The pane and acpmux protocol types: build output of webviews/scripts/pane-protocol-codegen.ts and
+# acpmux-protocol-codegen.ts from the committed IR, written by the same runs as the strings tables
+# (RFD 0045: committed copies went stale whenever the IR changed without a rerun).
+/webviews/src/protocol/generated/
+/webviews/src/agent-session/acpmux/protocol/generated/
 
 # nested-groups prototype gallery output
 Packages/macOS/CmuxNext/mac-screen-devices-gallery/
 Packages/macOS/CmuxNext/mac-screen-devices-gallery.tar
 Packages/macOS/CmuxNext/nested-groups-gallery/
 Packages/macOS/CmuxNext/nested-groups-gallery.tar
+Packages/macOS/CmuxNext/point-at-element-gallery/
+Packages/macOS/CmuxNext/point-at-element-gallery.tar
 Packages/macOS/CmuxNext/group-line-gallery/
 Packages/macOS/CmuxNext/group-line-gallery.tar
 Packages/macOS/CmuxNext/left-bar-gallery/
