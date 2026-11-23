@@ -94,6 +94,15 @@ impl Tool {
         schema
     }
 
+    /// Whether `tools/list` names the tool on this host. `record` needs an
+    /// H.264 encoder, which only the macOS desktop has (VideoToolbox): elsewhere
+    /// (a Linux cmux Cloud machine) a call answers `unsupported`, so the tool
+    /// is left out of the list, as the image check `cua-video-refused` requires
+    /// of a machine with no screen video. A direct call still reaches it.
+    pub fn listed(&self) -> bool {
+        self.name != "record" || cfg!(target_os = "macos")
+    }
+
     /// Whether the tool may change something (for retries and look-only).
     pub fn acts(&self) -> bool {
         self.access == Access::Act
@@ -400,6 +409,7 @@ pub fn find(name: &str) -> Option<&'static Tool> {
 pub fn mcp_list() -> Value {
     let tools: Vec<Value> = TOOLS
         .iter()
+        .filter(|t| t.listed())
         .map(|t| {
             json!({
                 "name": t.name,
@@ -460,6 +470,19 @@ mod tests {
         assert_eq!(safe_tag("Fix\nthe\tbuild").as_deref(), Some("Fix the build"));
         assert_eq!(safe_tag(" \u{7} "), None);
         assert_eq!(safe_tag(&"y".repeat(61)).map(|t| t.chars().count()), Some(60));
+    }
+
+    /// `record` is listed only where the desktop can encode H.264 (macOS);
+    /// every other tool is listed everywhere, and `find` reaches them all.
+    #[test]
+    fn record_is_listed_only_on_macos() {
+        let list = mcp_list();
+        let names: Vec<&str> =
+            list["tools"].as_array().unwrap().iter().filter_map(|t| t["name"].as_str()).collect();
+        assert_eq!(names.contains(&"record"), cfg!(target_os = "macos"), "{names:?}");
+        assert_eq!(names.len(), TOOLS.iter().filter(|t| t.listed()).count());
+        assert!(TOOLS.iter().filter(|t| t.name != "record").all(Tool::listed));
+        assert!(find("record").is_some());
     }
 
     /// The batch schema names every step field an agent can use.
