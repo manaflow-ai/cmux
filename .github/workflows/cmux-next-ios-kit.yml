@@ -322,9 +322,15 @@ jobs:
             exit 1
           fi
 
-      # The instant-list bench runs on its own below (no other suite on the cores).
+      # The instant-list bench runs on its own below (no other suite on the cores). So do the suites
+      # that bound wall-clock time or the process footprint: among 2580 parallel tests in one process
+      # they measured their neighbours (reattach 1839 ms < 1000, 5194 ms < 5000, footprint 79 MB < 40 MB
+      # on base runs 45081481908 and 45081946888), each run a different one.
       - name: swift test (macOS)
-        run: swift test --package-path cmux-next-ios/CmuxMobileKit --skip CmuxMobileInstantPerfTests
+        run: swift test --package-path cmux-next-ios/CmuxMobileKit --skip CmuxMobileInstantPerfTests --skip TerminalSelfRecoveryTests --skip MockTerminalStreamMemoryTests
+
+      - name: swift test (macOS, measured suites alone)
+        run: swift test --package-path cmux-next-ios/CmuxMobileKit --no-parallel --filter TerminalSelfRecoveryTests --filter MockTerminalStreamMemoryTests
 
 
       # LiveCoordinator, the banner and the FFI-backed transport are iOS only, so
