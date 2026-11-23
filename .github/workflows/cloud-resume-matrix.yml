@@ -6,10 +6,11 @@ name: Cloud resume matrix (staging)
 # from its event to the resume's answer, the guest running, the relay registered and the agent reply's first byte
 # (scripts/cmux-next/cloud-resume-matrix.ts, run as cloud-journey.ts --resume-matrix).
 #
-# Runs when a label is put on a feat-cmux-next pull request (re-label to run again; a push does not start it, so a
-# long run is never cancelled by the next push):
-#   resume-matrix       5 s, 30 s and 300 s pauses, n = 20 per arm (about 1 h 40 min; 4 machines side by side)
-#   resume-matrix-full  also 900 s (4 machines, n = 5 each) and 3600 s (20 machines, n = 1 each), about 3 h 10 min
+# Runs on a feat-cmux-next pull request whose body carries a marker line (lanes may edit a body but not add labels);
+# the label of the same name works too. Each push or body edit while the marker is there runs it again, queued
+# behind the one running (never cancelled):
+#   resume-matrix: run    5 s, 30 s and 300 s pauses, n = 20 per arm (about 1 h 40 min; 4 machines side by side)
+#   resume-matrix: full   also 900 s (4 machines, n = 5 each) and 3600 s (20 machines, n = 1 each), about 3 h 10 min
 # The last job merges every machine's samples into one p50 / p95 table (job summary and the resume-matrix artifact).
 #
 # Secrets: the staging agent test account, CMUX_DOGFOOD_STACK_EMAIL and _PASSWORD in cmux-next-vm-image-dev, as
@@ -18,10 +19,14 @@ name: Cloud resume matrix (staging)
 on:
   pull_request:
     branches: [feat-cmux-next]
-    types: [labeled]
+    types: [labeled, edited, synchronize]
 
 permissions:
   contents: read
+
+concurrency:
+  group: cloud-resume-matrix-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
 
 env:
   # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
@@ -29,7 +34,11 @@ env:
 
 jobs:
   plan:
-    if: github.event.pull_request.head.repo.full_name == github.repository && (github.event.label.name == 'resume-matrix' || github.event.label.name == 'resume-matrix-full')
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository && (
+        github.event.action == 'labeled' && (github.event.label.name == 'resume-matrix' || github.event.label.name == 'resume-matrix-full') ||
+        github.event.action != 'labeled' && (contains(github.event.pull_request.body, 'resume-matrix: run') || contains(github.event.pull_request.body, 'resume-matrix: full')) &&
+        (github.event.action != 'edited' || github.event.changes.body != null))
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
@@ -37,7 +46,8 @@ jobs:
     steps:
       - id: plan
         env:
-          FULL: ${{ github.event.label.name == 'resume-matrix-full' }}
+          FULL: >-
+            ${{ github.event.label.name == 'resume-matrix-full' || github.event.action != 'labeled' && contains(github.event.pull_request.body, 'resume-matrix: full') }}
         run: |
           python3 - <<'PY' >> "$GITHUB_OUTPUT"
           import json, os
