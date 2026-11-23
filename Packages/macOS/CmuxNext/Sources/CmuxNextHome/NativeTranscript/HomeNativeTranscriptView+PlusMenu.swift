@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextHomeModel
 
 /// The composer's + button opens the + menu (`HomePlusMenu`): Attach Files or Images… (the
 /// file picker, as before), then the recent clipboard (`HomeClipboardHistory`) when

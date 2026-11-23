@@ -1,5 +1,5 @@
-import CoreGraphics
-import Foundation
+public import CoreGraphics
+public import Foundation
 import ImageIO
 
 /// Decodes a Home picture's bytes (a Chief's avatar file) in full, on the caller's thread.

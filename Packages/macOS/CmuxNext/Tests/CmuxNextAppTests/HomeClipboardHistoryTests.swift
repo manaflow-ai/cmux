@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextHome
+import CmuxNextHomeModel
 import Testing
 
 /// The Chief composer's + menu: Attach Files or Images… first, then the recent clipboard

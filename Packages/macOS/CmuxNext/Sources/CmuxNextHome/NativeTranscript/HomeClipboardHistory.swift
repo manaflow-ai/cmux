@@ -1,5 +1,6 @@
 import AppKit
-import CmuxNextSettings
+public import CmuxNextSettings
+import CmuxNextHomeModel
 import ImageIO
 
 /// The Chief's clipboard history for the + menu (`home.clipboardHistory`, on by default): what
