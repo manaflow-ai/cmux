@@ -182,13 +182,23 @@ XCTEST_RESTART = re.compile(r"(?:Restarting after unexpected exit, crash, or tes
                             r"Test Case '-\[)(\S+)[ .](\w+)\]?'? crashed|"
                             r"Restarting after unexpected exit, crash, or test timeout in (\S+?)\.(\w+)\(\)")
 # What the CI wrapper or GitHub prints when a run's results are cut short: an error line, never test output.
+# Each word below is the wrapper's own word, so it is read as a word and never as part of a longer token: `\b` alone
+# let a file name carry it, and any annotation naming such a file called the job cut short. 2026-11-22,
+# cmuxterm-hq eb73df0c's 'go vet + go test' (job 137452468531) was refused as cut short because actions/checkout
+# annotated `##[error]error: Path 'docs/handbook/stalled-work-nobody-moves.md' not uptodate; will not remove from
+# working tree.` -- `\bstalled` inside that path -- while the job ran five more minutes and ended in a plain
+# `FAIL\tcmuxterm-hq/build-fleet/cmd/controller`, a failure the comparison can name. A word in a path or inside a
+# longer identifier (stalled-work..., TestTimeout, timeouts.go) is not that word.
+TOKEN_BEFORE, TOKEN_AFTER = r"(?<![\w./-])", r"(?![\w-])"
 TRUNCATED = re.compile(r"^(?:##\[error\]|::error[^:]*::)\s*(?:no \"Test run with\" summary line|"
-                       r"swift test ended early|reported fewer tests than it ran|swift test stuck|.*\bnever finished\b|"
+                       r"swift test ended early|reported fewer tests than it ran|swift test stuck|"
+                       r".*" + TOKEN_BEFORE + r"never finished" + TOKEN_AFTER + r"|"
                        r"The job running on runner .* has exceeded the maximum execution time|"
                        r"The operation was canceled|.*\blog (?:is|was) truncated|"
                        # the hang watchdog (hung_test_watchdog.py) and run_with_timeout.py
-                       r".*\b(?:timed out after|made no progress|stopped by SIG[A-Z]+|stalled|[Hh]ung test|"
-                       r"[Cc]ancelled test|[Tt]imeout))|^This log was truncated", re.I)
+                       r".*" + TOKEN_BEFORE + r"(?:timed out after|made no progress|stopped by SIG[A-Z]+|stalled|"
+                       r"[Hh]ung test|[Cc]ancelled test|[Tt]imeout)" + TOKEN_AFTER + r")|"
+                       r"^This log was truncated", re.I)
 # package-test-lane.sh suite: a suite the lane named whose tests did not run (all skipped, or skipped for a missing
 # same-tree cmux-tui) is no result: never a base red, whatever the base shows.
 NO_RESULT = re.compile(r"^(?:##\[error\]|::error[^:]*::)\s*.*\brequired tests did not run\b")
@@ -487,10 +497,11 @@ def is_rule_failure(name: str) -> bool:
 
 def failed_names(lines: list[str]) -> set[str]:
     """The failing tests LINES name: each FAILED pattern's, an xcresult `FAILED:` line's and the names under
-    xcodebuild's `Failing tests:` (XCRESULT_FAILED). LINES are a step's output (lines_of), never its echoed script."""
+    xcodebuild's `Failing tests:` (XCRESULT_FAILED). LINES are a step's output (lines_of), never its echoed script; what
+    a failed cargo test printed is not read (cargo_captured)."""
     found: set[str] = set()
     listing = False
-    for text in lines:
+    for text in outer_lines(lines):
         if text.startswith(TAP_MARKER):
             continue  # structured diagnostics are data, never another raw failure/runtime line
         if listing:
@@ -511,6 +522,80 @@ def failed_names(lines: list[str]) -> set[str]:
         if match := XCRESULT_FAILED.match(text):
             found.add(f"{match.group(1)}.{match.group(2)}")
     return found
+
+
+# A cargo test binary's run, as libtest prints it: `running N tests`, one `test NAME ... ok|FAILED|ignored` line per
+# test, then (when any failed) a `failures:` section: each failed test's captured output under a `---- NAME stdout
+# ----` header, then the closing list (`failures:`, one `    NAME` line per failed test, a blank line) and the run's
+# `test result:` summary. What a test printed is its own output, not the harness's: a test that re-execs its own
+# binary with a filter (acpmux's linux_sandbox::bwrap tests) prints a whole nested run there, `test X ... FAILED`,
+# `failures:` and `test result: FAILED. 0 passed; 1 failed; ...` included. Read as the job's, that nested summary
+# took the cargo since-count and the run's real summary (`6795 passed; 11 failed`) was compared against nothing, so a
+# red identical to base's read as unnamed and could never be excused (2026-11-22, cmux run 45048355800, `acpmux tests
+# (lib, hub_integration)`). cargo_captured finds each run's own summary structurally: the last `test result:` line
+# before the next cargo or step boundary whose closing list names exactly the tests the run's own `test NAME ...
+# FAILED` lines (those before its `failures:` section) named. A run with no such summary (cut short, or a list and
+# FAILED lines that disagree) hides nothing, so it reads as before and an unnamed count there still refuses.
+CARGO_FAILURES_HEADER = "failures:"
+CARGO_FAILURE_NAME = re.compile(r"^ {4}(\S+)$")
+CARGO_RUN_END = re.compile(r"^\s+(?:Running|Doc-tests) \S|^error: test failed\b|^##\[")
+
+
+def _cargo_closing_lists(lines: list[str]) -> tuple[list[int], dict]:
+    """Each line's boundary segment (CARGO_RUN_END starts a new one), and per (segment, the names its closing list
+    names) the `failures:` header index of the last summary there with that closing list (cargo_captured). One pass:
+    each summary walks back over its own blank and `    NAME` lines only, so a log of many runs stays linear."""
+    segments: list[int] = []
+    segment = 0
+    last: dict = {}
+    for n, text in enumerate(lines):
+        if CARGO_RUN_END.match(text):
+            segment += 1
+        segments.append(segment)
+        if not FAILURE_MARKERS[0].match(text):
+            continue
+        k = n - 1
+        while k >= 0 and not lines[k].strip():
+            k -= 1
+        names = set()
+        while k >= 0 and (match := CARGO_FAILURE_NAME.match(lines[k])):
+            names.add(match.group(1))
+            k -= 1
+        if names and k >= 0 and lines[k] == CARGO_FAILURES_HEADER and segments[k] == segment:
+            last[(segment, frozenset(names))] = k
+    return segments, last
+
+
+def cargo_captured(lines: list[str]) -> set[int]:
+    """The indices of LINES (lines_of) that are a failed cargo test's captured output: the lines of a run's
+    `failures:` section before its closing list (see above), which no failure reader counts as the job's."""
+    if not any(text == CARGO_FAILURES_HEADER for text in lines):
+        return set()
+    segments, last = _cargo_closing_lists(lines)
+    hidden: set[int] = set()
+    failed: set[str] = set()
+    n = 0
+    while n < len(lines):
+        text = lines[n]
+        if CARGO_RUNNING.match(text) or CARGO_RUN_END.match(text):
+            failed = set()
+        elif match := FAILED[2].search(text):
+            failed.add(match.group(1))
+        elif text == CARGO_FAILURES_HEADER and failed:
+            closing = last.get((segments[n], frozenset(failed)))
+            if closing is not None and closing >= n:
+                hidden.update(range(n + 1, closing))
+                failed = set()
+                n = closing + 1
+                continue
+        n += 1
+    return hidden
+
+
+def outer_lines(lines: list[str]) -> list[str]:
+    """LINES without what a failed cargo test printed (cargo_captured)."""
+    hidden = cargo_captured(lines)
+    return [text for n, text in enumerate(lines) if n not in hidden] if hidden else lines
 
 
 # A runner's own word that tests failed, whatever names them: a whole-log comparison (base_red_excuse.py's unplaced
@@ -589,7 +674,7 @@ def runner_unnamed(lines: list[str]) -> list[str]:
     xc_summaries: list[str] = []
     listing = False
     cargo_listed: set | None = None  # the names under cargo's last `failures:` heading, while only names follow it
-    for text in lines:
+    for text in outer_lines(lines):  # a failed cargo test's own output is not the job's (cargo_captured)
         if text.startswith(TAP_MARKER):
             continue
         if text.strip() == "failures:":
@@ -673,7 +758,7 @@ def failed_tests(lines: list[str], unnamed: list | None = None, steps: list[list
     (unnamed_failures) is added to it."""
     counted: Counter = Counter()
     listing = False
-    for text in lines:
+    for text in outer_lines(lines):  # a failed cargo test's own output is not the job's (cargo_captured)
         if text.startswith(TAP_MARKER):
             continue
         if listing:
