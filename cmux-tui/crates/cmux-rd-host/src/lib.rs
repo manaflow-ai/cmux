@@ -7,7 +7,7 @@
 //!   host     [--browser URL (Linux) [--browser-bin google-chrome] [--browser-cdp-port N]] --owner USER --token-fd N [--bind 127.0.0.1] [--single-tenant-overlay 1] [--display :99 | --display main|N on macOS] [--port 4103] [--max-fps N (default: the display's refresh rate, else 60)] [--input-frame-now 1] [--rtt-tail-probe 1] [--resolution-ladder 1 [--max-qp N (default 40)]] [--max-width PX (macOS)] [--codec auto|vaapi|openh264|x264|videotoolbox (auto: VAAPI on a GPU, else openh264)] [--openh264-lib PATH] [--profile high|baseline] [--upstream-record DIR]
 //!            [--source synthetic|synthetic-still|synthetic-tick [--synthetic-size WxH] [--synthetic-scene bars|text|noise|churn]] (macOS bench builds, `host` and `serve`:
 //!            a generated picture with the marker instead of the display; no grants needed; src/synthetic.rs)
-//!   bench    --addr HOST:4103 --token-fd N [--carrier udp|stream] [--input key|click|scroll|none] [--samples 300] [--duration-s 30 (none)] [--marker-log 1 (none: each marker change with its decode time)] [--rtt-nack-retry 1] [--user USER] [--upstream mic|camera|screen] [--at X,Y] [--marker-origin X,Y] [--caps video.scaled (read a smaller picture scaled up to the stream)] [--decoder videotoolbox|openh264 (macOS)] [--snapshot FILE.ppm] [--record FILE.h264] [--present :N (Linux: draws each decoded frame in a window on that X display)]
+//!   bench    --addr HOST:4103 --token-fd N [--mode view|control] [--carrier udp|stream] [--input key|click|scroll|none] [--samples 300] [--duration-s 30 (none)] [--marker-log 1 (none: each marker change with its decode time)] [--rtt-nack-retry 1] [--user USER] [--upstream mic|camera|screen] [--at X,Y] [--marker-origin X,Y] [--caps video.scaled (read a smaller picture scaled up to the stream)] [--decoder videotoolbox|openh264 (macOS)] [--snapshot FILE.ppm] [--record FILE.h264] [--present :N (Linux: draws each decoded frame in a window on that X display)]
 //!   observe  --mode passive --pid VIEWER_PID --window CGWINDOW_ID --start-file PATH --marker-origin X,Y --cell-size N [--expected-nonce 32 lowercase hex] [--duration-s 10] [--interval-ms 1000]
 //!   testapp  --display :99 --workload marker|text|motion|idle
 //!   serve    one device hub session over the secure link, driven by the app in JSON lines on
@@ -265,6 +265,11 @@ pub fn run_cli(args: &[String]) -> i32 {
     }
     if matches!(cmd.as_str(), "-h" | "--help" | "help") {
         println!("{USAGE}");
+        return 0;
+    }
+    #[cfg(all(feature = "bench", any(target_os = "linux", target_os = "macos")))]
+    if cmd == "bench" && args.len() == 2 && matches!(args[1].as_str(), "-h" | "--help") {
+        println!("usage: cmux-rd bench [--addr HOST:PORT] [--mode view|control] [--input key|click|scroll|none] [--at X,Y] [--samples N] [--snapshot FILE]");
         return 0;
     }
     // Subcommands and positional words of its own (`share on`, `approve SESSION`).
