@@ -7,6 +7,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { rollingSummaryOf } from "../direct";
 import { translate } from "../i18n";
 import { ChatSummaryLine } from "./ChatSummaryLine";
+import { rememberSummaryDismissed, summaryDismissed } from "./summaryDismissed";
 
 const html = (node: React.ReactElement) => renderToStaticMarkup(node);
 
@@ -49,4 +50,21 @@ test("the pane's summary keeps acpmux's rollingSummary, trimmed, and drops a bla
   expect(rollingSummaryOf({ text: "Done.", next: "  " })).toEqual({ rollingSummary: { text: "Done." } });
   expect(rollingSummaryOf({ text: "  " })).toEqual({});
   expect(rollingSummaryOf(undefined)).toEqual({});
+});
+
+// https://github.com/manaflow-ai/cmux/issues/51749: the line has a × that hides it for that chat.
+test("a chat's summary line has a ×; a gallery copy with no chat has none", () => {
+  const out = html(<ChatSummaryLine summary={{ text: "Tests pass.", next: "Open the PR" }} chat="chat-x" />);
+  expect(out).toContain('class="acpmux-chat-summary__close"');
+  expect(out).toContain(`aria-label="${translate("header.summaryDismiss")}"`);
+  expect(translate("header.summaryDismiss")).not.toBe("header.summaryDismiss");
+  expect(html(<ChatSummaryLine summary={{ text: "Tests pass." }} />)).not.toContain("acpmux-chat-summary__close");
+});
+
+test("a dismissed chat draws no summary line, even after a new summary; other chats still do", () => {
+  rememberSummaryDismissed("chat-dismissed");
+  expect(summaryDismissed("chat-dismissed")).toBe(true);
+  expect(html(<ChatSummaryLine summary={{ text: "Parser fixed.", next: "Merge" }} chat="chat-dismissed" />)).toBe("");
+  expect(html(<ChatSummaryLine summary={{ text: "A later turn's summary." }} chat="chat-dismissed" inline />)).toBe("");
+  expect(html(<ChatSummaryLine summary={{ text: "Still here." }} chat="chat-other" />)).toContain("Still here.");
 });

@@ -532,6 +532,27 @@
   text-overflow: ellipsis;
   color: var(--agent-text);
 }
+/* The summary's × (summaryDismissed.ts): quiet until hovered, like the away recap's (cv-recap__close). */
+.acpmux-chat-summary__close {
+  all: unset;
+  flex: none;
+  display: grid;
+  place-items: center;
+  align-self: center;
+  width: var(--ds-control-icon);
+  height: var(--ds-control-icon);
+  border-radius: var(--ds-radius-control);
+  color: var(--agent-soft);
+  cursor: default;
+}
+.acpmux-chat-summary__close:hover {
+  color: var(--agent-text);
+  background: var(--ds-surface-hover);
+}
+.acpmux-chat-summary__close:focus-visible {
+  outline: 2px solid var(--agent-focus, currentColor);
+  outline-offset: 1px;
+}
 /* Contextual header icons (headerRelevance.ts, Debug `agentChat.headerIcons.contextual`). Peek: the icons not relevant now hold their place at the row's leading end, so nothing at rest moves, and fade in while the pointer or focus is in the tools. The fades run on the page's motion tokens (the web Motion gate sets them to 0 when motion is off), and Reduce Motion drops them. */
 .acpmux-header-tools[data-header-icons=contextualPeek] [data-header-dormant]{opacity:0;pointer-events:none}
 .acpmux-header-tools[data-header-icons=contextualPeek]:is(:hover,:focus-within) [data-header-dormant],.acpmux-header-tools[data-header-icons=contextualPeek]:is(:has([data-popup-open]),:focus-within) [data-header-dormant],.acpmux-header-tools[data-header-icons=contextualPeek]:has([data-header-dormant] [aria-expanded=true]) [data-header-dormant]{opacity:1;pointer-events:auto}

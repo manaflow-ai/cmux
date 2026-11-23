@@ -1189,7 +1189,7 @@ export function drawPaneBody({
                       <span className="acpmux-header-status-content">
                         <ThreadTitle key={snapshot.sessionId} title={chatName} onRename={renameFromTitle} />
                         {/* Where the chat stands and its next action (header/ChatSummaryLine.tsx). */}
-                        <ChatSummaryLine summary={snapshot.summary?.rollingSummary} />
+                        <ChatSummaryLine summary={snapshot.summary?.rollingSummary} chat={snapshot.sessionId} />
                       </span>
                     )}
                   </ChatHeaderStatus>
@@ -1218,7 +1218,11 @@ export function drawPaneBody({
                     {inTabRow && (
                       <ChatHeaderInlineStatus status={header.status} detail={header.detail}>
                         {!showNewTab && snapshot.sessionId ? (
-                          <ChatSummaryLine summary={snapshot.summary?.rollingSummary} inline />
+                          <ChatSummaryLine
+                            summary={snapshot.summary?.rollingSummary}
+                            chat={snapshot.sessionId}
+                            inline
+                          />
                         ) : undefined}
                       </ChatHeaderInlineStatus>
                     )}

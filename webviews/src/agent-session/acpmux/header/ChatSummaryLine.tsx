@@ -1,4 +1,6 @@
+import { Close } from "../conversation/icons";
 import { useT } from "../i18n";
+import { rememberSummaryDismissed, useSummaryDismissed } from "./summaryDismissed";
 
 /** A chat's rolling summary as the daemon keeps it (acpmux `rollingSummary`, hub/rolling_summary.rs). */
 export type ChatSummary = { text: string; next?: string | null };
@@ -9,11 +11,24 @@ export type ChatSummary = { text: string; next?: string | null };
  * agent's own wrap-up when it made one, else from one small-model call (David Beyer, 2026-11-20:
  * rolling summaries of every chat with a next action for each). Cut to the room it has; the whole
  * text is its tooltip. `inline`: the tab-row header, where it leads the tools instead.
+ *
+ * Its × hides it for that chat on this device (summaryDismissed.ts,
+ * https://github.com/manaflow-ai/cmux/issues/51749); without `chat` (a gallery) it draws no ×.
  */
-export function ChatSummaryLine({ summary, inline }: { summary?: ChatSummary | null; inline?: boolean }) {
+export function ChatSummaryLine({
+  summary,
+  inline,
+  chat,
+}: {
+  summary?: ChatSummary | null;
+  inline?: boolean;
+  /// The chat the summary is of: its × remembers the dismissal under this id.
+  chat?: string;
+}) {
   const t = useT();
+  const dismissed = useSummaryDismissed(chat);
   const text = summary?.text?.trim();
-  if (!text) return null;
+  if (!text || dismissed) return null;
   const next = summary?.next?.trim() || undefined;
   const full = next ? `${text}\n${t("header.summaryNext", { next })}` : text;
   return (
@@ -31,6 +46,20 @@ export function ChatSummaryLine({ summary, inline }: { summary?: ChatSummary | n
           </span>
           <span className="acpmux-chat-summary__next">{next}</span>
         </>
+      )}
+      {chat && (
+        <button
+          type="button"
+          className="acpmux-chat-summary__close"
+          aria-label={t("header.summaryDismiss")}
+          title={t("header.summaryDismiss")}
+          onClick={(event) => {
+            event.stopPropagation();
+            rememberSummaryDismissed(chat);
+          }}
+        >
+          <Close />
+        </button>
       )}
     </span>
   );
