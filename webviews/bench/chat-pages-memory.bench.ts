@@ -405,6 +405,13 @@ try {
     );
     perfRow({ name: `chat_pages_memory.n${count}.renderer_mb`, p50: now.mb, p95: now.mb, unit: "MB" });
     perfRow({ name: `chat_pages_memory.n${count}.mb_per_chat`, p50: perChat, p95: perChat, unit: "MB" });
+    // The goal's ratio (memory-per-chat, chat_memory_vs_empty_ratio): the empty renderer plus nine more chats at this
+    // run's per-chat cost, over the empty renderer. From the numbers of this same arm; a run whose counts reach 10.
+    if (count === 10 && empty.mb > 0) {
+      const ratio = (empty.mb + 9 * perChat) / empty.mb;
+      console.log(`chat-pages-memory: (empty + 9 x MB per chat) / empty at 10 chats: ${ratio.toFixed(3)}`);
+      perfRow({ name: "chat_pages_memory.n10.ratio_vs_empty", p50: ratio, p95: ratio, unit: "ratio", floor: 0.05 });
+    }
     perfRow({ name: `chat_pages_memory.n${count}.renderers`, p50: now.renderers, p95: now.renderers, unit: "count" });
     perfRow({
       name: `chat_pages_memory.n${count}.idle_wakeups_per_s`,

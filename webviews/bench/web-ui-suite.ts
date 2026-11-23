@@ -165,6 +165,16 @@ export const BENCHES: readonly Bench[] = [
     timeoutMs: 1_200_000,
     ownPart: true,
   },
+  // Ten 100-turn chats in one shared renderer against an empty one (goal memory-per-chat): renderer PSS, MB per chat
+  // and chat_pages_memory.n10.ratio_vs_empty. Linux only (/proc). perf-cron.py's web-ui-memory part runs it
+  // (`--only chat-pages-memory`).
+  {
+    name: "chat-pages-memory",
+    file: "chat-pages-memory.bench.ts",
+    args: ["10", "100"],
+    timeoutMs: 300_000,
+    ownPart: true,
+  },
   // Several heavy coordinators streaming at 10x while readers attach, scroll, find, switch and type (coord-sim's
   // records: cmux-tui/crates/coord-sim, which must be built first; COORD_SIM_BIN names it). Run only by name.
   {
