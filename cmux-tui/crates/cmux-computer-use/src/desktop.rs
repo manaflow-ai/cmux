@@ -686,6 +686,20 @@ pub trait Desktop: Send + Sync {
         false
     }
 
+    /// The system alerts on screen now, front to back, read through
+    /// accessibility only ([`crate::alerts`]). A desktop with none (Linux,
+    /// Windows) answers an empty list.
+    fn system_alerts(&self) -> DResult<Vec<crate::alerts::RawAlert>> {
+        Ok(Vec::new())
+    }
+    /// Presses the button titled `title` of `alert` by its accessibility
+    /// press action: no pointer, no focus change. Refuses when the alert no
+    /// longer reads as `alert` (its texts or buttons changed since the list).
+    /// Only the engine calls it, after [`crate::alerts::check`] allowed the title.
+    fn press_alert_button(&self, _alert: &crate::alerts::RawAlert, _title: &str) -> DResult<()> {
+        Err(DesktopError::Unsupported("this desktop has no system alerts".into()))
+    }
+
     /// The displays `capture(CaptureTarget::Display(id))` takes, main first
     /// (`list_displays`, crate::displays).
     fn displays(&self) -> DResult<Vec<crate::displays::Display>> {

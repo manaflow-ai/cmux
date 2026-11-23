@@ -1597,18 +1597,18 @@
     },
     {
       "path": "HomeInboxRequest.java",
-      "sha256": "a8f71b0a4c26dfa08d5b44c976e2cb6b18c7a9b08ffda8432ee8fb21abc18c7e",
-      "size": 2069
+      "sha256": "d540d1fdb6b92516b2c2968d55f8609b3ef90e5e7a27d84493f5fd072467e26f",
+      "size": 5201
     },
     {
       "path": "HomeInboxResult.java",
-      "sha256": "85f67b4537e3660defe636a33c972bf09c18fe8dc585df063a4bee19fce37b43",
-      "size": 3192
+      "sha256": "e2ecaae74a6db24c34f2ece0560a85c14f543464e793f1efe42b01bd594544d2",
+      "size": 7436
     },
     {
       "path": "HomeInboxRow.java",
-      "sha256": "d7b201401b9f46162021308155bb834d56a0e1955ef16dbde73944f82699ea00",
-      "size": 10404
+      "sha256": "e11d05175b5614144518ccbf00c8ecdc7753df4946f0e8c8dbd8db21d0d99f63",
+      "size": 10974
     },
     {
       "path": "HostSizeMode.java",
@@ -2252,7 +2252,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "c006b29fd188427d1b66fc85f63e8dce5db0e336df050416fff44665c6092bbe",
+      "sha256": "a25ec6ea4cac9482d107083b7ead4f2aa4ac4956b9a34cd09a2427ca2914c3d0",
       "size": 8407
     },
     {
@@ -3792,7 +3792,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "2e0877c88adc3bd75bf9e49964f9345f01e89bccf21a8b32cbba5f203a9bd76f",
+  "ir_sha256": "3e71a7376b792f9f519eef3582eef785ab28df1e74af3a9e9600596fd9cde9e9",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2
