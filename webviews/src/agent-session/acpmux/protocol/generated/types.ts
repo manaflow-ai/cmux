@@ -15,6 +15,7 @@ export interface AcpmuxRequestMeta {
   cancelToken?: unknown;
   class?: unknown;
   cliHost?: unknown;
+  cliOverSsh?: unknown;
   compression?: unknown;
   context?: unknown;
   createdBy?: unknown;
