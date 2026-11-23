@@ -736,6 +736,9 @@ jobs:
             echo '{"issues":[{"severity":"error","code":"version.unknown","message":"no MARKETING_VERSION in cmux-next-ios/project.yml"}]}' > asc-validate.json
           else
             asc validate --app "$ASC_APP_ID" --version "$version" --platform IOS --strict --output json > asc-validate.json || true
+            # The app's version history: its first App Store version takes no
+            # What's New (App Store Connect refuses it, run 45102744374).
+            asc versions list --app "$ASC_APP_ID" --platform IOS --paginate --output json > app-store-versions.json || true
           fi
           if [ -d app/cmux-next-ios/AppStoreReview/metadata ]; then
             asc metadata validate --dir app/cmux-next-ios/AppStoreReview/metadata --output json > asc-metadata.json || true
@@ -745,7 +748,9 @@ jobs:
         continue-on-error: true
         with:
           name: review-gate-asc
-          path: asc-*.json
+          path: |
+            asc-*.json
+            app-store-versions.json
           retention-days: 3
 
   # Writes the framework a leg built into cmux NEXT's R2 bucket, which the
@@ -882,6 +887,7 @@ jobs:
             while IFS= read -r f; do args+=(--suite-log "$f"); done < <(find in -name "$fam.log" -type f | sort)
           done
           while IFS= read -r f; do args+=(--asc-validate "$f"); done < <(find in -name 'asc-*.json' -type f | sort)
+          while IFS= read -r f; do args+=(--asc-versions "$f"); done < <(find in -name 'app-store-versions.json' -type f | sort | head -n1)
           if [ "$ASC_RESULT" = "skipped" ]; then args+=(--asc-skipped); fi
           known=cmux-next-ios/AppStoreReview/known-blockers.json
           if [ "$RATCHET" = true ] && [ -f "base/$known" ]; then
