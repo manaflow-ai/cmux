@@ -27,7 +27,6 @@ import {
   layoutConversation,
   type PlacedLayout,
   type RowHeights,
-  layoutGeometry,
   placedFromEstimate,
   placedWithOrigin,
   placeRowsIndexed,
@@ -172,8 +171,14 @@ import { type Folds } from "./conversation/viewFolds";
 import { SUBAGENT_OF } from "./subagents/subagentRows";
 import { noteSendFromLatest } from "./conversation/sendMorph";
 import { sinceDone } from "./conversation/SinceDivider";
-import { readUnread, subscribeUnread, unreadPending, noteUnreadNews } from "./conversation/unreadState";
-import { sinceNews } from "./conversation/sinceNews";
+import {
+  readUnread,
+  subscribeUnread,
+  unreadPending,
+  noteUnreadCount,
+  noteUnreadNews,
+} from "./conversation/unreadState";
+import { sinceCount, sinceNews } from "./conversation/sinceNews";
 import {
   jumpUpShown,
   jumpUpTarget,
@@ -477,80 +482,6 @@ const SCROLL_GUARD_IDLE_MS = 250;
 /// More new rows than this in one update are a load (a session switch, older history), not live rows.
 const LIVE_ROWS_PER_UPDATE = 3;
 
-/// A sent prompt the view keeps at its top while its turn fills the room under it (`sendTopEnd`).
-export type SendTop = { id: string; index: number };
-
-/// The index of a prompt that this update brought at the tail (a new user row that is no line), or -1.
-/// A load (more than LIVE_ROWS_PER_UPDATE new rows, a first pass) brings none. O(1): the rows past the
-/// old tail, and the old tail's last two (an optimistic prompt replaced by its canonical row).
-export function sentPromptAt(before: readonly AcpmuxRow[], after: readonly AcpmuxRow[]): number {
-  if (before.length === 0 || after.length - before.length > LIVE_ROWS_PER_UPDATE) return -1;
-  for (let index = after.length - 1; index >= Math.max(0, before.length - 2); index -= 1) {
-    const row = after[index]!;
-    if (row.kind === "user" && !isLineRow(row) && row.id !== before[index]?.id) return index;
-  }
-  return -1;
-}
-
-/// The content end that rests a followed view with `sent` at its top: the prompt's row starts the
-/// thread's top padding under the view's top, and the view's height reaches past it. 0 once the row
-/// is gone. O(1) while the row keeps its index; else one walk back from the tail to find it again.
-export function sendTopEndOf(
-  sent: SendTop | undefined,
-  rows: readonly AcpmuxRow[],
-  placed: PlacedLayout,
-  topInset: number,
-  height: number,
-): number {
-  if (!sent || height <= 0) return 0;
-  const at = rows[sent.index];
-  // The optimistic prompt replaced in place by its canonical row (a new id, the same place) is the same prompt.
-  if (at && at.id !== sent.id && sent.id.startsWith("local-") && at.kind === "user" && !isLineRow(at)) sent.id = at.id;
-  if (rows[sent.index]?.id !== sent.id) {
-    let found = -1;
-    for (let index = rows.length - 1; index >= 0 && found < 0; index -= 1)
-      if (rows[index]!.id === sent.id) found = index;
-    if (found < 0) return 0;
-    sent.index = found;
-  }
-  if (sent.index >= layoutGeometry(placed).count) return 0;
-  return layoutGeometry(placed).topAt(sent.index) + topInset + height;
-}
-
-/// The prompt sent from the latest row that the view keeps at its top, and the content end that holds
-/// it there as of the last render (`end`, 0: none). One per transcript (its `useState`), so render
-/// reads and writes no ref; the effects and the scroll handler read `end`. O(1) a pass but for
-/// `sendTopEndOf`'s walk back.
-export class SendTopHold {
-  private sent: SendTop | undefined;
-  end = 0;
-
-  /// The pass's held content end: takes a prompt `sentIds` holds that this pass brought at the tail
-  /// (against the last committed rows, `placedRows`), lets it go when the view stops following, the
-  /// chat changes or the rows outgrow the held view (`rowsHeight` past its end).
-  update(
-    hold: boolean,
-    openedAtLatest: boolean,
-    placedRows: readonly AcpmuxRow[],
-    rows: readonly AcpmuxRow[],
-    sentIds: ReadonlySet<string>,
-    placed: PlacedLayout,
-    topInset: number,
-    height: number,
-    rowsHeight: number,
-  ): number {
-    if (!hold) this.sent = undefined;
-    else if (openedAtLatest && rows !== placedRows) {
-      const sent = sentPromptAt(placedRows, rows);
-      if (sent >= 0 && sentIds.has(rows[sent]!.id)) this.sent = { id: rows[sent]!.id, index: sent };
-    }
-    let end = sendTopEndOf(this.sent, rows, placed, topInset, height);
-    if (end < rowsHeight) end = 0;
-    if (end === 0) this.sent = undefined;
-    this.end = end;
-    return end;
-  }
-}
 /// How recent an empty chat's first prompt is when its transcript mounts for it to enter (above).
 const FIRST_SEND_FRESH_MS = 2000;
 
@@ -876,7 +807,9 @@ function TranscriptView({
   find?: ChatFind;
   /// A row to bring into view (a count on the running line, WorkingFor.tsx); a new `key` asks again.
   /// The run that holds call `toolId` opens, as for a Find match.
-  reveal?: { rowId: string; key: number; toolId: string };
+  /// `land`: the view opens at the row on a return (the unread line, App.tsx), so only a view at the
+  /// latest message moves; a reader scrolled up keeps their place.
+  reveal?: { rowId: string; key: number; toolId: string; land?: true };
   /// A chat the page switched to and read cold, by its open (a new number per open), whose rows
   /// have not shown yet: they fade in once, on the frame they first draw (fadeInOpenedChat).
   /// Undefined for a chat drawn from a kept tail, which shows whole on the frame the switch lands
@@ -3090,8 +3023,6 @@ function TranscriptView({
   foldRoomRef.current = foldRoom;
   /// The content's end without that room, as of the last render.
   const rowsEndRef = useRef(0);
-  /// The prompt sent from the latest row that the view keeps at its top (`sendTopEnd`).
-  const [sendTop] = useState(() => new SendTopHold());
   /// Shrinks the kept room to the view's end at `node`'s offset, and lets it go once nothing holds
   /// it (no fold in flight, the rows reach the view's end). O(1): a read of the offset and a compare.
   /// Lets the kept room go: a send or Jump to latest heads for the rows' own end. `now` commits it
@@ -3683,17 +3614,10 @@ function TranscriptView({
     newerRoomState.current = next;
     return next.room;
   }, [measured, sessionId, canLoadNewer]);
-  // Send to top (Leo, 2026-11-20, of how Claude Code desktop does its tool calls and sends: "it doesn't
-  // layout shift... we shouldnt either!"): a prompt sent from the latest row goes to the top of the
-  // view, and the turn fills the room under it. The content is kept at least as tall as that view's
-  // end, so the follow rests there while the reply grows into the room and nothing in view moves. Once
-  // the turn outgrows the view the room is gone and the follow goes on to the latest line, as before:
-  // a long reply is still followed to its end (agent-pane-follow-live, dogfood run 6: a view left at a
-  // reply's top had later turns arrive out of sight).
-  // Held while the view follows; the reader scrolling, Jump to latest or another chat lets it go.
-  // Only a prompt this pane sent (`sentPromptIds`): one from another device, a queued prompt the
-  // agent took, a reconnect's or a hidden chat's rows land as before, followed at the latest row.
-  // Outgrown: the rows reach past the held view's end, so there is no room left to keep.
+  // No room is held under a sent prompt (https://github.com/manaflow-ai/cmux/issues/51841): a send
+  // keeps the view at the latest row, the earlier turns stay in view above the new prompt, and the
+  // reply grows the chat under it like any followed row. Holding the prompt at the view's top
+  // (https://github.com/manaflow-ai/cmux/pull/47801) scrolled the whole history out of view on send.
   // The last pass's rows (its layout effect writes them), read once for this pass.
   const placedRows = previousRows.current;
   const under = roomUnder({
@@ -3719,18 +3643,6 @@ function TranscriptView({
     prompt: following && !sessionSwitched ? newestPromptId(rows) : undefined,
     foldRoom,
     newerRoom,
-    sendTop: (rowsHeight) =>
-      sendTop.update(
-        following && !sessionSwitched,
-        openedAtLatest,
-        placedRows,
-        rows,
-        sentPromptIdsForRender,
-        measured.layout,
-        topInset,
-        height,
-        rowsHeight,
-      ),
     dragged: draggedHeight,
     bases: {
       tray: foldBase.current,
@@ -3924,6 +3836,12 @@ function TranscriptView({
   // window changes. Keep this signature primitive so scroll and layout state updates that leave
   // the mounted rows alone do not walk every text node in the transcript again.
   const mountedRangeKey = mountedRanges.map(({ first, last }) => `${first}:${last}`).join(",");
+  // The live line is mounted: a call's row entering beside it waits the line's roll out (conversation.css
+  // `data-live-line`). A mark the render writes, not `.acpmux-scroll:has(.acpmux-row[data-row-id=...])`: a
+  // `:has()` on the scroller over its whole subtree is checked again for every node a commit inserts into
+  // any row, and each check restyles every element under the scroller that some `X:has(...) Y` rule names
+  // (test/agent-pane-stream-composer-still.test.ts), about 1.5 ms of forced layout per tool call in a long chat.
+  const liveLineMounted = mountedIndexOf(rows, mountedRanges, LIVE_THINKING) >= 0;
   // The scrolled rows only: a held row far from the view would widen every drawn-height search
   // (`measured`) to the rows between them. The held rows are looked up by index instead.
   if (lastPlaced.current) {
@@ -4199,9 +4117,7 @@ function TranscriptView({
       // The body takes its final height before paint. Pin the scroller there, then play the
       // difference on the compositor. A late measure updates that same effect on its original clock,
       // never starts another animation or drives a per-frame layout/scroll loop.
-      // No further than a sent prompt's view (`sendTopEnd`): what opens under it grows on below.
-      const sendTopAt = sendTop.end > 0 ? Math.max(0, sendTop.end - height) : Number.POSITIVE_INFINITY;
-      const latest = Math.min(Math.max(0, layout.totalHeight - height), sendTopAt);
+      const latest = Math.max(0, layout.totalHeight - height);
       const pinned = settleFollowBottomAt(node, latest).top;
       const delta = pinned - scrollOrigin(node) - stack.beforeTop;
       const host = thread.current;
@@ -4361,8 +4277,6 @@ function TranscriptView({
       const top = scrollAnchorBase(live, scrolledTo.current.top, readerLeft);
       // Following is reader intent, not proximity. A token must not recapture a parked reader
       // just because the last recorded offset remains inside the bottom deadband.
-      // A sent prompt held at the view's top (`sendTopEnd`): the follow goes no further than that view.
-      const sendTopAt = sendTop.end > 0 ? Math.max(0, sendTop.end - viewHeight) : undefined;
       const atLatest = followingRef.current;
       // At the latest row also at offset 0: a new chat's first pass can overshoot on estimated
       // heights and settle back to fit, and its reply must still be followed once it overflows
@@ -4373,8 +4287,7 @@ function TranscriptView({
         // view's foot for its 180 ms at every streamed chunk, and on open it slid from a layout that
         // never painted (estimated heights) to the drawn one (Leo 2026-10-21: "IMMEDIATELY ... at the
         // bottom every single time").
-        // Held at a sent prompt's view (`sendTopAt`): a prompt taller than the view still lands at its top.
-        const latest = Math.min(Math.max(0, layout.totalHeight - viewHeight), sendTopAt ?? Number.POSITIVE_INFINITY);
+        const latest = Math.max(0, layout.totalHeight - viewHeight);
         // Jump to latest's glide in flight heads for the new end instead of snapping there.
         const jumping = jumpTarget.current !== undefined;
         // The shared animation reads the moving end every frame on its original clock.
@@ -5166,6 +5079,7 @@ function TranscriptView({
   const revealMoves = useCommittedEvent(() => {
     const node = ref.current;
     if (!node || revealIndex < 0 || !rowRequest.current?.()) return;
+    if (reveal?.land && !followingRef.current) return;
     const top = layout.geometry.topAt(revealIndex);
     const bottom = top + layout.geometry.heightAt(revealIndex);
     // In view where it draws (`lift` from its place while the rows follow a grown composer).
@@ -5665,9 +5579,7 @@ function TranscriptView({
       !foldAnchor.current &&
       Math.abs(next - scrolledTo.current.top) <= FOLLOW_BOTTOM_DEADBAND_PX;
     if (layoutDriven) {
-      // No further than a sent prompt's view (`sendTopEnd`).
-      const sendTopAt = sendTop.end > 0 ? Math.max(0, sendTop.end - node.clientHeight) : Number.POSITIVE_INFINITY;
-      const latest = Math.min(Math.max(0, layout.totalHeight - node.clientHeight), sendTopAt);
+      const latest = Math.max(0, layout.totalHeight - node.clientHeight);
       // The offset it settled on, read before its origin's style write (never after it).
       const resting = settleFollowBottomAt(node, latest).top;
       scrolledTo.current = { top: resting, atLatest: true };
@@ -6601,9 +6513,17 @@ function TranscriptView({
   // Whether anything new to read is under the line (sinceNews.ts): a quiet one draws no line, no
   // banner and no Jump up target. Stops at the first news row, so a chat that answered reads one.
   const sinceHasNews = sinceRow !== undefined && sinceNews(rows, sinceIndex);
+  // "157 new messages" (sinceNews.ts `sinceCount`): the news under the line, read from the end back
+  // to it, bounded; only when the rows change, never per scroll frame.
+  const sinceMessages = useMemo(
+    () => (sinceHasNews ? sinceCount(rows, sinceIndex) : undefined),
+    [rows, sinceIndex, sinceHasNews],
+  );
   useLayoutEffect(() => {
-    if (sinceKey !== undefined && sinceRow !== undefined) noteUnreadNews(sinceKey, sinceHasNews);
-  }, [sinceKey, sinceRow, sinceHasNews]);
+    if (sinceKey === undefined || sinceRow === undefined) return;
+    noteUnreadNews(sinceKey, sinceHasNews);
+    noteUnreadCount(sinceKey, sinceMessages);
+  }, [sinceKey, sinceRow, sinceHasNews, sinceMessages]);
   const jumpUp = jumpButton && jumpUpOn;
   const ownPrompt = jumpUp ? lastOwnPrompt(rows, promptScan, promptAuthor) : undefined;
   // The stretch's place row is read each render: its hint keeps the lookup O(1) while rows append.
@@ -6756,6 +6676,7 @@ function TranscriptView({
     livePulse,
     ref,
     slimFollow,
+    liveLineMounted,
     onAnchor,
     t,
     onScroll,

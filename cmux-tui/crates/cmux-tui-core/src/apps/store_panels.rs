@@ -162,6 +162,8 @@ impl Supervisor {
     ) -> Option<Result<Value, ApiError>> {
         Some(match op {
             "apps.panels.list" => params::<EmptyParams>(args).map(|_| self.session_info_panels()),
+            "apps.settings.list" => params::<EmptyParams>(args).map(|_| self.settings_list()),
+            "apps.settings.set" => params(args).and_then(|p| self.settings_set(client, p, origin)),
             "apps.composer.list" => params::<EmptyParams>(args).map(|_| self.composer_list()),
             "apps.composer.mentions" => params(args).map(|p| self.composer_mentions(p)),
             "apps.toolbar.list" => params::<EmptyParams>(args).map(|_| self.toolbar_list()),
