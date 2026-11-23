@@ -260,10 +260,21 @@ Above `compile-status` in `.github/workflows/cmux-next.yml`.
 The pull request's Release compile gate: the commit status cmux-next/compile on the exact
 head. The build fleet's controller compiles every feat-cmux-next head and same-repository PR
 head (SwiftPM Release at -Onone); this job reads that one result and publishes it.
-The controller holds no GitHub key and posts nothing: the status comes only from here, with
-a cmux-bot token (statuses: write) minted from the repository secret. Any other route that
-compiles the head (a Blacksmith job of this repository) posts the same context with the
-same mapping.
+This job posts with a cmux-bot token (statuses: write) minted from the repository secret.
+Any other route that compiles the head (a Blacksmith job of this repository) posts the same
+context with the same mapping.
+
+The controller posts it too, on the same-repository pull request heads it compiles, as the
+manaflow-checks App (the statuses: write App the pool's required checks already post from;
+cmuxterm-hq `build-fleet/cmd/controller/compile_status_poster.go`), with the same mapping at
+each receipt transition. Its receipt then says `"status_poster": "controller"`, and this job
+ends as soon as it reads that on a queued or running receipt, instead of holding a runner
+through the compile (77.7 runner-hours in 6 h on the pull request leg, 2026-11-22 17:00-23:00Z).
+A pull request head's first read takes the receipt as it is (`wait=1`), so the mark is seen at
+once; the recipe check runs first, so a marked receipt of another recipe is still a mismatch.
+A receipt without it (a push head, or a
+controller that does not post) is waited for and relayed as before. The landing gates trust
+both posters (`scripts/ci/base_red_excuse.py` `COMPILE_STATUS_POSTERS`).
 
 Mapping, fail closed: pass is success; fail is failure with the compile log as its link;
 unavailable, no result by the deadline, a result for another sha, repo, configuration or
@@ -677,10 +688,16 @@ Other runs get 60, not 30. On 2026-11-22, run 45002704947 (cmux#49316) was cance
 10:05:56 to 10:36:24Z). Each started cold: the seed root was refused ("busy, unprovisioned or has no room") and
 every shared root was busy, so the job skipped the R2 restore. `swift build --build-tests` for CmuxHomeRender
 took 37 s. For CmuxNext it ran 28.5 min, reached step 13998 of 14000 (CmuxNextAppTests) and was cancelled
-before any test started. That build takes no `--jobs`: SwiftPM uses every core, so the hook's
-`CMUX_CI_CPU_BUDGET=2` does not slow it, and raising the grant would not speed it up. The time comes from the
-cold start on a host that a waiting fleet build also needs. With 60, a cold run gets past its last link and
-gives a verdict.
+before any test started. With 60, a cold run gets past its last link and gives a verdict.
+
+Other runs get 120, not 60. 60 was too close: on 2026-11-22, job 137256550516 (run 45037691864, cmux#49316 head
+3a5c858edcfe, cmux9s-mac-mini-glaeda-5) passed in 58.0 of its 60 minutes (97%). It started cold ("evicted, 0.0
+GiB kept", seed root refused). The hook gave it 3 cores and its shim passes `swift build --jobs 3`. CmuxNext
+build-tests ran 16:06:32 to 16:57:59Z (51.5 min), and the 8 entries then passed in 40 s. #50336's 5-core
+cold run took 32.7 min. The build time scales with the core grant, about 155 core-minutes. A 2-core cold
+run is about 78 min of building plus 5 of setup, so it needs at least 83 min. 120 keeps that at 69% of the
+cap and a 3-core run at 48%. A 1-unit grant (about 155 min) still cannot finish; that is a placement problem,
+not something to cover with the cap.
 
 ## note-40
 
@@ -4909,3 +4926,14 @@ instead (cmuxterm-hq cmux_next_tip_debounce.go), skips its fleet compile and the
 the preflight already found superseded does. The branch head is read again first; a head that has not
 moved, or one that cannot be read, compiles as before. 2026-11-22 05-09Z: 120 pushes, 97 push-tip checks
 (432 machine-min), 91 of them inside the 10-minute window, each queued by its own push run's read.
+
+## note-552
+
+Above `CMUX_LAN_CACHE_TIMEOUT: "480"` in `.github/workflows/cmux-next.yml`.
+
+A base seed restore waits at most 8 minutes for the LAN cache host, then downloads the seed itself.
+lan_cache_fetch.py's own bound is 5,420 s, longer than the 60-minute jobs that restore a seed. On
+2026-11-22 a stalled cache host held fast-tier seed restores 14 minutes before the broker gave up
+("LAN cache host unavailable (...: stalled)"), and the direct download then took 9 more: restores of
+1,289-1,600 s, in jobs cancelled at the 60-minute limit while still building CmuxNext. A healthy host
+serves the 3.6 GB seed in about 40 s, or 343 s when it first fills it from the bucket (wait 304 s).
