@@ -1,4 +1,5 @@
 import CmuxNextCloud
+import CmuxNextCompat
 import Foundation
 import Observation
 
@@ -95,7 +96,7 @@ final class CloudPlaceFlows {
     }
 
     /// This computer's own name, as the move names the place it leaves or reaches.
-    nonisolated static var thisMac: String { Host.current().localizedName ?? ProcessInfo.processInfo.hostName }
+    nonisolated static var thisMac: String { MacName().hostName() }
 
     /// Milliseconds on the monotonic clock every event of a flow is stamped with.
     var nowMs: UInt64 { clock() }
