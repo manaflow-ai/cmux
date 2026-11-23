@@ -20,7 +20,7 @@ import { artifactRuntimePlugin } from "./artifactRuntimePlugin.mjs";
 // esbuild bundles and minifies as before. Components the compiler skips or bails out on are
 // listed on stderr, and as JSON with --report, so a bailout is visible in review.
 import { build } from "esbuild";
-import { writeFile } from "node:fs/promises";
+import { readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { reactCompilerMode } from "../../reactCompiler.mjs";
@@ -72,13 +72,19 @@ const reactCompiler = reactCompilerPlugin({
   onDiagnostic: (diagnostic) => bailouts.push(diagnostic),
 });
 
+/** Vite's `import.meta.env` as a production page sees it. */
+const PRODUCTION_ENV = JSON.stringify({ DEV: false, PROD: true, MODE: "production", SSR: false });
+
 const result = await build({
   entryPoints: [entry],
   bundle: true,
   format: "esm",
   platform: "browser",
   target: "es2022",
-  define: { "process.env.NODE_ENV": '"production"' },
+  // `import.meta.env` is Vite's: a browser has none, so a bare `import.meta.env.DEV` left in a shipped
+  // page throws. #50616 put one in the pane's connect path and every NIGHTLY pane sat on
+  // "Reconnecting…" (#51194). Defined here, any read of it is a production build's constant.
+  define: { "process.env.NODE_ENV": '"production"', "import.meta.env": PRODUCTION_ENV },
   minify: !cssInputsOnly,
   write: !cssInputsOnly,
   legalComments: "none",
@@ -116,6 +122,7 @@ const result = await build({
   // content hashes (their names) change, as esbuild hashes a chunk with its map.
   ...(frameSitesFile && !cssInputsOnly ? { sourcemap: "external" } : {}),
 });
+if (!cssInputsOnly) await refuseRawImportMetaEnv();
 if (frameSitesFile && !cssInputsOnly) {
   const outdir = path.resolve(path.dirname(outfile));
   const outputs = Object.keys(result.metafile.outputs)
@@ -135,6 +142,31 @@ if (preloadFile) {
       .map((output) => path.relative(outdir, path.resolve(output)) + "\n")
       .join(""),
   );
+}
+
+/**
+ * Fails the build when a written script still holds `import.meta.env`: the define above should
+ * leave none, and one that slipped through (a new spelling esbuild does not match) throws in the
+ * shipped page before it connects.
+ */
+async function refuseRawImportMetaEnv() {
+  const outdir = path.resolve(path.dirname(outfile));
+  const scripts = [path.resolve(outfile)];
+  if (split) {
+    const chunks = path.join(outdir, "chunks");
+    for (const name of await readdir(chunks).catch(() => [])) {
+      if (name.endsWith(".js")) scripts.push(path.join(chunks, name));
+    }
+  }
+  const left = [];
+  for (const file of scripts) {
+    const text = await readFile(file, "utf8").catch(() => "");
+    if (/import\.meta\s*\.\s*env|import\.meta\?\.env/.test(text)) left.push(path.relative(outdir, file));
+  }
+  if (left.length) {
+    console.error(`bundle.mjs: import.meta.env left in ${left.join(", ")}: a browser has none, so the page throws`);
+    process.exit(1);
+  }
 }
 
 /**

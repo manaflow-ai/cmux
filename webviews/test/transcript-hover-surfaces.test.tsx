@@ -8,7 +8,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { teardownDom } from "./support/domTeardown";
 import { MessageRow } from "../src/pages/home-channels/MessageRow";
 import { RunSteps } from "../src/pages/home-channels/RunSteps";
-import { TranscriptRowView } from "../src/pages/home-messages/transcript/TranscriptRows";
+import { TranscriptRowView } from "../src/pages/home-channels/transcript/TranscriptRows";
 import { SubagentTranscript } from "../src/agent-session/acpmux/backgroundTasks/SubagentTranscript";
 import { UserBubble } from "../src/agent-session/acpmux/conversation/UserBubble";
 import type { HomeMessage, HomeRun, HomeRunStep } from "../src/pages/home-channels/types";

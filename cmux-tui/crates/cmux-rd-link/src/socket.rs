@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::net::{SocketAddr, UdpSocket};
 
 /// Read the host's absolute monotonic clock in the same domain as the ledger.
@@ -11,10 +12,17 @@ pub(super) fn monotonic_us() -> Option<u64> {
 /// Sample the absolute protocol clock only after the complete payload is accepted.
 pub(super) fn send_to_observed(
     socket: &UdpSocket,
+    refused: &mut BTreeMap<i32, u64>,
     packet: &[u8],
     addr: SocketAddr,
 ) -> Option<(u64, usize)> {
-    let sent = socket.send_to(packet, addr).ok()?;
+    let sent = match socket.send_to(packet, addr) {
+        Ok(sent) => sent,
+        Err(e) => {
+            *refused.entry(e.raw_os_error().unwrap_or(-1)).or_default() += 1;
+            return None;
+        }
+    };
     if sent != packet.len() {
         return None;
     }
@@ -32,10 +40,19 @@ mod tests {
     fn departure_failed_socket_send_has_no_success_timestamp() {
         let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
         let peer = UdpSocket::bind("127.0.0.1:0").unwrap();
-        assert!(send_to_observed(&socket, &[0; 65_536], peer.local_addr().unwrap()).is_none());
+        assert!(
+            send_to_observed(
+                &socket,
+                &mut BTreeMap::new(),
+                &[0; 65_536],
+                peer.local_addr().unwrap()
+            )
+            .is_none()
+        );
         let before = monotonic_us().unwrap();
         let (departed, bytes) =
-            send_to_observed(&socket, b"ok", peer.local_addr().unwrap()).unwrap();
+            send_to_observed(&socket, &mut BTreeMap::new(), b"ok", peer.local_addr().unwrap())
+                .unwrap();
         let after = monotonic_us().unwrap();
         assert!((before..=after).contains(&departed));
         assert_eq!(bytes, 2);
