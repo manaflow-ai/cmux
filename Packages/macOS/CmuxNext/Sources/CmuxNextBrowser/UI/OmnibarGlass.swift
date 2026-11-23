@@ -63,6 +63,19 @@ public nonisolated struct OmnibarGlassLook: Sendable, Hashable {
     /// The look in effect now (cmux.json).
     @MainActor public static var current: OmnibarGlassLook { OmnibarGlassAppearance.shared.look }
 
+    /// Whether the bar draws glass: a material, and Reduce Transparency off (else the flat fill).
+    @MainActor var drawsGlass: Bool {
+        (material == .regular || material == .clear) && !ReduceTransparency.shared.isEnabled
+    }
+
+    /// The bar's ink with this look (`OmnibarInk`), in the active theme scope.
+    // theme-scoped: read inside performWithTheme (OmnibarStyle.ink)
+    @MainActor var ink: OmnibarInk {
+        // The rest tint and the editing one (`OmnibarPillView.refresh`: boost 0.15).
+        Palette.omnibarInk(glass: drawsGlass, transparent: material == .transparent,
+                           glassTints: drawsGlass ? [tintColor(), tintColor(boost: 0.15)] : [], coverage: backgroundOpacity)
+    }
+
     /// The bar's corner radius at `barHeight`.
     @MainActor func resolvedCornerRadius(barHeight: CGFloat) -> CGFloat {
         min(CGFloat(cornerRadius ?? Double(OmnibarStyle.barCornerRadius)), barHeight / 2)

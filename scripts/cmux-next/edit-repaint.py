@@ -55,6 +55,8 @@ ROOT = os.path.realpath(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.insert(0, os.path.join(ROOT, "scripts", "cmux-next"))
 import bench_launch  # noqa: E402
 from bench_launch import BenchApp  # noqa: E402
+import hashlib  # noqa: E402
+from state_wait import wait_stable, wait_until  # noqa: E402
 
 BLOCK = 32          # px of the snapshot per block side
 STEP = 4            # sample every 4th pixel in each direction
@@ -319,6 +321,30 @@ def key_resolves(app, keys, command):
     return isinstance(reply, dict) and "error" not in reply and command in json.dumps(reply)
 
 
+def settle(app, out, what, timeout=20):
+    """Waits until the window reads the same four times in a row, 0.2 s apart: its surfaces (`debug.surfaces`, else
+    `apps.views`) and,
+    when the build serves it, its main-window snapshot. Best effort: a window still changing is logged."""
+    probe = os.path.join(out, "settle-probe.png")
+
+    def read():
+        surfaces = app.rpc("debug.surfaces", timeout=10)
+        if not isinstance(surfaces, dict) or surfaces.get("error") or not surfaces.get("windows"):
+            surfaces = app.rpc("apps.views", {"app": APP_ID}, timeout=10)  # a build with no debug.surfaces
+            if not isinstance(surfaces, dict) or surfaces.get("error"):
+                raise RuntimeError(f"no surfaces: {surfaces}")
+        shot = app.rpc("debug.window_snapshot", {"kind": "main", "path": probe, "webviews": False}, timeout=30)
+        digest = None
+        if isinstance(shot, dict) and "path" in shot and os.path.exists(probe):
+            with open(probe, "rb") as f:
+                digest = hashlib.sha256(f.read()).hexdigest()
+            os.unlink(probe)
+        return json.dumps(surfaces, sort_keys=True), digest
+
+    if wait_stable(read, what, timeout=timeout, interval=0.2, reads=4, raise_on_timeout=False) is None:
+        print(f"edit-repaint: {what}: the window gave no surfaces in {timeout} s", flush=True)
+
+
 def summary(rows):
     upper = [r["upper_ms"] for r in rows if "upper_ms" in r]
     lower = [r["lower_ms"] for r in rows if "lower_ms" in r]
@@ -388,11 +414,11 @@ def main():
             raise SystemExit(f"edit-repaint: {keybindings_path} exists; the shortcut case writes and removes it, "
                              "so it runs only beside a config folder of its own")
         if not opts.attach_socket:
-            time.sleep(3)
+            settle(app, opts.out, "the launched window")
         for _ in range(3):
             app.rpc("action.run", {"action": "workspace.newAtBottom", "focus": True})
             time.sleep(0.5)
-        time.sleep(2)
+        settle(app, opts.out, "the window with the new workspaces")
 
         def save_config(update):
             def write():
@@ -411,12 +437,21 @@ def main():
             write_customize()
             with open(os.path.join(customize, "cmux-app.json"), "w") as f:
                 json.dump(MANIFEST, f, indent=2)
-            time.sleep(8)
+            # Installed: each asked view other than the pane (it opens below) shows its words, then the window settles.
+            shown = [c for c in ("extension", "rows") if c in cases]
+            if not wait_until(lambda: all(view_shows(app, INTERFACES[c], words[c]) for c in shown),
+                              "the customize views", timeout=60, interval=0.2, raise_on_timeout=False):
+                print(f"edit-repaint: the customize views {shown} did not show their words in 60 s", flush=True)
+            settle(app, opts.out, "the window with the customize app")
             if "pane" in cases:
                 # focus: the pane's tab is selected, so pixel rounds snapshot the pane, not the tab before it.
                 result["pane_open"] = app.rpc("action.run", {"action": "app.open", "args": {"app": APP_ID},
                                                              "focus": True}, timeout=30)
-                time.sleep(3)
+                # The pane's tab shows its words, then the window settles.
+                if not wait_until(lambda: view_shows(app, INTERFACES["pane"], words["pane"]), "the customize pane",
+                                  timeout=30, interval=0.2, raise_on_timeout=False):
+                    print("edit-repaint: the customize pane did not show its words in 30 s", flush=True)
+                settle(app, opts.out, "the window with the pane open")
             result["installed"] = {"apps_list": apps_list(app),
                                    "views": {c: view_readback(app, INTERFACES[c], words[c])
                                              for c in CUSTOMIZE_CASES if c in cases}}

@@ -28,6 +28,9 @@ import sys
 import time
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from state_wait import wait_stable, wait_until  # noqa: E402
+
 HOPS = [
     "dispatch_start_ms", "dispatch_end_ms", "io_write_ms", "socket_submit_ms",
     "output_decoded_ms", "output_received_ms", "output_parsed_ms", "contents_ms",
@@ -83,7 +86,15 @@ def main():
             if (index + 1) % 40 == 0:
                 press(args.driver, args.pid, args.window, "return")
                 time.sleep(args.interval)
-        time.sleep(1)
+        # The probe has written this run's rows once the CSV holds a row per key and stops growing.
+        def rows_now():
+            return len(args.csv.read_text().splitlines()) - 1
+        wanted = rows_before + args.warmup + args.samples
+        if not wait_until(lambda: rows_now() >= wanted, f"{wanted - rows_before} probe rows in {args.csv}",
+                          timeout=10, raise_on_timeout=False):
+            print(f"warning: {args.csv} has {rows_now() - rows_before} of {wanted - rows_before} rows after 10 s",
+                  file=sys.stderr)
+        wait_stable(rows_now, f"the rows in {args.csv}", timeout=10, interval=0.1, reads=5, raise_on_timeout=False)
 
     with args.csv.open() as handle:
         rows = list(csv.DictReader(handle))
