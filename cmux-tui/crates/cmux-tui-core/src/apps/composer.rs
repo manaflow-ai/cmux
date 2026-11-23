@@ -1,6 +1,8 @@
 //! The agent chat composer's extension places (DESIGN section 3):
-//! `cmux.composer.command/1` (slash commands) and `cmux.composer.mention/1`
-//! (mention providers). Both are data in the manifest, so the daemon answers
+//! `cmux.composer.command/1` (slash commands), `cmux.composer.mention/1`
+//! (mention providers), `cmux.composer.toolbar/1` (toolbar buttons) and
+//! `cmux.composer.chip/1` (context chips the person clicks to add text to
+//! the draft). All are data in the manifest, so the daemon answers
 //! them from the catalog it already holds, with no app host: the composer's
 //! `/` menu only lists what `apps.composer.list` returns, and `@` completions
 //! are ranked here (`apps.composer.mentions`).
@@ -10,7 +12,13 @@
 //! swaps the catalog and broadcasts `apps-changed`, on which a page lists
 //! again. Only installed, enabled and visible apps contribute, none in safe
 //! mode (every extension is off). A command name an app earlier in id order
-//! already took is dropped, so one `/name` never means two things.
+//! already took is dropped, so one `/name` never means two things; a chip
+//! whose insert text an earlier app already offers is dropped too, so the
+//! row never shows two chips that do the same thing.
+//!
+//! The person's saved prompts (`~/.config/cmux/commands/NAME.md`, written by `cmux agent-config
+//! commands add --agent cmux` or Settings > Skills > New Command) come first in the commands, read
+//! from their folder on each call, so a new one is in the next chat's `/` menu with no restart.
 
 use std::collections::HashSet;
 
@@ -20,6 +28,8 @@ use serde_json::{Value, json};
 use super::store::text;
 use super::supervisor::{Inner, Supervisor};
 
+const TOOLBAR: &str = "cmux.composer.toolbar/1";
+const CHIP: &str = "cmux.composer.chip/1";
 pub(super) const COMMAND: &str = "cmux.composer.command/1";
 pub(super) const MENTION: &str = "cmux.composer.mention/1";
 
@@ -28,6 +38,9 @@ const MAX_COMMANDS: usize = 256;
 /// The most items `apps.composer.mentions` answers, and its default.
 const MAX_MENTIONS: usize = 50;
 const DEFAULT_MENTIONS: usize = 20;
+/// The most chips `apps.composer.list` answers, over every app: one row
+/// above the draft, not a menu.
+const MAX_CHIPS: usize = 24;
 
 #[derive(Debug, Serialize)]
 struct Command {
@@ -54,6 +67,17 @@ struct Mention {
     app: String,
     extension: String,
     prefix: String,
+    id: String,
+    label: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    detail: Option<String>,
+    insert: String,
+}
+
+#[derive(Debug, Serialize)]
+struct Chip {
+    app: String,
+    extension: String,
     id: String,
     label: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -116,13 +140,68 @@ fn rank(query: &str, id: &str, label: &str) -> Option<u8> {
     }
 }
 
+/// The context chips, in app id and manifest order: an entry without an id,
+/// label or insert text is skipped, as is one whose insert text an earlier
+/// chip already writes; at most `MAX_CHIPS`.
+fn chips(inner: &Inner) -> Vec<Chip> {
+    let mut written = HashSet::new();
+    let mut chips = Vec::new();
+    for (app, extension, options) in places(inner, CHIP) {
+        for entry in options.get("chips").and_then(Value::as_array).into_iter().flatten() {
+            let (Some(id), Some(label), Some(insert)) =
+                (string(entry, "id"), string(entry, "label"), string(entry, "insert"))
+            else {
+                continue;
+            };
+            if chips.len() >= MAX_CHIPS || !written.insert(insert.clone()) {
+                continue;
+            }
+            chips.push(Chip {
+                app: app.to_string(),
+                extension: extension.clone(),
+                id,
+                label,
+                detail: string(entry, "detail"),
+                insert,
+            });
+        }
+    }
+    chips
+}
+
+/// The app id and source name of the person's saved prompts in `apps.composer.list`.
+const SAVED_PROMPTS_APP: &str = "cmux/saved-prompts";
+const SAVED_PROMPTS_SOURCE: &str = "cmux";
+
+/// The saved prompts in `dir` (`cmux agent-config commands add --agent cmux`), in name order, as
+/// composer commands whose pick writes the prompt; at most `MAX_COMMANDS`.
+fn saved_prompts(dir: Option<&std::path::Path>) -> Vec<Command> {
+    let Some(dir) = dir else { return Vec::new() };
+    cmux_agent_customize::commands::list_in(cmux_agent_customize::commands::Target::Cmux, dir)
+        .into_iter()
+        .filter(|saved| !saved.prompt.trim().is_empty())
+        .take(MAX_COMMANDS)
+        .map(|saved| Command {
+            app: SAVED_PROMPTS_APP.to_string(),
+            extension: SAVED_PROMPTS_SOURCE.to_string(),
+            name: saved.name,
+            description: saved.description,
+            hint: None,
+            insert: saved.prompt,
+        })
+        .collect()
+}
+
 impl Supervisor {
-    /// `apps.composer.list`: every extension slash command, and the mention
-    /// providers with their item counts.
+    /// `apps.composer.list`: every extension slash command, the mention
+    /// providers with their item counts, the toolbar buttons and the
+    /// context chips.
     pub(super) fn composer_list(&self) -> Value {
+        // The person's own saved prompts first: read before the lock, and listed even in safe
+        // mode, since they are text the person wrote, not an extension.
+        let mut commands = saved_prompts(self.config.sources.saved_prompts.as_deref());
+        let mut taken: HashSet<String> = commands.iter().map(|c| c.name.clone()).collect();
         let inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let mut taken = HashSet::new();
-        let mut commands = Vec::new();
         for (app, extension, options) in places(&inner, COMMAND) {
             for entry in options.get("commands").and_then(Value::as_array).into_iter().flatten() {
                 let (Some(name), Some(insert)) = (string(entry, "name"), string(entry, "insert"))
@@ -153,7 +232,32 @@ impl Supervisor {
                 })
             })
             .collect();
-        json!({ "commands": commands, "mentions": mentions })
+        let mut toolbar_buttons = Vec::new();
+        let mut seen_actions = HashSet::new();
+        for (_, _, options) in places(&inner, TOOLBAR) {
+            for button in options["buttons"].as_array().into_iter().flatten() {
+                if let Some(action) = button["action"].as_str()
+                    && seen_actions.insert(action)
+                {
+                    toolbar_buttons.push(button);
+                }
+            }
+        }
+        let chips = chips(&inner);
+        let model_picker = places(&inner, "cmux.composer.model.picker/1")
+            .into_iter()
+            .next()
+            .map(|(_, _, options)| options.clone());
+        let mut result = json!({
+            "commands": commands,
+            "mentions": mentions,
+            "toolbarButtons": toolbar_buttons,
+            "chips": chips,
+        });
+        if let (Some(picker), Some(fields)) = (model_picker, result.as_object_mut()) {
+            fields.insert("modelPicker".to_owned(), picker);
+        }
+        result
     }
 
     /// `apps.composer.mentions {query, prefix?, limit?}`: the items that

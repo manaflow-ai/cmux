@@ -32,6 +32,11 @@ export function loadsWithoutClick(src: string, policy: ReplyPolicy): boolean {
 
 /// Sources an automatic load started for, so a render twice in a row asks the host once.
 export const started = new Set<string>();
+/// Sources the host declined to load without a click (`image.load` with `auto: true` answered no
+/// image): they wait for a click, so an opening chat does not wait on them (unsettledHeights.ts).
+/// Apart from `started`, which an automatic load sets during the render that asks, before its state
+/// says loading.
+export const declined = new Set<string>();
 /// Images that loaded on their own (a file in the folders, a web image under "always"), the most
 /// recently drawn first. One it forgets loads again on its own when it draws.
 export const loaded = new DataUrlCache(IMAGE_CACHE_MAX_ENTRIES, IMAGE_CACHE_MAX_CHARS, (src) => started.delete(src));
