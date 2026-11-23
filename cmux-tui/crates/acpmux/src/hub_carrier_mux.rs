@@ -356,8 +356,11 @@ impl Mux {
                     Ok(gate) => {
                         let (ours, theirs) = tokio::io::duplex(super::DUPLEX_BYTES);
                         let from = from.unwrap_or_default();
-                        tokio::spawn(async move { gate.serve(from, theirs).await });
-                        self.carry_admitted(id, ours, events, credit).await;
+                        // Both end together, as a plain circuit's do.
+                        tokio::join!(
+                            gate.serve(from, theirs),
+                            self.carry_admitted(id, ours, events, credit)
+                        );
                     }
                     Err(refusal) => refuse(refusal).await,
                 }
