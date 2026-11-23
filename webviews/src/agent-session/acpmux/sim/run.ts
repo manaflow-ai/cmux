@@ -11,7 +11,13 @@
 // the probes, not every row, past `rowsInTraceUpTo`).
 import { AcpmuxDirectClient, type EventRecord } from "../direct";
 import { turnViewFrom, type TurnView } from "../conversation/turns";
-import { layoutConversation, type AcpmuxRow, type AcpmuxSnapshot, type ConversationLayout } from "../model";
+import {
+  layoutConversation,
+  type AcpmuxRow,
+  type AcpmuxSnapshot,
+  type ConversationLayout,
+  SINCE_DIVIDER,
+} from "../model";
 import { ROW_GAP_LOOKS, TRANSCRIPT_BLOCK_GAP, TRANSCRIPT_TURN_GAP } from "../transcriptGrid";
 import type { SimScenario, SimStep } from "./script";
 
@@ -64,6 +70,10 @@ export type Violation = {
   rowId: string;
   detail: string;
 };
+
+/** "New since you looked" put after `after`: the other drawn rows it moved (none: it takes no room and
+ *  splits no fold, SinceDivider.tsx) and the rows it made go (a run line it split). */
+export type SinceShift = { after: string; moved: number; px: number; gone: string[] };
 
 /** One line of the JSONL trace. */
 export type StepTrace = {
@@ -459,9 +469,62 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
     folds: allFolds,
     traces: options.onStep ? [] : traces,
   });
+  /** "New since you looked" put at every place in the rows of the step `advance` last made, one place at a
+   *  time, shaped and placed again: each place where another drawn row moved (sinceShifts). */
+  const sinceShifts = (at = 0): SinceShift[] => {
+    const snap = snapshot;
+    if (!snap || !current) return [];
+    const step = scenario.steps[scenario.steps.length - 1]!;
+    const options = {
+      now: step.at,
+      working: working || snap.isWorking,
+      clockOffset: snap.clockOffsetMs,
+      turnStartedAtMs: snap.turnStartedAtMs ?? workingSince,
+      agentFamily: scenario.family,
+      waitingSteers: snap.waitingSteers,
+    };
+    const place = (rows: readonly AcpmuxRow[]) => {
+      const view = turnViewFrom(rows, folds, options).rows;
+      const layout = layoutConversation(view, width, new Map(), (row) => (row.kind === SINCE_DIVIDER ? 0 : LINE(row)));
+      const tops = new Map<string, number>();
+      view.forEach((row, index) => {
+        if (row.kind !== SINCE_DIVIDER && (layout.heights[index] ?? 0) > 0) tops.set(row.id, layout.tops[index]!);
+      });
+      return tops;
+    };
+    const without = place(snap.rows);
+    const out: SinceShift[] = [];
+    for (let index = Math.max(1, at); index < snap.rows.length; index += 1) {
+      const seq = index;
+      const since: AcpmuxRow = {
+        id: SINCE_DIVIDER,
+        version: 1,
+        at: snap.rows[index - 1]!.at,
+        kind: SINCE_DIVIDER,
+        since: { key: `sim:${seq}`, seq, turns: 1 },
+      };
+      const withLine = place([...snap.rows.slice(0, index), since, ...snap.rows.slice(index)]);
+      let moved = 0;
+      let px = 0;
+      const gone: string[] = [];
+      for (const [id, top] of without) {
+        const now = withLine.get(id);
+        if (now === undefined) {
+          gone.push(id);
+          continue;
+        }
+        if (Math.abs(now - top) > 0.5) {
+          moved += 1;
+          px = Math.max(px, Math.abs(now - top));
+        }
+      }
+      if (moved || gone.length) out.push({ after: snap.rows[index - 1]!.id, moved, px: Math.round(px), gone });
+    }
+    return out;
+  };
   /** Whether the agent is working at the step `advance` last made (the browser lane draws it). */
   const state = () => ({ working, turn, turnEnded });
-  return { advance, check, result, state };
+  return { advance, check, result, state, sinceShifts };
 }
 
 /// Runs `scenario` and checks the three rules at every step (sim/README.md "Rules").
@@ -513,4 +576,13 @@ export function summarize(result: SimResult): string {
   const siblings = [...sibling].map(([kind, count]) => `${kind}=${count}`).join(" ") || "none";
   // l10n-allow: simulator report for a terminal, not shipped UI
   return `${result.scenario}: ${result.steps} steps, ${result.rows} rows drawn (${result.recordRows} before folding), ${Math.round(result.virtualMs / 1000)} s simulated in ${result.wallMs} ms; violations ${rules}; mid-turn sibling folds ${siblings}`;
+}
+
+/// Plays `scenario` to its end, then puts "New since you looked" at every place in its rows, one at a
+/// time (sinceShifts): the places where it moved another row or made one go. Inserting or removing the
+/// line must move nothing (Leo, 2026-11-22: "the shifts and animations need to be accounted for").
+export function sinceInsertShifts(scenario: SimScenario, options: SimOptions = {}): SinceShift[] {
+  const sim = createSimulation(scenario, options);
+  for (let index = 0; index < scenario.steps.length; index += 1) sim.advance(index);
+  return sim.sinceShifts();
 }

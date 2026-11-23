@@ -104,6 +104,33 @@ export const SCENARIOS: Record<string, () => SimScenario> = {
     return b.build();
   },
 
+  // Leo, 2026-11-22, a narrow pane: a reply's footer, a background task's end, then a turn the agent ran on its
+  // own (a message sent, a command) and its reply; the gap over the reply looked much bigger than between the
+  // lines over it ("this is still not great ... the folding and tool calling and spacing got fucked up").
+  "lines-then-reply": () => {
+    const b = sim(
+      "lines-then-reply",
+      "A finished reply, a background task's end under its footer, then a turn the agent ran on its own and its reply.",
+    );
+    b.prompt("Measure the webview round trip before and after the change.");
+    b.background("Wait for after measurement job", { ms: 25_000 });
+    b.tool("Webview round-trip for Rust draft attachments", { ms: 900 });
+    b.say("Both measurements are running; I'll report when the after job finishes.");
+    b.turnEnd();
+    b.wait(25_000).backgroundEnds();
+    b.record("mux", "background_turn", { id: "bgturn-1", state: "started", trigger: "task_notification" }, 200);
+    b.record("mux", "status", { status: "running" }, 10, "status running");
+    b.tool("acpmux send helper-timing 'post the numbers'", { ms: 300 });
+    b.tool("git status --short", { ms: 300 });
+    b.say(
+      "A helper's timing table is in: the round trip went from 41 ms to 12 ms. I've sent the helper the numbers to land it. Nothing you need to do.",
+      { chunks: 3 },
+    );
+    b.record("mux", "background_turn", { id: "bgturn-1", state: "ended", trigger: "task_notification" }, 200);
+    b.record("mux", "status", { status: "ready" }, 10, "status ready");
+    return b.build();
+  },
+
   subagent: () => {
     const b = sim("subagent", "A turn starts a subagent, works beside it, and replies after its report.");
     b.prompt("Find every flaky test in the repo.");

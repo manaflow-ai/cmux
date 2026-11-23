@@ -8,7 +8,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { runSimulation, type SimResult } from "../src/agent-session/acpmux/sim/run";
+import { runSimulation, sinceInsertShifts, type SimResult } from "../src/agent-session/acpmux/sim/run";
 import { parseRecords, sanitizeRecords, scrubText } from "../src/agent-session/acpmux/sim/sanitize";
 import { replayScenario, SIM_SESSION } from "../src/agent-session/acpmux/sim/script";
 import { SCENARIOS, longRun } from "../src/agent-session/acpmux/sim/scenarios";
@@ -130,3 +130,19 @@ test(`chat simulator: a ${LONG ? "monstrously " : ""}long run (${LONG ? "10k+" :
   expect(result.virtualMs).toBeGreaterThan((LONG ? 30 : 6) * 3_600_000);
   expect(broken(result, "b-")).toEqual([]);
 }, 300_000);
+
+// "New since you looked" (conversation/SinceDivider.tsx) put at every place in each scenario's rows, at
+// 720 px and at 280 px: it takes no room and splits no fold, so no other drawn row moves or goes when it
+// comes or goes (Leo, 2026-11-22: "the shifts and animations need to be accounted for/added adn refined").
+describe("chat simulator: the since line moves no row when it comes or goes", () => {
+  for (const [name, make] of Object.entries(SCENARIOS))
+    for (const width of [720, 280])
+      test(`${name} at ${width} px`, () => {
+        const shifts = sinceInsertShifts(make(), { width });
+        expect(
+          shifts.map(
+            (shift) => `after ${shift.after}: ${shift.moved} moved (${shift.px}px), gone ${shift.gone.join(",")}`,
+          ),
+        ).toEqual([]);
+      });
+});

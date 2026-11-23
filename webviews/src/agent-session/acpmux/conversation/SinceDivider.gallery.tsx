@@ -84,12 +84,76 @@ type Props = {
   none?: boolean;
   /// The next row is the running turn's "Working for" line (row kind `working`), not a finished one.
   working?: boolean;
+  /// Between two one-line rows that stand flush (no gap), not over a turn gap (Leo's 2026-11-22 shot).
+  steps?: boolean;
+  /// The column's width in px: an ultra narrow pane, where "New" shrinks and then fades.
+  column?: number;
 };
+
+/// A one-line activity row (conversation.css `--cv-tool-row-height`, the 22 pitch).
+function Step({ text }: { text: string }) {
+  return (
+    <div
+      className="acpmux-row"
+      style={{
+        position: "relative",
+        height: "var(--cv-tool-row-height)",
+        lineHeight: "var(--cv-tool-row-height)",
+        color: "var(--agent-muted)",
+        whiteSpace: "nowrap",
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+      }}
+    >
+      {text}
+    </div>
+  );
+}
+
+/// Three one-line rows, flush, the line on the boundary under the second (Leo, 2026-11-22: the line sat
+/// under "Webview round-trip ... finished" and "New" floated on the next row, not on the line).
+function StepLooks({ theme, look, column }: Pick<Props, "theme" | "look" | "column">) {
+  return (
+    <div className="acpmux-shell" style={{ ...THEMES[theme], padding: 16, minHeight: "100%" }}>
+      <div style={{ width: column, display: "grid", alignContent: "start" }}>
+        <Step text="Background task finished: Wait for after measurement job" />
+        <Step text="Webview round-trip for Rust draft attachments  finished" />
+        <div
+          className="acpmux-row"
+          style={
+            {
+              position: "relative",
+              height: 0,
+              minHeight: 0,
+              paddingBottom: 0,
+              // The transcript's row clips paint (`contain: layout paint`); a 0 px row would clip its mark.
+              contain: "layout",
+              "--cv-since-gap": "0px",
+            } as React.CSSProperties
+          }
+        >
+          <SinceDivider
+            since={{ key: `gallery-steps-${theme}-${column ?? 0}:41`, seq: 41, turns: 1 }}
+            look={look}
+            read={false}
+            dwellMs={60 * 60_000}
+          />
+        </div>
+        <Step text="Sent a message, ran a command" />
+      </div>
+    </div>
+  );
+}
 
 /// The gap between the seen turn and the next (the transcript's turn gap), which the line lies over.
 const TURN_GAP = 32;
 
-function UnreadLooks({
+function UnreadLooks(props: Props) {
+  if (props.steps) return <StepLooks theme={props.theme} look={props.look} column={props.column} />;
+  return <TurnLooks {...props} />;
+}
+
+function TurnLooks({
   part,
   theme,
   look,
@@ -98,6 +162,7 @@ function UnreadLooks({
   mode = "expanded",
   none = false,
   working = false,
+  column,
 }: Props) {
   return (
     <div
@@ -112,6 +177,7 @@ function UnreadLooks({
         gap: 8,
         alignContent: "start",
         minHeight: "100%",
+        ...(column !== undefined && { width: column }),
       }}
     >
       {part === "banner" && (
@@ -142,6 +208,7 @@ function UnreadLooks({
             right: 0,
             minHeight: 0,
             paddingBottom: 0,
+            contain: "layout",
             "--cv-since-gap": `${TURN_GAP}px`,
           } as React.CSSProperties
         }
@@ -187,6 +254,22 @@ export default componentEntry<Props>({
     "line-worked": {
       note: "B (shipped): folded into the next turn's Worked for line: New at its end and its rule lit in the accent; no height, it fades back to the plain rule.",
       props: { part: "line", theme: "dark", look: "worked" },
+    },
+    "line-steps": {
+      note: "B between two flush one-line rows (Leo's shot): the line on their boundary and New on it, at its end, never on the next row.",
+      props: { part: "line", theme: "dark", look: "worked", steps: true },
+    },
+    "line-ultra-narrow": {
+      note: "B in a 200 px column: New shrinks toward the end of its line; it never wraps.",
+      props: { part: "line", theme: "dark", look: "worked", column: 200 },
+    },
+    "line-ultra-narrow-faded": {
+      note: "B in a 130 px column: New has faded; the lit divider alone marks the place.",
+      props: { part: "line", theme: "dark", look: "worked", column: 130 },
+    },
+    "line-steps-narrow": {
+      note: "B between flush one-line rows in a 200 px column: New shrunk, on the line.",
+      props: { part: "line", theme: "dark", look: "worked", steps: true, column: 200 },
     },
     "line-thin": {
       note: "A: a thin accent hairline across the middle of the turn gap, no word and no pill; no height, it fades and narrows away.",

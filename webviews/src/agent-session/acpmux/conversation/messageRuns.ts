@@ -296,6 +296,11 @@ export function foldMessageRuns(rows: AcpmuxRow[], expanded: Folds, live = false
         foldOpen: open,
         messageRun: folded.run,
         ...(first.settled && { settled: true }),
+        // The background turn its rows ran in (model.ts `opensBackgroundTurn`): without it the reply
+        // under the line read as opening a turn of its own and stood the 32 turn gap under it, where a
+        // reply under any run of the same turn stands 16 (Leo, 2026-11-22, a narrow pane: the gap after
+        // "Background task / Webview round... / Sent a message" before the reply much bigger than above).
+        ...(first.inBackground !== undefined && { inBackground: first.inBackground }),
       };
     }
     out.push(kept.line);
