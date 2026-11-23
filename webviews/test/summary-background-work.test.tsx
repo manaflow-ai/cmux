@@ -282,7 +282,7 @@ test("the chats the agent started are listed under Subagents with their state, a
   );
   const section = container.querySelector<HTMLElement>('section[aria-label="Subagents"]')!;
   // Running started chats count in the title, as running subagents do.
-  expect(section.querySelector("h3")?.textContent).toBe("Subagents · 2 running");
+  expect(section.querySelector("h3")?.textContent).toBe("Subagents");
   const rows = [...section.querySelectorAll<HTMLButtonElement>(".acpmux-summary-session")];
   expect(
     rows.map((row) => [

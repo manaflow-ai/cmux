@@ -90,7 +90,7 @@ export function TrayPullTab({
   const label = [
     t("tray.untuck"),
     waiting > 0 && t("summary.subagents.waiting", { n: waiting }),
-    running > 0 && t("summary.subagents.running", { n: running }),
+    // The tray holds only what runs: running takes no word (Leo, 2026-11-23).
   ]
     .filter(Boolean)
     .join(" · ");

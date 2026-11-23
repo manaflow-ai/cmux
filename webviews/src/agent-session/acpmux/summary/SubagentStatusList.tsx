@@ -97,10 +97,6 @@ export function SubagentStatusList({
   const chatHarness = useContext(SubagentHarnessContext);
   const now = useNow(agents.some(ticking));
   const title = t("summary.subagents");
-  const live =
-    agents.filter((agent) => subagentStatus(agent, waiting) === "running").length +
-    subsessions.filter((session) => session.state === "working" || sessionRetry(session).kind === "retrying").length +
-    sessions.filter((child) => sessionStatus(child) === "running").length;
   // Every subagent, drawn only as far as the card's body (a scroller) shows and a few past it, over a box
   // as tall as the rest that its scroll reaches; the rest draw as it scrolls to them (WindowedRows). A
   // coordinator's card drew every subagent its chat ever ran (chat-100k-flat CASES=coordinator: 2,386
@@ -136,11 +132,8 @@ export function SubagentStatusList({
       </li>
     );
   };
-  const heading = counts
-    ? `${title} · ${counts}`
-    : live > 0
-      ? `${title} · ${t("summary.subagents.running", { n: live })}`
-      : title;
+  // Running ones take no word (Leo, 2026-11-23: ""running" doesn't need text").
+  const heading = counts ? `${title} · ${counts}` : title;
   return (
     <section className="acpmux-summary-section acpmux-summary-agents" aria-label={title}>
       <h3 className="acpmux-summary-title">

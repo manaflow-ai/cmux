@@ -83,8 +83,10 @@ export function trayHead(
     else agents += 1;
   }
   const parts: (string | false)[] = [
-    working ? agents > 0 && t("subagents.allRunning", { n: agents }) : items.length > 0 && t("bgWork.running"),
-    !working && agents > 0 && t("subagents.count", { n: agents }),
+    // Running needs no word: the tray shows only what runs, so its counts say it (Leo, 2026-11-23:
+    // "\"running\" doesn't need text ... state can ... only be relevant when you may need to
+    // investigate/take action"). Waits, failures and stops keep their words.
+    agents > 0 && t("subagents.count", { n: agents }),
     sessions > 0 && t("turn.working.sessions", { n: sessions }),
     waitingOnYou > 0 && t("summary.subagents.waiting", { n: waitingOnYou }),
     ...(arm === "running"
@@ -238,7 +240,7 @@ export function trayHeadParts(
     if (list.length > 0) parts.push({ key, icon, text, items: list, ...(tone ? { tone } : {}) });
   };
   const n = (list: readonly TrayItem[]) => ({ n: list.length });
-  add("agents", SUBAGENT_ICON, agents, t(working ? "subagents.allRunning" : "subagents.count", n(agents)));
+  add("agents", SUBAGENT_ICON, agents, t("subagents.count", n(agents)));
   add("sessions", "agent.session", sessions, t("turn.working.sessions", n(sessions)));
   add("waiting", "status.needsinput", waits, t("summary.subagents.waiting", n(waits)), "waiting");
   for (const kind of COMMAND_KINDS) {

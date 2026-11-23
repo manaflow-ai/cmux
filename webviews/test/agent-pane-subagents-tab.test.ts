@@ -200,8 +200,8 @@ await requireBrowserLane("agent-pane-subagents-tab.test.ts", async () => {
     await open(page);
     await panel(page).waitFor({ timeout: 5_000 });
     // The section's title, with its live count, opens the tab.
-    await panel(page).getByRole("heading", { name: "Subagents · 1 running" }).waitFor({ timeout: 5_000 });
-    await panel(page).getByRole("button", { name: "Subagents · 1 running" }).click();
+    await panel(page).getByRole("heading", { name: "Subagents" }).waitFor({ timeout: 5_000 });
+    await panel(page).getByRole("button", { name: "Subagents" }).click();
     const tabs = panel(page).locator(".acpmux-summary-tabs");
     const tab = (name: string) => tabs.getByRole("button", { name, exact: true });
     await tabs.waitFor({ timeout: 5_000 });
@@ -239,7 +239,7 @@ await requireBrowserLane("agent-pane-subagents-tab.test.ts", async () => {
     const page = await context.newPage();
     await open(page);
     await panel(page).waitFor({ timeout: 5_000 });
-    await panel(page).getByRole("button", { name: "Subagents · 1 running" }).click();
+    await panel(page).getByRole("button", { name: "Subagents" }).click();
     const tab = (name: string) =>
       panel(page).locator(".acpmux-summary-tabs").getByRole("button", { name, exact: true });
     await tab("Summary").click();
@@ -254,7 +254,7 @@ await requireBrowserLane("agent-pane-subagents-tab.test.ts", async () => {
     const context = await browser!.newContext({ viewport: { width: 1600, height: 800 } });
     const page = await context.newPage();
     await open(page);
-    await panel(page).getByRole("button", { name: "Subagents · 1 running" }).click();
+    await panel(page).getByRole("button", { name: "Subagents" }).click();
     const active = panel(page).getByRole("region", { name: "Active · 1" });
     await active.waitFor({ timeout: 5_000 });
     // Claude's subagents stop on their own (acpmux `_acpmux/subagent_stop`), so its running row can.
@@ -273,7 +273,7 @@ await requireBrowserLane("agent-pane-subagents-tab.test.ts", async () => {
       const context = await browser!.newContext({ viewport: { width: 1600, height: 800 } });
       const page = await context.newPage();
       await open(page, session);
-      await panel(page).getByRole("button", { name: "Subagents · 1 running" }).click();
+      await panel(page).getByRole("button", { name: "Subagents" }).click();
       const active = panel(page).getByRole("region", { name: "Active · 1" });
       await active.getByRole("button", { name: "Open Explore docs" }).waitFor({ timeout: 5_000 });
       expect(await active.getByRole("button", { name: "Stop Explore docs" }).count()).toBe(stops ? 1 : 0);
@@ -285,7 +285,7 @@ await requireBrowserLane("agent-pane-subagents-tab.test.ts", async () => {
   const openPopoverTab = async (page: Page) => {
     await open(page);
     await page.click(".acpmux-summary-button");
-    await panel(page).getByRole("button", { name: "Subagents · 1 running" }).click();
+    await panel(page).getByRole("button", { name: "Subagents" }).click();
     await panel(page).locator(".acpmux-summary-tabs").waitFor({ timeout: 5_000 });
   };
 
@@ -334,7 +334,7 @@ await requireBrowserLane("agent-pane-subagents-tab.test.ts", async () => {
     if (!(await panel(page).isVisible())) await page.getByRole("button", { name: "Chat summary" }).click();
     await panel(page).waitFor({ timeout: 5_000 });
     expect(await panel(page).getAttribute("data-placement")).toBe("popover");
-    await panel(page).getByRole("button", { name: "Subagents · 1 running" }).click();
+    await panel(page).getByRole("button", { name: "Subagents" }).click();
     const tabs = panel(page).locator(".acpmux-summary-tabs");
     await tabs.waitFor({ timeout: 5_000 });
     const fold = panel(page).getByRole("button", { name: "Collapse summary" });
