@@ -5,7 +5,7 @@ import { useComposerListBox } from "./backdropLayerModel";
 import { BoltIcon } from "./BoltIcon";
 import { COMPOSER_LABELS } from "./composerModel";
 import { useT } from "./i18n";
-import { isFastCommand, shownName, type SlashCommand, type SlashMatch } from "./slashCommands";
+import { isFastCommand, returnPicks, shownName, type SlashCommand, type SlashMatch } from "./slashCommands";
 import { useOutcomeHints } from "./composerOutcomeHintsModel";
 import {
   SLASH_MAX_VIEWPORT_PX,
@@ -27,6 +27,7 @@ import {
  */
 export function SlashMenu({
   matches,
+  query,
   active,
   empty,
   fast,
@@ -34,6 +35,8 @@ export function SlashMenu({
   onPick,
 }: {
   matches: SlashMatch[];
+  /** The typed word without `/`, shared with the composer's Return handler. */
+  query: string;
   active: number;
   empty: string;
   /// The chat's fast mode, which the /fast row's sentence follows (undefined: not reported).
@@ -158,6 +161,7 @@ export function SlashMenu({
         // The harness's /fast reads as ChatGPT's Fast row: bolt, name, current mode.
         const fastRow = isFastCommand(match.command);
         const highlighted = index === active;
+        const picks = returnPicks(match, query);
         const fastName = t("picker.tierFast");
         return (
           <>
@@ -196,11 +200,17 @@ export function SlashMenu({
                 {describe(match)}
               </span>
             )}
-            {/* Return's row says so, as New Tab's list does (NewTabScreen.tsx .nt-row-return). */}
             {showOutcomeHints && highlighted && (
-              <kbd className="acpmux-slash-keycap" aria-hidden="true" data-popup-skip>
-                ↩
-              </kbd>
+              <span className="acpmux-slash-actions" data-popup-skip>
+                <kbd className="acpmux-slash-keycap">↩</kbd>
+                {t(picks ? "composer.actionInsert" : "newTabPage.row.command")}
+                {!picks && (
+                  <>
+                    <kbd className="acpmux-slash-keycap">⇥</kbd>
+                    {t("composer.actionComplete")}
+                  </>
+                )}
+              </span>
             )}
           </>
         );

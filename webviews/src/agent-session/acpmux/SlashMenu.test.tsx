@@ -10,6 +10,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { popupItems } from "../../ui/popupHost";
+import { setHintsRevealed } from "./composerOutcomeHintsModel";
 import { SlashMenu } from "./SlashMenu";
 import type { SlashMatch } from "./slashCommands";
 import { settleReact } from "../../../test/support/domTeardown";
@@ -21,7 +22,16 @@ const saved = new Map<string, unknown>();
 
 function installDom(): HTMLElement {
   dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", { url: "http://localhost/" });
-  for (const key of ["window", "document", "navigator", "Node", "HTMLElement", "Element", "IS_REACT_ACT_ENVIRONMENT"])
+  for (const key of [
+    "window",
+    "document",
+    "navigator",
+    "Node",
+    "HTMLElement",
+    "Element",
+    "IS_REACT_ACT_ENVIRONMENT",
+    "cmuxExperiments",
+  ])
     saved.set(key, scope[key]);
   Object.assign(scope, {
     window: dom.window,
@@ -38,6 +48,7 @@ function installDom(): HTMLElement {
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  setHintsRevealed(false);
   await settleReact();
   dom?.window.close();
   dom = undefined;
@@ -73,6 +84,7 @@ test("the highlighted row reads as command, arguments, then a dash and what it d
     act(async () => {
       root!.render(
         <SlashMenu
+          query=""
           matches={MATCHES}
           active={active}
           empty="No commands"
@@ -98,4 +110,50 @@ test("the highlighted row reads as command, arguments, then a dash and what it d
     "/customize <change> — Customize cmux by asking: it changes live, then you apply or discard",
     "/review",
   ]);
+});
+
+// The hint must follow the same typed-word decision as both production key handlers, including
+// a partial local command and text-only extensions. Tips never enter the native popup's labels.
+test("on-demand hints distinguish insertion from running and leave the default quiet", async () => {
+  const host = installDom();
+  root = createRoot(host);
+  const show = (query: string, match: SlashMatch = MATCHES[1]) =>
+    act(async () => {
+      root!.render(
+        <SlashMenu
+          query={query}
+          matches={[match]}
+          active={0}
+          empty="No commands"
+          onHover={() => undefined}
+          onPick={() => undefined}
+        />,
+      );
+    });
+  globalThis.cmuxExperiments = { "composer-outcome-hints": "now" };
+  await show("model");
+  expect(host.querySelector(".acpmux-slash-actions")).toBeNull();
+  globalThis.cmuxExperiments = { "composer-outcome-hints": "hint" };
+  await show("model");
+  expect(host.querySelector(".acpmux-slash-actions")).toBeNull();
+  await act(async () => setHintsRevealed(true));
+  const hint = () => host.querySelector(".acpmux-slash-actions")?.textContent;
+  expect(hint()).toBe("↩Run⇥Complete");
+  expect(popupItems(host.querySelector("#acpmux-slash-menu")!, "list").items[0].label).toBe("/model — Model");
+  await show("mod");
+  expect(hint()).toBe("↩Insert");
+  await show("customize", MATCHES[2]);
+  expect(hint()).toBe("↩Run⇥Complete");
+  await show("review", {
+    command: { name: "review", hint: "<PR>", description: "Review", source: "skill" },
+    ranges: [],
+  });
+  expect(hint()).toBe("↩Insert");
+  await show("template", {
+    command: { name: "template", description: "Template", source: "extension", insert: "Review this code" },
+    ranges: [],
+  });
+  expect(hint()).toBe("↩Insert");
+  await act(async () => setHintsRevealed(false));
+  expect(host.querySelector(".acpmux-slash-actions")).toBeNull();
 });

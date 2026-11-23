@@ -83,11 +83,11 @@ export function MentionMenu({
             ) : (
               item.dir.length > 0 && <span className="acpmux-slash-description">{runs(item.dir)}</span>
             )}
-            {/* Return (or Tab) picks the highlighted row: its keycap, as New Tab's list shows it. */}
             {showOutcomeHints && index === active && (
-              <kbd className="acpmux-slash-keycap" aria-hidden="true" data-popup-skip>
-                ↩
-              </kbd>
+              <span className="acpmux-slash-actions" data-popup-skip>
+                <kbd className="acpmux-slash-keycap">↩</kbd>
+                {t("composer.actionInsert")}
+              </span>
             )}
           </>
         )}

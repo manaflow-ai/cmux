@@ -15,7 +15,14 @@ function SlashMenuGallery() {
   return (
     <div className="acpmux-shell" style={{ height: "100%", position: "relative" }}>
       <div style={{ position: "absolute", bottom: 8, left: 16, right: 16 }}>
-        <SlashMenu matches={matches} active={active} empty="No commands" onHover={setActive} onPick={() => undefined} />
+        <SlashMenu
+          query=""
+          matches={matches}
+          active={active}
+          empty="No commands"
+          onHover={setActive}
+          onPick={() => undefined}
+        />
       </div>
     </div>
   );
@@ -32,15 +39,16 @@ const claudeMatches: SlashMatch[] = [
   { name: "cost", description: "Show the total cost and duration of the current session" },
 ].map((command) => ({ command: command as SlashMatch["command"], ranges: [] }));
 
-function OutcomeSlashMenuGallery({ arm, reveal }: { arm: string; reveal?: boolean }) {
+function OutcomeSlashMenuGallery({ arm, reveal, query = "" }: { arm: string; reveal?: boolean; query?: string }) {
   globalThis.cmuxExperiments = { ...globalThis.cmuxExperiments, "composer-outcome-hints": arm };
   // The `hint` arm with its "?" pressed (composerOutcomeHintsModel.ts).
-  if (reveal) setHintsRevealed(true);
+  setHintsRevealed(reveal === true);
   const [active, setActive] = useState(0);
   return (
     <div className="acpmux-shell" style={{ height: "100%", position: "relative" }}>
       <div style={{ position: "absolute", bottom: 8, left: 16, right: 16 }}>
         <SlashMenu
+          query={query}
           matches={claudeMatches}
           active={active}
           empty="No commands"
@@ -52,8 +60,12 @@ function OutcomeSlashMenuGallery({ arm, reveal }: { arm: string; reveal?: boolea
   );
 }
 
-function Gallery(props: { arm?: string; reveal?: boolean }) {
-  return props.arm ? <OutcomeSlashMenuGallery arm={props.arm} reveal={props.reveal} /> : <SlashMenuGallery />;
+function Gallery(props: { arm?: string; reveal?: boolean; query?: string }) {
+  return props.arm ? (
+    <OutcomeSlashMenuGallery arm={props.arm} reveal={props.reveal} query={props.query} />
+  ) : (
+    <SlashMenuGallery />
+  );
 }
 
 export default componentEntry({
@@ -80,6 +92,10 @@ export default componentEntry({
     "outcome-hints-hint-shown": {
       note: "Tip (b): the composer's ? pressed: every row its description, the highlighted row Return's keycap.",
       props: { arm: "hint", reveal: true },
+    },
+    "outcome-hints-run": {
+      note: "On-demand tip on a complete command: Return runs it, Tab completes it without sending.",
+      props: { arm: "hint", reveal: true, query: "compact" },
     },
     "outcome-hints-option-held": {
       note: "Tip (c): Option held, as the harness updates list shows its versions: the same rows until it is let go.",

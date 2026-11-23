@@ -2381,6 +2381,7 @@ export function NewTabScreen(props: Props) {
             <ComposerListAnchor box={box} inert={props.cloudStarting === true}>
               <ComposerListLayer>
                 <SlashMenu
+                  query={commandQuery ?? ""}
                   matches={commandMatches}
                   active={commandIndex}
                   empty={t("composer.noMatchingCommands")}

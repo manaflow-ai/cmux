@@ -3089,6 +3089,7 @@ function ComposerFrame({
               <ComposerListLayer>
                 <SlashMenu
                   key={query}
+                  query={query ?? ""}
                   matches={matches}
                   active={selected}
                   empty={!commands?.length ? t(COMPOSER_LABELS.noCommands) : t(COMPOSER_LABELS.noMatchingCommands)}
