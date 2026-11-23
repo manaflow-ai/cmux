@@ -64,6 +64,7 @@ on:
       - "plans/cmux-next/action-surfaces.json"
       - "plans/cmux-next/daemon-capabilities.json"
       - "plans/cmux-next/spec-proposals/visuals/design-tokens.json"
+      - "schemas/agent-pane/stylesheet-guard.json"
       - "schemas/agent-url-policy/vectors.json"
       - "schemas/automation-input/vectors.json"
       - "schemas/automation-lease/vectors.json"
