@@ -9,20 +9,30 @@
 //! starts as soon as the manifest is there, and every file of the folder is in it, not a first
 //! pass. A file's bytes come from this Mac when something on the machine first reads it: this
 //! process stays behind as the folder's server, answering over the dial it opened, and dials
-//! again when the link drops (the machine never dials this Mac).
+//! again when the link drops (the machine never dials this Mac). Against a Cloud machine it redials
+//! on `carrier serve`'s quiet socket (`<socket>.quiet`), which closes the dial instead of waking a
+//! machine that is asleep, so a dropped link never keeps a paused machine running.
 //!
 //! On by default for every chat started from a local folder, whatever its size and whether or
 //! not it is a git repository: a chat started from a GitHub repository the person picked is
 //! cloned on the machine instead, by its own path, never this one. `cmux link project disable` (or
-//! `CMUX_PROJECTED_FOLDERS=0`) turns it off, and `enable` turns it back on. What the agent writes
-//! stays on the machine until Bring Back applies it here ([`super::project_back`]).
+//! `CMUX_PROJECTED_FOLDERS=0`) turns it off, and `enable` turns it back on.
+//!
+//! What the agent writes lands in the mount's upper layer on the machine and stays there until
+//! Bring Back applies it here. `cmux link sync pull` takes it home like a copy's edits: the server
+//! keeps a base for it here as it projects ([`keep_base`]), each file named by its size and mtime
+//! ([`stand_in`]), so a pull reads and hashes only what the machine changed, and a file this Mac
+//! changed since is a conflict. `project back` plans the same from the upper layer and its
+//! whiteouts ([`super::project_back`]).
 //!
 //!     cmux link project serve --socket S --at REMOTE [--name N] FOLDER
 //!     cmux link project back --socket S --at REMOTE FOLDER
+//!     cmux link project release --socket S --at REMOTE FOLDER [--why archived|deleted]
 //!     cmux link project enable | disable | status
 
+use std::collections::BTreeMap;
 use std::io::{BufRead as _, BufReader, Write as _};
-use std::os::unix::fs::{FileExt as _, MetadataExt as _};
+use std::os::unix::fs::{FileExt as _, FileTypeExt as _, MetadataExt as _};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -42,6 +52,8 @@ const START_WAIT: Duration = Duration::from_secs(120);
 const STOP_WAIT: Duration = Duration::from_secs(5);
 /// How long the server keeps dialing a machine it cannot reach before it stops.
 const GIVE_UP_AFTER: Duration = Duration::from_secs(6 * 60 * 60);
+/// How often the server redials over a quiet socket: a refused quiet dial costs no platform call.
+const QUIET_RETRY: Duration = Duration::from_millis(500);
 /// The env switch that overrides the setting (`1`/`true` on, `0`/`false` off).
 const ENV: &str = "CMUX_PROJECTED_FOLDERS";
 
@@ -60,6 +72,8 @@ pub(crate) enum NotProjected {
 struct Listed {
     manifest: Manifest,
     served: Vec<Option<Served>>,
+    /// The symlinks kept as symlinks, as a push records them.
+    links: BTreeMap<String, super::Linked>,
 }
 
 fn ok(answer: &Value) -> bool {
@@ -91,9 +105,11 @@ pub(crate) fn run(args: &[String]) -> i32 {
         },
         Some("stop") => stop(args.get(1..).unwrap_or_default()),
         Some("back") => super::project_back::back_command(args.get(1..).unwrap_or_default()),
+        Some("release") => super::project_back::release_command(args.get(1..).unwrap_or_default()),
         _ => Err(anyhow::anyhow!(
             "usage: cmux link project serve --socket S --at REMOTE [--name N] FOLDER | stop --at \
-             REMOTE | back --socket S --at REMOTE FOLDER | enable | disable | status | moves on|off"
+             REMOTE | back --socket S --at REMOTE FOLDER | release --socket S --at REMOTE FOLDER [--why \
+             archived|deleted] | enable | disable | status | moves on|off"
         )),
     };
     match outcome {
@@ -491,9 +507,21 @@ fn serve_command(args: &[String]) -> anyhow::Result<Value> {
     // Every attached folder is projected, a small one too (`--any-size` stays for old callers).
     let _ = any_size;
     let encoded = listed.manifest.encode()?;
-    let (stream, mut answer) = dial(&socket, &name, &at, &encoded)?;
+    // Bring Back's base, kept here while the machine mounts the folder.
+    let (dialed, kept) = std::thread::scope(|scope| {
+        let kept = scope.spawn(|| keep_base(&folder, &at, &listed));
+        (dial(&socket, &name, &at, &encoded), kept.join())
+    });
+    let (stream, mut answer) = dialed?;
     if !ok(&answer) {
         return Ok(answer);
+    }
+    // The folder is mounted and the chat can start; without a base, Bring Back says so
+    // (`sync_no_base`) rather than guess.
+    match kept {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => eprintln!("cmux link project: no base for Bring Back: {error:#}"),
+        Err(_) => eprintln!("cmux link project: no base for Bring Back: its thread panicked"),
     }
     if let Some(data) = answer.get_mut("data").and_then(Value::as_object_mut) {
         data.insert("listed_ms".into(), json!(listed_ms));
@@ -519,7 +547,9 @@ fn elapsed_ms(since: Instant) -> u64 {
 
 /// Answers the machine over `stream` until it ends, then dials again (attaching to the mount the
 /// machine still has, or mounting the manifest again after the machine's daemon restarted), until
-/// the machine has been unreachable for [`GIVE_UP_AFTER`].
+/// the machine has been unreachable for [`GIVE_UP_AFTER`]. A redial goes to the quiet socket when
+/// `socket` has one ([`redial`]), every [`QUIET_RETRY`]; otherwise to `socket` with a backoff of
+/// 200 ms doubling to 10 s.
 fn serve_until_gone(
     socket: &Path,
     name: &str,
@@ -531,10 +561,15 @@ fn serve_until_gone(
     let mut stream = Some(first);
     let mut unreachable_since: Option<Instant> = None;
     let mut backoff = Duration::from_millis(200);
+    let mut via_quiet = quiet_socket(socket).is_some();
+    // The last failure written: a quiet socket refuses every 500 ms while the machine sleeps, and
+    // each refusal is the same line.
+    let mut last_error: Option<String> = None;
     loop {
         if let Some(reader) = stream.take() {
             unreachable_since = None;
             backoff = Duration::from_millis(200);
+            last_error = None;
             if let Ok(writer) = reader.get_ref().try_clone() {
                 // Lines both ways: the Cloud carrier moves whole lines only (`dial`).
                 let _ = answer_asks(
@@ -552,12 +587,13 @@ fn serve_until_gone(
             );
             return;
         }
-        std::thread::sleep(backoff);
-        backoff = (backoff * 2).min(Duration::from_secs(10));
-        match dial(socket, name, at, &[]) {
+        std::thread::sleep(retry_wait(via_quiet, &mut backoff));
+        let (dialed, quiet) = redial(socket, name, at, &[]);
+        via_quiet = quiet;
+        match dialed {
             Ok((reader, answer)) if ok(&answer) => stream = Some(reader),
             Ok((_, answer)) if code(&answer) == Some("projection.unknown") => {
-                match dial(socket, name, at, encoded) {
+                match redial(socket, name, at, encoded).0 {
                     Ok((reader, answer)) if ok(&answer) => stream = Some(reader),
                     Ok((_, answer)) => {
                         eprintln!(
@@ -565,16 +601,63 @@ fn serve_until_gone(
                         );
                         return;
                     }
-                    Err(error) => eprintln!("cmux link project: {error:#}"),
+                    Err(error) => note_failure(&mut last_error, &error),
                 }
             }
             Ok((_, answer)) => {
                 eprintln!("cmux link project: the machine refused: {answer}");
                 return;
             }
-            Err(error) => eprintln!("cmux link project: {error:#}"),
+            Err(error) => note_failure(&mut last_error, &error),
         }
     }
+}
+
+/// Writes `error` unless it is the one written last.
+fn note_failure(last: &mut Option<String>, error: &anyhow::Error) {
+    let text = format!("{error:#}");
+    if last.as_deref() != Some(text.as_str()) {
+        eprintln!("cmux link project: {text}");
+        *last = Some(text);
+    }
+}
+
+/// How long to wait before the next redial: [`QUIET_RETRY`] after a dial over the quiet socket,
+/// else `backoff`, which doubles (to 10 s) for the next one.
+fn retry_wait(via_quiet: bool, backoff: &mut Duration) -> Duration {
+    if via_quiet {
+        return QUIET_RETRY;
+    }
+    let wait = *backoff;
+    *backoff = (*backoff * 2).min(Duration::from_secs(10));
+    wait
+}
+
+/// `carrier serve`'s quiet socket beside `socket` (`<socket>.quiet`), when there is one: a dial
+/// there rides the machine's session or, with none, is closed unanswered while the machine sleeps
+/// instead of waking it. An older `carrier serve`, or a daemon's own socket, has none.
+fn quiet_socket(socket: &Path) -> Option<PathBuf> {
+    let mut path = socket.as_os_str().to_owned();
+    path.push(".quiet");
+    let path = PathBuf::from(path);
+    std::fs::symlink_metadata(&path).ok().filter(|meta| meta.file_type().is_socket())?;
+    Some(path)
+}
+
+/// One redial: on the quiet socket when `socket` has one that accepts, else on `socket` (as
+/// before there was a quiet socket). The dial's outcome and whether it went over the quiet socket.
+fn redial(
+    socket: &Path,
+    name: &str,
+    at: &str,
+    encoded: &[u8],
+) -> (anyhow::Result<(BufReader<UnixStream>, Value)>, bool) {
+    if let Some(quiet) = quiet_socket(socket)
+        && let Ok(stream) = UnixStream::connect(&quiet)
+    {
+        return (ask(stream, name, at, encoded), true);
+    }
+    (dial(socket, name, at, encoded), false)
 }
 
 /// Dials the machine and asks it to serve projection `name` at `at` (`encoded`: the manifest, or
@@ -585,8 +668,34 @@ fn dial(
     at: &str,
     encoded: &[u8],
 ) -> anyhow::Result<(BufReader<UnixStream>, Value)> {
-    let mut stream = UnixStream::connect(socket)
+    let stream = UnixStream::connect(socket)
         .with_context(|| format!("cannot reach the machine at {}", socket.display()))?;
+    ask(stream, name, at, encoded)
+}
+
+/// A dial the machine closed before it answered (a quiet socket while the machine sleeps).
+const UNANSWERED: &str = "the machine closed the link without answering (asleep or unreachable)";
+
+/// A dial's I/O error: a close by the other side before any answer (a reset or a broken pipe,
+/// which is how Linux reports a close with the ask still unread) is [`UNANSWERED`]; anything else
+/// keeps its own words.
+fn unanswered(error: std::io::Error) -> anyhow::Error {
+    use std::io::ErrorKind::{BrokenPipe, ConnectionAborted, ConnectionReset};
+    match error.kind() {
+        ConnectionReset | ConnectionAborted | BrokenPipe => {
+            anyhow::anyhow!("{UNANSWERED}: {error}")
+        }
+        _ => error.into(),
+    }
+}
+
+/// Asks the machine on `stream` to serve projection `name` at `at`, as [`dial`] does.
+fn ask(
+    mut stream: UnixStream,
+    name: &str,
+    at: &str,
+    encoded: &[u8],
+) -> anyhow::Result<(BufReader<UnixStream>, Value)> {
     let line = json!({
         "id": 1,
         "cmd": cmux_tui_core::projection::SERVE,
@@ -599,13 +708,21 @@ fn dial(
     });
     let mut bytes = serde_json::to_vec(&line)?;
     bytes.push(b'\n');
-    stream.write_all(&bytes)?;
-    cmux_tui_core::projection::LineWriter::new(&stream).write_all(encoded)?;
-    stream.flush()?;
+    let sent = stream
+        .write_all(&bytes)
+        .and_then(|()| cmux_tui_core::projection::LineWriter::new(&stream).write_all(encoded))
+        .and_then(|()| stream.flush());
+    if let Err(error) = sent {
+        return Err(unanswered(error));
+    }
     stream.set_read_timeout(Some(START_WAIT))?;
     let mut reader = BufReader::with_capacity(256 * 1024, stream);
     let mut answer = String::new();
-    reader.read_line(&mut answer)?;
+    // A quiet socket closes the dial unanswered while the machine sleeps: an end of file, or on
+    // Linux a reset, since the ask it never read was still queued when it closed.
+    if reader.read_line(&mut answer).map_err(unanswered)? == 0 {
+        bail!(UNANSWERED);
+    }
     reader.get_ref().set_read_timeout(None)?;
     let answer: Value = serde_json::from_str(answer.trim())
         .with_context(|| format!("the machine answered {answer:?}"))?;
@@ -634,17 +751,17 @@ fn list(folder: &Path) -> anyhow::Result<Listed> {
         });
         kept.push((relative, Served { file, size, mtime_ns: mtime }));
     }
-    for (relative, linked) in set.links {
-        let mtime = std::fs::symlink_metadata(folder.join(&relative))
+    for (relative, linked) in &set.links {
+        let mtime = std::fs::symlink_metadata(folder.join(relative))
             .map(|meta| mtime_ns(&meta))
             .unwrap_or(0);
         items.push(Item {
-            path: relative,
+            path: relative.clone(),
             kind: Kind::Link,
             mode: 0o777,
             size: 0,
             mtime_ns: mtime,
-            link: Some(linked.target),
+            link: Some(linked.target.clone()),
         });
     }
     let manifest = Manifest::build(root_mtime, items)?;
@@ -657,7 +774,61 @@ fn list(folder: &Path) -> anyhow::Result<Listed> {
             *slot = Some(file);
         }
     }
-    Ok(Listed { manifest, served })
+    Ok(Listed { manifest, served, links: set.links })
+}
+
+/// What a projected file's bytes are named by in Bring Back's base until a pull reads them: its
+/// size and modification time on this Mac when the folder was projected. Its bytes are this Mac's
+/// file's for as long as that file still has both ([`stand_in_matches`]); a pull hashes only the
+/// files the machine changed.
+pub(super) fn stand_in(size: u64, mtime_ns: i64) -> String {
+    format!("{STAND_IN}s{size}-n{mtime_ns}")
+}
+
+const STAND_IN: &str = "projected:";
+
+/// Whether `sha256` is a [`stand_in`], not a hash.
+pub(super) fn is_stand_in(sha256: &str) -> bool {
+    sha256.starts_with(STAND_IN)
+}
+
+/// Whether this Mac's file `meta` is still the one the [`stand_in`] `sha256` names.
+pub(super) fn stand_in_matches(sha256: &str, meta: &std::fs::Metadata) -> bool {
+    meta.is_file() && sha256 == stand_in(meta.len(), mtime_ns(meta))
+}
+
+/// Keeps Bring Back's base for `folder` projected at `at`: the files as [`list`] found them (by
+/// [`stand_in`], their revision the one the machine's `fs-v1` gives a file of that size and mtime,
+/// which the projection reports for every file it did not change), the symlinks, and in git the
+/// branch and staged changes. `cmux link sync pull` merges against it as against a push's record.
+fn keep_base(folder: &Path, at: &str, listed: &Listed) -> anyhow::Result<()> {
+    let manifest = &listed.manifest;
+    let mut files = BTreeMap::new();
+    for index in 0..u32::try_from(manifest.len()).unwrap_or(u32::MAX) {
+        let Some(entry) = manifest.entry(index).filter(|entry| entry.kind == Kind::File) else {
+            continue;
+        };
+        let mtime_ms = u64::try_from(entry.mtime_ns / 1_000_000).ok();
+        files.insert(
+            manifest.path_of(index),
+            super::Pushed {
+                sha256: stand_in(entry.size, entry.mtime_ns),
+                permissions: entry.mode,
+                revision: cmux_tui_core::fs_ops::revision(entry.size, mtime_ms),
+            },
+        );
+    }
+    let git = local::GitDirs::of(folder)?.map(|_| super::git_back::base_of(folder)).transpose()?;
+    let repos = super::git_back::nested_bases(folder, files.keys());
+    let base = super::Manifest {
+        version: 1,
+        files,
+        git,
+        links: listed.links.clone(),
+        projected: true,
+        repos,
+    };
+    super::base::save(folder, at, &base)
 }
 
 fn mtime_ns(meta: &std::fs::Metadata) -> i64 {

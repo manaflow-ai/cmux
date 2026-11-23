@@ -89,6 +89,13 @@ and a package with no node_modules. CI's `web lint` job and the PR's fast gates 
 `cmux-ci test` on a build box. Elsewhere, every command this script spawns (installs, builds,
 checks) goes through spawn(), which outside CI runs it under `nice` with capped Go threads, Go
 heap and Node heap, and the checks run at most one per core (run_checks).
+
+In the hook (--pre-push) it installs and downloads nothing: an area with no node_modules in the tree it would lint is
+left to CI, named (without_missing_modules()), and a commit whose full lint tree would first fetch files a partial
+clone lacks is not linted there (missing_objects()). The hook runs it under a wall-clock limit
+(CMUX_WEB_LINT_TIMEOUT_SECONDS, 60 s) and lets the push go on past the limit or on a finding, unless
+CMUX_WEB_LINT_STRICT=1; by hand, a finding fails. On a loaded 2-core VM a full lint tree of a blobless clone plus a
+`bun install` of web/ held pushes 19-54 minutes (cmuxterm-hq#16030).
 """
 from __future__ import annotations
 
@@ -106,6 +113,7 @@ import re
 import unicodedata
 import shlex
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -1571,6 +1579,26 @@ def check_jobs(repo: Path, plan: Plan, script: str, fix: bool, cache: bool, heav
     return jobs
 
 
+def without_missing_modules(plan: Plan, has_modules, mode: str) -> Plan:
+    """PLAN for the pre-push hook on a host that runs heavy checks: an area with no node_modules in the tree is left to
+    CI, named, never installed there. A `bun install` of web/ into a fresh lint tree on a loaded 2-core VM, beside a
+    full lint tree, held pushes 19-54 minutes (cmuxterm-hq#16030); a hook installs nothing it has not got."""
+    kept = Plan(untrusted=plan.untrusted, script_pieces=plan.script_pieces, trusted_pieces=plan.trusted_pieces,
+                trusted_skipped=plan.trusted_skipped, trusted=plan.trusted)
+    ci = "CI's `web lint` job checks it (the hook installs nothing; `scripts/web-lint.sh` by hand does)"
+    for package in plan.script_packages:
+        if has_modules(package.directory):
+            kept.script_packages.append(package)
+        else:
+            print(f"{mode}: {package.directory}: not linted here, it has no node_modules; {ci}.", file=sys.stderr)
+    for directory, files in plan.eslint_files.items():
+        if has_modules(directory):
+            kept.eslint_files[directory] = files
+        else:
+            print(f"{mode}: {directory}: not linted here, it has no node_modules; {ci}.", file=sys.stderr)
+    return kept
+
+
 def plan_steps(repo: Path, plan: Plan, fix: bool, cache: bool, heavy: bool, mode: str, read=None,
                state: TreeState | None = None) -> tuple[Plan, list[tuple], list[tuple], list[tuple]]:
     """Everything a run of PLAN does, in order: (the plan it runs, setup steps, fix jobs, check jobs). With heavy
@@ -1793,6 +1821,16 @@ def in_place_cache(repo: Path, head: str | None) -> bool:
     return head is None or is_checked_out(repo, head)
 
 
+def missing_objects(repo: Path, sha: str) -> int:
+    """How many objects of commit SHA's tree this clone lacks (a partial, blobless clone fetches them on first read).
+    One `git rev-list --missing=print` over the commit's tree, which fetches nothing: 0.1 s for 59,562 objects."""
+    listed = subprocess.run(["git", "-C", str(repo), "rev-list", "--objects", "--no-walk", "--missing=print", sha],
+                            capture_output=True)
+    if listed.returncode != 0:
+        return 0  # an older git: the lint tree reads as it always did, under the hook's time limit
+    return sum(1 for line in listed.stdout.splitlines() if line.startswith(b"?"))
+
+
 def is_checked_out(repo: Path, sha: str) -> bool:
     """The checkout is exactly `sha`: HEAD is it, nothing is modified or untracked, and no file is left out by a
     sparse checkout (git status is clean in one that lacks most of the commit). A clone with no work tree (a bare
@@ -1987,7 +2025,22 @@ def report(results: list[Result], seconds: float, mode: str, timings: bool = Fal
     return 1
 
 
+def add_installed_bun_to_path(environ=os.environ, home: Path | None = None) -> bool:
+    """With no bun on PATH, put the bun installer's default bin directory ($BUN_INSTALL/bin, else ~/.bun/bin) at
+    PATH's front when it holds a bun, so a shell that never sourced the installer's profile line still lints. True
+    when it added one. Every later shutil.which("bun") and every child process sees it."""
+    if shutil.which("bun", path=environ.get("PATH", "")):
+        return False
+    root = Path(environ["BUN_INSTALL"]) if environ.get("BUN_INSTALL") else (home or Path.home()) / ".bun"
+    bun = root / "bin" / "bun"
+    if not (bun.is_file() and os.access(bun, os.X_OK)):
+        return False
+    environ["PATH"] = os.pathsep.join(p for p in (str(bun.parent), environ.get("PATH", "")) if p)
+    return True
+
+
 def main(argv: list[str] | None = None) -> int:
+    add_installed_bun_to_path()
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--repo", type=Path, help="checkout root (default: the current one)")
     parser.add_argument("--base", help="base ref (default: the push's own range, scripts/cmux-next/push_range.py)")
@@ -2007,6 +2060,10 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     global PHASES
     PHASES = args.timings
+    if args.pre_push:
+        # The hook stops a lint past its time limit with SIGTERM to the whole group: exit through the `finally`s, so a
+        # lint tree is removed (tree_of()) before the hook's SIGKILL a few seconds later.
+        signal.signal(signal.SIGTERM, lambda number, frame: sys.exit(128 + number))
 
     mode = "pre-push" if args.pre_push else "web-lint"
     if args.pre_push:
@@ -2096,6 +2153,17 @@ def main(argv: list[str] | None = None) -> int:
         # into node_modules, so the checkout's copy holds the checkout's build, not this commit's.
         # A host that runs no heavy checks builds nothing, so every package may share the checkout's node_modules.
         directories = [p.directory for p in plan.script_packages if not p.builds or not heavy] + list(plan.eslint_files)
+        if args.pre_push and heavy:
+            # Decided before any lint tree is written: the checkout's node_modules, or those a lint tree links in.
+            if in_place_cache(repo, head):
+                plan = without_missing_modules(plan, lambda d: (repo / d / "node_modules").is_dir(), mode)
+            else:
+                shared = {d for d in directories if shares_deps(repo, head, d)}
+                plan = without_missing_modules(plan, lambda d: d in shared, mode)
+            if not (plan.script_packages or plan.script_pieces or plan.trusted_pieces or plan.eslint_files):
+                continue
+            directories = [d for d in directories if d in plan.eslint_files
+                           or any(p.directory == d for p in plan.script_packages)]
         if args.dry_run:
             # The run's own plan_steps(), for the tree it would run in: the checkout as it is, or the fresh lint tree
             # tree_of() makes (no build output, node_modules only where it links the checkout's): setup, fix passes,
@@ -2116,6 +2184,15 @@ def main(argv: list[str] | None = None) -> int:
                 return 1
             print(f"{mode}: this worktree is a sparse checkout: the checks run on a lint tree of the {len(only)} "
                   f"files of {head[:12]} they read.", file=sys.stderr)
+        if args.pre_push and head is not None and only is None and not is_checked_out(repo, head):
+            missing = missing_objects(repo, head)
+            if missing:
+                # A full lint tree here first downloads every file this partial clone lacks: 19-54 minutes on a loaded
+                # 2-core VM, until someone stopped the push (cmuxterm-hq#16030).
+                print(f"{mode}: not linted here: this clone lacks {missing} files of {head[:12]} (a partial clone), and "
+                      "the lint tree would download them first. CI's `web lint` job checks it; `scripts/web-lint.sh` "
+                      "on a full checkout runs it by hand.", file=sys.stderr)
+                continue
         scoped = files if args.new_only and not args.all else None
         with tree_of(repo, head, directories, only) as tree, changed_files_env(scoped):
             if args.pre_push and not refuse_escapes(tree, plan, mode, read):

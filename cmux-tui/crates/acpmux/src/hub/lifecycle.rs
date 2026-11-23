@@ -112,6 +112,7 @@ impl Hub {
             checked_cwd,
             additional_directories,
             stop_condition,
+            restricted,
             person,
             wait_start,
             throwaway,
@@ -312,6 +313,11 @@ impl Hub {
         // (`stop_condition.rs`); the session/new answer says whether it was kept.
         meta.stop_condition =
             stop_condition.filter(|_| super::stop_condition::kept_by(&profile, &family));
+        // Read-only in a folder not trusted (`restricted.rs`): only a harness that can keep it.
+        if restricted && !super::restricted::kept_by(&profile) {
+            return Err(super::restricted::unsupported(&meta.harness));
+        }
+        meta.restricted = restricted;
         meta.vm_boundary = remote && vm_boundary;
         meta.subsession = subsession;
         meta.lineage = lineage;
@@ -337,6 +343,7 @@ impl Hub {
             && meta.tools.off.is_empty()
             && meta.additional_directories.is_empty()
             && meta.stop_condition.is_none()
+            && !meta.restricted
             && checked_cwd.is_none();
         // A Cloud chat's owner credential (`agent_credentials.rs`) takes only an entry warmed with
         // that same credential (`_acpmux/prewarm` `credentials`, cmux#45953): the key's auth
@@ -1337,6 +1344,8 @@ impl Hub {
             plan.args.extend(super::additional_dirs::claude_args(&meta));
             // Its stop condition, at every start (a resume or respawn too: `stop_condition.rs`).
             plan.args.extend(super::stop_condition::claude_args(&meta));
+            // A restricted chat's folder settings and MCP servers stay off (`restricted.rs`).
+            plan.args.extend(super::restricted::claude_args(&meta));
             let (plan, profile) = self.remote_chain_plan(session, profile, plan).await?;
             // A fresh process was given its id; a resumed one already has it.
             let known = if fork { None } else { fresh_id.clone().or_else(|| existing_sid.clone()) };

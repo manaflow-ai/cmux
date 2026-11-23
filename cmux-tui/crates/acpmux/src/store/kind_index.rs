@@ -112,6 +112,12 @@ pub const INDEXED_KINDS: &[&str] = &[
     "inbox_subscription",
     // A recipient's grants of its threads to owners, read with them.
     "inbox_owner_grant",
+    // A log load's rate-limit hold (`hub/rate_hold.rs` `restore_rate_hold`), read back to the
+    // newest completed turn: a chat with none near its end read its whole log at every start.
+    "rate_limit_held",
+    "rate_limit_parked",
+    "rate_limit_lifted",
+    "rate_limit_unparked",
 ];
 
 /// The folder of a chat's copies, beside its `events`.
