@@ -1,5 +1,6 @@
 import CmuxNextCompat
 import CmuxScreenKit
+import CoreGraphics
 import Foundation
 @testable import CmuxNextMacScreen
 import Testing
