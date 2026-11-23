@@ -58,6 +58,11 @@ if "--suite=pane-bench" not in sys.argv and "--suite=action-budget-bench" not in
 if "--suite=memory-agents" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "memory-agents-cron.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=memory-agents"])
+# `--suite=cef-resize`: late frames and commit time while panes and the window resize beside a Chromium page, as
+# perf-cron rows (scripts/cmux-next/cef-resize-cron.py, cef-resize-sync-bench.py's light bench).
+if "--suite=cef-resize" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cef-resize-cron.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=cef-resize"])
 # `--suite=relaunch`: quit and reopen with the session restored, to the window, the chats live again and the terminals
 # live; `--suite=wake`: the app after every process of it was frozen and resumed, a wake proxy. Both as perf-cron rows
 # (scripts/cmux-next/relaunch-wake-cron.py, which keeps the --suite argument).
