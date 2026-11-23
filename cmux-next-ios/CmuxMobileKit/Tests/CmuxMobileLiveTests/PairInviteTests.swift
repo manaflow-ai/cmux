@@ -191,6 +191,19 @@ import Testing
         _ = await pairing.open(link: quiet, macID: MacPinTests.mac)
         #expect(quiet.opened.first?.1["bundleId"] == nil)
     }
+
+    /// `open` names this app's build number, so the Mac's log says which build connected.
+    @Test func theOpenArgsNameThisAppsBuild() async throws {
+        let link = RemoveThisPhoneUnpairTests.RecordingLink(RemoveThisPhoneUnpairTests.AuthChannel(MacPinTests.challenge(Self.macKey)))
+        var pairing = Self.pairing(PairInvites())
+        pairing.appBuild = "1234"
+        _ = await pairing.open(link: link, macID: MacPinTests.mac)
+        #expect(link.opened.first?.1["appBuild"] == "1234")
+        let quiet = RemoveThisPhoneUnpairTests.RecordingLink(RemoveThisPhoneUnpairTests.AuthChannel(MacPinTests.challenge(Self.macKey)))
+        pairing.appBuild = nil
+        _ = await pairing.open(link: quiet, macID: MacPinTests.mac)
+        #expect(quiet.opened.first?.1["appBuild"] == nil)
+    }
 }
 
 #if os(iOS)

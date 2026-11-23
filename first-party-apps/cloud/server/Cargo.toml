@@ -16,6 +16,7 @@ name = "cmux-cloud"
 path = "src/main.rs"
 
 [dependencies]
+cmux-cloud-client = { path = "../../../cmux-tui/crates/cmux-cloud-client", default-features = false }
 base64 = "0.22"
 # The generated cmux.wire/1 records and op markers (backend/catalog), the one
 # machine type, by path only.

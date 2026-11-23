@@ -455,17 +455,32 @@ test("a hidden pane draws its chat's turns and new replies, not its reply's text
     });
     jest.advanceTimersByTime(50);
     expect(snapshots() - before).toBe(0);
-    record(socket, 463, "turn_end");
+    // Its progress waits for the show, as the text does: they draw a hidden tab nothing.
+    for (const [index, status] of ["in_progress", "in_progress", "completed"].entries())
+      socket.notify("_acpmux/event", {
+        sessionId: SELECTED,
+        seq: 470 + index,
+        at: 470 + index,
+        dir: "in",
+        kind: "tool_call_update",
+        msg: {
+          method: "session/update",
+          params: { sessionId: SELECTED, update: { sessionUpdate: "tool_call_update", toolCallId: "read-1", status } },
+        },
+      });
+    jest.advanceTimersByTime(10_000);
+    expect(snapshots() - before).toBe(0);
+    record(socket, 473, "turn_end");
     jest.advanceTimersByTime(50);
     expect(snapshots() - before).toBe(0);
     // A turn that starts and ends at once is coalesced into the wake snapshot.
-    record(socket, 464, "turn_started");
-    record(socket, 465, "turn_end");
+    record(socket, 474, "turn_started");
+    record(socket, 475, "turn_end");
     expect(snapshots() - before).toBe(0);
     setVisibility("visible");
     flushFrames();
     expect(snapshots() - before).toBe(1);
-    chunk(socket, 466);
+    chunk(socket, 476);
     flushFrames();
     expect(snapshots() - before).toBe(2);
   } finally {

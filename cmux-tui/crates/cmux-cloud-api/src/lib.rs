@@ -26,6 +26,12 @@
 //! `owner.acpmux_keyed_start` takes the person key as raw bytes beside the request (exactly
 //! `args.key_length` of them), so the key is never part of a JSON value here.
 //!
+//! `machine.chief_resize` moves a Chief's own machine up the Chief ladder over cmux-platform's
+//! `cloud.machine.resize` ([`chief_resize`]).
+//!
+//! `owner.fork_run` is cmux-platform's fork runs (`args.verb`: `start`, `get` or `select`;
+//! [`fork_runs`]): one machine captured once, one copy-on-write child per harness, one kept.
+//!
 //! `owner.turn_checkpoint`, `owner.turn_rewind` and `owner.turns` are a Cloud chat's "back to
 //! before this turn": whole-machine turn checkpoints on cmux-platform (`turns.rs`).
 //!
@@ -49,7 +55,10 @@
 
 pub mod background;
 mod chat;
+pub mod chief_machine;
+pub mod chief_resize;
 pub mod classic_runs;
+mod fork_runs;
 mod http;
 mod machine;
 pub mod machine_io;
@@ -129,6 +138,8 @@ pub async fn perform(request: &Request, tail: Zeroizing<Vec<u8>>) -> Result<Valu
     match request.call.as_str() {
         "machine.io" if request.auth == Auth::Stack => Err(not_on_this_cloud("machine.io")),
         "machine.io" => machine::worker(request).await,
+        "machine.chief_start" => chief_machine::perform(request, &http).await,
+        "machine.chief_resize" => chief_resize::perform(request, &http).await,
         call if chat::CALLS.contains(&call) && request.auth == Auth::Stack => {
             Err(not_on_this_cloud(call))
         }
@@ -185,7 +196,7 @@ pub fn answer_line(result: &Result<Value, Failure>) -> String {
 }
 
 /// Every call [`perform`] answers.
-pub const CALLS: [&str; 41] = [
+pub const CALLS: [&str; 43] = [
     "vm.scp_endpoint",
     "vm.tunnel_enroll",
     "vm.tunnel_revoke",
@@ -227,6 +238,8 @@ pub const CALLS: [&str; 41] = [
     "machine.io",
     "machine.chat_access",
     "machine.share_chat",
+    "machine.chief_start",
+    "machine.chief_resize",
 ];
 
 /// A bound past every fixed deadline of a call (the longest, a staged machine read's, is about
@@ -244,6 +257,8 @@ pub fn longest(request: &Request) -> std::time::Duration {
             .saturating_add(ms("teardownMs", sandbox::DEFAULT_TEARDOWN_MS))
             .saturating_add(ms("callsMarginMs", sandbox::DEFAULT_CALLS_MARGIN_MS)),
         "machine.io" => ms("timeout_ms", 0).saturating_add(5_000),
+        // A machine's boot, its pairing and its host: each wait is bounded in chief_machine.
+        "machine.chief_start" => 1_500_000,
         _ => 0,
     };
     std::time::Duration::from_millis(call_ms.max(LONGEST_FIXED_MS))

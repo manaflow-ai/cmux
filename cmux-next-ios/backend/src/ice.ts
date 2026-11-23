@@ -8,13 +8,15 @@ export interface IceServer {
   credential?: string
 }
 
+const iceTtl = (env: Env) => Math.min(Math.max(Number(env.ICE_TTL_SECONDS ?? "3600") || 3600, 300), 172800)
+
 /**
  * Short-lived TURN credentials from the Cloudflare Realtime TURN key
  * (POST /v1/turn/keys/{id}/credentials/generate-ice-servers). Cloudflare STUN is always included,
  * so a missing or failing TURN key still yields a usable (STUN-only) answer with `turn: false`.
  */
 export const iceServers = async (env: Env, fetcher: typeof fetch = fetch): Promise<{ iceServers: Array<IceServer>; ttl: number; turn: boolean }> => {
-  const ttl = Math.min(Math.max(Number(env.ICE_TTL_SECONDS ?? "3600") || 3600, 300), 172800)
+  const ttl = iceTtl(env)
   const out: Array<IceServer> = []
   let turn = false
   if (env.TURN_KEY_ID && env.TURN_KEY_API_TOKEN) {
@@ -43,4 +45,76 @@ export const iceServers = async (env: Env, fetcher: typeof fetch = fetch): Promi
   }
   if (!out.some((s) => s.urls.includes(STUN))) out.unshift({ urls: [STUN] })
   return { iceServers: out, ttl, turn }
+}
+
+type IceAnswer = Awaited<ReturnType<typeof iceServers>>
+export type CachedIce = { issuedAt: number; usableUntil: number; answer: IceAnswer }
+type IceScope = { key: string; entry?: CachedIce; mint?: Promise<IceAnswer> }
+
+const safetyMarginMs = 30_000
+// A true cold miss waits for the TURN mint almost as long as the Mac does
+// (host.rs ICE_BUDGET, 5 s), so a slow link still gets TURN. Shorter, and a
+// lossy-10 cold miss served 94 of 250 phones STUN-only.
+const coldWaitMs = 4_500
+// A STUN-only answer from a cold miss is kept briefly, so the caller
+// refetches and finds the TURN answer the background mint stored.
+const coldFallbackTtl = 60
+let isolate: IceScope | undefined
+
+const remainingMs = (entry: CachedIce) => entry.issuedAt + entry.answer.ttl * 1000 - Date.now()
+const storage = (env: Env, scope: IceScope) => env.TEAM_HUB.get(env.TEAM_HUB.idFromName(scope.key))
+
+async function mint(env: Env, scope: IceScope, ctx: ExecutionContext): Promise<IceAnswer> {
+  if (scope.mint) return scope.mint
+  const issuedAt = Date.now()
+  scope.mint = iceServers(env).then((answer) => {
+    if (!answer.turn) return answer
+    const entry = { issuedAt, usableUntil: issuedAt + answer.ttl * 1000 - safetyMarginMs, answer }
+    scope.entry = entry
+    ctx.waitUntil(storage(env, scope).writeIce(entry).catch(() => {
+      console.log(JSON.stringify({ msg: "TURN cache write failed" }))
+    }))
+    return { ...answer, ttl: Math.floor(remainingMs(entry) / 1000) }
+  }).finally(() => { scope.mint = undefined })
+  return scope.mint
+}
+
+function serveCached(env: Env, scope: IceScope, ctx: ExecutionContext): IceAnswer | undefined {
+  const entry = scope.entry
+  if (!entry || Date.now() >= entry.usableUntil) return undefined
+  const left = remainingMs(entry)
+  if (left <= (entry.answer.ttl * 1000) / 2) ctx.waitUntil(mint(env, scope, ctx))
+  return { ...entry.answer, ttl: Math.floor(left / 1000) }
+}
+
+async function loadShared(env: Env, scope: IceScope, ctx: ExecutionContext): Promise<IceAnswer> {
+  const stored = await storage(env, scope).readIce().catch(() => {
+    console.log(JSON.stringify({ msg: "TURN cache read failed" }))
+    return undefined
+  })
+  if (stored && (!scope.entry || stored.issuedAt > scope.entry.issuedAt)) scope.entry = stored
+  return serveCached(env, scope, ctx) ?? mint(env, scope, ctx)
+}
+
+export async function cachedIceServers(env: Env, ctx: ExecutionContext): Promise<IceAnswer> {
+  if (!env.TURN_KEY_ID || !env.TURN_KEY_API_TOKEN) return iceServers(env)
+  // A TURN mint uses the Worker's key and TTL, irrespective of caller or team.
+  // This reserved object in the existing binding is accessible on every ingress.
+  const key = JSON.stringify(["turn-cache-v1", env.ENVIRONMENT, env.TURN_KEY_ID, iceTtl(env)])
+  if (isolate?.key !== key) isolate = { key }
+  const hit = serveCached(env, isolate, ctx)
+  if (hit) return hit
+
+  // A slow but successful mint can still populate both caches after this
+  // response. Only the foreground wait counts against the Mac's 5 s budget.
+  const pending = loadShared(env, isolate, ctx)
+  ctx.waitUntil(pending)
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([pending, new Promise<IceAnswer>((resolve) => {
+      timer = setTimeout(() => resolve({ iceServers: [{ urls: [STUN] }], turn: false, ttl: coldFallbackTtl }), coldWaitMs)
+    })])
+  } finally {
+    clearTimeout(timer)
+  }
 }

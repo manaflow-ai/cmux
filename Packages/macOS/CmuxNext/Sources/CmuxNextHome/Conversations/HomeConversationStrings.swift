@@ -239,6 +239,7 @@ enum HomeConversationStrings {
     static var chiefName: String { String(localized: "home.chief.new.name", defaultValue: "Name", bundle: .localizedModule) }
     static var chiefCreate: String { String(localized: "home.chief.new.create", defaultValue: "Create", bundle: .localizedModule) }
     static var chiefBackend: String { String(localized: "home.chief.new.backend", defaultValue: "Backend", bundle: .localizedModule) }
+    static var chiefOwnMachine: String { String(localized: "home.chief.new.ownMachine", defaultValue: "On its own Cloud machine", bundle: .localizedModule) }
     /// New Chief's opt-in: a Claude Chief made on this Mac's Chief owner instead of the cloud `chief.create`.
     static var chiefThisMac: String { String(localized: "home.chief.new.thisMac", defaultValue: "Make it on this Mac", bundle: .localizedModule) }
 

@@ -52,7 +52,8 @@ mod roam;
 use roam::{Control, Session};
 #[path = "wireguard_paths.rs"]
 mod paths;
-pub use roam::{network_changed, rehome, roam_timeline};
+pub use paths::{app_backgrounded, set_app_backgrounded};
+pub use roam::{network_changed, rehome, roam_timeline, route_destinations};
 #[doc(hidden)]
 pub use roam::{
     roam_session, session_endpoints, simulate_blackout, simulate_network_loss, simulate_turn_loss,
@@ -714,6 +715,12 @@ struct HybridUnderlay {
     /// When a datagram last arrived relayed (through a TURN server).
     last_relayed_arrival: Option<Instant>,
     path: watch::Sender<LinkPath>,
+    /// The direct path's peer address, beside `path` ([`super::route_name`]).
+    peer: watch::Sender<Option<IpAddr>>,
+    /// The peer address plain UDP on the current route goes to (none on
+    /// this side's own TURN allocation): which local interface carries the
+    /// session ([`route_destinations`]).
+    route_to: Arc<watch::Sender<Option<SocketAddr>>>,
     control: mpsc::UnboundedReceiver<Control>,
     /// STUN transactions of the current socket still unanswered, and where
     /// the reflexive addresses go.
@@ -787,6 +794,7 @@ struct UnderlaySpec<'a> {
     turn: Option<TurnCarrier>,
     reach_out: mpsc::UnboundedSender<(SocketAddr, Carrier)>,
     path: watch::Sender<LinkPath>,
+    route_to: Arc<watch::Sender<Option<SocketAddr>>>,
     control: mpsc::UnboundedReceiver<Control>,
 }
 
@@ -825,6 +833,8 @@ impl HybridUnderlay {
             last_on_route: None,
             last_relayed_arrival: None,
             path: spec.path,
+            peer: watch::channel(None).0,
+            route_to: spec.route_to,
             control: spec.control,
             stun: Vec::new(),
             reflexive: None,
@@ -1436,12 +1446,16 @@ impl HybridUnderlay {
     fn publish_path(&mut self) {
         let own = self.turn.as_ref().map(|turn| turn.transport);
         let path = path_of(self.direct, &self.labels, own);
+        let to = self.direct.filter(|route| route.carrier == Carrier::Udp).map(|route| route.addr);
+        self.route_to.send_if_modified(|current| std::mem::replace(current, to) != to);
         if self.direct_only()
             && let Some(roam) = self.roam.take()
         {
             roam.mark(if path == LinkPath::Direct { "roam_direct" } else { "roam_turn" });
         }
         self.path.send_if_modified(|current| std::mem::replace(current, path) != path);
+        let peer = self.direct.filter(|_| path == LinkPath::Direct).map(|route| route.addr.ip());
+        self.peer.send_if_modified(|current| std::mem::replace(current, peer) != peer);
     }
 
     fn demote(&mut self, why: &str) {
@@ -1537,6 +1551,9 @@ impl HybridUnderlay {
             self.publish_path();
             if self.send_route(route, datagram, class) {
                 self.paths.sent(route, now);
+                if class != SendClass::Control {
+                    self.paths.sent_data(now);
+                }
                 self.maybe_spray(datagram, route);
                 return true;
             }
@@ -1868,6 +1885,7 @@ impl Drop for Guard {
 struct Tunnel {
     session: Arc<Session>,
     path: watch::Receiver<LinkPath>,
+    peer: super::PeerAddr,
 }
 
 /// What a side knows when it starts its tunnel.
@@ -1933,6 +1951,7 @@ fn start_tunnel(
 ) -> Result<Tunnel, DialError> {
     let current = Arc::new(Mutex::new(signaling.clone()));
     let (path_tx, path_rx) = watch::channel(LinkPath::NoPath);
+    let route_to = Arc::new(watch::channel(None).0);
     let (control_tx, control_rx) = mpsc::unbounded_channel();
     let (reach_tx, reach_rx) = mpsc::unbounded_channel();
     let (relayed, relayed_tls) = relayed_of(spec.turn.as_ref());
@@ -1947,6 +1966,7 @@ fn start_tunnel(
             turn: spec.turn,
             reach_out: reach_tx,
             path: path_tx,
+            route_to: Arc::clone(&route_to),
             control: control_rx,
         },
         options,
@@ -1967,6 +1987,7 @@ fn start_tunnel(
         peer_addresses: vec![IpAddr::V4(spec.peer_ip)],
         ultra: ultra_for_dial(options.ultra),
     };
+    let peer = underlay.peer.subscribe();
     let net = WgNet::start_with_underlay(config, underlay).map_err(transport_error)?;
     let session = Session::register(roam::SessionParts {
         session_id: spec.session_id.to_owned(),
@@ -1983,8 +2004,9 @@ fn start_tunnel(
         relayed: (relayed, relayed_tls),
         keeps_turn: spec.keeps_turn,
         turn_dead,
+        route_to,
     });
-    Ok(Tunnel { session, path: path_rx })
+    Ok(Tunnel { session, path: path_rx, peer })
 }
 
 /// The running tunnel, unless `bye` already dropped it.
@@ -2161,6 +2183,7 @@ impl Dialer for WireGuardDialer {
             Ok(Dialed {
                 stream: Box::new(stream),
                 path: tunnel.path,
+                peer: tunnel.peer,
                 guard: Box::new(guard),
                 lane,
                 media,
@@ -2313,6 +2336,7 @@ impl Dialer for WireGuardDialer {
             Ok(Dialed {
                 stream: Box::new(stream),
                 path: tunnel.path,
+                peer: tunnel.peer,
                 guard: Box::new(guard),
                 lane,
                 webrtc_media,
@@ -2426,6 +2450,7 @@ mod tests {
                 turn: None,
                 reach_out,
                 path: watch::channel(LinkPath::NoPath).0,
+                route_to: Arc::new(watch::channel(None).0),
                 control,
             },
             &DialOptions::default(),
@@ -2462,6 +2487,7 @@ mod tests {
                 turn: None,
                 reach_out,
                 path: watch::channel(LinkPath::NoPath).0,
+                route_to: Arc::new(watch::channel(None).0),
                 control,
             },
             &DialOptions::default(),
@@ -2500,6 +2526,7 @@ mod tests {
                 turn: None,
                 reach_out,
                 path: watch::channel(LinkPath::NoPath).0,
+                route_to: Arc::new(watch::channel(None).0),
                 control,
             },
             &DialOptions::default(),
@@ -2589,6 +2616,7 @@ mod tests {
                 turn: None,
                 reach_out,
                 path: watch::channel(LinkPath::NoPath).0,
+                route_to: Arc::new(watch::channel(None).0),
                 control,
             },
             &DialOptions::default(),
@@ -2646,6 +2674,7 @@ mod tests {
                 turn: None,
                 reach_out,
                 path: watch::channel(LinkPath::NoPath).0,
+                route_to: Arc::new(watch::channel(None).0),
                 control,
             },
             &DialOptions::default(),
@@ -2727,6 +2756,7 @@ mod tests {
                 turn: Some(first),
                 reach_out,
                 path: watch::channel(LinkPath::NoPath).0,
+                route_to: Arc::new(watch::channel(None).0),
                 control,
             },
             &options,
