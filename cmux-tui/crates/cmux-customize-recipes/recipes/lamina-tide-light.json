@@ -12,6 +12,7 @@
     "sidebar.cards.tips": false,
     "agentPane.display.width": 900,
     "agentPane.display.minimap": "off",
-    "agentPane.editedFiles.show": "collapsed"
+    "agentPane.editedFiles.show": "collapsed",
+    "notifications.toast.style": "flat"
   }
 }

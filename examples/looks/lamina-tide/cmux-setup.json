@@ -26,6 +26,9 @@
     // The chat: a 900 px column, no minimap, the changed files folded under each turn.
     "agentPane.display.width": 900,
     "agentPane.display.minimap": "off",
-    "agentPane.editedFiles.show": "collapsed"
+    "agentPane.editedFiles.show": "collapsed",
+
+    // The toast: flat, an opaque surface with a thin edge and no shadow, not a glass pill.
+    "notifications.toast.style": "flat"
   }
 }
