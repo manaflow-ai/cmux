@@ -85,6 +85,9 @@
         "ty": "uint64",
         "required": true
       },
+      "/terminal_id": {
+        "ty": "string"
+      },
       "/updated_at_ms": {
         "ty": "uint64",
         "required": true
@@ -254,6 +257,19 @@
         "ty": "uint64",
         "required": true,
         "nullable": true
+      }
+    },
+    "event:agent-session-share-changed": {
+      "/event": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"agent-session-share-changed\""
+        ]
+      },
+      "/session": {
+        "ty": "string",
+        "required": true
       }
     },
     "event:bell": {
@@ -965,6 +981,29 @@
         "required": true
       },
       "/steps/*": {
+        "ty": "json"
+      }
+    },
+    "event:conversation-scheduled-changed": {
+      "/conversation": {
+        "ty": "string",
+        "required": true
+      },
+      "/event": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"conversation-scheduled-changed\""
+        ]
+      },
+      "/participant": {
+        "ty": "string",
+        "required": true
+      },
+      "/removed": {
+        "ty": "json"
+      },
+      "/scheduled": {
         "ty": "json"
       }
     },
@@ -8536,6 +8575,32 @@
       }
     },
     "request:cloud-session-status": {},
+    "request:computer-use-approvals": {
+      "/action": {
+        "ty": "string",
+        "required": true
+      },
+      "/answer": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/app_id": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/id": {
+        "ty": "uint64",
+        "nullable": true
+      }
+    },
+    "request:computer-use-config": {
+      "/config": {
+        "ty": "json",
+        "required": true,
+        "nullable": true
+      }
+    },
+    "request:computer-use-endpoint": {},
     "request:conversation-agent-token": {
       "/participant": {
         "ty": "string",
@@ -8922,6 +8987,19 @@
       },
       "/turns/*": {
         "ty": "string"
+      }
+    },
+    "request:conversation-scheduled-list": {
+      "/conversation": {
+        "ty": "string",
+        "nullable": true
+      }
+    },
+    "request:conversation-scheduled-op": {
+      "/op": {
+        "ty": "json",
+        "required": true,
+        "nullable": true
       }
     },
     "request:conversation-search": {
@@ -9847,12 +9925,35 @@
       }
     },
     "request:home-inbox": {
+      "/ids": {
+        "ty": "array",
+        "nullable": true
+      },
+      "/ids/*": {
+        "ty": "string"
+      },
+      "/limit": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/offset": {
+        "ty": "uint64",
+        "nullable": true
+      },
       "/owners": {
         "ty": "array",
         "nullable": true
       },
       "/owners/*": {
         "ty": "string"
+      },
+      "/scope": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/since": {
+        "ty": "uint64",
+        "nullable": true
       }
     },
     "request:identify": {
@@ -11441,6 +11542,32 @@
         "nullable": true
       }
     },
+    "request:quick-terminal": {
+      "/h": {
+        "ty": "float64",
+        "nullable": true
+      },
+      "/mode": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/screen": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/w": {
+        "ty": "float64",
+        "nullable": true
+      },
+      "/x": {
+        "ty": "float64",
+        "nullable": true
+      },
+      "/y": {
+        "ty": "float64",
+        "nullable": true
+      }
+    },
     "request:read-screen": {
       "/surface": {
         "ty": "uint64",
@@ -11950,6 +12077,10 @@
       },
       "/flow": {
         "ty": "uint64",
+        "nullable": true
+      },
+      "/key": {
+        "ty": "string",
         "nullable": true
       },
       "/paste": {
@@ -12634,6 +12765,9 @@
       "/generation": {
         "ty": "string",
         "required": true
+      },
+      "/if_idle": {
+        "ty": "boolean"
       },
       "/keep_layout": {
         "ty": "boolean"
@@ -13981,6 +14115,24 @@
       }
     },
     "response:cloud-session-status": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
+    "response:computer-use-approvals": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
+    "response:computer-use-config": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
+    "response:computer-use-endpoint": {
       "/data": {
         "ty": "json",
         "required": true
@@ -15953,6 +16105,33 @@
         "ty": "json"
       }
     },
+    "response:conversation-scheduled-list": {
+      "/data/scheduled": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/scheduled/*": {
+        "ty": "json"
+      }
+    },
+    "response:conversation-scheduled-op": {
+      "/data/change": {
+        "ty": "json"
+      },
+      "/data/removed": {
+        "ty": "json"
+      },
+      "/data/replayed": {
+        "ty": "boolean"
+      },
+      "/data/rev": {
+        "ty": "uint64"
+      },
+      "/data/scheduled": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "response:conversation-search": {
       "/data/hits": {
         "ty": "array",
@@ -17695,9 +17874,27 @@
         "ty": "string",
         "required": true
       },
+      "/data/full": {
+        "ty": "boolean"
+      },
       "/data/me": {
         "ty": "string",
         "required": true
+      },
+      "/data/offset": {
+        "ty": "uint64"
+      },
+      "/data/order": {
+        "ty": "string"
+      },
+      "/data/removed": {
+        "ty": "array"
+      },
+      "/data/removed/*": {
+        "ty": "string"
+      },
+      "/data/revision": {
+        "ty": "uint64"
       },
       "/data/rows": {
         "ty": "array",
@@ -17724,6 +17921,9 @@
       "/data/rows/*/id": {
         "ty": "string",
         "required": true
+      },
+      "/data/rows/*/index": {
+        "ty": "uint64"
       },
       "/data/rows/*/kind": {
         "ty": "enum",
@@ -17767,6 +17967,12 @@
       "/data/rows/*/unread": {
         "ty": "uint64",
         "required": true
+      },
+      "/data/total": {
+        "ty": "uint64"
+      },
+      "/data/window": {
+        "ty": "boolean"
       }
     },
     "response:identify": {
@@ -18028,6 +18234,9 @@
       "/data/agents/*/surface": {
         "ty": "uint64",
         "required": true
+      },
+      "/data/agents/*/terminal_id": {
+        "ty": "string"
       },
       "/data/agents/*/updated_at_ms": {
         "ty": "uint64",
@@ -19754,6 +19963,12 @@
       }
     },
     "response:put-session": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
+    "response:quick-terminal": {
       "/data": {
         "ty": "json",
         "required": true

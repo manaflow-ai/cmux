@@ -50,7 +50,7 @@ describe("chat perf capture: pure parts", () => {
     const report = longTaskSummary(
       [
         {
-          duration: 120,
+          duration: 120, // motion-allow: a long-task entry's length, not motion
           blockingDuration: 70,
           scripts: [
             { invoker: "MessagePort.onmessage", sourceURL: "cmux-page://agent/app.js?token=x", duration: 90 },
@@ -69,7 +69,7 @@ describe("chat perf capture: pure parts", () => {
     expect(report.longest_ms).toBe(120);
     expect(report.blocking_ms).toBe(80);
     // A longtask entry (no LoAF) has no blockingDuration: its blocking time is its duration past 50 ms.
-    const fallback = longTaskSummary([{ duration: 120 }, { duration: 40 }, { duration: 51 }], "longtask");
+    const fallback = longTaskSummary([{ duration: 120 }, { duration: 40 }, { duration: 51 }], "longtask"); // motion-allow: a long-task entry's length, not motion
     expect(fallback.blocking_ms).toBe(71);
     expect(report.top_scripts[0]).toEqual({
       invoker: "MessagePort.onmessage",
@@ -241,7 +241,7 @@ describe("chat perf capture: the window", () => {
     page.frame();
     page.advance(2);
     page.paint();
-    page.observers.get("long-animation-frame")?.([{ duration: 80, scripts: [] }]);
+    page.observers.get("long-animation-frame")?.([{ duration: 80, scripts: [] }]); // motion-allow: a long-task entry's length, not motion
     page.observers.get("layout-shift")?.([{ value: 0.2 }]);
     page.finish();
     const report = (await running) as Record<string, any>;

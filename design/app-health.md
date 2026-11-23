@@ -51,6 +51,22 @@ There is no animation, pulse, timer or observer in the indicator or the popover,
 is the only timer, in the page layer (`pages/shared/pageHealth.ts`), and it stops while the page is
 hidden.
 
+## Which chat, and no click it does not need
+
+David Beyer, 2026-11-20, on a call: "Agent chat needs a repair" did not say which chat, with several
+open. A page part is named by the title its tab shows, in the line and the card's title ("“Fix the
+login bug” needs a repair"); the card's first line says where it is ("Agent chat in cmux-next"), and
+**Show chat** goes there. A stuck page is always on screen (a hidden page is never timed), so Show
+chat brings its window forward and gives the page the keyboard, through the focus route. The place
+comes from the daemon's store (`AppHealthPlaces(store:)`: the tab the page shows, its title, the
+workspace that holds its pane), read only when a line or the card is drawn, never on a heartbeat. A
+page in no tab (Home's dock, a floating chat) keeps the label "Agent chat".
+
+The cap is 3 repairs in 10 minutes, not 3 for good. A part that is out of repairs keeps one deadline,
+when its oldest attempt leaves the window; then, still stuck, it tries again by itself from step 1,
+and its signal coming back drops the alert. Repair now still starts at once. A repair is still never
+run over unsaved edits: the page's reload refuses, and the next step comes.
+
 ## Queued actions never apply and revert
 
 While the session daemon or page host is unreachable, a tab click or close is queued by the host

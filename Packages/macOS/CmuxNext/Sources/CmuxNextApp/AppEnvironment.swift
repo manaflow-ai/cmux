@@ -3,13 +3,14 @@ import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextHomeEngine
+import CmuxNextOnboarding
 import CmuxNextTerminal
 import CmuxNextUpdater
 import Foundation
 
 /// How this process was launched. Identity (bundle, tag, control socket)
 /// comes from the app bundle only (`LaunchIdentity`); inherited `CMUX_*`
-/// variables were stripped in `CmuxNextApp.shared.main` before this is read.
+/// variables were stripped in `CmuxNextApp.main` before this is read.
 struct AppEnvironment: Sendable {
     let launch: LaunchIdentity
     /// `CMUX_NEXT_NO_ACTIVATE=1`: never take focus from the user's frontmost
@@ -18,8 +19,8 @@ struct AppEnvironment: Sendable {
     let noActivate: Bool
     /// DEBUG showcase profile requested by `--showcase` or `CMUX_NEXT_SHOWCASE=1`.
     let showcase: Bool
-    /// No first-run onboarding (off for now, Lawrence 2026-11-09) unless `CMUX_NEXT_ONBOARDING=1` / `--onboarding`; never with the showcase, `CMUX_NEXT_SKIP_ONBOARDING=1` or `--skip-onboarding`.
-    let skipsOnboarding: Bool
+    /// First-run onboarding is off (Lawrence 2026-11-09) unless `--onboarding`; the showcase and `--skip-onboarding` show nothing (``OnboardingWindowPresenter/LaunchSteps``).
+    let launchSteps: OnboardingWindowPresenter.LaunchSteps
     /// DEBUG-only auth capture fixture. This composes isolated, offline auth
     /// dependencies for fleet captures; it is never enabled in release builds.
     let authCaptureFixture: Bool
@@ -114,7 +115,7 @@ struct AppEnvironment: Sendable {
         return AppEnvironment(
             launch: launch,
             noActivate: noActivate,
-            showcase: showcase, skipsOnboarding: showcase || environment["CMUX_NEXT_SKIP_ONBOARDING"] == "1" || arguments.contains("--skip-onboarding") || !(environment["CMUX_NEXT_ONBOARDING"] == "1" || arguments.contains("--onboarding")),
+            showcase: showcase, launchSteps: OnboardingWindowPresenter.LaunchSteps(environment: environment, arguments: arguments, showcase: showcase),
             authCaptureFixture: authCaptureFixture,
             captureShellHome: captureShellHome(environment),
             testWindow: TestWindowPlacement.parse(environment, noActivate: noActivate),

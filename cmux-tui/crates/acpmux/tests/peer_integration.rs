@@ -149,6 +149,46 @@ fn free_port() -> u16 {
 }
 
 #[tokio::test]
+async fn history_search_finds_an_already_closed_peer_session_by_its_reply() {
+    let b = hub(config(PermissionPolicy::Ask)).await;
+    let mut cb = client(b.clone()).await;
+    let s = cb.call(method::SESSION_NEW, json!({
+        "cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"name": "finished"}}
+    })).await.unwrap();
+    cb.call(
+        method::SESSION_PROMPT,
+        json!({
+            "sessionId": s["sessionId"], "prompt": [{"type":"text","text":"fold\nthis word"}]
+        }),
+    )
+    .await
+    .unwrap();
+    cb.call(method::SESSION_CLOSE, json!({"sessionId":s["sessionId"]})).await.unwrap();
+    let (port, token) = listen_with_peer_token(b, "history-search").await;
+    let a = hub(config(PermissionPolicy::Ask)).await;
+    a.add_peer("other", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), Some(token), true)
+        .await
+        .unwrap();
+    let mut ca = client(a).await;
+    let result = ca
+        .call(
+            method::MUX_SESSION_SEARCH,
+            json!({
+                "allSessions":true, "query":"echo fold"
+            }),
+        )
+        .await
+        .unwrap();
+    assert_eq!(result["incomplete"], json!([]), "{result}");
+    assert_eq!(result["hits"].as_array().unwrap().len(), 1, "{result}");
+    let hit = &result["hits"][0];
+    assert_eq!(hit["host"], "other");
+    assert_eq!(hit["session"], "finished");
+    assert_eq!(hit["role"], "assistant");
+    assert_eq!(hit["preview"], "echo: fold this word");
+}
+
+#[tokio::test]
 async fn peer_sessions_are_listed_prompted_and_permission_routed() {
     // B: serves WebSocket with a token, owns the agent.
     let b = hub(config(PermissionPolicy::Ask)).await;

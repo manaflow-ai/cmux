@@ -24,6 +24,15 @@
 
 const BLOCK_SIZE = 64;
 
+/// The mark of a row that carries its height but neither takes nor gives a gap: the rows on either
+/// side gap as if it were not there. A row collapsing to nothing is placed so (model.ts
+/// `collapsingHeight`), its own gaps folded into its height as it shrinks, so the rows under it move
+/// with it and nothing steps when it reaches 0.
+export const PASS_MARK = 255;
+
+/// Whether a row takes and gives gaps: it draws (height > 0) and is no pass row.
+const gapped = (height: number, mark: number) => height > 0 && mark !== PASS_MARK;
+
 /// The gap between two drawn rows, by their marks (transcriptGrid.ts `transcriptGap` at a scale).
 export type GapBetween = (previousMark: number, nextMark: number) => number;
 
@@ -109,8 +118,8 @@ function summarize(
   let beforeLastMark = 0;
   for (let offset = 0; offset < heights.length; offset += 1) {
     const height = heights[offset]!;
-    if (height > 0) {
-      const mark = marks?.[offset] ?? 0;
+    const mark = marks?.[offset] ?? 0;
+    if (gapped(height, mark)) {
       if (drawn === 0) {
         firstMark = mark;
         firstGap = gaps?.[offset] ?? 0;
@@ -244,7 +253,10 @@ export class PlacedHeightIndex {
   /// Marks of the last two drawn rows (0 where there is none), for transcriptGrid.ts `tailGap`.
   get lastMarks(): { last: number; beforeLast: number } {
     const summary = summaryOf(this.root);
-    return { last: summary.drawn > 0 ? summary.lastMark : 0, beforeLast: summary.beforeLastMark };
+    return {
+      last: summary.drawn > 0 ? summary.lastMark : 0,
+      beforeLast: summary.beforeLastMark,
+    };
   }
 
   private leafAt(index: number): Leaf | undefined {
@@ -270,7 +282,7 @@ export class PlacedHeightIndex {
   /// Steps `cursor` over row `offset` of `leaf`, returning that row's top.
   private step(cursor: Cursor, leaf: Leaf, offset: number): number {
     const height = leaf.heights[offset]!;
-    if (height > 0) {
+    if (gapped(height, leaf.marks?.[offset] ?? 0)) {
       cursor.top += this.gapOf(cursor, leaf, offset);
       cursor.drawn = true;
       cursor.lastMark = leaf.marks?.[offset] ?? 0;
@@ -304,7 +316,7 @@ export class PlacedHeightIndex {
     const rows = leaf.heights.length;
     const places = { tops: new Float64Array(rows), gaps: new Float64Array(rows) };
     for (let at = 0; at < rows; at += 1) {
-      if (leaf.heights[at]! > 0) places.gaps[at] = this.gapOf(cursor, leaf, at);
+      if (gapped(leaf.heights[at]!, leaf.marks?.[at] ?? 0)) places.gaps[at] = this.gapOf(cursor, leaf, at);
       places.tops[at] = this.step(cursor, leaf, at);
     }
     this.leafPlaces.set(leafIndex, places);
@@ -374,14 +386,23 @@ export class PlacedHeightIndex {
     }
     // Re-sum the copied bounded leaf instead of subtracting floating-point
     // values from the old aggregate: corrections that settle must settle exactly.
-    const leaf: Leaf = { heights, marks, gaps, summary: summarize(heights, marks, gaps, this.rules.between) };
+    const leaf: Leaf = {
+      heights,
+      marks,
+      gaps,
+      summary: summarize(heights, marks, gaps, this.rules.between),
+    };
     const between = this.rules.between;
     const replace = (node: Node | undefined, low: number, high: number): Node => {
       if (high - low === 1) return { leaf, summary: leaf.summary };
       const middle = low + ((high - low) >>> 1);
       const left = leafIndex < middle ? replace(node?.left, low, middle) : node?.left;
       const right = leafIndex >= middle ? replace(node?.right, middle, high) : node?.right;
-      return { left, right, summary: join(summaryOf(left), summaryOf(right), between) };
+      return {
+        left,
+        right,
+        summary: join(summaryOf(left), summaryOf(right), between),
+      };
     };
     return new PlacedHeightIndex(this.count, this.capacity, replace(this.root, 0, this.capacity), this.rules);
   }
@@ -443,7 +464,11 @@ export class PlacedHeightIndex {
       const left = build(node?.left, low, middle);
       const right = build(node?.right, middle, high);
       if (!left && !right) return undefined;
-      return { left, right, summary: join(summaryOf(left), summaryOf(right), between) };
+      return {
+        left,
+        right,
+        summary: join(summaryOf(left), summaryOf(right), between),
+      };
     };
     return new PlacedHeightIndex(count, capacity, build(root, 0, capacity), this.rules);
   }

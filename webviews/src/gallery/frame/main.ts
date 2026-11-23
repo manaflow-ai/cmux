@@ -13,7 +13,8 @@ import { watchStageErrors } from "./liveErrors";
 import { appHostSeeThrough, appHostTheme, isAppHosted } from "./appHost";
 import { DEFAULT_DARK_THEME, DEFAULT_LIGHT_THEME, themeIsDark, type GhosttyTheme } from "../theme/ghostty";
 import { agentPaneTheme, diffAppearance, themeTokens, webThemePayload } from "../theme/web";
-import { deriveAppTheme } from "../../theme/appTheme";
+import { deriveAppTheme, APP_ACCENTS, type AppAccent } from "../../theme/appTheme";
+import { lookTheme, schemeOf } from "../golden/look";
 import themes from "virtual:cmux-gallery/themes";
 import webThemeBootstrap from "virtual:cmux-gallery/web-theme";
 import type { StageContext } from "./context";
@@ -106,7 +107,15 @@ for (const key of ["languages", "language"] as const)
 
 // `host=app`: inside the app's own window (appHost.ts), the app's theme and backdrop, not the gallery's.
 const appHosted = isAppHosted(params);
-const theme = (appHosted ? appHostTheme() : undefined) ?? themeNamed(env.theme, DEFAULT_DARK_THEME);
+// A variant drawn under a whole look (golden/look.ts): its theme file for this scheme, over the env's theme.
+const look = entry.variants[variantName]!.look?.schemes[schemeOf(env.colorScheme)];
+const envTheme = themeNamed(env.theme, DEFAULT_DARK_THEME);
+const theme =
+  (appHosted ? appHostTheme() : undefined) ?? (look ? lookTheme(look, envTheme, (name) => byName.get(name)) : envTheme);
+const accent: AppAccent =
+  look?.accent && (APP_ACCENTS as readonly string[]).includes(look.accent)
+    ? (look.accent as AppAccent)
+    : (env.accent ?? "neutral");
 const scheme = env.colorScheme === "auto" ? (themeIsDark(theme) ? "dark" : "light") : env.colorScheme;
 // Pages that hold both sides (the diff and markdown appearance) get the theme on the side the
 // window shows and the default on the other, as `theme = light:A,dark:B` would.
@@ -114,10 +123,15 @@ const pair =
   scheme === "dark"
     ? { dark: theme, light: themeNamed(DEFAULT_LIGHT_THEME, DEFAULT_LIGHT_THEME) }
     : { dark: themeNamed(DEFAULT_DARK_THEME, DEFAULT_DARK_THEME), light: theme };
-const tokens = themeTokens(theme, env.accent);
+const tokens = themeTokens(theme, accent);
 // The background axis: over a picture the page is see-through, as over the user's in the app.
 // In the app, see-through follows the app's own window (its page background is clear over a backdrop).
-const seeThrough = appHosted ? appHostSeeThrough() : overPicture(env);
+// A variant that only means something over a picture (a pinned line over a wallpaper) names one, or one per scheme;
+// the env's own picture wins when the controls set one.
+const asked = entry.variants[variantName]!.background;
+const variantBackground = typeof asked === "object" ? asked[scheme] : asked;
+const stageEnv = variantBackground && !overPicture(env) ? { ...env, background: variantBackground } : env;
+const seeThrough = appHosted ? appHostSeeThrough() : overPicture(stageEnv);
 
 // The app's web view answers these from its window and the system settings itself.
 if (!appHosted)
@@ -139,7 +153,7 @@ if (!appHosted) {
 if (!appHosted) installSystemFontStandIn();
 if (!appHosted)
   (window as unknown as { cmuxTheme: { apply(payload: unknown): void } }).cmuxTheme.apply(
-    webThemePayload(tokens, deriveAppTheme(theme, env.accent), seeThrough, {
+    webThemePayload(tokens, deriveAppTheme(theme, accent), seeThrough, {
       titleAreaTone: entry.variants[variantName]!.titleAreaTone ?? env.titleAreaTone,
     }),
   );
@@ -150,7 +164,7 @@ if (seeThrough && !appHosted) {
   ]);
   // The same window-mode test as the shell's stage (Stage.tsx): page entries sit in a real pane.
   const windowed = env.frame === "window" && entry.host !== "native" && entry.host !== "component";
-  applyGalleryBackground(env, tokens, { windowed, metrics });
+  applyGalleryBackground(stageEnv, tokens, { windowed, metrics });
 }
 // Document scale and the chrome scale are separate. The app sets pageZoom for the former and
 // this token for the latter; gallery exposes both so each sheet is reproducible.
@@ -277,6 +291,9 @@ function finishLoad(): void {
     shifts: loadShifts.slice(0, 24),
     boxShift: boxes.score,
     boxMoves: boxes.moves,
+    boxFollow: boxes.follow,
+    // The load declares nothing: a box that drew twice in one place and then moves is undeclared.
+    ...(boxes.motion ? { undeclared: boxes.motion.undeclared, undeclaredMoves: boxes.motion.moves } : {}),
   };
 }
 

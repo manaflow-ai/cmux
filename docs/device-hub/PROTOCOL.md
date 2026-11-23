@@ -79,7 +79,7 @@ host-signed allow lists are later work.
 ## Records (User DO SQLite)
 
 ```
-devices(id TEXT PK, name, platform 'macos'|'ios'|'linux', signing_key, agreement_key,
+devices(id TEXT PK, name, platform 'macos'|'ios'|'linux'|'windows', signing_key, agreement_key,
         created_at, last_seen_at, removed_at NULL, mac_screen_shared INT 0/1,
         name_pinned INT 0/1, owner_kind, owner_id,
         mac_screen_chosen INT 0/1,              -- 1 once the switch was set on purpose
@@ -87,7 +87,7 @@ devices(id TEXT PK, name, platform 'macos'|'ios'|'linux', signing_key, agreement
         machine NULL)                           -- never listed
 permissions(host_id, viewer_id, scope 'none'|'ask'|'view'|'full', updated_at,
         owner_kind, owner_id,
-        PRIMARY KEY(host_id, viewer_id))         -- default when absent: 'ask'
+        PRIMARY KEY(host_id, viewer_id))         -- default when absent: 'full' (own devices)
 relays(id TEXT PK, owner_kind 'user'|'team', owner_id, name, urls JSON,
         auth_mode 'shared_secret'|'static', sealed JSON {deviceId: base64},
         enabled INT, priority INT, updated_at)   -- v1 writes owner_kind 'user'
@@ -135,7 +135,7 @@ end reason, the decision, or `old->new` for a permission change).
 | `PUT /v1/devices/:id/mac-screen` | `{shared}` | `{device}` | Only device `:id` itself may change its own sharing. Marks the switch as set on purpose, so a join never changes it again. |
 | `PUT /v1/devices/:id/screen-share` | `{state, missing, holder?, session, osVersion?, checkedAtMs, detail?}` | `{device}` | A Mac or Linux host's own screen sharing status, `cmux.screen-share.status/1` (acpmux `screen_share.rs`): `state` `granted`, `needs_grant` (with `missing`: `screen_recording`, `accessibility`), `not_installed`, `unsupported`; `session` `this_user`, `other_user`, `nobody`, `unknown`. Only device `:id` itself, from any of its sessions (host and machine included); other fields are dropped, a value outside the schema is 400. Pushes `devices.changed` when it changed. Each row reads its one line from it. |
 | `POST /v1/devices/:id/sign-out` | | `{}` | Only device `:id` itself (403 `not_host` otherwise). Ends its sessions at once with reason `signed_out`, closes its User DO socket (code 4003), lists it offline at once and pushes `devices.changed` to the other devices. The device stays registered. Call it before dropping the account session. |
-| `GET /v1/permissions?host=:id` | | `{permissions:[{viewerId, scope}]}` | One entry per other device; absent rows read `ask`. |
+| `GET /v1/permissions?host=:id` | | `{permissions:[{viewerId, scope}]}` | One entry per other device; absent rows read `full` (every device here is the same account's). |
 | `PUT /v1/permissions/:hostId/:viewerId` | `{scope}` | `{permission:{hostId, viewerId, scope, previous, updatedAt}}` | Only device `:hostId` itself (403 `not_host` otherwise). A viewer raises its access only by requesting a session; the host's `always` decision stores the permission. Lowering a scope revokes sessions that exceed it: `none` ends every open session of the pair, `view` ends `full` ones; `ask` and `full` end none. |
 | `POST /v1/sessions` | `{hostId, scope}` | `{session:{id, state, scope}}` | From the viewer. See flow. |
 | `POST /v1/sessions/:id/decision` | `{decision:'deny'\|'once'\|'always', scope}` | `{session}` | From the host device only. `scope` defaults to the requested one and may lower `full` to `view`, never raise it (400). `always` stores the permission. Requests expire after 5 min: the server ends them (`session.revoked`, reason `expired`) without waiting for a decision. If setting up the approved session fails, it ends with `approve_failed` and the call returns 500. |
@@ -178,7 +178,7 @@ others. Server → device messages:
 {type:'permissions.changed', hostId}
 {type:'relays.changed'}
 {type:'session.request', session:{id, viewerId, viewerName, viewerKeyFingerprint, scope}}   // to the host
-{type:'session.ticket', sessionId, ticket, signalURL, ice:[…], peer:{id, name, signingKey}, role, scope}
+{type:'session.ticket', sessionId, ticket, signalURL, ice:[…], peer:{id, name, signingKey}, role, scope, ownerKind:'user'}
 {type:'session.denied', sessionId}             // to the viewer
 {type:'session.revoked', sessionId, reason}    // to both; end at once
 {type:'session.ended', sessionId, reason}
@@ -213,7 +213,11 @@ that held the answer is gone is back to `ask`.
    host `mac_screen_shared`, permission(host, viewer):
    - `none` → 403 `permission_none`, with no prompt;
    - `view`/`full` (covering the scope) → approved at once;
-   - `ask` or absent, or a scope above the permission (`view` asking for
+   - absent → `full`: every device in a User DO is signed in to that one
+     account, so it is the person reaching their own machine, approved at
+     once with no prompt on the host (Leo, 2026-11-16). A stored scope always
+     wins over this default;
+   - `ask`, or a scope above the permission (`view` asking for
      `full`: the app's Ask for Access) → `pending`; push `session.request` to
      the host device, whose prompt names the requested scope. Its decision
      works as under `ask`: `once` grants the session only, `always` stores the
@@ -225,6 +229,14 @@ that held the answer is gone is back to `ask`.
 3. On approval the server creates the Session DO and pushes `session.ticket`
    to both devices. Ticket = compact JWS (ES256, server key) with payload
    `{sid, role:'viewer'|'host', dev, peer, peerKey, scope, iat, exp: iat+60, jti}`.
+   The push also says `ownerKind: 'user'`: both devices are this one account's,
+   as the hub authenticated them. A host serves such a session without its own
+   consent sheet; a ticket without it (an older hub), or a later team or shared
+   owner, still goes through the host's consent. Every Mac host (the app, cmux
+   Remote with the app quit, the acpmux share host) serves it with no local
+   consent read, and no consent change stops it. A Linux desktop enabled
+   `--view-only` serves its control ticket view only rather than ending it. A
+   host that refuses a ticket on its consent ends it `consent_required`.
    `signalURL` = `wss://<host>/v1/sessions/<sid>/ws` (`<host>` is the Worker's
    public origin: env `PUBLIC_BASE_URL`, else the request's). `ice` = cmux relay
    credentials if cmux billing includes the relay for the user right now

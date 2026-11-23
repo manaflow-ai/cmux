@@ -19,7 +19,7 @@ result is fresh for the tip they merge into.
                                                   together, and exit 1 when any gate fails after running all of them.
       With --budget-seconds, a gate still running N seconds after the run began is stopped
       and reported as stalled (2026-11-09: a web lint whose bun install hung on the registry sat
-      silent until the job's limit cancelled it, and merge_hold refused the cancelled check).
+      silent until the job's limit cancelled it, and land-judge refused the cancelled check).
 
 The gates, each the same invocation as its push-time job:
   web lint        scripts/web_lint_prepush.py --base BASE --head MERGE --new-only (cmux-next-web-lint.yml's
@@ -112,7 +112,7 @@ def web_needed(repo: Path, base: str, merge: str) -> bool:
 
 
 # Inputs of the webviews checks outside webviews/, where ci-web's react-apps routing does not run them on a pull
-# request: check:catalog-keys reads every string catalog, acpmux-protocol:check the protocol spec.
+# request: check:catalog-keys reads every string catalog, typecheck the types generated from the protocol spec.
 CHECK_INPUTS_OUTSIDE_WEBVIEWS = re.compile(r"\.xcstrings$|^cmux-tui/crates/acpmux/spec/")
 
 
@@ -299,20 +299,33 @@ def export_tree(repo: Path, ref: str, into: Path) -> None:
     subprocess.run(["tar", "-x", "-C", str(into)], input=archive, check=True)
 
 
+# What the crash ratchet reads beyond its trees: its compare script. A change outside both leaves the head's
+# scan and the base's identical, so the ratchet's verdict is green (or "base already red, not worse", also
+# exit 0) without running it; skipping it then takes ~35-100 s off the gates' critical path.
+RATCHET_INPUTS = (*RATCHET_PATHS, "scripts/ci/crash_ratchet_compare.py")
+
+
+def ratchet_inputs_changed(repo: Path, base: str, merge: str) -> bool:
+    """Whether BASE..MERGE changes a file the crash ratchet reads (RATCHET_INPUTS)."""
+    changed = git(repo, "diff", "--name-only", base, merge).stdout.split()
+    return any(path == root or path.startswith(root + "/") for path in changed for root in RATCHET_INPUTS)
+
+
 SKIPPED = {"web lint": "no web path changed",
+           "crash ratchet": "no change under Packages, cmux-tui/crates, scripts/cmux-next or its compare script",
            "webviews checks": "a pull_request event with no catalog or protocol spec change: ci-web runs them "
                               "for a webviews/ change on this merge"}
 
 
 def gates(repo: Path, base: str, merge: str, base_tree: Path, web: bool,
-          checks: bool = False) -> list[tuple[str, list[str] | None]]:
+          checks: bool = False, ratchet: bool = True) -> list[tuple[str, list[str] | None]]:
     """(name, argv) in order; argv None is a skipped gate (SKIPPED says why)."""
     py = sys.executable
     return [
         ("web lint", [py, "scripts/web_lint_prepush.py", "--base", base, "--head", merge, "--timings", "--new-only"]
          if web else None),
         ("crash ratchet", [py, "scripts/ci/crash_ratchet_compare.py", "--script", "scripts/cmux-next/crash_ratchet.py",
-                           "--head", str(repo), "--base", str(base_tree)]),
+                           "--head", str(repo), "--base", str(base_tree)] if ratchet else None),
         # --advisory: the hook-only layers as ::warning annotations, never this gate's result (prepush-gate.py).
         ("prepush gate", [py, "-I", "scripts/cmux-next/prepush-gate.py", "--base", base, "--head", merge, "--advisory"]),
         ("crash-class rules", [py, "scripts/ci/crash_class_fast_gate.py", "--base", str(base_tree)]),
@@ -423,9 +436,10 @@ def run(args: argparse.Namespace) -> int:
     deadline = None if args.budget_seconds is None else time.monotonic() + args.budget_seconds
     try:
         export_tree(repo, args.base, holder)
+        ratchet = ratchet_inputs_changed(repo, args.base, merge)
         active = [
             (name, argv)
-            for name, argv in gates(repo, args.base, merge, holder, args.web == "true", args.checks == "true")
+            for name, argv in gates(repo, args.base, merge, holder, args.web == "true", args.checks == "true", ratchet)
             if argv is not None
         ]
         # Web lint and webviews checks can both run bun install in webviews/. Keep those two in separate batches;
@@ -441,7 +455,7 @@ def run(args: argparse.Namespace) -> int:
                 continue
             active_results.update(run_gate_batch(batch, repo, deadline, holder / "gate-logs"))
 
-        for name, argv in gates(repo, args.base, merge, holder, args.web == "true", args.checks == "true"):
+        for name, argv in gates(repo, args.base, merge, holder, args.web == "true", args.checks == "true", ratchet):
             if argv is None:
                 print(f"{name}: skipped ({SKIPPED[name]})", flush=True)
                 rows.append((name, "skipped", 0.0))

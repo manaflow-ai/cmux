@@ -30,6 +30,11 @@
 #   --vdisplay-size=WxH  the virtual display's pixels (default 1920x1200: under the Dock a 1920x1080 display left
 #                   about 965 pt, and AppKit clamped the 1600 x 1000 STRESS window, 2026-10-24). The helper's ready
 #                   line reports the visible frame (visible=WxH), which the report's display.line keeps.
+#   --cpu-load      measure under full CPU load: before the bench starts, 4-thread spinners
+#                   (scripts/measure/qos-load-bench/spin.c) at the default priority, more threads than the host has
+#                   cores (hw.ncpu / 4 + 1 spinners), the same load as qos-load-bench.sh. They are stopped by PID when
+#                   the bench ends. The report gets `cpu_load`: {spinners, threads, ncpu}, or null without the option.
+#                   The perf cron never passes it; it is for a before/after pair under load ("idle and under load").
 # On exit, TERM, INT or HUP (a cancelled step) the script stops the bench, ends the tag's app and daemons
 # (scripts/cmux-next/tag_teardown.py, exact PIDs of the app bundle) and the virtual display.
 set -euo pipefail
@@ -38,11 +43,12 @@ set -euo pipefail
 # the suites, the args); a comment, log or report-key edit keeps it, so it keeps the history measurable.
 SPLIT_SPRING_MEASURE_VERSION=5  # 5: workspace-scaling adds a dispatcher suite (historical commits without it must not be bisected as another suite); 4: STRESS sessions open their extra terminal, Chromium and WebKit tabs (add_tab had a pane target the actions refuse; 3: the virtual display is 1920x1200)
 cd "$(git rev-parse --show-toplevel)"
-build_only=0 app_cache=0 vdisplay_hz="" vdisplay_hold=1200 vdisplay_size=1920x1200 args=() reload_config=()
+cpu_load=0 build_only=0 app_cache=0 vdisplay_hz="" vdisplay_hold=1200 vdisplay_size=1920x1200 args=() reload_config=()
 for arg in "$@"; do
   case "$arg" in
     --build-only) build_only=1 app_cache=1 ;;
     --app-cache) app_cache=1 ;;
+    --cpu-load) cpu_load=1 ;;
     --vdisplay=*) vdisplay_hz="${arg#--vdisplay=}" ;;
     --vdisplay-hold=*) vdisplay_hold="${arg#--vdisplay-hold=}" ;;
     --vdisplay-size=*) vdisplay_size="${arg#--vdisplay-size=}" ;;
@@ -63,15 +69,6 @@ key="$( { git ls-tree HEAD | grep -v $'\tscripts$'; git ls-tree HEAD:scripts | g
 cache=""
 if [[ "$app_cache" == 1 && -n "${CI_SHARED_CACHE_DIR:-}" ]]; then
   cache="$CI_SHARED_CACHE_DIR/split-spring-apps"
-fi
-build_start=$SECONDS
-app="" cached=false
-if [[ -n "$cache" && -f "$cache/$key/ok" ]]; then
-  mkdir -p "$out/app"
-  ditto "$cache/$key/cmux DEV $tag.app" "$out/app/cmux DEV $tag.app"
-  touch "$cache/$key/ok"
-  app="$out/app/cmux DEV $tag.app" cached=true
-  echo "split-spring: the app of $sha from the app cache ($((SECONDS - build_start)) s)"
 fi
 # >>> follow-log (scripts/measure/tests/split-spring-follow-log.test.sh runs these two)
 # follow_log FILE: prints FILE's lines as they come, each prefixed "reload-log: ", from a `tail` this script starts
@@ -125,15 +122,35 @@ heartbeat_stop() {
   heartbeat_pid=""
 }
 # <<< follow-log
+# The heartbeat runs from here until the app is ready, and each step says its name first: a glass-perf step
+# on cmux-austin-mini-0 (1dc02f92) printed nothing after the worker's checkout, before reload.sh started,
+# and the controller stopped it after 45 min with no step named. The heartbeat used to start only with
+# reload.sh, so the app-cache copy, the submodule fetch and the GhosttyKit download ran silent.
+heartbeat_start
+trap 'heartbeat_stop' EXIT
+build_start=$SECONDS
+app="" cached=false
+if [[ -n "$cache" && -f "$cache/$key/ok" ]]; then
+  echo "split-spring: copying the cached app (key $key)"
+  mkdir -p "$out/app"
+  ditto "$cache/$key/cmux DEV $tag.app" "$out/app/cmux DEV $tag.app"
+  touch "$cache/$key/ok"
+  app="$out/app/cmux DEV $tag.app" cached=true
+  echo "split-spring: the app of $sha from the app cache ($((SECONDS - build_start)) s)"
+fi
 if [[ -z "$app" ]]; then
   for sub in ghostty ghostty-next; do
-    [ -e "$sub/.git" ] || git submodule update --init --depth 1 "$sub"
+    if [ ! -e "$sub/.git" ]; then
+      echo "split-spring: fetching submodule $sub"
+      git submodule update --init --depth 1 "$sub"
+    fi
   done
   if [ ! -f GhosttyKit.xcframework/Info.plist ]; then
     rm -rf GhosttyKit.xcframework
     if [ -z "${GHOSTTYKIT_ARCHIVE_CACHE_DIR:-}" ] && [ -n "${CI_SHARED_CACHE_DIR:-}" ]; then
       export GHOSTTYKIT_ARCHIVE_CACHE_DIR="$CI_SHARED_CACHE_DIR/ghosttykit-archives"
     fi
+    echo "split-spring: getting GhosttyKit"
     ./scripts/download-prebuilt-ghosttykit.sh
   fi
   # Streamed, not `| tail -n 40`: the tail held back reload.sh's pre-build lines (the pin-cmux-tui.sh wait, the
@@ -144,13 +161,12 @@ if [[ -z "$app" ]]; then
   # stopped after 45 min with no output after "reload starting").
   # Only an EXIT trap while reload.sh runs: bash runs a TERM/INT/HUP trap only after the foreground pipeline ends (a
   # hung reload never does), while an EXIT trap alone runs at once when such a signal ends the script.
+  echo "split-spring: building the app (reload.sh --tag $tag)"
   follow_log "/tmp/cmux-reload-$tag.log"
-  heartbeat_start
   trap 'unfollow_log; heartbeat_stop' EXIT
   CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" ${reload_config[@]+"${reload_config[@]}"} 2>&1 | tee "$out/reload.log"
-  heartbeat_stop
   unfollow_log
-  trap - EXIT
+  trap 'heartbeat_stop' EXIT
   app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$out/reload.log" | tail -n 1)"
   if [[ -z "$app" || ! -d "$app" ]]; then
     echo "split-spring: the tagged reload printed no app path" >&2
@@ -174,6 +190,8 @@ if [[ -z "$app" ]]; then
     fi
   fi
 fi
+heartbeat_stop
+trap - EXIT
 if [[ -n "$cache" && -d "$cache/$key" ]]; then
   [[ "$build_only" == 1 ]] && touch "$cache/$key/pin"
   # Keep the 3 newest unpinned apps; a pin younger than 13 h (780 min) keeps its app whatever its age.
@@ -196,7 +214,14 @@ if [[ "$build_only" == 1 ]]; then
   exit 0
 fi
 
-vdisplay_pid="" bench_pid="" measuring=0
+vdisplay_pid="" bench_pid="" measuring=0 spin_pids=()
+# shellcheck disable=SC2329 # run by cleanup
+stop_cpu_load() {
+  local pid
+  for pid in ${spin_pids[@]+"${spin_pids[@]}"}; do kill "$pid" 2>/dev/null || true; done  # the spinners this script started, by PID
+  for pid in ${spin_pids[@]+"${spin_pids[@]}"}; do wait "$pid" 2>/dev/null || true; done
+  spin_pids=()
+}
 stop_vdisplay() {
   if [[ -n "$vdisplay_pid" ]]; then
     kill "$vdisplay_pid" 2>/dev/null || true  # the helper this script started, by its PID
@@ -212,6 +237,7 @@ cleanup() {
     kill -TERM "$bench_pid" 2>/dev/null || true  # the bench this script started, by its PID
     wait "$bench_pid" 2>/dev/null || true
   fi
+  stop_cpu_load
   if [[ "$measuring" == 1 ]]; then
     python3 scripts/cmux-next/tag_teardown.py "$app" || true
   fi
@@ -284,6 +310,17 @@ PY
   echo "$line" > "$out/display.txt"
 fi
 
+cpu_load_json='null'
+if [[ "$cpu_load" == 1 ]]; then
+  ncpu="$(sysctl -n hw.ncpu)"
+  spinners=$((ncpu / 4 + 1))
+  cc -O2 -o "$out/spin" scripts/measure/qos-load-bench/spin.c
+  for _ in $(seq "$spinners"); do "$out/spin" & spin_pids+=($!); done
+  cpu_load_json="{\"spinners\": $spinners, \"threads\": $((spinners * 4)), \"ncpu\": $ncpu}"
+  echo "split-spring: CPU-LOAD $spinners spinners, $((spinners * 4)) threads on $ncpu cores"
+  sleep 2  # let the scheduler fill every core before the app launches
+fi
+
 status=0
 measuring=1
 # In the background and waited for, so a TERM reaches the trap at once (bash runs a trap only between commands).
@@ -292,11 +329,12 @@ python3 scripts/cmux-next/split-spring-terminal.py --tag "$tag" --app "$app" --o
 bench_pid=$!
 wait "$bench_pid" || status=$?
 bench_pid=""
+stop_cpu_load
 # Every report the step returns says which display it measured on (the perf cron reads `display.refresh_ms`) and the
 # host's macOS version.
 for report in "$out/report.json" "$out/perf-gate.json"; do
   [[ -f "$report" ]] || continue
-  python3 - "$report" "$display_json" "$macos" <<'PY' || echo "split-spring: could not add the display to $report" >&2
+  python3 - "$report" "$display_json" "$macos" "$cpu_load_json" <<'PY' || echo "split-spring: could not add the display to $report" >&2
 import json, sys
 path, display = sys.argv[1], json.loads(sys.argv[2])
 with open(path) as f:
@@ -304,6 +342,7 @@ with open(path) as f:
 if isinstance(report, dict):
     report["display"] = display
     report["macos"] = sys.argv[3] or None
+    report["cpu_load"] = json.loads(sys.argv[4])
     with open(path, "w") as f:
         json.dump(report, f, indent=1)
 PY

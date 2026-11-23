@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextWakeups
 import Foundation
 
 /// When cmux turns on the fork's popup windows. Fork API 11 (release
@@ -12,6 +13,10 @@ nonisolated enum CEFPopupWindows {
     static let minimumForkAPI = 13
 
     static func isEnabled(forkAPIVersion: Int) -> Bool { forkAPIVersion >= minimumForkAPI }
+
+    /// How long a kept popup window may wait for its panel. A panel attaches in the turn it shows,
+    /// or when its view first reaches a window; a window still hidden after this never will.
+    static let attachLimit: Duration = .seconds(10)
 
     /// True when `bounds` (a CMUX_POPUP_WINDOW_BOUNDS report) is only the
     /// attached window following the panel's view (`hostFrame`, the view in
@@ -58,7 +63,25 @@ extension CEFPaneHost {
         }
         tab.reachedFirstRealPage(settled: true)
         tab.inheritDelegates(from: opener)
+        host.closeUnattachedPopupWindow(tab)
         opener.emit(.openPopup(tab, BrowserPopupRequest(features: bounds)))
+    }
+
+    /// A kept popup window that no panel attaches within ``CEFPopupWindows/attachLimit`` closes its tab,
+    /// so its extension gets `chrome.windows.onRemoved` (Bitwarden's passkey popout then falls back to
+    /// the browser's own passkey). Before, a window no handler showed stayed hidden for good and the
+    /// extension waited for ever; Chrome shows each such window, and the person closes it.
+    func closeUnattachedPopupWindow(_ tab: CEFTab) {
+        let window = popupWindow ?? 0
+        let deadline = DemandTimer(owner: "CEFPaneHost.popupAttach", clock: runtime.clock)
+        popupAttachDeadline = deadline
+        // A deadline, not a poll: an attach cancels it, a closed tab makes it do nothing.
+        deadline.schedule(after: CEFPopupWindows.attachLimit) { @MainActor [weak self, weak tab] in
+            guard let self, let tab, !tab.isClosed, self.window == .none else { return }
+            self.runtime.logger.error("CEF popup window \(window) was not shown; closing it")
+            self.runtime.notePopupWindow("window=\(window) closed: no panel attached it")
+            tab.close()
+        }
     }
 
     /// The panel shows the popup: the hidden window is attached over this
@@ -77,6 +100,8 @@ extension CEFPaneHost {
         if shim.popupWindowAttach(popupWindow, Unmanaged.passUnretained(hostView).toOpaque(),
                                   max(size.width, 1).clampedInt32, max(size.height, 1).clampedInt32) == 1 {
             window = .live(window: popupWindow)
+            popupAttachDeadline?.cancel()
+            popupAttachDeadline = nil
             lastActivated = browser
             _ = shim.tabActivate(browser)
             hostView.postGeometryChange()
@@ -100,13 +125,20 @@ extension CEFRuntime {
         }
     }
 
-    /// The tab a popup window opens over: the last shown pane's tab, else
-    /// any other shown pane's (the last shown pane may have lost its tab,
-    /// as when an extension removed a tab it had moved there).
+    /// The tab a popup window opens over: the last shown web pane's tab when
+    /// that pane is in a window, else another web pane's in a window, else the
+    /// last shown web pane's or any web pane's (the last shown pane may have
+    /// lost its tab, as when an extension removed a tab it had moved there; a
+    /// pane in no window defers the attach). A web pane has a regular profile's
+    /// store: an extension's window (`chrome.windows.create`) belongs to one,
+    /// and a cmux page (Home, an agent chat, New Tab; its store is off the
+    /// record) lets no popup open, so the window closed at once. Nil when no
+    /// web pane shows: the window closes and the extension sees it removed.
     func popupWindowOpener() -> CEFTab? {
-        if let tab = lastShownHost?.visibleTab { return tab }
-        let panes = hosts.values.filter { !$0.holdsOwnTab && $0.visibleTab != nil }
-        return (panes.first { $0.hostView.window != nil } ?? panes.first)?.visibleTab
+        let panes = hosts.values.filter { $0.hostsExtensionWindows && $0.visibleTab != nil }
+        let last = lastShownWebHost.flatMap { last in panes.first { $0 === last } }
+        if let last, last.hostView.window != nil { return last.visibleTab }
+        return (panes.first { $0.hostView.window != nil } ?? last ?? panes.first)?.visibleTab
     }
 
     private func adoptPopupWindow(window: Int32, browser: Int32) {

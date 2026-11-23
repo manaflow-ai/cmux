@@ -51,6 +51,14 @@ public protocol AgentSignInSource: AnyObject {
     func installAgent(_ id: String) async -> String?
     /// The agent's mark at `side` points, nil for the generic glyph.
     func agentIcon(_ agent: OnboardingAgent, side: CGFloat) -> NSImage?
+    /// Chief answers through a configured Claude route (CodeRouter, subrouter) rather than the person's own
+    /// Claude Code, so a missing or signed-out Claude Code does not stop it (optchat-chief `default_harness`).
+    var chiefUsesRoute: Bool { get }
+}
+
+extension AgentSignInSource {
+    /// No route by default: Chief answers through the person's own Claude Code.
+    public var chiefUsesRoute: Bool { false }
 }
 
 /// The first-run Agents step: each installed agent CLI with its sign-in and a Sign In that

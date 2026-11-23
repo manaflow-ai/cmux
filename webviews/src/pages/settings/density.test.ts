@@ -65,10 +65,11 @@ test("a custom density round-trips and passes the settings check", () => {
 // Austin 2026-11-05: five densities in this order, Default (id cozy) in the middle; Lucas 2026-11-13: its
 // rows are 30 pt and its text the ChatGPT app's 14 pt; Comfortable and Spacious above it.
 // The previews draw what the app draws (Swift TabsFollowRowsTests): tabs as tall as the rows, and a strip that
-// grows with them.
+// grows with them. Default's strip is its 30 pt tab and its 5 pt strip padding (Lucas 2026-11-20, Chrome's tab top),
+// Comfortable's and Spacious's that padding times 1.1 and 1.2 (5.5 pt, and 6.5 pt for Spacious's half-point bar).
 test("every preset's tabs and strip are the app's", () => {
   expect(PRESETS.map((preset) => resolve(preset).tabHeight)).toEqual([24, 28, 30, 32, 36]);
-  expect(PRESETS.map((preset) => resolve(preset).tabStripHeight)).toEqual([29, 33, 36, 39, 43]);
+  expect(PRESETS.map((preset) => resolve(preset).tabStripHeight)).toEqual([29, 33, 40, 43, 49]);
   // A copy of a built-in keeps following its rows: no preset pins its tab height.
   expect(PRESETS.some((preset) => preset.tokens?.tabHeight !== undefined)).toBe(false);
 });
@@ -78,7 +79,7 @@ test("Default is the Codex-size middle density, and sizes grow in order", () => 
   const sizes = PRESETS.map((preset) => resolve(preset));
   expect(sizes[2]!.body).toBe(14);
   expect(sizes[2]!.sidebarRowHeight).toBe(30);
-  expect(sizes[2]).toMatchObject({ tabHeight: 30, tabStripHeight: 36, itemCornerRadius: 9 });
+  expect(sizes[2]).toMatchObject({ tabHeight: 30, tabStripHeight: 40, itemCornerRadius: 9 });
   expect(sizes[1]).toMatchObject({ body: 12.6, sidebarRowHeight: 28 });
   for (let index = 1; index < sizes.length; index += 1) {
     expect(sizes[index]!.body).toBeGreaterThanOrEqual(sizes[index - 1]!.body);
@@ -126,7 +127,10 @@ test("duplicating and exporting a preset preserves the native chrome and compose
       expect(density.tokens?.composerZoom).toBe(factor);
       expect(density.tokens?.tabTitleSize).toBeCloseTo(14 * factor);
       expect(density.tokens?.sidebarTitleSize).toBeCloseTo(14 * factor);
-      expect(density.tokens?.omnibarHeight).toBe(Math.round(29 * factor * 2) / 2);
+      // Helium's 28 pt bar at Compact; Default's is Chrome's 34.
+      expect(density.tokens?.omnibarHeight).toBe(factor === 1 ? 34 : Math.round((28 / 0.9) * factor * 2) / 2);
+      // Default's capitals are 11 pt, Compact's 10, with the smoothing's 0.31 pt.
+      if (factor === 1) expect(density.tokens?.omnibarFontSize).toBeCloseTo((11 - 0.31) / 0.70459);
       expect(density.tokens?.sidebarRowHeight).toBe([22.5, 26, 28, 30, 33.5][index]);
       expect(resolve(density)).toEqual(resolve(base));
     }

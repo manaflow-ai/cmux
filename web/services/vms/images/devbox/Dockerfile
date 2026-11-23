@@ -393,6 +393,13 @@ RUN mkdir -p /etc/cmux/blesh-cache-seed \
 # ships no generated config.
 COPY agent-config.sh /etc/cmux/agent-config.sh
 COPY claude-onboarding.py /etc/cmux/claude-onboarding.py
+# Claude Code user-settings defaults: messages from the person's other Claude
+# Code sessions are delivered, not held (Leo, 2026-11-18: "they shouldnt hold
+# em"). User settings, not managed ones, so the person's own value wins
+# (devboxClaudeSettingsDefaultsCommand).
+RUN python3 -I /etc/cmux/claude-onboarding.py --settings-default /root/.claude/settings.json \
+  && sudo -n -u cmux python3 -I /etc/cmux/claude-onboarding.py --settings-default /home/cmux/.claude/settings.json \
+  && python3 -c 'import json; assert all("crossSessionInbound" in (row := json.load(open(p))) and row["crossSessionInbound"] in ("accept", "hold", "refuse") for p in ["/root/.claude/settings.json", "/home/cmux/.claude/settings.json"])'
 # Agent sign-in launchers: /usr/local/bin/<agent> resolves the team or
 # own-login mode per launch (agent-auth.sh) and execs
 # /usr/local/libexec/cmux-<agent>-real. mise's shims come first on PATH, so

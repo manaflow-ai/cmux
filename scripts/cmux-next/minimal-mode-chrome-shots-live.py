@@ -8,7 +8,8 @@ tagged app (no activation, automation socket, its own cmux.json with one pinned 
 second tab, and for each mode (`default`: no `sidebar.minimal`; `minimal`: `sidebar.minimal` true) writes window
 snapshots, light and dark, with the pointer away (`rest`), over the sidebar (`hover-sidebar`) and over the tab bar
 (`hover-tabbar`), plus a crop of the window's top rows. It writes the pane toolbar's `debug.pane_chrome` report per
-state. The user's 2026-11-15 ask ("by default, all buttons should be visible, not fade into view on hover ... only
+state. `--cards` stages an update first, so the Restart to Update card shows (it must hide with the pointer away in
+Minimal Mode, user 2026-11-17). The user's 2026-11-15 ask ("by default, all buttons should be visible, not fade into view on hover ... only
 when minimal mode is enabled, we should hide the buttons ...") is the Before/After this shows.
 """
 import argparse, json, os, plistlib, socket, subprocess, sys, tempfile, time
@@ -28,6 +29,9 @@ parser.add_argument("--densities", default="")
 # Records the window (debug.window_record, a JPEG per display frame) in Minimal Mode while the pointer enters the
 # sidebar and leaves it (Lawrence 2026-11-15, msg 34327: the footer's height goes to the list at rest, animated).
 parser.add_argument("--record", action="store_true")
+# Stages an update (the Restart to Update card) and fills the list before the shots (user 2026-11-17, msg 38388:
+# "minimal mode should hide everything in sidebar including cards like update, iff user is not hovered in sidebar").
+parser.add_argument("--cards", action="store_true")
 opts = parser.parse_args()
 os.makedirs(opts.out, exist_ok=True)
 SOCKET = os.environ.get("NX_APP_SOCKET") or f"/tmp/cmux-debug-{opts.tag}.sock"
@@ -191,6 +195,12 @@ try:
         for _ in range(20):
             rpc("action.run", {"action": "workspace.newAtBottom", "args": {}, "focus": False, "origin": "script"})
             time.sleep(0.3)  # capture harness: the new row settles
+    if opts.cards:
+        for _ in range(8):
+            rpc("action.run", {"action": "workspace.newAtBottom", "args": {}, "focus": False, "origin": "script"})
+            time.sleep(0.3)  # capture harness: the new row settles
+        safe_print("stage", json.dumps(rpc("debug.updater", {"action": "stage", "version": "1.99.0"}))[:200], flush=True)
+        time.sleep(1.5)  # capture harness: the card's entrance ends
     if densities:
         # A few workspaces and a group, so the list's row heights read in the shots.
         for name in ("workspace.newAtBottom", "workspace.newAtBottom", "workspace.newInNewGroup", "workspace.newBelow"):

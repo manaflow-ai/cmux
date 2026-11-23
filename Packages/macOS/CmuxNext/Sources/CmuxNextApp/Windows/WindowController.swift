@@ -10,6 +10,7 @@ import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextDesign
+import CmuxNextFocusUI
 import CmuxNextLayout
 import CmuxNextAppCore
 import CmuxNextSettings
@@ -229,10 +230,10 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         titleObservation?.cancel()
         titleObservation = WindowListTitleObservation.start(values: { [weak self] in
             guard let self else { return (nil, nil, false, false) }
-            let workspace = self.state.workspaceID.flatMap { self.services.machines.workspace(id: $0)?.0 }
-            let names = WorkspaceAutoNameWiring(services: self.services, workspace: workspace)
+            let workspace = self.state.workspaceID.flatMap { self.services.machines.workspace(id: $0)?.0 }, names = WorkspaceAutoNameWiring(services: self.services, workspace: workspace)
             let title = workspace.map { names.reader.titlebarName($0) { self.state.selection.selection(in: $0.id) } }
-            return (spaceName: self.services.machines.local.store.profile(self.state.profileID)?.name,
+            let local = self.services.machines.local, spaces = SidebarSpaceBar.profiles(local, window: self.state.id, windows: self.services.windows).count
+            return (spaceName: spaces > 1 ? local.store.profile(self.state.profileID)?.name : nil, // the strip's rule: no space shows until a second
                     workspaceName: title, incognito: workspace.map { self.services.windows.isIncognito(workspace: $0) }
                         ?? self.services.windows.isIncognito(window: self.state.id),
                     showsWorkspaceChrome: self.state.page == nil && self.content != nil)
@@ -383,6 +384,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         // next key window is known on the next main-actor turn.
         Task { @MainActor [weak self] in
             guard let self, let window = self.window else { return }
+            self.services.notifications.focusDidSettle(self.focus.state, in: self) // the new key window may be its page's
             WindowKeyFamily.windowResignedKey(window, newKey: NSApp.keyWindow, owner: { $0.parent ?? $0.sheetParent },
                                               presenters: self.content?.panes.values.map { $0 as any SurfacePresenter } ?? [],
                                               cache: self.services.cache)
@@ -525,9 +527,11 @@ final class ShellWindow: NSWindow, FocusRouting, OverlayPlaneHosting, BrowserWin
     override func addChildWindow(_ childWin: NSWindow, ordered place: NSWindow.OrderingMode) {
         // Only the overlay host panel and page windows belong here (debug and test builds record the rest).
         ChildWindowPolicy.check(childWin, parent: self)
+        ChromiumPageWindowMissionControl.keepOut(childWin) // a parked page's input window, 100 000 pt off, shrank Mission Control to nothing (cmux#48535)
         super.addChildWindow(childWin, ordered: place)
         if WindowOverlayLayer.isContent(childWin) { overlayLayer.evaluate() }
         WindowOverlayHost.childWindowsDidChange(of: self)
+        if childWin.isChromiumPageWindow, let c = windowController as? WindowController { c.services.notifications.focusDidSettle(c.focus.state, in: c) } // a page window that took the keys first (a chat still loading) holds them only now, with no key change: look again (cmux#46908)
     }
 
     /// The display cycle's layout pass (`-[NSWindow layoutIfNeeded]`).
@@ -544,12 +548,12 @@ final class ShellWindow: NSWindow, FocusRouting, OverlayPlaneHosting, BrowserWin
         let began = traced ? CACurrentMediaTime() : 0
         defer { if traced { DebugWindowTransition.shared.noteLayoutPass(self, seconds: CACurrentMediaTime() - began) } }
         #endif
+        let layouts = LayoutPassGuard.shared.viewLayoutCalls // AppKit runs this pass before every display (each key): one that laid out no view moved no traffic light
         overlayLayer.windowWillLayout()
         super.layoutIfNeeded()
-        // The outermost pass only, and before the overlay layer's own
-        // after-pass work, so an occluder change it causes joins that work.
+        // The outermost pass only, and before the overlay layer's own after-pass work, so an occluder change it causes joins that work.
         if overlayLayer.layoutDepth == 1 {
-            (contentView as? WindowRootView)?.windowDidLayout()
+            (contentView as? WindowRootView)?.windowDidLayout(placesTrafficLights: !LayoutPassGuard.shared.isInstalled || LayoutPassGuard.shared.viewLayoutCalls != layouts)
             let blocks = pendingAfterLayout
             pendingAfterLayout.removeAll()
             for block in blocks { block() }

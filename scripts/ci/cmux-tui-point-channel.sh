@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Point cmux-tui/channels/<channel>.json at a published, daemon-tested tree:
-# {"key", "commit", "binaries": {"cmux-tui-acpmux-<target>": sha256}}. Linux
+# {"key", "commit", "binaries": {"cmux-tui-acpmux-<target>": sha256, and
+# "cmux-tui-rd-<gnu target>": sha256 when the tree carries cmux-rd}}. Linux
 # hosts read it to keep their daemon on the newest build by themselves
 # (`acpmux host self-update`, run by their acpmux-update.timer). A tree without
 # the daemon-tests.json marker is not pointed at.
@@ -63,11 +64,12 @@ if completion.get("key") != key or not isinstance(completion.get("binaries"), di
 binaries = {
     name: digest
     for name, digest in completion["binaries"].items()
-    if name.startswith("cmux-tui-acpmux-") and isinstance(digest, str) and re.fullmatch(r"[0-9a-f]{64}", digest)
+    if (name.startswith("cmux-tui-acpmux-") or re.fullmatch(r"cmux-tui-rd-(x86_64|aarch64)-unknown-linux-gnu", name))
+    and isinstance(digest, str) and re.fullmatch(r"[0-9a-f]{64}", digest)
 }
-if not binaries and channel.startswith("windows-"):
+if not any(name.startswith("cmux-tui-acpmux-") for name in binaries) and channel.startswith("windows-"):
     sys.exit(10)
-if not binaries:
+if not any(name.startswith("cmux-tui-acpmux-") for name in binaries):
     raise SystemExit(f"error: tree {key} lists no acpmux binaries")
 print(json.dumps({"key": key, "commit": os.environ["GITHUB_SHA"], "binaries": binaries}, indent=2, sort_keys=True))
 PY
