@@ -535,6 +535,56 @@
             "generated": false,
             "module": "CmuxNextCompat"
           }
+        },
+        {
+          "key": "notifications.toast.style",
+          "name": "toastStyle",
+          "note": "A theme hook: themes set it in cmux.json. A pick in the Toast Playground (Debug) wins over it (CmuxToastStyleStore). CmuxToastStyle has more cases; only these are settable here.",
+          "title": {
+            "key": "settings.notifications.toastStyle",
+            "text": "Toast Style"
+          },
+          "help": {
+            "key": "settings.notifications.toastStyle.help",
+            "text": "How toasts and prompts draw: glass, an opaque surface, or flat with a thin edge and no shadow."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "standard",
+              "title": {
+                "key": "settings.choice.glass",
+                "text": "Glass"
+              }
+            },
+            {
+              "value": "solid",
+              "title": {
+                "key": "settings.choice.editor.solid",
+                "text": "Solid"
+              }
+            },
+            {
+              "value": "flat",
+              "title": {
+                "key": "settings.choice.chromeStyle.flat",
+                "text": "Flat"
+              }
+            }
+          ],
+          "default": "standard",
+          "keywords": [
+            "toast",
+            "theme",
+            "flat",
+            "glass"
+          ],
+          "page_hidden": "a theme hook, set in cmux.json by themes; the Toast Playground picks a style on the page",
+          "swift_enum": {
+            "name": "CmuxToastStyle",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          }
         }
       ]
     },
