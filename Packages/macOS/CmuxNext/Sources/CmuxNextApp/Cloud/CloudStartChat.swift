@@ -313,27 +313,38 @@ extension CloudStartChat {
     /// ``CloudSetup/connectionsChanged()`` on every `cmux.settings.models.changed`.
     /// The agents the gateway of the team a start's machine is made in serves now, for the start gate
     /// (``CloudSetup/gateway``; hq#15762): a team in inference gateway mode, its gateway online, serves a chat with no
-    /// connection of the person's own. The team is the install token's (the one the machine is made in), never the active
-    /// team's. The token waits for this launch's bind, as the relay's does: a start right after launch otherwise read no
+    /// connection of the person's own. The teams are the install token's and the person's own (#51322; production makes
+    /// the machine in either), never the active team's. The token waits for this launch's bind, as the relay's does: a start right after launch otherwise read no
     /// team and refused ("No Cloud connection serves claude yet") with the gateway online (hq cloud-chat-works,
     /// production 2026-11-23 00:03Z and 00:34Z). Each unread or empty answer logs why.
     @MainActor static func gatewayServes(_ services: AppServices) async -> Set<String>? {
         let log = services.cloud.logger
         guard !services.accounts.agentKeys.scopeIsSignedOut else { log.info("cloud start gate: gateway unread: no team scope"); return nil }
         guard let binary = services.cloud.move.cli else { log.error("cloud start gate: gateway unread: no bundled cmux"); return nil }
-        let token: String
-        do { token = try await services.cloud.installIdentity.installToken(awaitingBind: .seconds(8)) } catch {
-            log.error("cloud start gate: gateway unread: install token: \(String(describing: error), privacy: .public)")
-            return nil
+        var installTeam: String?
+        do {
+            let token = try await services.cloud.installIdentity.installToken(awaitingBind: .seconds(8))
+            installTeam = MacInstallIdentity.team(ofToken: token)
+            if installTeam == nil { log.error("cloud start gate: the install token names no team") }
+        } catch {
+            log.error("cloud start gate: install token: \(String(describing: error), privacy: .public)")
         }
-        guard let team = MacInstallIdentity.team(ofToken: token) else { log.error("cloud start gate: gateway unread: the install token names no team"); return nil }
-        let read = await CloudMoveCLI(binary: binary).inferenceGatewayRead(team: team)
-        if let serves = read.serves {
-            log.info("cloud start gate: team \(team, privacy: .public) gateway serves [\(serves.sorted().joined(separator: ","), privacy: .public)]")
-        } else {
-            log.error("cloud start gate: team \(team, privacy: .public) gateway unread: \(read.why ?? "-", privacy: .public)")
+        let auth = services.cloud.auth
+        // The person's own team too (#51322): production makes a start's machine there while the install token names another.
+        let personal = auth.managedTeamID == nil ? auth.user.map { GitHubConnections.personalTeam(user: GitHubConnections.backendUser(project: auth.configuration.stackProjectID, stackUser: $0.id)) } : nil
+        let cli = CloudMoveCLI(binary: binary)
+        var asked: Set<String> = [], serves: Set<String>?
+        for team in [installTeam, personal].compactMap({ $0 }) where asked.insert(team).inserted {
+            let read = await cli.inferenceGatewayRead(team: team)
+            if let answer = read.serves {
+                log.info("cloud start gate: team \(team, privacy: .public) gateway serves [\(answer.sorted().joined(separator: ","), privacy: .public)]")
+                serves = (serves ?? []).union(answer)
+            } else {
+                log.error("cloud start gate: team \(team, privacy: .public) gateway unread: \(read.why ?? "-", privacy: .public)")
+            }
         }
-        return read.serves
+        if asked.isEmpty { log.error("cloud start gate: gateway unread: no team to ask") }
+        return serves
     }
 
     @MainActor static func wireSetup(_ services: AppServices) {
