@@ -220,7 +220,7 @@ fn activity_cache_is_bounded_under_mutation_and_keeps_the_last_update() {
         let stop = stop.clone();
         thread::spawn(move || {
             for _ in 0..32 {
-                hub.test_set_status("live", NotWaiting::Running);
+                hub.test_set_status("live", SessionStatus::Running);
                 hub.test_set_status("live", SessionStatus::Waiting);
                 thread::yield_now();
             }
@@ -264,11 +264,11 @@ fn activity_cache_follows_live_status_transitions() {
     hub.test_append_activity("live", "message", json!({}));
     hub.test_set_status("live", SessionStatus::Waiting);
     assert_eq!(decorate(&hub)["attention"], "needsInput");
-    hub.test_set_status("live", NotWaiting::Running);
+    hub.test_set_status("live", SessionStatus::Running);
     assert_eq!(decorate(&hub)["attention"], Value::Null);
-    hub.test_set_status("live", NotWaiting::Closed);
+    hub.test_set_status("live", SessionStatus::Closed);
     assert_eq!(decorate(&hub)["attention"], Value::Null);
-    hub.test_set_status("live", NotWaiting::Idle);
+    hub.test_set_status("live", SessionStatus::Idle);
     assert_eq!(decorate(&hub)["attention"], Value::Null);
 }
 
