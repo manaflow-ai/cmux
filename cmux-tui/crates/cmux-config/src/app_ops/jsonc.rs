@@ -38,7 +38,7 @@ pub fn position_of(request: &Value) -> Result<Value, OpError> {
         return Ok(json!({}));
     }
     let Some(offset) = jsonc::member_start(source, &path) else { return Ok(json!({})) };
-    let before = &source[..offset];
+    let Some(before) = source.get(..offset) else { return Ok(json!({})) };
     let line = before.matches('\n').count() + 1;
     let column = before.rsplit('\n').next().unwrap_or("").encode_utf16().count() + 1;
     Ok(json!({ "line": line, "column": column }))

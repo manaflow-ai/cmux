@@ -44,6 +44,11 @@ fn array<'a>(request: &'a Value, key: &str) -> Result<&'a Vec<Value>, OpError> {
         .ok_or_else(|| OpError::Invalid(format!("expected an array `{key}`")))
 }
 
+/// The `id` of a density object, or "".
+fn id_of(density: &Value) -> &str {
+    density.get("id").and_then(Value::as_str).unwrap_or_default()
+}
+
 fn density(value: &Value) -> Option<Value> {
     let members = value.as_object()?;
     let id = members.get("id")?.as_str()?;
@@ -138,7 +143,7 @@ fn densities_parse(request: &Value) -> Result<Value, OpError> {
                 .push(json!({"path": path, "message": "expected an object with an id and a name"}));
             continue;
         };
-        let id = item["id"].as_str().unwrap_or_default();
+        let id = id_of(&item);
         if built_in_density(id) || !ids.insert(id.to_owned()) {
             diagnostics
                 .push(json!({"path": path, "message": format!("the id \"{id}\" is already used")}));
@@ -178,12 +183,12 @@ fn densities_writes(request: &Value) -> Result<Value, OpError> {
             .collect::<Result<_, _>>()?;
         writes.push(json!({"path": ["appearance", "customDensities"], "value": values}));
     }
-    if built_in_density(active["id"].as_str().unwrap_or_default()) {
-        writes.push(json!({"path": ["appearance", "density"], "value": active["id"].clone()}));
+    let active_id = active.get("id").cloned().unwrap_or(Value::Null);
+    if built_in_density(id_of(&active)) {
+        writes.push(json!({"path": ["appearance", "density"], "value": active_id}));
         writes.push(json!({"path": ["appearance", "customDensity"], "value": Value::Null}));
     } else {
-        writes
-            .push(json!({"path": ["appearance", "customDensity"], "value": active["id"].clone()}));
+        writes.push(json!({"path": ["appearance", "customDensity"], "value": active_id}));
     }
     Ok(json!({"writes": writes}))
 }
@@ -221,18 +226,22 @@ fn densities_duplicate(request: &Value) -> Result<Value, OpError> {
     let mut copy = density(value(request, "base")?)
         .ok_or_else(|| OpError::Invalid("invalid density".to_owned()))?;
     let name = string(request, "name")?.to_owned();
-    copy["name"] = json!(name);
-    if built_in_density(copy["id"].as_str().unwrap_or_default()) {
-        copy["basedOn"] = copy["id"].clone();
+    let based_on = built_in_density(id_of(&copy)).then(|| copy.get("id").cloned()).flatten();
+    let Some(members) = copy.as_object_mut() else {
+        return Err(OpError::Invalid("invalid density".to_owned()));
+    };
+    members.insert("name".to_owned(), json!(name));
+    if let Some(based_on) = based_on {
+        members.insert("basedOn".to_owned(), based_on);
     }
     let unique = densities_unique_id(
         &json!({"name": name, "existing": request.get("existing").cloned().unwrap_or_else(|| json!([]))}),
     )?;
-    copy["id"] = unique["id"].clone();
+    members.insert("id".to_owned(), unique.get("id").cloned().unwrap_or(Value::Null));
     if let Some(font_size) =
         request.get("fontSize").and_then(Value::as_f64).filter(|x| x.is_finite())
     {
-        copy["fontSize"] = json!(font_size.clamp(9.0, 20.0));
+        members.insert("fontSize".to_owned(), json!(font_size.clamp(9.0, 20.0)));
     }
     Ok(json!({"value": copy}))
 }
@@ -273,7 +282,11 @@ fn backdrop_previous(request: &Value) -> Result<Value, OpError> {
         .and_then(|value| value.get("background"))
         .and_then(Value::as_str)
         .unwrap_or("none");
-    let recents = backdrop_recents(request)?["recents"].as_array().cloned().unwrap_or_default();
+    let recents = backdrop_recents(request)?
+        .get("recents")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
     let recents = recents.iter().filter_map(Value::as_str).map(str::to_owned).collect::<Vec<_>>();
     Ok(match schema::previous_background(current, &recents) {
         Some(value) => json!({"value": value}),
@@ -410,8 +423,9 @@ fn managed_guard_set(request: &Value) -> Result<Value, OpError> {
             return Some((key.as_str(), source));
         }
         let value = request.get("value")?;
-        if managed_path.starts_with(&path) {
-            let rest = &managed_path[path.len()..];
+        if managed_path.starts_with(&path)
+            && let Some(rest) = managed_path.get(path.len()..)
+        {
             if crate::value::value_at(value, rest).is_some() {
                 return Some((key.as_str(), source));
             }
