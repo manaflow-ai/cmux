@@ -245,6 +245,11 @@ fn every_lamina_recipe_carries_a_theme_file_the_reader_takes_whole_and_a_squarer
     for name in names {
         let profile = find(name).unwrap().profile().unwrap();
         assert_eq!(profile.settings.get("appearance.themeFile"), Some(&serde_json::json!(name)));
+        assert_eq!(
+            profile.settings.get("notifications.toast.style"),
+            Some(&serde_json::json!("flat")),
+            "{name}: the native toast is flat, not a glass pill"
+        );
         let theme = profile.files.get(&format!("themes/{name}.json")).expect("a theme file");
         let read = cmux_config::theme_file::ThemeFile::read(
             name,
