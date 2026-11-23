@@ -90,6 +90,7 @@ pub const ACPMUX_REQUEST_META: &[&str] = &[
     "cancelToken",
     "class",
     "cliHost",
+    "cliOverSsh",
     "compression",
     "context",
     "createdBy",

@@ -190,6 +190,9 @@ pub(crate) struct PromptId {
     /// inbox would hold without waking it is refused at once (`send.not_woken`) instead of
     /// leaving the send waiting for a turn that does not come (`hub/inbox.rs`).
     pub wake_or_fail: bool,
+    /// An unnamed send under an ssh login no carry started (`_meta.acpmux.cliOverSsh`,
+    /// `cli/sender.rs` `over_ssh`): never the person's own terminal send.
+    pub over_ssh: bool,
 }
 
 impl PromptId {
@@ -212,6 +215,7 @@ impl PromptId {
                 subagent: None,
                 sender_token: None,
                 wake_or_fail: false,
+                over_ssh: false,
             },
             None => Self {
                 id: uuid::Uuid::now_v7().to_string(),
@@ -230,6 +234,7 @@ impl PromptId {
                 subagent: None,
                 sender_token: None,
                 wake_or_fail: false,
+                over_ssh: false,
             },
         }
     }
@@ -288,6 +293,9 @@ impl PromptId {
         }
         if self.wake_or_fail {
             mux.set(WAKE_OR_FAIL_META, json!(true));
+        }
+        if self.over_ssh {
+            mux.set(crate::cli::sender::OVER_SSH_META, json!(true));
         }
         if let Some(token) = &self.sender_token {
             mux.set(crate::sender_token::META_KEY, token.to_value());

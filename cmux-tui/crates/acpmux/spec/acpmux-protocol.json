@@ -2510,6 +2510,7 @@
         "cancelToken": true,
         "class": true,
         "cliHost": true,
+        "cliOverSsh": true,
         "compression": true,
         "context": true,
         "createdBy": true,
