@@ -12,6 +12,7 @@ import { useStore } from "../context";
 import { SHARES_KEY, sharesQuery } from "../sectionQueries";
 import { shareDate, sharedLinkRows, type SharedLinkRow } from "../sharedLinks";
 import { locale, t } from "../strings";
+import { WithFacts } from "../../../agent-session/acpmux/chips/FactsHoverCard";
 
 export function SharedLinksCard({ reveal = false }: { reveal?: boolean }) {
   const store = useStore();
@@ -179,15 +180,19 @@ export function SharedLinksList({
         }
         if (layout === "compact") {
           return (
-            <div className="row" data-shared-link={row.id} key={row.id} aria-description={sharedLinkDetail(row, now)}>
-              <div className="row-main">
-                <span className="row-label">
-                  <span className="row-title">{chat}</span>
-                  <span className="row-help"> · {sharedLinkKind(row)}</span>
-                </span>
-                {revoke}
-              </div>
-            </div>
+            <WithFacts key={row.id} facts={[{ value: sharedLinkDetail(row, now) }]}>
+              {(facts) => (
+                <div {...facts} className="row" data-shared-link={row.id}>
+                  <div className="row-main">
+                    <span className="row-label">
+                      <span className="row-title">{chat}</span>
+                      <span className="row-help"> · {sharedLinkKind(row)}</span>
+                    </span>
+                    {revoke}
+                  </div>
+                </div>
+              )}
+            </WithFacts>
           );
         }
         return (

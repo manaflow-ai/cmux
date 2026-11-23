@@ -52,7 +52,7 @@ export default componentEntry<Props>({
   },
   covers: ["ui/hoverLook.css", "ui/hoverLook.ts#applyHoverLook", "ui/hoverLook.experiment.ts#hoverLook"],
   load: async () => HoverLookGallery,
-  styles: () => Promise.all([import("./HoverLook.gallery.css")]),
+  styles: () => import("./HoverLook.gallery.css"),
   variants: {
     off: { props: { look: "off" } },
     crisp: { props: { look: "crisp" } },

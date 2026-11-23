@@ -27,6 +27,11 @@ const OPENERS: &[(&str, &str)] = &[
          connect is the Computer Use worker's own socket",
     ),
     (
+        "hub/turn_shots.rs",
+        "connects to the browser host's socket (`CMUX_BROWSER_HOST_SOCKET`, else `bh-<digest>` \
+         beside `CMUX_TUI_SOCKET`), never the daemon's: the daemon's path only locates it",
+    ),
+    (
         "launch_credential.rs",
         "credential.mint in the cmux.protocol/2 envelope; an older daemon only means the \
          agent starts with no credential, as with no daemon",
