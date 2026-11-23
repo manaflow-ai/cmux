@@ -5,10 +5,13 @@ import {
   FALLBACK_REFUSAL_HEADER,
   INCLUDED_USAGE_NOTICE_HEADER,
   includedUsageNotice,
+  fallbackReservationCents,
+  requestedFields,
   requestedModel,
   UNPRICED_USD_PER_TOKEN,
   type ClaudeFallbackSpend,
   type FallbackRefusal,
+  type FallbackReservation,
 } from "./claudeFallback";
 import { estimateApiEquivalent } from "./apiEquivalentPricing";
 // The Claude leg of coderouter: serves the Anthropic Messages API to a guest
@@ -231,6 +234,8 @@ type Routed =
     readonly hold?: CapacityHoldStats;
     /** House route only: the team's included usage before this request. */
     readonly included?: { readonly spentCents: number; readonly capCents: number };
+    /** House route only: the request's hold on the cap, released once the response settles. */
+    readonly reservation?: FallbackReservation;
   }
   | {
     readonly kind: "exhausted";
@@ -259,7 +264,7 @@ export function createClaudeMessagesProxy(
       upstream.kind === "bedrock"
         ? bedrockMessages(dependencies, request, body.bytes, upstream, headersTimeoutMs)
         : anthropicRequest(dependencies, request, body.bytes, upstream, "/v1/messages", request.signal, headersTimeoutMs),
-    lazyModel(body.bytes));
+    houseRequest(body.bytes, true));
     if (routed.kind === "exhausted") {
       captureRouteHealth(dependencies, {
         ...health,
@@ -274,7 +279,7 @@ export function createClaudeMessagesProxy(
       });
       return routed.response;
     }
-    const { response, upstream } = routed;
+    const { response, upstream, reservation } = routed;
     const streamed = isStreamingResponse(response);
     captureRouteHealth(dependencies, {
       ...health,
@@ -302,8 +307,19 @@ export function createClaudeMessagesProxy(
     // The house route charges a completion the client cancels (or that
     // breaks) before its final usage; otherwise that usage is free past the
     // cap. Every other account keeps today's observer.
-    const observed = upstream.fallback && response.status >= 200 && response.status < 300
-      ? observeClaudeUsageCharged(response.body, { bytes: body.bytes?.byteLength ?? 0, model: requestedModel(body.bytes) }, onUsage)
+    const charged = upstream.fallback && response.status >= 200 && response.status < 300;
+    // An error answer costs nothing: its hold on the cap goes at once.
+    if (!charged) reservation?.release();
+    const observed = charged
+      ? observeClaudeUsageCharged(response.body, { bytes: body.bytes?.byteLength ?? 0, model: requestedModel(body.bytes) }, (usage) => {
+        // The charge is noted, then the hold released, in one tick: the
+        // request never counts twice and never drops out of the sums.
+        try {
+          onUsage(usage);
+        } finally {
+          reservation?.release();
+        }
+      })
       : observeClaudeUsage(response.body, onUsage);
     const notice = includedUsageNotice(routed.included);
     const headers = notice ? new Headers(response.headers) : response.headers;
@@ -327,7 +343,9 @@ export function createClaudeCountTokensProxy(
       upstream.kind === "bedrock"
         ? bedrockCountTokens(dependencies, request, body.bytes, upstream, headersTimeoutMs)
         : anthropicRequest(dependencies, request, body.bytes, upstream, "/v1/messages/count_tokens", request.signal, headersTimeoutMs),
-    lazyModel(body.bytes));
+    houseRequest(body.bytes, false));
+    // count_tokens is free: it holds nothing (no reserveCents), but release defensively.
+    if (routed.kind === "response") routed.reservation?.release();
     recordRoutedOutcome(routed, request);
     return routed.response;
   };
@@ -437,10 +455,10 @@ async function routeWithFailover(
   upstreamHeaderDeadlineAt: number,
   runtime: ClaudeProxyRuntime,
   send: (upstream: ClaudeUpstream, headersTimeoutMs: number) => Promise<Response>,
-  model?: () => string | null,
+  house?: HouseRequest,
 ): Promise<Routed> {
   const hold = new CapacityHold(runtime, runtime.now(), runtime.capacityHoldBudgetMs, upstreamHeaderDeadlineAt);
-  const routed = await routeRounds(dependencies, identity, request, surface, upstreamHeaderDeadlineAt, runtime, hold, send, model);
+  const routed = await routeRounds(dependencies, identity, request, surface, upstreamHeaderDeadlineAt, runtime, hold, send, house);
   if (hold.holdCount === 0) return routed;
   return { ...routed, hold: { heldMs: hold.heldMs, holdCount: hold.holdCount } };
 }
@@ -455,7 +473,7 @@ async function routeRounds(
   runtime: ClaudeProxyRuntime,
   hold: CapacityHold,
   send: (upstream: ClaudeUpstream, headersTimeoutMs: number) => Promise<Response>,
-  model?: () => string | null,
+  house?: HouseRequest,
 ): Promise<Routed> {
   const excluded: string[] = [];
   let lastFailure: { response: Response; upstream: ClaudeUpstream; stage: RouteFailureStage } | null = null;
@@ -499,7 +517,8 @@ async function routeRounds(
           stickyKey: stickyKey(identity),
           excludedAccountIds: excluded,
           signal,
-          ...(model ? { model } : {}),
+          ...(house ? { model: house.model } : {}),
+          ...(house?.reserveCents ? { reserveCents: house.reserveCents } : {}),
         }),
       );
       recordCoderouterSpan({
@@ -628,26 +647,38 @@ async function routeRounds(
       total: selection.total,
     });
     const attemptStartedAt = performance.now();
-    const headersTimeoutMs = remainingUpstreamHeadersTimeoutMs(
-      upstreamHeaderDeadlineAt,
-      runtime.now(),
-      runtime.upstreamHeadersTimeoutMs,
-    );
-    if (headersTimeoutMs === null) return deadlineResult(attempts, lastFailure);
-    const attempt = await sendClaudeAttempt(send, upstream, headersTimeoutMs, surface, request.signal);
-    const verdict = classifyAttempt(attempt);
-    recordClaudeAttempt(attemptStartedAt, upstream, attempts, surface, attempt, verdict);
-    if (verdict.kind === "done") {
-      void dependencies.touchUsed(upstream.accountId, request.signal).catch(() => undefined);
-      return {
-        kind: "response",
-        response: verdict.response,
-        upstream,
-        attempts,
-        failed: false,
-        failureStage: "none",
-        ...(selection.included ? { included: selection.included } : {}),
-      };
+    // House route: the request's hold on the cap goes with a done answer to
+    // the caller, and is released on every other way out of this attempt.
+    const reservation = selection.reservation;
+    let handedOff = false;
+    let attempt: Attempt;
+    let verdict: ReturnType<typeof classifyAttempt>;
+    try {
+      const headersTimeoutMs = remainingUpstreamHeadersTimeoutMs(
+        upstreamHeaderDeadlineAt,
+        runtime.now(),
+        runtime.upstreamHeadersTimeoutMs,
+      );
+      if (headersTimeoutMs === null) return deadlineResult(attempts, lastFailure);
+      attempt = await sendClaudeAttempt(send, upstream, headersTimeoutMs, surface, request.signal);
+      verdict = classifyAttempt(attempt);
+      recordClaudeAttempt(attemptStartedAt, upstream, attempts, surface, attempt, verdict);
+      if (verdict.kind === "done") {
+        void dependencies.touchUsed(upstream.accountId, request.signal).catch(() => undefined);
+        handedOff = true;
+        return {
+          kind: "response",
+          response: verdict.response,
+          upstream,
+          attempts,
+          failed: false,
+          failureStage: "none",
+          ...(selection.included ? { included: selection.included } : {}),
+          ...(reservation ? { reservation } : {}),
+        };
+      }
+    } finally {
+      if (!handedOff) reservation?.release();
     }
     if (attempt.kind === "transport") {
       reportCoderouterFailure("upstream_transport", attempt.error, {
@@ -1319,16 +1350,18 @@ function recordRoutedOutcome(routed: Routed, request: Request): void {
   });
 }
 
-/** Reads the request's model at most once, and only if the house route asks. */
-function lazyModel(bytes: Uint8Array | null): () => string | null {
-  let read = false;
-  let model: string | null = null;
-  return () => {
-    if (!read) {
-      model = requestedModel(bytes);
-      read = true;
-    }
-    return model;
+/** What the house route reads from a request body, at most once and only if it asks. */
+type HouseRequest = { readonly model: () => string | null; readonly reserveCents?: () => number };
+
+/** `reserve`: the call costs model usage (Messages), so the house route holds its upper bound against the cap. */
+function houseRequest(bytes: Uint8Array | null, reserve: boolean): HouseRequest {
+  let fields: ReturnType<typeof requestedFields> | null = null;
+  const read = () => (fields ??= requestedFields(bytes));
+  const model = () => read().model;
+  if (!reserve) return { model };
+  return {
+    model,
+    reserveCents: () => fallbackReservationCents({ model: read().model, bytes: bytes?.byteLength ?? 0, maxTokens: read().maxTokens }),
   };
 }
 
