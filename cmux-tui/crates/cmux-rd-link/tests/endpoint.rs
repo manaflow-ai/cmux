@@ -5,8 +5,9 @@
 //! learned.
 
 use cmux_rd_link::{
-    Endpoint, EndpointEvent, Event, HANDSHAKE_RETRY_US, HANDSHAKE_TIMEOUT_US, KeyPair, LinkError,
-    Role, Route, SIGNALING_TIMEOUT_US,
+    Endpoint, EndpointEvent, Event, HANDSHAKE_FIRST_RETRY_US, HANDSHAKE_RETRY_US,
+    HANDSHAKE_TIMEOUT_US, KeyPair, LinkError, Role, Route, SIGNALING_TIMEOUT_US,
+    handshake_retry_us,
 };
 use cmux_transport::PathKind;
 use std::net::SocketAddr;
@@ -148,7 +149,7 @@ fn control_flows_and_the_host_learns_the_viewers_route() {
 
 #[test]
 fn an_initial_handshake_waits_for_a_candidate_instead_of_being_dropped() {
-    for candidate_at in [1, HANDSHAKE_RETRY_US + 1] {
+    for candidate_at in [1, HANDSHAKE_FIRST_RETRY_US + 1] {
         let viewer_key = KeyPair::generate().unwrap();
         let host_key = KeyPair::generate().unwrap();
         let mut viewer =
@@ -158,10 +159,14 @@ fn an_initial_handshake_waits_for_a_candidate_instead_of_being_dropped() {
 
         // Signaling may supply the candidate before or after the first retry deadline.
         assert!(viewer.poll_transmit(0).unwrap().is_empty(), "there is no route yet");
-        assert_eq!(viewer.next_deadline_us(), Some(HANDSHAKE_RETRY_US));
-        if candidate_at > HANDSHAKE_RETRY_US {
-            assert!(viewer.poll_transmit(HANDSHAKE_RETRY_US).unwrap().is_empty());
-            assert_eq!(viewer.next_deadline_us(), Some(HANDSHAKE_RETRY_US * 2));
+        assert_eq!(viewer.next_deadline_us(), Some(HANDSHAKE_FIRST_RETRY_US));
+        if candidate_at > HANDSHAKE_FIRST_RETRY_US {
+            assert!(viewer.poll_transmit(HANDSHAKE_FIRST_RETRY_US).unwrap().is_empty());
+            // The retry gap doubles from the first one.
+            assert_eq!(
+                viewer.next_deadline_us(),
+                Some(HANDSHAKE_FIRST_RETRY_US + handshake_retry_us(1))
+            );
         }
         viewer.add_path(Route::Udp(addr(HOST_LAN)), PathKind::DirectLan, candidate_at);
         let initial = viewer.poll_transmit(candidate_at).unwrap();

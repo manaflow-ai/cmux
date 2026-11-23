@@ -332,24 +332,18 @@ impl Endpoint {
             path.unanswered_sends = 0;
         }
         if authenticated && !self.by_route.contains_key(&route) {
-            let kind = match route {
-                Route::Udp(addr) if is_local(addr) => PathKind::DirectLan,
-                Route::Udp(_) => PathKind::DirectWan,
-                Route::Relay { .. } => PathKind::TurnRelay,
-            };
-            self.add_path(route, kind, now_us);
+            self.add_path(route, learned_kind(route), now_us);
         }
         // During the handshake the peer's packets also teach us where it is.
+        // A host learns every route of a viewer this way (the viewer's
+        // candidates come later, through signaling, if at all), so the kind
+        // must come from the address: a wired viewer at 172.20.21.17 is a LAN
+        // path, not `direct_wan` (cmux20/cmux17, 2026-11-22).
         if !self.link.is_established()
             && !self.by_route.contains_key(&route)
             && is_handshake(packet)
         {
-            let kind = if matches!(route, Route::Relay { .. }) {
-                PathKind::TurnRelay
-            } else {
-                PathKind::DirectWan
-            };
-            self.add_path(route, kind, now_us);
+            self.add_path(route, learned_kind(route), now_us);
         }
         for event in events {
             if let Event::ProbeReply(id) = event {
@@ -587,9 +581,20 @@ fn is_handshake(packet: &[u8]) -> bool {
     matches!(packet.first(), Some(&(crate::TAG_HANDSHAKE_1..=crate::TAG_HANDSHAKE_3)))
 }
 
-/// Loopback, private (RFC 1918), link-local, or IPv6 unique-local: the same network.
-fn is_local(addr: SocketAddr) -> bool {
-    match addr.ip() {
+/// The kind of a route learned from the peer's own packets.
+fn learned_kind(route: Route) -> PathKind {
+    match route {
+        Route::Udp(addr) if is_local(addr.ip()) => PathKind::DirectLan,
+        Route::Udp(_) => PathKind::DirectWan,
+        Route::Relay { .. } => PathKind::TurnRelay,
+    }
+}
+
+/// Loopback, private (RFC 1918), link-local, or IPv6 unique-local: the same
+/// network. A tailnet address (100.64.0.0/10) is not: it is a direct path that
+/// the medium ([`cmux_transport::medium_of`]) ranks below the LAN.
+pub(crate) fn is_local(ip: std::net::IpAddr) -> bool {
+    match ip {
         std::net::IpAddr::V4(v4) => v4.is_loopback() || v4.is_private() || v4.is_link_local(),
         std::net::IpAddr::V6(v6) => {
             v6.is_loopback()
