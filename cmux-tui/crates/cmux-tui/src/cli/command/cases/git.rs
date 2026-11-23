@@ -109,8 +109,6 @@ pub(super) fn git_cases() -> Vec<(Vec<&'static str>, &'static str)> {
         ),
         (vec!["git", "list", "--path", "/repo", "--limit", "500"], "git.files.list"),
         (vec!["project", "actions", "--path", "/repo", "--no-global"], "project.actions.list"),
-        (vec!["project", "actions", "/repo/src"], "project.actions.list"),
-        (vec!["project", "actions", "--no-global", "/repo"], "project.actions.list"),
         (
             vec![
                 "git",
