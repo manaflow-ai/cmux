@@ -718,6 +718,9 @@ usage() {
   cat <<'EOF'
 Usage: ./scripts/reload.sh --tag <name> [options]
 
+A web or daemon change needs no build: `cmux app try .` copies your NIGHTLY and
+swaps your code into the copy. This script is for changes that need a build.
+
 Options:
   --tag <name>           Required. Short tag for parallel builds (e.g., feature-xyz-lol).
                          Sets app name, bundle id, and derived data path unless overridden.

@@ -165,6 +165,8 @@ mod lifecycle;
 #[cfg(unix)]
 mod live_code;
 #[cfg(unix)]
+mod ps_gc;
+#[cfg(unix)]
 mod repo_hold;
 #[cfg(unix)]
 mod repo_mcp_lazy;
@@ -354,6 +356,7 @@ const PUBLIC_SCOPES: &[&str] = &[
     "space",
     "closed",
     "git",
+    "project",
     "conversation",
     "sidebar",
     "pairing",
@@ -1065,6 +1068,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| machine_join::run_if_requested(args))
         .or_else(|| machine_doctor::run_if_requested(args))
         .or_else(|| safe_mode::run_if_requested(args))
+        .or_else(|| ps_gc::run_if_requested(args))
         .or_else(|| apps_list::run_if_requested(args))
         .or_else(|| apps_place::run_if_requested(args))
         .or_else(|| apps_run::run_if_requested(args))
@@ -1775,6 +1779,7 @@ fn scope_help_with_keys(
         "space" => Cow::Borrowed(scope_help::SPACE_HELP),
         "closed" => Cow::Borrowed(scope_help::CLOSED_HELP),
         "git" => Cow::Borrowed(scope_help::GIT_HELP),
+        "project" => Cow::Borrowed(scope_help::PROJECT_HELP),
         "conversation" => Cow::Borrowed(scope_help::CONVERSATION_HELP),
         "sidebar" => Cow::Borrowed(SIDEBAR_HELP),
         "pairing" => Cow::Borrowed(PAIRING_HELP),
@@ -1849,6 +1854,7 @@ const ROOT_HELP_SCOPES_SUFFIX: &str = "\
   space         List and organize spaces
   closed        List and reopen closed tabs, screens, workspaces
   git           Read a repository's status and changes; capture checkpoints
+  project       A project's own actions from .cmux/actions.json: `cmux project actions`
   status        Show loading indicators for scripts and agents
   setup         Set up cmux from an agent: list tasks, trust, machines, harnesses (JSON)
   sidebar       Manage sidebar views and local plugins
