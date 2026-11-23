@@ -1,7 +1,10 @@
 //! The machine's end of the stream to the Mac ([`crate::wire`]): a [`crate::Fetch`] whose asks go
 //! to whichever stream the Mac attached last. The Mac opens the stream (the machine never dials
 //! it) and opens a new one after a drop; until then an ask waits up to [`Link::away_wait`], then
-//! fails as [`crate::FetchError::Away`].
+//! fails as [`crate::FetchError::Away`]. Right after a stream drops, an ask waits longer, until
+//! [`Link::drop_grace`] past the drop: a machine resumed from a pause gets its stream back only
+//! once its carrier reconnects (a Cloud machine's median 8.4 s after the resume, at most 13.7 s
+//! seen), and its agent's first reads land in that time.
 
 use std::collections::HashMap;
 use std::io::{BufReader, BufWriter, Read, Write};
@@ -16,6 +19,8 @@ use crate::{Fetch, FetchError};
 /// How long an ask waits for the Mac to come back by default (RFD 0007: a reconnect usually lands
 /// inside it).
 pub const AWAY_WAIT: Duration = Duration::from_secs(5);
+/// How long after a stream drops an ask still waits for the next one, by default.
+pub const DROP_GRACE: Duration = Duration::from_secs(20);
 /// How long an ask waits for its answer on an attached stream.
 const ANSWER_WAIT: Duration = Duration::from_secs(120);
 
@@ -35,6 +40,8 @@ struct State {
     attached: Option<Attached>,
     generation: u64,
     waiting: HashMap<u32, Waiter>,
+    /// When the last stream dropped, while no new one has attached (not after a [`Link::detach`]).
+    dropped: Option<Instant>,
 }
 
 /// The machine's end of the stream to the Mac.
@@ -43,6 +50,7 @@ pub struct Link {
     changed: Condvar,
     next: AtomicU32,
     away_wait: Duration,
+    drop_grace: Duration,
 }
 
 impl Default for Link {
@@ -52,7 +60,8 @@ impl Default for Link {
 }
 
 impl Link {
-    /// A link with no stream yet, whose asks wait `away_wait` for one.
+    /// A link with no stream yet, whose asks wait `away_wait` for one ([`DROP_GRACE`] past a
+    /// drop).
     #[must_use]
     pub fn new(away_wait: Duration) -> Self {
         Self {
@@ -60,7 +69,21 @@ impl Link {
             changed: Condvar::new(),
             next: AtomicU32::new(1),
             away_wait,
+            drop_grace: DROP_GRACE,
         }
+    }
+
+    /// The same link, whose asks wait until `drop_grace` past a stream's drop for the next one.
+    #[must_use]
+    pub fn with_drop_grace(mut self, drop_grace: Duration) -> Self {
+        self.drop_grace = drop_grace;
+        self
+    }
+
+    /// How long after a stream drops an ask still waits for the next one.
+    #[must_use]
+    pub fn drop_grace(&self) -> Duration {
+        self.drop_grace
     }
 
     /// How long an ask waits for a stream.
@@ -82,6 +105,7 @@ impl Link {
             let mut state = self.lock();
             state.generation += 1;
             let generation = state.generation;
+            state.dropped = None;
             state.attached = Some(Attached {
                 generation,
                 writer: Box::new(BufWriter::with_capacity(64 * 1024, writer)),
@@ -111,6 +135,7 @@ impl Link {
         let mut state = self.lock();
         if state.attached.as_ref().is_some_and(|attached| attached.generation == generation) {
             state.attached = None;
+            state.dropped = Some(Instant::now());
         }
         state.waiting.retain(|_, (of, sender)| {
             if *of == generation {
@@ -129,6 +154,7 @@ impl Link {
     pub fn detach(&self) {
         let mut state = self.lock();
         state.attached = None;
+        state.dropped = None;
         for (_, (_, sender)) in state.waiting.drain() {
             let _ = sender.send(None);
         }
@@ -170,12 +196,16 @@ impl Link {
                     make(number).write(&mut attached.writer).and_then(|()| attached.writer.flush());
                 if sent.is_err() {
                     state.attached = None;
+                    state.dropped = Some(Instant::now());
                     continue;
                 }
                 let (sender, receiver) = channel();
                 state.waiting.insert(number, (generation, sender));
                 return Ok(receiver);
             }
+            // A stream that just dropped is likely back soon (a resumed machine's carrier).
+            let deadline =
+                state.dropped.map_or(deadline, |dropped| deadline.max(dropped + self.drop_grace));
             let now = Instant::now();
             if now >= deadline {
                 return Err(FetchError::Away);
