@@ -97,7 +97,7 @@ import UIKit
         /// change kept the reader (step 1a53607a: removeFirst(10) moved the offset 0).
         func scrolled() {
             list.layoutIfNeeded()
-            controller.scrollEndedByCode()
+            // (bisect a: no scrollEndedByCode)
             settle()
         }
 
