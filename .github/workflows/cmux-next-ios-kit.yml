@@ -287,12 +287,6 @@ jobs:
         with:
           persist-credentials: false
 
-      # A phone connection state waits QuietStatusGate's 10 s or carries an action (cmux-next.yml's checks job runs
-      # the same check with its shrink-only --base ratchet; that workflow does not run on a phone-only change).
-      # Why: docs/ci/cmux-next-workflow-notes.md#note-366
-      - name: Connection notices
-        run: python3 -I scripts/cmux-next/check-connection-notices.py --root "$GITHUB_WORKSPACE"
-
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
 
@@ -507,6 +501,15 @@ jobs:
           path: ${{ runner.temp }}/instant-perf/*.jsonl
           if-no-files-found: warn
           retention-days: 3
+
+      # A phone connection state waits QuietStatusGate's 10 s or carries an action (cmux-next.yml's checks job runs
+      # the same check with its shrink-only --base ratchet; that workflow does not run on a phone-only change).
+      # Why: docs/ci/cmux-next-workflow-notes.md#note-366
+      # It runs after the bench, not first: as the first step, its red skipped the xcframework build, so the nightly
+      # bench had nothing to run and printed no INSTANTPERF line (run 45134316690, 2026-11-23). Still a red job.
+      - name: Connection notices
+        if: ${{ !cancelled() }}
+        run: python3 -I scripts/cmux-next/check-connection-notices.py --root "$GITHUB_WORKSPACE"
 
       # A sampled audit of a same-tree hit ran in full and went red: the receipt it contradicts is named.
       - name: Same-tree audit
