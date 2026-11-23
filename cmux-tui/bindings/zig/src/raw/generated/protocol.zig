@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "dde651921120a0718e6f626e91f94343a7eb7fabf18706a32f029786409aa2fd";
+pub const ir_sha256 = "91b84e85201e50e7167a6888cb8b1d1741e0841409cb7ad309492220cae5325c";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -499,6 +499,7 @@ pub const ColumnMoveDirection = enum {
 pub const ColumnPin = struct {
     edge: []const u8,
     mode: []const u8,
+    pinned: wire.Field(bool) = .absent,
     role: wire.Field([]const u8) = .absent,
 };
 

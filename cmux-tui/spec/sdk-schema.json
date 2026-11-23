@@ -8655,6 +8655,17 @@
      "presence": "required",
      "nullable": false
     },
+    "pinned": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "default": null,
+     "since": 12,
+     "capability": "pinned-dock-v1"
+    },
     "role": {
      "type": {
       "kind": "scalar",

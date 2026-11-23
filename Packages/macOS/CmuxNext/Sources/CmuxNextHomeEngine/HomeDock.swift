@@ -167,7 +167,8 @@ public final class HomeDock {
         if !chiefs.isEmpty, stays || !docked { try await connection.closeTabs(Array(chiefs), endTerminals: false) }
         if docked {
             let pinned = try await pin(connection, store: store, workspace: workspace)
-            let tabs = await allowTabsLogged(connection, store: store, workspace: workspace, fresh: pinned != nil)
+            // A dock made in this create (`madeDocked`) is pinned already, so `pin` has nothing to do; it is still new.
+            let tabs = await allowTabsLogged(connection, store: store, workspace: workspace, fresh: pinned != nil || madeDocked)
             let cleared = alone ? try await closePlaceholder(connection, workspace: workspace) : nil
             let steps = [pinned, tabs, cleared].compactMap { $0 }
             return steps.isEmpty ? "home dock present" : steps.joined(separator: ", ")

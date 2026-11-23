@@ -13,6 +13,7 @@ import java.util.Objects;
 public final class ColumnPin implements WireValue {
     private final String edge;
     private final String mode;
+    private final Field<Boolean> pinned;
     private final Field<String> role;
 
     private ColumnPin(Builder builder) {
@@ -20,6 +21,7 @@ public final class ColumnPin implements WireValue {
         this.edge = Wire.nonNull(builder.edge, "edge");
         if (!builder.modeSet) throw new IllegalArgumentException("mode is required");
         this.mode = Wire.nonNull(builder.mode, "mode");
+        this.pinned = builder.pinned;
         this.role = builder.role;
     }
 
@@ -27,6 +29,7 @@ public final class ColumnPin implements WireValue {
 
     public String edge() { return edge; }
     public String mode() { return mode; }
+    public Field<Boolean> pinned() { return pinned; }
     public Field<String> role() { return role; }
 
     public static ColumnPin fromWire(Object value) {
@@ -36,6 +39,10 @@ public final class ColumnPin implements WireValue {
         builder.edge(Wire.string(rawEdge, "ColumnPin.edge"));
         Object rawMode = Wire.required(object, "mode");
         builder.mode(Wire.string(rawMode, "ColumnPin.mode"));
+        Object rawPinned = Wire.optional(object, "pinned");
+        if (!Wire.isMissing(rawPinned)) {
+            builder.pinned(rawPinned == null ? null : Wire.bool(rawPinned, "ColumnPin.pinned"));
+        }
         Object rawRole = Wire.optional(object, "role");
         if (!Wire.isMissing(rawRole)) {
             builder.role(rawRole == null ? null : Wire.string(rawRole, "ColumnPin.role"));
@@ -48,6 +55,7 @@ public final class ColumnPin implements WireValue {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
         Wire.put(object, "edge", edge);
         Wire.put(object, "mode", mode);
+        Wire.put(object, "pinned", pinned);
         Wire.put(object, "role", role);
         return Collections.unmodifiableMap(object);
     }
@@ -55,11 +63,11 @@ public final class ColumnPin implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof ColumnPin that)) return false;
-        return Objects.equals(edge, that.edge) && Objects.equals(mode, that.mode) && Objects.equals(role, that.role);
+        return Objects.equals(edge, that.edge) && Objects.equals(mode, that.mode) && Objects.equals(pinned, that.pinned) && Objects.equals(role, that.role);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(edge, mode, role); }
+    public int hashCode() { return Objects.hash(edge, mode, pinned, role); }
 
     @Override
     public String toString() { return "ColumnPin" + toWire(); }
@@ -69,6 +77,7 @@ public final class ColumnPin implements WireValue {
         private boolean edgeSet;
         private String mode;
         private boolean modeSet;
+        private Field<Boolean> pinned = Field.omitted();
         private Field<String> role = Field.omitted();
 
         public Builder edge(String value) {
@@ -79,6 +88,10 @@ public final class ColumnPin implements WireValue {
         public Builder mode(String value) {
             this.mode = value;
             this.modeSet = true;
+            return this;
+        }
+        public Builder pinned(Boolean value) {
+            this.pinned = Field.ofNullable(value);
             return this;
         }
         public Builder role(String value) {

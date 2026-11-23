@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "dde651921120a0718e6f626e91f94343a7eb7fabf18706a32f029786409aa2fd";
+inline constexpr std::string_view kProtocolIrSha256 = "91b84e85201e50e7167a6888cb8b1d1741e0841409cb7ad309492220cae5325c";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -2118,6 +2118,7 @@ enum class ColumnMoveDirection {
 struct ColumnPin {
     std::string edge{};
     std::string mode{};
+    Field<bool> pinned{};
     Field<std::string> role{};
     friend bool operator==(const ColumnPin&, const ColumnPin&) = default;
 };
