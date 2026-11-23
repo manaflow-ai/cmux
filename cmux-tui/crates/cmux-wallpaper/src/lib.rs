@@ -41,7 +41,9 @@ pub mod program;
 pub mod schedule;
 
 pub use first_party::{FirstParty, first_party, first_party_at, first_party_by_id, smoke};
-pub use frame::{FRAME_BYTES, FRAME_FLOATS, FrameInput, PointerState, pack_frame, srgb_to_linear};
+pub use frame::{
+    ActivityState, FRAME_BYTES, FRAME_FLOATS, FrameInput, PointerState, pack_frame, srgb_to_linear,
+};
 pub use manifest::{Manifest, ManifestError, ManifestErrorKind, Param, Still, Variant};
 #[cfg(feature = "compile")]
 pub use program::{Compiled, ProgramError, ProgramErrorKind, compile, compile_bytes};

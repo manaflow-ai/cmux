@@ -63,6 +63,9 @@ pub struct Manifest {
     pub scale: f32,
     /// Whether pointer motion wakes it.
     pub interactive: bool,
+    /// Whether agent activity wakes it (`agents`, default false): the program
+    /// reads `Frame.activity`.
+    pub agents: bool,
     pub params: Vec<Param>,
     pub still: Still,
     pub variants: Vec<Variant>,
@@ -234,6 +237,7 @@ impl Manifest {
                 "fps",
                 "scale",
                 "interactive",
+                "agents",
                 "params",
                 "still",
                 "variants",
@@ -276,6 +280,12 @@ impl Manifest {
         let interactive = required(o, "", "interactive")?.as_bool().ok_or_else(|| {
             err(ManifestErrorKind::WrongType, "/interactive", "must be true or false")
         })?;
+        let agents = match o.get("agents") {
+            None => false,
+            Some(a) => a.as_bool().ok_or_else(|| {
+                err(ManifestErrorKind::WrongType, "/agents", "must be true or false")
+            })?,
+        };
         let params = match o.get("params") {
             None => Vec::new(),
             Some(p) => parse_params(p)?,
@@ -293,6 +303,7 @@ impl Manifest {
             fps: u32::try_from(fps).unwrap_or(30),
             scale,
             interactive,
+            agents,
             params,
             still,
             variants,
@@ -322,6 +333,7 @@ impl Manifest {
             "fps": self.fps,
             "scale": self.scale,
             "interactive": self.interactive,
+            "agents": self.agents,
             "params": self.params.iter().map(|p| json!({
                 "name": p.name,
                 "title": p.title.clone().unwrap_or_else(|| p.name.clone()),
@@ -545,6 +557,13 @@ mod tests {
         let back = Manifest::from_value(&m.to_json()).unwrap();
         assert_eq!(back.id, m.id);
         assert_eq!(back.params[0].title.as_deref(), Some("Speed"));
+        // `agents` is optional and off unless the program asks for it.
+        assert!(!m.agents);
+        let mut v = base();
+        v["agents"] = json!(true);
+        let m = Manifest::from_value(&v).unwrap();
+        assert!(m.agents);
+        assert!(Manifest::from_value(&m.to_json()).unwrap().agents);
     }
 
     #[test]
@@ -637,6 +656,7 @@ mod tests {
                 ManifestErrorKind::WrongType,
                 "/interactive",
             ),
+            (Box::new(|v| v["agents"] = json!("yes")), ManifestErrorKind::WrongType, "/agents"),
             (
                 Box::new(|v| {
                     v["params"] = json!((0..9).map(|i| json!({"name": format!("p{i}"), "default": 0, "min": 0, "max": 1})).collect::<Vec<_>>());

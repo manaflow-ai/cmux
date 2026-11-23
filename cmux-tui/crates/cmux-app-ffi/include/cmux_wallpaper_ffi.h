@@ -1,8 +1,8 @@
 /* cmux-wallpaper's C ABI (cmux-tui/crates/cmux-app-ffi/src/wallpaper.rs): live
  * wallpapers (plans/cmux-next/live-wallpapers.md). The first-party set with
  * its Metal translated at build time (no shader compiler), the manifest check, the
- * draw scheduler, the 144-byte Frame uniform packer and the pointer's
- * smoothing. No globals; results that own strings have their own free
+ * draw scheduler, the 160-byte Frame uniform packer, and the pointer's and
+ * agent activity's smoothing. No globals; results that own strings have their own free
  * function. cmux_wallpaper_abi_version() returns ABI_VERSION (src/wallpaper.rs). */
 
 #ifndef CMUX_WALLPAPER_FFI_H
@@ -61,6 +61,11 @@ typedef struct {
      */
     double seconds_since_pointer;
     /*
+     Seconds since an agent in the window last wrote output or changed state
+     (`cmux_wallpaper_activity_since_event`).
+     */
+    double seconds_since_agent_event;
+    /*
      `appearance.liveWallpaperFrameRate` (15, 30, 60); 0 means 30.
      */
     uint32_t settings_fps_cap;
@@ -100,6 +105,10 @@ typedef struct {
      */
     bool interactive;
     /*
+     The manifest's `agents`.
+     */
+    bool agents;
+    /*
      The view has drawn at least one frame.
      */
     bool has_frame;
@@ -107,7 +116,7 @@ typedef struct {
 
 /*
  One frame's values by name (`FrameInput`); `cmux_wallpaper_frame_pack`
- writes the 36 floats of the 144-byte Frame uniform. Colors are linear
+ writes the 40 floats of the 160-byte Frame uniform. Colors are linear
  RGB (`cmux_wallpaper_srgb_to_linear`). NaN or infinite values become 0.
  */
 typedef struct {
@@ -148,6 +157,18 @@ typedef struct {
      `cmux_wallpaper_pointer_since_moved`.
      */
     float since_moved;
+    /*
+     0..1, eased (`CmuxWallpaperActivity.level`).
+     */
+    float activity;
+    /*
+     `cmux_wallpaper_activity_since_event`.
+     */
+    float since_agent_event;
+    /*
+     `CmuxWallpaperActivity.count`.
+     */
+    float agent_events;
     float ink[3];
     float paper[3];
     float accent[3];
@@ -186,6 +207,26 @@ typedef struct {
 } CmuxWallpaperPointer;
 
 /*
+ The agents' activity in a window (`ActivityState`). Zero it (or call
+ `cmux_wallpaper_activity_reset`) once; then `event` when an agent in the
+ window writes output or changes state, and `advance` once per drawn frame.
+ Times are the host's monotonic clock in seconds (`CACurrentMediaTime`).
+ */
+typedef struct {
+    double last_event;
+    double last_advance;
+    /*
+     0..1, eased: `Frame.activity.x`.
+     */
+    float level;
+    /*
+     Counted events, mod 1024: `Frame.activity.z`.
+     */
+    uint16_t count;
+    bool has_event;
+} CmuxWallpaperActivity;
+
+/*
  The ABI version this library implements.
  */
 uint32_t cmux_wallpaper_abi_version(void);
@@ -219,7 +260,7 @@ const uint8_t *cmux_wallpaper_first_party_source(size_t index, size_t *len);
  First-party wallpaper `index`'s program in Metal Shading Language 2.1,
  translated when the library was built (the library has no shader
  compiler): `vertex vs_main` (a full-screen triangle, 3 vertices) and
- `fragment fs_main`, the 144-byte Frame uniform at buffer index 0 in both.
+ `fragment fs_main`, the 160-byte Frame uniform at buffer index 0 in both.
  Static UTF-8 bytes as above.
 
  # Safety
@@ -261,12 +302,19 @@ CmuxWallpaperDecision cmux_wallpaper_schedule(const CmuxWallpaperScheduleInput *
 uint32_t cmux_wallpaper_gpu_strikes(uint32_t strikes, float gpu_ms);
 
 /*
- Writes the 36 floats (144 bytes) of the Frame uniform for `input` to
+ The floats in the Frame uniform (`cmux_wallpaper_frame_pack` writes this
+ many): the host sizes its buffer from this, never from a number of its
+ own, so a Frame that grows cannot overrun it.
+ */
+size_t cmux_wallpaper_frame_floats(void);
+
+/*
+ Writes the 40 floats (160 bytes) of the Frame uniform for `input` to
  `out`. False, and nothing written, when either is null.
 
  # Safety
  `input` is null or points to a valid `CmuxWallpaperFrameInput`; `out` is
- null or points to 36 writable floats.
+ null or points to `cmux_wallpaper_frame_floats()` writable floats.
  */
 bool cmux_wallpaper_frame_pack(const CmuxWallpaperFrameInput *input, float *out);
 
@@ -325,5 +373,49 @@ float cmux_wallpaper_pointer_since_moved(const CmuxWallpaperPointer *state, doub
  `state` is null or points to a valid `CmuxWallpaperPointer`.
  */
 bool cmux_wallpaper_pointer_settled(const CmuxWallpaperPointer *state);
+
+/*
+ Sets `state` to its start (no event, level 0).
+
+ # Safety
+ `state` is null or points to a writable `CmuxWallpaperActivity`.
+ */
+void cmux_wallpaper_activity_reset(CmuxWallpaperActivity *state);
+
+/*
+ An agent event at time `t`: the level rises, and an event more than 0.4 s
+ after the last counted one is counted (a burst of output counts once).
+
+ # Safety
+ `state` is null or points to a valid, writable `CmuxWallpaperActivity`.
+ */
+void cmux_wallpaper_activity_event(CmuxWallpaperActivity *state, double t);
+
+/*
+ Steps the level's decay to time `t` (once per drawn frame).
+
+ # Safety
+ `state` is null or points to a valid, writable `CmuxWallpaperActivity`.
+ */
+void cmux_wallpaper_activity_advance(CmuxWallpaperActivity *state, double t);
+
+/*
+ Seconds since the newest counted agent event at time `t`, capped at 10000
+ (the cap when there was none, or for a null `state`): `Frame.activity.y`
+ and the scheduler's `seconds_since_agent_event`.
+
+ # Safety
+ `state` is null or points to a valid `CmuxWallpaperActivity`.
+ */
+float cmux_wallpaper_activity_since_event(const CmuxWallpaperActivity *state, double t);
+
+/*
+ True when the activity needs no frames of its own at time `t` (the level
+ rests at 0 and the newest event's 4 s flash is over). True for a null `state`.
+
+ # Safety
+ `state` is null or points to a valid `CmuxWallpaperActivity`.
+ */
+bool cmux_wallpaper_activity_settled(const CmuxWallpaperActivity *state, double t);
 
 #endif  /* CMUX_WALLPAPER_FFI_H */
