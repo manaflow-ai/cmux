@@ -85,8 +85,25 @@ function Summary({ summary, strings }: { summary: StatsSummary; strings: Strings
     { key: "stats.tile.steers", value: count(summary.steers) },
     { key: "stats.tile.approvals", value: count(summary.permissionRequests) },
   ];
+  // Hours of agent work per hour on the clock (acpmux's `busyMs`, the union of working time);
+  // absent from an older acpmux, and nothing to say before anything worked.
+  const multiple = summary.busyMs ? summary.workingMs / summary.busyMs : null;
   return (
     <>
+      {multiple !== null && (
+        <section className="stats-payoff" aria-label={strings.t("stats.payoff.label")}>
+          <div className="stats-tile-label">{strings.t("stats.payoff.label")}</div>
+          <div className="stats-payoff-value">
+            {strings.format(
+              "stats.payoff.multiple",
+              intl.NumberFormat(language, { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(multiple),
+            )}
+          </div>
+          <div className="stats-payoff-detail">
+            {strings.format("stats.payoff.detail", duration(summary.workingMs), duration(summary.busyMs!))}
+          </div>
+        </section>
+      )}
       <section className="stats-tiles">
         {tiles.map((tile) => (
           <div key={tile.key} className="stats-tile">
