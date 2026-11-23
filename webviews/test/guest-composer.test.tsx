@@ -63,7 +63,7 @@ const SHARE = "c2hhcmUtMTIzNDU2Nzg";
 
 /** A room whose sockets the test drives: each records what the page sends. */
 function room() {
-  const sockets: (Socket & { sent: Record<string, unknown>[] })[] = [];
+  const sockets: (Socket & { url: string; sent: Record<string, unknown>[] })[] = [];
   // Waits on what the page does (a socket opened, a frame sent), never on a fixed time.
   const waiters = new Set<() => void>();
   const changed = () => {
@@ -82,8 +82,9 @@ function room() {
           check();
         }),
     );
-  const open = () => {
+  const open = (url: string) => {
     const socket = {
+      url,
       sent: [] as Record<string, unknown>[],
       send(data: string) {
         socket.sent.push(JSON.parse(data));
@@ -154,6 +155,7 @@ const mine = (host: HTMLElement) => host.querySelector(".guest-mine")?.textConte
 test("a named driver can stop a live turn and sees an unheld message as sent", async () => {
   const fake = room();
   const page = await mount(fake, memoryStorage(), "drive");
+  expect(new URL(fake.last().url).searchParams.get("guest_id")).toBe("g1");
   const stop = () => page.host.querySelector<HTMLButtonElement>(".guest-composer button[type=button]");
   expect(stop()).toBeNull();
   await fake.join();

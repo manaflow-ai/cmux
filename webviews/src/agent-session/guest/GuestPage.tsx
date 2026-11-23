@@ -357,7 +357,7 @@ export function LiveChat({
   name?: string;
   /** The signed-in account's picture this guest joined with, for its own chip. */
   avatar?: string;
-  /** This guest's role: only `talk` sends (a composer); `view` or none watches. */
+  /** Talk and Drive can send. Only Drive can stop an active turn. */
   role?: GuestRole;
   /** This guest's own messages (guestPrompts.ts). */
   prompts: GuestPrompts;
@@ -438,8 +438,11 @@ export function LiveChat({
       waiting.length = 0;
       client?.dispose();
     };
+    // The room cookie is shared across tabs. Reconnect only as the guest this tab redeemed.
+    const url = new URL(socketUrl, document.baseURI);
+    url.searchParams.set("guest_id", guestId);
     const room = new ShareSocket(
-      { url: socketUrl, unresolved: () => prompts.held(), ...(openSocket ? { open: openSocket } : {}) },
+      { url: url.href, unresolved: () => prompts.held(), ...(openSocket ? { open: openSocket } : {}) },
       {
         snapshot: (next) => {
           setChat(next.chat);
@@ -479,7 +482,7 @@ export function LiveChat({
       stop();
       pageArrived.current?.();
     };
-  }, [socketUrl, openSocket, prompts, typing, sendQueue, loadTranscript, reloadPage]);
+  }, [guestId, socketUrl, openSocket, prompts, typing, sendQueue, loadTranscript, reloadPage]);
 
   const loadOlder = useCallback(
     () =>
