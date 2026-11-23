@@ -12,9 +12,10 @@ name: cmux-next base linux
 #
 # Each run routes the steps by the paths changed since the last green run, so a red step runs again on
 # every tip until the base is green, and a run after a green one costs only the steps the new commits
-# reach. A green run records its tip as the git ref refs/cmux-ci/base-linux-tip/BRANCH (the `record` job,
-# the only one that may write) and the next run reads it with `git ls-remote`, so the route does not depend
-# on the API: in the hour after cmux#51869 the read of the last green run answered HTTP 403 on 11 of 17
+# reach. A green run records its tip under the git ref refs/cmux-ci/base-linux-tip/BRANCH (the `record` job,
+# the only one that may write) and the next run reads it with `git fetch`, so the route does not depend
+# on the API. The ref holds a one-file commit naming the tip, not the tip itself: a push of the tip was
+# refused, since the workflow token may not push a commit that carries workflow files. Why it matters: in the hour after cmux#51869 the read of the last green run answered HTTP 403 on 11 of 17
 # runs, each routed by its own push's diff, and the pushes collapsed before such a run were routed by no
 # run. An Actions cache key was tried first and its entry was evicted within 6 min (the store was at 14.1 GB
 # of its 10). With no recorded tip the run asks the API for the last green run, and when that fails too it
@@ -60,7 +61,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PUSH_BEFORE: ${{ github.event.before }}
         run: |
-          recorded="$(timeout 60 git ls-remote origin "refs/cmux-ci/base-linux-tip/$GITHUB_REF_NAME" | cut -f1 || true)"
+          recorded=""
+          if timeout 60 git fetch --quiet --no-tags --depth=1 origin "refs/cmux-ci/base-linux-tip/$GITHUB_REF_NAME" 2>/dev/null; then
+            recorded="$(git show FETCH_HEAD:tip 2>/dev/null | head -c 40 || true)"
+          fi
           if [[ "$recorded" =~ ^[0-9a-f]{40}$ ]]; then
             echo "The last green run recorded its tip: $recorded"
           else
@@ -80,7 +84,9 @@ jobs:
                   with urllib.request.urlopen(request, timeout=30) as answer:
                       runs = json.load(answer).get("workflow_runs") or []
               except (OSError, ValueError) as error:
-                  print(f"::warning::The read of the last green run failed: {error}", flush=True, file=sys.stderr)
+                  # GitHub's own words for a refusal (a rate limit names itself here).
+                  said = error.read(300).decode("utf-8", "replace").replace("\n", " ") if hasattr(error, "read") else ""
+                  print(f"::warning::The read of the last green run failed: {error} {said}", flush=True, file=sys.stderr)
                   continue
               print(runs[0]["head_sha"] if runs else "none")
               break
@@ -159,23 +165,26 @@ jobs:
 
   record:
     name: record the green tip
-    # The linux job holds no write token while it runs the base's code. This job runs none of it: it points
-    # one ref outside refs/heads at the tip that job just passed, which starts no workflow.
+    # The linux job holds no write token while it runs the base's code. This job runs none of it: it writes
+    # one ref outside refs/heads, which starts no workflow. When it fails the run stays green and the next
+    # run routes as it did before this job existed.
     needs: linux
+    continue-on-error: true
     if: github.repository_owner == 'manaflow-ai'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
       contents: write
     steps:
-      - name: Point refs/cmux-ci/base-linux-tip at this tip
+      - name: Write this tip under refs/cmux-ci/base-linux-tip
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           git init --quiet tip
           cd tip
+          printf '%s\n' "$GITHUB_SHA" > tip
+          git add tip
+          git -c user.name=cmux-ci -c user.email=cmux-ci@users.noreply.github.com commit --quiet -m "last green base linux tip of $GITHUB_REF_NAME: $GITHUB_SHA"
           auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
-          url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
-          git -c http.extraheader="$auth" fetch --quiet --no-tags --depth=1 "$url" "$GITHUB_SHA"
-          git -c http.extraheader="$auth" push --quiet --force "$url" "FETCH_HEAD:refs/cmux-ci/base-linux-tip/$GITHUB_REF_NAME"
+          timeout 120 git -c http.extraheader="$auth" push --quiet --force "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" "HEAD:refs/cmux-ci/base-linux-tip/$GITHUB_REF_NAME"
           echo "::notice::Recorded $GITHUB_SHA as the last green tip of $GITHUB_REF_NAME."
