@@ -131,6 +131,27 @@ the app's wake notice relayed to it), the daemon:
 3. Otherwise: SIGKILL the tree, detached tool shells included; write the folder's changes since the last
    acknowledged snapshot as a leftover patch beside the chat; mark it held elsewhere; renew as standby.
 
+### A laptop that cannot reach the Cloud stops by itself
+
+A laptop with no network keeps running, so the Cloud's takeover alone would leave two copies at work. A
+holder that has had no renewal answered for `SELF_STOP_MS = 35_000` (under `LEASE_MS`, so it always stops before
+the Cloud takes over) stops its Auto chats' process trees (SIGSTOP) and shows them as waiting for the network.
+The next answered renewal decides as a wake does: still holder at the same epoch, or holder again of a chat the
+store had `parked` (the store answers `holder` with the new epoch): SIGCONT. Taken by a machine: kill, leftover
+patch, standby.
+
+## Daemon surface (acpmux, for the Mac app and the web UI)
+
+- `_acpmux/auto_session/set {sessionId, auto, keepInCloud?}` answers `{autoSession}`.
+- `_acpmux/auto_session/wake {}`: the app relays the system's wake; the daemon also sees a clock jump itself.
+- `_acpmux/auto_session/leftover {sessionId, action: "show" | "apply" | "discard"}`.
+- Every session row carries `autoSession: {auto, state, here, keepInCloud, blocked?, leftover?: {files}}`.
+  `state` is the Cloud view's; `here` is whether this machine holds it; `blocked` is `no_machine`,
+  `too_large` or `offline`. A change goes out as the row's ordinary change notice.
+- An Auto chat this laptop does not have (started on the phone, or on another laptop) is a row read from
+  `GET /v1/auto-sessions`; opening it reads its events and waits on `/wait`; a send goes to its inbox.
+- The setting `cloud.autoMode` (default off) is the default for new chats.
+
 ## Cloud API
 
 `/v1/auto-sessions`, in `backend/apps/api/src/auto-sessions/` beside `handoffs/` and in its shape:
