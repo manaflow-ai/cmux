@@ -83,9 +83,12 @@ class InstallGitHooksTests(unittest.TestCase):
             "scripts/ci/base_merge_warning.py",
             "scripts/ci/github_release_download.py",
             "scripts/ci/deadline_http.py",
+            "scripts/ci/generated_files_guard.py",
+            "scripts/ci/ci_process_tree.py",
             "scripts/webviews_bun_version.py",
             "scripts/check-webviews-bun-version.sh",
             *self.installed_sources(),
+            *self.copy_input_files(),
         ):
             source, target = SOURCE / relative, root / relative
             if not source.exists():
@@ -104,7 +107,29 @@ class InstallGitHooksTests(unittest.TestCase):
         "cannot stat" until this list named it; reading the installer keeps the two in step.
         """
         text = (SOURCE / INSTALLER).read_text(encoding="utf-8")
-        return sorted(set(re.findall(r"^\s*install\s+-m\s+\d+\s+(scripts/\S+)", text, re.MULTILINE)))
+        installed = set(re.findall(r"^\s*install\s+-m\s+\d+\s+(scripts/\S+)", text, re.MULTILINE))
+        # The checks copy's file inputs too: a37b619481 added scripts/ci/generated_files_guard.py and ci_process_tree.py to
+        # checks-copy-inputs and every fixture install lacked them, so the stamp test read a file the fixture never had.
+        manifest = SOURCE / "scripts/git-hooks/checks-copy-inputs"
+        if manifest.exists():
+            for line in manifest.read_text(encoding="utf-8").splitlines():
+                source = line.strip().split(" -> ")[0].strip()
+                if source and not source.startswith("#") and not source.endswith("/"):
+                    installed.add(source)
+        return sorted(installed)
+
+    @staticmethod
+    def copy_input_files():
+        """Every single-file entry of scripts/git-hooks/checks-copy-inputs, so a new entry never leaves the fixture behind.
+
+        The base added scripts/ci/generated_files_guard.py and scripts/ci/ci_process_tree.py to that list (prepush gate:
+        refuse a push that commits a generated file) and the stamp test failed reading them from the fixture until it
+        named them; reading the list keeps the two in step, like installed_sources() does for the installer.
+        """
+        lines = (SOURCE / "scripts/git-hooks/checks-copy-inputs").read_text(encoding="utf-8").splitlines()
+        sources = (line.strip().split(" -> ")[0].strip() for line in lines
+                   if line.strip() and not line.strip().startswith("#"))
+        return sorted({source for source in sources if not source.endswith("/")})
 
     def git(self, *args, check=True):
         return subprocess.run(["git", "-C", str(self.repo), *args], env=self.env,
@@ -509,6 +534,36 @@ done
                 self.assertEqual(args.split()[-1], "src/app.ts")
                 staged = self.git("show", f":{package}/src/app.ts").stdout
                 self.assertEqual(staged, "formatted\n", "the formatted file is restaged")
+
+    def link_web_install(self, target):
+        """webviews/node_modules as a link to TARGET (holding the recording vp), the way wt projects it."""
+        self.stage_web_file("webviews")
+        installed = self.repo / "webviews/node_modules"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.rmtree(target, ignore_errors=True)
+        shutil.move(str(installed), str(target))
+        installed.symlink_to(target)
+
+    def test_pre_commit_runs_vp_from_a_node_modules_linked_outside_the_checkout(self):
+        """wt checkouts link webviews/node_modules to a shared install outside the checkout; the
+        hook refused that link ("passes through ... inside this checkout"), so no webviews commit
+        from a wt checkout could pass."""
+        self.assertEqual(self.install().returncode, 0)
+        vp_log = self.root / "vp.log"
+        self.link_web_install(self.root / "projection/webviews/node_modules")
+        result = self.run_pre_commit(self.formatter_env(with_rustfmt=False, FAKE_VP_LOG=str(vp_log), CMUX_AGENT="1"))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("inside this checkout", result.stderr)
+        self.assertEqual(self.git("show", ":webviews/src/app.ts").stdout, "formatted\n", result.stderr)
+
+    def test_pre_commit_refuses_a_node_modules_linked_back_into_the_checkout(self):
+        self.assertEqual(self.install().returncode, 0)
+        vp_log = self.root / "vp.log"
+        self.link_web_install(self.repo / "elsewhere/node_modules")
+        result = self.run_pre_commit(self.formatter_env(with_rustfmt=False, FAKE_VP_LOG=str(vp_log), CMUX_AGENT="1"))
+        self.assertNotEqual(result.returncode, 0, result.stderr)
+        self.assertIn("inside this checkout", result.stderr)
+        self.assertFalse(vp_log.exists(), "a vp the checkout points at never runs")
 
     def test_pre_commit_takes_over_an_install_lock_whose_holder_died(self):
         # A hook killed mid-install leaves its lock; this worktree has no vp yet.

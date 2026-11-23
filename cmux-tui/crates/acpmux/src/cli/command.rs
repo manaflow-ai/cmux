@@ -29,13 +29,18 @@ pub struct MoveSessionsArgs {
     /// Every open chat here that is between turns.
     #[arg(long, conflicts_with = "sessions")]
     pub all_idle: bool,
-    /// Stop a running turn instead of refusing the move.
+    /// Stop a running turn at once, even mid tool call. Without it a running turn moves with
+    /// the chat: the move waits for its tool call in flight to end, and the turn goes on there.
     #[arg(long, conflicts_with = "after_turn")]
     pub interrupt: bool,
     /// Let a running turn end on its own, then move: nothing is stopped or refused while it
     /// runs, and prompts sent meanwhile move with the chat.
     #[arg(long)]
     pub after_turn: bool,
+    /// With --after-turn: the longest the move waits for a running turn to end, in seconds;
+    /// past it the move gives up (non-zero), naming the chat and the step.
+    #[arg(long, value_name = "SECS", default_value_t = 600)]
+    pub timeout: u64,
     /// Move a chat whose checkout has uncommitted changes; they stay on this machine.
     #[arg(long)]
     pub leave_dirty: bool,
@@ -56,6 +61,12 @@ pub struct MoveSessionsArgs {
     /// chats. With it, `--machine local` brings them here.
     #[arg(long, value_name = "MACHINE")]
     pub from: Option<String>,
+    /// Start the chats on the machine from this machine's copy of them, for a machine that does
+    /// not answer: their transcript (the newest records kept here) and name, in a new chat
+    /// there. Name each as MACHINE/CHAT, or pass --from MACHINE. The chat on the dead machine is
+    /// left as it is.
+    #[arg(long, conflicts_with_all = ["all_idle", "interrupt", "after_turn", "carry_changes", "leave_dirty"])]
+    pub from_snapshot: bool,
 }
 
 #[derive(Parser)]
@@ -131,6 +142,9 @@ pub enum Command {
     /// Run a task on several models in separate worktrees and compare the reviewer's winner.
     #[command(subcommand)]
     Race(crate::cli::race::RaceCmd),
+    /// Fork a Cloud machine N ways, one copy-on-write machine per harness, and keep one.
+    #[command(subcommand)]
+    ForkRun(crate::cli::fork_run::ForkRunCmd),
     /// `gh` for an agent on a machine the person added: the GitHub broker's actions, run by the
     /// Mac that lends this machine its login (`cli/gh_shim.rs`).
     #[command(hide = true, disable_help_flag = true)]
@@ -138,6 +152,11 @@ pub enum Command {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
+    /// Block until a pull request's checks finish (or it merges), sharing one GitHub poller with
+    /// every other waiter on this machine. Exit 0 green or merged, 1 failing or closed, 3
+    /// timeout, 4 head moved off --sha (`cli/pr_wait.rs`).
+    #[command(name = "pr-wait")]
+    PrWait(crate::cli::pr_wait::PrWaitArgs),
     /// Send a local brief to another harness on a machine (or the least-loaded
     /// allowed machine with `--machine auto`) and record its identity.
     Dispatch(DispatchArgs),
@@ -578,6 +597,11 @@ pub enum Command {
         /// were given it and open dashboard connections stop working.
         #[arg(long)]
         rotate_token: bool,
+        /// Serve the agent pane over this machine's tailnet name with HTTPS
+        /// (`tailscale serve`), so a browser on another device of yours can open and
+        /// sign in to it. Prints that https link; implies `--app`.
+        #[arg(long)]
+        tailnet: bool,
     },
     /// Machines that run sessions: add, ls, status, pick, setup, update, enroll, doctor, ticket and more.
     /// The old spellings `host`, `hosts` and `peer` still work.
@@ -590,12 +614,17 @@ pub enum Command {
     /// Forum rules: announce one, list the current ones, ack one.
     #[command(subcommand)]
     Forum(crate::cli::forum::ForumCmd),
-    /// Bridge Claude Desktop and Codex Desktop to each other and to cmux sessions: connect, send, inbox.
+    /// Bridge Claude Desktop, Codex Desktop and ChatGPT Desktop to each other and to cmux sessions:
+    /// connect, send, inbox.
     #[command(subcommand)]
     Bridge(crate::cli::bridge::BridgeCmd),
     /// Wake a session with one message when others are done or blocked: add, ls, rm.
     #[command(subcommand)]
     Watch(crate::cli::watch::WatchCmd),
+    /// Cloud triggers: on a GitHub event (CI failure, PR comment) or a signed webhook, wake a
+    /// Cloud chat with a prompt: create, ls, rm.
+    #[command(subcommand)]
+    Trigger(crate::cli::trigger::TriggerCmd),
     /// Give the Claude desktop app, Claude Code and Codex the cmux tools: link, unlink, status.
     #[command(subcommand)]
     Desktop(crate::cli::desktop::DesktopCmd),
@@ -624,10 +653,18 @@ pub enum Command {
     /// archives.
     #[command(subcommand, aliases = aliases::WORKTREE)]
     Worktree(crate::cli::worktree::WorktreeCmd),
+    /// GitHub CI: wait for a workflow run (or a pull request's checks) with conditional reads
+    /// that cost no quota while nothing changes (`cli/ci_wait.rs`).
+    #[command(subcommand)]
+    Ci(crate::cli::ci_wait::CiCmd),
     /// The cmux app's sidebar groups: ls, move a session's workspace into one,
     /// tidy (one group per name in a space; a dry run unless --apply).
     #[command(subcommand)]
     Group(crate::cli::group::GroupCmd),
+    /// Accounts the agents here run on: sign in (again or a new one, GitHub too), sign out,
+    /// switch the default, remove, list, and which providers are ready.
+    #[command(subcommand)]
+    Account(crate::cli::account::AccountCmd),
     /// Everything else about one session: info, cancel, stop, rename, fork, set, allow, deny, answer, export, import, tail, queue.
     #[command(subcommand, aliases = aliases::SESSION)]
     Session(SessionCmd),
@@ -766,6 +803,8 @@ pub enum Command {
     #[command(hide = true)]
     RestartAgent { session: String },
     #[command(hide = true)]
+    RouteDeath { facts: PathBuf },
+    #[command(hide = true)]
     PauseAgent { session: String },
     #[command(hide = true)]
     WakeAgent { session: String },
@@ -788,7 +827,19 @@ pub enum Command {
         /// Rename the spoken handle.
         #[arg(long)]
         handle: bool,
+        /// With --handle: set the icon too (as `acpmux icon`).
+        #[arg(long, requires = "handle")]
+        icon: Option<String>,
     },
+    /// Set the icon every surface draws for a session (tab, sidebar row, lists, chat header, a
+    /// message's sender): one emoji, an SF Symbol (`leaf.fill`, `sf:NAME`), an agent mark
+    /// (`claude`), an .svg/.png/.ico file, or a URL (an image, or a site whose favicon it takes).
+    /// `none` clears it; no ICON prints it. `@` is the session this shell runs in: an agent sets
+    /// its own icon with no one's leave.
+    #[command(
+        after_help = "Examples:\n  acpmux icon @ 🥭\n  acpmux icon @ sf:leaf.fill\n  acpmux icon @ ./mark.svg\n  acpmux icon @ https://github.com\n  acpmux rename @ Mango --handle --icon 🥭\n  acpmux icon @ none"
+    )]
+    Icon { session: String, icon: Option<String> },
     /// Give the session this shell runs in a stable name every machine that peers this one sends
     /// to: a Claude Code session acpmux did not start (the Claude desktop app's Code tab, a
     /// terminal `claude`). Run it from that session's own Bash tool: it delivers a one-time code
@@ -904,6 +955,16 @@ pub enum Command {
     DaemonEnroll { person_key_fd: i32 },
     #[command(hide = true)]
     DaemonRestart,
+    /// `daemon stats`: the busiest callers or methods over a recent window.
+    #[command(hide = true)]
+    DaemonStats {
+        #[arg(long, value_enum, default_value_t = crate::cli::daemon_stats::By::Caller)]
+        by: crate::cli::daemon_stats::By,
+        #[arg(long, default_value = "60s")]
+        since: String,
+        #[arg(long, default_value_t = 20)]
+        top: usize,
+    },
     /// `daemon prune`: clear dead daemons' records (a dry run unless `apply`).
     #[command(hide = true)]
     DaemonPrune {
@@ -1242,6 +1303,16 @@ pub enum SessionCmd {
     /// It then runs the installed version and gets a new caller token (after
     /// a daemon restart left it the earlier daemon's).
     Restart { session: String },
+    /// Decide what happens next to a session that died while it owned work: restart it in
+    /// place, move it, start its host, start it again on a healthy host, start a successor,
+    /// wait, or hand its work off. Reads FACTS (a JSON file, `-` for stdin: its host, how it
+    /// died, what was tried, which hosts admit one more session) and prints one JSON step,
+    /// `{"step": "restart"|"move"|"successor"|...}`. Runs nothing; the caller runs the step
+    /// (`session restart`, `session move`) and asks again on its next pass.
+    Route {
+        #[arg(long, value_name = "FILE")]
+        facts: PathBuf,
+    },
     /// Rename a session.
     Rename {
         session: String,
@@ -1249,7 +1320,12 @@ pub enum SessionCmd {
         /// Rename the spoken handle.
         #[arg(long)]
         handle: bool,
+        /// With --handle: set the icon too (as `acpmux icon`).
+        #[arg(long, requires = "handle")]
+        icon: Option<String>,
     },
+    /// Set the icon every surface draws for a session (as `acpmux icon`).
+    Icon { session: String, icon: Option<String> },
     /// Detach a session from the session that started it: its turns stop showing in that
     /// session's chat, and its `lane.reportsTo` tag goes. The session keeps running.
     Detach { session: String },
@@ -1633,6 +1709,21 @@ pub enum DaemonCmd {
         #[arg(long)]
         person_key_fd: i32,
     },
+    /// The busiest callers of the running daemon over a recent window (at most the last 10
+    /// minutes): requests, bytes in and out, and each caller's client name, origin, pid and
+    /// session, so a client that asks too often can be found. A daemon without per-caller stats
+    /// shows its list replies by client instead.
+    Stats {
+        /// One row per caller (with its busiest methods) or per method.
+        #[arg(long, value_enum, default_value_t = crate::cli::daemon_stats::By::Caller)]
+        by: crate::cli::daemon_stats::By,
+        /// The window, e.g. 60s, 5m or 10m (at most 10m).
+        #[arg(long, default_value = "60s")]
+        since: String,
+        /// How many rows.
+        #[arg(long, default_value_t = 20)]
+        top: usize,
+    },
     /// Restart the daemon, preserving hosted sessions so they resume on startup.
     Restart,
     /// Clear what dead daemons left: for the shared home and each per-build home, the socket and
@@ -1738,10 +1829,12 @@ pub fn flatten(c: Command) -> Command {
                 Command::Kill { session, purge, condition }
             }
             SessionCmd::Restart { session } => Command::RestartAgent { session },
+            SessionCmd::Route { facts } => Command::RouteDeath { facts },
             SessionCmd::Pause { session } => Command::PauseAgent { session },
             SessionCmd::Wake { session } => Command::WakeAgent { session },
-            SessionCmd::Rename { session, new_name, handle } => {
-                Command::Rename { session, new_name, handle }
+            SessionCmd::Icon { session, icon } => Command::Icon { session, icon },
+            SessionCmd::Rename { session, new_name, handle, icon } => {
+                Command::Rename { session, new_name, handle, icon }
             }
             SessionCmd::Detach { session } => Command::DetachParent { session },
             SessionCmd::Resume { session, open, mesh } if !mesh.mesh => {
@@ -1834,6 +1927,7 @@ pub fn flatten(c: Command) -> Command {
                 Command::Shutdown { keep_agents, end_agents, restart }
             }
             DaemonCmd::Restart => Command::DaemonRestart,
+            DaemonCmd::Stats { by, since, top } => Command::DaemonStats { by, since, top },
             DaemonCmd::Prune { apply } => Command::DaemonPrune { apply },
             DaemonCmd::Service { action } => Command::DaemonService { action },
             DaemonCmd::Config { show_token, set } => Command::Config { show_token, set },

@@ -64,8 +64,15 @@ const deny = (reason: DenyReason, message: string): TokenFail => ({ ...fail(403,
 const sha256hex = (s: string) => createHash("sha256").update(s).digest("hex")
 const enc = new TextEncoder()
 
-/** The ledger's principal key: the install, else the person's session. */
-export const principalKey = (p: Principal) => (p.kind === "install" && p.install ? `install:${p.install}` : `session:${p.user}`)
+/**
+ * A machine joined with `acpmux machine join` (cmux-platform's join registry), as machine-github.ts builds it after the
+ * platform checked the machine's `cmm_` credential live: it has no install, so no UserDO socket is registered for it.
+ */
+export const JOINED_MACHINE_KIND = "joined"
+
+/** The ledger's principal key: a joined machine (machine-github.ts), the install, else the person's session. */
+export const principalKey = (p: Principal) =>
+  p.install_kind === JOINED_MACHINE_KIND && p.bound_machine ? `machine:${p.bound_machine}` : p.kind === "install" && p.install ? `install:${p.install}` : `session:${p.user}`
 
 export const createGithubTokenTable = (sql: SqlStorage) => {
   sql.exec(`CREATE TABLE IF NOT EXISTS github_tokens (
@@ -93,7 +100,7 @@ type Row = { token_id: string; principal: string; install: string | null; team: 
 const aad = (r: Omit<Row, "sealed">) => enc.encode(`cmux-ghtok-v1|${canonicalJson([r.team, r.principal, r.install, r.repo, r.permissions, r.token_id, Number(r.expires_at)])}`)
 const openRow = (env: Env, r: Row) => open(env.INTEGRATIONS_KEK!, JSON.parse(r.sealed) as SealedSecret, aad(r))
 
-/** Token bucket per principal; the wait in seconds when empty, else null. */
+/** Token bucket per key (a principal, or a joined machine's minter); the wait in seconds when empty, else null. */
 const take = (buckets: LedgerHost["buckets"], key: string, now: number): number | null => {
   const b = buckets.get(key) ?? { tokens: MINT_RATE.burst, at: now }
   const tokens = Math.min(MINT_RATE.burst, b.tokens + ((now - b.at) / 1000) * MINT_RATE.per_second)
@@ -425,7 +432,9 @@ const mintOrReuse = async (h: LedgerHost, picked: { c: Connection; installation:
     }
     if ("ok" in again) return again
   }
-  const wait = take(h.buckets, pk, now)
+  // A joined machine's bucket is its minter's in this team (this ConnectionDO is the team's): N machines one person
+  // joined share one rate, never N. Every other principal keeps its own.
+  const wait = take(h.buckets, p.install_kind === JOINED_MACHINE_KIND ? `joined-user:${p.user}` : pk, now)
   if (wait !== null) return fail(429, "rate_limited", `too many new GitHub tokens for this caller; try again in ${wait} s`, wait)
   let res: Response
   try {
@@ -492,7 +501,7 @@ const mintOrReuse = async (h: LedgerHost, picked: { c: Connection; installation:
   const before = changed()
   if (before) return refuse(before)
   // UserDO calls closeInstall here once the install is revoked; false: it already is.
-  if (p.kind === "install") {
+  if (p.kind === "install" && p.install_kind !== JOINED_MACHINE_KIND) {
     const registered = await h.register(p, minted.expires_at).catch(() => null)
     if (registered !== true) return refuse(registered === null ? fail(503, "integration.unavailable", "the install could not be checked; retry") : fail(401, "auth.required", "this install was revoked"))
     const after = changed()

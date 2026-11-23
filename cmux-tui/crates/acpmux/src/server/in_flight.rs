@@ -9,6 +9,10 @@
 //! An answer sent from inside its request (a list reply, `list_reply.rs`) takes the entry as it
 //! is queued, under the connection's outbound lock ([`InFlight::claim`]): a cancel read after
 //! that finds nothing, and one read before it leaves the answer unsent.
+//!
+//! At the daemon's stop the table is drained ([`InFlight::drain_at_shutdown`], `shutdown_drain.rs`):
+//! every entry is taken as a cancel takes it, and the caller answers each with the typed restart
+//! error. From then on a new request is refused at its start ([`Ticket::refused`]).
 
 use crate::rpc::Id;
 use std::collections::HashMap;
@@ -17,6 +21,8 @@ use std::sync::{Arc, Mutex};
 use tokio::sync::{OwnedSemaphorePermit, oneshot};
 
 struct Entry {
+    /// The request's own id, for an answer sent from outside it (the shutdown's drain).
+    id: Id,
     generation: u64,
     method: String,
     /// Its key among requests sent on two paths (`dual_requests.rs`): a cancel stops whichever
@@ -30,6 +36,9 @@ struct Entry {
 pub(crate) struct InFlight {
     next: AtomicU64,
     by_id: Mutex<HashMap<String, Entry>>,
+    /// The daemon's stop drained this table: no request starts on it any more. Set and read under
+    /// `by_id`'s lock, so a request begun before the drain is drained, and one after is refused.
+    drained: AtomicBool,
     /// Entries of every connection of the hub together (`Hub::requests_in_flight`).
     gauge: Arc<AtomicUsize>,
 }
@@ -41,6 +50,8 @@ pub(crate) struct Ticket {
     claim: Option<Claim>,
     pub cancel: oneshot::Receiver<()>,
     _slot: Option<OwnedSemaphorePermit>,
+    /// Begun after the stop drained its table: the request answers the restart error at once.
+    refused: bool,
 }
 
 /// What takes a request's entry for its own answer ([`InFlight::claim`]): its key and
@@ -57,12 +68,28 @@ impl Ticket {
     pub(crate) fn claim(&self) -> Option<Claim> {
         self.claim.clone()
     }
+
+    /// Begun after the daemon's stop drained its connection's table ([`InFlight::drain_at_shutdown`]):
+    /// it is not served, and answers `shutdown_drain::restarting_error`.
+    pub(crate) fn refused(&self) -> bool {
+        self.refused
+    }
 }
 
 impl InFlight {
     /// A connection's table, counted in the hub's `gauge`.
     pub(crate) fn counted(gauge: Arc<AtomicUsize>) -> Self {
-        Self { next: AtomicU64::new(0), by_id: Mutex::default(), gauge }
+        Self {
+            next: AtomicU64::new(0),
+            by_id: Mutex::default(),
+            drained: AtomicBool::new(false),
+            gauge,
+        }
+    }
+
+    /// Whether this table counts into `gauge` (`Hub::requests_in_flight`): it is that hub's.
+    pub(crate) fn counts_into(&self, gauge: &Arc<AtomicUsize>) -> bool {
+        Arc::ptr_eq(&self.gauge, gauge)
     }
 
     fn map(&self) -> std::sync::MutexGuard<'_, HashMap<String, Entry>> {
@@ -87,17 +114,51 @@ impl InFlight {
         let (tx, rx) = oneshot::channel();
         let key = id.to_string();
         let mut map = self.map();
+        if self.drained.load(Ordering::SeqCst) {
+            return Ticket { claim: None, cancel: rx, _slot: slot, refused: true };
+        }
         if id.is_null() || map.contains_key(&key) {
-            return Ticket { claim: None, cancel: rx, _slot: slot };
+            return Ticket { claim: None, cancel: rx, _slot: slot, refused: false };
         }
         let generation = self.next.fetch_add(1, Ordering::Relaxed);
         map.insert(
             key.clone(),
-            Entry { generation, method: method.to_owned(), dual, cancel: tx, _slot: slot },
+            Entry {
+                id: id.clone(),
+                generation,
+                method: method.to_owned(),
+                dual,
+                cancel: tx,
+                _slot: slot,
+            },
         );
         self.gauge.fetch_add(1, Ordering::Relaxed);
         let won = Arc::default();
-        Ticket { claim: Some(Claim { key, generation, won }), cancel: rx, _slot: None }
+        Ticket {
+            claim: Some(Claim { key, generation, won }),
+            cancel: rx,
+            _slot: None,
+            refused: false,
+        }
+    }
+
+    /// The daemon stops: take every request in flight as a cancel takes it (its slot freed, its
+    /// task told to stop, a late answer of its own dropped), and refuse every later one. Returns
+    /// each taken request's id, method and dual key; the caller answers each, so every request is
+    /// answered exactly once.
+    pub(crate) fn drain_at_shutdown(&self) -> Vec<(Id, String, Option<super::dual_requests::Key>)> {
+        let mut map = self.map();
+        self.drained.store(true, Ordering::SeqCst);
+        let taken: Vec<Entry> = map.drain().map(|(_, entry)| entry).collect();
+        self.gauge.fetch_sub(taken.len(), Ordering::Relaxed);
+        drop(map);
+        taken
+            .into_iter()
+            .map(|entry| {
+                let _ = entry.cancel.send(());
+                (entry.id, entry.method, entry.dual)
+            })
+            .collect()
     }
 
     /// The client cancelled request `id`: its method and dual key when it was in flight. Its
@@ -175,6 +236,31 @@ mod tests {
         assert_eq!(gauge.load(Ordering::Relaxed), 1);
         drop(flights);
         assert_eq!(gauge.load(Ordering::Relaxed), 0, "a closed connection leaves the count");
+    }
+
+    /// The stop takes every request in flight, each once, and refuses a later one; a drained
+    /// request's own late answer is not sent.
+    #[test]
+    fn the_shutdown_drain_takes_each_request_once_and_refuses_later_ones() {
+        let gauge = Arc::new(AtomicUsize::new(0));
+        let flights = InFlight::counted(gauge.clone());
+        assert!(flights.counts_into(&gauge));
+        assert!(!flights.counts_into(&Arc::default()));
+        let a = flights.begin(&json!(1), "session/prompt", None, None);
+        let b = flights.begin(&json!("b"), "_acpmux/sessions", None, None);
+        let mut taken = flights.drain_at_shutdown();
+        taken.sort_by_key(|(id, _, _)| id.to_string());
+        let ids: Vec<_> = taken.iter().map(|(id, m, _)| (id.clone(), m.clone())).collect();
+        assert_eq!(
+            ids,
+            [(json!("b"), "_acpmux/sessions".to_owned()), (json!(1), "session/prompt".to_owned())]
+        );
+        assert_eq!((flights.len(), gauge.load(Ordering::Relaxed)), (0, 0));
+        assert!(!flights.finish(&a) && !flights.finish(&b), "the drain answered them");
+        assert!(flights.drain_at_shutdown().is_empty(), "each is taken once");
+        let late = flights.begin(&json!(3), "m", None, None);
+        assert!(late.refused());
+        assert_eq!(flights.len(), 0, "a refused request is never in flight");
     }
 
     #[test]

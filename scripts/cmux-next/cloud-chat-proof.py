@@ -64,6 +64,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import claude_login_cache  # noqa: E402
+from state_wait import wait_stable  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--app", required=True, help="the tagged app bundle")
@@ -812,7 +813,20 @@ def paused_capture(out_dir: str) -> None:
                clean(str(clicked.get("error") or cost.get("error") or "")), detail_text=detail_text or None)
 
     # 4. The images: the page as WebKit drew it, and the whole window.
-    time.sleep(2)  # the selection and detail draw before the capture (harness, not app code)
+    # The selection and detail drew before the capture: the window's pixels hold still (best effort).
+    probe_fd, probe = tempfile.mkstemp(prefix="cloud-paused-probe-", suffix=".png")
+    os.close(probe_fd)
+
+    def window_pixels() -> str:
+        shot = app_call("debug.window_snapshot", {"kind": "main", "path": probe}, timeout=60)
+        if shot.get("error"):
+            raise RuntimeError(shot["error"])
+        return hashlib.sha256(Path(probe).read_bytes()).hexdigest()
+    try:
+        wait_stable(window_pixels, "the window after the selection", timeout=10, interval=0.25,
+                    raise_on_timeout=False)
+    finally:
+        Path(probe).unlink(missing_ok=True)
     images = {}
     for name, method, params in (
         ("cloud-paused-page.png", "debug.page", {"page": "cmux.cloud", "action": "snapshot"}),
