@@ -239,7 +239,21 @@ export interface Chat {
   workspace: string | null
   machine: string | null
   updated_ms: number
+  created_ms?: number | null
+  pinned?: boolean
+  /** The chat whose agent started this one, when one did. */
+  parent?: string | null
+  /** Its last reply, one short line (a New Tab card's message); null before the first, absent on an older cmux. */
+  preview?: string | null
   pull_requests?: string[]
+}
+
+/** What `recentChats` reads: at most `limit` chats (1 to 1000), newest first, only those in `state` when given. */
+export interface RecentChatsQuery {
+  limit: number
+  state?: "working" | "input" | "idle" | "failed" | "lost"
+  /** The page after this row (a previous page's last chat): All chats, a page at a time. */
+  after?: Pick<Chat, "id" | "updated_ms" | "machine"> & { created_ms?: number | null }
 }
 
 function fromWatch<T>(w: CmuxWatch<T>): Live<T> {
@@ -273,6 +287,40 @@ export function chats(): Live<Chat[]> {
   return live
 }
 
+/** The `agent_chat.list` fields a recent-chats query names. */
+export function recentChatsFields(query: RecentChatsQuery): Record<string, unknown> {
+  const fields: Record<string, unknown> = { limit: query.limit }
+  if (query.state) fields.state = query.state
+  const after = query.after
+  if (after) {
+    fields.before_ms = after.updated_ms ?? after.created_ms ?? 0
+    fields.before_id = after.id
+    if (after.machine) fields.before_machine = after.machine
+  }
+  return fields
+}
+
+/**
+ * The newest agent chats, at most `query.limit`: a New Tab page's recent chats, a "waiting on you"
+ * list (`state: "input"`), or one page of All chats (`after` the previous page's last chat). cmux
+ * reads them from its ordered chat index, so the read costs the chats it returns, never a sort of
+ * every chat (scope `agent_chat:read`, pushed by `agent_chat.changed`).
+ *
+ *     const recent = recentChats({ limit: 3 })
+ *     ForEach({ items: () => recent() ?? [], key: (c) => c.id }, (c) => Row({ title: () => c().title }))
+ */
+export function recentChats(query: RecentChatsQuery): Live<Chat[]> {
+  const l = cmux.live<Chat[]>("agent_chat.list", recentChatsFields(query), {
+    events: ["agent_chat.changed"],
+    select: (v) => ((v as { chats?: Chat[] } | null)?.chats ?? [])
+  })
+  const live = (() => l()) as Live<Chat[]>
+  live.loading = () => l.loading()
+  live.error = () => l.error() ?? undefined
+  live.refresh = () => l.refresh()
+  return live
+}
+
 /**
  * Calls `fn` with the new value each time a live list changes (not for the first read when
  * `initial` is false). Returns the stop function; inside a render or effect it stops with it.
@@ -294,3 +342,8 @@ export function onChange<T>(live: Live<T>, fn: (value: T) => void, options: { in
 // Widgets (`cmux.widget/1`): the place and its glanceable layout helpers (widget.ts).
 
 export * from "./widget.ts"
+
+// ---------------------------------------------------------------------------------------------
+// Design systems (`cmux.design/1`): cmux's as data, a person's on top of it, and its viewer (design.ts).
+
+export * from "./design.ts"
