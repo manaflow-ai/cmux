@@ -163,6 +163,8 @@ import {
   type ComposerPlusExtension,
 } from "./composerPlusRegistry";
 import { ComposerPlusMenu } from "./ComposerPlusMenu";
+import { ExtensionChips } from "./composer/ExtensionChips";
+import { chipText, type ExtensionChip } from "./composer/extensionChipsModel";
 import { loadRecentCommandNames, recentCommands, rememberRecentCommand } from "./recentCommands";
 import { openPicker } from "./pickerOpeners";
 import type { RepickMachine } from "./cloudRepick";
@@ -2000,6 +2002,20 @@ function ComposerFrame({
     edit(before + insert + after, caret + shown.length);
     field.current?.focus();
   };
+  /// Adds an extension chip's text (`cmux.composer.chip/1`) at the caret, as typed words.
+  const pickChip = (chip: ExtensionChip) => {
+    if (composing.current) return;
+    const { text, caret } = promptRef.current;
+    const at = markdownOffset(text, caret);
+    const before = text.slice(0, at);
+    const shown = chipText(before, chip.insert);
+    plusDraft.current = undefined;
+    pendingCaret.current = caret + shown.length;
+    // Markdown doesn't show trailing whitespace, so what follows an end-of-prompt caret is dropped.
+    const after = text.slice(at).replace(/^\s+$/, "");
+    edit(before + shown.replace(/[\\`*_[\]~<]/g, "\\$&") + after, caret + shown.length);
+    field.current?.focus();
+  };
   // + then Commands opens the agent's commands: the menu reads the
   // text before the caret, so "/" ahead of the draft opens it and a pick keeps
   // the draft as arguments. A draft that already starts a command keeps its "/",
@@ -3059,6 +3075,8 @@ function ComposerFrame({
           />
         </div>
       )}
+      {/* Context chips extensions add (cmux.composer.chip/1): none, no row. */}
+      {!shell && <ExtensionChips onPick={pickChip} />}
       <ComposerBox
         handle={box}
         prompt={promptText}

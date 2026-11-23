@@ -127,6 +127,8 @@ export function mockPanelScene(panel: AppPanel, context?: MountContext): SceneOp
 export class MockAppPanelsClient implements PageClient {
   panels: readonly AppPanel[] = MOCK_APP_PANELS;
   toolbarButtons: readonly unknown[] = [];
+  /** `apps.composer.list` `chips` (cmux.composer.chip/1): none unless a test or gallery adds some. */
+  composerChips: readonly unknown[] = [];
   composerCommands: readonly unknown[] = MOCK_COMPOSER_COMMANDS;
   composerMentions: readonly { prefix: string; id: string; label: string; detail?: string; insert: string }[] =
     MOCK_COMPOSER_MENTIONS;
@@ -176,6 +178,7 @@ export class MockAppPanelsClient implements PageClient {
             prefix,
           })),
           toolbarButtons: this.toolbarButtons,
+          chips: this.composerChips,
         };
         break;
       case "cmux.apps.panels.mentions": {
@@ -267,6 +270,12 @@ export class MockAppPanelsClient implements PageClient {
   /** A mock save of an extension's composer commands: the page lists them again on `changed`. */
   setComposerCommands(commands: readonly unknown[]): void {
     this.composerCommands = commands;
+    for (const listener of this.changed) listener(undefined, ++this.seq);
+  }
+
+  /** A mock save of an extension's composer chips: the page lists them again on `changed`. */
+  setComposerChips(chips: readonly unknown[]): void {
+    this.composerChips = chips;
     for (const listener of this.changed) listener(undefined, ++this.seq);
   }
 

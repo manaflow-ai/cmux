@@ -1248,6 +1248,12 @@ fieldset.acpmux-question[hidden]{display:none}
 
 .acpmux-outcome-ask{display:flex;align-items:baseline;gap:var(--grid-gap);padding:0 var(--grid-composer-inset) calc(var(--grid-base) + var(--grid-half-step));color:var(--agent-muted);font-size:var(--text-detail);line-height:var(--text-detail--line-height)}
 .acpmux-outcome-ask label{flex:none}
+/* Extension context chips (composer/ExtensionChips.tsx): one row above the box, scrolling sideways when it runs past the width. */
+.acpmux-extension-chips{display:flex;gap:var(--grid-half-step);overflow-x:auto;scrollbar-width:none;padding:0 var(--grid-composer-inset) var(--grid-half-step)}
+.acpmux-extension-chip{flex:none;max-width:24ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border:1px solid var(--acpmux-pill-edge);border-radius:999px;background:var(--acpmux-pill-fill);color:var(--acpmux-composer-dim);font:inherit;font-size:var(--text-detail);line-height:var(--text-detail--line-height);padding:0 var(--grid-gap);cursor:default}
+.acpmux-extension-chip:hover{background:var(--acpmux-pill-hover);color:var(--agent-text)}
+.acpmux-extension-chip:active{background:var(--acpmux-pill-press)}
+.acpmux-extension-chip:focus-visible{outline:2px solid var(--agent-accent,Highlight);outline-offset:1px}
 .acpmux-outcome-ask textarea{field-sizing:content;min-height:calc(var(--grid-icon-box) + var(--grid-half-step));max-height:72px;flex:1;resize:none;border:0;border-bottom:1px solid var(--acpmux-composer-edge);background:transparent;color:var(--agent-text);font:inherit;outline:none;padding:0 0 var(--grid-half-step)}
 .acpmux-outcome-ask textarea::placeholder{color:var(--acpmux-composer-placeholder);opacity:1}
 .acpmux-outcome-ask textarea:focus-visible{border-bottom-color:var(--agent-accent)}
