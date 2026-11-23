@@ -3010,6 +3010,13 @@
             "null"
           ]
         },
+        "omitTimeBreakdown": {
+          "description": "True from a client that never draws the breakdown (the phone): the reply's `session`\nleaves `timeBreakdown` out whatever its version (`server/requests/time_breakdown_gate.rs`).",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "sessionId": {
           "type": "string"
         },
@@ -3017,6 +3024,13 @@
           "description": "Answer from the chat's settled view first (`settled-attach-v1`,\n`server/requests/settled_attach.rs`): a read, falling back to a plain page.",
           "type": [
             "boolean",
+            "null"
+          ]
+        },
+        "timeBreakdownVersion": {
+          "description": "The `timeBreakdownVersion` of the breakdown copy this client holds (from an earlier\nattach): while the chat's copy is the same, the reply's `session` leaves `timeBreakdown`\nout (`server/requests/time_breakdown_gate.rs`). Absent, or another version: sent whole.",
+          "type": [
+            "string",
             "null"
           ]
         },
@@ -3079,6 +3093,13 @@
         "session": {
           "$ref": "#/types/SessionDetail"
         },
+        "timeBreakdownVersion": {
+          "description": "The version of the session's `timeBreakdown` copy (a hash of it); null when it has none.\nSent back as the attach's `timeBreakdownVersion`, the next reply leaves an unchanged copy\nout of `session`. An older acpmux leaves it out.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "turnOpener": {
           "anyOf": [
             {
@@ -3099,6 +3120,7 @@
         "presence",
         "readThrough",
         "session",
+        "timeBreakdownVersion",
         "turnOpener"
       ],
       "type": "object"
