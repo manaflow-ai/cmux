@@ -272,6 +272,9 @@ ends as soon as it reads that on a queued or running receipt, instead of holding
 through the compile (77.7 runner-hours in 6 h on the pull request leg, 2026-11-22 17:00-23:00Z).
 A pull request head's first read takes the receipt as it is (`wait=1`), so the mark is seen at
 once; the recipe check runs first, so a marked receipt of another recipe is still a mismatch.
+A receipt in state `superseded` (a push tip the controller will not compile because a newer
+push replaced it) ends the wait at once with the same `[no-verdict]` failure the 40-minute deadline
+posted before, 160 push jobs a day that each held a runner 40-50 min (about 6.7k runner-min/day).
 A receipt without it (a push head, or a
 controller that does not post) is waited for and relayed as before. The landing gates trust
 both posters (`scripts/ci/base_red_excuse.py` `COMPILE_STATUS_POSTERS`).

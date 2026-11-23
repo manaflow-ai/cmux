@@ -7331,7 +7331,7 @@ jobs:
                   if .sha != $sha or .repo != $repo or .recipe_version != 2 or .configuration != "release-onone"
                   then "mismatch" else (.state // "") end' "$reply" 2>/dev/null || echo unreadable)"
                 echo "read $reads: $state"
-                case "$state" in pass|fail|unavailable|mismatch|unreadable) break ;; esac
+                case "$state" in pass|fail|unavailable|superseded|mismatch|unreadable) break ;; esac
                 controller_posts "$reply" && { controller=1; break; }
                 poster_unknown="" ;;
               404) ok_at=$SECONDS last="" ;;  # no result yet
@@ -7375,6 +7375,8 @@ jobs:
             pass) post success "The app compiled and linked in SwiftPM Release (-Onone)" "$log_url" && exit 0 ;;
             fail) post failure "The app did not compile in SwiftPM Release (-Onone); see the log" "$log_url" || true ;;
             unavailable) post failure "[no-verdict] The compile check gave no verdict (unavailable); re-run this job" "$RUN_URL" || true ;;
+            # Why: docs/ci/cmux-next-workflow-notes.md#note-10 (a superseded push tip ends the wait at once)
+            superseded) post failure "[no-verdict] A newer push tip is compiled instead of this one; its status covers these commits" "$RUN_URL" || true ;;
             mismatch|unreadable) post failure "[no-verdict] The compile result does not match this head; re-run this job" "$RUN_URL" || true ;;
             *) post failure "[no-verdict] No compile result for this head in 40 minutes${state:+ (last: $state)}" "$RUN_URL" || true ;;
           esac
