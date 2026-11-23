@@ -114,6 +114,8 @@ final class AgentTabStore {
                                     _ created: (@MainActor (String) -> Void)?, _ finished: (@MainActor (Bool) -> Void)?) -> Bool? = { _, _, _, _, _ in nil }
     /// Lays out now the split beside chat `chat` holding new tab `key` (focus expected on it when `focus`); the result takes the store's tab.
     var showSplit: @MainActor (_ chat: String, _ key: String, _ focus: Bool) -> @MainActor (SurfaceID) -> Void = { _, _, _ in { _ in } }
+    /// Shows the even sizing of the chain a split of `pane` toward `direction` joins, before the split is intended (one frame); its result settles it.
+    var holdSplitSizing: @MainActor (_ pane: PaneID, _ daemon: DaemonService, _ direction: SplitDirection) -> (@MainActor (_ landed: Bool) -> Void)? = { _, _, _ in nil }
     var showSplitScoped: @MainActor (_ chat: AgentTabKey, _ key: String, _ focus: Bool) -> @MainActor (SurfaceID) -> Void = { _, _, _ in { _ in } }
     /// Every agent tab the trees list, with its record.
     var listTabs: @MainActor () -> [(key: String, record: AgentSessionRef)] = { [] }
