@@ -1,9 +1,11 @@
+import { keycapLegend } from "../../ui/keycapLegend";
 import { useWebSwapHold } from "../../pages/shared/useWebSwapHold";
 import { WEB_SWAP_KEPT_TEXT } from "../../pages/shared/webSwap";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useEscapingList } from "../../ui/popupHost";
 import { useScrollEdges } from "../../ui/scrollEdges";
-import { AgentMark as BrandMark } from "../shared/AgentMark";
+import { AgentMark as BrandMark, SessionMark } from "../shared/AgentMark";
+import type { HarnessIconSpec } from "../shared/harnessIcons";
 import { agentDisplayName } from "./agents";
 import { useLastPick } from "./lastPick";
 import { ArrowUpIcon } from "./ComposerPickers";
@@ -19,9 +21,9 @@ import { BrowseFailure } from "./BrowseFailure";
 import { ErrorDetails } from "./conversation/ErrorDetails";
 import { browseFailureMessage } from "./browseFailureModel";
 import { defaultRow, stepSelection, EMPTY_OMNIBAR, omnibarRows, type OmnibarContext, type OmnibarRow } from "./omnibar";
-import { firstProject, homePath, mostRecentProject, projectLabel } from "./sessionList";
+import { firstProject, homePath, mostRecentProject, projectLabel, isTemporaryFolder } from "./sessionList";
 import { useT } from "./i18n";
-import { isStartableProject, rememberedStartedProject } from "./newtab/startedProject";
+import { isStartableProject, startedProjectChoices } from "./newtab/startedProject";
 import { useNoEntryMotion } from "./newtab/noEntryMotion";
 import { usePasteAnywhere } from "./composer/pasteAnywhere";
 import { newTabStart, useNewTabChipModel } from "./newtab/chipDefaults";
@@ -197,12 +199,12 @@ export function NewTabPage({
       browsePending.current = false;
     }
   };
-  const [started] = useState(() => (home ? (rememberedStartedProject() ?? startedProject) : undefined));
+  const [started] = useState(() => (home ? startedProjectChoices(startedProject) : []));
   const projectCwd =
     picked ??
-    (isStartableProject(cwd) || !home
+    ((isStartableProject(cwd) && !isTemporaryFolder(cwd)) || !home
       ? cwd
-      : (firstProject(started ? [started.replace(/(.)\/+$/, "$1")] : [], home, knownProjects) ??
+      : (firstProject(started, home, knownProjects) ??
         mostRecentProject(snapshot.sessions, home, knownProjects) ??
         cwd));
   // Where the chips' picks start the chat: the project, never the tab's inherited `~` or agent-home
@@ -370,6 +372,7 @@ export function NewTabPage({
               sessionId: session.sessionId,
               title: session.displayTitle ?? session.sessionId,
               ...(session.harness ? { harness: session.harness } : {}),
+              ...(session.icon ? { icon: session.icon } : {}),
               detail: projectLabel(session.cwd),
             })),
           })
@@ -431,7 +434,9 @@ export function NewTabPage({
       // A page shown in a window that is not key yet gets no focus event until it is.
       setFocused(input.focused());
     };
-    focus();
+    // Not again while the field has the keyboard: a token change after the readiness selected the keys typed so far
+    // (the screen's show-focus has the same rule).
+    if (!field.current?.focused()) focus();
     const host = fieldElement()?.ownerDocument.defaultView;
     // The app replays the keys typed after Cmd-T at this readiness: it waits for the page's focus.
     let cancelReady = () => {};
@@ -703,7 +708,7 @@ export function NewTabPage({
               type="submit"
               className={`acpmux-send${query.trim() || kind !== "browser" ? " acpmux-send-ready" : ""}`}
               aria-label={t(NEW_TAB_LABELS.open)}
-              title={`${t(NEW_TAB_LABELS.open)} ↵`}
+              title={`${t(NEW_TAB_LABELS.open)} ↩`}
             >
               <ArrowUpIcon />
             </button>
@@ -753,7 +758,7 @@ export function NewTabPage({
                   </span>
                   <span className="acpmux-omni-action" data-popup-skip>
                     {row.type === "ask" ? t(NEW_TAB_LABELS.ask, { agent }) : t(NEW_TAB_LABELS.rows[row.type])}
-                    {index === selected && <kbd>↵</kbd>}
+                    {index === selected && <kbd>{keycapLegend("↩")}</kbd>}
                   </span>
                 </div>
               ))}
@@ -851,7 +856,7 @@ function RowIcon({ row, agent }: { row: OmnibarRow; agent?: string }) {
     case "workspace":
       return <WorkspaceIcon />;
     case "session":
-      return <AgentMark harness={row.harness} />;
+      return <AgentMark harness={row.harness} icon={row.sessionIcon} />;
     case "folder":
       return <FolderIcon />;
     case "command":
@@ -873,7 +878,9 @@ function Favicon({ src }: { src: string }) {
 
 /// The agent's brand mark (design/agent-icons) or its harness's own icon, so a session's row says
 /// which agent it is at a glance; an agent without either draws the generic agent glyph.
-export function AgentMark({ harness }: { harness?: string }) {
+/// A chat's mark: the icon it set (acpmux `icon`), else its harness's.
+export function AgentMark({ harness, icon }: { harness?: string; icon?: HarnessIconSpec }) {
+  if (icon) return <SessionMark icon={icon} agent={harness} size={16} fallback={<KindIcon kind="agent" />} />;
   return <BrandMark agent={harness} size={16} fallback={<KindIcon kind="agent" />} />;
 }
 

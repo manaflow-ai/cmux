@@ -61,6 +61,8 @@ impl Brain {
     /// runs again, and its next report is the one to tell, so this one asks
     /// for no post (persona replay, Oct 28: "this ping is noise").
     pub(super) fn outcome_resumed(&mut self, id: &str) {
+        // Nor does the running turn owe it now (landed_told.rs).
+        self.turn_landed.retain(|(i, _)| i != id);
         let before = self.state.untold.len();
         self.state.untold.retain(|u| u.id != id);
         if self.state.untold.len() != before {
@@ -119,7 +121,9 @@ impl Brain {
     /// A turn ended: each untold subagent whose report it saw gets a check,
     /// and every pending check moves to the same batching window.
     pub(super) fn schedule_outcome_checks(&mut self) {
-        if self.state.untold.is_empty() {
+        // Under the loop guard no check is due: the person's next turn
+        // carries the outcomes (budget_hold.rs).
+        if self.state.untold.is_empty() || self.budget_held() {
             return;
         }
         let now = now_ms();
@@ -153,6 +157,19 @@ impl Brain {
             .iter()
             .any(|u| u.due_ms.is_some_and(|d| d <= now))
         {
+            return;
+        }
+        // The loop guard refuses every send: a retry turn could post nothing.
+        // The outcomes wait, kept and not retried, for the person's next
+        // message, whose turn names them (budget_hold.rs).
+        if self.budget_held() {
+            for u in self.state.untold.iter_mut() {
+                if u.due_ms.is_some_and(|d| d <= now) {
+                    u.due_ms = None;
+                }
+            }
+            self.save();
+            (self.log)("outcome checks wait: the loop guard refuses the Chief's messages");
             return;
         }
         if self.phase != Phase::Idle || self.resume_at.is_some() {
@@ -203,7 +220,7 @@ impl Brain {
 }
 
 /// Whether `text` names subagent `id` as a word (`a1` is not in `a12`).
-fn names(text: &str, id: &str) -> bool {
+pub(super) fn names(text: &str, id: &str) -> bool {
     let word = |c: Option<char>| c.is_some_and(|c| c.is_alphanumeric() || c == '_');
     text.match_indices(id).any(|(at, _)| {
         !word(text[..at].chars().next_back()) && !word(text[at + id.len()..].chars().next())

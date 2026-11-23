@@ -72,7 +72,8 @@ test("a proposal edits the real router catalog and the staging allowlist only", 
   const allow = addToStagingAllowlist(wrangler, "google/gemini-4-xenon")!;
   const staging = allow.split("\n").find((l) => l.includes('"ENVIRONMENT": "staging"'))!;
   const production = allow.split("\n").find((l) => l.includes('"ENVIRONMENT": "production"'))!;
-  expect(staging).toContain("google/gemini-4-neon,google/gemini-4-xenon");
+  // Appended at the end of the staging list, after every model already there.
+  expect(staging).toMatch(/"INFERENCE_MODEL_ALLOWLIST": "[^"]*google\/gemini-4-neon,[^"]*,google\/gemini-4-xenon"/);
   expect(production).not.toContain("gemini-4-xenon");
   expect(addToStagingAllowlist(wrangler, "google/gemini-4-neon")).toBeNull();
 });

@@ -74,7 +74,7 @@
 
 .cv-waterfall__span.is-link:hover,
 .cv-waterfall__span.is-link:focus-visible {
-  background: var(--ds-color-hover);
+  background: var(--ds-surface-hover);
   color: var(--cv-text);
 }
 

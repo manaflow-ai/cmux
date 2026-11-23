@@ -4,7 +4,20 @@ import Foundation
 
 /// Dials Macs through the Rust cmux-mobile-link core (WebRTC or WireGuard).
 public struct FFIMacLinkDialer: MacLinkDialer {
-    public init() {}
+    /// A dev build's `X-Cmux-Build-Space` value (`dev:<slug>`), nil to send none, or the refusal of a
+    /// misconfigured dev build (`CMUXBuildSpaceError`), which dials nothing. The Rust core puts the
+    /// value on every cmux-mobile-api request and the signaling upgrade it makes.
+    let buildSpace: Result<String?, any Error>
+
+    public init(buildSpace: Result<String?, any Error>) {
+        self.buildSpace = buildSpace
+    }
+
+    /// The build space is process state in the Rust core, set before each call that reaches the
+    /// service, like the keepalive setting. Throws, setting nothing, for a misconfigured dev build.
+    private func applyBuildSpaceToCore() throws {
+        setBuildSpace(value: try buildSpace.get())
+    }
 
     /// Settings → Transport → Ultra mode (`CmuxMobilePreferences.Key.ultra`, the same
     /// `UserDefaults` key; this module does not link CmuxMobileDesign): "off", "auto" or
@@ -17,6 +30,7 @@ public struct FFIMacLinkDialer: MacLinkDialer {
         let observer = StateObserver()
         // Settings → Transport → Align Keepalives, read at each dial like Ultra mode.
         KeepaliveBeat.applySettingToCore()
+        try applyBuildSpaceToCore()
         do {
             let handle = try await connectWithOptions(
                 baseUrl: endpoint.baseURL.absoluteString,
@@ -39,6 +53,7 @@ public struct FFIMacLinkDialer: MacLinkDialer {
     public func prewarm(baseURL: URL, teamID: String, deviceID: String, accessToken: String) async -> [(String, Double)] {
         // The signaling socket opened here reads the setting at its ticks.
         KeepaliveBeat.applySettingToCore()
+        guard (try? applyBuildSpaceToCore()) != nil else { return [] }
         return await CmuxMobileLinkFFI.prewarm(baseUrl: baseURL.absoluteString, token: accessToken, teamId: teamID, deviceId: deviceID)
             .map { ($0.name, $0.millis) }
     }
@@ -48,7 +63,8 @@ public struct FFIMacLinkDialer: MacLinkDialer {
     }
 
     public func networkChanged(baseURL: URL, teamID: String, deviceID: String, accessToken: String) async -> [(String, Double)] {
-        await CmuxMobileLinkFFI.networkChanged(baseUrl: baseURL.absoluteString, token: accessToken, teamId: teamID, deviceId: deviceID)
+        guard (try? applyBuildSpaceToCore()) != nil else { return [] }
+        return await CmuxMobileLinkFFI.networkChanged(baseUrl: baseURL.absoluteString, token: accessToken, teamId: teamID, deviceId: deviceID)
             .map { ($0.name, $0.millis) }
     }
 }
@@ -277,6 +293,8 @@ final class StateObserver: LinkObserver, @unchecked Sendable {
                 continuation.yield(.media(state.videoMedia))
             case .disconnected(let reason):
                 continuation.yield(.disconnected(reason: reason))
+            case .suspect(let silentMillis):
+                continuation.yield(.suspect(silentMillis: silentMillis))
             }
         }
     }
@@ -318,7 +336,7 @@ extension CmuxMobileError {
         case .InvalidArgument(let message): LinkError(code: "invalid_argument", message: message)
         case .Signaling(let message): LinkError(code: "signaling", message: message)
         case .Refused(let code, let message): LinkError(code: code, message: message)
-        case .Timeout: LinkError(code: "timeout", message: "The Mac didn't answer in time.")
+        case .Timeout: LinkError(code: "timeout", message: "link request timed out")
         case .Transport(let message): LinkError(code: "transport", message: message)
         case .Closed(let message): LinkError(code: "closed", message: message)
         }
