@@ -20,6 +20,7 @@ virtual time.
 | `script.ts`                         | The scenario language: `sim(name, about).prompt(..).think(..).tool(..).say(..).turnEnd()`, plus `incoming` (another agent's notice or message), `background`, `subagent`, `compaction`, `reader` (scrolling), `wait`, and `record` for any raw record. |
 | `scenarios.ts`                      | The named scenarios (`SCENARIOS`) and `longRun(turns)`.                                                                                                                                                                                                |
 | `run.ts`                            | `runSimulation(scenario, options)`: the run, the probes and the rules. `summarize(result)`.                                                                                                                                                            |
+| `library.ts`                        | Reads a range of a recorded chat (only the files it touches), the reported-chat library and the freshness check (below).                                                                                                                               |
 | `sanitize.ts`                       | Makes a recorded chat safe to commit (below).                                                                                                                                                                                                          |
 | `../../../../scripts/chat-sim.ts`   | The command line.                                                                                                                                                                                                                                      |
 | `../../../../test/chat-sim.test.ts` | The tests: every scenario, a sanitized replay, the sanitizer, a long run.                                                                                                                                                                              |
@@ -80,6 +81,49 @@ A sanitized replay is close to its raw chat, not identical: the fixture here (a 
 records) draws 74 rows and 9 `a-head-gap` violations sanitized, and 77 rows and 12 raw (99 before folding both).
 Some of the pane's text parsing (an incoming message's sender, a background task's summary) reads words the
 sanitizer replaces. Compare the two with `--replay DIR` and `--replay DIR --sanitize OUT` when it matters.
+
+## The fast loop
+
+```sh
+bun --watch scripts/chat-sim.ts incoming-notice-turn            # rerun on every save of the reducer, layout or scenario
+bun --watch scripts/chat-sim.ts --replay ~/.acpmux/sessions/<id> --last 5000   # the same against a real chat's tail
+bun --watch scripts/chat-sim.ts --reported                      # every reported chat: what your change moved
+```
+
+A scenario takes milliseconds and `--all` about 0.4 s. `--from`, `--to` and `--last N` (the chat's last N
+seqs) read only the event files the range touches: the last 6,000 records of a 1.2 GB lane chat (151 files)
+replay in 0.9 s and 190 MB, where reading every file took 10.5 s and 4.4 GB (2026-11-23, a Linux agent machine).
+
+## Reported chats
+
+When something odd shows up in a chat ("all these wack ass situations"), make it a scenario everyone can
+replay, on the host where the chat ran:
+
+```sh
+bun scripts/chat-sim.ts --replay ~/.acpmux/sessions/<id> --last 3000 --report NAME --about "Leo, DATE: \"...\" (what it shows)"
+bun scripts/chat-sim.ts --reported            # replay them all: per chat, the rows breaking each rule now vs when recorded
+bun scripts/chat-sim.ts --reported --update   # after a fix: record the new counts
+```
+
+`--report NAME` sanitizes the range (as `--sanitize` does) into `test/fixtures/chat-sim/NAME.ndjson` and writes
+`NAME.json` beside it: what it reproduces, the session id and range it came from, and the rows that broke each
+rule when it was recorded (`expect`). `--reported` prints `same` or each rule that moved (`a-head-gap 9 -> 0`),
+and exits 1 when a rule breaks on more rows than recorded. Look a new fixture over (`grep` it for names and
+hosts) before committing it.
+
+## Keep it current
+
+```sh
+bun scripts/chat-sim.ts --freshness [~/.acpmux/sessions] [--sessions 40] [--unseen]
+```
+
+The simulator only sees what its scenarios and fixtures play. `--freshness` reads the newest events file of
+the newest 40 chats (about 0.4 s), keeps the records the pane reads (as the sanitizer does), and lists each
+record kind (`mux queued`, `in compaction_summary`) that no scenario or fixture plays, with how many chats
+wrote it and one place to look. Exit 1 when there is any. `--unseen` also lists kinds the simulator plays that
+none of those chats wrote. On 2026-11-23 it named 60 of 99 kinds, led by `mux stopped` (28 chats),
+`mux summarized`, `mux queued`, `mux host_adopted`, `mux inbox` and `mux resumed`: a scenario (or a reported
+chat) with those is the next step in coverage.
 
 ## Sweep every chat on a machine
 
@@ -169,7 +213,14 @@ One JSON object per step:
       "received": true,
       "text": "hq#16160 merged"
     },
-    { "id": "working-user-22", "kind": "working", "turn": 2, "gap": 0, "fold": "", "head": true }
+    {
+      "id": "working-user-22",
+      "kind": "working",
+      "turn": 2,
+      "gap": 0,
+      "fold": "",
+      "head": true
+    }
   ]
 }
 ```
