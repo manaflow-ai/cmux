@@ -1,85 +1,62 @@
 import AppKit
+import CoreImage
 
-/// The still picture's blur under Frosted (``BackdropArtBlur``): what the art layer shows, and the
-/// blur being made.
-final class ArtBlurState {
-    /// How a blur was made: from which picture, by how much, at which fill and backing scale.
-    struct Made {
-        let source: NSImage
-        let radius: Int
-        let pointsPerPixel: CGFloat
-        let scale: CGFloat
+/// Frosted over a picture: the picture the art layer shows is a blurred copy of it, made off the
+/// main actor once per picture and radius. The layer keeps its aspect fill and carries no Core
+/// Image filter: with a filter chain on the aspect-filled art layer, the picture drew in the
+/// window's bottom-left (Leo, 2026-11-23: "ah, it went only to the bottom left. lawrence
+/// encountered this issue before").
+nonisolated enum ArtBlur {
+    /// A blurred copy and what it was made from.
+    struct Copy {
+        /// The picture it blurs, held so an identity never matches a later picture at its address.
+        var source: NSImage
+        var pixelRadius: Int
+        var image: CGImage
     }
 
-    /// The blurred picture shown now and how it was made.
-    var shown: (made: Made, image: NSImage)?
-    /// The blur being made and how; tests await the task's `value`.
-    var pending: Made?
-    var task: Task<Void, Never>?
+    /// The blur radius in the picture's pixels for `radius` points of a `bounds`-sized view that
+    /// aspect-fills it, so the blur looks the same at any picture size.
+    static func pixelRadius(_ radius: Int, width: Int, height: Int, in bounds: CGSize) -> Int {
+        guard width > 0, height > 0 else { return radius }
+        // Points per picture pixel under aspect fill; with no size yet, one pixel per point.
+        let fill = bounds.width > 0 && bounds.height > 0
+            ? max(bounds.width / CGFloat(width), bounds.height / CGFloat(height)) : 1
+        return max(1, Int((CGFloat(radius) / fill).rounded()))
+    }
 
-    func cancel() {
-        task?.cancel()
-        task = nil
-        pending = nil
+    /// `picture` blurred by `pixelRadius` pixels, clamped first so the edge pixels (not
+    /// transparency) blur in past the edge and the picture keeps no translucent rim; nil when Core
+    /// Image fails.
+    /// It runs once per picture and radius, so its context is its own.
+    @concurrent static func blurred(_ picture: CGImage, pixelRadius: Int) async -> CGImage? {
+        let input = CIImage(cgImage: picture)
+        let output = input.clampedToExtent().applyingGaussianBlur(sigma: Double(pixelRadius)).cropped(to: input.extent)
+        return CIContext(options: [.cacheIntermediates: false]).createCGImage(output, from: input.extent)
     }
 }
 
 extension WindowMaterialView {
-    /// Puts the right picture in the art layer: the art itself, or under Frosted its blurred copy
-    /// (``BackdropArtBlur``), made again off the main actor when the art, the radius, the backing
-    /// scale or the shown size moved past ``BackdropArtBlur/refillTolerance``. While a blur is made
-    /// the layer keeps what it shows, then crossfades to it (``showBlurredArt(_:)``). A live resize
-    /// keeps the blur it has (the layer stretches it with the picture) and makes it again when the
-    /// resize ends.
-    func refreshArtBlur() {
-        guard let source = artImage, artBlurRadius > 0, !hidesArt,
-              let picture = source.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
-            artBlur.cancel()
-            artBlur.shown = nil
-            if let layer = artView.layer, (layer.contents as AnyObject?) !== artImage { layer.contents = artImage }
-            return
+    /// What the art layer shows for `image`: the picture, or under Frosted its blurred copy. A
+    /// copy not made yet is made off the main actor (``artBlurJob``) and replaces the picture when
+    /// it is ready; until then the layer keeps what it shows, or shows the picture.
+    func artContents(for image: NSImage?) -> Any? {
+        guard let image else { return nil }
+        guard artBlurRadius > 0, let source = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+            return image
         }
-        let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
-        let fill = bounds.isEmpty ? CGSize(width: CGFloat(picture.width) / scale, height: CGFloat(picture.height) / scale) : bounds.size
-        let want = ArtBlurState.Made(source: source, radius: artBlurRadius,
-                                     pointsPerPixel: BackdropArtBlur.pointsPerPixel(width: picture.width, height: picture.height, fill: fill),
-                                     scale: scale)
-        let fits = { (made: ArtBlurState.Made, sized: Bool) in
-            made.source === want.source && made.radius == want.radius && made.scale == want.scale
-                && (!sized || abs(want.pointsPerPixel / made.pointsPerPixel - 1) <= BackdropArtBlur.refillTolerance)
+        let pixelRadius = ArtBlur.pixelRadius(artBlurRadius, width: source.width, height: source.height, in: bounds.size)
+        if let copy = blurredArt, copy.source === image, copy.pixelRadius == pixelRadius { return copy.image }
+        artBlurJob?.cancel()
+        artBlurJob = Task { [weak self] in
+            guard let blurred = await ArtBlur.blurred(source, pixelRadius: pixelRadius), !Task.isCancelled,
+                  let self, self.artImage === image, self.artBlurRadius > 0 else { return }
+            self.blurredArt = ArtBlur.Copy(source: image, pixelRadius: pixelRadius, image: blurred)
+            self.artView.layer?.contents = blurred
+            self.noteGlassSourceChange()
         }
-        if let shown = artBlur.shown, fits(shown.made, !inLiveResize) {
-            if let layer = artView.layer, (layer.contents as AnyObject?) !== shown.image { layer.contents = shown.image }
-            return
-        }
-        if let pending = artBlur.pending, fits(pending, true) { return }
-        artBlur.cancel()
-        artBlur.pending = want
-        let input = SendableCGImage(image: picture), radius = want.radius
-        artBlur.task = Task { [weak self] in
-            let made = await Task.detached(priority: .userInitiated) {
-                BackdropArtBlur.blurred(input.image, radius: radius, fill: fill, scale: scale).map(SendableCGImage.init)
-            }.value
-            guard !Task.isCancelled, let self, let made else { return }
-            let image = NSImage(cgImage: made.image, size: NSSize(width: made.image.width, height: made.image.height))
-            self.artBlur.pending = nil
-            self.artBlur.task = nil
-            self.artBlur.shown = (want, image)
-            self.showBlurredArt(image)
-        }
-    }
-
-    /// Shows a blur just made: crossfading from the picture shown (`MotionFade.wallpaper`), or
-    /// fading in when none was, as art that loads does.
-    private func showBlurredArt(_ image: NSImage) {
-        guard let layer = artView.layer else { return }
-        let from = layer.presentation()?.contents ?? layer.contents
-        let animates = (window?.isVisible == true || crossfadesOffScreen) && !Motion.reduceMotion
-        layer.contents = image
-        if animates, let from {
-            Motion.panes.set(layer, "contents", to: image, fade: .wallpaper, from: from)
-        } else if animates {
-            Motion.panes.set(layer, "opacity", to: artOpacity, fade: .fadeIn, from: 0)
-        }
+        // A blurred copy of the same picture showing now stays until the new one is ready.
+        if let copy = blurredArt, copy.source === image { return copy.image }
+        return image
     }
 }

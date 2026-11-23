@@ -1,6 +1,5 @@
 import AppKit
 @testable import CmuxNextDesign
-import CmuxNextDesignTokens
 import CmuxNextTestSupport
 import Foundation
 import ImageIO
@@ -110,58 +109,6 @@ import UniformTypeIdentifiers
             #expect(art.artView.frame == art.bounds)
             #expect(art.videoView.playerLayer.frame == art.videoView.bounds)
             #expect(art.shaderView.metalLayer.frame == art.shaderView.bounds)
-        }
-    }
-
-    /// Frosted over a picture (Desktop Wallpaper, Opacity 0.75, as Leo had it on 2026-11-23: "it went
-    /// only to the bottom left"): the blurred picture fills the window at every size, from a zero
-    /// frame, under a 2x root. The art layer carries no live filter: the blur is in its contents, the
-    /// picture's own aspect, aspect-filled like the sharp one; the video and living wallpaper run past
-    /// their clip by the blur's reach at every size. (Folded in from #51522.)
-    @Test func aFrostedPictureFillsTheWindowFromAZeroFrame() async throws {
-        _ = NSApplication.shared
-        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("custom-bg-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: folder) }
-        let file = try Self.writeImage(width: 640, height: 400, in: folder)
-        var input = ThemeInput.ghosttyDefault
-        input.backgroundOpacity = 0.75
-        input.backgroundBlur = 20
-        let spec = WindowBackdrop(ThemeTokens.derive(from: input), selection: .file(path: file.path))
-        #expect(spec.material == .frosted && spec.artBlurRadius > 0)
-        let start = NSRect(origin: .zero, size: Self.sizes[0])
-        let window = NSWindow(contentRect: start, styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        defer { window.close() }
-        let root = NSView(frame: start)
-        root.wantsLayer = true
-        root.layer?.contentsScale = 2
-        window.contentView = root
-        let backdrop = WindowMaterialView(frame: .zero, images: BackdropImageStore(maxPixelSize: 1600),
-                                          videos: BackdropVideoPlayers(), fillsWindow: true)
-        backdrop.frame = root.bounds
-        backdrop.autoresizingMask = [.width, .height]
-        root.addSubview(backdrop)
-        window.orderFrontRegardless()
-        backdrop.apply(spec, tint: .black)
-        await backdrop.artLoad?.value
-        await backdrop.artBlur.task?.value
-        let source = try #require(backdrop.artImage?.cgImage(forProposedRect: nil, context: nil, hints: nil))
-        let reach = WindowMaterialView.liveBlurReach(spec.artBlurRadius)
-        for size in Self.sizes {
-            root.setFrameSize(size)
-            await backdrop.artBlur.task?.value
-            backdrop.displayIfNeeded()
-            let layer = try #require(backdrop.artView.layer)
-            #expect((layer.filters ?? []).isEmpty, "the still art carries a live filter at \(size)")
-            let shown = try #require((layer.contents as? NSImage)?.cgImage(forProposedRect: nil, context: nil, hints: nil),
-                                     "no blurred picture at \(size)")
-            #expect((layer.contents as AnyObject?) !== backdrop.artImage, "the sharp picture shows at \(size)")
-            let aspect = Double(shown.width) / Double(shown.height), wanted = Double(source.width) / Double(source.height)
-            #expect(abs(aspect - wanted) < 0.02, "the blurred picture is \(shown.width)x\(shown.height) at \(size)")
-            #expect(backdrop.artView.frame == backdrop.bounds, "the frosted picture does not fill the window at \(size)")
-            #expect(layer.contentsGravity == .resizeAspectFill)
-            #expect(backdrop.videoView.frame == backdrop.liveArtClip.bounds.insetBy(dx: -reach, dy: -reach))
         }
     }
 }

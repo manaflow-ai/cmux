@@ -59,16 +59,11 @@ public final class BackdropImageStore {
     }
 
     /// A decoded bitmap handed from the decoding task to the main actor.
-    nonisolated private struct Decoded: Sendable {
-        private let bitmap: SendableCGImage
+    // crash-allow: immutable CGImage is transferred from the detached decoder to the main actor.
+    private struct Decoded: @unchecked Sendable {
+        let image: CGImage
         /// Whether a texture pass ran (not read back from a snapshot).
         let rendered: Bool
-        var image: CGImage { bitmap.image }
-
-        init(image: CGImage, rendered: Bool) {
-            bitmap = SendableCGImage(image: image)
-            self.rendered = rendered
-        }
     }
 
     /// The longest side of a snapshot preview: enough under the window's tint for the frames
