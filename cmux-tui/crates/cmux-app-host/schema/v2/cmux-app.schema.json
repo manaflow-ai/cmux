@@ -187,6 +187,12 @@
         "$ref": "#/$defs/interfaceName"
       },
       "properties": {
+        "cmux.composer.chip/1": {
+          "$ref": "#/$defs/dataImplementation"
+        },
+        "cmux.composer.model.picker/1": {
+          "$ref": "#/$defs/dataImplementation"
+        },
         "cmux.composer.toolbar/1": {
           "$ref": "#/$defs/dataImplementation"
         },
@@ -197,6 +203,9 @@
           "$ref": "#/$defs/dataImplementation"
         },
         "cmux.theme/1": {
+          "$ref": "#/$defs/dataImplementation"
+        },
+        "cmux.signal.source/1": {
           "$ref": "#/$defs/dataImplementation"
         }
       },
@@ -399,6 +408,24 @@
             "$ref": "#/$defs/menuItem"
           },
           "description": "Rows the app adds to cmux's own right-click menus, after the built-in rows (one group per menu, before Customize Menu)."
+        },
+        "wallpapers": {
+          "type": "array",
+          "maxItems": 16,
+          "uniqueItems": true,
+          "description": "Live wallpapers (plans/cmux-next/live-wallpapers.md): each a folder in the package with wallpaper.json and its WGSL program, checked by cmux-wallpaper's validator. Needs no capability: a wallpaper gets only the Frame uniform.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "path"
+            ],
+            "properties": {
+              "path": {
+                "$ref": "#/$defs/path"
+              }
+            }
+          }
         }
       }
     },
