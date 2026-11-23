@@ -69,8 +69,9 @@ await requireBrowserLane("composer-outside-scroller.test.ts", async () => {
     if (process.env.COMPOSER_PLACE_TRACE)
       await page.addInitScript(() => {
         const desc = Object.getOwnPropertyDescriptor(Element.prototype, "scrollTop")!;
-        const own = window as unknown as { __writes: string[] };
+        const own = window as unknown as { __writes: string[]; __hold: string[] };
         own.__writes = [];
+        own.__hold = [];
         Object.defineProperty(Element.prototype, "scrollTop", {
           get: desc.get,
           set(this: Element, value: number) {
@@ -185,7 +186,7 @@ await requireBrowserLane("composer-outside-scroller.test.ts", async () => {
         );
         if (process.env.COMPOSER_PLACE_FRAMES) console.log(JSON.stringify(run));
         if (process.env.COMPOSER_PLACE_TRACE)
-          console.log((await page.evaluate(() => (window as unknown as { __writes: string[] }).__writes)).slice(-30).join("\n"));
+          console.log((await page.evaluate(() => (window as unknown as { __hold: string[] }).__hold)).slice(-30).join("\n"));
         expect(run.length).toBeGreaterThan(20);
         expect(grew).toBeGreaterThan(40);
         // Its growth shrinks the viewport, line for line.

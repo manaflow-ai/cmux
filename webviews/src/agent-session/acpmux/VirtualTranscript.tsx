@@ -5261,6 +5261,7 @@ function TranscriptView({
   // frame paints: the bottom edge holds on every frame of the field's motion. Scrolled up, nothing
   // writes: the offset is the reader's top row, and it holds.
   holdEndRef.current = (node) => {
+    (globalThis as unknown as { __hold?: string[] }).__hold?.push(`${performance.now().toFixed(0)} f=${followingRef.current} j=${jumpTarget.current} a=${!!foldAnchor.current} h=${node.clientHeight} t=${node.scrollTop}`);
     if (!followingRef.current || jumpTarget.current !== undefined || foldAnchor.current) return;
     const sendTopAt = sendTop.end > 0 ? Math.max(0, sendTop.end - node.clientHeight) : Number.POSITIVE_INFINITY;
     const latest = Math.min(Math.max(0, latestLayout.current.layout.totalHeight - node.clientHeight), sendTopAt);
@@ -5647,11 +5648,15 @@ function TranscriptView({
     // also what the jsdom behavior tests dispatch without a wheel event, so do not classify every
     // programmatic-looking event as layout work.
     // A held disclosure (foldAnchor) keeps the view where it is, not at the latest row.
+    // With the stack outside the scroller (`stackOutside`), a composer line that goes gives the
+    // viewport its height back, and the browser clamps the offset to the scroller's end of that
+    // moment, a whole line up when a forced layout saw the field's end height before its motion drew
+    // it. No input moved it, so the chat still follows: pinned changes on the reader's input alone.
     const layoutDriven =
       followingRef.current &&
       programmatic &&
       !foldAnchor.current &&
-      Math.abs(next - scrolledTo.current.top) <= FOLLOW_BOTTOM_DEADBAND_PX;
+      (stackOutsideRef.current || Math.abs(next - scrolledTo.current.top) <= FOLLOW_BOTTOM_DEADBAND_PX);
     if (layoutDriven) {
       // No further than a sent prompt's view (`sendTopEnd`).
       const sendTopAt = sendTop.end > 0 ? Math.max(0, sendTop.end - node.clientHeight) : Number.POSITIVE_INFINITY;
