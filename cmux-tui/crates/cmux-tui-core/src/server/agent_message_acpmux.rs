@@ -28,7 +28,7 @@ const ACPMUX_REASON_MAX: usize = 128;
 /// `_acpmux/info` for `session` without waiting for acpmux to read its chat logs
 /// after a restart: these calls need only the session's id, which the session
 /// list holds, and a large log store takes longer than [`INFO_TIMEOUT`].
-pub(super) fn info_params(session: &str) -> Value {
+pub(in crate::server) fn info_params(session: &str) -> Value {
     json!({"sessionId": session, "waitLogs": false})
 }
 

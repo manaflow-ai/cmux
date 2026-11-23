@@ -110,8 +110,11 @@ pub(super) fn send_with(
             }
         }
         let sent = ids.len();
-        let value =
-            mutate(mux, store, request, root, |file, _| Ok(cleared(file, &ids, &versions, sent)))?;
+        let value = mutate(mux, store, request, root, |file, _| {
+            // The thread first: it keeps the comments as sent, before the clear removes them.
+            super::threads::record(file, &prompt_id, acp_session, &ids);
+            Ok(cleared(file, &ids, &versions, sent))
+        })?;
         // The ledger answers the key from here on.
         release(&reservation);
         Ok(value)

@@ -14,7 +14,16 @@
 //!
 //! A send (`send`) hands the caller's prompt to an acpmux session of this
 //! machine as one queued prompt; once acpmux takes it, the sent comments
-//! still at the caller's versions are removed, as a delete removes them.
+//! still at the caller's versions are removed, as a delete removes them, and
+//! kept as one thread under the prompt id (at most [`MAX_THREADS`] per root,
+//! oldest out). A list answers each thread with the agent's reply to that
+//! prompt, read from acpmux and kept once the turn ended
+//! (`server/turn_reply_acpmux.rs`), so the reply comes back to the thread.
+//!
+//! A root is a worktree path, or the anchor of another surface a person
+//! comments on: `browser:<page URL>` (a browser pane's selection) or
+//! `terminal:<surface id>` (a terminal's selection). Nothing reads what a
+//! root names; it only keys the comments.
 
 use std::collections::HashMap;
 use std::io;
@@ -36,6 +45,10 @@ mod send;
 #[cfg(test)]
 #[path = "diff_comments/send_tests.rs"]
 mod send_tests;
+mod threads;
+#[cfg(test)]
+#[path = "diff_comments/threads_tests.rs"]
+mod threads_tests;
 
 /// Advertised in identify: the session host owns `diff.comments.*`.
 pub(crate) const CAPABILITY: &str = "diff-comments-v1";
@@ -57,6 +70,10 @@ const MAX_ID_LENGTH: usize = 128;
 pub(super) const MAX_PROMPT_BYTES: usize = 256 * 1024;
 /// The longest acpmux session id a send names.
 const MAX_SESSION_LENGTH: usize = 128;
+/// The most sent threads one root keeps, oldest out.
+pub(super) const MAX_THREADS: usize = 100;
+/// The roots that name a surface other than a worktree.
+const SURFACE_PREFIXES: [&str; 2] = ["browser:", "terminal:"];
 
 pub(super) fn handles(operation: ResourceOperation) -> bool {
     matches!(
@@ -79,7 +96,8 @@ pub(super) fn dispatch(
     match request.envelope.operation {
         ResourceOperation::DiffCommentsList => {
             let file = store.read(root).map_err(|error| io_failed(operation, &error))?;
-            Ok(json!({"root": root, "comments": file.sorted()}))
+            let threads = threads::answered(mux, &store, root, file.threads.clone(), operation)?;
+            Ok(json!({"root": root, "comments": file.sorted(), "threads": threads}))
         }
         ResourceOperation::DiffCommentsSave => {
             let comment = comment(&request.fields)?;
@@ -221,10 +239,16 @@ fn delete(file: &mut File, ids: &[String], versions: &Map<String, Value>) -> (Va
 /// `root`: an absolute path, at most 4096 bytes, without NUL.
 fn root(fields: &Map<String, Value>) -> Result<&str, ResourceError> {
     let root = fields.get("root").and_then(Value::as_str).unwrap_or_default();
-    if !root.starts_with('/') || root.len() > MAX_ROOT_BYTES || root.contains('\0') {
+    let anchored = SURFACE_PREFIXES
+        .iter()
+        .any(|prefix| root.strip_prefix(prefix).is_some_and(|rest| !rest.trim().is_empty()));
+    if !(root.starts_with('/') || anchored) || root.len() > MAX_ROOT_BYTES || root.contains('\0') {
         return Err(ResourceError::validation_invalid(
             Some("root"),
-            format!("root must be an absolute path of at most {MAX_ROOT_BYTES} bytes"),
+            format!(
+                "root must be an absolute path, browser:<url> or terminal:<id>, of at most \
+                 {MAX_ROOT_BYTES} bytes"
+            ),
         ));
     }
     Ok(root)
@@ -319,6 +343,9 @@ fn io_failed(operation: &str, error: &io::Error) -> ResourceError {
 pub(super) struct File {
     root: String,
     comments: Vec<Map<String, Value>>,
+    /// Sent reviews, oldest first; a file from before threads has none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    threads: Vec<threads::Thread>,
 }
 
 impl File {
@@ -374,7 +401,7 @@ impl Store {
         let file: Option<File> = read_json(&self.path(root))?;
         Ok(file
             .filter(|file| file.root == root)
-            .unwrap_or_else(|| File { root: root.to_string(), comments: Vec::new() }))
+            .unwrap_or_else(|| File { root: root.to_string(), ..File::default() }))
     }
 
     pub(super) fn write(&self, root: &str, file: &File) -> io::Result<()> {
