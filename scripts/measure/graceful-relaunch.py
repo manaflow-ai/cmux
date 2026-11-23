@@ -13,6 +13,10 @@ Sparkle runs before its installer relaunches: the quit keeps sessions; then `ope
 the installer and the relaunch helpers do), and reads, for every saved window frame, which process had a window
 there in every sample: the old copy, the afterimage (osascript, RelaunchAfterimage), or the new copy.
 
+The afterimage shows only with updates.keepWindowsDuringRestart on (off by default since Leo, 2026-11-23: "just do
+the normal close to update again"); with it off the windows leave and reopen, and afterimage_ms is 0. To measure the
+afterimage, turn the setting on in the copy first (`cmux settings set updates.keepWindowsDuringRestart true`).
+
   python3 scripts/measure/graceful-relaunch.py --app COPY.app --socket SOCK [--rounds 3] [--seconds 14] [--out DIR]
 
 Per round (one JSON line `GRACEFUL-RELAUNCH {...}`, and DIR/round-N.json with the samples):
