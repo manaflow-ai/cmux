@@ -283,6 +283,8 @@ type NameRow = {
   sig: string;
   /// The names it answers to (``nameLabels``), and whether it counts as archived for them.
   labels: readonly string[];
+  /// Its former names (acpmux `formerNames`, "fka"): each names it only where no chat has it now.
+  formers: readonly string[];
   archived: boolean;
   harness?: string;
   host?: string;
@@ -294,8 +296,9 @@ type NameRow = {
   key: string;
 };
 
-/// The names a listed chat answers to: its name, its short name, and a peer chat's bare name (listed
-/// as `<peer>/<name>`, it may sign a message with the bare one).
+/// The names a listed chat answers to: its name, the name it was given ("Mango", acpmux `displayName`,
+/// which signs its messages too), its short name, and a peer chat's bare name (listed as
+/// `<peer>/<name>`, it may sign a message with the bare one).
 function nameLabels(entry: AcpmuxSessionEntry): string[] {
   const labels: string[] = [];
   const add = (name: string | undefined) => {
@@ -303,9 +306,20 @@ function nameLabels(entry: AcpmuxSessionEntry): string[] {
     if (label && !labels.includes(label)) labels.push(label);
   };
   add(entry.name);
+  add(entry.displayName);
   add(entry.shortName);
   const name = entry.name?.trim();
   add(entry.peer && name?.startsWith(`${entry.peer}/`) ? name.slice(entry.peer.length + 1) : undefined);
+  return labels;
+}
+
+/// A listed chat's former names, trimmed, each once.
+function formerLabels(entry: AcpmuxSessionEntry): string[] {
+  const labels: string[] = [];
+  for (const former of entry.formerNames ?? []) {
+    const label = former.trim();
+    if (label && !labels.includes(label)) labels.push(label);
+  }
   return labels;
 }
 
@@ -336,6 +350,9 @@ function nameRow(entry: AcpmuxSessionEntry, sig: string, before: NameRow | undef
     place,
     machine?.name,
     entry.name,
+    entry.displayName,
+    entry.formerNames,
+    iconKey(entry.icon),
     entry.shortName,
     entry.peer,
     entry.host,
@@ -348,6 +365,7 @@ function nameRow(entry: AcpmuxSessionEntry, sig: string, before: NameRow | undef
     entry,
     sig,
     labels: nameLabels(entry),
+    formers: formerLabels(entry),
     archived: Boolean(entry.archived),
     ...(entry.harness && { harness: entry.harness }),
     ...(host && { host }),
@@ -392,6 +410,8 @@ export class SubsessionStore {
   /// session twice, which ``setWhole`` reads.
   private rows: Map<string, NameRow> | undefined;
   private candidates = new Map<string, { live: Set<string>; archived: Set<string> }>();
+  /// The chats each former name was once theirs; read for a name only when no chat has it now.
+  private formerCandidates = new Map<string, { live: Set<string>; archived: Set<string> }>();
   /// For a list that names a session twice (``setWhole``): what the index read of each entry, and
   /// the index's whole content, which says whether a name reader is told.
   private nameFrom = new Map<string, AcpmuxSessionEntry>();
@@ -433,6 +453,13 @@ export class SubsessionStore {
         if (!matches.live.size && !matches.archived.size) this.candidates.delete(label);
         touched.add(label);
       }
+      for (const label of row.formers) {
+        const matches = this.formerCandidates.get(label);
+        if (!matches) continue;
+        (row.archived ? matches.archived : matches.live).delete(id);
+        if (!matches.live.size && !matches.archived.size) this.formerCandidates.delete(label);
+        touched.add(label);
+      }
       this.harnesses.delete(id);
       this.hosts.delete(id);
       this.runs.delete(id);
@@ -444,6 +471,12 @@ export class SubsessionStore {
       for (const label of row.labels) {
         let matches = this.candidates.get(label);
         if (!matches) this.candidates.set(label, (matches = { live: new Set(), archived: new Set() }));
+        (row.archived ? matches.archived : matches.live).add(id);
+        touched.add(label);
+      }
+      for (const label of row.formers) {
+        let matches = this.formerCandidates.get(label);
+        if (!matches) this.formerCandidates.set(label, (matches = { live: new Set(), archived: new Set() }));
         (row.archived ? matches.archived : matches.live).add(id);
         touched.add(label);
       }
@@ -499,9 +532,10 @@ export class SubsessionStore {
     }
     // A name resolves only when it identifies exactly one live session (across peers two live chats
     // can share one, and opening the first would show the wrong chat); archived chats are a fallback
-    // when no live session uses it. All aliases of one session count once.
+    // when no live session uses it. All aliases of one session count once. A former name counts only
+    // where no listed chat has it as a name now.
     for (const label of touched) {
-      const matches = this.candidates.get(label);
+      const matches = this.candidates.get(label) ?? this.formerCandidates.get(label);
       const active = matches && (matches.live.size ? matches.live : matches.archived);
       const id = active?.size === 1 ? active.values().next().value! : undefined;
       if (id === this.named.get(label)) continue;
@@ -588,6 +622,7 @@ export class SubsessionStore {
     }
     this.rows = new Map();
     this.candidates = new Map();
+    this.formerCandidates = new Map();
     this.named = new Map();
     this.harnesses = new Map();
     this.hosts = new Map();
