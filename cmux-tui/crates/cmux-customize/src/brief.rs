@@ -26,7 +26,7 @@ Where things are:\n\
 - {keys}: {config}/keybindings.json\n\
 - {themes}: {config}/themes/NAME.json\n\
 - {views}: {views_dir}/ (place a section with `cmux apps place 'local/customize#cmux.section/1'`; \
-a whole New Tab page (`cmux.newtab/1`) shows only once picked: `cmux settings set tabs.newTabApp local/customize`, \
+a New Tab view (`cmux.newtab/1`, over the composer) shows only once picked: `cmux settings set tabs.newTabApp local/customize`, \
 and only on the web New Tab page, so `tabs.nativeNewTabPage` must be false)\n\
 - {styles}: {config}/agent-pane/theme.css\n\
 - how an agent chat draws its steps (tool calls and thoughts): settings \
