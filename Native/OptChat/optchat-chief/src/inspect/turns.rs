@@ -102,11 +102,13 @@ pub fn turn_prompt(chat: &OptChat, start: &Value, system_text: &str) -> TurnProm
         .as_str()
         .filter(|_| start["layout"]["memory_block_sent"] != false);
     let at_work = start["layout"]["at_work"].as_str();
+    let computer = start["layout"]["computer"].as_str();
     let home = start["layout"]["home_workspace"].as_str();
     let tail = now
         .into_iter()
         .chain(memory)
         .chain(at_work)
+        .chain(computer)
         .chain(home)
         .chain(messages.iter().map(|m| m.2.as_str()))
         .collect::<Vec<_>>()
@@ -165,6 +167,7 @@ pub fn turn_prompt(chat: &OptChat, start: &Value, system_text: &str) -> TurnProm
         now.into_iter()
             .chain(memory)
             .chain(at_work)
+            .chain(computer)
             .chain(home)
             .chain(
                 start["layout"]["resumes"]
