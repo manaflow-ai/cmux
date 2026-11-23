@@ -1957,6 +1957,12 @@ const SIZE_ALL_LOGS: Duration = Duration::from_secs(1800);
 const OLDER_PAGE_LIMIT: u64 = 2000;
 const OLDER_PAGE_BYTES: u64 = 1 << 20;
 
+/// The bytes a measured page asks for. A 1 MB chat's whole transcript is 452 KB of JSON, so at
+/// the app's 1 MiB budget its pages held 565 records and 452 KB against 1,200 records and 945 KB
+/// at 100 MB and 1 GB: the 2x of every page row was the page's size (the daemon reads 16 to 20 ms
+/// per 452 KB at 1 MB and 22 to 34 ms per 945 KB at 1 GB). 256 KiB is full at every size.
+const SWEEP_PAGE_BYTES: u64 = 256 << 10;
+
 /// The repeated settled turns after a coord-sim chat's settlement (a quarter of the history when
 /// that is less). A page counts only transcript kinds' bytes, so 1 MiB of them reaches back past
 /// several MiB of log: at 2 MiB the 1 GB and 4 GB newest pages were 26% and 37% settlement
@@ -1976,7 +1982,7 @@ fn app_attach(id: &str) -> Value {
 
 fn older_params(id: &str, before: u64) -> Value {
     json!({"sessionId": id, "beforeSeq": before, "limit": OLDER_PAGE_LIMIT,
-           "maxBytes": OLDER_PAGE_BYTES,
+           "maxBytes": SWEEP_PAGE_BYTES,
            "kinds": ["transcript", "preset_approval_request", "preset_approval_decision"]})
 }
 
@@ -1987,7 +1993,7 @@ fn full_page_before(rpc: &mut Rpc, id: &str, last: u64) -> u64 {
     let oldest = rpc.call(
         "_acpmux/events",
         json!({"sessionId": id, "afterSeq": 0, "limit": OLDER_PAGE_LIMIT,
-               "maxBytes": OLDER_PAGE_BYTES,
+               "maxBytes": SWEEP_PAGE_BYTES,
                "kinds": ["transcript", "preset_approval_request", "preset_approval_decision"]}),
     );
     rpc.notes.clear();
@@ -2354,7 +2360,7 @@ fn size_run(label: &str, bytes: u64) -> Value {
     let (forward_us, _, forward_error) =
         timed_rounds(&mut rpc, "_acpmux/events", rounds, &prepared, |_| {
             json!({"sessionId": id, "afterSeq": last / 2,
-               "limit": OLDER_PAGE_LIMIT, "maxBytes": OLDER_PAGE_BYTES})
+               "limit": OLDER_PAGE_LIMIT, "maxBytes": SWEEP_PAGE_BYTES})
         });
     let (rss_after_reads, _) = daemon.rss();
 
