@@ -7,6 +7,8 @@
 // row or scrolled up) plays its send and samples every frame: the composer, the last prompt, the sent
 // prompt and the thinking row move in one phase (gallery/motionPhases.ts).
 //
+// The sent prompt lands where the same draft sent from the latest row lands it (ask-9edf643c4d).
+//
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 // Locally: CMUX_BROWSER_TESTS=1 bun test test/agent-pane-send-one-motion.test.ts
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -51,6 +53,8 @@ await requireBrowserLane("agent-pane-send-one-motion.test.ts", async () => {
     await vite?.close();
   });
 
+  /// Where each draft's send from the latest row landed its prompt (`sendLanded`): scrolled up, it lands there too.
+  const landedAtLatest = new Map<string, string | null>();
   for (const lines of [1, 5, 15])
     for (const busy of ["idle", "busy"])
       for (const place of ["latest", "scrolled-up"]) {
@@ -72,17 +76,25 @@ await requireBrowserLane("agent-pane-send-one-motion.test.ts", async () => {
             const result = await page.evaluate(() => ({
               phases: document.documentElement.dataset.sendPhases ?? null,
               maxJump: document.documentElement.dataset.sendMaxJump ?? null,
+              landed: document.documentElement.dataset.sendLanded ?? null,
               status: (window as { cmuxGalleryPlayReport?: { status?: string } }).cmuxGalleryPlayReport?.status ?? null,
               report: JSON.stringify(
                 (window as { cmuxGalleryPlayReport?: unknown }).cmuxGalleryPlayReport ?? null,
               ).slice(0, 2000),
             }));
-            console.log(`${variant}: phases ${result.phases}, max jump ${result.maxJump}px, play ${result.status}`);
+            console.log(
+              `${variant}: phases ${result.phases}, max jump ${result.maxJump}px, landed ${result.landed}px, play ${result.status}`,
+            );
             expect({ variant, phases: result.phases, report: result.phases === "1" ? "" : result.report }).toEqual({
               variant,
               phases: "1",
               report: "",
             });
+            // A send lands its prompt at one place, from the latest row or scrolled up (ask-9edf643c4d).
+            const key = `${lines}-${busy}`;
+            if (place === "latest") landedAtLatest.set(key, result.landed);
+            else if (landedAtLatest.get(key) != null)
+              expect({ variant, landed: result.landed }).toEqual({ variant, landed: landedAtLatest.get(key)! });
           } finally {
             await page.close();
           }

@@ -124,6 +124,15 @@ function sendOnce(lines: number, busy: boolean, scrolled: boolean) {
     doc.documentElement.dataset.sendFrames = JSON.stringify(window);
     doc.documentElement.dataset.sendPhases = String(send.phases);
     doc.documentElement.dataset.sendMaxJump = String(send.maxJump);
+    // Where the sent prompt lands: its row's top under the transcript's top once the send settled.
+    const scroller = doc.querySelector(".acpmux-scroll");
+    const sentRow = [...doc.querySelectorAll(".acpmux-row.acpmux-user")].find((row) =>
+      row.textContent?.includes("draft line 1 of"),
+    );
+    if (scroller && sentRow)
+      doc.documentElement.dataset.sendLanded = String(
+        Math.round(sentRow.getBoundingClientRect().top - scroller.getBoundingClientRect().top),
+      );
     // Scrolled up with a turn running, the queued prompt's send can bounce the rows for one frame
     // (up, then most of the way back), on the base code too: a separate cause, recorded, not failed.
     if (send.phases > 1 && !(busy && scrolled))

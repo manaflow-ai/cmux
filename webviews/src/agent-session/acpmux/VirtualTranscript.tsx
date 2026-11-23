@@ -536,7 +536,16 @@ export function sendTopEndOf(
 /// `sendTopEndOf`'s walk back.
 export class SendTopHold {
   private sent: SendTop | undefined;
+  /// A send from a view that was not following (scrolled up): its prompt row can land in the pass
+  /// before the send turns following on, so no later pass brings it at the tail. The next pass that
+  /// follows takes the newest prompt `sentIds` holds instead (`arm`, the send effect).
+  private armed = false;
   end = 0;
+
+  /// The send effect, scrolled up, just before it follows again: the next held pass takes the newest sent prompt.
+  arm() {
+    this.armed = true;
+  }
 
   /// The pass's held content end: takes a prompt `sentIds` holds that this pass brought at the tail
   /// (against the last committed rows, `placedRows`), lets it go when the view stops following, the
@@ -553,10 +562,22 @@ export class SendTopHold {
     rowsHeight: number,
   ): number {
     if (!hold) this.sent = undefined;
-    else if (openedAtLatest && rows !== placedRows) {
-      const sent = sentPromptAt(placedRows, rows);
-      if (sent >= 0 && sentIds.has(rows[sent]!.id)) this.sent = { id: rows[sent]!.id, index: sent };
+    else {
+      if (openedAtLatest && rows !== placedRows) {
+        const sent = sentPromptAt(placedRows, rows);
+        if (sent >= 0 && sentIds.has(rows[sent]!.id)) this.sent = { id: rows[sent]!.id, index: sent };
+      }
+      if (openedAtLatest && this.armed && !this.sent) {
+        // The tail's newest prompt, among the rows one live update brings (O(1)).
+        for (let index = rows.length - 1; index >= Math.max(0, rows.length - LIVE_ROWS_PER_UPDATE - 1); index -= 1) {
+          const row = rows[index]!;
+          if (row.kind !== "user" || isLineRow(row)) continue;
+          if (sentIds.has(row.id)) this.sent = { id: row.id, index };
+          break;
+        }
+      }
     }
+    this.armed = false;
     let end = sendTopEndOf(this.sent, rows, placed, topInset, height);
     if (end < rowsHeight) end = 0;
     if (end === 0) this.sent = undefined;
@@ -2900,6 +2921,8 @@ function TranscriptView({
   const heldRoom = useRef<{ room: number; reader: ReaderRoom }>({ room: dockRoom, reader: { followed: false } });
   /// The composer card's height the room under the last row was last made for (`grown` below).
   const cardRest = useRef(0);
+  /// The same as of the last pass that followed: the card's height before a draft typed scrolled up grew it.
+  const cardFollowed = useRef(0);
   /// The overlay dock (composer/dockMotion.experiment.ts): the composer card's height the room under
   /// the last row last took (`cardHold` below). Growth past it lies over the transcript's foot.
   const cardBase = useRef(0);
@@ -4812,6 +4835,7 @@ function TranscriptView({
     liftedBefore.current = lifted;
     // A view that follows keeps the card height it began following at; any other takes the card's.
     if (!lifting) cardRest.current = dockCard;
+    if (following && !sessionSwitched) cardFollowed.current = cardRest.current;
     // The room a followed view keeps (`floor` above), until the rows fill it or it stops following.
     const holding = didOpenAtLatest.current && followingRef.current && floorHeight - lifted > rowsHeight;
     // Held for a sent prompt: once, for the prompt to arrive. Held only for a withdrawn one (the
@@ -5390,6 +5414,15 @@ function TranscriptView({
     // Only then does the composer's prompt become the sent message in place; scrolled up, it fades in
     // where it lands (conversation/sendMorph.ts, Leo 2026-11-08: "if you're at the bottom").
     noteSendFromLatest(fromLatest, node);
+    // Scrolled up, the prompt goes to the view's top as a send from the latest row does: the next
+    // pass takes it (`SendTopHold.arm`), and the room under the rows is the stack's at the card's
+    // height before the draft grew it, as a send from the latest row keeps it (`cardRest`, the lift).
+    // Made with the tall draft's card as room, the rows outgrew the held view and the prompt landed
+    // that much lower (ask-9edf643c4d: a 15 or 30 line send scrolled up rested 97 px down, not 44).
+    if (!fromLatest) {
+      sendTop.arm();
+      if (cardFollowed.current > 0) cardRest.current = Math.min(cardRest.current, cardFollowed.current);
+    }
     if (fromLatest) {
       wheelGlide.current?.stop();
       stopScroll(node);
