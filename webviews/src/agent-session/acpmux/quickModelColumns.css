@@ -9,7 +9,9 @@
   --acpmux-cols-side-fill: var(--ds-surface-card);
   --acpmux-cols-pad: var(--ui-popup-padding, 4px);
   --acpmux-cols-inline: var(--ui-row-padding-inline, 8px);
-  --acpmux-cols-rail-width: 3.6923em;
+  /* 48 px at 13 px type, exactly: a rounded em (3.6923em, 47.98 px) put the rail's tiles on a
+     fractional x, so a tile could draw a device pixel narrower than tall. */
+  --acpmux-cols-rail-width: calc(48em / 13);
   /* The default height's cap (Lucas 2026-11-12: smaller by default); a drag on the edge away from
      the chip sets a height of the person's own (QuickModelColumns startResizeHeight). */
   --acpmux-cols-max-height: 16em;
@@ -297,13 +299,24 @@
   flex-direction: column;
   align-items: center;
   gap: var(--ds-space-1);
+  /* The rail scrolls by wheel and trackpad with no scrollbar: under the pointer, or with "Show
+     scroll bars: Always", WebKit drew a wide track and thumb over the tiles' right edge (Lucas
+     2026-11-22: "remove this scrollbar when hovering over it"). No thumb draws and none takes
+     width; check-scrollbars.sh lists the exception. */
+  scrollbar-width: none;
 }
+.acpmux-cols-rail::-webkit-scrollbar {
+  display: none;
+}
+/* A 16 px mark in a 32 px tile at 13 px type: 8 px on every side (Lucas 2026-11-22: "the left and
+   right padding is the same as the top and bottom"). Exact, not a rounded em (2.4615em drew 31.98 px,
+   so a tile at a fractional x lost a device pixel on its right). */
 .acpmux-cols-tab {
   display: grid;
   place-items: center;
-  flex: 0 0 2.4615em;
-  width: 2.4615em;
-  height: 2.4615em;
+  flex: 0 0 calc(32em / 13);
+  width: calc(32em / 13);
+  height: calc(32em / 13);
   border-radius: 8px;
   color: var(--agent-muted);
   cursor: default;
