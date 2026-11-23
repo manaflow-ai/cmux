@@ -9,10 +9,10 @@
 //! small registry file with a stored schema number and nothing else: the
 //! check reads that number only.
 //!
-//! No row here measures a time, and no row waits. 16 rows call only the
+//! No row here measures a time, and no row waits. 17 rows call only the
 //! check's functions of cmux-tui-core. 2 of them use an end time that is
 //! past or far ahead and the text of `--within-ms`: the executable cannot
-//! show those with no wait. 14 of them use a first call that started 1 hour
+//! show those with no wait. 15 of them use a first call that started 1 hour
 //! ahead of the clock: for the executable each file that a row made is a
 //! file that changed a moment ago, so it cannot show which session a call
 //! does not read again. Where such a row needs a file that changed after
@@ -447,7 +447,7 @@ fn a_place_whose_start_time_is_after_this_call_is_no_place() {
     assert!(place["since_ms"].as_u64().is_some_and(|since| since < FAR), "{place}");
 }
 
-/// The clock of the 14 rows below: 1 hour ahead of the wall clock, in
+/// The clock of the 15 rows below: 1 hour ahead of the wall clock, in
 /// milliseconds since 1970. For a first call that started then, each file
 /// that a row made is a file that did not change after it.
 fn an_hour_ahead_ms() -> u64 {
@@ -682,11 +682,13 @@ fn a_wal_name_that_is_a_link_makes_each_pass_read_the_session_again() {
 /// check reads the other store of that session and gives no error. The pass
 /// follows no link, so the session counts as written and each pass reads it
 /// again: the call with the place gives the numbers that a call with no
-/// place gives. After that a plain write puts 12 in the other store, with
-/// times before the start, 1 hour ahead: only the link makes a pass read
-/// the session, and the next call with the place must give 12.
+/// place gives. Those 2 expects are a watch on "no error": a pass that
+/// follows the link passes them too. After that a plain write puts 12 in the
+/// other store, with times before the start, 1 hour ahead: only the link
+/// makes a pass read the session, and the next call with the place must
+/// give 12. That last expect is the proof.
 #[test]
-fn a_store_name_that_is_a_link_to_nothing_is_no_error() {
+fn a_store_name_that_is_a_link_to_nothing_is_no_error_and_its_session_is_read_again() {
     let root = tempfile::tempdir().unwrap();
     let sessions = sessions_of(root.path());
     let linked = sessions.join("session-0");
@@ -741,6 +743,79 @@ fn a_store_name_that_is_a_link_to_nothing_is_no_error() {
         numbers(12),
         "a pass did not read again the session whose store name is a link to nothing"
     );
+}
+
+/// The names of the session folder `session` in order, each with its length.
+/// No link is followed: a link gives its own length.
+fn names_and_lengths(session: &Path) -> Vec<(String, u64)> {
+    let mut files: Vec<(String, u64)> = fs::read_dir(session)
+        .unwrap()
+        .filter_map(Result::ok)
+        .filter_map(|entry| {
+            let name = entry.file_name().into_string().ok()?;
+            let length = fs::symlink_metadata(entry.path()).ok()?.len();
+            Some((name, length))
+        })
+        .collect();
+    files.sort();
+    files
+}
+
+/// The store here is in WAL mode, as the daemon's stores are, and closed,
+/// and the name of its `-wal` file is a link to nothing. SQLite opens no
+/// `-wal` file through a link, so it cannot read that store, and the check
+/// gives an error and no number.
+///
+/// The call with no place is a pin of the base's answer, not a proof of the
+/// mend: each read of such a store is the read that takes the store's
+/// locks, with a pass that follows a link and with one that follows none.
+/// The call with the place is different. The place says that a call before
+/// read the session and found 13, and the times of the store file are
+/// before the start, 1 hour ahead. A pass that follows the link sees a name
+/// that is not there, does not read the session again and gives the 13 of
+/// the place. The pass that follows no link reads the session again and
+/// gives the error: no number that the check is not sure of.
+///
+/// No read follows the link: after each call the link is there, and no file
+/// is at the name that it names.
+///
+/// The row writes the names of the session folder, each with its length, to
+/// stderr before the calls and after each call, in lines that start with
+/// `WAL-LINK-ROW`, and the text of each error. `.config/nextest.toml` keeps
+/// the output of this row, so a step's log shows those lines for a row that
+/// passes too. What a read that fails leaves in the folder is in those
+/// lines; the row expects nothing of it.
+#[test]
+fn a_store_in_wal_mode_whose_wal_name_is_a_link_is_an_error_of_the_check() {
+    let root = tempfile::tempdir().unwrap();
+    closed_wal_session(root.path(), "session-0", 13);
+    let sessions = sessions_of(root.path());
+    let session = sessions.join("session-0");
+    let wal = session.join(format!("{REGISTRY_FILE}-wal"));
+    let target = root.path().join("not-there");
+    std::os::unix::fs::symlink(&target, &wal).unwrap();
+    eprintln!("WAL-LINK-ROW | before the calls | files {:?}", names_and_lengths(&session));
+
+    let now_ms = an_hour_ahead_ms();
+    let place = place_at(&sessions, "session-0", Some(13), now_ms);
+    let calls = [("the call with no place", None), ("the call with the place", Some(&place))];
+    for (call, given) in calls {
+        let answer = stored_from(&sessions, None, given, now_ms);
+        eprintln!("WAL-LINK-ROW | after {call} | files {:?}", names_and_lengths(&session));
+        match &answer {
+            Ok(_) => eprintln!("WAL-LINK-ROW | {call} | no error"),
+            Err(error) => eprintln!("WAL-LINK-ROW | {call} | error: {error:#}"),
+        }
+        assert!(answer.is_err(), "{call} gave an answer and no error: {answer:?}");
+        assert!(
+            fs::symlink_metadata(&wal).unwrap().file_type().is_symlink(),
+            "the -wal name is not a link after {call}"
+        );
+        assert!(
+            fs::symlink_metadata(&target).is_err(),
+            "a file is at the name that the link names after {call}"
+        );
+    }
 }
 
 /// A session folder `name` in the state root of `folder`, with a registry

@@ -272,3 +272,12 @@ slow-timeout = { period = "60s", terminate-after = 8, grace-period = "5s" }
 filter = 'binary_id(cmux-tui::automation_live_journey)'
 success-output = "final"
 slow-timeout = { period = "60s", terminate-after = 8, grace-period = "5s" }
+
+# One row of the rollback check (tests/store_schemas_in_its_time.rs) is for a store in WAL mode
+# whose `-wal` name is a link. It writes to stderr which names the session's folder holds, each
+# with its length, before the check's calls and after each, and the text of each error, in lines
+# that start with WAL-LINK-ROW. A passing row keeps its output, so a step's log shows those lines
+# on each system.
+[[profile.default.overrides]]
+filter = 'binary_id(cmux-tui::store_schemas_in_its_time) & test(=a_store_in_wal_mode_whose_wal_name_is_a_link_is_an_error_of_the_check)'
+success-output = "final"
