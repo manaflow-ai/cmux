@@ -26,6 +26,7 @@ await requireBrowserLane("composer-wrap-layout.browser.test.ts", async () => {
   let vite: Awaited<ReturnType<typeof createServer>>;
   let browser: Browser;
   const layouts = [
+<<<<<<< ours
     // New Tab's +, mic and Send stand on the box's bottom edge as the draft grows (newtab/screen.css;
     // Leo 2026-11-22: the buttons must "stick with teh bottom of the composer").
     { entry: "agent-pane.new-tab", variant: "wrap-one-line", newTab: true, bottom: true, holds: "top" },
@@ -36,6 +37,14 @@ await requireBrowserLane("composer-wrap-layout.browser.test.ts", async () => {
     { entry: "agent-pane.composer-row", variant: "wrap-one-line", newTab: false, bottom: true, holds: "bottom" },
     // Codex's prompt has its own two-line floor, so its first line holds the top as New Tab's does.
     { entry: "agent-pane.composer-look", variant: "codex-grow-line", newTab: false, bottom: true, holds: "top" },
+=======
+    // Every layout's controls keep their place over the box's bottom as the prompt grows (Leo
+    // 2026-11-18: "and the buttons should be at the bottom of the composer"); `capped` also checks a
+    // draft past the cap.
+    { entry: "agent-pane.new-tab", variant: "wrap-one-line", newTab: true, capped: false },
+    { entry: "agent-pane.composer-row", variant: "wrap-one-line", newTab: false, capped: true },
+    { entry: "agent-pane.composer-look", variant: "codex-grow-line", newTab: false, capped: false },
+>>>>>>> theirs
   ];
   beforeAll(async () => {
     vite = await createServer({
@@ -207,7 +216,7 @@ await requireBrowserLane("composer-wrap-layout.browser.test.ts", async () => {
               const first = before.controls[index]!;
               const second = after.controls[index]!;
               expect(Math.abs(second.left - first.left)).toBeLessThan(0.5);
-              const edge = layout.bottom ? "bottom" : "top";
+              const edge = "bottom";
               expect(Math.abs(second[edge] - first[edge])).toBeLessThan(0.5);
             }
             if (layout.newTab) {
@@ -327,11 +336,19 @@ await requireBrowserLane("composer-wrap-layout.browser.test.ts", async () => {
               fieldSelector,
             );
             await frame(page);
+<<<<<<< ours
             expect(await page.locator(fieldSelector).evaluate((field) => field.scrollHeight > field.clientHeight)).toBe(
               true,
             );
             if (layout.newTab || !layout.bottom) {
               const capped = await measure(page, layout.newTab);
+=======
+            expect(
+              await page.locator(".acpmux-md-field").evaluate((field) => field.scrollHeight > field.clientHeight),
+            ).toBe(true);
+            if (layout.capped) {
+              const capped = await measure(page, false);
+>>>>>>> theirs
               for (let index = 0; index < before.controls.length; index++)
                 expect(Math.abs(capped.controls[index]!.bottom - before.controls[index]!.bottom)).toBeLessThan(0.5);
             }
