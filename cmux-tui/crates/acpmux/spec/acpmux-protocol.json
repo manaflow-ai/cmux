@@ -2854,6 +2854,13 @@
             "null"
           ]
         },
+        "timeBreakdownVersion": {
+          "description": "The `timeBreakdownVersion` of the breakdown copy this client holds (from an earlier\nattach): while the chat's copy is the same, the reply's `session` leaves `timeBreakdown`\nout (`server/requests/time_breakdown_gate.rs`). Absent, or another version: sent whole.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "visible": {
           "description": "False attaches without showing the chat (`hub/seen.rs`); default true.",
           "type": [
@@ -2913,6 +2920,13 @@
         "session": {
           "$ref": "#/types/SessionDetail"
         },
+        "timeBreakdownVersion": {
+          "description": "The version of the session's `timeBreakdown` copy (a hash of it); null when it has none.\nSent back as the attach's `timeBreakdownVersion`, the next reply leaves an unchanged copy\nout of `session`. An older acpmux leaves it out.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "turnOpener": {
           "anyOf": [
             {
@@ -2933,6 +2947,7 @@
         "presence",
         "readThrough",
         "session",
+        "timeBreakdownVersion",
         "turnOpener"
       ],
       "type": "object"

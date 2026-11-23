@@ -591,6 +591,10 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     private var readers = 0
     fileprivate var replay = AcpmuxReplay<AgentSessionEvent>(limit: AcpmuxSessionSource.replayEventLimit)
     private var lastSeq = 0
+    /// The `timeBreakdownVersion` of the last attach reply: sent back on the next attach, so a
+    /// reopen with nothing new is not sent the chat's whole `timeBreakdown` again (cmux-tui
+    /// acpmux `server/requests/time_breakdown_gate.rs`). The phone does not read the breakdown.
+    private var timeBreakdownVersion: String?
     private var attached = false
     /// The phone started this session moments ago (``AcpmuxHub/noteStartedHere(_:)``).
     public var isStarting: Bool { hub?.startedHere.contains(sessionID) == true }
@@ -1698,6 +1702,8 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         /// than one page means the kept copy is old, and the chat opens fresh instead of paging
         /// through everything since (``CatchUpPages/keptTooOld``).
         var fromKept = false
+        /// The breakdown copy the last attach named (``AcpmuxSessionSource/timeBreakdownVersion``).
+        var timeBreakdownVersion: String?
         var firstAttach: Bool { after == 0 }
     }
 
@@ -1728,7 +1734,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         guard generation == self.generation else { return nil }
         refillPending = false
         return CatchUpRead(sessionID: sessionID, after: lastSeq, allowGap: gapFill == nil,
-                           fromKept: keptRestored)
+                           fromKept: keptRestored, timeBreakdownVersion: timeBreakdownVersion)
     }
 
     /// The `beforeSeq` of a tail-first reattach: past any seq, so the page is the newest
@@ -1773,6 +1779,9 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                 "kinds": kinds(hub),
                 "eventStream": .bool(true),
             ]
+            if let version = read.timeBreakdownVersion {
+                params["timeBreakdownVersion"] = .string(version)
+            }
             if read.firstAttach {
                 params["maxBytes"] = .number(Double(openBytes))
                 params["toolOutputMaxBytes"] = .number(Double(toolOutputMaxBytes))
@@ -1887,6 +1896,9 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     /// dropped. Applying them would move `lastSeq` past the dropped one for good.
     private func caughtUp(_ pages: CatchUpPages, _ read: CatchUpRead, _ generation: Int) -> Bool {
         guard generation == self.generation else { return false }
+        if let version = pages.result["timeBreakdownVersion"]?.stringValue {
+            timeBreakdownVersion = version
+        }
         if pages.keptTooOld {
             dropKept()
             return true
