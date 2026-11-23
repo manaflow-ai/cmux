@@ -6,10 +6,13 @@
 /// position needs no flip. Every function draws light or dark from `u.dark`.
 nonisolated enum BackdropShaderSource {
     /// Bumped whenever a shader's look changes: the posters' file names carry it.
-    static let version = 1
+    static let version = 2
 
-    /// The uniforms every fragment reads; ``BackdropShaderUniforms`` is its Swift twin.
-    static let source = #"""
+    /// The Metal source: the shared helpers and the first five shaders, then the calm ones
+    /// (``calmSource``). ``BackdropShaderUniforms`` is the Swift twin of the uniforms every fragment reads.
+    static let source = baseSource + calmSource
+
+    private static let baseSource = #"""
     #include <metal_stdlib>
     using namespace metal;
 
@@ -54,6 +57,17 @@ nonisolated enum BackdropShaderSource {
 
     static float2 pixel(float4 pos, constant Uniforms& u) { return float2(pos.x, u.res.y - pos.y); }
 
+    // The last step of every fragment: triangular-PDF noise of at most 1 step of the 8-bit
+    // drawable, so slow dark gradients never band. Interleaved gradient noise (no texture) with a
+    // new offset each 1/30 s, remapped from uniform to triangular; never more than 1 step, which
+    // would read as grain. A held frame (Reduce Motion, posters) keeps one fixed pattern.
+    static float3 dither(float3 col, float4 pos, constant Uniforms& u) {
+        float2 q = pos.xy + 5.588238 * fmod(floor(u.time * 30.0), 64.0);
+        float n = fract(52.9829189 * fract(dot(q, float2(0.06711056, 0.00583715)))) * 2.0 - 1.0;
+        n = sign(n) * (1.0 - sqrt(1.0 - abs(n)));
+        return clamp(col, 0.0, 1.0) + n / 255.0;
+    }
+
     // How bright the rings of recent clicks are at p (units of the short side).
     static float rings(float2 p, constant Uniforms& u, float s, float speed, float width) {
         float lit = 0.0;
@@ -88,7 +102,7 @@ nonisolated enum BackdropShaderSource {
         float3 col = mix(lightInk, darkInk, u.dark);
         float glow = exp(-r2 * 30.0) * (0.04 + 0.10 * u.energy) + rings(pixel(in.pos, u) / s, u, s, 0.45, 0.03) * 0.18;
         col += glow * mix(float3(0.25, 0.35, 0.45), float3(0.55, 0.75, 0.85), u.dark);
-        return float4(col, 1.0);
+        return float4(dither(col, in.pos, u), 1.0);
     }
 
     // The pond's surface height at p: the clicks' rings, the pointer's wake, a slow swell.
@@ -123,7 +137,7 @@ nonisolated enum BackdropShaderSource {
         darkWater += caustic * float3(0.05, 0.16, 0.16) + spec * float3(0.55, 0.70, 0.72);
         float3 lightWater = mix(float3(0.80, 0.90, 0.91), float3(0.62, 0.80, 0.84), depth) * (0.85 + 0.2 * diffuse);
         lightWater += caustic * float3(0.10, 0.12, 0.10) + spec * float3(0.35, 0.35, 0.33);
-        return float4(mix(lightWater, darkWater, u.dark), 1.0);
+        return float4(dither(mix(lightWater, darkWater, u.dark), in.pos, u), 1.0);
     }
 
     // One curtain of light: where it hangs (its foot), how it waves, how bright its rays are.
@@ -158,7 +172,7 @@ nonisolated enum BackdropShaderSource {
             - c * float3(0.30, 0.10, 0.02) * 0.25;
         float3 col = mix(lightCol, darkCol, u.dark);
         col += rings(p, u, s, 0.5, 0.025) * mix(float3(-0.08, -0.04, 0.0), float3(0.10, 0.25, 0.18), u.dark);
-        return float4(clamp(col, 0.0, 1.0), 1.0);
+        return float4(dither(col, in.pos, u), 1.0);
     }
 
     static float sq(float x) { return x * x; }
@@ -254,7 +268,7 @@ nonisolated enum BackdropShaderSource {
             col = aeroBubble(col, p, c, r, mix(tint, tint * 0.8 + 0.1, u.dark), e);
         }
         col = 1.0 - (1.0 - col) * (1.0 - clamp(rings(p, u, s, 0.5, 0.02) * 0.35, 0.0, 1.0) * swoosh);
-        return float4(clamp(col, 0.0, 1.0), 1.0);
+        return float4(dither(col, in.pos, u), 1.0);
     }
 
     // Dot Field: a grid of dots the pointer pushes away and the clicks' rings shove outward.
@@ -296,7 +310,7 @@ nonisolated enum BackdropShaderSource {
         float3 tint = 0.5 + 0.5 * cos(6.28318 * (hue + float3(0.0, 0.33, 0.67)));
         float3 darkCol = mix(float3(0.035, 0.035, 0.05), mix(float3(0.55, 0.60, 0.70), tint, 0.55), ink);
         float3 lightCol = mix(float3(0.96, 0.95, 0.93), mix(float3(0.30, 0.32, 0.38), tint * 0.7, 0.5), ink);
-        return float4(mix(lightCol, darkCol, u.dark), 1.0);
+        return float4(dither(mix(lightCol, darkCol, u.dark), in.pos, u), 1.0);
     }
     """#
 }

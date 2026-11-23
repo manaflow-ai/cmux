@@ -67,6 +67,8 @@ final class AgentPaneWKWebView: WKWebView {
     override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
         menuAutoFill.menuWillOpen()
         contextMenuEditor?(menu)
+        // The chat's rows are cmux's: no "Ask Siri" field, Services or Writing Tools from AppKit.
+        menu.withoutSystemItems()
         super.willOpenMenu(menu, with: event)
     }
 
@@ -126,13 +128,14 @@ extension AgentPaneView {
     func installContextMenu() {
         let dropped: @MainActor ([URL]) -> Void = { [weak self] urls in
             guard let self else { return }
+            model.hostTouch.mark("drop") // a posted drop too: the page has the files
             // Where the files are, recorded for every native drop, as a paste's are as it reaches the
             // page: page script can make no native drop, and the record names only the drag's own
             // files. A Finder drag dispatches no input event to this app (the drag server calls
             // `performDragOperation`), so the event in dispatch is not the person's: gated on it, a
             // drop recorded nothing and the page uploaded every byte where a paste linked at once
             // (Leo, 2026-11-17).
-            model.droppedPaths.stash(urls, kind: .drop)
+            model.droppedPaths.stash(urls, kind: .drop, madeAt: page?.droppedEnteredAt?.timeIntervalSince1970)
             let drag = NSPasteboard(name: .drag)
             // A Chromium drop is dated by its drag's entry, before the page took it (the ask's rule).
             model.droppedPaths.stashSource(
@@ -147,6 +150,7 @@ extension AgentPaneView {
         // Read as the paste goes to WebKit: the pasteboard WebKit hands the page. As for a drop, only
         // the person's paste (a posted Cmd-V records nothing).
         let pasted: @MainActor () -> Void = { [weak self] in
+            self?.model.hostTouch.mark("paste") // a posted paste too: the page has the text
             guard let self, AgentPanePersonInput.currentIsPerson(sources: eventSources) else { return }
             let urls = AgentPaneDroppedPaths.fileURLs(on: .general)
             model.droppedPaths.stash(urls, kind: .paste)

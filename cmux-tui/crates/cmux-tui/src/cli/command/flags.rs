@@ -10,11 +10,15 @@
 /// `pane <p> split --right --fit` (a column that shares the window) and
 /// `tab <t> emulate --fit 16:9`. Such a flag takes the next word as its value
 /// only when one follows that is not itself a flag, so `split --right --fit`
-/// and `split --right --fit --json` read it as a switch.
-pub(super) const SWITCH_OR_VALUE_FLAGS: &[&str] = &["fit"];
+/// and `split --right --fit --json` read it as a switch. `approve` too:
+/// `agent message release ... --approve` (a switch) and
+/// `git worktree setup run --approve <fingerprint>`.
+pub(super) const SWITCH_OR_VALUE_FLAGS: &[&str] = &["fit", "approve"];
 
 pub(super) const BOOLEAN_FLAGS: &[&str] = &[
     "ack",
+    // `app publish --include-dirty`: without this it would swallow a following `--json`.
+    "include-dirty",
     // `terminal <t> screen read --details`: the screen record's fields, not its text alone.
     "details",
     // `cloud kill-machine --confirm`: without this it would swallow a following `--json`.
@@ -42,8 +46,8 @@ pub(super) const BOOLEAN_FLAGS: &[&str] = &[
     "new-tab",
     // `agent list --json`: the agents and their counts by state.
     "counts",
-    // `agent message release`: the person's decision on a held message.
-    "approve",
+    // `agent message release`: the person's decision on a held message
+    // (`approve` is in SWITCH_OR_VALUE_FLAGS: `worktree setup run` takes a value).
     "decline",
     "collapse",
     // `workspace group create --reuse`: the room's group of that name when it has one.
@@ -66,6 +70,8 @@ pub(super) const BOOLEAN_FLAGS: &[&str] = &[
     "focus",
     "force",
     "end-terminals",
+    // `daemon stop --if-idle`: stop only while nothing uses the daemon.
+    "if-idle",
     // `server ensure`: private app contract, the install key comes on stdin.
     "install-key-stdin",
     // `server ensure`: private app contract, restore progress lines on stdout.
