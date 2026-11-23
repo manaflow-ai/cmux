@@ -22,7 +22,7 @@ import type { Folds } from "./viewFolds";
 import { continuesTurn, opensTurn } from "../turnStart";
 import { AFTER_SEND, findRowIndex } from "./chatFind";
 import { cutLongRuns } from "./runParts";
-import { keptPrefix, PrefixFilter } from "./prefixFlatMap";
+import { keptPrefix, noteKeptPrefix, PrefixFilter } from "./prefixFlatMap";
 import { renderCall } from "./renderCall";
 import { hasTimestamp, showsTimestamp, type TurnTimes } from "./timestamps";
 import { isRunGroup, isSubagentGroup, WORKFLOW_CARD, SUBAGENT_DONE, SUBAGENT_STARTED } from "../subagents/subagentRows";
@@ -903,6 +903,18 @@ export function turnViewFrom(
     settleFrom -= 1;
   reusedRows = Math.min(reusedRows, settleNextSteps(out, nextSteps, settleFrom));
   reusedRows = Math.min(reusedRows, markRecovered(out, failures, lastCompleted));
+  // The drawn rows start with `previous.rows`' first `reusedRows`, but for the two the reused
+  // boundary put back (a later joined "Worked for" can have replaced them since): said so, the
+  // passes after this one (the transcript's layout, the rail, Find) read only the rows after them.
+  if (reuse > 0 && reusedRows > 0) {
+    let kept = reusedRows;
+    for (let at = Math.max(0, kept - 2); at < kept; at += 1)
+      if (out[at] !== previous!.rows[at]) {
+        kept = at;
+        break;
+      }
+    noteKeptPrefix(out, previous!.rows, kept);
+  }
   return {
     source: rows,
     expanded,
