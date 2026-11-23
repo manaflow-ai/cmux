@@ -383,8 +383,7 @@ function ChatHeaderToolsView({
     t,
   });
   // The three controls and the glass toolbar draw their own sets; the contextual styles apply to the plain row.
-  const headerIcons =
-    glassLook === "off" && (controls ?? headerControls) !== "trio" ? iconsPicked : "standard";
+  const headerIcons = glassLook === "off" && (controls ?? headerControls) !== "trio" ? iconsPicked : "standard";
   // The contextual styles draw only the icons relevant to the chat now (headerRelevance.ts).
   const relevance = headerRelevance({ style: headerIcons, tools, lit, previewUrl });
   const customize = onCustomize
