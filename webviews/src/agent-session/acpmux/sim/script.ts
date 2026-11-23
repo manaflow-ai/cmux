@@ -59,6 +59,8 @@ export type ToolOptions = {
   /** Leave the call running: no result record (end it later with `toolEnd`). */
   open?: boolean;
   path?: string;
+  /** The call's input as the harness sends it (an MCP call's arguments, such as acpmux's `wrap_up`). */
+  rawInput?: Record<string, unknown>;
 };
 
 export type IncomingOptions = {
@@ -232,7 +234,11 @@ export class SimBuilder {
         title,
         kind,
         status: "in_progress",
-        ...(kind === "execute" ? { rawInput: { command: title, description: title } } : {}),
+        ...(options.rawInput
+          ? { rawInput: options.rawInput }
+          : kind === "execute"
+            ? { rawInput: { command: title, description: title } }
+            : {}),
         ...(options.path ? { locations: [{ path: options.path }] } : {}),
         ...(options.tool ? { _meta: { claude: { tool: options.tool } } } : {}),
       }),
@@ -295,9 +301,53 @@ export class SimBuilder {
     return this;
   }
 
-  /** A subagent call (Claude Code's Agent tool) that runs `ms` and reports. */
-  subagent(description: string, { ms = 4_000, report = "Done: nothing found." } = {}): this {
-    return this.tool(description, { kind: "think", tool: "Agent", ms, output: report });
+  /** The person's steer mid-turn (`steer: true` on the running turn), and acpmux saying the agent read it `readMs` later. */
+  steer(value: string, { readMs = 600, after = 300 } = {}): this {
+    const promptId = `steer-${this.seq + 1}`;
+    this.record(
+      "mux",
+      "user_message",
+      {
+        text: value,
+        promptId,
+        turnId: this.turnId,
+        steer: true,
+        client: "pane",
+        _meta: { origin: { actor: "person" } },
+      },
+      after,
+      `steer: ${value.slice(0, 40)}`,
+    );
+    return this.record("mux", "steer_read", { promptId, turnId: this.turnId }, readMs, "steer_read");
+  }
+
+  /** A subagent call (Claude Code's Agent tool) that runs `ms` and reports. `tracked`: acpmux also
+   * reports the subagent's start and end (subagents.rs), so the chat draws it as a subagent. */
+  subagent(description: string, { ms = 4_000, report = "Done: nothing found.", tracked = false } = {}): this {
+    if (!tracked) return this.tool(description, { kind: "think", tool: "Agent", ms, output: report });
+    this.tool(description, { kind: "think", tool: "Agent", open: true });
+    const id = `call-${this.calls}`;
+    const agent = `agent-${this.calls}`;
+    const change = (fields: Record<string, unknown>) => {
+      const msg = update(fields.state === "running" ? "subagent_spawned" : "subagent_state_update", {});
+      return { ...msg, params: { ...msg.params, _meta: { acpmux: { subagents: [{ id: agent, ...fields }] } } } };
+    };
+    const name = description.slice(0, 40);
+    this.record(
+      "in",
+      "subagent_spawned",
+      change({ parent: null, name, task: description, state: "running", startedAt: this.now }),
+      50,
+      "subagent spawned",
+    );
+    this.record(
+      "in",
+      "subagent_state_update",
+      change({ state: "completed", lastMessage: report, endedAt: this.now + ms }),
+      ms,
+      "subagent completed",
+    );
+    return this.toolEnd(id, { output: report, ms: 50 });
   }
 
   /** The agent compacting its context: started, then completed `ms` later. */

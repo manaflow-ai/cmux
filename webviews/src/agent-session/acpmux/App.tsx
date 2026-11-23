@@ -78,6 +78,7 @@ import { registerHarnessesPage } from "./harnesses/harnessesPage";
 import {
   injectedNewTabContext,
   useEarlyNewTabContext,
+  useLostSharedPart,
   useNewTabAdoption,
   useNewTabPlaces,
   adoptionPlan,
@@ -85,7 +86,6 @@ import {
   keepAdoptedTail,
   useSessionAdoption,
   type SessionAdoption,
-  useLostSharedPart,
 } from "./newtab/adoption";
 import { sharesChatList, useSharedSessions } from "./newtab/chatStore";
 import {
@@ -158,7 +158,7 @@ import { useSameValue } from "./session-info/sameValue";
 import { drawsAsIs, setStreamingRowBlocked, streamingRowBlocked, textOnlyRow } from "./streamingRow";
 import { liveToolOutput } from "./liveToolOutput";
 import { remoteComposer } from "./remoteEditing";
-import { type ComposerHandle, type ComposerWake } from "./Composer";
+import { type ComposerHandle, type ComposerRelay, type ComposerWake } from "./Composer";
 import { takeExternalInto } from "./composer/externalAttach";
 import {
   FolderContinuation,
@@ -190,7 +190,6 @@ import { cloudSendWakes, cloudTypingWakes, type CloudWakeState } from "./cloudWa
 import { type PastTurn } from "./pastChatModel";
 import type { Project } from "./ProjectChooser";
 import { byRecentUse, parseProjectRepos } from "./projectRepos";
-import { agentDotGridArm } from "./dotGrid/agentDotGrid.experiment";
 import { lastChange, turnFiles, turnPathsOnly, turnRows, type PathRef, type TurnFile } from "./diff";
 import { opensTurn } from "./turnStart";
 import { TrustAsk } from "./TrustAsk";
@@ -238,6 +237,7 @@ import {
   backgroundRowCount,
 } from "./session-info/processes";
 import {
+  type SessionInfoSectionId,
   setSessionInfoOpen as setSessionInfoPanelOpen,
   setSessionInfoSection,
   useSessionInfoOpen,
@@ -404,6 +404,7 @@ import { artifactVersions, finishedReplyDocuments } from "./conversation/artifac
 import { artifactLiveSource, mergeArtifactVersions } from "./conversation/artifactLive";
 import { RenderPages, renderPages, renderVersions } from "./conversation/renderCall";
 import { ShortcutsContext, type ShortcutLabels } from "./shortcuts";
+import { revealedAsk, runRevealedAsk } from "./needsYou/askReveal";
 import { notifyRevealRowsChanged, revealedMessage, revealMessageWhenShown, revealTurnWhenShown } from "./links";
 import { useNeedsYou } from "./needsYou/useNeedsYou";
 import type { ChatImage } from "./conversation/chatImages";
@@ -414,6 +415,15 @@ import { useStreamAppendDeclaration } from "./devMotionAudit";
 import { HEADER_ACTIONS, type ChatMenuItem } from "./header/chatHeaderToolsModel";
 import { setHeaderState, useHeaderState } from "./header/headerState";
 import { useTabRow, useTabRowRoot, useTabRowTools } from "./header/tabRow";
+import {
+  draftMessage as subagentDraftMessage,
+  keepSubagentDraft,
+  restoreSubagentDraft,
+  sendingSubagentDraft,
+  subagentDraft,
+  subscribeSubagentDraft,
+} from "./subagents/subagentDrafts";
+import { afterFailedSend } from "./subagents/subagentComposerModel";
 import {
   subagentRelayPrompt,
   subagentRelaySteers,
@@ -434,8 +444,6 @@ import {
   type CloudStartAnswer,
   cloudSendAfterCheck,
   composerCloudStartFolder,
-  pickedChatCloudCall,
-  pickOnlyNewChat,
   pageOnOtherMachine,
 } from "./cloudRun";
 import { promptBeforeTyped, type CloudStartDraft } from "./cloudStartCarry";
@@ -474,6 +482,7 @@ import {
   localApiKeyLogin,
   SIGN_IN_ON_MACHINE,
 } from "./cloudAgentLogin";
+import { cloudGitHubSignIn } from "./cloudGitHubSignIn";
 import { archiveRow, markUnreadRow } from "./header/archiveRow";
 import { archiveClosesTab, deleteClosesTab } from "./header/archiveClose";
 import { avatarRows } from "./header/avatarRow";
@@ -1461,7 +1470,25 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const showTimelineTurn = useRef<(turnId: string) => void>(() => undefined);
   /// ``showMessage`` for a message the chats page found by its words (a `said:` reveal).
   const showSaid = useRef<(said: SaidReveal) => string | undefined>(() => undefined);
+  /// Starts this chat's Ask about this side chat (Needs you's `sideSession`), set where Needs you is.
+  const askAboutChat = useRef<(sessionId: string, question: string) => Promise<unknown>>(async () => {
+    throw new Error("not ready");
+  });
   const reveal = (value: string) => {
+    // Another pane's Needs you asked about one of this chat's asks (needsYou/askReveal.ts): this
+    // pane, which the relay lets start a side chat for its chat, scrolls to the asking turn and
+    // starts it once it shows that chat; a refusal shows as the composer's own does.
+    const asked = revealedAsk(value);
+    if (asked !== undefined) {
+      if (asked.turnId) void revealTurnWhenShown(asked.turnId);
+      void runRevealedAsk(asked, {
+        ready: (sessionId) => directClient.current?.selectedSession === sessionId,
+        sideSession: (sessionId, question) => askAboutChat.current(sessionId, question),
+      }).catch((error: unknown) =>
+        setBtwFailure({ sessionId: asked.sessionId, reason: knownRefusalText(error) ?? "" }),
+      );
+      return;
+    }
     // The command palette's chats page opens a chat at the message it found by what was said:
     // the newest row of that kind holding the words, brought in as a `message=<id>` link's is.
     const said = revealedSaid(value);
@@ -2086,8 +2113,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const subagentTray = useSubagentTray();
   const trayPlacement = useSubagentTrayPlacement();
   const [goalHatPlaceArm] = useState(() => experimentArm(goalHatPlace));
-  // The agent dot grid on the home (dotGrid/agentDotGrid.experiment.ts): off unless opted in.
-  const [dotGridArm] = useState(agentDotGridArm);
   const doneLines = useRef<DoneLineCache>(new Map());
   const childDoneLines = useRef<DoneLineCache>(new Map());
   const shownSessionId = snapshot.sessionId ?? snapshot.summary?.sessionId;
@@ -2830,8 +2855,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     setSubagentView(requestedSubagent);
     setRequestedSubagent(undefined);
   }
-  // A subagent's pane shows the subagent with its own composer (SubagentComposer.tsx), never the
-  // chat's composer, queue or pull request: they are the chat's. Once it shows a chat ("Subagent of", a branch pill, another
+  // A subagent's pane shows the subagent with the composer relayed to it (Composer.tsx `relay`),
+  // never the chat's queue, pull request or turn controls: they are the chat's. Once it shows a chat ("Subagent of", a branch pill, another
   // harness), that chat's composer is back: a prompt there goes to the chat it shows.
   const readOnlySubagent =
     workflowRequest !== undefined ||
@@ -3490,8 +3515,25 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       snapshot.switching?.phase === "failed" && snapshot.switching.code === SIGN_IN_REQUIRED
         ? snapshot.switching.harness
         : undefined;
+    // GitHub's sign-in on the chat's machine (logins done right): only for a chat elsewhere that
+    // names its chat, which acpmux forwards to that machine (cloudGitHubSignIn.ts).
+    const cloudSignIn = cloudAgentLogin(login);
+    const owner = snapshot.sessionId;
     return {
-      cloudSignIn: cloudAgentLogin(login),
+      cloudSignIn:
+        cloudSignIn && owner
+          ? {
+              ...cloudSignIn,
+              github: cloudGitHubSignIn({
+                sessionId: owner,
+                currentClient: () =>
+                  restartReaches(owner, sessionIdRef.current, directClient.current?.selectedSession)
+                    ? (directClient.current ?? undefined)
+                    : undefined,
+                openURL: login.openURL,
+              }),
+            }
+          : cloudSignIn,
       apiKeySignIn: localApiKeyLogin(login),
       // A new chat has no session yet: its machine signs the agent in there with none, where its
       // daemon can (`agent_login_machine`); elsewhere the card says to sign in on that machine.
@@ -5035,7 +5077,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // header state. Its open-in-pane row enables that same panel before revealing the requested list.
   const revealSessionInfo = sessionInfo.reveal;
   const openSummarySection = useCallback(
-    (section: "subagents" | "tasks") => {
+    (section: SessionInfoSectionId) => {
       if (revealSessionInfo) {
         revealSessionInfo(section);
         return;
@@ -5844,11 +5886,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// Quote in Reply picks made while no composer is mounted (a Sandboxed receipt or a handoff review
   /// in its place): they go in after the draft, in order, when it mounts (composerRestore.ts).
   const heldQuotes = useRef<string[] | undefined>(undefined);
-  // The subagent pane's composer (SubagentComposer.tsx) while it shows: Quote in Reply goes there,
-  // never held for the chat's composer, which a subagent pane does not mount.
-  const subagentQuote = useRef<{ quoteReply(markdown: string): void } | null>(null);
+  // The subagent pane's composer (Composer.tsx `relay`) while it shows: Quote in Reply goes there,
+  // never held for the chat's composer, whose handle it never is (its held prompts are the chat's).
+  const subagentComposer = useRef<ComposerHandle | null>(null);
   const quoteReply = useCallback((markdown: string) => {
-    if (subagentQuote.current) subagentQuote.current.quoteReply(markdown);
+    if (subagentComposer.current) subagentComposer.current.quoteReply(markdown);
     else quoteIntoComposer(composerHandle, heldQuotes, markdown);
   }, []);
   const [startingSends] = useState(
@@ -6137,6 +6179,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const pendingWake = useRef<ComposerWake | undefined>(undefined);
   /// Where the shown transcript rests now (VirtualTranscript `anchorNow`).
   const transcriptAnchor = useRef<(() => ScrollAnchor | null | undefined) | undefined>(undefined);
+  /// The transcript's Toggle Terminal and Chat placement (VirtualTranscript `placeNow`).
+  const placeTranscript = useRef<((rowId: string | null) => boolean) | null>(null);
   /// Prompts sent from this pane (every `chat.send`): each puts the transcript at its latest message.
   const [sends, setSends] = useState(0);
   /// VirtualTranscript updates this synchronously on reader scrolls, so a disabled send-to-bottom
@@ -6650,7 +6694,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       "customize",
       "help",
     ]);
-    if (snapshot.summary) enabledCmuxActions.add("status");
+    if (snapshot.summary) {
+      enabledCmuxActions.add("status");
+      enabledCmuxActions.add("mcp");
+    }
     if (!quick) enabledCmuxActions.add("cd");
     if (forkable && forkSeq !== undefined) enabledCmuxActions.add("fork");
     // A working chat offers /side too: its fork is of the chat as it is now (#38042).
@@ -7179,6 +7226,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       untakenSends,
       pendingWake,
       transcriptAnchor,
+      placeTranscript,
       setSends,
       followingTranscript,
       setHostError,
@@ -7321,6 +7369,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         healthLocal,
         ignoreFailure,
         openCloudChatWith,
+        openSummarySection,
         sessionAuth,
         sessionInfo,
         setContinuing,
@@ -7714,15 +7763,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         .catch(() => undefined);
   }, [quick]);
   // Needs you (needsYou/): the header's badge and list, and the transcript's Needs your input pill.
-  const needsYou = useNeedsYou({
-    snapshot,
-    callNative,
-    sideSession: async (sessionId, question) => {
-      const client = directClient.current;
-      if (!client) throw new Error(translate("needsYou.askFailed"));
-      await postNative("chat.sideChat", { sessionId: await client.btw(question, sessionId) });
-    },
-  });
+  const sideSession = async (sessionId: string, question: string) => {
+    const client = directClient.current;
+    if (!client) throw new Error(translate("needsYou.askFailed"));
+    await postNative("chat.sideChat", { sessionId: await client.btw(question, sessionId) });
+  };
+  askAboutChat.current = sideSession;
+  const needsYou = useNeedsYou({ snapshot, callNative, sideSession });
   // Steer queue (steerQueue/): ⌘⇧J or the chat menu opens it over the chat. Each step opens the chat
   // it acts on first, so the step goes through the same send, Stop and fork the chat's own composer
   // and menu use, and the person sees it land in the chat under the queue.
@@ -8690,6 +8737,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                                   anchorNow={
                                                                     quick || childRows ? undefined : transcriptAnchor
                                                                   }
+                                                                  placeNow={
+                                                                    quick || childRows ? undefined : placeTranscript
+                                                                  }
                                                                   inViewNow={
                                                                     quick || childRows ? undefined : transcriptInView
                                                                   }
@@ -8705,6 +8755,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                                     childRows ? undefined : onTranscriptKeepFrom
                                                                   }
                                                                   onAnchor={
+                                                                    quick || childRows || !shownSessionId
+                                                                      ? undefined
+                                                                      : (anchor) =>
+                                                                          postScrollAnchor(shownSessionId, anchor)
+                                                                  }
+                                                                  onFollowingAnchor={
                                                                     quick || childRows || !shownSessionId
                                                                       ? undefined
                                                                       : (anchor) =>
@@ -9101,6 +9157,53 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // the pane's own subagent id (a workflow agent's run and id). Never the relay target, whose harness
   // id, task name and connected chat arrive or change later and would remount the composer empty.
   const subagentDraftKey = `${subagentDraftChat}\u0000${shownSubagentId ?? ""}`;
+  // A message that did not reach the chat comes back into the subagent's draft (subagentDrafts.ts)
+  // with a note over the box, by the draft it came back to, until the next send from it.
+  const [subagentFailed, setSubagentFailed] = useState<string>();
+  useEffect(() => {
+    if (!readOnlySubagent) return;
+    return subscribeSubagentDraft(subagentDraftKey, () => setSubagentFailed(subagentDraftKey));
+  }, [readOnlySubagent, subagentDraftKey]);
+  // The subagent pane's composer is the chat's Composer relayed to the subagent (Composer.tsx
+  // `relay`): its draft is the subagent's, and what is sent goes to the chat as a message its agent
+  // passes on (subagentMessage.ts). The placeholder names the subagent, so a prompt never goes
+  // anywhere the composer does not say.
+  const subagentRelay: ComposerRelay | undefined = readOnlySubagent
+    ? {
+        placeholder: t("subagents.messagePlaceholder", { name: shownSubagentTarget?.name ?? t("tray.kind.subagent") }),
+        handle: subagentComposer,
+        initial: subagentDraft(subagentDraftKey),
+        onChange: (draft) => keepSubagentDraft(subagentDraftKey, draft),
+        subscribe: (listener) => subscribeSubagentDraft(subagentDraftKey, listener),
+        // A quote taken while the editor was still being made stays this subagent's, after its draft.
+        onUnplacedQuotes: (quotes) => {
+          const kept = subagentDraft(subagentDraftKey);
+          keepSubagentDraft(subagentDraftKey, { ...kept, text: [kept.text, ...quotes].filter(Boolean).join("\n\n") });
+        },
+        attachRefusal: t("subagents.messageTextOnly"),
+        ...(sendToSubagent && {
+          send: (text: string, attachments: ComposerAttachment[]) => {
+            const message = subagentDraftMessage({ text, attachments });
+            if (!message) return false;
+            const key = subagentDraftKey;
+            // Until the chat takes it, the message is kept as in flight, so a page closed or let go
+            // meanwhile still hands it on; the prompt it leaves is empty (subagentDrafts.ts).
+            const settled = sendingSubagentDraft(key, message);
+            keepSubagentDraft(key, { text: "", attachments: [] });
+            setSubagentFailed(undefined);
+            sendToSubagent(message).then(settled, () => {
+              // The message comes back to the prompt whole (afterFailedSend), over the draft kept now.
+              restoreSubagentDraft(
+                key,
+                afterFailedSend(subagentDraft(key), { typed: text, held: attachments, message }),
+              );
+              settled();
+            });
+            return true;
+          },
+        }),
+      }
+    : undefined;
   // The live turn's notices read one phase (turnPhase.ts): never a resumed attempt's line under a
   // turn that ended. The pane draws no "may be stuck" guess (#45162): a real failure has its card.
   const liveTurnPhase = turnPhase(snapshot);
@@ -9135,12 +9238,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const composer = drawPaneComposer({
     markDockEdge,
     readOnlySubagent,
+    subagentRelay,
     subagentDraftKey,
-    shownSubagentTarget,
+    subagentFailed: subagentFailed === subagentDraftKey,
     t,
-    chatName,
-    sendToSubagent,
-    subagentQuote,
     reviewing,
     snapshot,
     dictation,
@@ -9807,7 +9908,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     githubRepository,
     sandboxView,
     sandboxHoldsChat,
-    heroPicker,
     tourOffer,
     chatTones,
     chatAgentNames,
@@ -9825,7 +9925,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     paneToasts,
     toastTop,
     asks,
-    dotGridArm,
     hostLine,
     forkPendingLine,
     composer,
