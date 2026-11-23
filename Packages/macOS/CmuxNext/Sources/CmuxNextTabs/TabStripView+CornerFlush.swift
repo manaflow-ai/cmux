@@ -26,8 +26,7 @@ extension TabStripView: TabStripCorner {
         if !toned { updateInCardTone() }
     }
 
-    /// Gives every cell the foot below its pill (the selected one draws it) and reports whether the
-    /// selected tab is the first. A layout pass: a selection alone calls ``reportCornerLead()``.
+    /// Gives every cell the foot below its pill (the selected one draws it), reports whether the selected tab is first.
     func updateCornerFlush(tabY: CGFloat, tabHeight: CGFloat) {
         // Bottom tabs have no card under them (`CornerFlushChrome.apply`): the selected tab stays a pill.
         // A strip inside the card (a lower split pane's) runs into its pane's content too while the top row's
@@ -44,7 +43,8 @@ extension TabStripView: TabStripCorner {
     /// (`MainPaneChromeShadeView`), so a lower pane's selected tab reads as the top row's does. Leo, 2026-11-12:
     /// "fixing up the whole, like, polish of the two-tone mode". O(1): only the selected tab is read.
     func updateInCardTone() {
-        guard tonedInCard, let host = layer else {
+        // The gooey tabs (`TabStripGoo`) draw the row's shade and divider themselves, around their moving blob.
+        guard !TabStripGoo.drive(self), tonedInCard, let host = layer else {
             inCardTone?.shade.path = nil
             inCardTone?.divider.path = nil
             inCardToneDrawn = nil
@@ -66,8 +66,7 @@ extension TabStripView: TabStripCorner {
         let alpha = Metrics.mainPaneChromeShade(isDark: tokens.isDark, tokens: tokens), strength = Metrics.tabRowDividerStrength
         let ink = themeScope.perform { Palette.chromeDivider }
         let frame = Metrics.chromeFrameInk(tokens)
-        // Every strip redraws on each chrome redraw (`markTopRow`), one per strip's report: an unchanged strip
-        // stops here, so a resize under Subtle Tone stays O(strips), not O(strips²) path operations.
+        // Each chrome redraw redraws every strip (`markTopRow`): an unchanged one stops here, O(strips) not O(strips²).
         // The divider's weight and place as the top row's: a hairline just inside the strip's bottom (flipped: maxY).
         // The weight follows `appearance.borders` (`Borders.width`), so a change of it redraws.
         let weight = Metrics.lineWidth(Metrics.dividerThickness)
@@ -121,9 +120,10 @@ extension TabStripView: TabStripCorner {
         reportedCornerFlush = CornerFlushChrome.stripDidChange(self) && on
     }
 
-    /// The selected tab's folder in `target`'s coordinates, clipped to the tabs' visible run
-    /// (`TabStripCorner`): a tab scrolled out of view leaves no hole in the chrome's shade.
+    /// The selected tab's folder in `target`'s coordinates, clipped to the tabs' visible run (`TabStripCorner`).
+    /// Under the gooey tabs, the whole row: the strip shades it itself, less the blob.
     public func selectedFolderPath(in target: CALayer) -> CGPath? {
+        if let band = TabStripGoo.band(of: self, in: target) { return band }
         guard isPaneTabRow, let id = model.selectedID, let cell = cells[id], let path = cell.folderPath(),
               let clip = tabsClip.layer else { return nil }
         let visible = Self.map(path, from: cell.layer, to: clip).intersection(CGPath(rect: clip.bounds, transform: nil))
