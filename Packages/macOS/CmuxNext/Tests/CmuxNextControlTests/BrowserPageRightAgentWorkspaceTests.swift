@@ -14,7 +14,11 @@ import Testing
     /// Opens a tab as the app's host does: in workspace `inWorkspace`, else in a new workspace
     /// with the fixed key, published to the router's topology.
     final class FakeHost: BrowserAgentWorkspaceHost {
-        struct Open: Equatable { var url: String?, workspace: String?, name: String }
+        struct Open: Equatable {
+            var url: String?
+            var workspace: String?
+            var name: String
+        }
         let opens = Mutex<[Open]>([])
         let router = Mutex<ControlRouter?>(nil)
 
