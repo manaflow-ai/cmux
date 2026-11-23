@@ -18,8 +18,8 @@ updates ship that code on its own, signed, minutes after each merge to `feat-cmu
    moves the pointer back (`web-ota-pointer.py newer`: the published pointer's `committed_at` must
    be older), and it verifies what it uploaded.
 3. **App** (`WebUpdater` in CmuxNextUpdater, `WebUpdates` in CmuxNextWebUpdates): on NIGHTLY bundles and the tip app only, it
-   reads the pointer (a conditional GET: every minute while cmux is in the front, every 10 minutes
-   behind other apps, and when it comes to the front a minute or more after the last read), verifies it, downloads and checks the archive, unpacks it into Application
+   reads the pointer (a conditional GET: every minute, in the front and
+   behind other apps alike, and when it comes to the front a minute or more after the last read), verifies it, downloads and checks the archive, unpacks it into Application
    Support and checks the tree, then serves it from the next safe point.
 
 ## The pointer
