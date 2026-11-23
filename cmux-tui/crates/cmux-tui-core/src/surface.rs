@@ -1066,6 +1066,15 @@ impl Surface {
         }
     }
 
+    /// The terminal runs on the holder (its PTY master lives in the holder process).
+    #[cfg(test)]
+    pub(crate) fn runs_on_holder(&self) -> bool {
+        self.as_pty().is_some_and(|pty| {
+            let runtime = pty.runtime.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            matches!(&*runtime, PtyRuntime::Local { holder: Some(_), .. })
+        })
+    }
+
     pub(crate) fn as_browser(&self) -> Option<&BrowserSurface> {
         match self {
             Surface::Pty(_) => None,

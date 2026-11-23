@@ -1329,6 +1329,236 @@ public func FfiConverterTypeChannelHandle_lower(_ value: ChannelHandle) -> UInt6
 
 
 /**
+ * One viewer's follow camera.
+ */
+public protocol FollowCameraProtocol: AnyObject, Sendable {
+    
+    /**
+     * Moves time to `now_us` and returns the crop: once per display frame.
+     */
+    func advance(nowUs: UInt64)  -> FollowRect
+    
+    /**
+     * The person took the camera: hold `rect` (and its size).
+     */
+    func manual(rect: FollowRect) 
+    
+    func mode()  -> FollowCameraMode
+    
+    /**
+     * One message of the `focus` channel (a JSON event), received at
+     * `now_us` on the phone's clock. Its own `t_us` (the Mac's clock) is
+     * replaced by `now_us`. A message that is not an event is refused and
+     * changes nothing.
+     */
+    func pushJson(line: String, nowUs: UInt64) throws 
+    
+    /**
+     * Hands the camera back: it pans from where the person left it.
+     */
+    func resume() 
+    
+    /**
+     * The shared screen's size (`x` and `y` are 0).
+     */
+    func source()  -> FollowRect
+    
+}
+/**
+ * One viewer's follow camera.
+ */
+open class FollowCamera: FollowCameraProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_cmux_mobile_link_ffi_fn_clone_followcamera(self.handle, $0) }
+    }
+    /**
+     * A crop of `aspect` (width over height) over a screen of `source_w` x
+     * `source_h` pixels: the largest rect of `aspect` the screen holds,
+     * divided by `zoom` (at least 1), centred. The viewer picks both: a
+     * portrait crop as wide as reads well (its height then the full screen,
+     * shown letterboxed) or, zoomed further, its own shape. `reduce_motion`
+     * (the system's Reduce Motion) cuts to each new framing instead of
+     * panning.
+     */
+public convenience init(aspect: Double, zoom: Double, sourceW: Double, sourceH: Double, reduceMotion: Bool) {
+    let handle =
+        try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_constructor_followcamera_new(
+        FfiConverterDouble.lower(aspect),
+        FfiConverterDouble.lower(zoom),
+        FfiConverterDouble.lower(sourceW),
+        FfiConverterDouble.lower(sourceH),
+        FfiConverterBool.lower(reduceMotion),$0
+    )
+}
+    self.init(unsafeFromHandle: handle)
+}
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_cmux_mobile_link_ffi_fn_free_followcamera(handle, $0) }
+    }
+
+    
+
+    
+    /**
+     * Moves time to `now_us` and returns the crop: once per display frame.
+     */
+open func advance(nowUs: UInt64) -> FollowRect  {
+    return try!  FfiConverterTypeFollowRect_lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_followcamera_advance(
+            self.uniffiCloneHandle(),
+        FfiConverterUInt64.lower(nowUs),$0
+    )
+})
+}
+    
+    /**
+     * The person took the camera: hold `rect` (and its size).
+     */
+open func manual(rect: FollowRect)  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_followcamera_manual(
+            self.uniffiCloneHandle(),
+        FfiConverterTypeFollowRect_lower(rect),$0
+    )
+}
+}
+    
+open func mode() -> FollowCameraMode  {
+    return try!  FfiConverterTypeFollowCameraMode_lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_followcamera_mode(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * One message of the `focus` channel (a JSON event), received at
+     * `now_us` on the phone's clock. Its own `t_us` (the Mac's clock) is
+     * replaced by `now_us`. A message that is not an event is refused and
+     * changes nothing.
+     */
+open func pushJson(line: String, nowUs: UInt64)throws   {try rustCallWithError(FfiConverterTypeCmuxMobileError_lift) {
+    uniffi_cmux_mobile_link_ffi_fn_method_followcamera_push_json(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(line),
+        FfiConverterUInt64.lower(nowUs),$0
+    )
+}
+}
+    
+    /**
+     * Hands the camera back: it pans from where the person left it.
+     */
+open func resume()  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_followcamera_resume(
+            self.uniffiCloneHandle(),$0
+    )
+}
+}
+    
+    /**
+     * The shared screen's size (`x` and `y` are 0).
+     */
+open func source() -> FollowRect  {
+    return try!  FfiConverterTypeFollowRect_lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_followcamera_source(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFollowCamera: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = FollowCamera
+
+    public static func lift(_ handle: UInt64) throws -> FollowCamera {
+        return FollowCamera(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: FollowCamera) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FollowCamera {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: FollowCamera, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFollowCamera_lift(_ handle: UInt64) throws -> FollowCamera {
+    return try FfiConverterTypeFollowCamera.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFollowCamera_lower(_ value: FollowCamera) -> UInt64 {
+    return FfiConverterTypeFollowCamera.lower(value)
+}
+
+
+
+
+
+
+/**
  * A connected link to one Mac.
  */
 public protocol LinkHandleProtocol: AnyObject, Sendable {
@@ -2857,6 +3087,71 @@ public func FfiConverterTypeConnectOptions_lower(_ value: ConnectOptions) -> Rus
 
 
 /**
+ * A rect in the shared screen's pixels, origin top left.
+ */
+public struct FollowRect: Equatable, Hashable {
+    public var x: Double
+    public var y: Double
+    public var w: Double
+    public var h: Double
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(x: Double, y: Double, w: Double, h: Double) {
+        self.x = x
+        self.y = y
+        self.w = w
+        self.h = h
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FollowRect: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFollowRect: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FollowRect {
+        return
+            try FollowRect(
+                x: FfiConverterDouble.read(from: &buf), 
+                y: FfiConverterDouble.read(from: &buf), 
+                w: FfiConverterDouble.read(from: &buf), 
+                h: FfiConverterDouble.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FollowRect, into buf: inout [UInt8]) {
+        FfiConverterDouble.write(value.x, into: &buf)
+        FfiConverterDouble.write(value.y, into: &buf)
+        FfiConverterDouble.write(value.w, into: &buf)
+        FfiConverterDouble.write(value.h, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFollowRect_lift(_ buf: RustBuffer) throws -> FollowRect {
+    return try FfiConverterTypeFollowRect.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFollowRect_lower(_ value: FollowRect) -> RustBuffer {
+    return FfiConverterTypeFollowRect.lower(value)
+}
+
+
+/**
  * A Keychain delete: the service, and the account when the item had one.
  */
 public struct KeychainDelete: Equatable, Hashable {
@@ -3767,9 +4062,79 @@ public func FfiConverterTypeCmuxMobileError_lower(_ value: CmuxMobileError) -> R
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 /**
+ * Who moves the crop: the camera, or the person (a pinch or a drag).
+ */
+
+public enum FollowCameraMode: Equatable, Hashable {
+    
+    case follow
+    case manual
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension FollowCameraMode: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFollowCameraMode: FfiConverterRustBuffer {
+    typealias SwiftType = FollowCameraMode
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FollowCameraMode {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .follow
+        
+        case 2: return .manual
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: FollowCameraMode, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .follow:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .manual:
+            writeInt(&buf, Int32(2))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFollowCameraMode_lift(_ buf: RustBuffer) throws -> FollowCameraMode {
+    return try FfiConverterTypeFollowCameraMode.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFollowCameraMode_lower(_ value: FollowCameraMode) -> RustBuffer {
+    return FfiConverterTypeFollowCameraMode.lower(value)
+}
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
  * Link state events, in order: `Connecting`, then `Connected` (or
  * `Disconnected` when the dial fails), then any number of `PathChanged`,
- * `Rtt` and `Media`, then one `Disconnected`.
+ * `Rtt`, `Media` and `Suspect`, then one `Disconnected`.
  */
 
 public enum LinkEvent: Equatable, Hashable {
@@ -3788,6 +4153,17 @@ public enum LinkEvent: Equatable, Hashable {
     case media(state: MediaState
     )
     case disconnected(reason: String
+    )
+    /**
+     * The link heard nothing for `silent_millis` after a ping
+     * (`Link::suspect_state`): a dead or silent Mac, a dead network, a
+     * blackout. The link stays open and probes every second; the next
+     * `Rtt` says it answered again, and it closes (`Disconnected`) only
+     * after its keepalive timeout (45 s), so a blackout it survives keeps
+     * the session. Last in the enum so the other variants keep their
+     * numbers in the bindings.
+     */
+    case suspect(silentMillis: UInt32
     )
 
 
@@ -3828,6 +4204,9 @@ public struct FfiConverterTypeLinkEvent: FfiConverterRustBuffer {
         case 6: return .disconnected(reason: try FfiConverterString.read(from: &buf)
         )
         
+        case 7: return .suspect(silentMillis: try FfiConverterUInt32.read(from: &buf)
+        )
+        
         default: throw UniffiInternalError.unexpectedEnumCase
         }
     }
@@ -3865,6 +4244,11 @@ public struct FfiConverterTypeLinkEvent: FfiConverterRustBuffer {
         case let .disconnected(reason):
             writeInt(&buf, Int32(6))
             FfiConverterString.write(reason, into: &buf)
+            
+        
+        case let .suspect(silentMillis):
+            writeInt(&buf, Int32(7))
+            FfiConverterUInt32.write(silentMillis, into: &buf)
             
         }
     }
@@ -5256,6 +5640,24 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_method_browserstream_stats() != 19072) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_followcamera_advance() != 2575) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_followcamera_manual() != 41672) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_followcamera_mode() != 38203) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_followcamera_push_json() != 58022) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_followcamera_resume() != 43594) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_followcamera_source() != 22030) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprediction_echo_latency_us() != 57421) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -5293,6 +5695,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprediction_tick() != 43253) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_constructor_followcamera_new() != 52189) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_constructor_terminalprediction_new() != 21303) {
