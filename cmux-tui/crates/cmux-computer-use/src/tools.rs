@@ -345,6 +345,32 @@ pub static TOOLS: &[Tool] = &[
         },
     },
     Tool {
+        name: "list_alerts",
+        access: Access::Observe,
+        description: "System alerts on screen that list_windows hides (macOS: iCloud and crash notices, \"can't be opened\", Gatekeeper, privacy asks, keychain and password panels, the out-of-memory panel): alert_id, owner, bundle_id, pid, title, text, buttons, class, and put_off (the buttons dismiss_alert would press, preferred first; empty when a person must answer). Read through accessibility only: no pixels, never a field's value. Refused with alerts_off unless the person turned on the computerUse.alerts setting (off by default; no Computer Use tool changes it).",
+        schema: || obj(json!({}), &[]),
+    },
+    Tool {
+        name: "dismiss_alert",
+        access: Access::Act,
+        description: "Put off one system alert from list_alerts by pressing one of its put_off buttons (Later, Not Now, OK, Cancel, Ignore, Don't Allow, Deny, Close, as its class allows) with an accessibility press: no pointer, no focus change. It never presses a button that allows, grants, opens Settings, reports, resets or submits, and never any button on a password panel: those are refused with alert_button_refused, and an alert with no put-off rule with alert_unknown (tell the person; do not try another tool). Refused with alerts_off unless the person turned on computerUse.alerts.",
+        schema: || {
+            obj(
+                json!({
+                    "alert_id": {"type": "string", "description": "The alert, from list_alerts."},
+                    "button": {"type": "string", "description": "The button's title, one of the alert's put_off."}
+                }),
+                &["alert_id", "button"],
+            )
+        },
+    },
+    Tool {
+        name: "list_displays",
+        access: Access::Discover,
+        description: "The displays: id (what screenshot's display takes), frame (points), scale (pixels per point), main, and builtin and virtual where the OS says. Main first.",
+        schema: || obj(json!({}), &[]),
+    },
+    Tool {
         name: "record",
         access: Access::Observe,
         description: "Record a display to an MP4 (H.264) video file on the machine. With seconds: records that long and returns when the file is complete. With action \"start\": returns at once with a recording_id and keeps recording, with no connection held, until action \"stop\" or max_seconds; action \"stop\" returns the finished file. The result has path, duration_ms, frames, bytes, width, height and why it ended. One recording runs at a time. Denied apps are left out of every frame as in a display screenshot, and a recording ends by itself when the screen locks or Computer Use is turned off. action \"read\" returns a finished file's bytes in pieces (data_base64, next_offset, eof) when the caller is on another machine.",
