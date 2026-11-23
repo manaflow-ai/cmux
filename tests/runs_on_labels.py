@@ -401,14 +401,29 @@ def personal_machine_names() -> tuple[str, ...]:
     return tuple(word.lower() for word in CANDIDATE_WORDS_ANY_CASE)
 
 
+# The one label every own-branch Linux x64 job takes (scripts/ci/one_linux_label.py): the owned pool, sized by load.
+ONE_LINUX_LABEL = "cmux-linux"
+# The one Linux label's fork pull request branch (scripts/ci/one_linux_label.py): a fork's pull_request run takes
+# CI_FORK_LINUX_RUNNER, GitHub-hosted while unset, and never an owned host. tests/test_ci_fork_runner_routing.py
+# checks that branch; what an own-branch run can take is the rest of the expression.
+ONE_LABEL_FORK_BRANCH = ("github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != "
+                         "github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || ")
+
+
+def without_fork_branch(runs_on):
+    """`runs_on` with the one-label fork pull request branch taken out: what every own-branch run can take."""
+    return runs_on.replace(ONE_LABEL_FORK_BRANCH, "") if isinstance(runs_on, str) else runs_on
+
+
 def disallowed_labels(runs_on, variables: Mapping[str, Iterable[str]] | None = None,
                       root: Path = ROOT) -> dict[str, str]:
     """label -> why it may not run this job; empty when every label is Blacksmith or declared fleet Linux.
 
     GitHub-hosted labels and the personal workstation are refused first, even if a fleet declares them.
     """
-    fleet_linux = declared_fleet_linux_labels(root) | {"cmux-linux", GCP_FLEET_LINUX, GCP_LANE_BUILD_LINUX, GCP_NIGHTLY_LINUX}
+    fleet_linux = declared_fleet_linux_labels(root) | {GCP_FLEET_LINUX, GCP_LANE_BUILD_LINUX, GCP_NIGHTLY_LINUX, ONE_LINUX_LABEL}
     personal = personal_machine_names()
+    runs_on = without_fork_branch(runs_on)
     labels = resolve_labels(runs_on, variables=variables)
     if not labels:
         return {"[]": "no label at all: an empty runs-on never schedules"}
