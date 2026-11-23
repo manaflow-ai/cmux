@@ -52,6 +52,7 @@ const pagePath = "/test/browser/transcript-fling.html";
 /// A build by default; `--dev` takes a dev server and labels every number `dev`
 /// (bench/support/benchPage.ts): React's development bundle was about a third of a frame here.
 const DEV = devRequested();
+const FIXTURE = process.env.CMUX_RESIZE_FIXTURE;
 const served = await serveBenchPage(pagePath, { dev: DEV });
 const browser = await chromium.launch({ headless: true });
 type Drag = {
@@ -96,7 +97,13 @@ try {
     await gotoBenchPage(page, served);
     await requireProductionReact(page, { dev: DEV });
     await page.waitForFunction(() => "__debug" in window);
-    const seeded = await page.evaluate(`window.__debug.seedRows(${turns})`);
+    const seeded = await page.evaluate(`window.__debug.seedRows(${turns}, ${JSON.stringify(FIXTURE)})`);
+    if (FIXTURE === "worked-resize") {
+      await page.evaluate(() =>
+        (window as unknown as { __expandWorked: (open: boolean) => void }).__expandWorked(true),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
     console.log(`transcript-resize-frame turns=${turns} fixture=${JSON.stringify(seeded)}`);
     for (const shape of cases) {
       const drag = async (): Promise<Drag> =>
