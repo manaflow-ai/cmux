@@ -199,7 +199,17 @@ public struct CustomSidebarValidator {
                 "branch": .string("main"),
                 "dirty": .bool(true),
                 "pr": samplePullRequest,
-                "prs": .array([samplePullRequest]),
+                "prs": .array([
+                    samplePullRequest,
+                    // The builder adds branch only when a pull request has one.
+                    .object([
+                        "number": .int(5790),
+                        "label": .string("PR 5790"),
+                        "url": .string("https://github.com/manaflow-ai/cmux/pull/5790"),
+                        "status": .string("merged"),
+                        "stale": .bool(false),
+                    ]),
+                ]),
                 "progress": .object([
                     "value": .double(0.42),
                     "label": .string("Running tests"),
