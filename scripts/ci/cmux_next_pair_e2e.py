@@ -399,6 +399,10 @@ def main():
     # CMUX_PAIR_E2E_DISCOVERY=0 leaves it out (a ref before it).
     discovery = os.environ.get("CMUX_PAIR_E2E_DISCOVERY") != "0"
     ask_ok = restart_ok = not discovery
+    # The open-live leg (cmux-next-ios-sim.sh open-live): after pairing, one Claude chat on the Mac and
+    # N launches of the phone straight into it, timed to its latest output on screen. 0 leaves it out.
+    open_live_runs = int(os.environ.get("CMUX_PAIR_E2E_OPEN_LIVE_RUNS") or 0)
+    live_ok = not open_live_runs
     keychain = RigKeychain(a.mac_app)
     try:
         note(f"- Keychain: {keychain.start()}")
@@ -538,6 +542,8 @@ def main():
                  f"{'took' if took_code else 'never logged taking'} the code); Mac lists "
                  f"{last.get('connectedPhones', 0)} connected phone(s){'' if connected else ' (none in 60 s)'}; "
                  f"phone {phone_shot('phone-paired')}; Mac {mac_shot('mac-pairing-paired')}")
+            if not paired:
+                note(f"- pairing, why: {phone_dial_evidence(os.path.join(a.out, 'phone-pairing.log'), url)}")
             phone_launch()
             phone_log.wait(re.compile(r"live data on"), 60)
             time.sleep(5)  # bounded, as above
@@ -554,6 +560,13 @@ def main():
                 # page's MacName: the probe waits for a link to that name (since 2026-10-29 it never matched).
                 uploaded, line = upload_leg(simctl, a.udid, a.bundle_id, phone_env, upload_root, RIG_MAC_NAME)
                 note(f"- upload: {line}")
+            if open_live_runs and paired:
+                try:
+                    live_ok = open_live_leg(simctl, a.udid, a.bundle_id, phone_env, phone_log, rpc, a.out,
+                                            open_live_runs, note)
+                except Exception as error:  # noqa: BLE001  the leg fails; the legs after it still run
+                    live_ok = False
+                    note(f"- open-live: FAIL ({type(error).__name__}: {redact(str(error))[:300]})")
             if discovery and paired:  # last: it quits and restarts the Mac
                 app, restart_ok = discovery_restart(app, exe, env, a.out, support, status, phone_log, streams,
                                                     phone_shot, note)
@@ -597,10 +610,132 @@ def main():
     if discovery:
         note(f"- discovery: Allow request {'PASS' if ask_ok else 'FAIL'}, restart with a split identity "
              f"{'PASS' if restart_ok else 'FAIL'}")
+    if open_live_runs:
+        # open-live judges pairing and its own leg; the other legs are reported, not required.
+        return 0 if paired and live_ok else 1
     return 0 if paired and uploaded and theme_ok and cloud_ok and ask_ok and restart_ok else 1
 
 
 ASKS = re.compile(r"phone (\w+) asks to pair: (\w+)")
+LATEST_OUTPUT = re.compile(r"timing launch chat_latest_output_frame \((\d+)ms\)")
+TAB_ID = re.compile(r"^tab_[0-9a-f]{32}$")
+
+
+def phone_dial_evidence(path, url):
+    """Why a phone that took the code never asked the Mac: the phone dials a code's Mac only once its
+    team's Macs list it (LiveCoordinator+PairInvite.swift, steerToInvite), so its `macs_loaded`
+    count and team lines say whether the Mac was ever in reach."""
+    try:
+        text = open(path, errors="replace").read()
+    except OSError:
+        return "no phone log"
+    loaded = re.findall(r"timing \w+ macs_loaded \+\d+ms \(\d+ms\) (\d+)", text)
+    teams = len(re.findall(r"team \S+ registered, (\d+) Macs", text))
+    other = "pairing code for a space this account is not in" in text
+    mac = re.search(r"[?&]mac=([0-9a-f-]+)", url or "")
+    return (f"phone macs_loaded counts {loaded or 'none logged'}; {teams} team registration line(s); "
+            f"{'the code names a space this account is not in; ' if other else ''}"
+            f"the code's Mac {mac.group(1)[:8] if mac else '?'}... is dialed only once that list holds it "
+            f"(0 Macs: the phone never dials, so hostd never gets a request and no Allow can answer it)")
+
+
+def _tab_link_id(tab):
+    """The tab's public resource id (`tab_` + 32 hex), the id a cmux link carries."""
+    for value in tab.values():
+        if isinstance(value, str) and TAB_ID.match(value):
+            return value
+    return None
+
+
+def _conversation_tabs(snap):
+    top = snap.get("topology") or snap
+    for ws in top.get("workspaces") or []:
+        for screen in ws.get("screens") or [{"panes": ws.get("panes") or []}]:
+            for p in screen.get("panes") or []:
+                for t in p.get("tabs") or []:
+                    if t.get("kind") == "conversation":
+                        yield p, t
+
+
+def open_live_leg(simctl, udid, bundle_id, phone_env, phone_log, rpc, out, runs, note):
+    """One Claude chat on the paired Mac, then `runs` launches of the phone straight into it
+    (CMUX_MOBILE_OPEN_URL=cmux://tab/<id>, as a tapped link opens it), each timed from the process
+    start to `chat_latest_output_frame` (LaunchMarks: the transcript's first frame that shows its
+    rows while following its end, so the latest line). Two rows: the chat at rest (idle fixture),
+    then the same launches while the chat streams a long reply (duress: a stream running when the
+    app opens). The screen is recorded for the whole leg."""
+    def pane(action, **params):
+        r = rpc("debug.agent_pane", dict({k: v for k, v in params.items() if v is not None}, action=action), timeout=40)
+        if isinstance(r, dict) and isinstance(r.get("result"), str):
+            try:
+                r = dict(r, result=json.loads(r["result"]))
+            except ValueError:
+                pass
+        return r
+
+    before = {t.get("id") for _, t in _conversation_tabs(rpc("snapshot.get"))}
+    rpc("action.run", {"action": "workspace.newAtBottom", "args": {}, "focus": True, "origin": "script"})
+    opened = rpc("action.run", {"action": "palette.newAgentChat", "args": {}, "focus": True, "origin": "script"})
+    found = wait_for(lambda: next(((p, t) for p, t in _conversation_tabs(rpc("snapshot.get"))
+                                   if t.get("id") not in before), None), 30, every=1)
+    if not found:
+        note(f"- open-live: no new agent chat on the Mac in 30 s ({redact(json.dumps(opened))[:200]}) -> FAIL")
+        return False
+    chat_pane, tab = found
+    made = pane("new_chat", pane=chat_pane.get("id"), harness="claude")
+    state = wait_for(lambda: (lambda s: s if isinstance(s, dict) and "error" not in s and s.get("connection") else None)(
+        pane("chat_state", pane=chat_pane.get("id"))), 60, every=1)
+    link_id = _tab_link_id(tab)
+    note(f"- open-live: Claude chat on the Mac, tab {'with a link id' if link_id else 'WITHOUT a tab_ link id'}; "
+         f"new_chat {redact(json.dumps(made))[:160]}; state {redact(json.dumps(state))[:200]}")
+    if not link_id:
+        return False
+    first = pane("send_prompt", pane=chat_pane.get("id"), text="Reply with the single word ready.")
+    time.sleep(15)  # bounded: the first reply's rows reach the transcript the phone opens
+    note(f"- open-live: first prompt {redact(json.dumps(first))[:160]}")
+
+    video = os.path.join(out, "open-live.mp4")
+    rec = subprocess.Popen(simctl + ["io", udid, "recordVideo", "--codec", "h264", "--force", video],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    time.sleep(1)  # the recorder's first frame; it has no ready signal
+    env = dict(phone_env, SIMCTL_CHILD_CMUX_MOBILE_OPEN_URL=f"cmux://tab/{link_id}")
+    rows, ok = {}, True
+    try:
+        for row in ("idle fixture", "duress"):
+            if row == "duress":
+                sent = pane("send_prompt", pane=chat_pane.get("id"),
+                            text="Count from 1 to 3000, one number per line, with no other text.")
+                time.sleep(5)  # bounded: the reply is streaming before the first launch
+                note(f"- open-live duress: the chat streams a long reply while the phone opens ({redact(json.dumps(sent))[:160]})")
+            samples = []
+            for i in range(runs):
+                subprocess.run(simctl + ["terminate", udid, bundle_id], capture_output=True, timeout=60)
+                time.sleep(2)
+                since = time.monotonic()
+                subprocess.run(simctl + ["launch", udid, bundle_id], env=env, capture_output=True, timeout=60)
+                hit = phone_log.wait_at(LATEST_OUTPUT, 60, since=since)
+                samples.append(int(hit[1].group(1)) if hit else None)
+            got = sorted(v for v in samples if v is not None)
+            rows[row] = {"samples_ms": samples}
+            if len(got) == runs:
+                rows[row].update(p50_ms=percentile(got, 0.5), p95_ms=percentile(got, 0.95))
+                note(f"- open-live {row}: launch -> latest output line visible, n={runs}: p50 "
+                     f"{rows[row]['p50_ms']:.0f} ms, p95 {rows[row]['p95_ms']:.0f} ms (samples {samples})")
+            else:
+                ok = False
+                note(f"- open-live {row}: {runs - len(got)} of {runs} launches showed no chat output in 60 s "
+                     f"(samples {samples}) -> FAIL")
+    finally:
+        rec.send_signal(2)  # SIGINT ends the file cleanly
+        try:
+            rec.wait(30)
+        except subprocess.TimeoutExpired:
+            rec.kill()
+    with open(os.path.join(out, "open-live.json"), "w") as f:
+        json.dump({"runs": runs, "rows": rows, "mark": "chat_latest_output_frame",
+                   "duress": "the chat streams a long Claude reply while the phone opens"}, f, indent=1)
+    note(f"- open-live: video open-live.mp4, numbers open-live.json")
+    return ok
 LINK_REFUSED = re.compile(r"mac_identity_changed|bad_mac_proof")
 
 
