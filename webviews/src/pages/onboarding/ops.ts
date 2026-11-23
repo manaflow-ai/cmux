@@ -7,7 +7,7 @@
 import type { AccountFamily, AccountRowWire, AccountRunParams, AccountRunReply } from "../shared/signIn/accountSignIn";
 
 /** The one tool a window shows; it never changes for a window. */
-/** `makeItYours` is a new person's one setup screen: how they work, the density and a background (cmux#48416). */
+/** `makeItYours` is a new person's one setup screen: how they work and the look Settings has (cmux#48416, cmux#49636). */
 export type OnboardingStep = "agents" | "importData" | "computerUse" | "makeItYours";
 
 /** What the footer's filled button says (OnboardingModel.primaryTitle). */
@@ -210,8 +210,25 @@ export interface ComputerUseState {
 /** GUI-first (recommended: chats, browsers and terminals side by side, Cmd-T the New Tab page) or
  * terminal-first (Cmd-T opens a terminal). */
 export type WorkStyle = "gui" | "terminal";
-/** Three of the five `appearance.density` levels: compact, standard (the default) and comfortable. */
-export type DensityChoice = "compact" | "standard" | "comfortable";
+/** A density offered: an `appearance.density` preset id (`cozy` is Settings' Default) and its name as
+ * Settings shows it. Every density Settings has (cmux#49636). */
+export interface MakeItYoursDensity {
+  id: string;
+  name: string;
+}
+
+/** The window's material under a background (`appearance.backgroundBlur`), as Settings offers it. */
+export type MakeItYoursMaterial = "none" | "frosted" | "glass" | "glass-clear";
+
+/** A terminal theme offered (`appearance.theme`): `id` is the setting's value (a Ghostty theme, or a
+ * `light:<theme>,dark:<theme>` pair); `light` and `dark` are its swatch strips (`#RRGGBB`: background,
+ * the six ANSI hues, foreground), empty until the theme files are read. */
+export interface MakeItYoursTheme {
+  id: string;
+  name: string;
+  light: string[];
+  dark: string[];
+}
 
 /** A background offered: Shuffle Paintings (`daily`, no name: the page names it) or a built-in work. */
 export interface MakeItYoursBackground {
@@ -223,10 +240,35 @@ export interface MakeItYoursBackground {
 
 export interface MakeItYoursState {
   workStyle: WorkStyle;
-  density: DensityChoice;
+  /** The density's preset id. */
+  density: string;
+  densities: MakeItYoursDensity[];
   /** The background's id; null: none. */
   background: string | null;
   backgrounds: MakeItYoursBackground[];
+  /** The Opacity slider's value, 0 to 1: the one set, else what the window shows; null: unknown. */
+  opacity: number | null;
+  /** The person's settings set the Opacity (else it is the theme's). */
+  opacitySet: boolean;
+  /** `appearance.backgroundBlur`; null: unset (the theme's). */
+  material: MakeItYoursMaterial | null;
+  materials: MakeItYoursMaterial[];
+  /** Text Size in points (`appearance.metrics.chromeFontSize`): the one set, else the density's; null: unknown. */
+  textSize: number | null;
+  textSizeSet: boolean;
+  textSizeMin: number;
+  textSizeMax: number;
+  /** `appearance.theme`; null: unset (the Ghostty config's). */
+  theme: string | null;
+  themes: MakeItYoursTheme[];
+  /** `appearance.accent` (Settings' values; unset is `neutral`). */
+  accent: string;
+  accents: string[];
+  /** Each Accent's color on the window's theme (`#RRGGBB`); one with none (Art Color) is missing. */
+  accentSwatches: Record<string, string>;
+  /** `appearance.chromeStyle` (Settings' values; unset is `flat`). */
+  windowStyle: string;
+  windowStyles: string[];
   /** The backgrounds' previews were read. */
   loaded: boolean;
 }
@@ -298,9 +340,18 @@ export interface OnboardingOps {
   "cmux.onboarding.computerUse.restart": [Record<string, never>, unknown];
   /** Make cmux Yours: each pick is written at once, so the window behind shows it. */
   "cmux.onboarding.makeItYours.workStyle": [{ value: WorkStyle }, unknown];
-  "cmux.onboarding.makeItYours.density": [{ value: DensityChoice }, unknown];
+  "cmux.onboarding.makeItYours.density": [{ value: string }, unknown];
   /** `id` null: no background. */
   "cmux.onboarding.makeItYours.background": [{ id: string | null }, unknown];
+  /** The window's Opacity, 0 to 1 (Settings > Appearance's own row). */
+  "cmux.onboarding.makeItYours.opacity": [{ value: number }, unknown];
+  "cmux.onboarding.makeItYours.material": [{ value: MakeItYoursMaterial }, unknown];
+  /** null puts back the density's size. */
+  "cmux.onboarding.makeItYours.textSize": [{ value: number | null }, unknown];
+  /** null: the Ghostty config's theme. */
+  "cmux.onboarding.makeItYours.theme": [{ id: string | null }, unknown];
+  "cmux.onboarding.makeItYours.accent": [{ value: string }, unknown];
+  "cmux.onboarding.makeItYours.windowStyle": [{ value: string }, unknown];
 }
 
 export interface OnboardingEvents {
@@ -330,5 +381,11 @@ export const OPS = {
   workStyle: "cmux.onboarding.makeItYours.workStyle",
   density: "cmux.onboarding.makeItYours.density",
   background: "cmux.onboarding.makeItYours.background",
+  opacity: "cmux.onboarding.makeItYours.opacity",
+  material: "cmux.onboarding.makeItYours.material",
+  textSize: "cmux.onboarding.makeItYours.textSize",
+  theme: "cmux.onboarding.makeItYours.theme",
+  accent: "cmux.onboarding.makeItYours.accent",
+  windowStyle: "cmux.onboarding.makeItYours.windowStyle",
   changed: "cmux.onboarding.changed",
 } as const satisfies Record<string, keyof OnboardingOps | keyof OnboardingEvents>;

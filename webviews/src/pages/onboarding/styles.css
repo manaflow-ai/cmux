@@ -961,11 +961,14 @@
    the choice, and a checked choice gets the accent rim. Cards (shipping): the two ways to work side
    by side, named background tiles. Rows: the ways to work stacked as list rows, tiles unnamed. */
 .onb-make {
-  --onb-make-tile-h: 48px;
+  --onb-make-tile-h: 40px;
   display: flex;
   flex-direction: column;
   gap: var(--ds-space-4);
   min-height: 0;
+  /* The window has a fixed size and the page follows the app's density: a larger one scrolls, never overlaps the footer. */
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 .onb-make-group {
   min-width: 0;
@@ -1082,22 +1085,27 @@
 
 /* Density: one segmented control. */
 .onb-make-segments {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  display: flex;
+  flex-wrap: wrap;
   gap: var(--ds-space-2);
 }
+/* Equal widths while the names fit; a name never truncates (the row wraps instead). */
 .onb-make-segment {
   display: flex;
+  flex: 1 1 0;
   align-items: center;
   justify-content: center;
+  min-width: max-content;
   height: 32px;
+  padding-inline: var(--ds-space-2);
   border-radius: var(--ds-radius-control);
+  white-space: nowrap;
 }
 
 /* Background: None, Shuffle, then the paintings. */
 .onb-make-tiles {
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: var(--ds-space-2);
 }
 .onb-make-tile {
@@ -1139,6 +1147,151 @@ img.onb-make-tile-image {
 }
 .onb-make[data-look="rows"] .onb-make-tiles {
   --onb-make-tile-h: 40px;
+}
+
+/* Under the tiles, Settings > Appearance's two rows for a background: Opacity and Material. */
+/* One row each, their labels in one column. */
+.onb-make-adjust {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  column-gap: var(--ds-space-3);
+  row-gap: var(--ds-space-2);
+  margin-top: var(--ds-space-3);
+}
+.onb-make-adjust-row {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+  align-items: center;
+  min-width: 0;
+}
+.onb-make-adjust-control {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  min-width: 0;
+}
+.onb-make-adjust-label {
+  flex: none;
+  color: var(--page-text-2);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+}
+.onb-make-adjust-value {
+  flex: none;
+  min-width: 4ch;
+  color: var(--page-text-2);
+  font-size: var(--text-caption);
+  font-variant-numeric: tabular-nums;
+  text-align: end;
+}
+.onb-make-slider {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  accent-color: var(--ds-color-accent);
+}
+.onb-make-slider:focus-visible {
+  outline: 2px solid var(--ds-color-focus);
+  outline-offset: 2px;
+}
+.onb-make-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--grid-half-step);
+  min-width: 0;
+}
+.onb-make-chip {
+  position: relative;
+  display: flex;
+  flex: 1 1 0;
+  align-items: center;
+  justify-content: center;
+  min-width: max-content;
+  height: 24px;
+  padding-inline: var(--ds-space-2);
+  border: 1px solid var(--onb-card-rim);
+  border-radius: var(--ds-radius-control);
+  background: var(--onb-card-fill);
+  font-size: var(--text-caption);
+  white-space: nowrap;
+  cursor: default;
+}
+/* Accent and Window Style: many chips that wrap, each its own width (Material's four share the row). */
+.onb-make-chips:has(> .onb-make-chip:nth-child(5)) > .onb-make-chip {
+  flex: 0 1 auto;
+}
+.onb-make-chip:hover {
+  background: var(--ds-color-hover);
+}
+.onb-make-chip:active {
+  background: var(--ds-color-pressed);
+}
+/* Text Size's Default: puts the density's size back. */
+.onb-make-reset {
+  flex: none;
+  height: calc(11 * var(--grid-half-step));
+  padding-inline: var(--ds-space-2);
+  border: 1px solid var(--onb-card-rim);
+  border-radius: var(--ds-radius-control);
+  background: var(--onb-card-fill);
+  color: var(--page-text-2);
+  font: inherit;
+  font-size: var(--text-caption);
+  cursor: default;
+}
+.onb-make-reset:hover {
+  background: var(--ds-color-hover);
+}
+.onb-make-reset:focus-visible {
+  outline: 2px solid var(--ds-color-focus);
+  outline-offset: 2px;
+}
+/* An accent chip's dot: the color the accent gives the window's theme. */
+.onb-make-dot {
+  flex: none;
+  width: calc(4 * var(--grid-half-step));
+  height: calc(4 * var(--grid-half-step));
+  margin-inline-end: var(--grid-half-step);
+  border-radius: 50%;
+  background: var(--page-text-3);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ds-color-fg) 18%, transparent);
+}
+/* A theme tile: its light side and its dark side, each its background, a text line and its six hues. */
+.onb-make-theme-swatch {
+  display: flex;
+  overflow: hidden;
+}
+.onb-make-theme-side {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  justify-content: center;
+  gap: calc(2.5 * var(--grid-half-step));
+  min-width: 0;
+  padding-inline: calc(3 * var(--grid-half-step));
+}
+.onb-make-theme-text {
+  width: 60%;
+  height: calc(1.5 * var(--grid-half-step));
+  border-radius: var(--grid-half-step);
+}
+.onb-make-theme-hues {
+  display: flex;
+  gap: var(--grid-half-step);
+}
+.onb-make-theme-hues > span {
+  flex: 1;
+  height: calc(3 * var(--grid-half-step));
+  border-radius: calc(0.5 * var(--grid-half-step));
+}
+.onb-make-chip[data-checked] {
+  border-color: var(--ds-color-accent);
+  box-shadow: inset 0 0 0 1px var(--ds-color-accent);
+}
+.onb-make-chip:has(input:focus-visible) {
+  outline: 2px solid var(--ds-color-focus);
+  outline-offset: 2px;
 }
 
 /* The captioned looks (preview, segmented, form): calmer selection, one segmented track for density,
@@ -1454,4 +1607,23 @@ img.onb-make-tile-image {
   .onb-make-segment {
     transition: none;
   }
+}
+
+/* Preview with Settings' look rows (cmux#49636): the little window stays in view while the choices
+ * scroll, takes the spacing of every density Settings has, and shows the accent on its sidebar. */
+.onb-make[data-look="preview"] .onb-make-stage {
+  position: sticky;
+  top: 0;
+}
+.onb-make-window[data-density="ultraCompact"] {
+  --w-gap: 1px;
+}
+.onb-make-window[data-density="spacious"] {
+  --w-gap: 9px;
+}
+.onb-make-window .onb-make-pane-side .onb-make-line[data-on] {
+  background: var(--onb-make-accent, var(--ds-color-accent));
+}
+.onb-make-window[data-art] .onb-make-pane-side .onb-make-line[data-on] {
+  background: var(--onb-make-accent, var(--onb-make-term-ink));
 }

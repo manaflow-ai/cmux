@@ -1,4 +1,4 @@
-// Make cmux Yours (cmux#48416): the first run's one setup screen. Drawn as a person reads it, and
+// Make cmux Yours (cmux#48416, cmux#49636): the first run's one setup screen. Drawn as a person reads it, and
 // each pick sent to the host as the op it owns.
 import { afterAll, describe, expect, test } from "bun:test";
 import { act } from "react";
@@ -41,7 +41,7 @@ async function checked(state: OnboardingState): Promise<Record<string, string>> 
 }
 
 describe("make cmux yours", () => {
-  test("a fresh person sees the three choices on the recommended answers, and Skip / Continue", async () => {
+  test("a fresh person sees every choice on the recommended answers, and Skip / Continue", async () => {
     const html = render(makeItYoursState("fresh"));
     const words = text(html);
     for (const key of [
@@ -49,18 +49,54 @@ describe("make cmux yours", () => {
       "onboarding.makeItYours.work.gui",
       "onboarding.makeItYours.work.terminal",
       "onboarding.makeItYours.recommended",
-      "onboarding.makeItYours.density.standard",
       "onboarding.makeItYours.background.none",
     ])
       expect(words).toContain(strings.t(key));
+    // Every density Settings has, by Settings' names (cmux#49636).
+    for (const name of ["Ultra-compact", "Compact", "Default", "Comfortable", "Spacious"])
+      expect(words).toContain(name);
+    // Settings' two rows for a background: Opacity and Material, with every material.
+    for (const key of [
+      "onboarding.makeItYours.opacity",
+      "onboarding.makeItYours.material",
+      "onboarding.makeItYours.material.none",
+      "onboarding.makeItYours.material.frosted",
+      "onboarding.makeItYours.material.glass",
+      "onboarding.makeItYours.material.glass-clear",
+    ])
+      expect(words).toContain(strings.t(key));
+    // Settings > Appearance's look rows (cmux#49636): Text Size, Theme with Default first, every accent
+    // and every window style, by Settings' names.
+    for (const key of [
+      "onboarding.makeItYours.textSize",
+      "onboarding.makeItYours.theme",
+      "onboarding.makeItYours.theme.default",
+      "onboarding.makeItYours.accent",
+      "onboarding.makeItYours.accent.neutral",
+      "onboarding.makeItYours.accent.theme",
+      "onboarding.makeItYours.accent.art",
+      "onboarding.makeItYours.windowStyle",
+      "onboarding.makeItYours.windowStyle.flat",
+      "onboarding.makeItYours.windowStyle.floating",
+      "onboarding.makeItYours.windowStyle.two-tone",
+    ])
+      expect(words).toContain(strings.t(key));
+    // Theme tiles are swatches in the default look: each is named by its radio.
+    for (const name of ["Catppuccin", "Nord", "Dracula"]) expect(html).toContain(`aria-label="${name}"`);
+    expect(words).toContain("14 pt");
+    // No reset while Text Size is the density's.
+    expect(html).not.toContain("onb-make-reset");
     // The tiles are pictures: each is named by its radio (and the chosen one under the window).
     expect(html).toContain(`aria-label="${strings.t("onboarding.makeItYours.background.shuffle")}"`);
     expect(words).toContain("Continue");
     expect(words).not.toContain("lassic");
-    // One checked radio per group: GUI-first, Standard, no background.
+    // One checked radio per group: GUI-first, Default, the config's theme, Neutral, Flat, no background; no material set.
     expect(await checked(makeItYoursState("fresh"))).toEqual({
       workStyle: "gui",
-      density: "standard",
+      density: "cozy",
+      theme: "",
+      accent: "neutral",
+      windowStyle: "flat",
       background: "",
     });
   });
@@ -69,7 +105,11 @@ describe("make cmux yours", () => {
     expect(await checked(makeItYoursState("picked"))).toEqual({
       workStyle: "gui",
       density: "compact",
-      background: "friedrich-forest-moonlight",
+      theme: "light:Nord Light,dark:Nord",
+      accent: "blue",
+      windowStyle: "card",
+      background: "dahl-dresden-moonlight",
+      material: "frosted",
     });
     expect((await checked(makeItYoursState("terminal"))).workStyle).toBe("terminal");
   });
@@ -77,21 +117,27 @@ describe("make cmux yours", () => {
   test("both looks draw every choice; only cards name the background tiles", () => {
     const cards = render(makeItYoursState("fresh"), "cards");
     const rows = render(makeItYoursState("fresh"), "rows");
-    for (const html of [cards, rows]) expect(html.match(/type="radio"/g)?.length).toBe(2 + 3 + 6);
+    // Two ways to work, five densities, Default and three themes, nine accents, ten window styles, None
+    // and eleven backgrounds, four materials.
+    for (const html of [cards, rows]) expect(html.match(/type="radio"/g)?.length).toBe(2 + 5 + 4 + 9 + 10 + 12 + 4);
     expect(cards).toContain("onb-make-tile-name");
     expect(rows).not.toContain("onb-make-tile-name");
   });
 
   test("every look draws every choice; the default draws the window from the answers", () => {
     for (const look of ["preview", "segmented", "form", "cards", "rows"] as const)
-      expect(render(makeItYoursState("picked"), look).match(/type="radio"/g)?.length).toBe(2 + 3 + 6);
+      expect(render(makeItYoursState("picked"), look).match(/type="radio"/g)?.length).toBe(2 + 5 + 4 + 9 + 10 + 12 + 4);
     const preview = render(makeItYoursState("picked"));
     expect(preview).toContain('data-look="preview"');
     expect(preview).toContain('data-density="compact"');
     expect(preview).toContain('data-work="gui"');
     expect(preview).toContain("onb-make-pane-chat");
+    // The picked accent marks the little window's sidebar, and the picked theme's dark side its terminal.
+    expect(preview).toMatch(/--onb-make-accent:\s*#61AFEF/i);
+    expect(preview).toContain("--onb-make-term:");
+    expect(render(makeItYoursState("fresh"))).not.toContain("--onb-make-term:");
     // The chosen work is named once, whole, under the window.
-    expect(text(preview)).toContain("Forest in the Moonlight — Caspar David Friedrich");
+    expect(text(preview)).toContain("View of Dresden by Moonlight");
     const terminal = render(makeItYoursState("terminal"));
     expect(terminal).toContain("onb-make-pane-term");
     expect(terminal).not.toContain("onb-make-pane-chat");
@@ -120,11 +166,96 @@ describe("make cmux yours", () => {
       root.querySelector<HTMLInputElement>(`input[name="${name}"][value="${value}"]`)!;
     await act(async () => radio("workStyle", "terminal").click());
     await act(async () => radio("density", "comfortable").click());
+    await act(async () => radio("density", "ultraCompact").click());
+    await act(async () => radio("density", "spacious").click());
     await act(async () => radio("background", "").click());
+    await act(async () => radio("background", "hokusai-great-wave").click());
+    await act(async () => radio("material", "glass-clear").click());
+    await act(async () => radio("theme", "Dracula").click());
+    await act(async () => radio("theme", "").click());
+    await act(async () => radio("accent", "magenta").click());
+    await act(async () => radio("windowStyle", "floating").click());
+    await act(async () => root.querySelector<HTMLButtonElement>(".onb-make-reset")!.click());
     expect(calls).toEqual([
       { op: OPS.workStyle, params: { value: "terminal" } },
       { op: OPS.density, params: { value: "comfortable" } },
+      { op: OPS.density, params: { value: "ultraCompact" } },
+      { op: OPS.density, params: { value: "spacious" } },
       { op: OPS.background, params: { id: null } },
+      { op: OPS.background, params: { id: "hokusai-great-wave" } },
+      { op: OPS.material, params: { value: "glass-clear" } },
+      { op: OPS.theme, params: { id: "Dracula" } },
+      { op: OPS.theme, params: { id: null } },
+      { op: OPS.accent, params: { value: "magenta" } },
+      { op: OPS.windowStyle, params: { value: "floating" } },
+      { op: OPS.textSize, params: { value: null } },
     ]);
+  });
+
+  test("Opacity and Text Size: a key step is written at once; a drag is written once, on release", async () => {
+    const calls: { op: string; params: unknown }[] = [];
+    const client = {
+      call: async (op: string, params: unknown) => {
+        calls.push({ op, params });
+        return {} as never;
+      },
+      subscribe: async () => () => {},
+      handle: () => () => {},
+    };
+    const store = new OnboardingStore(client, makeItYoursState("picked"));
+    const root = document.createElement("div");
+    document.body.append(root);
+    await act(async () => createRoot(root).render(<OnboardingPage store={store} strings={strings} />));
+    calls.length = 0;
+    const slider = root.querySelector<HTMLInputElement>('input[data-slider="opacity"]')!;
+    expect(slider.value).toBe("0.6");
+    expect(root.textContent).toContain("60%");
+    const setValue = (value: string) => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(slider, value);
+      slider.dispatchEvent(new Event("input", { bubbles: true }));
+    };
+    // A key: no pointer down first.
+    await act(async () => setValue("0.65"));
+    expect(calls).toEqual([{ op: OPS.opacity, params: { value: 0.65 } }]);
+    calls.length = 0;
+    // A drag: the slider follows, and one write lands when the pointer is let go.
+    await act(async () => slider.dispatchEvent(new Event("pointerdown", { bubbles: true })));
+    await act(async () => setValue("0.3"));
+    await act(async () => setValue("0.2"));
+    expect(calls).toEqual([]);
+    expect(root.textContent).toContain("20%");
+    await act(async () => slider.dispatchEvent(new Event("pointerup", { bubbles: true })));
+    expect(calls).toEqual([{ op: OPS.opacity, params: { value: 0.2 } }]);
+    calls.length = 0;
+    const size = root.querySelector<HTMLInputElement>('input[data-slider="textSize"]')!;
+    expect(size.value).toBe("15");
+    expect(root.textContent).toContain("15 pt");
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(size, "16");
+      size.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(calls).toEqual([{ op: OPS.textSize, params: { value: 16 } }]);
+  });
+
+  test("a theme tile shows its light and dark swatches; an accent's dot is its color on the window's theme", async () => {
+    const root = document.createElement("div");
+    document.body.append(root);
+    await act(async () =>
+      createRoot(root).render(
+        <OnboardingPage store={new OnboardingStore(null, makeItYoursState("fresh"))} strings={strings} />,
+      ),
+    );
+    const nord = root.querySelector('input[name="theme"][value="light:Nord Light,dark:Nord"]')!.closest("label")!;
+    const sides = [...nord.querySelectorAll<HTMLElement>(".onb-make-theme-side")];
+    expect(sides[0].style.background).toMatch(/rgb\(229, 233, 240\)|#e5e9f0/i);
+    expect(sides[1].style.background).toMatch(/rgb\(46, 52, 64\)|#2e3440/i);
+    expect(sides[1].querySelectorAll(".onb-make-theme-hues > span").length).toBe(6);
+    const dot = (accent: string) =>
+      root
+        .querySelector(`input[name="accent"][value="${accent}"]`)!
+        .closest("label")!
+        .querySelector<HTMLElement>(".onb-make-dot")!;
+    expect(dot("red").style.background).toMatch(/rgb\(224, 108, 117\)|#e06c75/i);
+    expect(dot("art").style.background).toContain("conic-gradient");
   });
 });

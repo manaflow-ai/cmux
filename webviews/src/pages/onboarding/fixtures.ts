@@ -9,7 +9,9 @@ import type {
   ImportRow,
   ImportState,
   MakeItYoursBackground,
+  MakeItYoursDensity,
   MakeItYoursState,
+  MakeItYoursTheme,
   OnboardingFooter,
   OnboardingState,
 } from "./ops";
@@ -447,29 +449,97 @@ function painting(sky: string, hill: string): HostImage {
 }
 
 const BACKGROUNDS: MakeItYoursBackground[] = [
-  { id: "daily", name: "", preview: painting("#3b2a4a", "#1d1424") }, // colour-allow: a gallery fixture's stand-in painting, never shipped UI
+  { id: "daily", name: "", preview: painting("#3b2a4a", "#1d1424") }, // colour-allow: fixture painting
+  { id: "van-gogh-starry-night", name: "The Starry Night", preview: painting("#1d2b52", "#0e1424") }, // colour-allow: fixture painting
+  { id: "hokusai-great-wave", name: "The Great Wave off Kanagawa", preview: painting("#d9ccb0", "#2a4a6a") }, // colour-allow: fixture painting
+  { id: "friedrich-wanderer", name: "Wanderer above the Sea of Fog", preview: painting("#8a96a0", "#2a2622") }, // colour-allow: fixture painting
+  { id: "dahl-dresden-moonlight", name: "View of Dresden by Moonlight", preview: painting("#1f2b3a", "#0e151d") }, // colour-allow: fixture painting
+  { id: "monet-water-lilies-setting-sun", name: "Water Lilies, Setting Sun", preview: painting("#c07a3a", "#3a4a2a") }, // colour-allow: fixture painting
+  { id: "hiroshige-kanbara-snow", name: "Night Snow at Kanbara", preview: painting("#2c3236", "#e8e8e8") }, // colour-allow: fixture painting
+  { id: "van-gogh-almond-blossom", name: "Almond Blossom", preview: painting("#6aa6b0", "#e8efe8") }, // colour-allow: fixture painting
+  { id: "bruegel-hunters-snow", name: "The Hunters in the Snow", preview: painting("#9aaca8", "#eaeae4") }, // colour-allow: fixture painting
+  { id: "roerich-himalayas", name: "Himalayas", preview: painting("#3a5a8a", "#a06a4a") }, // colour-allow: fixture painting
+  { id: "vermeer-pearl-earring", name: "Girl with a Pearl Earring", preview: painting("#101418", "#3a4a6a") }, // colour-allow: fixture painting
+];
+
+/** Every built-in density, by Settings' names. */
+const DENSITIES: MakeItYoursDensity[] = [
+  { id: "ultraCompact", name: "Ultra-compact" },
+  { id: "compact", name: "Compact" },
+  { id: "cozy", name: "Default" },
+  { id: "comfortable", name: "Comfortable" },
+  { id: "spacious", name: "Spacious" },
+];
+
+/** A few terminal themes with swatch strips (background, six hues, foreground). */
+const THEMES: MakeItYoursTheme[] = [
   {
-    id: "friedrich-forest-moonlight",
-    name: "Forest in the Moonlight — Caspar David Friedrich",
-    preview: painting("#1f2b3a", "#0e151d"), // colour-allow: a gallery fixture's stand-in painting, never shipped UI
+    id: "light:Catppuccin Latte,dark:Catppuccin Mocha",
+    name: "Catppuccin",
+    light: ["#EFF1F5", "#D20F39", "#40A02B", "#DF8E1D", "#1E66F5", "#EA76CB", "#179299", "#4C4F69"], // colour-allow: fixture theme swatch
+    dark: ["#1E1E2E", "#F38BA8", "#A6E3A1", "#F9E2AF", "#89B4FA", "#F5C2E7", "#94E2D5", "#CDD6F4"], // colour-allow: fixture theme swatch
   },
-  { id: "hogai-nio", name: "Nio — Kanō Hōgai", preview: painting("#5a4a32", "#2d2418") }, // colour-allow: a gallery fixture's stand-in painting, never shipped UI
-  { id: "klee-fish-magic", name: "Fish Magic — Paul Klee", preview: painting("#14202a", "#2b4a52") }, // colour-allow: a gallery fixture's stand-in painting, never shipped UI
   {
-    id: "rembrandt-storm-galilee",
-    name: "The Storm on the Sea of Galilee — Rembrandt",
-    preview: painting("#2c3236", "#151a1c"), // colour-allow: a gallery fixture's stand-in painting, never shipped UI
+    id: "light:Nord Light,dark:Nord",
+    name: "Nord",
+    light: ["#E5E9F0", "#BF616A", "#A3BE8C", "#EBCB8B", "#81A1C1", "#B48EAD", "#88C0D0", "#414858"], // colour-allow: fixture theme swatch
+    dark: ["#2E3440", "#BF616A", "#A3BE8C", "#EBCB8B", "#81A1C1", "#B48EAD", "#88C0D0", "#D8DEE9"], // colour-allow: fixture theme swatch
+  },
+  {
+    id: "Dracula",
+    name: "Dracula",
+    light: ["#282A36", "#FF5555", "#50FA7B", "#F1FA8C", "#BD93F9", "#FF79C6", "#8BE9FD", "#F8F8F2"], // colour-allow: fixture theme swatch
+    dark: ["#282A36", "#FF5555", "#50FA7B", "#F1FA8C", "#BD93F9", "#FF79C6", "#8BE9FD", "#F8F8F2"], // colour-allow: fixture theme swatch
   },
 ];
+
+/** Each accent's color on a dark theme. */
+const ACCENT_SWATCHES: Record<string, string> = {
+  neutral: "#C8C8C8", // colour-allow: fixture accent swatch
+  theme: "#C678DD", // colour-allow: fixture accent swatch
+  red: "#E06C75", // colour-allow: fixture accent swatch
+  green: "#98C379", // colour-allow: fixture accent swatch
+  yellow: "#E5C07B", // colour-allow: fixture accent swatch
+  blue: "#61AFEF", // colour-allow: fixture accent swatch
+  magenta: "#C678DD", // colour-allow: fixture accent swatch
+  cyan: "#56B6C2", // colour-allow: fixture accent swatch
+};
 
 /** Make cmux Yours: as it opens on a new Mac (the recommended answers), while the previews read, after
  * Terminal First, and after a person picked Compact and a painting. */
 export function makeItYoursState(kind: MakeItYoursFixture = "fresh"): OnboardingState {
   const choices: MakeItYoursState = {
     workStyle: kind === "terminal" ? "terminal" : "gui",
-    density: kind === "picked" ? "compact" : "standard",
-    background: kind === "picked" ? "friedrich-forest-moonlight" : null,
+    density: kind === "picked" ? "compact" : "cozy",
+    densities: DENSITIES,
+    background: kind === "picked" ? "dahl-dresden-moonlight" : null,
     backgrounds: kind === "loading" ? [] : BACKGROUNDS,
+    opacity: kind === "picked" ? 0.6 : 1,
+    opacitySet: kind === "picked",
+    material: kind === "picked" ? "frosted" : null,
+    materials: ["none", "frosted", "glass", "glass-clear"],
+    textSize: kind === "picked" ? 15 : 14,
+    textSizeSet: kind === "picked",
+    textSizeMin: 10,
+    textSizeMax: 20,
+    theme: kind === "picked" ? "light:Nord Light,dark:Nord" : null,
+    themes: THEMES,
+    accent: kind === "picked" ? "blue" : "neutral",
+    accents: ["neutral", "theme", "red", "green", "yellow", "blue", "magenta", "cyan", "art"],
+    accentSwatches: ACCENT_SWATCHES,
+    windowStyle: kind === "picked" ? "card" : "flat",
+    windowStyles: [
+      "default",
+      "card",
+      "card-outlined",
+      "flat",
+      "flat-sidebar-line",
+      "bare",
+      "panes",
+      "two-tone",
+      "floating",
+      "blocks",
+    ],
     loaded: kind !== "loading",
   };
   return {

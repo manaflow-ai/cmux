@@ -111,11 +111,27 @@ final class OnboardingPageProvider: PageProvider {
             guard let value = WorkStyle(rawValue: try Self.string(params, "value")) else { throw PageError.invalidParams("unknown work style") }
             model.makeItYours.setWorkStyle(value)
         case "cmux.onboarding.makeItYours.density":
-            guard let value = DensityChoice(rawValue: try Self.string(params, "value")) else { throw PageError.invalidParams("unknown density") }
-            model.makeItYours.setDensity(value)
+            guard model.makeItYours.setDensity(try Self.string(params, "value")) else { throw PageError.invalidParams("unknown density") }
         case "cmux.onboarding.makeItYours.background":
             // null: no background.
             guard model.makeItYours.setBackground(params["id"]?.stringValue) else { throw PageError.invalidParams("unknown background") }
+        case "cmux.onboarding.makeItYours.opacity":
+            guard let value = params["value"]?.doubleValue, model.makeItYours.setOpacity(value) else { throw PageError.invalidParams("opacity is 0 to 1") }
+        case "cmux.onboarding.makeItYours.material":
+            guard let value = FirstRunMaterial(rawValue: try Self.string(params, "value")) else { throw PageError.invalidParams("unknown material") }
+            model.makeItYours.setMaterial(value)
+        case "cmux.onboarding.makeItYours.textSize":
+            // null: the density's.
+            let value = params["value"]
+            let set = value == nil || value == .null ? model.makeItYours.setTextSize(nil) : value?.doubleValue.map { model.makeItYours.setTextSize($0) } ?? false
+            guard set else { throw PageError.invalidParams("text size is 10 to 20 points") }
+        case "cmux.onboarding.makeItYours.theme":
+            // null: the Ghostty config's.
+            guard model.makeItYours.setTheme(params["id"]?.stringValue) else { throw PageError.invalidParams("unknown theme") }
+        case "cmux.onboarding.makeItYours.accent":
+            guard model.makeItYours.setAccent(try Self.string(params, "value")) else { throw PageError.invalidParams("unknown accent") }
+        case "cmux.onboarding.makeItYours.windowStyle":
+            guard model.makeItYours.setWindowStyle(try Self.string(params, "value")) else { throw PageError.invalidParams("unknown window style") }
         default: throw PageError.unknownOp(op)
         }
     }

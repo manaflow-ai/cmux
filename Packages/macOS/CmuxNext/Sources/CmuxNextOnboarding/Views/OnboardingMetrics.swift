@@ -8,9 +8,14 @@ enum OnboardingMetrics {
 }
 
 extension OnboardingModel.Step {
-    /// The tool window's fixed content size: one calm size, a smaller one for Computer Use.
+    /// The tool window's fixed content size: one calm size, a smaller one for Computer Use and a taller
+    /// and wider one for Make cmux Yours (cmux#49636): its live preview beside Settings' look rows.
     var windowSize: NSSize {
-        self == .computerUse ? NSSize(width: 520, height: 480) : NSSize(width: 640, height: 520)
+        switch self {
+        case .computerUse: NSSize(width: 520, height: 480)
+        case .makeItYours: NSSize(width: 840, height: 760)
+        default: NSSize(width: 640, height: 520)
+        }
     }
 }
 
