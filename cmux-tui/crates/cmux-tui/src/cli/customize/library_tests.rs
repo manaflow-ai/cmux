@@ -197,6 +197,84 @@ fn a_folded_layer_reads_as_folded_not_expired() {
 }
 
 #[test]
+fn refresh_if_app_changed_parses() {
+    assert_eq!(parse(&words("refresh")).unwrap(), Request::Refresh { if_app_changed: false });
+    assert_eq!(
+        parse(&words("refresh --if-app-changed")).unwrap(),
+        Request::Refresh { if_app_changed: true }
+    );
+    for bad in ["refresh --frob", "refresh --if-app-changed x"] {
+        assert!(parse(&words(bad)).is_err(), "{bad}");
+    }
+}
+
+/// What the app runs at start (`refresh --if-app-changed`): refresh runs once
+/// per app commit, never on a DEV build or an empty library, and says
+/// nothing when it does not run.
+#[test]
+fn refresh_runs_at_start_only_when_the_app_commit_changed() {
+    use cmux_customize::Roots;
+    use cmux_customize::library::CodeLayer;
+    use std::cell::Cell;
+    let dir = tempfile::tempdir().unwrap();
+    let customize = Customize::open(Roots::under(dir.path()));
+    let runs = Cell::new(0);
+    let run = || {
+        runs.set(runs.get() + 1);
+        Ok(Answer::Library { json: json!({ "refreshed": [] }), human: "pr-7: up to date\n".into() })
+    };
+    let human = |answer: Answer| match answer {
+        Answer::Library { human, .. } => human,
+        _ => panic!("not a library answer"),
+    };
+    // No code entry: nothing to refresh, nothing written.
+    assert_eq!(human(refresh_when(&customize, Some("8815f4c"), true, run).unwrap()), "");
+    assert_eq!(runs.get(), 0);
+    assert_eq!(customize.library_refreshed_on().unwrap(), None);
+
+    let layer = CodeLayer {
+        kind: Default::default(),
+        source: String::new(),
+        repo: "manaflow-ai/cmux".into(),
+        pr: 7,
+        title: "pr 7".into(),
+        head: "a".repeat(40),
+        base: String::new(),
+        web: String::new(),
+        abi: Some(1),
+        needs_build: Vec::new(),
+        note: String::new(),
+    };
+    customize.library_use_code(layer, vec![], "cli", 1).unwrap();
+    // A DEV build has no commit: never at start.
+    assert_eq!(human(refresh_when(&customize, None, true, run).unwrap()), "");
+    assert_eq!(runs.get(), 0);
+    // The first start with a commit runs it and records the commit.
+    assert_eq!(
+        human(refresh_when(&customize, Some("8815f4c"), true, run).unwrap()),
+        "pr-7: up to date\n"
+    );
+    assert_eq!(runs.get(), 1);
+    assert_eq!(customize.library_refreshed_on().unwrap().as_deref(), Some("8815f4c"));
+    // The same commit again (every later start): quiet, not run.
+    assert_eq!(human(refresh_when(&customize, Some("8815f4c"), true, run).unwrap()), "");
+    assert_eq!(runs.get(), 1);
+    // An update: runs again.
+    refresh_when(&customize, Some("9a0b1c2"), true, run).unwrap();
+    assert_eq!(runs.get(), 2);
+    assert_eq!(customize.library_refreshed_on().unwrap().as_deref(), Some("9a0b1c2"));
+    // A refresh by hand records the commit too, so the next start is quiet.
+    refresh_when(&customize, Some("d3e4f50"), false, run).unwrap();
+    assert_eq!(runs.get(), 3);
+    refresh_when(&customize, Some("d3e4f50"), true, run).unwrap();
+    assert_eq!(runs.get(), 3);
+    // A refresh that failed records nothing: the next start tries again.
+    let failed = || Err(super::super::pr::failure("offline".into()));
+    assert!(refresh_when(&customize, Some("e5f6071"), true, failed).is_err());
+    assert_eq!(customize.library_refreshed_on().unwrap().as_deref(), Some("d3e4f50"));
+}
+
+#[test]
 fn keys_that_no_longer_apply_add_one_quiet_line_and_nothing_when_all_apply() {
     use cmux_customize::library::Stale;
     let answer =
