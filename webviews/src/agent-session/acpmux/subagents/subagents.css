@@ -2768,6 +2768,10 @@ button.cv-subagent > :last-child {
   inset: calc(-1 * var(--ds-space-1)) auto calc(-1 * var(--ds-space-1)) calc(-1 * var(--ds-space-1));
   width: calc(var(--hat-face-open-width) + 2 * var(--ds-space-1));
   border-radius: 999px;
-  /* chat-surface-allow: the fan's backing is the page colour, so the faces read over the transcript */
-  background: var(--acpmux-hat-face-ring, color-mix(in srgb, var(--agent-bg, Canvas) 92%, transparent));
+  /* The fan's backing is the ink ladder's inset level over a blur of what is under it, not the page
+     colour (a dark slab on the hat's lighter glass, the same fault as the icons' old ring): the header's
+     words under a spread icon blur out, and it follows any theme. */
+  background: var(--ds-surface-inset);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
 }
