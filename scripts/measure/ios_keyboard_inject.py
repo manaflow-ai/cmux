@@ -64,11 +64,20 @@ def rows(trace, marks):
             continue
         t1 = ms[i + 1][0] if i + 1 < len(ms) else t0 + 5
         win = [(t, e) for t, e in evs if t0 <= t < t1]
-        injs = [(t, e) for t, e in win if e['ev'] == 'inject' and 'id' in e]
+        # This step's own direction: a show whose keyboard fell at once holds
+        # the hide's injection too (step cb5cfa1c: show.0 held id=1 and id=2,
+        # hide.0 none), and the first injection in the window is not the step's.
+        injs = [(t, e) for t, e in win if e['ev'] == 'inject' and 'id' in e and e.get('dir', d) == d]
         at_will = next(((t, e) for t, e in injs if e.get('off') == 'will'), None)
         inj = next(((t, e) for t, e in injs if e.get('off') != 'will'), None)
         if inj is None:
-            out.append({'mode': mode, 'dir': d, 'miss': 'noinject'})
+            # Why: the keyboard never moved this way in the step (the test's
+            # command brought no keyboard, or it was already gone), the
+            # injector skipped (no field to touch), or it did not fire.
+            moved = any(e['ev'] == ('willShow' if d == 'show' else 'willHide') for _, e in win)
+            skip = next((e for _, e in win if e['ev'] == 'injectSkip' and e.get('dir', d) == d), None)
+            why = 'skip:' + skip.get('why', '?') if skip else 'noinject' if moved else 'nomove'
+            out.append({'mode': mode, 'dir': d, 'miss': why})
             continue
         t, e = inj
         done = [x for _, x in win if x['ev'] == 'injectDone' and x.get('id') == e['id']]
@@ -173,6 +182,17 @@ def tables(res):
             sum(1 for r in g if r['will_taken']), len(g)))
     misses = {f'{t}/{n}': sum(1 for r in rs if 'miss' in r) for (t, n), rs in res.items()}
     print('\nmissed steps:', {k: v for k, v in misses.items() if v} or 'none')
+    # By reason and direction: nomove (no willShow/willHide in the step: the
+    # test's command moved no keyboard), skip:WHY (the injector declined),
+    # noinject (the keyboard moved and nothing fired), noevents (tti).
+    for (t, n), rs in sorted(res.items()):
+        why = {}
+        for r in rs:
+            if 'miss' in r:
+                k = '%s/%s' % (r['dir'], r['miss'])
+                why[k] = why.get(k, 0) + 1
+        if why:
+            print('  %s/%s: %s' % (t, n, ', '.join('%s %d' % kv for kv in sorted(why.items()))))
 
 
 if __name__ == '__main__':
