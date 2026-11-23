@@ -5380,12 +5380,23 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     const idlePauseS = Number(argValue("--idle-pause", argv) ?? 0);
     if (idlePauseS > 0 && !only.has("pause")) {
       const idleSet = Date.now();
-      await J.step("paused after idle", async () => {
+      // The short idle pause needs the team policy cloud.idlePause, false by default (cmux-platform protocol/policy.ts):
+      // a new person's team never pauses an idle machine before the 24 h backstop. A --fresh-account run's team is its
+      // own, so the journey turns it on there and says the default was off; any other team's policy is left alone.
+      const teamIdle = await J.step("team idle pause policy", async () => {
+        const got = await api.read("team.policy.get", {});
+        const on = got?.policy?.values?.["cloud.idlePause"]?.value === true;
+        if (on) return { value: true, detail: "cloud.idlePause on" };
+        if (!freshAccount) throw new Error("team policy cloud.idlePause is off (its default): no idle pause before the 24 h backstop; turn it on for this team or run --fresh-account");
+        await api.op("team.policy.update", { changes: [{ key: "cloud.idlePause", value: { value: true, mode: "enforced" } }], expected_version: got?.policy?.version ?? 0, reason: "cloud journey: idle pause" }, `${tag}-idle-policy`);
+        return { value: true, detail: "cloud.idlePause was off (the default for a new team); the journey turned it on for its own fresh team" };
+      }).catch(() => false);
+      if (teamIdle) await J.step("paused after idle", async () => {
         await api.op("cloud.machine.idle_policy.set", { machine: created.id, idle_seconds: idlePauseS }, `${tag}-idle`);
         const m = await waitMachine(api, created.id, (x) => x.status === "paused", (idlePauseS + 300) * 1000);
         return { value: m, detail: `paused ${Math.round((Date.now() - idleSet) / 1000)} s after a ${idlePauseS} s idle policy was set` };
       });
-      await J.step("resume by a message", async () => {
+      if (teamIdle) await J.step("resume by a message", async () => {
         const t0 = Date.now();
         if (lifecycle) {
           const turn = await laterTurn("Back after an idle pause: answer in one short sentence.");
