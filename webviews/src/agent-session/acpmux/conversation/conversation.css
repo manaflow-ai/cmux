@@ -2422,6 +2422,33 @@ pre.cv-math-source {
 .acpmux-thread {
   transition: none;
 }
+/* The transcript's loading marks (VirtualTranscript.tsx, cmux#48605): the chat's own while its rows are
+   read with none to show, in the view's middle, and the older history's just above the first loaded row.
+   Neither takes a click or a scroll from the rows. */
+.acpmux-transcript-loading,
+.acpmux-older-loading {
+  position: absolute;
+  inset-inline: 0;
+  display: grid;
+  place-items: center;
+  color: var(--agent-muted);
+  pointer-events: none;
+}
+.acpmux-transcript-loading {
+  inset-block: 0;
+}
+.acpmux-older-loading {
+  height: 32px;
+}
+/* A page still connecting, shown once the host's loading state gave up on it (PaneLoadingMark.tsx,
+   whose timer holds the spinner back for the host's beat). */
+.acpmux-pane-loading {
+  display: grid;
+  flex: 1;
+  place-items: center;
+  color: var(--agent-muted);
+  pointer-events: none;
+}
 /* The stand-ins' layer (conversation/standIns.ts): at the thread's place, under it, its children empty
    boxes with no class that a row rule could match. */
 .acpmux-stand-ins {

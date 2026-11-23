@@ -10594,6 +10594,9 @@ export class AcpmuxDirectClient {
           }
         : {}),
       ...(this.chatRead() ? { chatRead: true as const } : {}),
+      ...(this.selectedSessionId && this.attachedGeneration === this.selectionGeneration
+        ? { chatAttached: true as const }
+        : {}),
       ...(this.settled &&
       this.settled.sessionId === this.selectedSessionId &&
       this.settled.generation === this.selectionGeneration &&
