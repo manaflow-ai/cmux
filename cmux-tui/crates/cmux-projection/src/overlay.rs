@@ -18,7 +18,13 @@
 //!   size, not quadratic, and a path without its end (a crash inside an append) is no whiteout;
 //! - `cache/`: lower bytes fetched from the Mac, whole files as `cache/<entry>` and the chunks of a
 //!   big file as `cache/<entry>.<chunk>`, with `cache/manifest-id` naming the manifest they belong
-//!   to (a new manifest starts a fresh cache).
+//!   to (a new manifest starts a fresh cache). The cache holds only clean copies of the Mac's
+//!   bytes, so it is capped ([`DEFAULT_CACHE_MAX_BYTES`], [`Overlay::with_cache_max`]): before a
+//!   new blob is admitted the least recently used ones go, and a later read fetches them again.
+//!   A pinned folder's bytes ([`Overlay::pin`], the `pins` file) are kept apart: fetched whole,
+//!   never evicted and not counted against the cap, so they read with the Mac away.
+//!   The upper layer is never evicted; it goes only once its edits are safe ([`crate::state`],
+//!   [`crate::reap`]).
 
 use anyhow::Context as _;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
@@ -41,6 +47,11 @@ pub const CHUNK: u64 = 4 * 1024 * 1024;
 const BATCH_FILES: usize = 256;
 /// The most bytes one directory readahead batch asks for.
 const BATCH_BYTES: u64 = 16 * 1024 * 1024;
+/// The most bytes of the Mac's files one projection keeps cached on the machine's disk (RFD 0007,
+/// hard case 8).
+pub const DEFAULT_CACHE_MAX_BYTES: u64 = 512 * 1024 * 1024;
+/// The cache's own file naming the manifest it belongs to (never evicted).
+pub const CACHE_ID_FILE: &str = "manifest-id";
 
 /// `errno` values (Linux numbers; the mount is Linux only).
 pub mod errno {
@@ -162,6 +173,119 @@ pub struct Stats {
     pub cache_hits: u64,
 }
 
+/// The cached blobs, least recently used first, and their bytes; a pinned file's blobs apart.
+#[derive(Default)]
+struct CacheIndex {
+    /// Each blob's bytes and the tick it was last used at.
+    blobs: HashMap<Key, (u64, u64)>,
+    order: BTreeMap<u64, Key>,
+    bytes: u64,
+    tick: u64,
+    /// Files under a pin: their blobs go to `kept`, never to the LRU.
+    pinned: HashSet<u32>,
+    kept: HashMap<Key, u64>,
+    kept_bytes: u64,
+}
+
+impl CacheIndex {
+    fn insert(&mut self, key: Key, bytes: u64) {
+        self.remove(key);
+        if self.pinned.contains(&key.0) {
+            self.kept.insert(key, bytes);
+            self.kept_bytes += bytes;
+            return;
+        }
+        self.tick += 1;
+        self.blobs.insert(key, (bytes, self.tick));
+        self.order.insert(self.tick, key);
+        self.bytes += bytes;
+    }
+
+    fn touch(&mut self, key: Key) {
+        if let Some(&(bytes, _)) = self.blobs.get(&key) {
+            self.insert(key, bytes);
+        }
+    }
+
+    fn remove(&mut self, key: Key) -> Option<u64> {
+        if let Some(bytes) = self.kept.remove(&key) {
+            self.kept_bytes = self.kept_bytes.saturating_sub(bytes);
+            return Some(bytes);
+        }
+        let (bytes, tick) = self.blobs.remove(&key)?;
+        self.order.remove(&tick);
+        self.bytes = self.bytes.saturating_sub(bytes);
+        Some(bytes)
+    }
+
+    fn oldest(&self) -> Option<Key> {
+        self.order.values().next().copied()
+    }
+
+    /// Whether `key`'s bytes are on disk, by the index alone.
+    fn has(&self, key: Key) -> bool {
+        self.kept.contains_key(&key) || self.blobs.contains_key(&key)
+    }
+
+    /// Pins `files`: their blobs already cached leave the LRU for `kept`.
+    fn pin(&mut self, files: &HashSet<u32>) {
+        self.pinned.extend(files.iter().copied());
+        let moving: Vec<(Key, u64)> = self
+            .blobs
+            .iter()
+            .filter(|(key, _)| files.contains(&key.0))
+            .map(|(key, (bytes, _))| (*key, *bytes))
+            .collect();
+        for (key, bytes) in moving {
+            self.insert(key, bytes);
+        }
+    }
+
+    /// Unpins `files`: their kept blobs join the LRU as the most recently used.
+    fn unpin(&mut self, files: &HashSet<u32>) {
+        self.pinned.retain(|file| !files.contains(file));
+        let moving: Vec<(Key, u64)> = self
+            .kept
+            .iter()
+            .filter(|(key, _)| files.contains(&key.0))
+            .map(|(key, bytes)| (*key, *bytes))
+            .collect();
+        for (key, bytes) in moving {
+            self.insert(key, bytes);
+        }
+    }
+}
+
+/// The key a cache file's name stands for (`<entry>` or `<entry>.<chunk>`).
+fn cache_key(name: &str) -> Option<Key> {
+    match name.split_once('.') {
+        None => Some((name.parse().ok()?, WHOLE)),
+        Some((index, part)) => Some((index.parse().ok()?, part.parse().ok()?)),
+    }
+}
+
+/// What an earlier daemon cached in `cache`, oldest written first.
+fn cache_on_disk(cache: &Path) -> CacheIndex {
+    use std::os::unix::fs::MetadataExt as _;
+    let mut blobs: Vec<(i64, Key, u64)> = fs::read_dir(cache)
+        .into_iter()
+        .flatten()
+        .filter_map(Result::ok)
+        .filter_map(|entry| {
+            let key = cache_key(entry.file_name().to_str()?)?;
+            let meta = entry.metadata().ok()?;
+            let written = meta.mtime().saturating_mul(1_000_000_000) + meta.mtime_nsec();
+            meta.is_file().then_some((written, key, meta.len()))
+        })
+        .collect();
+    blobs.sort_unstable();
+    let mut index = CacheIndex::default();
+    for (_, key, bytes) in blobs {
+        index.insert(key, bytes);
+    }
+    index
+}
+
 /// Where a path lives now.
 enum Node {
     Upper(Stat),
@@ -212,9 +336,19 @@ pub struct Overlay {
     inflight: Mutex<HashSet<Key>>,
     landed: Condvar,
     temp: AtomicU64,
+    /// Unique to this overlay (see [`Overlay::scratch_path`]).
+    temp_prefix: u64,
     remote_reads: AtomicU64,
     remote_bytes: AtomicU64,
     cache_hits: AtomicU64,
+    cache_index: Mutex<CacheIndex>,
+    cache_max: u64,
+    cache_evicted: AtomicU64,
+    /// The pinned paths, written to `pins_file` (one per NUL) on every change.
+    pins: Mutex<BTreeSet<String>>,
+    pins_file: PathBuf,
+    /// The free disk a pin leaves untouched ([`pin::DEFAULT_PIN_RESERVE`]).
+    pin_reserve: u64,
 }
 
 /// Keys this thread is fetching; dropping it lets others waiting on them go on.
@@ -363,7 +497,7 @@ impl Overlay {
         let scratch = state.join("scratch");
         let whiteouts_file = state.join("whiteouts");
         let id = format!("{:016x}\n", fnv(&bincode::serialize(manifest.as_ref())?));
-        let id_file = cache.join("manifest-id");
+        let id_file = cache.join(CACHE_ID_FILE);
         if fs::read_to_string(&id_file).ok().as_deref() != Some(id.as_str()) {
             if cache.exists() {
                 fs::remove_dir_all(&cache)?;
@@ -383,6 +517,9 @@ impl Overlay {
         };
         let (whiteouts, rewrite) = parse_whiteouts(&bytes);
         let next = manifest.len() as u64 + 2;
+        let cache_index = Mutex::new(cache_on_disk(&cache));
+        let pins_file = state.join(pin::PINS_FILE);
+        let pins = pin::read_pins(&pins_file)?;
         let overlay = Self {
             manifest,
             fetch,
@@ -398,17 +535,74 @@ impl Overlay {
             inflight: Mutex::new(HashSet::new()),
             landed: Condvar::new(),
             temp: AtomicU64::new(0),
+            temp_prefix: {
+                static OPENED: AtomicU64 = AtomicU64::new(0);
+                let now =
+                    std::time::SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
+                fnv(&[
+                    now.as_nanos().to_le_bytes().as_slice(),
+                    &OPENED.fetch_add(1, Ordering::Relaxed).to_le_bytes(),
+                    &std::process::id().to_le_bytes(),
+                ]
+                .concat())
+            },
             remote_reads: AtomicU64::new(0),
             remote_bytes: AtomicU64::new(0),
             cache_hits: AtomicU64::new(0),
+            cache_index,
+            cache_max: DEFAULT_CACHE_MAX_BYTES,
+            cache_evicted: AtomicU64::new(0),
+            pins: Mutex::new(BTreeSet::new()),
+            pins_file,
+            pin_reserve: pin::DEFAULT_PIN_RESERVE,
         };
+        // Pins an earlier daemon recorded hold before anything is evicted (their paths are
+        // resolved in this manifest; one it no longer has pins nothing).
+        overlay.restore_pins(pins);
         if rewrite {
             // Cut a torn tail off now (or end an older file's entries with NULs), or the next
             // append would glue a path onto it.
             let inner = overlay.lock();
             overlay.write_whiteouts(&inner).map_err(std::io::Error::from_raw_os_error)?;
         }
+        // A cache an earlier daemon (or a bigger cap) left goes down to the cap now.
+        overlay.evict_to_fit(&mut overlay.cache_lock(), 0);
         Ok(overlay)
+    }
+
+    /// This overlay with its cache capped at `bytes` (what is over goes now).
+    #[must_use]
+    pub fn with_cache_max(mut self, bytes: u64) -> Self {
+        self.cache_max = bytes;
+        self.evict_to_fit(&mut self.cache_lock(), 0);
+        self
+    }
+
+    /// The bytes of the Mac's files cached on the machine now.
+    #[must_use]
+    pub fn cache_bytes(&self) -> u64 {
+        self.cache_lock().bytes
+    }
+
+    /// The bytes the cache let go to stay under its cap so far.
+    #[must_use]
+    pub fn cache_evicted(&self) -> u64 {
+        self.cache_evicted.load(Ordering::Relaxed)
+    }
+
+    fn cache_lock(&self) -> MutexGuard<'_, CacheIndex> {
+        self.cache_index.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Drops the least recently used blobs until `incoming` more bytes fit under the cap.
+    fn evict_to_fit(&self, index: &mut CacheIndex, incoming: u64) {
+        while index.bytes.saturating_add(incoming) > self.cache_max {
+            let Some(oldest) = index.oldest() else { break };
+            let bytes = index.remove(oldest).unwrap_or(0);
+            // Gone already (the reaper freed it) is as good as removed.
+            let _ = fs::remove_file(self.cache_path(oldest));
+            self.cache_evicted.fetch_add(bytes, Ordering::Relaxed);
+        }
     }
 
     /// Whether reads leave access times as they are (the mount's `noatime`, the default), or let
@@ -733,7 +927,10 @@ impl Overlay {
     }
 
     fn scratch_path(&self) -> PathBuf {
-        self.scratch.join(format!("t{}", self.temp.fetch_add(1, Ordering::Relaxed)))
+        // The overlay's own prefix: an old overlay's thread still landing a fetch after a remount
+        // reopened this state never shares a scratch name with the new one.
+        let n = self.temp.fetch_add(1, Ordering::Relaxed);
+        self.scratch.join(format!("t{:x}-{n}", self.temp_prefix))
     }
 
     // MARK: Reads
@@ -902,8 +1099,12 @@ impl Overlay {
         if !self.fetch.cache() {
             return None;
         }
-        let bytes = fs::read(self.cache_path(key)).ok()?;
+        let Ok(bytes) = fs::read(self.cache_path(key)) else {
+            self.cache_lock().remove(key);
+            return None;
+        };
         self.cache_hits.fetch_add(1, Ordering::Relaxed);
+        self.cache_lock().touch(key);
         Some(bytes)
     }
 
@@ -912,9 +1113,13 @@ impl Overlay {
         if !self.fetch.cache() {
             return None;
         }
-        let file = fs::File::open(self.cache_path(key)).ok()?;
+        let Ok(file) = fs::File::open(self.cache_path(key)) else {
+            self.cache_lock().remove(key);
+            return None;
+        };
         let bytes = read_range(&file, offset, len)?;
         self.cache_hits.fetch_add(1, Ordering::Relaxed);
+        self.cache_lock().touch(key);
         Some(bytes)
     }
 
@@ -923,7 +1128,29 @@ impl Overlay {
             return;
         }
         let temp = self.scratch_path();
-        if fs::write(&temp, bytes).is_ok() && fs::rename(&temp, self.cache_path(key)).is_err() {
+        if fs::write(&temp, bytes).is_err() {
+            let _ = fs::remove_file(&temp);
+            return;
+        }
+        let size = bytes.len() as u64;
+        // Room first, then the blob lands and is counted, under one lock: the cache never holds
+        // more than its cap, and no eviction races a blob landing. A pinned file's blob is kept
+        // apart and makes no room.
+        let mut index = self.cache_lock();
+        let pinned = index.pinned.contains(&key.0);
+        if !pinned && size > self.cache_max {
+            // Never fits: it is served, not kept.
+            drop(index);
+            let _ = fs::remove_file(&temp);
+            return;
+        }
+        index.remove(key);
+        if !pinned {
+            self.evict_to_fit(&mut index, size);
+        }
+        if fs::rename(&temp, self.cache_path(key)).is_ok() {
+            index.insert(key, size);
+        } else {
             let _ = fs::remove_file(&temp);
         }
     }
@@ -1680,6 +1907,9 @@ impl Overlay {
         }
     }
 }
+
+#[path = "pin.rs"]
+pub mod pin;
 
 #[cfg(test)]
 #[path = "overlay_tests.rs"]
