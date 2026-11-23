@@ -9,29 +9,38 @@ final class AllUIStatesSurfacesCaptureUITests: UIStateCaptureCase {
     @MainActor
     func testTerminal() {
         let g = "7 Terminal"
+        func showKeyboard(_ app: XCUIApplication) -> String? {
+            C.showKeyboard(app, field: app.textViews["terminal.composer.field"], "terminal composer")
+        }
         capture([
             Scene(group: g, id: "idle-keyboard-down", args: Self.idle, settle: 6),
             Scene(group: g, id: "keyboard-up-armed-draft", args: ["-cmux-mobile-demo", "ws-terminal-armed"], settle: 7),
-            Scene(group: g, id: "composer-open", args: Self.idle, settle: 6) { app in C.tap(app.buttons["terminal.key.composer"], "composer key") },
-            Scene(group: g, id: "keyboard-up-empty", args: Self.idle, settle: 6) { app in
-                C.showKeyboard(app, field: app.textViews["terminal.composer.field"], "terminal composer")
+            Scene(group: g, id: "composer-open", args: Self.idle, settle: 6) { app in
+                // Give the terminal focus so the compose key opens and focuses the field.
+                if let miss = C.wait(app.textViews["terminal.composer.field"], "terminal composer") { return miss }
+                app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)).tap()
+                return C.tap(app.buttons["terminal.key.composer"], "composer key")
             },
+            Scene(group: g, id: "keyboard-up-empty", args: Self.idle, settle: 6, reach: showKeyboard),
             Scene(group: g, id: "control-locked", args: Self.idle, settle: 6) { app in
+                if let miss = showKeyboard(app) { return miss }
                 let control = app.buttons["terminal.key.control"]
                 guard control.waitForExistence(timeout: 10) else { return "no control key" }
                 control.tap(); control.tap()
                 return nil
             },
             Scene(group: g, id: "key-row-scrolled", args: Self.idle, settle: 6) { app in
-                let row = app.buttons["terminal.key.escape"]
+                if let miss = showKeyboard(app) { return miss }
+                let row = app.buttons["terminal.key.control"]
                 guard row.waitForExistence(timeout: 10) else { return "no key row" }
                 row.swipeLeft()
                 return nil
             },
             Scene(group: g, id: "joystick", args: Self.idle, settle: 6) { app in
-                let arrow = C.any(app, "terminal.key.up")
-                guard arrow.waitForExistence(timeout: 10) else { return "no arrow key" }
-                arrow.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+                if let miss = showKeyboard(app) { return miss }
+                let joystick = C.any(app, "Cursor joystick")
+                guard joystick.waitForExistence(timeout: 10) else { return "no joystick" }
+                joystick.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
                     .press(forDuration: 1.2, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.7)))
                 return nil
             },

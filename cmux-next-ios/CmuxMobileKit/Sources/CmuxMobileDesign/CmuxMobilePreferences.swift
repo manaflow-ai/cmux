@@ -42,7 +42,7 @@ public enum CmuxMobilePreferences {
     /// The sizes Settings offers (and the terminal accepts).
     public static let terminalFontSizes = 9...24
     public static let defaultWrapCode = false
-    public static let defaultKeyClicks = true
+    public static let defaultKeyClicks = false
     public static let defaultPredictiveEcho = true
     public static let defaultTerminalFitToPhone = false
     public static let defaultTerminalJumpToBottom = true

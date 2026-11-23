@@ -2412,7 +2412,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             }
             if model.isTUI { finder.rowsReplaced() }
         case .bell:
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            CmuxMobileTheme.standard.haptics.impact(.light, intensity: 1)
         }
     }
 

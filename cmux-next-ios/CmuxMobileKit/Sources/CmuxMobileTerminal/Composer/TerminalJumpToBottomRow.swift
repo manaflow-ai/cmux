@@ -45,7 +45,7 @@ struct TerminalJumpToBottomRow: View {
                         .contentShape(.rect)
                 }
                 .buttonStyle(.cmuxPressGlass)
-                .sensoryFeedback(.impact(weight: .light), trigger: taps)
+                .cmuxMobileSensoryFeedback(.impact(weight: .light), trigger: taps)
                 .accessibilityLabel("Scroll to bottom")
                 .accessibilityIdentifier("terminal.jumpToBottom")
                 .frame(maxWidth: .infinity, alignment: .center)
