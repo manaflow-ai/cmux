@@ -10,6 +10,7 @@ import {
   launchIntent,
   launchRows,
   listingWanted,
+  omnibarFolder,
   omnibarFolders,
   type LaunchAgent,
 } from "../src/agent-session/acpmux/newtab/launchRows";
@@ -20,7 +21,7 @@ import {
   screenRows,
   type ScreenRow,
 } from "../src/agent-session/acpmux/newtab/screenModel";
-import type { AcpmuxSessionEntry } from "../src/agent-session/acpmux/sessionList";
+import { type AcpmuxSessionEntry, recentFolders } from "../src/agent-session/acpmux/sessionList";
 
 const HOME = "/Users/me";
 const AGENTS: LaunchAgent[] = [
@@ -189,9 +190,12 @@ test("the folders are this Mac's projects, then the newest chats' folders, never
     { sessionId: "c", cwd: "/Users/me", activityAt: 10 },
     { sessionId: "d", cwd: "/Users/me/elsewhere", peer: "ssh://box", activityAt: 11 },
   ] as AcpmuxSessionEntry[];
-  expect(omnibarFolders([{ cwd: "/Users/me/fun/cmux/" }, { cwd: "/srv/remote", peer: "ssh://box" }], sessions)).toEqual(
-    ["/Users/me/fun/cmux", "/Users/me/new", "/Users/me/old"],
-  );
+  const recent = recentFolders(sessions, omnibarFolder);
+  expect(omnibarFolders([{ cwd: "/Users/me/fun/cmux/" }, { cwd: "/srv/remote", peer: "ssh://box" }], recent)).toEqual([
+    "/Users/me/fun/cmux",
+    "/Users/me/new",
+    "/Users/me/old",
+  ]);
 });
 
 test("without agent sources the rows are as before", () => {
