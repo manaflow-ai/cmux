@@ -549,6 +549,8 @@ public final class DaemonTerminalSession: TerminalSession {
     public func stop() {
         eventTask?.cancel()
         eventTask = nil
+        historyPrefetch?.cancel()
+        historyPrefetch = nil
         inbox?.close()
         inbox = nil
         outputPaused = false
@@ -755,6 +757,58 @@ public final class DaemonTerminalSession: TerminalSession {
 
     /// The most history ``requestHistoryRows(_:)`` asks for ahead of time.
     static let maxRequestedHistoryRows = 5 * historyChunkRows
+
+    // MARK: History behind the screen
+
+    /// Leo, 2026-11-22: "me personally interacting from [the Mac] directly
+    /// scrolling interactivity percieved speed is actually just fine and i
+    /// don't see anything off about it. so the phone side is clearly doing
+    /// something off." The screen-first attach brought the screen alone, and
+    /// a reader scrolling up hit its top at once: the fling stopped there and
+    /// waited for a second attach over the link for every 2,000 rows. The Mac
+    /// scrolls its own scrollback. So once the screen is live, the history
+    /// follows by itself (``historyPrefetchDelay`` later, one fetch of up to
+    /// ``prefetchHistoryRows`` rows, the same replacing attach a scroll to the
+    /// top makes), and the reader scrolls through rows the phone holds.
+    /// Older rows than that still come in chunks at the top.
+    static let prefetchHistoryRows = maxTailHistoryRows
+    /// After the attach is live (the first screen drawn and typing works),
+    /// how long the history waits behind it.
+    static let defaultHistoryPrefetchDelay: Duration = .milliseconds(300)
+    /// nil: no prefetch (tests of the on-demand chunks).
+    var historyPrefetchDelay: Duration? = DaemonTerminalSession.defaultHistoryPrefetchDelay
+    /// The one prefetch of this session went out.
+    private(set) var historyPrefetched = false
+    private var historyPrefetch: Task<Void, Never>?
+
+    /// The history behind a live screen-first attach, once per session.
+    private func scheduleHistoryPrefetch() {
+        guard let delay = historyPrefetchDelay, !historyPrefetched, historyPrefetch == nil,
+              attached, tailReplay, historyRowsOmitted > 0, historyWindowStart == nil,
+              let allowance = historyAllowance, allowance < Self.prefetchHistoryRows else { return }
+        historyPrefetch = Task { [weak self] in
+            try? await Task.sleep(for: delay)
+            guard !Task.isCancelled, let self else { return }
+            self.historyPrefetch = nil
+            self.prefetchHistoryNow()
+        }
+    }
+
+    private func prefetchHistoryNow() {
+        guard !historyPrefetched, attached, tailReplay, historyRowsOmitted > 0, historyWindowStart == nil,
+              let allowance = historyAllowance, allowance < Self.prefetchHistoryRows else { return }
+        // A key on its way (it must not be sent twice), or another fetch or
+        // attach out: look again after the same wait.
+        guard !attaching, replacing == nil, inputInFlight == 0, let client else { return scheduleHistoryPrefetch() }
+        historyPrefetched = true
+        let total = allowance + historyRowsOmitted
+        // At most the tail a scroll could grow to (``maxTailHistoryRows``): past
+        // it a scroll to the top moves the window (#43189), as before.
+        historyAllowance = total <= Self.prefetchHistoryRows ? nil : Self.prefetchHistoryRows
+        log.notice("surface \(self.surface, privacy: .public): history prefetched behind the screen (\(self.historyRowsOmitted, privacy: .public) rows on the Mac, allowance \(self.historyAllowance.map(String.init) ?? "all", privacy: .public))")
+        replacing = client
+        Task { await attach() }
+    }
 
     /// A tab back from the warm set will put its reader back `rows` rows above
     /// the end: the next attach asks for that much history, in whole
@@ -1066,6 +1120,7 @@ public final class DaemonTerminalSession: TerminalSession {
             drainInput()
             openInputLane(for: client)
             armLiveness()
+            scheduleHistoryPrefetch()
         } catch {
             heldEvents = nil
             lastError = Self.diagnostic(error)
@@ -1188,6 +1243,7 @@ public final class DaemonTerminalSession: TerminalSession {
             }
         case .historyRowsOmitted(let rows):
             historyRowsOmitted = rows
+            scheduleHistoryPrefetch()
         case .historyRowsSkipped(let rows):
             historyRowsSkipped = rows
             if rows == 0, historyWindowStart != nil {
