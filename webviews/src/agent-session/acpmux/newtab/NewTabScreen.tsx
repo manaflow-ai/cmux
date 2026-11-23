@@ -3,6 +3,7 @@ import type { ExtraFolderControl } from "../extraFolders";
 import { authBlocksSend, authText, useSessionAuth, authLoginText, authParty } from "../sessionAuth";
 import { useWebSwapHold } from "../../../pages/shared/useWebSwapHold";
 import { WEB_SWAP_KEPT_TEXT } from "../../../pages/shared/webSwap";
+import { watchFocusVisible } from "../focusVisibleMark";
 import React, {
   useCallback,
   useEffect,
@@ -159,6 +160,7 @@ import { githubIssueLink } from "../../../githubReferences";
 import { reportInputReadyWhenFocused } from "./inputReady";
 import { rememberNewChatPlace } from "../lastNewChatPlace";
 import { KeyHint } from "../../../ui/KeyHint";
+import { KEYCAP_THEN, keycapLegend, keycapStrokes } from "../../../ui/keycapLegend";
 
 /// What the screen asks the host to do. A prompt stays in the page (the tab becomes the chat).
 /// Where a browser pick of the page opens: by default it navigates the page's own tab; `beside` asks for a
@@ -354,6 +356,9 @@ type Props = NewTabScreenActions & {
   /// false: Show All Chats on New Tab is off (`sidebar.showChats`): the recent chats show where
   /// the template would list All chats.
   allChats?: boolean;
+  /// What draws over the composer: an extension's slot (NewTabAppSlot.tsx, `tabs.newTabApp`). It sits
+  /// in its own room (screen.css `.nt-above-room`) and can never replace or cover the composer.
+  above?: React.ReactNode;
   /// Buttons before Send, such as the dictation mic (DictationMic).
   accessory?: React.ReactNode;
   /// Why dictation did not run (DictationNotice), under the field.
@@ -1228,6 +1233,7 @@ export function NewTabScreen(props: Props) {
         id: entry.sessionId,
         title: entry.displayTitle ?? entry.name ?? entry.sessionId,
         ...(entry.harness ? { harness: entry.harness } : {}),
+        ...(entry.icon ? { icon: entry.icon } : {}),
         state: entry.indicator === "failed" ? ("failed" as const) : (sessionMark(entry, false) ?? ("idle" as const)),
         label: nt("leads.reports", { count: String(reports.length) }),
       }))
@@ -1294,6 +1300,12 @@ export function NewTabScreen(props: Props) {
   // The suggestions' popover (Leo 2026-10-12) hangs under the composer box, on the popup layer:
   // it floats over every section, never covered and never moving the page.
   const [box, setBox] = useState<HTMLDivElement | null>(null);
+  // Focus-visible in the box (focusVisibleMark.ts), the box's own state: the box, the composer around
+  // it and the suggestions' popover read it as `data-focused` (and the popover's `nt-popover-focused`,
+  // a class since Popover takes no attributes), never a `body:has(.nt-box :focus-visible)` checked
+  // again for every node the page inserts (transcript-motion-model step 7). Set on focus changes only.
+  const [boxFocused, setBoxFocused] = useState(false);
+  useLayoutEffect(() => (box ? watchFocusVisible(box, setBoxFocused) : undefined), [box]);
   // With the split, the mode, model and effort sit in the quiet row under the box: the rows hang
   // under the whole composer instead, so they never cover those controls (a press there would pick
   // a row).
@@ -2296,6 +2308,7 @@ export function NewTabScreen(props: Props) {
             id: card.sessionId,
             title: card.title,
             ...(card.harness ? { harness: card.harness } : {}),
+            ...(card.icon ? { icon: card.icon } : {}),
             state: card.state,
             label:
               card.state === "failed"
@@ -2324,6 +2337,7 @@ export function NewTabScreen(props: Props) {
       <div
         ref={setComposer}
         className="nt-composer"
+        data-focused={boxFocused ? "" : undefined}
         data-cloud-starting={props.cloudStarting === true ? "true" : undefined}
         data-trailing-gap={trailingGap}
         data-icon-column={iconColumn}
@@ -2414,6 +2428,7 @@ export function NewTabScreen(props: Props) {
         <div
           ref={setBox}
           className="ui-glass ui-glass-floats nt-composer-surface nt-box"
+          data-focused={boxFocused ? "" : undefined}
           inert={props.cloudStarting === true}
         >
           {/* Drawn out of the card's glass, above it, as the chat composer's (backdropLayer.tsx). */}
@@ -2669,6 +2684,7 @@ export function NewTabScreen(props: Props) {
             {stageCards}
             {playerAndLists}
           </div>
+          {props.above !== undefined && <div className="nt-above-room">{props.above}</div>}
           {composerCard}
           {props.notice}
           {environmentPanel}
@@ -2676,8 +2692,13 @@ export function NewTabScreen(props: Props) {
       ) : (
         <>
           {/* Minimal keeps the old greeting's room over the composer, empty, so the composer sits
-                where it always sat (screen.css .nt-composer-room). */}
-          {minimal && <div className="nt-composer-room" />}
+                where it always sat (screen.css .nt-composer-room). Something over the composer (an
+                extension's slot) takes that room instead, and keeps it after the slot gives up. */}
+          {props.above !== undefined ? (
+            <div className="nt-above-room">{props.above}</div>
+          ) : (
+            minimal && <div className="nt-composer-room" />
+          )}
           {composerCard}
           {props.notice}
           {environmentPanel}
@@ -2700,7 +2721,7 @@ export function NewTabScreen(props: Props) {
             // The Console template's field has the popup corner; the portal cannot see the screen's template.
             `nt-composer-surface nt-popover${drawnRows === 1 ? " nt-popover-single" : ""}${
               template === "console" ? " nt-popover-console" : ""
-            }`
+            }${boxFocused ? " nt-popover-focused" : ""}`
           }
           hostGlass={false}
           initialFocus={false}
