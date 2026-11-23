@@ -71,6 +71,9 @@ pub struct AttachParams {
     /// attach): while the chat's copy is the same, the reply's `session` leaves `timeBreakdown`
     /// out (`server/requests/time_breakdown_gate.rs`). Absent, or another version: sent whole.
     pub time_breakdown_version: Option<String>,
+    /// True from a client that never draws the breakdown (the phone): the reply's `session`
+    /// leaves `timeBreakdown` out whatever its version (`server/requests/time_breakdown_gate.rs`).
+    pub omit_time_breakdown: Option<bool>,
 }
 
 /// A session as `_acpmux/attach` returns it: its summary plus what an

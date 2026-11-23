@@ -1781,6 +1781,9 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             ]
             if let version = read.timeBreakdownVersion {
                 params["timeBreakdownVersion"] = .string(version)
+                // The phone draws no breakdown: once the daemon has named a version (it knows the
+                // field), ask it to leave the breakdown out even after new turns changed it.
+                params["omitTimeBreakdown"] = .bool(true)
             }
             if read.firstAttach {
                 params["maxBytes"] = .number(Double(openBytes))

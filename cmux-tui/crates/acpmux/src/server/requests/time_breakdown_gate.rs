@@ -8,6 +8,12 @@
 //! `timeBreakdownVersion`, a hash of the breakdown's JSON. A client that sends that version back
 //! as `timeBreakdownVersion` gets no `timeBreakdown` while the copy is the same; one that sends
 //! none, or another, gets the field exactly as before.
+//!
+//! A reopen usually follows new turns, and each turn adds a span, so the held version rarely
+//! matches then (the harness's warm phase reopens after a prompt and still got the whole ~71 KB at
+//! 100x). A client that never draws the breakdown (the phone: `AcpmuxHub.swift` reads no
+//! `timeBreakdown`) sends `omitTimeBreakdown: true` and gets none at all; the web pane's Session
+//! Info sends neither and keeps the field.
 
 use serde_json::Value;
 use sha2::{Digest as _, Sha256};
@@ -22,7 +28,7 @@ fn version(breakdown: &Value) -> Option<String> {
 }
 
 /// Names the reply's breakdown copy (null when it has none) and leaves it out when `params`
-/// holds that version.
+/// holds that version or asks for none (`omitTimeBreakdown`).
 pub(super) fn apply(reply: &mut Value, params: &Value) {
     let Some(reply) = reply.as_object_mut() else {
         return;
@@ -34,7 +40,8 @@ pub(super) fn apply(reply: &mut Value, params: &Value) {
         .filter(|b| b.is_object())
         .and_then(version);
     if let (Some(detail), Some(version)) = (detail, version.as_deref()) {
-        if params.get("timeBreakdownVersion").and_then(Value::as_str) == Some(version) {
+        let omit = params.get("omitTimeBreakdown").and_then(Value::as_bool) == Some(true);
+        if omit || params.get("timeBreakdownVersion").and_then(Value::as_str) == Some(version) {
             detail.remove("timeBreakdown");
         }
     }
@@ -60,6 +67,24 @@ mod tests {
         apply(&mut again, &json!({"timeBreakdownVersion": version}));
         assert!(again["session"].get("timeBreakdown").is_none());
         assert_eq!(again["timeBreakdownVersion"], json!(version));
+    }
+
+    #[test]
+    fn a_client_that_draws_none_gets_none_even_after_a_change() {
+        let mut held = reply();
+        apply(&mut held, &json!({}));
+        let mut changed = reply();
+        changed["session"]["timeBreakdown"]["totalMs"] = json!(6);
+        apply(
+            &mut changed,
+            &json!({"omitTimeBreakdown": true,
+                                    "timeBreakdownVersion": held["timeBreakdownVersion"]}),
+        );
+        assert!(changed["session"].get("timeBreakdown").is_none());
+        assert!(changed["timeBreakdownVersion"].is_string(), "the version is still named");
+        let mut asked = reply();
+        apply(&mut asked, &json!({"omitTimeBreakdown": false}));
+        assert!(asked["session"]["timeBreakdown"].is_object());
     }
 
     #[test]

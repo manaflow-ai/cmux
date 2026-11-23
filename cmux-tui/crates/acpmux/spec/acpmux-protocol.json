@@ -2844,6 +2844,13 @@
             "null"
           ]
         },
+        "omitTimeBreakdown": {
+          "description": "True from a client that never draws the breakdown (the phone): the reply's `session`\nleaves `timeBreakdown` out whatever its version (`server/requests/time_breakdown_gate.rs`).",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "sessionId": {
           "type": "string"
         },
