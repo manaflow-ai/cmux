@@ -85,6 +85,10 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     /// An agent turn runs in one of the workspace's tabs (daemon agent
     /// state): the row's working indicator.
     public var agentWorking: Bool
+    /// An agent chat here finished a turn nobody has seen yet (its lane is idle and unread, and the Priority view has
+    /// not marked it read: `AgentPriorityRanking`'s done). The `experiments.agentBadges` Done pill; `agentChip` never
+    /// says done (the row's blue dot does).
+    public var agentDone = false
     /// The Priority view's chip for the workspace's most urgent agent chat on this Mac
     /// (`sidebar.rowStatus`): needs you, done, failed or lost. Nil when every chat works or is idle.
     public var agentChip: SidebarPriorityEntry.State?
@@ -128,6 +132,10 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     public var chiefAvatar: SidebarChiefAvatar?
     /// That agent's name ("Claude Code", "Codex"): the hover card's agent line (cx-13w3).
     public var agentName: String?
+    /// The name given to that agent's session (acpmux `displayName`, "Mango") and the one it had before
+    /// (the newest of `formerNames`): the hover card's agent line says who it is ("Mango — fka claude-sr2").
+    public var agentDisplayName: String?
+    public var agentFormerName: String?
     /// The last message of the workspace's agent chat: an expanded row's second line (cx-13w3.1).
     public var lastMessage: String?
     /// When the workspace's agent chat last changed what it does (acpmux `lane.since`: a turn started, ended,
@@ -194,6 +202,8 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     public var taskProgress: SidebarTaskProgress?
     /// The hover card's extra facts (elapsed time, model, task, command, needs-input reason).
     public var detail = SidebarWorkspaceDetail()
+    /// Its agent chats' subagents, which the row lists under its name (`SidebarSubagentStrip`); nil without any.
+    public var subagents: SidebarSubagents?
     /// The person's notes for the workspace (Edit Workspace Description…): the hover card shows it
     /// whole and an expanded row its first line (a compact row has no second line of its own). Nil while unset.
     public var workspaceDescription: String?
@@ -207,6 +217,8 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     /// The title's weight from the user's row decoration (`SidebarRowDecoration`); nil is the
     /// default (regular).
     public var titleWeight: SidebarRowDecoration.Weight?
+    /// The split layout of its shown screen, for the hover card's miniature; nil for one pane or an unmapped row.
+    public var paneShape: SidebarPaneShape?
 
     public init(
         id: WorkspaceID,

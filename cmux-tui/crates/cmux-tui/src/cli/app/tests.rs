@@ -359,6 +359,22 @@ fn mac_screens_reads_the_release_mac_screen_state() {
     assert!(parse(&args(&["app", "mac-screens", "--input", "x"])).is_err());
 }
 
+/// `cmux app clicks` reads the app's release click trace, all of it or the
+/// newest `--limit`; it takes no other word and no zero or negative limit.
+#[test]
+fn clicks_reads_the_release_click_trace() {
+    let (method, params) = call(parse(&args(&["app", "clicks"])).unwrap().unwrap());
+    assert_eq!(method, "input.clicks");
+    assert_eq!(params, json!({}));
+    let (method, params) =
+        call(parse(&args(&["app", "clicks", "--limit", "20"])).unwrap().unwrap());
+    assert_eq!(method, CLICKS_METHOD);
+    assert_eq!(params, json!({ "limit": 20 }));
+    assert!(parse(&args(&["app", "clicks", "clear"])).is_err());
+    assert!(parse(&args(&["app", "clicks", "--limit", "0"])).is_err());
+    assert!(parse(&args(&["app", "clicks", "--limit", "x"])).is_err());
+}
+
 /// `cmux app machines` and `cmux app join-line` call the app's every-build
 /// `machine.list` and `device.join_line`, never `app call` (debug builds only)
 /// and never an `action.run`.
@@ -1681,6 +1697,18 @@ fn settings_validate_reports_what_the_owner_would() {
     let ok = validate("// my rice\n{ \"sidebar\": { \"side\": \"right\", }, \"actions\": {} }\n")
         .unwrap();
     assert_eq!(ok["valid"], true);
+    assert_eq!(ok.get("deprecated"), None);
+
+    // A key the file names the old way: valid (it still applies), with the new name.
+    let old = validate("{ \"sidebar\": { \"showCounts\": false } }").unwrap();
+    assert_eq!(old["valid"], true);
+    assert_eq!(old["deprecated"][0]["from"], "sidebar.showCounts");
+    assert_eq!(old["deprecated"][0]["to"], "sidebar.workspaceRow.tabCount");
+    let message = old["deprecated"][0]["message"].as_str().unwrap();
+    assert!(
+        message.starts_with("sidebar.showCounts is now sidebar.workspaceRow.tabCount"),
+        "{message}"
+    );
 
     let error = validate(
         "{ \"sidebar\": { \"side\": \"top\" }, \"appearance\": { \"glassTransparency\": 9 } }",
