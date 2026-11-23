@@ -275,7 +275,19 @@ pub enum Usage {
     Camera,
     /// Screen usage, camera usage while most of the picture moves (see [`MOTION_CHANGE`]).
     Switch,
+    /// Camera usage while the target bitrate has room for it ([`SPARE_KBPS`]), else as
+    /// [`Usage::Switch`]. Not shipped (opt-in, `usage=spare`): camera usage codes a 1080p
+    /// frame 3-4x faster than screen usage on a Linux host (the x264 floor), at up to ~3x the
+    /// bits on a scroll, which a LAN or wired pair has to spare.
+    Spare,
 }
+
+/// [`Usage::Spare`] codes in camera usage at or above this target. Camera usage's costliest
+/// codec-bench scene (scroll) sends ~4.7 Mbit/s at 1080p30, so this leaves it ~25 % headroom.
+pub const SPARE_KBPS: u32 = 6_000;
+/// [`Usage::Spare`], once below [`SPARE_KBPS`], comes back to camera usage only at this target,
+/// so a rate hovering at the line doesn't rebuild the encoder (an IDR each time) back and forth.
+pub const SPARE_KBPS_BACK: u32 = SPARE_KBPS * 5 / 4;
 
 /// The shipped usage and long-term references for screen content.
 pub const SHIPPED_USAGE: Usage = Usage::Switch;
@@ -322,6 +334,7 @@ impl OpenH264Options {
                         "screen" => Usage::Screen,
                         "camera" => Usage::Camera,
                         "switch" => Usage::Switch,
+                        "spare" => Usage::Spare,
                         _ => return Err(format!("openh264 options usage: {v}").into()),
                     }
                 }
@@ -387,7 +400,12 @@ impl OpenH264 {
             name: String::new(),
             cfg: *cfg,
             opts: opts.clone(),
-            screen: cfg.screen_content && opts.usage != Usage::Camera,
+            screen: cfg.screen_content
+                && match opts.usage {
+                    Usage::Camera => false,
+                    Usage::Spare => cfg.kbps.max(100) < SPARE_KBPS,
+                    Usage::Screen | Usage::Switch => true,
+                },
             motion: MotionGuard::default(),
             idr_cause: None,
         };
@@ -432,6 +450,7 @@ impl OpenH264 {
             match (self.cfg.screen_content, screen, self.opts.usage) {
                 (true, true, _) => "screen-realtime",
                 (true, false, Usage::Switch) => "screen-realtime(camera-for-motion)",
+                (true, false, Usage::Spare) => "screen-realtime(camera-on-spare-bitrate)",
                 _ => "camera-realtime",
             },
             if self.opts.frame_skip { "on" } else { "off" },
@@ -459,10 +478,20 @@ impl OpenH264 {
 
     /// Moves between screen and camera usage before `pic` is coded (see [`MOTION_CHANGE`]).
     fn pick_usage(&mut self, pic: &I420) {
-        if !self.cfg.screen_content || self.opts.usage != Usage::Switch {
+        if !self.cfg.screen_content || !matches!(self.opts.usage, Usage::Switch | Usage::Spare) {
             return;
         }
         let changed = self.motion.changed(pic);
+        if self.opts.usage == Usage::Spare {
+            let spare = self.kbps >= if self.screen { SPARE_KBPS_BACK } else { SPARE_KBPS };
+            if spare {
+                if self.screen {
+                    let _ = self.rebuild(false);
+                }
+                return;
+            }
+            // Below the line: the Switch rule (camera usage gives way after calm pictures).
+        }
         if self.screen {
             if self.motion.self_idr && changed > MOTION_CHANGE {
                 // A failed rebuild keeps screen usage; the next IDR tries again.
@@ -770,6 +799,40 @@ impl Drop for OpenH264 {
 #[cfg(all(test, feature = "openh264-source"))]
 mod bitrate_tests {
     use super::*;
+
+    /// `usage=spare` (not shipped) codes in camera usage while the target has room for it,
+    /// falls back to the Switch rule below the line, and leaves the shipped default alone.
+    #[test]
+    fn spare_usage_follows_the_target_bitrate() {
+        assert_eq!(OpenH264Options::default().usage, Usage::Switch);
+        let spare = OpenH264Options::parse("usage=spare").expect("options");
+        let cfg = |kbps| EncCfg {
+            width: 320,
+            height: 240,
+            fps: 30,
+            kbps,
+            threads: 1,
+            screen_content: true,
+        };
+        let pic = I420::new(320, 240);
+        let mut out = Vec::new();
+        let rich = OpenH264::with_options(&cfg(8_000), OpenH264Api::from_source(), &spare).unwrap();
+        assert!(!rich.screen, "8 Mbit/s starts in camera usage");
+        let mut enc =
+            OpenH264::with_options(&cfg(2_000), OpenH264Api::from_source(), &spare).unwrap();
+        assert!(enc.screen, "2 Mbit/s starts in screen usage");
+        enc.set_bitrate(SPARE_KBPS);
+        enc.encode(&pic, false, 0, &mut out).unwrap();
+        assert!(enc.screen, "back to camera only at SPARE_KBPS_BACK");
+        enc.set_bitrate(SPARE_KBPS_BACK);
+        enc.encode(&pic, false, 33_333, &mut out).unwrap();
+        assert!(!enc.screen, "room again: camera usage");
+        enc.set_bitrate(2_000);
+        for n in 0..=CALM_FRAMES_TO_SCREEN {
+            enc.encode(&pic, false, 66_666 + i64::from(n) * 33_333, &mut out).unwrap();
+        }
+        assert!(enc.screen, "below the line, calm pictures go back to screen usage");
+    }
 
     fn read_rate(enc: &OpenH264, option: ENCODER_OPTION, layer: LAYER_NUM) -> i32 {
         let mut rate = SBitrateInfo { iLayer: layer, iBitrate: 0 };

@@ -160,3 +160,31 @@ frame. `scripts/measure/linux-encode-floor.sh` reruns the shipped and floor rows
   by 1.1x, while camera usage on the same frames is at the floor. Its price: scroll at 4.7 Mbps against 1.5.
 - Verdict: no default changes here. The cut is more frames in camera usage where the link has bitrate to spare;
   it lands with its own text-PSNR and bitrate rows.
+
+## Camera usage on spare bitrate (`usage=spare`, opt-in; goal screen-share-linux-pairs cut 1)
+
+gcp-agent-lane-2 (AMD EPYC 9B45, 32 vCPU, load 15-19 on the other cores), 2026-11-23, two runs of
+`scripts/measure/linux-encode-spare.sh` (4 cores, `taskset -c 0-3`, 1080p30, 10 s, 0% loss, 30 Mbps link). `spare`
+codes in camera usage while the target is at least 6 Mbps (`SPARE_KBPS`; back up at 7.5) and falls back to the shipped
+`switch` rule below it. This host is faster than the 7003 above, so read ratios, not milliseconds. PSNR-Y is of
+shown frames; screen PSNR is what the viewer sees against what the host shows, every capture tick.
+
+| scene | usage | encode p50 ms (run 2 / 3) | x264 floor ms | ratio | media Mbps | PSNR-Y dB | screen PSNR-Y mean / p5 dB | shown fps |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| page | shipped | 8.63 / 8.37 | 2.56 / 2.37 | 3.37 / 3.54 | 13.2 | 38.8 | 19.2 / 13.9 | 22.6 |
+| page | spare | 2.55 / 2.41 | | 1.00 / 1.02 | 18.6 / 17.6 | 39.7 / 38.7 | 17.5 / 13.9 | 21.4 |
+| scroll | shipped | 11.17 / 10.80 | 2.81 / 2.21 | 3.97 / 4.89 | 1.5 | 40.8 | 14.4 / 14.1 | 29.8 |
+| scroll | spare | 2.50 / 2.34 | | 0.89 / 1.06 | 4.7 | 51.0 | 32.1 / 14.1 | 28.3 |
+| drag | shipped | 10.16 / 8.79 | 2.24 / 1.71 | 4.55 / 5.15 | 1.3 | 41.6 | 17.2 / 16.9 | 29.8 |
+| drag | spare | 2.51 / 2.29 | | 1.12 / 1.34 | 2.2 / 2.1 | 55.1 | 41.5 / 16.9 | 29.7 |
+| typing | shipped | 8.21 / 7.82 | 2.07 / 1.76 | 3.97 / 4.44 | 0.26 | 40.0 | 38.1 / 37.2 | 30.0 |
+| typing | spare | 2.20 / 1.93 | | 1.06 / 1.10 | 2.2 / 2.0 | 54.3 | 46.9 / 14.6 | 29.6 |
+
+- worst_ratio: shipped 4.55 / 5.15, spare 1.12 / 1.34 (all-camera `usage=camera` 1.17 / 1.29). Within 2x on every scene.
+- Price: bits. Page 1.4x (13.2 to 18.6 Mbps), scroll 3.1x (1.5 to 4.7), drag 1.7x (1.3 to 2.2), typing 8x
+  (0.26 to 2.2). The most any scene sends is 18.6 Mbps (page), under the 41.9 Mbps measured Linux to Mac.
+- Text quality is not lower: PSNR-Y of shown frames is the same on page and 10-14 dB higher on scroll, drag, typing.
+- One regression to close before any default: typing's screen PSNR p5 falls from 37.2 to 14.6 dB (scroll and drag
+  read 14-17 dB p5 with either usage), so about 5% of typing ticks show a stale picture with camera usage.
+- Not measured here: the fallback on a slow link. On a bench link of 15 Mbps or less the page scene shows under 3 fps
+  with every usage, shipped included; the fallback is the unit test `spare_usage_follows_the_target_bitrate`.
