@@ -775,6 +775,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/process/census",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/bg/start",
       "params": true,
       "result": true
@@ -1682,6 +1688,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/chats_warm",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/chat_fork",
       "params": true,
       "result": true
@@ -2534,6 +2546,13 @@
     },
     {
       "kind": "notification",
+      "name": "_acpmux/session_patch",
+      "params": {
+        "$ref": "#/types/SessionPatch"
+      }
+    },
+    {
+      "kind": "notification",
       "name": "_acpmux/peer_rows_changed",
       "params": {
         "$ref": "#/types/PeerRowsChanged"
@@ -2729,6 +2748,7 @@
         "senderHarness": true,
         "senderHarnessChecked": true,
         "senderToken": true,
+        "sessionChangedDelta": true,
         "sessionCreatedAt": true,
         "spawnToolCallId": true,
         "startLater": true,
@@ -6416,6 +6436,15 @@
         "recordKind": {
           "type": "string"
         },
+        "rowSeq": {
+          "description": "To a connection that asked for patches (`initialize` `_meta.acpmux.sessionChangedDelta`):\nthis row's number among the chat's rows it heard; the next `_acpmux/session_patch` of the\nchat applies to it (`server/session_patch.rs`). Absent for every other connection.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "seq": {
           "format": "uint64",
           "minimum": 0,
@@ -7294,6 +7323,67 @@
         "cwd": true,
         "mcpServers": true
       },
+      "type": "object"
+    },
+    "SessionPatch": {
+      "description": "To a connection that asked for patches (`initialize` `_meta.acpmux.sessionChangedDelta`), in\nplace of a `_acpmux/session_changed` once it holds the chat's row: only what changed\n(`server/session_patch.rs`). `patch` is a JSON merge patch (RFC 7386; `null` removes a key)\nof the row it holds at `baseRowSeq`, in which `{\"$splice\": [from, keep, items]}` stands for\nan array that is `held[from..from + keep]` then `items`; the result is the row at `rowSeq`.",
+      "properties": {
+        "baseRowSeq": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "kind": {
+          "description": "As `session_changed`'s.",
+          "type": "string"
+        },
+        "listSeq": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "patch": true,
+        "peer": {
+          "description": "The peer a remote session runs on.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "qualifiedSessionId": {
+          "description": "A peer's chat: the id its row has here.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "recordKind": {
+          "type": "string"
+        },
+        "rowSeq": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "seq": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "sessionId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "sessionId",
+        "patch",
+        "rowSeq",
+        "baseRowSeq",
+        "kind",
+        "recordKind",
+        "seq",
+        "listSeq"
+      ],
       "type": "object"
     },
     "SessionPromptParams": {
