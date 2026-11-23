@@ -109,6 +109,7 @@ const fn access(operation: Op) -> Access {
         | Op::GitWorktreeApply
         | Op::GitWorktreeRemove
         | Op::GitWorktreeSetup
+        | Op::GitWorktreeSetupRun
         | Op::GitCheckpointCreate
         | Op::GitCheckpointDiff
         | Op::GitCheckpointGet
@@ -125,6 +126,7 @@ const fn access(operation: Op) -> Access {
         | Op::WorkspaceAgentStartGet
         // The user's folders (project-list-v1): read and edited by the app, never a page.
         | Op::ProjectList
+        | Op::ProjectActionsList
         | Op::ProjectObserve
         | Op::ProjectAdd
         | Op::ProjectUpdate
@@ -380,6 +382,8 @@ const fn access(operation: Op) -> Access {
         | Op::ChiefEngineGet
         | Op::ChiefEngineSet
         | Op::ChiefStop
+        | Op::ChiefAutomationList
+        | Op::ChiefAutomationUpdate
         | Op::ChiefContinue
         | Op::ChiefRetry
         // A page reads and edits the person's Chiefs only where its
@@ -466,6 +470,8 @@ const fn access(operation: Op) -> Access {
         | Op::CloudPreviewsRevokeLink
         | Op::CloudMachineChatAccess
         | Op::CloudMachineShareChat
+        | Op::CloudMachineChiefStart
+        | Op::CloudMachineChiefResize
         => Access::Denied(Denied::NotAllowed),
     }
 }
