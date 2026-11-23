@@ -13,9 +13,8 @@ cmux-tui/crates/acpmux/src/daemon/term_sender.rs	1	keep	one pid the kernel named
 cmux-tui/crates/cmux-tui-core/src/terminal_host_runtime/unix/session_cleanup.rs	2	remove	cx-t2sqm.4
 cmux-tui/crates/cmux-tui-core/src/terminal_host_runtime/unix/host_scope.rs	2	remove	cx-t2sqm.4
 cmux-tui/crates/cmux-tui-core/src/terminal_host_runtime/unix/adopted_child.rs	1	keep	one held child (the holder's own adopted child), single pid, zombie check
-cmux-tui/crates/cmux-tui-platform/src/platform.rs	6	remove	cx-t2sqm.5
+cmux-tui/crates/cmux-tui-platform/src/platform.rs	9	remove	cx-t2sqm.5 (+3 moved from resource_router/content.rs: descendant pids)
 cmux-tui/crates/cmux-tui-platform/src/process_resources.rs	10	remove	cx-t2sqm.6
-cmux-tui/crates/cmux-tui-core/src/resource_router/content.rs	3	remove	cx-t2sqm.6
 cmux-tui/crates/cmux-tui-platform/src/unix_process_scope.rs	9	remove	cx-t2sqm.7
 cmux-tui/crates/cmux-tui/src/bin/cmux-tui-hook/ancestor_route.rs	4	remove	cx-t2sqm.8
 cmux-tui/crates/cmux-tui/src/bin/cmux-tui-hook/tmux_route.rs	1	remove	cx-t2sqm.8
