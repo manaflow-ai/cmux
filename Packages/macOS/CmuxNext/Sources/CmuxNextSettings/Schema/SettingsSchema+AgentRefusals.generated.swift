@@ -132,6 +132,8 @@ extension SettingsSchema {
         "agents.defaultPermissionMode": .userOnly,
         // Whether cmux adds its tools to the person's own coding agents (their config files and each terminal launch): the onboarding step asks the person, and only the person answers; an agent must not grant itself or other agents cmux's tools.
         "agents.cmuxMcp": .userOnly,
+        // Whether agents may change the app or only read it: the person's switch over every agent, so an agent must not widen (or even change) it.
+        "agents.appControl": .userOnly,
         // How long Claude Code chats keep their prompt cache: it moves the person's model bill.
         "agents.promptCache": .userOnly,
         // Computer Use: what agents may do with the person's apps. An agent must never widen (or even change) its own access, so every computerUse.* key is the person's alone.

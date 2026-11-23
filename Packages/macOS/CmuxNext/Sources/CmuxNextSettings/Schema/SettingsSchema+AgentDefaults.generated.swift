@@ -21,6 +21,10 @@ extension AgentDefaultsSettingsSchema {
     nonisolated static let cmuxMcpPath = ["agents", "cmuxMcp"]
     nonisolated static let cmuxMcpDefault = "ask"
     nonisolated static let cmuxMcpValues = ["ask", "on", "off"]
+    /// `agents.appControl`: Whether agents in cmux may change the app or only read it, enforced by the daemon (cmux-tui-core server/agent_app_control.rs): on read, every app-changing request from a process in a cmux terminal (socket-peer ancestry or its launch credential) or from an agent chat (its ACP launch credential) is refused with origin.forbidden reason agents_read_only: new workspaces, tabs and panes, input to terminals, moves, closes, renames, settings writes. Reads, streams and an agent's own reports (hooks, notifications, status) still work. change (unset) is today's behavior. A process outside cmux (another terminal app, the app itself) is the person's and is never refused. Rust reads it with cmux_tui_core::user_settings::AgentsAppControl.
+    nonisolated static let appControlPath = ["agents", "appControl"]
+    nonisolated static let appControlDefault = "change"
+    nonisolated static let appControlValues = ["change", "read"]
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
@@ -92,6 +96,20 @@ nonisolated enum AgentDefaultsSettingsSchema {
                 ]),
                 default: .string(AgentDefaultsSettingsSchema.cmuxMcpDefault),
                 keywords: ["mcp", "mcp server", "cmux tools", "computer use", "claude", "codex", "coding agents", "agents", "onboarding"]
+            ),
+            SettingDescriptor(
+                AgentDefaultsSettingsSchema.appControlPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.agents.appControl", "Agents Can Change cmux"),
+                help: SettingsText.keyed("settings.agents.appControl.help", "Read Only: agents in cmux’s terminals and agent chats can read cmux but not change it: no new workspaces, tabs or panes, no typing into other terminals, no settings changes."),
+                summary: SettingsText.keyed("settings.agents.appControl.summary", "Whether agents in cmux may drive and change the app"),
+                kind: .choice([
+                    SettingChoice("change", SettingsText.keyed("settings.agents.appControl.change", "Read and Change")),
+                    SettingChoice("read", SettingsText.keyed("settings.agents.appControl.read", "Read Only")),
+                ]),
+                default: .string(AgentDefaultsSettingsSchema.appControlDefault),
+                keywords: ["agents", "remote control", "drive", "control", "read only", "automation", "socket", "cli", "permission"]
             ),
         ]
     }

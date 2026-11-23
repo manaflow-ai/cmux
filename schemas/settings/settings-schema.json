@@ -1463,7 +1463,8 @@
           {
             "key" : "settings.group.agentTools",
             "rows" : [
-              "agents.cmuxMcp"
+              "agents.cmuxMcp",
+              "agents.appControl"
             ],
             "title" : {
               "key" : "settings.group.agentTools",
@@ -113175,6 +113176,161 @@
       "title" : {
         "key" : "settings.agents.cmuxMcp",
         "text" : "cmux Tools for Agents in cmux"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "change",
+        "read"
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.agents.appControl.change",
+            "text" : "Read and Change"
+          },
+          "value" : "change"
+        },
+        {
+          "title" : {
+            "key" : "settings.agents.appControl.read",
+            "text" : "Read Only"
+          },
+          "value" : "read"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "change",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentTools",
+        "text" : "cmux Tools"
+      },
+      "help" : {
+        "key" : "settings.agents.appControl.help",
+        "text" : "Read Only: agents in cmux’s terminals and agent chats can read cmux but not change it: no new workspaces, tabs or panes, no typing into other terminals, no settings changes."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.appControl",
+      "keywords" : [
+        "agents",
+        "remote control",
+        "drive",
+        "control",
+        "read only",
+        "automation",
+        "socket",
+        "cli",
+        "permission"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "appControl"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : {
+        "key" : "settings.agents.appControl.summary",
+        "text" : "Whether agents in cmux may drive and change the app"
+      },
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agents.appControl"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agents.appControl",
+        "text" : "Agents Can Change cmux"
       },
       "validation" : "portable"
     },
