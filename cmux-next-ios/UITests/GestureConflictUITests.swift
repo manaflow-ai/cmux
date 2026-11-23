@@ -60,6 +60,62 @@ final class GestureConflictUITests: XCTestCase {
         attach(app, "short-after-swipe")
     }
 
+    /// The third cell: a long draft scrolled back to its top has nothing left to scroll down to,
+    /// so the next swipe down lowers the keyboard (the text keeps every drag until then).
+    @MainActor
+    func testChat_ComposerLongDraftAtTop_SwipeDown_LowersKeyboard() {
+        let app = launch(demo: "kbd-chat")
+        let field = openChatComposer(app)
+        field.typeText(Self.longDraft)
+        let top = field.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.1))
+        let bottom = field.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.95))
+        // Scroll the draft to its start; each drag is the text's, so the keyboard stays.
+        for _ in 0..<4 where app.keyboards.firstMatch.exists {
+            top.press(forDuration: 0.05, thenDragTo: bottom, withVelocity: .slow, thenHoldForDuration: 0.1)
+        }
+        XCTAssertTrue(app.keyboards.firstMatch.exists, "scrolling the draft to its top keeps the keyboard up")
+        attach(app, "long-at-top")
+        let start = field.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2))
+        start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: 0, dy: 160)), withVelocity: .fast,
+                    thenHoldForDuration: 0)
+        expect(app.keyboards.firstMatch, "exists == false", "a swipe down on a draft at its top lowers the keyboard")
+        attach(app, "long-at-top-after-swipe")
+    }
+
+    // MARK: Back swipe: never from text being edited
+
+    /// A rightward drag inside the terminal composer while editing moves the caret or selects;
+    /// the workspace's full-width back swipe (iOS 26 content pop) must not take it and leave.
+    @MainActor
+    func testTerminal_ComposerEditing_SwipeRight_StaysInWorkspace() {
+        let app = launch(demo: "ws-terminal-composer", env: ["CMUX_MOBILE_DEMO_COMPOSER": "short"])
+        let field = app.textViews["terminal.composer.field"]
+        XCTAssertTrue(field.waitForExistence(timeout: 30), "the terminal composer\n\(app.debugDescription)")
+        if !app.keyboards.firstMatch.exists { field.tap() }
+        expect(app.keyboards.firstMatch, "exists == true", "the keyboard comes up")
+        assertSwipeRightStays(app, field)
+    }
+
+    /// The same in the agent chat as a workspace tab.
+    @MainActor
+    func testWorkspaceChat_ComposerEditing_SwipeRight_StaysInWorkspace() {
+        let app = launch(demo: "kbd-tab")
+        let field = openChatComposer(app)
+        field.typeText("move the caret along this line")
+        assertSwipeRightStays(app, field)
+    }
+
+    @MainActor
+    private func assertSwipeRightStays(_ app: XCUIApplication, _ field: XCUIElement, file: StaticString = #filePath, line: UInt = #line) {
+        let from = field.coordinate(withNormalizedOffset: CGVector(dx: 0.25, dy: 0.5))
+        from.press(forDuration: 0.05, thenDragTo: from.withOffset(CGVector(dx: 220, dy: 0)), withVelocity: .fast,
+                   thenHoldForDuration: 0.05)
+        // A pop would have animated the workspace away by now.
+        Thread.sleep(forTimeInterval: 1.0)
+        attach(app, "after-swipe-right")
+        XCTAssertTrue(field.exists && field.isHittable, "still in the workspace with the composer open", file: file, line: line)
+    }
+
     // MARK: Helpers
 
     /// About ten wrapped lines at the 17 pt body on a phone: taller than the field's six.
