@@ -131,7 +131,7 @@ final class CloudService {
     /// Where each chat runs, its place mode and its move's progress (``CloudPlaceFlows``).
     @ObservationIgnored let place = CloudPlaceFlows()
     /// Reads this computer's signals for Auto and runs its moves (started once, with the move actions).
-    @ObservationIgnored var autoMonitor: CloudAutoMonitor?
+    @ObservationIgnored var placeDriver: CloudPlaceDriver?
     /// The chats moved from this Mac, for Bring Back Local.
     @ObservationIgnored let movedChats = CloudMovedChats()
     /// Agents' asks to move their chats, and the cards they raise in chats.
@@ -340,10 +340,10 @@ final class CloudService {
             for await note in NSWorkspace.shared.notificationCenter.notifications(named: nil) {
                 switch note.name {
                 case NSWorkspace.didWakeNotification:
-                    self?.autoMonitor?.slept(false)
+                    self?.placeDriver?.slept(false)
                     await self?.refresh(ifOlderThan: .seconds(30))
                 // Auto starts its moves as the system is about to sleep.
-                case NSWorkspace.willSleepNotification: self?.autoMonitor?.slept(true)
+                case NSWorkspace.willSleepNotification: self?.placeDriver?.slept(true)
                 default: continue
                 }
             }
