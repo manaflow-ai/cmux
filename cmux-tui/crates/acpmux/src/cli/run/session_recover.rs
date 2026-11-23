@@ -10,12 +10,31 @@ use cmux_supervise_core::route::{Cause, Facts, Route, route};
 pub(crate) use crate::cli::command::RecoverArgs;
 
 /// The facts for one dead chat from `place` (`_acpmux/place`'s verdict) and the registry.
-pub(super) fn facts(place: &Value, registry: Option<&Value>, args: &RecoverArgs) -> Facts {
-    let hosts = place.get("hosts").and_then(Value::as_array).cloned().unwrap_or_default();
-    let local = hosts.iter().find(|h| h["local"] == true);
+/// `source`: the peer the chat lives on (its routed id's `HOST/`), or `None` for this machine.
+pub(super) fn facts(
+    place: &Value,
+    registry: Option<&Value>,
+    args: &RecoverArgs,
+    source: Option<&str>,
+) -> Facts {
+    let mut hosts = place.get("hosts").and_then(Value::as_array).cloned().unwrap_or_default();
+    let named = |h: &Value, name: &str| {
+        h["name"]
+            .as_str()
+            .is_some_and(|n| crate::placement::canonical(n) == crate::placement::canonical(name))
+    };
+    let local = match source {
+        Some(src) => hosts.iter().find(|h| named(h, src)).cloned(),
+        None => hosts.iter().find(|h| h["local"] == true).cloned(),
+    };
+    // Never a move back onto its own host.
+    if let Some(src) = source {
+        hosts.retain(|h| !named(h, src));
+    }
+    let local = local.as_ref();
     // Its own host takes one more chat only when placement would put new work there.
     let host_room = local.is_some_and(|h| h["ok"] == true);
-    let me = local.and_then(|h| h["name"].as_str()).unwrap_or_default();
+    let me = local.and_then(|h| h["name"].as_str()).or(source).unwrap_or_default();
     let on_demand = crate::placement::machine(registry, me).is_some_and(|m| m["on_demand"] == true);
     let (targets, _) =
         crate::placement::move_targets::ranked(&hosts, &Default::default(), |name| {
@@ -44,7 +63,12 @@ pub(super) async fn run(args: RecoverArgs, json_out: bool) -> Result<()> {
     let place =
         client.request("_acpmux/place", json!({"work": "agent", "outdatedOk": true})).await?;
     let registry = crate::placement::load_registry();
-    let facts = facts(&place, registry.as_ref(), &args);
+    // A chat on a peer reads `HOST/ID`: its host's room decides, and a move runs `--from` it.
+    let (source, bare) = match id.split_once('/') {
+        Some((host, bare)) => (Some(host.to_owned()), bare.to_owned()),
+        None => (None, id.clone()),
+    };
+    let facts = facts(&place, registry.as_ref(), &args, source.as_deref());
     let decided = route(&facts);
     let mut out = serde_json::to_value(&decided)?;
     cmux_json::JsonSet::set(&mut out, "session", json!(id));
@@ -78,18 +102,18 @@ pub(super) async fn run(args: RecoverArgs, json_out: bool) -> Result<()> {
         }
         Route::Move { to, .. } => {
             let move_args = super::session_move::MoveArgs {
-                sessions: vec![id],
+                sessions: vec![bare],
                 host: to,
                 all_idle: false,
                 interrupt: false,
                 after_turn: false,
-                turn_timeout: std::time::Duration::from_secs(600),
+                turn_timeout: super::session_move::DEFAULT_TURN_TIMEOUT,
                 leave_dirty: false,
                 carry_changes: false,
                 cwd: None,
                 dry_run: false,
                 resume_there: false,
-                from: None,
+                from: source,
             };
             super::session_move::run(move_args, json_out).await
         }

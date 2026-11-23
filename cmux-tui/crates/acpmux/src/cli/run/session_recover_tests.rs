@@ -23,7 +23,7 @@ fn place(local_ok: bool) -> Value {
 
 #[test]
 fn a_host_with_room_restarts_in_place() {
-    let f = facts(&place(true), None, &args());
+    let f = facts(&place(true), None, &args(), None);
     assert!(f.host_room && !f.on_demand);
     assert_eq!(f.targets, vec!["big", "small"]);
     assert!(matches!(route(&f), Route::Restart { .. }));
@@ -31,7 +31,7 @@ fn a_host_with_room_restarts_in_place() {
 
 #[test]
 fn a_full_host_moves_to_the_roomiest_admitted_machine() {
-    let f = facts(&place(false), None, &args());
+    let f = facts(&place(false), None, &args(), None);
     assert!(!f.host_room);
     assert_eq!(route(&f), Route::Move { to: "big".into(), why: route(&f).why().into() });
 }
@@ -42,7 +42,7 @@ fn an_on_demand_host_moves_and_a_person_s_machine_is_never_a_target() {
         "lane-1": {"on_demand": true},
         "big": {"interactive": true},
     }});
-    let f = facts(&place(true), Some(&registry), &args());
+    let f = facts(&place(true), Some(&registry), &args(), None);
     assert!(f.on_demand);
     assert!(!f.targets.contains(&"big".to_owned()), "{:?}", f.targets);
     assert!(matches!(route(&f), Route::Move { ref to, .. } if to == "small"));
@@ -52,8 +52,19 @@ fn an_on_demand_host_moves_and_a_person_s_machine_is_never_a_target() {
 fn a_network_death_never_restarts_and_used_restarts_need_a_successor() {
     let mut a = args();
     a.network = true;
-    assert!(matches!(route(&facts(&place(true), None, &a)), Route::Move { .. }));
+    assert!(matches!(route(&facts(&place(true), None, &a, None)), Route::Move { .. }));
     let mut a = args();
     a.restarts = 2;
-    assert!(matches!(route(&facts(&place(true), None, &a)), Route::Successor { .. }));
+    assert!(matches!(route(&facts(&place(true), None, &a, None)), Route::Successor { .. }));
+}
+
+#[test]
+fn a_chat_on_a_peer_is_judged_by_its_own_host_and_never_moves_back_there() {
+    // `big` is the dead chat's host: its room decides, and it is no target.
+    let mut v = place(true);
+    v["hosts"][2]["ok"] = json!(false);
+    let f = facts(&v, None, &args(), Some("big"));
+    assert!(!f.host_room);
+    assert_eq!(f.targets, vec!["small"]);
+    assert!(matches!(route(&f), Route::Move { ref to, .. } if to == "small"));
 }
