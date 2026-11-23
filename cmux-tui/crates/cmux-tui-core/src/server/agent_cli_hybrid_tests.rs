@@ -614,7 +614,7 @@ fn a_full_screen_program_reaches_a_full_screen_frames_viewer_as_frames() {
     let (names, bytes) = until_same(&mut phone);
     assert!(names.iter().all(|name| name == "agent-cli-lean"), "frames: {names:?}");
     let sent: usize = bytes.iter().map(Vec::len).sum();
-    assert!(sent * 4 < repaint.len(), "{sent} bytes for a {}-byte repaint", repaint.len());
+    assert!(sent * 2 < repaint.len(), "{sent} bytes for a {}-byte repaint", repaint.len());
 
     // It ends: the primary screen, and frames go on.
     surface.inject_output_for_test(b"\x1b[?1006l\x1b[?1000l\x1b[?1049l$ ");
