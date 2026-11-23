@@ -2,7 +2,9 @@
 // The composer under the objective edge cases (Leo 2026-11-23: "there is objectivity in design. we
 // cannot miss these edge cases like this and let them languish"): panes of 280, 360 and 480 px,
 // an empty draft, a draft of 200+ characters, one unbroken word, many attachments with long file
-// names, long queued prompts, a long model name and mode, and the slash and @ menus open.
+// names, long queued prompts, a long model name and mode, the slash and @ menus open, chat text at
+// 200% (28 px, the font setting's maximum), short panes (140 and 200 px tall), and an attachment
+// chip popping in under a draft (the box tracker fails any move of the controls or the prompt).
 // Checks to read each shot against: controls keep their slot (bottom, never on a wrapped line),
 // text gives way before controls (ellipsis), nothing overlaps or clips, no scrollbar at rest, the
 // light and dark themes alike.
@@ -93,6 +95,9 @@ const dropMany =
     await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-attachments .acpmux-attachment").length >= count);
   };
 
+/** The chat font setting at its maximum, 28 px: 200% of the 14 px default (chatDisplay.ts). */
+const TEXT_200 = { "agentPane.display.font.size": 28 };
+
 const queue = [
   {
     id: "q1",
@@ -110,7 +115,8 @@ export default agentPaneEntry({
   area: "Agent pane",
   height: 460,
   widths: { narrow: 280, normal: 360, wide: 480 },
-  anchors: [{ selector: ".acpmux-composer-box" }],
+  // The controls are an anchor too: a chip popping in above the prompt must not move them.
+  anchors: [{ selector: ".acpmux-composer-box" }, { selector: ".acpmux-composer-actions" }],
   covers: ["agent-session/acpmux/Composer.tsx#Composer", "agent-session/acpmux/composerLocation.css"],
   variants: {
     empty: {
@@ -171,6 +177,83 @@ export default agentPaneEntry({
       note: "The @ menu opens over the composer, inside the pane.",
       ready: { draft: "Look at @" },
       snapshot: stress(),
+    },
+    "text-200-empty": {
+      composerLook: "claude",
+      note: "Chat text at 200%: the placeholder and controls still fit one row's slot; nothing clips.",
+      display: TEXT_200,
+      snapshot: stress(),
+    },
+    "text-200-draft": {
+      composerLook: "claude",
+      note: "Chat text at 200% with a 280-character draft: it wraps and scrolls inside its cap; controls stay on the bottom row.",
+      display: TEXT_200,
+      ready: { draft: LONG_DRAFT },
+      snapshot: stress(),
+    },
+    "text-200-working-queue": {
+      composerLook: "claude",
+      note: "Chat text at 200%, running, three long queued prompts: each still cuts with an ellipsis.",
+      display: TEXT_200,
+      snapshot: stress(working, { isWorking: true, queue }),
+    },
+    "text-200-slash-menu": {
+      composerLook: "claude",
+      note: "Chat text at 200% with the slash menu open: it stays inside the pane.",
+      display: TEXT_200,
+      ready: { draft: "/" },
+      snapshot: stress(),
+    },
+    "short-200-draft": {
+      composerLook: "claude",
+      note: "A 200 px tall pane with a long draft: the composer caps below the pane's top, the controls stay in sight.",
+      height: 200,
+      ready: { draft: LONG_DRAFT },
+      snapshot: stress(),
+    },
+    "short-140-empty": {
+      composerLook: "claude",
+      note: "A 140 px tall pane: the composer keeps its whole row; the transcript gives way.",
+      height: 140,
+      snapshot: stress(),
+    },
+    "short-200-attachments": {
+      composerLook: "claude",
+      note: "A 200 px tall pane, eight screenshots and a draft: strip, prompt and controls all stay in sight.",
+      height: 200,
+      ready: { draft: "What do these show?" },
+      snapshot: stress(),
+      play: dropMany(8),
+    },
+    "short-200-mention-menu": {
+      composerLook: "claude",
+      note: "A 200 px tall pane with the @ menu open: the menu fits in the pane, never off its top.",
+      height: 200,
+      ready: { draft: "Look at @" },
+      snapshot: stress(),
+    },
+    "short-140-text-200": {
+      composerLook: "claude",
+      note: "Both at once: a 140 px tall pane and chat text at 200%, with a draft.",
+      height: 140,
+      display: TEXT_200,
+      ready: { draft: LONG_DRAFT },
+      snapshot: stress(),
+    },
+    "chip-pop-in": {
+      composerLook: "claude",
+      note: "One screenshot dropped under a two-line draft: its chip pops in above the prompt; the controls and prompt never move (box tracker).",
+      ready: { draft: SENTENCE },
+      snapshot: stress(),
+      play: dropMany(1),
+    },
+    "chip-pop-in-text-200": {
+      composerLook: "claude",
+      note: "The same chip pop-in with chat text at 200%.",
+      display: TEXT_200,
+      ready: { draft: SENTENCE },
+      snapshot: stress(),
+      play: dropMany(1),
     },
   },
 });
