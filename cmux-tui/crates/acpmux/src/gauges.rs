@@ -99,6 +99,7 @@ impl Gauges {
             "recordWrites": record_writes().status(),
             "attach": attach_latency().status(),
             "fanout": fanout_status(),
+            "links": links().status(),
             "workerLag": worker_lag().status(),
         })
     }
@@ -140,8 +141,8 @@ impl RecordWrites {
 
 /// The hub's one notice loop (`hub/peer_grace.rs`): how many notices it applied, the time it
 /// spent applying them, the longest one, and the deepest its queue was when it took one. A link
-/// blocks on a full queue, so a loop slower than the notices coming in holds back every peer's
-/// chat updates behind them.
+/// holds its notices back on a full queue (`peer_notice_outbox.rs`), so a loop slower than the
+/// notices coming in holds back every peer's chat updates behind them.
 pub fn peer_notices() -> &'static PeerNotices {
     static NOTICES: OnceLock<PeerNotices> = OnceLock::new();
     NOTICES.get_or_init(PeerNotices::default)
@@ -153,6 +154,12 @@ pub struct PeerNotices {
     busy_us: AtomicU64,
     max_us: AtomicU64,
     peak_queued: AtomicU64,
+    /// Links' own backlogs while the hub's queue was full (`peer_notice_outbox.rs`): the deepest
+    /// one, the changed rows a later change of the same row replaced there, and the times a link
+    /// waited because its backlog was full.
+    link_peak: AtomicU64,
+    link_merged: AtomicU64,
+    link_waits: AtomicU64,
     /// Notices by `PeerNotice::label`, at most `KINDS_KEPT` labels: how many, and the µs they took.
     kinds: Mutex<std::collections::BTreeMap<String, (u64, u64)>>,
     /// Peer snapshot copies read back from disk (`peer_snapshot::Store::read_in`).
@@ -182,6 +189,19 @@ impl PeerNotices {
         self.peak_queued.fetch_max(queued, Ordering::Relaxed);
     }
 
+    /// A link held a notice back, `depth` deep, `merged` when it replaced an earlier change.
+    pub fn link_held(&self, depth: u64, merged: bool) {
+        self.link_peak.fetch_max(depth, Ordering::Relaxed);
+        if merged {
+            self.link_merged.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    /// A link waited for room in its full backlog.
+    pub fn link_waited(&self) {
+        self.link_waits.fetch_add(1, Ordering::Relaxed);
+    }
+
     fn status(&self) -> Value {
         let kinds = self.kinds.lock().unwrap_or_else(PoisonError::into_inner).clone();
         json!({
@@ -189,6 +209,9 @@ impl PeerNotices {
             "busyMs": self.busy_us.load(Ordering::Relaxed) / 1000,
             "maxUs": self.max_us.load(Ordering::Relaxed),
             "peakQueued": self.peak_queued.load(Ordering::Relaxed),
+            "linkPeak": self.link_peak.load(Ordering::Relaxed),
+            "linkMerged": self.link_merged.load(Ordering::Relaxed),
+            "linkWaits": self.link_waits.load(Ordering::Relaxed),
             "kinds": kinds.iter().map(|(k, (n, _))| (k.clone(), *n)).collect::<std::collections::BTreeMap<_, _>>(),
             "kindsMs": kinds.iter().map(|(k, (_, us))| (k.clone(), us / 1000)).collect::<std::collections::BTreeMap<_, _>>(),
             "snapshotReads": self.snapshot_reads.load(Ordering::Relaxed),
@@ -236,6 +259,84 @@ impl PeerLists {
             "bytes": self.bytes.load(Ordering::Relaxed),
             "peakLists": self.peak_lists.load(Ordering::Relaxed),
             "peakBytes": self.peak_bytes.load(Ordering::Relaxed),
+        })
+    }
+}
+
+/// `gauges.links`: the network connections this daemon holds for its peers, and the dials it
+/// started, since its start. Totals count up; the `open` fields count what is held now, each by
+/// a [`Held`] that the thing it counts owns, so a link, probe or circuit that ends any way at all
+/// gives its count back.
+///
+/// Leo's Mac at load 89 to 154 held about 40 peer links that went quiet together, dropped and
+/// redialed (2026-11-23), and nothing the daemon answered said how many connections or dials
+/// that was. These say it, per peer count, for the duress harness (`tests/duress_daemon.rs`).
+pub fn links() -> &'static Links {
+    static LINKS: OnceLock<Links> = OnceLock::new();
+    LINKS.get_or_init(Links::default)
+}
+
+#[derive(Default)]
+pub struct Links {
+    /// Peer links with a connection open (`Peer::connect_once` past its dial).
+    pub links_open: AtomicU64,
+    /// Path probes with a connection of their own open (`Peer::probe_link`).
+    pub probes_open: AtomicU64,
+    /// Plain relay circuits (one stream each) carried now, dialed or accepted.
+    pub hub_plain_open: AtomicU64,
+    /// Kept, multiplexed relay circuits open now (either end), and the streams riding them.
+    pub hub_kept_open: AtomicU64,
+    pub kept_streams_open: AtomicU64,
+    /// Every peer link connect attempt; of those, the ones started at once after a ready link
+    /// dropped (no backoff).
+    pub link_dials: AtomicU64,
+    pub link_redials: AtomicU64,
+    /// Every probe dial of a path.
+    pub probe_dials: AtomicU64,
+    /// Relay circuits this daemon dialed: plain ones, kept ones, and streams opened on a kept one.
+    pub hub_plain_dials: AtomicU64,
+    pub hub_kept_dials: AtomicU64,
+    pub kept_stream_opens: AtomicU64,
+}
+
+/// One held thing in a `Links` count: counted up when made, down when dropped.
+#[derive(Debug)]
+pub struct Held(&'static AtomicU64);
+
+impl Held {
+    pub fn on(count: &'static AtomicU64) -> Self {
+        count.fetch_add(1, Ordering::Relaxed);
+        Self(count)
+    }
+}
+
+impl Drop for Held {
+    fn drop(&mut self) {
+        let less = |v: u64| Some(v.saturating_sub(1));
+        let _ = self.0.fetch_update(Ordering::Relaxed, Ordering::Relaxed, less);
+    }
+}
+
+/// Count one more of `count`.
+pub fn bump(count: &AtomicU64) {
+    count.fetch_add(1, Ordering::Relaxed);
+}
+
+impl Links {
+    pub fn status(&self) -> Value {
+        let n = |c: &AtomicU64| c.load(Ordering::Relaxed);
+        json!({
+            "linksOpen": n(&self.links_open),
+            "probesOpen": n(&self.probes_open),
+            "hubPlainOpen": n(&self.hub_plain_open),
+            "hubKeptOpen": n(&self.hub_kept_open),
+            "keptStreamsOpen": n(&self.kept_streams_open),
+            "linkDials": n(&self.link_dials),
+            "linkRedials": n(&self.link_redials),
+            "probeDials": n(&self.probe_dials),
+            "hubPlainDials": n(&self.hub_plain_dials),
+            "hubKeptDials": n(&self.hub_kept_dials),
+            "keptStreamOpens": n(&self.kept_stream_opens),
         })
     }
 }
@@ -583,6 +684,20 @@ mod tests {
         assert!(status["memory"]["rssBytes"].as_u64().unwrap() > 0, "{status}");
         assert!(status["attach"].get("p95Ms").is_some(), "{status}");
         assert!(status["fanout"].get("p95Ms").is_some(), "{status}");
+    }
+
+    #[test]
+    fn a_held_count_goes_back_down_when_dropped_and_never_below_zero() {
+        static COUNT: AtomicU64 = AtomicU64::new(0);
+        let a = Held::on(&COUNT);
+        let b = Held::on(&COUNT);
+        assert_eq!(COUNT.load(Ordering::Relaxed), 2);
+        drop(a);
+        assert_eq!(COUNT.load(Ordering::Relaxed), 1);
+        COUNT.store(0, Ordering::Relaxed);
+        drop(b);
+        assert_eq!(COUNT.load(Ordering::Relaxed), 0);
+        assert!(global().status()["links"].get("linkRedials").is_some());
     }
 
     #[test]
