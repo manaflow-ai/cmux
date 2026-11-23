@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { Schema } from "@milkdown/kit/prose/model";
 import { EditorState } from "@milkdown/kit/prose/state";
-import { fieldGrowth, growthHoldsTop } from "../src/agent-session/acpmux/composer/fieldGrowth";
+import { fieldGrowth, growthHoldsText } from "../src/agent-session/acpmux/composer/fieldGrowth";
 import { FIELD_GROWTH_EVENT, type FieldGrowthEvent } from "../src/agent-session/acpmux/composer/fieldGrowthEvent";
 import { teardownDom } from "./support/domTeardown";
 
@@ -65,38 +65,45 @@ test("one line grows and shrinks in CSS pixels at every composer zoom", async ()
           const before = Number.parseFloat(field.style.height);
           field.style.height = `${height}px`;
           // The browser may scroll to the new caret before the editor reports its edit.
+          const grows = height > before;
           field.scrollTop = 20;
           view.dispatch(view.state.tr.insertText("x"));
+          // The text rides the field's bottom edge (Leo 2026-11-22: "the caret gets fucking shot down
+          // past the composer as it goes"): a growth holds its end there by the scroll (the end is 0
+          // here: the text fits the height it lands on); a shrink rides the top edge, at no scroll.
           expect(field.scrollTop).toBe(0);
           expect(Number.parseFloat(String(frames[0]!.height)) * zoom).toBeCloseTo(before * zoom);
           expect(Number.parseFloat(String(frames.at(-1)!.height)) * zoom).toBeCloseTo(height * zoom);
+          expect(frames[0]!.paddingTop).toBeUndefined();
           expect(target).toBeCloseTo(height * zoom);
-          // One line keeps its top, rather than scrolling to reveal the caret during growth.
-          expect(growthHoldsTop(field)).toBe(true);
+          expect(growthHoldsText(field)).toBe(true);
           expect(view.someProp("handleScrollToSelection", (handle) => handle(view))).toBe(true);
-          // Native caret scrolling can also run after the transaction, during the animation.
-          field.scrollTop = 12;
-          field.dispatchEvent(new window.Event("scroll"));
-          expect(field.scrollTop).toBe(0);
-          // A second key on the same line retargets without restoring the old scroll offset.
-          field.scrollTop = 8;
-          view.dispatch(view.state.tr.insertText("y"));
-          expect(field.scrollTop).toBe(0);
-          expect(growthHoldsTop(field)).toBe(true);
+          if (grows) {
+            // Native caret scrolling can also run after the transaction, during the animation.
+            field.scrollTop = 12;
+            field.dispatchEvent(new window.Event("scroll"));
+            expect(field.scrollTop).toBe(0);
+            // A second key on the same line retargets and keeps the text's end on the bottom edge.
+            field.scrollTop = 8;
+            view.dispatch(view.state.tr.insertText("y"));
+            expect(field.scrollTop).toBe(0);
+            expect(growthHoldsText(field)).toBe(true);
+          }
           animation!.dispatchEvent(new window.Event("finish"));
-          expect(growthHoldsTop(field)).toBe(false);
+          expect(growthHoldsText(field)).toBe(false);
         }
-        // A growth past 1.5 lines, in CSS pixels at every zoom, keeps the caret in view instead.
+        // A large paste the field still fits rides the bottom edge too (it revealed the caret from
+        // the top before, which drew the new lines below the box mid-move).
         field.style.height = "188px";
         view.dispatch(view.state.tr.insertText("large paste"));
-        expect(growthHoldsTop(field)).toBe(false);
+        expect(growthHoldsText(field)).toBe(true);
         animation!.dispatchEvent(new window.Event("finish"));
         // At the maximum height, caret reveal and native scrolling remain available.
         capped = true;
         field.style.height = "208px";
         field.scrollTop = 60;
         view.dispatch(view.state.tr.insertText("past the cap"));
-        expect(growthHoldsTop(field)).toBe(false);
+        expect(growthHoldsText(field)).toBe(false);
         expect(view.someProp("handleScrollToSelection", (handle) => handle(view))).toBeUndefined();
         expect(field.scrollTop).toBe(60);
         field.scrollTop = 80;
