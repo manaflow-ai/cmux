@@ -1,3 +1,4 @@
+import QuartzCore
 import UIKit
 import XCTest
 
@@ -32,6 +33,8 @@ final class FeedParkedSpareUITests: XCTestCase {
         // nothing asking for 12 s (it shows its rows and builds the spare after 0.5 s still),
         // the screen is shot as it is, then the walk takes the spare and the screen is shot again.
         _ = XCTWaiter.wait(for: [XCTestExpectation(description: "the Feed sits still, unqueried")], timeout: 12)
+        // The host clock (the simulator's apps read the same one): the list's trace times are on it.
+        let shotAt = CACurrentMediaTime()
         let shotParked = XCUIScreen.main.screenshot()
         let list = app.tables["feed.list"]
         XCTAssertTrue(list.waitForExistence(timeout: 40), "the Feed's table\n\(app.debugDescription)")
@@ -60,8 +63,15 @@ final class FeedParkedSpareUITests: XCTestCase {
             XCTFail("no spare was built while the Feed was still; list trace:\n\(trace)")
             return ["no spare was built"]
         }
-        if let taken = at("spare taken"), taken - made < 3 {
-            XCTFail("the spare was taken \(taken - made) s after it was made, before the first screenshot; trace:\n\(trace)")
+        // The spare was parked when the screen was shot: made before it, taken (if at all) after
+        // it. Otherwise the first screenshot had no spare in it, and nothing below can see one.
+        if made >= shotAt {
+            XCTFail(String(format: "the spare was made %.2f s after the first screenshot; trace:\n%@", made - shotAt, trace))
+            return ["the spare was made after the first screenshot"]
+        }
+        if let taken = at("spare taken"), taken < shotAt {
+            XCTFail(String(format: "the spare was taken %.2f s after it was made, %.2f s before the first screenshot; trace:\n%@",
+                           taken - made, shotAt - taken, trace))
             return ["the spare was taken before the first screenshot"]
         }
         var found: [String] = []

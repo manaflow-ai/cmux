@@ -230,7 +230,7 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
                     return cell
                 }
                 let row = (tableView.dequeueReusableCell(withIdentifier: FeedRowCell.reuseID) as? FeedRowCell)
-                    ?? self?.takeSpare() ?? self?.newRowCell() ?? FeedRowCell(style: .default, reuseIdentifier: FeedRowCell.reuseID)
+                    ?? self?.takeSpare(for: id, at: indexPath) ?? self?.newRowCell() ?? FeedRowCell(style: .default, reuseIdentifier: FeedRowCell.reuseID)
                 guard let self, let layout = self.layout(for: id) else { return row }
                 row.delegate = self
                 row.apply(layout, item: self.items[id], settled: self.rowsSettled)
@@ -556,6 +556,11 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
     private(set) weak var spareGiven: FeedRowCell?
     /// The identifier a parked spare answers to (no row has it).
     static let parkedSpareID = "feed.spare.parked"
+    #if DEBUG
+    /// The visible-spare mutant (FeedParkedSpareUITests) keeps its spare this long after the plant.
+    static let mutantHold: CFTimeInterval = 4
+    private var mutantHoldUntil: CFTimeInterval = 0
+    #endif
 
     /// The parked spare and its holder (tests: hidden from accessibility, off screen, not in the table).
     var parkedSpare: FeedRowCell? { spare }
@@ -584,15 +589,31 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
         return holder
     }
 
-    private func takeSpare() -> FeedRowCell? {
+    private func takeSpare(for id: String, at indexPath: IndexPath) -> FeedRowCell? {
         guard let cell = spare else { return nil }
+        #if DEBUG
+        // Who asked, in the trace: the row, whether it is on screen, whether an accessibility walk
+        // asked (spare-ui-4 d0b40ace: the planted spare went 60 ms after it was made, and the trace
+        // could not say to what).
+        let onScreen = collectionView.map { $0.rectForRow(at: indexPath).intersects($0.bounds) } ?? false
+        let axWalk = Thread.callStackSymbols.contains { $0.contains("Accessibility") || $0.contains("AXRuntime") }
+        let asker = "row=\(indexPath.row) id=\(id) onScreen=\(onScreen) ax=\(axWalk)"
+        if CACurrentMediaTime() < mutantHoldUntil {
+            trace("spare held (mutant) " + asker)
+            return nil
+        }
+        #endif
         spare = nil
         cell.removeFromSuperview()
         parkHolder?.removeFromSuperview()
         parkHolder = nil
         cell.prepareForReuse()
         sparesTaken += 1
+        #if DEBUG
+        trace("spare taken " + asker)
+        #else
         trace("spare taken")
+        #endif
         spareGiven = cell
         return cell
     }
@@ -701,6 +722,11 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
             if let window = view.window { window.addSubview(holder) }
             holder.frame = CGRect(x: 0, y: 200, width: CGFloat(layout.key.width), height: layout.height)
             holder.accessibilityElementsHidden = false
+            // The plant stays planted until the UI test's first screenshot (12 s after launch): a
+            // row cell asked for in its first seconds gets a new cell instead (spare-ui-4: one
+            // asked 60 ms after the plant, so the screenshot showed nothing to catch). The test
+            // checks from the trace that the take came after its screenshot.
+            mutantHoldUntil = CACurrentMediaTime() + Self.mutantHold
         }
         #endif
         holder.addSubview(cell)
