@@ -87,7 +87,17 @@
      2026-11-01: "doesn't make sense for these to be spaced differently"). #27580 drew them on the
      28 list row with a 24 block gap between each, about 50 apart (Leo, 2026-11-02: "well now
      there's sometimes too much spacing between tool calls"). */
-  --cv-tool-row-height: 22px;
+  /* The air every one-line row gets over its 22 line of words, half above and half below (transcriptGrid.ts
+     ROW_AIR_LOOKS, which model.ts places the rows with): one token, so every activity, tool, notice and message
+     row moves together. Leo, 2026-11-22 10:55Z, beside the newer ChatGPT's tool list: "it's just too much fucking
+     text crammed together ... just add some more. our is too much of a dense eyesore right now." 22 + 10 = 32 apart
+     (ChatGPT about 33 at our size); gallery agent-pane.row-air compares 0, 6, 10 and 12. */
+  --cv-row-air: 10px;
+  --cv-tool-row-height: calc(22px + var(--cv-row-air));
+  /* A name chip on a row (AgentTag.css): a quieter wash than the inset surface, and the theme's secondary ink, so the
+     chips stop reading as a second row of buttons (same ask; gallery agent-pane.row-air, `data-chip-look`). */
+  --cv-chip-bg: color-mix(in srgb, var(--cv-text) 7%, transparent);
+  --cv-chip-ink: color-mix(in srgb, var(--cv-text) 82%, transparent);
   --cv-thought-pitch: 20px; /* an opened thought's line pitch (.cv-thought__text line-height) */
   --cv-glyph-slot: var(--grid-transcript-icon-box);
   --cv-glyph-line: var(--grid-transcript-icon-box);
@@ -542,6 +552,24 @@
   line-height: 1.25;
   text-align: center;
   letter-spacing: var(--text-caption--letter-spacing);
+}
+/* A failed read's Retry under the note: a small button on the slot's own surface. */
+.cv-user__image-retry {
+  margin-top: var(--ds-space-1);
+  padding: var(--ds-space-1) var(--ds-space-2);
+  border: 0;
+  border-radius: var(--ds-radius-control);
+  background: color-mix(in srgb, var(--agent-text) 10%, transparent);
+  color: var(--agent-text);
+  font: inherit;
+  cursor: default;
+}
+.cv-user__image-retry:hover {
+  background: color-mix(in srgb, var(--agent-text) 18%, transparent);
+}
+.cv-user__image-retry:focus-visible {
+  outline: var(--cmux-focus-ring-width) solid var(--agent-text);
+  outline-offset: 1px;
 }
 
 /* A Chief subagent's first message: the Chief's view as one collapsed line above the task, with its
@@ -3768,6 +3796,23 @@ body {
 }
 /* Gallery versions for the transcript spacing review. The selected default is the root rhythm
    above; these are capture-only comparisons. */
+/* Gallery looks of the row air and the chips (transcriptGrid.ts ROW_AIR_LOOKS; agent-pane.row-air). */
+:root[data-row-air="before"] {
+  --cv-row-air: 0px;
+}
+:root[data-row-air="a"] {
+  --cv-row-air: 6px;
+}
+:root[data-row-air="c"] {
+  --cv-row-air: 12px;
+}
+:root[data-chip-look="wash"] {
+  --cv-chip-bg: var(--ds-surface-inset);
+  --cv-chip-ink: var(--cv-text);
+}
+:root[data-chip-look="plain"] {
+  --cv-chip-bg: transparent;
+}
 :root[data-transcript-tool-spacing="tight"] {
   --cv-tool-row-height: 20px;
   --cv-tool-run-bottom-gap: 2px;
