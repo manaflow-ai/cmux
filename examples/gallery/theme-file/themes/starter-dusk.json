@@ -7,7 +7,7 @@
   "appearance.theme": "Builtin Dark",
   "appearance.appTheme": "followTerminal",
   // The four colors every surface is mixed from.
-  "colors": { "background": "#1a1b2e", "foreground": "#e4e4ef", "selection": "#34365a", "accent": "#f0a85a" },
+  "colors": { "background": "#1a1b2e", "foreground": "#e4e4ef", "selection": "#6e729a", "accent": "#f0a85a" },
   "appearance.accent": "theme",
   // The terminal: Ghostty config lines, the same page and ink, and the sixteen ANSI colors.
   "ghostty": [
