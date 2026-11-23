@@ -31,6 +31,11 @@ nonisolated struct RustActionCatalog: Sendable {
     let requests: [ActionID: ActionCatalogRequest]
     /// Every `op:` suggestion source an argument names, by source name (`op:closed.list`).
     let listSources: [String: ActionCatalogListSource]
+    /// The right-click menus Rust builds from the placements (`context_menu_trees`, the crate's
+    /// `context_menus`): per menu its entries and, where it has one, its several-rows menu.
+    let contextMenus: [ActionMenuContext: (entries: [ContextMenuEntry], selection: [ContextMenuEntry]?)]
+    /// The choices rows that end with one more action (`context_menu_choice_trailers`).
+    let choiceTrailers: [ActionID: ActionID]
 
     /// In the language the app's own strings resolve to: the main bundle negotiates the person's
     /// whole preference list against the 21 localizations the app declares (Swedish, Japanese,
@@ -120,6 +125,26 @@ nonisolated struct RustActionCatalog: Sendable {
             folders[folder] = (row["title"] as? String ?? id, row["symbol"] as? String ?? "folder", group)
         }
         self.folders = folders
+        var contextMenus: [ActionMenuContext: (entries: [ContextMenuEntry], selection: [ContextMenuEntry]?)] = [:]
+        for (name, value) in root["context_menu_trees"] as? [String: [String: Any]] ?? [:] {
+            guard let context = ActionMenuContext(rawValue: name) else { continue }
+            contextMenus[context] = (Self.menuEntries(value["entries"]), (value["selection"] as? [Any]).map(Self.menuEntries))
+        }
+        self.contextMenus = contextMenus
+        choiceTrailers = Self.idMap(root["context_menu_choice_trailers"])
+    }
+
+    /// A `context_menu_trees` entry list: `"-"`, `{action}`, `{choices}`, `{submenu, children}`,
+    /// `{folder, children}`.
+    private static func menuEntries(_ value: Any?) -> [ContextMenuEntry] {
+        (value as? [Any] ?? []).compactMap { item -> ContextMenuEntry? in
+            guard let row = item as? [String: Any] else { return item as? String == "-" ? .separator : nil }
+            if let id = row["action"] as? String { return .action(ActionID(rawValue: id)) }
+            if let id = row["choices"] as? String { return .choices(ActionID(rawValue: id)) }
+            if let id = row["submenu"] as? String { return .submenu(ActionID(rawValue: id), menuEntries(row["children"])) }
+            if let id = row["folder"] as? String, let folder = MenuFolder(rawValue: id) { return .folder(folder, menuEntries(row["children"])) }
+            return nil
+        }
     }
 
     /// The rows' `request` members and their arguments' `suggestions.list` members (the app form
