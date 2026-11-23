@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/45133798615",
+  "recorded_at": "2026-11-23T08:29:21Z",
+  "reason": "image inputs changed in 74bb240c8c2746eaea208c121555414f06f0ec3d..82f5889f835f306da70e599fabdb12571109f750",
+  "dry_run": false,
+  "cmux_tui": "45ed727f30d1a623ba43d98d634b84b838a713db",
+  "fixes": [
+    {
+      "sha": "82f5889f835f306da70e599fabdb12571109f750",
+      "mergedAt": "2026-11-22T23:48:27-08:00",
+      "subject": "cmux-vm bake: syft downloads in its own resumed step before the SBOM scan (#51767)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-23T08:29:21Z",
+    "snapshot_id": "sh-9a2f970369214ffc80e1d5cafab21dc1",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 45133798615): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "24c54cf942ea6f5197a10e24888c35170a30585a",
+    "image": "cloud-native-auto-45ed727f-45133798615-1",
+    "revision": "ci-45133798615-1",
+    "at": "2026-11-23T08:29:21Z"
+  },
+  "rolled_back": false
+}
