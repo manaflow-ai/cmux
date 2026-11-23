@@ -23,7 +23,7 @@ type Arm = "pop" | "settle" | "quick" | "none";
 const ARMS: Record<Arm, string> = {
   pop: "Selected: the rows above rise into the bubble's room on the pop's own clock and curve (450 ms, cubic-bezier(.34, 1.3, .64, 1)), so they and the bubble rest in one frame.",
   settle: "The pop's clock without its overshoot (cubic-bezier(.34, 1, .64, 1)): the rows never pass their place.",
-  quick: "The scale's large step (240 ms), eased out: the rows land before the bubble has settled.",
+  quick: "The motion scale's large step, eased out: the rows land before the bubble has settled.",
   none: "Before: the rows above jump into the bubble's room in the frame of the send, while it pops.",
 };
 
