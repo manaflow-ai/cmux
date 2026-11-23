@@ -27,10 +27,12 @@ test("every page row has exactly one home", () => {
 
 // In sidebar-section order: six pages (one settings area, findings G6; David Beyer 2026-11-20:
 // Settings felt overwhelming; Leo 2026-11-22: "ay, fuck it we ball"), each opening on its first.
+// General opens with Customize, every customization one click away (Leo 2026-11-22).
 test("the categories are the approved ones, in order", () => {
   expect(categories.map((category) => category.id)).toEqual([
     // General: the app itself, what it tells you, its updates, the New Tab page and menus.
     "general",
+    "customize",
     "notifications",
     "updates",
     "newTab",
