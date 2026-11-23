@@ -38,7 +38,8 @@ import PackageDescription
 //   CmuxNextMobile -> Daemon (phone host model, pairing and the mobile.* compat adapter; no UI)
 //   CmuxNextUpdater -> Design, Icons, CmuxUpdater, Sparkle (update checks, appcast probe, update sheet; no daemon)
 //   CmuxNextMallocZone -> libSystem only (C: the delegating default malloc zone that lets the
-//     Chromium framework load later from another thread; plans/cmux-next/browser-isolation.md)
+//     Chromium framework load later from another thread; plans/cmux-next/browser-isolation.md; and the
+//     clock of the app's first initializer, the pre-main launch mark)
 //   CmuxNextRemoteLayer -> QuartzCore only (ObjC header: CALayerHost, the remote layer a layer-hosted
 //     Chromium page draws through; plans/cmux-next/cef-layer-hosting-DESIGN.md)
 //   CmuxNextBrowserImport -> CCmuxAppFFI (imported cookies' sync), system frameworks (browser detection, parsers, importer; no UI)
@@ -191,7 +192,7 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// line together (scripts/cmux-next/repin-app-ffi.sh), never anything else.
 /// scripts/cmux-next/check-app-ffi-pin.sh fails CI when the FFI sources
 /// differ from the pinned source sha.
-// app-ffi-pin-checksum: f8195c5b7317d2ff376b6a12ca08e3c75c4ebe0fd0ab5edfaeef629c0a6149ba
+// app-ffi-pin-checksum: b0cbd5c892d7e97aa60e943471f210c04952a86c86524af223fe6694d95a4513
 struct AppFFIPin: Decodable {
     let url: String
     let checksum: String
@@ -915,7 +916,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             ],
             swiftSettings: uiSwiftSettings
         ),
-        // Chromium's EarlyMallocZoneRegistration, run first thing in main.
+        // Chromium's EarlyMallocZoneRegistration, run first thing in main; the first initializer's clock.
         .target(name: "CmuxNextMallocZone"),
         // QuartzCore's CALayerHost, declared for a typed call (layer-hosted Chromium pages).
         .target(name: "CmuxNextRemoteLayer", linkerSettings: [.linkedFramework("QuartzCore")]),
@@ -1960,6 +1961,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextUpdater",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextActions",
                 "CmuxNextCompat",
                 "CmuxNextDesign",
                 "CmuxNextIcons",
@@ -2069,6 +2071,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextPages",
                 "CmuxNextPalette",
                 "CmuxNextSettings",
+                "CmuxNextWakeups",
             ],
             resources: [.process("Resources")],
             swiftSettings: uiSwiftSettings
@@ -2083,6 +2086,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextPages",
                 "CmuxNextSettings",
                 "CmuxNextTestSupport",
+                "CmuxNextWakeupsTestSupport",
             ],
             swiftSettings: uiSwiftSettings
         ),
@@ -2633,6 +2637,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextSettings",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CCmuxAppFFI",
                 "CmuxNextActions",
                 "CmuxNextCompat",
                 "CmuxNextDesign",
