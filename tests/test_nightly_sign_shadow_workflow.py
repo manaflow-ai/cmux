@@ -114,7 +114,14 @@ def check_workflow() -> None:
     check(document.get("permissions") == {}, "nightly-sign.yml must grant no workflow-level permissions")
     check(not re.search(r"\bsecrets\b", text), "nightly-sign.yml must not name secrets in any form")
     check(set(document) <= WORKFLOW_KEYS, f"nightly-sign.yml has unexpected top-level keys {sorted(map(str, document))}")
-    check(set(document.get("env") or {}) == {"SOURCE_WORKFLOW_PATHS"}, "nightly-sign.yml workflow env holds only SOURCE_WORKFLOW_PATHS")
+    workflow_env = dict(document.get("env") or {})
+    # The temporary API call log (tests/test_ci_api_call_log_bootstrap.py) sets BASH_ENV in every workflow; only
+    # that bootstrap, which loads scripts/ci/api_call_log/env.sh, may sit beside SOURCE_WORKFLOW_PATHS.
+    bash_env = workflow_env.pop("BASH_ENV", None)
+    check(bash_env is None or "/scripts/ci/api_call_log/env.sh" in str(bash_env),
+          "nightly-sign.yml BASH_ENV may only be the API call log bootstrap")
+    check(set(workflow_env) == {"SOURCE_WORKFLOW_PATHS"},
+          "nightly-sign.yml workflow env holds only SOURCE_WORKFLOW_PATHS (and the API call log's BASH_ENV)")
     check("NIGHTLY_SIGN" in text, "nightly-sign.yml must be gated on vars.NIGHTLY_SIGN")
     check(document.get("env", {}).get("SOURCE_WORKFLOW_PATHS") == ".github/workflows/nightly.yml",
           "nightly-sign.yml must declare SOURCE_WORKFLOW_PATHS")

@@ -1374,6 +1374,100 @@ async fn a_parked_allocation_waits_until_the_allocation_deadline() {
     server.abort();
 }
 
+/// A relay that allocates a Connect at once and accepts its circuit's Join
+/// but never answers Ready: the daemon never joins (a fresh machine's daemon
+/// paired the moment it registered, as production saw).
+async fn allocate_but_never_join() -> (std::net::SocketAddr, tokio::task::JoinHandle<()>) {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let (mut control, _) = accept_with_authorization(stream).await;
+        let RelayControl::Connect { lane, generation, .. } =
+            receive_test_control(&mut control).await
+        else {
+            panic!("expected client connect");
+        };
+        send_test_control(
+            &mut control,
+            &RelayControl::Allocated {
+                circuit: CircuitId("unjoined-circuit".into()),
+                lane,
+                generation,
+                join_ticket: "join-ticket".into(),
+            },
+        )
+        .await;
+        let (stream, _) = listener.accept().await.unwrap();
+        let (mut circuit_socket, _) = accept_with_authorization(stream).await;
+        assert!(matches!(
+            receive_test_control(&mut circuit_socket).await,
+            RelayControl::Join { .. }
+        ));
+        while circuit_socket.next().await.is_some() {}
+    });
+    (address, server)
+}
+
+/// A first connect's lane whose daemon never joins the allocated circuit is
+/// given up after the provider's peer join wait, not held to
+/// `control_timeout`, so the dial redials a new circuit in seconds. Without a
+/// wait, and for a resume (a later generation), `control_timeout` holds.
+#[tokio::test]
+async fn a_circuit_the_daemon_never_joins_is_given_up_after_the_peer_join_wait() {
+    let config = RelayClientConfig {
+        slot: "test-slot".into(),
+        ticket: "client-ticket".into(),
+        maximum_frame_bytes: 64,
+        control_timeout: Duration::from_secs(3),
+    };
+    let open = |generation: u64, wait: Option<Duration>| {
+        let config = config.clone();
+        async move {
+            let (address, server) = allocate_but_never_join().await;
+            let mut provider = RelayProvider::new(config).unwrap();
+            if let Some(wait) = wait {
+                provider = provider.with_peer_join_wait(wait);
+            }
+            let group = provider
+                .connect(ConnectRequest {
+                    endpoint: Url::parse(&format!("relay+ws://{address}/v1/relay")).unwrap(),
+                    session: SessionId::ZERO,
+                    lane_policy: LanePolicy::Isolated,
+                    routing: BTreeMap::new(),
+                })
+                .await
+                .unwrap();
+            let started = Instant::now();
+            let error = group
+                .open(LinkRequest { lane: Lane::Interactive, generation })
+                .await
+                .err()
+                .expect("a circuit nobody joins never connects");
+            let waited = started.elapsed();
+            let _ = group.close().await;
+            server.abort();
+            (error.to_string(), waited)
+        }
+    };
+
+    let (error, waited) = open(0, Some(Duration::from_millis(300))).await;
+    eprintln!("first connect, 300 ms peer join wait: gave up after {waited:?}");
+    assert!(error.contains("join timed out"), "{error}");
+    assert!(waited >= Duration::from_millis(250), "gave up after {waited:?}, before the wait");
+    assert!(waited < Duration::from_millis(2_000), "held {waited:?}, toward control_timeout");
+
+    let (error, waited) = open(0, None).await;
+    eprintln!("first connect, no peer join wait: gave up after {waited:?}");
+    assert!(error.contains("join timed out"), "{error}");
+    assert!(waited >= Duration::from_millis(2_900), "no wait keeps control_timeout: {waited:?}");
+
+    let (error, waited) = open(1, Some(Duration::from_millis(300))).await;
+    eprintln!("resume, 300 ms peer join wait: gave up after {waited:?}");
+    assert!(error.contains("join timed out"), "{error}");
+    assert!(waited >= Duration::from_millis(2_900), "a resume keeps control_timeout: {waited:?}");
+}
+
 /// A WebSocket sink that hands each message, with the (virtual) instant it was
 /// sent, to the test: the batched sender's socket with no host in the way.
 struct RecordingSink {
@@ -1580,4 +1674,71 @@ fn a_signed_ticket_renews_at_two_thirds_of_its_lifetime_and_an_opaque_one_never(
         let credential = RelayCredential::parse(opaque.to_owned()).unwrap();
         assert_eq!(renewal_time(&callback, &credential, now), None, "{opaque}");
     }
+}
+
+async fn connect_grant_for(credentials: RelayCredentialSource) -> Option<String> {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let (mut control, _) = accept_with_authorization(stream).await;
+        let RelayControl::Connect { grant, .. } = receive_test_control(&mut control).await else {
+            panic!("expected client connect");
+        };
+        send_test_control(
+            &mut control,
+            &RelayControl::Error {
+                code: "slot-offline".into(),
+                message: "test ends here".into(),
+                retryable: false,
+            },
+        )
+        .await;
+        grant
+    });
+    let provider = RelayProvider::with_credentials(
+        RelayClientConfig {
+            slot: "grant-slot".into(),
+            ticket: String::new(),
+            maximum_frame_bytes: 64,
+            control_timeout: Duration::from_secs(5),
+        },
+        credentials,
+    )
+    .unwrap();
+    let group = provider
+        .connect(ConnectRequest {
+            endpoint: Url::parse(&format!("relay+ws://{address}/v1/relay")).unwrap(),
+            session: SessionId::ZERO,
+            lane_policy: LanePolicy::Isolated,
+            routing: BTreeMap::new(),
+        })
+        .await
+        .unwrap();
+    let _ = tokio::time::timeout(
+        Duration::from_secs(10),
+        group.open(LinkRequest { lane: Lane::Interactive, generation: 1 }),
+    )
+    .await
+    .expect("open did not finish after the relay refused it");
+    let _ = group.close().await;
+    tokio::time::timeout(Duration::from_secs(10), server).await.unwrap().unwrap()
+}
+
+#[tokio::test]
+async fn bound_credentials_carry_their_grant_on_connect() {
+    let credentials = RelayCredentialSource::bound_callback(|| async {
+        Ok::<_, ()>(BoundCredential {
+            ticket: Zeroizing::new("bound-ticket".into()),
+            grant: Some(Zeroizing::new("carrier-grant-jws".into())),
+        })
+    });
+    assert_eq!(connect_grant_for(credentials).await.as_deref(), Some("carrier-grant-jws"));
+}
+
+#[tokio::test]
+async fn plain_credentials_send_no_grant_on_connect() {
+    let credentials =
+        RelayCredentialSource::callback(|| async { Ok::<_, ()>("plain-ticket".to_owned()) });
+    assert_eq!(connect_grant_for(credentials).await, None);
 }

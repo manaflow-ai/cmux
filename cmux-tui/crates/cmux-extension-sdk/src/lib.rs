@@ -73,6 +73,13 @@ pub fn signal(name: &str) -> Option<&'static Signal> {
     SIGNALS.iter().find(|s| s.name == name)
 }
 
+/// Placement of a composer's live reasoning choices in a searchable model picker.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReasoningMenu {
+    Column,
+    Separate,
+}
+
 /// Where a sidebar section starts; the person moves it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Region {
@@ -228,6 +235,21 @@ impl Manifest {
         self
     }
 
+    /// Use the searchable model menu, with the live reasoning choices in the menu's column
+    /// or in a separate chip. This data-only interface needs no activation or scope.
+    pub fn model_picker(mut self, reasoning: ReasoningMenu) -> Self {
+        let reasoning = match reasoning {
+            ReasoningMenu::Column => "column",
+            ReasoningMenu::Separate => "separate",
+        };
+        self.insert_in(
+            "implements",
+            "cmux.composer.model.picker/1",
+            json!({ "options": { "modelMenu": "search", "reasoningMenu": reasoning } }),
+        );
+        self
+    }
+
     /// A slash command in the agent chat composer (`cmux.composer.command/1`): the `/` menu lists
     /// it as `/name`, and picking it writes `insert` over the typed `/word`. Data only: cmux reads
     /// it from the manifest, and a save updates the menu without a restart.
@@ -245,6 +267,20 @@ impl Manifest {
             entry.insert("label".into(), json!(label));
         }
         self.append_data("cmux.composer.toolbar/1", "buttons", Value::Object(entry))
+    }
+
+    /// A context chip in the agent chat composer (`cmux.composer.chip/1`): a short `label` the
+    /// person clicks to add `insert` to the draft; `detail` is its tooltip. Data only: the daemon
+    /// lists it (`apps.composer.list`), and a save updates the chips without a restart.
+    pub fn composer_chip(self, id: &str, label: &str, insert: &str, detail: Option<&str>) -> Self {
+        let mut entry = Map::new();
+        entry.insert("id".into(), json!(id));
+        entry.insert("label".into(), json!(label));
+        if let Some(detail) = detail {
+            entry.insert("detail".into(), json!(detail));
+        }
+        entry.insert("insert".into(), json!(insert));
+        self.append_data("cmux.composer.chip/1", "chips", Value::Object(entry))
     }
 
     /// An item the person names with `@prefix` in the composer (`cmux.composer.mention/1`); the

@@ -4,6 +4,7 @@
 import { diffTreeDisclosure, treeNameFade } from "../agent-session/acpmux/changes/treeMotion.experiment";
 import { sessionReplay } from "../agent-session/acpmux/replay/replay.experiment";
 import { steerQueueExperiment } from "../agent-session/acpmux/steerQueue/steerQueue.experiment";
+import { statusIslandExperiment } from "../agent-session/acpmux/statusIsland/statusIsland.experiment";
 import { chiefDock } from "../agent-session/acpmux/chiefDock.experiment";
 import { newTabComposerTrailingGap } from "../agent-session/acpmux/newtab/composerGap.experiment";
 import { newTabIconColumn } from "../agent-session/acpmux/newtab/iconColumn.experiment";
@@ -70,6 +71,8 @@ import { goalHatPlace } from "../agent-session/acpmux/goalHat.experiment";
 import { trayHeadLook } from "../agent-session/acpmux/subagents/trayHead.experiment";
 import { trayFoldHeadLook } from "../agent-session/acpmux/subagents/trayFoldHead.experiment";
 import { trayKindLineLook } from "../agent-session/acpmux/subagents/trayKindLine.experiment";
+import { trayHeadClockLook } from "../agent-session/acpmux/subagents/trayHeadClock.experiment";
+import { startedLineCrowd } from "../agent-session/acpmux/subagents/startedLineCrowd.experiment";
 import { trayHeadHeightLook } from "../agent-session/acpmux/subagents/trayHeadHeight.experiment";
 import { trayHeadKindsLook } from "../agent-session/acpmux/subagents/trayHeadKinds.experiment";
 import { trayOpenLook } from "../agent-session/acpmux/subagents/trayOpen.experiment";
@@ -80,6 +83,7 @@ import { traySurfaceLook } from "../agent-session/acpmux/subagents/traySurface.e
 import { chatSwitchMotion } from "../agent-session/acpmux/chatSwitch.experiment";
 import { liveBackground } from "../ui/liveBackground/liveBackground.experiment";
 import { composerPlusCommands } from "../agent-session/acpmux/composerPlusCommands.experiment";
+import { composerPlusReturnHint } from "../agent-session/acpmux/composerPlusReturnHint.experiment";
 import { promptSuggestionLook } from "../agent-session/acpmux/promptSuggestionLook.experiment";
 import { cmuxLinkLook } from "../agent-session/acpmux/chips/cmuxLinkLook.experiment";
 import { sentPasteJoin } from "../agent-session/acpmux/conversation/sentPasteJoin.experiment";
@@ -101,12 +105,15 @@ import { fieldGrowthMotion } from "../agent-session/acpmux/composer/fieldGrowth.
 import { composerDockMotion } from "../agent-session/acpmux/composer/dockMotion.experiment";
 import { teamAudit } from "../agent-session/acpmux/teamAudit/teamAudit.experiment";
 import { jumpPairLook } from "../agent-session/acpmux/jumpPair.experiment";
+import { menuStyleV2 } from "../ui/menuStyleV2.experiment";
+import { menuRowStates } from "../ui/menuRowStates.experiment";
 import { jumpLatestPlace } from "../agent-session/acpmux/jumpPlace.experiment";
 import { outcomeAsk } from "../agent-session/acpmux/outcomeAsk.experiment";
 import { composerV2Look } from "../agent-session/acpmux/composerV2.experiment";
 import { composerShellLook } from "../agent-session/acpmux/composer/shellLook.experiment";
 import { composerFooterControls } from "../agent-session/acpmux/composer/footerControls.experiment";
 import { composerEmptyHeight } from "../agent-session/acpmux/composer/emptyHeight.experiment";
+import { toastsV2 } from "../ui/toastsV2.experiment";
 import type { Experiment } from "./experiment";
 
 export const EXPERIMENTS: readonly Experiment[] = [
@@ -114,6 +121,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   treeNameFade,
   sessionReplay,
   steerQueueExperiment,
+  statusIslandExperiment,
   chiefDock,
   hoverActions,
   startedSessionCards,
@@ -187,6 +195,8 @@ export const EXPERIMENTS: readonly Experiment[] = [
   trayFoldHeadLook,
   trayHeadKindsLook,
   trayKindLineLook,
+  trayHeadClockLook,
+  startedLineCrowd,
   trayHeadHeightLook,
   trayOpenLook,
   failedLineLook,
@@ -196,6 +206,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   chatSwitchMotion,
   liveBackground,
   composerPlusCommands,
+  composerPlusReturnHint,
   promptSuggestionLook,
   cloudStartComposerLook,
   cmuxLinkLook,
@@ -221,6 +232,9 @@ export const EXPERIMENTS: readonly Experiment[] = [
   composerShellLook,
   composerFooterControls,
   composerEmptyHeight,
+  menuStyleV2,
+  menuRowStates,
+  toastsV2,
 ];
 
 export function experimentById(id: string): Experiment | undefined {
