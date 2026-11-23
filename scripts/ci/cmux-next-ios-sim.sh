@@ -820,6 +820,16 @@ if [[ "$mode" == handoff ]]; then
   build_settings+=("CMUX_MOBILE_TAG=.$handoff_tag" "CMUX_MOBILE_DEV_TAG=.$handoff_tag" "CMUX_MOBILE_DISPLAY_NAME=cmux $handoff_tag"
     "CMUX_MOBILE_SOURCE_COMMIT=$(git rev-parse HEAD)")
 fi
+if [[ "$mode" == pair-e2e ]]; then
+  # A tag of this run only for the Mac app built below: its own bundle id, socket, settings and state.
+  # A tagged dev Mac's hostd registers in the build space dev:<tag> (CMUX_BUILD_SPACE, #43648), and a
+  # phone lists only the Macs of its own space: the plain Demo build (no CMUX_MOBILE_DEV_TAG) is in the
+  # default space, lists 0 Macs, refuses the Mac's code ("pairing code for a space this account is not
+  # in") and never asks to pair. So the phone gets the Mac's tag as its dev tag (not its bundle id, which
+  # the rig installs by): both are in dev:<tag>, as a hand-off's same-tag Mac and iPhone are.
+  mac_tag="iospair-$(git rev-parse --short=8 HEAD)-$$"
+  build_settings+=("CMUX_MOBILE_DEV_TAG=.$mac_tag")
+fi
 if [[ "$mode" == try ]]; then
   # The cmux Dev app: device only. No CMUX_MOBILE_DEV_TAG (Demo's is empty), so no build space: the
   # person's real data, paired with their NIGHTLY Mac. Unsigned; try.sh signs it on the Mac with the phone.
@@ -980,8 +990,18 @@ if [[ $reduce_motion -eq 1 ]]; then
 fi
 simctl install "$udid" "$app"
 simctl launch "$udid" "$bundle_id" >/dev/null
-# A bounded wait for the first screen to draw; the launch itself has no signal to wait on.
-sleep 8
+# Until the first screen has drawn and holds still: three screenshots in a row the same, 0.5 s apart, at most 30 s.
+# Best effort: past it, the capture below shows whatever is on screen.
+settle_png="$out/screens/.launch-settle.png" settle_last="" settle_same=0
+for _ in $(seq 60); do
+  settle_hash="$(simctl io "$udid" screenshot "$settle_png" >/dev/null 2>&1 && shasum -a 256 "$settle_png" | awk '{ print $1 }')" || settle_hash=""
+  if [ -n "$settle_hash" ] && [ "$settle_hash" = "$settle_last" ]; then settle_same=$((settle_same + 1)); else settle_same=0; fi
+  [ "$settle_same" -ge 2 ] && break
+  settle_last="$settle_hash"
+  sleep 0.5
+done
+rm -f "$settle_png"
+[ "$settle_same" -ge 2 ] || note "- launch: the screen never held still in 30 s; captured as it is"
 simctl io "$udid" screenshot "$out/screens/launch.png" >/dev/null
 simctl terminate "$udid" "$bundle_id" >/dev/null 2>&1 || true
 note "- launch: ok, screens/launch.png"
@@ -1032,7 +1052,14 @@ if [[ "$mode" == handoff ]]; then
     # SIGINT below never reached the recorder and the step hung until its 6 h timeout (2026-11-18).
     xcrun simctl --set "$sims" io "$udid" recordVideo --codec h264 --force "$out/recording.mp4" >"$work/recording.log" 2>&1 &
     rec_pid=$!
-    sleep 1  # the recorder's first frame; a bounded start, it has no ready signal
+    # Until the recorder says "Recording started" (simctl prints it once its first frame is in), at most 10 s.
+    for _ in $(seq 100); do
+      grep -q "Recording started" "$work/recording.log" 2>/dev/null && break
+      kill -0 "$rec_pid" 2>/dev/null || break
+      sleep 0.1
+    done
+    grep -q "Recording started" "$work/recording.log" 2>/dev/null ||
+      note "- recording: the recorder never said it started in 10 s ($(tail -n 1 "$work/recording.log" 2>/dev/null))"
     for leg in auto_login restored; do
       nonce="$(python3 -I -c 'import secrets; print(secrets.token_hex(16))')"
       simctl terminate "$udid" "$bundle_id" >/dev/null 2>&1 || true
@@ -1944,8 +1971,7 @@ fi
 # --- Pairing by QR code ----------------------------------------------------
 if [[ "$mode" == pair-e2e ]]; then
   t0=$SECONDS
-  # A tag of this run only: its own bundle id, socket, settings and state.
-  mac_tag="iospair-$(git rev-parse --short=8 HEAD)-$$"
+  # mac_tag: this run's own tag, set before the phone build (the phone shares its build space).
   prev_last_log="$(cat /tmp/cmux-last-debug-log-path 2>/dev/null || true)"
   mac_dd="$work/mac-dd"
   # A fleet step checks out no submodules (only their empty gitlink directories): the Mac app
