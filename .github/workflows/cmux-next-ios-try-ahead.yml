@@ -1,0 +1,84 @@
+name: cmux Dev try build (ahead)
+
+# iPhone DEV, built ahead (cmuxterm-hq docs/design/ios-dev-channels.md, "Built ahead"): every head of a
+# same-repository pull request into feat-cmux-next that touches the iPhone app asks the build fleet for its cmux Dev
+# device app, the same step `cmux-next-ios/scripts/try.sh` asks for (scripts/ci/cmux-next-ios-sim.sh try, sent as
+# `shots try=dev`, artifact artifacts/ios-sim/evidence.zip, step key cnx-ios-try-try-<sha12>). The controller
+# answers a later submit under that key with this step (ci_step.go existingStep), so `try.sh N`, or the Try a pull
+# request picker in cmux Dev (Settings > Developer), only downloads, signs and installs it.
+#
+# Lowest priority (--background): it queues after every foreground step and a foreground step may take its host,
+# never ahead of a nightly. A newer head cancels this run (concurrency), and a cancelled run cancels its fleet step
+# (ci-client.py: SIGINT cancels the step), so only the newest head builds. Advisory: never a required check. Its
+# conclusion is what the picker reads: success is "built ahead", failure "the device build failed"; no verdict
+# from the fleet (no client, the queue) ends green with a warning, and try.sh then builds it on the tap.
+
+on:
+  pull_request:
+    branches: [feat-cmux-next]
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - "cmux-next-ios/**"
+      - "Packages/iOS/**"
+      - "Packages/Shared/**"
+      - "scripts/ci/cmux-next-ios-sim.sh"
+      - ".github/workflows/cmux-next-ios-try-ahead.yml"
+      - "!**/*.md"
+
+permissions: {}
+
+concurrency:
+  group: cmux-next-ios-try-ahead-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  build-ahead:
+    name: cmux Dev try build (ahead)
+    # The fleet takes same-repository pull requests only; with the gateway unset nothing runs.
+    if: ${{ github.repository_owner == 'manaflow-ai' && github.event.pull_request.head.repo.full_name == github.repository && vars.CI_EVAL_STEP_GATEWAY != '' }}
+    runs-on: ${{ vars.CI_EVAL_STEP_GATEWAY }}
+    # Longer than the step's queue wait at the lowest class plus its run (about 3.3 min cached FFI, 6.7 min cold).
+    timeout-minutes: 300
+    permissions: {}
+    steps:
+      - name: Ask the fleet for this head's cmux Dev device app
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          set -uo pipefail
+          client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
+          if ! [[ -x "$client" ]]; then
+            echo "::warning title=cmux Dev ahead::$client is not installed on runner $RUNNER_NAME; not built ahead (try.sh builds it on request)"
+            exit 0
+          fi
+          [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::bad head $HEAD_SHA"; exit 1; }
+          # The same arguments and key as try.sh's try_fleet, so its submit attaches to this step.
+          log="$RUNNER_TEMP/try-ahead.log"
+          status=0
+          "$client" run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --ref "$HEAD_SHA" \
+            --artifact artifacts/ios-sim/evidence.zip --no-supersede --key "cnx-ios-try-try-${HEAD_SHA:0:12}" \
+            --arg shots --arg try=dev --background --timeout 3600 2>&1 | tee "$log" || status=$?
+          status="${PIPESTATUS[0]:-$status}"
+          step="$(grep -o -E 'step [0-9a-f]{24}' "$log" | head -1 | cut -d' ' -f2)"
+          {
+            echo "### cmux Dev for PR #$PR at ${HEAD_SHA:0:12}"
+            echo
+            if [[ "$status" -eq 0 ]]; then
+              echo "Built ahead (fleet step \`${step:-?}\`). On a Mac with the phone attached: \`cmux-next-ios/scripts/try.sh $PR\`, or Settings > Developer > Try a pull request in cmux Dev."
+            else
+              echo "No build ahead (exit $status, step \`${step:-none}\`); try.sh builds it on request."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [[ "$status" -eq 0 ]]; then exit 0; fi
+          if grep -q 'is not the reviewed version' "$log"; then
+            echo "::warning title=cmux Dev ahead::this head changes scripts/ci/cmux-next-ios-sim.sh, which the fleet runs only once reviewed on feat-cmux-next; not built ahead"
+            exit 0
+          fi
+          # Exit 1 is the step's own failure: the device app does not build at this head.
+          if [[ "$status" -eq 1 ]]; then
+            echo "::error title=cmux Dev ahead::the cmux Dev device app did not build at ${HEAD_SHA:0:12} (fleet step ${step:-?}; cmux-ci log ${step:-ID})"
+            exit 1
+          fi
+          echo "::warning title=cmux Dev ahead::no verdict from the fleet (exit $status); try.sh builds it on request"
+          exit 0
