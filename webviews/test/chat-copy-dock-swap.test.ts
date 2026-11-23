@@ -1,3 +1,4 @@
+// cmux-web-test-timeout: 420
 // l10n-allow-file: test fixture prompts, queued prompts and harness names, not shipped UI.
 // Rows in view and the composer stay put when a chat's saved copy gives way to the live page after
 // a restart, whatever the copy drew in the dock (the bottom stack: notices, queue, composer).
@@ -233,11 +234,15 @@ await requireBrowserLane("chat-copy-dock-swap.test.ts", async () => {
   /// else the live page. Runs in the page.
   function recordFrames({
     windowMs,
+    settledDock,
+    quietMs,
     latest,
     hostTag,
     rowSelector,
   }: {
     windowMs: number;
+    settledDock?: string;
+    quietMs: number;
     latest: string;
     hostTag: string;
     rowSelector: string;
@@ -261,10 +266,6 @@ await requireBrowserLane("chat-copy-dock-swap.test.ts", async () => {
       );
     window.cmuxAfterPaint(() => {
       if (stopped) return false;
-      if (performance.now() > windowMs) {
-        recording.stop();
-        return false;
-      }
       const drawn = document.querySelector<HTMLElement>(hostTag);
       const host = drawn && drawn.style.visibility !== "hidden" ? drawn : null;
       const scope: ParentNode = host?.shadowRoot ?? document;
@@ -312,6 +313,16 @@ await requireBrowserLane("chat-copy-dock-swap.test.ts", async () => {
       if (next !== signature) {
         signature = next;
         recording.changedAt = frame.t;
+      }
+      // The retry notice can arrive after the minimum recording window. Keep measuring
+      // through its arrival and the quiet frames that follow it.
+      if (
+        frame.t >= windowMs &&
+        (settledDock === undefined ||
+          (!frame.copyShown && !frame.rootHidden && !!box && dock === settledDock && frame.t - recording.changedAt >= quietMs))
+      ) {
+        recording.stop();
+        return false;
       }
       return true;
     });
@@ -491,12 +502,14 @@ await requireBrowserLane("chat-copy-dock-swap.test.ts", async () => {
     });
   };
 
-  const prepare = async (page: Page, tail: unknown, windowMs: number) => {
+  const prepare = async (page: Page, tail: unknown, windowMs: number, settledDock?: string) => {
     await installPaintedFrames(page);
     await serveBridge(page);
     await page.addInitScript(installHost, { tail });
     await page.addInitScript(recordFrames, {
       windowMs,
+      settledDock,
+      quietMs: SETTLE_QUIET_MS,
       latest: LATEST,
       hostTag: SNAPSHOT_HOST_TAG,
       rowSelector: TRANSCRIPT_ROW,
@@ -554,7 +567,7 @@ await requireBrowserLane("chat-copy-dock-swap.test.ts", async () => {
     const context = await browser!.newContext({ viewport: VIEWPORT, ...(storage ? { storageState: storage } : {}) });
     try {
       const page = await context.newPage();
-      await prepare(page, keptTail(), RECORD_MS);
+      await prepare(page, keptTail(), RECORD_MS, scenario.relaunch?.dock ?? scenario.warmDock ?? "");
       downUntil = Date.now() + DOWN_MS;
       await page.goto(url, { waitUntil: "commit" });
       await page.waitForFunction(() => (window as unknown as TestWindow).__frames.done, undefined, {
