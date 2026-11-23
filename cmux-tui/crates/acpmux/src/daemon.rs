@@ -94,6 +94,8 @@ pub(crate) use crate::term_sender;
 use stop_causes::next_signal;
 use stop_causes::{AbortOnDrop, store_asks_to_stop};
 pub use stop_causes::{EXIT_REPAIR, exit_status};
+#[cfg(target_os = "linux")]
+mod restart_backoff;
 pub(crate) mod unused_exit;
 #[cfg(target_os = "linux")]
 mod watchdog;
@@ -927,6 +929,9 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     // Remote ssh handshakes are background work. Give the first local initialize and chat attach
     // a turn before dialing them; otherwise a god-sized peer fan-out can starve the pane after
     // the socket is already ready.
+    // A daemon that serves for a minute resets its unit's restart delay (`daemon/restart_backoff.rs`).
+    #[cfg(target_os = "linux")]
+    restart_backoff::start(&hub.scope);
     {
         let peers = hub.clone();
         hub.scope.spawn_until_cancelled("peer-start-gate", async move {
