@@ -4,7 +4,11 @@
 # a 20,000-line terminal that keeps streaming 20 lines/s while the phone scrolls up 10 history
 # fetches, and a 10,000-turn chat streaming a chunk every 50 ms.
 #
-#   cmux-ci test -- scripts/measure/mobile-bandwidth-steps.sh [tree=SHA ...] [profiles=lte,good-wifi]
+#   cmux-ci test -- scripts/measure/mobile-bandwidth-steps.sh [tree=SHA[:BENCHES] ...] [profiles=lte,good-wifi]
+#
+# BENCHES is a +-list of scroll (terminal_scroll_steps), chat (chat_bytes_per_minute's
+# bytes_per_session_changed) and pan (alt_screen_pan_bytes: bytes per one-finger pan over a
+# full-screen app streaming 20 lines/s); default scroll+chat. Pairs: tree=BEFORE:chat tree=AFTER:chat.
 #
 # Each tree gets this checkout's yardstick laid over it (the shaper, the profiles and the two bench
 # files with their counters: cmux-tui `terminal_scroll_steps`, acpmux `chat_bytes_per_minute`'s
@@ -18,7 +22,7 @@ for kv in "$@"; do
     tree=*) trees+=("${kv#*=}") ;;
     profiles=*) profiles="${kv#*=}" ;;
     bw_secs=*) bw_secs="${kv#*=}" ;;
-    *) echo "mobile-bandwidth-steps.sh: unknown arg '$kv' (tree=SHA, profiles=, bw_secs=)" >&2; exit 2 ;;
+    *) echo "mobile-bandwidth-steps.sh: unknown arg '$kv' (tree=SHA[:scroll+chat+pan], profiles=, bw_secs=)" >&2; exit 2 ;;
   esac
 done
 (( ${#trees[@]} )) || trees=(281ddcf1e80359887affccf1975041d8d8f7db76 64863a5779c49073e5c0bb709dd5620dd37ffb20)
@@ -56,12 +60,15 @@ yardstick=(
   cmux-tui/crates/cmux-tui/tests/mobile_link_conditions.rs
   cmux-tui/crates/acpmux/tests/mobile_link_conditions.rs
 )
-cleanup() { for t in "${trees[@]}"; do git -C "$root" worktree remove --force "$work/$t" 2>/dev/null || true; done; }
+cleanup() { for t in "${trees[@]}"; do git -C "$root" worktree remove --force "$work/${t%%:*}" 2>/dev/null || true; done; }
 trap cleanup EXIT
 
 : >"$out/lines.txt"
-for tree in "${trees[@]}"; do
+for spec in "${trees[@]}"; do
+  tree="${spec%%:*}" benches="scroll+chat"
+  [[ "$spec" == *:* ]] && benches="${spec#*:}"
   [[ "$tree" =~ ^[0-9a-f]{40}$ ]] || { echo "mobile-bandwidth-steps.sh: tree= is a 40-character SHA" >&2; exit 2; }
+  [[ "+$benches+" =~ ^(\+(scroll|chat|pan))+\+$ ]] || { echo "mobile-bandwidth-steps.sh: benches are scroll, chat, pan joined by +" >&2; exit 2; }
   src="$work/$tree"
   depth=()
   [[ "$(git rev-parse --is-shallow-repository)" == true ]] && depth=(--depth 1)
@@ -69,7 +76,20 @@ for tree in "${trees[@]}"; do
   git worktree add -q --detach "$src" "$tree"
   git -C "$src" submodule update --init --depth 1 ghostty-next >/dev/null
   for f in "${yardstick[@]}"; do mkdir -p "$(dirname "$src/$f")"; cp "$root/$f" "$src/$f"; done
-  echo "STEPS-TREE $tree: yardstick $(git rev-parse HEAD) laid over it"
+  echo "STEPS-TREE $tree: yardstick $(git rev-parse HEAD) laid over it, benches $benches"
+  if [[ "+$benches+" == *+pan+* ]]; then
+    log="$work/$tree-pan.log"
+    set +e
+    (cd "$src/cmux-tui" && CARGO_TARGET_DIR="$work/target" NETCOND_PROFILES="$profiles" \
+      cargo test --release -p cmux-tui --test mobile_link_conditions -- \
+        --ignored --nocapture --test-threads 1 --exact alt_screen_pan_bytes 2>&1) | tee "$log" \
+      | grep -E '^(NETCOND|test |error)'
+    code=${PIPESTATUS[0]}
+    set -e
+    sed -n "s/^NETCOND /$tree /p" "$log" >>"$out/lines.txt"
+    (( code == 0 )) || { tail -n 60 "$log"; echo "STEPS-FAIL $tree pan exit=$code"; exit "$code"; }
+  fi
+  if [[ "+$benches+" == *+scroll+* ]]; then
   log="$work/$tree-terminal.log"
   set +e
   (cd "$src/cmux-tui" && CARGO_TARGET_DIR="$work/target" NETCOND_PROFILES="$profiles" \
@@ -81,6 +101,8 @@ for tree in "${trees[@]}"; do
   set -e
   sed -n "s/^NETCOND /$tree /p" "$log" >>"$out/lines.txt"
   (( code == 0 )) || { tail -n 60 "$log"; echo "STEPS-FAIL $tree terminal exit=$code"; exit "$code"; }
+  fi
+  [[ "+$benches+" == *+chat+* ]] || continue
   IFS=, read -r -a plist <<<"$profiles"
   for p in "${plist[@]}"; do
     log="$work/$tree-chat-$p.log"
@@ -105,11 +127,17 @@ for line in open(sys.argv[1]):
     r = json.loads(js)
     if r.get("value") is None:
         continue
-    rows[(tree[:10], r["profile"], r["phase"], r["metric"])].append((r["scale"], r["value"]))
+    phase = r["phase"] + ("_idle" if r["scale"] == "idle" else "")
+    rows[(tree[:10], r["profile"], phase, r["metric"])].append((r["scale"], r["value"]))
 for (tree, prof, phase, metric), vals in sorted(rows.items()):
     if phase == "scroll_step" and metric in ("bytes_down", "replay_bytes", "rows_asked", "step_ms", "streamed_bytes"):
         v = [x for _, x in sorted(vals)]
         print(f"STEPS-SUMMARY {tree} {prof} scroll_step {metric} n={len(v)} mean={sum(v)/len(v):.0f} first={v[0]:.0f} last={v[-1]:.0f} all={','.join(f'{x:.0f}' for x in v)}")
-    elif metric in ("bytes_per_session_changed", "session_changed_msgs"):
+    elif phase == "alt_pan_idle":
+        print(f"STEPS-SUMMARY {tree} {prof} alt_pan_idle {metric} {vals[0][1]:.0f}")
+    elif phase == "alt_pan" and metric in ("bytes_down", "bytes_up", "sends", "wheel_reports", "output_bytes", "send_reply_bytes", "pan_ms"):
+        v = [x for _, x in sorted(vals)]
+        print(f"STEPS-SUMMARY {tree} {prof} alt_pan {metric} n={len(v)} mean={sum(v)/len(v):.0f} all={','.join(f'{x:.0f}' for x in v)}")
+    elif metric in ("bytes_per_session_changed", "session_changed_msgs", "session_patch_msgs"):
         print(f"STEPS-SUMMARY {tree} {prof} {phase} {metric} {vals[0][1]:.0f}")
 PY
