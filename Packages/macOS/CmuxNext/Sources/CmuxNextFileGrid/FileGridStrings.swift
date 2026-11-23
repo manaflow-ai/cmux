@@ -1,7 +1,7 @@
 import Foundation
 
 /// The grid's own texts (Resources/Localizable.xcstrings): its menu items and label.
-nonisolated struct FileGridStrings {
+struct FileGridStrings {
     private static func t(_ key: StaticString, _ value: String.LocalizationValue) -> String {
         String(localized: key, defaultValue: value, bundle: .localizedModule)
     }
