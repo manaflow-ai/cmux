@@ -29,13 +29,17 @@ steps_each_way = 3
 metric = "paint_mismatch"
 max = 0
 
+# scroll_to_paint_ms is reported, not checked: on lte its p95 is the link's own (loss and
+# retransmit; wire_ms p95 alone is past 130 ms), as in tui-scroll-lag. Budgets below are ours,
+# not a harness's: the Mac keeps up with claudefull's 16 ms redraw, and the phone's apply fits
+# in half a frame.
+# The stop line: a scroll paints within two display frames of the link's own delivery (one for
+# the Mac's grid, diff and encode, which the terminal path does not have, one for the vsync).
 [[check]]
-metric = "scroll_to_paint_ms"
+metric = "paint_over_link_ms"
 stat = "p95"
-max = 80
+max = 33.4
 
-# Budgets below are ours, not a harness's: the Mac keeps up with claudefull's 16 ms redraw,
-# a scroll paints within about 5 frames, the phone's apply fits in half a frame.
 [[check]]
 metric = "mac_queue_ms"
 stat = "p95"
