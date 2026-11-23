@@ -29,7 +29,9 @@ const SRC = join(dirname(fileURLToPath(import.meta.url)), "../src");
 const ALLOW = /glass-opaque-allow:\s*\S/;
 // Reduce Transparency contexts; `not (...)` and `:not([...])` are the glass side, so they stay checked.
 const REDUCE_MEDIA = /(?<!not\s*)\(\s*prefers-reduced-transparency\s*:\s*reduce\s*\)/;
-const REDUCE_ATTR = /(?<!:not\(\s*)\[data-reduce-transparency\]/;
+// The host's Reduce Transparency, or Liquid Glass off (appearance.liquidGlass, data-glass="off"),
+// outside a `:not(...)` list.
+const REDUCE_ATTR = /(?<!:not\([^)]*)\[data-reduce-transparency\]|(?<!:not\([^)]*)\[data-glass="off"\]/;
 // Host tokens (WebTheme.swift) the CSS never defines but documents as solid.
 const HOST_SOLID = /^--cmux-(?:.*solid.*|popup-surface)$/;
 // A tooltip or hover card: `.ui-tooltip`, `.ui-title-tooltip`, `.ui-hint`, `.ui-card`, `.cu-tooltip`,

@@ -165,6 +165,7 @@ extension AppServices {
         consent.changed = { [weak consent, weak host = pages.hubHost] in
             host?.consentChanged { consent?.macScreenPermits($0) ?? false }
         }
+        pages.deviceSetup.runner = MacScreenDeviceSetup.runner(daemon: services.daemon)
         return pages
     }
 
