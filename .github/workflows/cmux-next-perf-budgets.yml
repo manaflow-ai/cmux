@@ -97,6 +97,8 @@ concurrency:
   cancel-in-progress: false
 
 env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
   YIELD_MODE: ${{ inputs.yield_mode || vars.CMUX_NEXT_PERF_CRON_YIELD || 'queued' }}
 
 # A manual tip_sha+parts dispatch is a direct, warning-only Blacksmith macOS
@@ -128,6 +130,7 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
 
       # Warm start (.github/warm-sources.json: actions-cache). The build keeps what it made in
       # CI_SHARED_CACHE_DIR: the tip's app (split-spring-apps/<sha>), the GhosttyKit archive
@@ -316,7 +319,7 @@ jobs:
   plan:
     name: perf cron plan
     if: ${{ github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' && inputs.tip_sha == '' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     permissions:
       actions: read
       contents: read
@@ -327,6 +330,11 @@ jobs:
       sha: ${{ steps.plan.outputs.sha }}
       part: ${{ steps.plan.outputs.part }}
       linux_part: ${{ steps.plan.outputs.linux_part }}
+      # The Linux part asked of the build controller instead (vars.CMUX_NEXT_PERF_CRON_LINUX_CONTROLLER=1): the
+      # linux-request job's name is the request; linux_part is then empty unless the requests went unanswered.
+      linux_request: ${{ steps.plan.outputs.linux_request }}
+      mac_parts: ${{ steps.plan.outputs.mac_parts }}
+      result_parts: ${{ steps.plan.outputs.result_parts }}
       worker: ${{ steps.plan.outputs.worker }}
       args: ${{ steps.plan.outputs.args }}
       artifact: ${{ steps.plan.outputs.artifact }}
@@ -340,7 +348,7 @@ jobs:
       # their host (diff rows are compared only within one runner class). infinite-items builds release acpmux,
       # cmux-tui and its Zig terminal engine cold: on 4 vCPUs that build alone ran past 38 minutes (2026-11-17), so
       # that part takes 16.
-      linux_runner: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || steps.plan.outputs.linux_part == 'infinite-items' && fromJSON(vars.RUNNER_POOLS).linux_16 || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+      linux_runner: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     steps:
       # The branch tip with the trees of its recent commits (the cmux-tui tree key of each candidate)
       # and no blobs beyond the scripts.
@@ -359,6 +367,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           MAC_GATEWAY: ${{ vars.CI_PERF_CRON_GATEWAY }}
           MAC_CONTROLLER: ${{ vars.CMUX_NEXT_PERF_CRON_CONTROLLER }}
+          LINUX_CONTROLLER: ${{ vars.CMUX_NEXT_PERF_CRON_LINUX_CONTROLLER }}
           PERF_RESULT: ${{ inputs.perf_result }}
         run: |
           set -euo pipefail
@@ -369,12 +378,17 @@ jobs:
           # that wait as a yield.
           route=()
           [ -n "$MAC_GATEWAY" ] || [ "$MAC_CONTROLLER" != 1 ] || route=(--controller)
+          # The Linux parts on the build controller first, the linux job only after unanswered requests.
+          [ "$LINUX_CONTROLLER" != 1 ] || route+=(--linux-controller)
           # A result run carries the result of a part that ran on the bench: it waits out a spent rate limit (it
           # resets within the hour) instead of dropping the result. A plain tick does nothing and the next one tries.
           wait=()
           [ -z "$PERF_RESULT" ] || wait=(--wait-limit 3600)
           python3 -I scripts/cmux-next/perf-cron.py fetch-state --repo "$GITHUB_REPOSITORY" --dir "$dir" ${wait[@]+"${wait[@]}"}
-          python3 -I scripts/cmux-next/perf-cron.py plan --repo "$GITHUB_REPOSITORY" --dir "$dir" \
+          # The plan itself takes about a minute. Run 44731310755 (2026-11-20) printed nothing for 74 minutes after
+          # fetch-state, held by the job's cap: its prints sat in a pipe buffer, so the log named no line. Unbuffered,
+          # and past 10 minutes SIGABRT makes faulthandler print every thread's stack before it ends.
+          timeout -s ABRT 600 python3 -I -u -X faulthandler scripts/cmux-next/perf-cron.py plan --repo "$GITHUB_REPOSITORY" --dir "$dir" \
             --yield-mode "$YIELD_MODE" ${no_mac[@]+"${no_mac[@]}"} ${route[@]+"${route[@]}"} --perf-result "$PERF_RESULT" \
             --output "$GITHUB_OUTPUT" | tee "$RUNNER_TEMP/plan.log"
           { echo "### perf cron plan"; echo; sed -n 's/^perf-cron plan: //p' "$RUNNER_TEMP/plan.log"; } >> "$GITHUB_STEP_SUMMARY"
@@ -484,7 +498,7 @@ jobs:
     name: perf cron request ${{ needs.plan.outputs.sha }} ${{ needs.plan.outputs.part }}${{ needs.plan.outputs.worker != '' && format(' on {0}', needs.plan.outputs.worker) || '' }}
     needs: plan
     if: ${{ needs.plan.outputs.action == 'part' && needs.plan.outputs.part != '' && vars.CI_PERF_CRON_GATEWAY == '' && vars.CMUX_NEXT_PERF_CRON_CONTROLLER == '1' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     permissions: {}
     timeout-minutes: 5
     steps:
@@ -493,9 +507,36 @@ jobs:
           SHA: ${{ needs.plan.outputs.sha }}
           PART: ${{ needs.plan.outputs.part }}
           WORKER: ${{ needs.plan.outputs.worker }}
+          MAC_PARTS: ${{ needs.plan.outputs.mac_parts }}
         run: |
+          # The controller reads this line from the job's log and runs the parts back to back, the requested one first
+          # (perf-cron.py BATCH_PREFIX; cmuxterm-hq perf_cron_batch.go perfCronBatchLine). Without it, one part.
+          [ -z "$MAC_PARTS" ] || echo "perf-cron-batch: $MAC_PARTS"
           { echo "### perf cron request"; echo
             echo "Asked the build controller for part \`$PART\` at \`${SHA:0:12}\` on ${WORKER:-any idle measure worker}. It runs only while that host is idle;"
+            echo "its result starts a new run of this workflow."; } >> "$GITHUB_STEP_SUMMARY"
+
+  # The Linux parts' controller route (Leo, 2026-11-19, on Blacksmith: "stop ... relying on it"): this job's name is
+  # the request, as for the Mac parts. The controller (cmuxterm-hq perf_cron.go perfCronLinuxParts) runs
+  # scripts/measure/perf-cron-linux.sh PART on an idle Linux pool worker, holds no runner while it runs, and dispatches
+  # this workflow with perf_result when the step ends. A request with no answer counts (perf-cron.py linux_route); after
+  # LINUX_REQUESTS_MAX of them the part runs on the linux job below once. The same label as the plan: a tick that got
+  # a plan runner gets this one.
+  linux-request:
+    name: perf cron request ${{ needs.plan.outputs.sha }} ${{ needs.plan.outputs.linux_request }}
+    needs: plan
+    if: ${{ needs.plan.outputs.action == 'part' && needs.plan.outputs.linux_request != '' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    permissions: {}
+    timeout-minutes: 5
+    steps:
+      - name: Ask the build controller for the Linux part
+        env:
+          SHA: ${{ needs.plan.outputs.sha }}
+          PART: ${{ needs.plan.outputs.linux_request }}
+        run: |
+          { echo "### perf cron Linux request"; echo
+            echo "Asked the build controller for Linux part \`$PART\` at \`${SHA:0:12}\` on an idle Linux pool worker;"
             echo "its result starts a new run of this workflow."; } >> "$GITHUB_STEP_SUMMARY"
 
   # The frame-pacing bench (fling and golden interactions, 120 Hz virtual display, owned mini) left its fixed
@@ -505,7 +546,7 @@ jobs:
     name: perf cron starts frame pacing
     needs: plan
     if: ${{ needs.plan.outputs.frame_pacing == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     permissions:
       actions: write
     timeout-minutes: 5
@@ -543,6 +584,7 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
 
       - name: Install webview dependencies
         working-directory: webviews
@@ -587,8 +629,8 @@ jobs:
   report:
     name: perf cron report
     needs: [plan, measure, linux]
-    if: ${{ always() && needs.plan.result == 'success' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    if: ${{ !cancelled() && needs.plan.result == 'success' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     permissions:
       actions: write  # read the state, and start the next tick at once (Start the next part now)
       contents: read
@@ -604,6 +646,8 @@ jobs:
             scripts/cmux-next/perf-cron.py
             scripts/cmux-next/perf-budgets.py
             scripts/cmux-next/perf-budgets.json
+            scripts/cmux-next/perf-budget-table.py
+            scripts/cmux-next/perf-budget-table.tsv
             scripts/cmux-next/perf-profile-split.py
             scripts/perf-bench
           sparse-checkout-cone-mode: false
@@ -626,7 +670,7 @@ jobs:
         if: ${{ needs.plan.outputs.action == 'result' }}
         env:
           PERF_RESULT: ${{ inputs.perf_result }}
-        run: python3 -I scripts/cmux-next/perf-cron.py fetch-result --result "$PERF_RESULT" --out "$RUNNER_TEMP/perf-cron-part"
+        run: python3 -I scripts/cmux-next/perf-cron.py fetch-result --each --result "$PERF_RESULT" --out "$RUNNER_TEMP/perf-cron-result"
 
       - name: Download the Linux part's result
         if: ${{ needs.linux.result != 'skipped' }}
@@ -640,7 +684,8 @@ jobs:
         id: report
         env:
           GH_TOKEN: ${{ github.token }}
-          PART: ${{ (needs.measure.result != 'skipped' || needs.plan.outputs.action == 'result') && needs.plan.outputs.part || '' }}
+          PART: ${{ needs.measure.result != 'skipped' && needs.plan.outputs.part || '' }}
+          RESULT_PARTS: ${{ needs.plan.outputs.action == 'result' && needs.plan.outputs.result_parts || '' }}
           LINUX_PART: ${{ needs.linux.result != 'skipped' && needs.plan.outputs.linux_part || '' }}
           FINISH: ${{ needs.plan.outputs.action == 'finish' && '--finish' || '' }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
@@ -648,12 +693,17 @@ jobs:
           set -euo pipefail
           results=()
           [ -z "$PART" ] || results+=(--result "$PART=$RUNNER_TEMP/perf-cron-part")
+          # The controller's result, or a batch's results in the order they ran (perf-cron.py result_plan).
+          for part in $RESULT_PARTS; do results+=(--result "$part=$RUNNER_TEMP/perf-cron-result/$part"); done
           [ -z "$LINUX_PART" ] || results+=(--result "$LINUX_PART=$RUNNER_TEMP/perf-cron-linux")
           # shellcheck disable=SC2086 # FINISH is one flag or empty
           python3 -I scripts/cmux-next/perf-cron.py report --repo "$GITHUB_REPOSITORY" --dir "$RUNNER_TEMP/perf-cron" \
             ${results[@]+"${results[@]}"} --run-url "$RUN_URL" --issues $FINISH \
             --output "$GITHUB_OUTPUT" | tee "$RUNNER_TEMP/report.log"
-          { echo "### perf cron report"; echo; sed -n 's/^perf-cron report: //p' "$RUNNER_TEMP/report.log"; } >> "$GITHUB_STEP_SUMMARY"
+          { echo "### perf cron report"; echo; sed -n 's/^perf-cron report: //p' "$RUNNER_TEMP/report.log"
+            # The budget of every producer (scripts/cmux-next/perf-budget-table.tsv): "Budget: N over, N not measured",
+            # then each row over or not measured.
+            echo; sed -n 's/^perf-cron budget: \(.*\)$/- \1/p' "$RUNNER_TEMP/report.log"; } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Save the state for the next tick
         if: ${{ steps.report.outputs.changed == 'true' }}

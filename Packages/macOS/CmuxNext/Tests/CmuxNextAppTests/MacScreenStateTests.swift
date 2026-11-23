@@ -90,6 +90,21 @@ struct MacScreenConnectTimingsTests {
         timings.connectStarted(at: Date(), start + .seconds(5))
         #expect(timings.firstFrameMs == nil && timings.rtt.count == 0)
     }
+
+    /// Each stage ends once, when the connect first gets past it; a skipped stage ends with the later one.
+    @Test func eachConnectStageEndsOnce() {
+        var timings = MacScreenConnectTimings()
+        let start = ContinuousClock.now
+        timings.reached(.link, at: start)
+        #expect(timings.stageMs.isEmpty, "no connect yet")
+        timings.connectStarted(at: Date(), start)
+        timings.reached(.link, at: start + .milliseconds(120))
+        timings.reached(.link, at: start + .milliseconds(400))
+        timings.reached(.shown, at: start + .milliseconds(510))
+        #expect(timings.stageMs == [.answer: 120, .link: 510, .frame: 510])
+        timings.connectStarted(at: Date(), start + .seconds(5))
+        #expect(timings.stageMs.isEmpty)
+    }
 }
 
 @MainActor
@@ -118,10 +133,16 @@ struct MacScreenStateControlTests {
         #expect(try rows(pages).count == 1, "the home tab is not a screen")
         #expect(idle["tab"]?.stringValue == "a")
         #expect(idle["device_id"]?.stringValue == deviceID)
-        #expect(idle["phase"]?.stringValue == "ended")
+        // Opened by automation that waits for the person: the Connect card, no stream started yet.
+        #expect(idle["phase"] == CmuxNextSettings.JSONValue.null)
+        #expect(idle["hub_phase"]?.stringValue == "idle" && idle["state"]?.stringValue == "idle")
+        #expect(idle["started_by"] == CmuxNextSettings.JSONValue.null)
         #expect(idle["connected"]?.boolValue == false && idle["has_frame"]?.boolValue == false)
         #expect(idle["first_frame_ms"] == CmuxNextSettings.JSONValue.null && idle["connect_started_at"] == CmuxNextSettings.JSONValue.null)
         #expect(idle["frame_interval_ms"] == CmuxNextSettings.JSONValue.null)
+        // Nothing asked the hub: the read says so, rather than only "ended" and "no_answer".
+        #expect(idle["hub_phase"]?.stringValue == "idle")
+        #expect(idle["waits_to_show"]?.boolValue == false)
 
         let start = ContinuousClock.now
         session.timings.connectStarted(at: Date(timeIntervalSince1970: 1_700_000_000), start)
@@ -135,9 +156,22 @@ struct MacScreenStateControlTests {
         session.framesCounted(counter)
         // An old transport's late batch is not this session's.
         session.framesCounted(MacScreenFrameCounter())
+        // The host answered, the link came up, a picture showed.
+        session.reach(.link)
+        session.reach(.frame)
+        session.framePresented(size: CGSize(width: 1920, height: 1080))
 
         let live = try #require(try rows(pages, tab: "a").first)
+        #expect(live["phase"]?.stringValue == "ended", "a connect began: the phase is the session's")
         #expect(live["connect_started_at"]?.stringValue == "2023-11-14T22:13:20Z")
+        // A picture showed: the read names the stage it reached and when each stage before it ended.
+        #expect(live["connect_stage"]?.stringValue == "shown")
+        let stages = try #require(live["connect_stage_ms"]?.objectValue)
+        #expect(Set(stages.keys) == ["answer", "link", "frame"])
+        let answer = try #require(stages["answer"]?.doubleValue)
+        let link = try #require(stages["link"]?.doubleValue)
+        let frame = try #require(stages["frame"]?.doubleValue)
+        #expect(answer <= link && link <= frame && frame < 10_000)
         let first = try #require(live["first_frame_ms"]?.doubleValue)
         #expect(first >= 0 && first < 10_000)
         #expect(live["frames_dropped"]?.doubleValue == 2)
@@ -149,6 +183,24 @@ struct MacScreenStateControlTests {
         #expect(try rows(pages, tab: "other").isEmpty)
         pages.tabClosed("a")
         pages.tabClosed("home")
+    }
+
+    /// A device tab holding a scope until it is shown (`macScreen.open --autoconnect` into a tab that
+    /// was never selected) reads `waits_to_show`, and the hub request it then makes reads its phase.
+    @Test func aTabThatWaitsToBeShownSaysSo() throws {
+        let pages = makePages()
+        _ = pages.record(forDevice: deviceID, requesting: .view)
+        pages.prepare("a", record: MacScreenRecord(deviceID: deviceID), byPerson: true)
+        _ = pages.makeView(for: "a")
+        let waiting = try #require(try rows(pages, tab: "a").first)
+        #expect(waiting["hub_phase"]?.stringValue == "idle")
+        #expect(waiting["waits_to_show"]?.boolValue == true)
+        // Shown: the scope goes to the hub (with no hub signed in here, it is refused at once).
+        try #require(pages.tab("a")?.pane).resume()
+        let asked = try #require(try rows(pages, tab: "a").first)
+        #expect(asked["hub_phase"]?.stringValue == "refused")
+        #expect(asked["waits_to_show"]?.boolValue == false)
+        pages.tabClosed("a")
     }
 
     /// The method `cmux app mac-screens` sends is one the app registers in every build.

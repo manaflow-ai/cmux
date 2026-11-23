@@ -326,6 +326,8 @@ struct AgentPaneActAsMeTests {
         _ = NSApplication.shared
         let grant = AgentPaneActAsMe()
         let card = AgentPaneActAsMeCard(grant: grant)
+        // SECURITY: out of every capture cmux makes (CaptureExcludedWindows reads it) and refused by Computer Use.
+        #expect(card.sharingType == .none)
         card.content.rebuild()
         card.setContentSize(card.content.fittingSize)
         card.contentView?.layoutSubtreeIfNeeded()

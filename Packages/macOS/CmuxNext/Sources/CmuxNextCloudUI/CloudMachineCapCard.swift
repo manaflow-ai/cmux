@@ -59,33 +59,33 @@ public nonisolated struct CloudMachineCapCard {
 
     enum Strings {
         static var atCapTitle: String {
-            String(localized: "cloud.atCap.title", defaultValue: "All your Cloud machines are busy", table: "Cloud", bundle: .module)
+            String(localized: "cloud.atCap.title", defaultValue: "All your Cloud machines are busy", table: "Cloud", bundle: .localizedModule)
         }
         static var atCapDetail: String {
             String(localized: "cloud.atCap.detail", defaultValue: "Your plan's running machines are all in use. Pause one to make room, upgrade for more, or run this on your Mac.",
-                   table: "Cloud", bundle: .module)
+                   table: "Cloud", bundle: .localizedModule)
         }
         static var atCapNoneDetail: String {
             String(localized: "cloud.atCap.detailNoneYours", defaultValue: "Your team's running machines are all in use. Upgrade for more, or run this on your Mac.",
-                   table: "Cloud", bundle: .module)
+                   table: "Cloud", bundle: .localizedModule)
         }
         static var freePlanTitle: String {
-            String(localized: "cloud.atCap.freeTitle", defaultValue: "Cloud machines need a paid plan", table: "Cloud", bundle: .module)
+            String(localized: "cloud.atCap.freeTitle", defaultValue: "Cloud machines need a paid plan", table: "Cloud", bundle: .localizedModule)
         }
         static var freePlanDetail: String {
-            String(localized: "cloud.atCap.freeDetail", defaultValue: "Your plan has no Cloud machines. Upgrade, or run this on your Mac.", table: "Cloud", bundle: .module)
+            String(localized: "cloud.atCap.freeDetail", defaultValue: "Your plan has no Cloud machines. Upgrade, or run this on your Mac.", table: "Cloud", bundle: .localizedModule)
         }
         static func busyLine(_ name: String, active: String) -> String {
-            String(format: String(localized: "cloud.atCap.busyLine", defaultValue: "%1$@: last active %2$@", table: "Cloud", bundle: .module), name, active)
+            String(format: String(localized: "cloud.atCap.busyLine", defaultValue: "%1$@: last active %2$@", table: "Cloud", bundle: .localizedModule), name, active)
         }
         static func pause(_ name: String) -> String {
-            String(format: String(localized: "cloud.atCap.pause", defaultValue: "Pause %@", table: "Cloud", bundle: .module), name)
+            String(format: String(localized: "cloud.atCap.pause", defaultValue: "Pause %@", table: "Cloud", bundle: .localizedModule), name)
         }
-        static var upgrade: String { String(localized: "cloud.atCap.upgrade", defaultValue: "Upgrade", table: "Cloud", bundle: .module) }
-        static var runHere: String { String(localized: "cloud.atCap.runHere", defaultValue: "Run on This Mac", table: "Cloud", bundle: .module) }
-        static var notNow: String { String(localized: "cloud.atCap.notNow", defaultValue: "Not Now", table: "Cloud", bundle: .module) }
+        static var upgrade: String { String(localized: "cloud.atCap.upgrade", defaultValue: "Upgrade", table: "Cloud", bundle: .localizedModule) }
+        static var runHere: String { String(localized: "cloud.atCap.runHere", defaultValue: "Run on This Mac", table: "Cloud", bundle: .localizedModule) }
+        static var notNow: String { String(localized: "cloud.atCap.notNow", defaultValue: "Not Now", table: "Cloud", bundle: .localizedModule) }
         static func madeRoom(_ name: String) -> String {
-            String(format: String(localized: "cloud.atCap.madeRoom", defaultValue: "Paused %@'s machine to make room", table: "Cloud", bundle: .module), name)
+            String(format: String(localized: "cloud.atCap.madeRoom", defaultValue: "Paused %@'s machine to make room", table: "Cloud", bundle: .localizedModule), name)
         }
     }
 }

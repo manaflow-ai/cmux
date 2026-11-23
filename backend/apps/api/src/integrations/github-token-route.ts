@@ -12,7 +12,7 @@ import { platformCloud } from "../platform-cloud.ts"
 
 /**
  * The GitHub token routes (gh-app-product contract; the work is in github-tokens.ts): POST /token
- * {team, repo, permissions, label?}, POST /token/revoke {team, install?}, GET /status?team=,
+ * {team, repo, permissions, label?}, POST /token/revoke {team, install? | machine?}, GET /status?team=,
  * GET /repos?team=&query?&cursor? -> {repos: [{full_name, private, default_branch}], truncated, cursor}. /status's
  * connection carries `configure_url`, the installation's GitHub page for adding repositories, or null. Callers:
  * a `vm` install for its own live machine (vmGate's checks, through CloudDO's cloud.vm.self.get), a
@@ -32,11 +32,17 @@ const REPOS_PER_ANSWER = 100
 type Fail = { status: number; code: string; message: string; retry_after?: number; configure_url?: string; reason?: string }
 // `configure_url` and a policy.denied's `reason` (github-tokens.ts DenyReason) ride in `error`, where the machine's
 // git and gh read them (cmux-host github.rs reply_for).
-const failed = (f: Fail) => Response.json({ error: { code: f.code, message: f.message, ...(f.configure_url === undefined ? {} : { configure_url: f.configure_url }), ...(f.reason === undefined ? {} : { reason: f.reason }) }, ...(f.retry_after === undefined ? {} : { retry_after: f.retry_after }) }, { status: f.status, headers: NO_STORE })
+const failed = (f: Fail) => Response.json({ error: { code: f.code, message: f.message, ...(f.configure_url === undefined ? {} : { configure_url: f.configure_url }), ...(f.reason === undefined ? {} : { reason: f.reason }) }, ...(f.retry_after === undefined ? {} : { retry_after: f.retry_after }) }, { status: f.status, headers: f.retry_after === undefined ? NO_STORE : { ...NO_STORE, "retry-after": String(f.retry_after) } })
 const no = (status: number, code: string, message: string): Fail => ({ status, code, message })
 const unreachable = (what: string) => no(503, "integration.unavailable", `${what} could not be checked; retry`)
 
 const connections = (env: Env, team: string) => env.CONNECTION_DO.get(env.CONNECTION_DO.idFromName(team))
+
+/**
+ * Where the machine-only seam (POST /machine-token) answers: development and staging, where Cloud
+ * environment builds mint through it. Production stays closed until the hosted connector rollout.
+ */
+export const MACHINE_TOKEN_ENVIRONMENTS: ReadonlySet<string> = new Set(["development", "staging"])
 
 /** The caller, in `team` (a vm install: its machine's team), with grant classes, or why not. */
 const caller = async (request: Request, env: Env, team: string | undefined): Promise<{ p: Principal; team: string; machine?: string } | Fail> => {
@@ -81,13 +87,13 @@ const teamAdmin = async (env: Env, p: Principal, team: string): Promise<boolean 
 }
 
 export const handleGithubToken = async (request: Request, env: Env, sub: string): Promise<Response> => {
-  // The machine-only seam is a development surface until the hosted connector rollout. Repository
+  // The machine-only seam answers in MACHINE_TOKEN_ENVIRONMENTS (not production). Repository
   // enumeration answers in every environment: a signed-in person (a session or their own install), and a
   // `vm` install for its own team under exactly the gate POST /token applies to it (caller: its machine's
   // team only, the SSO gate, a live grant, vmGate's own live machine). The listing is no wider than the
   // tokens that VM could mint: githubRepos keeps only the connections it may use and the repositories
   // their scope and the team's allowlist cover (githubRepoAllowed, as authorize's githubCovers).
-  if (sub === "machine-token" && env.ENVIRONMENT !== "development") return new Response("not found", { status: 404 })
+  if (sub === "machine-token" && !MACHINE_TOKEN_ENVIRONMENTS.has(env.ENVIRONMENT)) return new Response("not found", { status: 404 })
   if (sub === "repos") {
     if (request.method !== "GET") return failed(no(405, "request.invalid", "GET"))
     const url = new URL(request.url)
@@ -151,6 +157,15 @@ export const handleGithubToken = async (request: Request, env: Env, sub: string)
   if (isFail(body)) return failed(body)
   const who = await caller(request, env, body.team)
   if (isFail(who)) return failed(who)
+  if (body.machine !== undefined) {
+    // A joined machine's tokens (cmux-platform revokes them itself on machine revoke and rotation): a team admin only.
+    if (body.install !== undefined) return failed(no(400, "request.invalid", "name an install or a machine, not both"))
+    const admin = await teamAdmin(env, who.p, who.team)
+    if (admin === null) return failed(unreachable("the team role"))
+    if (!admin) return failed(no(403, "auth.forbidden", "revoking a joined machine's tokens needs a team admin"))
+    const revoked = await connections(env, who.team).githubRevoke(who.team, { principal: `machine:${body.machine}` }).catch(() => null)
+    return revoked === null ? failed(unreachable("the team's GitHub tokens")) : Response.json({ revoked }, { headers: NO_STORE })
+  }
   const own = who.p.kind === "install" ? who.p.install : undefined
   if (body.install !== undefined && body.install !== own) {
     const admin = await teamAdmin(env, who.p, who.team)

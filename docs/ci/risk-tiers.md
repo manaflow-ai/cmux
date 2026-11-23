@@ -10,9 +10,9 @@ graded them, in about a minute, alongside the rest of CI.
 classifier is `scripts/ci/risk_tier.py`, and its tests are in `tests/test_risk_tier.py`.
 Since cmuxterm-hq#5745 (Leo, 2026-11-01: "keep only what catches real breakage") the check turns red
 for one thing: a takeback no `Takes back #N:` line owns (below). A high pull request with no verdict, or
-with a BLOCK, gets a warning in the job summary and the check stays green. What holds it is the review
-itself: every pull request lands only on an independent review at its exact head, and the lander
-refuses a BLOCK there.
+with a BLOCK, gets a warning in the job summary and the check stays green. The lander refuses a BLOCK
+at the exact head. Into `feat-cmux-next` no review otherwise gates a merge (Leo, 2026-11-12); a high pull
+request still posts its SHIP receipt before it merges (below).
 
 ## Tiers
 

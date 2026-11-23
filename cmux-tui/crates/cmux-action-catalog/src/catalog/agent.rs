@@ -119,8 +119,13 @@ pub static ACTIONS: &[Action] = &[
         keywords: &["agent", "chat", "new", "cloud", "vm", "remote", "machine", "sleep"],
         category: "agents",
         symbol: "cloud",
-        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("guiOnly"), ..SurfacePlan::DEFAULT },
+        // File and the New Tab button's menu, right under New Agent Chat (a rank 2 tie sorts by
+        // catalog order). Leo, 2026-11-20: "I really want to make it like ergonomic and whatnot for
+        // Austin or Lawrence to be able to just start up the new chat, the new cloud or whatever."
+        surfaces: PALETTE | MENU | CONTEXT_MENU,
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menus: &[Placement::at("newTab", "create", 2)], ..SurfacePlan::DEFAULT },
         cli_name: "action palette-new-cloud-chat",
+        main_menu: Some("file"),
         ..Action::DEFAULT
     },
     Action {
@@ -263,7 +268,15 @@ pub static ACTIONS: &[Action] = &[
         category: "agents",
         symbol: "scope",
         surfaces: PALETTE | KEYBOARD | CONTEXT_MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("agentChat", "inspect", 1).folder("tools").label(Text::raw("Point at Element…"))], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[
+            Placement::at("agentChat", "inspect", 1).folder("tools").label(Text::raw("Point at Element…")),
+            // Native UI too (ask-5077a4ec48): the picker starts on the right-clicked tab, pane or sidebar row and
+            // costs nothing until then (UIInspectorController: no monitor, observer or hit-test outside a pick).
+            Placement::at("tab", "inspect", 510).label(Text::raw("Point at Element…")),
+            Placement::at("pane", "inspect", 511).label(Text::raw("Point at Element…")),
+            Placement::at("workspaceRow", "inspect", 410).label(Text::raw("Point at Element…")),
+            Placement::at("sidebarItem", "view", 130).label(Text::raw("Point at Element…")),
+        ], ..SurfacePlan::DEFAULT },
         cli_name: "agent toggle-ui-pointer",
         ..Action::DEFAULT
     },
@@ -1037,6 +1050,17 @@ pub static ACTIONS: &[Action] = &[
         ..Action::DEFAULT
     },
     Action {
+        id: "chief.toggleComputer",
+        group: GROUP,
+        title: t("ActionCatalog", "action.chief.toggleComputer", "Chief: Toggle Computer"),
+        keywords: &["chief", "computer", "screen", "cloud", "profile", "panel", "show", "hide"],
+        category: "agents",
+        symbol: "desktopcomputer",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "action chief-toggle-computer",
+        ..Action::DEFAULT
+    },
+    Action {
         id: "chief.moveTo",
         group: GROUP,
         title: t("ActionCatalog", "action.chief.moveTo", "Move Chief To…"),
@@ -1060,30 +1084,6 @@ pub static ACTIONS: &[Action] = &[
         arguments: &[args::CONFIRM.optional()],
         cli_name: "action chief-move-rollback",
         is_destructive: true,
-        ..Action::DEFAULT
-    },
-    Action {
-        id: "chief.importMemories",
-        group: GROUP,
-        title: t("Localizable", "action.chief.importMemories", "Bring Your History"),
-        keywords: &["chief", "memory", "memories", "import", "claude", "claude code", "codex", "chatgpt", "openai", "bring", "migrate", "onboard"],
-        category: "agents",
-        symbol: "square.and.arrow.down",
-        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
-        arguments: &[args::CHIEF_3.optional(), args::SOURCE.optional()],
-        cli_name: "action chief-import-memories",
-        ..Action::DEFAULT
-    },
-    Action {
-        id: "chief.importMemories.undo",
-        group: GROUP,
-        title: t("Localizable", "action.chief.importMemories.undo", "Undo Last Memory Import"),
-        keywords: &["chief", "memory", "memories", "import", "undo", "take back", "restore"],
-        category: "agents",
-        symbol: "arrow.uturn.backward",
-        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
-        arguments: &[args::CHIEF_3.optional()],
-        cli_name: "action chief-import-memories-undo",
         ..Action::DEFAULT
     },
     Action {

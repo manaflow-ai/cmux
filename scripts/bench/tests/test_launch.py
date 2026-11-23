@@ -124,6 +124,14 @@ class LaunchIngest(unittest.TestCase):
         self.assertTrue(bench.nightly)
         self.assertEqual(bench.hosts, ("fleet",))
 
+    def test_workspace_scaling_args(self) -> None:
+        bench = load_all()["launch"]
+        ctx = Context(bench=bench, build=dict(NIGHTLY), host_role="fleet",
+                      args={"session": "stress3", "workspaces": "120", "windows": "1"})
+        args, _ = bench.ready_args(ctx)
+        for arg in ("session=stress3", "workspaces=120", "windows=1"):
+            self.assertIn(arg, args)
+
 
 if __name__ == "__main__":
     unittest.main()

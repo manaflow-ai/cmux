@@ -11,9 +11,12 @@
 //
 // A call in the foreground shows its time from a few seconds on, so a quick read or grep never
 // flashes one; a call in the background shows it at once, since it is there because it runs long.
+// The running turn's line at the bottom (Thinking.tsx), which names the call in flight under
+// "Working for", counts the call's own time the same way.
 // Once the call ends the row draws no time (Lawrence and Lucas, 2026-11-11 standup); its opened
 // Shell card says how long it took (ShellBlock.tsx `took`).
 import { Clock } from "../../../ui/Typography";
+import { usePageNow } from "../../../ui/pageClock";
 import { useNow } from "../subagents/subagentGroupModel";
 import { formatDuration } from "./turns";
 
@@ -24,6 +27,7 @@ export function RunningTime({
   startedAt,
   background = false,
   meta = false,
+  local = false,
 }: {
   /** When the call started (epoch ms); none draws nothing. */
   startedAt?: number;
@@ -31,8 +35,12 @@ export function RunningTime({
   background?: boolean;
   /** Wrapped in the row's edge (`cv-command__meta`), for a row that has no other edge marks. */
   meta?: boolean;
+  /** `startedAt` is already on this computer's clock (the live line's `doingAt`), not the session's. */
+  local?: boolean;
 }) {
-  const now = useNow(startedAt !== undefined);
+  const sessionNow = useNow(!local && startedAt !== undefined);
+  const localNow = usePageNow(local && startedAt !== undefined);
+  const now = local ? localNow : sessionNow;
   if (startedAt === undefined) return null;
   const ms = Math.max(0, now - startedAt);
   if (!background && ms < RUNNING_TIME_FROM_MS) return null;

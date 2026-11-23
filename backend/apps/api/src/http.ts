@@ -328,7 +328,7 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
         // Per-automation secrets (automation-secrets.ts): the value travels only in this request, sealed in SchedulerDO.
         if (payload.op === "automation.secret.set" || payload.op === "automation.secret.remove") {
           const p = yield* principalFor("cloud:SchedulerDO", principal)
-          return yield* Effect.tryPromise({ try: () => rpc<DomainReply>(env.SCHEDULER_DO.get(env.SCHEDULER_DO.idFromName(p.team!)).secretOp(p.team!, p, frame)), catch: unreachable })
+          return yield* Effect.tryPromise({ try: () => rpc<DomainReply>(requestEnv().SCHEDULER_DO.get(requestEnv().SCHEDULER_DO.idFromName(p.team!)).secretOp(p.team!, p, frame)), catch: unreachable })
         }
         // Team shared agent keys (team-agent-keys.ts): the key travels only in this request, sealed in TeamDO.
         if (payload.op === "team.agent_key.set" || payload.op === "team.agent_key.remove") {
@@ -474,6 +474,8 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           const v = response.value as { host: string; install: string }
           const team = principal.team!
           const flushed = yield* Effect.tryPromise({ try: () => rpc<{ revoked: Array<string> }>(requestEnv().TEAM_DO.get(requestEnv().TEAM_DO.idFromName(team)).flushServerRevocations(team)), catch: unreachable })
+          // Its pairing code and invite are spent by TeamDO after the commit (flushPairingSpends); wait for it here too.
+          yield* Effect.tryPromise({ try: () => rpc<void>(requestEnv().TEAM_DO.get(requestEnv().TEAM_DO.idFromName(team)).flushPairingSpends(team)), catch: unreachable })
           return { ...response, value: payload.op === "server.revoke" ? { host: v.host, install_revoked: flushed.revoked.includes(v.install) } : { host: v.host } }
         }
         // The personal team exists once the user exists (a team of one, identity spec section 2).

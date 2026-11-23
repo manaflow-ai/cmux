@@ -90,20 +90,25 @@ impl Hub {
                 stalled_turn_ms,
                 stalled_turn_end_ms,
                 usage_warnings,
+                auto_evacuate,
                 default_permission_mode,
                 remote_daemon,
                 notify_command,
                 disk_low_bytes,
                 agent_inbox,
+                person_hold,
                 hold_agent_starts_to_starter,
                 auto_resume_delays_ms,
                 login_env_allow,
                 coderouter_claude_route,
                 machine_wake,
+                peer_wake,
                 btw,
                 titles,
+                summaries,
                 context_overrides,
                 send_relay,
+                new_relay,
                 artifacts,
                 composer_max_rows,
                 tui,
@@ -177,15 +182,23 @@ impl Hub {
             current.notify_command = notify_command;
             current.disk_low_bytes = disk_low_bytes;
             current.agent_inbox = agent_inbox;
+            // The next person's prompt to an idle chat reads it (`person_hold.rs`).
+            current.person_hold = person_hold;
             current.mcp_store = mcp_store;
             current.hold_agent_starts_to_starter = hold_agent_starts_to_starter;
             current.auto_resume_delays_ms = auto_resume_delays_ms;
             current.coderouter_claude_route = coderouter_claude_route;
             current.machine_wake = machine_wake;
+            // The next wake of any peer runs the new command (`Peer::wake`).
+            *self.peer_wake.lock().unwrap_or_else(|e| e.into_inner()) =
+                peer_wake.as_ref().map(|w| w.argv.clone());
+            current.peer_wake = peer_wake;
             current.btw = btw;
             current.titles = titles;
+            current.summaries = summaries;
             current.context_overrides = context_overrides;
             current.send_relay = send_relay;
+            current.new_relay = new_relay;
             current.artifacts = artifacts;
             current.composer_max_rows = composer_max_rows;
             current.tui = tui;
@@ -195,6 +208,9 @@ impl Hub {
             // The next summary read warns by the new thresholds (`usage_warnings.rs`).
             *self.usage_limits.lock().unwrap_or_else(|e| e.into_inner()) = usage_warnings.limits();
             current.usage_warnings = usage_warnings;
+            // On starts its timer below (`start_auto_evacuate`); its next tick reads the new
+            // setting, and off ends it there (`auto_evacuate.rs`).
+            current.auto_evacuate = auto_evacuate;
             let start_changed = current.default_permission_mode != default_permission_mode;
             current.default_permission_mode = default_permission_mode;
             if start_changed || harness_modes_changed {
@@ -207,6 +223,7 @@ impl Hub {
                 retained,
             )
         };
+        self.start_auto_evacuate().await;
         // Every row, closed ones too, reads the new usage warning thresholds.
         self.events.changed(None);
         // A new `stalledTurnEndMs` moves the stalled turns' deadlines (`stalled_turn.rs`).
