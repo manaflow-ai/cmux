@@ -227,7 +227,7 @@ mod tests {
                 }
                 let (last, key) = frames.last().copied().expect("a keyframe");
                 assert_eq!(last, rest_outline(&input.rest_to));
-                assert!(duration >= 0. && duration <= PLAN_SECONDS_MAX);
+                assert!((0. ..=PLAN_SECONDS_MAX).contains(&duration));
                 assert!(frames.windows(2).all(|w| w[0].1 < w[1].1), "key times increase");
                 assert!(frames.iter().all(|(o, k)| o.is_finite() && (0. ..=1.).contains(k)));
                 if frames.len() > 1 {
@@ -281,7 +281,8 @@ mod tests {
         };
         let (subtle, full) = (peak(GooLevel::Subtle), peak(GooLevel::Full));
         assert!(full > 25., "full stretches: {full}");
-        assert!(subtle > 2. && subtle < full * 0.5, "subtle stretches a little: {subtle}");
+        assert!(subtle > 2., "subtle stretches: {subtle}");
+        assert!(subtle < full * 0.5, "subtle stretches a little: {subtle}");
     }
 
     /// A retarget mid-plan starts the next plan exactly where the outline
