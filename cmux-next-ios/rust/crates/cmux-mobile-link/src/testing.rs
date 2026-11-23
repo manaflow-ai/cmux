@@ -535,18 +535,27 @@ pub struct TestTurn {
     tasks: Vec<tokio::task::JoinHandle<()>>,
     /// Stream connections accepted so far (TLS and TCP).
     streams: Arc<std::sync::atomic::AtomicUsize>,
-    /// While set, the UDP port drops everything (a network that blocks UDP
-    /// to the TURN server).
-    udp_blocked: Arc<std::sync::atomic::AtomicBool>,
+    /// While on, the UDP port drops everything (a network that blocks UDP
+    /// to the TURN server), and counts what it dropped.
+    udp_block: Arc<UdpBlock>,
     /// Relayed addresses this server allocated (also in [`RELAYED`] until
     /// the server drops).
     allocated: Arc<Mutex<Vec<std::net::SocketAddr>>>,
 }
 
-/// The TURN server's UDP socket, which drops everything while `blocked`.
+/// Whether the TURN server's UDP port drops everything, and what it dropped
+/// so far: datagrams from its clients, and datagrams it would have sent them.
+#[derive(Default)]
+struct UdpBlock {
+    on: std::sync::atomic::AtomicBool,
+    dropped_from_clients: std::sync::atomic::AtomicU64,
+    dropped_to_clients: std::sync::atomic::AtomicU64,
+}
+
+/// The TURN server's UDP socket, which drops everything while `block` is on.
 struct BlockableUdp {
     socket: tokio::net::UdpSocket,
-    blocked: Arc<std::sync::atomic::AtomicBool>,
+    block: Arc<UdpBlock>,
 }
 
 #[async_trait::async_trait]
@@ -562,9 +571,10 @@ impl webrtc::util::Conn for BlockableUdp {
     async fn recv_from(&self, buf: &mut [u8]) -> webrtc::util::Result<(usize, std::net::SocketAddr)> {
         loop {
             let (len, from) = self.socket.recv_from(buf).await?;
-            if !self.blocked.load(std::sync::atomic::Ordering::Relaxed) {
+            if !self.block.on.load(std::sync::atomic::Ordering::Relaxed) {
                 return Ok((len, from));
             }
+            self.block.dropped_from_clients.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         }
     }
 
@@ -573,7 +583,8 @@ impl webrtc::util::Conn for BlockableUdp {
     }
 
     async fn send_to(&self, buf: &[u8], target: std::net::SocketAddr) -> webrtc::util::Result<usize> {
-        if self.blocked.load(std::sync::atomic::Ordering::Relaxed) {
+        if self.block.on.load(std::sync::atomic::Ordering::Relaxed) {
+            self.block.dropped_to_clients.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             return Ok(buf.len());
         }
         Ok(self.socket.send_to(buf, target).await?)
@@ -602,11 +613,11 @@ impl TestTurn {
         let first = TEST_RELAY_PORTS_START + slot * 100;
         let relay_ports = first..=first + 99;
         let servers = Arc::new(Mutex::new(Vec::new()));
-        let udp_blocked = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let udp_block = Arc::new(UdpBlock::default());
         let allocated = Arc::new(Mutex::new(Vec::new()));
         let udp = BlockableUdp {
             socket: tokio::net::UdpSocket::bind("127.0.0.1:0").await.expect("bind TURN UDP"),
-            blocked: Arc::clone(&udp_blocked),
+            block: Arc::clone(&udp_block),
         };
         let udp_port = udp.socket.local_addr().expect("addr").port();
         let server = Self::server(Arc::new(udp), relay_ports.clone(), Arc::clone(&allocated)).await;
@@ -678,7 +689,7 @@ impl TestTurn {
             username: Some("cmuxMobile".into()),
             credential: Some("secret".into()),
         };
-        Self { ice, roots: Arc::new(roots), relay_ports, servers, tasks, streams, udp_blocked, allocated }
+        Self { ice, roots: Arc::new(roots), relay_ports, servers, tasks, streams, udp_block, allocated }
     }
 
     async fn server(
@@ -717,7 +728,16 @@ impl TestTurn {
 
     /// Block (or unblock) UDP to the server, as a network that drops UDP.
     pub fn set_udp_blocked(&self, blocked: bool) {
-        self.udp_blocked.store(blocked, std::sync::atomic::Ordering::Relaxed);
+        self.udp_block.on.store(blocked, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Datagrams the blocked UDP port dropped so far: (from its clients, to
+    /// its clients). A blocked phone's leg counts what each end sent the
+    /// other while it was cut off.
+    pub fn udp_dropped(&self) -> (u64, u64) {
+        let from = self.udp_block.dropped_from_clients.load(std::sync::atomic::Ordering::Relaxed);
+        let to = self.udp_block.dropped_to_clients.load(std::sync::atomic::Ordering::Relaxed);
+        (from, to)
     }
 
     /// Stream connections (TLS or TCP) the server accepted so far.
