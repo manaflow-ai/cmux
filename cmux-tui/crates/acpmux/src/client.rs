@@ -550,8 +550,15 @@ pub fn closed_error(context: &str, daemon_build: Option<&str>) -> anyhow::Error 
                 })
                 .ok()
                 .and_then(|s| s.trim().parse::<i32>().ok());
+            // Alive only while that pid still holds this home's daemon lock: a bare
+            // `kill(pid, 0)` reads a pid a reboot handed to another process as the daemon
+            // "still running but dropped this connection".
             #[cfg(unix)]
-            let alive = pid.map(|p| unsafe { libc::kill(p, 0) } == 0).unwrap_or(false);
+            let alive = pid.is_some_and(|p| {
+                u32::try_from(p).is_ok_and(|p| {
+                    crate::daemon::live_holder_pid(&home.join("daemon.lock")) == Some(p)
+                })
+            });
             #[cfg(not(unix))]
             let alive = pid.is_some();
             (pid, alive)

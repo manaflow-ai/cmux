@@ -58,6 +58,13 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.FeedLocalListRequest, "unread");
     try expectExplicitNullRejected(protocol.ForgetSessionRequest, "force");
     try expectExplicitNullRejected(protocol.HistorySearchRequest, "kinds");
+    try expectExplicitNullRejected(protocol.HomeInboxResult, "full");
+    try expectExplicitNullRejected(protocol.HomeInboxResult, "offset");
+    try expectExplicitNullRejected(protocol.HomeInboxResult, "order");
+    try expectExplicitNullRejected(protocol.HomeInboxResult, "removed");
+    try expectExplicitNullRejected(protocol.HomeInboxResult, "revision");
+    try expectExplicitNullRejected(protocol.HomeInboxResult, "total");
+    try expectExplicitNullRejected(protocol.HomeInboxResult, "window");
     try expectExplicitNullRejected(protocol.IdentifyRequest, "machine_metadata");
     try expectExplicitNullRejected(protocol.IdentifyRequest, "revisions");
     try expectExplicitNullRejected(protocol.ImportBookmarksRequest, "replace");
@@ -86,6 +93,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.ShellReadRequest, "after");
     try expectExplicitNullRejected(protocol.ShutdownDaemonRequest, "end_terminals");
     try expectExplicitNullRejected(protocol.ShutdownDaemonRequest, "force");
+    try expectExplicitNullRejected(protocol.ShutdownDaemonRequest, "if_idle");
     try expectExplicitNullRejected(protocol.ShutdownDaemonRequest, "keep_layout");
     try expectExplicitNullRejected(protocol.SidebarPluginRequest, "relaunch");
     try expectExplicitNullRejected(protocol.SplitRequest, "before");
@@ -94,6 +102,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.TerminalEventsRequest, "after_revision");
     try expectExplicitNullRejected(protocol.UndoLayoutRequest, "confirm_close");
     try expectExplicitNullRejected(protocol.AgentChangedEvent, "since_ms");
+    try expectExplicitNullRejected(protocol.AgentChangedEvent, "terminal_id");
     try expectExplicitNullRejected(protocol.CloudConversationChangedEvent, "account");
     try expectExplicitNullRejected(protocol.CloudConversationLiveEvent, "account");
     try expectExplicitNullRejected(protocol.CloudConversationPresenceEvent, "account");
@@ -163,6 +172,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.WorkspaceRenamedEvent, "mutation_id");
     try expectExplicitNullRejected(protocol.WorkspaceRenamedEvent, "origin");
     try expectExplicitNullRejected(protocol.AgentRecord, "since_ms");
+    try expectExplicitNullRejected(protocol.AgentRecord, "terminal_id");
     try expectExplicitNullRejected(protocol.AttachedViewResizeResult, "participant");
     try expectExplicitNullRejected(protocol.Bookmark, "favicon_key");
     try expectExplicitNullRejected(protocol.Bookmark, "icon");
@@ -220,6 +230,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.FrontendProjection, "replayed");
     try expectExplicitNullRejected(protocol.HomeInboxRow, "chief");
     try expectExplicitNullRejected(protocol.HomeInboxRow, "chief_state");
+    try expectExplicitNullRejected(protocol.HomeInboxRow, "index");
     try expectExplicitNullRejected(protocol.HomeInboxRow, "last_author");
     try expectExplicitNullRejected(protocol.HomeInboxRow, "pin_position");
     try expectExplicitNullRejected(protocol.HomeInboxRow, "preview");

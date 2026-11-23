@@ -85,6 +85,6 @@ enum HomeHeaderPanels {
 
 enum HomeHeaderPanelStrings {
     static var memory: String {
-        String(localized: "home.headerPanels.memory", defaultValue: "Memory Inspector", table: "MiscHandlers", bundle: .module)
+        String(localized: "home.headerPanels.memory", defaultValue: "Memory Inspector", table: "MiscHandlers", bundle: .module.inAppLanguage)
     }
 }

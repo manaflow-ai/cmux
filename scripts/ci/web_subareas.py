@@ -170,9 +170,10 @@ TYPECHECK_EXACT = {
 
 UNIT_TESTS_EXACT = {
     "CHANGELOG.md",
-    # web/tests/next-docs.test.ts and docs-shortcuts tests compare the generated
-    # docs references with these, so a change to either must run the web tests
-    # (#38631 changed action-surfaces.json with Web tests skipped and broke base).
+    # web/tests/next-docs.test.ts and the docs-shortcuts tests build the docs
+    # references from these at the head (the committed copies are bot-only, RFD
+    # 0048), so a change to either must run the web tests (#38631 changed
+    # action-surfaces.json with Web tests skipped and broke base).
     "plans/cmux-next/action-surfaces.json",
     "schemas/settings/settings-schema.json",
     "config/iroh/managed-relay-catalog.json",
@@ -332,7 +333,8 @@ def route() -> int:
     # commit: a multi-commit push can end on a commit that touches no web path.
     push_base = os.environ.get("WEB_SUBAREAS_BASE", "").strip()
     if push_base == EVERY_SUBAREA:
-        # A coalesced cmux-next-web.yml push run whose covered range is unknown (scripts/ci/web_coalesce.py).
+        # A coalesced cmux-next-web.yml push run whose covered range is unknown (scripts/ci/web_coalesce.py), or a
+        # post-merge batch call (ci-web.yml inputs.sha set), which runs every subarea.
         print("the range this push covers is unknown; running every web subarea")
         WebSubareas.all().emit(output)
         return 0
