@@ -288,6 +288,45 @@ pub fn personal(registry: Option<&Value>, name: &str) -> bool {
     interactive(registry, name) || machine(registry, name).is_some_and(|m| has_role(m, "leo-apps"))
 }
 
+/// Why a move's `--machine auto` never picks `name` (by name or alias), from the registry:
+/// a person's own machine (`personal`: `interactive`, `leo-mac`, `attended` or `leo-apps`, which
+/// the registry describes as one nothing shared may depend on), or a last-resort host
+/// (`lanes.last_resort`), which takes no agent lane. A hold or reservation is `held`'s.
+/// `None`: auto may pick it. A move that names the machine is the caller's choice.
+pub fn auto_move_refusal(registry: Option<&Value>, name: &str) -> Option<String> {
+    if personal(registry, name) {
+        return Some(
+            "a person's own machine (fleet-registry.json interactive, leo-mac, attended or \
+             leo-apps): never a dependency, so auto never moves a chat there; name it to"
+                .into(),
+        );
+    }
+    last_resort(registry, name).then(|| {
+        "a last-resort host (fleet-registry.json lanes.last_resort): it takes captures and \
+         builds, never an agent lane; name it to"
+            .into()
+    })
+}
+
+/// Whether `row`'s only fault is a build that differs from this one (`outdated`, its disk copy
+/// stale): with that left out it is up (`peer_down`). A move goes over ssh to the peer's own
+/// daemon, so such a peer can still take one.
+pub fn only_outdated(row: &Value) -> bool {
+    if row.get("outdated").and_then(Value::as_bool) != Some(true) {
+        return false;
+    }
+    let mut row = row.clone();
+    if let Some(o) = row.as_object_mut() {
+        o.remove("outdated");
+    }
+    peer_down(&row).is_none()
+}
+
+/// The one command that refreshes the outdated peer `name`'s build (`cli/peer_status.rs`).
+pub fn refresh_command(name: &str) -> String {
+    format!("acpmux machine update {name}")
+}
+
 /// Whether the registry gives `name` (by name or alias) `lanes.last_resort: true`: a host
 /// lane-place puts after every other one, and that takes a dispatch only for a capture or
 /// build (design/agent-dispatch.md: "never selected for a general agent lane"). False without
@@ -413,7 +452,7 @@ fn held_at(registry: &Value, machine: &Value, names: &[String], now_ms: u64) -> 
 /// The `status` words that say a machine is off for now: leo-workspace's host_state.py reads an
 /// `idle-stopped` one (and a `retired` one) as stopped, and reach and the stall reconciler skip it.
 /// `retiring` is still up.
-const STOPPED: [&str; 4] = ["idle-stopped", "stopped", "paused", "retired"];
+const STOPPED: [&str; 6] = ["idle-stopped", "stopped", "paused", "retired", "restarting", "stale"];
 
 /// Why a machine's registry `status` keeps new work off it: it starts with one of `STOPPED`
 /// (any case). It holds even while its peer link reads connected: a link that comes back for a
@@ -429,11 +468,33 @@ fn stopped(machine: &Value) -> Option<String> {
 /// Why a peer row (`Hub::peers`, `peer.rs` `summary`) is no candidate now: its link is not up.
 /// Both its `connected` flag and its live `state` must say up (`degraded` is slow, not gone), so
 /// a flag left set while the link reconnects never makes it one. `None`: it is a candidate.
+///
+/// A machine only the mesh hub lists (`via: "hub"`, `mesh_book_hosts`) is never one, whatever its
+/// row says: a session is started on a peer over its link (`new --machine HOST`), and this
+/// daemon has none to it, so a pick of it fails with `no peer "HOST"` and nothing starts. That
+/// is what a lane VM at its lane cap hit on 2026-11-20 (`new --machine auto` picked
+/// gcp-codex-swarm-01, which it reached only through the hub). It is listed as passed over with
+/// why, and the pick goes to a host the work can start on.
 pub fn peer_down(row: &Value) -> Option<String> {
+    if row.get("outdated").and_then(Value::as_bool) == Some(true) {
+        return Some("outdated peer build (stale disk copy)".into());
+    }
+    if row.get("via").and_then(Value::as_str) == Some("hub") {
+        let name = row.get("name").and_then(Value::as_str).unwrap_or("HOST");
+        return Some(hub_only(name));
+    }
     let state = row.get("state").and_then(Value::as_str);
     let flag = row.get("connected").and_then(Value::as_bool) == Some(true);
     let up = flag && state.is_none_or(|s| matches!(s, "connected" | "degraded"));
     (!up).then(|| format!("not connected ({})", state.unwrap_or("down")))
+}
+
+/// Why a machine only the mesh hub reaches takes no placed work, and the two ways to start there.
+pub fn hub_only(name: &str) -> String {
+    format!(
+        "only the mesh hub reaches it, and a new session starts only over a direct link: \
+         `acpmux machine add {name}` links it, or start the session from a machine linked to it"
+    )
 }
 
 /// `verdict` with each peer `down` names (its name and `peer_down`'s why) listed in `hosts` as
