@@ -730,6 +730,18 @@ try {
           .sort((x, y) => x.t - y.t);
         console.log(`  ${scenario}.${arm} timeline:`);
         for (const one of lines) console.log(`    +${(one.t - read.t0).toFixed(1)}ms ${one.what}`);
+        // What held the settle back: the moves the judge saw, and each frame where the bottom-most row changed.
+        for (const reason of judged.why) console.log(`    moved ${reason}`);
+        let bottom: string | undefined;
+        for (const frame of read.frames) {
+          if (frame.t < read.t0) continue;
+          const last = frame.rows.reduce<{ id: string; top: number } | undefined>(
+            (best, row) => (!best || row.top >= best.top ? row : best),
+            undefined,
+          )?.id;
+          if (last !== bottom) console.log(`    +${(frame.t - read.t0).toFixed(1)}ms bottom row ${last}`);
+          bottom = last;
+        }
       }
       const copy = await settledCopy(page);
       const boundMs = await boundInPage(page, copy);
