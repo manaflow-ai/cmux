@@ -627,9 +627,13 @@ def runner_unnamed(lines: list[str]) -> list[str]:
             # multi-target cargo job inexcusable by arithmetic alone (cmux#50814, run 45075034049, job
             # `acpmux tests (lib, hub_integration)`). A surplus of names carries forward; a deficit never does, so a
             # failure no parser names is still unnamed at the summary that reports it (#41166's review F2). Names are
-            # counted per line and never deduplicated by test name across the step: two test binaries of one
-            # invocation can each fail a test of the same path, and that is two failures, so a dedupe would read them
-            # as one identity and refuse the step (tests/test_test_reds.py EveryRustStepShapeIsNamed).
+            # counted per line and never deduplicated by test name across the step, for two measured reasons. Two
+            # test binaries of one invocation can each fail a test of the same path, and that is two failures. And
+            # where a run does print one failure twice (nextest's `failure-output = "immediate-final"`, cmux-tui/
+            # .config/nextest.toml `[profile.ci]`), it prints that failure's `test result:` summary twice as well, so
+            # the duplication is symmetric and a per-line count against summed totals balances exactly; a dedupe
+            # would compare one name against a total of two and refuse a one-test run
+            # (tests/test_test_reds.py EveryRustStepShapeIsNamed).
             if reported is None:
                 # A count that cannot be read is unnamed unless its runner has a name left unaccounted for; how many
                 # it would draw is unknown, so it draws the whole pool.

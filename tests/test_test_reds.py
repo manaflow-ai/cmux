@@ -819,6 +819,22 @@ ONE_TARGET_CLOSING_LIST = ["running 3 tests", "test gauges::tests::rate_is_per_s
                           cargo_summary(2, 1)]
 SAME_PATH_IN_TWO_TARGETS = ["running 2 tests", "test tests::smoke ... FAILED", cargo_summary(1, 1),
                            "running 2 tests", "test tests::smoke ... FAILED", cargo_summary(1, 1)]
+# The smallest reproduction of the duplicated shape, measured 2026-11-22: one package, `--lib` only, one selected
+# test of 6971, `0 measured`, no second target and no retry. `failure-output = "immediate-final"`
+# (cmux-tui/.config/nextest.toml `[profile.ci]`, the `failure-output` line) prints each failure once when it fails
+# and once in the closing list, so a one-test run prints four lines:
+#   cd cmux-tui && cargo nextest run -p acpmux --lib --profile ci --no-fail-fast -E "test(help_examples)"
+# The duplication is SYMMETRIC -- the name line and its `test result:` summary are both printed twice -- which is
+# why this parser counts name lines and sums totals: 2 name lines against 1 + 1 reported balances exactly. Deduping
+# the names by test name while still summing the totals would compare 1 name against a total of 2 and refuse this
+# run as a failure no parser names, so the dedupe breaks on the very shape it was meant to handle.
+ONE_TEST_PRINTED_TWICE = [
+    "test cli::help_examples::tests::every_visible_command_has_an_about_line_and_examples ... FAILED",
+    "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6970 filtered out; finished in 0.00s",
+    "test cli::help_examples::tests::every_visible_command_has_an_about_line_and_examples ... FAILED",
+    "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6970 filtered out; finished in 0.00s",
+    "error: test run failed",
+]
 NEXTEST_IMMEDIATE_FINAL = ["    Starting 6872 tests across 1 binary",
                           "        FAIL [ 107.440s] acpmux gauges::tests::rate_is_per_second",
                           "--- STDERR:              acpmux gauges::tests::rate_is_per_second ---",
@@ -846,6 +862,16 @@ class EveryRustStepShapeIsNamed(unittest.TestCase):
         self.assertEqual(reds.failed_names(reds.lines_of(log(*lines))), {"tests::smoke"})
         self.assertEqual(sum(reds.failed_in(log(*lines)).values()), 2)
         self.assertEqual(reds.read(log(*lines)).unnamed, [])
+
+    def test_one_test_printed_twice_balances_its_duplicated_summary(self):
+        lines = ONE_TEST_PRINTED_TWICE
+        # Symmetric duplication: 2 name lines against 1 + 1 reported. A dedupe by test name would leave 1 against 2.
+        self.assertEqual(len(reds.failed_names(reds.lines_of(log(*lines)))), 1)
+        self.assertEqual(sum(reds.failed_in(log(*lines)).values()), 2)
+        self.assertEqual(reds.unnamed_failures(reds.lines_of(log(*lines))), [])
+        found = reds.read(log(*lines))
+        self.assertEqual(found.unnamed, [])
+        self.assertEqual(found.truncated, [])
 
     def test_nextest_immediate_final_is_read_by_no_pattern_here(self):
         lines = NEXTEST_IMMEDIATE_FINAL
