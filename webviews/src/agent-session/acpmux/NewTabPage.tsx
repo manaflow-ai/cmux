@@ -1,3 +1,4 @@
+import { keycapLegend } from "../../ui/keycapLegend";
 import { useWebSwapHold } from "../../pages/shared/useWebSwapHold";
 import { WEB_SWAP_KEPT_TEXT } from "../../pages/shared/webSwap";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -22,6 +23,8 @@ import { browseFailureMessage } from "./browseFailureModel";
 import { defaultRow, stepSelection, EMPTY_OMNIBAR, omnibarRows, type OmnibarContext, type OmnibarRow } from "./omnibar";
 import { firstProject, homePath, mostRecentProject, projectLabel, isTemporaryFolder } from "./sessionList";
 import { useT } from "./i18n";
+import { ShortcutKeycaps } from "./ButtonKeycaps";
+import { SHORTCUT_ACTIONS, useShortcut } from "./shortcuts";
 import { isStartableProject, startedProjectChoices } from "./newtab/startedProject";
 import { useNoEntryMotion } from "./newtab/noEntryMotion";
 import { usePasteAnywhere } from "./composer/pasteAnywhere";
@@ -148,6 +151,7 @@ export function NewTabPage({
   onFieldEdit,
 }: Props) {
   const t = useT();
+  const allChatsKey = useShortcut(SHORTCUT_ACTIONS.searchChats);
   const { plainFooter, spellChecking } = useComposerSettings();
   // The classic template is a New Tab page too: what it opens (the project chooser, its menus)
   // appears at once; exits keep their fades (newtab/noEntryMotion.ts).
@@ -707,7 +711,7 @@ export function NewTabPage({
               type="submit"
               className={`acpmux-send${query.trim() || kind !== "browser" ? " acpmux-send-ready" : ""}`}
               aria-label={t(NEW_TAB_LABELS.open)}
-              title={`${t(NEW_TAB_LABELS.open)} ↵`}
+              title={`${t(NEW_TAB_LABELS.open)} ↩`}
             >
               <ArrowUpIcon />
             </button>
@@ -757,7 +761,7 @@ export function NewTabPage({
                   </span>
                   <span className="acpmux-omni-action" data-popup-skip>
                     {row.type === "ask" ? t(NEW_TAB_LABELS.ask, { agent }) : t(NEW_TAB_LABELS.rows[row.type])}
-                    {index === selected && <kbd>↵</kbd>}
+                    {index === selected && <kbd>{keycapLegend("↩")}</kbd>}
                   </span>
                 </div>
               ))}
@@ -784,6 +788,7 @@ export function NewTabPage({
       <div className="acpmux-newtab-actions ui-ghost-row">
         <button type="button" className="acpmux-newtab-all ui-ghost" onClick={onShowAll}>
           <span>{t(NEW_TAB_LABELS.allSessions)}</span>
+          <ShortcutKeycaps shortcut={allChatsKey} />
           <span className="ui-ghost-icon" aria-hidden="true">
             <ChevronRight />
           </span>
