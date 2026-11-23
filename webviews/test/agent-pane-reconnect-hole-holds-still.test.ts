@@ -200,7 +200,7 @@ async function page(daemon: ReturnType<typeof pagingDaemon>) {
     },
     /// Waits, at most `ms`, until the last frame shows `text`.
     shows: async (text: string, ms: number) => {
-      for (const until = Date.now() + ms; Date.now() < until && !frames.at(-1)?.texts.includes(text); )
+      for (const until = Date.now() + ms; Date.now() < until && !frames.at(-1)?.texts.includes(text);)
         await new Promise((resolve) => setTimeout(resolve, 20));
     },
     close: () => client?.close(),
