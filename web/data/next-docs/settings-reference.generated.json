@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 668,
+  "count": 682,
   "sections": [
     {
       "id": "general",
@@ -364,12 +364,11 @@
         {
           "key": "agents.cmuxMcp",
           "title": "cmux Tools for Agents in cmux",
-          "help": "Agents you start in cmux get cmux’s tools, Computer Use included: Claude Code and Codex in cmux’s terminals and agent chats. Until you choose, they get nothing. cmux never changes your agents’ own settings.",
+          "help": "Agents you start in cmux get cmux’s tools, Computer Use included: Claude Code and Codex in cmux’s terminals and agent chats. cmux never changes your agents’ own settings.",
           "kind": "choice",
-          "default": "ask",
+          "default": "on",
           "group": "cmux Tools",
           "values": [
-            "ask",
             "on",
             "off"
           ]
@@ -886,7 +885,7 @@
           "title": "After Each Action",
           "help": "What an agent waits for after each click or key press before it looks again: the screen to stop changing, a fixed 2 seconds, or nothing.",
           "kind": "choice",
-          "default": "adaptive",
+          "default": "openai",
           "group": "Computer Use",
           "values": [
             "adaptive",
@@ -1695,20 +1694,6 @@
           ]
         },
         {
-          "key": "updates.automatic",
-          "title": "Automatic Updates",
-          "help": "Install When Idle restarts cmux once you have been away, never while an agent works or a message is unsent. Terminals and agents keep running.",
-          "kind": "choice",
-          "default": "notify",
-          "group": "Updates",
-          "values": [
-            "off",
-            "notify",
-            "download",
-            "idle"
-          ]
-        },
-        {
           "key": "updates.channel",
           "title": "Update Channel",
           "help": "Stable gets builds that ran a week without problems; Canary and Dev get them first.",
@@ -1723,11 +1708,141 @@
           ]
         },
         {
+          "key": "updates.checkAutomatically",
+          "title": "Check for Updates Automatically",
+          "help": "",
+          "kind": "toggle",
+          "default": true,
+          "group": "Updates"
+        },
+        {
+          "key": "updates.checkIntervalSeconds",
+          "title": "Check Every",
+          "help": "",
+          "kind": "number",
+          "default": 3600,
+          "group": "Updates",
+          "range": {
+            "min": 900,
+            "max": 604800,
+            "unit": "seconds"
+          }
+        },
+        {
+          "key": "updates.downloadAutomatically",
+          "title": "Download Updates Automatically",
+          "help": "Off: cmux asks before downloading. It always asks before restarting.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Updates"
+        },
+        {
+          "key": "updates.idleInstallMaxWaitSeconds",
+          "title": "Install Within",
+          "help": "A nightly installs when you are idle, and never waits longer than this.",
+          "kind": "number",
+          "default": 600,
+          "group": "Updates",
+          "range": {
+            "min": 60,
+            "max": 7200,
+            "unit": "seconds"
+          }
+        },
+        {
+          "key": "updates.idleInstallQuietSeconds",
+          "title": "Quiet Time Before Installing",
+          "help": "How long you must be idle before a nightly installs.",
+          "kind": "number",
+          "default": 60,
+          "group": "Updates",
+          "range": {
+            "min": 5,
+            "max": 600,
+            "unit": "seconds"
+          }
+        },
+        {
+          "key": "updates.installOnQuit",
+          "title": "Install Updates When Quitting",
+          "help": "A downloaded update installs as cmux quits. Terminals keep running.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Updates"
+        },
+        {
+          "key": "updates.installWhenIdle",
+          "title": "Update When Idle",
+          "help": "Installs a downloaded update after cmux has been idle for the time below, never while an agent is working or a message is unsent. Agents keep running.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Updates"
+        },
+        {
+          "key": "updates.installWhenIdleMinutes",
+          "title": "Idle Time Before Updating",
+          "help": "How long cmux must be idle before Update When Idle installs.",
+          "kind": "number",
+          "default": 15,
+          "group": "Updates",
+          "range": {
+            "min": 1,
+            "max": 240,
+            "unit": "minutes"
+          }
+        },
+        {
+          "key": "updates.keepPreviousVersions",
+          "title": "Keep Previous Versions",
+          "help": "Earlier builds kept so you can roll back. Uses almost no disk until files change.",
+          "kind": "number",
+          "default": 1,
+          "group": "Updates",
+          "range": {
+            "min": 0,
+            "max": 5,
+            "unit": "count"
+          }
+        },
+        {
           "key": "updates.liveWebReload",
           "title": "cmux Live",
           "help": "Lets cmux live start show your checkout's web UI, each saved edit at once.",
           "kind": "toggle",
           "default": true,
+          "group": "Updates"
+        },
+        {
+          "key": "updates.meteredNetwork",
+          "title": "On Metered Networks",
+          "help": "While downloads wait, a found update shows on Settings and one click downloads it.",
+          "kind": "choice",
+          "default": "defer-low-data",
+          "group": "Updates",
+          "values": [
+            "defer-low-data",
+            "defer-expensive",
+            "download"
+          ]
+        },
+        {
+          "key": "updates.notify",
+          "title": "When an Update Is Ready",
+          "help": "",
+          "kind": "choice",
+          "default": "badge",
+          "group": "Updates",
+          "values": [
+            "badge",
+            "silent"
+          ]
+        },
+        {
+          "key": "updates.oneClickInstall",
+          "title": "Update in One Click",
+          "help": "One click on Update downloads, installs and restarts. Terminals and agents keep running.",
+          "kind": "toggle",
+          "default": false,
           "group": "Updates"
         },
         {
@@ -1744,6 +1859,27 @@
           "help": "A sidebar card links to What's New after an update.",
           "kind": "toggle",
           "default": true,
+          "group": "Updates"
+        },
+        {
+          "key": "updates.web",
+          "title": "Web UI Updates",
+          "help": "Every Merge gets web UI changes minutes after they land.",
+          "kind": "choice",
+          "default": "every-merge",
+          "group": "Updates",
+          "values": [
+            "every-merge",
+            "nightly",
+            "off"
+          ]
+        },
+        {
+          "key": "updates.whatsNewInstall",
+          "title": "Install Versions from What's New",
+          "help": "An Install button for each version listed in What's New.",
+          "kind": "toggle",
+          "default": false,
           "group": "Updates"
         },
         {
@@ -3607,6 +3743,14 @@
           "group": "Window Background"
         },
         {
+          "key": "customize.doctorNotice",
+          "title": "Customization notices",
+          "help": "",
+          "kind": "toggle",
+          "default": true,
+          "group": "App Theme"
+        },
+        {
           "key": "diff.colors",
           "title": "Diff Colors",
           "help": "",
@@ -4136,7 +4280,10 @@
             "auto",
             "glass",
             "solid",
-            "sections"
+            "sections",
+            "chip",
+            "tree",
+            "card"
           ]
         },
         {

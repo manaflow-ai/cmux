@@ -79,7 +79,7 @@ fn pause_all_snapshots_every_page_and_preserves_partial_results() {
         "cloud.machine.list",
         json!({"limit": 100}),
         None,
-        json!({"machines": [first.clone()], "next_cursor": "next"}),
+        json!({"machines": [first], "next_cursor": "next"}),
     );
     s.control_plane_mut().answer(
         "cloud.machine.list",

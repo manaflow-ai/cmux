@@ -30,9 +30,11 @@ nonisolated enum RenamedSettingKeys {
     /// The old key's value as the new row shows it: what the app applies from it.
     static func legacyValue(for path: [String], in root: JSONValue) -> JSONValue? {
         // As the retired-keys table maps it: the first old key whose value it lists; any other old
-        // value is the row's default.
+        // value is the row's default. A plain rename (no `values`) reads the old value as is.
         if let replaced = SettingsSchema.replacedKeys[path] {
-            return replaced.lazy.compactMap { old in root.value(at: old.old).flatMap { old.values[$0] } }.first
+            return replaced.lazy.compactMap { old in
+                root.value(at: old.old).flatMap { value in old.values.map { $0[value] } ?? value }
+            }.first
         }
         guard let legacy = legacyPath(for: path), let value = root.value(at: legacy) else { return nil }
         if legacy == ComputerUseSettings.enabledPath { return ComputerUseSettings.legacyMode(value) }

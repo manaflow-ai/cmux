@@ -4,8 +4,8 @@ import CmuxNextDesign
 import Foundation
 import Testing
 
-/// Automatic Updates (`updates.automatic`) is Notify Only on stable and Download Automatically by default in
-/// NIGHTLY and DEV. The channel default fills the effective settings only: cmux-next.json is shared by every
+/// Automatic Updates (`updates.automatic`) is Download Automatically by default on every channel (Leo
+/// 2026-11-07). The channel default fills the effective settings only: cmux-next.json is shared by every
 /// channel, so nothing is written there, and a value someone wrote always wins, including one of the toggles
 /// the choice replaced (retired-keys.json).
 @MainActor @Suite(.serialized) struct SettingsBuildDefaultsTests {
@@ -41,18 +41,23 @@ import Testing
         }
     }
 
-    @Test func stableStaysOptIn() async throws {
+    /// Automatic download is the schema's default (Leo 2026-11-07: "Yeah, let's do that, man"), so a
+    /// build with no channel default downloads by itself too.
+    @Test func theSchemaDefaultDownloadsAutomatically() async throws {
         let (settings, home) = try await Self.settings("{}", .channel(downloadsAutomatically: false))
         defer { try? FileManager.default.removeItem(at: home) }
-        #expect(settings.snapshot.updates.automatic == .notify)
-        #expect(!settings.snapshot.updates.downloadAutomatically)
+        #expect(settings.snapshot.updates.automatic == .download)
+        #expect(settings.snapshot.updates.downloadAutomatically)
     }
 
+    /// A value someone wrote is never filled by the build default; one that does not decode reads as
+    /// the schema's default.
     @Test func aValueSomeoneWroteWins() async throws {
         for (json, expected) in [
             (#"{"updates": {"automatic": "notify"}}"#, UpdatesAutomaticSetting.notify),
             (#"{"updates": {"automatic": "off"}}"#, .off),
             (#"{"updates": {"downloadAutomatically": false}}"#, .notify),
+            (#"{"updates": {"downloadAutomatically": "yes"}}"#, .download),
             (#"{"updates": {"checkAutomatically": false}}"#, .off),
             (#"{"updates": {"installWhenIdle": true}}"#, .idle),
         ] {

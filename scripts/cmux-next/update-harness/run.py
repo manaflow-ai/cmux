@@ -34,6 +34,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 from sessions import Agent, Owned, Terminal, bundle_commit, patch_build_stamp, wait_path  # noqa: E402
 from tag_teardown import TagTeardown  # noqa: E402
+from state_wait import wait_stable  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 INSTALL_ACTION = "palette.applyUpdateIfAvailable"
@@ -251,6 +252,25 @@ def surface_shots(sock, out, phase, log, popover):
     return shots
 
 
+def main_window_settled(sock, out, what):
+    """Before a capture: wait until the main window's snapshot (what the capture reads) stops changing. Best effort,
+    a window that keeps changing (a blinking cursor in view) is captured after 10 s anyway."""
+    probe = os.path.join(out, ".settle-probe.png")
+
+    def read():
+        reply = rpc(sock, "debug.window_snapshot", {"kind": "main", "path": probe}, timeout=30)
+        if reply.get("error"):
+            raise RuntimeError(reply["error"])
+        with open(probe, "rb") as f:
+            return f.read()
+
+    settled = wait_stable(read, what, timeout=10, interval=0.1, reads=3, raise_on_timeout=False)
+    if os.path.exists(probe):
+        os.remove(probe)  # this function's own probe file
+    if settled is None:
+        log("capture", f"{what}: the main window never settled in 10 s; capturing anyway")
+
+
 def island_state(sock):
     """The active window's update pages (debug.update_surfaces state, cx-asynu)."""
     return rpc(sock, "debug.update_surfaces", {"action": "state"}).get("result", {})
@@ -302,14 +322,14 @@ def changelog_shots(sock, out, phase, log, action, popover):
     before, the What's New page its button opens (`action`: open-changes or open-whats-new), light
     and dark. The ready phase leaves that page's tab open in the session the relaunch restores."""
     shots = {"width": rpc(sock, "debug.update_surfaces", {"action": "sidebar-width", "width": NARROW_SIDEBAR}).get("result")}
-    time.sleep(1.0)  # capture timing only: the card's page re-measures at the new width
+    main_window_settled(sock, out, "the update card re-measured at the narrow width")
     shots.update(surface_shots(sock, out, f"{phase}-narrow", log, popover=popover))
     # Back to the width before, so later captures (and the relaunched session) keep it.
     previous = (shots["width"] or {}).get("previous")
     if previous:
         rpc(sock, "debug.update_surfaces", {"action": "sidebar-width", "width": previous})
     shots["open"] = rpc(sock, "debug.update_surfaces", {"action": action}).get("result")
-    time.sleep(3.0)  # capture timing only: the page loads the notes list and the newest notes
+    main_window_settled(sock, out, "the What's New page with its notes list")
     shots["windows"] = rpc(sock, "debug.window_list").get("result", {}).get("windows", [])
     shots.update(surface_shots(sock, out, f"{phase}-changelog", log, popover=False))
     return shots
@@ -687,7 +707,7 @@ def main():
             raise SystemExit(f"v1's control socket {sock} did not open")
         if a.surface_shots:
             result["v1_last_highlights"] = rpc(sock, "updates.highlights", {"last": True}).get("result")
-            time.sleep(2.0)  # capture timing only: the card's page loads and reports its height
+            main_window_settled(sock, out, "the Updated card's page loaded at its height")
             result["v1_updated_shots"] = surface_shots(sock, out, "v1-updated", log, popover=False)
         if a.island_lifecycle:
             # Launch: the Updated card's page only. A launch check may stage the update already, so
@@ -739,7 +759,7 @@ def main():
         elif a.click_delay:
             # A person who installs right away (Leo's NIGHTLY: staged 22:07:57Z, clicked 22:08:00Z).
             wait_until = staged["unix_ms"] / 1000 + a.click_delay
-            time.sleep(max(0.0, wait_until - time.time()))
+            time.sleep(max(0.0, wait_until - time.time()))  # sleep-ok: the simulated person's delay before the click
             log(f"clicking {a.click_delay} s after the update staged")
         if a.notes:
             # The notes load after staging (one fetch, verified); read until they count, 10 s at most.

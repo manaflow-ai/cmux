@@ -177,14 +177,36 @@
             "key" : "settings.group.updates",
             "rows" : [
               "updates.channel",
-              "updates.automatic",
+              "updates.checkAutomatically",
+              "updates.checkIntervalSeconds",
+              "updates.downloadAutomatically",
+              "updates.oneClickInstall",
+              "updates.whatsNewInstall",
+              "updates.meteredNetwork",
+              "updates.web",
               "updates.liveWebReload",
+              "updates.installOnQuit",
+              "updates.installWhenIdle",
+              "updates.installWhenIdleMinutes",
+              "updates.notify",
+              "updates.keepPreviousVersions",
               "updates.showWhatsNew",
               "updates.showFeatureTips"
             ],
             "title" : {
               "key" : "settings.group.updates",
               "text" : "Updates"
+            }
+          },
+          {
+            "key" : "updates.1",
+            "rows" : [
+              "updates.idleInstallMaxWaitSeconds",
+              "updates.idleInstallQuietSeconds"
+            ],
+            "title" : {
+              "key" : "settings.pageGroup.updatesAdvanced",
+              "text" : "Updates: Advanced"
             }
           }
         ],
@@ -405,7 +427,8 @@
               "appearance.accent",
               "appearance.selection",
               "appearance.themeFile",
-              "appearance.highlightColor"
+              "appearance.highlightColor",
+              "customize.doctorNotice"
             ],
             "title" : {
               "key" : "settings.group.appTheme",
@@ -1909,6 +1932,39 @@
 
         ],
         "aliases" : [
+          "server"
+        ],
+        "groups" : [
+          {
+            "key" : "settings.group.screenSharing",
+            "rows" : [
+              "macScreen.onlyPersonStartsViewing"
+            ],
+            "title" : {
+              "key" : "settings.group.screenSharing",
+              "text" : "Screen Sharing"
+            }
+          }
+        ],
+        "id" : "devices",
+        "lead" : [
+          "devices"
+        ],
+        "symbol" : "laptopcomputer",
+        "title" : {
+          "key" : "settings.category.devices",
+          "text" : "Devices"
+        },
+        "trail" : [
+          "server",
+          "tailnet"
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
 
         ],
         "groups" : [
@@ -2044,6 +2100,29 @@
 
         ],
         "groups" : [
+
+        ],
+        "id" : "extensions",
+        "lead" : [
+          "extensions"
+        ],
+        "symbol" : "puzzlepiece.extension",
+        "title" : {
+          "key" : "settings.group.extensions",
+          "text" : "Extensions"
+        },
+        "trail" : [
+
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
           {
             "key" : "settings.group.cloudWorkspaces",
             "rows" : [
@@ -2093,39 +2172,6 @@
         },
         "trail" : [
 
-        ]
-      },
-      {
-        "actions" : [
-
-        ],
-        "aliases" : [
-          "server"
-        ],
-        "groups" : [
-          {
-            "key" : "settings.group.screenSharing",
-            "rows" : [
-              "macScreen.onlyPersonStartsViewing"
-            ],
-            "title" : {
-              "key" : "settings.group.screenSharing",
-              "text" : "Screen Sharing"
-            }
-          }
-        ],
-        "id" : "devices",
-        "lead" : [
-          "devices"
-        ],
-        "symbol" : "laptopcomputer",
-        "title" : {
-          "key" : "settings.category.devices",
-          "text" : "Devices"
-        },
-        "trail" : [
-          "server",
-          "tailnet"
         ]
       },
       {
@@ -2440,7 +2486,8 @@
       {
         "categories" : [
           "accounts",
-          "mobile"
+          "mobile",
+          "devices"
         ],
         "id" : "devices",
         "title" : {
@@ -2454,9 +2501,9 @@
           "menus",
           "computerUse",
           "mcpServers",
+          "extensions",
           "cloud",
           "keys",
-          "devices",
           "import",
           "privacy",
           "advanced",
@@ -9592,82 +9639,40 @@
     },
     {
       "accepts" : [
-        "off",
-        "notify",
-        "download",
-        "idle"
+        true,
+        false
       ],
-      "agent_refusal" : "userOnly",
+      "agent_refusal" : "network",
       "agent_settable" : false,
-      "choices" : [
-        {
-          "title" : {
-            "key" : "settings.choice.updatesAutomaticOff",
-            "text" : "Off"
-          },
-          "value" : "off"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.updatesAutomaticNotify",
-            "text" : "Notify Only"
-          },
-          "value" : "notify"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.updatesAutomaticDownload",
-            "text" : "Download Automatically"
-          },
-          "value" : "download"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.updatesAutomaticIdle",
-            "text" : "Install When Idle"
-          },
-          "value" : "idle"
-        }
-      ],
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "notify",
+      "default" : true,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.updates",
         "text" : "Updates"
       },
-      "help" : {
-        "key" : "settings.updates.automatic.help",
-        "text" : "Install When Idle restarts cmux once you have been away, never while an agent works or a message is unsent. Terminals and agents keep running."
-      },
+      "help" : null,
       "kept_on_reset_all" : false,
-      "key" : "updates.automatic",
+      "key" : "updates.checkAutomatically",
       "keywords" : [
         "update",
-        "updates",
-        "automatic",
-        "check",
-        "download",
-        "install",
-        "idle",
-        "restart",
         "sparkle",
-        "auto update",
-        "update when idle"
+        "check",
+        "automatic"
       ],
-      "kind" : "choice",
+      "kind" : "toggle",
       "page_hidden" : false,
       "path" : [
         "updates",
-        "automatic"
+        "checkAutomatically"
       ],
       "placeholder" : null,
       "refuses" : [
-        "__not_a_choice__",
+        "true",
         1,
-        true
+        null
       ],
       "section" : "general",
       "summary" : null,
@@ -9722,13 +9727,13 @@
           "app_operations" : [
 
           ],
-          "editor" : "options",
+          "editor" : "toggle",
           "offered" : true,
           "operations" : [
-
+            "palette.toggleSetting"
           ],
           "reason" : null,
-          "row" : "setting:updates.automatic"
+          "row" : "setting:updates.checkAutomatically"
         },
         "socket" : {
           "aliases" : [
@@ -9755,8 +9760,8 @@
         }
       },
       "title" : {
-        "key" : "settings.updates.automatic",
-        "text" : "Automatic Updates"
+        "key" : "settings.updates.checkAutomatically",
+        "text" : "Check for Updates Automatically"
       },
       "validation" : "portable"
     },
@@ -9788,7 +9793,7 @@
         "daily"
       ],
       "kind" : "number",
-      "page_hidden" : true,
+      "page_hidden" : false,
       "path" : [
         "updates",
         "checkIntervalSeconds"
@@ -9859,13 +9864,13 @@
           "app_operations" : [
 
           ],
-          "editor" : null,
-          "offered" : false,
+          "editor" : "options",
+          "offered" : true,
           "operations" : [
 
           ],
-          "reason" : "folded into Automatic Updates (2026-11-22); cmux.json only",
-          "row" : null
+          "reason" : null,
+          "row" : "setting:updates.checkIntervalSeconds"
         },
         "socket" : {
           "aliases" : [
@@ -9902,6 +9907,137 @@
         true,
         false
       ],
+      "agent_refusal" : "network",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.updates",
+        "text" : "Updates"
+      },
+      "help" : {
+        "key" : "settings.updates.downloadAutomatically.help",
+        "text" : "Off: cmux asks before downloading. It always asks before restarting."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "updates.downloadAutomatically",
+      "keywords" : [
+        "update",
+        "download",
+        "background",
+        "metered"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "updates",
+        "downloadAutomatically"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:updates.downloadAutomatically"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.updates.downloadAutomatically",
+        "text" : "Download Updates Automatically"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
       "agent_refusal" : "userOnly",
       "agent_settable" : false,
       "consumers" : [
@@ -9927,7 +10063,7 @@
         "one click"
       ],
       "kind" : "toggle",
-      "page_hidden" : true,
+      "page_hidden" : false,
       "path" : [
         "updates",
         "oneClickInstall"
@@ -9991,13 +10127,13 @@
           "app_operations" : [
 
           ],
-          "editor" : null,
-          "offered" : false,
+          "editor" : "toggle",
+          "offered" : true,
           "operations" : [
-
+            "palette.toggleSetting"
           ],
-          "reason" : "folded into Automatic Updates (2026-11-22); cmux.json only",
-          "row" : null
+          "reason" : null,
+          "row" : "setting:updates.oneClickInstall"
         },
         "socket" : {
           "aliases" : [
@@ -10061,7 +10197,7 @@
         "what's new"
       ],
       "kind" : "toggle",
-      "page_hidden" : true,
+      "page_hidden" : false,
       "path" : [
         "updates",
         "whatsNewInstall"
@@ -10125,13 +10261,13 @@
           "app_operations" : [
 
           ],
-          "editor" : null,
-          "offered" : false,
+          "editor" : "toggle",
+          "offered" : true,
           "operations" : [
-
+            "palette.toggleSetting"
           ],
-          "reason" : "a feature gate, not a choice (2026-11-22); cmux.json only",
-          "row" : null
+          "reason" : null,
+          "row" : "setting:updates.whatsNewInstall"
         },
         "socket" : {
           "aliases" : [
@@ -10217,7 +10353,7 @@
         "hotspot"
       ],
       "kind" : "choice",
-      "page_hidden" : true,
+      "page_hidden" : false,
       "path" : [
         "updates",
         "meteredNetwork"
@@ -10281,13 +10417,13 @@
           "app_operations" : [
 
           ],
-          "editor" : null,
-          "offered" : false,
+          "editor" : "options",
+          "offered" : true,
           "operations" : [
 
           ],
-          "reason" : "folded into Automatic Updates (2026-11-22); cmux.json only",
-          "row" : null
+          "reason" : null,
+          "row" : "setting:updates.meteredNetwork"
         },
         "socket" : {
           "aliases" : [
@@ -10375,7 +10511,7 @@
         "merge"
       ],
       "kind" : "choice",
-      "page_hidden" : true,
+      "page_hidden" : false,
       "path" : [
         "updates",
         "web"
@@ -10439,13 +10575,13 @@
           "app_operations" : [
 
           ],
-          "editor" : null,
-          "offered" : false,
+          "editor" : "options",
+          "offered" : true,
           "operations" : [
 
           ],
-          "reason" : "web UI updates follow the channel and Automatic Updates (2026-11-22); cmux.json only",
-          "row" : null
+          "reason" : null,
+          "row" : "setting:updates.web"
         },
         "socket" : {
           "aliases" : [
@@ -10642,7 +10778,7 @@
         "quit"
       ],
       "kind" : "toggle",
-      "page_hidden" : true,
+      "page_hidden" : false,
       "path" : [
         "updates",
         "installOnQuit"
@@ -10706,13 +10842,13 @@
           "app_operations" : [
 
           ],
-          "editor" : null,
-          "offered" : false,
+          "editor" : "toggle",
+          "offered" : true,
           "operations" : [
-
+            "palette.toggleSetting"
           ],
-          "reason" : "folded into Automatic Updates (2026-11-22); cmux.json only",
-          "row" : null
+          "reason" : null,
+          "row" : "setting:updates.installOnQuit"
         },
         "socket" : {
           "aliases" : [
@@ -10741,6 +10877,138 @@
       "title" : {
         "key" : "settings.updates.installOnQuit",
         "text" : "Install Updates When Quitting"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.updates",
+        "text" : "Updates"
+      },
+      "help" : {
+        "key" : "settings.updates.installWhenIdle.help",
+        "text" : "Installs a downloaded update after cmux has been idle for the time below, never while an agent is working or a message is unsent. Agents keep running."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "updates.installWhenIdle",
+      "keywords" : [
+        "update",
+        "install",
+        "idle",
+        "automatic",
+        "restart"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "updates",
+        "installWhenIdle"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:updates.installWhenIdle"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.updates.installWhenIdle",
+        "text" : "Update When Idle"
       },
       "validation" : "portable"
     },
@@ -10776,7 +11044,7 @@
         "minutes"
       ],
       "kind" : "number",
-      "page_hidden" : true,
+      "page_hidden" : false,
       "path" : [
         "updates",
         "installWhenIdleMinutes"
@@ -10847,13 +11115,13 @@
           "app_operations" : [
 
           ],
-          "editor" : null,
-          "offered" : false,
+          "editor" : "options",
+          "offered" : true,
           "operations" : [
 
           ],
-          "reason" : "the idle time of Automatic Updates' Install When Idle (2026-11-22); cmux.json only",
-          "row" : null
+          "reason" : null,
+          "row" : "setting:updates.installWhenIdleMinutes"
         },
         "socket" : {
           "aliases" : [
@@ -10927,7 +11195,7 @@
         "silent"
       ],
       "kind" : "choice",
-      "page_hidden" : true,
+      "page_hidden" : false,
       "path" : [
         "updates",
         "notify"
@@ -10993,13 +11261,13 @@
           "app_operations" : [
 
           ],
-          "editor" : null,
-          "offered" : false,
+          "editor" : "options",
+          "offered" : true,
           "operations" : [
 
           ],
-          "reason" : "folded into Automatic Updates (2026-11-22); cmux.json only",
-          "row" : null
+          "reason" : null,
+          "row" : "setting:updates.notify"
         },
         "socket" : {
           "aliases" : [
@@ -11061,7 +11329,7 @@
         "downgrade"
       ],
       "kind" : "number",
-      "page_hidden" : true,
+      "page_hidden" : false,
       "path" : [
         "updates",
         "keepPreviousVersions"
@@ -11132,13 +11400,13 @@
           "app_operations" : [
 
           ],
-          "editor" : null,
-          "offered" : false,
+          "editor" : "options",
+          "offered" : true,
           "operations" : [
 
           ],
-          "reason" : "folded into Automatic Updates (2026-11-22); cmux.json only",
-          "row" : null
+          "reason" : null,
+          "row" : "setting:updates.keepPreviousVersions"
         },
         "socket" : {
           "aliases" : [
@@ -11470,7 +11738,7 @@
         "nightly"
       ],
       "kind" : "number",
-      "page_hidden" : true,
+      "page_hidden" : false,
       "path" : [
         "updates",
         "idleInstallMaxWaitSeconds"
@@ -11541,13 +11809,13 @@
           "app_operations" : [
 
           ],
-          "editor" : null,
-          "offered" : false,
+          "editor" : "options",
+          "offered" : true,
           "operations" : [
 
           ],
-          "reason" : "folded into Automatic Updates (2026-11-22); cmux.json only",
-          "row" : null
+          "reason" : null,
+          "row" : "setting:updates.idleInstallMaxWaitSeconds"
         },
         "socket" : {
           "aliases" : [
@@ -11611,7 +11879,7 @@
         "nightly"
       ],
       "kind" : "number",
-      "page_hidden" : true,
+      "page_hidden" : false,
       "path" : [
         "updates",
         "idleInstallQuietSeconds"
@@ -11682,13 +11950,13 @@
           "app_operations" : [
 
           ],
-          "editor" : null,
-          "offered" : false,
+          "editor" : "options",
+          "offered" : true,
           "operations" : [
 
           ],
-          "reason" : "folded into Automatic Updates (2026-11-22); cmux.json only",
-          "row" : null
+          "reason" : null,
+          "row" : "setting:updates.idleInstallQuietSeconds"
         },
         "socket" : {
           "aliases" : [
@@ -12950,7 +13218,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "adaptive",
+      "default" : "openai",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.computerUse",
@@ -28483,6 +28751,144 @@
       "title" : {
         "key" : "settings.appearance.highlightColor",
         "text" : "Highlight Color"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.appTheme",
+        "text" : "App Theme"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "customize.doctorNotice",
+      "keywords" : [
+        "customize",
+        "customization",
+        "doctor",
+        "notice",
+        "toast",
+        "theme",
+        "layer",
+        "broken",
+        "file"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "customize",
+        "doctorNotice"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : {
+        "key" : "settings.customize.doctorNotice.summary",
+        "text" : "Tell me when a file or layer changes my setup"
+      },
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:customize.doctorNotice"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.customize.doctorNotice",
+        "text" : "Customization notices"
       },
       "validation" : "portable"
     },
@@ -72213,7 +72619,10 @@
         "auto",
         "glass",
         "solid",
-        "sections"
+        "sections",
+        "chip",
+        "tree",
+        "card"
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
@@ -72252,6 +72661,27 @@
             "text" : "Sections"
           },
           "value" : "sections"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.groupBackgroundChip",
+            "text" : "Chips"
+          },
+          "value" : "chip"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.groupBackgroundTree",
+            "text" : "Tree"
+          },
+          "value" : "tree"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.groupBackgroundCard",
+            "text" : "Cards"
+          },
+          "value" : "card"
         }
       ],
       "consumers" : [
@@ -72284,7 +72714,14 @@
         "sections",
         "section",
         "heading",
-        "plain"
+        "plain",
+        "chip",
+        "chromium",
+        "rail",
+        "tree",
+        "guide",
+        "card",
+        "cards"
       ],
       "kind" : "choice",
       "page_hidden" : false,
@@ -81359,6 +81796,612 @@
         "text" : "Second Line Order"
       },
       "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        [
+
+        ],
+        [
+          [
+            "icon",
+            "name",
+            "branch"
+          ],
+          [
+            "agentStatus"
+          ]
+        ],
+        [
+          [
+            "name",
+            "directory"
+          ],
+          [
+            "process"
+          ],
+          [
+            "ports",
+            "lastActivity"
+          ]
+        ]
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.workspaceRow.lines.default",
+        "text" : "Item switches"
+      },
+      "group" : {
+        "key" : "settings.group.workspaceRows",
+        "text" : "Workspace Rows"
+      },
+      "help" : {
+        "key" : "settings.workspaceRow.lines.help",
+        "text" : "The lines each workspace row shows, as lists of items, such as [[\"icon\", \"name\", \"branch\"], [\"agentStatus\"]]. Up to 3 lines of 6 items; the name always leads the first line."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.workspaceRow.lines",
+      "keywords" : [
+        "sidebar",
+        "workspace",
+        "row",
+        "layout",
+        "lines",
+        "customize",
+        "tokens"
+      ],
+      "kind" : "json",
+      "page_hidden" : true,
+      "path" : [
+        "sidebar",
+        "workspaceRow",
+        "lines"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "name",
+        1,
+        {
+
+        },
+        null
+      ],
+      "section" : "appearance",
+      "shape" : {
+        "items" : {
+          "items" : {
+            "enum" : [
+              "icon",
+              "name",
+              "working",
+              "progress",
+              "notification",
+              "directory",
+              "branch",
+              "process",
+              "agentStatus",
+              "tabCount",
+              "ports",
+              "lastActivity",
+              "pullRequest",
+              "log"
+            ]
+          },
+          "maxItems" : 10,
+          "minItems" : 1,
+          "type" : "array",
+          "uniqueItems" : true
+        },
+        "maxItems" : 3,
+        "type" : "array"
+      },
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : false,
+          "operations" : [
+
+          ],
+          "reason" : "The Sidebar page's row layout editor edits it (CMUX-383); cmux settings set and the file keep working.",
+          "row" : null
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.workspaceRow.lines",
+        "text" : "Row Layout"
+      },
+      "validation" : "domain:sidebar_row_lines"
+    },
+    {
+      "accepts" : [
+        {
+
+        },
+        {
+          "agent" : [
+            [
+              "icon",
+              "name",
+              "working"
+            ],
+            [
+              "agentStatus"
+            ]
+          ],
+          "terminal" : [
+            [
+              "icon",
+              "name"
+            ],
+            [
+              "process",
+              "directory"
+            ]
+          ]
+        }
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.workspaceRow.lines.default",
+        "text" : "Item switches"
+      },
+      "group" : {
+        "key" : "settings.group.workspaceRows",
+        "text" : "Workspace Rows"
+      },
+      "help" : {
+        "key" : "settings.workspaceRow.linesByKind.help",
+        "text" : "A row layout for each kind of workspace: terminal, agent, browser or mixed. It wins over Row Layout."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.workspaceRow.linesByKind",
+      "keywords" : [
+        "sidebar",
+        "workspace",
+        "row",
+        "layout",
+        "lines",
+        "customize",
+        "tokens",
+        "kind",
+        "terminal",
+        "agent",
+        "browser"
+      ],
+      "kind" : "json",
+      "page_hidden" : true,
+      "path" : [
+        "sidebar",
+        "workspaceRow",
+        "linesByKind"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        [
+
+        ],
+        "agent",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "shape" : {
+        "additionalProperties" : {
+          "items" : {
+            "items" : {
+              "enum" : [
+                "icon",
+                "name",
+                "working",
+                "progress",
+                "notification",
+                "directory",
+                "branch",
+                "process",
+                "agentStatus",
+                "tabCount",
+                "ports",
+                "lastActivity",
+                "pullRequest",
+                "log"
+              ]
+            },
+            "maxItems" : 10,
+            "minItems" : 1,
+            "type" : "array",
+            "uniqueItems" : true
+          },
+          "maxItems" : 3,
+          "type" : "array"
+        },
+        "propertyNames" : {
+          "enum" : [
+            "terminal",
+            "agent",
+            "browser",
+            "mixed"
+          ]
+        },
+        "type" : "object"
+      },
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : false,
+          "operations" : [
+
+          ],
+          "reason" : "The Sidebar page's row layout editor edits it (CMUX-383); cmux settings set and the file keep working.",
+          "row" : null
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.workspaceRow.linesByKind",
+        "text" : "Row Layout by Kind"
+      },
+      "validation" : "domain:sidebar_row_lines_by_kind"
+    },
+    {
+      "accepts" : [
+        {
+
+        },
+        {
+          "claude" : [
+            [
+              "icon",
+              "name",
+              "working"
+            ],
+            [
+              "lastActivity"
+            ]
+          ],
+          "codex" : [
+            [
+              "name",
+              "branch"
+            ]
+          ]
+        }
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.workspaceRow.lines.default",
+        "text" : "Item switches"
+      },
+      "group" : {
+        "key" : "settings.group.workspaceRows",
+        "text" : "Workspace Rows"
+      },
+      "help" : {
+        "key" : "settings.workspaceRow.linesByAgent.help",
+        "text" : "A row layout for each agent, by agent id such as claude or codex. It wins over the other row layouts."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.workspaceRow.linesByAgent",
+      "keywords" : [
+        "sidebar",
+        "workspace",
+        "row",
+        "layout",
+        "lines",
+        "customize",
+        "tokens",
+        "agent",
+        "claude",
+        "codex"
+      ],
+      "kind" : "json",
+      "page_hidden" : true,
+      "path" : [
+        "sidebar",
+        "workspaceRow",
+        "linesByAgent"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        [
+
+        ],
+        "claude",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "shape" : {
+        "additionalProperties" : {
+          "items" : {
+            "items" : {
+              "enum" : [
+                "icon",
+                "name",
+                "working",
+                "progress",
+                "notification",
+                "directory",
+                "branch",
+                "process",
+                "agentStatus",
+                "tabCount",
+                "ports",
+                "lastActivity",
+                "pullRequest",
+                "log"
+              ]
+            },
+            "maxItems" : 10,
+            "minItems" : 1,
+            "type" : "array",
+            "uniqueItems" : true
+          },
+          "maxItems" : 3,
+          "type" : "array"
+        },
+        "maxProperties" : 32,
+        "propertyNames" : {
+          "maxLength" : 64,
+          "minLength" : 1,
+          "type" : "string"
+        },
+        "type" : "object"
+      },
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : false,
+          "operations" : [
+
+          ],
+          "reason" : "The Sidebar page's row layout editor edits it (CMUX-383); cmux settings set and the file keep working.",
+          "row" : null
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.workspaceRow.linesByAgent",
+        "text" : "Row Layout by Agent"
+      },
+      "validation" : "domain:sidebar_row_lines_by_agent"
     },
     {
       "accepts" : [
@@ -114308,20 +115351,12 @@
     },
     {
       "accepts" : [
-        "ask",
         "on",
         "off"
       ],
       "agent_refusal" : "userOnly",
       "agent_settable" : false,
       "choices" : [
-        {
-          "title" : {
-            "key" : "settings.agents.cmuxMcp.ask",
-            "text" : "Ask"
-          },
-          "value" : "ask"
-        },
         {
           "title" : {
             "key" : "settings.agents.cmuxMcp.on",
@@ -114340,7 +115375,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "ask",
+      "default" : "on",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.agentTools",
@@ -114348,7 +115383,7 @@
       },
       "help" : {
         "key" : "settings.agents.cmuxMcp.help",
-        "text" : "Agents you start in cmux get cmux’s tools, Computer Use included: Claude Code and Codex in cmux’s terminals and agent chats. Until you choose, they get nothing. cmux never changes your agents’ own settings."
+        "text" : "Agents you start in cmux get cmux’s tools, Computer Use included: Claude Code and Codex in cmux’s terminals and agent chats. cmux never changes your agents’ own settings."
       },
       "kept_on_reset_all" : false,
       "key" : "agents.cmuxMcp",
@@ -114360,8 +115395,7 @@
         "claude",
         "codex",
         "coding agents",
-        "agents",
-        "onboarding"
+        "agents"
       ],
       "kind" : "choice",
       "page_hidden" : false,
