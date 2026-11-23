@@ -1702,7 +1702,7 @@
           "title": "Download Updates Automatically",
           "help": "Off: cmux asks before downloading. It always asks before restarting.",
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "group": "Updates"
         },
         {
@@ -2716,18 +2716,18 @@
           }
         },
         {
-          "key": "appearance.backgroundPlacement",
-          "title": "Background Placement",
-          "help": "Picture ID to fill, fit, center or stretch, with optional X Y anchor and zoom.",
-          "kind": "string_map",
-          "default": null,
-          "group": "Window Background"
-        },
-        {
           "key": "appearance.backgroundRecents",
           "title": "Recent Backgrounds",
           "help": "The backgrounds shown before, newest first, so one click goes back.",
           "kind": "string_list",
+          "default": null,
+          "group": "Window Background"
+        },
+        {
+          "key": "appearance.backgroundPlacement",
+          "title": "Background Placement",
+          "help": "Picture ID to fill, fit, center or stretch, with optional X Y anchor and zoom.",
+          "kind": "string_map",
           "default": null,
           "group": "Window Background"
         },
@@ -5943,7 +5943,7 @@
           "title": "Suggestions Shown",
           "help": "",
           "kind": "number",
-          "default": 6,
+          "default": 8,
           "group": "Address Bar",
           "range": {
             "min": 3,
