@@ -191,6 +191,10 @@ import {
   type EmojiShortcodes,
 } from "./emojiShortcodes";
 import { COMPOSER_LABELS } from "./composerModel";
+import { moveStash, stashMoves, useNewChatStash } from "./composer/draftStash";
+import { isStashKey, useDraftStash } from "./composer/useDraftStash";
+import { StashedChip } from "./composer/StashedChip";
+import { fillPrompt, refreshSavedPrompts, savedPromptCommands, useSavedPrompts, wordEnd } from "./savedPrompts";
 import { attachmentViewMenu } from "./composer/attachmentViewMenu";
 import { focusRoute } from "../../ui/focusRoute";
 import { outcomeAsk } from "./outcomeAsk.experiment";
@@ -1105,6 +1109,9 @@ function ComposerFrame({
     return promptText.subscribeText(report);
   }, [onDraftChange, promptText, attachments]);
   const pendingRef = useRef(pending);
+  const originalUploadsRef = useRef(originalUploads);
+  /// Whether the chat's kept chips were read (useKeptAttachments, below); the stash waits for it.
+  const keptReadRef = useRef(false);
   // The latest of each, written as the render commits (every reader is a handler, an effect or the
   // handle): a write during render keeps the composer out of the React Compiler, and each key then
   // re-creates every child's props.
@@ -1226,6 +1233,95 @@ function ComposerFrame({
   // hidden, the prompt loses focus or the prompt is sent (unsentDraftThrottle.ts). Declared ahead of the
   // handle that flushes it: one read before its declaration keeps the composer uncompiled.
   const unsentDraft = useRef<UnsentDraftThrottle | undefined>(undefined);
+  const restoreDraft = (restoredText: string, restoredAttachments: ComposerAttachment[], behind = false) => {
+    // A prompt coming back (refused, taken back, edited from the queue) went with a Codex skill
+    // as `/$name`: it is typed `/name` here, and send writes the `$` again. Its skills are the
+    // draft's picks; with nothing typed it is the whole draft, and they replace the old ones.
+    const picks = pickedSkillsOf(restoredText, commandsNow.current);
+    if (!(field.current?.value() ?? "").trim()) pickedSkills.current = picks;
+    else for (const name of picks) pickedSkills.current.add(name);
+    // A paste that went as a placed paste chip (markPastes) under the chip's size comes back as
+    // the text it was in the draft, remembered as a paste again; only a huge one stays a chip.
+    const restored = unmarkPastes(
+      bindMarks(withoutSkillDollars(restoredText, commandsNow.current), restoredAttachments),
+    );
+    restoredText = restored.text;
+    restoredAttachments = restored.attachments;
+    box.current?.rememberPastes(restored.pastes);
+    // The editor parses tokens synchronously; make their payload IDs known before replacing its document.
+    attachmentsRef.current = appendAttachments(attachmentsRef.current, restoredAttachments);
+    // Put back, not typed: the Enter that sent it says nothing about this change.
+    notTyped();
+    // What comes back goes first; what was typed or attached since stays after it. `behind`: it
+    // goes after what is there (prompts a folder's trust held, sent after one already given
+    // back: trustHeld.ts).
+    const typed = field.current?.value() ?? "";
+    const next = !typed.trim() ? restoredText : behind ? `${typed}\n\n${restoredText}` : `${restoredText}\n\n${typed}`;
+    // A field whose editor is still starting (the chat composer that mounts as a New Tab page
+    // leaves) takes it as its value, which becomes the editor's first content.
+    if (!field.current?.type(next)) {
+      writeText(next, next.length);
+    }
+    if (restoredAttachments.length)
+      setAttachments((current) => {
+        const others = current.filter((attachment) => !restoredAttachments.some((back) => back.id === attachment.id));
+        return behind ? [...others, ...restoredAttachments] : [...restoredAttachments, ...others];
+      });
+  };
+  /// The handle's restore, the last committed render's (the handle is made once).
+  const restoreNow = useRef(restoreDraft);
+  // Stash (composer/useDraftStash.ts): ⌃S puts the draft aside and empties the prompt; ⌃S on an empty
+  // prompt, or a pick from the Stashed chip, brings the newest (or the picked) one back,
+  // before what was typed meanwhile, so nothing typed is ever replaced.
+  const newChatKey = useNewChatStash();
+  const stashChat = sessionId ?? newChatKey;
+  /// A stash or a restore is the person's own edit, as typing is: a durable draft read still out
+  /// for this chat merges with it (applyDraftRead) instead of writing acpmux's older draft over a
+  /// restored one whose stashed copy is already dropped.
+  const stashEdited = () => {
+    if (hydratedSession.current !== sessionId) editedBeforeHydration.current = true;
+    noteDraftEdited(sessionId);
+  };
+  const {
+    stashed,
+    unstash,
+    toggle: toggleStash,
+  } = useDraftStash(
+    stashChat,
+    {
+      held: () => ({
+        text: field.current?.value() ?? promptRef.current.text,
+        attachments: attachmentsRef.current.filter((chip) => !chip.shellRun),
+      }),
+      // An attachment still loading, an image's original still uploading under its preview (a send
+      // waits for both), or the chat's own chips not yet read back (that read would set them over a
+      // restored draft's): clearing or restoring now would lose one.
+      loading: () => pendingRef.current.length > 0 || originalUploadsRef.current.size > 0 || !keptReadRef.current,
+      clear: () => {
+        stashEdited();
+        notTyped();
+        if (!field.current?.type("")) writeText("", 0);
+        attachmentsRef.current = attachmentsRef.current.filter((chip) => chip.shellRun);
+        setAttachments((current) => current.filter((chip) => chip.shellRun));
+      },
+      restore: (restoredText, restoredAttachments) => {
+        stashEdited();
+        restoreDraft(restoredText, restoredAttachments);
+      },
+      takeKeys: () => focusRoute(field.current, "person", "a stashed draft came back: the composer"),
+    },
+    sessionId ? newChatKey : undefined,
+  );
+  // A new chat's stack follows it: into its session once it gets one here, and to the tab's key
+  // once the tab is known (`stashMoves`). A page opened on a session moves none of the tab's
+  // leftovers (a move that failed before a reload, for a chat the page cannot know); the session's
+  // Stashed list shows them after its own, so none sits where no composer looks.
+  const stashedFor = useRef<{ sessionId?: string; newChatKey: string } | undefined>(undefined);
+  useEffect(() => {
+    const now = { sessionId, newChatKey };
+    for (const [from, to] of stashMoves(stashedFor.current ?? now, now, !stashedFor.current)) void moveStash(from, to);
+    stashedFor.current = now;
+  }, [sessionId, newChatKey]);
   useImperativeHandle(
     handle,
     () => ({
@@ -1259,47 +1355,8 @@ function ComposerFrame({
       clearAttachmentCarrySuppression() {
         suppressedAttachmentCarry.current = undefined;
       },
-      restore(restoredText, restoredAttachments, behind = false) {
-        // A prompt coming back (refused, taken back, edited from the queue) went with a Codex skill
-        // as `/$name`: it is typed `/name` here, and send writes the `$` again. Its skills are the
-        // draft's picks; with nothing typed it is the whole draft, and they replace the old ones.
-        const picks = pickedSkillsOf(restoredText, commandsNow.current);
-        if (!(field.current?.value() ?? "").trim()) pickedSkills.current = picks;
-        else for (const name of picks) pickedSkills.current.add(name);
-        // A paste that went as a placed paste chip (markPastes) under the chip's size comes back as
-        // the text it was in the draft, remembered as a paste again; only a huge one stays a chip.
-        const restored = unmarkPastes(
-          bindMarks(withoutSkillDollars(restoredText, commandsNow.current), restoredAttachments),
-        );
-        restoredText = restored.text;
-        restoredAttachments = restored.attachments;
-        box.current?.rememberPastes(restored.pastes);
-        // The editor parses tokens synchronously; make their payload IDs known before replacing its document.
-        attachmentsRef.current = appendAttachments(attachmentsRef.current, restoredAttachments);
-        // Put back, not typed: the Enter that sent it says nothing about this change.
-        notTyped();
-        // What comes back goes first; what was typed or attached since stays after it. `behind`: it
-        // goes after what is there (prompts a folder's trust held, sent after one already given
-        // back: trustHeld.ts).
-        const typed = field.current?.value() ?? "";
-        const next = !typed.trim()
-          ? restoredText
-          : behind
-            ? `${typed}\n\n${restoredText}`
-            : `${restoredText}\n\n${typed}`;
-        // A field whose editor is still starting (the chat composer that mounts as a New Tab page
-        // leaves) takes it as its value, which becomes the editor's first content.
-        if (!field.current?.type(next)) {
-          writeText(next, next.length);
-        }
-        if (restoredAttachments.length)
-          setAttachments((current) => {
-            const others = current.filter(
-              (attachment) => !restoredAttachments.some((back) => back.id === attachment.id),
-            );
-            return behind ? [...others, ...restoredAttachments] : [...restoredAttachments, ...others];
-          });
-      },
+      restore: (restoredText, restoredAttachments, behind) =>
+        restoreNow.current(restoredText, restoredAttachments, behind),
       attach(attachment) {
         // A Cloud start is out: no chip comes in from any caller (a highlight, a selection, a
         // recording, a link pick, the focused tab), and the note says why (`refusal`).
@@ -1479,13 +1536,20 @@ function ComposerFrame({
   // The pane closes: what it queued for its chat still goes to acpmux, but no quit compares it again.
   useEffect(() => () => forgetQueuedDraft(persistedSession.current), []);
   // The chat's own chips come back with its prompt; a switch carries the ones held (keptAttachments.ts).
-  useKeptAttachments(
+  const keptRead = useKeptAttachments(
     sessionId,
     attachments,
     setAttachments,
     keptAttachments,
     () => !suppressedAttachmentCarry.current && carryPrompt.current,
   );
+  // What the stash and the handle read later, from the render that committed (a write during render
+  // keeps the composer out of the React Compiler).
+  useInsertionEffect(() => {
+    originalUploadsRef.current = originalUploads;
+    restoreNow.current = restoreDraft;
+    keptReadRef.current = keptRead;
+  });
   // Run after useKeptAttachments' session read/effects. Recovery copied text only; ordinary
   // switching can carry attachments again once the destination session is shown.
   useEffect(() => {
@@ -1652,9 +1716,20 @@ function ComposerFrame({
   // match: mid-prompt, `/tmp` with nothing to offer is the person's text, not an empty menu.
   const typedSlash = slash !== undefined && !facts.slashDismissed && !recalling ? slash : undefined;
   const query = typedSlash?.query;
-  const matches = useMemo(() => (typedSlash ? slashMatches(commands ?? [], typedSlash) : []), [commands, typedSlash]);
+  // The person's saved prompts lead the list (savedPrompts.ts); the prompt colours only the chat's own.
+  const savedPrompts = useSavedPrompts();
+  const menuCommands = useMemo(
+    () => [...savedPromptCommands(savedPrompts), ...(commands ?? [])],
+    [savedPrompts, commands],
+  );
+  const matches = useMemo(() => (typedSlash ? slashMatches(menuCommands, typedSlash) : []), [menuCommands, typedSlash]);
   const open = typedSlash !== undefined && (typedSlash.leading || matches.length > 0);
   const slashNames = useSlashNames(commands);
+  // Each opening reads the list again, so a prompt saved in another chat is there.
+  const slashOpen = typedSlash !== undefined;
+  useEffect(() => {
+    if (slashOpen) void refreshSavedPrompts();
+  }, [slashOpen]);
 
   // A new word or the list opening highlights the first row again; Return takes it (returnPicks).
   useLayoutEffect(() => setActive(0), [query, open]);
@@ -1793,7 +1868,28 @@ function ComposerFrame({
   };
   // The commands picked last (any chat), for the + menu's few recent rows; read again as + opens.
   const [recentCommandNames, setRecentCommandNames] = useState(loadRecentCommandNames);
+  /// A saved prompt writes its text over the `/word`, its variables filled in (savedPrompts.ts
+  /// fillPrompt); the first variable left is selected, so typing replaces it.
+  const pickSaved = (command: SlashCommand) => {
+    const body = command.body ?? "";
+    const filled = fillPrompt(body, { cwd: snapshot.summary?.cwd, branch: snapshot.summary?.branch });
+    const plain = field.current?.text();
+    if (plain && typedSlash) {
+      const start = Math.max(0, plain.selectionStart - typedSlash.length);
+      const end = wordEnd(plain.value, plain.selectionStart);
+      const value = plain.value.slice(0, start) + filled.text + plain.value.slice(end);
+      const [from, to] = filled.open ?? [filled.text.length, filled.text.length];
+      field.current?.writeText(value, start + from, start + to);
+      focusRoute(field.current, "person", "a saved prompt was picked: the composer");
+      return;
+    }
+    const next = filled.text;
+    pendingCaret.current = next.length;
+    edit(next, next.length);
+    focusRoute(field.current, "person", "a saved prompt was picked: the composer");
+  };
   const pick = (command: SlashCommand) => {
+    if (command.source === "saved") return pickSaved(command);
     setRecentCommandNames(rememberRecentCommand(command.name));
     notePicked(command);
     // In place, over the typed `/word`, the text around it kept; the field reports the edit.
@@ -2748,6 +2844,12 @@ function ComposerFrame({
     if (event.isComposing || event.keyCode === 229) return;
     if (interrupt(event)) return;
     const plain = !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey;
+    // ⌃S stashes the draft; on an empty prompt it brings the newest stashed one back.
+    if (isStashKey(event) && !shell) {
+      event.preventDefault();
+      toggleStash();
+      return;
+    }
     // Tab takes the suggested prompt into the field; the next Tab moves focus on as usual. Esc puts
     // it away for this chat (and still does whatever Esc does there). Neither ever sends.
     // The agent's suggestion takes Right-arrow too, as Claude Code's own prompt does: the field is
@@ -3476,6 +3578,7 @@ function ComposerFrame({
         chips={
           <PromptFocusProvider focus={focusPrompt}>
             <Chips snapshot={snapshot} />
+            <StashedChip drafts={stashed} onRestore={unstash} chat={stashChat} />
             <MachineLinkStatus link={machineLink} onReconnect={onReconnectMachine} />
           </PromptFocusProvider>
         }
