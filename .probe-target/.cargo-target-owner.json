@@ -1,0 +1,16 @@
+{
+ "owners": [
+  {
+   "at": "2026-11-23T11:04:23Z",
+   "harness": "claude",
+   "host": "gcp-agent-lane-10",
+   "name": "land-queue-sizes-itself",
+   "pid": 1323421,
+   "pr": null,
+   "proc_start": "18580789",
+   "session_id": "01a1ffb6-026e-732f-aaf0-3bd914886065",
+   "worktree": "/home/cmux/.wt/checkouts/cmux/lane--prepush-mechanical-gates/cmux-tui"
+  }
+ ],
+ "schema": "cargo-target-owner/v1"
+}
