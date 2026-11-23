@@ -4964,6 +4964,13 @@
     },
     "PermissionGroupItem": {
       "properties": {
+        "command": {
+          "description": "A shell call's command as the agent wrote it, without the line acpmux put before a\nsubagent's command to name its caller (`bg_hook::without_subagent_mark`).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "permissionId": {
           "type": "string"
         },
@@ -4974,6 +4981,13 @@
         },
         "state": {
           "$ref": "#/types/PermissionItemState"
+        },
+        "summary": {
+          "description": "What the call does, in the agent's plain words (a shell call's `description`), for the\nrow in place of the command (Leo 2026-11-23: \"i also dont know why you asked me this\").",
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [
