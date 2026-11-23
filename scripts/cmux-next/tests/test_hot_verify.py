@@ -989,6 +989,23 @@ class PublishedPullRequestWebTest(unittest.TestCase):
         self.assertEqual(done, {"how": "published bundles", "key": self.KEY})
         self.assertEqual(ran, ["fetch-web-bundles.sh", "web-overlay.sh"])
 
+    def test_stop_ends_a_dev_server_still_starting_before_server_off(self):
+        side = hv.Side("t")
+        order = []
+        with unittest.mock.patch.object(hv.Side, "exists", return_value=True), \
+                unittest.mock.patch.object(hv.Side, "state", return_value={"dev_server": True,
+                                                                           "dev_server_starter_pid": 99}), \
+                unittest.mock.patch.object(hv.Side, "env", return_value={}), \
+                unittest.mock.patch.object(hv.Side, "run", return_value=""), \
+                unittest.mock.patch.object(hv.Side, "remember") as remember, \
+                unittest.mock.patch.object(hv, "starting_dev_server", return_value=True), \
+                unittest.mock.patch.object(hv.os, "killpg", side_effect=lambda pid, sig: order.append(("kill", pid))), \
+                unittest.mock.patch.object(hv.subprocess, "run",
+                                           side_effect=lambda argv, **_kw: order.append(tuple(argv[1:3]))):
+            self.assertEqual(side.stop(), [])
+        self.assertEqual(order, [("kill", 99), ("server", "off")])
+        self.assertIsNone(remember.call_args.kwargs["dev_server_starter_pid"])
+
     def test_a_pointer_for_another_head_is_not_used(self):
         planned = {"head": "1" * 40, "pr": 45917}
         with unittest.mock.patch.object(hv, "fetch_json", side_effect=self.pointer), \
@@ -1120,6 +1137,60 @@ class GoldenCopyTest(unittest.TestCase):
                 done = hv.apply_web(self.fx.repo, {"head": self.c2}, tree, side, self.root, settle=settle)
             self.assertEqual(done["how"], "dev server")
             self.assertEqual(slept, waits)
+
+    def test_a_run_of_a_checkout_whose_web_is_published_takes_the_bundles_and_starts_its_server_behind(self):
+        """team-dev-build-is-swap cut 3: `cmux app try dir:CHECKOUT` of a clone CI published the web of waits for
+        no cold dev server; the server still starts, unwaited, so later edits hot reload."""
+        tree = self.root / "tree"
+        (tree / "scripts/cmux-next").mkdir(parents=True)
+        (tree / "scripts/cmux-next/web-bundle-key.py").write_text("")
+        key = "c" * 64
+        cache = self.root / "cache"
+        (cache / "web-bundles" / key).mkdir(parents=True)
+        (cache / "web-bundles" / key / ".manifest.json").write_text("{}")
+        side = unittest.mock.Mock(env=lambda: {}, name="t")
+        side.name = "t"
+        ran, slept = [], []
+
+        def run(argv, **_kw):
+            ran.append(Path(argv[1] if argv[0] == sys.executable else argv[0]).name)
+            return subprocess.CompletedProcess(argv, 0, key + "\n" if argv[0] == sys.executable else "", "")
+
+        with unittest.mock.patch.dict(os.environ, {"CMUX_HOT_VERIFY_CACHE": str(cache)}), \
+                unittest.mock.patch.object(hv, "fetch_json", return_value={"key": key}), \
+                unittest.mock.patch.object(hv.shutil, "which", return_value="/bin/bun"), \
+                unittest.mock.patch.object(hv.subprocess, "run", side_effect=run), \
+                unittest.mock.patch.object(hv.subprocess, "Popen") as popen, \
+                unittest.mock.patch.object(hv.time, "sleep", side_effect=slept.append):
+            popen.return_value.pid = 4242
+            done = hv.apply_web(self.fx.repo, {"head": self.c2}, tree, side, self.root, settle=False)
+        self.assertEqual(done, {"how": "published bundles", "key": key, "dev_server_starter_pid": 4242})
+        self.assertEqual(ran, ["web-bundle-key.py", "web-overlay.sh"], "the cached bundles are not fetched again")
+        self.assertEqual(slept, [])
+        self.assertEqual(popen.call_args.args[0][1:4], ["server", "--local", "--worktree"])
+        side.remember.assert_any_call(dev_server=True)
+        side.remember.assert_called_with(dev_server_starter_pid=4242)
+
+    def test_a_look_of_a_checkout_keeps_its_dev_server_first(self):
+        tree = self.root / "tree"
+        (tree / "webviews").mkdir(parents=True)
+        side = unittest.mock.Mock(env=lambda: {})
+        ok = subprocess.CompletedProcess([], 0, "", "")
+        with unittest.mock.patch.object(hv, "tree_web_key", side_effect=AssertionError("keyed the tree")), \
+                unittest.mock.patch.object(hv.shutil, "which", return_value="/bin/bun"), \
+                unittest.mock.patch.object(hv.subprocess, "run", return_value=ok), \
+                unittest.mock.patch.object(hv.time, "sleep"):
+            self.assertEqual(hv.apply_web(self.fx.repo, {"head": self.c2}, tree, side, self.root)["how"], "dev server")
+
+    def test_an_edited_or_unpublished_checkout_web_is_served_by_its_dev_server(self):
+        tree = self.root / "tree"
+        (tree / "scripts/cmux-next").mkdir(parents=True)
+        (tree / "scripts/cmux-next/web-bundle-key.py").write_text("")
+        done = subprocess.CompletedProcess([], 0, "d" * 64 + "\n", "")
+        with unittest.mock.patch.object(hv.subprocess, "run", return_value=done), \
+                unittest.mock.patch.object(hv, "fetch_json", return_value=None):
+            self.assertIsNone(hv.tree_web_key(tree))
+        self.assertIsNone(hv.tree_web_key(self.root / "no-script"))
 
     def test_no_published_daemon_and_no_cargo_says_so(self):
         """A fleet Mac (2026-11-19) has no cargo, and the tree's daemon was not published: hot-apply said only
@@ -1594,6 +1665,56 @@ class VideoTest(unittest.TestCase):
         args = hv.side_make_args(Path("/Apps/cmux NIGHTLY.app"))
         self.assertEqual(args[:3], ["make", "--from", "/Apps/cmux NIGHTLY.app"])
         self.assertIn("--neutral-shell", args)
+
+
+class LookKitErrorTest(unittest.TestCase):
+    def test_a_kit_runtime_error_still_writes_a_failed_receipt(self):
+        """The kit's window_shot raises a plain RuntimeError when CuaDriver is stopped or its grants are pending: the
+        look ends EXIT_FAILED with a receipt naming it (the CI posts that), never an escaped error and no receipt
+        (2026-11-22: 11 fleet looks on cmuxs-Mac-mini-3 and ultra2 posted nothing)."""
+        class FakeSide:
+            name = "look-test"
+
+            def exists(self):
+                return False
+
+            def run(self, *args, **kwargs):
+                return "look-test: pid 123" if args[0] == "launch" else ""
+
+            def env(self):
+                return {"CMUX_NEXT_CONFIG_FILE": "/nonexistent/config.json"}
+
+            def socket(self):
+                return "/tmp/look-test.sock"
+
+            def stop(self):
+                return []
+
+        def shooter(kit):
+            def shoot(pid, dest):
+                raise RuntimeError("window 7; CuaDriver: daemon is not running")
+            return shoot
+
+        args = type("Args", (), {"kit": None, "state": None, "watch": False, "no_video": True, "source": "sha:x"})()
+        planned = {"layers": ["web"], "head": "x"}
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "out"
+            receipt = {"errors": [], "app": {}}
+            with unittest.mock.patch.object(hv, "load_kit", return_value=object()), \
+                    unittest.mock.patch.object(hv, "load_steps", return_value=[]), \
+                    unittest.mock.patch.object(hv, "steps_engine", return_value="webkit"), \
+                    unittest.mock.patch.object(hv, "Shooter", side_effect=shooter), \
+                    unittest.mock.patch.object(hv, "rules_for", return_value=None), \
+                    unittest.mock.patch.object(hv, "resolve_tree", return_value=None), \
+                    unittest.mock.patch.object(hv, "set_browser_engine"), \
+                    unittest.mock.patch.object(hv, "set_theme"), \
+                    unittest.mock.patch.object(hv, "control_socket", return_value="/tmp/look-test.sock"), \
+                    unittest.mock.patch.object(hv.time, "sleep"):
+                code = hv.look(args, None, planned, FakeSide(), Path(tmp) / "app", out, receipt,
+                               hv.hot().Phases(), 0.0)
+            self.assertEqual(code, hv.EXIT_FAILED)
+            written = json.loads((out / "receipt.json").read_text())
+        self.assertIn("RuntimeError: window 7; CuaDriver: daemon is not running", written["errors"])
 
 
 if __name__ == "__main__":

@@ -984,9 +984,25 @@ export function restartStatusSampler(): string {
  */
 export function restartTimelineCommand(sinceMs: number): string {
   const since = `@${Math.floor(sinceMs / 1000) - 1}`;
-  const journal = `journalctl --user -u acpmux.service --since ${since} --no-pager -o short-unix 2>/dev/null | grep -iE 'start|stop|kill|exited|signal|fail' | head -n 15`;
+  const journal = `journalctl --user -u acpmux.service --since ${since} --no-pager -o short-unix 2>/dev/null | grep -vE ' (DEBUG|TRACE) ' | grep -viE 'model probe failed' | head -n 60`;
   const kept = `tail -n 600 "$HOME"/.acpmux/daemon.log "$HOME"/.cmux/acpmux/daemon.log 2>/dev/null | grep -E '^[0-9]{4}-[0-9]{2}-[0-9]{2}T' | grep -vE ' (DEBUG|TRACE) '`;
-  return `echo "@@now $(date +%s%3N)"; ${journal}; ${kept}; cat ${restartStatusFile()} 2>/dev/null`;
+  return `echo "@@now $(date +%s%3N)"; ${journal}; ${kept}; cat ${restartStatusFile()} 2>/dev/null; ${startupPhasesCommand()}`;
+}
+
+/**
+ * The new daemon's startup phases (`gauges.startup` in its status: each phase's start from the daemon's birth, and how
+ * long it took), each as a timeline line at the time it started: which phase held "startup complete" back.
+ */
+export function startupPhasesCommand(): string {
+  const py = [
+    "import json,sys,time",
+    "d=json.load(sys.stdin)",
+    "f=lambda v:v if isinstance(v,dict) and isinstance(v.get(\"startup\"),list) and \"uptimeMs\" in v else next((r for x in (v.values() if isinstance(v,dict) else v if isinstance(v,list) else []) for r in [f(x)] if r),None)",
+    "g=f(d)",
+    "b=time.time()-g[\"uptimeMs\"]/1000 if g else 0",
+    "[print(\"%.3f startup phase: %s %sms\"%(b+p[\"atMs\"]/1000,p[\"name\"],p.get(\"ms\"))) for p in (g or {}).get(\"startup\",[])]",
+  ].join("; ");
+  return `timeout 5 "$c" acp --json daemon status 2>/dev/null | python3 -c '${py}' 2>/dev/null`;
 }
 
 /**
