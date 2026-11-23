@@ -176,7 +176,7 @@ jobs:
   base-gallery:
     name: base gallery
     if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 15
     steps:
       - name: Checkout
@@ -197,6 +197,9 @@ jobs:
           sparse-checkout-cone-mode: false
           sparse-checkout: |
             /webviews/
+            /cmux-tui/crates/acpmux/spec/acpmux-protocol.json
+            /examples/gallery/
+            /examples/looks/
             /scripts/
             /.github/
             /config/vite-plus/
@@ -260,7 +263,7 @@ jobs:
   plan:
     name: plan
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 15
     outputs:
       all: ${{ steps.entries.outputs.all }}
@@ -286,6 +289,9 @@ jobs:
           sparse-checkout-cone-mode: false
           sparse-checkout: |
             /webviews/
+            /cmux-tui/crates/acpmux/spec/acpmux-protocol.json
+            /examples/gallery/
+            /examples/looks/
             /scripts/
             /.github/
             /config/vite-plus/
@@ -403,7 +409,7 @@ jobs:
     # Blacksmith org vCPU cap starved every pool, and 16 shards of 16 vCPU asked 256 vCPU of it per push.
     # From the numbers above, 8 vCPU renders the 73 cases in 17.3 s against 13.4 s, at 138 vCPU-seconds
     # against 214: a shard takes about a third longer and the run 35% fewer vCPU-seconds, at half the peak.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || github.event_name == 'pull_request' && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_16 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 45
     # As many shards as the run's cases need (the plan job): at most MAX_CASES_PER_SHARD each, so a shard runs in
     # under 10 minutes as the gallery grows. At eight fixed shards, with three cases at once, a shard's render took
@@ -434,6 +440,9 @@ jobs:
           sparse-checkout-cone-mode: false
           sparse-checkout: |
             /webviews/
+            /cmux-tui/crates/acpmux/spec/acpmux-protocol.json
+            /examples/gallery/
+            /examples/looks/
             /scripts/
             /.github/
             /config/vite-plus/
@@ -560,10 +569,17 @@ jobs:
           cd webviews
           if [ "$ALL" = true ]; then
             bun scripts/gallery/manifest.ts --frame component --out "$RUNNER_TEMP/manifest.json"
+            subset=""
           else
             bun scripts/gallery/manifest.ts --frame component --entries "$IDS" --out "$RUNNER_TEMP/manifest.json"
+            # Build only the entries this render reads (galleryEntrySubset in webviews/dev-server/galleryHost.ts),
+            # as the base replay below does: each of 16 shards built all ~3,200 gallery modules (~55-85 s) to
+            # render a handful of touched entries. The ids come from the manifest, not $IDS: --entries matches
+            # by prefix, so the manifest can hold entries $IDS does not name exactly. A mock-app entry, or an
+            # empty list, builds everything.
+            subset="$(jq -r '[.[].params.entry // empty] | unique | join(",")' "$RUNNER_TEMP/manifest.json")"
           fi
-          CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/gallery" bun run gallery:build
+          CMUX_GALLERY_ENTRIES="$subset" CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/gallery" bun run gallery:build
           cd "$GITHUB_WORKSPACE/scripts/gallery-matrix"
           # Three workers per four vCPUs past 8: two threads share each core there, and 12 workers on 16
           # vCPU rendered as fast as 16 with a lower p90 (3.0 s against 4.3) and less ready-CPU drift.
