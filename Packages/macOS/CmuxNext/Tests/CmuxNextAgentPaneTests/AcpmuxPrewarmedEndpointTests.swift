@@ -24,14 +24,18 @@ struct AcpmuxPrewarmedEndpointTests {
         }
     }
 
-    private static func host(_ lookups: Lookups, daemon: Daemon) -> AcpmuxHost {
+    private static func host(_ lookups: Lookups, daemon: Daemon, failing: Int? = nil) -> AcpmuxHost {
         let root = FileManager.default.temporaryDirectory.appending(path: "acpmux-kept-\(UUID().uuidString.prefix(8))")
         let environment = AcpmuxEnvironment(executable: URL(fileURLWithPath: "/App/bin/acpmux"),
                                             home: root.appending(path: "home"),
                                             socketPath: root.appending(path: "acpmux.sock").path,
                                             daemonArguments: [], childEnvironment: [:])
         return AcpmuxHost(daemons: AcpmuxLocalDaemons(), resolve: { environment },
-                          lookup: { _, _ in endpoint(lookups.run()) }, keptDaemon: { _ in daemon.pid })
+                          lookup: { _, _ in
+                              let run = lookups.run()
+                              if run == failing { throw AgentPaneHostError.timedOut }
+                              return endpoint(run)
+                          }, keptDaemon: { _ in daemon.pid })
     }
 
     private static func host(_ lookups: Lookups) -> AcpmuxHost {
@@ -64,7 +68,7 @@ struct AcpmuxPrewarmedEndpointTests {
 
     /// One handshake takes it: the next one looks up again, so a page whose connect failed on a
     /// daemon that exited meanwhile, or the person-proof recovery, gets a full lookup. A reconnect
-    /// never takes it and forgets it.
+    /// never takes one of no known daemon, and forgets it.
     @Test func onlyOneHandshakeTakesIt() async throws {
         let lookups = Lookups()
         let host = Self.host(lookups)
@@ -145,8 +149,8 @@ struct AcpmuxPrewarmedEndpointTests {
     }
 
     /// Another daemon on the socket (a restart, an update's swap) or none that took this launch's
-    /// key: the handshake looks up in full, and a reconnect drops what was kept.
-    @Test func anotherDaemonOrAReconnectLooksUpAgain() async throws {
+    /// key: the handshake and the reconnect look up in full.
+    @Test func anotherDaemonLooksUpAgain() async throws {
         let lookups = Lookups()
         let daemon = Daemon()
         daemon.pid = 42
@@ -159,9 +163,11 @@ struct AcpmuxPrewarmedEndpointTests {
         #expect(lookups.runs == 2)
         #expect(Self.token(other) == "token-2")
 
-        _ = try await host.reconnectHandshake(sessionId: "s1")
+        daemon.pid = 44
+        let reconnected = try await host.reconnectHandshake(sessionId: "s1")
         await host.lookupSettled()
         #expect(lookups.runs == 3)
+        #expect(Self.token(reconnected) == "token-3")
         daemon.pid = nil
         _ = try await host.handshake(sessionId: "s1")
         await host.lookupSettled()
@@ -184,5 +190,79 @@ struct AcpmuxPrewarmedEndpointTests {
         // Another daemon: gone for good.
         #expect(kept.take(at: late, daemon: 8) == nil)
         #expect(kept.take(at: late, daemon: 7) == nil)
+    }
+
+    /// The link to the daemon dropped and the daemon that serves is the one the kept endpoint came
+    /// from: the reconnect redials it with no lookup (63 socket drops in 24 h on Leo's NIGHTLY Mac
+    /// each paid `_acpmux/status`, the key's enroll and the peer-checked status again first). One
+    /// lookup runs behind it and keeps what it finds for the next reconnect.
+    @Test func aReconnectRedialsTheKeptEndpointWithoutALookup() async throws {
+        let lookups = Lookups()
+        let daemon = Daemon()
+        daemon.pid = 42
+        let host = Self.host(lookups, daemon: daemon)
+        _ = try await host.handshake(sessionId: "s1")
+        await host.lookupSettled()
+        #expect(lookups.runs == 1)
+
+        // A lookup of its own would have answered token-2.
+        let reconnected = try await host.reconnectHandshake(sessionId: "s1")
+        #expect(Self.token(reconnected) == "token-1")
+        await host.revalidationSettled()
+        await host.lookupSettled()
+        #expect(lookups.runs == 2)
+
+        // The background lookup confirmed the daemon: the next reconnect redials what it kept.
+        let again = try await host.reconnectHandshake(sessionId: "s1")
+        #expect(Self.token(again) == "token-2")
+        await host.revalidationSettled()
+        await host.lookupSettled()
+        #expect(lookups.runs == 3)
+    }
+
+    /// A redial whose background lookup failed (the daemon went, its port or token changed) is not
+    /// dialed again: the next reconnect falls back to the whole lookup.
+    @Test func aReconnectAfterAFailedRedialLooksUpInFull() async throws {
+        let lookups = Lookups()
+        let daemon = Daemon()
+        daemon.pid = 42
+        let host = Self.host(lookups, daemon: daemon, failing: 2)
+        _ = try await host.handshake(sessionId: "s1")
+        await host.lookupSettled()
+
+        let redialed = try await host.reconnectHandshake(sessionId: "s1")
+        #expect(Self.token(redialed) == "token-1")
+        await host.revalidationSettled()
+        await host.lookupSettled()
+        #expect(lookups.runs == 2)
+
+        let fallback = try await host.reconnectHandshake(sessionId: "s1")
+        await host.lookupSettled()
+        #expect(lookups.runs == 3)
+        #expect(Self.token(fallback) == "token-3")
+    }
+
+    /// A redial answers one reconnect until a lookup keeps an endpoint again: a second reconnect
+    /// before that (the redial may be the connect that failed) looks up in full. Only the daemon
+    /// the endpoint came from is redialed.
+    @Test func aRedialAnswersOneReconnectUntilALookupConfirmsIt() {
+        let found = Self.endpoint(1)
+        let start = ContinuousClock.now
+        var kept = AcpmuxPrewarmedEndpoint()
+        kept.keep(found, at: start, daemon: 7, unlessDroppedSince: kept.generation)
+        #expect(kept.redial(daemon: 8) == nil)
+        #expect(kept.redial(daemon: nil) == nil)
+        #expect(kept.redial(daemon: 7) == found)
+        #expect(kept.redial(daemon: 7) == nil)
+
+        let confirmed = Self.endpoint(2)
+        kept.keep(confirmed, at: start, daemon: 7, unlessDroppedSince: kept.generation)
+        #expect(kept.redial(daemon: 7) == confirmed)
+
+        // One of no known daemon (the launch prewarm's) is never redialed.
+        kept.drop()
+        kept.keep(found, at: start, unlessDroppedSince: kept.generation)
+        #expect(kept.redial(daemon: 7) == nil)
+        #expect(kept.redial(daemon: nil) == nil)
     }
 }

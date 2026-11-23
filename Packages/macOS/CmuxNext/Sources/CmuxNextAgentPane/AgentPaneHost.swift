@@ -164,8 +164,8 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     private var inFlight: [Bool: Task<AcpmuxWebEndpoint, any Error>] = [:]
     /// The last lookup's endpoint, kept for the next handshakes while the daemon it came from runs
     /// (``AcpmuxPrewarmedEndpoint``, CMUX-571): a new chat, tab or reload connects with no round
-    /// trip to the daemon. A restart and a reconnect drop it, and a lookup in the background after
-    /// each handshake that took it (``revalidateKept()``) keeps it current.
+    /// trip to the daemon; a reconnect redials it once. A restart drops it, and a lookup in the
+    /// background after each handshake or reconnect that took it (``revalidateKept()``) keeps it current.
     private var prewarmed = AcpmuxPrewarmedEndpoint()
     /// The daemon a kept endpoint may answer for now: its pid, when the environment's home names a
     /// running daemon that took this launch's person key; nil otherwise (``liveEnrolledDaemon(_:)``,
@@ -330,9 +330,25 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         return pid
     }
 
+    /// A reconnect redials the endpoint kept from the daemon that still serves (``AcpmuxPrewarmedEndpoint/redial(daemon:)``)
+    /// with no round trip, and one lookup behind it keeps what it finds (``revalidateKept()``); the
+    /// pane's transport still checks the port's listener and the accepted end before its first
+    /// frame. Another daemon, none known, or a redial no lookup confirmed yet (it may be the one
+    /// that failed): the whole lookup, which may not start a daemon, and its endpoint is kept.
     public func reconnectHandshake(sessionId: String?) async throws -> AgentPaneHandshake {
+        let started = ContinuousClock.now
+        let daemon = daemonForKept()
+        if let kept = prewarmed.redial(daemon: daemon) {
+            revalidateKept()
+            Self.logReconnect(kept: true, since: started)
+            return .acpmux(connection(kept), sessionId: sessionId)
+        }
         prewarmed.drop()
-        return .acpmux(connection(try await endpoint(startsDaemon: false)), sessionId: sessionId)
+        let generation = prewarmed.generation
+        let found = try await endpoint(startsDaemon: false)
+        if let daemon = daemonForKept() { prewarmed.keep(found, at: .now, daemon: daemon, unlessDroppedSince: generation) }
+        Self.logReconnect(kept: false, since: started)
+        return .acpmux(connection(found), sessionId: sessionId)
     }
 
     /// The host socket's connection, with this daemon launch's LocalApp token read now, on the
@@ -540,32 +556,6 @@ public actor AcpmuxHost: AgentPaneHostProviding {
                 delay = min(delay * 2, .milliseconds(500))
             }
         }
-    }
-
-    /// The pane's error for a peer check that refused the daemon on `environment`'s socket,
-    /// logged with who holds it, so "acpmux did not start" never hides a running daemon.
-    /// `reason` replaces the refusal's own description (a replaced bundle names itself).
-    /// `startsDaemons`: whether this host may replace the daemon (``restartAcpmux(owner:)``); the refusal
-    /// then carries the binary on the socket as its owner, for Restart acpmux only.
-    static func refused(_ refusal: AcpmuxServerPeer.Refusal, _ environment: AcpmuxEnvironment,
-                        reason: String? = nil, startsDaemons: Bool = true) -> AgentPaneHostError {
-        var holder: String?
-        var refusedPath: String?
-        if case .otherExecutable(let path) = refusal {
-            holder = AcpmuxServerPeer.holderName(executablePath: path)
-            refusedPath = URL(fileURLWithPath: path).resolvingSymlinksInPath().path
-        }
-        let found = AcpmuxSocketOwner.read(socketPath: environment.socketPath)
-        // This app's own acpmux on the socket is never replaced by itself, and a refusal that named
-        // a binary offers to replace only that one: a daemon that took the socket since is not it.
-        let owner = found.flatMap { owner in
-            owner.path == environment.executable.resolvingSymlinksInPath().path
-                || refusedPath.map({ $0 != owner.path }) == true ? nil : owner
-        }
-        AcpmuxFailureLog(logPath: environment.logPath).record(.peerRefused, detail: "\(environment.socketPath): \(refusal.description)")
-        logger.error("acpmux at \(environment.socketPath, privacy: .public) refused: \(refusal.description, privacy: .public); held by \(holder ?? "unknown", privacy: .public); this app runs \(environment.executable.path, privacy: .public)")
-        return .daemonRefused(holder: holder, socketPath: environment.socketPath, reason: reason ?? refusal.description,
-                              executable: environment.executable.path, owner: startsDaemons ? owner : nil)
     }
 
     /// Each stale daemon's heal, by pid: one heal per daemon, however many panes ask,

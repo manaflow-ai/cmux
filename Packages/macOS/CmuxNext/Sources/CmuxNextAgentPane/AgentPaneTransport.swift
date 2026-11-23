@@ -390,7 +390,7 @@ import CmuxNextCompat
         guard self.socket === socket, id == current else { throw .staleConnection }
         modeFields = answer?.modeFields
         AgentPaneLaunchTimings.shared.mark("agent_pane.transport_open")
-        Self.logger.info("agent pane transport open connection=\(id, privacy: .public) localApp=\(self.localAppToken != nil, privacy: .public)")
+        Self.logger.notice("agent pane transport open connection=\(id, privacy: .public) localApp=\(self.localAppToken != nil, privacy: .public)")
         return id
     }
 

@@ -16,8 +16,15 @@ import Foundation
 /// with no daemon (the launch prewarm's, before its daemon took the key) answers one handshake,
 /// within ``freshFor``.
 ///
-/// ``drop()`` forgets it: a restart of the daemon, a reconnect, and any handshake that looks up
-/// itself. A lookup that settles after a drop keeps nothing.
+/// A reconnect redials it (``redial(daemon:)``) while that daemon serves: a link that dropped
+/// (63 socket drops in 24 h on Leo's NIGHTLY Mac, apart from the daemon's handovers) went back to
+/// the daemon it had, and the whole lookup (`_acpmux/status`, the person key's enroll, the
+/// peer-checked status again: three round trips on new connections) ran before the pane could
+/// dial it. A redial no lookup has confirmed since answers one reconnect: the next one looks up in
+/// full, so a redial that failed falls back to the lookup.
+///
+/// ``drop()`` forgets it: a restart of the daemon, a reconnect that looks up, and any handshake
+/// that looks up itself. A lookup that settles after a drop keeps nothing.
 nonisolated struct AcpmuxPrewarmedEndpoint: Sendable {
     /// How long after its prewarm a kept endpoint of no known daemon may answer a handshake. A
     /// restored chat asks within a few seconds of launch; a later handshake looks up again.
@@ -27,6 +34,8 @@ nonisolated struct AcpmuxPrewarmedEndpoint: Sendable {
     /// Counts ``drop()``: a lookup reads it before it starts and keeps its endpoint only when
     /// nothing dropped in between.
     private(set) var generation = 0
+    /// A reconnect redialed the kept endpoint, and no lookup kept one since.
+    private(set) var redialed = false
 
     /// Keeps `endpoint`, found by a lookup that started when ``generation`` was `before`, from the
     /// daemon `daemon` (nil: not known yet).
@@ -34,6 +43,16 @@ nonisolated struct AcpmuxPrewarmedEndpoint: Sendable {
                        unlessDroppedSince before: Int) {
         guard before == generation else { return }
         kept = (endpoint, now, daemon)
+        redialed = false
+    }
+
+    /// The kept endpoint for a reconnect while `daemon` runs: only one kept from that same daemon
+    /// (it took this launch's person key, so the reconnect has nothing to enroll), and only when no
+    /// earlier reconnect redialed it since a lookup kept it. Nil: the reconnect looks up in full.
+    mutating func redial(daemon: Int32?) -> AcpmuxWebEndpoint? {
+        guard let kept, !redialed, let from = kept.daemon, from == daemon else { return nil }
+        redialed = true
+        return kept.endpoint
     }
 
     /// The kept endpoint for a handshake at `now` while `daemon` runs (nil: none known). One kept
@@ -49,6 +68,7 @@ nonisolated struct AcpmuxPrewarmedEndpoint: Sendable {
     /// Nothing kept answers a handshake any more, and a lookup looking now keeps nothing.
     mutating func drop() {
         kept = nil
+        redialed = false
         generation += 1
     }
 }
