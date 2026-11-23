@@ -490,6 +490,67 @@ test("a hidden pane draws its chat's turns and new replies, not its reply's text
   }
 });
 
+test("a hidden stream catches up to the same rows as an eager fold", async () => {
+  const steps = (socket: FakeAcpmux) => {
+    record(socket, 401, "turn_started");
+    chunk(socket, 402);
+    chunk(socket, 403);
+    socket.notify("_acpmux/event", {
+      sessionId: SELECTED,
+      seq: 404,
+      at: 404,
+      dir: "in",
+      kind: "tool_call",
+      msg: {
+        method: "session/update",
+        params: {
+          sessionId: SELECTED,
+          update: { sessionUpdate: "tool_call", toolCallId: "read-1", title: "Read", kind: "read", status: "pending" },
+        },
+      },
+    });
+    for (const [seq, status] of [
+      [405, "in_progress"],
+      [406, "completed"],
+    ] as const)
+      socket.notify("_acpmux/event", {
+        sessionId: SELECTED,
+        seq,
+        at: seq,
+        dir: "in",
+        kind: "tool_call_update",
+        msg: {
+          method: "session/update",
+          params: {
+            sessionId: SELECTED,
+            update: { sessionUpdate: "tool_call_update", toolCallId: "read-1", status },
+          },
+        },
+      });
+  };
+
+  const eager = await openPane();
+  steps(eager.socket);
+  flushFrames();
+  const eagerRows = eager.latest().rows;
+  eager.client.close();
+
+  resetKeptTailsForTests();
+  const hidden = await openPane();
+  try {
+    setVisibility("hidden");
+    steps(hidden.socket);
+    expect((hidden.client as any).hiddenDeferred.length).toBeGreaterThan(0);
+    expect(hidden.latest().rows).not.toEqual(eagerRows);
+    setVisibility("visible");
+    flushFrames();
+    expect(hidden.latest().rows).toEqual(eagerRows);
+  } finally {
+    hidden.client.close();
+    setVisibility("visible");
+  }
+});
+
 test("hidden checkpoints see a delayed idle summary and ignore a late result", async () => {
   const states: { isWorking: boolean; completedSeq?: number }[] = [];
   const { socket, client, snapshots } = await openPane((state) => states.push(state));

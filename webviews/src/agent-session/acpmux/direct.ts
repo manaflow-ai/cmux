@@ -1073,6 +1073,10 @@ function seedRoots(
 }
 
 export class AcpmuxDirectClient {
+  /// Stream rows are folded when a hidden pane is shown. A bounded batch keeps a long-hidden
+  /// client from retaining an unbounded deferred list, while still making the common hidden case
+  /// entirely reducer-free until wake.
+  private static readonly HIDDEN_DEFERRED_MAX = 256;
   // A busy daemon may legitimately emit no frame for many seconds, so quiet alone never ends a
   // socket. Once a request has waited this long, and the daemon proved itself no sooner, the pane
   // asks the daemon one cheap question on it (`probeDaemon`): the daemon's own answer, even an
@@ -1101,6 +1105,7 @@ export class AcpmuxDirectClient {
   /// The newest snapshot reason that arrived while this page was hidden. Hidden pages keep
   /// reducing only the state they need for an eventual wake, and publish one snapshot on return.
   private hiddenEmit?: string;
+  private hiddenDeferred: EventRecord[] = [];
   /// Latest observed `isWorking`, also while hidden: completion accounting must not require a draw.
   private drawnWorking = false;
   private drawnWorkingSession?: string;
@@ -1963,6 +1968,7 @@ export class AcpmuxDirectClient {
     this.peerCopy = undefined;
     this.copyLive = undefined;
     this.events = [];
+    this.hiddenDeferred = [];
     this.streamedOutputs.clear();
     this.queue = [];
     this.drewKeptTail = false;
@@ -2872,6 +2878,7 @@ export class AcpmuxDirectClient {
     this.runningTurnId = undefined;
     this.stoppingEnded();
     this.events = [];
+    this.hiddenDeferred = [];
     this.streamedOutputs.clear();
     this.turnOpener = undefined;
     this.turnPrompt = undefined;
@@ -3598,6 +3605,7 @@ export class AcpmuxDirectClient {
     // drew that one, minutes old, before the newest page (Leo's NIGHTLY, 2026-11-11: the chat snapped
     // back to rows from 15 minutes before on every reconnect).
     if (this.onLost) {
+      this.flushHiddenDeferred();
       this.carried = this.carryOver();
       this.rememberCurrentTail();
     }
@@ -4520,6 +4528,7 @@ export class AcpmuxDirectClient {
       this.emitInFrame("session changed");
     }
     if (this.closed) return;
+    if (pageShown()) this.flushHiddenDeferred();
     if (pageShown()) this.wake();
     if (pageShown() && this.readAheadOwed) {
       this.readAheadOwed = false;
@@ -6667,6 +6676,13 @@ export class AcpmuxDirectClient {
     this.lastSeq = event.seq;
     this.firstSeq = this.firstSeq === undefined ? event.seq : Math.min(this.firstSeq, event.seq);
     this.streamGrew = false;
+    if (!pageShown() && hiddenStreamEvent(event)) {
+      this.hiddenDeferred.push(event);
+      this.emitInFrame(event.kind, true);
+      if (this.hiddenDeferred.length >= AcpmuxDirectClient.HIDDEN_DEFERRED_MAX) this.flushHiddenDeferred();
+      return;
+    }
+    this.flushHiddenDeferred();
     this.reduce(event);
     // A record that opened the turn arms the watch; one that ended it stops it (`followQuietWatch`).
     this.followQuietWatch();
@@ -6703,6 +6719,20 @@ export class AcpmuxDirectClient {
       this.shedOlderHeld();
       if (this.events.length > HELD_RECORDS) this.shedRetryAt = this.events.length + HELD_RETRY;
     }
+  }
+
+  /// Applies the row-heavy records held while this page was hidden. They stay in arrival order so
+  /// the resulting rows are the same as an eager fold. The caller publishes one snapshot after the
+  /// batch, instead of one frame per deferred record.
+  private flushHiddenDeferred(): void {
+    if (this.hiddenDeferred.length === 0) return;
+    const pending = this.hiddenDeferred;
+    this.hiddenDeferred = [];
+    for (const event of pending) {
+      this.streamGrew = false;
+      this.reduce(event);
+    }
+    this.followQuietWatch();
   }
 
   /// A live record at or below the newest seq folded. One the pane holds is a duplicate and is dropped. One it
@@ -7658,6 +7688,7 @@ export class AcpmuxDirectClient {
   /// messages"; 2026-11-12: "even if a chat is long, there should be no percievable difference").
   /// A seek (`replayThrough`) still folds everything it shows.
   private rebuild(changedFrom?: number): void {
+    this.flushHiddenDeferred();
     const left = this.newerLeft;
     if (!left) return this.rebuildHeld(changedFrom);
     // The held records end before the chat's (`newerLeft`): their refold's turn state is the window end's, where a
@@ -15697,6 +15728,7 @@ export class AcpmuxDirectClient {
   }
   /// The socket's own onclose ignores a socket close() already let go of, so settle requests here.
   close(): void {
+    this.flushHiddenDeferred();
     this.raceListeners.clear();
     this.pendingPeerTrust = undefined;
     this.refusedPeerTrust = undefined;
@@ -15852,6 +15884,13 @@ function transcriptSeq(session: Session | undefined): number | undefined {
 
 function pageShown(): boolean {
   return typeof document === "undefined" || document.visibilityState !== "hidden";
+}
+
+function hiddenStreamEvent(event: EventRecord): boolean {
+  return (
+    event.dir === "in" &&
+    (event.kind === "agent_message_chunk" || event.kind === "agent_thought_chunk" || event.kind === "tool_call_update")
+  );
 }
 
 /// Whether the reader sees the chat: the page shows and their hand was on it lately (attention.ts).
