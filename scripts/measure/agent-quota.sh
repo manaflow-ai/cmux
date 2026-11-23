@@ -36,9 +36,10 @@ repo=$(cd "$here/../.." && pwd)
 [ -x "$acpmux" ] || { echo "agent-quota: acpmux=PATH (a build of this checkout) is required" >&2; exit 2; }
 command -v claude >/dev/null || { echo "agent-quota: claude is not on PATH" >&2; exit 2; }
 work=$(mktemp -d "${TMPDIR:-/tmp}/agent-quota.XXXXXX")
-# The scratch folder holds every arm's transcripts: keep=1 leaves it for reading, anything else removes it on
-# every exit (a crash, a TERM from the bench runner, ENOSPC), so a failed run leaks nothing.
-trap '[ -n "${keep:-}" ] || rm -rf -- "$work"' EXIT
+# The scratch folder holds every arm's transcripts: keep=1 (or AGENT_QUOTA_KEEP, the form feat-cmux-next's own
+# fix of this red took) leaves it for reading, anything else removes it on every exit (a crash, a TERM from the
+# bench runner, ENOSPC), so a failed run leaks nothing.
+trap '[ -n "${keep:-}${AGENT_QUOTA_KEEP:-}" ] || rm -rf -- "$work"' EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 mkdir -p "$work/bin" "$work/plugin/.claude-plugin" "$work/plugin/skills/cmux-quota"
