@@ -1344,6 +1344,11 @@ jobs:
         if: ${{ !cancelled() && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-ios-sim-create ')) }}
         run: python3 -I tests/test_ios_sim_create.py
 
+      - name: Fast gates run side by side; only the two bun gates share a lane (cmux_next_fast_gates.py)
+        id: tt-fast-gates-lanes
+        if: ${{ !cancelled() && (needs.portable-placement.outputs.tooling_all != 'false' || contains(needs.portable-placement.outputs.tooling_steps, ' tt-fast-gates-lanes ')) }}
+        run: python3 -I tests/test_fast_gates_lanes.py
+
       - name: The iOS simulator step reuses a verified FFI build, and a broken cache only warns (ios_ffi_cache.py)
         id: tt-ios-ffi-cache
         if: ${{ !cancelled() && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-ios-ffi-cache ')) }}
