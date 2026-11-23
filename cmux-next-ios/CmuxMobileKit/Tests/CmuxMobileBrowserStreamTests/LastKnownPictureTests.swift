@@ -1,3 +1,4 @@
+#if os(iOS)
 import Testing
 @testable import CmuxMobileBrowserStream
 
@@ -12,3 +13,4 @@ import Testing
         #expect(!StreamedBrowserPage.showsLastKnown(phase: .unavailable, hasLastKnown: true))
     }
 }
+#endif
