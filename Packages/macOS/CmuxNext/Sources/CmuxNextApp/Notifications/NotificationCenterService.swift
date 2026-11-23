@@ -23,7 +23,9 @@ import CmuxNextFocus
 @Observable
 final class NotificationCenterService {
     /// `notifications.*` from cmux.json (the mute action updates it at once).
-    var preferences = NotificationPreferences()
+    var preferences = NotificationPreferences() {
+        didSet { CmuxToastCenter.shared.styles.configure(preferences.toastStyle) }
+    }
     /// A dismissal belongs to one daemon session, never another machine with the same IDs.
     typealias HighlightKey = NotificationOwnerKey
 
