@@ -16,6 +16,11 @@
 //! resolved) and with its links resolved, since a terminal reports the
 //! folder its shell names (macOS `/tmp` is `/private/tmp`). Filters
 //! combine with AND; no match is an empty list and exit 0.
+//!
+//! `--created-by agents|scripts|people|<session>` (workspace, space and tab
+//! lists; `created-by-detail-v1`) keeps the rows an agent or a script made,
+//! the person's own (no record), or the ones one acpmux session made, named
+//! by its name or id: an agent's leftovers in one list.
 
 use std::path::{Component, Path, PathBuf};
 
@@ -28,15 +33,59 @@ pub(in crate::cli) struct ListFilter {
     pub name: Option<String>,
     /// `--cwd`: the folder a row's terminal must be in or under.
     pub cwd: Option<CwdFilter>,
+    /// `--created-by`: who must have made the row.
+    pub created_by: Option<CreatedByFilter>,
     /// `--id`: the ids (or id prefixes) a row's `id` must be one of.
     pub ids: Vec<String>,
     /// `--tree`: each workspace with its panes, tabs and creator.
     pub tree: bool,
 }
 
+/// The makers `--created-by` keeps.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(in crate::cli) enum CreatedByFilter {
+    /// Every agent session.
+    Agents,
+    /// Scripts: a create from outside an agent session that said so.
+    Scripts,
+    /// The person: rows with no agent or script record.
+    People,
+    /// The acpmux session with this name or id.
+    Session(String),
+}
+
+impl CreatedByFilter {
+    fn parse(value: &str) -> Self {
+        match value {
+            "agents" | "agent" => Self::Agents,
+            "scripts" | "script" => Self::Scripts,
+            "people" | "person" | "me" => Self::People,
+            other => Self::Session(other.to_owned()),
+        }
+    }
+
+    /// Whether a row with `created_by` (its `created_by` or `extra.created_by`) passes.
+    pub(in crate::cli) fn keeps(&self, created_by: Option<&serde_json::Value>) -> bool {
+        let field = |name: &str| created_by.and_then(|by| by.get(name)).and_then(|v| v.as_str());
+        match self {
+            Self::Agents => field("kind") == Some("agent"),
+            Self::Scripts => field("kind") == Some("script"),
+            Self::People => !matches!(field("kind"), Some("agent" | "script")),
+            Self::Session(named) => {
+                field("session_name") == Some(named.as_str())
+                    || field("session").is_some_and(|id| id == named || id.starts_with(named))
+            }
+        }
+    }
+}
+
 impl ListFilter {
     pub(in crate::cli) fn is_empty(&self) -> bool {
-        self.name.is_none() && self.cwd.is_none() && self.ids.is_empty() && !self.tree
+        self.name.is_none()
+            && self.cwd.is_none()
+            && self.created_by.is_none()
+            && self.ids.is_empty()
+            && !self.tree
     }
 
     /// Whether row `id` passes `--id`: equal to one of its ids or starting with it.
@@ -136,7 +185,12 @@ pub(super) fn take(flags: &mut Flags, name: bool, cwd: bool) -> Result<ListFilte
         }
         None => None,
     };
-    Ok(ListFilter { name, cwd, ..ListFilter::default() })
+    Ok(ListFilter { name, cwd, created_by: take_created_by(flags)?, ..ListFilter::default() })
+}
+
+/// Takes `--created-by` for a list.
+pub(super) fn take_created_by(flags: &mut Flags) -> Result<Option<CreatedByFilter>, UsageError> {
+    Ok(value(flags, "created-by")?.map(|value| CreatedByFilter::parse(&value)))
 }
 
 /// `workspace list`'s filters: `--name`, `--cwd`, `--id` and `--tree`.
@@ -167,57 +221,5 @@ impl CommandPlan {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn filter(path: &str, base: &str) -> CwdFilter {
-        CwdFilter::new(path, Path::new(base))
-    }
-
-    #[test]
-    fn cwd_matches_the_folder_and_what_is_inside_it_only() {
-        let projects = filter("/nonexistent-cmux/projects/", "/");
-        assert!(projects.contains("/nonexistent-cmux/projects"));
-        assert!(projects.contains("/nonexistent-cmux/projects/"));
-        assert!(projects.contains("/nonexistent-cmux/projects/app/src"));
-        assert!(!projects.contains("/nonexistent-cmux/projects-old"));
-        assert!(!projects.contains("/nonexistent-cmux"));
-        assert!(filter("/", "/").contains("/anything"));
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn cwd_matches_inside_a_windows_folder() {
-        let projects = filter(r"C:\work\projects", r"C:\");
-        assert!(projects.contains(r"C:\work\projects\app"));
-        assert!(projects.contains(r"C:\work\projects"));
-        assert!(!projects.contains(r"C:\work\projects-old"));
-    }
-
-    #[test]
-    fn cwd_is_made_absolute_against_the_current_folder() {
-        let relative = filter("../b/./c", "/nonexistent-cmux/a");
-        assert_eq!(relative.roots, vec!["/nonexistent-cmux/b/c".to_owned()]);
-        assert!(relative.contains("/nonexistent-cmux/b/c/d"));
-    }
-
-    #[test]
-    fn name_matches_exactly() {
-        let named = ListFilter { name: Some("api".into()), ..ListFilter::default() };
-        assert!(named.name_matches(Some("api")));
-        assert!(!named.name_matches(Some("api-2")));
-        assert!(!named.name_matches(None));
-        assert!(ListFilter::default().name_matches(None));
-    }
-
-    #[test]
-    fn id_matches_one_of_the_ids_or_a_prefix_of_one() {
-        let by_id =
-            ListFilter { ids: vec!["ws_7aee".into(), "ws_5899".into()], ..Default::default() };
-        assert!(by_id.id_matches(Some("ws_7aee67b9a4766d8f988977bc5c1380ba")));
-        assert!(by_id.id_matches(Some("ws_5899901293e83f3696104e5260ca3de6")));
-        assert!(!by_id.id_matches(Some("ws_fddd5e")));
-        assert!(!by_id.id_matches(None));
-        assert!(ListFilter::default().id_matches(None));
-    }
-}
+#[path = "list_filter_tests.rs"]
+mod tests;

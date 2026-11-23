@@ -1,0 +1,32 @@
+// The Codex app, dark: a near-black #151515 page, a #1c1c1c sidebar with no edge, white ink, grays for
+// everything secondary and no color accent at all; selection and focus are a lighter gray. Picked to
+// match the app's look by eye from its public screenshots, not measured.
+{
+  "name": "Codex app, dark",
+  "description": "A near-black #151515 page, a #1c1c1c sidebar, white ink and grays, no color accent.",
+
+  "appearance.theme": "Builtin Dark",
+  "appearance.appTheme": "followTerminal",
+  "colors": { "background": "#151515", "foreground": "#ededed", "selection": "#2e2e2e", "accent": "#ededed" },
+  "appearance.accent": "neutral",
+
+  "appearance.background": "none",
+  "appearance.backgroundBlur": "none",
+  "appearance.chromeStyle": "flat",
+  "appearance.borders": "none",
+
+  "appearance.sidebarSurface": "separate",
+  "appearance.surfaces.sidebar.color": "#1c1c1c",
+  "appearance.surfaces.sidebar.opacity": 1,
+  "appearance.surfaces.agentPane.color": "#151515",
+  "appearance.surfaces.agentPane.opacity": 1,
+  "appearance.surfaces.tabBar.color": "#151515",
+  "appearance.surfaces.tabBar.opacity": 1,
+  "appearance.surfaces.newTabPage.color": "#151515",
+  "appearance.surfaces.newTabPage.opacity": 1,
+  "sidebar.sectionLook": "quiet",
+  "appearance.statusIndicator.style": "dot",
+  "appearance.statusIndicator.color": "#ededed",
+
+  "appearance.density": "compact"
+}

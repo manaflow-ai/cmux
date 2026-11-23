@@ -395,6 +395,22 @@ class PullRequestSkip(unittest.TestCase):
         self.assertEqual(len(problems), 1, problems)
         self.assertIn("does not carry", problems[0])
 
+    def test_a_gate_that_runs_on_an_empty_output_of_a_skipped_job_is_named(self):
+        # cmux-tui-sdks.yml's conformance read contract's sdk_inputs as != 'false'; once contract was Tier A, the
+        # empty output of the skipped job ran conformance on every pull request (148 of 154 runs on 11-21).
+        after = "    if: ${{ !cancelled() }}\n"
+        for gate in ("(github.event_name != 'pull_request' || needs.heavy.outputs.inputs != 'false')",
+                     "needs.heavy.result != 'success'"):
+            with self.subTest(gate=gate):
+                problems = self.check(SKIP_WORKFLOW.replace(after, f"    if: ${{{{ !cancelled() && {gate} }}}}\n"))
+                self.assertEqual(len(problems), 1, problems)
+                self.assertIn("runs on every pull request", problems[0])
+        # Carrying the clause, reading the output as == 'true', or never running on a pull request passes.
+        for gate in (f"{SKIP_IF} && needs.heavy.outputs.inputs != 'false'", "needs.heavy.outputs.inputs == 'true'",
+                     "github.event_name != 'pull_request' && needs.heavy.outputs.inputs != 'false'"):
+            with self.subTest(gate=gate):
+                self.assertEqual(self.check(SKIP_WORKFLOW.replace(after, f"    if: ${{{{ !cancelled() && {gate} }}}}\n")), [])
+
     def test_no_push_net_is_named(self):
         for text in (SKIP_WORKFLOW.replace("  push:\n    branches: [feat-cmux-next]\n", ""),
                      SKIP_WORKFLOW.replace("  push:\n    branches: [feat-cmux-next]", "  push:\n    branches: [main]")):
@@ -490,10 +506,42 @@ class PullRequestSkip(unittest.TestCase):
         self.assertIs(pr_test_lanes.evaluate("${{ !cancelled() && " + SKIP_IF + " }}", context), True)
         self.assertIs(pr_test_lanes.evaluate("${{ github.event_name != 'pull_request' }}", context), False)
         # A pull request into main runs every skipped job: no push of main would (SKIP_BASE).
-        self.assertIn("github.event.pull_request.base.ref != '" + jobs.SKIP_BASE + "'", jobs.PR_SKIP_IF)
-        clause = "${{ github.event.pull_request.base.ref != 'feat-cmux-next' }}"
-        self.assertIs(pr_test_lanes.evaluate(clause, pr_test_lanes.event_context("main")), True)
-        self.assertIs(pr_test_lanes.evaluate(clause, context), False)
+        self.assertIn("!startsWith(github.event.pull_request.base.ref, '" + jobs.SKIP_BASE + "')", jobs.PR_SKIP_IF)
+        # A pull request into a branch stacked on feat-cmux-next (feat-cmux-next-ios-infinite-scroll) skips the same
+        # jobs: that branch reaches feat-cmux-next through a PR that skips them too, and the feat-cmux-next push runs
+        # them (Aziz's App Review gate walked 26-30 min on every push into it, 2026-11-22).
+        stacked = pr_test_lanes.event_context("feat-cmux-next-ios-infinite-scroll")
+        self.assertIs(pr_test_lanes.evaluate("${{ !cancelled() && " + SKIP_IF + " }}", stacked), True)
+        tier = "${{ !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') }}"
+        self.assertIs(pr_test_lanes.evaluate(tier, stacked), False)
+        self.assertIs(pr_test_lanes.evaluate(tier, context), False)
+        self.assertIs(pr_test_lanes.evaluate(tier, pr_test_lanes.event_context("main")), True)
+
+    def follows(self, gate_line: str, followed: str = ".github/workflows/s.yml heavy") -> list[str]:
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / ".github/workflows").mkdir(parents=True)
+            (root / ".github/workflows/s.yml").write_text(SKIP_WORKFLOW)
+            (root / ".github/workflows/fix.yml").write_text(
+                "jobs:\n  repair:\n    steps:\n      - env:\n" + gate_line + "        run: true\n")
+            skip = {"workflows": {".github/workflows/s.yml": {"heavy": "x"}},
+                    "follows": {".github/workflows/fix.yml": {"GATE_HEAVY": followed}}}
+            return jobs.check_follows(root, json.dumps({"pull_request_skip": skip}))
+
+    def test_a_gate_set_to_the_skip_clause_passes(self):
+        self.assertEqual(self.follows(f"          GATE_HEAVY: ${{{{ {SKIP_IF} }}}}\n"), [])
+
+    def test_a_gate_that_drifted_from_the_skip_clause_is_named(self):
+        problems = self.follows(f"          GATE_HEAVY: ${{{{ {SKIP_IF.replace('full-ci', 'dev-build')} }}}}\n")
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("different heads", problems[0])
+
+    def test_a_gate_never_set_or_following_an_unlisted_job_is_named(self):
+        self.assertIn("never sets", self.follows("")[0])
+        problems = self.follows(f"          GATE_HEAVY: ${{{{ {SKIP_IF} }}}}\n", ".github/workflows/s.yml after")
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("does not list", problems[0])
 
     def test_every_listed_job_is_named_in_the_map_with_its_replay(self):
         data = json.loads((ROOT / jobs.MAP).read_text())
@@ -635,6 +683,35 @@ class TheRepository(unittest.TestCase):
         text = 'on:\n  push:\n    paths:\n      - "a/**"\n      # c\n      - b.txt\n  pull_request:\njobs:\n  x:\n'
         self.assertEqual(jobs.workflow_paths(text, "push"), ["a/**", "b.txt"])
         self.assertIsNone(jobs.workflow_paths(text, "pull_request"))
+
+
+class ReplayOwnCrateTests(unittest.TestCase):
+    """affected_jobs_replay.py fails a skip of a job whose own crate changed; a binaries_only job (daemon-test runs the
+    published binaries) owns its crates' sources, not their tests/, benches/ or examples/ (cmux#50031)."""
+
+    @classmethod
+    def setUpClass(cls):
+        spec = importlib.util.spec_from_file_location("affected_jobs_replay", ROOT / "scripts/ci/affected_jobs_replay.py")
+        cls.replay = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cls.replay)
+
+    def job(self, binaries_only: bool):
+        return jobs.Job(".github/workflows/x.yml", "j", "j", ["cmux-tui/crates/cmux-tui"], [], [],
+                        binaries_only=binaries_only)
+
+    def test_binaries_only_job_does_not_own_its_crates_tests(self):
+        changed = ["cmux-tui/crates/cmux-tui/tests/terminal_throughput_stages.rs",
+                   "cmux-tui/crates/cmux-tui/benches/b.rs", "cmux-tui/crates/cmux-tui/examples/e.rs"]
+        self.assertEqual(self.replay.own_crate_changes(jobs, self.job(True), changed), [])
+
+    def test_binaries_only_job_still_owns_its_sources_and_manifest(self):
+        changed = ["cmux-tui/crates/cmux-tui/src/main.rs", "cmux-tui/crates/cmux-tui/Cargo.toml",
+                   "cmux-tui/crates/cmux-tui/src/tests/mod.rs"]
+        self.assertEqual(self.replay.own_crate_changes(jobs, self.job(True), changed), changed)
+
+    def test_a_test_running_job_owns_its_crates_tests(self):
+        changed = ["cmux-tui/crates/cmux-tui/tests/terminal_throughput_stages.rs"]
+        self.assertEqual(self.replay.own_crate_changes(jobs, self.job(False), changed), changed)
 
 
 if __name__ == "__main__":

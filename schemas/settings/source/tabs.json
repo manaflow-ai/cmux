@@ -93,18 +93,18 @@
         },
         {
           "key": "tabs.newTabApp",
-          "note": "A whole New Tab page drawn by an extension (cmux.newtab/1), by app id. Unset (the default) draws cmux's own page; a missing, hidden, disabled or failing app draws it too. Read by the web page only.",
+          "note": "An extension's view over the New Tab composer (cmux.newtab/1), by app id; it never replaces the page or the composer. Unset (the default) draws no view; a missing, hidden, disabled, failing or slow app leaves the slot empty. The Apps page's Use as New Tab sets it. Read by the web page only.",
           "title": {
             "key": "settings.tabs.newTabApp",
             "text": "New Tab App"
           },
           "help": {
             "key": "settings.tabs.newTabApp.help",
-            "text": "An extension id that draws New Tab, such as \"local/showcase-newtab\". Unset: cmux's own."
+            "text": "An extension that draws over the New Tab composer, by its id, such as \"local/showcase-newtab\". The composer always stays. Not used by the native New Tab page."
           },
           "summary": {
             "key": "settings.tabs.newTabApp.summary",
-            "text": "An extension's New Tab page"
+            "text": "An extension over the New Tab composer"
           },
           "kind": "text",
           "swift_owner": "NewTabAppSetting",
@@ -621,6 +621,58 @@
             "crowded",
             "width",
             "many"
+          ]
+        },
+        {
+          "key": "tabs.shellIconTheme",
+          "note": "The icon a shell tab (a terminal running its shell, no agent, no icon of its own) draws in its leading slot (Leo 2026-10-21: \"AND WHERE THE F*** ARE THE ICONS FOR THE F***ING MACHINES\"). default: the >_ kind glyph. machine: the icon of the machine the shell runs on, this Mac's included, so no tab sticks out: its icon in the home session registry (set-session-icon), else its device's SF Symbol, else a Cloud machine's cloud. Off by default: the leading slot stays the kind glyph until the person picks Machines.",
+          "title": {
+            "key": "settings.tabs.shellIconTheme",
+            "text": "Shell Tab Icons"
+          },
+          "help": {
+            "key": "settings.tabs.shellIconTheme.help",
+            "text": "Machines shows each shell tab with the icon of the machine it runs on."
+          },
+          "kind": "choice",
+          "swift_owner": "TabShellIconThemeSetting",
+          "swift_enum": {
+            "name": "TabShellIconTheme",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "choices": [
+            {
+              "value": "default",
+              "title": {
+                "key": "settings.choice.default",
+                "text": "Default"
+              },
+              "note": "The >_ kind glyph."
+            },
+            {
+              "value": "machine",
+              "title": {
+                "key": "settings.choice.tabShellIconThemeMachine",
+                "text": "Machines"
+              },
+              "note": "The machine's icon."
+            }
+          ],
+          "default": "default",
+          "keywords": [
+            "tab",
+            "tabs",
+            "icon",
+            "icons",
+            "shell",
+            "terminal",
+            "machine",
+            "machines",
+            "theme",
+            "ssh",
+            "cloud",
+            "remote"
           ]
         },
         {
