@@ -45,6 +45,14 @@ public nonisolated final class TunableStore: Observable, Sendable {
             self.revision = revision
             self.keyPaths = keyPaths
         }
+
+        /// The Observation key path of `key`: made once per key.
+        mutating func keyPath(_ key: String) -> KeyPath<TunableStore, Int> & Sendable {
+            if let made = keyPaths[key] { return made }
+            let made: KeyPath<TunableStore, Int> & Sendable = \TunableStore.[observed: key]
+            keyPaths[key] = made
+            return made
+        }
     }
 
     package struct Rename: Sendable {
@@ -91,12 +99,7 @@ public nonisolated final class TunableStore: Observable, Sendable {
 
     /// The Observation key path of `key`: made once per key.
     private func keyPath(_ key: String) -> KeyPath<TunableStore, Int> & Sendable {
-        state.withLock { state in
-            if let made = state.keyPaths[key] { return made }
-            let made: KeyPath<TunableStore, Int> & Sendable = \TunableStore.[observed: key]
-            state.keyPaths[key] = made
-            return made
-        }
+        state.withLock { $0.keyPath(key) }
     }
 
     /// A tunable that was called `old`: a file that still holds `old` (and not `new`) gives `new` the
@@ -134,10 +137,14 @@ public nonisolated final class TunableStore: Observable, Sendable {
     // MARK: Reads
 
     /// The override for `key`, if any. Registers an Observation dependency.
+    /// One lock for the key path and the value: a layout reads hundreds of tunables a frame, and each
+    /// `withLock` costs a main-thread wait check in Debug and Nightly (window resize sample, 2026-11-22).
+    /// The access is registered after the read; a tracking scope installs its observers only when it ends.
     public func override(_ key: String) -> TunableValue? {
         guard active.load(ordering: .relaxed) else { return nil }
-        registrar.access(self, keyPath: keyPath(key))
-        return state.withLock { $0.overrides[key] }
+        let (path, value) = state.withLock { state in (state.keyPath(key), state.overrides[key]) }
+        registrar.access(self, keyPath: path)
+        return value
     }
 
     /// The override for `key` as the file holds it, also before `activate`'s read lands: while that

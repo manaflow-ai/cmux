@@ -23,6 +23,9 @@ struct BoundActionCatalogTests {
         "macScreen.sendSpotlight", "macScreen.reconnect", "macScreen.stopAllViewing",
         // Make cmux Yours in the palette landed with its Rust row (catalog/home.rs); the pinned app FFI gains it on re-pin.
         "home.makeItYours",
+        // Adjust Background…, Fill and Fit (PR #49748, step B) bind before their step A catalog rows
+        // (cmux-action-catalog backdrop.rs) re-pin: until then they do nothing.
+        "appearance.adjustBackground", "appearance.background.fill", "appearance.background.fit",
     ]
 
     @Test func everyBoundActionIsInTheCatalog() {
