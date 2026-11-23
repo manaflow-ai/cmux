@@ -180,7 +180,45 @@ def list_sessions(timeout: float = LIST_TIMEOUT_S) -> tuple[list[dict] | None, s
     except (OSError, subprocess.TimeoutExpired, ValueError) as error:
         return None, f"acpmux ls failed ({type(error).__name__})"
     rows = doc.get("sessions") if isinstance(doc, dict) else doc
-    return ([r for r in rows if isinstance(r, dict)] if isinstance(rows, list) else None), None
+    if not isinstance(rows, list):
+        return None, None
+    rows = [r for r in rows if isinstance(r, dict)]
+    return merge_tagged(rows, _tagged(TAG_KEYS, timeout)), None
+
+
+TAG_KEYS = ("owns", "succeeds", "failover")
+
+
+def _tagged(keys, timeout: float) -> list[dict]:
+    """The rows carrying any of KEYS, read with `ls --tag KEY`. The full `ls --json` listing serves a peer's rows from
+    its cached copy, which can lack the tags set since (2026-11-23: four `owns=` tags set from cosmic-gray read None
+    in the full listing on gcp-agent-lane-11 and `--tag owns` found them), so a tag is read where it is filtered."""
+    found = []
+    for key in keys:
+        try:
+            out = subprocess.run(["acpmux", "--json", "ls", "--tag", key, "--fields", "name,sessionId,tags"],
+                                 capture_output=True, text=True, timeout=timeout)
+            doc = json.loads(out.stdout or "null")
+        except (OSError, subprocess.TimeoutExpired, ValueError):
+            continue
+        part = doc.get("sessions") if isinstance(doc, dict) else doc
+        found += [r for r in part or [] if isinstance(r, dict)]
+    return found
+
+
+def merge_tagged(rows: list[dict], tagged: list[dict]) -> list[dict]:
+    """ROWS with the tags of each TAGGED row (matched by sessionId, else name) folded into its own."""
+    by = {}
+    for t in tagged:
+        if isinstance(t.get("tags"), dict):
+            by.setdefault(t.get("sessionId") or t.get("name"), {}).update(t["tags"])
+    if not by:
+        return rows
+    out = []
+    for r in rows:
+        extra = by.get(r.get("sessionId")) or by.get(r.get("name"))
+        out.append({**r, "tags": {**_tags(r), **extra}} if extra else r)
+    return out
 
 
 def _notices_path() -> Path:

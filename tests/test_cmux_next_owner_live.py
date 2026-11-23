@@ -52,6 +52,12 @@ class Holder(unittest.TestCase):
                 row("h3/tabs-refine", "ready", updated=5), row("h4/sidebar-x", updated=99)]
         self.assertEqual(live.holder(cell, rows, ""), ("h3/tabs-refine", "a lane of tabs-refine,tab-strip-*"))
 
+    def test_a_tag_the_full_listing_dropped_is_read_from_the_filtered_one(self):
+        rows = [{"name": "h2/acpmux-owner", "sessionId": "s1", "status": "ready", "tags": None, "updatedAt": 1}]
+        merged = live.merge_tagged(rows, [{"name": "h2/acpmux-owner", "sessionId": "s1", "tags": {"owns": "PL-acpmux"}}])
+        self.assertEqual(live.holder("PL-acpmux (session cmux-4f)", merged, ""), ("h2/acpmux-owner", "holds owns=PL-acpmux"))
+        self.assertIs(live.merge_tagged(rows, []), rows)
+
     def test_an_owns_tag_still_wins_over_a_role(self):
         cell = "PL-instant (lanes tabs-refine)"
         rows = [row("h3/tabs-refine"), row("h5/keeper", owns="PL-instant")]
