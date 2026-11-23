@@ -14,6 +14,7 @@ import Testing
         "AudioServicesPlaySystemSound",
         "AudioServicesPlayAlertSound",
         "CHHapticEngine(",
+        "playInputClick(",
     ]
 
     private static let allowedGatePaths = [
