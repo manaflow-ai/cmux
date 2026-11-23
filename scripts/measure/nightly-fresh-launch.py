@@ -111,6 +111,13 @@ PHASE_KEYS = ("main_start", "first_window_frame_committed", "home.first_page", "
 # The sample's span (start_sample): from the first window frame (about 2.2 s after spawn on a fleet Mac) through the
 # wait for the Chief owner that Home's first page needs (home.chief_owner_ready about 4.1 s).
 SAMPLE_AT, SAMPLE_SECONDS = 2.2, 2
+# Home's page in, by the app's marks (nightly_dogfood_journey.launch_ms, LaunchTimesRecord.homeFirstPageMs), or the
+# reveal deadline that showed Home with no page. The smoke's watch ends at Home's tab with a frame, which comes before
+# the page: with --seconds 0 (the nightly dogfood's update arm) the app was stopped about 1 s in, before any page
+# mark, and every update reading was unmeasured ("did not render Home with app marks"). A launch waits on to one of
+# these, at most PAGE_WAIT_S after the watch ends.
+PAGE_MARKS = ("home.saved_page_shown", "home.first_page", "reveal.home.by_deadline")
+PAGE_WAIT_S = 30.0
 
 
 def load_smoke():
@@ -217,6 +224,33 @@ def main_thread_summary(path: Path, lines: int = 120) -> list[str]:
     return [] if start is None else [line.rstrip() for line in text[start:start + lines]]
 
 
+def page_shown(marks: dict) -> bool:
+    """Whether Home's page is in, or its reveal deadline passed without it (PAGE_MARKS) (pure)."""
+    return any(name in marks for name in PAGE_MARKS)
+
+
+def wait_for_page(smoke, process: subprocess.Popen, marks_fd: int, marks_path: Path, timeout: float = PAGE_WAIT_S) -> None:
+    """Keep reading the app's marks into MARKS_PATH until page_shown, the app exits, or TIMEOUT: each read waits on
+    the marks pipe itself (select), so it ends the moment the mark arrives."""
+    end = time.monotonic() + timeout
+    with open(marks_path, "ab") as marks:
+        while not page_shown(smoke.read_marks(marks_path)) and process.poll() is None:
+            left = end - time.monotonic()
+            if left <= 0:
+                return
+            ready, _, _ = select.select([marks_fd], [], [], min(left, 1.0))
+            if not ready:
+                continue
+            try:
+                chunk = os.read(marks_fd, 1 << 16)
+            except (BlockingIOError, OSError):
+                continue
+            if not chunk:
+                return
+            marks.write(chunk)
+            marks.flush()
+
+
 def launch(smoke, root: Path, app: Path, executable: str, home_root: Path, seconds: float, name: str,
            sample: bool = False, log_premain: bool = False) -> dict:
     """One launch of APP from HOME_ROOT/h (the smoke's fresh_env), watched until Home rendered and SECONDS passed.
@@ -241,6 +275,8 @@ def launch(smoke, root: Path, app: Path, executable: str, home_root: Path, secon
         sampler = start_sample(process.pid, home_root / f"sample-{name}.txt") if sample else None
         try:
             seen = smoke.watch(process, marks_read, marks_path, socket_path, seconds, max(seconds, 90.0))
+            if seen["rendered_at"] is not None and seen["exit"] is None:
+                wait_for_page(smoke, process, marks_read, marks_path)
         finally:
             if sampler is not None:
                 sampler.join(timeout=30)

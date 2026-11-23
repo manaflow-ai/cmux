@@ -25,6 +25,7 @@ use crate::{KeyPair, LinkError, Role};
 use cmux_rd_proto::{DatagramDeparture, DatagramHeader, MAX_DEPARTURE_RECEIPTS};
 use cmux_transport::PathKind;
 use cmux_transport::stun::{TransactionId, binding_request, parse_binding_success};
+use std::collections::BTreeMap;
 use std::collections::VecDeque;
 use std::io;
 use std::mem::size_of_val;
@@ -37,6 +38,8 @@ use std::time::Instant;
 
 #[path = "media_queue.rs"]
 mod media_queue;
+#[path = "no_path.rs"]
+mod no_path;
 #[path = "socket.rs"]
 mod socket;
 
@@ -417,6 +420,7 @@ impl Net {
             start: Instant::now(),
             gathered: std::cell::Cell::new([0; 3]),
             heard: 0,
+            refused: BTreeMap::new(),
         };
         // Host candidates are known at once.
         for ip in interface_addresses().into_iter().filter(|_| !config.relay_only) {
@@ -611,6 +615,40 @@ struct Driver {
     gathered: std::cell::Cell<[u32; 3]>,
     /// Packets from anywhere but a STUN or TURN server, handed to the link.
     heard: u64,
+    /// Sends the system refused, by OS error (`-1`: none given), for a failure's reason.
+    refused: BTreeMap<i32, u64>,
+}
+
+/// Sends `packet` to `to`, counting a refusal in `refused`. A refused send is not an error
+/// of the session (another path may work), but one that is never named reads as a silent
+/// network: a Mac app without Local Network access sees every LAN send fail with
+/// `EHOSTUNREACH` while the peer hears nothing (cmuxterm-hq CMUX-572).
+fn send_counted(
+    socket: &UdpSocket,
+    refused: &mut BTreeMap<i32, u64>,
+    packet: &[u8],
+    to: SocketAddr,
+) -> Option<(u64, usize)> {
+    send_to_observed(socket, refused, packet, to)
+}
+
+/// `; sends refused: <error> xN, ..`, or nothing when every send went out.
+fn refused_text(refused: &BTreeMap<i32, u64>) -> String {
+    if refused.is_empty() {
+        return String::new();
+    }
+    let each: Vec<String> = refused
+        .iter()
+        .map(|(code, n)| {
+            let error = if *code < 0 {
+                "unknown error".to_owned()
+            } else {
+                io::Error::from_raw_os_error(*code).to_string()
+            };
+            format!("{error} x{n}")
+        })
+        .collect();
+    format!("; sends refused: {}", each.join(", "))
 }
 
 impl Driver {
@@ -679,11 +717,11 @@ impl Driver {
 
     fn send(&mut self, route: Route, packet: &[u8], now: u64) -> Option<(u64, usize)> {
         match route {
-            Route::Udp(addr) => send_to_observed(&self.socket, packet, addr),
+            Route::Udp(addr) => send_counted(&self.socket, &mut self.refused, packet, addr),
             Route::Relay { relay, peer } => {
                 let r = self.relays.get_mut(usize::from(relay))?;
                 let wrapped = r.client.send(peer, packet, now)?;
-                send_to_observed(&self.socket, &wrapped, r.server)
+                send_counted(&self.socket, &mut self.refused, &wrapped, r.server)
             }
         }
     }
@@ -751,7 +789,12 @@ impl Driver {
             }
             q.attempts += 1;
             q.next_us = now + STUN_RETRY_US;
-            let _ = self.socket.send_to(&binding_request(q.transaction), q.server);
+            send_counted(
+                &self.socket,
+                &mut self.refused,
+                &binding_request(q.transaction),
+                q.server,
+            );
         }
         self.maybe_done(now);
     }
@@ -771,7 +814,7 @@ impl Driver {
     fn turn_tick(&mut self, now: u64) {
         for r in &mut self.relays {
             for packet in r.client.poll_transmit(now) {
-                let _ = self.socket.send_to(&packet, r.server);
+                send_counted(&self.socket, &mut self.refused, &packet, r.server);
             }
         }
         self.turn_events(now);
@@ -881,30 +924,30 @@ impl Driver {
         }
     }
 
-    /// What this side gathered, what the peer sent, and how many packets it
-    /// heard: a failure says whether the handshake ever reached this side
-    /// (`heard 0`: a NAT, firewall or missing route dropped it) and which
-    /// routes each side had. Counts only, never an address.
-    fn routes_seen(&self) -> String {
-        let [host, srflx, relay] = self.gathered.get();
+    /// What this side gathered and what the peer sent, by kind, for a failure's reason
+    /// ([`no_path`]): whether the handshake ever reached this side and which routes each
+    /// side had (the sends the system refused follow it, [`refused_text`]). Counts only, never an address.
+    fn candidate_counts(&self) -> (no_path::Counts, no_path::Counts) {
         let mut peer = [0u32; 3];
         for c in &self.remote {
             if let Some(n) = peer.get_mut(kind_index(c.kind)) {
                 *n += 1;
             }
         }
-        let [p_host, p_srflx, p_relay] = peer;
-        format!(
-            "local host {host} srflx {srflx} relay {relay}; \
-             peer host {p_host} srflx {p_srflx} relay {p_relay}; heard {}",
-            self.heard
-        )
+        (self.gathered.get(), peer)
     }
 
     fn run(&mut self) {
-        if let Err(e) = self.serve() {
-            self.emit(NetEvent::Failed(format!("{e} ({})", self.routes_seen())));
-        }
+        let Err(error) = self.serve() else { return };
+        // Counted after the run: what was gathered and heard by the time it failed.
+        let (local, peer) = self.candidate_counts();
+        let why = match error {
+            // No path at all: say so in words the viewer's failed card can show.
+            LinkError::HandshakeTimeout => no_path::handshake_timeout(local, peer, self.heard),
+            e => format!("{e} ({})", no_path::counts(local, peer, self.heard)),
+        };
+        let why = format!("{why}{}", refused_text(&self.refused));
+        self.emit(NetEvent::Failed(why));
     }
 
     fn serve(&mut self) -> Result<(), LinkError> {
@@ -957,7 +1000,7 @@ impl Driver {
                         }
                         for r in &mut self.relays {
                             for packet in r.client.close() {
-                                let _ = self.socket.send_to(&packet, r.server);
+                                send_counted(&self.socket, &mut self.refused, &packet, r.server);
                             }
                         }
                         return Ok(());
