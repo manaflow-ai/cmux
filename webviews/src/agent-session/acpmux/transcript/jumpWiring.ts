@@ -7,7 +7,6 @@ import { animateScroll } from "../threadMinimap/scrollMotion";
 import { JUMP_CURVE, jumpDuration, jumpGlideStart } from "../threadMinimap/model";
 import { cssTimeMs } from "../conversation/fold";
 import { type FoldAnchor } from "../conversation/foldAnchor";
-import { userScrollIntent } from "../conversation/userScroll";
 import { clearScrollOrigin, layoutScrollTop, physicalScrollTop } from "../conversation/scrollCoordinates";
 import { indexOfRow } from "./rowIndex";
 import { restingAnchor } from "./scrollAnchors";
@@ -25,7 +24,7 @@ export type JumpToLatestDeps = {
   stopBottomStackFold: () => void;
   foldAnchor: { current: FoldAnchor | undefined };
   dropFoldRoom: (now?: boolean) => void;
-  followRequest: { current: (() => boolean) | undefined };
+  requestFollow: (node: HTMLElement) => void;
   follow: (next: boolean, path?: string) => void;
   focusComposer: (() => void) | undefined;
   latestLayout: { current: { layout: PlacedLayout; rows: readonly AcpmuxRow[] } };
@@ -54,7 +53,7 @@ export type PressUpDeps = {
   ref: { current: HTMLDivElement | null };
   jumpBack: { current: JumpBack | undefined };
   setJumpBackHeld: (held: boolean) => void;
-  followingRef: { current: boolean };
+  following: () => boolean;
   jumpToLatest: (focused: boolean, path?: string) => void;
   placeView: (top: () => number) => void;
   upTopRef: { current: { top: number | undefined; place: ReturnType<typeof jumpUpTarget> } };
@@ -76,7 +75,7 @@ export function jumpToLatestWith(
     stopBottomStackFold,
     foldAnchor,
     dropFoldRoom,
-    followRequest,
+    requestFollow,
     follow,
     focusComposer,
     latestLayout,
@@ -110,8 +109,8 @@ export function jumpToLatestWith(
   clearScrollOrigin(node);
   // The reader asked for the latest row: following holds through the input hold their fling
   // left, as a send's does (its momentum is held too, momentumHold.ts holdMomentum).
-  followRequest.current = userScrollIntent(node).request();
   follow(true, path);
+  requestFollow(node);
   if (focused) focusComposer?.();
   // cmux's animations off (ui.animations) or the system's Reduce Motion: it lands in one frame, and
   // with no glide in flight nothing aims one again at a moved end.
@@ -200,7 +199,7 @@ export function pressUpWith({
   ref,
   jumpBack,
   setJumpBackHeld,
-  followingRef,
+  following,
   jumpToLatest,
   placeView,
   upTopRef,
@@ -210,7 +209,7 @@ export function pressUpWith({
   if (!node) return;
   const press = pressJumpUp(jumpBack.current, {
     top: layoutScrollTop(node),
-    atLatest: followingRef.current,
+    atLatest: following(),
   });
   if (press.kind === "back") {
     jumpBack.current = undefined;

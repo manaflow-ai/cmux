@@ -60,6 +60,15 @@ import { preserveScrollAnchorTop, scrollAnchorBase } from "./conversation/scroll
 import { useBesideStack } from "./conversation/useBesideStack";
 import { attachUserScrollIntent, userScrollIntent } from "./conversation/userScroll";
 import {
+  INITIAL_FOLLOW,
+  followHeld as followHeldBy,
+  isFollowing,
+  jumpTargetOf,
+  stepFollow,
+  type FollowEvent,
+  type FollowState,
+} from "./conversation/followState";
+import {
   clearScrollOrigin,
   layoutScrollTop,
   physicalScrollTop,
@@ -175,10 +184,10 @@ import {
   readUnread,
   subscribeUnread,
   unreadPending,
-  noteUnreadCount,
   noteUnreadNews,
+  noteUnreadCount,
 } from "./conversation/unreadState";
-import { sinceCount, sinceNews } from "./conversation/sinceNews";
+import { sinceNews, sinceCount } from "./conversation/sinceNews";
 import {
   jumpUpShown,
   jumpUpTarget,
@@ -1009,11 +1018,22 @@ function TranscriptView({
   // `scroll` events also fire for layout-driven writes to scrollTop. Keep the user's intent in a
   // ref so those events cannot turn a pinned transcript into a one-frame jump when the composer
   // stack changes height.
-  const followingRef = useRef(true);
-  const followDeferred = useRef(false);
-  /// A send or a move toward the latest row asks to follow now, through the input hold that defers
-  /// follow-bottom. It lasts until the reader's next input (userScroll.ts `request`).
-  const followRequest = useRef<(() => boolean) | undefined>(undefined);
+  // One value for following, a follow-bottom the reader's input hold deferred, an ask to follow
+  // through that hold (a send, Jump to latest, a move toward the latest row; it lapses at the
+  // reader's next input) and Jump to latest's ride in flight (conversation/followState.ts).
+  const followState = useRef<FollowState>(INITIAL_FOLLOW);
+  const stepFollowState = (event: FollowEvent) => {
+    const step = stepFollow(followState.current, event);
+    followState.current = step.state;
+    return step;
+  };
+  /// Where the reader last saw it rest, measured in view; undefined until it is.
+  const seenAnchor = useRef<ScrollAnchor | null | undefined>(undefined);
+  /// Asks to follow now, through the input hold that defers follow-bottom, until the next input.
+  const requestFollow = (node: HTMLElement, send = false) => {
+    const generation = userScrollIntent(node).generation();
+    stepFollowState(send ? { type: "send", generation } : { type: "follow", request: generation });
+  };
   /// Upward reader input whose scroll event has not come yet: the live offset already holds that
   /// movement, so the anchor pass keeps it. Once the event is processed, a later live change is
   /// layout work (#26718) and the stored offset is the base again.
@@ -1033,14 +1053,21 @@ function TranscriptView({
   };
   /// `path` names what turned following on, for the trace (followTrace.ts `arms`).
   const follow = (next: boolean, path = "other") => {
-    if (next && !followingRef.current) followTrace.armed(path);
+    const was = isFollowing(followState.current);
+    const step = stepFollowState(
+      next
+        ? { type: "follow", request: undefined }
+        : { type: "unfollow", anchorRow: seenAnchor.current?.rowId, offset: scrolledTo.current.top },
+    );
+    // A ride in flight keeps following until it lands or stops (followState.ts `unfollow`).
+    if ("refusal" in step) return;
+    if (next && !was) followTrace.armed(path);
     // A switch to another chat opens it at its latest message: that is not the reader going there.
-    if (next && !followingRef.current && path !== "session") reachedLatest();
+    if (next && !was && path !== "session") reachedLatest();
     // Followed again: a chase the reader's input held goes on home, whether or not a layout pass
     // comes after (followChase `resume`).
-    if (next && !followingRef.current) resumeFollowMotion();
+    if (next && !was) resumeFollowMotion();
     if (next) heldPlace.current = undefined;
-    followingRef.current = next;
     onFollowingChange?.(next);
     setFollowing(next);
   };
@@ -1063,10 +1090,10 @@ function TranscriptView({
   /// renders. The pacer has read the live offset by then, so its height costs no layout of its own.
   const followedFrameDrawn = (node: HTMLDivElement, atLatest: boolean) =>
     atLatest &&
-    followingRef.current &&
+    isFollowing(followState.current) &&
     drewFollowedEnd.current !== undefined &&
     node.clientHeight === drewFollowedEnd.current &&
-    jumpTarget.current === undefined &&
+    jumpTargetOf(followState.current) === undefined &&
     !userScrollIntent(node).isHeld();
   const pacedScroll = (frame: ScrollFrame) => {
     if (!transcriptMounted.current) return;
@@ -1080,8 +1107,8 @@ function TranscriptView({
         top,
         scrollHeight: node.scrollHeight,
         clientHeight: node.clientHeight,
-        following: followingRef.current,
-        jumping: jumpTarget.current !== undefined,
+        following: isFollowing(followState.current),
+        jumping: followState.current.kind === "jumping",
         deadband: FOLLOW_BOTTOM_DEADBAND_PX,
       });
       scrollRef.current = {
@@ -1105,7 +1132,7 @@ function TranscriptView({
         setScroll(scrollRef.current);
         // Upward intent can arrive before the browser's default moves the offset. Even at the
         // queued frame's exact position, its old follow state must not replace that live intent.
-        setFollowing(followingRef.current);
+        setFollowing(isFollowing(followState.current));
       });
     });
   };
@@ -1117,12 +1144,13 @@ function TranscriptView({
     path = "scroll",
     input: string | null = null,
   ) => {
-    if (atLatest && !followingRef.current) followTrace.armed(path, input, top);
-    if (atLatest && !followingRef.current) resumeFollowMotion();
-    if (atLatest && !followingRef.current) reachedLatest();
-    // Keep the intent ref synchronous so a second scroll event before the next frame sees the
+    const was = isFollowing(followState.current);
+    if (atLatest && !was) followTrace.armed(path, input, top);
+    if (atLatest && !was) resumeFollowMotion();
+    if (atLatest && !was) reachedLatest();
+    // Keep the intent synchronous so a second scroll event before the next frame sees the
     // reader's latest state; React work itself is coalesced by scrollPacer.
-    followingRef.current = atLatest;
+    stepFollowState({ type: "userScroll", atLatest, anchorRow: seenAnchor.current?.rowId, offset: top });
     onFollowingChange?.(atLatest);
     // The pacer may already have committed this offset (a frame-driven scroll moves it before its
     // event comes): an event that brings no new offset keeps the direction the scroll has. Its delta
@@ -1178,9 +1206,6 @@ function TranscriptView({
       guard.stop();
     };
   }, [guard]);
-  /// Where Jump to latest's glide is headed while it is in flight: its steps are the view following,
-  /// not the reader's scroll, and nothing snaps it to the end before it arrives.
-  const jumpTarget = useRef<number | undefined>(undefined);
   const wheelGlide = useRef<ReturnType<typeof installWheelGlide>>(undefined);
   /// Eases the followed view's steps with a streaming reply on the compositor (followGlide.ts).
   const followGlide = useRef<ReturnType<typeof createFollowGlide>>(undefined);
@@ -1352,7 +1377,8 @@ function TranscriptView({
     // Find, reveal and an asynchronous send own their new placement, even without a jump in flight.
     wheelGlide.current?.stop();
     stopFollowMotion();
-    jumpTarget.current = undefined;
+    // Where Jump to latest's glide was headed (followState.ts `jumping`): following from here.
+    stepFollowState({ type: "jumpEnded" });
     chaseHeld.current = false;
     // A footnote also owns the shared runner and must end on session/send/Find transitions.
     if (ref.current) stopScroll(ref.current);
@@ -2166,7 +2192,7 @@ function TranscriptView({
       const style = mounted[at]!.style;
       if (style.getPropertyValue(FLOW_ROW_GAP) !== gap) style.setProperty(FLOW_ROW_GAP, gap);
     }
-    const end = followingRef.current;
+    const end = isFollowing(followState.current);
     // Read before a length is written below, where it was read to choose the anchor.
     const scrolled = end ? scroller.scrollTop : 0;
     const live = liveResize.current;
@@ -2405,14 +2431,14 @@ function TranscriptView({
             if (!changesDrawn(drawnRef.current, pendingDrawn.current)) {
               pendingDrawn.current = new Map();
               // Back at their placed heights: a ride keeps no translate for a change undone.
-              foldRide.current!.settled(targets, !followingRef.current && !bottomStackFold.current);
+              foldRide.current!.settled(targets, !isFollowing(followState.current) && !bottomStackFold.current);
             }
             // Only rows whose own fold plays changed, away from the bottom: the rows under them ride
             // the change by translate, and the transcript renders once when the fold ends, not on
             // every frame of it (Leo, 2026-11-09: "It just, like, lags pretty heavily").
             // Otherwise (and when a ride gives way) every translate goes before the rows are placed.
             else if (
-              !followingRef.current && !bottomStackFold.current
+              !isFollowing(followState.current) && !bottomStackFold.current
                 ? foldRide.current!.ride(targets)
                 : foldRide.current!.release()
             )
@@ -2430,7 +2456,7 @@ function TranscriptView({
             else if (
               !inputPending() &&
               (rode ||
-                followingRef.current ||
+                isFollowing(followState.current) ||
                 targets.some(heightFoldInFlight) ||
                 foldHolding(foldAnchor.current) ||
                 inSight(ref.current, targets))
@@ -3107,7 +3133,7 @@ function TranscriptView({
       return false;
     stopBottomStackFold();
     // Before the landing: it can lay out again in its own pass (placeRowNow), which must not follow.
-    if (followingRef.current) follow(false);
+    if (isFollowing(followState.current)) follow(false);
     scrolledTo.current = { top: node.scrollTop, atLatest: false };
     landForReader(stack.row);
     return true;
@@ -3131,13 +3157,13 @@ function TranscriptView({
       bottomStackFold.current ||
       left === undefined ||
       Math.abs(node.scrollTop - left) <= FOLLOW_BOTTOM_DEADBAND_PX ||
-      (followingRef.current && node.scrollTop > left) ||
+      (isFollowing(followState.current) && node.scrollTop > left) ||
       atFoldBottom(node.scrollTop, node.clientHeight, node.scrollHeight, FOLLOW_BOTTOM_DEADBAND_PX)
     )
       return false;
     foldAnchor.current = undefined;
     holdTop.current = undefined;
-    if (followingRef.current) follow(false);
+    if (isFollowing(followState.current)) follow(false);
     return true;
   };
   const trimFoldRoom = useCallback((node: HTMLElement) => {
@@ -3145,7 +3171,7 @@ function TranscriptView({
     if (!kept) return;
     const holding = foldHolding(foldAnchor.current);
     // A view that follows the latest row again (the reader scrolled back to it) ends at the rows.
-    if (followingRef.current && !holding) {
+    if (isFollowing(followState.current) && !holding) {
       foldRoomRef.current = 0;
       setFoldRoom(0);
       return;
@@ -3161,8 +3187,6 @@ function TranscriptView({
     foldRoomRef.current = next;
     setFoldRoom(next);
   }, []);
-  /// Where the reader last saw it rest, measured in view; undefined until it is.
-  const seenAnchor = useRef<ScrollAnchor | null | undefined>(undefined);
   /// The reader's place when the rows they were reading left the transcript while they were
   /// scrolled up (a reconnect or a rebuild drew a shorter tail, or no rows for a frame): held until
   /// those rows come back, then put back where it was (`heldReaderPlace`). Leo (2026-11-12): "THE
@@ -3686,8 +3710,9 @@ function TranscriptView({
   const placedBefore = previousLayout.current;
   const scroller = ref.current;
   const followHeld =
-    jumpTarget.current !== undefined ||
-    (scroller !== null && userScrollIntent(scroller).isHeld() && !followRequest.current?.());
+    followState.current.kind === "jumping" ||
+    (scroller !== null &&
+      followHeldBy(followState.current, userScrollIntent(scroller).generation(), userScrollIntent(scroller).isHeld()));
   // A chat switched to opens where the placement pass will put it (the open below, `didOpenAtLatest`):
   // at the row it was left on (`openAt`), else at its latest row, or from the top when it fits. Its
   // first commit mounts the rows it shows there. Rendered from the top instead, a switch mounted the
@@ -3704,7 +3729,7 @@ function TranscriptView({
         : Math.min(switchedLatest, layout.geometry.topAt(switchedAt) + openAt!.offset)
     : placedBefore === layout || draggedHeight !== undefined
       ? undefined
-      : followingRef.current
+      : isFollowing(followState.current)
         ? openedAtLatest && !followHeld
           ? Math.max(0, layout.totalHeight - height)
           : undefined
@@ -3720,11 +3745,11 @@ function TranscriptView({
             })
           : undefined;
   const renderScroll = projectedTop === undefined ? unplacedScroll : { ...unplacedScroll, top: projectedTop + origin };
-  const followedEnd = projectedTop !== undefined && followingRef.current && following;
+  const followedEnd = projectedTop !== undefined && isFollowing(followState.current) && following;
   useLayoutEffect(() => {
     drewFollowedEnd.current = followedEnd ? height : undefined;
   });
-  const renderFollowing = sessionSwitched || followingRef.current;
+  const renderFollowing = sessionSwitched || isFollowing(followState.current);
   // The content in view starts at the offset less `lift`: rows drawn up by it show content that much
   // further down.
   const shownTop = renderScroll.top - lift - origin;
@@ -4044,8 +4069,7 @@ function TranscriptView({
       readerUpPending.current = false;
       readerDown.current = undefined;
       previousSession.current = sessionId;
-      followDeferred.current = false;
-      followRequest.current = undefined;
+      stepFollowState({ type: "sessionSwitched" });
       wheelGlide.current?.stop();
       didOpenAtLatest.current = false;
       // Another chat's count (the subagent view takes none) is not a send in this one.
@@ -4186,7 +4210,7 @@ function TranscriptView({
       // (`foldRoom`): the view is the reader's now, not following, so a reply that streams on
       // grows below the view instead of being followed past blank room.
       if (
-        followingRef.current &&
+        isFollowing(followState.current) &&
         (node.scrollTop < layout.totalHeight - height - FOLLOW_BOTTOM_DEADBAND_PX ||
           foldRoomRef.current > rowsEndRef.current + 0.5)
       )
@@ -4235,7 +4259,8 @@ function TranscriptView({
       // When already parked, only an unacknowledged upward input may explain a live offset above
       // the stored one. A click or downward input refreshes readerAt too, but must not turn a
       // layout correction into a new reader move (the base reader intent rule).
-      const inputAt = followingRef.current || readerUpPending.current ? readerAt.current : Number.NEGATIVE_INFINITY;
+      const inputAt =
+        isFollowing(followState.current) || readerUpPending.current ? readerAt.current : Number.NEGATIVE_INFINITY;
       // A followed view whose offset rose past the deadband with the viewport unchanged and no clamp
       // to explain it was moved by the reader, even before any of their input reached the page. WebKit scrolls a
       // passive-wheel scroller on its scrolling thread and hands the page the wheel later; a streamed
@@ -4244,10 +4269,10 @@ function TranscriptView({
       // while following (no scroll anchoring, overflow-anchor: none), so only a reader or code can.
       const viewport = previousViewport.current;
       const unseenReaderMove =
-        followingRef.current &&
+        isFollowing(followState.current) &&
         !clamped &&
         !unmeasured &&
-        jumpTarget.current === undefined &&
+        followState.current.kind !== "jumping" &&
         viewport.height === height &&
         viewport.width === width &&
         scrolledTo.current.top - live > UNSEEN_READER_MOVE_PX;
@@ -4258,7 +4283,7 @@ function TranscriptView({
       // put the view back where the step began: the row on screen stood still for a frame while the
       // offset went on, then leapt (transcript-scroll-up MODE=drag, a whole step every other frame).
       const unhandledMove =
-        !followingRef.current &&
+        !isFollowing(followState.current) &&
         !unmeasured &&
         Math.abs(scrolledTo.current.top - live) > 0.5 &&
         Math.abs(scrollRef.current.top - live) > 0.5;
@@ -4277,7 +4302,7 @@ function TranscriptView({
       const top = scrollAnchorBase(live, scrolledTo.current.top, readerLeft);
       // Following is reader intent, not proximity. A token must not recapture a parked reader
       // just because the last recorded offset remains inside the bottom deadband.
-      const atLatest = followingRef.current;
+      const atLatest = isFollowing(followState.current);
       // At the latest row also at offset 0: a new chat's first pass can overshoot on estimated
       // heights and settle back to fit, and its reply must still be followed once it overflows
       // (cx-ubd1y). Away from it, at the first row nothing above can move it.
@@ -4289,12 +4314,26 @@ function TranscriptView({
         // bottom every single time").
         const latest = Math.max(0, layout.totalHeight - viewHeight);
         // Jump to latest's glide in flight heads for the new end instead of snapping there.
-        const jumping = jumpTarget.current !== undefined;
         // The shared animation reads the moving end every frame on its original clock.
         // Retargeting a native smooth-scroll here restarted its easing at every measurement.
-        if (jumping) jumpTarget.current = latest;
-        followDeferred.current = !jumping && userScrollIntent(node).isHeld() && !followRequest.current?.();
-        const settle = jumping || followDeferred.current ? undefined : settleFollowBottomAt(node, latest);
+        // Inside the reader's input hold (and no ask to follow through it), follow-bottom waits for
+        // the hold's end (`intentExpired`, the quiet subscriber below).
+        const intent = userScrollIntent(node);
+        const passed = stepFollowState({
+          type:
+            unmeasured || Math.abs(previousViewport.current.height - height) > 0.5
+              ? "resize"
+              : previousRows.current[0]?.id !== rows[0]?.id
+                ? "growAbove"
+                : "growBelow",
+          top: live,
+          latest,
+          input: intent.generation(),
+          hold: intent.isHeld() ? intent.holdGeneration() : undefined,
+        });
+        const outcome = "outcome" in passed ? passed.outcome : undefined;
+        const jumping = outcome === "retarget";
+        const settle = jumping || outcome === "hold" ? undefined : settleFollowBottomAt(node, latest);
         // Where the view is from here: the settle's landed offset, else the one this pass read.
         const viewTop = settle ? settle.top : live;
         passTop = viewTop;
@@ -4678,7 +4717,7 @@ function TranscriptView({
     }
     const pinLive =
       chasing &&
-      followingRef.current &&
+      isFollowing(followState.current) &&
       lineStays &&
       !rowsCame &&
       lastRow?.id === LIVE_THINKING &&
@@ -4686,7 +4725,7 @@ function TranscriptView({
       turnEndCapture.current === undefined &&
       !thread.current?.hasAttribute(TURN_END_ATTR) &&
       !(sends !== seenSends.current || performance.now() < sendRiseUntil.current);
-    const carry = pinLiveLine(thread.current, pinLive, !followingRef.current);
+    const carry = pinLiveLine(thread.current, pinLive, !isFollowing(followState.current));
     // The glide reads where the rows lie from this placement (each frame's `top` is set from it), not
     // from every mounted row's box. Rows that flow (a live resize) lie where the page puts them: read.
     const placedGeometry = layout.geometry;
@@ -4703,7 +4742,7 @@ function TranscriptView({
       thread.current,
       tailGlides && chasing,
       tailAnchor,
-      chasing && followingRef.current,
+      chasing && isFollowing(followState.current),
       pinLive ? LIVE_THINKING : undefined,
       carry,
       placedRows,
@@ -4730,7 +4769,7 @@ function TranscriptView({
     // A view that follows keeps the card height it began following at; any other takes the card's.
     if (!lifting) cardRest.current = dockCard;
     // The room a followed view keeps (`floor` above), until the rows fill it or it stops following.
-    const holding = didOpenAtLatest.current && followingRef.current && floorHeight - lifted > rowsHeight;
+    const holding = didOpenAtLatest.current && isFollowing(followState.current) && floorHeight - lifted > rowsHeight;
     // Held for a sent prompt: once, for the prompt to arrive. Held only for a withdrawn one (the
     // reply was working): again at each pass, so it lasts while the reply grows and goes soon after.
     const forSent = [...heldFor.current].some((id) => !withdrawn.current.has(id));
@@ -4753,7 +4792,7 @@ function TranscriptView({
     if (!holding && !queueLeft.current) heldFor.current.clear();
     if (node && (passHeight ?? node.clientHeight) > 0 && height > 0 && didOpenAtLatest.current) {
       const settledTop = passTop ?? node.scrollTop;
-      scrolledTo.current = { top: settledTop, atLatest: followingRef.current };
+      scrolledTo.current = { top: settledTop, atLatest: isFollowing(followState.current) };
       // While the reader's place is held, it is the place to reopen at, not where the view waits.
       seenAnchor.current =
         heldPlace.current ?? restingAnchor(settledTop - scrollOrigin(node), scrolledTo.current.atLatest, layout, rows);
@@ -4785,7 +4824,7 @@ function TranscriptView({
     // fold's rows: the two summed to a reply that rose past its place and dropped back (3 to 13 px,
     // agent-pane-stream-jitter). Where it drew them is already in the rows' starts. A reader who
     // took the view keeps the thread where the held chase drew it: nothing of theirs moves.
-    if (followingRef.current) stopFollowMotion();
+    if (isFollowing(followState.current)) stopFollowMotion();
     // The tail glide's held translates and clips end either way: where they drew the rows is in the
     // fold's starts too, and the fold plays its own clip from what each row drew. A held clip left on
     // under it applied again once the fold ended, hiding the reply's last lines with nothing under
@@ -4840,7 +4879,7 @@ function TranscriptView({
     const giveTrayRoom = (event: WheelEvent) => {
       if (
         event.deltaY <= 0 ||
-        !followingRef.current ||
+        !isFollowing(followState.current) ||
         (dockTrayRef.current - foldBase.current <= 0.5 && dockCardRef.current - cardBase.current <= 0.5)
       )
         return;
@@ -5079,7 +5118,7 @@ function TranscriptView({
   const revealMoves = useCommittedEvent(() => {
     const node = ref.current;
     if (!node || revealIndex < 0 || !rowRequest.current?.()) return;
-    if (reveal?.land && !followingRef.current) return;
+    if (reveal?.land && !isFollowing(followState.current)) return;
     const top = layout.geometry.topAt(revealIndex);
     const bottom = top + layout.geometry.heightAt(revealIndex);
     // In view where it draws (`lift` from its place while the rows follow a grown composer).
@@ -5264,7 +5303,7 @@ function TranscriptView({
     if (!inViewNow) return;
     fillRef(inViewNow, () => {
       const node = ref.current;
-      if (!node || followingRef.current || node.clientHeight === 0) return null;
+      if (!node || isFollowing(followState.current) || node.clientHeight === 0) return null;
       const { layout: placed, rows: shown } = latestLayout.current;
       const view = visibleLayoutRange(placed, layoutScrollTop(node), node.clientHeight, 0);
       return shown.slice(view.first, view.last).map((row) => row.id);
@@ -5305,7 +5344,7 @@ function TranscriptView({
     dropFoldRoom();
     // Sent from the latest row: the view only moves by what came below, and the send's glide that
     // the placement pass may have started this commit (`followGlide.sent`) keeps playing.
-    const fromLatest = followingRef.current && jumpTarget.current === undefined;
+    const fromLatest = isFollowing(followState.current) && followState.current.kind !== "jumping";
     // Only then does the composer's prompt become the sent message in place; scrolled up, it fades in
     // where it lands (conversation/sendMorph.ts, Leo 2026-11-08: "if you're at the bottom").
     noteSendFromLatest(fromLatest, node);
@@ -5335,9 +5374,9 @@ function TranscriptView({
     // moving end. On the product's 0 clock (Leo, 2026-11-11: "that slow settle animation is just so
     // bad. Like, just do it."), Reduce Motion and motion off, it cuts there in this pass.
     if (!fromLatest && !reduce && sendClockMs(node) > 0) {
-      rideToLatest(node, latest, false, false, true);
-      followRequest.current = userScrollIntent(node).request();
       follow(true, "send");
+      rideToLatest(node, latest, false, false, true);
+      requestFollow(node, true);
     } else {
       const before = node.scrollTop;
       node.scrollTop = latest;
@@ -5350,8 +5389,8 @@ function TranscriptView({
       setScrollAt(top);
       // The commit this asks for places the rows with the stack's room and settles at that end, even
       // inside the hold that follows the reader's last input.
-      followRequest.current = userScrollIntent(node).request();
       follow(true, "send");
+      requestFollow(node, true);
       // Rows this commit added that the placement pass left unfollowed (a held follow): they rise on
       // the send's glide too.
       // On the product's 0 send clock the move to the new end is the send's own and lands in this
@@ -5382,9 +5421,9 @@ function TranscriptView({
     const style = node.ownerDocument.defaultView?.getComputedStyle(node);
     const move = cssTimeMs(style?.getPropertyValue("--agent-motion-move") ?? "");
     const sendMs = send ? (cssTimeMs(style?.getPropertyValue("--agent-motion-send") ?? "") ?? MOTION_SEND_MS) : 0;
-    jumpTarget.current = target;
+    stepFollowState({ type: "jump", target });
     // A long way from the end: skip the middle at once and glide only the last viewport, so the rows
-    // in between never mount (jumpGlideStart). Set after jumpTarget, so its scroll reads as a glide step.
+    // in between never mount (jumpGlideStart). Set after the jump step, so its scroll reads as a glide step.
     const glideFrom = jumpGlideStart(node.scrollTop, target, node.clientHeight);
     if (!reduce && glideFrom !== node.scrollTop) {
       node.scrollTop = glideFrom;
@@ -5411,7 +5450,7 @@ function TranscriptView({
       duration,
       send ? MOTION_SEND_CURVE : JUMP_CURVE,
       () => {
-        jumpTarget.current = undefined;
+        stepFollowState({ type: "jumpEnded" });
         // What streams on after the landing keeps the latest row over the bottom stack.
         chaseHeld.current = chasing;
         scrolledTo.current = { top: node.scrollTop, atLatest: true };
@@ -5423,8 +5462,7 @@ function TranscriptView({
       () => {
         // A native turn/bookmark command can replace the shared ride without a DOM input event.
         // Explicit stopJump disowns first; only an external replacement releases bottom follow.
-        if (jumpTarget.current === undefined) return;
-        jumpTarget.current = undefined;
+        if ("refusal" in stepFollowState({ type: "jumpEnded" })) return;
         scrolledTo.current = { top: node.scrollTop, atLatest: false };
         follow(false);
       },
@@ -5501,7 +5539,7 @@ function TranscriptView({
     pacing.scrolled();
     // A row whose glide the reader's input held, scrolled out of view, lands now where nobody sees it,
     // so it never plays on under the view when they come back to the latest row (tailGlide.ts).
-    if (!followingRef.current) tailGlide.current?.dropUnseen(() => node.getBoundingClientRect());
+    if (!isFollowing(followState.current)) tailGlide.current?.dropUnseen(() => node.getBoundingClientRect());
     // Before the chat opens its offset moves only as pages land unseen: none of it is the reader's.
     if (!didOpenAtLatest.current) return;
     // A hidden scroller has no height, so every offset would read as scrolled up (cx-t0zqt): the view
@@ -5534,7 +5572,13 @@ function TranscriptView({
     const paidAt = layoutScrollTop(node) - room;
     const paidFrom = roomPaidFrom.current;
     roomPaidFrom.current = paidAt;
-    if (!gone && paidFrom !== undefined && paidFrom > paidAt && !followingRef.current && olderRoom.current?.owed) {
+    if (
+      !gone &&
+      paidFrom !== undefined &&
+      paidFrom > paidAt &&
+      !isFollowing(followState.current) &&
+      olderRoom.current?.owed
+    ) {
       roomRosePending.current += paidFrom - paidAt;
       payRoomWhenQuiet(node);
     }
@@ -5547,7 +5591,7 @@ function TranscriptView({
     // A step of Jump to latest's glide: the view is following on its way to the end, not snapped
     // there (a first step inside the deadband read as layout work), and not stopped (a longer one
     // read as the reader's scroll up).
-    if (jumpTarget.current !== undefined) {
+    if (followState.current.kind === "jumping") {
       scrolledTo.current = { top: next, atLatest: true };
       seenAnchor.current = null;
       followTrace.set(next);
@@ -5574,7 +5618,7 @@ function TranscriptView({
     // programmatic-looking event as layout work.
     // A held disclosure (foldAnchor) keeps the view where it is, not at the latest row.
     const layoutDriven =
-      followingRef.current &&
+      isFollowing(followState.current) &&
       programmatic &&
       !foldAnchor.current &&
       Math.abs(next - scrolledTo.current.top) <= FOLLOW_BOTTOM_DEADBAND_PX;
@@ -5619,7 +5663,8 @@ function TranscriptView({
       !programmatic && readerMovedDown && next > was.top + 0.5 && (measured.atLatest || atEnd);
     scrolledTo.current = {
       top: next,
-      atLatest: recentUp || (movedUp && !measured.atLatest) ? false : followingRef.current || readerReachedBottom,
+      atLatest:
+        recentUp || (movedUp && !measured.atLatest) ? false : isFollowing(followState.current) || readerReachedBottom,
     };
     const latest = Math.max(0, layout.totalHeight - node.clientHeight);
     if (was.atLatest && !scrolledTo.current.atLatest)
@@ -5697,7 +5742,7 @@ function TranscriptView({
         stopBottomStackFold,
         foldAnchor,
         dropFoldRoom,
-        followRequest,
+        requestFollow,
         follow,
         focusComposer,
         latestLayout,
@@ -5732,7 +5777,7 @@ function TranscriptView({
       ref,
       jumpBack,
       setJumpBackHeld,
-      followingRef,
+      following: () => isFollowing(followState.current),
       jumpToLatest,
       placeView,
       upTopRef,
@@ -5802,6 +5847,8 @@ function TranscriptView({
       followRef.current(next);
     };
     const cancelProgrammatic = (event?: Event) => {
+      // Each input lapses an ask to follow made before it (followState.ts `wheel`).
+      stepFollowState({ type: "wheel", generation: intent.generation() });
       if (intent.isScrollbarDragging()) {
         if (!olderDragPending.current && previousLayout.current) {
           setScrollbarRange({
@@ -5824,10 +5871,10 @@ function TranscriptView({
       findFrame.current = undefined;
       if (reader(event)) followIntent(false);
       // Up and away from a fold at the very bottom: it lands now, at its own height.
-      if (held && !bottomStackFold.current && !followingRef.current) landForReader(held.row);
+      if (held && !bottomStackFold.current && !isFollowing(followState.current)) landForReader(held.row);
       // Moving toward the latest row while following keeps following through the hold.
-      else if (followingRef.current && movingDown(event)) followRequest.current = intent.request();
-      if (jumpTarget.current !== undefined) {
+      else if (isFollowing(followState.current) && movingDown(event)) requestFollow(node);
+      if (followState.current.kind === "jumping") {
         stopJump();
         scrolledTo.current = { top: node.scrollTop, atLatest: false };
         followIntent(false);
@@ -5882,14 +5929,13 @@ function TranscriptView({
         downInput &&
         (event?.type === "wheel" ||
           (event?.type === "keydown" && (event.target === node || event.target === node.ownerDocument.body))) &&
-        !followingRef.current &&
-        jumpTarget.current === undefined &&
+        followState.current.kind === "reading" &&
         node.clientHeight > 0 &&
         node.scrollTop >= node.scrollHeight - node.clientHeight - FOLLOW_BOTTOM_DEADBAND_PX
       ) {
         scrolledTo.current = { top: node.scrollTop, atLatest: true };
         followRef.current(true, "reader-end");
-        followRequest.current = intent.request();
+        requestFollow(node);
       }
       if (event?.type === "pointerdown") {
         pointerY = (event as PointerEvent).clientY;
@@ -5929,7 +5975,7 @@ function TranscriptView({
         tailGlide.current?.hold();
         freezeGrowthRise.current();
         followChase.current?.hold(() => {
-          const followed = followingRef.current && jumpTarget.current === undefined;
+          const followed = isFollowing(followState.current) && followState.current.kind !== "jumping";
           if (followed) tailGlide.current?.resume();
           return followed;
         });
@@ -5949,7 +5995,7 @@ function TranscriptView({
       )
         olderScrollTarget.current = undefined;
       readerUpPending.current = movingUp;
-      if (jumpTarget.current !== undefined) {
+      if (followState.current.kind === "jumping") {
         stopJump();
         scrolledTo.current = { top: node.scrollTop, atLatest: false };
         followIntent(false);
@@ -5980,7 +6026,7 @@ function TranscriptView({
     const settleHeldFollowMotion = () => {
       // The slim arm hands a held chase to the scroll offset in a followed view too: played on from
       // where it was held, it was the "little readjustment" after the reader's own scroll.
-      if ((followingRef.current && !slimFollow) || jumpTarget.current !== undefined) return;
+      if ((isFollowing(followState.current) && !slimFollow) || followState.current.kind === "jumping") return;
       tailGlide.current?.dropUnseen(() => node.getBoundingClientRect());
       const chase = followChase.current;
       // Whole pixels only: the offset moves by an exact number of its own ticks, so the browser never
@@ -6015,15 +6061,15 @@ function TranscriptView({
       scrollPacer.current?.cancel();
       setScrollAt(landed, 0);
     };
-    const unsubscribeQuiet = intent.subscribeQuiet(() => {
+    const unsubscribeQuiet = intent.subscribeQuiet((generation) => {
       if (olderDragPending.current) {
         olderDragPending.current = false;
         setScrollbarRange(undefined);
       }
       settleHeldFollowMotion();
-      if (!followDeferred.current) return;
-      followDeferred.current = false;
-      if (followingRef.current) resumeDeferredFollow();
+      // The hold's end as an event, under the hold generation its timer was issued under.
+      const expired = stepFollowState({ type: "intentExpired", generation });
+      if ("outcome" in expired && expired.outcome === "resume") resumeDeferredFollow();
     });
     // attachUserScrollIntent captures the scroller and scrollbar inputs (a drag outside the
     // scroller too), then invokes this reader through the shared subscription before layout or
@@ -6162,7 +6208,7 @@ function TranscriptView({
       // view stays on the latest row as before; a click's own hold already keeps its line.
       const regroup = (event as CustomEvent<unknown>).detail;
       if (isRegroupHold(regroup)) {
-        if (followingRef.current || foldHolding(foldAnchor.current)) return;
+        if (isFollowing(followState.current) || foldHolding(foldAnchor.current)) return;
         const hold = holdFold(header);
         hold.top = regroup.top;
         foldAnchor.current = hold;
@@ -6329,7 +6375,7 @@ function TranscriptView({
     if (!onKeepFrom) return;
     // With when it begins: a fold, date line or header is a row the client holds under no id of its own.
     const row =
-      node && followingRef.current && node.clientHeight > 0
+      node && isFollowing(followState.current) && node.clientHeight > 0
         ? rows[visibleLayoutRange(layout, layoutScrollTop(node), 0, 0).first]
         : undefined;
     const id = row?.id ?? null;

@@ -56,26 +56,29 @@ await requireBrowserLane("transcript-parked-stream.test.ts", async () => {
                 "const nextTop = held ? held.top : kept;",
                 'globalThis.__geometry?.("anchor-correction", {top, logicalTop, nextTop, live: node.scrollTop});',
               ],
-              ["followingRef.current = next;", 'globalThis.__probe?.("follow", next);'],
               [
-                "followingRef.current = atLatest;",
+                "followState.current = step.state;",
+                'globalThis.__probe?.("follow", isFollowing(followState.current));',
+              ],
+              [
+                'stepFollowState({ type: "userScroll", atLatest, anchorRow: seenAnchor.current?.rowId, offset: top });',
                 'globalThis.__probe?.("queueScroll", atLatest, atLatest); globalThis.__geometry?.("queueScroll", {top, atLatest});',
               ],
               [
                 "if (didOpenAtLatest.current && atLatest) {",
-                'globalThis.__probe?.("layout-follow", followingRef.current, atLatest);',
+                'globalThis.__probe?.("layout-follow", isFollowing(followState.current), atLatest);',
               ],
               [
                 "} else if (top > 0 || rows[0]?.id !== oldRows[0]?.id) {",
-                'globalThis.__probe?.("layout-anchor", followingRef.current, atLatest);',
+                'globalThis.__probe?.("layout-anchor", isFollowing(followState.current), atLatest);',
               ],
               [
                 "if (layoutDriven) {",
-                'globalThis.__probe?.("scroll-layout", followingRef.current, scrolledTo.current.atLatest);',
+                'globalThis.__probe?.("scroll-layout", isFollowing(followState.current), scrolledTo.current.atLatest);',
               ],
               [
                 "followTrace.update(node, layout.totalHeight, scrolledTo.current.atLatest);",
-                'globalThis.__probe?.("snapshot", followingRef.current, scrolledTo.current.atLatest);',
+                'globalThis.__probe?.("snapshot", isFollowing(followState.current), scrolledTo.current.atLatest);',
               ],
             ];
             for (const [needle, probe] of inserts) {
@@ -84,7 +87,7 @@ await requireBrowserLane("transcript-parked-stream.test.ts", async () => {
             }
             source = source.replace(
               "if (acpmuxPerf.enabled && renderStart > 0) {",
-              'globalThis.__probe?.("commit", followingRef.current, scrolledTo.current.atLatest); if (acpmuxPerf.enabled && renderStart > 0) {',
+              'globalThis.__probe?.("commit", isFollowing(followState.current), scrolledTo.current.atLatest); if (acpmuxPerf.enabled && renderStart > 0) {',
             );
             return source;
           },

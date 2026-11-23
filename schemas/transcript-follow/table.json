@@ -1,0 +1,716 @@
+{
+  "source": "webviews/src/agent-session/acpmux/conversation/followState.ts",
+  "states": [
+    "following",
+    "held",
+    "reading",
+    "jumping"
+  ],
+  "events": [
+    "growAbove",
+    "growBelow",
+    "resize",
+    "wheel",
+    "userScroll",
+    "follow",
+    "unfollow",
+    "send",
+    "jump",
+    "jumpEnded",
+    "intentExpired",
+    "sessionSwitched"
+  ],
+  "refusals": [
+    "jumping",
+    "not_jumping",
+    "not_held",
+    "stale_generation"
+  ],
+  "generations": "intentExpired carries the hold generation its timer was issued under; one issued before the held state began is refused stale_generation. A request carries the input generation it was asked under and lapses at the next input.",
+  "transitions": [
+    {
+      "state": "following",
+      "event": "growAbove",
+      "outcome": "settle",
+      "to": "following"
+    },
+    {
+      "state": "following",
+      "event": "growAbove(held)",
+      "outcome": "hold",
+      "to": "held"
+    },
+    {
+      "state": "following",
+      "event": "growBelow",
+      "outcome": "settle",
+      "to": "following"
+    },
+    {
+      "state": "following",
+      "event": "growBelow(held)",
+      "outcome": "hold",
+      "to": "held"
+    },
+    {
+      "state": "following",
+      "event": "resize",
+      "outcome": "settle",
+      "to": "following"
+    },
+    {
+      "state": "following",
+      "event": "resize(held)",
+      "outcome": "hold",
+      "to": "held"
+    },
+    {
+      "state": "following",
+      "event": "wheel(same)",
+      "outcome": "kept",
+      "to": "following"
+    },
+    {
+      "state": "following",
+      "event": "wheel(newer)",
+      "outcome": "kept",
+      "to": "following"
+    },
+    {
+      "state": "following",
+      "event": "userScroll(latest)",
+      "outcome": "kept",
+      "to": "following"
+    },
+    {
+      "state": "following",
+      "event": "userScroll(away)",
+      "outcome": "unfollowed",
+      "to": "reading"
+    },
+    {
+      "state": "following",
+      "event": "follow",
+      "outcome": "kept",
+      "to": "following"
+    },
+    {
+      "state": "following",
+      "event": "follow(request)",
+      "outcome": "requested",
+      "to": "following"
+    },
+    {
+      "state": "following",
+      "event": "unfollow",
+      "outcome": "unfollowed",
+      "to": "reading"
+    },
+    {
+      "state": "following",
+      "event": "send",
+      "outcome": "requested",
+      "to": "following"
+    },
+    {
+      "state": "following",
+      "event": "jump",
+      "outcome": "jumped",
+      "to": "jumping"
+    },
+    {
+      "state": "following",
+      "event": "jumpEnded",
+      "refusal": "not_jumping",
+      "to": "following"
+    },
+    {
+      "state": "following",
+      "event": "intentExpired(stale)",
+      "refusal": "not_held",
+      "to": "following"
+    },
+    {
+      "state": "following",
+      "event": "intentExpired",
+      "refusal": "not_held",
+      "to": "following"
+    },
+    {
+      "state": "following",
+      "event": "sessionSwitched",
+      "outcome": "forgot",
+      "to": "following"
+    },
+    {
+      "state": "following(request)",
+      "event": "growAbove",
+      "outcome": "settle",
+      "to": "following"
+    },
+    {
+      "state": "following(request)",
+      "event": "growAbove(held)",
+      "outcome": "settle",
+      "to": "following"
+    },
+    {
+      "state": "following(request)",
+      "event": "growBelow",
+      "outcome": "settle",
+      "to": "following"
+    },
+    {
+      "state": "following(request)",
+      "event": "growBelow(held)",
+      "outcome": "settle",
+      "to": "following"
+    },
+    {
+      "state": "following(request)",
+      "event": "resize",
+      "outcome": "settle",
+      "to": "following"
+    },
+    {
+      "state": "following(request)",
+      "event": "resize(held)",
+      "outcome": "settle",
+      "to": "following"
+    },
+    {
+      "state": "following(request)",
+      "event": "wheel(same)",
+      "outcome": "kept",
+      "to": "following"
+    },
+    {
+      "state": "following(request)",
+      "event": "wheel(newer)",
+      "outcome": "kept",
+      "to": "following"
+    },
+    {
+      "state": "following(request)",
+      "event": "userScroll(latest)",
+      "outcome": "kept",
+      "to": "following"
+    },
+    {
+      "state": "following(request)",
+      "event": "userScroll(away)",
+      "outcome": "unfollowed",
+      "to": "reading"
+    },
+    {
+      "state": "following(request)",
+      "event": "follow",
+      "outcome": "kept",
+      "to": "following"
+    },
+    {
+      "state": "following(request)",
+      "event": "follow(request)",
+      "outcome": "requested",
+      "to": "following"
+    },
+    {
+      "state": "following(request)",
+      "event": "unfollow",
+      "outcome": "unfollowed",
+      "to": "reading"
+    },
+    {
+      "state": "following(request)",
+      "event": "send",
+      "outcome": "requested",
+      "to": "following"
+    },
+    {
+      "state": "following(request)",
+      "event": "jump",
+      "outcome": "jumped",
+      "to": "jumping"
+    },
+    {
+      "state": "following(request)",
+      "event": "jumpEnded",
+      "refusal": "not_jumping",
+      "to": "following"
+    },
+    {
+      "state": "following(request)",
+      "event": "intentExpired(stale)",
+      "refusal": "not_held",
+      "to": "following"
+    },
+    {
+      "state": "following(request)",
+      "event": "intentExpired",
+      "refusal": "not_held",
+      "to": "following"
+    },
+    {
+      "state": "following(request)",
+      "event": "sessionSwitched",
+      "outcome": "forgot",
+      "to": "following"
+    },
+    {
+      "state": "held",
+      "event": "growAbove",
+      "outcome": "settle",
+      "to": "following"
+    },
+    {
+      "state": "held",
+      "event": "growAbove(held)",
+      "outcome": "hold",
+      "to": "held"
+    },
+    {
+      "state": "held",
+      "event": "growBelow",
+      "outcome": "settle",
+      "to": "following"
+    },
+    {
+      "state": "held",
+      "event": "growBelow(held)",
+      "outcome": "hold",
+      "to": "held"
+    },
+    {
+      "state": "held",
+      "event": "resize",
+      "outcome": "settle",
+      "to": "following"
+    },
+    {
+      "state": "held",
+      "event": "resize(held)",
+      "outcome": "hold",
+      "to": "held"
+    },
+    {
+      "state": "held",
+      "event": "wheel(same)",
+      "outcome": "kept",
+      "to": "held"
+    },
+    {
+      "state": "held",
+      "event": "wheel(newer)",
+      "outcome": "kept",
+      "to": "held"
+    },
+    {
+      "state": "held",
+      "event": "userScroll(latest)",
+      "outcome": "kept",
+      "to": "held"
+    },
+    {
+      "state": "held",
+      "event": "userScroll(away)",
+      "outcome": "unfollowed",
+      "to": "reading"
+    },
+    {
+      "state": "held",
+      "event": "follow",
+      "outcome": "kept",
+      "to": "held"
+    },
+    {
+      "state": "held",
+      "event": "follow(request)",
+      "outcome": "requested",
+      "to": "following"
+    },
+    {
+      "state": "held",
+      "event": "unfollow",
+      "outcome": "unfollowed",
+      "to": "reading"
+    },
+    {
+      "state": "held",
+      "event": "send",
+      "outcome": "requested",
+      "to": "following"
+    },
+    {
+      "state": "held",
+      "event": "jump",
+      "outcome": "jumped",
+      "to": "jumping"
+    },
+    {
+      "state": "held",
+      "event": "jumpEnded",
+      "refusal": "not_jumping",
+      "to": "held"
+    },
+    {
+      "state": "held",
+      "event": "intentExpired(stale)",
+      "refusal": "stale_generation",
+      "to": "held"
+    },
+    {
+      "state": "held",
+      "event": "intentExpired",
+      "outcome": "resume",
+      "to": "following"
+    },
+    {
+      "state": "held",
+      "event": "sessionSwitched",
+      "outcome": "forgot",
+      "to": "following"
+    },
+    {
+      "state": "reading",
+      "event": "growAbove",
+      "outcome": "anchor",
+      "to": "reading"
+    },
+    {
+      "state": "reading",
+      "event": "growAbove(held)",
+      "outcome": "anchor",
+      "to": "reading"
+    },
+    {
+      "state": "reading",
+      "event": "growBelow",
+      "outcome": "anchor",
+      "to": "reading"
+    },
+    {
+      "state": "reading",
+      "event": "growBelow(held)",
+      "outcome": "anchor",
+      "to": "reading"
+    },
+    {
+      "state": "reading",
+      "event": "resize",
+      "outcome": "anchor",
+      "to": "reading"
+    },
+    {
+      "state": "reading",
+      "event": "resize(held)",
+      "outcome": "anchor",
+      "to": "reading"
+    },
+    {
+      "state": "reading",
+      "event": "wheel(same)",
+      "outcome": "kept",
+      "to": "reading"
+    },
+    {
+      "state": "reading",
+      "event": "wheel(newer)",
+      "outcome": "kept",
+      "to": "reading"
+    },
+    {
+      "state": "reading",
+      "event": "userScroll(latest)",
+      "outcome": "followed",
+      "to": "following"
+    },
+    {
+      "state": "reading",
+      "event": "userScroll(away)",
+      "outcome": "rested",
+      "to": "reading"
+    },
+    {
+      "state": "reading",
+      "event": "follow",
+      "outcome": "followed",
+      "to": "following"
+    },
+    {
+      "state": "reading",
+      "event": "follow(request)",
+      "outcome": "followed",
+      "to": "following"
+    },
+    {
+      "state": "reading",
+      "event": "unfollow",
+      "outcome": "unfollowed",
+      "to": "reading"
+    },
+    {
+      "state": "reading",
+      "event": "send",
+      "outcome": "followed",
+      "to": "following"
+    },
+    {
+      "state": "reading",
+      "event": "jump",
+      "outcome": "jumped",
+      "to": "jumping"
+    },
+    {
+      "state": "reading",
+      "event": "jumpEnded",
+      "refusal": "not_jumping",
+      "to": "reading"
+    },
+    {
+      "state": "reading",
+      "event": "intentExpired(stale)",
+      "refusal": "not_held",
+      "to": "reading"
+    },
+    {
+      "state": "reading",
+      "event": "intentExpired",
+      "refusal": "not_held",
+      "to": "reading"
+    },
+    {
+      "state": "reading",
+      "event": "sessionSwitched",
+      "outcome": "forgot",
+      "to": "reading"
+    },
+    {
+      "state": "jumping",
+      "event": "growAbove",
+      "outcome": "retarget",
+      "to": "jumping"
+    },
+    {
+      "state": "jumping",
+      "event": "growAbove(held)",
+      "outcome": "retarget",
+      "to": "jumping"
+    },
+    {
+      "state": "jumping",
+      "event": "growBelow",
+      "outcome": "retarget",
+      "to": "jumping"
+    },
+    {
+      "state": "jumping",
+      "event": "growBelow(held)",
+      "outcome": "retarget",
+      "to": "jumping"
+    },
+    {
+      "state": "jumping",
+      "event": "resize",
+      "outcome": "retarget",
+      "to": "jumping"
+    },
+    {
+      "state": "jumping",
+      "event": "resize(held)",
+      "outcome": "retarget",
+      "to": "jumping"
+    },
+    {
+      "state": "jumping",
+      "event": "wheel(same)",
+      "outcome": "kept",
+      "to": "jumping"
+    },
+    {
+      "state": "jumping",
+      "event": "wheel(newer)",
+      "outcome": "kept",
+      "to": "jumping"
+    },
+    {
+      "state": "jumping",
+      "event": "userScroll(latest)",
+      "outcome": "kept",
+      "to": "jumping"
+    },
+    {
+      "state": "jumping",
+      "event": "userScroll(away)",
+      "refusal": "jumping",
+      "to": "jumping"
+    },
+    {
+      "state": "jumping",
+      "event": "follow",
+      "outcome": "kept",
+      "to": "jumping"
+    },
+    {
+      "state": "jumping",
+      "event": "follow(request)",
+      "outcome": "requested",
+      "to": "jumping"
+    },
+    {
+      "state": "jumping",
+      "event": "unfollow",
+      "refusal": "jumping",
+      "to": "jumping"
+    },
+    {
+      "state": "jumping",
+      "event": "send",
+      "outcome": "requested",
+      "to": "jumping"
+    },
+    {
+      "state": "jumping",
+      "event": "jump",
+      "outcome": "jumped",
+      "to": "jumping"
+    },
+    {
+      "state": "jumping",
+      "event": "jumpEnded",
+      "outcome": "landed",
+      "to": "following"
+    },
+    {
+      "state": "jumping",
+      "event": "intentExpired(stale)",
+      "refusal": "not_held",
+      "to": "jumping"
+    },
+    {
+      "state": "jumping",
+      "event": "intentExpired",
+      "refusal": "not_held",
+      "to": "jumping"
+    },
+    {
+      "state": "jumping",
+      "event": "sessionSwitched",
+      "outcome": "forgot",
+      "to": "jumping"
+    },
+    {
+      "state": "jumping(request)",
+      "event": "growAbove",
+      "outcome": "retarget",
+      "to": "jumping"
+    },
+    {
+      "state": "jumping(request)",
+      "event": "growAbove(held)",
+      "outcome": "retarget",
+      "to": "jumping"
+    },
+    {
+      "state": "jumping(request)",
+      "event": "growBelow",
+      "outcome": "retarget",
+      "to": "jumping"
+    },
+    {
+      "state": "jumping(request)",
+      "event": "growBelow(held)",
+      "outcome": "retarget",
+      "to": "jumping"
+    },
+    {
+      "state": "jumping(request)",
+      "event": "resize",
+      "outcome": "retarget",
+      "to": "jumping"
+    },
+    {
+      "state": "jumping(request)",
+      "event": "resize(held)",
+      "outcome": "retarget",
+      "to": "jumping"
+    },
+    {
+      "state": "jumping(request)",
+      "event": "wheel(same)",
+      "outcome": "kept",
+      "to": "jumping"
+    },
+    {
+      "state": "jumping(request)",
+      "event": "wheel(newer)",
+      "outcome": "kept",
+      "to": "jumping"
+    },
+    {
+      "state": "jumping(request)",
+      "event": "userScroll(latest)",
+      "outcome": "kept",
+      "to": "jumping"
+    },
+    {
+      "state": "jumping(request)",
+      "event": "userScroll(away)",
+      "refusal": "jumping",
+      "to": "jumping"
+    },
+    {
+      "state": "jumping(request)",
+      "event": "follow",
+      "outcome": "kept",
+      "to": "jumping"
+    },
+    {
+      "state": "jumping(request)",
+      "event": "follow(request)",
+      "outcome": "requested",
+      "to": "jumping"
+    },
+    {
+      "state": "jumping(request)",
+      "event": "unfollow",
+      "refusal": "jumping",
+      "to": "jumping"
+    },
+    {
+      "state": "jumping(request)",
+      "event": "send",
+      "outcome": "requested",
+      "to": "jumping"
+    },
+    {
+      "state": "jumping(request)",
+      "event": "jump",
+      "outcome": "jumped",
+      "to": "jumping"
+    },
+    {
+      "state": "jumping(request)",
+      "event": "jumpEnded",
+      "outcome": "landed",
+      "to": "following"
+    },
+    {
+      "state": "jumping(request)",
+      "event": "intentExpired(stale)",
+      "refusal": "not_held",
+      "to": "jumping"
+    },
+    {
+      "state": "jumping(request)",
+      "event": "intentExpired",
+      "refusal": "not_held",
+      "to": "jumping"
+    },
+    {
+      "state": "jumping(request)",
+      "event": "sessionSwitched",
+      "outcome": "forgot",
+      "to": "jumping"
+    }
+  ]
+}
