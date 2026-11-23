@@ -358,7 +358,8 @@ test("a turn that ends on a tool call keeps its work's copy in sight while the f
   // show a blank view.
   const { captureTurnEnd, playTurnEnd, settleTurnEnd } = await import("./turnEndFold");
   const { dom, thread, frames, draw } = await foldDom();
-  draw("working-u", "working", 0, 34);
+  // The running header (turns.ts `turnHeaderId`: one row, two phases), its chevron held unseen.
+  draw("worked-u", "worked", 0, 34).innerHTML = '<svg class="cv-worked__chevron is-reserved"></svg>';
   draw("work", "activity", 34, 60);
   draw(LIVE_THINKING, "thinking", 94, 22);
   const capture = captureTurnEnd(
@@ -384,7 +385,8 @@ test("a turn that ends on a tool call keeps its work's copy in sight while the f
   }
   // The next turn's own rows coming in there do take that place: the copies under them go.
   const next = await foldDom();
-  next.draw("working-u", "working", 0, 34);
+  // The running header (turns.ts `turnHeaderId`: one row, two phases), its chevron held unseen.
+  next.draw("worked-u", "worked", 0, 34).innerHTML = '<svg class="cv-worked__chevron is-reserved"></svg>';
   next.draw("work", "activity", 34, 60);
   next.draw(LIVE_THINKING, "thinking", 94, 22);
   const before = captureTurnEnd(next.thread, next.thread, [row("worked-u", "worked"), row("u2", "user")], "chat")!;
@@ -407,7 +409,8 @@ test("a reply the swap grew opens to its full height on the fold's clock", async
   // opens with the fold, one motion.
   const { captureTurnEnd, playTurnEnd, settleTurnEnd } = await import("./turnEndFold");
   const { dom, thread, frames, draw } = await foldDom();
-  draw("working-u", "working", 0, 34);
+  // The running header (turns.ts `turnHeaderId`: one row, two phases), its chevron held unseen.
+  draw("worked-u", "worked", 0, 34).innerHTML = '<svg class="cv-worked__chevron is-reserved"></svg>';
   draw("work", "activity", 34, 60);
   draw("answer", "assistant", 94, 46);
   draw(LIVE_THINKING, "thinking", 140, 22);

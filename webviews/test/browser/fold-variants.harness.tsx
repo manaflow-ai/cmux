@@ -410,7 +410,8 @@ async function run(
       }
       flushSync(() => show({ rows, working: state.working, sends, look, ...options }));
       if (sampling) window.__transcriptMotion!.rows?.(rows.map((row) => row.id));
-      if (step.type === "reader" && stray) {
+      // An `open` reader action scrolls nothing: it takes the plain branch below.
+      if (step.type === "reader" && stray && !("open" in step.reader)) {
         if (sampling) window.__transcriptMotion!.mark(`input:${step.label}`);
         await wheelScroll(step.reader);
       } else if (step.type === "reader") {

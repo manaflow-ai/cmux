@@ -8,7 +8,7 @@ import { act, StrictMode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { RevealedMarkdown } from "./RevealedMarkdown";
-import { revealFrames, TurnEndCut } from "./revealedMarkdownModel";
+import { revealFrames } from "./revealedMarkdownModel";
 import { wordEdge } from "../streamReveal";
 import { acpmuxPerf } from "../perf";
 import { settleReact } from "../../../../test/support/domTeardown";
@@ -445,33 +445,21 @@ test("wordEdge ends at a whole word, keeps what shows, and lets a long word thro
   expect(wordEdge(url, 60, false, 53)).toBe(60);
 });
 
-test("the turn's end shows the rest of a reply still revealing in the same commit", () => {
+test("a reply's stream end shows all of it in that commit, with nothing left to grow after it", () => {
   // cmux#50299: the reply's last lines revealed over the frames after the turn's end grew it under the
-  // fold that had just settled the turn. The render that ends the turn (TurnEndCut) shows them all.
+  // fold that had just settled the turn. The commit that ends the stream shows them all, so the turn
+  // end's fold (turnEndFold.ts) carries them in its one motion.
   root = createRoot(container);
   const text = "The answer has a first sentence. And a second one that is still waiting to show.";
-  // The rows each turn ended on (VirtualTranscript): only their identity matters.
-  const ended = [undefined, [], []] as const;
-  const draw = (streaming: boolean, turn: 0 | 1 | 2, body = text) =>
+  const draw = (streaming: boolean, body = text) =>
     act(() => {
-      root!.render(
-        <TurnEndCut.Provider value={ended[turn]}>
-          <RevealedMarkdown text={body} streaming={streaming} artifactIdentity="assistant-1" />
-        </TurnEndCut.Provider>,
-      );
+      root!.render(<RevealedMarkdown text={body} streaming={streaming} artifactIdentity="assistant-1" />);
     });
-  draw(true, 0, "");
-  draw(true, 0);
+  draw(true, "");
+  draw(true);
   frames(0, 3);
-  draw(false, 0);
-  const paced = frames(48, 1)[0]!;
-  expect(paced.length).toBeLessThan(text.length);
-  // The turn ends: all of it, in this commit, drawn as a finished reply (the fold opens its new lines).
-  draw(false, 1);
+  draw(false);
   expect(container.querySelector(".cv-md")?.textContent).toBe(text);
-  expect(frames(64, 1)[0]).toBe(text);
-  // A later turn's end changes nothing of a reply that already shows whole.
-  frames(64, 30);
-  draw(false, 2);
-  expect(container.querySelector(".cv-md")?.textContent).toBe(text);
+  // No frame after it changes what shows.
+  expect(frames(48, 30).every((seen) => seen === text)).toBe(true);
 });

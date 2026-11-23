@@ -549,7 +549,14 @@ export function seedFlags(results: Result[], look: string) {
     if (r.look !== look || !ok(r.numbers) || !(r.numbers as Ok).motion) continue;
     const v = (r.numbers as Ok).motion!;
     if (v.move + v["scroll-step"] + v.resize + v["off-curve"] > 0)
-      flags[r.seed] = { move: v.move, "scroll-step": v["scroll-step"], resize: v.resize, "off-curve": v["off-curve"] };
+      flags[r.seed] = {
+        move: v.move,
+        "scroll-step": v["scroll-step"],
+        resize: v.resize,
+        "off-curve": v["off-curve"],
+        "offscreen-start": v["offscreen-start"],
+        "scroll-start": v["scroll-start"],
+      };
   }
   return flags;
 }
