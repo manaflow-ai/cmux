@@ -68,6 +68,7 @@ impl Home {
             target: TARGET,
             min_age,
             display_busy,
+            joined: false,
         }
     }
     fn put_rd(&self, bytes: &[u8]) {
@@ -158,6 +159,21 @@ async fn a_machine_whose_join_never_wanted_cmux_rd_gets_none() {
     assert!(files.asked.lock().unwrap().is_empty());
 }
 
+/// A machine joined before the join line installed cmux-rd has none and no reason file; it is
+/// joined, so it gets the channel's (design L1: every joined Linux machine has a screen host).
+#[tokio::test]
+async fn a_joined_machine_with_no_cmux_rd_gets_the_channels() {
+    let home = Home::new();
+    let (feed, files) = serving(Some(b"new cmux-rd"), b"new cmux-rd");
+    let paths = RdPaths { joined: true, ..home.paths(REPLACE_EVERY, busy) };
+    let got = refresh(&paths, &files, &feed, SystemTime::now()).await;
+    assert_eq!(got, RdOutcome::Installed(sha(b"new cmux-rd")));
+    assert_eq!(home.rd().as_deref(), Some(&b"new cmux-rd"[..]));
+    // Installed, it is kept on the channel's build like any other.
+    let got = refresh(&paths, &files, &feed, tomorrow()).await;
+    assert_eq!(got, RdOutcome::Current);
+}
+
 #[tokio::test]
 async fn a_join_that_could_not_install_cmux_rd_gets_it_from_a_later_channel() {
     let home = Home::new();
@@ -218,4 +234,14 @@ fn the_outcome_reads_as_one_line_and_json() {
         RdOutcome::Installed("s".into()).json(),
         json!({"outcome": "installed", "message": "s"})
     );
+}
+
+/// The on-demand display is busy whenever it runs; an always-on display of an older cmux-rd
+/// (enabled at boot) never is, since it runs with or without a share; a stopped one never is.
+#[test]
+fn only_the_on_demand_display_running_defers_the_replacement() {
+    assert!(display_busy(true, false));
+    assert!(!display_busy(true, true));
+    assert!(!display_busy(false, false));
+    assert!(!display_busy(false, true));
 }

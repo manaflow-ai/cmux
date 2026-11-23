@@ -130,6 +130,9 @@ Today's targets:
   `data:` URL. The target is host and viewer at once, so it has window rows only: no latency and no
   host. Its cost is a floor, because the app also copies each frame into the helper's ring, rounds
   the corners, evaluates JavaScript and decodes the PNG in the webview.
+- `rd-ladder`: `rd` with the resolution ladder (`--resolution-ladder 1 --max-qp 40`) and a viewer that
+  sends `video.scaled`, as the Mac viewer pane does; `rd-ladder-1000` pins it at 1000 kbps, where it
+  steps down. `rd.sh` takes a variant's flags from `EVAL_RD_HOST_FLAGS` and `EVAL_RD_BENCH_FLAGS`.
 - `rd-window`: the same window alone as a cmux.rd/1 stream at the same 360 px rung (`cmux-rd host
   --display window:ID --max-width 360 --max-fps 6`), with `cmux-rd bench` as the viewer.
   `rd-window-30` runs it at 30 fps. Both have window rows only.
@@ -332,6 +335,9 @@ Quality uses a bounded 128x64 luma ROI, matched by timestamp and exact encoded a
 A source PNG and last viewer image with equal dimensions do not establish frame identity.
 Five source samples at most are recorded per host session, and quality is not extrapolated to
 other scene phases. `evidence.tar.gz` retains raw decode/timing records and matched ROI samples.
+With the resolution ladder on, the host logs each frame's encoded picture size, and
+`min_bits_per_pixel` and `median_bits_per_pixel` are encoded access-unit bits over that picture's pixels, across
+emitted frames in the window; they stay null unless every emitted frame carries a size.
 These observations remain under `extra.repeats[].window_netem_metrics` in the target summary.
 There is no unqualified first-repeat or partial-repeat aggregate.
 Each target also leaves its raw files under
