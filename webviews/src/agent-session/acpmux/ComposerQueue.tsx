@@ -737,7 +737,11 @@ export const ComposerQueue = React.memo(function ComposerQueue({
   // the person's (Leo, 2026-11-05: "don't show these kinds of things"). A Stop's hold of them waits
   // for Resume (`cancel.rs`): `paused`, so the note and its Resume stay (review of #36821, F1).
   if (shown.length === 0 && !(paused && queue.length > 0)) return null;
-  const status = queueStatus(t, { ...(retry && { retry }), paused, ...(pauseReason && { error: pauseReason }) });
+  const status = queueStatus(t, {
+    ...(retry && { retry }),
+    paused: paused === true,
+    ...(pauseReason && { error: pauseReason }),
+  });
   // Prompts sent now come first: queued prompts count from after them.
   const steering = shown.filter((entry) => entry.next).length;
   // A long queue folds to its next prompts; the rows shown are always the first ones, in order.

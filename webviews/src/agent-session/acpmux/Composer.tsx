@@ -3248,7 +3248,7 @@ function ComposerFrame({
   const pauseReason = snapshot.summary?.queuePaused === true ? queuePauseReason(snapshot.rows) : undefined;
   // The daemon's scheduled retry of the failed turn, while the pane hears the daemon (turnPhase.ts):
   // the queue's status line counts down to it.
-  const retry = liveAutoResume(turnPhase(snapshot), snapshot.autoResume)?.retry;
+  const turnRetry = liveAutoResume(turnPhase(snapshot), snapshot.autoResume)?.retry;
   return (
     <form
       ref={form}
@@ -3325,7 +3325,7 @@ function ComposerFrame({
         queue={snapshot.queue}
         paused={snapshot.summary?.queuePaused === true}
         {...(pauseReason ? { pauseReason } : {})}
-        {...(retry ? { retry } : {})}
+        {...(turnRetry ? { retry: turnRetry } : {})}
         {...(onOpenHeld ? { onOpenHeld } : {})}
         t={t}
         onRemove={onQueueRemove}
