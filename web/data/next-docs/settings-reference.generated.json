@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 677,
+  "count": 673,
   "sections": [
     {
       "id": "general",
@@ -17,18 +17,6 @@
             "inline",
             "strip",
             "both"
-          ]
-        },
-        {
-          "key": "agentPane.composerLook",
-          "title": "Composer Look",
-          "help": "Where the mode, model and effort sit: under the box or inside it.",
-          "kind": "choice",
-          "default": "auto",
-          "group": "Agent Chat",
-          "values": [
-            "auto",
-            "studio"
           ]
         },
         {
@@ -104,18 +92,6 @@
             "always",
             "collapsed",
             "never"
-          ]
-        },
-        {
-          "key": "agentPane.emptyChatComposerPosition",
-          "title": "Empty Chat Message Box",
-          "help": "Where the message box sits in a chat with no messages yet.",
-          "kind": "choice",
-          "default": "bottom",
-          "group": "Agent Chat",
-          "values": [
-            "bottom",
-            "center"
           ]
         },
         {
@@ -2022,22 +1998,6 @@
             "afterCurrent",
             "bottom"
           ]
-        },
-        {
-          "key": "worktrees.autoCleanup",
-          "title": "Clean Up Agent Worktrees",
-          "help": "Archive and remove worktrees agents finished with, and trim the build output of idle ones. Unpushed work is kept in git and comes back when the chat reopens.",
-          "kind": "toggle",
-          "default": true,
-          "group": "Storage"
-        },
-        {
-          "key": "worktrees.cleanBuildCaches",
-          "title": "Clean Up Build Caches",
-          "help": "Also remove this Mac's build caches nobody used lately, such as Xcode DerivedData. Package caches go only when the disk is nearly full.",
-          "kind": "toggle",
-          "default": false,
-          "group": "Storage"
         }
       ]
     },
@@ -2398,20 +2358,6 @@
           }
         },
         {
-          "key": "agentPane.display.transcriptLook",
-          "title": "Transcript Look",
-          "help": "How messages, cards and spacing look.",
-          "kind": "choice",
-          "default": "cmux",
-          "group": "Agent Chat",
-          "values": [
-            "cmux",
-            "claude",
-            "codex",
-            "studio"
-          ]
-        },
-        {
           "key": "agentPane.display.transcriptView",
           "title": "Transcript View",
           "help": "How much of each turn a chat shows. A chat's ··· menu sets its own.",
@@ -2770,6 +2716,22 @@
           }
         },
         {
+          "key": "appearance.backgroundRecents",
+          "title": "Recent Backgrounds",
+          "help": "The backgrounds shown before, newest first, so one click goes back.",
+          "kind": "string_list",
+          "default": null,
+          "group": "Window Background"
+        },
+        {
+          "key": "appearance.backgroundPlacement",
+          "title": "Background Placement",
+          "help": "Picture ID to fill, fit, center or stretch, with optional X Y anchor and zoom.",
+          "kind": "string_map",
+          "default": null,
+          "group": "Window Background"
+        },
+        {
           "key": "appearance.backgroundRotation",
           "title": "Change Picture",
           "help": "How often a shuffled background changes.",
@@ -3093,14 +3055,6 @@
             "max": 1,
             "unit": "fraction"
           }
-        },
-        {
-          "key": "appearance.liquidGlass",
-          "title": "Liquid Glass",
-          "help": "Off draws the composer, menus, popovers and cards as solid surfaces with a plain border.",
-          "kind": "toggle",
-          "default": false,
-          "group": "Density and Motion"
         },
         {
           "key": "appearance.metrics.chromeFontSize",
@@ -5989,7 +5943,7 @@
           "title": "Suggestions Shown",
           "help": "",
           "kind": "number",
-          "default": 6,
+          "default": 8,
           "group": "Address Bar",
           "range": {
             "min": 3,
