@@ -10,6 +10,10 @@
 //! without one does it read the relay, by the budget (lead, 2026-11-23: local `ls` p99 under
 //! 500 ms with the relay stalled).
 //!
+//! A relay that missed its budget with no kept listing is not waited on again: later `ls` calls
+//! list it as not listed (`no answer yet, refreshing`) at once, while the detached refresh keeps
+//! trying; its first good answer becomes the kept listing ([`MISSED_MARK`]).
+//!
 //! A relay listing that misses the budget (or fails) is served from the last good one, kept in
 //! [`CACHE_FILE`] under the acpmux home with the time it was read: its rows are marked `stale`
 //! with their `asOfMs`, the JSON listing says so in `remote`, and the text view in one stderr
@@ -38,6 +42,14 @@ pub(crate) const CACHE_FILE: &str = "relay-ls-cache.json";
 
 /// Present while a detached refresh runs; its text is when it started (ms).
 const REFRESH_MARK: &str = "relay-ls-cache.refreshing";
+
+/// Present once a read of the relay missed its budget with no kept listing to show; its text is
+/// when. While it stands, `ls` does not wait on the relay again: the refresh it starts is what
+/// reads it, and the first good answer keeps a listing (which retires this).
+const MISSED_MARK: &str = "relay-ls-cache.missed";
+
+/// What [`RelayRead::missed`] says when the relay missed before and has not answered since.
+pub(crate) const NO_ANSWER_YET: &str = "no answer yet, refreshing";
 
 /// A cached listing older than this is not served: it would list sessions long gone.
 const CACHE_MAX_AGE_MS: u64 = 24 * 3_600_000;
@@ -173,6 +185,18 @@ pub(crate) fn start_with(
                 missed: Some(FROM_CACHE.to_owned()),
             });
         }
+        // A relay that missed its budget before and never gave a listing: not waited on again
+        // (a known slow peer must not make every `ls` slow); its rows are unknown until the
+        // detached refresh keeps an answer.
+        if missed_mark_live(&cache, crate::store::now_ms()) {
+            refresh_detached(&cache);
+            return RelayPart::Kept(RelayRead {
+                rows: Vec::new(),
+                state: RemoteState::Missing,
+                source,
+                missed: Some(NO_ANSWER_YET.to_owned()),
+            });
+        }
         let task =
             tokio::task::spawn_blocking(move || send_relay::relay_ls(&relay, Some(deadline)));
         RelayPart::Reading(source, cache, task)
@@ -222,6 +246,10 @@ impl FarRead {
                 Ok(Err(e)) => format!("failed ({e})"),
                 Ok(Ok(Err(_))) | Err(_) => {
                     task.abort();
+                    let _ = crate::home_fs::write(
+                        &cache.with_file_name(MISSED_MARK),
+                        crate::store::now_ms().to_string(),
+                    );
                     format!("not read within {}", seconds(budget))
                 }
             };
@@ -244,6 +272,13 @@ impl FarRead {
         let (relay, (ssh_hosts, ssh_rows)) = tokio::join!(relay, ssh);
         Far { relay, ssh_hosts, ssh_rows }
     }
+}
+
+fn missed_mark_live(cache: &Path, now: u64) -> bool {
+    std::fs::read_to_string(cache.with_file_name(MISSED_MARK))
+        .ok()
+        .and_then(|t| t.trim().parse::<u64>().ok())
+        .is_some_and(|at| now.saturating_sub(at) <= CACHE_MAX_AGE_MS)
 }
 
 /// `1.5s`, `2s`.
@@ -278,6 +313,7 @@ fn source_name(relay: &SendRelay) -> String {
 pub(crate) fn write_cache(path: &Path, source: &str, rows: &[Value], at: u64) {
     let body = json!({"version": 1, "readAtMs": at, "source": source, "sessions": rows});
     let _ = crate::home_fs::write(path, body.to_string());
+    let _ = crate::home_fs::remove_file(path.with_file_name(MISSED_MARK));
 }
 
 /// The cached listing's read time and rows, each marked `stale` with its `asOfMs`; none when
