@@ -7,7 +7,9 @@
 //! The windows carry no time they were seen, so per window id the newest is the one with the
 //! latest `resetsAt` (a later window), and within one window the highest `usedPercent` (usage
 //! only grows until its reset). A window whose reset has passed is left out: what it reads now is
-//! unknown, never shown as stale use. Reads only the metas in memory; starts nothing.
+//! unknown, never shown as stale use. With them, `lastCacheMiss`: the newest prompt cache miss
+//! (and its likely cause) of those chats, for the account row's hover line ("the last cache-miss
+//! cause"). Reads only the metas in memory; starts nothing.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -81,9 +83,22 @@ pub(crate) fn freshest_windows<'a>(
     Some(out)
 }
 
+/// The newest of the chats' last prompt cache misses (`_meta.acpmux.cacheMiss` of each saved
+/// `usage_update`, `{cause, at}`, `claude_stdio/prompt_cache.rs`): the one with the latest `at`.
+pub(crate) fn newest_miss<'a>(misses: impl IntoIterator<Item = &'a Value>) -> Option<Value> {
+    let at = |m: &Value| m.get("at").and_then(Value::as_u64).filter(|at| *at > 0);
+    misses
+        .into_iter()
+        .filter(|m| at(m).is_some() && m.get("cause").is_some_and(Value::is_string))
+        .max_by_key(|m| at(m))
+        .map(|m| json!({"cause": m["cause"], "at": m["at"]}))
+}
+
 impl Hub {
     /// The plan usage limits of the Claude login in `home` (None: the CLI's own, `~/.claude`), from
-    /// the chats here that run in it ([`freshest_windows`]). None when none of them reported any.
+    /// the chats here that run in it ([`freshest_windows`]), with `lastCacheMiss`, the newest
+    /// prompt cache miss among them ([`newest_miss`]), when one is known. None when the chats
+    /// reported neither.
     pub(crate) async fn claude_account_usage(
         &self,
         home: Option<&Path>,
@@ -91,9 +106,17 @@ impl Hub {
     ) -> Option<Value> {
         let want = claude_home(home)?;
         let mut saved = Vec::new();
+        let mut misses = Vec::new();
         for session in self.session_handles() {
-            // Cheap first: only chats that saved limits are read further.
-            let Some(limits) = session.read_meta(|m| m.usage_limits.clone()) else { continue };
+            // Cheap first: only chats that saved limits or a miss are read further.
+            let (limits, miss) = session.read_meta(|m| {
+                let miss =
+                    m.usage.as_ref().and_then(|u| u.pointer("/_meta/acpmux/cacheMiss")).cloned();
+                (m.usage_limits.clone(), miss)
+            });
+            if limits.is_none() && miss.is_none() {
+                continue;
+            }
             let meta = session.meta();
             let family = {
                 let cfg = self.config.read().await;
@@ -107,11 +130,18 @@ impl Hub {
             }
             let (_, env) = self.harness_env(&meta).await;
             let runs_in = crate::route_account::current_home(&meta, "claude", &env);
-            if claude_home(runs_in.as_deref()).as_ref() == Some(&want) {
-                saved.push(limits);
+            if claude_home(runs_in.as_deref()).as_ref() != Some(&want) {
+                continue;
             }
+            saved.extend(limits);
+            misses.extend(miss);
         }
-        freshest_windows(&saved, now_secs)
+        let miss = newest_miss(&misses);
+        let mut usage = freshest_windows(&saved, now_secs);
+        if let Some(miss) = miss {
+            usage.get_or_insert_with(|| json!({"windows": []}))["lastCacheMiss"] = miss;
+        }
+        usage
     }
 }
 
@@ -154,6 +184,17 @@ mod tests {
         assert_eq!(freshest_windows([&json!({"windows": []})], 0), None);
         assert_eq!(freshest_windows([&json!({"windows": [w("session", 99.0, Some(1))]})], 5), None);
         assert_eq!(freshest_windows(std::iter::empty(), 0), None);
+    }
+
+    #[test]
+    fn the_newest_miss_is_the_latest_one_with_a_cause() {
+        let old = json!({"cause": "expired", "at": 100});
+        let new = json!({"cause": "model", "at": 300});
+        let bad = json!({"at": 900});
+        let zero = json!({"cause": "effort", "at": 0});
+        assert_eq!(newest_miss([&old, &bad, &new, &zero]), Some(new.clone()));
+        assert_eq!(newest_miss([&bad, &zero]), None);
+        assert_eq!(newest_miss(std::iter::empty()), None);
     }
 
     #[test]
