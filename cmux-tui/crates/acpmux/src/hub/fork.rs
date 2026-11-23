@@ -424,17 +424,16 @@ impl Hub {
             let mut cut_ms = u64::MAX;
             let mut turns = 0u64;
             let mut prompts = 0usize;
-            self.store
-                .scan(&session.id, 0, &mut |e: EventRecord| {
-                    if e.seq > through {
-                        cut_ms = e.at;
-                        return false;
-                    }
-                    turns += u64::from(e.kind == "turn_result");
-                    prompts += usize::from(e.kind == "user_message");
-                    true
-                })
-                .map_err(|e| RpcError::internal(e.to_string()))?;
+            self.scan_off(&session.id, 0, &mut |e: EventRecord| {
+                if e.seq > through {
+                    cut_ms = e.at;
+                    return false;
+                }
+                turns += u64::from(e.kind == "turn_result");
+                prompts += usize::from(e.kind == "user_message");
+                true
+            })
+            .map_err(|e| RpcError::internal(e.to_string()))?;
             turn_count = turns;
             // Claude resumes from the project directory the copy sits in, and
             // Codex from the folder its rollout names.
@@ -775,6 +774,7 @@ impl Hub {
             // Never the parent's: only its creator asks (`SessionMeta::wait_start`).
             wait_start: false,
             throwaway: false,
+            create_key: None,
             agent_behind_seq: None,
             hibernated_ms: 0,
             idle_launch: None,
@@ -956,7 +956,7 @@ impl Hub {
             self.ledger.suppress(&new.id);
             let order = new.append_lock.lock().unwrap_or_else(|e| e.into_inner());
             self.catch_up_locked(&new);
-            let copied = self.store.scan_kinds(&session.id, COPIED, &mut |e: EventRecord| {
+            let copied = self.scan_kinds_off(&session.id, COPIED, &mut |e: EventRecord| {
                 if empty || e.seq > fork_seq {
                     return false;
                 }

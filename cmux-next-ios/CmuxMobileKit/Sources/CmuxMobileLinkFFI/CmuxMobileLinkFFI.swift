@@ -1628,6 +1628,16 @@ public protocol LinkHandleProtocol: AnyObject, Sendable {
      */
     func openSurface(argsJson: String, observer: BrowserObserver) async throws  -> BrowserStream
     
+    /**
+     * Before the OS suspends the app: ask the Mac to hold this link for up
+     * to `hold_ms` (at most 10 minutes) while the phone is silent, waiting
+     * at most `timeout_ms` for the answer (PROTOCOL.md "Parked link").
+     * `true`: parked, and nothing on the link wakes the phone until
+     * `resume`. `false`: an older Mac, no answer in time, or a WebRTC link,
+     * which cannot be held; the link closes on silence as before.
+     */
+    func park(holdMs: UInt32, timeoutMs: UInt32) async throws  -> Bool
+    
     func path()  -> LinkPath
     
     /**
@@ -1658,6 +1668,14 @@ public protocol LinkHandleProtocol: AnyObject, Sendable {
      * heartbeat probes only a link quiet for a whole beat.
      */
     func receivedAgoMs()  -> UInt64
+    
+    /**
+     * Back from the background: the link expects the Mac again. `true` when
+     * it was parked and its hold has not passed. The tunnel then moves onto
+     * a fresh socket (as on a network change) and the caller probes; the
+     * first frame back ends the park on both sides.
+     */
+    func resume()  -> Bool
     
     /**
      * The latest WireGuard roam of this link (`network_changed`,
@@ -1920,6 +1938,31 @@ open func openSurface(argsJson: String, observer: BrowserObserver)async throws  
         )
 }
     
+    /**
+     * Before the OS suspends the app: ask the Mac to hold this link for up
+     * to `hold_ms` (at most 10 minutes) while the phone is silent, waiting
+     * at most `timeout_ms` for the answer (PROTOCOL.md "Parked link").
+     * `true`: parked, and nothing on the link wakes the phone until
+     * `resume`. `false`: an older Mac, no answer in time, or a WebRTC link,
+     * which cannot be held; the link closes on silence as before.
+     */
+open func park(holdMs: UInt32, timeoutMs: UInt32)async throws  -> Bool  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_cmux_mobile_link_ffi_fn_method_linkhandle_park(
+                    self.uniffiCloneHandle(),
+                    FfiConverterUInt32.lower(holdMs),FfiConverterUInt32.lower(timeoutMs)
+                )
+            },
+            pollFunc: ffi_cmux_mobile_link_ffi_rust_future_poll_i8,
+            completeFunc: ffi_cmux_mobile_link_ffi_rust_future_complete_i8,
+            freeFunc: ffi_cmux_mobile_link_ffi_rust_future_free_i8,
+            liftFunc: FfiConverterBool.lift,
+            errorHandler: FfiConverterTypeCmuxMobileError_lift
+        )
+}
+    
 open func path() -> LinkPath  {
     return try!  FfiConverterTypeLinkPath_lift(try! rustCall() {
     uniffi_cmux_mobile_link_ffi_fn_method_linkhandle_path(
@@ -1995,6 +2038,20 @@ open func probeTimeoutMs(floorMs: UInt32) -> UInt32  {
 open func receivedAgoMs() -> UInt64  {
     return try!  FfiConverterUInt64.lift(try! rustCall() {
     uniffi_cmux_mobile_link_ffi_fn_method_linkhandle_received_ago_ms(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * Back from the background: the link expects the Mac again. `true` when
+     * it was parked and its hold has not passed. The tunnel then moves onto
+     * a fresh socket (as on a network change) and the caller probes; the
+     * first frame back ends the park on both sides.
+     */
+open func resume() -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_linkhandle_resume(
             self.uniffiCloneHandle(),$0
     )
 })
@@ -6310,10 +6367,10 @@ public func overviewColumns(width: Double) -> UInt32  {
 })
 }
 /**
- * The layout of a window `width` by `height` points. A size that is not
- * finite or not positive is a compact phone's of that width (zero when
- * unknown), so a transient zero size during a scene change never shows two
- * panes.
+ * The layout of a window `width` by `height` points. A size with either side
+ * not finite or not positive is unknown, laid out as a zero-sized compact
+ * window, so a transient zero size during a scene change never shows two
+ * panes or a wide overview.
  */
 public func windowLayout(width: Double, height: Double) -> WindowLayout  {
     return try!  FfiConverterTypeWindowLayout_lift(try! rustCall() {
@@ -6408,7 +6465,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_func_overview_columns() != 48015) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_func_window_layout() != 29754) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_window_layout() != 34233) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_channelhandle_close() != 40361) {
@@ -6453,6 +6510,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_open_surface() != 44893) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_park() != 63347) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_path() != 46489) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -6466,6 +6526,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_received_ago_ms() != 55134) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_resume() != 43166) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_roam_timings() != 26202) {
