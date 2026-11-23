@@ -10,6 +10,8 @@ const LIST_ITEMS: usize = 8;
 const EXTRA_KEYS: &[&str] = &[
     "name",
     "handle",
+    // The name every surface shows ("Mango"), so a list-fed row names it too.
+    "displayName",
     // The chat's own icon (`session_icon.rs`); an image is left to the full summary.
     "icon",
     "shortName",
