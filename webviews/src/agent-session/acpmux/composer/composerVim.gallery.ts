@@ -4,6 +4,7 @@
 import { agentPaneEntry } from "../../../gallery/format";
 import type { PlayContext } from "../../../gallery/play";
 import { assistant, chat, user } from "../../../gallery/fixtures/acpmux";
+import { COMPOSER_EDITOR } from "../composerSelectors";
 import { setComposerSettings } from "../composerSettings";
 
 const startedChat = () =>
@@ -18,7 +19,7 @@ async function vim(ctx: PlayContext, normal: boolean) {
   setComposerSettings({ vimMode: true });
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-vim-mode"));
   if (!normal) return;
-  await ctx.focus({ selector: ".acpmux-composer-prompt [contenteditable='true']" });
+  await ctx.focus({ selector: COMPOSER_EDITOR });
   await ctx.press("Escape");
   await ctx.waitFor(() => ctx.document.querySelector('.acpmux-vim-mode[data-vim-mode="normal"]'));
 }
