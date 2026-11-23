@@ -11,7 +11,8 @@ import Testing
 @MainActor @Suite(.serialized, .closesItsWindows) struct ShaderWallpaperTests {
     @Test func everyShaderIsAPickerChoiceTheSettingReadsBack() {
         let ids = BackdropCatalog.shaders.map(\.id)
-        #expect(ids == ["shader:currents", "shader:ripples", "shader:aurora", "shader:field", "shader:aero"])
+        #expect(ids == ["shader:currents", "shader:ripples", "shader:aurora", "shader:field", "shader:aero",
+                        "shader:sakura", "shader:sumi", "shader:koi", "shader:snowfall", "shader:lanterns", "shader:rain"])
         for choice in BackdropCatalog.shaders {
             #expect(BackdropSelection(id: choice.id) == choice, "\(choice.id) does not read back")
             #expect(choice.pickerCollection?.id == BackdropShader.collection)
@@ -130,6 +131,22 @@ import Testing
         #expect(!h.shader.moves, "a window no one can see keeps drawing")
     }
 
+    @Test func aWarmMacHalvesTheFrameRateAndASeriousOneHoldsTheFrame() {
+        let h = make(.shader(.aurora))
+        defer { h.close() }
+        h.shader.thermalOverride = .nominal
+        #expect(h.shader.ceilingFramesPerSecond == BackdropShaderView.maximumFramesPerSecond)
+        h.shader.thermalOverride = .fair
+        #expect(h.shader.ceilingFramesPerSecond == BackdropShaderView.warmFramesPerSecond)
+        #expect(h.shader.framesPerSecond == BackdropShaderView.warmFramesPerSecond)
+        #expect(BackdropShaderView.warmFramesPerSecond * 2 == BackdropShaderView.maximumFramesPerSecond)
+        #expect(h.shader.moves || h.backdrop.shaderView.metalLayer.device == nil, "a warm Mac stops the wallpaper instead of slowing it")
+        h.shader.thermalOverride = .serious
+        #expect(!h.shader.moves, "a serious thermal state keeps a living wallpaper drawing")
+        h.shader.thermalOverride = .nominal
+        #expect(h.shader.ceilingFramesPerSecond == BackdropShaderView.maximumFramesPerSecond)
+    }
+
     @Test func thePointerIsEasedAndItsSpeedBecomesEnergyThatFades() {
         let h = make(.shader(.field))
         defer { h.close() }
@@ -205,6 +222,10 @@ import Testing
         #expect(view.framesPerSecond == BackdropShaderView.maximumFramesPerSecond, "a spreading ring is drawn at the calm rate")
         for _ in 0..<300 { view.advance(by: 1 / 60) }
         #expect(view.framesPerSecond == BackdropShaderView.calmFramesPerSecond, "a faded ring keeps the full rate")
+        view.thermalOverride = .fair
+        view.pointerOverride = CGPoint(x: 20, y: 20)
+        view.advance(by: 1 / 60)
+        #expect(view.framesPerSecond == BackdropShaderView.warmFramesPerSecond, "a stirring pointer lifts a warm Mac past its cap")
     }
 
     /// The darkest, brightest and mean lightness (0...1) of `image`.

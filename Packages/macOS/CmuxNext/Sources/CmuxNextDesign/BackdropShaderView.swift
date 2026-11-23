@@ -19,7 +19,8 @@ import QuartzCore
 /// moving again eases its clock up from still over ``resumeRampSeconds`` (no motion onset). Frames
 /// come from the window's ``FrameScheduler`` (no display link of its own): ``calmFramesPerSecond``
 /// while nothing answers the pointer, up to ``maximumFramesPerSecond`` while the pointer moves it or
-/// a ring is out (``framesPerSecond``), and one frame is encoded at a time: a slow GPU drops frames, never
+/// a ring is out, never above ``warmFramesPerSecond`` while the Mac is warm (``framesPerSecond``),
+/// and one frame is encoded at a time: a slow GPU drops frames, never
 /// queues them. The layer is drawn at one pixel per point: the shaders are soft fields, and a
 /// Retina layer would cost four times the fill for nothing visible.
 public final class BackdropShaderView: NSView {
@@ -33,6 +34,8 @@ public final class BackdropShaderView: NSView {
     public var reduceMotionOverride: Bool? { didSet { update() } }
     public var lowPowerOverride: Bool? { didSet { update() } }
     public var visibleOverride: Bool? { didSet { update() } }
+    /// Tests: pins the thermal state for this view instead of the system's.
+    public var thermalOverride: ProcessInfo.ThermalState? { didSet { update() } }
     /// Tests: the pointer in view coordinates, in place of the window's.
     public var pointerOverride: CGPoint?
 
@@ -48,6 +51,11 @@ public final class BackdropShaderView: NSView {
     static let calmEnergy: Float = 0.01
     /// Seconds a click's ring lives in the shaders (`rings` in ``BackdropShaderSource``).
     static let ringSeconds: Float = 5
+    /// The most frames a second while the Mac is warm (thermal state fair): half the work, so a
+    /// background never helps push the Mac toward serious, where it stops (motion-backgrounds
+    /// reading, pause rules: "Low Power Mode or thermal fair: drop" the frame rate).
+    public static let warmFramesPerSecond = 30.0
+
     /// Seconds a start or a resume takes to ease the clock from still to full speed. Attention is
     /// caught by motion that starts, not motion already under way (Abrams and Christ 2003), so the
     /// wallpaper never jumps from a held frame to full speed.
@@ -70,6 +78,9 @@ public final class BackdropShaderView: NSView {
     private var uniforms = BackdropShaderUniforms()
     private var lastFrame: CFTimeInterval?
     private var sinceDrawn: Double = .infinity
+    /// The most frames a second the Mac's heat allows now, set on each ``update(redraw:)`` (a thermal
+    /// change calls it): ``warmFramesPerSecond`` while warm, else ``maximumFramesPerSecond``.
+    public private(set) var ceilingFramesPerSecond = BackdropShaderView.maximumFramesPerSecond
     private var lastPointer: CGPoint?
     private var nextRing = 0
     /// Whether the frame client was last told to move, and the seconds of clock since it began to.
@@ -145,8 +156,12 @@ public final class BackdropShaderView: NSView {
     public var moves: Bool {
         let lowPower = lowPowerOverride ?? LowPowerMode.system.isEnabled
         let reduced = reduceMotionOverride ?? !Motion.panes.animatesLoops
-        let hot = ProcessInfo.processInfo.thermalState.rawValue >= ProcessInfo.ThermalState.serious.rawValue
+        let hot = thermalState.rawValue >= ProcessInfo.ThermalState.serious.rawValue
         return onScreen && !lowPower && !hot && !reduced
+    }
+
+    private var thermalState: ProcessInfo.ThermalState {
+        thermalOverride ?? ProcessInfo.processInfo.thermalState
     }
 
     /// Shown in a window that is on screen, with the screens awake and the session active.
@@ -158,6 +173,7 @@ public final class BackdropShaderView: NSView {
     }
 
     private func update(redraw: Bool = false) {
+        ceilingFramesPerSecond = thermalState == .fair ? Self.warmFramesPerSecond : Self.maximumFramesPerSecond
         if moves {
             if !moving { resumed() }
             moving = true
@@ -209,9 +225,10 @@ public final class BackdropShaderView: NSView {
     }
 
     /// The rate frames are drawn at now: the full rate while the pointer is answered (its energy, the
-    /// shown pointer still easing toward the real one, a live ring), else the calm rate.
-    var framesPerSecond: Double {
-        lively ? Self.maximumFramesPerSecond : Self.calmFramesPerSecond
+    /// shown pointer still easing toward the real one, a live ring), else the calm rate; never above
+    /// the heat's ``ceilingFramesPerSecond``.
+    public var framesPerSecond: Double {
+        min(ceilingFramesPerSecond, lively ? Self.maximumFramesPerSecond : Self.calmFramesPerSecond)
     }
 
     /// Whether the pointer or a click moves the picture now.
@@ -365,6 +382,8 @@ nonisolated struct BackdropShaderTarget: @unchecked Sendable {
 
 /// Whether a frame is on the renderer's queue: claimed on main, cleared on the queue.
 private nonisolated final class InFlightFrame: Sendable {
+    // carve-out: main claims the slot synchronously in its frame tick and the render queue clears it;
+    // an actor would make the claim an await and let two frames in.
     private let busy = Mutex(false)
 
     /// Claims the slot; false while a frame is still being encoded.
