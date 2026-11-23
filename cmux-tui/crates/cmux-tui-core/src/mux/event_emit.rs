@@ -1,6 +1,7 @@
 //! Subscriptions and event emission: mux event, config reload, attached surface and session subscriptions, and the emit_* helpers that publish terminal and tree events.
 
 use super::*;
+use crate::mux::resource_content::collect_screen_split_ids;
 
 impl Mux {
     /// The revision of what `list-workspaces` shows (`list-workspaces-known-v1`,

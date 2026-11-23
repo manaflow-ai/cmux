@@ -5,6 +5,7 @@ use super::client_ids::{
     requested_reopen_tab_id,
 };
 use super::*;
+use crate::mux::resource_content::collect_screen_split_ids;
 use crate::state::app_workspaces::{APP_WORKSPACE_FIELD, APP_WORKSPACE_NAME_FIELD};
 use cmux_json::JsonSet as _;
 
