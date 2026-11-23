@@ -6674,6 +6674,7 @@ function TranscriptView({
     earlier,
     canLoadNewer,
     canLoadOlder,
+    loading,
     later,
     promptCount,
     loadThrough,

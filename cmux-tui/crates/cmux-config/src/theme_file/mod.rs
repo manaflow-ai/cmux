@@ -18,6 +18,7 @@
 //! as a theme file: applying it changes nothing.
 
 mod colors;
+pub mod contrast;
 pub mod render;
 pub mod two_tone;
 
@@ -51,9 +52,9 @@ pub const RESERVED_KEYS: [&str; 7] =
 /// Look keys that are no part of a look: the theme file itself, the star
 /// list and its rotation, per-machine and per-display maps, the sun location
 /// (where this Mac is), what each background mode last showed and the
-/// backgrounds shown before, the saved custom densities, and the keys the
-/// person changed over the file.
-const EXCLUDED_KEYS: [&str; 11] = [
+/// backgrounds shown before, the saved custom densities, where each picture
+/// is placed, and the keys the person changed over the file.
+const EXCLUDED_KEYS: [&str; 12] = [
     SETTING_KEY,
     "appearance.favoriteThemes",
     "appearance.rotateFavoriteThemes",
@@ -63,6 +64,7 @@ const EXCLUDED_KEYS: [&str; 11] = [
     "appearance.customDensities",
     "appearance.backgroundLocation",
     "appearance.backgroundMemory",
+    "appearance.backgroundPlacement",
     "appearance.backgroundRecents",
     EXCEPTIONS_KEY,
 ];
@@ -645,5 +647,7 @@ fn line_of_key(text: &str, dotted: &str) -> Option<usize> {
     })
 }
 
+#[cfg(test)]
+mod contrast_tests;
 #[cfg(test)]
 mod tests;
