@@ -1,0 +1,139 @@
+// Cell Light: Cell v0.2, light. The terminal theme is the whole color system. Every surface below is derived
+// from two of its colors: the page is the background (#fafaf8); the sidebar, tab bar and docks are
+// the background 4% toward the foreground (#f1f1ef), which is Cell's two-tone: one small
+// luminance step, no hue; lines are the background 14% toward the foreground (#d7d7d6). The accent
+// is the terminal's blue (color 4), status is its red, green and yellow (1, 2, 3). To re-theme the
+// app, replace the sixteen colors, the background and the foreground, and re-derive those three.
+{
+  "name": "Cell Light",
+  "description": "The terminal's character cell, light: one palette of sixteen terminal colors, surfaces derived from its background and foreground, 4 px corners, one-pixel lines, no glass.",
+  "appearance.theme": "Builtin Light",
+  "appearance.appTheme": "followTerminal",
+  // Each terminal color is checked over the page: 1 to 6 and 9 to 14 at 4.5:1 or more, 8 (the dim
+  // gray) at 4.5:1 so dim text made from it is still text.
+  "colors": {
+    "background": "#fafaf8",
+    "foreground": "#0b0d10",
+    "selection": "#d3e1f7",
+    "accent": "#1d5cc0",
+    "0": "#0b0d10",
+    "1": "#b4252f",
+    "2": "#25733a",
+    "3": "#855d00",
+    "4": "#1d5cc0",
+    "5": "#7d35b0",
+    "6": "#0b6f76",
+    "7": "#c9cdd3",
+    "8": "#676d78",
+    "9": "#9a1c26",
+    "10": "#1c5f2e",
+    "11": "#6e4c00",
+    "12": "#164a9e",
+    "13": "#672a93",
+    "14": "#085a60",
+    "15": "#eceef1",
+    "cursor": "#0b0d10"
+  },
+  "appearance.accent": "theme",
+  "ghostty": [
+    "background = #fafaf8",
+    "foreground = #0b0d10",
+    "cursor-color = #0b0d10",
+    "cursor-text = #fafaf8",
+    "selection-background = #d3e1f7",
+    "selection-foreground = #0b0d10",
+    "palette = 0=#0b0d10",
+    "palette = 1=#b4252f",
+    "palette = 2=#25733a",
+    "palette = 3=#855d00",
+    "palette = 4=#1d5cc0",
+    "palette = 5=#7d35b0",
+    "palette = 6=#0b6f76",
+    "palette = 7=#c9cdd3",
+    "palette = 8=#676d78",
+    "palette = 9=#9a1c26",
+    "palette = 10=#1c5f2e",
+    "palette = 11=#6e4c00",
+    "palette = 12=#164a9e",
+    "palette = 13=#672a93",
+    "palette = 14=#085a60",
+    "palette = 15=#eceef1"
+  ],
+  // The cell: SF Mono at 13 pt. The chat and the Markdown viewer are set to the same size and a
+  // 20 px line in cmux-setup.json.
+  "terminal.fontFamily": "SF Mono",
+  "terminal.fontSize": 13,
+
+  // Chrome is the system's own or nothing: no wallpaper, no blur, no glass.
+  "appearance.background": "none",
+  "appearance.backgroundBlur": "none",
+  "browser.omnibar.glass": "off",
+  "ui.reducedBackgrounds": true,
+  "appearance.fontSmoothing": "antialiased",
+
+  // Flat panes behind one-pixel lines; the title area in the sidebar's tone; the focused pane is
+  // marked by its tab and a one-pixel ring.
+  "appearance.chromeStyle": "flat-sidebar-line",
+  "appearance.borders": "default",
+  "appearance.titleAreaTone": "oneColor",
+  "appearance.focusIndicator": "both",
+  // The selected tab joins its pane as a square, flush: no curve, so no tangent to get wrong.
+  "appearance.cornerFlush": "flush",
+  // Pending cmux#46780: tabs as plain cells (no pill), the selected one in the page's tone.
+  // "appearance.tabShape": "square",
+  // Pending cmux#46516: the selected sidebar row as a neutral fill with a one-cell accent bar.
+  // "appearance.selection": "neutral",
+
+  // Proportions from the design system's three seeds (grid 4, row 28, text 13): the title bar and
+  // the tab strip are the 36 px band, a sidebar row is 28, chrome text is 13, the sidebar is 240,
+  // dividers are one pixel, no gutter between panes. The chat's 20 px line is on the same 4 px grid.
+  "appearance.metrics.titlebarHeight": 36,
+  "appearance.metrics.sidebarWidth": 240,
+  "appearance.metrics.sidebarRowHeight": 28,
+  "appearance.metrics.chromeFontSize": 13,
+  "appearance.metrics.tabStripHeight": 36,
+  "appearance.metrics.tabFontSize": 13,
+  "appearance.metrics.columnGap": 0,
+  "appearance.metrics.dividerThickness": 1,
+
+  "appearance.sidebarSurface": "separate",
+  "sidebar.style": "standard",
+  "sidebar.border": true,
+  "sidebar.borderWidth": 1,
+  "sidebar.sectionLook": "lines",
+  "appearance.statusIndicator.style": "dot",
+  "layout.paneCornerRadius": 4,
+  "layout.cornerPadding": 0,
+  "layout.paneBorderWidth": 1,
+
+  "appearance.surfaces.agentPane.color": "#fafaf8",
+  "appearance.surfaces.agentPane.opacity": 1,
+  "appearance.surfaces.terminal.color": "#fafaf8",
+  "appearance.surfaces.terminal.opacity": 1,
+  "appearance.surfaces.editor.color": "#fafaf8",
+  "appearance.surfaces.editor.opacity": 1,
+  "appearance.surfaces.diff.color": "#fafaf8",
+  "appearance.surfaces.diff.opacity": 1,
+  "appearance.surfaces.markdown.color": "#fafaf8",
+  "appearance.surfaces.markdown.opacity": 1,
+  "appearance.surfaces.settings.color": "#fafaf8",
+  "appearance.surfaces.settings.opacity": 1,
+  "appearance.surfaces.internalPage.color": "#fafaf8",
+  "appearance.surfaces.internalPage.opacity": 1,
+  "appearance.surfaces.newTabPage.color": "#fafaf8",
+  "appearance.surfaces.newTabPage.opacity": 1,
+  "appearance.surfaces.home.color": "#fafaf8",
+  "appearance.surfaces.home.opacity": 1,
+  "appearance.surfaces.sidebar.color": "#f8f8f6",
+  "appearance.surfaces.sidebar.opacity": 1,
+  "appearance.surfaces.tabBar.color": "#f1f1ef",
+  "appearance.surfaces.tabBar.opacity": 1,
+  "appearance.surfaces.browserChrome.color": "#f1f1ef",
+  "appearance.surfaces.browserChrome.opacity": 1,
+  "appearance.surfaces.docks.color": "#f1f1ef",
+  "appearance.surfaces.docks.opacity": 1,
+  "appearance.surfaces.splitDivider.color": "#d7d7d6",
+  "appearance.surfaces.splitDivider.opacity": 1,
+  // Nothing moves after it lands: the fast speed (80 to 120 ms), no color cross-fade.
+  "ui.animationSpeed": "fast"
+}

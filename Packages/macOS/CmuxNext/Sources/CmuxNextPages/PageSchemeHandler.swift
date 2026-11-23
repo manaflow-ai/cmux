@@ -280,7 +280,9 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
 
     @concurrent nonisolated static func read(_ file: URL) async -> Data? {
         // concurrency-allow: @concurrent, so this read never runs on the main actor
-        try? Data(contentsOf: file, options: .mappedIfSafe)
+        if let data = try? Data(contentsOf: file, options: .mappedIfSafe) { return data }
+        // A page the first window never shows ships packed (PagePackedFile, CMUX-570).
+        return PagePackedFile.read(file)
     }
 
     /// Where `url` goes: a dynamic prefix of the page, else the file it names inside `root`. Nil
