@@ -35,6 +35,10 @@ use crate::hub::Hub;
 /// This machine's side over `cloud`, as the holder `me`: the importer, the holder loop started
 /// with it, and the assignment reader to run ([`Machine::run`]). A chat new to this machine
 /// gets its folder at `<root>/<chat id>`.
+///
+/// The reader does each assignment's work itself here ([`Machine::new`]): the holder loop on
+/// this branch takes no assignment. Once it does, the reader only reads and tells it
+/// ([`Machine::telling`] with the loop's handle), so one place imports, drains and acks.
 pub fn attach<C: AutoCloud + 'static>(
     hub: Arc<Hub>,
     cloud: Arc<C>,

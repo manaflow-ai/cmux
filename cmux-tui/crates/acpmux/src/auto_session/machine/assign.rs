@@ -11,6 +11,9 @@
 //! - `create`: a chat started with no laptop; its first message is in its inbox.
 //! - `deliver`: messages for a chat that is here.
 //!
+//! A reader made with [`Machine::telling`] does none of that work: it reads, and tells the
+//! holder loop, which does it.
+//!
 //! A message is in the chat's own log before the inbox is acked: its prompt is queued under
 //! the message's id and the ack waits until the hub has recorded it. Sent again after a crash
 //! between the two, the same id is answered from the log and does not run twice.
@@ -29,9 +32,27 @@ use crate::hub::{Hub, PromptOptions, Session};
 /// The shortest time between two asks that had nothing to do: a wait that comes back empty at
 /// once (a resume, a store that does not hold) does not spin.
 const ROUND_MIN: Duration = Duration::from_secs(1);
+/// The shortest time before asking again when every assignment read was told before: the
+/// store answers an assignment at once until it is acked, and its work may take a while.
+const REPEAT_MIN: Duration = Duration::from_secs(5);
 /// After a failure the next ask waits this long, doubling up to [`BACKOFF_MAX`].
 const BACKOFF_MIN: Duration = Duration::from_secs(1);
 const BACKOFF_MAX: Duration = Duration::from_secs(60);
+
+/// Told of each assignment the reader reads.
+type Tell = Box<dyn Fn(&Assignment) + Send + Sync>;
+
+/// One assignment as the reader remembers it: the chat, its epoch and what was asked.
+type Told = (String, u64, &'static str);
+
+/// How one round of the reader ended.
+enum Round {
+    /// Everything read was done, or told for the first time.
+    Done,
+    /// Everything read was told before and is still not acked.
+    Repeat,
+    Failed,
+}
 
 /// This machine's side of its assignments.
 pub struct Machine<C> {
@@ -39,17 +60,34 @@ pub struct Machine<C> {
     cloud: Arc<C>,
     me: Holder,
     importer: Arc<dyn SessionImporter>,
+    /// Who does an assignment's work: None, this reader ([`Machine::handle`]); else the one
+    /// told, and the reader only reads.
+    tell: Option<Tell>,
 }
 
 impl<C: AutoCloud + 'static> Machine<C> {
-    /// `me` is this machine's holder name, `vm:<machine>`.
+    /// `me` is this machine's holder name, `vm:<machine>`. The reader does each assignment's
+    /// work itself.
     pub fn new(
         hub: Arc<Hub>,
         cloud: Arc<C>,
         me: Holder,
         importer: Arc<dyn SessionImporter>,
     ) -> Arc<Machine<C>> {
-        Arc::new(Machine { hub, cloud, me, importer })
+        Arc::new(Machine { hub, cloud, me, importer, tell: None })
+    }
+
+    /// A reader that only reads: `tell` gets each assignment and does its work (the holder
+    /// loop: it imports, drains and acks in the chat's own order). An assignment is told again
+    /// each time the store answers it, until it is acked.
+    pub fn telling(
+        hub: Arc<Hub>,
+        cloud: Arc<C>,
+        me: Holder,
+        importer: Arc<dyn SessionImporter>,
+        tell: impl Fn(&Assignment) + Send + Sync + 'static,
+    ) -> Arc<Machine<C>> {
+        Arc::new(Machine { hub, cloud, me, importer, tell: Some(Box::new(tell)) })
     }
 
     /// One assignment, whole: import, inbox, acks. `Ok` means the store was told it is done.
@@ -70,41 +108,64 @@ impl<C: AutoCloud + 'static> Machine<C> {
     /// Asks for assignments and handles them, for as long as the daemon runs.
     pub async fn run(self: Arc<Self>) {
         let mut backoff = BACKOFF_MIN;
+        let mut told: Vec<Told> = Vec::new();
         loop {
             let asked = Instant::now();
-            let failed = match self.cloud.assignments(WAIT_MAX_MS).await {
-                Ok(assignments) => self.handle_all(&assignments).await,
+            let round = match self.cloud.assignments(WAIT_MAX_MS).await {
+                Ok(assignments) => match &self.tell {
+                    Some(tell) => tell_all(tell, &assignments, &mut told),
+                    None => self.handle_all(&assignments).await,
+                },
                 Err(error) => {
                     tracing::debug!("auto mode: assignments were not read: {error}");
-                    true
+                    Round::Failed
                 }
             };
             // A timer, not a poll: the store holds the next ask until there is news.
-            if failed {
-                tokio::time::sleep(backoff).await;
-                backoff = (backoff * 2).min(BACKOFF_MAX);
-            } else {
-                backoff = BACKOFF_MIN;
-                tokio::time::sleep(ROUND_MIN.saturating_sub(asked.elapsed())).await;
-            }
+            let floor = match round {
+                Round::Done => ROUND_MIN,
+                Round::Repeat => REPEAT_MIN,
+                Round::Failed => backoff,
+            };
+            backoff = match round {
+                Round::Failed => (backoff * 2).min(BACKOFF_MAX),
+                Round::Done | Round::Repeat => BACKOFF_MIN,
+            };
+            tokio::time::sleep(floor.saturating_sub(asked.elapsed())).await;
         }
     }
 
-    /// Whether any of `assignments` failed.
-    async fn handle_all(&self, assignments: &[Assignment]) -> bool {
-        let mut failed = false;
+    async fn handle_all(&self, assignments: &[Assignment]) -> Round {
+        let mut round = Round::Done;
         for assignment in assignments {
             let (kind, id) = (assignment.kind.as_str(), assignment.session.id.as_str());
             match self.handle(assignment).await {
                 Ok(_) => tracing::info!(session = id, "auto mode: {kind} done"),
                 Err(error) => {
                     tracing::warn!(session = id, "auto mode: {kind} failed: {error}");
-                    failed = true;
+                    round = Round::Failed;
                 }
             }
         }
-        failed
+        round
     }
+}
+
+/// Tells each of `assignments`, and keeps in `told` what this round read.
+fn tell_all(tell: &Tell, assignments: &[Assignment], told: &mut Vec<Told>) -> Round {
+    let now: Vec<Told> = assignments
+        .iter()
+        .map(|assignment| {
+            let view = &assignment.session;
+            (view.id.clone(), view.epoch, assignment.kind.as_str())
+        })
+        .collect();
+    for assignment in assignments {
+        tell(assignment);
+    }
+    let repeat = !now.is_empty() && now.iter().all(|one| told.contains(one));
+    *told = now;
+    if repeat { Round::Repeat } else { Round::Done }
 }
 
 /// The holder `me` puts the unread inbox of a chat that is here into the chat's queue, then

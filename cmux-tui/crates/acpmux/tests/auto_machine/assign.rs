@@ -1,9 +1,11 @@
 //! The machine's assignments: `create` and `deliver` handled whole, and the reader that waits
-//! at the store and handles what arrives.
+//! at the store and handles what arrives, or tells the holder loop of it.
 
 use std::sync::Arc;
 
-use acpmux::auto_session::machine::attach;
+use acpmux::auto_session::SessionImporter;
+use acpmux::auto_session::import::Importer;
+use acpmux::auto_session::machine::{Machine, attach};
 use cmux_auto_session::cloud::AutoCloud;
 use cmux_auto_session::wire::{
     AssignmentKind, CreateRequest, FirstMessage, InboxPost, Repo, SessionView,
@@ -111,5 +113,33 @@ async fn the_reader_handles_a_takeover_when_the_store_assigns_it() {
     assert_eq!(chat.meta().cwd, root.path().join(CHAT));
     assert_eq!(read(&root.path().join(CHAT), "notes.txt"), "hello\n");
     assert!(agent.calls().contains(&"assignment_ack"));
+    reader.abort();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_reader_that_tells_leaves_the_work_to_the_one_it_tells() {
+    let owner = store().await;
+    laptop_copy(&owner, 0, b"never read").await;
+    let machine_hub = hub();
+    let agent = FakeAgent::start(&owner, VM);
+    let root = tempfile::tempdir().unwrap();
+    let cloud = Arc::new(agent.cloud());
+    let importer: Arc<dyn SessionImporter> =
+        Importer::new(Arc::clone(&machine_hub), Arc::clone(&cloud), root.path());
+    let (tell, mut told) = tokio::sync::mpsc::unbounded_channel();
+    let machine =
+        Machine::telling(Arc::clone(&machine_hub), cloud, vm(), importer, move |assignment| {
+            let _ = tell.send((assignment.kind, assignment.session.id.clone()));
+        });
+    let reader = tokio::spawn(machine.run());
+    laptop_goes_away(&owner);
+    // The takeover arrives through the held wait and is told, as the holder loop would be.
+    let first = tokio::time::timeout(std::time::Duration::from_secs(60), told.recv()).await;
+    assert_eq!(first.expect("told in time"), Some((AssignmentKind::Takeover, CHAT.to_owned())));
+    // The reader did none of its work: no chat is here and the assignment waits for its ack.
+    assert!(machine_hub.resolve(CHAT).is_err());
+    assert!(!root.path().join(CHAT).exists());
+    assert_eq!(owner.as_machine(VM).assignments(0).await.unwrap().len(), 1);
+    assert!(!agent.calls().contains(&"assignment_ack"));
     reader.abort();
 }
