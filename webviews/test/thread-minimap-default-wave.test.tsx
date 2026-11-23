@@ -321,6 +321,12 @@ test("focusing a tick or leaving it marks the rail data-snap, and the next band 
   const { host, root, scroller } = await render();
   try {
     const rail = () => host.querySelector<HTMLElement>("nav.acpmux-minimap__rail")!;
+    // Until the reader moves the chat after it opens, a band that moves is the chat settling, and
+    // switches at once (ThreadMinimap `readerMoved`).
+    expect(rail().hasAttribute("data-snap")).toBe(true);
+    await act(async () => {
+      scroller.dispatchEvent(new dom.window.Event("wheel"));
+    });
     expect(rail().hasAttribute("data-snap")).toBe(false);
     const tick = host.querySelector<HTMLElement>('[data-tick="2"]')!;
     await act(async () => tick.focus());

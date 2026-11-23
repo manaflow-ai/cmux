@@ -90,6 +90,8 @@ import { type Anchor, type TickRef, tickIndex, prependedBy } from "./threadMinim
 import { railEdge } from "./railSide";
 import { focusCameFromKey } from "../../../ui/focusModality";
 import { focusRoute } from "../../../ui/focusRoute";
+import { acpmuxPerf } from "../perf";
+import { happenedAfterOpen } from "../conversation/openBreakpoint";
 
 /// The rail menu's show items (railShow.ts `RailShow`).
 export const RAIL_SHOW_LABEL = {
@@ -336,6 +338,8 @@ function ThreadMinimapView({
   columnWidth = width,
   placed,
   topInset = 0,
+  openedAt,
+  clockOffset = 0,
 }: {
   /// The transcript's rows, layout and offset (MinimapSource): read when the rail draws.
   source: MinimapSource;
@@ -379,7 +383,15 @@ function ThreadMinimapView({
   /// CSS pixels of the scroller's top a floating tab row covers (VirtualTranscript `topInset`): a jump lands
   /// its prompt LANDING_OFFSET below the row, not under it.
   topInset?: number;
+  /// When the reader opened this chat on this page (VirtualTranscript `opened.at`), and the host's
+  /// clock offset: the rail fades in only when a prompt that came after the open brings it (a new
+  /// chat's first send). A rail a chat opens or a relaunch restores with is history and is drawn
+  /// whole on its first frame (Leo, 2026-11-22: "and then the scroll rail re-rednered"). Without
+  /// one (a mount outside the transcript) it fades in as it mounts.
+  openedAt?: number;
+  clockOffset?: number;
 }) {
+  if (acpmuxPerf.enabled) acpmuxPerf.render("rail");
   const t = useT();
   const topInsetNow = useRef(topInset);
   topInsetNow.current = topInset;
@@ -558,7 +570,12 @@ function ThreadMinimapView({
   /// frame or two late (React schedules a scroll's render), so the band of lit rows read it here
   /// instead and follows the reader on the scroll's own frame.
   /// Another session's transcript starts from its own offset.
-  const domTop = useRef<{ sessionId?: string; top: number } | undefined>(undefined);
+  /// With the chat's height it was read under: a commit that lays the chat out at another height (a
+  /// row above measured, the tail grew) brings its own offset with that layout (`scrollTop`), and the
+  /// band reads that one. Reading the old offset against the new rows lit the prompt above the
+  /// reader's for one commit, then dimmed it again (Leo, 2026-11-22: "and then the scroll rail
+  /// re-rednered").
+  const domTop = useRef<{ sessionId?: string; top: number; total: number } | undefined>(undefined);
   /// The band's first turn as of the last commit (the older-turns effect below keeps it).
   const anchor = useRef<Anchor | undefined>(undefined);
   /// When a commit adds turns above the anchored one, the rows' offsets move by how far its prompt
@@ -569,7 +586,12 @@ function ThreadMinimapView({
   const tops = useMemo(() => rowTopsOf(layoutGeometry(layout)), [layout]);
   const added = prependedBy(anchor.current, ticks);
   const anchored = added === undefined ? undefined : turns.at(anchor.current!.index + added);
-  const seen = domTop.current && domTop.current.sessionId === sessionId ? domTop.current.top : undefined;
+  const seen = domTopFor(
+    domTop.current,
+    sessionId,
+    layout.totalHeight,
+    added !== undefined || restoring.current?.from === domTop.current?.top,
+  );
   if (anchored && seen !== undefined)
     restoring.current = { from: seen, by: (tops(anchored.index) ?? 0) - anchor.current!.layoutTop };
   const shift = restoring.current && restoring.current.from === seen ? restoring.current.by : 0;
@@ -660,6 +682,17 @@ function ThreadMinimapView({
   // narrow widths the pane-edge strip stays live even while the visual rail is occluded by text.
   const shown = arm === "compact" && known >= MIN_PROMPTS && turns.length > 0 && height >= rowPitch;
   const overflow = turns.length * rowPitch > height;
+  /// Whether this chat's rail fades in, decided on the render it first shows in (`openedAt`).
+  const [appearFor, setAppearFor] = useState<{ sessionId: string | undefined; appear: boolean } | undefined>(undefined);
+  if (shown && appearFor?.sessionId !== sessionId) {
+    let prompt: AcpmuxRow | undefined;
+    for (let at = rows.length - 1; at >= 0 && !prompt; at -= 1) if (rows[at]!.kind === "user") prompt = rows[at];
+    setAppearFor({
+      sessionId,
+      appear: openedAt === undefined || (!!prompt && happenedAfterOpen(prompt, openedAt, clockOffset)),
+    });
+  }
+  const appear = shown && !!appearFor && appearFor.sessionId === sessionId && appearFor.appear;
 
   /// What the handlers below read: the turns and layout as of the last commit.
   /// The handlers' tops: the transcript's latest layout (MinimapSource), which a streamed token
@@ -737,7 +770,7 @@ function ThreadMinimapView({
       frame = undefined;
       const { turns: all, tops, total, viewportHeight: height, onScreen: drawn, sessionId: session } = live.current;
       const top = layoutScrollTop(node);
-      domTop.current = { sessionId: session, top };
+      domTop.current = { sessionId: session, top, total: live.current.total };
       restoring.current = undefined;
       // The full-height map moves its own bar; no band to draw here.
       if (!live.current.shown) return;
@@ -822,7 +855,7 @@ function ThreadMinimapView({
       const layoutNow = sourceNow.current.current?.layout;
       if (layoutNow) live.current.total = layoutNow.totalHeight;
       const { turns: all, tops, total, viewportHeight: height, onScreen: drawn, sessionId: session } = live.current;
-      domTop.current = { sessionId: session, top };
+      domTop.current = { sessionId: session, top, total: live.current.total };
       restoring.current = undefined;
       // The band's first prompt as this layout places it, which a token the rail did not render for
       // may have moved (rows above it measured): older turns arriving later shift the band by it.
@@ -880,7 +913,12 @@ function ThreadMinimapView({
         sessionId: session,
         loadedStart: start,
       } = live.current;
-      const seen = domTop.current && domTop.current.sessionId === session ? domTop.current.top : undefined;
+      const seen = domTopFor(
+        domTop.current,
+        session,
+        next.layout.totalHeight,
+        restoring.current?.from === domTop.current?.top,
+      );
       const shift = restoring.current && restoring.current.from === seen ? restoring.current.by : 0;
       const tops = rowTopsOf(layoutGeometry(next.layout));
       const at = visibleTurns(all, tops, next.layout.totalHeight, (seen ?? next.scrollTop) + shift, height, start);
@@ -1444,7 +1482,25 @@ function ThreadMinimapView({
   /// none of these (the scroll's next band move) drops the mark, and its rows glide.
   const pose = `${active ?? ""}|${hovered !== undefined}|${scrubbing}`;
   const committedPose = useRef(pose);
-  const snap = pose !== committedPose.current;
+  /// The band glides only once the reader has moved this chat (a wheel, touch, press or key on the
+  /// transcript or the rail) since it opened. Until then a band that moves is the chat settling
+  /// (older history coming in above, the prompt index, a relaunch restoring the reader's place), not
+  /// the reader, and its rows switch at once (cmuxterm-hq docs/design/transcript-animation-rules.md:
+  /// a motion plays only for a change the reader caused or is watching; Leo, 2026-11-22: "and then
+  /// the scroll rail re-rednered").
+  const [movedIn, setMovedIn] = useState<string | undefined>(undefined);
+  const readerMoved = movedIn !== undefined && movedIn === (sessionId ?? "");
+  useEffect(() => {
+    if (readerMoved) return;
+    const nodes = [scroller.current, rail.current].filter((node): node is HTMLElement => !!node);
+    const moved = () => setMovedIn(sessionId ?? "");
+    const kinds = ["wheel", "touchstart", "pointerdown", "keydown"] as const;
+    for (const node of nodes) for (const kind of kinds) node.addEventListener(kind, moved, { passive: true });
+    return () => {
+      for (const node of nodes) for (const kind of kinds) node.removeEventListener(kind, moved);
+    };
+  }, [readerMoved, scroller, sessionId, shown]);
+  const snap = pose !== committedPose.current || !readerMoved;
   useLayoutEffect(() => {
     committedPose.current = pose;
   });
@@ -1659,6 +1715,7 @@ function ThreadMinimapView({
           ref={rail}
           className="acpmux-minimap__rail"
           id={RAIL_ACCESSIBILITY_ID}
+          data-appear={appear || undefined}
           aria-label={t("minimap.label")}
           data-side={side}
           style={
@@ -1952,6 +2009,7 @@ const TickList = memo(function TickList({
   /// The rows to draw (tickWindow.ts); spacers stand in for the rest.
   ranges: ReadonlyArray<readonly [number, number]>;
 }) {
+  if (acpmuxPerf.enabled) acpmuxPerf.render("rail:ticks");
   const t = useT();
   const marks = usePromptMarks(sessionId);
   /// Each drawn row's spoken label, by its prompt, as last built. Every row the pointer crosses
@@ -2100,6 +2158,7 @@ const Tick = memo(function Tick({
   label: string;
   actions: TickActions;
 }) {
+  if (acpmuxPerf.enabled) acpmuxPerf.render("rail:tick");
   // Capture eligibility at mount: consuming it after commit must not cancel this entrance.
   const [enter] = useState(entering);
   const [entrance] = useState(place);
@@ -2178,4 +2237,18 @@ function tickPropsEqual(was: Readonly<Record<string, unknown>>, next: Readonly<R
 function foldedTitle(t: ReturnType<typeof useT>, count: number): string {
   const text = count === 1 ? t("messageRun.received.one") : t("messageRun.received.other", { n: count });
   return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+/// The scroller's offset the band reads (ThreadMinimap `domTop`): the last scroll's, while the chat is
+/// laid out at the height it was read under, or while older turns came in above the band and the
+/// transcript has not restored the reader's place yet (`restoring` shifts it then). Another height without one: undefined, and the commit's own
+/// offset stands.
+function domTopFor(
+  kept: { sessionId?: string; top: number; total: number } | undefined,
+  sessionId: string | undefined,
+  total: number,
+  prepended: boolean,
+): number | undefined {
+  if (!kept || kept.sessionId !== sessionId) return undefined;
+  return prepended || kept.total === total ? kept.top : undefined;
 }

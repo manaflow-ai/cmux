@@ -188,7 +188,9 @@ await requireBrowserLane("thread-minimap-flash.test.ts", async () => {
       await page.locator(".acpmux-minimap__rail").waitFor();
       await completed(page, "settled");
       await page.evaluate(() => {
-        document.querySelector<HTMLElement>(".acpmux-scroll")!.scrollTop = 700;
+        const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+        scroller.dispatchEvent(new WheelEvent("wheel", { bubbles: true, deltaY: 700 }));
+        scroller.scrollTop = 700;
       });
       await completed(page, "settled");
       return page;

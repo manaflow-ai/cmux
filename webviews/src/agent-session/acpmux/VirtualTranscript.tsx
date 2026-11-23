@@ -7886,6 +7886,8 @@ function TranscriptView({
                 columnWidth={width}
                 placed={minimapPlaced}
                 topInset={topInset}
+                openedAt={opened.at}
+                clockOffset={clockOffset}
               />
             )}
             {/* The VS Code-style minimap at the right edge (Settings > Agent Chat > VS Code Minimap, off by default). */}

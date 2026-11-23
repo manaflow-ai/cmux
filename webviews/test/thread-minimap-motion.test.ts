@@ -139,6 +139,10 @@ await requireBrowserLane("thread-minimap-motion.test.ts", async () => {
   test(`stepped arm: hover grows the tick to 26 px within ${MOTION_MS.micro} ms, with no delay, on the spring curve`, async () => {
     // The stepped fisheye (wave.experiment.ts `stepped`) grows each tick on its own CSS transition.
     const page = await open(false, "stepped");
+    // The band glides once the reader has moved the chat since it opened (ThreadMinimap
+    // `readerMoved`); until then a band that moves switches at once (`data-snap`).
+    await page.locator(".acpmux-scroll").dispatchEvent("wheel");
+    await page.waitForFunction(() => !document.querySelector(".acpmux-minimap__rail[data-snap]"));
     const style = await page.evaluate(() => {
       const css = getComputedStyle(document.querySelector<HTMLElement>('[data-tick="5"] .acpmux-minimap__bar')!);
       return {

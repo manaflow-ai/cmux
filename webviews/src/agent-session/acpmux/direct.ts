@@ -270,6 +270,7 @@ import {
 import { promptCoachDismissed, rememberPromptCoachDismissed } from "./conversation/promptCoachDismissed";
 import { promptCoachEnabled } from "./chatDisplay";
 import { PromptHeads, type PromptHead } from "./promptHeads";
+import { keepPromptIndex, keptPromptIndex, samePromptIndex } from "./promptIndexKept";
 import {
   PRESET_APPROVAL,
   PresetApprovalFold,
@@ -509,8 +510,11 @@ const baseModel = (model: string | undefined) => model?.replace(/\[1m\]$/i, "");
 type PromptIndexRead = {
   sessionId: string;
   generation: number;
-  /// The index once read, as columns (promptHeads.ts): no object a prompt.
+  /// The index once read, as columns (promptHeads.ts): no object a prompt. Until the read answers,
+  /// the one this page or the last one kept for the chat (promptIndexKept.ts), if any.
   heads?: PromptHeads;
+  /// `heads` is the kept copy, and acpmux has not answered yet or answered the same prompts.
+  kept?: boolean;
   failed?: boolean;
   read?: Promise<boolean>;
   cancel?: () => void;
@@ -16762,17 +16766,17 @@ export class AcpmuxDirectClient {
   private shownEarlierPrompts(): PromptHeads {
     const sessionId = this.selectedSessionId;
     if (!sessionId || !this.seqHistoryLeft() || !this.firstSeq) return NO_EARLIER_PROMPTS;
-    const index = this.promptIndex;
+    let index = this.promptIndex;
     if (!index || index.sessionId !== sessionId || index.generation !== this.selectionGeneration) {
       void this.readPromptIndex(sessionId, this.firstSeq);
-      return NO_EARLIER_PROMPTS;
-    }
-    // A read that failed (a reconnect cut it, a peer's read deadline) is asked again by the next
-    // snapshot past its back-off, PROMPT_INDEX_TRIES reads in all; the rail's hover asks past that.
-    if (index.failed && index.tries < PROMPT_INDEX_TRIES && Date.now() >= index.retryAt) {
+      index = this.promptIndex!;
+    } else if (index.failed && index.tries < PROMPT_INDEX_TRIES && Date.now() >= index.retryAt) {
+      // A read that failed (a reconnect cut it, a peer's read deadline) is asked again by the next
+      // snapshot past its back-off, PROMPT_INDEX_TRIES reads in all; the rail's hover asks past that.
       void this.readPromptIndex(sessionId, this.firstSeq, index.tries);
-      return NO_EARLIER_PROMPTS;
+      index = this.promptIndex!;
     }
+    // Until acpmux answers, the copy kept from the last answer (`kept`), else nothing.
     if (!index.heads) return NO_EARLIER_PROMPTS;
     // The turn opener drawn above the held page is held: only prompts before it are earlier.
     const before = Math.min(this.firstSeq, this.turnOpener?.seq ?? Infinity);
@@ -16797,7 +16801,15 @@ export class AcpmuxDirectClient {
     const sessionId = this.selectedSessionId;
     if (!sessionId || !this.seqHistoryLeft()) return undefined;
     const index = this.promptIndex;
-    if (index?.heads && !index.failed && index.sessionId === sessionId && index.generation === this.selectionGeneration)
+    // A kept copy of the index keeps the count beside it: it may lack the prompts sent since it was
+    // kept, which the count still draws, and its confirmed answer then changes nothing the rail drew.
+    if (
+      index?.heads &&
+      !index.failed &&
+      !index.kept &&
+      index.sessionId === sessionId &&
+      index.generation === this.selectionGeneration
+    )
       return undefined;
     const summary = this.summary?.sessionId === sessionId ? this.summary : undefined;
     const count = Number(summary?.turnCount ?? 0);
@@ -16824,6 +16836,11 @@ export class AcpmuxDirectClient {
     const generation = this.selectionGeneration;
     this.promptIndex?.cancel?.();
     const entry: PromptIndexRead = { sessionId, generation, tries: tries + 1, retryAt: 0 };
+    const kept = keptPromptIndex(sessionId);
+    if (kept) {
+      entry.heads = kept;
+      entry.kept = true;
+    }
     this.promptIndex = entry;
     let finish!: (value: boolean) => void;
     entry.read = new Promise<boolean>((resolve) => {
@@ -16875,7 +16892,16 @@ export class AcpmuxDirectClient {
               ...(promptId ? { promptId } : {}),
             });
           }
-          entry.heads = PromptHeads.of(heads);
+          const fresh = PromptHeads.of(heads);
+          // The kept copy stands where acpmux named the same prompts: the rail drew it, and a new
+          // object with the same prompts would draw every tick again.
+          if (entry.kept && entry.heads && samePromptIndex(entry.heads, fresh, before)) {
+            settle(true);
+            return true;
+          }
+          entry.heads = fresh;
+          entry.kept = false;
+          keepPromptIndex(sessionId, fresh);
           this.emit();
           settle(true);
           return true;
@@ -16888,7 +16914,8 @@ export class AcpmuxDirectClient {
             return false;
           }
           entry.read = undefined;
-          entry.heads = PromptHeads.EMPTY;
+          // A kept copy still names the prompts it named; without one, none.
+          if (!entry.kept) entry.heads = PromptHeads.EMPTY;
           entry.failed = true;
           entry.retryAt = Date.now() + PROMPT_INDEX_RETRY_MS * entry.tries;
           settle(false);
