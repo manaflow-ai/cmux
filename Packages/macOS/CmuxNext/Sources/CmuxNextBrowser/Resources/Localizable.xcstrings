@@ -4723,6 +4723,39 @@
         }
       }
     },
+    "browser.permission.screenShare": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ wants to share your screen."
+          }
+        }
+      }
+    },
+    "browser.permission.screenShare.allow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Share Screen"
+          }
+        }
+      }
+    },
+    "browser.permission.screenShare.dontAllow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Don't Allow"
+          }
+        }
+      }
+    },
     "browser.permission.cameraAndMicrophone": {
       "extractionState": "manual",
       "localizations": {
@@ -6563,127 +6596,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Search or type URL"
+            "value": "Search or enter address"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ابحث أو اكتب عنوان URL"
+            "value": "ابحث أو أدخل عنوانًا"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pretražite ili upišite URL"
+            "value": "Pretražite ili unesite adresu"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Søg, eller skriv en webadresse"
+            "value": "Søg, eller indtast adresse"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Suchen oder URL eingeben"
+            "value": "Suchen oder Adresse eingeben"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Busca o escribe una URL"
+            "value": "Busca o introduce una dirección"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Effectuez une recherche ou saisissez une URL"
+            "value": "Rechercher ou saisir une adresse"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cerca o digita un URL"
+            "value": "Cerca o inserisci un indirizzo"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "検索または URL を入力"
+            "value": "検索またはアドレスを入力"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ស្វែងរក ឬវាយ URL"
+            "value": "ស្វែងរក ឬបញ្ចូលអាសយដ្ឋាន"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "검색어 또는 URL 입력"
+            "value": "검색 또는 주소 입력"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Søk eller skriv inn nettadresse"
+            "value": "Søk eller skriv inn adresse"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Wyszukaj lub wpisz URL"
+            "value": "Wyszukaj lub wpisz adres"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pesquise ou digite uma URL"
+            "value": "Pesquise ou digite um endereço"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Введите запрос или URL"
+            "value": "Поиск или адрес"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ค้นหาหรือพิมพ์ URL"
+            "value": "ค้นหาหรือป้อนที่อยู่"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Arama yapın veya URL yazın"
+            "value": "Arayın veya adres girin"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Введіть запит або URL-адресу"
+            "value": "Пошук або адреса"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tìm kiếm hoặc nhập URL"
+            "value": "Tìm kiếm hoặc nhập địa chỉ"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "搜索或输入网址"
+            "value": "搜索或输入地址"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "搜尋或輸入網址"
+            "value": "搜尋或輸入地址"
           }
         }
       }
@@ -28692,6 +28725,137 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "來自 %@"
+          }
+        }
+      }
+    },
+    "browser.toolbar.menu.zoom": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoom"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "التكبير"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zumiranje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zoom"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zoom"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zoom"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zoom"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zoom"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ズーム"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ពង្រីក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "확대/축소"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zoom"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Powiększenie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zoom"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Масштаб"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ซูม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yakınlaştırma"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Масштаб"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thu phóng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "缩放"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "縮放"
           }
         }
       }

@@ -37,6 +37,24 @@ impl Flush {
 }
 
 fn send_event(hub: &Arc<Hub>, conn: &Arc<Conn>, ev: crate::hub::HubEvent) {
+    // A record a catch-up after a lap already sent goes no second time (`stream_cursor.rs`).
+    if ev.remote.is_none() && !conn.stream_cursors.advance(&ev.session_id, ev.record.seq) {
+        return;
+    }
+    deliver_once(hub, conn, ev);
+}
+
+/// The ring dropped events for `conn`: it is told (`_acpmux/lagged`), and each chat it attached
+/// is read from its cursor in the store before the next live event (`stream_cursor.rs`).
+async fn lapped(hub: &Arc<Hub>, conn: &Arc<Conn>, dropped: u64) {
+    // Events this connection never queued: no latency sample, a drop.
+    crate::gauges::fanout_lagged(dropped);
+    conn.controls.resync(conn, "lagged");
+    conn.send(&Message::notification("_acpmux/lagged", lagged(conn, dropped)));
+    super::stream_cursor::catch_up(hub, conn, deliver_once).await;
+}
+
+fn deliver_once(hub: &Arc<Hub>, conn: &Arc<Conn>, ev: crate::hub::HubEvent) {
     // Agent output shows nothing acknowledged: it raises no gate (`durable_gate.rs`).
     let _stream = durable_gate::stream_scope(&ev.record);
     #[cfg(test)]
@@ -71,11 +89,7 @@ pub(super) fn start(
                         match rx.try_recv() {
                             Ok(ev) => send_event(&hub, &conn, ev),
                             Err(broadcast::error::TryRecvError::Lagged(n)) => {
-                                crate::gauges::fanout_lagged(n);
-                                conn.send(&Message::notification(
-                                    "_acpmux/lagged",
-                                    json!({"dropped": n}),
-                                ))
+                                lapped(&hub, &conn, n).await
                             }
                             Err(_) => break,
                         }
@@ -146,12 +160,7 @@ pub(super) fn start(
             };
             match ev {
                 Ok(ev) => send_event(&hub, &conn, ev),
-                Err(broadcast::error::RecvError::Lagged(n)) => {
-                    // Events this connection never queues: no latency sample, a drop.
-                    crate::gauges::fanout_lagged(n);
-                    conn.controls.resync(&conn, "lagged");
-                    conn.send(&Message::notification("_acpmux/lagged", json!({"dropped": n})));
-                }
+                Err(broadcast::error::RecvError::Lagged(n)) => lapped(&hub, &conn, n).await,
                 Err(broadcast::error::RecvError::Closed) => break,
             }
         }
@@ -186,6 +195,16 @@ pub(super) fn ended(conn: &Conn, ended: Result<(), tokio::task::JoinError>) {
             tracing::warn!(conn = %conn.id, "the connection's fan-out task ended: it is disconnected")
         }
     }
+}
+
+/// `_acpmux/lagged` for `dropped` hub events this connection's fan-out fell behind on. A watcher
+/// that asked for peer row batches is told its watch lost notices too (`watch: true`): it follows
+/// the list from its cursor for them, a batch's close among them (`peer_rows_changed`). Every
+/// other connection gets the note as before.
+fn lagged(conn: &Conn, dropped: u64) -> serde_json::Value {
+    let watch =
+        conn.peer_row_batches.load(Ordering::SeqCst) && conn.watch_all.load(Ordering::SeqCst);
+    if watch { json!({"dropped": dropped, "watch": true}) } else { json!({"dropped": dropped}) }
 }
 
 #[cfg(test)]

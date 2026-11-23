@@ -249,6 +249,8 @@ pub(super) struct Inner {
     pub providers: HashMap<String, u64>,
     pub provider_calls: HashMap<u64, super::provider::ProviderCall>,
     pub next_provider_request: u64,
+    /// Granted `system_calendar.events.list` answers (`system_calendar.rs`).
+    pub system_calendar: super::system_calendar::Cache,
     /// `apps-run` replay by idempotency key (`runs.rs`).
     pub run_keys: HashMap<String, super::runs::RunKey>,
     pub run_key_order: VecDeque<String>,
@@ -301,6 +303,8 @@ pub(super) struct Inner {
     pub pages: super::page_calls::Pages,
     /// The widget layout and its replayed edits (`widgets.rs`).
     pub widgets: super::widgets::WidgetState,
+    /// Extension signal sources' last values and floors (`signal_sources.rs`).
+    pub signal_sources: super::signal_sources::SignalSources,
 }
 
 /// Work to do after the lock is released. Messages to hosts are not in this
@@ -342,6 +346,9 @@ pub struct Supervisor {
     /// `net.fetch {cache: "shared"}`: one cache per URL for every app
     /// (`http_cache.rs`, the `http.json` signal source).
     pub(super) http_cache: super::http_cache::HttpCache,
+    /// `cmux.watch` sources the daemon reads, one entry per (source, params) for every app
+    /// (`signals_cache.rs`, `supervisor_signals.rs`). Taken after `inner`, never before.
+    pub(super) signals: Mutex<super::supervisor_signals::Cache>,
     /// The App Store's Community source (`community.rs`), made on first use.
     pub(super) community: OnceLock<Arc<super::community::Community>>,
     pub(super) storage: Mutex<Option<Storage>>,
@@ -438,14 +445,19 @@ impl Supervisor {
                 seeded = true;
             }
         }
-        // The user's customization app installs itself the first time it appears.
-        if let Some(next) = catalog
-            .packages
-            .get(catalog::CUSTOMIZE_APP)
-            .and_then(|package| super::local_reload::seed_customize(&mirror, package))
-        {
-            mirror = next;
-            seeded = true;
+        // The user's customization app installs itself the first time it
+        // appears, and so does each setup's views layer (its card was the yes).
+        let folder_apps = std::iter::once(catalog::CUSTOMIZE_APP)
+            .chain(catalog.setup_layers.iter().map(String::as_str));
+        for app in folder_apps {
+            if let Some(next) = catalog
+                .packages
+                .get(app)
+                .and_then(|package| super::local_reload::seed_customize(&mirror, package))
+            {
+                mirror = next;
+                seeded = true;
+            }
         }
         for app in &catalog.defaults {
             let Some(package) = catalog.packages.get(app) else { continue };
@@ -473,6 +485,7 @@ impl Supervisor {
                 providers: HashMap::new(),
                 provider_calls: HashMap::new(),
                 next_provider_request: 0,
+                system_calendar: Default::default(),
                 run_keys: HashMap::new(),
                 run_key_order: VecDeque::new(),
                 servers: HashMap::new(),
@@ -493,12 +506,14 @@ impl Supervisor {
                 ladders: HashMap::new(),
                 pages: Default::default(),
                 widgets: Default::default(),
+                signal_sources: Default::default(),
             }),
             config,
             router,
             fetcher,
             github: OnceLock::new(),
             http_cache: super::http_cache::HttpCache::default(),
+            signals: Mutex::default(),
             community: OnceLock::new(),
             storage: Mutex::new(None),
             timers: Timers::default(),
@@ -545,6 +560,7 @@ impl Supervisor {
             inner.sinks.remove(&client);
             inner.pages.client_gone(client);
             let mut provider_outs = self.provider_disconnect_locked(&mut inner, client);
+            provider_outs.extend(self.external_disconnect_locked(&mut inner, client));
             provider_outs.extend(self.cancel_client_locked(&mut inner, client));
             for set in inner.followers.values_mut() {
                 set.remove(&client);
@@ -689,7 +705,9 @@ impl Supervisor {
                 if let Some(storage) = self.storage().as_ref() {
                     let _ = storage.clear(app);
                 }
+                inner.signal_sources.forget_app(app);
                 self.remove_server_dirs(app);
+                self.remove_server_credential(app);
                 vec![]
             }
             Effect::StopHost(app) => {

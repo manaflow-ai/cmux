@@ -74,6 +74,22 @@ fn japanese_words_name_a_table_and_count_pictures() {
     assert_eq!(Words::for_locale(""), Words::english());
 }
 
+/// a1317, 2026-11-21: an agent's finished-turn push showed its last lines raw
+/// ("| | Before | After |", "**All** 31 pass."). Each line says its words; a
+/// table is one line; a code block keeps its text.
+#[test]
+fn lines_say_each_lines_words_and_a_table_once() {
+    let md = "Done. See [PR 12](https://github.com/manaflow-ai/cmux/pull/12).\n\n| | Before | After |\n|---|---|---|\n| Light | ![b](/b.png) | ![a](/a.png) |\n\n**All** 31 pass.\n![shot](/s.png)\n```sh\n| not | a table |\n```";
+    assert_eq!(
+        lines(md, &Words::english()),
+        ["Done. See PR 12.", "Table: Before / After", "All 31 pass.", "Image", "| not | a table |"]
+    );
+    assert_eq!(lines("| A | B |\n|---|---|\n| 1 | 2 |", &Words::japanese()), ["表: A / B"]);
+    for text in ["", "\n\n", "```", "|", "|\n|-|", "![", "``"] {
+        let _ = lines(text, &Words::english());
+    }
+}
+
 #[test]
 fn hostile_input_never_panics_and_reads_in_one_pass() {
     for text in [

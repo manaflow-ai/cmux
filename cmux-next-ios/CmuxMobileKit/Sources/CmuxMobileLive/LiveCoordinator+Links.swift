@@ -8,6 +8,7 @@ import CmuxMobileDesign
 import CmuxMobileFeed
 import CmuxMobileModel
 import CmuxMobileNotifications
+import CmuxMobileTerminal
 import CmuxMobileTransport
 import Foundation
 import Observation
@@ -601,6 +602,12 @@ extension LiveCoordinator {
             return DaemonClient(channel: channel, eventCapacity: BoundedDaemonEventBuffer.defaultCapacity)
         })
         terminal.macName = owner.name
+        terminal.scrollFramesSink = { [weak self] pan in await self?.sendScrollFrames(pan, macID: macID) }
+        terminal.paintSink = { [weak self] samples, program in
+            await self?.sendPaint(samples, program: program, macID: macID)
+        }
+        // Its channel died or went silent: the link is checked at once too.
+        terminal.onLinkSuspect = { [weak self] in self?.sessions[macID]?.link.suspect() }
         owner.terminals.removeAll { $0.session == nil }
         owner.terminals.append(MacSession.WeakTerminal(session: terminal))
         // The tab dials its Mac now (a closed link opens, a cached "offline" is tried),
@@ -608,6 +615,67 @@ extension LiveCoordinator {
         openSurface(macID: macID)
         terminal.setMacOffline(sessions[macID]?.terminalsOffline ?? false)
         return terminal
+    }
+
+    /// One terminal pan's frame times (``TerminalPanFrames``) to the Mac's `phone-frames`
+    /// service, which logs them where an agent on the Mac reads them. Only a Mac that lists
+    /// `phone-frames-v1`; nothing waits past 10 s, and a line that cannot go is dropped.
+    /// It adds the link's last round trip, the pan's network load.
+    func sendScrollFrames(_ pan: TerminalPanFrames, macID: String) async {
+        guard store.macCapabilities[macID]?.contains("phone-frames-v1") == true,
+              let owner = session(macID: macID), let link = owner.servedLink else { return }
+        var pan = pan
+        if case .connected(_, _, let rtt) = owner.link.phase { pan.rttMs = rtt.map(Int.init) }
+        guard let line = pan.line() else { return }
+        guard let channel = try? await LinkDeadline.run(
+            timeout: .seconds(10),
+            operation: { try await link.openChannel(service: "phone-frames", args: [:]) },
+            onDiscard: { await $0.close(code: "eof", reason: "phone-frames expired") }
+        ) else { return }
+        _ = try? await LinkDeadline.run(
+            timeout: .seconds(10),
+            operation: { try await channel.send(line) },
+            onCancel: { await channel.close(code: "eof", reason: "phone-frames expired") }
+        )
+        await channel.close(code: "eof", reason: "")
+    }
+
+    /// Sends painted redraws to the Mac (`phone-frames` `paint`): a few clock probes first, so
+    /// hostd puts the phone's times on its clock (the probe with the shortest round trip).
+    func sendPaint(_ samples: [TerminalPaintTally.Sample], program: String?, macID: String) async {
+        guard store.macCapabilities[macID]?.contains("phone-frames-v1") == true,
+              let owner = session(macID: macID), let link = owner.servedLink else { return }
+        let rtt: Int? = if case .connected(_, _, let measured) = owner.link.phase {
+            measured.map(Int.init)
+        } else {
+            nil
+        }
+        guard let channel = try? await LinkDeadline.run(
+            timeout: .seconds(10),
+            operation: { try await link.openChannel(service: "phone-frames", args: [:]) },
+            onDiscard: { await $0.close(code: "eof", reason: "phone-frames expired") }
+        ) else { return }
+        _ = try? await LinkDeadline.run(
+            timeout: .seconds(10),
+            operation: {
+                var clock: [[Double]] = []
+                for _ in 0..<4 {
+                    try await channel.send(TerminalPaintReport.clockProbe(t0: TerminalPaintReport.nowMs))
+                    // A Mac without clock probes closes or ignores it: report without an offset.
+                    guard let answer = try await channel.receive() else { break }
+                    if let sample = TerminalPaintReport.clockSample(answer: answer, t3: TerminalPaintReport.nowMs) {
+                        clock.append(sample)
+                    }
+                }
+                let report = TerminalPaintReport(
+                    program: program, samples: samples, clock: clock, rttMs: rtt,
+                    agentCLIHybrid: DaemonTerminalSession.agentCLIHybridEnabled()
+                )
+                if let line = report.line() { try await channel.send(line) }
+            },
+            onCancel: { await channel.close(code: "eof", reason: "phone-frames expired") }
+        )
+        await channel.close(code: "eof", reason: "")
     }
 
     /// Whether the phone holds (or is opening) a link to the Mac.
@@ -874,10 +942,18 @@ extension LiveCoordinator {
             || reason.contains("channel closed") {
             return String(localized: "Chief isn't running on \(mac). Open cmux on the Mac to start it, then try again.")
         }
-        return String(localized: "Chief on \(mac) didn't answer (\(reason)).")
+        return String(localized: "Can't reach Chief on \(mac) right now (\(reason)).")
     }
 
     // MARK: Trees and the Feed
+
+    /// Whether a chat store built on session `built` is stale for the tree's `listed` session. Only
+    /// a session the tree names and that differs: a tab missing from one publish (a reconnect's
+    /// partial resync) lists none, and dropping the store then resets the transcript's scroll place.
+    nonisolated static func chatSessionChanged(built: String?, listed: String?) -> Bool {
+        guard let listed else { return false }
+        return listed != built
+    }
 
     private func apply(_ tree: DaemonTree, session: MacSession) {
         let macID = session.macID
@@ -887,7 +963,7 @@ extension LiveCoordinator {
         // started later, or a tab shown from the list before the tree came)
         // was built unbound and cached; rebuild it on the bound session.
         for (key, used) in sourcedSessions where (used.macID == macID || used.macID.isEmpty)
-            && (tree.agentTabs[used.tabID]?.session != used.session || used.provisional) {
+            && (Self.chatSessionChanged(built: used.session, listed: tree.agentTabs[used.tabID]?.session) || used.provisional) {
             // A store built without its Mac (macID empty) is rebuilt when any Mac's tab changes.
             if used.macID.isEmpty, tree.agentTabs[used.tabID] == nil { continue }
             sourcedSessions[key] = nil
@@ -1194,6 +1270,7 @@ final class MultiMacFeedActions: FeedActions {
     }
 
     func respond(_ item: FeedItem, request: ACPPermissionRequest, option: ACPPermissionOption) async throws {
+        if item.opensTerminal { return try await terminalOwner(item).respond(item, request: request, option: option) }
         try await owner(item).respond(item, request: request, option: option)
     }
 

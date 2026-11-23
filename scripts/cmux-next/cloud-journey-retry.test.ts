@@ -89,7 +89,8 @@ describe("every workflow reads a Stack pair its job can see", () => {
   const repository = ["CMUX_DOGFOOD_STACK_EMAIL", "CMUX_DOGFOOD_STACK_PASSWORD"]
   const held: Record<string, string[]> = {
     "cmux-next-vm-image-dev": ["CMUX_DOGFOOD_STACK_EMAIL", "CMUX_DOGFOOD_STACK_PASSWORD", "CMUX_DOGFOOD_GUEST_STACK_EMAIL", "CMUX_DOGFOOD_GUEST_STACK_PASSWORD"],
-    "cmux-next-cloud-journey": ["CMUX_DOGFOOD_STACK_EMAIL", "CMUX_DOGFOOD_STACK_PASSWORD"],
+    // CMUX_STAGING_STACK_*: the staging journey account, sealed here by cloud_capture_provision.py (target journey).
+    "cmux-next-cloud-journey": ["CMUX_DOGFOOD_STACK_EMAIL", "CMUX_DOGFOOD_STACK_PASSWORD", "CMUX_STAGING_STACK_EMAIL", "CMUX_STAGING_STACK_PASSWORD"],
   }
   const workflows = join(import.meta.dir, "../../.github/workflows")
   it("names only pairs that exist", () => {

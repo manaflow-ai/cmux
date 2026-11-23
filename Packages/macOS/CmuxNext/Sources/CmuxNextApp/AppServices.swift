@@ -102,8 +102,9 @@ final class AppServices {
     /// Brings a window forward for a jump (`revealTab`, a `cmux://` link).
     /// Tests replace it to record the intent without ordering windows in.
     var showJumpWindow: @MainActor (NSWindow, WindowActivation.Intent) -> Void = { WindowActivation.show($0, $1) }
-    /// The editor `file.open {where: editor}` opens with; tests replace it to record the open.
-    var editorApps: any AgentPaneEditorApps = AgentPaneWorkspaceEditors()
+    /// The editor `file.open {where: editor}` opens with (`editor.default` first); tests replace it to record the open.
+    lazy var editorApps: any AgentPaneEditorApps = CatalogEditorApps(catalog: editorCatalog, textEditor: { [weak self] in self?.settings?.snapshot.textEditor.application })
+    lazy var editorCatalog = EditorCatalog(configured: { [weak self] in self?.settings?.snapshot.editorDefault.editor }, textEditor: { [weak self] in self?.settings?.snapshot.textEditor.application })
     /// The app's key window, from the composition root (AppServices never reads the global `NSApp`, nil in a
     /// test process). Tests and `debug.key` replace it: a window only becomes key in a running, active app.
     var keyWindowSource: @MainActor () -> NSWindow?
@@ -160,6 +161,8 @@ final class AppServices {
         let joinLine = JoinConsentFixtureLine()
         /// `debug.object_menu`: the tab or pane menu it opened last; nil after a workspace menu.
         weak var objectMenu: NSMenu?
+        /// `debug.object_menu {menu: customizations}`: the item whose submenu it opened last, which owns that menu's delegate.
+        var customizationsItem: NSMenuItem?
     }
     #endif
     /// The Machines section's hub-joined machines (`cmux machine list`); signed out or switched account or team: emptied, then read.
@@ -181,7 +184,7 @@ final class AppServices {
     let wideningGate = PageWideningGate()
     /// Settings > Machines' "Dedicated agent machine" switch on each Cloud machine (acpmux vmHost).
     private(set) lazy var cloudVmHost = CloudVmHostStore(api: cloud.machineAPI)
-    let machineHealth = MachineHealthStore()
+    let machineHealth = MachineHealthStore(); var hostsSidebar: HostsSidebar.Host { .init(rows: { [weak self] in self.map { MachineSectionRow.rows($0.machines, health: $0.machineHealth, joined: $0.joinedMachines, signedIn: $0.serverReach.signedIn.joinedByMachine) } ?? [] }, add: { [weak self] in _ = self?.registry.perform("device.add") }, openConnected: { [weak self] machine in _ = self?.registry.perform("workspace.newOnMachine", invocation: ActionInvocation(arguments: ["machine": .string(machine)])) }, openJoined: { [weak self] machine in guard let self else { return }; Task { await MachineSectionHostView.signedInDial(self).open(machine) } }, openOffline: { [weak self] machine in guard let self, let session = self.machines.sshSession(machine.id) else { return }; let context = AppActionContext(services: self); if machine.isConnecting { RemoteHandlers.showWhenConnected(session, context) } else { _ = self.registry.perform("remote.connect", invocation: ActionInvocation(target: ActionTargetRef(kind: .machine, id: session.machineID), arguments: ["destination": .string(session.host.destination.description)], origin: .user)) } }, joined: joinedMachines, enabled: { [weak self] in self?.settings?.snapshot.hostsSidebar == true }) }
     /// The process's one guard of the Keychain UI switch: every store of cmux's own Keychain items gets this one.
     let loginKeychain = LoginKeychain()
     /// iPhone connections for the cmux-next iPhone app (cmux-next-ios, Settings > Mobile).
@@ -204,7 +207,7 @@ final class AppServices {
                                                                  activeWindow: { [weak self] in self?.windows.active?.window })
     private(set) lazy var updateSheet: UpdateSheetController = UpdateSheetController(source: UpdateSheetModel(service: updater, openLink: { LinkRouter.shared.open($0) }))  // first read in init (no IUO)
     /// cmux.json controller; set by `AppDelegate` once it starts. Agent tabs made before it (by launch's action bindings) follow it from here.
-    var settings: SettingsController? { didSet { if let settings, settings !== oldValue { onboarding.followImportSetting(settings); madeAgentTabs?.follow(settings); browserHost?.follow(settings); cloud.hostReplica.follow(settings, local: machines.local, account: { [cloud] in cloud.auth.isSignedIn && cloud.mayCallCloud && !cloud.policyDisabled ? cloud.auth.user?.id : nil }) } } }
+    var settings: SettingsController? { didSet { if let settings, settings !== oldValue { onboarding.followImportSetting(settings); madeAgentTabs?.follow(settings); browserHost?.follow(settings); AppLanguageApplier(defaults: .standard, language: machines.local.languagePacks.appLanguage).follow(settings); cloud.hostReplica.follow(settings, local: machines.local, account: { [cloud] in cloud.auth.isSignedIn && cloud.mayCallCloud && !cloud.policyDisabled ? cloud.auth.user?.id : nil }) } } }
     /// Writes the palette shortcut recorder's edits (the recorder holds it weakly).
     var paletteShortcutEditor: PaletteShortcutEditor?
     /// Where Chromium comes from: embedded, or downloaded on first use (bundle-size-DESIGN.md section 6).
@@ -322,7 +325,7 @@ final class AppServices {
     private(set) lazy var keybindingsFile = KeybindingsFileService(services: self)
     /// App platform (DEV prototype): registry, JavaScriptCore app host, App Store.
     private(set) lazy var apps = AppsService(services: self)
-    private(set) lazy var sidebarCustomization = SidebarCustomizationService(client: apps.client) { [weak self] in self?.apps.presence.isPresented($0) == true }
+    private(set) lazy var sidebarCustomization = SidebarCustomizationService(client: apps.client) { [weak self] in self?.apps.client.presence.isPresented($0) == true }
     /// The Tasks page and its mirror of the local Tasks owner (plans/cmux-next/tasks.md).
     private(set) lazy var tasks = TasksPageService(services: self)
     /// Phone tabs: iOS simulators, Android emulators and real phones, recordings, feedback to Chief
@@ -423,7 +426,13 @@ final class AppServices {
     /// Design mode in browser panes: highlights become cards in an agent chat
     /// (plans/cmux-next/design-mode-DESIGN.md).
     private(set) lazy var designMode = BrowserDesignModeController(services: self)
-    private(set) lazy var uiInspector = UIInspectorController(services: self)
+    private(set) lazy var uiInspector = UIInspectorController(host: .init(
+        pages: { [weak self] in self.map { Array($0.agentTabs.views.values) } ?? [] },
+        activeWindow: { [weak self] in self?.windows.active?.window },
+        capture: { [weak self] window in
+            guard let self else { return nil }
+            return try? await AppWindowImage(services: self).capture(window)
+        }))
     /// The one keyboard router (plans/cmux-next/focus.md section 5).
     /// The input event being dispatched now (``InputDispatchContext``): `sendEvent` and the router's own dispatches.
     /// Each scroll event it dispatches is timed to its frame (`key.scroll_frame`).
@@ -442,7 +451,7 @@ final class AppServices {
     let chiefMascotPicks = ChiefMascotPicks(defaults: .standard, defaultChief: HomeChiefAvatars.defaultChief)
     /// Each Chief's own uploaded avatar, kept on this Mac only (Application Support/<bundle id>/AvatarUploads).
     let chiefAvatarUploads = ChiefAvatarUploads(folder: ChiefAvatarUploads.defaultFolder)
-    let chiefSidebarPictures = ChiefSidebarPictures()  // the sidebar Chief item's picture, one per upload
+    let chiefSidebarPictures = ChiefSidebarPictures(), chiefSidePanel = ChiefSidePanel()  // the sidebar Chief item's picture, one per upload; Chief in Side Panel
     /// The chat the Chief pet (the floating mini) stands for: the Chief, or one Show in Mini picked.
     private(set) lazy var chiefPetMini = ChiefPetMini(uploads: chiefAvatarUploads, localHost: { [weak self] in self?.agentTabs.localHost },
                                                       settings: { [weak self] in self?.settings }, pet: { [weak self] in self?.notifications.chiefPet },
@@ -706,6 +715,10 @@ final class AppServices {
         keyRouter.whichKey = WhichKeyController()
         cache.keyRouter = keyRouter
         cache.onPageFocusRequest = { [weak self] key in self?.returnFocusToPage(key) }
+        cache.phonePictures = PhoneTabPictures(iphone: iphone, surface: { [weak cache] in cache?.phoneSurface($0) }) { image, fit, quality in
+            let cut = PreviewImageCache.fitted(image, fit)  // browser tabs' pictures for the phones' tab overview
+            return PreviewImageCache.compressed(cut, quality: quality).map { ($0.data, cut.width, cut.height) }
+        }
         cache.onTerminalConfirmed = { [weak self] tab, daemon in self?.terminalConfirmed(tab, on: daemon) }
         cache.onBrowserEntryCreated = { [registry, weak self] entry in
             guard let self else { return }

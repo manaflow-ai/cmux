@@ -104,4 +104,23 @@ mod apps {
             }
         }
     }
+
+    /// Every first-party app's manifest validates. The host drops a package that fails, so
+    /// one listing over a length cap (CodeRouter's description, cmux#44805) takes the whole
+    /// app out of cmux with no error anywhere a person sees.
+    #[test]
+    fn first_party_apps_are_valid_manifest_v2_packages() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../first-party-apps");
+        let mut dirs: Vec<PathBuf> = std::fs::read_dir(&root)
+            .unwrap_or_else(|e| panic!("{}: {e}", root.display()))
+            .map(|e| e.expect("entry").path())
+            .filter(|p| p.join(V2).is_file())
+            .collect();
+        dirs.sort();
+        assert!(dirs.len() >= 3, "expected the first-party apps, found {dirs:?}");
+        for dir in dirs {
+            let report = validate_package_file(&dir, V2);
+            assert!(report.is_valid(), "{}: {:?}", dir.display(), report.issues);
+        }
+    }
 }

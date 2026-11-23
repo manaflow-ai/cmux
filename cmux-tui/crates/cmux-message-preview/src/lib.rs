@@ -20,6 +20,7 @@
 //! assert_eq!(preview.images[0].source, "b.png");
 //! ```
 
+mod lines;
 mod parse;
 
 /// A picture the message names: `![alt](source)`.
@@ -146,6 +147,20 @@ impl MessagePreview {
             words.images.replace("{}", &self.images.len().to_string())
         }
     }
+}
+
+/// A message's Markdown as its lines of words, in order: each line's preview, a
+/// pipe table as one line ("Table: Before / After"), a code block's lines as
+/// written (without the fences), empty lines left out. For a push's last lines
+/// (`cmux-mobile-host` `notify`), where one line of the whole message is too little.
+///
+/// ```
+/// use cmux_message_preview::{Words, lines};
+/// let md = "**Done.** See [PR 12](https://x/12).\n| A | B |\n|---|---|\n| 1 | 2 |";
+/// assert_eq!(lines(md, &Words::english()), ["Done. See PR 12.", "Table: A / B"]);
+/// ```
+pub fn lines(markdown: &str, words: &Words) -> Vec<String> {
+    lines::lines(markdown, words)
 }
 
 /// `s` with every run of white space as one space, trimmed.

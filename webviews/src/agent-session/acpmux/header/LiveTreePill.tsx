@@ -63,9 +63,9 @@ export function LiveTreePill({ cwd, readStatus }: { cwd?: string; readStatus: ()
         <div className="acpmux-pr-title">{t("header.liveTree")}</div>
         <div className="acpmux-pr-facts">{t("composer.folder")}</div>
         <code className="acpmux-live-tree-path">{cwd || t("project.noFolder")}</code>
-        <div className="acpmux-pr-facts" role="status">
+        <output className="acpmux-pr-facts">
           {!status ? "…" : !status.available ? t("header.liveTreeDisconnected") : t("header.liveTreeReport")}
-        </div>
+        </output>
         {status?.available && (
           <ul className="acpmux-live-tree-results">
             {status.lanes?.map((lane) => (

@@ -102,6 +102,23 @@ class BreakdownTests(unittest.TestCase):
         self.assertNotIn("js_heap_total_mb", out["per_chat"])
         self.assertFalse(any("js_heap" in r["name"] for r in rows))
 
+    def test_dom_per_chat_rows(self):
+        with_dom = [dict(EMPTY, js_heap=dict(EMPTY["js_heap"], dom={"pages": 2, "nodes": 3000, "decoded_images": 1, "decoded_mb": 0.5})),
+                    dict(TEN, js_heap=dict(TEN["js_heap"], dom={"pages": 11, "nodes": 48000, "decoded_images": 19, "decoded_mb": 9.5}))]
+        out, rows = cron.breakdown_from({"samples": with_dom})
+        self.assertEqual(out["per_chat"]["dom_nodes"], 5000.0)
+        self.assertEqual(out["per_chat"]["dom_decoded_images"], 2.0)
+        self.assertEqual(out["per_chat"]["dom_decoded_mb"], 1.0)
+        self.assertEqual(out["10"]["js_heap"]["dom"]["nodes"], 48000)
+        units = {r["name"]: r["unit"] for r in rows}
+        self.assertEqual(units["memory.app_agents.breakdown.per_chat.dom_nodes"], "count")
+        self.assertTrue(perf_cron.REPORT_ONLY_ROW_RE.match("memory.app_agents.breakdown.per_chat.dom_nodes"))
+        # A sample with a failed page read gets no DOM row: a missing page would read as fewer nodes.
+        with_dom[1]["js_heap"]["dom"]["error_count"] = 1
+        out, rows = cron.breakdown_from({"samples": with_dom})
+        self.assertNotIn("dom_nodes", out["per_chat"])
+        self.assertFalse(any("dom_" in r["name"] for r in rows))
+
     def test_kind_names_are_row_safe(self):
         self.assertEqual(cron.row_key("com.apple.WebKit Helper (GPU)"), "com_apple_webkit_helper_gpu", "a dot would split the row name")
         self.assertEqual(cron.row_key(""), "unknown")
@@ -182,6 +199,95 @@ class HeapSummaryTests(unittest.TestCase):
         self.assertEqual(list(got["by_path"]), ["/chat", "/"])
         self.assertEqual(got["error_count"], 1)
         self.assertEqual(got["errors"], ["no live page 4"])
+
+
+class DomSummaryTests(unittest.TestCase):
+    def test_sums_pages_averages_hidden_and_counts_errors(self):
+        pages = [{"browser": 1, "origin": "cmux-page://agent", "path": "/chat", "hidden": True, "renderer_clients": [7]},
+                 {"browser": 2, "origin": "cmux-page://agent", "path": "/chat", "hidden": True, "renderer_clients": [7]},
+                 {"browser": 3, "origin": "cmux-page://agent", "path": "/chat", "hidden": False, "renderer_clients": [7]},
+                 {"browser": 4, "origin": "cmux-page://home", "path": "/", "renderer_clients": [9]},
+                 {"browser": 5, "origin": "https://example.com", "renderer_clients": [7]}]
+        facts = {1: {"nodes": 4000, "elements": 2500, "images": 3, "decoded_images": 2, "decoded_pixels": 512 * 512},
+                 2: {"nodes": 6000, "elements": 3500, "images": 1, "decoded_images": 1, "decoded_pixels": 256 * 512},
+                 3: {"nodes": 9000, "images": 0, "decoded_images": 0, "decoded_pixels": 0},
+                 4: {"error": "Execution context was destroyed"}, 5: {"nodes": 99999}}
+        counters = {7: {"documents": 6, "nodes": 30000, "jsEventListeners": 800}, 9: {"error": "no live page 4"}}
+        got = bm.dom_summary(pages, facts, counters)
+        self.assertEqual(got["pages"], 3, "a browser tab is not a cmux page; a failed read is not a page")
+        self.assertEqual(got["nodes"], 19000)
+        self.assertEqual(got["decoded_images"], 3)
+        self.assertEqual(got["decoded_mb"], 1.5)
+        self.assertEqual(got["hidden_pages"], 2)
+        self.assertEqual(got["per_hidden_page"], {"nodes": 5000, "decoded_images": 1.5, "decoded_mb": 0.8})
+        self.assertEqual(got["by_path"]["/chat"]["nodes"], 19000)
+        self.assertEqual(got["by_renderer"], [{"renderer": 7, "documents": 6, "renderer_nodes": 30000, "live_nodes": 19000,
+                                               "listeners": 800}])
+        self.assertEqual(got["error_count"], 2)
+        self.assertEqual(got["errors"], ["Execution context was destroyed", "no live page 4"])
+
+    def test_reads_the_evaluate_reply(self):
+        ok = {"result": {"type": "string", "value": '{"nodes": 12, "decoded_images": 1}'}}
+        self.assertEqual(bm.dom_facts_of(ok), {"nodes": 12, "decoded_images": 1})
+        self.assertEqual(bm.dom_facts_of({"error": "timed out"}), {"error": "timed out"})
+        thrown = {"result": {}, "exceptionDetails": {"exception": {"description": "ReferenceError: x"}}}
+        self.assertEqual(bm.dom_facts_of(thrown), {"error": "ReferenceError: x"})
+        self.assertIn("error", bm.dom_facts_of({"result": {"value": "not json"}}))
+
+
+def windowed(s, disk, gpu):
+    """A copy of sample s measured over 30 s, with disk MB/h per kind and the window's GPU reading."""
+    out = dict(s, measure_s=30, kinds={k: dict(v, disk_write_mb_per_h=disk.get(k, 0.0)) for k, v in s["kinds"].items()})
+    if gpu is not None:
+        out["gpu"] = {"samples": 30, "device_utilization_pct": gpu}
+    return out
+
+
+class IdleGpuDiskTests(unittest.TestCase):
+    """Goal idle-gpu-disk: the worst idle window's GPU (minus the Mac with no app) and the app's disk writes."""
+
+    def report(self, base=0.4, empty_gpu=0.6, ten_gpu=1.3, ten_failures=0):
+        ten = windowed(dict(TEN, pane_failures=ten_failures), {"acpmux-daemon": 2.5, "tui-daemon": 0.75}, ten_gpu)
+        rep = {"samples": [windowed(EMPTY, {"app": 0.5}, empty_gpu), ten]}
+        if base is not None:
+            rep["gpu_no_app"] = {"samples": 30, "device_utilization_pct": base}
+        return rep
+
+    def rows(self, **kw):
+        return {r["name"]: r for r in cron.idle_rows(self.report(**kw))}
+
+    def test_worst_window_minus_the_mac_with_no_app(self):
+        got = self.rows()
+        self.assertEqual(got[cron.GPU_ROW]["p95"], 0.9)
+        self.assertEqual(got[cron.GPU_ROW]["window"], "idle-10")
+        self.assertEqual(got[cron.DISK_ROW]["p95"], 3.25, "every process of the app's writes, summed")
+
+    def test_gpu_below_the_baseline_reads_zero(self):
+        self.assertEqual(self.rows(base=2.0)[cron.GPU_ROW]["p95"], 0.0)
+
+    def test_no_baseline_no_gpu_row(self):
+        got = self.rows(base=None)
+        self.assertNotIn(cron.GPU_ROW, got, "a whole-Mac reading alone counts whatever else the Mac draws")
+        self.assertIn(cron.BREAKDOWN_PREFIX + "gpu_device_pct_raw", got)
+
+    def test_a_partial_count_is_no_window(self):
+        got = self.rows(ten_failures=1)
+        self.assertEqual(got[cron.DISK_ROW]["p95"], 0.5)
+        self.assertEqual(got[cron.GPU_ROW]["p95"], 0.2)
+
+    def test_unmeasured_samples_give_no_rows(self):
+        self.assertEqual(cron.idle_rows({"samples": [EMPTY, TEN]}), [])
+
+    def test_goal_rows_are_judged_and_the_gpu_split_is_report_only(self):
+        for r in cron.idle_rows(self.report()):
+            only = bool(perf_cron.REPORT_ONLY_ROW_RE.match(r["name"]))
+            self.assertEqual(only, r["name"] not in (cron.GPU_ROW, cron.DISK_ROW), r["name"])
+            self.assertEqual(perf_cron.part_for_row(r["name"]), "memory-agents")
+
+    def test_the_part_asks_for_gpu_counters(self):
+        import argparse
+        ns = argparse.Namespace(app="/A.app", agents="10", settle="20", measure="30", no_app_vm=False, app_vm_stacks=None)
+        self.assertIn("--gpu", cron.bench_cmd(ns, "/r.json"))
 
 
 if __name__ == "__main__":

@@ -38,6 +38,26 @@ args="$(cat "$root/base.args")"
   || { echo "app-at-commit: reload.sh got '$args'" >&2; exit 1; }
 [[ ! -e "$root/head.app" ]] || { echo "app-at-commit: the harness checkout's reload.sh ran" >&2; exit 1; }
 
+# A sparse harness checkout still builds the whole commit: the asked commit's reload.sh needs a file outside the
+# harness's sparse set (git worktree add copies the sparse patterns, 2026-11-21).
+mkdir -p "$repo/webviews"; echo '{}' >"$repo/webviews/package.json"
+cat >"$repo/scripts/reload.sh" <<EOF
+#!/usr/bin/env bash
+[[ -f webviews/package.json ]] || { echo "no webviews/package.json" >&2; exit 1; }
+mkdir -p "$root/whole.app"
+echo "App path:"
+echo "  $root/whole.app"
+EOF
+git -C "$repo" add webviews scripts/reload.sh
+git -C "$repo" commit -q -m whole
+whole="$(git -C "$repo" rev-parse HEAD)"
+git -C "$repo" sparse-checkout set scripts
+[[ ! -e "$repo/webviews/package.json" ]] || { echo "app-at-commit: the fixture's sparse checkout kept webviews/" >&2; exit 1; }
+app="$(cd "$repo" && source "$lib" && measure_app_at_commit "$whole" t "$root/scratch/sparse" 2>"$root/sparse.err")" \
+  || { echo "app-at-commit: a sparse harness built a partial commit: $(tail -n 3 "$root/sparse.err")" >&2; exit 1; }
+[[ "$app" == "$root/whole.app" ]] || { echo "app-at-commit: sparse harness printed '$app'" >&2; exit 1; }
+git -C "$repo" sparse-checkout disable
+
 # A commit nobody can fetch fails, and builds nothing.
 if (cd "$repo" && CMUX_MEASURE_FETCH_URL="$repo" && export CMUX_MEASURE_FETCH_URL && source "$lib" && measure_app_at_commit 0123456789012345678901234567890123456789 t "$root/scratch/none" 2>/dev/null); then
   echo "app-at-commit: an unknown commit did not fail" >&2; exit 1
