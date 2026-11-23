@@ -548,7 +548,8 @@ class WebviewsWarnSplitCoversCheck(unittest.TestCase):
                         f"`./node_modules/.bin/{part} || echo ...` in the warn branch below this line")
                 continue
             name = part.removeprefix("bun run ").strip()
-            if not (name in looped or name in gated or f"bun run {name} || status=1" in warn_branch):
+            if not (name in looped or name in gated or part in gated_commands
+                    or f"bun run {name} || status=1" in warn_branch):
                 missing.append(
                     f"{ci_web}:{loop_line}: `{part}` (webviews/package.json:{script_line} "
                     f"`{script_key}`) does not run when CMUX_NEXT_STYLE_GUARDS=warn; add `{name}` to this "
@@ -4357,7 +4358,8 @@ esac
                 for result in ("success", "failure", "cancelled"):
                     self.assertTrue(evaluate(job["if"], {**unplaced, f"needs.{client}.result": result}), result)
                 self.assertTrue(evaluate(job["if"], {**unplaced, f"needs.{client}.result": "skipped"}))
-                self.assertEqual(evaluate(job["timeout-minutes"], skipped), 20)
+                # Its own Mac run gets the measured cold build (#50862).
+                self.assertEqual(evaluate(job["timeout-minutes"], skipped), 120)
                 # In report mode the first step reports; every other step is off.
                 report, *rest = job["steps"]
                 self.assertEqual(report["if"], "env.CMUX_FAST_TIER_FLEET == 'report'")
