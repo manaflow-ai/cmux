@@ -738,6 +738,7 @@
               "appearance.titleAreaContrast",
               "appearance.twoTone",
               "appearance.cornerFlush",
+              "appearance.tabShape",
               "layout.paneSeparation",
               "layout.panePadding",
               "layout.paneCornerRadius",
@@ -41344,6 +41345,166 @@
       "title" : {
         "key" : "settings.appearance.cornerFlush",
         "text" : "Selected Tab Shape"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "block",
+        "rounded"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.tabShape.block",
+            "text" : "Block"
+          },
+          "value" : "block"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.tabShape.rounded",
+            "text" : "Rounded"
+          },
+          "value" : "rounded"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "block",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.panes",
+        "text" : "Panes"
+      },
+      "help" : {
+        "key" : "settings.appearance.tabShape.help",
+        "text" : "The tabs and the sidebar's rows: blocks with the tab's corner, or rounded capsules."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.tabShape",
+      "keywords" : [
+        "tab",
+        "tabs",
+        "shape",
+        "corners",
+        "block",
+        "blocky",
+        "rounded",
+        "pill",
+        "capsule",
+        "sidebar",
+        "row",
+        "selection"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "tabShape"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : {
+        "key" : "settings.appearance.tabShape.summary",
+        "text" : "Block or rounded tabs and sidebar rows"
+      },
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:appearance.tabShape"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.appearance.tabShape",
+        "text" : "Tab Shape"
       },
       "validation" : "portable"
     },
