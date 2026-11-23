@@ -271,7 +271,7 @@ final class TabContentCache {
                          machine: daemon.machineID)
         // A close the daemon makes (`cmux tab close`, another client) frees the page too.
         goneTabs.track(key, in: browserTabs.daemon(for: tab).store) { [weak self] in self?.release($0) }
-        if let entry = browsers[key] { return entry }
+        if let entry = browsers[key] ?? daemon.store.creations.standIn(replacedBy: tab.surface).flatMap({ moveBrowser($0, to: tab) ? browsers[key] : nil }) { return entry } // a stand-in's daemon tab takes its page, whichever asks first: one page, no blank frame (ask-08552f8ea0)
         if pageRequests.claimCloseOnArrival(tab.surface) {
             // Its page closed before the tab appeared (BrowserPageRequests).
             Task { @MainActor [weak self] in self?.pageRequests.closeTab(key) }
