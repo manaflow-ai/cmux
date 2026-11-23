@@ -154,23 +154,7 @@ await requireBrowserLane("agent-pane-picks-hold.test.ts", async () => {
         await withFailureDump(lane, page, "picks-hold", async () => {
           await installPaintedFrames(page);
           await installWireLog(page);
-          // TEMP-DIAG: name the pane's render failure (remove before land).
-          page.on("pageerror", (e) => console.log(`TEMP-DIAG pageerror: ${e.stack ?? e}`));
-          page.on("console", (m) => {
-            if (m.type() === "error" || m.type() === "warning")
-              console.log(`TEMP-DIAG console.${m.type()}: ${m.text()}`);
-          });
           await page.goto(paneUrl(lane.base, lane.daemon));
-          await page
-            .waitForFunction(
-              () => !!document.querySelector(".nt-field") || !!(window as any).__cmuxPaneFailure,
-              undefined,
-              { timeout: 30_000 },
-            )
-            .catch(() => {});
-          console.log(
-            `TEMP-DIAG paneFailure: ${JSON.stringify(await page.evaluate(() => (window as any).__cmuxPaneFailure ?? null))}`,
-          );
           await page.locator(".nt-field").waitFor();
           await page.waitForFunction(() => !!document.querySelector(".acpmux-access-trigger"));
           const start = await settled(page);
