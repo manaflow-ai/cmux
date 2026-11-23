@@ -595,7 +595,10 @@ impl Hub {
                         // again, instead of failing as a read-only chat's would, and says why. A
                         // person's own prompt still gets the read-only refusal, with Take Over.
                         let (name, transcript) = session.read_meta(|m| {
-                            (m.name.clone(), m.watching.as_ref().map(|w| w.file.display().to_string()))
+                            (
+                                m.name.clone(),
+                                m.watching.as_ref().map(|w| w.file.display().to_string()),
+                            )
                         });
                         return (registered && retried_client(client)).then(|| {
                             Err(unreached_error(&name, why.as_ref(), transcript.as_deref()))
