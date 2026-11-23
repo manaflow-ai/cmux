@@ -680,7 +680,11 @@ private final class ChainDialer: MacLinkDialer, @unchecked Sendable {
 
 /// The live resume bench, on the chain suite's rig and fake Mac; its own suite for a longer time limit.
 @MainActor
-@Suite(.serialized, .timeLimit(.minutes(20))) struct ResumeLiveBenchTests {
+// Runs alone: its wall-time loop holds the main actor for minutes, which starves the timing tests
+// beside it. The fleet script turns it on when an only= filter names this suite.
+@Suite(.serialized, .timeLimit(.minutes(20)),
+       .enabled(if: ProcessInfo.processInfo.environment["CMUX_RESUME_LIVE_BENCH"] == "1",
+                "runs alone: CMUX_RESUME_LIVE_BENCH=1")) struct ResumeLiveBenchTests {
     /// Leo, 2026-11-22: "me swiping up to go to another app then back to the ios cmux internal
     /// app... there's lag when coming back. lag to interaction." Free-running, in wall time, with
     /// the fake Mac 80 ms away (40 ms each way): per app switch, whether the chat kept its content,
