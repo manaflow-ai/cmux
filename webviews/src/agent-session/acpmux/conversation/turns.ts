@@ -820,7 +820,7 @@ export function turnViewFrom(
     // Opened, the joined line's turns each draw their own open line, all closing with any of them.
     // A turn of calls alone ends on its footer (its calls to Copy, G04); the joined line keeps the
     // last such footer under it, so the run still reads as one line and ends on one row.
-    const bareTurn = bareArm === "separate" ? undefined : bareWorked(drawn);
+    const bareTurn = bareArm === "separate" ? undefined : bareWorked(drawn, arms.steeredArm === "header");
     const bare = bareTurn?.worked;
     if (bare && bareArm === "hidden") {
       ends.push({ count: out.length, row: out.at(-1), before: out.at(-2), visible });
@@ -2534,7 +2534,7 @@ function workKey(runs: readonly AcpmuxActivity[]): number {
   };
   for (const { tool } of runs) {
     if (!tool) continue;
-    mix(tool.id);
+    mix(tool.id ?? "");
     mix(tool.kind ?? "");
     mix(tool.title ?? "");
     mix(tool.status ?? "");
@@ -3990,9 +3990,13 @@ export const workedRunOpenKey = (id: string) => `worked-run-open:${id}`;
 
 /// The closed "Worked for" a finished turn drew and nothing else but its footer (an empty footer
 /// draws nothing; a turn of calls alone ends on its footer with their Copy, `footer`), or undefined.
-/// One that names its messages or its work, a failed or stopped turn's, or a dated turn's keeps its
-/// own line.
-function bareWorked(drawn: readonly AcpmuxRow[]): { worked: AcpmuxRow; footer?: AcpmuxRow } | undefined {
+/// One that names its messages or (`namesWork`, turnFoldSteered's `header` arm) its work, a failed or
+/// stopped turn's, or a dated turn's keeps its own line. workedLine's outcome arms read the calls too
+/// (`workedRuns`), but their line sums them: joined, it says what all its turns did (`joinBareWorked`).
+function bareWorked(
+  drawn: readonly AcpmuxRow[],
+  namesWork: boolean,
+): { worked: AcpmuxRow; footer?: AcpmuxRow } | undefined {
   let worked: AcpmuxRow | undefined;
   let footer: AcpmuxRow | undefined;
   for (const row of drawn) {
@@ -4005,7 +4009,7 @@ function bareWorked(drawn: readonly AcpmuxRow[]): { worked: AcpmuxRow; footer?: 
     worked = row;
   }
   if (!worked || worked.foldOpen || worked.status !== "completed") return undefined;
-  if (worked.previous !== undefined || worked.workedMessages || worked.workedRuns) return undefined;
+  if (worked.previous !== undefined || worked.workedMessages || (namesWork && worked.workedRuns)) return undefined;
   return { worked, ...(footer && { footer }) };
 }
 
@@ -4039,12 +4043,14 @@ function joinBareWorked(run: AcpmuxRow, bare: AcpmuxRow): AcpmuxRow {
   const sum = (a: number | undefined, b: number | undefined) =>
     a === undefined || b === undefined ? undefined : a + b;
   const calls = (run.workedCalls ?? 0) + (bare.workedCalls ?? 0);
+  const workedRuns = [...(run.workedRuns ?? []), ...(bare.workedRuns ?? [])];
   return {
     ...run,
     version: mixVersion(run.version, bare.version),
     durationMs: sum(run.durationMs, bare.durationMs),
     toolCount: sum(run.toolCount, bare.toolCount),
     ...(calls > 0 && { workedCalls: calls }),
+    ...(workedRuns.length && { workedRuns }),
     workedRun: { ids: [...run.workedRun!.ids, bare.id] },
   };
 }
