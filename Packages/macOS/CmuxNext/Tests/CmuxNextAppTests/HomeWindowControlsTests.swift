@@ -176,6 +176,21 @@ struct HomeWindowControlsTests {
         #expect(column.compose.frame.minX - column.chats.frame.maxX == 8)
     }
 
+    /// A lights' line on a half point (lights 14 pt tall at a half-point offset) keeps the buttons on
+    /// it at 2x: whole-point rounding put them half a point above it.
+    @Test(arguments: [1, 2, 3] as [CGFloat])
+    func theChatButtonsCentreOnAHalfPointLine(_ scale: CGFloat) {
+        let row = CGRect(x: 7, y: 700 - 25, width: 52, height: 15)
+        let frames = HomeChatColumnView.buttonFrames(height: 700, row: row, over: nil, scale: scale)
+        let pixel = 1 / scale
+        #expect(abs(frames.chats.midY - row.midY) < pixel / 2 + 0.001, "Chats is off the lights' line by more than half a pixel")
+        #expect(frames.chats.minY * scale == (frames.chats.minY * scale).rounded(), "Chats is off the pixel grid")
+        #expect(frames.compose.minY == frames.chats.minY)
+        #expect(frames.compose.minX - frames.chats.maxX == HomeChatColumnView.buttonGap)
+        #expect(frames.chats.minX == HomeChatColumnView.composeInset)
+        if scale == 2 { #expect(frames.chats.midY == row.midY) }
+    }
+
     // MARK: The layout alone
 
     /// Lights as a window draws them (x 7 to 59, centred 14 pt from the top), in header points.
