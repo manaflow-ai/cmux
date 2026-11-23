@@ -267,3 +267,45 @@ public struct PushPayload: Codable, Sendable, Equatable {
     /// The words a person reads for the place: the workspace title, else the folder.
     public var placeName: String? { workspace ?? place }
 }
+
+/// A silent push that clears notifications already resolved elsewhere (PROTOCOL.md "Retracting a resolved
+/// push"): an ask answered on the Mac, on this phone or anywhere, or a finished turn whose chat started a new
+/// one. `userInfo["cmuxRetract"]` names the collapse ids the alerts went out with, which are the delivered
+/// notifications' identifiers, and their event ids, for an alert this phone posted itself under another id.
+public struct PushRetract: Sendable, Equatable {
+    public static let userInfoKey = "cmuxRetract"
+    /// The Worker sends at most 16 pushes per retract; more is not a retract it sent.
+    static let maxItems = 16
+
+    public var mac: String?
+    public var ids: Set<String>
+    public var events: Set<String>
+
+    public init(mac: String?, ids: Set<String>, events: Set<String>) {
+        self.mac = mac
+        self.ids = ids
+        self.events = events
+    }
+
+    /// Reads `userInfo["cmuxRetract"]`; nil for any other push, or one that names nothing.
+    public init?(userInfo: [AnyHashable: Any]) {
+        guard let object = userInfo[Self.userInfoKey] as? [String: Any], (object["v"] as? Int) == 1 else { return nil }
+        func strings(_ key: String) -> Set<String> {
+            Set(((object[key] as? [Any]) ?? []).prefix(Self.maxItems).compactMap { $0 as? String }.filter { !$0.isEmpty })
+        }
+        let ids = strings("ids")
+        let events = strings("events")
+        guard !ids.isEmpty || !events.isEmpty else { return nil }
+        self.init(mac: (object["mac"] as? String).flatMap { $0.isEmpty ? nil : $0 }, ids: ids, events: events)
+    }
+
+    /// Whether a delivered notification is one this retract clears: its identifier is a named collapse id
+    /// from the same Mac, or it carries a named event from the same Mac.
+    public func matches(identifier: String, payload: PushPayload?) -> Bool {
+        let sameMac = mac == nil || payload?.mac == nil || payload?.mac == mac
+        guard sameMac else { return false }
+        if ids.contains(identifier) { return true }
+        guard let eventId = payload?.eventId, payload?.mac != nil || mac == nil else { return false }
+        return events.contains(eventId)
+    }
+}
