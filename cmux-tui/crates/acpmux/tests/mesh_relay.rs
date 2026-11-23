@@ -457,6 +457,7 @@ async fn a_relayed_message_no_session_sent_names_the_machine_the_hub_proved_as_v
         [("msg-bare", "gcp-lane"), ("msg-relay", "gcp-lane/coord"), ("msg-other", "gcp-lane")]
     {
         fake.until("the ack", |s| !s.acked(id).is_empty()).await;
+        assert_eq!(fake.with(|s| s.acked(id)), vec![Ack::delivered(id, None)], "{id}");
         let p = delivered_provenance(&mut local, &session, id).await;
         assert_eq!(p["fromName"], shown, "{id}: {p}");
         let record = acpmux::prompt_provenance::sender_record(Some(&p), None, None);
