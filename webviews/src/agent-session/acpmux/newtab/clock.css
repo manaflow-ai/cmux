@@ -40,6 +40,8 @@
   letter-spacing: -0.04em;
   transform: scaleY(1.18);
   transform-origin: bottom;
+  /* A transform takes no room: the 18% the scale adds above the 1em line box, so the date never overlaps it. */
+  margin-top: 0.18em;
 }
 .nt-clock[data-weight="thin"] { --nt-clock-weight: 200; }
 .nt-clock[data-weight="regular"] { --nt-clock-weight: 400; }
