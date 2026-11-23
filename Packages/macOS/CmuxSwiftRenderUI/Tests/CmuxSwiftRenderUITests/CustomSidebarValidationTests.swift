@@ -384,7 +384,12 @@ struct CustomSidebarSampleContextTests {
         #expect(remote["target"] == .string("aws-m4pro-1"))
         #expect(remote["connected"] == .bool(true))
         #expect(populated["latestAt"] == .int(1_779_999_400))
-        #expect(populated["prs"] == .array([.object(pr)]))
+        // pr is prs[0]; the builder adds branch only when a pull request has one,
+        // so prs also carries a branchless pull request.
+        let prs = try #require(SwiftValue.arrayElements(populated["prs"]))
+        #expect(prs.first == .object(pr))
+        #expect(pr["branch"] == .string("main"))
+        #expect(prs.compactMap { SwiftValue.objectFields($0) }.contains { $0["branch"] == nil && $0["number"] != nil })
         #expect(populated["status"] == .string("working"))
 
         // clock is the builder's object, its fields read from one instant.
