@@ -257,7 +257,7 @@ def smaps_kinds(pid):
 def idle_window(top, seconds, disks):
     """Per-role totals: memory at the end, CPU and wakeups over `seconds` of nothing."""
     before = snapshot(top)
-    time.sleep(seconds)  # the idle window itself: nothing is sent
+    time.sleep(seconds)  # sleep-ok: the idle window itself, the span CPU and wakeups are measured over
     after = snapshot(top)
     roles = {}
     for pid, s in after.items():
@@ -488,7 +488,10 @@ class Run:
                     os.killpg(proc.pid, signal.SIGKILL)
                 except ProcessLookupError:
                     pass
-        time.sleep(1)  # bench: let the daemons' own teardown end their children
+        # The daemons' own teardown ends their children: wait (5 s at most) until none of the recorded pids is left.
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline and any(os.path.exists(f"/proc/{pid}") for pid in own):
+            time.sleep(0.05)
         for pid in own:
             try:
                 os.kill(pid, signal.SIGKILL)
@@ -712,7 +715,7 @@ class Run:
                     os.kill(pid, signal.SIGSTOP)
                 except ProcessLookupError:
                     pass
-            time.sleep(a.sleep)  # bench: the simulated sleep
+            time.sleep(a.sleep)  # sleep-ok: the simulated machine sleep, its length is the scenario
             for pid in pids:
                 try:
                     os.kill(pid, signal.SIGCONT)
@@ -744,9 +747,26 @@ def perf_row(name, value, unit, floor=None):
 CPU_FLOOR_PCT, WAKEUPS_FLOOR = 0.1, 1.0
 
 
-def settle(args):
+def settle(args, top):
     # Past the (fast-forwarded) idle and reap timers, so idle agents have hibernated and closed terminals ended.
-    time.sleep(max(args.idle_child_secs, args.reap_grace_secs) + args.settle)  # bench: waiting out the timers
+    # sleep-ok: the product's own timers have to run out; nothing can make them fire sooner
+    time.sleep(max(args.idle_child_secs, args.reap_grace_secs))
+    # Then their work: the trees' processes per role (the hibernated agents gone, the reaped terminals' shells gone)
+    # hold for --settle s. Bounded: past 6x --settle (at least 30 s) the window is sampled as it is, and logged.
+    roles = lambda: sorted((s["role"], s["cmd"]) for s in snapshot(top).values())
+    reads = max(2, int(args.settle / 0.25))
+    bound = max(30.0, 6 * args.settle)
+    deadline, last, same = time.monotonic() + bound, None, 0
+    while True:
+        now = roles()
+        same = same + 1 if now == last else 1
+        last = now
+        if same >= reads:
+            return
+        if time.monotonic() >= deadline:
+            log(f"settle: the process trees did not hold still for {args.settle} s within {bound:g} s; sampling anyway")
+            return
+        time.sleep(0.25)  # the poll interval of the process trees
 
 
 def run_count(args, count):
@@ -754,7 +774,7 @@ def run_count(args, count):
     result = {"count": count, "samples": []}
     try:
         run.start()
-        settle(args)
+        settle(args, run.top)
         empty = idle_window(run.top, args.window, run.disks)
         result["empty"] = empty
         log(f"N={count} empty {json.dumps(empty['total'])}")
@@ -765,7 +785,7 @@ def run_count(args, count):
                          "working": len(run.working), "drawn": len(run.drawn), "idle": len(run.idle),
                          "chat_tabs": len(run.chat_tabs), "browser_tabs": len(run.browser_tabs),
                          "workspaces": len(run.workspaces)}
-        settle(args)
+        settle(args, run.top)
         day0 = idle_window(run.top, args.window, run.disks)
         day0["day"] = 0
         result["samples"].append(day0)
@@ -774,7 +794,7 @@ def run_count(args, count):
             t0 = time.monotonic()
             turns = run.day(number)
             spent = round(time.monotonic() - t0, 1)
-            settle(args)
+            settle(args, run.top)
             s = idle_window(run.top, args.window, run.disks)
             s.update(day=number, turns=turns, seconds=spent)
             result["samples"].append(s)

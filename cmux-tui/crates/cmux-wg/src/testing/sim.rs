@@ -7,7 +7,7 @@
 //! the source address it was sent from. A link (an unordered pair of
 //! addresses) can add one-way latency, drop everything, or be a bottleneck:
 //! a rate in datagrams per second with a drop-tail queue, like a router
-//! interface. A socket can have a send buffer drained at a rate, which
+//! interface, or have a path MTU that silently drops longer datagrams. A socket can have a send buffer drained at a rate, which
 //! answers `WouldBlock` when full and signals readiness when a slot frees,
 //! like a kernel UDP socket. Latency is applied by one FIFO delay line per
 //! direction, so a link never reorders; a path change between two links with
@@ -38,6 +38,9 @@ pub struct LinkProfile {
     pub rate_pps: u32,
     /// Datagrams the bottleneck queues before it drops (drop-tail).
     pub queue: u32,
+    /// Drop every datagram (UDP payload) longer than this, silently, like a
+    /// path whose MTU is below the sender's that sends no ICMP; 0 is no limit.
+    pub max_datagram: usize,
 }
 
 /// A socket's send buffer, drained toward the network at a rate.
@@ -192,7 +195,7 @@ impl SimNet {
             self.drop_one();
             return;
         };
-        if profile.cut {
+        if profile.cut || (profile.max_datagram > 0 && datagram.len() > profile.max_datagram) {
             drop(inner);
             self.drop_one();
             return;
