@@ -63,6 +63,9 @@ mod platform {
         _private: [u8; 0],
     }
 
+    // vtdecode.rs declares CFNumberCreate and CFDictionaryCreate with `c_long` and its own callback
+    // struct: the same C functions and the same ABI on 64-bit macOS (CFIndex is a long there).
+    #[allow(clashing_extern_declarations)]
     #[link(name = "CoreFoundation", kind = "framework")]
     unsafe extern "C" {
         static kCFTypeDictionaryKeyCallBacks: Opaque;
