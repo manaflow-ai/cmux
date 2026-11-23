@@ -33,7 +33,7 @@ TARGETS = {
     # (gallery health on a fixed 16 vCPU label, web validation and PR checks' base-only on 32, the cloud
     # backend check on the capability map's fixed 4 vCPU label). Gallery health now reads the 16 vCPU pool,
     # which moves to 32 vCPU on a stall (POOL_16 below). PR checks' jobs are now one advisory job holding a
-    # write token (CI v2 step 6), on the PR control JIT label: test_pr_checks_advisory_takes_a_one_job_vm.
+    # write token (CI v2 step 6), on a one-job Blacksmith VM: test_pr_checks_advisory_takes_a_one_job_vm.
     "web-validation.yml": {"changes", "build", "tests", "database", "web-validation"},
     "pr-body-checks.yml": {"body"},
 }

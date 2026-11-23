@@ -67,8 +67,8 @@ struct OmnibarThemeReentryTests {
         var description: String { "rgba\(rgba)" }
     }
 
-    /// The resting field's host and path ink, and the chip icon's and label's. The bar shows the host alone at rest
-    /// (OmnibarCutsTests), so the path ink is nil there: only a full URL (`showFullURLs`) draws a dimmed path.
+    /// The resting field's host and path ink, and the chip icon's and label's; the path ink is nil for an address with
+    /// nothing after its host.
     private func shownInk(_ bar: AddressBarView, url: String) throws -> (host: Ink?, path: Ink?, icon: Ink?, label: Ink?) {
         let value = bar.field.attributedStringValue
         let host = try #require(BrowserURLDisplay.hostRange(in: value.string, for: URL(string: url)), "no host in \(value.string)")
@@ -81,7 +81,7 @@ struct OmnibarThemeReentryTests {
 
     /// The ink the bar's theme gives its text and its page-info icon now.
     private func themeInk(_ bar: AddressBarView) -> (primary: Ink?, secondary: Ink?, icon: Ink?) {
-        bar.performWithTheme { (Ink(OmnibarStyle.textPrimary), Ink(OmnibarStyle.textSecondary), Ink(OmnibarStyle.resultsIcon)) }
+        bar.performWithTheme { (Ink(OmnibarStyle.textPrimary), Ink(OmnibarStyle.textSecondary), Ink(OmnibarStyle.iconInk)) }
     }
 
     /// Checks the bar shows `theme`'s ink on its host, path, page-info icon and label.

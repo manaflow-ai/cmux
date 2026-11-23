@@ -15,6 +15,16 @@ impl Counts {
         json!({"held": self.held, "needYou": self.need_you})
     }
 
+    /// Sets `held` to the journal's count of undecided held messages, read through record
+    /// `through`, unless a newer snapshot came since. The running counter (+1 a hold, minus a
+    /// record's ids) drifts: a resent prompt id counts twice, a fork counts its parent's
+    /// (`Hub::surge_held_now`).
+    pub(super) fn settle_held(&mut self, held: u64, through: u64) {
+        if self.seq <= through {
+            self.held = held;
+        }
+    }
+
     pub(super) fn restore(&mut self, event: &EventRecord) {
         if event.seq <= self.seq {
             return;
@@ -152,6 +162,53 @@ impl Hub {
         let next = more.then(|| hits.front().and_then(|v| v["seq"].as_u64())).flatten();
         let hits: Vec<_> = hits.into_iter().rev().collect();
         Ok(json!({"sessionId":session.id,"hits":hits,"next":next}))
+    }
+
+    /// `_acpmux/inbox_thread` whole: [`Self::inbox_thread`], plus the thread's surge-held
+    /// messages that left memory (`trim` lets them go first) read back from the log. The surge
+    /// notice links to `acpmux session inbox ID --thread T`; without this, a busy chat's link
+    /// answered "no messages" while only `--search` found them (2026-11-23).
+    pub(crate) fn inbox_thread_whole(
+        &self,
+        session: &Session,
+        thread: &str,
+        mark_read: bool,
+    ) -> Result<Value, RpcError> {
+        let mut reply = self.inbox_thread(session, thread, mark_read);
+        if !session.inbox().held_evicted.contains(thread) {
+            return Ok(reply);
+        }
+        let mut messages = match reply.get_mut("messages").map(Value::take) {
+            Some(Value::Array(list)) => list,
+            _ => Vec::new(),
+        };
+        let shown: std::collections::HashSet<String> =
+            messages.iter().filter_map(|m| m["promptId"].as_str().map(str::to_owned)).collect();
+        self.scan_for_rebuild(session, &["inbox"], &mut |record| {
+            let msg = &record.msg;
+            let id = msg["promptId"].as_str().unwrap_or_default();
+            if msg["surgeHeld"].as_bool() == Some(true)
+                && msg["threadId"].as_str() == Some(thread)
+                && !shown.contains(id)
+            {
+                let from = msg["from"].as_str().unwrap_or_default();
+                let sender = &msg["sender"];
+                messages.push(json!({
+                    "promptId": id, "from": display_sender(sender, from),
+                    "fromName": shown_sender(sender, from), "fromSession": msg["fromSession"],
+                    "sender": sender, "class": msg["class"], "kind": msg["kind"],
+                    "at": record.at, "text": msg["text"], "read": false,
+                    "details": msg.pointer("/_meta/provenance/details").cloned(),
+                    "notice": Value::Null, "surgeHeld": true,
+                }));
+            }
+            true
+        })
+        .map_err(|e| RpcError::internal(format!("read held inbox: {e}")))?;
+        // Newest first, as the thread reads in memory.
+        messages.sort_by_key(|m| std::cmp::Reverse(m["at"].as_u64().unwrap_or(0)));
+        reply["messages"] = Value::Array(messages);
+        Ok(reply)
     }
 
     /// Surge admission is a preview: Settings > Experimental > Labs > Show Preview Features

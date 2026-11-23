@@ -11,7 +11,9 @@
 //! or `{"id", "ok": false, "error", "error_code"}`, and from then on the dial carries the
 //! projection's asks and the Mac's answers (`cmux_projection::wire`) until the Mac closes it.
 //! The mount stays when the dial ends; reads wait a few seconds for the Mac's next dial, then fail
-//! with "Host is down".
+//! with "Host is down". The agent sessions working in the folder are told once per away episode
+//! (`cmux_projection::away`), in a notice naming the folder and the reads that failed
+//! ([`away_notice`]); the Mac's next dial ends the episode.
 //!
 //! Bring Back (`cmux_projection::way_back`) reads what the agent changed with three more dials,
 //! each one request and its answer, by projection `name`, mounted or not (the state folder
@@ -87,6 +89,44 @@ struct ServeLine {
     /// The bytes after this line, both ways, travel as [`LineWriter`] lines.
     #[serde(default)]
     lines: bool,
+    /// With no manifest bytes and no mount of this name: the stored revision to mount instead
+    /// (RFD 0007, open question 3). The Mac sends this on a resume, so the listing comes from the
+    /// store and not over its uplink.
+    #[serde(default)]
+    revision: Option<RevisionRef>,
+}
+
+/// A revision in the person's store, and the read grant to fetch it with.
+#[derive(Deserialize)]
+struct RevisionRef {
+    root: String,
+    origin: String,
+    grant: String,
+}
+
+/// The manifest of `revision`, read from the store.
+fn fetch_revision(revision: &RevisionRef) -> Result<cmux_projection::manifest::Manifest, Refusal> {
+    let unavailable = |why: String| ("projection.revision_unavailable", why);
+    let local = revision.origin.starts_with("http://127.0.0.1")
+        || revision.origin.starts_with("http://localhost");
+    if !revision.origin.starts_with("https://") && !local {
+        return Err(unavailable("the store's origin is not https".into()));
+    }
+    let origin = revision.origin.clone();
+    let grant = revision.grant.clone();
+    let root = revision.root.clone();
+    // Its own thread: the blocking HTTP client cannot run inside an async runtime.
+    std::thread::scope(|scope| {
+        scope
+            .spawn(|| {
+                let http = cmux_projection::peers::Http::new()?;
+                let store = cmux_projection::revision::Store { origin, grant, http: &http };
+                cmux_projection::revision::assemble(&root, &store)
+            })
+            .join()
+    })
+    .map_err(|_| unavailable("reading the revision panicked".into()))?
+    .map_err(|error| unavailable(format!("{error:#}")))
 }
 
 /// The first byte of every [`LineWriter`] line: never a JSON value's first byte, so a carrier
@@ -216,6 +256,9 @@ struct Projected {
     at: PathBuf,
     #[cfg(target_os = "linux")]
     mounted: Mutex<Option<cmux_projection::mount::Mounted>>,
+    /// Its away episodes: the agent is told once of each ([`away_notice`]).
+    #[cfg(target_os = "linux")]
+    away: Arc<cmux_projection::away::Away>,
 }
 
 fn projections() -> &'static Mutex<HashMap<String, Arc<Projected>>> {
@@ -287,7 +330,91 @@ fn serve_dial<R: Read, W: Write + Send + 'static, F: Write + Send + 'static>(
             return;
         }
     };
+    // The Mac is back: the next read that fails for its absence starts a new episode.
+    #[cfg(target_os = "linux")]
+    projected.away.back();
     projected.link.serve(reader, framed(writer));
+}
+
+/// Where an away episode's notice goes: `(mount point, prompt id, notice title, notice text)`.
+/// The daemon installs it once ([`tell_away_with`]); with none, nobody is told.
+type AwayTeller = Box<dyn Fn(&Path, &str, &str, &str) + Send + Sync>;
+
+fn away_teller() -> &'static OnceLock<AwayTeller> {
+    static TELLER: OnceLock<AwayTeller> = OnceLock::new();
+    &TELLER
+}
+
+/// Sends every projection's away notices through `teller` (the first call wins): the daemon
+/// hands each one to the agent sessions working in the folder.
+pub(crate) fn tell_away_with(teller: impl Fn(&Path, &str, &str, &str) + Send + Sync + 'static) {
+    let _ = away_teller().set(Box::new(teller));
+}
+
+/// The sender an away notice names.
+pub(crate) const AWAY_SENDER: &str = "cmux";
+
+/// The title and body of the notice that tells the agent about away episode `report` of the
+/// projection mounted at `at` (RFD 0007: "The session tells the agent once, in its context, that
+/// the Mac is away and which reads failed; it does not retry on its own").
+#[must_use]
+pub(crate) fn away_notice(at: &Path, report: &cmux_projection::away::Report) -> (String, String) {
+    let reads = if report.failed == 1 { "read" } else { "reads" };
+    let title = if report.back {
+        format!("The Mac was away: {} {reads} in a projected folder failed", report.failed)
+    } else {
+        format!("The Mac is away: {} {reads} in a projected folder failed", report.failed)
+    };
+    let mut body = if report.back {
+        format!(
+            "The Mac that projects {} was asleep or offline and is back now. The reads below \
+             failed with EHOSTDOWN (\"Host is down\") while it was away; nothing retries them on \
+             its own, so read them again.",
+            at.display()
+        )
+    } else {
+        format!(
+            "The Mac that projects {} is asleep or offline. A read of a file not fetched from it \
+             yet waits {} s, then fails with EHOSTDOWN (\"Host is down\"); files already read \
+             keep working. Nothing retries on its own: read these again once the Mac is back.",
+            at.display(),
+            cmux_projection::link::AWAY_WAIT.as_secs()
+        )
+    };
+    body.push_str(&format!("\nReads that failed ({}):", report.failed));
+    for path in &report.paths {
+        body.push_str(&format!("\n- {path}"));
+    }
+    let more = report.failed.saturating_sub(report.paths.len());
+    if more > 0 {
+        body.push_str(&format!("\n- and {more} more"));
+    }
+    (title, body)
+}
+
+/// The prompt text of a notice from [`AWAY_SENDER`] (acpmux's `prompt_provenance::notice_text`
+/// for a `warn` notice with no host or links), so an agent or page that knows no notice reads it.
+#[must_use]
+pub(crate) fn away_prompt(title: &str, body: &str) -> String {
+    format!("[notice from {AWAY_SENDER} · WARN] {title}\n{body}")
+}
+
+/// Tells the installed teller about episode `report` of projection `name` at `at`.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn tell_away(name: &str, at: &Path, report: &cmux_projection::away::Report) {
+    let (title, body) = away_notice(at, report);
+    let started = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |since| since.as_millis());
+    // Unique across daemon restarts: acpmux answers a resent prompt id from its log.
+    let prompt_id = format!("projection-away-{name}-{started}-{}", report.episode);
+    eprintln!(
+        "cmux-tui: projection {name}: the Mac is away, {} reads failed; telling the agent",
+        report.failed
+    );
+    if let Some(teller) = away_teller().get() {
+        teller(at, &prompt_id, &title, &away_prompt(&title, &body));
+    }
 }
 
 fn send_line(writer: &mut impl Write, value: &Value) -> std::io::Result<()> {
@@ -642,23 +769,33 @@ fn attach(
     }
     let existing =
         projections().lock().unwrap_or_else(PoisonError::into_inner).get(&line.name).cloned();
-    if encoded.is_empty() {
-        let Some(projected) = existing.filter(|projected| projected.at == at) else {
+    let started = std::time::Instant::now();
+    let mut from_store = None;
+    let (manifest, digest) = if encoded.is_empty() {
+        let existing = existing.filter(|projected| projected.at == at);
+        if let Some(projected) = existing {
+            attached(&line.name, &at);
+            return Ok((projected, json!({"at": at, "attached": true})));
+        }
+        // Not mounted here (a resume, a daemon restart): the stored revision, when the Mac named one.
+        let Some(revision) = &line.revision else {
             return Err(("projection.unknown", format!("no projection {} here", line.name)));
         };
-        attached(&line.name, &at);
-        return Ok((projected, json!({"at": at, "attached": true})));
-    }
-    let digest = fnv(&encoded);
-    if let Some(projected) =
-        existing.filter(|projected| projected.digest == digest && projected.at == at)
-    {
-        attached(&line.name, &at);
-        return Ok((projected, json!({"at": at, "attached": true})));
-    }
-    let started = std::time::Instant::now();
-    let manifest = cmux_projection::manifest::Manifest::decode(&encoded)
-        .map_err(|error| ("projection.params_invalid", format!("bad manifest: {error:#}")))?;
+        let manifest = fetch_revision(revision)?;
+        from_store = Some(u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX));
+        (manifest, fnv(revision.root.as_bytes()))
+    } else {
+        let digest = fnv(&encoded);
+        if let Some(projected) =
+            existing.filter(|projected| projected.digest == digest && projected.at == at)
+        {
+            attached(&line.name, &at);
+            return Ok((projected, json!({"at": at, "attached": true})));
+        }
+        let manifest = cmux_projection::manifest::Manifest::decode(&encoded)
+            .map_err(|error| ("projection.params_invalid", format!("bad manifest: {error:#}")))?;
+        (manifest, digest)
+    };
     let (files, bytes) = manifest.totals();
     let entries = manifest.len();
     // The upper layer and the cache: this daemon's own state, beside the folder roots, never in them.
@@ -675,6 +812,7 @@ fn attach(
         "files": files,
         "bytes": bytes,
         "mount_ms": u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+        "revision_ms": from_store,
     });
     Ok((projected, data))
 }
@@ -744,22 +882,59 @@ fn mount(
     let meta = std::fs::metadata(state).map_err(|error| io("reading the state folder", &error))?;
     let link = Arc::new(cmux_projection::link::Link::default());
     let fetch: Arc<dyn cmux_projection::Fetch> = link.clone();
+    let away = {
+        let (name, at) = (name.to_owned(), at.to_path_buf());
+        cmux_projection::away::Away::new(move |report| tell_away(&name, &at, &report))
+    };
     let overlay = cmux_projection::overlay::Overlay::open(
         Arc::new(manifest),
         state,
         fetch,
         (meta.uid(), meta.gid()),
     )
-    .map_err(|error| io("opening the projection", &format!("{error:#}")))?;
-    let mounted = cmux_projection::mount::mount(Arc::new(overlay), at)
+    .map_err(|error| io("opening the projection", &format!("{error:#}")))?
+    .with_away(away.clone());
+    let overlay = Arc::new(overlay);
+    let mounted = cmux_projection::mount::mount(overlay.clone(), at)
         .map_err(|error| ("projection.mount_failed", format!("{error:#}")))?;
+    // Pinned folders an earlier mount recorded are fetched whole in the background, so they read
+    // with the Mac away again (a new manifest starts a fresh cache). Mac away: it stops at the
+    // first absence, and the next mount tries again.
+    if !overlay.pins().is_empty() {
+        let pinned = overlay.clone();
+        let _ = std::thread::Builder::new()
+            .name("projection-pins".into())
+            .spawn(move || drop(pinned.hydrate_pins()));
+    }
     let projected = Arc::new(Projected {
         link,
         digest,
         at: at.to_path_buf(),
         mounted: Mutex::new(Some(mounted)),
+        away,
     });
     table.insert(name.to_owned(), projected.clone());
+    // RFD 0007, seed bundles: with `CMUX_PROJECTION_GIT_SWAP=1`, a `.git` with a public remote
+    // takes its objects from the remote (a blobless fetch the machine makes) and only what the
+    // Mac has unpushed over the link, then switches from projection to that repository. Opt-in
+    // until Bring Back reads the machine's repository after a swap.
+    if std::env::var_os("CMUX_PROJECTION_GIT_SWAP").is_some_and(|value| value == "1") {
+        let swapping = projected.clone();
+        let (overlay, at, state) = (overlay.clone(), at.to_path_buf(), state.to_path_buf());
+        let _ = std::thread::Builder::new().name("projection-git-swap".into()).spawn(move || {
+            let forget =
+                || match swapping.mounted.lock().unwrap_or_else(PoisonError::into_inner).as_ref() {
+                    Some(mounted) => mounted.forget_entry(overlay.root(), ".git"),
+                    None => Ok(()),
+                };
+            match cmux_projection::git_swap::run(&overlay, &forget, &at, &state) {
+                Ok(outcome) => eprintln!("cmux projection: {} .git: {outcome:?}", at.display()),
+                Err(error) => {
+                    eprintln!("cmux projection: {} .git stays projected: {error:#}", at.display())
+                }
+            }
+        });
+    }
     // The record the reaper reads: where it is, since when, and a release or Bring Back undone (a
     // dial again means the chat is live). One that cannot be written leaves the state to the orphan grace,
     // never freed early.
