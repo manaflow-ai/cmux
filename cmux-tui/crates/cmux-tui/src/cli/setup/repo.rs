@@ -952,17 +952,6 @@ fn parse_source(text: &str) -> Result<SetupSource, Failure> {
     Ok(SetupSource::Folder { path: dir })
 }
 
-#[cfg(test)]
-pub(super) fn install(
-    customize: &Customize,
-    apps: &dyn Apps,
-    output: OutputMode,
-    text: &str,
-    yes: bool,
-) -> Result<Value, Failure> {
-    install_as(customize, apps, output, text, yes, None)
-}
-
 /// Installs the repo or folder `text` names, as a layer of its own on top
 /// of the other setups; a folder under `as_id` when given (a look tried
 /// before it is published).
