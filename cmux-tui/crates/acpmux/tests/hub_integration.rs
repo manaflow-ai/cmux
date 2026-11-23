@@ -1796,6 +1796,8 @@ mod session_pull_requests;
 mod transfer;
 #[path = "hub_integration/transfer_guard.rs"]
 mod transfer_guard;
+#[path = "hub_integration/transfer_hub.rs"]
+mod transfer_hub;
 #[path = "hub_integration/watch.rs"]
 #[cfg(unix)]
 mod watch;
