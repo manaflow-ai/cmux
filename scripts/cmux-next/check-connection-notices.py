@@ -110,7 +110,7 @@ TIME_GATES = re.compile(
     r"CONNECTION_QUIET_MS|useConnectionQuiet|connectionQuiet|NoticeTiming|QuietStatusGate"  # the shared bound
     r"|useLasting|useLastingKeys|useConnectionQuietKeys|LASTING_MS|useAfterDelay|RESUME_NOTE_DELAY_MS"  # web holds
     r"|HOST_ERROR_DEADLINE_MS|hostErrorShows|hostRecoveryLine"
-    r"|revealDelay|NoticePolicy|noticePolicy|RemoteLatencyHold|QuietHold"  # native holds
+    r"|revealDelay|NoticePolicy|noticePolicy|RemoteLatencyHold|QuietHold|connectionChip|connectionLasting"  # native holds
     r")\b"
 )
 # A gate helper called with a literal grace: `useLasting(x, 500)`, `useAfterDelay(x, 1_000)`.

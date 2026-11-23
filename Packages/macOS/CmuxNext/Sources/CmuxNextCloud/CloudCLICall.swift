@@ -62,7 +62,8 @@ public struct CloudCLICall: Sendable {
     /// answer line as is: `{"ok": true, "body": B}` or `{"ok": false, "error": {"kind", "code", "message", …}}`.
     /// The token is read per call and goes on stdin, never in argv.
     @MainActor
-    func cloudAPI(_ call: String, args: [String: any Sendable], signedIn auth: CloudAuth, socket: String) async -> Data {
+    func cloudAPI(_ call: String, args: [String: any Sendable], signedIn auth: CloudAuth, socket: String,
+                  timeout: Duration = .seconds(60)) async -> Data {
         let failed = { (kind: String, message: String) in
             (try? JSONSerialization.data(withJSONObject: ["ok": false, "error": ["kind": kind, "message": message]])) ?? Data()
         }
@@ -72,7 +73,7 @@ public struct CloudCLICall: Sendable {
         if let team = auth.teamID { request["team"] = team }
         guard let stdin = try? JSONSerialization.data(withJSONObject: request) else { return failed("transport", "the request is not JSON") }
         do {
-            return try await run(["--socket", socket, "cloud", "api"], stdin: stdin, timeout: .seconds(60))
+            return try await run(["--socket", socket, "cloud", "api"], stdin: stdin, timeout: timeout)
         } catch {
             return failed("transport", String(describing: error))
         }
@@ -95,6 +96,33 @@ public struct CloudCLICall: Sendable {
         let line = await cloudAPI("machine.share_chat", args: ["machine": machine, "user": user, "me": true], signedIn: auth, socket: socket)
         guard let answer = try? JSONDecoder().decode(Answer.self, from: line) else { return ("transport", "") }
         return answer.ok ? nil : (answer.error?.code ?? answer.error?.kind ?? "transport", answer.error?.message ?? "")
+    }
+
+    /// A Chief on its own Cloud machine (New Chief's "On its own Cloud machine"): the cmux-cloud-api crate's
+    /// `machine.chief_start` on this Mac's daemon at `socket` makes the machine sized for a Chief, pairs it, places the
+    /// Chief on it, keeps it from idle-pausing and starts its host. `key` names this one start: the same key again
+    /// finishes a half-done start and never makes a second machine. The Chief's main conversation, or the refusal
+    /// code (`chief.host_missing`, `chief.pair_failed`, …) or failure kind, and its message.
+    @MainActor
+    public func startChiefOnMachine(key: String, name: String, signedIn auth: CloudAuth,
+                                    socket: String?) async -> Result<String, CloudCallRefusal> {
+        guard let socket else { return .failure(CloudCallRefusal(code: "transport", message: "")) }
+        struct Answer: Decodable {
+            struct Body: Decodable { var conversation: String? }
+            struct Failure: Decodable { var kind: String?; var code: String?; var message: String? }
+            var ok: Bool
+            var body: Body?
+            var error: Failure?
+        }
+        // The Rust call bounds itself (machine boot, pairing, the host); this outlasts it.
+        let line = await cloudAPI("machine.chief_start", args: ["key": key, "name": name], signedIn: auth, socket: socket,
+                                  timeout: .seconds(1_560))
+        guard let answer = try? JSONDecoder().decode(Answer.self, from: line) else {
+            return .failure(CloudCallRefusal(code: "transport", message: ""))
+        }
+        if answer.ok, let conversation = answer.body?.conversation { return .success(conversation) }
+        return .failure(CloudCallRefusal(code: answer.error?.code ?? answer.error?.kind ?? "transport",
+                                         message: answer.error?.message ?? ""))
     }
 
     /// `cmux cloud auth-handoff-relay` (cmux-tui `cli/cloud_auth_handoff_relay.rs`) for `auth.handoff.mint` and
@@ -178,4 +206,10 @@ public struct CloudCLICall: Sendable {
         let answer: [String: Any] = ["ok": false, "error": ["code": "owner.unreachable", "message": message]]
         return (try? JSONSerialization.data(withJSONObject: answer)) ?? Data(#"{"ok":false,"error":{"code":"owner.unreachable","message":""}}"#.utf8)
     }
+}
+
+/// A `cmux cloud api` call's refusal: the platform's code or the call's failure kind, and its message.
+public nonisolated struct CloudCallRefusal: Error, Hashable, Sendable {
+    public var code: String
+    public var message: String
 }
