@@ -26,6 +26,8 @@ export interface FakeSnapshot {
   readonly ttlSeconds?: number | null;
   readonly slug?: string;
   readonly displayName?: string;
+  /** The size of the VM the snapshot was taken from: a VM created from it boots at this size (the default size without it). */
+  readonly resources?: { readonly cpu: number; readonly memory: number; readonly storage: number };
 }
 
 /** One upstream call as the fake saw it. `json` is the parsed JSON body, if any. */
@@ -200,7 +202,7 @@ export function makeFakeUpstream(apiKey: string) {
           id: `vm-${crypto.randomUUID()}`,
           slug: typeof slug === "string" ? slug : null,
           state: "starting",
-          resources: { ...(base ?? DEFAULT_RESOURCES) },
+          resources: { ...(base ?? (typeof snapshotId === "string" ? snapshots.get(snapshotId)?.resources : undefined) ?? DEFAULT_RESOURCES) },
           // Like the provider: its Vm schema has idleTimeoutSeconds minimum 0, so a create with -1 ("never pause")
           // reads back as null (production, 2026-11-04).
           idleTimeoutSeconds: typeof read("idleTimeoutSeconds") === "number" && Number(read("idleTimeoutSeconds")) >= 0 ? Number(read("idleTimeoutSeconds")) : null,
