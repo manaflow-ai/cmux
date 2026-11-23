@@ -38,6 +38,7 @@ on:
       - "scripts/install-zig-ci.sh"
       - "scripts/ghostty-zig-version.sh"
       - "scripts/ci/zig-tarballs.sha256"
+      - "tests/test_cmux_duress_workflow.py"
   workflow_dispatch:
 
 permissions: {}
@@ -68,6 +69,10 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+
+      # The replay step below, run against a stand-in binary: it skips `scenario list`'s header row.
+      - name: Test the scenario replay step
+        run: python3 tests/test_cmux_duress_workflow.py
 
       - name: Is cmux-duress on this head?
         id: crate
@@ -173,9 +178,10 @@ jobs:
             fi
           fi
           echo "ran=true" >> "$GITHUB_OUTPUT"
+          # `scenario list` prints a table: a `name  headless  summary` header row, then one row per scenario.
           while IFS= read -r name; do
             name="${name%%[[:space:]]*}"
-            [[ -n "$name" && "$name" != \#* ]] || continue
+            [[ -n "$name" && "$name" != \#* && "$name" != name ]] || continue
             echo "::group::scenario $name"
             if line="$("$bin" scenario run "$name")"; then
               line="$(printf '%s\n' "$line" | grep -E '^\{' | tail -n 1)"
