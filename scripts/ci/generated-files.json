@@ -57,9 +57,7 @@
         "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+*.generated.swift",
         "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSection.generated.swift"
       ],
-      "inputs": ["schemas/settings/**"],
-      "check": ["--check"],
-      "status": "committed"
+      "status": "build"
     },
     {
       "id": "motion-scale",
