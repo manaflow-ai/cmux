@@ -32,10 +32,16 @@ final class BrowserButtonMotionBenchUITests: XCTestCase {
         settle(2.5)
         let tabs = app.buttons["Tabs"].firstMatch
         XCTAssertTrue(tabs.waitForExistence(timeout: 20), "Tabs button")
-        let docs = app.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'docs' AND label ENDSWITH ', tab'")).firstMatch
+        let docs = app.buttons.matching(NSPredicate(format: "(label CONTAINS[c] 'docs' OR label CONTAINS[c] 'Documentation') AND label ENDSWITH ', tab'")).firstMatch
         // Warm up once (the first grid builds its cards), outside the marks.
         tabs.tap(); settle(2)
-        if docs.waitForExistence(timeout: 10) { docs.tap() }
+        // The browser card's title is its page's (the demo's docs page reads "... Documentation").
+        guard docs.waitForExistence(timeout: 10) else {
+            XCTFail("no browser card in the Tabs grid")
+            dump(probe)
+            return
+        }
+        docs.tap()
         settle(2)
         mark("rest.0")
         settle(1)
