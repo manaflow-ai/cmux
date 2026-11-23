@@ -16,6 +16,7 @@ import re
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import home_classic  # noqa: E402
+from state_wait import wait_until  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -99,8 +100,10 @@ try:
         if shown() != conversation:
             rpc("action.run", {"id": "home.show", "focus": True})
             rpc("action.run", {"id": "home.openConversation", "arguments": {"conversation": conversation}, "focus": True})
-            time.sleep(1)  # test harness: one request per second while Home starts
-            return None
+            # Ask again only if Home has not shown the channel within 5 s (it may still be starting).
+            if not wait_until(lambda: shown() == conversation, "Home to show the channel", timeout=5,
+                              raise_on_timeout=False):
+                return None
         return first in ((rpc("debug.home.drive", {"action": "texts"}) or {}).get("texts") or [])
     check("Home shows my message", bool(poll(opened, timeout=180)), rpc("debug.home.drive", {"action": "texts"}))
 
