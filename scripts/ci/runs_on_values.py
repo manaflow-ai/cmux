@@ -55,7 +55,8 @@ RUNNER_NAME_LABEL = re.compile(r"glaeda-runner-[a-z0-9][a-z0-9._-]*")
 HOST_NAME = re.compile(r"cmux\d+s?(?:-perf)?|cmuxs-mac-mini-\d+|cmux-austin-mini-\d+|cmux-lawrence|cmux\d+s?-mac-mini(?:-\d+)?")
 # The variables runner_label_policy.py lets hold a runner's own name label (nightly_runner_reason()).
 RUNNER_NAME_VARIABLES = ("CI_IOS_INTERNAL_RUNNER", "CI_NIGHTLY_NEXT_TRUSTED_RUNNER", "CI_NIGHTLY_TRUSTED_RUNNER")
-VARIABLE = re.compile(r"\bvars\.([A-Za-z0-9_]+)\b")
+# vars.X and the bracket form vars['X'] / vars["X"] (GitHub reads both).
+VARIABLE = re.compile(r"\bvars(?:\.|\[\s*['\"])([A-Za-z0-9_]+)\b")
 # A positive test of a picker's output, as one whole `&&` term: the output itself, or the output compared with
 # `==` / `!=` to a literal or to format(...) (`needs.p.outputs.trusted != 'false'`,
 # `needs.p.outputs.attempt == format('{0}', github.run_attempt)`). A negation (`!needs...`), an `||` group or an
