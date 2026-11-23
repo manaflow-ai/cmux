@@ -334,7 +334,7 @@ jobs:
           echo "simulator $udid"
           # Not -quiet: the report reads each test's result and its MATRIX lines.
           xcodebuild test -scheme CmuxMobileKit-Package -destination "id=$udid,arch=arm64" \
-            -enableCodeCoverage NO -derivedDataPath "$RUNNER_TEMP/dd-ios-sim" CODE_SIGNING_ALLOWED=NO \
+            -enableCodeCoverage NO -derivedDataPath "${CMUX_DERIVED_DATA_SLOT:-$RUNNER_TEMP/dd-ios-sim}" CODE_SIGNING_ALLOWED=NO \
             -only-testing:CmuxMobileLiveTests/ConnectivityMatrixTests \
             -only-testing:CmuxMobileLiveTests/LinkRecoveryTests \
             -only-testing:CmuxMobileLiveTests/PairingRetryTests \

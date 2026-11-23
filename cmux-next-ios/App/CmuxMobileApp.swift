@@ -105,6 +105,9 @@ struct CmuxMobileApp: App {
                 AgentCLIHybridBenchRoot()
             } else if TerminalDemoRoot.isRequested || DeveloperOptions.launchDemo == "terminal" {
                 TerminalDemoRoot()
+            } else if FoldSimulatorFrame<RootView>.isRequested {
+                // A live fold and unfold inside one simulator window (UITests/FoldResizeUITests).
+                FoldSimulatorFrame { RootView(auth: auth, store: .mock()) }
             } else {
                 RootView(auth: auth, store: .mock())
             }
