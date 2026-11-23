@@ -110,27 +110,6 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
     static let maximumInspect = 64
     /// Longest URL any method takes (the same cap as a link a browser opens from a click).
     static let maximumURL = 2048
-    /// Longest `data:` image the viewer actions take (base64 of ``AgentPaneImageCopies/maximumBytes``).
-    static let maximumImageSource = AgentPaneImageCopies.maximumBytes / 3 * 4 + 64
-    /// Longest image name (its alt text) the viewer actions keep: a longer one is cut to it, not
-    /// refused, since alt text has no length limit (``AgentPaneImageCopies/fileName(_:data:type:)``
-    /// cuts it again to fit a file name).
-    static let maximumImageName = 512
-
-    /// `name` cut to at most ``maximumImageName`` UTF-8 bytes, on a character boundary.
-    static func imageName(_ name: String) -> String {
-        guard name.utf8.count > maximumImageName else { return name }
-        var bytes = 0
-        var end = name.startIndex
-        for index in name.indices {
-            let next = name.index(after: index)
-            bytes += name[index..<next].utf8.count
-            guard bytes <= maximumImageName else { break }
-            end = next
-        }
-        return String(name[..<end])
-    }
-
     /// Whether the request only reads (it does not count as the page being touched).
     var isPassive: Bool {
         switch self {
@@ -140,109 +119,17 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
         }
     }
 
-    /// The request for `method` and `params`, nil when they break the contract.
+    /// The request for `method` and `params`, nil when they break the contract. The page's other
+    /// reply requests are decoded in Rust (``AgentPaneRequestRust``); `composer.copy` builds a host
+    /// type, so it stays here.
     public init?(method: String, params: [String: Any]?) {
-        guard let known = Self.knownParams[method] else { return nil }
+        guard method == "composer.copy", let known = Self.knownParams[method] else { return nil }
         let params = params ?? [:]
         guard Set(params.keys).isSubset(of: known) else { return nil }
-        func text(_ key: String, _ limit: Int) -> String? {
-            guard let value = params[key] as? String, !value.isEmpty, value.utf8.count <= limit, !value.utf8.contains(0) else { return nil }
-            return value
-        }
-        func list(_ key: String, _ limit: Int) -> [String]? {
-            guard let raw = params[key] else { return [] }
-            guard let values = raw as? [Any], values.count <= Self.maximumInspect else { return nil }
-            var out: [String] = []
-            for value in values {
-                guard let value = value as? String, !value.isEmpty, value.utf8.count <= limit, !value.utf8.contains(0) else { return nil }
-                if !out.contains(value) { out.append(value) }
-            }
-            return out
-        }
-        switch method {
-        case "link.inspect":
-            guard let paths = list("paths", AgentPaneReplyPaths.maximumLength), let urls = list("urls", Self.maximumURL) else { return nil }
-            self = .inspect(paths: paths, urls: urls)
-        case "link.openPath":
-            guard let path = text("path", AgentPaneReplyPaths.maximumLength) else { return nil }
-            var line: Int?
-            if let value = params["line"] {
-                guard let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(),
-                      let position = Int(exactly: number.doubleValue), (1...10_000_000).contains(position) else { return nil }
-                line = position
-            }
-            self = .openPath(path, line: line)
-        case "image.load":
-            guard let src = text("src", Self.maximumURL) else { return nil }
-            let auto = params["auto"]
-            guard auto == nil || auto is Bool else { return nil }
-            self = .loadImage(src, auto: auto as? Bool ?? false)
-        case "media.load":
-            guard let src = text("src", Self.maximumURL) else { return nil }
-            self = .loadMedia(src)
-        case "video.frames":
-            // 1 to AgentPaneVideoInfo.maximumPicked whole milliseconds, each within a day.
-            guard let src = text("src", AgentPaneReplyPaths.maximumLength), let raw = params["times"] as? [Any],
-                  (1...AgentPaneVideoInfo.maximumPicked).contains(raw.count) else { return nil }
-            var times: [Int] = []
-            for value in raw {
-                guard let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(),
-                      number.doubleValue.rounded() == number.doubleValue, (0...86_400_000).contains(number.doubleValue) else { return nil }
-                times.append(number.intValue)
-            }
-            self = .videoFrames(src, times: times)
-        case "video.info", "video.probes", "video.transcript", "video.quickLook":
-            guard let src = text("src", AgentPaneReplyPaths.maximumLength) else { return nil }
-            self = switch method {
-            case "video.info": .videoInfo(src)
-            case "video.probes": .videoProbes(src)
-            case "video.transcript": .videoTranscript(src)
-            default: .quickLookVideo(src)
-            }
-        case "browser.list":
-            self = .listBrowsers
-        case "browser.openIn":
-            guard let raw = text("url", Self.maximumURL), let url = Self.webURL(raw),
-                  let id = text("browserId", 64) else { return nil }
-            self = .openIn(url: url, browserId: id)
-        case "file.drag":
-            guard let path = text("path", AgentPaneReplyPaths.maximumLength) else { return nil }
-            self = .dragFile(path)
-        case "image.reveal", "image.openInPane", "image.copy", "image.save", "image.quickLook", "image.drag":
-            // `src` is the image itself; the name may be empty (an image without alt text).
-            guard let src = text("src", Self.maximumImageSource), src.hasPrefix("data:"),
-                  let raw = params["name"] as? String, !raw.utf8.contains(0) else { return nil }
-            let name = Self.imageName(raw)
-            switch method {
-            case "image.openInPane": self = .openImageInPane(src: src, name: name); return
-            case "image.copy": self = .copyImage(src: src, name: name); return
-            case "image.save": self = .saveImage(src: src, name: name); return
-            case "image.quickLook": self = .quickLookImage(src: src, name: name); return
-            case "image.drag": self = .dragImage(src: src, name: name); return
-            default: break
-            }
-            if params["path"] != nil {
-                guard let path = text("path", AgentPaneReplyPaths.maximumLength) else { return nil }
-                self = .revealImage(src: src, name: name, path: path)
-            } else {
-                self = .revealImage(src: src, name: name, path: nil)
-            }
-        case "pr.inspect":
-            guard let raw = text("url", Self.maximumURL), let url = Self.githubItemURL(raw) else { return nil }
-            let cached = params["cached"].map { $0 as? Bool } ?? false
-            guard let cached else { return nil }
-            self = .inspectPullRequest(url, cached: cached)
-        case "link.preview":
-            guard let path = text("path", AgentPaneReplyPaths.maximumLength) else { return nil }
-            self = .previewPath(path)
-        case "composer.copy":
-            // The text may be empty (a selection of attachments only); both keys are required.
-            guard let text = params["text"] as? String, text.utf8.count <= AgentPaneComposerCopyItem.maximumText,
-                  !text.utf8.contains(0), let items = AgentPaneComposerCopyItem.list(params["items"]) else { return nil }
-            self = .copyComposer(text: text, items: items)
-        default:
-            return nil
-        }
+        // The text may be empty (a selection of attachments only); both keys are required.
+        guard let text = params["text"] as? String, text.utf8.count <= AgentPaneComposerCopyItem.maximumText,
+              !text.utf8.contains(0), let items = AgentPaneComposerCopyItem.list(params["items"]) else { return nil }
+        self = .copyComposer(text: text, items: items)
     }
 
     /// `text` as a URL a browser may open: http or https, a host, no user info, at most

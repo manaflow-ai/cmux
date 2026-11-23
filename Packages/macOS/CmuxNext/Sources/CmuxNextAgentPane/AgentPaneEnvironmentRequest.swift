@@ -30,18 +30,9 @@ public nonisolated enum AgentPaneEnvironmentRequest: Equatable, Sendable {
         guard let known = Self.knownParams[method] else { return nil }
         let params = params ?? [:]
         guard Set(params.keys).isSubset(of: known) else { return nil }
-        switch method {
-        case "environment.list":
-            self = .list
-        case "environment.save":
-            guard let environment = Self.environment(params["environment"]) else { return nil }
-            self = .save(environment)
-        case "environment.remove":
-            guard let id = params["id"] as? String, UUID(uuidString: id) != nil else { return nil }
-            self = .remove(id: id)
-        default:
-            return nil
-        }
+        // `list` and `remove` are decoded in Rust (``AgentPaneRequestRust``); `save` builds a host type.
+        guard method == "environment.save", let environment = Self.environment(params["environment"]) else { return nil }
+        self = .save(environment)
     }
 
     /// The page's environment object, checked key by key and then against its caps. The page's
