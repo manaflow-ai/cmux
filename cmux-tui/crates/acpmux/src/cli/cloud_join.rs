@@ -536,11 +536,11 @@ pub(crate) fn credential_present() -> Result<bool> {
         .map(|value| {
             value.is_some_and(|record| !copied_here(&state_dir(), &record, current.as_deref()))
         })
-        .map_err(|_| store_error().into())
+        .map_err(|e| store_error_from(e).into())
 }
 
 pub(crate) fn already_joined(replace: bool, report: Report) -> Result<bool> {
-    let Some(record) = load().map_err(|_| store_error())? else { return Ok(false) };
+    let Some(record) = load().map_err(store_error_from)? else { return Ok(false) };
     // A copy of another box's join is no join of this one: the new join line makes one.
     if replace
         || join_incomplete()?
@@ -551,11 +551,11 @@ pub(crate) fn already_joined(replace: bool, report: Report) -> Result<bool> {
     // No released build created pre-marker credentials. Even branch-only local
     // state must persist the shared requirement before idempotent success.
     let sign_in = record.joined_by.as_deref() == Some(JOINED_BY_SIGN_IN);
-    authority().and_then(|authority| authority.enroll_as(sign_in)).map_err(|_| store_error())?;
+    authority().and_then(|authority| authority.enroll_as(sign_in)).map_err(store_error_from)?;
     // Repair a previous config-save failure before reporting idempotent success. A sign-in's
     // join leaves a relay the person set up as it is.
     relay_for_join_at(&crate::config::Config::path(), &record.hub_origin, sign_in)
-        .map_err(|_| store_error())?;
+        .map_err(store_error_from)?;
     match report {
         Report::Quiet => {}
         Report::Json => {
@@ -579,12 +579,18 @@ fn warn_existing_helpers() {
 }
 
 fn store_error() -> crate::cli::errors::AppError {
-    crate::cli::errors::AppError::new(
-        crate::cli::errors::Code::Runtime,
-        "join.store",
-        "local machine store unavailable",
-    )
-    .with_exit(5)
+    store_error_with("local machine store unavailable".to_string())
+}
+
+/// [`store_error`] that names what failed (a path refused, a lock held, a write that did not land),
+/// so a join that stops here says why. Its cause is a local file or lock error, never a token.
+pub(crate) fn store_error_from(cause: impl std::fmt::Display) -> crate::cli::errors::AppError {
+    store_error_with(format!("local machine store unavailable: {cause:#}"))
+}
+
+fn store_error_with(message: String) -> crate::cli::errors::AppError {
+    crate::cli::errors::AppError::new(crate::cli::errors::Code::Runtime, "join.store", message)
+        .with_exit(5)
 }
 
 pub async fn join_with_token(
@@ -787,6 +793,15 @@ pub(crate) fn http_client() -> Result<reqwest::Client> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_store_error_names_its_cause() {
+        // 2026-11-21: a join that stopped at the store said only "unavailable".
+        let cause = std::io::Error::other("home is a symlink");
+        let error = super::store_error_from(cause);
+        assert_eq!(error.message, "local machine store unavailable: home is a symlink");
+        assert_eq!(super::store_error().message, "local machine store unavailable");
+    }
+
     use super::{MachineCredential, MachineIdentity, origin, parse_token_text};
 
     #[test]
