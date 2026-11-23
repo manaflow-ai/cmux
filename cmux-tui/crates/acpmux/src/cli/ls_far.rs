@@ -280,11 +280,11 @@ fn refresh_detached(cache: &Path) {
     if started.is_some_and(|at| now.saturating_sub(at) < bound) {
         return;
     }
-    if crate::home_fs::write(&mark, now.to_string()).is_err() {
-        return;
-    }
+    // Not marked: start none, or two could race.
+    #[cfg_attr(test, allow(unused_variables))]
+    let marked = crate::home_fs::write(&mark, now.to_string()).is_ok();
     #[cfg(not(test))]
-    {
+    if marked {
         let Ok(exe) = std::env::current_exe() else { return };
         let mut cmd = cmux_process::Command::new(exe);
         cmd.args(["ls", "--refresh-relay-cache"])
