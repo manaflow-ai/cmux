@@ -178,6 +178,27 @@ public actor DeviceHubClient {
                        as: DeviceAnswer.self).device
     }
 
+    /// The same, for an owner's agent under the account's standing permission: the hub's audit
+    /// row names the agent session and its device.
+    public func setMacScreenShared(_ shared: Bool, agent: HubAgentActor) async throws -> HubDevice {
+        struct Body: Encodable { var shared: Bool; var agent: HubAgentActor }
+        return try await call("PUT", "/v1/devices/\(segment(signer.identity.id))/mac-screen", body: Body(shared: shared, agent: agent),
+                              as: DeviceAnswer.self).device
+    }
+
+    /// The account's settings (`GET /v1/settings`), one value per account.
+    public func accountSettings() async throws -> HubAccountSettings {
+        struct Answer: Decodable { var settings: HubAccountSettings }
+        return try await call("GET", "/v1/settings", as: Answer.self).settings
+    }
+
+    /// "My agents can turn screen sharing and control on my machines" (`PUT /v1/settings`). Only a
+    /// full app session writes it, after the person's click; the hub audits and pushes the change.
+    public func setAgentsMayShare(_ on: Bool) async throws -> HubAccountSettings {
+        struct Answer: Decodable { var settings: HubAccountSettings }
+        return try await call("PUT", "/v1/settings", body: ["agentsMayShare": on], as: Answer.self).settings
+    }
+
     public func permissions(host: String) async throws -> [HubPermission] {
         struct Answer: Decodable { var permissions: [HubPermission] }
         return try await call("GET", "/v1/permissions", query: [URLQueryItem(name: "host", value: host)], as: Answer.self).permissions

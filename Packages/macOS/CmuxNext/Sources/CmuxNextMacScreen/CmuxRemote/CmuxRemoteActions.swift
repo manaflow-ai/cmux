@@ -14,6 +14,8 @@ public struct CmuxRemoteActionEnvironment {
     public var hub: @MainActor () -> DeviceHub?
     public var window: @MainActor () -> NSWindow?
     public var openDevices: @MainActor () -> Void
+    /// This Mac as a hub host: its menu bar item shows an owner's agent's share.
+    public var hubHost: @MainActor () -> MacScreenHubHost?
     /// `macScreen.shareWithoutAsking`: the person's one yes to Share This Mac.
     public var shareConsent: CmuxRemoteShareConsent
 
@@ -25,6 +27,7 @@ public struct CmuxRemoteActionEnvironment {
         self.hub = hub
         self.window = window
         self.openDevices = openDevices
+        self.hubHost = { [screenHost] in screenHost }
         self.shareConsent = shareConsent
     }
 }
@@ -52,7 +55,10 @@ extension CmuxRemoteActionEnvironment {
     public func bind(into registry: ActionRegistry) {
         let environment = self
         let remote = environment.remote
-        let host: (ActionID, String, CmuxNextDaemon.JSONValue) -> Void = { id, method, params in
+        // Every person's switch of sharing (Devices, Home, the palette, the setup sheet, a notice's
+        // Turn Off) goes through `setSharing`: an agent's share stops counting down then.
+        screenHost.personChangedSharing = { await CmuxRemoteAgentShare.personChanged(remote) }
+        let host:(ActionID, String, CmuxNextDaemon.JSONValue) -> Void = { id, method, params in
             _ = registry.bindEffect(id, unavailable: { remote.started ? nil : CmuxRemoteStrings.unavailable }, effect: { _ in
                 // action-wait-allow: the request runs in cmux Remote, another process; it shows its own prompt or restarts a worker.
                 .waiting(.externalProcess) {
@@ -103,12 +109,37 @@ extension CmuxRemoteActionEnvironment {
         })
     }
 
+    /// Makes a confirmed change with this app's full hub session; `agent` names the owner's agent
+    /// when the account's standing permission made it with no dialog (the hub's audit row).
+    static func apply(_ action: String, device: String, scope: DeviceScope?, hub: DeviceHub, remote: CmuxRemoteService,
+                      agent: HubAgentActor? = nil) async throws {
+        switch action {
+        case "share":
+            if let agent { try await hub.setMacScreenShared(true, agent: agent) } else { try await hub.setMacScreenShared(true) }
+            if remote.started { _ = try? await remote.call("request", .object(["permission": .string("screen-recording")])) }
+        case "unshare":
+            if let agent { try await hub.setMacScreenShared(false, agent: agent) } else { try await hub.setMacScreenShared(false) }
+        default:
+            try await applyAccess(device: device, scope: scope, hub: hub)
+        }
+    }
+
     /// Makes a confirmed change with this app's full hub session.
     static func applyAccess(device: String, scope: DeviceScope?, hub: DeviceHub) async throws {
         if let scope { try await hub.setPermission(host: hub.identity.id, viewer: device, scope: scope) }
     }
 
-    /// `remote.confirm {action: share|access, device?, scope?}`.
+    /// `remote.confirm {action: share|unshare|access|allow_agents, device?, scope?, on?, agent_ticket?}`.
+    ///
+    /// - `share` (and `unshare`, which needs `agent_ticket`): with an agent's ticket and the
+    ///   account's "My agents can turn screen sharing and control on my machines" on, the change
+    ///   runs with no dialog, with a notice and the menu bar line (the daemon decides,
+    ///   ``CmuxRemoteAgentShare/redeem(_:hub:remote:target:)``); otherwise the dialog, as before
+    ///   (`unshare` then answers `{ok: false, asks_person: true}` and the caller turns it off
+    ///   through the daemon).
+    /// - `allow_agents {on}`: the permission itself. On always asks the person here, whatever the
+    ///   caller (`cmux device setup --allow-agents` included); a ticket never skips it. Off needs
+    ///   no dialog (it only takes a power away). Both write the hub's audit row and post a notice.
     public func controlMethods() -> [ControlMethod] {
         let environment = self
         return [
@@ -116,32 +147,119 @@ extension CmuxRemoteActionEnvironment {
                 let action = call.params["action"]?.stringValue ?? ""
                 let device = call.params["device"]?.stringValue ?? ""
                 let scope = call.params["scope"]?.stringValue.flatMap(DeviceScope.init(rawValue:))
-                guard action == "share" || (action == "access" && !device.isEmpty && scope != nil) else {
-                    throw ControlError.invalidParams("action must be share, or access with device and scope (none, ask, view, full)")
+                let ticket = call.params["agent_ticket"]?.stringValue
+                guard action == "share" || action == "allow_agents" || (action == "unshare" && ticket != nil)
+                    || (action == "access" && !device.isEmpty && scope != nil) else {
+                    throw ControlError.invalidParams("action must be share, allow_agents, unshare with agent_ticket, or access with device and scope (none, ask, view, full)")
                 }
                 guard let hub = environment.hub() else { throw ControlError.invalidParams(CmuxRemoteStrings.signedOut) }
+                if action == "allow_agents" {
+                    return Self.allowAgents(call.params["on"]?.boolValue ?? true, hub: hub, window: environment.window())
+                }
                 if action == "share", !device.isEmpty {
-                    return try Self.confirmShareOther(device, hub: hub, window: environment.window())
+                    return try Self.confirmShareOther(device, hub: hub, window: environment.window(), ticket: ticket, remote: environment.remote)
                 }
                 let name = hub.devices.first { $0.id == device }?.name ?? device
                 let window = environment.window()
-                guard action == "share" else {
+                let remote = environment.remote
+                let windowSource = environment.window, hubHost = environment.hubHost
+                // The person's answer outlives the request (`confirmedChange`).
+                let personConfirmed: @Sendable () async throws -> CmuxNextSettings.JSONValue
+                if action == "access" {
                     let (title, body) = CmuxRemoteStrings.confirmAccess(device: name, scope: scope ?? .ask)
-                    return .followUp(Self.confirmedChange(
+                    personConfirmed = Self.confirmedChange(
                         confirm: { await Self.confirm(title: title, body: body, in: window) },
-                        apply: { try await Self.applyAccess(device: device, scope: scope, hub: hub) }))
+                        apply: { try await Self.applyAccess(device: device, scope: scope, hub: hub) })
+                } else {
+                    let screenHost = environment.screenHost, consent = environment.shareConsent
+                    // The setup sheet asks and turns sharing on itself, so its answer is the change. After the
+                    // person's one yes on this Mac, the owner's request turns sharing on with no sheet.
+                    personConfirmed = Self.confirmedChange(
+                        confirm: {
+                            try await CmuxRemoteSharingSetup(host: screenHost, consent: consent)
+                                .ownerRequest(in: window, by: CmuxRemoteShareCaller(controlParams: call.params))
+                        },
+                        apply: {})
                 }
-                let screenHost = environment.screenHost, consent = environment.shareConsent
-                // The setup sheet asks and turns sharing on itself, so its answer is the change. After the
-                // person's one yes on this Mac, the owner's request turns sharing on with no sheet.
-                return .followUp(Self.confirmedChange(
-                    confirm: {
-                        try await CmuxRemoteSharingSetup(host: screenHost, consent: consent)
-                            .ownerRequest(in: window, by: CmuxRemoteShareCaller(controlParams: call.params))
-                    },
-                    apply: {}))
+                return .followUp {
+                    if let ticket, action != "access",
+                       let grant = try await CmuxRemoteAgentShare.redeem(ticket, hub: hub, remote: remote) {
+                        // The daemon decided for the ticket's own change: make that one (its timer waits for the write).
+                        guard grant.action == action else {
+                            throw ControlError.invalidParams("the agent ticket is for \(grant.action), not \(action)")
+                        }
+                        let device = try await Self.applyForAgent(grant, action: action, hub: hub, remote: remote,
+                                                                  window: windowSource, hubHost: hubHost)
+                        return ["ok": true, "agent": true, "device_name": .string(device)]
+                    }
+                    if action == "unshare" { return ["ok": false, "asks_person": true] }
+                    return try await personConfirmed()
+                }
             }.withDeadline(.fixed(Self.confirmationTimeout)),
         ]
+    }
+
+    /// Makes an agent's change the daemon granted with no dialog, with this app's full hub session
+    /// (the hub's audit row names the agent session and this device), then announces it: the
+    /// notice, and the menu bar line while its share is on. Returns this device's name.
+    static func applyForAgent(_ grant: CmuxRemoteAgentGrant, action: String, hub: DeviceHub, remote: CmuxRemoteService,
+                              window: @escaping @MainActor () -> NSWindow?,
+                              hubHost: @escaping @MainActor () -> MacScreenHubHost?) async throws -> String {
+        let name = hub.thisDevice?.name ?? hub.deviceName
+        do {
+            try await apply(action, device: "", scope: nil, hub: hub, remote: remote, agent: HubAgentActor(session: grant.session, device: name))
+        } catch {
+            await CmuxRemoteAgentShare.applied(grant, ok: false, remote: remote)
+            throw error
+        }
+        await CmuxRemoteAgentShare.applied(grant, ok: true, remote: remote)
+        announce(grant, hub: hub, remote: remote, window: window, hubHost: hubHost)
+        return name
+    }
+
+    /// The notice for an agent's change on this Mac, and the menu bar line while its share is on.
+    static func announce(_ grant: CmuxRemoteAgentGrant, hub: DeviceHub, remote: CmuxRemoteService,
+                         window: @escaping @MainActor () -> NSWindow?, hubHost: @escaping @MainActor () -> MacScreenHubHost?) {
+        let turnOff: @MainActor () -> Void = {
+            // task-owner: the notice's Turn Off, the palette's Stop Sharing This Mac path
+            Task {
+                if let host = hubHost() {
+                    host.stopSession(reason: .hostStopped, immediately: true)
+                    try? await host.setSharing(false)
+                } else {
+                    try? await Self.apply("unshare", device: "", scope: nil, hub: hub, remote: remote)
+                    await CmuxRemoteAgentShare.personChanged(remote)
+                }
+            }
+        }
+        CmuxRemoteAgentShare.post(grant, in: window(), turnOff: turnOff)
+        guard grant.notice["kind"]?.stringValue == "shared", grant.notice["turn_off"]?.stringValue != nil else { return }
+        let device = grant.notice["device_name"]?.stringValue ?? ""
+        hubHost()?.showAgentShare(CmuxRemoteAgentStrings.indicator(grant.label)) {
+            CmuxRemoteAgentShare.post(message: CmuxRemoteAgentStrings.unshared(device), detail: nil, offersTurnOff: false, in: window())
+        }
+    }
+
+    /// `remote.confirm {action: allow_agents, on}`: on asks the person on this Mac, always.
+    static func allowAgents(_ on: Bool, hub: DeviceHub, window: NSWindow?) -> ControlReply {
+        .followUp {
+            if on {
+                guard await Self.confirm(title: CmuxRemoteAgentStrings.allowTitle, body: CmuxRemoteAgentStrings.allowBody, in: window) else {
+                    return ["ok": false, "declined": true]
+                }
+            }
+            let now = try await setAgentsMayShare(on, hub: hub, window: window)
+            return ["ok": true, "agents_may_share": .bool(now)]
+        }
+    }
+
+    /// Writes the permission with this app's full hub session (the hub audits it) and posts the
+    /// notice; the hub's value after the write.
+    static func setAgentsMayShare(_ on: Bool, hub: DeviceHub, window: NSWindow?) async throws -> Bool {
+        try await hub.setAgentsMayShare(on)
+        CmuxRemoteAgentShare.post(message: on ? CmuxRemoteAgentStrings.allowed : CmuxRemoteAgentStrings.disallowed,
+                                  detail: nil, offersTurnOff: false, in: window)
+        return hub.agentsMayShare
     }
 
     /// `remote.confirm`'s answer: the person's choice on the dialog, then the change it allows.
@@ -165,7 +283,8 @@ extension CmuxRemoteActionEnvironment {
     /// `remote.confirm {action: share, device}`: share another Mac of this account. The person
     /// confirms here; only then does this device sign the approval the target Mac admits
     /// (`acpmux::share_approval`). Nothing turns on here: the target makes its own hub call.
-    static func confirmShareOther(_ device: String, hub: DeviceHub, window: NSWindow?) throws -> ControlReply {
+    static func confirmShareOther(_ device: String, hub: DeviceHub, window: NSWindow?, ticket: String? = nil,
+                                  remote: CmuxRemoteService? = nil) throws -> ControlReply {
         // The names `cmux device list` prints resolve as `macScreen.open --device` does ("mac-mini" for "Mac Mini").
         let others = hub.otherDevices
         guard let id = try? MacScreenActions.deviceID(named: device, among: others),
@@ -178,11 +297,18 @@ extension CmuxRemoteActionEnvironment {
                                                confirmedAt: 0, nonce: UUID().uuidString.lowercased())
         let identity = hub.identity
         return .followUp {
-            guard await Self.confirm(title: title, body: body, in: window) else { return ["ok": false, "declined": true] }
+            // The owner's agent under the account's standing permission: no dialog, a notice here.
+            var grant: CmuxRemoteAgentGrant?
+            if let ticket, let remote { grant = try await CmuxRemoteAgentShare.redeem(ticket, hub: hub, remote: remote, target: target) }
+            if let grant {
+                await CmuxRemoteAgentShare.post(grant, in: window) {}
+            } else {
+                guard await Self.confirm(title: title, body: body, in: window) else { return ["ok": false, "declined": true] }
+            }
             var approval = unsigned
             approval.confirmedAt = Int(Date().timeIntervalSince1970)
             let signed = try approval.signed(by: identity)
-            return .object(["ok": true, "approval": signed.json])
+            return .object(["ok": true, "approval": signed.json, "agent": .bool(grant != nil)])
         }
     }
 
