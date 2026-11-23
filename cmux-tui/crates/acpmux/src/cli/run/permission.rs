@@ -65,7 +65,9 @@ pub(crate) async fn answer_permission(
             .and_then(|o| o.get("kind").and_then(Value::as_str))
     });
     let mut params = json!({"sessionId": id, "permissionId": pid, "optionId": option_id.clone()});
-    if let (Some(key), Some(option)) = (&grant, option_id.as_deref()) {
+    if let (Some(key), Some(option), Some(fields)) =
+        (&grant, option_id.as_deref(), params.as_object_mut())
+    {
         let meta = crate::cli::standing_grant::signed_meta(
             key,
             &id,
@@ -73,7 +75,7 @@ pub(crate) async fn answer_permission(
             option,
             crate::hub::approvers::unix_now(),
         )?;
-        params["_meta"] = json!({"acpmux": meta});
+        fields.insert("_meta".to_owned(), json!({"acpmux": meta}));
     }
     client
         .request(method::MUX_PERMISSION_RESPOND, params)
