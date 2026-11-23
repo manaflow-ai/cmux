@@ -147,7 +147,6 @@ pub mod hub;
 pub mod hub_carrier;
 pub mod hunk_summary;
 pub mod idempotency;
-pub(crate) mod image_size;
 #[cfg(windows)]
 mod job;
 mod joined_model_plane;

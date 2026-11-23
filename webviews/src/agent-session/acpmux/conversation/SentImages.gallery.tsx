@@ -343,7 +343,7 @@ const pasted: Props["images"] = [
 ];
 
 /// A strip cut from a chat, named with the size acpmux reads from its header and records with the
-/// prompt (prompt_images.rs, image_size.rs): its slot is the strip's own box from its first frame,
+/// prompt (prompt_images.rs, image_dims.rs): its slot is the strip's own box from its first frame,
 /// so nothing moves when the bytes land (cmuxterm-hq#13423).
 const strip: Props["images"][number] = {
   id: "w",
