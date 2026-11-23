@@ -335,5 +335,5 @@ fn bytes_over_the_mac_link_before_and_after_the_swap() {
         .map(|entry| entry.unwrap().metadata().unwrap().len())
         .sum();
     println!("MEASURE mac_link_bytes git_dir_pack={pack} before={projection_only} after={swapped}");
-    assert!(swapped * 4 < projection_only, "{swapped} vs {projection_only}");
+    assert!(swapped * 20 < projection_only, "{swapped} vs {projection_only}");
 }
