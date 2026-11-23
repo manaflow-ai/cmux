@@ -418,7 +418,10 @@ case "run", "growth":
         if interactiveAt == nil, let w = o.window { spin { now() - w >= 2000 } }
         let first = sample(pid), firstAt = now()
         row["at_interactive"] = fields(first)
-        pause(amount * 1000)
+        // The settle ends early only when the app quit on its own (launch-matrix.sh's seed: the seed quits it).
+        let settleEnd = now() + amount * 1000
+        spin { now() >= settleEnd || kill(pid, 0) != 0 }
+        if kill(pid, 0) != 0 { row["exited_during_settle"] = true }
         let settled = sample(pid), settledAt = now()
         var s = fields(settled)
         s["idle_cpu_pct"] = round1((settled.cpuMs - first.cpuMs) / (settledAt - firstAt) * 100)
