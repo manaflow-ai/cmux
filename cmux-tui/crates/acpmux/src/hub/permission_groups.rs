@@ -113,19 +113,22 @@ pub(super) fn option(request: &Value, kind: &str) -> Option<String> {
 
 /// The input a request's call carries: its tool call's, else a command subject's.
 fn ask_input(request: &Value) -> Option<&Value> {
+    let subject = request.get("subject");
+    let subject_is =
+        |kind: &str| subject.and_then(|s| s.get("type")).and_then(Value::as_str) == Some(kind);
     let tool = request.get("toolCall").or_else(|| {
-        (request["subject"]["type"] == "tool_call").then(|| &request["subject"]["toolCall"])
+        subject_is("tool_call").then(|| subject.and_then(|s| s.get("toolCall"))).flatten()
     });
     match tool {
         Some(tool) => tool.get("rawInput").filter(|v| v.is_object()),
-        None => (request["subject"]["type"] == "command").then(|| &request["subject"]),
+        None => subject.filter(|_| subject_is("command")),
     }
 }
 
 /// What a request's call does in the agent's own words: the one-line `description` a shell
 /// call carries (Claude Code's Bash), never the command itself.
 pub(super) fn ask_summary(request: &Value) -> Option<String> {
-    let line = ask_input(request)?["description"].as_str()?.lines().next()?.trim();
+    let line = ask_input(request)?.get("description")?.as_str()?.lines().next()?.trim();
     (!line.is_empty()).then(|| line.chars().take(200).collect())
 }
 
@@ -133,7 +136,7 @@ pub(super) fn ask_summary(request: &Value) -> Option<String> {
 /// wrote and approves exactly that; `None` when nothing was stripped and the client can read
 /// the command itself.
 pub(super) fn ask_command(request: &Value) -> Option<String> {
-    let command = ask_input(request)?["command"].as_str()?;
+    let command = ask_input(request)?.get("command")?.as_str()?;
     let bare = crate::bg_hook::without_subagent_mark(command);
     (bare.len() != command.len()).then(|| bare.to_owned())
 }
