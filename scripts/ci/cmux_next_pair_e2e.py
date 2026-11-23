@@ -68,6 +68,9 @@ from cmux_next_cloud_pair_proof import allowlist_public_cloud_artifact, read_pro
 PAGE = "cmux.mobile-pairing"
 RIG_MAC_NAME = "0 e2e rig Mac"
 PAIRED = re.compile(r"phone (\w+) paired from this Mac's pairing code")
+# The phone's two lines on a pairing code (LiveCoordinator+PairInvite.swift): it refused it, or took it.
+CODE_REFUSED = re.compile(r"pairing code for a space this account is not in")
+CODE_TAKEN = re.compile(r"pairing code for (?!a space this account is not in)")
 # The upload leg: past the old 100 MiB cap and not a multiple of LinkUpload's 192 KiB chunk.
 UPLOAD_BYTES = (150 << 20) + 12_345
 UPLOAD_NAME = "cmux-upload-probe.bin"
@@ -393,6 +396,31 @@ def main():
         subprocess.run(simctl + ["io", a.udid, "screenshot", os.path.join(screens, f"{name}.png")], capture_output=True)
         return f"screens/{name}.png"
 
+    def phone_settled(timeout=20.0):
+        """Until the phone's screen holds still (3 screenshots in a row the same, 0.5 s apart): the Devices list
+        loads from the service after live data starts. Best effort: past TIMEOUT it notes it and goes on."""
+        probe = os.path.join(screens, ".settle-probe.png")
+        deadline, last, same = time.monotonic() + timeout, None, 0
+        try:
+            while time.monotonic() < deadline:
+                subprocess.run(simctl + ["io", a.udid, "screenshot", probe], capture_output=True)
+                try:
+                    digest = hashlib.sha256(open(probe, "rb").read()).hexdigest()
+                except OSError:
+                    digest = None
+                same = same + 1 if digest is not None and digest == last else 0
+                if same >= 2:
+                    return True
+                last = digest
+                time.sleep(0.5)
+            note(f"- phone: the screen never held still in {timeout:.0f} s; capturing it as it is")
+            return False
+        finally:
+            try:
+                os.remove(probe)
+            except OSError:
+                pass
+
     teardown = TagTeardown(a.mac_app)
     teardown.install()
     streams, app, paired, url, uploaded, theme_ok = [], None, None, None, not probe, True
@@ -499,7 +527,7 @@ def main():
         live = phone_log.wait(re.compile(r"live data on"), 90)
         if discovery:
             ask_ok = discovery_ask(mac_log, phone_log, asked_from, status, rpc, note)
-        time.sleep(5)  # bounded: the Devices list loads from the service after live data starts
+        phone_settled()  # the Devices list loads from the service after live data starts
         note(f"- phone: {'signed in, live data' if live else 'NO live data in 90 s'}; Settings > Devices "
              f"{phone_shot('phone-devices')}")
 
@@ -538,15 +566,21 @@ def main():
                                                        "compact", "--predicate", pairing_logs],
                                                       capture_output=True, text=True).stdout)
             connected = wait_for(lambda: status().get("connectedPhones", 0) >= 1, 60, every=2)
-            took_code = phone_log.wait(re.compile(r"pairing code for"), 0)
+            # LiveCoordinator+PairInvite.swift logs "pairing code for <mac>" when it takes the code and
+            # "pairing code for a space this account is not in" when it refuses it (the phone lists no such
+            # Mac: another account, or another build space); only the first is taking it.
+            refused_code = phone_log.wait(CODE_REFUSED, 0)
+            took_code = phone_log.wait(CODE_TAKEN, 0)
+            code_verdict = ("refused the code: it lists no Mac of it (another account or build space)" if refused_code
+                            else "took the code" if took_code else "never logged taking the code")
             note(f"- pairing: {'PAIRED, phone ' + paired.group(1) if paired else 'NOT paired'} "
                  f"({took:.0f} s after the link opened, no Allow prompt, no seed; the phone "
-                 f"{'took' if took_code else 'never logged taking'} the code); Mac lists "
+                 f"{code_verdict}); Mac lists "
                  f"{last.get('connectedPhones', 0)} connected phone(s){'' if connected else ' (none in 60 s)'}; "
                  f"phone {phone_shot('phone-paired')}; Mac {mac_shot('mac-pairing-paired')}")
             phone_launch()
             phone_log.wait(re.compile(r"live data on"), 60)
-            time.sleep(5)  # bounded, as above
+            phone_settled()  # the Devices list loads from the service after live data starts
             note(f"- phone Settings > Devices after pairing: {phone_shot('phone-devices-paired')}")
             if paired:
                 try:
@@ -998,13 +1032,22 @@ def discovery_ask(mac_log, phone_log, since, status, rpc, note):
     return ok
 
 
+def host_state_directory(support):
+    """The Mac's MobileHostStateDirectory: under the bundle's support folder, or under its account
+    namespace's subfolder there (IPhoneHostService stateRoot/<storageNamespace>/cmux-mobile-host), as
+    collect() finds paired-devices.json. The one holding paired-devices.json wins; None when absent."""
+    found = [d for d in glob.glob(os.path.join(support, "**/cmux-mobile-host"), recursive=True) if os.path.isdir(d)]
+    found.sort(key=lambda d: (not os.path.exists(os.path.join(d, "paired-devices.json")), d.count(os.sep), d))
+    return found[0] if found else None
+
+
 def discovery_restart(app, exe, env, out, support, status, phone_log, streams, phone_shot, note):
     """The paired Mac quits; a second identity key is put in its fallback file (what a refused Keychain
     read used to mint) while the phone stays open; the Mac starts again. The phone reconnects by
     itself, the Mac keeps its Keychain key (no `mac_identity_changed`) and sets the file key aside."""
-    state = os.path.join(support, "cmux-mobile-host")  # MobileHostStateDirectory
-    if not os.path.isdir(state):
-        note(f"- discovery, restart: no state directory {state} -> FAIL")
+    state = host_state_directory(support)
+    if state is None:
+        note(f"- discovery, restart: no cmux-mobile-host state directory under {support} -> FAIL")
         return app, False
     app.terminate()  # the exact PID this script started
     try:
