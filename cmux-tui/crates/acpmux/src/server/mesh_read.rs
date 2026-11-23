@@ -285,7 +285,7 @@ pub(crate) async fn forward(
     if m == method::MUX_DETACH {
         return Some(Ok(json!({})));
     }
-    let reply = read(mesh.as_ref(), host, rest, m, params).await;
+    let reply = read_shared(hub, mesh, host, rest, m, params).await;
     let mut reply = settle(conn, device.as_deref(), reply);
     // The opened chat reads as its listed row does (`HOST/name`, its `qualifiedSessionId`).
     if m == method::MUX_ATTACH
@@ -520,6 +520,30 @@ pub(crate) async fn read(
         object.insert("via".into(), json!("hub"));
     }
     Ok(reply)
+}
+
+/// Read through the hub once for callers that arrive while the same route and request are active.
+/// The mesh client's identity is part of the key so a browser device never joins the daemon's
+/// credentialed read or another device's read.
+async fn read_shared(
+    hub: &Hub,
+    mesh: Arc<dyn crate::mesh::MeshHub>,
+    host: &str,
+    key: &str,
+    m: &str,
+    params: &Value,
+) -> Result<Value, RpcError> {
+    let flight_key = format!("{:p}\n{host}\n{key}\n{m}\n{}", Arc::as_ptr(&mesh), body(m, params));
+    let host = host.to_owned();
+    let key = key.to_owned();
+    let method = m.to_owned();
+    let params = params.clone();
+    hub.mesh_read_flights
+        .run(
+            flight_key,
+            move || async move { read(mesh.as_ref(), &host, &key, &method, &params).await },
+        )
+        .await
 }
 
 /// An answer the receiver holds in parts, read part by part and put together. A page's answer
