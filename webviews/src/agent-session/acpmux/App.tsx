@@ -219,7 +219,12 @@ import { liveToolOutput, toolOutputOnly } from "./liveToolOutput";
 import { remoteComposer } from "./remoteEditing";
 import { Composer, type ComposerHandle, type ComposerWake } from "./Composer";
 import { composerReadback, takeExternalInto } from "./composer/externalAttach";
-import { FolderContinuation, folderContinuationRequest } from "./folderContinuation";
+import {
+  FolderContinuation,
+  folderContinuationRequest,
+  readOnlyContinuationRequest,
+  readOnlyHarness,
+} from "./folderContinuation";
 import type { BrowseRequest } from "./AddProjectPanel";
 import { handBackQuotes, quoteIntoComposer, replayHeldForComposer, restoreComposerDraft } from "./composerRestore";
 import {
@@ -9044,8 +9049,19 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           // A pick of another harness is a switch: drawn now, started behind it.
           // A new chat without a folder starts in the chat's start folder (startFolder.tsx);
           // a chat with no project (`noProject`) or for a peer gets no start folder.
-          "chat.new": async ({ harness, cwd, peer, deferred, noProject, model, options, continueWithoutFolder }) => {
-            if (noProject === true && continueWithoutFolder === true) {
+          "chat.new": async ({
+            harness,
+            cwd,
+            peer,
+            deferred,
+            noProject,
+            model,
+            options,
+            continueWithoutFolder,
+            continueReadOnly,
+          }) => {
+            const readOnly = continueReadOnly === true;
+            if ((noProject === true && continueWithoutFolder === true) || readOnly) {
               let generation = client.trustGeneration;
               const trustGeneration = trustRevision.current;
               const projectGeneration = continuationProjectGeneration.current;
@@ -9054,18 +9070,35 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               const intent = switchViewRef.current.intent;
               const selectedHarness = intent?.harness ?? summary?.harness;
               const selectedModel = intent?.config.model ?? summary?.model;
+              // Read-only stays in the declined folder (acpmux hub/restricted.rs); else no folder.
+              const readOnlyFolder = readOnly && typeof summary?.cwd === "string" ? summary.cwd : undefined;
+              if (readOnly && !readOnlyFolder) return;
               // A pending harness switch may still hold prompts behind this folder's trust gate.
               // Recovery is a different start, so retire that intent before taking the draft.
               harnessSwitch.cancel();
               return folderContinuation.run({
-                start: () => client.startSession(selectedHarness, undefined, undefined, undefined, true, selectedModel),
+                start: () =>
+                  readOnlyFolder
+                    ? client.startSession(
+                        selectedHarness,
+                        readOnlyFolder,
+                        undefined,
+                        undefined,
+                        false,
+                        selectedModel,
+                        undefined,
+                        true,
+                      )
+                    : client.startSession(selectedHarness, undefined, undefined, undefined, true, selectedModel),
                 current: () =>
                   directClient.current === client &&
                   client.trustGeneration === generation &&
                   trustRevision.current === trustGeneration &&
                   composerHandle.current === holder,
                 copyText: (id) => writePersistedDraft(id, holder?.draftText() ?? ""),
-                clearFolder: () => setProjectDraft(undefined),
+                clearFolder: () => {
+                  if (!readOnlyFolder) setProjectDraft(undefined);
+                },
                 discard: (id) => client.discard(id),
                 select: async (id) => {
                   holder?.suppressAttachmentCarryFor(summary?.sessionId);
@@ -12016,6 +12049,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     if (taken.length) void giveBackTrustHeld.current(taken);
     return callNative<void>("chat.new", folderContinuationRequest);
   }, []);
+  // The same recovery in the declined folder, read-only (folderContinuation.ts).
+  const continueReadOnly = useCallback(() => {
+    const taken = trustHeldNow.current.takeShown();
+    if (taken.length) void giveBackTrustHeld.current(taken);
+    return callNative<void>("chat.new", readOnlyContinuationRequest);
+  }, []);
   const secret = snapshot.secret;
   const hasPermissionGroups = Boolean(
     snapshot.permissionGroups?.supported &&
@@ -12133,6 +12172,18 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               trustAsk.ask.level === "untrusted" &&
               !isAgentHome(trustAsk.ask.cwd)
                 ? continueWithoutFolder
+                : undefined
+            }
+            onContinueReadOnly={
+              healthLocal &&
+              !remoteChat &&
+              Boolean(snapshot.sessionId) &&
+              !directClient.current?.startsOnSend &&
+              readOnlyHarness(snapshot.summary?.family) &&
+              trustAsk.ask?.state === "decided" &&
+              trustAsk.ask.level === "untrusted" &&
+              !isAgentHome(trustAsk.ask.cwd)
+                ? continueReadOnly
                 : undefined
             }
             answers={answersTrust}
