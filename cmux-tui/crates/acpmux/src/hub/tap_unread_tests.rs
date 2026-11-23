@@ -322,7 +322,7 @@ fn the_subagents_a_log_rebuilds_are_the_live_ones_without_the_replays() {
         (tree.running_count(), tree.background_running())
     };
     assert_eq!(live, (2, 1));
-    let rebuilt = hub.subagents_in_log(&s);
+    let rebuilt = hub.subagents_from_log(&s, "inc");
     hub.seed_subagents(&s, rebuilt);
     let tree = s.subagents.lock().unwrap();
     assert_eq!((tree.running_count(), tree.background_running()), live);
