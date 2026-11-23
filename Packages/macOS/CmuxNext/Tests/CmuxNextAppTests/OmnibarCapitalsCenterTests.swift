@@ -100,6 +100,8 @@ import Testing
         let bar = chrome.addressBar
         bar.field.stringValue = "HHHH"
         bar.layoutSubtreeIfNeeded()
+        // A secure page's chip shows at rest (OmnibarCutsTests).
+        #expect(bar.chip.alphaValue == 1 && !bar.chip.isHidden, "\(preset): a secure page's chip is clear at rest")
         let icon = try #require(bar.chip.subviews.compactMap { $0 as? NSImageView }.first { !$0.isHidden })
         let glyph = try Self.inkRows(icon, in: bar)
         // The first H's stem: the field's column with the most ink.

@@ -51,13 +51,18 @@ export function hatFaces(
     if (item.kind === "agent") {
       const { agent } = item;
       const state = faceState(item, ended || agent.state !== "running");
+      let label: string | undefined;
       faces.push({
         key: item.id,
         target: { kind: "agent", id: agent.id },
         harness: agent.harness ?? chatHarness,
         tone: agentTone(agent.id),
         icon: SUBAGENT_FALLBACK,
-        name: subagentTaskLabel(t, agent),
+        // Read only for the faces the row draws (HatFaceRow `shown`): a tray of 300 subagents labels
+        // the few that fit, never every one (subagent-tray.test.tsx, 300 collapsed agents).
+        get name() {
+          return (label ??= subagentTaskLabel(t, agent));
+        },
         state,
         stateText: t(STATE_LABEL[agent.state as keyof typeof STATE_LABEL] ?? STATE_LABEL.completed),
       });
