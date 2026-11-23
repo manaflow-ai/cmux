@@ -2431,6 +2431,8 @@ impl Hub {
 
     /// `_acpmux/inbox_threads`: the chat's threads, the one with the newest message first.
     pub fn inbox_threads(&self, session: &Session) -> Value {
+        // Read before the inbox lock: the journal's read pruning takes it.
+        let held_now = self.surge_held_now(session);
         let inbox = session.inbox();
         let mut threads: Vec<(&str, Vec<&Item>)> = Vec::new();
         for item in &inbox.items {
@@ -2465,12 +2467,21 @@ impl Hub {
                     "unread": unread.len(), "new": list.iter().filter(|i| !i.noticed).count(),
                     "count": list.len(), "newestAt": newest(list),
                     "surgeHeld": list.iter().any(|i| i.surge_held),
+                    // The held bar's "need you" filter: an unread message for the person.
+                    "needYou": unread.iter().any(|i| crate::surge_triage::needs_person(
+                        i.class.as_str(), &i.text, super::presence::owner_name())),
                     "newestPreview": last.map(|i| preview(&i.text)), "class": class,
                     "sender": last.map(|i| i.sender.clone()),
                 })
             })
             .collect();
-        let counts = inbox.surge_counts.lock().unwrap_or_else(|e| e.into_inner()).json();
+        let counts = {
+            let mut counts = inbox.surge_counts.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some((held, through)) = held_now {
+                counts.settle_held(held, through);
+            }
+            counts.json()
+        };
         json!({"sessionId": session.id, "threads": rows, "surge": counts})
     }
 
