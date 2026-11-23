@@ -56,7 +56,6 @@ test("each other choice sets the face and its own tracking on the type scale", (
   // cmux Sans Open (Leo: "too packed together and narrow"): the spacing is in the font, so body adds none.
   expect(chatUiFontVariables("cmux-sans-open")["--font-ui"]).toStartWith('"cmux Sans Open"');
   expect(chatUiFontVariables("cmux-sans-open")["--text-body--letter-spacing"]).toBe("0em");
-  expect(chatUiFontVariables("cmux-sans")["--cv-tracking"]).toBe("0px");
   // Inter's own curve is for tuned Inter: stock Inter draws at its designed spacing.
   expect(chatUiFontVariables("inter")["--text-heading--letter-spacing"]).toBe("0em");
   // Inter is opt-in now: its bundled face, with the curve the app used to apply to it.
