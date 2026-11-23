@@ -26,7 +26,7 @@ import {
   withTextMarksEscaped,
 } from "./composer/inlineNode";
 import { inlineCaretPlugin } from "./composer/inlineCaret";
-import { followActionsWidth } from "./composerScrollLane";
+import { flashThumbOnLength, followActionsWidth } from "./composerScrollLane";
 import { caretInView } from "./composer/caretInView";
 import { fieldGrowth } from "./composer/fieldGrowth";
 import { commandEdit, setSlashNames, slashTokensPlugin, slashTriggerAt } from "./composer/slashTokens";
@@ -1605,6 +1605,12 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
     () => (wrapper.current && typeof ResizeObserver === "function" ? followActionsWidth(wrapper.current) : undefined),
     [],
   );
+  // The draft's thumb shows only for a moment, when its length changes or it scrolls, then fades
+  // (composerScrollLane.ts flashThumbOnLength).
+  useEffect(
+    () => (wrapper.current && typeof ResizeObserver === "function" ? flashThumbOnLength(wrapper.current) : undefined),
+    [],
+  );
   const handle = useRef<MarkdownFieldHandle>(undefined);
   useImperativeHandle(
     ref,
@@ -1830,8 +1836,8 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
   return (
     <div
       className={`acpmux-md-field ${className ?? ""}`}
-      // A long draft's thin scrollbar (scrollers.ts): kept while it overflows, or under the fade
-      // shown while it scrolls and while the pointer is near its edge.
+      // A long draft's thin scrollbar (scrollers.ts): shown for a moment when its length changes or it
+      // scrolls, and while the pointer is near its edge; never at rest.
       {...{ [MINIMAL_SCROLLER_ATTRIBUTE]: "" }}
       style={{ "--acpmux-md-fade-band": `${FADE_BAND_PX}px` } as React.CSSProperties}
       ref={(element: MarkdownFieldElement | null) => {

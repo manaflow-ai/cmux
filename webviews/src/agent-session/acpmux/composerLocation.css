@@ -1587,7 +1587,8 @@
   );
   /* The drop never outgrows the padding it moves (a large chrome size has none under the line). */
   --acpmux-prompt-drop: clamp(calc(-1 * var(--acpmux-prompt-inset)), var(--acpmux-text-drop), var(--acpmux-prompt-inset));
-  /* Reserve the controls' columns and keep them on the first content line. */
+  /* Reserve the controls' columns and center them on the prompt's last line: the inset under it is
+     the one over a one-line prompt's line, so one line reads the same as before. */
   --acpmux-prompt-control-top: max(
     0px,
     calc(var(--acpmux-prompt-inset) + var(--text-content--line-height) / 2 - var(--acpmux-composer-control) / 2)
@@ -1629,13 +1630,17 @@
 /* The grid's inset is the control inset on both sides: + sits 8 px from the box's left, the mic or
    Send 8 px from its right, so each glyph's center is 22 px from its edge (a 28 px button, a 16 px
    glyph), and the block inset (10 px) over the bottom on a one-line prompt, as far as under the top.
-   + is one 28 px flex box on the first line: no line box of its own (a baseline gap under
-   the button raised + over the box's middle in the app's font, Leo 2026-11-01). */
+   + is one 28 px flex box: no line box of its own (a baseline gap under the button raised + over
+   the box's middle in the app's font, Leo 2026-11-01).
+   +, the mic and Send stay on the prompt's last line at every height, as the draft grows to its cap
+   and while it scrolls inside (Leo 2026-11-23: "buttons need to be at the bottom ... why ... if your
+   composer grows in length, should the buttons you ... reach for stray away from you?"): they are
+   end-aligned in the prompt's row, the prompt's bottom inset under them. design/composer-bottom-controls.md. */
 .acpmux-composer-inner > :not(.acpmux-composer-actions) {
   grid-column: 1;
   grid-row: 2;
-  align-self: var(--acpmux-lead-align, start);
-  margin: var(--acpmux-lead-margin, var(--acpmux-prompt-control-top) 0 0 var(--acpmux-composer-inset));
+  align-self: end;
+  margin: 0 0 var(--acpmux-prompt-control-top) var(--acpmux-composer-inset);
 }
 .acpmux-composer-inner > .acpmux-composer-plus {
   display: flex;
@@ -1656,26 +1661,18 @@
 .acpmux-composer-inner > .acpmux-composer-actions {
   grid-column: 3;
   grid-row: 2;
-  align-self: start;
-  margin: var(--acpmux-prompt-control-top) var(--acpmux-composer-inset) 0 0;
+  align-self: end;
+  margin: 0 var(--acpmux-composer-inset) var(--acpmux-prompt-control-top) 0;
 }
-/* A capped draft keeps the controls below its scrollbar. The edge marks exclude temporary
-   overflow while a short draft grows, so wrapping a line never moves the controls.
-   The capped state lands on the bar and its leading controls read it (the rule above), never
+/* Codex's look keeps a capped draft's leading controls at the capped bottom inset (composerLook.css).
+   The capped state lands on the bar and its leading controls read it, never
    `:has(...) .acpmux-composer-inner > :not(...)`: a universal right side joins the one set Chromium
    uses for every non-subject `:has`, and then any fade mark anywhere (the transcript's scroller on
    each scroll, the prompt rail on hover) restyled every element in the pane
    (docs: pane-level-has-restyles-every-row in the team handbook). */
 .acpmux-composer-box[data-composer-grid]:has(.acpmux-md-field:is([data-fade-top], [data-fade-bottom]))
   .acpmux-composer-inner {
-  --acpmux-lead-align: end;
-  --acpmux-lead-margin: 0 0 var(--acpmux-prompt-control-top) var(--acpmux-composer-inset);
   --acpmux-lead-bottom: var(--acpmux-prompt-control-top);
-}
-.acpmux-composer-box[data-composer-grid]:has(.acpmux-md-field:is([data-fade-top], [data-fade-bottom]))
-  .acpmux-composer-inner > .acpmux-composer-actions {
-  align-self: end;
-  margin: 0 var(--acpmux-composer-inset) var(--acpmux-prompt-control-top) 0;
 }
 /* The right inset less the minimal scroller's reserved lane (markdownField.css). */
 .acpmux-composer-box[data-composer-grid] .acpmux-md-field {

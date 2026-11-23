@@ -12,10 +12,10 @@
 // `scrollbar-color`, `::-webkit-scrollbar`) and never use `overflow: scroll`;
 // scripts/cmux-next/check-scrollbars.sh enforces that.
 //
-// One exception: a minimal scroller (`MINIMAL_SCROLLER_ATTRIBUTE`, the agent chat's composer) keeps
-// its thin thumb the whole time its content overflows (Leo 2026-10-21), even under the scrollbar
-// fade (`SCROLLER_FADE_ATTRIBUTE`, on in the agent pane since Lawrence 2026-10-23, msg
-// 11494: "auto-fades away"), which fades the transcript's thumb only.
+// A minimal scroller (`MINIMAL_SCROLLER_ATTRIBUTE`, the agent chat's composer) shows its thin thumb
+// only for a moment when its content's length changes or it scrolls, then fades, whatever the
+// scrollbar fade setting (Leo 2026-11-23: "it should only appear briefly when the length changes, or
+// when you scroll. not all the time. never all the time.").
 //
 // Every scroller drawn here also widens and darkens its thumb while the pointer is over its
 // scrollbar lane (`NEAR_ATTRIBUTE`, `installScrollerProximity`), as a macOS overlay scroller does,
@@ -66,7 +66,14 @@ const FADE_OUT_STRETCH = 4 / 3;
  * goes from 2 px to `--cmux-scroller-near-border`, and a sideways thumb's colour toward
  * `--cmux-scroller-thumb-near`).
  */
-export type ScrollerInk = { property: string; full: number; near: number; nearProperty: string };
+export type ScrollerInk = {
+  property: string;
+  full: number;
+  near: number;
+  nearProperty: string;
+  /** None at rest whatever `SCROLLER_FADE_ATTRIBUTE` says (the composer's minimal scroller). */
+  alwaysFades?: boolean;
+};
 
 /** The transcript's shown scroller's (`SHOWN_SCROLLER_ATTRIBUTE`). */
 export const SHOWN_INK_PROPERTIES: ScrollerInk = {
@@ -75,6 +82,10 @@ export const SHOWN_INK_PROPERTIES: ScrollerInk = {
   near: SHOWN_NEAR_INK,
   nearProperty: "--cmux-shown-scroller-near",
 };
+
+/** The composer's minimal scroller's (`MINIMAL_SCROLLER_ATTRIBUTE`): the transcript's ink, none at
+    rest whatever the scrollbar fade setting. */
+export const MINIMAL_INK_PROPERTIES: ScrollerInk = { ...SHOWN_INK_PROPERTIES, alwaysFades: true };
 
 /**
  * A sideways scroller's thumb ink (a wide table's, a Shell block's): percent of the thumb's color.
@@ -143,7 +154,10 @@ export function followShownScrollerFade(
   const resting = (): Look => {
     if (element.hasAttribute(NEAR_ATTRIBUTE)) return { ink: ink.near, near: 1 };
     return {
-      ink: root.hasAttribute(SCROLLER_FADE_ATTRIBUTE) && !element.hasAttribute(SCROLLING_ATTRIBUTE) ? 0 : full,
+      ink:
+        (ink.alwaysFades || root.hasAttribute(SCROLLER_FADE_ATTRIBUTE)) && !element.hasAttribute(SCROLLING_ATTRIBUTE)
+          ? 0
+          : full,
       near: 0,
     };
   };
@@ -926,10 +940,13 @@ export const MINIMAL_SCROLLER_ATTRIBUTE = "data-cmux-minimal-scroller";
 export const SETTLING_SCROLLER_ATTRIBUTE = "data-cmux-scroller-settling";
 
 /**
- * The minimal scroller (Leo 2026-10-21: "IF THERE ARE THINGS TO SCROLL, JUST KEEP THE SCROLLBAR
- * IN THE COMPOSER, LIKE CLAUDE DOES."): a thin thumb in `--cmux-scroller-thumb` on no track, drawn
- * the whole time the content overflows, never faded on input, focus, hover or resize, and never at
- * rest under the scrollbar fade, whatever the macOS setting. Content that fits draws no thumb. The lane is reserved even then, so the content
+ * The minimal scroller: a thin thumb in `--cmux-scroller-thumb` on no track, inside the composer's
+ * box. It shows only for a moment (Leo 2026-11-23: "move the thumb inside, and it should only appear
+ * briefly when the length changes, or when you scroll. not all the time. never all the time."):
+ * while the element carries `SCROLLING_ATTRIBUTE` (a wheel or drag on it, or `markScrolling` when
+ * its content's length changes, MarkdownField.tsx) and while the pointer is over its lane, so it can
+ * still be grabbed; `followShownScrollerFade(element, MINIMAL_INK_PROPERTIES)` fades it in and out.
+ * This replaces the always-on thumb of Leo 2026-10-21. Content that fits draws no thumb. The lane is reserved even then, so the content
  * never rewraps as it starts or stops overflowing: `overflow-y: scroll`, the one exception to the
  * `auto` rule, since its track is transparent and a box with nothing to scroll draws no thumb.
  * (`scrollbar-gutter: stable` does not do it: WebKit ignores it on a custom scrollbar.) Take
@@ -948,8 +965,11 @@ export const SETTLING_SCROLLER_ATTRIBUTE = "data-cmux-scroller-settling";
 export const MINIMAL_SCROLLER_CSS = `
 :root [${MINIMAL_SCROLLER_ATTRIBUTE}] {
   overflow-y: scroll;
-  /* Its own ink, so a fading transcript around it never lends it its 0% at rest. */
-  --cmux-shown-scroller-ink: 38%;
+  /* Its own ink: none at rest, full for a moment after its length changes or it scrolls. */
+  --cmux-shown-scroller-ink: 0%;
+}
+:root [${MINIMAL_SCROLLER_ATTRIBUTE}][${SCROLLING_ATTRIBUTE}] {
+  --cmux-shown-scroller-ink: ${SHOWN_INK}%;
 }
 :root [${MINIMAL_SCROLLER_ATTRIBUTE}]::-webkit-scrollbar {
   width: var(--cmux-scroller-size);
