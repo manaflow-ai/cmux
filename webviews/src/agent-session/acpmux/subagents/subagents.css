@@ -662,6 +662,26 @@ button.cv-subagent > :last-child {
 .acpmux-running-tray__kind-text {
   font-variant-numeric: tabular-nums;
 }
+/* The `tally` arm (trayFoldHead.experiment.ts; Leo, 2026-11-23: "just listing the # of each type of
+   ongoing thing would be better"): each kind its mark and its number, a gap apart, no words, no
+   separators. A kind the row has no room for drops whole onto the hidden line (the rule above), and
+   the hover still names it. The same layout at every width. */
+.acpmux-running-tray__kinds[data-tally] {
+  column-gap: var(--ds-space-3, 12px);
+  row-gap: 0;
+}
+.acpmux-running-tray__kinds[data-tally] > .acpmux-running-tray__kind-unit:has(> [data-kind="plan"]) {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+.acpmux-running-tray__kinds[data-tally] [data-kind="plan"] {
+  min-width: 0;
+}
+.acpmux-running-tray__kinds[data-tally] [data-kind="plan"] > .acpmux-running-tray__kind-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 /* The separator between kinds (trayKindLine.experiment.ts), quiet, as the counts' was. */
 .acpmux-running-tray__kind-sep {
   flex: none;
@@ -2654,12 +2674,55 @@ button.cv-subagent > :last-child {
   pointer-events: auto;
 }
 
+/* ---------- The hat's step slot (HatStepSlot.tsx, hatStep.experiment.ts; Leo, 2026-11-22) ---------- */
+/* Every word the slot can say sits in one grid cell, the shown one visible, so the slot is as wide as
+   the widest word in the pane's language and no change of word moves what follows it. A new word
+   cross-fades in place on the micro step: no roll, no slide, no width change. */
+.acpmux-hat-step {
+  display: inline-grid;
+  flex: none;
+  vertical-align: baseline;
+  white-space: nowrap;
+}
+.acpmux-hat-step > .acpmux-hat-step__word {
+  grid-area: 1 / 1;
+  visibility: hidden;
+  opacity: 0;
+  transition:
+    opacity var(--cmux-motion-micro, 120ms) var(--agent-ease-out, ease-out),
+    visibility 0s linear var(--cmux-motion-micro, 120ms);
+}
+.acpmux-hat-step > .acpmux-hat-step__word[data-on] {
+  visibility: visible;
+  opacity: 1;
+  transition: opacity var(--cmux-motion-micro, 120ms) var(--agent-ease-out, ease-out);
+}
+/* The sampled arm: the exact call in a fixed width, cut, fading in when it changes. */
+.acpmux-hat-step--sampled {
+  inline-size: 22ch;
+  overflow: hidden;
+}
+.acpmux-hat-step--sampled > .acpmux-hat-step__word {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  animation: acpmux-hat-step-in var(--cmux-motion-micro, 120ms) var(--agent-ease-out, ease-out);
+}
+@keyframes acpmux-hat-step-in {
+  from {
+    opacity: 0;
+  }
+}
+.acpmux-running-tray__head > .acpmux-hat-step.acpmux-running-tray__latest {
+  flex: none;
+}
+
 /* The folded header's subagent icons (HatFaces.tsx, hatFaces.experiment.ts; Leo, 2026-11-22: "show a
    lot of icons (of subagents) and be able to thumb through them when my cursor is hovering over them
    to be able to parse who's who"). Each icon is absolutely placed one step after the last, so its
    own strip is its hover target; a later icon draws over an earlier one where they overlap. The row
    is as wide as its layout (faceLayout), so the counts after it keep their place while the pointer
-   moves; a count change slides them by the new width. */
+   moves. Its width changes at once, at most once per 1.6 s (HatFaces' held count); the counts after
+   it glide to their new place on transform (SubagentTray `useGlide`), so the page never shifts. */
 .acpmux-hat-faces {
   flex: none;
   display: inline-flex;
@@ -2674,7 +2737,6 @@ button.cv-subagent > :last-child {
   flex: none;
   width: var(--hat-face-width);
   height: var(--hat-face-size);
-  transition: width var(--agent-motion-move, 180ms) var(--agent-ease-out, ease-out);
 }
 .acpmux-hat-face {
   position: absolute;
@@ -2721,7 +2783,6 @@ button.cv-subagent > :last-child {
   z-index: var(--layer-raised);
 }
 @media (prefers-reduced-motion: reduce) {
-  .acpmux-hat-faces__row,
   .acpmux-hat-face {
     transition: none;
   }
