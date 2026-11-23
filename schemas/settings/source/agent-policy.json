@@ -324,6 +324,7 @@
         "appearance.titleAreaContrast",
         "appearance.twoTone",
         "appearance.cornerFlush",
+        "appearance.tabShape",
         "appearance.focusIndicator",
         "focus.inactiveTabStyle",
         "ui.animationSpeed",
@@ -382,6 +383,8 @@
         "terminal.fontSize",
         "terminal.term",
         "sidebar.sectionLook",
+        "sidebar.sections.hidden",
+        "sidebar.sections.order",
         "sidebar.topBandMaxShare",
         "sidebar.bottomBandMaxShare",
         "sidebar.pinnedBandsScroll",
@@ -1470,6 +1473,13 @@
       "why": "Web UI updates download and run new page code from files.cmux.com.",
       "keys": [
         "updates.web"
+      ]
+    },
+    {
+      "agent": "network",
+      "why": "Live background updates download and run new daemon binaries from files.cmux.com.",
+      "keys": [
+        "updates.daemon"
       ]
     },
     {
