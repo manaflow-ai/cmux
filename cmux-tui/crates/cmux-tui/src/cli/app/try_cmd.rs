@@ -51,6 +51,7 @@ use helper::{Prepared, Signing, WantedHelper};
 use live::{Change, Daemon, LivePayload, Phases, Store, Wanted};
 
 mod copy;
+pub(in crate::cli) mod cu_upgrade;
 mod daemon_updates;
 mod helper;
 mod live;

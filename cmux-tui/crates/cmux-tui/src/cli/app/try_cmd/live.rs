@@ -68,7 +68,7 @@ pub(super) fn library_helper(app: &Path) -> Result<Option<PathBuf>, String> {
         for entry in entries.flatten() {
             let name = entry.file_name().to_string_lossy().into_owned();
             let real_dir = entry.file_type().is_ok_and(|kind| kind.is_dir());
-            if real_dir && !name.starts_with('.') && name.ends_with(super::helper::SUFFIX) {
+            if real_dir && !name.starts_with('.') && super::helper::is_helper_name(&name) {
                 found.push(entry.path());
             }
         }
