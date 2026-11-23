@@ -135,6 +135,11 @@ fn post(route: Route, event: &Cf) {
                 }
                 raw::CGEventPostToPid(pid, event.ptr());
             }
+            // The route was refused on a locked screen before the gesture
+            // (`refuse_if_locked`); a screen that locks while it runs (a long
+            // typed string) gets none of the rest, which would type into the
+            // lock screen's password field.
+            Route::Hid if crate::locked::session_screen_locked() => {}
             Route::Hid => raw::CGEventPost(HID_TAP, event.ptr()),
         }
     }

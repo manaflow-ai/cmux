@@ -42,7 +42,7 @@ export const withShortcut = (label: string, shortcut: string | undefined) =>
   shortcut ? `${label} (${shortcut})` : label;
 
 /// A control's tooltip: the label as its `title`, the keycaps as the tooltip's shortcut hint
-/// (`data-tooltip-shortcut`, ui/titleTooltips.ts), drawn in the secondary ink as on native tooltips.
+/// (`data-tooltip-shortcut`, ui/titleTooltips.ts), drawn on a keycap as on native tooltips.
 export const tooltipProps = (label: string, shortcut: string | undefined) => ({
   title: label,
   "data-tooltip-shortcut": shortcut || undefined,

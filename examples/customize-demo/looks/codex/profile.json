@@ -10,6 +10,8 @@
       "agentPane.searchChats"
     ],
     "sidebar.groupBy": "folder",
+    "sidebar.priorityView.enabled": true,
+    "sidebar.priorityView.shown": true,
     "sidebar.showTimestamps": true,
     "sidebar.density": "comfortable",
     "sidebar.showSpaces": false,

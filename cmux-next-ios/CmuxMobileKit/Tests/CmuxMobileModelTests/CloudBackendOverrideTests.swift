@@ -39,6 +39,15 @@ import Testing
             "https://cmux-dev-backend-1.tail137216.ts.net?x=1",
             "https://user@cmux-dev-backend-1.tail137216.ts.net",
             "https://cmux_dev.tail137216.ts.net",
+            // Another tailnet's machine (a Funnel name is public) or a name under ours that is no machine.
+            "https://cmux-dev-backend-1.tail9999.ts.net:3850",
+            "https://evil.ts.net",
+            "https://a.b.tail137216.ts.net",
+            // Under cmux.dev but no tag stack's API host.
+            "https://mobile.s7.wdev.cmux.dev",
+            "https://api.s7.wdev.cmux.dev:8443",
+            "https://api.s7.other.cmux.dev",
+            "https://cmux.dev",
             "https://cmux-api-development.debussy.workers.dev:444",
             "preview-0",
             "preview-x",
@@ -89,6 +98,23 @@ import Testing
             #expect(override.mobileAPI == nil && override.deviceHub == nil, "\(shared) keeps the build's own services")
         }
         #expect(CloudBackendOverride(url: URL(string: build)!, source: .build).mobileAPI == nil)
+    }
+
+    /// A tag stack's public origin (the authenticating gateway, for a phone off the tailnet): one slot's
+    /// `api.` host, whose `mobile.` and `hub.` siblings are its other services. Nothing else under
+    /// wdev.cmux.dev is a backend.
+    @Test func aTagStacksPublicOriginIsAllowedWithItsOwnSlotsServices() throws {
+        let publicStack = "https://api.s7.wdev.cmux.dev"
+        #expect(CloudBackendOverride.allowed(publicStack)?.absoluteString == publicStack)
+        #expect(CloudBackendOverride.allowed("https://API.s7.wdev.cmux.dev/")?.absoluteString == publicStack)
+        for refused in ["http://api.s7.wdev.cmux.dev", "https://api.s7.wdev.cmux.dev:8443", "https://mobile.s7.wdev.cmux.dev",
+                        "https://api.s7777.wdev.cmux.dev", "https://api.x7.wdev.cmux.dev", "https://api.s7.wdev.cmux.dev.attacker.example",
+                        "https://a.api.s7.wdev.cmux.dev", "https://wdev.cmux.dev", "https://api.s7.wdev.cmux.dev/v1"] {
+            #expect(CloudBackendOverride.allowed(refused) == nil, "\(refused)")
+        }
+        let chosen = try #require(CloudBackendOverride.resolve(environment: ["CMUX_NEXT_CLOUD_BACKEND": publicStack], defaults: defaults()))
+        #expect(chosen.mobileAPI?.absoluteString == "https://mobile.s7.wdev.cmux.dev")
+        #expect(chosen.deviceHub?.absoluteString == "https://hub.s7.wdev.cmux.dev")
     }
 
     /// Release, TestFlight and App Store builds (no DEBUG) read only Info.plist: no launch value, no

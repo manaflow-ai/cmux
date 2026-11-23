@@ -73,7 +73,7 @@ final class FieldChrome: NSView {
             // White on dark glass, black on light glass (light Messages capture, 2026-10-09).
             b.contentTintColor = NSColor(name: nil) { $0.bestMatch(from: [.darkAqua, .aqua]) == .aqua ? .black : .white }
             b.setAccessibilityLabel(label)
-            b.toolTip = label
+            b.setHomeToolTip(label)  // cmux: the host's themed tooltip (HomeToolTip.swift)
             b.target = self
             b.action = sel
             g.contentView = b
@@ -497,7 +497,7 @@ final class TapbackPickerView: NSView {
             b.target = self
             b.action = #selector(tapped(_:))
             b.setAccessibilityLabel(label)
-            b.toolTip = label
+            b.setHomeToolTip(label)  // cmux: the host's themed tooltip (HomeToolTip.swift)
             b.widthAnchor.constraint(equalToConstant: Self.pitch).isActive = true
             b.heightAnchor.constraint(equalToConstant: Self.size.height).isActive = true
             stack.addArrangedSubview(b)

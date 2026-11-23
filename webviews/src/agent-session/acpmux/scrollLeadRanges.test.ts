@@ -86,9 +86,27 @@ describe("scrollLeadRanges fast fling", () => {
     expect(at(-300)).toBe(at(30));
   });
 
-  test("a scrollbar drag within the cap keeps its contiguous lead", () => {
-    const [range] = scrollLeadRanges(long, far, 3 * VIEW, VIEW, LEAD_STEPS, MAX_LEAD, TRAIL);
-    expect(range!.first).toBeLessThanOrEqual(rowAt(far));
-    expect(range!.last).toBeGreaterThanOrEqual(rowAt(far + VIEW + MAX_LEAD));
+  // Leo, 2026-11-16: "as in i scroll up and it loads the shit". The scroll-up bench's fling moves 1,500 to
+  // 3,000 px a frame: inside the cap, each frame built a contiguous lead of up to 4 views, rows no frame drew.
+  test("a fling of 2 to 4 views a frame, inside the cap, mounts the view and the next frame's view only", () => {
+    for (const views of [1.5, 2, 3, 4]) {
+      const delta = -views * VIEW;
+      const ranges = scrollLeadRanges(long, far, delta, VIEW, LEAD_STEPS, MAX_LEAD, TRAIL);
+      const mounted = (y: number) => ranges.some((range) => range.first <= rowAt(y) && rowAt(y) < range.last);
+      // The view, and the view the next frame lands on.
+      expect(mounted(far)).toBe(true);
+      expect(mounted(far + VIEW - 1)).toBe(true);
+      expect(mounted(far + delta)).toBe(true);
+      // Nothing between them that a margin does not reach.
+      const margin = Math.min(Math.abs(delta) / 4, VIEW);
+      if (Math.abs(delta) - VIEW > margin + 2 * edges) expect(mounted(far + delta + VIEW + margin + edges)).toBe(false);
+      expect(mountedPx(delta)).toBeLessThanOrEqual(VIEW + (VIEW + 2 * margin) + 4 * edges);
+    }
+  });
+
+  test("a scroll of a view a frame or less keeps its contiguous lead", () => {
+    const [range] = scrollLeadRanges(long, far, -VIEW, VIEW, LEAD_STEPS, MAX_LEAD, TRAIL);
+    expect(range!.first).toBeLessThanOrEqual(rowAt(far - 2 * VIEW));
+    expect(range!.last).toBeGreaterThanOrEqual(rowAt(far + VIEW));
   });
 });

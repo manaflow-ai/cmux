@@ -26,6 +26,7 @@ import { type CoveredCandidates, useSeeThroughBlur } from "../../../ui/glass/see
 import { useSenderIdentity } from "../subagents/subsessions";
 import { SenderIdentityLabel } from "../SenderIdentityLabel";
 import { PromptMarksSession } from "./promptMarks";
+import { intl } from "../../../ui/intl";
 import { writeScrollBy } from "../conversation/scrollController";
 
 const middleEllipsis = (value: string, max = 36) => {
@@ -43,7 +44,7 @@ const linkLabel = (href: string) => {
 /// one, and the card renders again for each row the pointer (or a wheel under it) passes.
 let timeFormat: Intl.DateTimeFormat | undefined;
 const timeLabel = (at: number) =>
-  (timeFormat ??= new Intl.DateTimeFormat(undefined, {
+  (timeFormat ??= intl.DateTimeFormat(undefined, {
     hour: "numeric",
     minute: "2-digit",
   })).format(new Date(at));
@@ -53,7 +54,7 @@ const timeLabel = (at: number) =>
 const previewText = (value: string) =>
   value.split(/(\S{40,})/).map((token, index) =>
     index % 2 === 1 && /[/.\\]|^[a-f\d]+$/i.test(token) ? (
-      <span key={index} title={token}>
+      <span key={index}>
         <span aria-hidden="true">{middleEllipsis(token)}</span>
         <span className="acpmux-minimap__full-token">{token}</span>
       </span>
@@ -424,7 +425,6 @@ export const PreviewCard = React.forwardRef<
               href={href}
               rel="noreferrer"
               target="_blank"
-              title={href}
               onKeyDown={scrollKey}
             >
               {middleEllipsis(linkLabel(href))}

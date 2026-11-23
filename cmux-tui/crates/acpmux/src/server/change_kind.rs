@@ -11,6 +11,8 @@ pub(crate) fn session_change_kind(record_kind: &str) -> Option<&str> {
         | "turn_error"
         | "renamed"
         | "titled"
+        // The row's `rollingSummary` changed (`hub/rolling_summary.rs`).
+        | "summarized"
         | "forked"
         | "imported"
         | "permission_request"
@@ -53,7 +55,9 @@ pub(crate) fn session_change_kind(record_kind: &str) -> Option<&str> {
         | "harness_sandbox_failed"
         | "harness_sandbox_recovered"
         // What its harness spent and holds, read after a turn (`hub/usage_view.rs`).
-        | "usage_stats" => record_kind,
+        | "usage_stats"
+        // The chat's task list changed (`hub/task_list.rs`): the row's `taskList`.
+        | "task_list" => record_kind,
         // A Stop's turn reads `stopping`, or a stuck chat works again: the row's `state`.
         "stopping" | "stop_escalated" | "stop_restarted" | "unstuck" => "status",
         k if k == "dequeued" || k.starts_with("queue") => "queue",

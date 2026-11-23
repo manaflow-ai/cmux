@@ -4,6 +4,9 @@
    As tall as its content up to a cap; each column scrolls on its own. */
 .acpmux-cols.ui-popup {
   --acpmux-cols-line: var(--ui-line, color-mix(in srgb, var(--agent-text) 11%, transparent));
+  /* The rail and the settings column stand apart from the models by a quiet fill, not a vertical rule
+     (David Beyer 2026-11-20: "I hate those vertical lines"). Horizontal rules stay where they end a row. */
+  --acpmux-cols-side-fill: var(--ds-surface-card);
   --acpmux-cols-pad: var(--ui-popup-padding, 4px);
   --acpmux-cols-inline: var(--ui-row-padding-inline, 8px);
   --acpmux-cols-rail-width: 3.6923em;
@@ -81,8 +84,13 @@
   place-items: center;
   flex: 0 0 var(--acpmux-cols-rail-width);
   width: var(--acpmux-cols-rail-width);
-  /* The rail's divider runs up through the whole row: no padding above or below the corner. */
-  box-shadow: inset calc(-1 * var(--cmux-hairline, 0.5px)) 0 0 var(--acpmux-cols-line);
+  /* The avatar's height (.acpmux-cols-profile) even when the corner is empty, so the search row and the
+     columns under it keep their place as tabs with and without an account switch. */
+  min-block-size: 32px;
+  /* The rail's fill runs up through the whole row: no padding above or below the corner. It meets the
+     popup's top corner, so it takes the popup's round there. */
+  background: var(--acpmux-cols-side-fill);
+  border-start-start-radius: var(--ui-popup-radius, var(--ds-radius-popup));
 }
 
 /* The account avatar: a round face with the family's mark at its corner. */
@@ -97,7 +105,7 @@
   background: transparent;
   cursor: default;
 }
-.acpmux-cols-profile:not([data-blank]):hover,
+.acpmux-cols-profile:hover,
 .acpmux-cols-profile[aria-expanded="true"] { background: var(--ds-surface-hover); }
 .acpmux-cols-profile:focus-visible {
   outline: var(--cmux-focus-ring-width, 2px) solid var(--cmux-focus-ring-color, var(--agent-accent));
@@ -110,7 +118,7 @@
   color: var(--agent-accent-text, white);
   font-weight: 600;
   line-height: 1;
-  box-shadow: inset 0 0 0 0.5px color-mix(in srgb, black 15%, transparent);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) color-mix(in srgb, black 15%, transparent);
 }
 .acpmux-cols-avatar[data-empty] {
   color: var(--agent-muted);
@@ -128,7 +136,7 @@
   background: var(--surface-popup, var(--cmux-surface-solid, #1e1e1e));
   box-shadow:
     0 0 0 1.5px var(--surface-popup, var(--cmux-surface-solid, #1e1e1e)),
-    inset 0 0 0 0.5px color-mix(in srgb, var(--agent-text) 18%, transparent);
+    inset 0 0 0 var(--cmux-hairline, 0.5px) color-mix(in srgb, var(--agent-text) 18%, transparent);
 }
 
 /* The account card: under the avatar, over the columns. */
@@ -221,12 +229,15 @@
   overflow-y: auto;
   overflow-x: hidden;
   overscroll-behavior: contain;
-  border-inline-end: var(--cmux-hairline, 0.5px) solid var(--acpmux-cols-line);
 }
-.acpmux-cols-list:last-child { border: 0; }
+/* The rail: the first of two lists, its bottom corner the popup's. */
+.acpmux-cols-list:first-child:not(:last-child) {
+  background: var(--acpmux-cols-side-fill);
+  border-end-start-radius: var(--ui-popup-radius, var(--ds-radius-popup));
+}
 /* The effort column's Reasoning heading sits in the search row, centered on its height; its text starts
-   where the levels' text does (the list's padding and a row's). The column under it starts on the
-   search row's line: its top border runs level with the line under the search field. */
+   where the levels' text does (the list's padding and a row's). Head and column share one fill, the
+   popup's end corners at its top and bottom: one column, with no rule beside or above it. */
 .acpmux-cols-body > .acpmux-cols-tune-head {
   grid-area: 1 / 2;
   /* The search field's type and ink, not a caption's (Lucas 2026-11-12: "not bold, the same font and
@@ -240,7 +251,8 @@
   min-width: 0;
   padding-block: 0;
   padding-inline: calc(var(--acpmux-cols-pad) + var(--acpmux-cols-inline));
-  border-inline-start: var(--cmux-hairline, 0.5px) solid var(--acpmux-cols-line);
+  background: var(--acpmux-cols-side-fill);
+  border-start-end-radius: var(--ui-popup-radius, var(--ds-radius-popup));
 }
 .acpmux-cols-body > .acpmux-cols-tune {
   grid-area: 2 / 2 / 4 / 3;
@@ -248,8 +260,8 @@
   flex-direction: column;
   padding: 0;
   overflow: hidden;
-  border-inline-start: var(--cmux-hairline, 0.5px) solid var(--acpmux-cols-line);
-  border-top: var(--cmux-hairline, 0.5px) solid var(--acpmux-cols-line);
+  background: var(--acpmux-cols-side-fill);
+  border-end-end-radius: var(--ui-popup-radius, var(--ds-radius-popup));
 }
 /* Its levels and providers scroll on their own; Fast stays fixed under them, at the column's bottom,
    a hairline above it (Lucas 2026-11-12). */
@@ -285,9 +297,7 @@
   flex-direction: column;
   align-items: center;
   gap: var(--ds-space-1);
-  scrollbar-width: none;
 }
-.acpmux-cols-rail::-webkit-scrollbar { display: none; }
 .acpmux-cols-tab {
   display: grid;
   place-items: center;
@@ -433,6 +443,12 @@
   font-weight: 600;
 }
 .acpmux-cols-group:first-child { padding-top: var(--ds-space-1); }
+/* A row that stays through a search or a tab glides from its old slot to its new one (QuickModelColumns
+   flipSlots): one keyframe on one clock, instead of the one-frame jump when rows above it leave. */
+@keyframes acpmux-cols-flip { from { transform: translateY(var(--flip-dy, 0)); } to { transform: none; } }
+@media (prefers-reduced-motion: no-preference) {
+  .acpmux-cols-list [data-flipping] { animation: acpmux-cols-flip var(--cmux-motion-standard) var(--cmux-ease-out) both; }
+}
 /* A heading's "Not installed" / "Signed out": a pick of its models sets the harness up first. */
 .acpmux-cols-group-note { margin-inline-start: auto; font-weight: 400; }
 

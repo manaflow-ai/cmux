@@ -650,18 +650,18 @@ async fn one_session_by_name_and_by_id_is_one_chain() {
 
 /// Codex review: a peer that is down answers no lookup, so a session there named `peer/id`
 /// resolves to nothing, while a tag's target for the same session (from the cached list) is
-/// `peer/id` too. Its identical key keeps them one chain, and any other target on that peer
-/// joins it, since an unresolved name there could be any of them.
+/// `peer/id` too. Its identical key keeps them one chain, and since an unresolved id there could
+/// be any session on that peer, every other target there joins it.
 #[tokio::test]
 async fn an_unresolved_peer_session_stays_in_one_chain_with_its_tag_target() {
     let (_hub, client, _dir) = daemon().await;
     session(&client, "here").await;
-    let mut tagged = target(1, "down-host/lane-p", "down-host/id-p");
+    let p = "down-host/01a1acb2-5bb4-75a3-b5eb-a0eeea1d59d5";
+    let mut tagged = target(1, "down-host/lane-p", p);
     tagged.tag = Some("area=x".to_owned());
-    let mut other = target(2, "down-host/lane-q", "down-host/id-q");
+    let mut other = target(2, "down-host/lane-q", "down-host/lane-q");
     other.tag = Some("area=x".to_owned());
-    let targets =
-        [target(0, "down-host/id-p", "down-host/id-p"), tagged, other, target(3, "here", "here")];
+    let targets = [target(0, p, p), tagged, other, target(3, "here", "here")];
     let aliases = send::aliases(&client, &targets).await;
     assert_eq!(send::same_session(&aliases), vec![vec![0, 1, 2], vec![3]], "{aliases:?}");
     // A healthy batch's tag targets on one host stay side by side.
@@ -673,10 +673,35 @@ async fn an_unresolved_peer_session_stays_in_one_chain_with_its_tag_target() {
     assert_eq!(send::same_session(&aliases), vec![vec![0], vec![1]], "{aliases:?}");
 }
 
+/// cmuxterm-hq#17418: one batch to 9 lanes on other hosts sent 7: the second and third to
+/// sessions on one host were refused as "the message before it ... must not arrive first",
+/// naming another host's delivery. Sessions named by name are different sessions, on one host or
+/// several, so each is its own chain; the same name twice, or a bare name and `host/name`, is
+/// one.
+#[tokio::test]
+async fn different_sessions_on_one_host_are_different_chains() {
+    let (_hub, client, _dir) = daemon().await;
+    let targets = [
+        target(0, "host-a/standing-lane", "host-a/standing-lane"),
+        target(1, "host-b/ci-lane", "host-b/ci-lane"),
+        target(2, "host-b/dep-land", "host-b/dep-land"),
+        target(3, "host-b/fleet-repair", "host-b/fleet-repair"),
+        target(4, "host-b/dep-land", "host-b/dep-land"),
+        target(5, "fleet-repair", "fleet-repair"),
+    ];
+    let aliases = send::aliases(&client, &targets).await;
+    assert_eq!(
+        send::same_session(&aliases),
+        vec![vec![0], vec![1], vec![2, 4], vec![3, 5]],
+        "{aliases:?}"
+    );
+}
+
 /// Codex review: the outbox runs every delivery on its own and retries it, so a message queued
 /// while the one before it to the same session is still on its way could arrive first. Here the
 /// first delivery settles late: the second is not queued until it did. One still on its way at
-/// the deadline stops the rest of its chain, each row saying why.
+/// the deadline holds the next in the outbox behind it (`after`), and that row is sent, never
+/// an error asking to send it again (cmuxterm-hq#17418: one batch took 4 calls).
 #[tokio::test]
 async fn a_message_waits_for_the_one_before_it_to_the_same_session() {
     let targets = [
@@ -686,12 +711,12 @@ async fn a_message_waits_for_the_one_before_it_to_the_same_session() {
     ];
     let log = std::sync::Mutex::new(Vec::new());
     let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
-    let rows = send::in_order(&targets, vec![0, 1, 2], deadline, |t, wait| {
+    let rows = send::in_order(&targets, vec![0, 1, 2], deadline, |t, wait, after| {
         let log = &log;
         async move {
-            log.lock().unwrap().push(format!("queue {}", t.index));
+            log.lock().unwrap().push(format!("queue {} after {after:?}", t.index));
             assert!(wait <= Duration::from_secs(5));
-            // The first is slow to settle, then delivered; the second stays on its way.
+            // The first is slow to settle, then delivered; the others stay on their way.
             if t.index == 0 {
                 tokio::time::sleep(Duration::from_millis(300)).await;
             }
@@ -702,20 +727,32 @@ async fn a_message_waits_for_the_one_before_it_to_the_same_session() {
         }
     })
     .await;
-    assert_eq!(*log.lock().unwrap(), ["queue 0", "settled 0", "queue 1", "settled 1"]);
+    assert_eq!(
+        *log.lock().unwrap(),
+        [
+            "queue 0 after None",
+            "settled 0",
+            "queue 1 after None",
+            "settled 1",
+            "queue 2 after Some(\"d1\")",
+            "settled 2"
+        ]
+    );
     assert_eq!(rows.len(), 3);
     assert_eq!(rows[2].0, 2);
-    assert_eq!(rows[2].1["ok"], false, "{:?}", rows[2]);
-    let why = rows[2].1["error"].as_str().unwrap();
-    assert!(why.contains("delivery d1") && why.contains("still on its way"), "{why}");
-    // A refusal settles too: the next one still goes.
-    let refused = send::in_order(&targets, vec![0, 1], deadline, |t, _| {
+    assert_eq!(rows[2].1["ok"], true, "{:?}", rows[2]);
+    assert_eq!(rows[2].1["after"], "d1", "{:?}", rows[2]);
+    assert!(rows[2].1.get("error").is_none_or(Value::is_null), "{:?}", rows[2]);
+    // A refusal settles too: the next one goes with nothing to wait behind.
+    let refused = send::in_order(&targets, vec![0, 1], deadline, |t, _, after| {
         let status = if t.index == 0 { "failed" } else { "delivered" };
-        let row = json!({"index": t.index, "ok": t.index != 0, "status": status});
+        let row = json!({"index": t.index, "ok": t.index != 0, "status": status,
+            "waited": after.is_some()});
         async move { row }
     })
     .await;
     assert_eq!(refused[1].1["status"], "delivered");
+    assert_eq!(refused[1].1["waited"], false);
 }
 
 /// A batch of two to one live session: both arrive, in the order given.
@@ -1045,6 +1082,25 @@ async fn bg_tools_refuse_arguments_that_are_not_an_object() {
     }
 }
 
+/// run_wait given a background task's id (`{"id": "bg-..."}`, the bounce "repo is required"
+/// agents met 6 times in a day) reads that task as bg_output does and says why, naming bg_output.
+#[tokio::test]
+async fn run_wait_given_a_bg_task_id_reads_the_task_and_names_bg_output() {
+    let (_hub, client, _dir) = daemon().await;
+    for args in
+        [json!({"id": "bg-581e5d78d9cd"}), json!({"task": "bg-581e5d78d9cd", "timeout": "600"})]
+    {
+        let r = bg::call(&client, "any", "run_wait", &args).await;
+        let t = text(&r);
+        assert!(!t.contains("repo is required"), "{args}: {r}");
+        assert!(t.contains("bg-581e5d78d9cd is a background task"), "{args}: {r}");
+        assert!(t.contains("bg_output"), "{args}: {r}");
+    }
+    // A run id with no repo is still the repo refusal: only a bg- value is a task.
+    let r = bg::call(&client, "any", "run_wait", &json!({"run": 5})).await;
+    assert!(text(&r).contains("repo is required"), "{r}");
+}
+
 /// Exercise the actual MCP-to-daemon socket path without substituting an MCP
 /// implementation. Any wrong RPC method, argument, lost receipt field or hidden
 /// refusal fails independently of the mesh client's tests.
@@ -1235,4 +1291,15 @@ fn watch_tools_are_listed_and_build_the_cli_requests() {
     );
     assert!(watch::request("watch_add", &json!({"sessions": [1]})).is_err());
     assert!(watch::request("watch_rm", &json!({})).is_err());
+}
+
+/// Every Claude chat loads these instructions on every turn, so they stay a short steer per tool
+/// (the tool descriptions carry the details): 2,842 bytes before the 2026-11-21 cut, 1,398 after.
+#[test]
+fn instructions_stay_short() {
+    let text = instructions(&tools_with_artifacts(false)).unwrap();
+    assert!(text.len() <= 1_600, "{} bytes: {text}", text.len());
+    assert!(crate::offer_mcp::INSTRUCTIONS.len() <= 300);
+    assert!(crate::subsession_mcp::instructions().len() <= 1_100);
+    assert!(crate::computer_use::tools::INSTRUCTIONS.len() <= 900);
 }

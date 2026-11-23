@@ -167,6 +167,44 @@ export const layoutReadAfterWrite = layoutRule(
   },
 );
 
+// Building an Intl formatter resolves the locale, loads ICU data and compiles a pattern: far more than the
+// format() it is built for, and a row or render that built one paid it per row per render (Allegro Tech,
+// https://blog.allegro.tech/2020/08/using-eslint.html). src/ui/intl.ts hands out one shared formatter per
+// locale and options, and starts over each minute so a zone or language change still shows.
+const intlKinds = new Set([
+  "NumberFormat",
+  "DateTimeFormat",
+  "RelativeTimeFormat",
+  "ListFormat",
+  "PluralRules",
+  "Collator",
+  "Segmenter",
+  "DisplayNames",
+]);
+export const noIntlConstruct = {
+  meta: {
+    type: "problem",
+    schema: [],
+    messages: {
+      found:
+        "Building an Intl.{{kind}} costs far more than formatting with one. Use intl.{{kind}}(...) from src/ui/intl.ts, which shares one per locale and options.",
+    },
+  },
+  create(context) {
+    const file = (context.filename ?? context.getFilename?.() ?? "").replaceAll("\\", "/");
+    if (file.endsWith("/src/ui/intl.ts")) return {};
+    return {
+      NewExpression(node) {
+        const callee = node.callee;
+        if (callee.type !== "MemberExpression" || callee.computed || name(callee.object) !== "Intl") return;
+        const kind = name(callee.property);
+        if (!intlKinds.has(kind)) return;
+        context.report({ node, messageId: "found", data: { kind } });
+      },
+    };
+  },
+};
+
 // The chat transcript has one scroll writer (cmuxterm-hq docs/design/agent-transcript-clean-slate.md,
 // invariant 1): conversation/scrollController.ts. Twenty-odd writers that each set the offset while
 // the others were mid-flight were the jostle Leo saw (2026-11-11: "the jostling is just insane").
@@ -213,6 +251,7 @@ export default {
   rules: {
     "layout-thrash-in-loop": layoutThrashInLoop,
     "layout-read-after-write": layoutReadAfterWrite,
+    "no-intl-construct": noIntlConstruct,
     "transcript-scroll-writer": transcriptScrollWriter,
   },
 };

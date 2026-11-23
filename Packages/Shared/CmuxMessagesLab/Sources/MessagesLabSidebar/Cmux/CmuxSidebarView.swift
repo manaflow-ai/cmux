@@ -174,9 +174,9 @@ public final class CmuxSidebarView: NSView {
     }
     /// The x's tooltip and accessibility label ("Close New Message").
     public var closeTitle: String {
-        get { rowClose.button.toolTip ?? "" }
+        get { rowClose.button.accessibilityLabel() ?? "" }
         set {
-            rowClose.button.toolTip = newValue
+            rowClose.button.setSidebarToolTip(newValue)
             rowClose.button.setAccessibilityLabel(newValue)
         }
     }
