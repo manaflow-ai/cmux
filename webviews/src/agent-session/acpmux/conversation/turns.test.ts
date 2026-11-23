@@ -439,7 +439,7 @@ test("a reloaded running turn draws its read-at-open finished calls folded, and 
   const drawn = shown.flatMap((row) => tools(row));
   expect(drawn).not.toContain("old-1");
   expect(drawn).toContain("new-1");
-  expect(shown.some((row) => row.kind === WORKING)).toBe(true);
+  expect(shown.some((row) => row.kind === WORKED && row.turnPhase === "running")).toBe(true);
   // Without the mark (watched live) every finished call stays drawn.
   const { readAtOpen: _read, ...watched } = reloaded[1]!;
   const live = turnView([reloaded[0]!, watched], new Set(), { now: 5_000, working: true, turnStartedAtMs: 1_000 });

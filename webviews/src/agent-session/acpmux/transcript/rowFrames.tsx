@@ -107,6 +107,7 @@ type RowFramesView = {
   onFocus: (id: string) => void;
   onRowKeyDown: (index: number, event: React.KeyboardEvent<HTMLElement>) => void;
   onToggleActivity: (id: string) => void;
+  onLoadFold?: (fold: number) => Promise<void>;
   onOpenDiff: OpenDiff | undefined;
   streams: boolean | undefined;
   sessionId: string | undefined;
@@ -164,6 +165,7 @@ export function drawRowFrames(
     view.onFocus,
     view.onRowKeyDown,
     view.onToggleActivity,
+    view.onLoadFold,
     view.onOpenDiff,
     view.streams,
     view.sessionId,
@@ -256,6 +258,7 @@ export function drawRowFrames(
             replyActions={hasReplyActions(row, next)}
             sessionId={view.sessionId}
             onToggleActivity={view.onToggleActivity}
+            onLoadFold={view.onLoadFold}
             onOpenDiff={view.onOpenDiff}
             expanded={isExpanded}
             controls={controls}
