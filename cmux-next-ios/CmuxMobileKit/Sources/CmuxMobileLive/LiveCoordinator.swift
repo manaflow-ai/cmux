@@ -1130,6 +1130,15 @@ public final class LiveCoordinator {
         await incidents.signOut()
     }
 
+    /// Warms the next dial (signaling socket, ICE servers) without dialing or
+    /// touching a live link. Cheap and idempotent: call it as early as the app
+    /// knows it will need the Mac (scene about to enter the foreground, a push
+    /// woke the app), so the dial that follows skips those round trips.
+    public func prewarmLinks() {
+        guard let teamID = registeredTeamID else { return }
+        idleSession.link.prewarm(baseURL: api.baseURL, teamID: teamID, deviceID: identity.link)
+    }
+
     /// App foreground: keep the links a short suspend left alive, replace stale ones, refresh presence.
     public func foreground() {
         let away = backgroundedAt.map { ContinuousClock.now - $0 }
@@ -1137,16 +1146,14 @@ public final class LiveCoordinator {
         foreground(after: away)
     }
 
-    /// `away` is how long iOS kept the app away; nil (no background seen) redials every link.
+    /// `away` is how long iOS kept the app away; nil (no background seen) redials every link, a connected one kept beside the redial.
     func foreground(after away: Duration?) {
         isBackgrounded = false
         incidents.appActive(true)
         log.info("foreground: \(String(describing: self.link.phase), privacy: .public)")
         // The first activation is the launch itself, already being measured.
         if ConnectTimeline.shared.sinceProcessStart > 5 { ConnectTimeline.shared.begin("foreground") }
-        if let teamID = registeredTeamID {
-            idleSession.link.prewarm(baseURL: api.baseURL, teamID: teamID, deviceID: identity.link)
-        }
+        prewarmLinks()
         presence?.backgrounded = false
         presence?.kick()
         discovery.resume()
