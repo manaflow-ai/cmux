@@ -1,3 +1,4 @@
+import Foundation
 #if os(iOS)
 import CmuxSpinner
 import CmuxTabsKit
@@ -27,6 +28,18 @@ extension TabsKitTheme {
         // move it to the top"): the bottom is the composer's, and Back stays one tap away with
         // the keyboard up.
         tabs.metrics.barEdge = .top
+        #if DEBUG
+        // Gallery variants of the top bar's placement (TopBarGalleryUITests); the shipped one is `grid`.
+        let args = ProcessInfo.processInfo.arguments
+        if let i = args.firstIndex(of: "-cmux-mobile-topbar-variant"), args.indices.contains(i + 1) {
+            switch args[i + 1] {
+            case "edge": tabs.metrics.topBarGap = 0; tabs.metrics.topSideInset = 12
+            case "airy": tabs.metrics.topBarGap = 10; tabs.metrics.topSideInset = 24
+            case "safari": tabs.metrics.topBarGap = 2; tabs.metrics.topSideInset = tabs.metrics.sideInset
+            default: break
+            }
+        }
+        #endif
         return tabs
     }
 }
