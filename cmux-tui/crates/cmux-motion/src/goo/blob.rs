@@ -250,7 +250,12 @@ impl Pen {
         let nf = f64::from(n.max(1));
         for i in 0..n.max(1) {
             let a = from.lerp(to, f64::from(i) / nf);
-            let b = from.lerp(to, (f64::from(i) + 1.) / nf);
+            // The last piece ends exactly on `to` (the path closes on its start).
+            let b = if i.saturating_add(1) >= n.max(1) {
+                to
+            } else {
+                from.lerp(to, (f64::from(i) + 1.) / nf)
+            };
             self.cubic(a.lerp(b, 1. / 3.), a.lerp(b, 2. / 3.), b);
         }
     }
@@ -441,7 +446,8 @@ mod tests {
         let (minx, maxx, miny, maxy) = (b.left, b.right, b.top, b.baseline);
         let (w, h) = (maxx - minx, maxy - miny);
         let r = b.corner_radius.min(w / 2.).min(h / 2.);
-        let in_rect = |x0: f64, y0: f64, x1: f64, y1: f64| x >= x0 && x <= x1 && y >= y0 && y <= y1;
+        let in_rect =
+            |x0: f64, y0: f64, x1: f64, y1: f64| (x0..=x1).contains(&x) && (y0..=y1).contains(&y);
         let in_circle = |cx: f64, cy: f64, rad: f64| (x - cx).hypot(y - cy) < rad;
         let rounded = in_rect(minx, miny, maxx, maxy)
             && !((x < minx + r && y < miny + r && !in_circle(minx + r, miny + r, r))
@@ -597,7 +603,7 @@ mod tests {
             assert_eq!(o.p.len(), 1 + 3 * GOO_OUTLINE_POINTS);
             assert_eq!(o.anchors().count(), GOO_OUTLINE_POINTS);
             assert!(o.is_finite());
-            assert!((o.p[0].x - o.p[GOO_OUTLINE_LEN - 1].x).abs() < 1e-9);
+            assert!((o.p[0].x - o.p[crate::goo::GOO_OUTLINE_LEN - 1].x).abs() < 1e-9);
         }
     }
 
@@ -616,11 +622,13 @@ mod tests {
         assert_eq!(neck(&b, &RoundedRect::new(140., 0., 80., 30., 8.), 14.), rest);
         assert_eq!(neck(&b, &RoundedRect::new(110., 0., 80., 30., 8.), 0.), rest);
         let near = neck(&b, &RoundedRect::new(106., 0., 80., 30., 8.), 14.);
-        let reach = near.p.iter().map(|p| p.x).fold(f64::MIN, f64::max);
-        assert!(
-            reach > rest.p.iter().map(|p| p.x).fold(f64::MIN, f64::max) + 2.,
-            "the neck reaches out: {reach}"
-        );
+        // The trailing side (x = 100 between the corner and the fillet) bulges
+        // toward the neighbour 6 points away.
+        let side = |o: &Outline| {
+            o.p.iter().filter(|p| (10.0..20.).contains(&p.y)).map(|p| p.x).fold(f64::MIN, f64::max)
+        };
+        let reach = side(&near);
+        assert!(reach > side(&rest) + 2., "the neck reaches out: {reach}");
         // The bottom edge stays on the card's top.
         assert!(near.p.iter().all(|p| p.y <= b.baseline + 1.), "{near:?}");
     }

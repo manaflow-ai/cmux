@@ -17,7 +17,6 @@
 #include <stddef.h>
 #include <stdint.h>
 
-
 #define CMUX_GOO_OUTLINE_POINTS 24      /* cubic segments per outline */
 #define CMUX_GOO_KEYFRAMES_MAX 120
 
