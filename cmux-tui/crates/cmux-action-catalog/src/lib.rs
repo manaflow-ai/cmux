@@ -21,6 +21,7 @@ pub mod customize_elements;
 pub mod ffi;
 pub mod hand_built_menus;
 pub mod json;
+pub mod key_tiers;
 pub mod model;
 pub mod palette;
 pub mod request;

@@ -171,3 +171,23 @@ fn catalog_json_carries_the_trees() {
         "workspace.moveToNewGroup"
     );
 }
+
+/// The key tiers the app's `ActionKeyTier.defaultTier` gave at 0dd535e42f5, for a sample of each
+/// rule: listed system and navigation ids, a content id with no focus fact, a content focus fact.
+#[test]
+fn key_tiers_keep_their_defaults() {
+    use cmux_action_catalog::key_tiers::default_tier;
+    let tier = |id: &str| default_tier(cmux_action_catalog::find(id).expect(id));
+    assert_eq!(tier("quit"), "system");
+    assert_eq!(tier("commandPalette"), "system");
+    assert_eq!(tier("focusBrowserAddressBar"), "navigation");
+    assert_eq!(tier("toggleBrowserDeveloperTools"), "content");
+    for action in cmux_action_catalog::actions() {
+        if action.requires.contains(&"terminalFocused")
+            && !cmux_action_catalog::key_tiers::SYSTEM_ACTIONS.contains(&action.id)
+            && !cmux_action_catalog::key_tiers::NAVIGATION_ACTIONS.contains(&action.id)
+        {
+            assert_eq!(default_tier(action), "content", "{}", action.id);
+        }
+    }
+}

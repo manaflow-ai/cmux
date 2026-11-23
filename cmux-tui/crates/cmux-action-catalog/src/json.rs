@@ -316,6 +316,11 @@ fn catalog_with(locale: usize, row: impl Fn(&Action) -> Value) -> Value {
         // The right-click menus built from the placements (crate::context_menus), and the choices
         // rows that end with one more action (Move to Group > New Group).
         "context_menu_trees": crate::context_menus::trees_json(),
+        // Each action's default key routing tier other than navigation (crate::key_tiers).
+        "key_tiers": crate::actions()
+            .filter(|a| crate::key_tiers::default_tier(a) != "navigation")
+            .map(|a| (a.id.to_owned(), json!(crate::key_tiers::default_tier(a))))
+            .collect::<Map<String, Value>>(),
         "context_menu_choice_trailers": crate::context_menus::CHOICE_TRAILERS
             .iter()
             .map(|(id, trailer)| ((*id).to_owned(), json!(trailer)))
