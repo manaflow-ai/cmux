@@ -238,3 +238,69 @@ fn a_reply_carries_at_most_its_lane_cap_and_counts_every_chat() {
     assert_eq!(reply.lanes.len(), MAX_REPLY_LANES);
     assert_eq!(reply.blocked_ms, n * MIN);
 }
+
+/// Duress: the marks feed over one long session's records, on vs off, and a query at every cap.
+/// `cargo test -p acpmux --release waiting_day_duress -- --ignored --nocapture`
+#[test]
+#[ignore = "timing; run by hand for the PR's Duress number"]
+fn waiting_day_duress() {
+    use std::time::Instant;
+    const N: u64 = 1_000_000;
+    // A long session's log: a turn every 50 records, its status changes, the rest stream noise.
+    let log: Vec<EventRecord> = (0..N)
+        .map(|i| {
+            let at = DAY + i * 50;
+            match i % 50 {
+                0 => rec(i, at, "turn_started", json!({"turnId": format!("t{}", i / 50)})),
+                1 => status(i, at, "running"),
+                20 => status(i, at, "waiting"),
+                30 => status(i, at, "running"),
+                49 => status(i, at, "ready"),
+                _ => rec(i, at, "agent_message_chunk", json!({"text": "x"})),
+            }
+        })
+        .collect();
+    let gate =
+        |r: &EventRecord| r.dir == "mux" && matches!(r.kind.as_str(), "status" | "turn_started");
+    let mut best = |on: bool| {
+        (0..5)
+            .map(|_| {
+                let day = WaitingDay::open(None, DAY);
+                let t = Instant::now();
+                let mut fed = 0u64;
+                for r in &log {
+                    if gate(r) {
+                        fed += 1;
+                        if on {
+                            day.record("long", r);
+                        }
+                    }
+                }
+                std::hint::black_box((&day, fed));
+                t.elapsed().as_nanos() as f64 / N as f64
+            })
+            .fold(f64::MAX, f64::min)
+    };
+    let off = best(false);
+    let on = best(true);
+    // Every cap full: MAX_LANES chats of MAX_MARKS marks each, queried over a day.
+    let day = WaitingDay::open(None, DAY);
+    for c in 0..MAX_LANES as u64 {
+        let id = format!("s{c}");
+        for m in 0..MAX_MARKS as u64 {
+            let state = if m % 2 == 0 { "running" } else { "waiting" };
+            day.record(&id, &status(m, DAY + m * MIN + c, state));
+        }
+    }
+    let t = Instant::now();
+    let reply = day.query(DAY, DAY + 24 * 60 * MIN);
+    let query_ms = t.elapsed().as_secs_f64() * 1e3;
+    let bytes = serde_json::to_vec(&reply).unwrap().len();
+    println!(
+        "waiting_day duress: {N} records, feed off {off:.1} ns/record, on {on:.1} ns/record \
+         (+{:.1} ns); full caps ({MAX_LANES} chats x {MAX_MARKS} marks) query {query_ms:.1} ms, \
+         reply {bytes} B ({} lanes)",
+        on - off,
+        reply.lanes.len()
+    );
+}
