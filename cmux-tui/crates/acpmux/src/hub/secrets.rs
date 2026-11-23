@@ -497,10 +497,17 @@ impl Hub {
             .map_err(|e| RpcError::internal(format!("keeping the key: {e}")))?
             .map_err(|e| RpcError::invalid_params(format!("the key was not kept: {e}")))?;
         let mut map = self.secrets.pending.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(p) = map.get_mut(secret_id).filter(|p| p.session == session.id) {
-            p.kept = Some(key.to_owned());
+        match map.get_mut(secret_id).filter(|p| p.session == session.id) {
+            Some(p) => {
+                p.kept = Some(key.to_owned());
+                Ok(())
+            }
+            // The card closed while the store ran: the key is saved, so say so rather than
+            // reporting a failure for a key that exists.
+            None => Err(RpcError::invalid_params(format!(
+                "the key {key} was kept, but this card closed before it was answered"
+            ))),
         }
-        Ok(())
     }
 
     /// Whether open card `secret_id` may keep its value as key `key`, and the purpose the key
