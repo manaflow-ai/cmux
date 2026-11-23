@@ -252,7 +252,7 @@ def rule_jobs():
 
 
 WEB_SCOPE = {"result": "success", "outputs": {name: "true" for name in (
-    "db", "diff_sidecar", "instant", "production_build", "react_apps", "typecheck", "unit_tests")}}
+    "db", "diff_sidecar", "instant", "production_build", "react_apps", "agent_pane", "typecheck", "unit_tests")}}
 # For every rule job: the step's env with one needed job abandoned and another failed. The failure wins: exit 1.
 MIXED = {
     ("ios-reliability-matrix.yml", "report", "Matrix table"): {"PROTOCOL_RESULT": "abandoned", "IOS_RESULT": "failure"},
