@@ -56,7 +56,14 @@ export function HighlightedCode({
       />
     );
   return (
-    <div className={`cv-codeblock${codeHeaderClass(look)}`} ref={menuPartRef({ code, codeLanguage: lang })}>
+    <div
+      className={`cv-codeblock${codeHeaderClass(look)}`}
+      ref={menuPartRef({ code, codeLanguage: lang })}
+      // Plain lines until the worker painted: a relaunch's copy holds over it (chatSnapshot/live.ts).
+      data-highlight-pending={painted ? undefined : ""}
+      // The fence's language, which a relaunch's copy carries: its worker starts with that grammar.
+      data-lang={lang}
+    >
       <CodeHeader look={look} lang={lang} label={label}>
         <OpenPreview code={code} lang={lang} identity={artifactIdentity} revision={artifactRevision} />
         <button

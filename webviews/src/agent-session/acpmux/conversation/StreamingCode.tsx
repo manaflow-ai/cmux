@@ -27,6 +27,7 @@ export function PlainCode({
   actions,
   artifactIdentity,
   artifactRevision,
+  highlightPending = false,
 }: {
   code: string;
   lang: string;
@@ -35,6 +36,8 @@ export function PlainCode({
   actions?: ReactNode;
   artifactIdentity?: string;
   artifactRevision?: number;
+  /** Plain only until the highlighted card has loaded and painted (`data-highlight-pending`). */
+  highlightPending?: boolean;
 }) {
   const t = useT();
   const look = useCodeHeaderLook(lang, label);
@@ -45,6 +48,7 @@ export function PlainCode({
     <div
       className={`cv-codeblock cv-codeblock--plain${codeHeaderClass(look)}${diagram ? " cv-codeblock--diagram" : ""}`}
       ref={menuPartRef({ code, codeLanguage: lang })}
+      data-highlight-pending={highlightPending ? "" : undefined}
     >
       <CodeHeader look={look} lang={lang} label={label}>
         <OpenPreview code={code} lang={lang} identity={artifactIdentity} revision={artifactRevision} />
