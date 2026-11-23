@@ -557,7 +557,7 @@
   background: color-mix(in srgb, var(--agent-text) 18%, transparent);
 }
 .cv-user__image-retry:focus-visible {
-  outline: 1.5px solid var(--agent-text);
+  outline: var(--cmux-focus-ring-width) solid var(--agent-text);
   outline-offset: 1px;
 }
 
