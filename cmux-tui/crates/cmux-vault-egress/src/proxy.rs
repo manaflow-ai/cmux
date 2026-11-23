@@ -271,9 +271,7 @@ async fn open(
         }
     };
     let addrs = dial_order(addrs);
-    let stream = race(&addrs, HEDGE, CONNECT_TIMEOUT, TcpStream::connect)
-        .await
-        .ok_or(Refused::Unreachable)?;
+    let stream = race(&addrs, HEDGE, CONNECT_TIMEOUT, tcp).await.ok_or(Refused::Unreachable)?;
     let _ = stream.set_nodelay(true);
     Ok(stream)
 }
@@ -297,29 +295,32 @@ fn dial_order(addrs: Vec<SocketAddr>) -> Vec<SocketAddr> {
     }
 }
 
+fn tcp(addr: SocketAddr) -> Dialing<TcpStream> {
+    Box::pin(TcpStream::connect(addr))
+}
+
+/// One connect attempt on its way.
+type Dialing<T> = std::pin::Pin<Box<dyn Future<Output = io::Result<T>> + Send>>;
+
 /// The first connection `dial` makes to one of `addrs`, or None when none
 /// answers within `limit`. Each attempt runs alone for `hedge`; then the next
 /// address is dialed beside it, and an attempt that fails starts the next at
 /// once. The list is dialed twice, so a host with one address gets a second
 /// SYN when its first is lost. The attempts that lose are dropped.
-async fn race<T, F, Fut>(
+async fn race<T: Send + 'static>(
     addrs: &[SocketAddr],
     hedge: Duration,
     limit: Duration,
-    dial: F,
-) -> Option<T>
-where
-    T: Send + 'static,
-    F: Fn(SocketAddr) -> Fut,
-    Fut: Future<Output = io::Result<T>> + Send + 'static,
-{
-    let mut rest = addrs.iter().chain(addrs).copied().peekable();
+    dial: impl Fn(SocketAddr) -> Dialing<T>,
+) -> Option<T> {
+    let mut rest: std::collections::VecDeque<SocketAddr> =
+        addrs.iter().chain(addrs).copied().collect();
     let mut running = tokio::task::JoinSet::new();
     let stop = tokio::time::sleep(limit);
     tokio::pin!(stop);
     loop {
         if running.is_empty() {
-            running.spawn(dial(rest.next()?));
+            running.spawn(dial(rest.pop_front()?));
         }
         let alone = tokio::time::sleep(hedge);
         tokio::select! {
@@ -327,13 +328,13 @@ where
             done = running.join_next() => match done {
                 Some(Ok(Ok(stream))) => return Some(stream),
                 _ => {
-                    if let Some(addr) = rest.next() {
+                    if let Some(addr) = rest.pop_front() {
                         running.spawn(dial(addr));
                     }
                 }
             },
-            () = alone, if rest.peek().is_some() => {
-                if let Some(addr) = rest.next() {
+            () = alone, if !rest.is_empty() => {
+                if let Some(addr) = rest.pop_front() {
                     running.spawn(dial(addr));
                 }
             }
@@ -520,12 +521,7 @@ mod tests {
     /// A dial whose nth call (from 0) behaves as `plan[n]`: Some(true) connects,
     /// Some(false) is refused, None never answers. Every call is recorded with
     /// the time since `race` began.
-    fn planned(
-        plan: Vec<Option<bool>>,
-    ) -> (
-        Calls,
-        impl Fn(SocketAddr) -> std::pin::Pin<Box<dyn Future<Output = io::Result<SocketAddr>> + Send>>,
-    ) {
+    fn planned(plan: Vec<Option<bool>>) -> (Calls, impl Fn(SocketAddr) -> Dialing<SocketAddr>) {
         let calls: Calls = Arc::default();
         let began = tokio::time::Instant::now();
         let seen = calls.clone();
@@ -542,7 +538,7 @@ mod tests {
                     Some(false) => Err(io::Error::from(io::ErrorKind::ConnectionRefused)),
                     None => std::future::pending().await,
                 }
-            }) as std::pin::Pin<Box<dyn Future<Output = io::Result<SocketAddr>> + Send>>
+            }) as Dialing<SocketAddr>
         };
         (calls, dial)
     }
