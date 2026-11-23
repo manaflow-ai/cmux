@@ -503,6 +503,30 @@
         {"07:00": 1}
       ]
     },
+    "domain:backdrop_memory": {
+      "accept": [
+        {},
+        {"rotate": "folder:/Users/Shared/Wallpapers", "folder": "folder:/Users/Shared/Wallpapers", "off": "file:/Users/Shared/Harbor.png"},
+        {"rotate": "daily", "folder": "folder:/Users/Shared/Wallpapers", "off": "none"},
+        {"off": "munch-scream"},
+        {"off": "system:/System/Library/Desktop Pictures/Sonoma.heic"}
+      ],
+      "refuse": [
+        "folder:/Users/Shared/Wallpapers",
+        [],
+        {"rotate": "munch-scream"},
+        {"rotate": "appearance"},
+        {"folder": "daily"},
+        {"folder": "folder:/"},
+        {"folder": "folder:relative"},
+        {"off": "daily"},
+        {"off": "schedule"},
+        {"off": "folder:/Users/Shared/Wallpapers"},
+        {"off": "__not_a_backdrop__"},
+        {"light": "munch-scream"},
+        {"rotate": 1}
+      ]
+    },
     "domain:backdrop_location": {
       "accept": [
         "37.77,-122.42",

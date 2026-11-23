@@ -106,9 +106,16 @@ enum InstantPerfReport {
     }
 
     /// Reports the metric, then asserts its budget and ratio (known-red ones under `withKnownIssue`).
+    ///
+    /// `underLoad`: the runs were timed while the test kept the other cores busy on purpose. Their
+    /// ratio then moves with how that host shares its caches and allocator with the load, not with
+    /// the fixture's size (on the same code, base kit jobs of one day passed it and read 1.41x:
+    /// `home_list_first_screen_under_load` on the iOS simulator, god 12.7 vs small 9.0 ms). Like the small
+    /// budget, such a ratio fails the run only on a quiet harness (`CMUX_INSTANT_PERF_STRICT=1`);
+    /// elsewhere a miss is in the JSON line's `failing` and printed as a warning.
     static func record(_ metric: String, target: Double, small: [Double], god: [Double],
                        knownRed: Set<InstantPerfCheck> = [], why: String = "", note: String = "",
-                       sourceLocation: SourceLocation = #_sourceLocation) {
+                       underLoad: Bool = false, sourceLocation: SourceLocation = #_sourceLocation) {
         let smallMs = median(small)
         let godMs = median(god)
         let budget = target * budgetFactor
@@ -147,7 +154,7 @@ enum InstantPerfReport {
             case .godBudget: "\(metric): god \(fmt(godMs)) ms over the \(fmt(budget)) ms budget (3x the \(fmt(target)) ms target)"
             case .ratio: "\(metric): god \(fmt(godMs)) ms is \(fmt(ratio))x small \(fmt(smallMs)) ms (floor \(fmt(ratioFloorMs)) ms); the rule is at most \(fmt(ratioLimit))x"
             }
-            if check == .smallBudget, !knownRed.contains(check), !strictSmallBudget {
+            if check == .smallBudget || (check == .ratio && underLoad), !knownRed.contains(check), !strictSmallBudget {
                 // Shared runner: the number is in the JSON line's `failing`; it never fails the run.
                 if !ok { print("INSTANTPERF warning: \(comment.rawValue) (not enforced; CMUX_INSTANT_PERF_STRICT=1 enforces it)") }
                 continue

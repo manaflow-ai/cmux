@@ -5,15 +5,21 @@
 //! that reaches a file is validated or escaped for that file's syntax.
 
 mod launchd;
+mod session;
 mod systemd;
 mod windows;
 
 pub use launchd::{
     APP_BUNDLE_PROGRAM, app_service_agent_plist, launch_agent_plist, launch_daemon_plist,
+    session_launch_agent_plist,
+};
+pub use session::{
+    DEFAULT_SESSION, SESSION_BINARY, SessionUnit, parse_session_unit, session_argv,
+    valid_session_name,
 };
 pub use systemd::{
-    systemd_app_server_template, systemd_system_unit, systemd_update_path_unit,
-    systemd_update_service_unit, systemd_user_unit,
+    systemd_app_server_template, systemd_session_unit, systemd_system_unit,
+    systemd_update_path_unit, systemd_update_service_unit, systemd_user_unit,
 };
 pub use windows::{scheduled_task_xml, windows_service_create_argv, windows_service_failure_argv};
 
@@ -37,6 +43,9 @@ pub enum UnitError {
     /// The bundle id is not a plain reverse-DNS name
     /// (`^[A-Za-z0-9][A-Za-z0-9.-]*[A-Za-z0-9]$`).
     BadBundleId,
+    /// A session name outside `[A-Za-z0-9._-]{1,64}` (or starting with `.`
+    /// or `-`).
+    BadSession,
 }
 
 /// The full frozen command line as argv, without the mode (callers that

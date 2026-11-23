@@ -97,6 +97,9 @@ tmux-*.log
 /Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity/*
 !/Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity/GENERATED.md
 /Resources/markdown-viewer/webviews-app/
+# The App Store packages the app bundles (samples/apps and first-party-apps with a STORE marker):
+# build output of scripts/cmux-next/sync-app-runtime.sh --store, which build-web-bundles.sh runs.
+/Packages/macOS/CmuxNext/Sources/CmuxNextApps/Resources/AppPlatform/store/
 # The React pages' strings tables: build output of webviews/scripts/pages/gen-strings.mjs, written
 # by bun install, the webviews test preload and every bundle build from the xcstrings catalogs
 # (#21946). Committed copies collided in every pull request that touched a catalog.
@@ -142,3 +145,6 @@ Packages/macOS/CmuxNext/usage-warning-gallery.tar
 # The extension SDK's customize types: every build of cmux-extension-sdk writes them from
 # cmux_customize::schema (build.rs); `cmux customize schema --typescript` prints the same text.
 /cmux-tui/crates/cmux-extension-sdk/typescript/src/generated/
+
+# Written at test time by TwoToneTests (cmux-config two_tone::fixture); never committed.
+/schemas/settings/two-tone-fixture.json

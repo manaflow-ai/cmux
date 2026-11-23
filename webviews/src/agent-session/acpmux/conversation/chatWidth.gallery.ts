@@ -68,8 +68,9 @@ export default agentPaneEntry({
   covers: ["agent-session/acpmux/VirtualTranscript.tsx#VirtualTranscript"],
   variants: {
     standard: variant({}, "Chat Text Width's default: an 800px column in any pane at least that wide."),
-    narrow: variant({ "agentPane.display.width": 640 }, "Chat Text Width 640: a 640px column in every pane."),
-    wide: variant({ "agentPane.display.width": 960 }, "Chat Text Width 960: a 960px column where the pane fits it."),
+    narrow: variant({ "agentPane.display.width": "narrow" }, "Chat Text Width 640: a 640px column in every pane."),
+    medium: variant({ "agentPane.display.width": "medium" }, "Medium caps the transcript and composer at 800px."),
+    wide: variant({ "agentPane.display.width": "wide" }, "Chat Text Width 960: a 960px column where the pane fits it."),
     "full-width": variant({ "agentPane.display.fullWidth": true }, "Chat Full Width: the column fills the pane."),
   },
 });

@@ -30,7 +30,7 @@ export interface EmojiTrigger {
   readonly token: string;
   /** The shortcode letters after `:`, lower case; undefined for an emoticon that is not one. */
   readonly query?: string;
-  /** The token is a text emoticon: the menu opens with no row chosen, so Return still sends. */
+  /** The token is a text emoticon (`:)`, `<3`), not a `:shortcode`. */
   readonly emoticon: boolean;
 }
 

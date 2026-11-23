@@ -3,14 +3,25 @@
 # that app with its own data, socket, daemon, settings and web overlay, never touching the original's.
 # try-pr.sh opens pull requests in one by default (docs/cmux-next/hot-reload.md, "Try a pull request").
 #
-#   side-instance.sh make NAME [--from APP] [--label TEXT] [--live-code] [--neutral-shell]
-#                                   copy APP (default /Applications/cmux NEXT.app) as NAME; remade
+#   side-instance.sh make NAME [--from APP] [--label TEXT] [--live-code] [--neutral-shell] [--swap BUILD]
+#                         [--customize] [--keep-icon]
+#                                   copy APP (default /Applications/cmux NEXT.app, refused when built
+#                                   over 7 days ago; --from takes any build) as NAME; remade
 #                                   from another app, it clears the state of the identity it replaces.
+#                                   --customize: its customize folder is NAME/customize (CMUX_CUSTOMIZE_DIR
+#                                   in its LSEnvironment), not the account's ~/.config/cmux/customize, so a
+#                                   measurement's extension saves never reach the Mac's own cmux
 #                                   --live-code: a live code build's copy watches live-code/ for
 #                                   Swift patches (docs/cmux-next/live-code.md)
 #                                   --neutral-shell: its terminals show a `$ ` prompt, never the
 #                                   account's `user@host` (hot-verify.py's looks, whose shots and
 #                                   video a privacy check reads)
+#                                   --swap BUILD: the copy runs BUILD's executable and resource bundles
+#                                   (swap-binary.sh build REF BUILD: a commit's Swift built as the
+#                                   nightly builds it), sealed like any copy, so it launches cold
+#                                   Every copy shows the SIM icon (side-icon/AppIcon-Side.icns: a dark tile
+#                                   with an amber SIM band) so it is never taken for the real app in the Dock or
+#                                   the app switcher; --keep-icon keeps the original's icon (a look of the icon)
 #   side-instance.sh launch NAME [--front] [-- ARGS...]
 #                                   open it (behind the front app unless --front); records its pid
 #   side-instance.sh stop NAME      quit it: the pid launch recorded, then what still runs from the copy
@@ -21,10 +32,15 @@
 #                                   `cmux --app-socket` and hot-verify.py: NAME/control.sock, or
 #                                   cmux-side-<hash>.sock in the per-user TMPDIR when that is too long for a Unix socket
 #   side-instance.sh list           the side instances and whether each runs
-#   side-instance.sh remove NAME    stop it, then delete the folder make wrote and the state the copy
+#   side-instance.sh remove NAME [--keep-sign-in]
+#                                   stop it, then delete the folder make wrote and the state the copy
 #                                   kept under its build key (App Support, ~/.acpmux, ~/.cmux/chief:
 #                                   the bundle id plus --<CMUX_TAG>, BuildIdentity.key) and its bundle
-#                                   id (its preferences, caches and web data)
+#                                   id (its preferences, caches and web data). --keep-sign-in sets the
+#                                   copy's own Cloud session aside (its credentials.json token stores),
+#                                   and the next make of NAME puts it back when it makes the same
+#                                   identity (the same bundle id): `cmux app try .` remakes its copy each
+#                                   try, and the person signs a copy in once, not every try
 #
 # NAME is lower case letters, digits and dashes (try-pr.sh uses pr-N). The copy is
 # $CMUX_SIDE_ROOT/NAME (default ~/Library/Application Support/cmux-side/NAME) and holds:
@@ -39,7 +55,8 @@
 #                   only under DEV's own bundle id (WebDevOverride.isAvailable); a nightly's copy can.
 #   web-overlay/    its web overlay (CMUX_WEB_OVERLAY_DIR), web-slot/ its dev server state
 #   live-code/      with --live-code, the folder its live code watcher reads (CMUX_LIVE_CODE_DIR)
-# A side instance starts signed out with fresh settings. Like every cmux build on the Mac, it shares
+# A side instance starts signed out with fresh settings; its own sign-in survives a remake through
+# remove --keep-sign-in (as `cmux app try .` remakes it), never another build's. Like every cmux build on the Mac, it shares
 # two folders with the others: ~/Library/Application Support/cmux/agent-home (the folder a chat
 # with no folder runs in) and its Chat Uploads; everything else it keeps under its own bundle id.
 set -euo pipefail
@@ -62,6 +79,8 @@ done
 mkdir -p "$root"; root="$(cd "$root" && pwd -P)"
 # SIDE_INSTANCE_PLISTBUDDY: a stand-in for tests (tests/test_side_instance_remake_clears_old_identity.py).
 buddy="${SIDE_INSTANCE_PLISTBUDDY:-/usr/libexec/PlistBuddy}"
+# shellcheck source=lib/adhoc-seal.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/adhoc-seal.sh"
 
 cmd="${1:-}"; [[ -n "$cmd" ]] || usage 1; shift
 [[ "$cmd" == -h || "$cmd" == --help ]] && usage
@@ -104,24 +123,76 @@ clear_state() {
     "$HOME/.cmux/chief/$bundle" "$HOME/.cmux/chief/$bundle@"* "$HOME/Library/Preferences/$bundle.plist" \
     "$HOME/Library/Caches/$bundle" "$HOME/Library/HTTPStorages/$bundle" "$HOME/Library/WebKit/$bundle" \
     "$HOME/Library/Saved Application State/$bundle.savedState" "$HOME/Library/Application Support/$bundle" \
-    "$HOME/Library/Application Support/cmux-next/$bundle"; do
+    "$HOME/Library/Application Support/cmux-next/$bundle" "$HOME/Library/Application Support/cmux/$bundle"; do
     if [[ -e "$path" ]]; then rm -rf "$path"; fi
   done
 }
 
+# A copy's own Cloud session set aside by `remove NAME --keep-sign-in` until the next make of NAME: outside
+# $dir, which remove deletes. Only the copy's own file token stores (an ad hoc copy has no Keychain group,
+# so the app keeps its session there: CmuxAuthRuntime FallbackTokenStore), never another build's: a copy
+# never reuses the NIGHTLY's session (skills/cmux-dev-workflow/references/dev-build-spaces.md).
+kept="$root/.kept-sign-in/$name"
+# BUNDLE: set the identity's credentials.json files aside in $kept, with the bundle id they belong to.
+keep_sign_in() {
+  local bundle="$1" base rel file
+  [[ "$bundle" == *.side-"$name"-* ]] || die "unexpected bundle id $bundle"
+  rm -rf "$kept"
+  for base in "$HOME/Library/Application Support/cmux-next/$bundle" "$HOME/Library/Application Support/cmux/$bundle"; do
+    [[ -d "$base" ]] || continue
+    while IFS= read -r -d '' file; do
+      rel="${file#"$HOME/"}"
+      (umask 077; mkdir -p "$kept/files/$(dirname "$rel")")
+      cp -p "$file" "$kept/files/$rel"
+    done < <(find "$base" -name credentials.json -type f -print0)
+  done
+  if [[ -d "$kept/files" ]]; then
+    chmod 700 "$root/.kept-sign-in" "$kept"
+    printf '%s\n' "$bundle" >"$kept/bundle"
+    echo "$name: kept its sign-in for its next make"
+  fi
+}
+# BUNDLE: put a kept session back when it belongs to BUNDLE; a kept session never goes to another identity.
+restore_sign_in() {
+  local bundle="$1" file rel
+  [[ -f "$kept/bundle" ]] || { rm -rf "$kept"; return 0; }
+  if [[ "$(cat "$kept/bundle")" == "$bundle" ]]; then
+    while IFS= read -r -d '' file; do
+      rel="${file#"$kept/files/"}"
+      (umask 077; mkdir -p "$HOME/$(dirname "$rel")")
+      cp -p "$file" "$HOME/$rel"
+    done < <(find "$kept/files" -type f -print0)
+    echo "$name: signed in as before (its own session, kept from its last copy)"
+  fi
+  rm -rf "$kept"
+}
+
 case "$cmd" in
   make)
-    from="/Applications/cmux NEXT.app" label="cmux $name" live="" neutral=""
+    # SIDE_INSTANCE_DEFAULT_APP: a stand-in for tests (tests/test_side_instance_stale_default.py).
+    from="${SIDE_INSTANCE_DEFAULT_APP:-/Applications/cmux NEXT.app}" label="cmux $name" live="" neutral="" swap="" own_customize="" keep_icon=""
+    chosen=""
     while [[ $# -gt 0 ]]; do
       case "$1" in
-        --from) [[ $# -ge 2 ]] || usage 1; from="${2%/}"; shift 2 ;;
+        --from) [[ $# -ge 2 ]] || usage 1; from="${2%/}"; chosen=1; shift 2 ;;
         --label) [[ $# -ge 2 ]] || usage 1; label="$2"; shift 2 ;;
         --live-code) live=1; shift ;;
         --neutral-shell) neutral=1; shift ;;
+        --customize) own_customize=1; shift ;;
+        --keep-icon) keep_icon=1; shift ;;
+        --swap) [[ $# -ge 2 ]] || usage 1; swap="$2"; shift 2 ;;
         *) usage 1 ;;
       esac
     done
     [[ -f "$from/Contents/Info.plist" ]] || die "no app at $from"
+    # The default app is whatever someone once installed: a fleet Mac's /Applications/cmux NEXT.app was a Safari
+    # download of a 2026-10-28 build that nothing updates, and each copy of it read inside ~/Downloads at launch
+    # (before the LAUNCH-NO-TCC-PROMPTS fixes of 2026-10-30, #28820), so every new side instance put macOS's
+    # Downloads prompt on an unattended screen (cmux20, 2026-11-18). Named with --from, any build is copied (an
+    # older one is how a before look is taken).
+    if [[ -z "$chosen" && -n "$(find "$from/Contents/Info.plist" -mtime +7 2>/dev/null)" ]]; then
+      die "$from was built over 7 days ago, and a copy runs that old code; install a current build there, or name the app with --from (/Applications/cmux NIGHTLY.app, or an older one on purpose)"
+    fi
     [[ "$label" =~ ^[A-Za-z0-9\ \#._-]+$ ]] || die "the label takes letters, digits, spaces and # . _ -"
     old_bundle="" old_key=""
     if [[ -f "$marker" ]]; then
@@ -196,6 +267,11 @@ PY
       mkdir -p "$dir/live-code"
       plist_set "$plist" LSEnvironment:CMUX_LIVE_CODE_DIR "$dir/live-code"
     fi
+    # Its own customize folder (the daemon reads CMUX_CUSTOMIZE_DIR, cmux-tui-core apps/catalog.rs).
+    if [[ -n "$own_customize" ]]; then
+      mkdir -p "$dir/customize"
+      plist_set "$plist" LSEnvironment:CMUX_CUSTOMIZE_DIR "$dir/customize"
+    fi
     # A neutral shell: zsh's default prompt `%n@%m %1~ %#` reads "cmux@cmux23 ~ %" on a fleet mini, and a
     # look's privacy check withholds every shot and the video that shows it. The app points its terminals'
     # zsh at the folder CMUX_CAPTURE_SHELL_HOME names (ZDOTDIR, AppEnvironment.terminalEnvironment), the same
@@ -209,21 +285,29 @@ PY
         "PROMPT='\$ '" "PS1='\$ '" "RPROMPT=''" "RPS1=''" >"$dir/shell-home/.zshrc"
       plist_set "$plist" LSEnvironment:CMUX_CAPTURE_SHELL_HOME "$dir/shell-home"
     fi
-    # The seal covers Info.plist: re-sign the outer bundle ad hoc (nested code keeps its own
-    # signatures), and check it. An ad hoc signature may carry only unrestricted entitlements: one
-    # that needs the team's provisioning profile (the Keychain group, application-identifier, any
-    # com.apple.developer key) gets the copy killed at launch, so those go, with the profile. The
-    # copy then has no Keychain items of the original's group: it starts signed out.
-    xattr -cr "$app" 2>/dev/null || true
-    rm -f "$app/Contents/embedded.provisionprofile"
+    # Its own icon (Leo, 2026-11-22: "for our 'fake shell offline simulator of the app' type things, maybe we ought
+    # to give them different icons?"): the original's icon lives in Assets.car under CFBundleIconName, which macOS
+    # prefers, so that key goes and CFBundleIconFile names the SIM icns copied into Resources. The seal below covers it.
+    if [[ -z "$keep_icon" ]]; then
+      icon="$(dirname "${BASH_SOURCE[0]}")/side-icon/AppIcon-Side.icns"
+      if [[ -f "$icon" ]]; then
+        mkdir -p "$app/Contents/Resources"
+        cp "$icon" "$app/Contents/Resources/AppIcon-Side.icns"
+        "$buddy" -c "Delete :CFBundleIconName" "$plist" 2>/dev/null || true
+        plist_set "$plist" CFBundleIconFile AppIcon-Side
+      else
+        echo "side-instance: no SIM icon at $icon, so $name keeps the original's icon" >&2
+      fi
+    fi
+    # --swap: another build's executable and resource bundles in place of the copy's (swap-binary.sh place), before
+    # the seal, which covers them too.
+    if [[ -n "$swap" ]]; then
+      "$(dirname "${BASH_SOURCE[0]}")/swap-binary.sh" place "$app" "$swap" || die "the swap into $name failed"
+    fi
+    # The seal covers Info.plist (and a swapped binary): re-signed ad hoc, as every copy that has to launch is
+    # (lib/adhoc-seal.sh), with the original's unrestricted entitlements only: the copy starts signed out.
     entitlements="$dir/entitlements.plist"
-    codesign -d --entitlements :- "$from" 2>/dev/null | python3 -c '
-import plistlib, sys
-data = sys.stdin.buffer.read()
-kept = {k: v for k, v in (plistlib.loads(data) if data.strip() else {}).items() if k.startswith("com.apple.security.")}
-sys.stdout.buffer.write(plistlib.dumps(kept))' >"$entitlements"
-    codesign --force --sign - --timestamp=none --entitlements "$entitlements" "$app" 2>&1 | grep -v 'replacing existing signature' >&2 || true
-    codesign --verify --strict "$app" || die "the re-sealed copy does not verify"
+    cmux_adhoc_seal "$app" "$from" "$entitlements" || die "the re-sealed copy does not verify"
     # Launch Services learns the new bundle id now, so the first open finds it.
     /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$app" 2>/dev/null || true
     version="$("$buddy" -c "Print :CFBundleVersion" "$from/Contents/Info.plist" 2>/dev/null || true)"
@@ -252,6 +336,7 @@ PY
       clear_state "$old_bundle" "$old_key"
       echo "$name: cleared the state of its earlier identity $old_bundle"
     fi
+    restore_sign_in "$bundle"
     echo "$name: $app ($bundle)"
     ;;
   launch)
@@ -325,8 +410,16 @@ PY
     done
     ;;
   remove)
+    keep=""
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --keep-sign-in) keep=1; shift ;;
+        *) usage 1 ;;
+      esac
+    done
     app_of >/dev/null
     "$0" stop "$name"
+    if [[ -n "$keep" ]]; then keep_sign_in "$(sed -n 's/^bundle=//p' "$marker")"; else rm -rf "$kept"; fi
     clear_state "$(sed -n 's/^bundle=//p' "$marker")" "$(sed -n 's/^key=//p' "$marker")"
     rm -rf "$dir"
     echo "$name removed"

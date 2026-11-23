@@ -176,6 +176,19 @@ public final class WebBundleServedViews {
     /// Whether `webView` keeps the update it loaded with until it closes (``keepLoadedTree(_:)``).
     public func keepsLoadedTree(_ webView: WKWebView) -> Bool { keepsLoaded.contains(webView) }
 
+    /// A Chromium page's document request: the page (keyed by its host `webView`, which Chromium
+    /// draws for) reads the update active now from this document on, and every request of the
+    /// document after it reads that same update (``root(for:in:overlay:)``), so its lazy chunks never
+    /// come from a newer build than its entry (an unhashed `chunks/X.mjs` of the next merge's build
+    /// under the last one's entry). Its tree stays on disk while it is open (``pinnedTrees``), and a
+    /// swap never reloads it in place (``keepLoadedTree(_:)``): it takes the newer web with its next
+    /// document (a reload, a restart, a reopen).
+    public func chromiumDocument(_ webView: WKWebView) {
+        webViews.add(webView)
+        keepsLoaded.add(webView)
+        pins.forget(ObjectIdentifier(webView))
+    }
+
     /// Whether no handler served a view yet (a launch that shows no page).
     public var isEmpty: Bool { webViews.allObjects.isEmpty }
 

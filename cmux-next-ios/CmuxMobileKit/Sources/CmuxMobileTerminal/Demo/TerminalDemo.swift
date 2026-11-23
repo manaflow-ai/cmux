@@ -151,7 +151,10 @@ final class TerminalDemoDriver {
         // Opt-in only (not in `all`): the keyboard reversed mid-animation.
         if selected.contains("kbinterrupt") { await keyboardInterrupt() }
         if selected.contains("kbtui") { await keyboardOverTUI() }
+        if selected.contains("kbclaude") { await keyboardOverTUI(command: "claude") }
         if selected.contains("kbshell") { await keyboardOverShell() }
+        if selected.contains("scrollbench") { await scrollBench() }
+        if selected.contains("historyfling") { await historyFling() }
         mark("end")
         if let log = model.controller?.presentLog, !log.isEmpty,
            let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
@@ -216,6 +219,90 @@ final class TerminalDemoDriver {
         await wait(1.5)
     }
 
+    /// Leo, 2026-11-21: "terminals are indeed fast now... but only the bare
+    /// ones. this claude code cli is often slow to scroll up and down". The
+    /// same flings over a bare shell's scrollback, then while the mock's
+    /// inline Claude Code screen redraws (`claudeinline`), then with its
+    /// clear-and-reprint as well. Each case marks the fling frames'
+    /// intervals: `bench CASE frames=N p50=.. p95=.. max=.. hitches=..`.
+    private func scrollBench() async {
+        let cases: [(name: String, command: String?)] = [
+            ("bare", nil),
+            ("claude-inline", "claudeinline 50"),
+            ("claude-inline-reprint", "claudeinline 50 20"),
+            // A long session: 3,000 transcript rows, all reprinted every 2 s.
+            ("claude-inline-long", "claudeinline 50 40 3000"),
+            // Full screen: the drag is the wheel (T-SCROLL-12), not the page.
+            ("claude-full", "claudefull 50"),
+        ]
+        model.composerText = "stream 600 1"
+        model.send()
+        await wait(4)
+        var results: [String] = []
+        for (name, command) in cases {
+            if let command {
+                model.composerText = command
+                model.send()
+                await wait(3)
+            }
+            let full = name == "claude-full"
+            if !full { model.scrollToBottom() }
+            await wait(1)
+            let mock = model.session as? MockTerminalSession
+            let reports = mock?.wheelReports ?? 0, rows = mock?.wheelRows ?? 0
+            let sampler = FrameSampler()
+            sampler.start()
+            for _ in 0..<3 {
+                if full {
+                    model.controller?.tuiFling(velocity: 3000)
+                    await wait(1.6)
+                    model.controller?.tuiFling(velocity: -3000)
+                } else {
+                    model.controller?.fling(velocity: -5000)
+                    await wait(1.6)
+                    model.controller?.fling(velocity: 5000)
+                }
+                await wait(1.6)
+            }
+            var line = "bench \(name) " + sampler.stop()
+            if full, let mock {
+                line += " wheel=\(mock.wheelReports - reports) wheelrows=\(mock.wheelRows - rows)"
+            }
+            mark(line)
+            results.append(line)
+            model.demoNote = results.joined(separator: " | ")
+            if command != nil {
+                model.sendControl("c")
+                await wait(1)
+            }
+        }
+        model.scrollToBottom()
+        model.demoNote = "scrollbench done | " + results.joined(separator: " | ")
+        mark(model.demoNote)
+    }
+
+    /// Leo, 2026-11-21: "this claude code cli is often slow to scroll up and
+    /// down from ios". A Mac terminal attaches with its latest rows first; a
+    /// reader's first fling up slows into the top of them and asks for the
+    /// older rows, which come back as a reset and a replay of the whole
+    /// window. The fling runs to its end and the older rows come after it:
+    /// `historyfling done stopped=N fetches=N top=ROW`.
+    private func historyFling() async {
+        model.composerText = "historywindow 150 2000 60"
+        model.send()
+        await wait(3)
+        model.scrollToBottom()
+        await wait(1.5)
+        let before = model.controller?.flingsStoppedByReset ?? 0
+        mark("fling up into the top of the rows held")
+        model.controller?.flingToNearTop()
+        await wait(6)
+        let stopped = (model.controller?.flingsStoppedByReset ?? 0) - before
+        let fetches = (model.session as? MockTerminalSession)?.historyFetches ?? 0
+        model.demoNote = "historyfling done stopped=\(stopped) fetches=\(fetches) state=\(model.controller?.debugState ?? "-")"
+        mark(model.demoNote)
+    }
+
     private func keyboard() async {
         mark("keyboard show (composer)")
         model.toggleKeyboard()
@@ -250,8 +337,11 @@ final class TerminalDemoDriver {
     /// at `done.rz<before>-<after>`: the PTY resizes sent before and after.
     /// `-CmuxMobileTerminalDemoTUI htop` runs htop (it reports the mouse)
     /// instead of vim.
-    private func keyboardOverTUI() async {
-        let program = UserDefaults.standard.string(forKey: "CmuxMobileTerminalDemoTUI") == "htop" ? "htop" : "vim README.md"
+    /// `kbclaude` (opt-in): the same with the mock Claude Code screen (its
+    /// header box on the first rows, the cursor in its input box at the
+    /// bottom), whose header stays pinned above the keyboard.
+    private func keyboardOverTUI(command: String? = nil) async {
+        let program = command ?? (UserDefaults.standard.string(forKey: "CmuxMobileTerminalDemoTUI") == "htop" ? "htop" : "vim README.md")
         model.controller?.surface.sendText(program, pressReturn: true)
         // Past the resize settle (250 ms), so every size before the toggles is counted.
         await wait(2.5)
@@ -271,8 +361,9 @@ final class TerminalDemoDriver {
         // terminal shows it; the key hides it), `system` (shown by the key,
         // hidden from outside our code: the terminal resigns, as a swipe or
         // the system does, so only will-hide claims the rows), `reverse`
-        // (shown, then hidden 80 ms later, before the Mac answers) and
-        // `double` (shown, hidden and shown again 100 ms apart).
+        // (shown, then hidden 80 ms later, before the Mac answers),
+        // `double` (shown, hidden and shown again 100 ms apart) and `send`
+        // (the composer shows it, a message is sent from it, the key hides it).
         let mode = UserDefaults.standard.string(forKey: "CmuxMobileTerminalDemoToggle") ?? "key"
         for round in 0..<5 {
             switch mode {
@@ -280,6 +371,18 @@ final class TerminalDemoDriver {
                 note("show\(round)")
                 model.controller?.debugTapTerminal()
                 await wait(2.5)
+                note("hide\(round)")
+                model.toggleKeyboard()
+            case "send":
+                // Leo's flow (ask-b8451d6e4b): the composer takes the keyboard,
+                // a message goes from it to the app, and the keyboard key
+                // then puts the keyboard away.
+                note("show\(round)")
+                model.focusComposer()
+                await wait(1.5)
+                await type("jj")
+                model.send()
+                await wait(0.6)
                 note("hide\(round)")
                 model.toggleKeyboard()
             case "system":
@@ -512,6 +615,39 @@ final class TerminalDemoDriver {
         }
         model.showArtifacts = false
         await wait(1)
+    }
+}
+/// Frame intervals from a display link at the screen's top rate, for
+/// `scrollBench` (works without `-CmuxMobileFrameLog`).
+@MainActor
+private final class FrameSampler: NSObject {
+    private var link: CADisplayLink?
+    private var last: CFTimeInterval = 0
+    private var intervals: [Double] = []
+
+    func start() {
+        let link = CADisplayLink(target: self, selector: #selector(tick(_:)))
+        let top = Float(UIScreen.main.maximumFramesPerSecond)
+        link.preferredFrameRateRange = CAFrameRateRange(minimum: top, maximum: top, preferred: top)
+        link.add(to: .main, forMode: .common)
+        self.link = link
+    }
+
+    @objc private func tick(_ link: CADisplayLink) {
+        if last > 0 { intervals.append((link.timestamp - last) * 1000) }
+        last = link.timestamp
+    }
+
+    /// Stops and returns `frames=N p50=.. p95=.. max=.. hitches=..` (ms).
+    func stop() -> String {
+        link?.invalidate()
+        link = nil
+        let sorted = intervals.sorted()
+        guard !sorted.isEmpty else { return "frames=0" }
+        func pct(_ p: Double) -> Double { sorted[min(sorted.count - 1, Int(Double(sorted.count - 1) * p))] }
+        let frame = 1000 / Double(max(60, UIScreen.main.maximumFramesPerSecond))
+        let hitches = sorted.filter { $0 > frame * 1.5 }.count
+        return String(format: "frames=%d p50=%.2f p95=%.2f max=%.2f hitches=%d", sorted.count, pct(0.5), pct(0.95), sorted.last ?? 0, hitches)
     }
 }
 #endif

@@ -291,6 +291,9 @@ export class HarnessSwitch {
   private listeners = new Set<() => void>();
   /// The session the pane left for the current intent, when it was empty: switching back reuses it.
   private left?: { sessionId: string; harness?: string };
+  /// The permission mode last picked or run on each harness in this pane: a switch away and back
+  /// (Codex, Claude Code, Codex) starts the new chat on it again, as its model comes back.
+  private modes = new Map<string, string>();
   private hintTarget?: string;
   private cancelHint?: () => void;
   private lastHint?: { harness: string; at: number };
@@ -410,6 +413,13 @@ export class HarnessSwitch {
     }
     const done = deferred<string | undefined>();
     const model = options.model ?? (previous?.harness === harness ? previous.config.model : undefined);
+    // The harness being left keeps its mode for a switch back: a pending start's pick, else the mode
+    // the shown chat of that harness runs on.
+    const leftHarness = previous ? previous.harness : shownSession?.harness;
+    const leftMode =
+      previous?.config.mode ?? (shownSession?.harness === leftHarness ? shownSession?.modeId : undefined);
+    if (leftHarness && leftMode) this.modes.set(leftHarness, leftMode);
+    const back = previous?.harness === harness ? undefined : this.modes.get(harness);
     const intent: Intent = {
       id: ++this.generation,
       harness,
@@ -418,15 +428,19 @@ export class HarnessSwitch {
       phase: "starting",
       queued: previous?.queued ?? [],
       // A model or mode picked for one harness does not carry to another; to another folder it does.
+      // Back on a harness, its own last mode comes back with it.
       config: {
         ...(previous?.harness === harness ? previous.config : { options: {} }),
         // A model row of this harness picked it, or the caller passed the one last picked on it
         // (`lastOfferedModel`): the new chat starts on that model.
         ...(model ? { model } : {}),
+        ...(back ? { mode: back } : {}),
       },
       tickets: previous?.harness === harness ? previous.tickets : new Map(),
       done,
     };
+    // The mode it comes back to takes its gesture ticket now, in the pick's own handler.
+    if (back) intent.tickets.set("mode", this.takeTicket({ method: "session/set_mode", params: { modeId: back } }));
     if (previous) this.retire(previous, false);
     this.modelPick = undefined;
     this.configPick = undefined;
@@ -700,7 +714,10 @@ export class HarnessSwitch {
         if (done) return finish(done.sessionId);
         if (this.clock.now() >= deadline) return finish(undefined);
         // A shown pick's session is set before its open answers, with no change to draw: look again.
-        cancelTimer = this.clock.schedule(check, Math.min(PICK_SESSION_POLL_MS, Math.max(0, deadline - this.clock.now())));
+        cancelTimer = this.clock.schedule(
+          check,
+          Math.min(PICK_SESSION_POLL_MS, Math.max(0, deadline - this.clock.now())),
+        );
       };
       const unsubscribe = this.subscribe(() => {
         const done = settled();
@@ -764,6 +781,14 @@ export class HarnessSwitch {
     intent.done.resolve(undefined);
   }
 
+  /// A step answered on a client the switch no longer runs on (its connection dropped, or a
+  /// reconnect replaced it): the client connected now, if any, runs the start again; with none yet,
+  /// `connect` runs it when one comes. A reconnect that came while the old step was out found the
+  /// intent still running and left it to that step.
+  private runOnNextClient(intent: Intent): void {
+    if (this.port && !intent.running && intent.phase !== "failed" && intent.phase !== "trust") void this.run(intent);
+  }
+
   private async run(intent: Intent): Promise<void> {
     const port = this.port;
     if (!port || intent.running) return;
@@ -777,7 +802,8 @@ export class HarnessSwitch {
       } catch (error) {
         if (intent.running === port) intent.running = undefined;
         // A dropped connection is not a failure: the next client runs it again.
-        if (this.intent !== intent || this.port !== port) return;
+        if (this.intent !== intent) return;
+        if (this.port !== port) return this.runOnNextClient(intent);
         this.fail(intent, error);
         return;
       }
@@ -786,7 +812,13 @@ export class HarnessSwitch {
         return;
       }
       if (!sessionId) {
-        intent.running = undefined;
+        if (intent.running === port) intent.running = undefined;
+        // A client whose connection dropped or was replaced while `session/new` was out answers no
+        // session (direct.ts startSession on a closed client): no failure either, the next client
+        // runs the start again. Failing here showed "cmux did not start a session" on a new chat
+        // whose session acpmux had started (Leo, 2026-11-17: "i also ran into this error jsut now
+        // when starting a chat!").
+        if (this.port !== port) return this.runOnNextClient(intent);
         this.fail(intent, new Error(t("switch.noSession")));
         return;
       }
@@ -803,7 +835,8 @@ export class HarnessSwitch {
       opened = await port.open(sessionId);
     } catch (error) {
       if (intent.running === port) intent.running = undefined;
-      if (this.intent !== intent || this.port !== port) return;
+      if (this.intent !== intent) return;
+      if (this.port !== port) return this.runOnNextClient(intent);
       this.fail(intent, error);
       return;
     }
@@ -816,8 +849,9 @@ export class HarnessSwitch {
       if (attached && port.shown()?.sessionId === sessionId) opened = sessionId;
     }
     if (!opened) {
-      intent.running = undefined;
-      if (this.port === port) this.fail(intent, new Error(t("switch.noSession")));
+      if (intent.running === port) intent.running = undefined;
+      if (this.port !== port) return this.runOnNextClient(intent);
+      this.fail(intent, new Error(t("switch.noSession")));
       return;
     }
     this.left = undefined;

@@ -69,7 +69,7 @@ AUTHOR_AGENT = re.compile(r"^[\s>*_`-]*author-agent[*_`]*\s*:[\s*_`]*(?P<id>[^\s
 # The aid in the `Agent session:` footer `agent-identity footer` writes at the end of every lane PR body
 # (`[...](https://cmux.com/deeplink/agent?id=aid-<20 hex>)`) names the author agent too. leo-workspace
 # tools/review_model.py reads both forms; reading only Author-agent here refused #42066's review-service SHIP
-# (the body carried the footer alone) after merge_hold and router-review had both read it as independent.
+# (the body carried the footer alone) after land-judge and router-review had both read it as independent.
 FOOTER_AGENT = re.compile(r"^[\s>*_`-]*agent session[*_`]*\s*:[^\n]*?[?&]id=(?P<id>aid-[0-9a-f]{20})(?![0-9a-f])",
                           re.I | re.M)
 HTML_COMMENT = re.compile(r"<!--.*?-->", re.S)
@@ -189,7 +189,7 @@ RULES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("high", "socket or relay access policy", (
         NEXT + "CmuxNextControl/ControlAuthorizer.swift", NEXT + "CmuxNextControl/ControlPeer*.swift",
         NEXT + "CmuxNextControl/CheckedAccess.swift", NEXT + "CmuxNextControl/ControlSocketPath.swift",
-        NEXT + "CmuxNextWakeups/UnixSocketPeer.swift", "*/CmuxCuaHelperCore/PeerInspector.swift",
+        NEXT + "CmuxNextWakeups/UnixSocketPeer.swift",
         "cmux-tui/crates/*relay*/*", "cmux-tui/relays/*", "cmux-tui/crates/cmux-tui-core/src/server/remote_relay/*",
         "services/iroh-relay-minter/*", "web/services/relay/*", "daemon/remote/cmd/cmuxd-remote/*peer*",
         r"re:(?i)relay[-_]?(command[-_]?)?polic", r"re:(?i)(socket|control)[-_]?(access|auth)",
@@ -197,30 +197,21 @@ RULES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     # Who answers or connects on a local socket or XPC service, and which code may run, decided by
     # the peer's uid, executable or code signature: the Chief's acpmux peer check and its
     # kernel-signature rule for a moved acpmux (code_signature.rs), the app's acpmux server peer
-    # check, cmux-link's caller and containing-app checks, the Computer Use helper's admission rule,
-    # state and control pipe (where the app's admission values arrive), host check and the two
-    # socket servers that call them, the app's check of the helper on that socket, the requirement
-    # or cdhash, the acpmux daemon and executable and the per-launch secret the app gives the helper
-    # for acpmux bridges, which acpmux executable the app runs and trusts (its team-signature
-    # refusal, and the DEBUG override), the requirement of the helper the app or acpmux may
-    # launch (Swift, Rust and shell copies) and the check of its staged copy, the root server
+    # check, cmux-link's caller and containing-app checks, which acpmux executable the app runs and trusts (its team-signature
+    # refusal, and the DEBUG override), who the Computer Use worker's agent socket admits
+    # (cmux-computer-use server.rs: same uid, then the per-launch secret), the root server
     # helper's XPC requirements (its clients', and the app's of it), and the signature checks of a
     # downloaded browser runtime. A wrong time or anchor here lets another process take the socket
     # (#29072 changed which time a signing chain is valid at and graded normal).
     ("high", "peer identity or code-signature trust", (
         "Native/OptChat/optchat-chief/src/acpmux_peer.rs", NEXT + "CmuxNextAgentPane/AcpmuxServerPeer.swift",
         "cmux-tui/crates/cmux-link/src/caller.rs", "cmux-tui/crates/cmux-link/src/caller_macos.rs",
-        "cmux-tui/crates/cmux-link/src/app_caller.rs", "*/CmuxCuaHelperCore/HostVerifier.swift",
-        NEXT + "CmuxNextAgentActivity/CuaHelperIdentity.swift", "*/CmuxCuaHelperCore/Admission.swift",
-        "*/CmuxCuaHelperCore/AdmissionState.swift", "*/CmuxCuaHelperCore/HelperController.swift",
-        "*/CmuxCuaHelperCore/HelperSocketServer.swift", "*/CmuxCuaHelperCore/HostConsentServer.swift",
-        NEXT + "CmuxNextComputerUse/ComputerUseHelperV2+Secret.swift", NEXT + "CmuxNextApp/AgentTabs+PaneSource.swift",
+        "cmux-tui/crates/cmux-link/src/app_caller.rs",
+        NEXT + "CmuxNextApp/AgentTabs+PaneSource.swift",
         NEXT + "CmuxNextAgentPane/AcpmuxEnvironment+Resolve.swift",
         NEXT + "CmuxNextAgentPane/AcpmuxEnvironment+DebugOverride.swift",
-        "cmux-tui/crates/acpmux/src/agent_tools/cua_helper.rs", "scripts/cmux-cua-helper-trust.sh",
-        NEXT + "CmuxNextComputerUse/ComputerUseHelperStaging.swift",
-        NEXT + "CmuxNextComputerUse/ComputerUseHelperV2HostLink.swift",
-        NEXT + "CmuxNextComputerUse/ComputerUseHelperV2+Admission.swift",
+        # The Computer Use worker socket's admission (same uid, then the per-launch secret).
+        "cmux-tui/crates/cmux-computer-use/src/server.rs",
         NEXT + "CmuxNextServerHelper/ServerHelperListener.swift", NEXT + "CmuxNextServerHelper/ServerHelperProtocol.swift",
         NEXT + "CmuxNextApp/Server/ServerHelperClient.swift",
         # A file named for a code-signature check: code_signature.rs, *CodeSignatureChecker.swift.
@@ -696,7 +687,7 @@ def missing_evidence(tier: str, human_ok: bool = False, body: str = "",
 
 def takeback_fix(numbers: list[int]) -> str:
     """What clears an unowned takeback of NUMBERS, the lines to paste with their numbers filled in. The summary and
-    the check's error annotation (risk-tier.yml, through `takes_back_fix`) both say it: merge_hold and the lander
+    the check's error annotation (risk-tier.yml, through `takes_back_fix`) both say it: land-judge and the lander
     quote the annotation, so a refused revert names the line without anyone opening the job summary (a revert is
     the fast route; on cmux#41154 the refusal said only "the job summary says how")."""
     lines = " and ".join(f"`Takes back #{n}: <why>`" for n in numbers)
@@ -858,6 +849,30 @@ def undoes(pr_patch: str, commit_patch: str, added_elsewhere: frozenset[str] = f
     return len(commit_removed & back) / len(commit_removed) >= 0.5
 
 
+def prefetch_blobs(repo_dir: str, base_sha: str, paths: list[str], timeout: float) -> None:
+    """In a blobless history (risk-tier.yml fetches the base with --filter=blob:none: 16 MB in 5 s instead of
+    681 MB in 115 s, 11-21), fetch every version of `paths` the blame and `git show` below read, in one round
+    trip. Without it each version is its own lazy fetch: 52 s to blame 40 lines of cmux-next.yml, against 2 s
+    with it. Best effort: in a full history, or when the fetch fails, the blame falls back to lazy fetches."""
+    try:
+        promisors = subprocess.run(["git", "-C", repo_dir, "config", "--get-regexp", r"^remote\..*\.promisor$"],
+                                   capture_output=True, text=True, timeout=10).stdout.split()
+        remote = next((key[len("remote."):-len(".promisor")] for key in promisors[::2]), None)
+        if not remote or not paths:
+            return
+        env = {**os.environ, "GIT_NO_LAZY_FETCH": "1"}
+        raw = subprocess.run(["git", "-C", repo_dir, "log", "--format=", "--raw", "--no-abbrev", "--no-renames",
+                              base_sha, "--", *paths], capture_output=True, text=True, env=env, timeout=timeout).stdout
+        oids = {field for line in raw.splitlines() if line.startswith(":") for field in line.split()[2:4]}
+        oids.discard("0" * 40)
+        if oids:
+            subprocess.run(["git", "-C", repo_dir, "-c", "fetch.negotiationAlgorithm=noop", "fetch", "-q", "--no-tags",
+                            "--no-write-fetch-head", "--recurse-submodules=no", "--filter=blob:none", "--stdin", remote],
+                           input="\n".join(sorted(oids)) + "\n", capture_output=True, text=True, timeout=timeout)
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+
 def recent_reverts(entries: list[dict], repo_dir: str, base_sha: str, own: int,
                    now: float | None = None, unread: list[str] | None = None,
                    budget: float = REVERT_BUDGET_SECONDS) -> dict[int, list[str]]:
@@ -871,6 +886,11 @@ def recent_reverts(entries: list[dict], repo_dir: str, base_sha: str, own: int,
     found: dict[int, list[str]] = {}
     added_anywhere = frozenset(line for e in entries for line in diff_lines(e.get("patch") or "")[1])
     deadline = time.monotonic() + budget
+    blamed = [entry.get("previous_filename") or entry["filename"] for entry in entries[:MAX_BLAME_FILES]
+              if deleted_ranges(entry.get("patch") or "") and entry.get("status") != "added"
+              and not any(matches(entry.get("previous_filename") or entry["filename"], g) for g in GENERATED)]
+    if budget > 0:
+        prefetch_blobs(repo_dir, base_sha, blamed, timeout=max(1, budget / 3))
     for entry in entries[:MAX_BLAME_FILES]:
         path = entry.get("previous_filename") or entry["filename"]
         remaining = deadline - time.monotonic()
@@ -1042,6 +1062,9 @@ def pr_mode(args: argparse.Namespace) -> int:
         with Path(args.github_output).open("a") as out:
             out.write(f"tier={grade.tier}\nlabel={LABELS[grade.tier]}\n")
             out.write(f"ready={'false' if missing else 'true'}\n")
+            # risk-tier.yml grades again on GITHUB_TOKEN only when this is true: a refused sign-off read is the one
+            # held verdict another token can change (tests/test_risk_tier.py).
+            out.write(f"signoff_unread={'true' if unread else 'false'}\n")
             # Only an unowned takeback keeps the check red (risk-tier.yml): it is a stale-base squash
             # quietly reverting a merged change. A BLOCK on the head is the lander's to refuse.
             unowned = unowned_takebacks(pr.get("body") or "", list(undone))

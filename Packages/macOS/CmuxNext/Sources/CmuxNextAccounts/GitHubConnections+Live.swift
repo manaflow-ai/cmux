@@ -1,4 +1,5 @@
 public import CmuxNextCloud
+import CmuxNextCompat
 import CmuxNextPages
 import CmuxNextSettings
 public import Foundation
@@ -13,12 +14,12 @@ extension GitHubConnections {
     /// The connections of the Cloud sign-in AUTH, through the owner API at OWNER_API; PREVIEW (showcase or
     /// fixture launches) is always signed out. The GitHub App installation page opens through LinkRouter.
     public static func live(auth: CloudAuth, ownerAPI: URL, preview: Bool) -> GitHubConnections {
-        let transport = InstallHTTPTransport(baseURL: ownerAPI)
+        let transport = InstallHTTPTransport(baseURL: ownerAPI, buildSpace: auth.configuration.buildSpace)
         let current: @MainActor () -> Scope? = {
             guard !preview, auth.isSignedIn, let user = auth.user?.id else { return nil }
             return signedInScope(project: auth.configuration.stackProjectID, user: user, team: auth.teamID, managedTeam: auth.managedTeamID)
         }
-        return GitHubConnections(scope: current, call: { bound, op, params, mutationKey in
+        let model = GitHubConnections(scope: current, call: { bound, op, params, mutationKey in
             let access = try await auth.tokens().access
             guard current() == bound else { throw GitHubFailure.changedAccount }
             var body: [String: JSONValue] = ["op": .string(op), "params": params]
@@ -38,5 +39,23 @@ extension GitHubConnections {
             guard (reply["error"] == nil || reply["error"] == .null), reply["ok"] != .bool(false), let value = reply["value"] else { throw GitHubFailure.refused }
             return value
         }, open: { url in LinkRouter.shared.open(url) })
+        model.completionLink = CloudGitHubCompletion.link(scheme: auth.configuration.callbackScheme)
+        // The app finished an install GitHub handed back to it: the card reads its connections again.
+        model.changes = Task { [weak model] in
+            for await _ in ObservationStream({ auth.gitHubChanges.count }).dropFirst() {
+                model?.linkRefusal = auth.gitHubChanges.refusal.map { GitHubConnections.refusalWords(reason: $0.reason) }
+                await model?.perform("githubRefresh")
+            }
+        }
+        model.reconfigurePage = { bound in
+            // The status route names the connected installation's settings page for the scope's team (the personal
+            // team when no Stack team is selected, as `integration.list` without `x-cmux-team`).
+            guard current() == bound else { return nil }
+            let team = backendTeam(project: auth.configuration.stackProjectID, stackTeam: bound.team) ?? personalTeam(user: bound.user)
+            let access: CloudOwnerAPIClient.AccessToken = { try await auth.tokens().access }
+            return await CloudOwnerAPIClient(baseURL: ownerAPI, accessToken: access, teamID: { team }, buildSpace: auth.configuration.buildSpace)
+                .gitHubReconfigureURL(team: team)
+        }
+        return model
     }
 }

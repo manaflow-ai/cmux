@@ -288,6 +288,8 @@ struct WorkspaceTabHoverCardTests {
         #expect(abs(labelX - titleX) <= allowed, "Show details at \(labelX), tab titles at \(titleX)")
         #expect(!toggle.isExpanded)
         toggle.performClick(nil)
+        // A press runs at the start of the card window's next frame (d699764e).
+        card.runPendingDetailsPresses()
         #expect(toggle.isExpanded && card.isDetailsExpanded)
     }
 

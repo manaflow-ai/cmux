@@ -1,5 +1,6 @@
 // cmux-web-test-timeout: 300
-// The New Tab page's lists (Open tabs, Recently closed, All chats) share one leading column: each
+// The New Tab page's lists (Open tabs, All chats; Recently closed was the retired Threads and Console
+// templates' and has no gallery state now) share one leading column: each
 // list's heading text and every row's first ink (its glyph) start the same distance in from the
 // list's edge, the shared row inset (`--ui-row-padding-inline`, 8 at 100%). Open tabs and Recently
 // closed rows started their glyphs 2px left of their own heading, and All chats sat 2px further in
@@ -41,15 +42,6 @@ await requireBrowserLane("new-tab-list-columns.test.ts", async () => {
       variant: "split-open-tabs",
       frame: "component",
       list: ".nt-open-tabs:not(.nt-closed)",
-      heading: ".nt-open-tabs-head",
-      glyph: ".nt-open-tab .nt-row-glyph",
-    },
-    {
-      name: "Recently closed",
-      entry: "agent-pane.new-tab",
-      variant: "recently-closed",
-      frame: "component",
-      list: ".nt-closed",
       heading: ".nt-open-tabs-head",
       glyph: ".nt-open-tab .nt-row-glyph",
     },

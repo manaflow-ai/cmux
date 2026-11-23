@@ -109,10 +109,17 @@ extension HomeStore {
         return state
     }
 
-    /// `Caches/cmux-home-blobs`.
+    /// `Caches/cmux-home-blobs`: the app's Home attachment folder. Only the store that owns it names it
+    /// (`HomeService.homeStore`), since a store prunes its folder down to its own drafts' and sends' blobs.
     public nonisolated static var defaultBlobCacheDirectory: URL {
         let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
             ?? FileManager.default.temporaryDirectory
         return caches.appendingPathComponent("cmux-home-blobs", isDirectory: true)
+    }
+
+    /// A temporary folder of this store's own: the folder of a store that names none (tests, fixtures), so its
+    /// prune never reaches the app's folder, whose blobs it does not keep.
+    public nonisolated static func ownBlobCacheDirectory() -> URL {
+        FileManager.default.temporaryDirectory.appendingPathComponent("cmux-home-blobs-\(UUID().uuidString)", isDirectory: true)
     }
 }

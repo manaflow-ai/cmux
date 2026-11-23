@@ -15,6 +15,7 @@
 //   node scripts/pages/gen-strings.mjs --if-stale     # only pages whose inputs are newer (test preload)
 //   node scripts/pages/gen-strings.mjs --check        # fail when a written table differs
 //   node scripts/pages/gen-strings.mjs settings       # only the named pages
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -69,10 +70,6 @@ export function schemaKeys(schemaFile) {
 
 // Page -> output and catalogs. `keys(catalogKeys)` picks the keys the page uses (all by default).
 export const PAGES = {
-  "import-history": {
-    out: "webviews/src/pages/import-history/generated/strings.json",
-    catalogs: [{ file: "webviews/src/pages/import-history/Localizable.xcstrings" }],
-  },
   // The onboarding tool window (Agents, Import from Browsers, Computer Use): the page's own table,
   // its keys and translations the Swift steps' (CmuxNextOnboarding) it replaces.
   onboarding: {
@@ -151,6 +148,10 @@ export const PAGES = {
       {
         file: `${sources}/CmuxNextActions/ActionCatalog.xcstrings`,
         keys: () => ["action.reloadConfiguration"],
+      },
+      {
+        file: `${sources}/CmuxNextActions/RemoteActions.xcstrings`,
+        keys: () => ["action.remote.newGroup"],
       },
       {
         // Agents > Chiefs (u2586) draws the channels Home's Chief editor (ChiefPage.tsx).
@@ -602,18 +603,23 @@ const mtime = (file) => {
  * branch carries a copy that a merge can make stale. `bestEffort` still writes a page whose
  * catalogs miss translations (install must not fail on a half-translated branch; the tests and the
  * builds run strict). `ifStale` skips a page whose outputs are all newer than its inputs.
+ * `ifUnchanged` skips a page whose stamp (stampFile) says its outputs on disk are the ones this
+ * script made from these exact inputs, by content, not by time: a restored output cache can leave
+ * an old table newer than its inputs, which `ifStale` would keep.
  * Returns the number of failed pages.
  */
 export function writeStrings({
   check = false,
   bestEffort = false,
   ifStale = false,
+  ifUnchanged = false,
   only = [],
   log = console.error,
 } = {}) {
   let failed = 0;
   for (const [name, page] of Object.entries(PAGES)) {
     if (only.length && !only.includes(name)) continue;
+    if (ifUnchanged && !check && stampCurrent(name, page)) continue;
     if (ifStale && !check) {
       const target = path.join(repo, page.out);
       const outs = page.splitLocales
@@ -642,7 +648,8 @@ export function writeStrings({
       failed++;
       if (!bestEffort || check) continue;
     }
-    for (const [file, content] of outputsOf(page, json)) {
+    const outputs = outputsOf(page, json);
+    for (const [file, content] of outputs) {
       if (check) {
         const current = fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "";
         if (current !== content) {
@@ -665,8 +672,65 @@ export function writeStrings({
         fs.utimesSync(file, now, now);
       }
     }
+    if (!check) writeStamp(name, page, outputs);
   }
   return failed;
+}
+
+/**
+ * Where writeStrings records what a page's outputs were made from: webviews/node_modules/.cache,
+ * outside src/ so no dev server watches it. No node_modules (before an install): no stamp, and
+ * `ifUnchanged` writes the page as before.
+ */
+const stampFile = (name) => path.join(webviews, "node_modules", ".cache", "gen-strings", `${name}.json`);
+
+/** sha256 over each file's path and bytes; null when one is missing. */
+function digest(files, read = (file) => fs.readFileSync(file)) {
+  const hash = crypto.createHash("sha256");
+  try {
+    for (const file of files)
+      hash
+        .update(`${path.relative(repo, file)}\0`)
+        .update(read(file))
+        .update("\0");
+  } catch {
+    return null;
+  }
+  return hash.digest("hex");
+}
+
+/** Whether `page`'s stamp names these inputs and the outputs now on disk. */
+function stampCurrent(name, page) {
+  let stamp;
+  try {
+    stamp = JSON.parse(fs.readFileSync(stampFile(name), "utf8"));
+  } catch {
+    return false;
+  }
+  if (!stamp?.inputs || !Array.isArray(stamp.outputs) || stamp.inputs !== digest(inputsOf(page))) return false;
+  const outputs = digest(stamp.outputs.map((file) => path.join(repo, file)));
+  return outputs !== null && outputs === stamp.digest;
+}
+
+/** Records that `outputs` (file -> content, now on disk) are what this script makes from `page`'s inputs. */
+function writeStamp(name, page, outputs) {
+  if (!fs.existsSync(path.join(webviews, "node_modules"))) return;
+  const inputs = digest(inputsOf(page));
+  if (!inputs) return;
+  const files = [...outputs.keys()];
+  const stamp = {
+    inputs,
+    outputs: files.map((file) => path.relative(repo, file)),
+    digest: digest(files, (file) => outputs.get(file)),
+  };
+  // Written then renamed, as the tables are: test processes run the preload in parallel.
+  try {
+    const file = stampFile(name);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    const temp = `${file}.${process.pid}.tmp`;
+    fs.writeFileSync(temp, `${JSON.stringify(stamp)}\n`);
+    fs.renameSync(temp, file);
+  } catch {}
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

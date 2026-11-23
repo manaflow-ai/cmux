@@ -70,6 +70,28 @@ final class MacScreenButton: NSButton, MacScreenInked {
     /// The first click in an inactive window (the approval panel over another app) presses it.
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
+    /// A state card's button: it takes the keyboard without Full Keyboard Access and draws the focus
+    /// ring, so Tab reaches it and Space presses it (the card is all there is to act on in the pane).
+    var takesKeyFocus = false {
+        didSet { focusRingType = takesKeyFocus ? .exterior : .none }
+    }
+
+    override var acceptsFirstResponder: Bool { isEnabled && (takesKeyFocus || NSApp.isFullKeyboardAccessEnabled) }
+    override var canBecomeKeyView: Bool { acceptsFirstResponder }
+    override var focusRingMaskBounds: NSRect { bounds }
+
+    override func drawFocusRingMask() {
+        let radius = layer?.cornerRadius ?? 0
+        NSBezierPath(roundedRect: bounds, xRadius: radius, yRadius: radius).fill()
+    }
+
+    /// An accessibility press (VoiceOver, an automation client) runs the button's action directly.
+    override func accessibilityPerformPress() -> Bool {
+        guard isEnabled else { return false }
+        onPress()
+        return true
+    }
+
     override var isEnabled: Bool { didSet { refresh() } }
     override var isHighlighted: Bool { didSet { refresh() } }
 

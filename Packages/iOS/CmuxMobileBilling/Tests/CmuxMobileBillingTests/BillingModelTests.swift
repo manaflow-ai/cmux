@@ -247,6 +247,97 @@ struct BillingRig {
         rig.model.stop()
     }
 
+    /// Ask to Buy approval comes minutes or hours later, after the person
+    /// left the plans screen (whose `onDisappear` dismisses the banner). The
+    /// approval must still complete the purchase and report it.
+    @Test func pendingPurchaseApprovedAfterBannerDismissedStillCompletes() async throws {
+        let rig = await BillingRig()
+        let offer = try await rig.loadedOffer(.pro)
+        await rig.store.configure(purchaseResult: .success(.pending))
+        rig.model.start()
+
+        await rig.model.buy(offer, entryPoint: .settings)
+        #expect(rig.model.purchase == .pending(productID: offer.id))
+        rig.model.dismissResult()
+        #expect(rig.model.purchase == .idle)
+
+        rig.store.emitUpdate(.verified(BillingFixtures.transaction(12)))
+        await rig.store.waitUntilFinished(12)
+        await settle { rig.model.purchase == .completed(.pro) }
+
+        #expect(rig.model.purchase == .completed(.pro))
+        #expect(rig.analytics.names.filter { $0 == "ios_purchase_succeeded" }.count == 1)
+        rig.model.stop()
+    }
+
+    /// A refund of the product a purchase still waits for (an Ask to Buy
+    /// never answered, say) must not show as that purchase completing.
+    @Test func refundOfWaitingProductDoesNotCompleteThePurchase() async throws {
+        let rig = await BillingRig()
+        let offer = try await rig.loadedOffer(.pro)
+        await rig.store.configure(purchaseResult: .success(.pending))
+        rig.model.start()
+        await rig.model.buy(offer, entryPoint: .settings)
+        await rig.api.setReceipt(BillingTransactionReceipt(planID: .free, status: "revoked", expiresAt: nil))
+        let loadsBefore = await rig.api.accountLoads
+
+        rig.store.emitUpdate(.verified(BillingFixtures.transaction(21)))
+        await rig.store.waitUntilFinished(21)
+        // handle() reloads the account after it decided; wait for that.
+        let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+        while await rig.api.accountLoads == loadsBefore, ContinuousClock.now < deadline {
+            await Task.yield()
+        }
+        #expect(await rig.api.accountLoads > loadsBefore)
+
+        #expect(rig.model.purchase == .pending(productID: offer.id))
+        #expect(!rig.analytics.names.contains("ios_purchase_succeeded"))
+        rig.model.stop()
+    }
+
+    /// Starting another purchase while one waits for approval must not forget
+    /// the first: its approval still completes and is reported.
+    @Test func secondPurchaseKeepsTheFirstPendingOne() async throws {
+        let rig = await BillingRig()
+        let pro = try await rig.loadedOffer(.pro)
+        let max = try #require(rig.model.offers.first { $0.planID == .max })
+        await rig.store.configure(purchaseResult: .success(.pending))
+        rig.model.start()
+        await rig.model.buy(pro, entryPoint: .settings)
+        await rig.store.configure(purchaseResult: .success(.userCancelled))
+        await rig.model.buy(max, entryPoint: .settings)
+        #expect(rig.model.purchase == .idle)
+
+        rig.store.emitUpdate(.verified(BillingFixtures.transaction(22)))
+        await rig.store.waitUntilFinished(22)
+        await settle { rig.model.purchase == .completed(.pro) }
+
+        #expect(rig.model.purchase == .completed(.pro))
+        #expect(rig.analytics.names.filter { $0 == "ios_purchase_succeeded" }.count == 1)
+        rig.model.stop()
+    }
+
+    /// Restore delivers the transaction an awaiting-server purchase waited
+    /// for; the purchase completes there, and a later re-delivery does not
+    /// complete it again.
+    @Test func restoreCompletesAnAwaitingServerPurchase() async throws {
+        let rig = await BillingRig()
+        let offer = try await rig.loadedOffer(.pro)
+        let transaction = BillingFixtures.transaction(23)
+        await rig.store.configure(purchaseResult: .success(.completed(.verified(transaction))))
+        await rig.api.setSubmitErrors([.transport])
+        await rig.model.buy(offer, entryPoint: .settings)
+        #expect(rig.model.purchase == .awaitingServer(productID: offer.id))
+
+        await rig.store.configure(entitlements: [.verified(transaction)])
+        await rig.model.restorePurchases()
+
+        #expect(rig.model.purchase == .completed(.pro))
+        rig.model.dismissResult()
+        await rig.model.handle(.verified(transaction))
+        #expect(rig.model.purchase == .idle, "nothing waits any more")
+    }
+
     @Test func ineligibleAccountLoadsNoOffersAndCannotBuy() async throws {
         let rig = await BillingRig(account: BillingFixtures.account(
             eligible: false,

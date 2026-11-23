@@ -20,7 +20,7 @@
     renderSessionInfo: () => renderSessionInfo
   });
   var events_default = {
-    $comment: "The event streams an extension can subscribe to (cmux.events.on, cmux.live). An event is an invalidation with no payload: the app reads again. The daemon delivers a stream only to an app that may call its `reads` op (apps/subscriptions.rs stream_readable), so that op's scope is the stream's scope. tools/gen-cmux-global.ts checks each `reads` against the catalog and writes the SDKs' table (cmux-extension-sdk/api.json); cmux-tui-core's routing tests check that every stream the daemon publishes is listed here.",
+    $comment: "The event streams an extension can subscribe to (cmux.events.on, cmux.live). An event is an invalidation with no payload: the app reads again (a stream fed from outside this machine, github.changed, may say {\"live\": bool} about its push channel). The daemon delivers a stream only to an app that may call its `reads` op with its optional `readsParams` (apps/subscriptions.rs stream_readable), so that op's scope is the stream's scope; a `reads` op whose catalog scope has a <placeholder> (integration.request) names the narrowed scope in `scope`. tools/gen-cmux-global.ts checks each `reads` against the catalog and writes the SDKs' table (cmux-extension-sdk/api.json); cmux-tui-core's routing tests check that every stream the daemon publishes is listed here.",
     version: 1,
     events: {
       "workspace.changed": {
@@ -58,6 +58,12 @@
       "settings.changed": {
         docs: "A cmux setting changed (cmux-next.json, a managed layer, Settings, the CLI or an agent). Read the keys you use again with settings.get; the event names none and carries no values.",
         reads: "settings.get"
+      },
+      "github.changed": {
+        docs: `GitHub data the person can read changed: a pull request, a review, a check run or suite, or a commit status, on a repository a GitHub connection covers. The Cloud turns the GitHub App's verified webhook into this invalidation within seconds; read GitHub again through integration.request. The body is {} for a change, or {"live": bool} when the push channel goes up or down (signed out, offline, no GitHub connection): a new subscriber hears {"live": ...} first. While it is not live, keep a slow re-read.`,
+        reads: "integration.request",
+        readsParams: { provider: "github", method: "GET" },
+        scope: "integration:github:read"
       },
       "theme.changed": {
         docs: "The theme changed: the theme, app theme, theme file, theme edits, accent, hue, saturation or highlight color. Theme tones (cmux.theme) repaint on their own; read settings.get again for anything you derive from them.",
@@ -896,6 +902,18 @@
         scope: "group:read",
         class: "read"
       },
+      "group.members.list": {
+        scope: "group:read",
+        class: "read"
+      },
+      "group.members.remove": {
+        scope: "group:write",
+        class: "mutation"
+      },
+      "group.members.set": {
+        scope: "group:write",
+        class: "mutation"
+      },
       "group.rename": {
         scope: "group:write",
         class: "mutation"
@@ -1142,6 +1160,18 @@
       },
       "notification.list": {
         scope: "notification:read",
+        class: "read"
+      },
+      "page.follow": {
+        scope: "page:write",
+        class: "mutation"
+      },
+      "page.hints": {
+        scope: "page:write",
+        class: "mutation"
+      },
+      "page.read": {
+        scope: "page:read",
         class: "read"
       },
       "palette_usage.forget": {
@@ -1812,6 +1842,38 @@
         scope: "team:read",
         class: "read"
       },
+      "team.cloud.session.archive": {
+        scope: "team:write",
+        class: "mutation"
+      },
+      "team.cloud.session.follow": {
+        scope: "team:write",
+        class: "mutation"
+      },
+      "team.cloud.session.get": {
+        scope: "team:read",
+        class: "read"
+      },
+      "team.cloud.session.list": {
+        scope: "team:read",
+        class: "read"
+      },
+      "team.cloud.session.publish": {
+        scope: "team:write",
+        class: "mutation"
+      },
+      "team.cloud.session.reassign": {
+        scope: "team:write",
+        class: "mutation"
+      },
+      "team.cloud.session.remove": {
+        scope: "team:write",
+        class: "mutation"
+      },
+      "team.cloud.session.viewing": {
+        scope: "team:write",
+        class: "mutation"
+      },
       "team.device.compliance": {
         scope: "team:read",
         class: "read"
@@ -2277,6 +2339,9 @@
       "stream.cancel",
       "tab.close",
       "tab_group.close",
+      "team.agent_key.remove",
+      "team.agent_key.set",
+      "team.agent_key.status",
       "team.ai_limit.member.set",
       "team.ai_limit.set",
       "team.audit.list",
@@ -2285,6 +2350,8 @@
       "team.enrollment_token.revoke",
       "team.integration.release_lock",
       "team.members.remove",
+      "team.models_policy.get",
+      "team.models_policy.set",
       "team_vm.rebuild",
       "team_vm.retired.delete",
       "team_vm.retired.export",
@@ -2351,14 +2418,22 @@
     return render;
   }
   var EVENT_STREAMS = Object.keys(events_default.events);
+  var folderName = (path) => path.split("/").filter(Boolean).pop() ?? path;
   var renderSessionInfo = section((context) => {
     const session = context;
     return VStack([
-      Panel({ title: "Hello from {{TITLE}}" }, [
-        Row({ title: session.cwd ?? "no folder", symbol: "folder" }),
-        Row({ title: session.branch ?? "no branch", symbol: "arrow.triangle.branch" }),
-        Row({ title: session.harness ?? "agent", symbol: "sparkles" })
-      ])
+      Row({
+        title: session.cwd ? folderName(session.cwd) : "No folder",
+        subtitle: session.cwd ?? "This chat has no folder",
+        symbol: "folder"
+      }),
+      Row({
+        title: session.branch ?? "No branch",
+        subtitle: "Branch",
+        symbol: "arrow.triangle.branch",
+        tint: session.branch ? null : cmux.theme.text.tertiary
+      }),
+      Row({ title: session.harness ?? "Agent", subtitle: "Agent", symbol: "sparkles" })
     ]);
   });
   globalThis.__cmuxAppExports = { ...exports_main };

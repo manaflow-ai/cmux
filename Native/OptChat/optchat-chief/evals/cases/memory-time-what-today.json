@@ -1,0 +1,236 @@
+{
+  "id": "memory-time-what-today",
+  "group": "memory",
+  "owner": "chief-memory",
+  "about": "\"What was I supposed to do today?\" resolves \"tomorrow\" said yesterday evening to today.",
+  "now": "2026-11-19T17:40:00-08:00",
+  "budget": 1800,
+  "dream": true,
+  "history": [
+    {
+      "kind": "user",
+      "text": "the sidebar row hover is a bit too strong, tone it down",
+      "at": "2026-11-17T09:00:00-08:00"
+    },
+    {
+      "kind": "talk",
+      "text": "On it: a1002 softens the hover fill.",
+      "at": "2026-11-17T10:22:30-08:00"
+    },
+    {
+      "kind": "work",
+      "text": "[a1003] Landed the hover change on feat-cmux-next (3f9a1003c1). Screenshots in the workspace.",
+      "at": "2026-11-17T11:45:00-08:00"
+    },
+    {
+      "kind": "user",
+      "text": "why is the nightly slow again",
+      "at": "2026-11-17T13:07:30-08:00"
+    },
+    {
+      "kind": "talk",
+      "text": "a1005 is timing the nightly phases.",
+      "at": "2026-11-17T14:30:00-08:00"
+    },
+    {
+      "kind": "work",
+      "text": "[a1006] Nightly codesign step took 14 min, notary 9 min; the rest is under 6 min.",
+      "at": "2026-11-17T15:52:30-08:00"
+    },
+    {
+      "kind": "user",
+      "text": "can we make the compose button look like imessage",
+      "at": "2026-11-17T17:15:00-08:00"
+    },
+    {
+      "kind": "talk",
+      "text": "Started a1008 on the compose button.",
+      "at": "2026-11-17T18:37:30-08:00"
+    },
+    {
+      "kind": "work",
+      "text": "[a1009] Compose button restyled; landed 9c2e1009aa. Gallery entry updated.",
+      "at": "2026-11-17T20:00:00-08:00"
+    },
+    {
+      "kind": "user",
+      "text": "cmd+shift+p shows tabs again, that is wrong",
+      "at": "2026-11-17T21:22:30-08:00"
+    },
+    {
+      "kind": "talk",
+      "text": "a1011 is removing tabs from the palette results.",
+      "at": "2026-11-17T22:45:00-08:00"
+    },
+    {
+      "kind": "work",
+      "text": "[a1012] Palette no longer lists tabs; landed 77ab1012e0.",
+      "at": "2026-11-18T00:07:30-08:00"
+    },
+    {
+      "kind": "user",
+      "text": "status?",
+      "at": "2026-11-18T01:30:00-08:00"
+    },
+    {
+      "kind": "talk",
+      "text": "- a1014: palette fix landed\n- a1013: hover fix landed",
+      "at": "2026-11-18T02:52:30-08:00"
+    },
+    {
+      "kind": "user",
+      "text": "the toast animation stutters on the first show",
+      "at": "2026-11-18T04:15:00-08:00"
+    },
+    {
+      "kind": "talk",
+      "text": "a1016 is profiling the first toast.",
+      "at": "2026-11-18T05:37:30-08:00"
+    },
+    {
+      "kind": "work",
+      "text": "[a1017] First toast built its layer lazily; prewarmed it. Landed 1d4f1017b2.",
+      "at": "2026-11-18T07:00:00-08:00"
+    },
+    {
+      "kind": "user",
+      "text": "make the settings window open faster",
+      "at": "2026-11-18T08:22:30-08:00"
+    },
+    {
+      "kind": "talk",
+      "text": "a1019 is on Settings launch time.",
+      "at": "2026-11-18T09:45:00-08:00"
+    },
+    {
+      "kind": "work",
+      "text": "[a1020] Settings opens in 140 ms (was 610 ms); landed 4be11020d9.",
+      "at": "2026-11-18T11:07:30-08:00"
+    },
+    {
+      "kind": "user",
+      "text": "ok",
+      "at": "2026-11-18T12:30:00-08:00"
+    },
+    {
+      "kind": "user",
+      "text": "is the fleet busy right now",
+      "at": "2026-11-18T13:52:30-08:00"
+    },
+    {
+      "kind": "talk",
+      "text": "Queue: 3 jobs waiting, 2 running on the AWS Macs.",
+      "at": "2026-11-18T15:15:00-08:00"
+    },
+    {
+      "kind": "user",
+      "text": "fix the flaky terminal resize test",
+      "at": "2026-11-18T16:37:30-08:00"
+    },
+    {
+      "kind": "talk",
+      "text": "a1025 owns the resize flake.",
+      "at": "2026-11-18T18:00:00-08:00"
+    },
+    {
+      "kind": "work",
+      "text": "[a1026] Resize test waited on a fixed delay; now waits on the resize event. Landed c0de102655.",
+      "at": "2026-11-18T19:22:30-08:00"
+    },
+    {
+      "kind": "user",
+      "text": "bump the font size in the sidebar a little",
+      "at": "2026-11-18T20:45:00-08:00"
+    },
+    {
+      "kind": "user",
+      "text": "tomorrow I have to send the investor update to Priya, nudge me if I forget",
+      "at": "2026-11-18T21:10:00-08:00"
+    },
+    {
+      "kind": "talk",
+      "text": "Will do.",
+      "at": "2026-11-18T21:11:00-08:00"
+    },
+    {
+      "kind": "talk",
+      "text": "a1028 bumps the sidebar font one step.",
+      "at": "2026-11-18T22:07:30-08:00"
+    },
+    {
+      "kind": "work",
+      "text": "[a1029] Sidebar font 13 -> 14 pt; landed aa011029f3.",
+      "at": "2026-11-18T23:30:00-08:00"
+    },
+    {
+      "kind": "user",
+      "text": "nice",
+      "at": "2026-11-19T00:52:30-08:00"
+    },
+    {
+      "kind": "user",
+      "text": "the sidebar row hover is a bit too strong, tone it down",
+      "at": "2026-11-19T02:15:00-08:00"
+    },
+    {
+      "kind": "talk",
+      "text": "On it: a1032 softens the hover fill.",
+      "at": "2026-11-19T03:37:30-08:00"
+    },
+    {
+      "kind": "work",
+      "text": "[a1033] Landed the hover change on feat-cmux-next (3f9a1033c1). Screenshots in the workspace.",
+      "at": "2026-11-19T05:00:00-08:00"
+    },
+    {
+      "kind": "user",
+      "text": "why is the nightly slow again",
+      "at": "2026-11-19T06:22:30-08:00"
+    },
+    {
+      "kind": "talk",
+      "text": "a1035 is timing the nightly phases.",
+      "at": "2026-11-19T07:45:00-08:00"
+    },
+    {
+      "kind": "work",
+      "text": "[a1036] Nightly codesign step took 14 min, notary 9 min; the rest is under 6 min.",
+      "at": "2026-11-19T09:07:30-08:00"
+    },
+    {
+      "kind": "user",
+      "text": "can we make the compose button look like imessage",
+      "at": "2026-11-19T10:30:00-08:00"
+    },
+    {
+      "kind": "talk",
+      "text": "Started a1038 on the compose button.",
+      "at": "2026-11-19T11:52:30-08:00"
+    },
+    {
+      "kind": "work",
+      "text": "[a1039] Compose button restyled; landed 9c2e1039aa. Gallery entry updated.",
+      "at": "2026-11-19T13:15:00-08:00"
+    },
+    {
+      "kind": "user",
+      "text": "cmd+shift+p shows tabs again, that is wrong",
+      "at": "2026-11-19T14:37:30-08:00"
+    }
+  ],
+  "turns": [
+    {
+      "text": "what was I supposed to do today?",
+      "checks": [
+        {
+          "type": "reply_matches",
+          "re": "(?i)investor update"
+        },
+        {
+          "type": "reply_matches",
+          "re": "(?i)priya"
+        }
+      ]
+    }
+  ]
+}

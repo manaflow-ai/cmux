@@ -47,6 +47,17 @@ public final class DaemonSideEvents {
         subscribers[token] = nil
     }
 
+    /// Calls `changed` with the chat's session on each `agent-session-share-changed` event
+    /// (capability `agent-session-share-events-v1`) until the returned function runs.
+    /// - Parameter changed: Receives the session whose shares now read differently.
+    /// - Returns: Removes the subscription.
+    public func agentSessionShareChanges(_ changed: @escaping @MainActor (_ session: String) -> Void) -> @MainActor () -> Void {
+        let token = subscribe { event in
+            if case .agentSessionShareChanged(let session) = event { changed(session) }
+        }
+        return { [weak self] in self?.unsubscribe(token) }
+    }
+
     /// An event of the app supervisor (capability `apps-v1`): `apps-changed`,
     /// `apps-scene`, `apps-provider-request` and the rest. This module does not
     /// model them (`DaemonEvent.unknown`); the apps client reads them.

@@ -67,7 +67,7 @@ import Testing
     }
 
     /// The split `+ ⌄` (the default since Lucas 2026-11-12, #41212: "only on hover"): an open ⌄ menu fills the ⌄'s
-    /// whole segment, a tab's height, with the group's trailing corners rounded as a tab's, in the pressed fill. It is
+    /// whole segment, the ⋮'s height, with the group's trailing corners rounded as a tab's, in the pressed fill. It is
     /// the right half of one control, not a square plate of its own.
     @Test func theSplitChevronFillsItsOwnSegmentWhileItsMenuIsOpen() throws {
         let harness = Harness()
@@ -81,7 +81,7 @@ import Testing
         #expect(fills.count == 1, "one fill: \(fills.map { "\($0.bounds.size)" })")
         let fill = try #require(fills.first)
         #expect(fill.frame == chooser.bounds, "the fill is the whole segment")
-        #expect(fill.cornerRadius == Metrics.buttonCornerRadius(proportionalTo: min(chooser.bounds.width, chooser.bounds.height)))
+        #expect(fill.cornerRadius == PlusButtonLook.splitCornerRadius, "the +'s corner, a tab's")
         #expect(fill.maskedCorners == [.layerMaxXMinYCorner, .layerMaxXMaxYCorner], "only the group's trailing corners round")
         chooser.isHighlighted = false
         #expect(filledLayers(layer).isEmpty, "no fill once the menu closes and the pointer is away")

@@ -324,6 +324,8 @@ final class SidebarListView: NSView {
     // MARK: - Window occlusion
     private var observedWindow: NSWindow?
     private var occlusionObserver: (any NSObjectProtocol)?
+    /// Each motion-setting change (the system's Reduce Motion too) starts or stops the rows' needs-you glow breath.
+    private var needsYouMotion: MotionSubscription?
     private var faviconObserver: (any NSObjectProtocol)?
     private var settleObservers: [any NSObjectProtocol] = []
     private var focusObservers: [any NSObjectProtocol] = []
@@ -361,6 +363,7 @@ final class SidebarListView: NSView {
             if let drag { abandonDrag(drag) }
             press = nil
         }
+        needsYouMotion = window == nil ? nil : Motion.changes.subscribe { [weak self] _ in self?.needsYouMotionChanged() }
         // queue: .main (inline for AppKit's post on main); a selector into this main-actor view trapped off main.
         occlusionObserver = window.map { center.addObserver(forName: NSWindow.didChangeOcclusionStateNotification, object: $0, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.windowOcclusionChanged() } // main-proof: observer on queue: .main
@@ -385,7 +388,21 @@ final class SidebarListView: NSView {
         // then on capturing ones in Release).
         var pending: [NSView] = subviews.reversed()
         while let view = pending.popLast() {
-            if let indicator = view as? StatusIndicatorView { indicator.isWindowVisible = visible } else { pending.append(contentsOf: view.subviews.reversed()) }
+            (view as? WorkspaceRowView)?.isNeedsYouWindowVisible = visible // its glow's breath (WorkspaceRowView+NeedsYouGlow)
+            if let indicator = view as? StatusIndicatorView {
+                indicator.isWindowVisible = visible
+            } else if let beam = view as? SidebarAgentBeamView {
+                beam.setWindowVisible(visible) // `experiments.agentBadges` beam: no lap in a covered window
+            } else {
+                pending.append(contentsOf: view.subviews.reversed())
+            }
+        }
+    }
+    /// Loops turned on or off: each glowing row's breath starts or stops (WorkspaceRowView+NeedsYouGlow).
+    private func needsYouMotionChanged() {
+        var pending: [NSView] = subviews.reversed()
+        while let view = pending.popLast() {
+            if let row = view as? WorkspaceRowView { row.updateNeedsYouGlowMotion() } else { pending.append(contentsOf: view.subviews.reversed()) }
         }
     }
     nonisolated override var isFlipped: Bool { true }

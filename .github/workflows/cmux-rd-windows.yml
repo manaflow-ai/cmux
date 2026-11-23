@@ -1,8 +1,9 @@
 name: cmux-rd Windows host
 
-# On landings and dispatch, not pull requests: no PR job runs Windows to take the selftest as a step;
-# the live proof needs the ios-e2e environment, which pull request events do not reach. Listed in
-# .github/post-merge-checks.json; manaflow-ai/cmuxterm-hq#10846 tracks moving the selftest onto PRs.
+# The selftest (`host`) runs on landings, dispatch and, as an advisory check, on pull requests into feat-cmux-next
+# that touch its paths (manaflow-ai/cmuxterm-hq#10846): no ruleset requires it and its name ends "(advisory)" on a
+# pull request, so a red there is a follow-up, never a merge block. The live proof stays on landings and dispatch:
+# it needs the ios-e2e environment, which pull request events do not reach.
 on:
   push:
     branches: [feat-cmux-next]
@@ -12,6 +13,21 @@ on:
       - "cmux-tui/crates/cmux-rd-core/**"
       - "cmux-tui/crates/cmux-rd-proto/**"
       - ".github/workflows/cmux-rd-windows.yml"
+      # A README or notes file alone starts nothing here (tests/test_ci_docs_only_prs.py); no build reads them.
+      - "!**/README.md"
+      - "!**/COORDINATION.md"
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches: [feat-cmux-next]
+    paths:
+      - "cmux-tui/crates/cmux-rd-host/**"
+      - "cmux-tui/crates/cmux-encode/**"
+      - "cmux-tui/crates/cmux-rd-core/**"
+      - "cmux-tui/crates/cmux-rd-proto/**"
+      - ".github/workflows/cmux-rd-windows.yml"
+      # A README or notes file alone starts nothing here (tests/test_ci_docs_only_prs.py); no build reads them.
+      - "!**/README.md"
+      - "!**/COORDINATION.md"
   workflow_dispatch:
 
 permissions:
@@ -19,11 +35,18 @@ permissions:
 
 concurrency:
   group: cmux-rd-windows-${{ github.ref }}
-  cancel-in-progress: true
+  # A feat-cmux-next push run finishes, so the base has a verdict (a newer push only replaces a queued one);
+  # a newer PR head cancels the old one.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
 
 jobs:
   host:
-    name: Windows capture and encode selftest
+    name: Windows capture and encode selftest${{ github.event_name == 'pull_request' && ' (advisory)' || '' }}
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'windows-2025' || vars.WINDOWS_RUNNER || fromJSON(vars.RUNNER_POOLS).windows }}
     timeout-minutes: 20
     # A runs-on expression hides the OS from actionlint; the steps are PowerShell, the Windows default.
@@ -69,9 +92,19 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Windows capture selftest exited $LASTEXITCODE" }
           $json | Tee-Object -FilePath "$env:GITHUB_STEP_SUMMARY"
           $result = $json | ConvertFrom-Json
-          if (-not $result.capture_encode_ok) { throw 'Windows host selftest did not encode a frame' }
-          if ([int]$result.frames -lt 60) { throw 'Windows host selftest captured fewer frames than requested' }
+          if (-not $result.encode_ok) { throw 'Windows host selftest did not encode a frame' }
+          if ([int]$result.frames -lt 60) { throw 'Windows host selftest encoded fewer frames than requested' }
           if ([int]$result.encoded_bytes -le 0) { throw 'Windows host selftest emitted no bytes' }
+          # A runner with no interactive desktop (session 0, no input desktop) cannot BitBlt the screen:
+          # the selftest says so and encodes generated frames instead. The desktop capture cells below
+          # (windows-host status, loopback) are skipped with that reason; the encode cell above still ran.
+          if ($result.capture -eq 'skipped') {
+            $reason = "Desktop capture skipped: $($result.capture_skipped_reason). Encode ran on generated frames; windows-host status and loopback not run."
+            Write-Output "::notice title=Windows desktop capture skipped::$reason"
+            Add-Content $env:GITHUB_STEP_SUMMARY "`n$reason"
+            exit 0
+          }
+          if (-not $result.capture_encode_ok) { throw 'Windows host selftest did not capture and encode a frame' }
           # `windows-host status` captures this desktop the way `windows-host run` does.
           $status = & .\target\release\cmux-rd.exe windows-host status
           if ($LASTEXITCODE -ne 0) { throw "windows-host status exited $LASTEXITCODE" }
@@ -116,7 +149,9 @@ jobs:
 
   live-windows-host:
     name: Windows live host (tailnet)
-    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')
+    # Never on a pull request today; the same-repo guard and RD_WINDOWS_PR_TAILNET say so to the tailnet gate
+    # (tests/test_ci_workflow_tailnet_oidc_pr_gate.py) and keep a later PR trigger off the identity until it admits PRs.
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && ((github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')) && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository && vars.RD_WINDOWS_PR_TAILNET == 'true')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'windows-2025' || vars.WINDOWS_RUNNER || fromJSON(vars.RUNNER_POOLS).windows }}
     timeout-minutes: 15
     defaults:
@@ -198,7 +233,9 @@ jobs:
 
   live-macos-viewer:
     name: macOS live viewer (tailnet)
-    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')
+    # Never on a pull request today; the same-repo guard and RD_WINDOWS_PR_TAILNET say so to the tailnet gate
+    # (tests/test_ci_workflow_tailnet_oidc_pr_gate.py) and keep a later PR trigger off the identity until it admits PRs.
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && ((github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')) && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository && vars.RD_WINDOWS_PR_TAILNET == 'true')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (vars.CI_BLACKSMITH_MACOS != 'on' && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || vars.MACOS_RUNNER_IOS || vars.MACOS_RUNNER_PR || fromJSON(vars.RUNNER_POOLS).macos_26) }}
     timeout-minutes: 15
     environment: ios-e2e

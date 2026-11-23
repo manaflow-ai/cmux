@@ -59,7 +59,7 @@ def route_inputs() -> dict[str, frozenset[str]] | None:
 
 
 def plain_documentation(path: str) -> bool:
-    if path.startswith("skills/cmux-cua/") or path == "docs/cli-contract.md":
+    if path.startswith("skills/cmux-computer-use/") or path == "docs/cli-contract.md":
         return False
     name = path.rsplit("/", 1)[-1]
     if name in {"AGENTS.md", "CLAUDE.md"}:

@@ -5,6 +5,9 @@ extension AgentPaneReplySetting {
     /// `agentPane.links.outsideRoots`: What a path chip outside the session's folders does: opens like one inside them (open), asks first (confirm) or draws as plain text (text). A path on the deny list (~/.ssh, keys, .env files) is always plain text.
     public nonisolated static let outsideRootsPath = ["agentPane", "links", "outsideRoots"]
     public nonisolated static let outsideRootsDefault: AgentPaneReplySetting.OutsideRoots = .open
+    /// `agentPane.links.openCitationsInEditor`.
+    public nonisolated static let openCitationsInEditorPath = ["agentPane", "links", "openCitationsInEditor"]
+    public nonisolated static let openCitationsInEditorDefault = false
     /// `agentPane.images.remote`: A web image in a reply loads after a click (click), never (never) or at once (always); every load goes through the host's fetch rules.
     public nonisolated static let remoteImagesPath = ["agentPane", "images", "remote"]
     public nonisolated static let remoteImagesDefault: AgentPaneReplySetting.RemoteImages = .click
@@ -36,6 +39,16 @@ nonisolated enum AgentPaneSettingsSchema {
                 ]),
                 default: .string(AgentPaneReplySetting.outsideRootsDefault.rawValue),
                 keywords: ["agent", "chat", "link", "path", "file", "outside", "project"]
+            ),
+            SettingDescriptor(
+                AgentPaneReplySetting.openCitationsInEditorPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.openCitationsInEditor", "Open File Citations in Text Editor"),
+                help: SettingsText.keyed("settings.agentPane.openCitationsInEditor.help", "Open local chat links that name a line in your chosen text editor."),
+                kind: .toggle,
+                default: .bool(AgentPaneReplySetting.openCitationsInEditorDefault),
+                keywords: ["chat", "file", "line", "editor"]
             ),
             SettingDescriptor(
                 AgentPaneReplySetting.remoteImagesPath,

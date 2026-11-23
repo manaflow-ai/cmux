@@ -65,9 +65,16 @@ class Verdict(unittest.TestCase):
     def test_unreadable_reads_never_skip(self):
         self.assertEqual(yielder.verdict(OURS, None, "", ""), "quiet")
 
+    def test_a_second_signer_never_waits_for_the_loop(self):
+        """2026-11-17: ultra1 and cmux15 both sign (hq#10366); run 44023631489 waited 33 min for a quiet loop with
+        feat-cmux-next past nightly-next, then skipped. The build in flight holds one signer, the deltas the other."""
+        self.assertEqual(yielder.verdict(OURS, OURS, NEXT, TIP, signers=2), "quiet")
+        self.assertEqual(yielder.verdict(OURS, OURS, TIP, TIP, live_commit=BUILT, signers=2), "quiet")
+        self.assertEqual(yielder.verdict(OURS, NEWER, NEXT, TIP, signers=2), "skip")
+
 
 class Main(unittest.TestCase):
-    def run_main(self, feeds, refs, max_minutes="40"):
+    def run_main(self, feeds, refs, max_minutes="40", extra=()):
         clock = {"now": dt.datetime(2026, 11, 14, 4, 31, tzinfo=dt.timezone.utc)}
         feeds, refs = iter(feeds), iter(refs)
 
@@ -79,7 +86,7 @@ class Main(unittest.TestCase):
             os.environ["GITHUB_OUTPUT"] = str(out)
             try:
                 yielder.main(["--repo", "o/r", "--build", str(OURS), "--feed", "https://f/appcast-arm64.xml",
-                              "--max-minutes", max_minutes],
+                              "--max-minutes", max_minutes, *extra],
                              feed=lambda url: next(feeds), ref=lambda repo, branch: next(refs),
                              clock=lambda: clock["now"], sleep=sleep)
             finally:
@@ -105,6 +112,18 @@ class Main(unittest.TestCase):
         answer, waited = self.run_main([feed(OURS)] * 200, [NEXT, TIP] * 200, max_minutes="5")
         self.assertEqual(answer, "skip=false")
         self.assertEqual(waited, dt.timedelta(minutes=5))
+
+    def test_two_signers_sign_at_once_in_a_busy_loop(self):
+        """Run 44023631489's loop: nightly-next behind feat-cmux-next the whole time. With two signers the deltas
+        go at the first look instead of waiting for the next build to publish and skipping."""
+        answer, waited = self.run_main([feed(OURS)] * 200, [], extra=("--signers", "2"))
+        self.assertEqual(answer, "skip=false")
+        self.assertEqual(waited, dt.timedelta(0))
+
+    def test_two_signers_still_skip_a_superseded_build(self):
+        answer, waited = self.run_main([feed(NEWER)], [], extra=("--signers", "2"))
+        self.assertEqual(answer, "skip=true")
+        self.assertEqual(waited, dt.timedelta(0))
 
     def test_unreadable_reads_sign_as_before(self):
         def boom(*args):
@@ -132,6 +151,15 @@ class Wiring(unittest.TestCase):
         self.assertIn("skip", str(JOBS["build-nightly-deltas"].get("outputs", {})))
         self.assertIn("needs.build-nightly-deltas.outputs.skip != 'true'", str(JOBS["generate-nightly-deltas"]["if"]))
         self.assertIn("needs.generate-nightly-deltas.result != 'skipped'", str(JOBS["republish-nightly-deltas"]["if"]))
+
+    def test_the_wait_knows_both_signers(self):
+        """ultra1 and cmux15 carry glaeda-trusted-next-signing; NIGHTLY_NEXT_SIGNERS=1 is the switch back."""
+        wait = [step for step in JOBS["build-nightly-deltas"]["steps"]
+                if "nightly_deltas_yield.py" in str(step.get("run", ""))][0]
+        self.assertIn('--signers "$NIGHTLY_NEXT_SIGNERS"', wait["run"])
+        self.assertEqual(wait["env"]["NIGHTLY_NEXT_SIGNERS"],
+                         "${{ vars.NIGHTLY_NEXT_SIGNERS || vars.CI_NIGHTLY_MINI != '' && '1' || '2' }}",
+                         "one-mini mode has one signer")
 
 
 if __name__ == "__main__":

@@ -286,6 +286,15 @@ enum SidebarStyle {
     static var groupBarX: CGFloat { (Metrics.sidebarRowHeight * 0.12).rounded() }
     /// One nesting step: a nested group's rows move in this far per level below the top.
     static var groupGutter: CGFloat { Metrics.densityToken("sidebarGroupIndent") ?? groupBarX + 2 * Metrics.space1 }
+    /// One nesting step in the plain-folder look (`SidebarGroupBackgroundStyle.indentsMembers`): an iconless member's
+    /// title starts on its folder name's column, as in a file list (Chief 2026-11-21, "align members under the name").
+    /// The folder's name starts on the text column after its glyph (`SidebarColumns.text`); an iconless workspace title
+    /// starts on the row's lead (`workspaceTitleX` less `labelInset`, which the title's frame adds back), so the step
+    /// is the icon column and its gap.
+    static var folderMemberStep: CGFloat {
+        let columns = columns(rowWidth: 0)
+        return columns.text - columns.lead
+    }
     /// How far a row at group level `depth` (`SidebarRow.depth`) moves in from the list's inset.
     /// A top-level group's header and members line up with ungrouped rows: same leading x, same
     /// pill width (Leo 2026-10-21: "THE STUPID INDENT, IS THAT CHROME???? WHY IS THERE INDENT ON

@@ -53,6 +53,7 @@ pub(super) fn session(host: &str, id: &str, state: &str) -> BookSession {
         harness: "claude".into(),
         state: state.into(),
         last_seen_at: 5,
+        ..Default::default()
     }
 }
 

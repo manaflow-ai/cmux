@@ -360,3 +360,58 @@ fn bulk_frames_on_the_stream_carrier_are_queued_as_bulk_messages() {
     assert_eq!(rc, CMUX_RD_OK);
     assert_eq!(&out[..len], &bytes[..]);
 }
+
+/// The stage ledger (D8) through the C ABI: host times from a `FrameTimes`
+/// datagram, release from reassembly, decode and present from the caller's
+/// notes; the summary is one JSON object on the host clock.
+#[test]
+fn the_stage_ledger_joins_host_times_with_decode_and_present_notes() {
+    use cmux_rd_proto::FrameTimes;
+    let s = session(CMUX_RD_CARRIER_DATAGRAM);
+    for d in frames(0, 1, 3_000) {
+        assert!(push(&s, &d, 10_000) >= 0);
+    }
+    let times = FrameTimes {
+        display_us: 1_000,
+        encode_start_us: 3_000,
+        encoded_us: 6_000,
+        first_sent_us: 6_100,
+        last_sent_us: 9_000,
+    };
+    assert!(push(&s, &times.datagram(0, 1), 10_100) >= 0);
+    assert_eq!(pop_all(&s).len(), 1);
+    // SAFETY: live session.
+    unsafe {
+        assert_eq!(cmux_rd_session_note_frame_decoded(s.0, 0, 1, 2_000, 12_000), CMUX_RD_OK);
+        assert_eq!(cmux_rd_session_note_frame_presented(s.0, 0, 1, 20_000), CMUX_RD_OK);
+        assert_eq!(cmux_rd_session_note_frame_presented(s.0, 9, 1, 20_000), CMUX_RD_ERR_STREAM);
+    }
+    let mut len = 0usize;
+    // SAFETY: live session; a zero-capacity buffer only reports the size.
+    assert_eq!(
+        unsafe { cmux_rd_session_stage_ledger(s.0, std::ptr::null_mut(), 0, &mut len) },
+        CMUX_RD_ERR_BUFFER
+    );
+    let mut buf = vec![0u8; len];
+    // SAFETY: live session, writable buffer of `len` bytes.
+    assert_eq!(
+        unsafe { cmux_rd_session_stage_ledger(s.0, buf.as_mut_ptr(), buf.len(), &mut len) },
+        CMUX_RD_OK
+    );
+    let v: serde_json::Value = serde_json::from_slice(&buf[..len]).expect("json");
+    assert_eq!(v["schema"], "cmux.rd-stage-ledger/1");
+    assert_eq!(v["frames_with_host_times"], 1);
+    let p50 = |name: &str| {
+        v["stages"].as_array().expect("stages").iter().find(|r| r["stage"] == name).expect(name)
+            ["p50_ms"]
+            .clone()
+    };
+    assert_eq!(p50("Capture"), 2.0);
+    assert_eq!(p50("Encode"), 3.0);
+    assert_eq!(p50("Send"), 3.0);
+    assert_eq!(p50("Decode"), 2.0);
+    assert_eq!(p50("Present"), 8.0);
+    // No clock estimate yet: Network and Total cross the clocks, so they say why they are empty.
+    assert!(p50("Network").is_null());
+    assert!(p50("Total").is_null());
+}

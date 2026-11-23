@@ -9,13 +9,17 @@
 // them from the last up. `live` stops before the end: the work in sight, nothing folded. The `-long`
 // states run a longer turn (a third run of calls) whose fold moves the answer far: it still ends with
 // the settle's 180 ms, its curve flattened toward the straight line (turnEndFold.ts
-// `turnEndFoldTiming`), and nothing is drawn back as the curve changes.
+// `turnEndFoldTiming`), and nothing is drawn back as the curve changes. The `lead-*` arms compare the
+// exit before the move (exitLead.ts, design/chat-fold-motion.md; Leo, 2026-11-21: "we must hide text
+// faster and sooner"): `lead-none`, before, the copies fading on the move's own clock; `fade` is the
+// shipped 40 ms lead; `lead-quick`, a whole quick step of lead.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
 import { VirtualTranscript } from "../App";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { turnView } from "./turns";
+import type { ExitLeadLook } from "./exitLead";
 import type { TurnEndLook } from "./turnEndFold";
 
 type Variant = TurnEndLook | "live";
@@ -152,7 +156,15 @@ function turnRows(steps: number, ended: boolean, long = false): AcpmuxRow[] {
 
 const STEPS = FIRST.length + SECOND.length;
 
-function TurnEndFoldGallery({ variant, long = false }: { variant: Variant; long?: boolean }) {
+function TurnEndFoldGallery({
+  variant,
+  long = false,
+  lead,
+}: {
+  variant: Variant;
+  long?: boolean;
+  lead?: ExitLeadLook;
+}) {
   const turnSteps = long ? STEPS + THIRD.length : STEPS;
   const [steps, setSteps] = useState(0);
   const [ended, setEnded] = useState(false);
@@ -168,6 +180,7 @@ function TurnEndFoldGallery({ variant, long = false }: { variant: Variant; long?
       }),
     [steps, ended, state, long],
   );
+  // gallery-capture: runs only from Run the turn, which each arm's play clicks and then waits for its end state.
   const start = () => {
     timers.current.forEach((timer) => window.clearTimeout(timer));
     // The long turn starts with its first two runs done and plays only the third, so it ends as soon as
@@ -188,6 +201,7 @@ function TurnEndFoldGallery({ variant, long = false }: { variant: Variant; long?
     <div
       className="acpmux-shell"
       data-turn-end-fold={variant === "live" ? undefined : variant}
+      data-exit-lead={lead}
       style={{ height: "100%" }}
     >
       <div className="acpmux-main" data-dock="float">
@@ -225,7 +239,7 @@ const runLive: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.find({ testId: "turn-end-state" }).textContent === `Step ${STEPS}`, { capMs: 4_000 });
 };
 
-export default componentEntry<{ variant: Variant; long?: boolean }>({
+export default componentEntry<{ variant: Variant; long?: boolean; lead?: ExitLeadLook }>({
   id: "agent-pane.turn-end-fold",
   title: "Turn end fold",
   area: "Agent pane",
@@ -255,5 +269,8 @@ export default componentEntry<{ variant: Variant; long?: boolean }>({
     "fade-long": { props: { variant: "fade", long: true }, play: runToFold },
     "tuck-long": { props: { variant: "tuck", long: true }, play: runToFold },
     "stagger-long": { props: { variant: "stagger", long: true }, play: runToFold },
+    "lead-none": { props: { variant: "fade", lead: "none" }, play: runToFold },
+    "lead-quick": { props: { variant: "fade", lead: "quick" }, play: runToFold },
+    "lead-none-long": { props: { variant: "fade", long: true, lead: "none" }, play: runToFold },
   },
 });

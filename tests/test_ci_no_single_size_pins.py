@@ -54,7 +54,7 @@ EXCEPTIONS = {
     re.compile(r"vars\.CI_TRUSTED_RUNNER\) && vars\.CI_TRUSTED_RUNNER \|\|\s*$"): (
         "runner trust policy: a trusted-token job (pull_request_target, comment events, CLA) takes CI_TRUSTED_RUNNER "
         "only from the allowlist written into its own expression, else one fixed ephemeral label. A RUNNER_POOLS "
-        "read would let whoever writes that variable route the token; scripts/ci/validate-cla-policy.rb allows the "
+        "read would let whoever writes that variable route the token; main's scripts/ci/validate-cla-policy.rb allows the "
         "CLA job's runs-on as one exact string"
     ),
 }

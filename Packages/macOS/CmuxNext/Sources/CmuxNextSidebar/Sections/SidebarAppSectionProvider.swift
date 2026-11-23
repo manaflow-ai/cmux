@@ -17,8 +17,12 @@ public protocol SidebarAppSectionProvider: AnyObject {
     /// The section left the layout (removed, or its app hidden): drop its
     /// view and end what feeds it. A collapsed or moved section is not released.
     func release(_ contribution: String)
+    /// App sections the provider draws that the layout document does not hold (the widget area),
+    /// shown at the end of the band below the list.
+    var providedSections: [LayoutSection] { get }
 }
 
 public extension SidebarAppSectionProvider {
     func release(_ contribution: String) {}
+    var providedSections: [LayoutSection] { [] }
 }

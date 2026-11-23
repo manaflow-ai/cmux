@@ -24,13 +24,24 @@ extension PaneCommitMotionTests {
     /// An act while the panes of another still move starts from where each pane shows. The second act's layout is the
     /// model in its own frame. Its move adds to the layer's model value and starts at the rect the first act gave the
     /// pane, and the first act's move stays on the layer: the two add up, so the pane does not jump. The second
-    /// act's motion ends in its own time.
-    @Test func aSecondActStartsFromThePresentPlace() throws {
+    /// act's motion ends in its own time. This holds three frames into the first act's motion, and in its last tick:
+    /// the second act comes one frame before the tick in which the first act's time is spent, and the frame that
+    /// shows the second act takes the first act's move off no layer.
+    @Test(arguments: [false, true])
+    func aSecondActStartsFromThePresentPlace(inTheLastTick: Bool) throws {
+        var frames = 3
+        if inTheLastTick {
+            // How many frames a split's motion takes after the frame that begins it: one run of it to its end.
+            let whole = try Self.begin(Self.split)
+            defer { whole.harness.window.closeAfterTest() }
+            frames = Self.toTheEnd(whole.harness, whole.screen).ticks - 1
+            try #require(frames > 3, "SETUP: a split's motion took \(frames + 1) frames")
+        }
         let begun = try Self.begin(Self.split)
         defer { begun.harness.window.closeAfterTest() }
         let harness = begun.harness, screen = begun.screen
-        for _ in 0..<3 { _ = harness.root.advanceFrame(Self.dt) }
-        try #require(Self.inFlight(screen), "no pane moves three frames after the split's frame")
+        for _ in 0..<frames { _ = harness.root.advanceFrame(Self.dt) }
+        try #require(Self.inFlight(screen), "no pane moves \(frames) frames after the split's frame")
         let host = try #require(Self.hosts(of: screen)[Commit.left]), layer = try #require(host.layer)
         let first = Set(layer.animationKeys() ?? []), placed = layer.frame
 
@@ -83,6 +94,63 @@ extension PaneCommitMotionTests {
                 "the motion ended \(Double(ticks + 3) * Self.dt) s after the frame that showed the last split; a split's time is \(Self.split.time) s")
         #expect(last.isShown(by: Commit.shown(screen)), "after the hold the screen does not show the last layout alone")
         #expect(!harness.root.advanceFrame(Self.dt) || !harness.root.advanceFrame(Self.dt), "frames run on after the hold's last motion")
+    }
+
+    /// A hold of the close key: 10 closes, one each 4 display frames. No close waits behind a motion: the frame after
+    /// each key has that close's layout as its model, whole, and so has each frame to the next key. The panes that
+    /// the closes took out can still show under the others in that time. The last layout is alone on the screen at
+    /// most one close's time after the last key.
+    @Test func aHoldOfTheCloseKeyNeverQueuesAMotion() throws {
+        let harness = Commit.Harness(Commit.screen(Self.tree(11)), focused: "p", holds: false)
+        defer { harness.window.closeAfterTest() }
+        Self.movePanes(harness)
+        Commit.rest(harness)
+        let screen = try #require(harness.screen)
+        var moved = false
+        var last = Commit.Rest(harness.model.screens, in: screen, style: harness.root.context.style)
+        try #require(last.isShown(by: Commit.shown(screen)), "SETUP: the screen does not rest at the 11 panes")
+        for leaves in (1...10).reversed() {
+            harness.model.apply(screens: Commit.screen(Self.tree(leaves)))
+            last = Commit.Rest(harness.model.screens, in: screen, style: harness.root.context.style)
+            harness.root.syncWithModel()
+            for tick in 1...4 {
+                _ = harness.root.advanceFrame(Self.dt)
+                let frame = Commit.shown(screen)
+                #expect(Self.places(last, on: screen), "close \(11 - leaves), frame \(tick): the screen's layout is not that close's: \(frame.panes.count) panes")
+                let misfits = frame.misfits.filter { last.panes[$0.key] != nil }
+                #expect(misfits.isEmpty, "close \(11 - leaves), frame \(tick): a pane's content is not at the rect its pane gives it: \(misfits)")
+            }
+            moved = moved || Self.inFlight(screen)
+        }
+        #expect(moved, "no pane moved in the hold: each close shows in one frame")
+        // Three frames were stepped after the frame that showed the last close.
+        let (ticks, _) = Self.toTheEnd(harness, screen)
+        #expect(Double(ticks + 3) * Self.dt <= Self.close.time + 2 * Self.dt,
+                "the motion ended \(Double(ticks + 3) * Self.dt) s after the frame that showed the last close; a close's time is \(Self.close.time) s")
+        #expect(last.isShown(by: Commit.shown(screen)), "after the hold the screen does not show the last layout alone: \(Commit.shown(screen).panes)")
+        #expect(!harness.root.advanceFrame(Self.dt) || !harness.root.advanceFrame(Self.dt), "frames run on after the hold's last motion")
+    }
+
+    /// A change of the screen's size while a split waits for its frame takes the move from that split, and from a
+    /// split that comes before that frame too: where the panes showed before both is not where they show now. The
+    /// surfaces of this test never report, so the two splits show when the wait's bound is spent.
+    @Test func aSplitBeforeTheFrameOfAChangeThatAResizeStilledDoesNotMove() throws {
+        let harness = Commit.Harness(Commit.screen(Self.tree(2)), focused: "p", holds: false, surfaces: true)
+        defer { harness.window.closeAfterTest() }
+        Self.movePanes(harness)
+        Commit.rest(harness)
+        let screen = try #require(harness.screen)
+        harness.model.apply(screens: Commit.screen(Self.tree(3)))
+        harness.root.syncWithModel()
+        harness.window.setContentSize(NSSize(width: 1400, height: 900))
+        harness.root.layoutSubtreeIfNeeded()
+        try #require(screen.frameInput.snapWaitsForContent, "SETUP: the first split does not wait for its frame after the change of the screen's size")
+        harness.model.apply(screens: Commit.screen(Self.tree(4)))
+        let last = Commit.Rest(harness.model.screens, in: screen, style: harness.root.context.style)
+        harness.root.syncWithModel()
+        let moved = (0...ScreenContentView.commitBound).contains { _ in _ = harness.root.advanceFrame(Self.dt); return Self.inFlight(screen) }
+        #expect(!moved, "a split moved its panes from where they showed before the change of the screen's size")
+        #expect(last.isShown(by: Commit.shown(screen)), "the two splits did not show in the bound of their wait: \(Commit.shown(screen).panes)")
     }
 
     /// The pane that a close took out shows in each frame of the motion, so its neighbour grows over it and not over
