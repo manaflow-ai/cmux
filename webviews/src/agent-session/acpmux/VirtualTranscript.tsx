@@ -99,7 +99,7 @@ import { useT } from "./i18n";
 import { TRAY_GHOST } from "./subagents/trayMotionModel";
 import { noteReaderScroll, readerScroll } from "./summary/heldWhileScrolling";
 import { keepTabOnScreen } from "../../ui/tabReach";
-import { trailingTimer } from "../../ui/trailingTimer";
+import { type TrailingTimer, trailingTimer } from "../../ui/trailingTimer";
 import { useRowRepositories } from "./conversation/useRowRepositories";
 import {
   type ReferenceScope,
@@ -999,20 +999,20 @@ function TranscriptView({
   );
   const [, setScroll] = useState(scrollRef.current);
   /// The scroll lead's reset, one timer per quiet stretch however many frames a scroll pushes it
-  /// (ui/trailingTimer.ts).
-  const [scrollLeadTimer] = useState(() =>
-    trailingTimer(() => {
+  /// (ui/trailingTimer.ts). Held in a ref, made at its first push, so the scroll writers that call it
+  /// (setScrollAt below) read only refs and stay stable for the hooks that use them.
+  const scrollLeadTimer = useRef<TrailingTimer | undefined>(undefined);
+  const scheduleScrollLeadReset = () => {
+    if (scrollRef.current.delta === 0) {
+      scrollLeadTimer.current?.cancel();
+      return;
+    }
+    scrollLeadTimer.current ??= trailingTimer(() => {
       if (scrollRef.current.delta === 0) return;
       scrollRef.current = { ...scrollRef.current, delta: 0 };
       setScroll(scrollRef.current);
-    }),
-  );
-  const scheduleScrollLeadReset = () => {
-    if (scrollRef.current.delta === 0) {
-      scrollLeadTimer.cancel();
-      return;
-    }
-    scrollLeadTimer.push(SCROLL_LEAD_IDLE_MS);
+    });
+    scrollLeadTimer.current.push(SCROLL_LEAD_IDLE_MS);
   };
   const setScrollAt = (top: number, delta?: number) => {
     const next = { top, delta: delta ?? top - scrollRef.current.top };
@@ -1218,10 +1218,10 @@ function TranscriptView({
     return () => {
       transcriptMounted.current = false;
       scrollPacer.current?.cancel();
-      scrollLeadTimer.stop();
+      scrollLeadTimer.current?.stop();
       guard.stop();
     };
-  }, [guard, scrollLeadTimer]);
+  }, [guard]);
   /// Where Jump to latest's glide is headed while it is in flight: its steps are the view following,
   /// not the reader's scroll, and nothing snaps it to the end before it arrives.
   const jumpTarget = useRef<number | undefined>(undefined);
