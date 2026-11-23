@@ -2,6 +2,8 @@
 //! (`~/.config/cmux/cmux-next.json`, "cmux.json" in the plans) inside the
 //! cmux daemon (plans/cmux-next/settings-react.md sections 1-3 and 6).
 //!
+//! - [`app_ops`]: the Mac app's reads of the file as JSON ops (the app
+//!   FFI's `cmux_settings_call`).
 //! - [`language`]: the `app.language` setting's shipped locales and their
 //!   fallbacks.
 //! - [`schema`]: the settings schema exported from Swift, embedded, with
@@ -16,6 +18,7 @@
 //!   writer with IO (atomic publish, cold-start cache); [`watch`]: kernel
 //!   file events.
 
+pub mod app_ops;
 pub mod backdrop_placement;
 pub mod cache;
 pub mod diagnostics;

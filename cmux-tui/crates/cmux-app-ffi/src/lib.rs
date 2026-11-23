@@ -38,6 +38,8 @@
 //! build's Files pane reader (include/cmux_files_lister.h).
 //! `system_calendar` is the `system_calendar.*` app ops' params, window and
 //! answer (include/cmux_system_calendar.h); EventKit stays in the app.
+//! `settings` is cmux-next.json's reads (cmux-config's app_ops: the parse,
+//! the validation and the defaults; include/cmux_settings.h).
 //! `agent_client` is the no-I/O agent list client (acpmux-client,
 //! include/acpmux_client.h); the app owns and drives its byte connection.
 
@@ -45,6 +47,8 @@
 pub mod files_lister;
 pub mod hover;
 pub mod motion;
+/// cbindgen:ignore
+pub mod settings;
 /// cbindgen:ignore
 pub mod system_calendar;
 pub mod terminal_selection;
