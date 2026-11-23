@@ -104,7 +104,21 @@ pub fn problems(files: &BTreeMap<String, Vec<u8>>) -> Vec<Problem> {
                 json_object(path, text, &mut found);
             }
             Part::Views => view(path, text, files, &mut found),
-            Part::Styles => {}
+            // cmux.stylesheetGuard/1 (schemas/agent-pane/stylesheet-guard.json): a stylesheet is
+            // any CSS, but the surface refuses one that loads something by address, so a draft
+            // that would be refused there never passes here.
+            Part::Styles => {
+                if let Some(why) = crate::community::fetches(text) {
+                    found.push(Problem::at(
+                        path,
+                        None,
+                        None,
+                        format!(
+                            "{why}; a stylesheet loads nothing by address (inline images as data: URLs)"
+                        ),
+                    ));
+                }
+            }
         }
     }
     // Whatever a validator quoted from a file goes through the same masking
@@ -437,6 +451,25 @@ mod tests {
             check("agent-pane/theme.css", ":root { --agent-gap: 4px }"),
             Vec::<String>::new()
         );
+    }
+
+    #[test]
+    fn a_stylesheet_is_any_css_that_loads_nothing_by_address() {
+        let cases: Value = serde_json::from_str(include_str!(
+            "../../../../schemas/agent-pane/stylesheet-guard.json"
+        ))
+        .unwrap();
+        for case in cases["refused"].as_array().unwrap() {
+            let (css, why) = (case["css"].as_str().unwrap(), case["why"].as_str().unwrap());
+            assert_eq!(crate::community::fetches(css), Some(why), "{css}");
+            let lines = check("agent-pane/theme.css", css);
+            assert!(lines.len() == 1 && lines[0].contains(why), "{css}: {lines:?}");
+        }
+        for css in cases["allowed"].as_array().unwrap() {
+            let css = css.as_str().unwrap();
+            assert_eq!(crate::community::fetches(css), None, "{css}");
+            assert!(check("agent-pane/theme.css", css).is_empty(), "{css}");
+        }
     }
 
     #[test]

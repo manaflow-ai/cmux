@@ -1,0 +1,22 @@
+{
+  "$comment": "cmux.stylesheetGuard/1: a person's own <surface>/theme.css (agent-pane, markdown, editor, diff) is any CSS, applied after the surface's built-in styles, but it loads nothing by address: no @import, no url() other than data:, no image-set() or src(), and no backslash escape that could spell one. Comments are no way around it. Rust: cmux-customize community::fetches (cmux customize validate, cmux setup install). Web: webviews/src/surfaces/stylesheetGuard.ts (applied by the pane). Both test suites read these cases.",
+  "refused": [
+    { "css": "@import 'https://x.example/a.css';", "why": "it has an @import" },
+    { "css": "@IMPORT url(data:text/css,a{});", "why": "it has an @import" },
+    { "css": ".a { background: url(https://x.example/p.png) }", "why": "it has a url() that is not a data: URL" },
+    { "css": ".a { background: URL( \"//x.example/p\" ) }", "why": "it has a url() that is not a data: URL" },
+    { "css": ".a { background: url(data:image/png;base64,AAAA) } .b { background: url(x.png) }", "why": "it has a url() that is not a data: URL" },
+    { "css": ".a { background: u\\rl(https://x.example) }", "why": "it has a backslash escape" },
+    { "css": ".a::before { content: \"\\2014\" }", "why": "it has a backslash escape" },
+    { "css": "@font-face { src: src(\"https://x.example/f\") }", "why": "it loads an image or font by address" },
+    { "css": ".a { background-image: image-set(\"a.png\" 1x) }", "why": "it loads an image or font by address" },
+    { "css": "/* a */ @import/* b */'x.css';", "why": "it has an @import" }
+  ],
+  "allowed": [
+    ":root { --cv-user-bubble-radius: 8px }",
+    ".message-row p { letter-spacing: 0.01em } [data-role=user] { opacity: 0.95 }",
+    ".a { background: url(\"data:image/png;base64,AAAA\") } /* url(https://x) in a comment */",
+    ".a { background: url( 'data:image/svg+xml;utf8,<svg/>' ) }",
+    ""
+  ]
+}
