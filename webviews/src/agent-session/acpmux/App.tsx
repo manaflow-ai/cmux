@@ -553,6 +553,7 @@ import { NewTabFolderAsk } from "./NewTabFolderAsk";
 import { chiefOf, isTakenOver, managedBy, managerDrivingUntil, takeOverManaged } from "./managedBy";
 import { handoffStrings } from "./handoff/strings";
 import { useExtensionCommands, withExtensionCommands } from "./composer/extensionCommands";
+import { useChatActionRows } from "./conversation/chatActions";
 import { continueTargets, mergedCommands, type CmuxCommand, type CmuxCommandResult } from "./cmuxCommands";
 import { handleCmuxCommand as runCmuxCommand } from "./pane/cmuxCommands";
 import { chatMenuItems } from "./pane/chatMenu";
@@ -5722,6 +5723,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   });
   /// The chat menu shows New side chat: the right-click menu then opens one from any turn that forks.
   const opensSideChat = useRef(false);
+  /// The installed extensions' message actions, read by the menu report when the menu opens.
+  const chatActionRows = useChatActionRows();
+  const chatActionRowsRef = useRef(chatActionRows);
+  chatActionRowsRef.current = chatActionRows;
   const archiveChatRef = useRef<(() => void) | undefined>(undefined);
   const recheckCloudChat = useCallback(async () => {
     // A machine woken while the pane's link was down: connect again now, not at the backoff's turn.
@@ -7220,6 +7225,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       readSendAgain,
       readInterruptedResume,
       opensSideChat,
+      chatActionRows: chatActionRowsRef,
       archiveChatRef,
       newChatLeftover,
       heldBack,

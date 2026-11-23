@@ -96,6 +96,7 @@ import type { ChatFind } from "../conversation/chatFind";
 import {
   forkRefusal,
   forkToTarget,
+  chatActionMessage,
   latestForkSeq,
   messageMenuSessionMatches,
   messageMenuTarget,
@@ -104,6 +105,7 @@ import {
   withSendPromptAgain,
 } from "../conversation/messageMenu";
 import { actOnReportedImage } from "../conversation/imageMenuActions";
+import { type ChatActionRole, type ChatActionRow, withChatActions } from "../conversation/chatActions";
 import { callChipHost } from "../chips/host";
 import { forkAnchor } from "../conversation/branches";
 import { readShortcuts } from "../shortcuts";
@@ -330,6 +332,8 @@ export type PaneSnapshotArgs = {
   readSendAgain: () => SendPromptAgainState;
   readInterruptedResume: () => InterruptedResumeState;
   opensSideChat: React.RefObject<boolean>;
+  /// The installed extensions' message actions, read by the menu report when the menu opens.
+  chatActionRows: React.RefObject<(role: ChatActionRole) => readonly ChatActionRow[]>;
   archiveChatRef: React.RefObject<(() => void) | undefined>;
   newChatLeftover: React.RefObject<() => { leave: () => void; cancel: () => void } | undefined>;
   heldBack: React.RefObject<{ text: string; attachments: ComposerAttachment[] }[] | undefined>;
@@ -480,6 +484,7 @@ export function paneSnapshotEffect({
   readSendAgain,
   readInterruptedResume,
   opensSideChat,
+  chatActionRows,
   archiveChatRef,
   newChatLeftover,
   heldBack,
@@ -2557,7 +2562,12 @@ export function paneSnapshotEffect({
         const current = snapshotRef.current;
         if (!current) return undefined;
         const target = messageMenuTarget(current, rowId, opensSideChat.current, counted.current.childRows);
-        return withSendPromptAgain(target, rowId, readSendAgain(), translate);
+        // Installed extensions' message actions (none: the report, and the menu, are unchanged).
+        return withChatActions(
+          withSendPromptAgain(target, rowId, readSendAgain(), translate),
+          chatActionMessage(current, rowId, counted.current.childRows),
+          chatActionRows.current,
+        );
       });
       // The harness switch runs on this client; one waiting on a connection runs now.
       switchPort = {

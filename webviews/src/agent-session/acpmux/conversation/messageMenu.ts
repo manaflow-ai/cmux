@@ -17,6 +17,7 @@ import { currentLanguage, type Translate } from "../i18n";
 import { replyMenuTime } from "./relativeTime";
 import { selectionText } from "./chipCopy";
 import { onVisualViewport } from "../../../ui/visualViewportBox";
+import type { ChatActionsReport } from "./chatActions";
 import {
   sendPromptAgainMenu,
   sendPromptAgainTarget,
@@ -44,6 +45,8 @@ export type MessageMenuTarget = {
   sendPromptAgain?: SendPromptAgainMenu;
   /// The message's web links and images, each once, for Open Link.
   links?: string[];
+  /// The installed extensions' message actions for it (chatActions.ts); absent with none.
+  chatActions?: ChatActionsReport;
 };
 
 /// What the page reports on `contextmenu`: the message under the pointer, and the selected
@@ -246,6 +249,22 @@ export function messageMenuTarget(
   const links = webLinks(row.text);
   if (links.length > 0) target.links = links;
   return target;
+}
+
+/// The message an extension's message action acts on (chatActions.ts): the chat's prompt or reply
+/// on row `rowId` (a fold's copy names its row), as written (a reply's Markdown), with its chat.
+/// Undefined for any other row and for a subagent's view (`shown`).
+export function chatActionMessage(
+  snapshot: AcpmuxSnapshot,
+  rowId: string,
+  shown?: readonly AcpmuxRow[],
+): ChatActionsReport["message"] | undefined {
+  if (shown) return undefined;
+  const id = rowId.endsWith(":fold") ? rowId.slice(0, -":fold".length) : rowId;
+  const row = snapshot.rows.find((candidate) => candidate.id === id);
+  if (!row?.text || (row.kind !== "user" && row.kind !== "assistant")) return undefined;
+  const session = snapshot.sessionId ?? snapshot.summary?.sessionId;
+  return { id, role: row.kind, text: row.text, ...(session ? { session } : {}) };
 }
 
 /// A message of a subagent's view: its text to copy, read aloud or reply to, and its links.

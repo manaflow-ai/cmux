@@ -107,6 +107,9 @@ public final class AgentPaneView: NSView {
     /// host (`cmux-agent://pane`, deleted with P5 of the agent pane move).
     let page: PageWebView?
     let pageEvents: AgentPageProvider?
+    /// Runs the extension message action the person picks in a message's menu (`cmux.chat.action/1`);
+    /// nil (tests, no apps) runs none.
+    private(set) var chatActionRunner: AppsPanelsPageProvider?
     /// The page's generated resources (its media, its chat's drawn copy); nil on the old host.
     private var pageResources: AgentPageResources?
     /// Whether the page can take typing yet (the key dispatcher queues keys until then).
@@ -240,6 +243,7 @@ public final class AgentPaneView: NSView {
         self.model = model
         self.source = source
         self.renderRate = renderRate
+        chatActionRunner = panelProvider as? AppsPanelsPageProvider
         Self.warmupNoLongerNeeded = true
         let webView: WKWebView
         if pageHost, case .bundled(let index) = source {
