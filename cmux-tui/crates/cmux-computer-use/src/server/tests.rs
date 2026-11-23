@@ -98,7 +98,7 @@ fn fixture(tag: &str, uid: Option<u32>) -> Fixture {
     if let Some(uid) = uid {
         listener.uid = uid;
     }
-    let server = serve_on(engine.clone(), listener, path.to_str().unwrap(), &SECRET).unwrap();
+    let server = serve_on(engine.clone(), listener, path.to_str().unwrap(), &SECRET, None).unwrap();
     Fixture { _dir: dir, path, desktop, gate, engine, server: Some(server) }
 }
 

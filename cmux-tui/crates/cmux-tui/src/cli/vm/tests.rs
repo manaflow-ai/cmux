@@ -41,6 +41,22 @@ fn client_session_commands_pass_through_to_cmux_vm() {
 }
 
 #[test]
+fn saved_file_commands_use_the_vm_api_without_the_app_carrier() {
+    for verb in ["read", "ls", "stat"] {
+        let words = args(&["vm", "file", verb, "vm_1", "/workspace"]);
+        assert!(cloud_alias(&words).is_none());
+        assert_eq!(
+            planned(&["vm", "file", verb, "vm_1", "/workspace"]).unwrap(),
+            args(&["file", verb, "vm_1", "/workspace"])
+        );
+    }
+    assert_eq!(
+        planned(&["vm", "file", "read", "vm_1", "/log", "--range", "bytes=4-"]).unwrap(),
+        args(&["file", "read", "vm_1", "/log", "--range", "bytes=4-"])
+    );
+}
+
+#[test]
 fn exec_keeps_everything_after_the_double_dash() {
     assert_eq!(
         planned(&["vm", "exec", "vm_1", "--", "acpmux", "run", "-m", "claude", "hi"]).unwrap(),
@@ -557,7 +573,7 @@ fn route(words: &[&str], app: bool) -> NewRoute {
 fn machine_new_goes_to_the_app_unless_the_vm_api_is_asked_for() {
     assert_eq!(route(&["machine", "new"], true), NewRoute::App);
     assert_eq!(route(&["machine", "create", "--name", "a"], true), NewRoute::App);
-    assert_eq!(route(&["machine", "new", "--size=medium"], false), NewRoute::App);
+    assert_eq!(route(&["machine", "new", "--size=medium"], false), NewRoute::VmApi);
     assert_eq!(route(&["machine", "new", "--persistent"], true), NewRoute::App);
     assert_eq!(route(&["machine", "new"], false), NewRoute::VmApi);
     assert_eq!(route(&["machine", "new", "--snapshot", "snap_1"], true), NewRoute::VmApi);
@@ -566,6 +582,32 @@ fn machine_new_goes_to_the_app_unless_the_vm_api_is_asked_for() {
     assert_eq!(route(&["vm", "new"], true), NewRoute::App);
     assert_eq!(route(&["vm", "new"], false), NewRoute::VmApi);
     assert_eq!(route(&["vm", "new", "--image", "img_1"], true), NewRoute::VmApi);
+    assert_eq!(route(&["vm", "new", "--label", "fleet=lanes"], true), NewRoute::VmApi);
+}
+
+/// Headless (no app), `vm new` takes `--size`, `--persistent`, `--bootstrap lane
+/// --bootstrap-script`, `--machine-config` and `--wait` on the VM API route, so an agent makes a
+/// lane VM with no app (Leo: "we want to be able to do with GCP what we can do with Freestyle").
+/// They used to send it to the app, which was not there. With the app they still go to the app;
+/// `--repo` (the app's GitHub link) always does.
+#[test]
+fn headless_vm_new_takes_size_persistent_bootstrap_and_machine_config() {
+    for flags in [
+        &["--size", "large"][..],
+        &["--persistent"],
+        &["--bootstrap", "lane", "--bootstrap-script", "b.sh", "--name", "lane-1"],
+        &["--bootstrap-script=b.sh"],
+        &["--machine-config", "m.toml", "--wait"],
+    ] {
+        let words: Vec<&str> = ["vm", "new"].into_iter().chain(flags.iter().copied()).collect();
+        assert_eq!(route(&words, false), NewRoute::VmApi, "{words:?}");
+        assert_eq!(route(&words, true), NewRoute::App, "{words:?}");
+    }
+    assert_eq!(route(&["vm", "new", "--repo", "o/n"], false), NewRoute::App);
+    assert_eq!(
+        route(&["vm", "new", "--bootstrap-script", "b.sh", "--snapshot", "snap_1"], true),
+        NewRoute::VmApi
+    );
 }
 
 #[test]
