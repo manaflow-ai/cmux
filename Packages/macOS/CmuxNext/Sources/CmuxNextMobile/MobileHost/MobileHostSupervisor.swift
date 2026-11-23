@@ -74,6 +74,9 @@ public actor MobileHostSupervisor {
     /// The last `appearance` line (this Mac's theme and wallpaper): the same for every account, sent
     /// on every change and to each new hostd.
     private var appearanceLine: Data?
+    /// The last `tab_picture` line of each browser tab's part (`"<surface>-<part>"`): sent on every
+    /// change and to each new hostd, until the tab closes (``forgetTabPictures(surface:)``).
+    private var tabPictureLines: [String: Data] = [:]
     /// The account the running hostd serves (its launch's user), nil with none running.
     private var processUser: String?
     private let clock: any Clock<Duration>
@@ -300,6 +303,19 @@ public actor MobileHostSupervisor {
         process?.send(line)
     }
 
+    /// A browser tab's favicon or thumbnail (``MobileHostLaunch/tabPictureLine(surface:part:path:width:height:capturedAtMs:)``):
+    /// kept for each new hostd and sent to the running one. hostd serves it on `tabs` (`tab_snapshots.rs`).
+    public func setTabPicture(surface: UInt64, part: String, line: Data) {
+        tabPictureLines["\(surface)-\(part)"] = line
+        process?.send(line)
+    }
+
+    /// The tab of `surface` closed: no new hostd gets its pictures (the running one drops them with the tab).
+    public func forgetTabPictures(surface: UInt64) {
+        tabPictureLines.removeValue(forKey: "\(surface)-thumb")
+        tabPictureLines.removeValue(forKey: "\(surface)-favicon")
+    }
+
     /// Forgets the kept set (the feed's account changed or signed out): no hostd started from now
     /// gets it. Nothing goes to the running hostd: an empty set would close each request on that
     /// account's phones, while the account change itself ends that hostd.
@@ -462,6 +478,7 @@ public actor MobileHostSupervisor {
         if let phoneCredentialsLine { child.send(phoneCredentialsLine) }
         if let line = needsYouForHostd(user: inputs.launch.userID) { child.send(line) }
         if let appearanceLine { child.send(appearanceLine) }
+        for line in tabPictureLines.values { child.send(line) }
         await tokens.request()
         await sendAcpmux(child, inputs: inputs)
     }
