@@ -139,7 +139,7 @@ await requireBrowserLane("new-tab-start-frames.test.ts", async () => {
 
   /// Types PROMPT on a New Tab page (`template`: the New Tab screen, or the Classic page) and presses
   /// Return; records every painted frame for `ms`.
-  async function startFromNewTab(starts: boolean, ms: number, template = "minimal"): Promise<Frame[]> {
+  async function startFromNewTab(starts: boolean, ms: number, template = "minimal", prompt = PROMPT): Promise<Frame[]> {
     const page = await browser!.newPage({ viewport: { width: 1000, height: 760 } });
     await installPaintedFrames(page);
     const endpoint = `ws://127.0.0.1:${daemon!.port}/?starts=${starts ? 1 : 0}`;
@@ -202,7 +202,7 @@ await requireBrowserLane("new-tab-start-frames.test.ts", async () => {
         timeout: 30_000,
       },
     );
-    await field.fill(PROMPT);
+    if (prompt) await field.fill(prompt);
     await page.evaluate(
       ({ ms, prompt }) => {
         const frames: Frame[] = [];
@@ -223,7 +223,7 @@ await requireBrowserLane("new-tab-start-frames.test.ts", async () => {
           return performance.now() - start < ms;
         });
       },
-      { ms, prompt: PROMPT },
+      { ms, prompt: prompt || PROMPT },
     );
     await field.press("Enter");
     await page.waitForFunction(
@@ -273,5 +273,15 @@ await requireBrowserLane("new-tab-start-frames.test.ts", async () => {
   test("a chat the Classic New Tab page starts never draws the old hero", async () => {
     const frames = await startFromNewTab(true, START_MS + 1_500, "classic");
     expect(report("classic start", frames)).toEqual([]);
+  });
+
+  test("a blank Return on the Classic page whose start fails comes back to the page with its failure", async () => {
+    // A blank Return keeps its immediate move to the chat view (it has no prompt to show a
+    // switch with). The settled start must not leave the page a second time after the failure
+    // brought it back: that left the old hero up with no failure card.
+    const frames = await startFromNewTab(false, START_MS + 2_000, "classic", "");
+    report("classic blank failed start", frames);
+    expect(frames.at(-1)?.newTab).toBe(true);
+    expect(frames.at(-1)?.failed).toBe(true);
   });
 });

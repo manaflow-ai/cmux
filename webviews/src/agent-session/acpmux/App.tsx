@@ -448,8 +448,6 @@ import {
   type CloudStartAnswer,
   cloudSendAfterCheck,
   composerCloudStartFolder,
-  pickedChatCloudCall,
-  pickOnlyNewChat,
   pageOnOtherMachine,
   pickedChatCloudCall,
   pickOnlyNewChat,
@@ -8244,7 +8242,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           // switch with nothing queued.
           const started = startNewTabTransition(
             () => callNative("chat.new", { ...chat, ...(folder ? { cwd: folder } : {}) }),
-            () => leaveNewTabForStart({ text, attachments }),
+            // A blank Return already left the page (below); leaving again when the start settles
+            // would undo the page the `failedSwitch` effect brought back with its failure.
+            () => {
+              if (asks) leaveNewTabForStart({ text, attachments });
+            },
             isCurrent,
           ).then((session) => {
             if (isCurrent() && session && remembers) rememberStartedProject(folder, callNative);
