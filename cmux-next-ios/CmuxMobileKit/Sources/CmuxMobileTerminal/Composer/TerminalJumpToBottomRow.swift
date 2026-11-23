@@ -40,6 +40,7 @@ struct TerminalJumpToBottomRow: View {
                 } label: {
                     Label("Jump to bottom", systemImage: "arrow.down")
                         .font(.footnote.weight(.semibold))
+                        .foregroundStyle(CmuxMobileTheme.standard.colors.label)
                         .padding(.horizontal, 12)
                         .frame(height: Self.pillHeight)
                         .cmuxMobilePressBackground(Self.pillFill, in: Self.pillShape)
