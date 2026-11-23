@@ -146,6 +146,18 @@ struct ChatComposer: View {
             text = trimmed.isEmpty ? draft.text : draft.text + "\n\n" + text
             attachments = draft.attachments + attachments.filter { own in !draft.attachments.contains { $0.id == own.id } }
         }
+        // A new line (or a send's clear) moves the card at once, so the transcript's inset follows in
+        // the same frame instead of easing behind it on a 350 ms spring (Leo, 2026-11-23: "stop
+        // playing the stupid fucking slow ass animation when new lines are there in the composer
+        // ... one good motion and feeling nigh instant"). Cleared after this update, so a later
+        // collapse or attachment keeps its own motion.
+        .onChange(of: text) { _, _ in
+            store.placeBottomStackInstantly = true
+            Task { @MainActor [store] in
+                await Task.yield()
+                store.placeBottomStackInstantly = false
+            }
+        }
         // The flip is placed even when the target stays (focused or drafting as the history
         // came), so a later collapse by the person is not taken for the chat opening.
         .onChange(of: collapsible) { _, now in if !collapsedTarget { placedCollapsible = now } }
