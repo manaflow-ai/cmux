@@ -204,7 +204,7 @@ final class BrowserDownloadsPopupModel {
     }
 }
 
-/// The popup's colors from the toolbar's theme scope (as `BookmarkPageColors`).
+/// The popup's colors from the toolbar's theme scope (as `BookmarkPageColors`), inks fit to its glass (`GlassMenuMaterial.ink`).
 struct BrowserDownloadsPopupColors: Equatable {
     var primary = ThemeTokens.unresolved.textPrimary.swiftUIColor
     var secondary = ThemeTokens.unresolved.textSecondary.swiftUIColor
@@ -214,14 +214,13 @@ struct BrowserDownloadsPopupColors: Equatable {
 
     /// Call inside `performWithTheme`. theme-scoped
     static func resolve() -> BrowserDownloadsPopupColors {
-        BrowserDownloadsPopupColors(primary: fixed(Palette.textPrimary), secondary: fixed(Palette.textSecondary),
+        BrowserDownloadsPopupColors(primary: glass(\.textPrimary), secondary: glass(\.textSecondary),
                                     hover: fixed(Palette.hoverFill), separator: fixed(Palette.separator),
                                     danger: fixed(Palette.danger))
     }
 
-    private static func fixed(_ color: NSColor) -> Color {
-        Color(nsColor: color.usingColorSpace(.sRGB) ?? color)
-    }
+    private static func fixed(_ color: NSColor) -> Color { Color(nsColor: color.usingColorSpace(.sRGB) ?? color) }
+    private static func glass(_ ink: KeyPath<ThemeTokens, ThemeRGB>) -> Color { GlassMenuMaterial.ink(ink).swiftUIColor }
 }
 
 struct BrowserDownloadsPopupView: View {
@@ -453,7 +452,7 @@ final class BrowserDownloadRowEventView: NSView, NSDraggingSource {
 
     override func rightMouseDown(with event: NSEvent) {
         guard let menu = themedMenu() else { return super.rightMouseDown(with: event) }
-        NSMenu.popUpContextMenu(menu, with: event, for: self)
+        NSMenu.popUpContextMenu(menu.withoutSystemItems(), with: event, for: self)
     }
 
     func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {

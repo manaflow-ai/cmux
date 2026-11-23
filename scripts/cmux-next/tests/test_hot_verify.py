@@ -1124,12 +1124,13 @@ class GoldenCopyTest(unittest.TestCase):
         hv.stamp_commit(app, self.c2)
         self.assertEqual(hv.app_info(app)["commit"], self.c1, "a commit the app names is kept")
 
-    def test_a_run_waits_for_no_page_reload_and_a_look_does(self):
+    def test_apply_web_sleeps_for_no_page_reload(self):
+        # A look waits for the reload on the window's own pixels (Repaint), never a fixed sleep in apply_web.
         tree = self.root / "tree"
         (tree / "webviews").mkdir(parents=True)
         side = unittest.mock.Mock(env=lambda: {})
         ok = subprocess.CompletedProcess([], 0, "", "")
-        for settle, waits in ((False, []), (True, [hv.SETTLE_DEV_SERVER])):
+        for settle, waits in ((False, []), (True, [])):
             slept = []
             with unittest.mock.patch.object(hv.shutil, "which", return_value="/bin/bun"), \
                     unittest.mock.patch.object(hv.subprocess, "run", return_value=ok), \

@@ -75,4 +75,6 @@ public nonisolated struct ActionSuggestions: Sendable, Hashable {
     /// The tab bar's pinnable actions (Pin or Unpin Tab Bar Button…'s `button`, `tabs.toolbarButtons`), the pinned
     /// ones marked.
     public static let tabBarButtons = "tabBarButtons"
+    /// The code editors installed on this Mac, the default first (Open In ▸'s `app`; the App lists them).
+    public static let editors = "editors"
 }
