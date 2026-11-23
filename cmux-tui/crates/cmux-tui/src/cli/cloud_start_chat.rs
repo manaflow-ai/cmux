@@ -764,6 +764,17 @@ pub(super) trait Runner {
     ) -> Result<Value, link_wait::Failure> {
         link_wait::observe(std::path::Path::new(socket), surface, after, wait)
     }
+    /// The first prompt to a chat tab over the machine's link stream `socket` ([`link_wait::send`]).
+    fn send_link(
+        &mut self,
+        socket: &str,
+        surface: u64,
+        prompt_id: &str,
+        text: &str,
+        wait: Duration,
+    ) -> Result<Value, link_wait::SendFailure> {
+        link_wait::send(std::path::Path::new(socket), surface, prompt_id, text, wait)
+    }
     /// The copy of `folder` (a `--from-folder`), estimated and decided (whole, first pass or seed)
     /// before any machine is made for it (link/sync_cli/estimate.rs): `null` when it could not be
     /// read, and the start goes on either way.
@@ -1524,6 +1535,20 @@ impl Runner for Timed<'_> {
         answer
     }
 
+    fn send_link(
+        &mut self,
+        socket: &str,
+        surface: u64,
+        prompt_id: &str,
+        text: &str,
+        wait: Duration,
+    ) -> Result<Value, link_wait::SendFailure> {
+        let from = self.inner.now();
+        let answer = self.inner.send_link(socket, surface, prompt_id, text, wait);
+        self.mark("link send", from, i32::from(answer.is_err()));
+        answer
+    }
+
     fn app(
         &mut self,
         method: &str,
@@ -2029,6 +2054,47 @@ fn send_prompt(
     if deadline.passed(runner) {
         return progress.out_of_time(request, &chat, answer);
     }
+    // A chat this run started has its tab on the machine's daemon, and the app already holds the link to it: the
+    // prompt goes there in one round trip, with no `cloud exec` (two processes on the machine). Anything the link
+    // refuses before the prompt is in goes the exec way below.
+    if let Some(tab) =
+        tab.filter(|_| prompt.len() <= link_wait::PROMPT_BYTES && !prompt.trim().is_empty())
+    {
+        progress.sending = true;
+        let mut sending = answer.clone();
+        sending.set("sent", json!(true));
+        progress.chat = Some((machine_id.to_owned(), session.to_owned(), sending));
+        runner.stage("send");
+        match send_over_link(runner, machine_id, tab, prompt, deadline) {
+            Ok(()) => {
+                runner.stage("sent");
+                answer.set("sent", json!(true));
+                answer.set("send_route", json!("link"));
+                if !request.wait {
+                    return Outcome::Done(answer);
+                }
+                // A chat this run just started has no turn before this one.
+                return wait_turn(
+                    runner,
+                    request,
+                    machine_id,
+                    session,
+                    (0, Some(tab), None),
+                    answer,
+                    deadline,
+                );
+            }
+            Err(link_wait::SendFailure::Unsure(reason)) => {
+                return failed(
+                    "chat.send_failed",
+                    format!("the prompt may not have reached the chat: {reason}"),
+                    json!({"answer": answer}),
+                    1,
+                );
+            }
+            Err(link_wait::SendFailure::NotSent(_)) => progress.sending = false,
+        }
+    }
     let quoted = shell_quote(prompt);
     // With `--wait` to a chat whose turn is not pushed over the link (one this run did not start: no tab),
     // the send's own exec waits for its turn too ([`turn_wait_script`]), so a short turn costs one Cloud
@@ -2143,6 +2209,35 @@ fn send_prompt(
     }
     wait_turn(runner, request, machine_id, session, (baseline, tab, first), answer, deadline)
 }
+
+/// The prompt to the chat tab `tab` over the machine's link, within what is left of the deadline. `NotSent`
+/// when there is no link (no app, no socket) or the daemon refused: the exec route takes over.
+fn send_over_link(
+    runner: &mut dyn Runner,
+    machine_id: &str,
+    tab: u64,
+    prompt: &str,
+    deadline: Deadline,
+) -> Result<(), link_wait::SendFailure> {
+    use link_wait::SendFailure::NotSent;
+    let asked =
+        runner.app("cloud.machine_stream", json!({"machine": machine_id}), Duration::from_secs(10));
+    let Some(socket) = asked
+        .and_then(Result::ok)
+        .and_then(|answer| answer.get("socket").and_then(Value::as_str).map(str::to_owned))
+    else {
+        return Err(NotSent("no link socket".into()));
+    };
+    let wait = deadline.bound(runner, LINK_SEND_WAIT);
+    if wait.is_zero() {
+        return Err(NotSent("no time left".into()));
+    }
+    let prompt_id = format!("cli-{}", uuid::Uuid::new_v4().simple());
+    runner.send_link(&socket, tab, &prompt_id, prompt, wait).map(|_| ())
+}
+
+/// The longest the link send waits for its answers.
+const LINK_SEND_WAIT: Duration = Duration::from_secs(10);
 
 /// 4. The turn after `baseline` in `session`: its end and its reply.
 fn wait_turn(

@@ -30,6 +30,8 @@ mod catalog;
 #[cfg(unix)]
 mod chat_widgets;
 #[cfg(unix)]
+mod cli_commands;
+#[cfg(unix)]
 mod community;
 #[cfg(unix)]
 mod composer;
@@ -56,6 +58,8 @@ mod load_trial;
 mod local_reload;
 #[cfg(unix)]
 mod locale;
+#[cfg(unix)]
+mod signals_cache;
 
 /// The person's locale as a BCP-47 tag (`ja-JP`), read once (`locale::current`): the language of Home's
 /// preview words (`server::conversations`).
@@ -64,6 +68,8 @@ pub(crate) fn person_locale() -> &'static str {
     locale::current()
 }
 
+#[cfg(unix)]
+mod mcp_tools;
 #[cfg(unix)]
 mod mirror;
 #[cfg(unix)]
@@ -104,17 +110,21 @@ mod sidebar_integration_tests;
 #[cfg(unix)]
 mod status_items;
 #[cfg(unix)]
-mod storage;
+pub(crate) mod storage;
 #[cfg(unix)]
 mod store;
 #[cfg(unix)]
 mod store_panels;
+#[cfg(unix)]
+mod store_sections;
 #[cfg(unix)]
 mod store_trust;
 #[cfg(unix)]
 mod subscriptions;
 #[cfg(unix)]
 mod supervisor;
+#[cfg(unix)]
+mod supervisor_signals;
 #[cfg(all(test, unix))]
 mod supervisor_tests;
 #[cfg(unix)]

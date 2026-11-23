@@ -37,6 +37,8 @@ use std::time::Instant;
 
 #[path = "media_queue.rs"]
 mod media_queue;
+#[path = "no_path.rs"]
+mod no_path;
 #[path = "socket.rs"]
 mod socket;
 
@@ -179,6 +181,7 @@ enum Command {
     Control(Vec<u8>),
     Datagram(Vec<u8>),
     NetworkChange,
+    PeerLost(Option<u64>),
     Close,
 }
 
@@ -526,6 +529,14 @@ impl Net {
     pub fn network_changed(&self) {
         self.command(Command::NetworkChange);
     }
+
+    /// Fails the link ([`NetEvent::Failed`]) once the established peer sent
+    /// nothing for `after` ([`crate::PEER_LOST_US`] for a viewer): a host that
+    /// died without a close. `None` (the default) waits forever.
+    pub fn set_peer_lost(&self, after: Option<std::time::Duration>) {
+        let us = after.map(|d| u64::try_from(d.as_micros()).unwrap_or(u64::MAX));
+        self.command(Command::PeerLost(us));
+    }
 }
 
 impl Drop for Net {
@@ -872,30 +883,29 @@ impl Driver {
         }
     }
 
-    /// What this side gathered, what the peer sent, and how many packets it
-    /// heard: a failure says whether the handshake ever reached this side
-    /// (`heard 0`: a NAT, firewall or missing route dropped it) and which
-    /// routes each side had. Counts only, never an address.
-    fn routes_seen(&self) -> String {
-        let [host, srflx, relay] = self.gathered.get();
+    /// What this side gathered and what the peer sent, by kind, for a failure's reason
+    /// ([`no_path`]): whether the handshake ever reached this side and which routes each
+    /// side had. Counts only, never an address.
+    fn candidate_counts(&self) -> (no_path::Counts, no_path::Counts) {
         let mut peer = [0u32; 3];
         for c in &self.remote {
             if let Some(n) = peer.get_mut(kind_index(c.kind)) {
                 *n += 1;
             }
         }
-        let [p_host, p_srflx, p_relay] = peer;
-        format!(
-            "local host {host} srflx {srflx} relay {relay}; \
-             peer host {p_host} srflx {p_srflx} relay {p_relay}; heard {}",
-            self.heard
-        )
+        (self.gathered.get(), peer)
     }
 
     fn run(&mut self) {
-        if let Err(e) = self.serve() {
-            self.emit(NetEvent::Failed(format!("{e} ({})", self.routes_seen())));
-        }
+        let Err(error) = self.serve() else { return };
+        // Counted after the run: what was gathered and heard by the time it failed.
+        let (local, peer) = self.candidate_counts();
+        let why = match error {
+            // No path at all: say so in words the viewer's failed card can show.
+            LinkError::HandshakeTimeout => no_path::handshake_timeout(local, peer, self.heard),
+            e => format!("{e} ({})", no_path::counts(local, peer, self.heard)),
+        };
+        self.emit(NetEvent::Failed(why));
     }
 
     fn serve(&mut self) -> Result<(), LinkError> {
@@ -939,6 +949,7 @@ impl Driver {
                         self.endpoint.set_local_networks(cmux_transport::local_networks());
                         self.endpoint.on_network_change();
                     }
+                    Command::PeerLost(us) => self.endpoint.set_peer_lost(us),
                     Command::Close => {
                         if self.endpoint.link().is_established() {
                             for t in self.endpoint.close()? {

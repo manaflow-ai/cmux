@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR ab0ad41761f7f1456db4324d2458aad4004d24ac55d32231933daa704506d6fa. */
+/* cmux-tui mux protocol 12, IR a77431a466293c6ad75e0c168cec2387f12a578f35d72d0cee3c77d259940d4b. */
 
 
 import type * as T from "./types.js";
@@ -70,6 +70,8 @@ export interface AttachSurfaceRequest extends CmuxRequestBase {
   "output_coalesce_ms"?: (number) | null;
   "replay_history_rows"?: (number) | null;
   "replay_history_start"?: (bigint) | null;
+  "resume_generation"?: (string) | null;
+  "resume_offset"?: (bigint) | null;
   "rows"?: (number) | null;
   "snapshot"?: (string) | null;
   "snapshot_images"?: boolean;
@@ -2412,6 +2414,7 @@ export interface SendRequest extends CmuxRequestBase {
   "expect_agent"?: (T.SendExpectAgent) | null;
   "expect_foreground"?: (string) | null;
   "flow"?: (bigint) | null;
+  "key"?: (string) | null;
   "paste"?: boolean;
   "submit"?: boolean;
   "surface"?: (T.Id) | null;
@@ -2749,6 +2752,7 @@ export interface ShutdownDaemonRequest extends CmuxRequestBase {
   "end_terminals"?: boolean;
   "force"?: boolean;
   "generation": string;
+  "if_idle"?: boolean;
   "keep_layout"?: boolean;
   "pid": number;
   "restart"?: (boolean) | null;

@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR ab0ad41761f7f1456db4324d2458aad4004d24ac55d32231933daa704506d6fa. */
+/* cmux-tui mux protocol 12, IR a77431a466293c6ad75e0c168cec2387f12a578f35d72d0cee3c77d259940d4b. */
 
 
 import type * as T from "./types.js";
@@ -23,6 +23,8 @@ export type AgentChangedEvent = { event: "agent-changed" } & {
   "source": T.AgentSource;
   "state": T.AgentState;
   "surface": T.Id;
+  /** The terminal's public id (`term_…`). The record's `surface` is the terminal's first tab placement; a client finds every tab that shows the terminal by this id, whatever surface a restore or a reopen gave the tab. */
+  "terminal_id"?: string;
   "updated_at_ms": bigint;
 };
 
@@ -77,6 +79,11 @@ export type AgentPresenceChangedEvent = { event: "agent-presence-changed" } & {
   "tool": (string) | null;
   /** When the hook observed the event; null on clear. */
   "updated_at_ms": (bigint) | null;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type AgentSessionShareChangedEvent = { event: "agent-session-share-changed" } & {
+  "session": string;
 };
 
 /** Protocol v5; emission: emitted; streams: subscribe. */
@@ -804,6 +811,7 @@ export type KnownCmuxEvent =
   | AgentInventoryChangedEvent
   | AgentInventoryWatchEndedEvent
   | AgentPresenceChangedEvent
+  | AgentSessionShareChangedEvent
   | BellEvent
   | BookmarksChangedEvent
   | BrowserStateEvent
@@ -902,6 +910,7 @@ export type SerializedButNotEmittedEvent =
 export type KnownSubscribeEvent =
   | AgentChangedEvent
   | AgentPresenceChangedEvent
+  | AgentSessionShareChangedEvent
   | BellEvent
   | BookmarksChangedEvent
   | ChiefChangedEvent

@@ -1020,6 +1020,8 @@ fn dispatch_command(
             replay_history_start,
             hybrid_stream,
             hybrid_frame,
+            resume_offset,
+            resume_generation,
             snapshot,
         } => {
             // A sized attach is a size report: it starts (or renews) the
@@ -1041,6 +1043,7 @@ fn dispatch_command(
                 output_coalesce_ms,
                 replay_history_start,
                 (hybrid_stream, hybrid_frame),
+                (resume_offset, resume_generation),
                 snapshot,
             )
         }
