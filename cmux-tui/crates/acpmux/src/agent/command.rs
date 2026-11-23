@@ -408,7 +408,8 @@ fn build_harness_command(
         let env = command_env_with(&cmd, !remote_environment);
         let get = |k: &str| env.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone());
         let launcher = crate::sr2_priority::is_sr2_launcher(program)
-            || family.is_some_and(|f| f.starts_with("claude-sr2"));
+            || crate::sr2_priority::is_sr2_launcher(name)
+            || family.is_some_and(crate::sr2_priority::is_sr2_launcher);
         if let Some(headers) = crate::sr2_priority::custom_headers(get, launcher, sr2_person) {
             cmd.env(crate::subrouter_session::HEADERS_ENV, headers);
         }

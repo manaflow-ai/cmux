@@ -15,8 +15,10 @@
 //! and a daemon's own env can never pass one on. The launch then sends `X-Subrouter-Priority: person` in
 //! `ANTHROPIC_CUSTOM_HEADERS` ([`custom_headers`]) when the request goes to
 //! the sr2 gateway: its base URL names the gateway
-//! (`sr2_cost_labels::is_sr2_gateway`), or the harness is the `sr2` launcher
-//! (the `claude-sr2` profile), which keeps every line that is not `X-Cmux-*`.
+//! (`sr2_cost_labels::is_sr2_gateway`), or the harness is the sr2 launcher
+//! ([`is_sr2_launcher`]: `sr2`, the `claude-sr2` wrapper the app's default chat
+//! profile runs, or a profile named for it), which keeps every line that is not
+//! `X-Cmux-*`.
 //! Any other route gets nothing, and any older priority line is dropped, so a
 //! lane never inherits one from its login. The gateway reads and removes the
 //! header before routing (subrouter `internal/proxy/person_reserve.go`).
@@ -36,9 +38,15 @@ pub fn mark(env: &mut std::collections::BTreeMap<String, String>, person: bool) 
     }
 }
 
-/// Whether `program` is the `sr2` launcher (`sr2 claude2 ...`).
+/// Whether `program` (or a profile or family name) is the sr2 launcher: `sr2`
+/// itself (`sr2 claude2 ...`), or the `claude-sr2` wrapper and the profiles
+/// named for it (`claude-sr2`, `claude-sr2-pipe`). The app's default chat
+/// profile is a `claude-stdio` one whose argv is `~/.local/bin/claude-sr2`, so
+/// its family derives to plain `claude`: the program and profile name are what
+/// say it goes to sr2.
 pub fn is_sr2_launcher(program: &str) -> bool {
-    std::path::Path::new(program.trim()).file_name().and_then(|n| n.to_str()) == Some("sr2")
+    let base = std::path::Path::new(program.trim()).file_name().and_then(|n| n.to_str());
+    base.is_some_and(|b| b == "sr2" || b == "claude-sr2" || b.starts_with("claude-sr2-"))
 }
 
 /// The `ANTHROPIC_CUSTOM_HEADERS` value for a launch whose final env is `get`,
@@ -111,6 +119,12 @@ mod tests {
         assert!(is_sr2_launcher("/Users/leoli/bin/sr2"));
         assert!(!is_sr2_launcher("claude"));
         assert!(!is_sr2_launcher("/usr/local/bin/sr2-helper"));
+        // The app's default chat profile: argv ~/.local/bin/claude-sr2, profile
+        // claude-sr2 or claude-sr2-pipe, family derived as plain `claude`.
+        assert!(is_sr2_launcher("/Users/leoli/.local/bin/claude-sr2"));
+        assert!(is_sr2_launcher("claude-sr2-pipe"));
+        assert!(!is_sr2_launcher("claude"));
+        assert!(!is_sr2_launcher("claude-sr2x"));
     }
 
     #[test]
