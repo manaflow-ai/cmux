@@ -209,6 +209,26 @@ def _cef_counters(reply) -> dict[str, float]:
     return found
 
 
+def _cef_engine(reply) -> dict[str, float]:
+    """The engine's fork API (`fork_api`) and each shown page window's hosting (`hosted.<tab id>`: 1 hosted in the
+    window's layer tree, 0 a page window of its own) wherever they sit in a `debug.cef` reply. A resize fence joins
+    only a hosted page on an engine at `CEFLayerHosting.resizeFenceForkAPI` or later, so a gesture whose `cef.fences`
+    stayed 0 says here which of the two it lacked."""
+    found: dict[str, float] = {}
+    stack = [reply]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if (key == "fork_api" or key.startswith("hosted.")) and key not in found and isinstance(value, (int, float)):
+                    found[key] = float(value)
+                elif isinstance(value, (dict, list)):
+                    stack.append(value)
+        elif isinstance(node, list):
+            stack.extend(node)
+    return found
+
+
 def from_point(point_of, run):
     """A gesture that starts where `point_of()` says (a divider's center), prepared before its trace: calling the
     result reads the point now and returns the gesture, which `run`s from it (an error with no point).
@@ -524,7 +544,9 @@ def drive(driver, out: Path, strip: bool = False, pane: str = "browser",
         for prepare in acts(gesture):
             act = prepare()  # where it starts, read before its trace (from_point)
             reset()
-            cef_before = _cef_counters(driver.call("debug.cef", {}, timeout=10))
+            cef_reply = driver.call("debug.cef", {}, timeout=10)
+            cef_before = _cef_counters(cef_reply)
+            cef_engine = _cef_engine(cef_reply)
             if pane == "terminal":
                 # Each terminal's drawn and PTY grids through the gesture (data: the reflows it drew).
                 driver.call("debug.terminal_final_grid", {"action": "start"}, timeout=10)
@@ -542,6 +564,8 @@ def drive(driver, out: Path, strip: bool = False, pane: str = "browser",
             cef_after = _cef_counters(driver.call("debug.cef", {}, timeout=10))
             # What the page windows did through this gesture: resize fences joined, presented, missed, expired.
             trace["cef"] = {key: round(cef_after[key] - cef_before.get(key, 0.0), 2) for key in cef_after}
+            # The engine and the pages' hosting as the gesture began: which a fence needs (`_cef_engine`).
+            trace["cef_engine"] = cef_engine
             trace.update({"gesture": gesture, "pane": pane, "chat_pane": chat_pane, "beside": beside, "clock": clock,
                           "sight": seen})
             drags.append(trace)
@@ -744,6 +768,8 @@ def judge_drag(trace: dict, refresh: float) -> dict:
         "interval_ms": spread(intervals),
         # The page windows' counters through the gesture (`debug.cef`; drive's `cef`).
         "cef": trace.get("cef"),
+        # The engine's fork API and the pages' hosting as the gesture began (`_cef_engine`).
+        "cef_engine": trace.get("cef_engine"),
         "page_dropped": page_dropped,
         "page_frames": len(page),
         # The host's widths over the drag: one value when it held its size (no Chromium host: None).
@@ -794,6 +820,8 @@ def _summary(measured: list[dict]) -> dict:
         "interval_ms_max": worst("interval_ms", "max"),
         "grid_reflows_max": worst("grid_reflows", "max"),  # a terminal's most reflows in one gesture; else None
         "cef": {key: round(sum((drag.get("cef") or {}).get(key, 0.0) for drag in measured), 2) for key in CEF_COUNTERS},
+        # The first gesture's engine and hosting (`_cef_engine`): what a `cef.fences` of 0 lacked.
+        "cef_engine": next((drag.get("cef_engine") for drag in measured if drag.get("cef_engine")), None),
     }
 
 
