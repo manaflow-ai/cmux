@@ -316,6 +316,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
             let engine: BrowserEngineKind = tab.browserEngine == BrowserEngineTag.cef.rawValue ? .cef : .webkit
             let badge = services.remoteLocalhost.badge(for: tab, url: tab.url.flatMap(URL.init(string:)), engine: engine, known: (daemon, ownWorkspace?.id))
             (item.machineBadge, item.machineBadgeHelp, item.machineName) = (badge?.text, badge?.help, services.machines.tabColorName(daemon.machineID, badge: badge?.text))
+            if BrowserTabIconState.pageIcon(tab.url.flatMap(URL.init(string:))) == .remoteDisplay { item.setCloudBadgeIfUnbadged() } // a Cloud desktop
             // Incognito tabs have only a placeholder record in the daemon; its own workspace answers (a lookup by key walks every store).
             let incognito = ownWorkspace.map { services.windows.isIncognito(workspace: $0) } ?? services.cache.browserTabs.isIncognitoTab(tab.id)
             if incognito {
@@ -330,6 +331,9 @@ final class PaneController: SurfacePresenter, PresentablePane {
             browserIcon(key: tab.id, recordFavicon: incognito ? nil : tab.faviconURL, recordURL: tab.url, known: (tab, incognito)).apply(to: &item)
             item.audio = BrowserTabAudio.badge(services.cache.existingBrowser(tab.id)?.tab.state)
         }
+        // `tabs.shellIconTheme` machine: a shell tab draws its machine's icon (a remote terminal's: the machine it runs on).
+        let shellMachine = tab.kind == .remoteTerminal ? tab.remote.flatMap { services.machines.daemon(session: $0.sessionID)?.machineID } : daemon.machineID
+        item.applyShellIconTheme(DesignSettings.shared.tabShellIconTheme, machineIcon: shellMachine.flatMap { services.machines.shellTabIcon(machine: $0) })
         item.agentTone = tab.userIcon == nil ? SubagentTabTitles.shared.tone(ofTab: tab.id) : nil; if let mark = SubagentTabTitles.shared.icon(ofTab: tab.id) { item.icon = TabItemMapping.subagentIcon(harness: mark.harness) }; TabItemMapping.shared.applyUserIcon(tab, to: &item, asset: IconAssetImages.shared.tabIcon(owner: daemon)); if let sub = SubagentTabTitles.shared.facts(ofTab: tab.id) { item.showSubagent(state: sub.state.rawValue, since: sub.since, model: sub.model, spins: DesignSettings.shared.statusIndicator.showsAgentWorkingOnTabs) }
         return item
     }

@@ -1172,10 +1172,6 @@ UNRESOLVED_MATRICES: dict[tuple[str, str], str] = {
     ("cmux-next-fast-tier-seed.yml", "seed"):
         "due's step runs scripts/cmux-next/fast-tier-seed-due.py, which keeps the pools of the job env's literal "
         "SEED_POOLS list whose seed is old; the cmux-next checks workflow test (its SEED_DUE_SCRIPT case) checks it",
-    ("cmux-next-perf-budgets.yml", "linux"):
-        "plan's step writes linux_matrix (scripts/cmux-next/perf-cron.py linux_matrix): one leg per Linux part still "
-        "to do, on its PARTS runner pool's RUNNER_POOLS member, else the plan's linux_runner output; "
-        "scripts/cmux-next/tests/test_perf_cron.py LinuxMatrixTests checks the legs it writes",
     ("seed-derived-data.yml", "seed"):
         "decide's shell step computes the pool and root lanes from repository variables at run time; "
         "tests/test_seed_derived_data.py runs that step and checks every lane it writes",
