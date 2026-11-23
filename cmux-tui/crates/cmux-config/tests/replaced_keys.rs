@@ -183,7 +183,10 @@ fn a_forced_old_update_toggle_forces_and_locks_the_choice() {
 #[test]
 fn a_plain_rename_reads_the_old_value_as_is() {
     let row = Schema::embedded().row("sidebar.workspaceRow.tabCount").expect("the row").clone();
-    assert!(replaced_by_row(&row.path).is_some(), "retired-keys.json renames sidebar.showCounts");
+    assert!(
+        replaced_by_row(&row.path).next().is_some(),
+        "retired-keys.json renames sidebar.showCounts"
+    );
     let read = |root: Value| effective_value(&row, &root, &Domains::default());
     let default = row.default.clone().expect("a default");
     let other = json!(!default.as_bool().expect("a toggle"));

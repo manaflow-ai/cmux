@@ -189,7 +189,7 @@ pub(super) fn unknown_keys(
             out.push((here.join("."), Some(why.to_owned())));
             continue;
         }
-        if cmux_config::schema::replaced_by_row(&here).is_some() {
+        if cmux_config::schema::replaced_by_row(&here).next().is_some() {
             continue; // the owner reads it as its new key
         }
         match value {
