@@ -173,6 +173,7 @@ async function at(name: string, until: number) {
   return dump();
 }
 
+// fixed-wait: the churn lane replays a scenario in real time; the wall-clock gap between steps is what it measures.
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 /** Plays `name` in real time (each step at its virtual time; a wait over `maxWaitMs` is cut to it) with
@@ -193,6 +194,7 @@ async function live(name: string, { maxWaitMs = 3_000 }: { maxWaitMs?: number } 
   let last = scenario.steps[0]?.at ?? 0;
   for (let index = 0; index < scenario.steps.length; index += 1) {
     const step = scenario.steps[index]!;
+    // fixed-wait: each step lands at its own virtual time, so motion between steps plays as it would live.
     await sleep(Math.min(Math.max(0, step.at - last), maxWaitMs));
     last = step.at;
     watch.mark(step.label);
@@ -205,8 +207,10 @@ async function live(name: string, { maxWaitMs = 3_000 }: { maxWaitMs?: number } 
     }
     show({ rows, working: state.working, sends });
   }
+  // fixed-wait: rows drawn in the last step must outlive the 1 s flash window to be judged.
   await sleep(2_000);
   return watch.stop();
 }
 
+// fixed-wait: exposes live(), whose waits are the real-time replay itself.
 Object.assign(window, { __chatSim: { run, at, dump, live } });

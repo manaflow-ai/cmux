@@ -17,18 +17,17 @@ import type { ChurnReport } from "./browser/chatChurnWatch";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
-/// One line: shifts and flashes per minute of churn, with what moved and what blinked.
-function churnLine(name: string, report: ChurnReport): string {
-  const minutes = Math.max(report.durationMs, 1) / 60_000;
-  const rate = (count: number) => (count / minutes).toFixed(1);
-  const kinds = new Map<string, number>();
-  for (const flash of report.flashes) kinds.set(flash.kind || flash.id, (kinds.get(flash.kind || flash.id) ?? 0) + 1);
-  const list = [...kinds].map(([kind, count]) => `${kind}=${count}`).join(" ") || "none";
-  return `${name}: ${minutes.toFixed(2)} min, ${report.frames} frames; shifts above anchor ${report.shifts.length} (${rate(report.shifts.length)}/min); sub-second rows ${report.flashes.length} (${rate(report.flashes.length)}/min: ${list}); blinks ${report.blinks.length}`;
-}
-
 await requireBrowserLane("chat-churn-browser.test.ts", async () => {
   const PAGE = "/test/browser/chat-sim.html?motion=on";
+  /// One line: shifts and flashes per minute of churn, with what moved and what blinked.
+  function churnLine(name: string, report: ChurnReport): string {
+    const minutes = Math.max(report.durationMs, 1) / 60_000;
+    const rate = (count: number) => (count / minutes).toFixed(1);
+    const kinds = new Map<string, number>();
+    for (const flash of report.flashes) kinds.set(flash.kind || flash.id, (kinds.get(flash.kind || flash.id) ?? 0) + 1);
+    const list = [...kinds].map(([kind, count]) => `${kind}=${count}`).join(" ") || "none";
+    return `${name}: ${minutes.toFixed(2)} min, ${report.frames} frames; shifts above anchor ${report.shifts.length} (${rate(report.shifts.length)}/min); sub-second rows ${report.flashes.length} (${rate(report.flashes.length)}/min: ${list}); blinks ${report.blinks.length}`;
+  }
   setDefaultTimeout(1_500_000);
   const { createServer } = await import("vite");
   const { chromium } = await import("playwright");
