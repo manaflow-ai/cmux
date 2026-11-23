@@ -17,8 +17,8 @@
 From Python: `sys.path.insert(0, "scripts/lan-dial"); import lan_dial; sock = lan_dial.dial(host, port)`.
 
 Why: macOS Local Network privacy keeps every launchd-, runner- or worker-started third-party program off the LAN
-(EHOSTUNREACH on 172.20.x, 192.168.x, 10.x and .local), and the grant cannot be given ahead of time on these Macs.
-Apple's /usr/bin/python3 no longer gets through on macOS 27 (cmux15, 27.0.1, 2026-11-23), and under a CI runner
+(EHOSTUNREACH on 192.168.x, 172.16-31.x, 10.x and .local), and the grant cannot be given ahead of time on these Macs.
+Apple's /usr/bin/python3 no longer gets through on macOS 27 (27.0.1, measured 2026-11-23), and under a CI runner
 not even Apple's nc and ssh do: the runner is the responsible program for its whole process tree. A launchd job
 rooted on Apple's /bin/sh that starts /usr/bin/nc does get through, and it is launchd's child, not the caller's.
 

@@ -8,7 +8,7 @@
 #
 # Why /bin/sh and /usr/bin/nc: macOS Local Network privacy keeps a launchd- or runner-started third-party program
 # (Homebrew or uv Python, Rust, Go, a CI runner and everything under it) off the LAN, but a launchd job rooted on
-# Apple's /bin/sh may start /usr/bin/nc, and nc's connection is let through (measured on cmux15, macOS 27.0.1,
+# Apple's /bin/sh may start /usr/bin/nc, and nc's connection is let through (measured on macOS 27.0.1,
 # 2026-11-23). The job is launchd's own child, not the caller's, so the caller's process tree does not matter.
 #
 # The socket is mode 0600 and the job runs as the socket's owner, so the relay gives a caller nothing it could not

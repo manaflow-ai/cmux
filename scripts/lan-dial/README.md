@@ -4,8 +4,8 @@ macOS Local Network privacy refuses a LAN connection (`EHOSTUNREACH`, or a timeo
 a CI runner or a fleet worker started, unless that program holds a grant, and on the fleet Macs no grant can be
 given ahead of time (no user-approved MDM, ad hoc signed builds, a new worker binary each release). Until now each
 tool worked around it on its own: a socket-activated `/usr/bin/nc` per fixed destination, glaeda's lan-fetch
-broker with one verb, or Apple's `/usr/bin/python3`, which macOS 27 no longer lets through (cmux15, 27.0.1,
-2026-11-23). Under a runner even Apple's `nc` and `ssh` are refused: the runner is the responsible program for
+broker with one verb, or Apple's `/usr/bin/python3`, which macOS 27 no longer lets through (macOS 27.0.1,
+measured 2026-11-23). Under a runner even Apple's `nc` and `ssh` are refused: the runner is the responsible program for
 its whole process tree.
 
 lan-dial is one protocol for all of them. A launchd job rooted on Apple's `/bin/sh`, socket-activated on an
@@ -27,15 +27,15 @@ so it gives a caller nothing it could not do by loading its own launchd job.
 ## Use
 
 ```sh
-python3 scripts/lan-dial/lan_dial.py probe 172.20.21.158 7450 --send 'GET /stats HTTP/1.0\r\n\r\n'
-python3 scripts/lan-dial/lan_dial.py http http://172.20.21.158:7450/stats
-ssh -o ProxyCommand='python3 scripts/lan-dial/lan_dial.py connect %h %p' cmux@172.20.21.236
+python3 scripts/lan-dial/lan_dial.py probe 192.168.1.20 8080 --send 'GET /stats HTTP/1.0\r\n\r\n'
+python3 scripts/lan-dial/lan_dial.py http http://192.168.1.20:8080/stats
+ssh -o ProxyCommand='python3 scripts/lan-dial/lan_dial.py connect %h %p' me@192.168.1.30
 ```
 
 ```python
 sys.path.insert(0, "scripts/lan-dial")
 import lan_dial
-sock = lan_dial.dial("172.20.21.158", 7450)   # direct first; the relay when privacy refuses it
+sock = lan_dial.dial("192.168.1.20", 8080)   # direct first; the relay when privacy refuses it
 ```
 
 Nothing needs installing first: the first dial that is refused runs `lan_dial.py up`, which writes the relay's

@@ -4,8 +4,8 @@
 #
 #   scripts/lan-dial/demo.sh [ROUNDS]
 #
-# Env: LAN_DIAL_DEMO_HOST (172.20.21.158, the fleet-CAS store on cmux-lawrence's office-LAN address),
-# LAN_DIAL_DEMO_PORT (7450), LAN_DIAL_DEMO_PATH (/stats), LAN_DIAL_PY (the Python to use; default the first
+# Env: LAN_DIAL_DEMO_HOST and LAN_DIAL_DEMO_PORT (required: an HTTP service on a LAN address),
+# LAN_DIAL_DEMO_PATH (/), LAN_DIAL_PY (the Python to use; default the first
 # python3 that is not /usr/bin/python3), LAN_DIAL_DEMO_OUT (where the receipt goes, default
 # .build/lan-dial-demo), LAN_DIAL_DEMO_KEEP=1 leaves the relay loaded afterwards.
 #
@@ -15,9 +15,9 @@ set -uo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 rounds="${1:-${LAN_DIAL_DEMO_ROUNDS:-5}}"
-host="${LAN_DIAL_DEMO_HOST:-172.20.21.158}"
-port="${LAN_DIAL_DEMO_PORT:-7450}"
-path="${LAN_DIAL_DEMO_PATH:-/stats}"
+host="${LAN_DIAL_DEMO_HOST:?set LAN_DIAL_DEMO_HOST to a LAN address}"
+port="${LAN_DIAL_DEMO_PORT:?set LAN_DIAL_DEMO_PORT}"
+path="${LAN_DIAL_DEMO_PATH:-/}"
 out="${LAN_DIAL_DEMO_OUT:-$PWD/.build/lan-dial-demo}"
 mkdir -p "$out"
 
