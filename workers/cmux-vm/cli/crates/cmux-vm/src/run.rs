@@ -487,6 +487,11 @@ fn settled(status: &Value) -> Option<Recovered> {
     }
 }
 
+/// `wait_running` by id, for callers outside this module that hold only the id (guest.rs).
+pub(crate) async fn wait_running_id(client: &Client, vm_id: &str) -> Result<(), CliError> {
+    wait_running(client, &provisioning_vm(vm_id.to_owned())).await
+}
+
 async fn wait_running(client: &Client, vm: &ProvisioningVm) -> Result<(), CliError> {
     let vm_id = vm.payload();
     let start = Instant::now();
@@ -921,10 +926,10 @@ async fn pause_kept(client: &Client, vm: RunningVm) -> Result<&'static str, CliE
     }
 }
 
-struct ExecResult {
-    code: Option<i32>,
-    stdout: Vec<u8>,
-    stderr: String,
+pub(crate) struct ExecResult {
+    pub(crate) code: Option<i32>,
+    pub(crate) stdout: Vec<u8>,
+    pub(crate) stderr: String,
 }
 
 async fn exec(
@@ -968,7 +973,7 @@ async fn exec_stdin(
     Ok(())
 }
 
-async fn send_exec(
+pub(crate) async fn send_exec(
     client: &Client,
     vm_id: &str,
     body: &types::ExecRequest,
@@ -999,7 +1004,7 @@ async fn send_exec(
 /// Retries a call the server refused for load (429, 503) with backoff. Only
 /// for calls that are safe to repeat: reads, and creates under one
 /// idempotency key.
-async fn retrying<T, F, Fut>(call: F) -> Result<T, CliError>
+pub(crate) async fn retrying<T, F, Fut>(call: F) -> Result<T, CliError>
 where
     F: FnMut() -> Fut,
     Fut: std::future::Future<Output = Result<T, CliError>>,
