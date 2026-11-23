@@ -108,7 +108,7 @@ struct CloudPlaceRun {
         guard let plan = CloudMoveCore().call("place_evacuate", request, as: Plan.self) else { return }
         let queue = plan.moves.compactMap { session in all.first { $0.session == session } }
         // task-owner: one-shot; ends when the last move's work ends (each move is tracked by the registry).
-        Task { @MainActor in
+        Task {
             var next = queue.makeIterator()
             await withTaskGroup(of: Void.self) { group in
                 func launch() -> Bool {

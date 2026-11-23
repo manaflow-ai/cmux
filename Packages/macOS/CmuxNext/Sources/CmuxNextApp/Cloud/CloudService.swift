@@ -337,15 +337,15 @@ final class CloudService {
         // After sleep the list is stale even with cmux in front: the idle
         // auto-pause may have parked machines while the lid was closed.
         observers.append(Task { [weak self] in
-            for await _ in NSWorkspace.shared.notificationCenter.notifications(named: NSWorkspace.didWakeNotification) {
-                self?.autoMonitor?.slept(false)
-                await self?.refresh(ifOlderThan: .seconds(30))
-            }
-        })
-        // Auto starts its moves as the system is about to sleep.
-        observers.append(Task { [weak self] in
-            for await _ in NSWorkspace.shared.notificationCenter.notifications(named: NSWorkspace.willSleepNotification) {
-                self?.autoMonitor?.slept(true)
+            for await note in NSWorkspace.shared.notificationCenter.notifications(named: nil) {
+                switch note.name {
+                case NSWorkspace.didWakeNotification:
+                    self?.autoMonitor?.slept(false)
+                    await self?.refresh(ifOlderThan: .seconds(30))
+                // Auto starts its moves as the system is about to sleep.
+                case NSWorkspace.willSleepNotification: self?.autoMonitor?.slept(true)
+                default: continue
+                }
             }
         })
         // A sign-out or a team switch (the user signed in may stay) ends start-session asks and
