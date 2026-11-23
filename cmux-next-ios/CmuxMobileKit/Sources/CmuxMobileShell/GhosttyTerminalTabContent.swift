@@ -257,7 +257,7 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         model.hostMacID = workspace.macID
         model.reconnect = { [weak self, weak session] in
             self?.reconnect?(workspace.macID)
-            (session as? DaemonTerminalSession)?.reconnect()
+            (session?.underlyingSession as? DaemonTerminalSession)?.reconnect()
             self?.liveDataChanged()
         }
         model.uploader = live == nil ? nil : uploaderProvider?(tab, workspace.macID)
@@ -673,8 +673,17 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
             actions.append(TerminalTabAction(title: "Reconnect", systemImage: "arrow.clockwise") { Task { await reconnect() } })
         }
         // A Mac terminal: who shows it, the size each asks for, and the Mac's sizing policy.
-        if let live = model.session as? DaemonTerminalSession, let macID = hostMacs[tab.id], let show = showConnectedDevices {
+        if let live = model.session.underlyingSession as? DaemonTerminalSession, let macID = hostMacs[tab.id], let show = showConnectedDevices {
             actions.append(TerminalTabAction(title: "Connected Devices…", systemImage: "laptopcomputer.and.iphone") { show(live, macID) })
+        }
+        // Fit to Phone, one tap away and remembered for this program (Leo, 2026-11-21): on,
+        // the Mac's terminal resizes to the phone; off, the phone projects it.
+        if liveTabs.contains(tab.id) {
+            let fits = !(model.session is TerminalProjectingSession)
+            let program = model.session.programName
+            actions.append(TerminalTabAction(title: "Fit to Phone", systemImage: fits ? "checkmark" : "iphone") { [weak self] in
+                self?.setFitToPhone(!fits, program: program, tab: tab, in: workspace)
+            })
         }
         return actions + [
             TerminalTabAction(title: "Files and Links", systemImage: "folder") { model.showFilesAndLinks() },
@@ -697,6 +706,32 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
             TerminalTabAction(title: "Scroll to Top", systemImage: "arrow.up.to.line", isEnabled: !model.isTUI) { model.scrollToTop() },
             TerminalTabAction(title: "Scroll to Bottom", systemImage: "arrow.down.to.line", isEnabled: model.isScrolledUp) { model.scrollToBottom() },
         ]
+    }
+
+    /// Per-program Fit to Phone (the page menu's toggle).
+    var fitToPhoneMemory = TerminalFitToPhoneMemory()
+
+    /// Remembers `program`'s Fit to Phone and applies it now: this tab's host is built
+    /// again on a new session (projected or not, `TerminalSessionChoice`) and swapped
+    /// into the page in place, as a placeholder is for the live session (its frame, draft
+    /// and the reader's place carry over). Other warm tabs of the program cool, so each
+    /// builds in the new mode when it is shown next.
+    private func setFitToPhone(_ fit: Bool, program: String, tab: WorkspaceTab, in workspace: Workspace) {
+        fitToPhoneMemory.set(fit, for: program)
+        for (id, other) in hosts where id != tab.id && other.model.session.programName == program
+            && (other.model.session is TerminalProjectingSession) == fit {
+            cool(id)
+        }
+        guard let old = hosts[tab.id], liveTabs.contains(tab.id) else { return }
+        if let place = old.scrollPlace() { scrollPlaces[tab.id] = place }
+        // Not live for `host(for:in:)`, which then asks for a new session instead of
+        // returning this host.
+        liveTabs.remove(tab.id)
+        if host(for: tab, in: workspace) === old {
+            // No live session now: the tab keeps its host (the next build follows the choice).
+            liveTabs.insert(tab.id)
+            scrollPlaces[tab.id] = nil
+        }
     }
 
     /// The open terminal tab's model: voice mode reads it in every build, and DEBUG demos
