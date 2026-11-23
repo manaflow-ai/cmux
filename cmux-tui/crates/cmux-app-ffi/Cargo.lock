@@ -137,6 +137,7 @@ dependencies = [
  "cmux-daemon-conn-core",
  "cmux-daemon-launch-core",
  "cmux-health-core",
+ "cmux-launch-image",
  "cmux-launch-record",
  "cmux-launch-shell",
  "cmux-layout-reducer-ffi",
@@ -277,6 +278,10 @@ dependencies = [
  "rusqlite",
  "serde",
 ]
+
+[[package]]
+name = "cmux-launch-image"
+version = "0.1.0"
 
 [[package]]
 name = "cmux-launch-record"
