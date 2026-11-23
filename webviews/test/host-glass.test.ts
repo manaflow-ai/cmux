@@ -10,17 +10,17 @@ import { JSDOM } from "jsdom";
 import {
   HOST_GLASS_DEADLINE_MS,
   HOST_GLASS_DRAWN_ATTRIBUTE,
-  HOST_GLASS_ENGINES_ATTRIBUTE,
   HOST_GLASS_HOLD_FRAMES,
   HOST_GLASS_MAX,
-  HOST_GLASS_OWN_ATTRIBUTE,
-  HOST_GLASS_ROLE_ATTRIBUTE,
   HOST_GLASS_ROOT_ATTRIBUTE,
   hostGlassApplies,
-  hostGlassPageZoom,
-  hostGlassSurface,
   reportHostGlass,
   type HostGlassSurface,
+  HOST_GLASS_ENGINES_ATTRIBUTE,
+  HOST_GLASS_ROLE_ATTRIBUTE,
+  hostGlassSurface,
+  hostGlassPageZoom,
+  HOST_GLASS_OWN_ATTRIBUTE,
 } from "../src/ui/glass/hostGlass";
 import { INTERFACE_SCALE_EVENT } from "../src/ui/interfaceScale";
 
@@ -162,6 +162,30 @@ test("a surface that fell back while host glass did not apply goes back to the A
   expect(element.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE)).toBe("1");
 });
 
+test("Liquid Glass off withdraws the App's glass at once, and on again brings it back", async () => {
+  const doc = page();
+  doc.documentElement.setAttribute("data-glass", "plain");
+  const reports: HostGlassSurface[][] = [];
+  stop = reportHostGlass(doc, (surfaces) => (reports.push(surfaces), Promise.resolve()));
+  const element = surface(doc);
+  await frames();
+  await settled();
+  expect(element.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE)).toBe("1");
+  // appearance.liquidGlass off: the host sends data-glass="off"; nothing is reported, the page's own
+  // (solid) surface shows.
+  doc.documentElement.setAttribute("data-glass", "off");
+  await frames();
+  await settled();
+  expect(reports.at(-1)).toEqual([]);
+  expect(element.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE)).toBe("0");
+  expect(doc.documentElement.hasAttribute(HOST_GLASS_ROOT_ATTRIBUTE)).toBe(false);
+  doc.documentElement.setAttribute("data-glass", "plain");
+  await frames();
+  await settled();
+  expect(reports.at(-1)).toHaveLength(1);
+  expect(element.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE)).toBe("1");
+});
+
 test("an App that refuses the report leaves every surface on the page's glass and is not asked again", async () => {
   const doc = page();
   let calls = 0;
@@ -209,6 +233,12 @@ test("only a see-through Chromium page gets the App's glass", () => {
   const reduced = page();
   reduced.documentElement.setAttribute("data-reduce-transparency", "");
   expect(hostGlassApplies(reduced)).toBe(false);
+  // Liquid Glass off (appearance.liquidGlass, data-glass="off"): no glass, the App's included.
+  const off = page();
+  off.documentElement.setAttribute("data-glass", "off");
+  expect(hostGlassApplies(off)).toBe(false);
+  off.documentElement.setAttribute("data-glass", "plain");
+  expect(hostGlassApplies(off)).toBe(true);
   // The live background's canvas covers what is under the page, as the lens's does.
   const live = page();
   live.documentElement.setAttribute("data-live-background", "");
