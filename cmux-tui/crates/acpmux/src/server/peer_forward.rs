@@ -300,7 +300,7 @@ pub(super) async fn forward(
             .map(|r| r.0.name.clone());
         fields.set("via", json!("peer"));
         fields.set("toHost", json!(peer));
-        crate::xhost_audit::record("sent", fields);
+        crate::xhost_audit::record_queued("sent", fields);
     }
     // A client waits on a peer that is down (a chat it opens): the peer reconnects within
     // seconds (`peer_wanted.rs`). A peer daemon's connection is no client waiting here. A
