@@ -1,6 +1,402 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.layout.fadeInactivePanes": {
+      "comment": "Settings > General > Scrolling and Focus: title of the toggle that fades every pane except the focused one.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fade Inactive Panes"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تلاشي الأجزاء غير النشطة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Izblijedi neaktivna okna"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ton inaktive ruder ned"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Inaktive Bereiche abblenden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Atenuar paneles inactivos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Estomper les panneaux inactifs"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Attenua i riquadri inattivi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "非アクティブなペインを薄く表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ធ្វើឱ្យផ្ទាំងអសកម្មស្រអាប់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "비활성 패널 흐리게"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ton ned inaktive ruter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przygaszaj nieaktywne panele"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esmaecer painéis inativos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Затемнять неактивные панели"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "จางบานหน้าต่างที่ไม่ได้ใช้งาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Etkin olmayan bölmeleri soldur"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Приглушувати неактивні панелі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Làm mờ các ngăn không hoạt động"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "淡化非活动窗格"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "淡化非作用中窗格"
+          }
+        }
+      }
+    },
+    "settings.layout.fadeInactivePanes.help": {
+      "comment": "Settings > General > Scrolling and Focus: help under the Fade Inactive Panes toggle.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Panes without the focus fade, and come back when you focus them."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تتلاشى الأجزاء التي لا تحمل التركيز، وتعود عند التركيز عليها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Okna bez fokusa izblijede i vrate se kad ih fokusirate."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ruder uden fokus tones ned og vender tilbage, når du fokuserer på dem."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bereiche ohne Fokus werden abgeblendet und kehren zurück, sobald du sie fokussierst."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Los paneles sin el foco se atenúan y vuelven cuando los enfocas."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Les panneaux sans le focus s’estompent et reviennent quand vous leur donnez le focus."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "I riquadri senza focus si attenuano e tornano quando dai loro il focus."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "フォーカスのないペインは薄くなり、フォーカスすると元に戻ります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្ទាំងដែលគ្មានការផ្តោតនឹងស្រអាប់ ហើយត្រឡប់មកវិញនៅពេលអ្នកផ្តោតលើវា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "포커스가 없는 패널은 흐려지고, 포커스하면 다시 돌아옵니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ruter uten fokus tones ned og kommer tilbake når du fokuserer dem."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Panele bez fokusu przygasają i wracają, gdy na nich ustawisz fokus."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Painéis sem o foco esmaecem e voltam quando você os foca."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Панели без фокуса затемняются и возвращаются, когда вы на них фокусируетесь."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "บานหน้าต่างที่ไม่ได้โฟกัสจะจางลง และกลับมาเมื่อคุณโฟกัส"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Odakta olmayan bölmeler solar, onlara odaklandığınızda geri gelir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Панелі без фокуса приглушуються й повертаються, коли ви на них фокусуєтеся."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Các ngăn không có tiêu điểm sẽ mờ đi và trở lại khi bạn chọn chúng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "没有焦点的窗格会淡化，聚焦时恢复。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "沒有焦點的窗格會淡化，聚焦時恢復。"
+          }
+        }
+      }
+    },
+    "settings.layout.fadeInactivePanes.summary": {
+      "comment": "Settings search and agent summaries: one line on what Fade Inactive Panes does.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unfocused panes fade until you focus them"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تتلاشى الأجزاء غير المركّز عليها حتى تركّز عليها"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nefokusirana okna blijede dok ih ne fokusirate"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ruder uden fokus tones ned, indtil du fokuserer på dem"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bereiche ohne Fokus bleiben abgeblendet, bis du sie fokussierst"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Los paneles sin foco se atenúan hasta que los enfocas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Les panneaux sans focus restent estompés jusqu’à ce que vous les sélectionniez"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "I riquadri senza focus restano attenuati finché non li selezioni"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "フォーカスするまで非フォーカスのペインを薄く表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្ទាំងដែលមិនបានផ្តោតនឹងស្រអាប់រហូតដល់អ្នកផ្តោតលើវា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "포커스할 때까지 포커스 없는 패널을 흐리게 표시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ruter uten fokus tones ned til du fokuserer dem"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Panele bez fokusu przygasają, dopóki nie ustawisz na nich fokusu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Painéis sem foco esmaecem até você focá-los"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Панели без фокуса затемнены, пока вы на них не сфокусируетесь"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "บานหน้าต่างที่ไม่ได้โฟกัสจะจางจนกว่าคุณจะโฟกัส"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Odakta olmayan bölmeler siz odaklanana kadar soluk kalır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Панелі без фокуса приглушені, доки ви на них не сфокусуєтеся"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Các ngăn không có tiêu điểm mờ đi cho đến khi bạn chọn chúng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "未聚焦的窗格保持淡化，直到你聚焦它们"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "未聚焦的窗格保持淡化，直到你聚焦它們"
+          }
+        }
+      }
+    },
     "settings.agentPane.followUpMode": {
       "comment": "Settings > Agent Chat: title of the row that picks what Return does with a message sent while the agent is working (steer it into the running turn or queue it for after)",
       "extractionState": "manual",

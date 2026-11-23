@@ -197,6 +197,7 @@
         "layout.frameOrientation",
         "layout.rows",
         "layout.focusFollowsMouse",
+        "layout.fadeInactivePanes",
         "layout.scrollAreas",
         "layout.scrollModifier",
         "layout.pagesHandleCommandScroll"

@@ -211,6 +211,9 @@ final class PaneOverlayView: NSView {
     var dimFrame: CGRect { dimLayer.frame }
     var dimCornerRadius: CGFloat { dimLayer.cornerRadius }
     var dimCorners: CACornerMask { dimLayer.maskedCorners }
+    /// The inactive dim's resting opacity, and whether it is fading there now (for tests).
+    var dimOpacity: Float { dimLayer.opacity }
+    var dimFades: Bool { dimLayer.animation(forKey: "opacity") != nil }
     /// The color the focus ring strokes with (for tests).
     var ringColor: CGColor? { ring.borderColor }
     /// The border's line width in points and color override (for tests).

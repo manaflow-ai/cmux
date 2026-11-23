@@ -209,7 +209,7 @@
               "layout.dockColumnEdge", "layout.dockColumnMode", "layout.frameOrientation"
             ]},
             {"title": {"key": "settings.pageGroup.scrollFocus", "text": "Scrolling and Focus"}, "keys": [
-              "layout.focusFollowsMouse", "layout.scrollAreas", "layout.scrollModifier", "layout.pagesHandleCommandScroll"
+              "layout.focusFollowsMouse", "layout.fadeInactivePanes", "layout.scrollAreas", "layout.scrollModifier", "layout.pagesHandleCommandScroll"
             ]},
             {"group": "settings.group.panes"},
             {"group": "settings.group.focusRing"}
