@@ -116,7 +116,7 @@ await requireBrowserLane("layout-every-case-browser.test.ts", async () => {
       if (process.env.LAYOUT_CASES_REPORT === "1") return;
       expect(result.error).toBeUndefined();
       // The control plants a jump: a detector that misses it would pass every other case blind.
-      if (spec.perturbation === CONTROL) return void expect(result.flags.length).toBeGreaterThan(0);
+      if (spec.perturbation === CONTROL) return expect(result.flags.length).toBeGreaterThan(0);
       expect(result.flags.length).toBeLessThanOrEqual(allowed);
     });
 });
