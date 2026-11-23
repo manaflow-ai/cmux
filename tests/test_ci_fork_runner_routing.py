@@ -125,6 +125,7 @@ RELEASE_JOBS_FORK_GATED = {
     "republish-nightly-deltas": "re-uploads deltas to the release; starts with the owner fork branch",
     "publish-release-notes": "publishes release notes; runs on GitHub-hosted ubuntu-24.04 behind the owner fork branch",
     "nightly-next-one": "builds, signs, notarizes and publishes nightly-next on the signing Mac; starts with the owner fork branch",
+    "sign-live-code-variant": "signs, notarizes and publishes the live code variant on the signing Mac; starts with the owner fork branch",
 }
 
 
@@ -176,22 +177,18 @@ TRUSTED_RUNNER_EXPRESSION = (
     + json.dumps(list(TRUSTED_RUNNER_LABELS), separators=(",", ":"))
     + "'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}"
 )
-# Write-token bot jobs lead with one of our one-job GCP JIT labels (cmuxterm-hq runner_pool.py JIT_ONLY_LABELS: a VM per
-# job, deleted after it, no persistent runner registers the label), behind that label's own switch variable; the
-# trusted selector follows unchanged, so the operand can only ever add that one literal label (Leo, 2026-11-21: "i just
-# am like fundamentally opposed to paying for ci when i exist").
-JIT_FIRST_OPERANDS = {
-    "CI_REPAIR_SKIP_FLEET": "cmux-gcp-repair-jit-x64",
-    "CI_PR_CONTROL_SKIP_FLEET": "cmux-gcp-pr-control-jit-x64",
-}
-OWNED_JIT_LABELS = frozenset(JIT_FIRST_OPERANDS.values())
-JIT_FIRST_TRUSTED_RUNNER_EXPRESSIONS = tuple(
-    TRUSTED_RUNNER_EXPRESSION.replace(
-        "'ubuntu-24.04' || ", f"'ubuntu-24.04' || vars.{variable} != '1' && '{label}' || ", 1)
-    for variable, label in JIT_FIRST_OPERANDS.items())
+# The pull-request and issue bots hold write tokens and may be started by an outsider's event, so they lead with the
+# PR control label (cmux-gcp-pr-control-jit-x64: one-job JIT VMs, deleted after the job, no persistent runner
+# registers it) after the fork branch, behind their own switch; the repair workflows lead with the repair label the
+# same way (main's copies, tests/test_ci_write_token_jit_label.py). Either operand turns off with its variable and
+# leaves the trusted selector after it unchanged, so it can only ever add that one literal label.
+PR_CONTROL_FIRST_OPERAND = "vars.CI_PR_CONTROL_SKIP_FLEET != '1' && 'cmux-gcp-pr-control-jit-x64' || "
+REPAIR_FIRST_OPERAND = "vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-gcp-repair-jit-x64' || "
+TRUSTED_RUNNER_EXPRESSIONS = (TRUSTED_RUNNER_EXPRESSION, *(
+    TRUSTED_RUNNER_EXPRESSION.replace("'ubuntu-24.04' || ", "'ubuntu-24.04' || " + operand, 1)
+    for operand in (PR_CONTROL_FIRST_OPERAND, REPAIR_FIRST_OPERAND)))
 TRUSTED_RUNNER_LINE = re.compile(
-    r"^\s*runs-on:\s*(?:" + "|".join(map(re.escape, (TRUSTED_RUNNER_EXPRESSION, *JIT_FIRST_TRUSTED_RUNNER_EXPRESSIONS)))
-    + r")\s*(?:#.*)?$")
+    r"^\s*runs-on:\s*(?:" + "|".join(map(re.escape, TRUSTED_RUNNER_EXPRESSIONS)) + r")\s*(?:#.*)?$")
 # The one named exception: language-boundaries.yml keeps the selector that still admits ubuntu-24.04, because its
 # own guard refuses a change to it without Leo's leo-approved-port label; a follow-up PR carries it. Only that file.
 LEGACY_TRUSTED_RUNNER_EXPRESSION = TRUSTED_RUNNER_EXPRESSION.replace("('[", "('[\"ubuntu-24.04\",", 1)
@@ -659,6 +656,19 @@ def _ends_in_pool(node: tuple) -> bool:
     return False
 
 
+def _forks_first_inside(node: tuple) -> bool:
+    """Whether a guarded disjunct picks its value with the fork branch first.
+
+    e.g. ``verdict == 'pass' && (FORK && 'blacksmith-2vcpu-ubuntu-2404' ||
+    'cmux-linux')``: a fork pull request takes the Blacksmith literal inside
+    the parentheses, so the owned label after it is same-repository only.
+    """
+    if node[0] != "and" or not node[1]:
+        return False
+    tail = node[1][-1]
+    return tail[0] == "or" and bool(tail[1]) and _is_fork_pull_request_branch(tail[1][0])
+
+
 def _runner_value_error(
     node: tuple, selector: re.Pattern[str], dispatch_inputs_are_empty: bool
 ) -> str | None:
@@ -678,7 +688,7 @@ def _runner_value_error(
     for disjunct in disjuncts:
         if _is_fork_pull_request_branch(disjunct):
             return None
-        if _ends_in_pool(disjunct):
+        if _ends_in_pool(disjunct) or _forks_first_inside(disjunct):
             continue
         early = _owned(disjunct, selector)
         if early:
@@ -700,6 +710,10 @@ def _runner_value_error(
 FORK_WRAPPED_POOL_READ = re.compile(
     r"\(github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.repo\.full_name != "
     r"github\.repository && ('blacksmith-[^']+') \|\| fromJSON\(vars\.RUNNER_POOLS\)\.[A-Za-z0-9_]+\)"
+    # The one Linux label's group (scripts/ci/one_linux_label.py): a fork takes CI_FORK_LINUX_RUNNER, a
+    # fork-only variable that is GitHub-hosted 'ubuntu-24.04' while unset, so the gate reads that literal.
+    r"|\(github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.repo\.full_name != "
+    r"github\.repository && \(vars\.CI_FORK_LINUX_RUNNER \|\| ('ubuntu-24\.04')\) \|\| 'cmux-linux'\)"
 )
 # A route whose owned fallback is itself behind the macOS Blacksmith switch.
 # The fork branch still wins before the fallback; reduce the whole expression
@@ -739,7 +753,7 @@ def fork_pull_request_gate_error(
     if not selector.search(line):
         return None
     line = FORK_WRAPPED_GUARDED_POOL_READ.sub(r"\1", line)
-    line = FORK_WRAPPED_POOL_READ.sub(r"\1", line)
+    line = FORK_WRAPPED_POOL_READ.sub(lambda m: m.group(1) or m.group(2), line)
     try:
         outside = EXPRESSION.sub("", line)
     except gh_expressions.Unterminated:
@@ -1434,7 +1448,9 @@ class ForkRunnerRoutingTests(unittest.TestCase):
                 )
 
                 with self.subTest(workflow=path.name, line=number):
-                    if "vars.LINUX_RUNNER" in line:
+                    # cmux-linux as the last fallback is what a fork reaches; as a same-repository first-attempt
+                    # clause (app-compile-placement) it never serves a fork.
+                    if "vars.LINUX_RUNNER" in line or re.search(r"\|\|\s*'cmux-linux'\s*\}\}", line):
                         saw_linux += 1
                         self.assertTrue(
                             hosted_linux or (fork_short_circuits and hosted_macos),

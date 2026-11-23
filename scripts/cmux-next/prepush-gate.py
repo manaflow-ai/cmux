@@ -160,6 +160,12 @@ starts on a thread before the scanners, so a push pays what is left of it at the
 Swift files it reads and analyzes; --timings prints the wait). Its one escape is a dated exception in
 arch-ratchet.json; --no-guardrails turns it off for a manual run; it fails open.
 
+No new committed generated files (GENERATED_CHECK, every run, CI's fast gates too): a file the push adds that a
+generator in scripts/ci/generated-files.json writes, or that is named or headed as generated, and that no
+"committed" generator covers, refuses the push (generated_files_guard.py added: git objects only, under a second;
+2026-11-22, #49757 committed a settings-sources output the SwiftPM build plugin makes, and the package stopped
+compiling). CI's full guard (cmux-next-guards.yml) still judges hand edits, rule changes and the baseline.
+
 Not here (they stay on CI and the fleet): generated-file freshness (gen-*.py --check), god files,
 the app size cap, script tests, Swift and Rust builds and tests.
 
@@ -437,6 +443,9 @@ NEW_VERSIONS_HINT = ("A changed Cargo.lock uses a crate version that no Cargo.lo
                      "(`cargo update -p NAME --precise VERSION`).")
 # A settings export keeps every key the base's export had and the sources declare, and gains none they do not
 # (2026-11-15: #43022 and #43027 carried exports from an older tree without tabs.newTabApp).
+GENERATED_CHECK = "No new committed generated files (scripts/ci/generated_files_guard.py added)"
+GENERATED_SCRIPT = "scripts/ci/generated_files_guard.py"
+GENERATED_HELPER = "scripts/ci/ci_process_tree.py"  # the guard imports it from beside itself
 SETTINGS_KEYS_CHECK = "Settings exports keep their keys (scripts/cmux-next/settings-export-key-drift.py)"
 SETTINGS_KEYS_SCRIPT = SCRIPTS + "/settings-export-key-drift.py"
 SETTINGS_KEYS_PATHS = ("schemas/settings/", "web/data/next-docs/settings-reference.generated.json", "docs/mdm/")
@@ -663,7 +672,7 @@ def git(repo: Path, *args: str, check: bool = True) -> bytes:
     repo = absolute(repo)
     result = git_batch.run(repo, list(args))
     if check and result.returncode != 0:
-        raise SystemExit(f"prepush-gate: git {' '.join(args)} failed: {result.stderr.decode(errors='replace').strip()}")
+        raise CannotDecide(f"prepush-gate: git {' '.join(args)} failed: {result.stderr.decode(errors='replace').strip()}")
     return result.stdout
 
 
@@ -686,7 +695,7 @@ def load_push_range(repo: Path, trusted_scripts: Path | None):
         return sys.modules[name]
     script = (trusted_scripts or repo / SCRIPTS) / PUSH_RANGE
     if not script.is_file():
-        raise SystemExit(f"prepush-gate: {script} is missing; rerun scripts/install-git-hooks.sh")
+        raise CannotDecide(f"prepush-gate: {script} is missing; rerun scripts/install-git-hooks.sh")
     spec = importlib.util.spec_from_file_location(name, script)
     module = importlib.util.module_from_spec(spec)
     sys.modules[name] = module  # dataclasses resolve their module through sys.modules
@@ -707,7 +716,7 @@ def ratchet_row_files(repo: Path, base: str, head: str) -> list[str]:
     try:
         blobs = git_batch.cat_file(repo, [f"{rev}:{SCRIPTS}/{name}" for name in RATCHET_BASELINES for rev in (base, head)])
     except git_batch.GitError as error:
-        raise SystemExit(f"prepush-gate: {error}")
+        raise CannotDecide(f"prepush-gate: {error}")
     files: set[str] = set()
     for name, (keys, count) in RATCHET_BASELINES.items():
         rows = [_ratchet_rows(blob.decode(errors="replace"), keys, count) if blob else {}
@@ -717,7 +726,7 @@ def ratchet_row_files(repo: Path, base: str, head: str) -> list[str]:
     try:
         present = git_batch.cat_file(repo, [f"{rev}:{p}" for p in sorted(files) for rev in (base, head)])
     except git_batch.GitError as error:
-        raise SystemExit(f"prepush-gate: {error}")
+        raise CannotDecide(f"prepush-gate: {error}")
     return sorted(p for p in files if present[f"{base}:{p}"] is not None and present[f"{head}:{p}"] is not None)
 
 
@@ -803,14 +812,14 @@ def download(url: str, archive: Path) -> None:
     try:
         fetcher.download(url, archive, log=lambda message: log(f"prepush-gate: {message}"))
     except fetcher.NoAsset as error:
-        raise SystemExit(f"prepush-gate: {error}") from error
+        raise CannotDecide(f"prepush-gate: {error}") from error
 
 
 def ensure_tool(lock: Path, tool: str) -> Path:
     """The pinned binary, downloaded and sha256-checked once per version."""
     rows = read_lock(lock)
     if tool not in rows:
-        raise SystemExit(f"prepush-gate: {tool} has no pinned build for {platform_key()} in {lock}")
+        raise CannotDecide(f"prepush-gate: {tool} has no pinned build for {platform_key()} in {lock}")
     version, url, sha, member = rows[tool]
     target = absolute(tools_dir()) / f"{tool}-{version}-{platform_key()}" / tool
     if target.is_file() and os.access(target, os.X_OK):
@@ -822,7 +831,7 @@ def ensure_tool(lock: Path, tool: str) -> Path:
         download(url, archive)
         digest = hashlib.sha256(archive.read_bytes()).hexdigest()
         if digest != sha:
-            raise SystemExit(f"prepush-gate: {tool} download sha256 {digest} != pinned {sha}; refusing it")
+            raise CannotDecide(f"prepush-gate: {tool} download sha256 {digest} != pinned {sha}; refusing it")
         with zipfile.ZipFile(archive) as zf:
             extracted = Path(zf.extract(member, tmp))
         extracted.chmod(0o755)
@@ -838,7 +847,7 @@ def write_tree(repo: Path, dest: Path, files: dict[str, str], index: bool = True
     try:
         blobs = git_batch.cat_file(repo, [f"{files[p]}:{p}" for p in paths])
     except git_batch.GitError as error:
-        raise SystemExit(f"prepush-gate: {error}")
+        raise CannotDecide(f"prepush-gate: {error}")
     for path in paths:
         blob = blobs[f"{files[path]}:{path}"]
         if blob is None:
@@ -891,7 +900,7 @@ def build_trees(repo: Path, base: str, head: str, changed: list[str], work: Path
             missing = [p for p in CHECK_CODE if not (trusted_scripts / Path(p).name).is_file()
                        and blob_at(repo, head, p) is not None]
             if missing:
-                raise SystemExit(f"prepush-gate: {STALE_INSTALL} (it has no {', '.join(Path(p).name for p in missing)}).")
+                raise CannotDecide(f"prepush-gate: {STALE_INSTALL} (it has no {', '.join(Path(p).name for p in missing)}).")
             shutil.copytree(trusted_scripts, dest / SCRIPTS, dirs_exist_ok=True)
             lowered = lower_ratchet_baselines(repo, rev, dest / SCRIPTS)
             if lowered and side == "head":
@@ -1073,11 +1082,77 @@ class NoVerdict(str):
     """A check that ran but gave no verdict (it crashed, timed out, or printed output of the wrong shape). It is
     never subtracted as old debt: not by a base run that gave no verdict alike (both sides crash the same way, so
     the diff would hide it), and not by gate_own's runs over a merge's upstream ranges. Its key is its own object,
-    so push_range.less never matches it."""
+    so push_range.less never matches it.
+
+    OUTSIDE, when set, is why the missing verdict is not the push's (outside_cause: the check timed out or was
+    killed, gave no verdict at the base too, or a tool or install this machine lacks): main() then warns with it and
+    lets the push through. Unset, the push's own change stopped the check (it judged the base and not the head), and
+    the push is refused (Leo 2026-11-22: a gate refuses only for the pusher's own diff)."""
+
+    outside: str | None
+
+    def __new__(cls, text: str, outside: str | None = None) -> "NoVerdict":
+        record = super().__new__(cls, text)
+        record.outside = outside
+        return record
 
     @property
     def key(self) -> str:
         return f"no-verdict:{id(self)}"
+
+
+def outside_cause(head_stopped: str, base_stopped: str | None = None) -> str | None:
+    """Why a check's no verdict at the head is not the push's own doing, or None when it is: only when the base run
+    of the same check gave no verdict either (it crashed, timed out or was killed there too: the check is broken, or
+    this machine too loaded, without the push). A check that judged the base and timed out, was killed or crashed at
+    the head stopped on the push's change, and refuses (#50633 review B2)."""
+    if base_stopped:
+        return (f"it {head_stopped} at the pushed head and gave no verdict at the base either ({base_stopped}), so "
+                "the push's diff did not cause it")
+    return None
+
+
+# Whether this run is a developer's own push through the installed hook (--pre-push with the reviewed checks copy,
+# off GitHub Actions). Only then does a no verdict from outside the push's diff warn and let the push through
+# (own_refusals, main(), the unbounded range, the watchdog). Every other run (--base/--head, --commits, no installed
+# copy, CI) takes the check code from the pushed head on both sides, so a push that breaks a checker would read as
+# "no verdict at the base either": there any no verdict fails, as before (#50633 review B1/B3). Set by _main.
+HOOK_RUN = False
+
+
+def hook_run(pre_push: bool, trusted_scripts: Path | None) -> bool:
+    return bool(pre_push and trusted_scripts is not None and not os.environ.get("GITHUB_ACTIONS"))
+
+
+class CannotDecide(SystemExit):
+    """The gate cannot judge the push for a reason outside its diff (a tool or install this machine lacks, a git
+    read that failed): main() warns with the reason and lets the push through. A SystemExit, so every handler that
+    catches one (fail-open layers) still does."""
+
+
+REFUSED_WORDS = re.compile(r",? so (?:the )?push is refused|,? and (?:the )?push is refused|(?:the )?push is refused")
+
+
+def own_refusals(found: list[tuple[str, list[str]]], hook: bool) -> tuple[list[tuple[str, list[str]]], list[str]]:
+    """(the findings that refuse the push, a warning line for each NoVerdict whose cause is outside the diff). Off a
+    hook run (HOOK_RUN) every finding refuses, a no verdict too."""
+    if not hook:
+        return found, []
+    kept, warned = [], []
+    for name, records in found:
+        mine = []
+        for record in records:
+            if isinstance(record, NoVerdict) and record.outside:
+                # The record's own text says the push is refused, which is not so here (#50633 review F3).
+                said = REFUSED_WORDS.sub("", str(record))
+                warned.append(f"prepush-gate: WARNING: {name} could not judge this push for a reason outside its "
+                              f"diff ({record.outside}); the push goes through unchecked by it, so say so in your "
+                              f"report (CI still runs its own checks). What it said: {said}")
+            else:
+                mine.append(record)
+        if mine:
+            kept.append((name, mine))
+    return kept, warned
 
 
 # Output that says a check stopped instead of judging: a Python traceback, or run()'s timeout line.
@@ -1498,7 +1573,7 @@ def lower_ratchet_baselines(repo: Path, rev: str, scripts_dir: Path) -> list[str
     try:
         texts = git_batch.cat_file(repo, [f"{rev}:{SCRIPTS}/{name}" for name in (*RATCHET_BASELINES, *LINE_BASELINES)])
     except git_batch.GitError as error:
-        raise SystemExit(f"prepush-gate: {error}")
+        raise CannotDecide(f"prepush-gate: {error}")
     for name, (keys, count) in RATCHET_BASELINES.items():
         path = scripts_dir / name
         own = texts.get(f"{rev}:{SCRIPTS}/{name}")
@@ -1629,7 +1704,7 @@ def load_crash_ratchet(repo: Path, head_tree: Path, trusted_scripts: Path | None
                                                   "proven_moves", "WAIVED")):
             return module
         log(f"prepush-gate: {script} has no crash ratchet this gate can call; trying the next copy")
-    raise SystemExit(f"prepush-gate: {STALE_INSTALL} (it has no {CRASH_RATCHET}).")
+    raise CannotDecide(f"prepush-gate: {STALE_INSTALL} (it has no {CRASH_RATCHET}).")
 
 
 def rust_owner_files(path: str) -> list[str]:
@@ -1652,7 +1727,7 @@ def add_blobs(repo: Path, tree: Path, rev: str, paths: list[str]) -> None:
     try:
         blobs = git_batch.cat_file(repo, [f"{rev}:{p}" for p in wanted])
     except git_batch.GitError as error:
-        raise SystemExit(f"prepush-gate: {error}")
+        raise CannotDecide(f"prepush-gate: {error}")
     for path in wanted:
         blob = blobs[f"{rev}:{path}"]
         if blob is not None:
@@ -1781,7 +1856,7 @@ def check_script(repo: Path, head: str, path: str, trusted_scripts: Path | None,
         return None  # a commit older than this check
     installed = trusted_scripts / Path(path).name
     if not installed.is_file():
-        raise SystemExit(f"prepush-gate: {STALE_INSTALL} (it has no {Path(path).name}).")
+        raise CannotDecide(f"prepush-gate: {STALE_INSTALL} (it has no {Path(path).name}).")
     return installed.read_bytes()
 
 
@@ -1825,7 +1900,7 @@ def reserved_keys(repo: Path, base: str, head: str, trusted_scripts: Path | None
         base_lines, base_stopped = findings(base, None) or ([], None)
     if head_stopped:
         return [NoVerdict(f"{RESERVED_SCRIPT} {head_stopped} at the pushed head instead of judging it, so the push is "
-                          f"refused: {' '.join(head_lines[-2:])[:300]}")]
+                          f"refused: {' '.join(head_lines[-2:])[:300]}", outside_cause(head_stopped, base_stopped))]
     fresh = [line for line in head_lines if base_stopped or line not in base_lines]
     if fresh and RESERVED_OK.search(git(repo, "log", "--format=%B", f"{base}..{head}", check=False).decode(errors="replace")):
         log(f"prepush-gate: {RESERVED_CHECK}: allowed by a Ghostty-defaults-OK trailer:\n  " + "\n  ".join(fresh))
@@ -1950,10 +2025,10 @@ def ui_font(repo: Path, base: str, head: str, trusted_scripts: Path | None = Non
         if stopped:
             return stopped
         # A crash or a timeout is the same class: both passes can print it alike, so it refuses on its own too.
+        base_lines, base_stopped = findings("--rev", base)
         if head_stopped:
             return [NoVerdict(f"{UI_FONT_SCRIPT} {head_stopped} at the pushed head instead of judging it, so the push "
-                              f"is refused: {' '.join(head_lines[-2:])[:300]}")]
-        base_lines, base_stopped = findings("--rev", base)
+                              f"is refused: {' '.join(head_lines[-2:])[:300]}", outside_cause(head_stopped, base_stopped))]
         # A base pass with no verdict never subtracts: every head finding counts.
         return [line for line in head_lines if base_stopped or line not in set(base_lines)]
 
@@ -2033,10 +2108,11 @@ def main_twin_drift(repo: Path, base: str, head: str, main_ref: str = MAIN_TWIN_
     until cmux#43866 brought main's copy along; thirteen scheduled files never fired at all (boneheaded-designs
     section 10). For each workflow the push changes that has a `schedule:` (here or on main; MAIN_TWIN_FILE always):
     a file main has no copy of is refused unless NO_MAIN_TWIN lists it; a file whose jobs or crons differ from main's
-    is refused, unless the push left them as base had them or a pushed commit that changes the file names the main
+    is refused, unless the push left them as base had them (a warning: the drift is base's) or a pushed commit that changes the file names the main
     twin PR in a `Main-Twin:` trailer. A file whose main copy was already another workflow before the push (other
     job ids or triggers, _twin_identity) is held by its crons only, like a main dispatcher: no twin of a job change
-    can exist there. A push when main cannot be read passes (local only: not a CI gate)."""
+    can exist there. A scheduled file main lacks that base already had with the same crons is base's drift too: a
+    warning on a hook run (HOOK_RUN; any other run refuses it, as before). A push when main cannot be read passes (local only: not a CI gate)."""
     names = [n for n in git(repo, "diff", "--name-only", "--no-renames", base, head, "--", MAIN_TWIN_DIR,
                             check=False).decode(errors="replace").split()
              if n.endswith((".yml", ".yaml")) and "/" not in n[len(MAIN_TWIN_DIR):]]
@@ -2070,6 +2146,14 @@ def main_twin_drift(repo: Path, base: str, head: str, main_ref: str = MAIN_TWIN_
         if main is None:
             if name == MAIN_TWIN_FILE or Path(name).name in NO_MAIN_TWIN or not MAIN_TWIN_SCHEDULE.search(ours):
                 continue
+            if (HOOK_RUN and before is not None and MAIN_TWIN_SCHEDULE.search(before)
+                    and _twin_shape(before)[1] == _twin_shape(ours)[1]):
+                # Base already had this schedule and main no copy: the drift is not the push's (it leaves the crons
+                # as base had them), so it warns, never refuses (Leo 2026-11-22: refuse only the pusher's own diff).
+                log(f"prepush-gate: WARNING: {name}: has a schedule, but {main_ref} has no copy of it, so the schedule "
+                    f"never fires. This was so before this push, which does not change its crons, so the push goes "
+                    f"through. {MAIN_TWIN_HINT}")
+                continue
             problems.append(f"{name}: has a schedule, but {main_ref} has no copy of it, so the schedule never fires. "
                             f"Add the same file to main, or drop the schedule, or list it in NO_MAIN_TWIN with why. "
                             f"{MAIN_TWIN_HINT}")
@@ -2087,7 +2171,12 @@ def main_twin_drift(repo: Path, base: str, head: str, main_ref: str = MAIN_TWIN_
                             f"{'copy (another workflow under this path)' if other else 'dispatcher'} "
                             f"{list(_twin_shape(main)[1])}, which is what fires. {MAIN_TWIN_HINT}")
             continue
-        if shape == _twin_shape(main) or (before is not None and shape == _twin_shape(before)):
+        if shape == _twin_shape(main):
+            continue
+        if before is not None and shape == _twin_shape(before):
+            # The jobs and crons differ from main's as they did before the push: base's drift, not the push's.
+            log(f"prepush-gate: WARNING: {name}: its jobs or crons differ from {main_ref}'s, as they did before this "
+                f"push (which leaves them as they were), so the push goes through. {MAIN_TWIN_HINT}")
             continue
         problems.append(f"{name}: its jobs or crons now differ from {main_ref}'s, and the schedule runs main's copy, so "
                         f"this change never runs on its schedule. {MAIN_TWIN_HINT}")
@@ -2194,7 +2283,8 @@ def port_drift(repo: Path, base: str, head: str, trusted_scripts: Path | None = 
         head_lines, head_stopped = findings(head)
         if head_stopped:
             return [NoVerdict(f"{PORT_DRIFT_SCRIPT} {head_stopped} at the pushed head instead of judging it, so the "
-                              f"push is refused: {out_tail(head_lines)}")]
+                              f"push is refused: {out_tail(head_lines)}",
+                              outside_cause(head_stopped, findings(base)[1]))]
         if not head_lines:
             return []
         base_lines, base_stopped = findings(base)
@@ -2301,7 +2391,7 @@ def new_crate_versions(repo: Path, base: str, head: str, trusted_scripts: Path |
                                                 else None)
     if stopped:
         return [NoVerdict(f"{NEW_VERSIONS_SCRIPT} {stopped} instead of judging the locks, so the push is refused: "
-                          f"{out_tail(out.splitlines())}")]
+                          f"{out_tail(out.splitlines())}", outside_cause(stopped))]
     return found
 
 
@@ -2324,7 +2414,38 @@ def settings_export_keys(repo: Path, base: str, head: str, trusted_scripts: Path
     stopped = no_verdict(code, out, (0, 1)) or ("exited 1 but named no export" if code == 1 and not found else None)
     if stopped:
         return [NoVerdict(f"{SETTINGS_KEYS_SCRIPT} {stopped} instead of judging the exports, so the push is refused: "
-                          f"{out_tail(out.splitlines())}")]
+                          f"{out_tail(out.splitlines())}", outside_cause(stopped))]
+    return found
+
+
+def new_generated_files(repo: Path, base: str, head: str, trusted_scripts: Path | None = None) -> list[str]:
+    """`<file>: a new committed generated file (...)` per file the range adds that a generator writes, or that is
+    named or headed as generated, and that no "committed" generator covers (GENERATED_CHECK). Git objects only, and
+    only when the range adds a file; the rules are the base's.
+
+    2026-11-22: #49757 committed SettingsSchema+Appearance5.generated.swift after #50929 moved the settings sources
+    into a SwiftPM build plugin (settings-sources, status "build"), and the package stopped compiling. CI's full
+    guard (cmux-next-guards.yml) judges a feat-cmux-next pull request only with full-ci and a push once per
+    30-minute window, so the merge landed unjudged."""
+    added = git(repo, "diff", "--name-only", "--no-renames", "--diff-filter=A", "-z", base, head)
+    if not added.strip(b"\0"):
+        return []
+    script = check_script(repo, head, GENERATED_SCRIPT, trusted_scripts, base)
+    helper = check_script(repo, head, GENERATED_HELPER, trusted_scripts, base)
+    if script is None or helper is None:
+        return []  # a commit older than this check
+    with tempfile.TemporaryDirectory(prefix="cmux-generated-") as tmp:
+        work = absolute(Path(tmp))
+        check = work / "generated_files_guard.py"
+        check.write_bytes(script)
+        (work / "ci_process_tree.py").write_bytes(helper)
+        code, out = run(["python3", "-I", str(check), "added", "--repo", str(repo.resolve()), "--base", base,
+                         "--head", head], work, timeout=120)
+    found = [line.removeprefix("error: ") for line in out.splitlines() if line.startswith("error: ")]
+    stopped = no_verdict(code, out, (0, 1)) or ("exited 1 but named no file" if code == 1 and not found else None)
+    if stopped:
+        return [NoVerdict(f"{GENERATED_SCRIPT} {stopped} instead of judging the added files, so the push is refused: "
+                          f"{out_tail(out.splitlines())}", outside_cause(stopped))]
     return found
 
 
@@ -2449,10 +2570,10 @@ def test_redefinition_problems(repo: Path, base: str, head: str, trusted_scripts
             return redefinition_verdict(code, out, files)
 
         head_lines, stopped = findings(head)
+        base_lines, base_stopped = findings(base)
         if stopped:
             return [NoVerdict(f"{REDEFINITION_SCRIPT} {stopped} at the pushed head instead of judging it, so the "
-                              "push is refused")]
-        base_lines, base_stopped = findings(base)
+                              "push is refused", outside_cause(stopped, base_stopped))]
 
     old = set() if base_stopped else {key for _, key in base_lines}
     return [line for line, key in head_lines if key not in old]
@@ -2692,14 +2813,16 @@ def single_host_fallback_problems(repo: Path, base: str, head: str, trusted_scri
     # (an install from before it) refuses with the reinstall command; it never reads the pushed copy.
     if resolver is None and b"load_workflow_jobs" in script:
         return [NoVerdict(f"prepush-gate: {STALE_INSTALL} (it has no {Path(FALLBACKS_RESOLVER).name}, which "
-                          f"{Path(FALLBACKS_SCRIPT).name} reads runs-on through).")]
+                          f"{Path(FALLBACKS_SCRIPT).name} reads runs-on through).",
+                          "this clone's installed checks copy is older than the check")]
     # The checker runs under this interpreter: the one the hook picked (scripts/git-hooks/hook_python.sh), which
     # imports yaml whenever any candidate on this host does. When none does, the refusal names each it tried.
     if not has_pyyaml(sys.executable):
         fix = pyyaml_install_command(sys.executable)
         tried = os.environ.get("CMUX_HOOK_PYTHON_TRIED", "").strip()
         also = f" (no Python the hook tried imports yaml: {tried})" if tried else ""
-        return [(f"PyYAML missing: {fix}" if "externally managed" in fix else f"PyYAML missing: run {fix}") + also]
+        return [NoVerdict((f"PyYAML missing: {fix}" if "externally managed" in fix else f"PyYAML missing: run {fix}")
+                          + also, "no Python on this machine imports yaml, which the checker needs")]
     with tempfile.TemporaryDirectory(prefix="cmux-fallbacks-") as tmp:
         work = absolute(Path(tmp))
         (work / "check.py").write_bytes(script)
@@ -2735,9 +2858,10 @@ def single_host_fallback_problems(repo: Path, base: str, head: str, trusted_scri
 
         now = keyed(head)
         if isinstance(now, str):
+            then = keyed(base)
             return [NoVerdict(f"the single-host fallback checker did not give a verdict at the pushed head, so the "
                               f"push is refused (fix the declaration or the checker; `python3 {FALLBACKS_SCRIPT}` "
-                              f"shows it): {now}")]
+                              f"shows it): {now}", outside_cause(now, then if isinstance(then, str) else None))]
         found, incomplete = now
         if incomplete:
             return [NoVerdict(f"the single-host fallback scan did not run at the pushed head, so the push is refused "
@@ -2795,7 +2919,8 @@ def highlight_problems(repo: Path, base: str, head: str, trusted_scripts: Path |
                 tail = out.strip().splitlines()[-1] if out.strip() else "no output"
                 shape = "" if problems is None else ", wrote a result of the wrong shape"
                 return [NoVerdict(f"the What's New validator gave no verdict on {', '.join(files)} (exit {code}{shape}: "
-                                  f"{tail[:300]}), so the push is refused; run python3 scripts/whats-new/test_digest.py")]
+                                  f"{tail[:300]}), so the push is refused; run python3 scripts/whats-new/test_digest.py",
+                                  outside_cause(no_verdict(code, out) or ""))]
     except (Exception, SystemExit) as error:  # noqa: BLE001 - no validator here: CI's release-notary test still runs it
         log(f"prepush-gate: WARNING: the What's New highlights were not validated ({type(error).__name__}: {error}); "
             "run python3 scripts/whats-new/test_digest.py before pushing a highlight.")
@@ -3046,6 +3171,11 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
         markers = conflict_markers(repo, base, head)
         if markers:
             reserved.append((CONFLICT_CHECK, markers))
+    # Every run, CI's too: git objects only, under a second, and only when the range adds a file.
+    if (only is None or "generated-files" in only) and want(GENERATED_CHECK):
+        generated = new_generated_files(repo, base, head, trusted_scripts)
+        if generated:
+            reserved.append((GENERATED_CHECK, generated))
     # Local only, like the highlights (the 2026-10-23 no-new-CI rule, since lifted): CI's "Lint every workflow" step (actionlint, on
     # every pull request and every feat-cmux-next and main push) is the backstop. Here it meets a direct commit first.
     if (highlights_layer if only is None else "workflows" in only) and want(WORKFLOW_CHECK):
@@ -3158,7 +3288,7 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
         # An install without them refuses. A manual run reads the head's, else (a commit older than the gate) the
         # checkout's.
         if trusted_scripts is not None and not (trusted_scripts / "lint-tools.lock").is_file():
-            raise SystemExit(f"prepush-gate: {STALE_INSTALL} (it has no lint-tools.lock).")
+            raise CannotDecide(f"prepush-gate: {STALE_INSTALL} (it has no lint-tools.lock).")
         config_root = head_tree if (head_tree / SCRIPTS / "lint-tools.lock").is_file() else repo
         lint = config_root / SCRIPTS / "lint"
         lock = config_root / SCRIPTS / "lint-tools.lock"
@@ -3253,12 +3383,14 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
                 # subtracts nothing, here or in the dependency check's stale-line diff.
                 codes = SCANNER_VERDICT_CODES.get(name, DEFAULT_VERDICT_CODES) if jobs[name][0] == "cmd" else None
                 stopped = no_verdict(head_code, head_out, codes)
+                base_stopped = no_verdict(base_code, base_out, codes)
                 if stopped:
                     found.append((name, [NoVerdict(f"{name} {stopped} at the pushed head instead of judging it, so the "
                                                    f"push is refused: "
-                                                   f"{' '.join(head_out.strip().splitlines()[-2:])[:300]}")]))
+                                                   f"{' '.join(head_out.strip().splitlines()[-2:])[:300]}",
+                                                   outside_cause(stopped, base_stopped))]))
                     continue
-                if no_verdict(base_code, base_out, codes):
+                if base_stopped:
                     base_out = ""
                 if name == DEPS_CHECK:
                     head_out, head_code = deps_findings(repo, base, head, base_out, head_out, head_code,
@@ -3896,7 +4028,7 @@ def _main(argv: list[str] | None = None) -> int:
     parser.add_argument("--only", help="comma list of layers: scanners,ast-grep,swiftformat,rustfmt,swiftlint,reserved,ui-font,conflicts,"
                                        "cargo-lock,sidebar,crash-allow,crash-ratchet,freeze,highlights,pictures,workflows,"
                                        "single-host-fallbacks,redefinitions,port-drift,new-crate-versions,"
-                                       "settings-export-keys,main-twin,job-bounds")
+                                       "settings-export-keys,main-twin,job-bounds,generated-files")
     parser.add_argument("--timings", action="store_true")
     parser.add_argument("--no-guardrails", action="store_true", help="skip guardrails.py and its arch ratchet (they never run on CI)")
     parser.add_argument("--advisory-only", action="store_true", help=argparse.SUPPRESS)  # advisory_start's child
@@ -3913,6 +4045,8 @@ def _main(argv: list[str] | None = None) -> int:
                                 else (None, None))
     if args.pre_push and (trusted_scripts is None or not trusted_scripts.is_dir()):
         raise SystemExit("prepush-gate: --pre-push requires the installed --trusted-scripts-dir snapshot")
+    global HOOK_RUN
+    HOOK_RUN = hook_run(args.pre_push, trusted_scripts)
 
     if args.commits and only == {"sidebar"}:
         # The sidebar sweep: one pass over the range (per commit already: each commit is judged on its own).
@@ -3974,11 +4108,17 @@ def _main(argv: list[str] | None = None) -> int:
     except ValueError as error:  # a git call failed (a commit gone between two reads)
         ranges, errors = [], [str(error)]
     if errors:
-        # Refused on purpose: with no bound on the pushed commits the gate cannot tell what the push adds.
+        # With no bound on the pushed commits the gate cannot tell what the push adds. That is this clone's state (an
+        # unfetched or unreadable base), not the push's diff, so it warns and lets the push through (Leo 2026-11-22:
+        # a gate refuses only for the pusher's own diff); CI still names a commit that adds a violation.
         for error in errors:
             print(f"prepush-gate: cannot tell which commits are this push's own: {error}")
-        print("prepush-gate: push refused; nothing was checked. Fix the clone as said above and push again.")
-        return 1
+        if not HOOK_RUN:
+            print("prepush-gate: push refused; nothing was checked. Fix the clone as said above and push again.")
+            return 1
+        print("prepush-gate: WARNING: nothing was checked, and the push goes through UNCHECKED (the reason above is "
+              "this clone's, not the push's diff). Fix the clone as said above; say so in your report.")
+        return 0
     if args.advisory_only:
         advisory_run(repo, ranges, os.environ.get("GITHUB_STEP_SUMMARY"))
         return 0
@@ -4020,6 +4160,11 @@ def _main(argv: list[str] | None = None) -> int:
         if args.timings:
             log(f"  {time.monotonic() - t0:5.2f}s  compile trailer")
     elapsed = time.monotonic() - started
+    # A check that gave no verdict for a reason outside the push's diff warns and lets the push through; a finding in
+    # the push's own change, and a no verdict the push's change caused, still refuse.
+    found_any, warned = own_refusals(found_any, HOOK_RUN)
+    for line in warned:
+        print(line)
     if not found_any:
         if guarded:
             print(f"prepush-gate: push refused by the guardrails or the compile trailer ({elapsed:.1f}s)")
@@ -4084,11 +4229,23 @@ def main(argv: list[str] | None = None) -> int:
     try:
         return _main(argv)
     except ToolOutputNoVerdict as error:
-        print(f"prepush-gate: no verdict: {error}")
-        return 1
+        if not HOOK_RUN:
+            print(f"prepush-gate: no verdict: {error}")
+            return 1
+        # A tool's output this gate cannot read (ps, a checker's count) is this machine's, not the push's diff.
+        print(f"prepush-gate: WARNING: no verdict: {error}. The push goes through UNCHECKED: the cause is outside "
+              "its diff; say so in your report.")
+        return 0
+    except CannotDecide:
+        if not HOOK_RUN:
+            raise  # a SystemExit with its message: exit 1, as before
+        error = sys.exc_info()[1]
+        print(f"{error.code}\nprepush-gate: WARNING: the gate could not judge this push for a reason outside its "
+              "diff (above); the push goes through UNCHECKED. Fix it as said; say so in your report.")
+        return 0
 
 
-GATE_LIMIT_SECONDS = 600.0  # a whole gate takes under a minute; a hang (a786, a796, a808: 28-30 min) refuses here
+GATE_LIMIT_SECONDS = 600.0  # a whole gate takes under a minute; a hang (a786, a796, a808: 28-30 min) stops here and warns
 
 
 def _descendants(pid: int) -> list[int]:
@@ -4145,21 +4302,30 @@ def stop(pids: list[int], grace: float = GRACE_SECONDS) -> None:
 
 
 def start_watchdog(limit: float) -> None:
-    """Past LIMIT seconds, print every thread's stack, stop the processes this gate started, and refuse the push.
-
-    A hung gate blocks the push anyway, so refusing loosens no check; the stacks say where it hung."""
+    """Past LIMIT seconds, print every thread's stack, stop the processes this gate started, and let the push through
+    with a warning: a gate that did not finish reached no verdict, and the cause (load, a hang) is not the push's
+    diff (Leo 2026-11-22). The stacks say where it hung."""
     import faulthandler
     import threading
 
     def fire() -> None:
-        sys.stderr.write(f"prepush-gate: the gate ran past its {limit:g}s limit (CMUX_NEXT_GATE_LIMIT_SECONDS); "
-                         "push refused. A Mac too loaded to finish it pushes through an idle one: "
-                         "scripts/cmux-next/push-from-host.sh <branch>. Where each thread was:\n")
+        if not HOOK_RUN:
+            sys.stderr.write(f"prepush-gate: the gate ran past its {limit:g}s limit (CMUX_NEXT_GATE_LIMIT_SECONDS); "
+                             "push refused. A Mac too loaded to finish it pushes through an idle one: "
+                             "scripts/cmux-next/push-from-host.sh <branch>. Where each thread was:\n")
+            sys.stderr.flush()
+            faulthandler.dump_traceback(file=sys.stderr, all_threads=True)
+            stop(_descendants(os.getpid()))
+            sys.stdout.flush()
+            os._exit(1)
+        sys.stderr.write(f"prepush-gate: WARNING: the gate ran past its {limit:g}s limit "
+                         "(CMUX_NEXT_GATE_LIMIT_SECONDS), which is this machine's load or a hang, not the push's "
+                         "diff: the push goes through UNCHECKED; say so in your report. Where each thread was:\n")
         sys.stderr.flush()
         faulthandler.dump_traceback(file=sys.stderr, all_threads=True)
         stop(_descendants(os.getpid()))
         sys.stdout.flush()
-        os._exit(1)
+        os._exit(0)
 
     timer = threading.Timer(limit, fire)
     timer.daemon = True
