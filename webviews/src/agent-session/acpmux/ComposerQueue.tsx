@@ -62,6 +62,10 @@ import { withSkillWords } from "./conversation/withSkillWords";
 import { claimedReply } from "./conversation/waitingAskStore";
 import { type QueuedEntry, shownText, heldReason } from "./composerQueueModel";
 import { acpmuxPerf } from "./perf";
+import { QueueStatusLine } from "./QueueStatusLine";
+import { queueStatus } from "./queueStatus";
+import { surgeDigestOf, surgeDigestText } from "./surgeDigest";
+import type { RetryState } from "./subagents/retryState";
 import { rovingTabStopProps } from "../../ui/listRowKeyboard";
 import { focusRoute } from "../../ui/focusRoute";
 /** A queue of more queued prompts than this folds; folded, it shows `FOLD_SHOWS` of them. */
@@ -201,6 +205,9 @@ const mayHaveReachedAcpmux = (error: unknown) => {
   return typeof code === "string" && UNCERTAIN_CODES.has(code);
 };
 
+/// A queued surge digest's counts (surgeDigest.ts): only the person's own rows, never another agent's.
+const digestOf = (entry: QueuedEntry) => (entry.author || entry.retry ? undefined : surgeDigestOf(entry.prompt));
+
 /// Memoised: the composer renders on every key (its text is its state); a queue whose props did not
 /// change draws nothing and lays out nothing for it.
 export const ComposerQueue = React.memo(function ComposerQueue({
@@ -208,6 +215,8 @@ export const ComposerQueue = React.memo(function ComposerQueue({
   chat,
   paused,
   pauseReason,
+  retry,
+  onOpenHeld,
   t,
   onRemove,
   onCancelEdit,
@@ -228,8 +237,14 @@ export const ComposerQueue = React.memo(function ComposerQueue({
   chat?: string;
   /// A turn failed and the queue waits for Resume (acpmux `queuePaused`).
   paused?: boolean;
-  /// That turn's error (queuePause.ts), which the paused note names.
+  /// That turn's error (queuePause.ts), which the status line's Details shows.
   pauseReason?: string;
+  /// The daemon's scheduled retry of the failed turn (`autoResume.retry`): the status line counts down
+  /// to it, and the composer's notice slot leaves it to the queue (AutoResumeNotice.tsx).
+  retry?: RetryState;
+  /// Opens the chat's held messages (SurgeHoldRow.tsx) on the ones that need the person: a queued
+  /// surge digest's row does, instead of unfolding the digest's raw text.
+  onOpenHeld?(): void;
   t: Translate;
   /// Withdraws a waiting prompt; false when it already started (it then leaves with the turn).
   onRemove?(id: string): Promise<boolean>;
@@ -255,6 +270,8 @@ export const ComposerQueue = React.memo(function ComposerQueue({
   commands?: readonly SlashCommand[];
 }) {
   acpmuxPerf.render("composer:queue");
+  // The retry as the status line's words change with it (its countdown is its own leaf).
+  const retryShown = retry ? `${retry.attempt}/${retry.of}/${retry.reason ?? ""}/${retry.nextAt ?? ""}` : "";
   const skills = useSkillWords(commands);
   // A row leaves as soon as it is removed; it comes back only if acpmux kept it waiting.
   const [leaving, setLeaving] = useState<ReadonlySet<string>>(new Set());
@@ -295,6 +312,8 @@ export const ComposerQueue = React.memo(function ComposerQueue({
   // Rows opened to their whole text (a row shows two lines until it is opened).
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
   // Whether a long queue shows whole (the composer keys this component by chat).
+  // The status line's Details, open: the list sizes itself to it.
+  const [statusOpen, setStatusOpen] = useState(false);
   const [unfolded, setUnfolded] = useState(() => chat !== undefined && openQueues.has(chat));
   // The person's prompts only: another agent's message draws in the transcript.
   const shown = ownQueue(queue).filter((entry) => !leaving.has(entry.id));
@@ -397,7 +416,22 @@ export const ComposerQueue = React.memo(function ComposerQueue({
     const pad = parseFloat(current.ownerDocument.defaultView?.getComputedStyle(current).paddingBottom ?? "") || 0;
     const need = last ? offsets(current, last).bottom + pad : 0;
     if (need < parseFloat(current.style.minHeight || "0") - 0.5) release(current);
-  }, [queue, leaving, sentNow, editing, dropped, open, unfolded, paused, pauseReason, wakeNoteShown, skills, t]);
+  }, [
+    queue,
+    leaving,
+    sentNow,
+    editing,
+    dropped,
+    open,
+    unfolded,
+    paused,
+    pauseReason,
+    retryShown,
+    statusOpen,
+    wakeNoteShown,
+    skills,
+    t,
+  ]);
   // A held list gives room back when the stack around it grows (a permission card or a question
   // arrives under the pointer, the pane shortens): past the room the pane leaves the stack, or by
   // what a part above it has had to give up since the hold began (bottomStack.css shrinks those
@@ -621,7 +655,22 @@ export const ComposerQueue = React.memo(function ComposerQueue({
       rows.disconnect();
       for (const row of current.querySelectorAll(":scope > .acpmux-queued")) rows.observe(row);
     }
-  }, [queue, leaving, sentNow, editing, dropped, open, unfolded, paused, pauseReason, wakeNoteShown, skills, t]);
+  }, [
+    queue,
+    leaving,
+    sentNow,
+    editing,
+    dropped,
+    open,
+    unfolded,
+    paused,
+    pauseReason,
+    retryShown,
+    statusOpen,
+    wakeNoteShown,
+    skills,
+    t,
+  ]);
   useEffect(
     () => () => {
       const document = list.current?.ownerDocument;
@@ -644,7 +693,22 @@ export const ComposerQueue = React.memo(function ComposerQueue({
       focusNext.current = undefined;
       focusRoute(into, "system", "the queue changed: the composer");
     }
-  }, [queue, leaving, sentNow, editing, dropped, open, unfolded, paused, pauseReason, wakeNoteShown, skills, t]);
+  }, [
+    queue,
+    leaving,
+    sentNow,
+    editing,
+    dropped,
+    open,
+    unfolded,
+    paused,
+    pauseReason,
+    retryShown,
+    statusOpen,
+    wakeNoteShown,
+    skills,
+    t,
+  ]);
   const act = (id: string, action: () => Promise<boolean>) => {
     setLeaving((current) => new Set(current).add(id));
     const restore = () =>
@@ -673,6 +737,7 @@ export const ComposerQueue = React.memo(function ComposerQueue({
   // the person's (Leo, 2026-11-05: "don't show these kinds of things"). A Stop's hold of them waits
   // for Resume (`cancel.rs`): `paused`, so the note and its Resume stay (review of #36821, F1).
   if (shown.length === 0 && !(paused && queue.length > 0)) return null;
+  const status = queueStatus(t, { ...(retry && { retry }), paused, ...(pauseReason && { error: pauseReason }) });
   // Prompts sent now come first: queued prompts count from after them.
   const steering = shown.filter((entry) => entry.next).length;
   // A long queue folds to its next prompts; the rows shown are always the first ones, in order.
@@ -1045,6 +1110,8 @@ export const ComposerQueue = React.memo(function ComposerQueue({
             // A mouse or pen press is a hovering pointer; a key (no press) or a touch is none.
             const by = pressedBy.current;
             pressedBy.current = undefined;
+            // A surge digest opens the held threads it sums up, where the chat shows them.
+            if (digestOf(entry) && onOpenHeld) return onOpenHeld();
             toggle(entry.id, event.detail > 0 && (by === "mouse" || by === "pen"));
           }}
         >
@@ -1056,7 +1123,15 @@ export const ComposerQueue = React.memo(function ComposerQueue({
                 {t("composer.steering")}
               </span>
             )}
-            {entry.retry ? (
+            {digestOf(entry) && !open.has(entry.id) ? (
+              // acpmux's surge digest (surgeDigest.ts): a label and its counts, not its raw words.
+              <>
+                <span className="acpmux-queued-kind" data-kind="digest">
+                  {t("surge.title")}
+                </span>
+                {surgeDigestText(t, digestOf(entry)!)}
+              </>
+            ) : entry.retry ? (
               <>
                 <span className="acpmux-queued-kind" data-kind="retry">
                   {t("composer.queuedSubagentRetry")}
@@ -1138,29 +1213,25 @@ export const ComposerQueue = React.memo(function ComposerQueue({
         }}
         aria-label={`${t("composer.queue")} (${shown.length})`}
       >
-        {paused && (
-          <li className="acpmux-queue-paused">
-            <span
-              // tooltip-allow: a long error is cut to the row; its whole text is the tooltip
-              title={pauseReason}
-            >
-              {pauseReason ? t("composer.queuePausedWhy", { error: pauseReason }) : t("composer.queuePaused")}
-            </span>
-            {onChange && (
-              <button
-                type="button"
-                className="acpmux-queue-resume"
+        {status && (
+          // The failed turn's one status line (QueueStatusLine.tsx): the daemon's retry and the
+          // queue's pause are one state to the person, said once, the raw error behind Details.
+          <QueueStatusLine
+            t={t}
+            status={status}
+            as="li"
+            className="acpmux-queue-paused"
+            open={statusOpen}
+            onOpenChange={setStatusOpen}
+            {...(paused &&
+              onChange && {
                 // acpmux's first prompt: a held one (trustHeld.ts) is not acpmux's to resume.
-                onClick={() =>
+                onResume: () =>
                   void onChange((queue.find((row) => !row.held) ?? queue[0]).id, { op: "resume" }).catch(
                     () => undefined,
-                  )
-                }
-              >
-                {t("composer.queueResume")}
-              </button>
-            )}
-          </li>
+                  ),
+              })}
+          />
         )}
         {/* One flat keyed list: a row keeps its element (and focus) when a row before it leaves. */}
         {visible.flatMap((entry, index) => [

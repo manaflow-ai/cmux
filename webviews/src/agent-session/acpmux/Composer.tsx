@@ -155,6 +155,7 @@ import { DropOverlay } from "./composer/DropOverlay";
 import type { SendBlock } from "./useFolderTrustAsk";
 import { folder, promptSuggestion, type LivePullRequest, type PromptSuggestion } from "./promptSuggestion";
 import { useHeaderState } from "./header/headerState";
+import { liveAutoResume, turnPhase } from "./turnPhase";
 import { queuePauseReason } from "./queuePause";
 import { stopTurnFromAction } from "./stopTurnAction";
 import {
@@ -353,6 +354,9 @@ type Props = {
   /// Asks a queued prompt in a new side chat and withdraws it (the queued row's Open in side chat);
   /// absent where the chat opens no side chat.
   onQueueSideChat?(promptId: string, prompt: string): Promise<boolean>;
+  /// Opens the chat's held messages (SurgeHoldRow.tsx): a queued surge digest's row does. Absent
+  /// where the chat shows none.
+  onOpenHeld?(): void;
   /// `/side <prompt>` can fork this chat now (App.tsx, the command's own refusal rule): Send's menu
   /// offers Send in side chat, and Option-Return sends there (composer/sendMenuModel.ts).
   sendsToSide?: boolean;
@@ -710,6 +714,7 @@ function ComposerFrame({
   onQueueChange,
   onQueueLost,
   onQueueSideChat,
+  onOpenHeld,
   sendsToSide,
   queueImage,
   draft,
@@ -3241,6 +3246,9 @@ function ComposerFrame({
   );
   // Why a failed turn paused the queue: the paused note names it (queuePause.ts).
   const pauseReason = snapshot.summary?.queuePaused === true ? queuePauseReason(snapshot.rows) : undefined;
+  // The daemon's scheduled retry of the failed turn, while the pane hears the daemon (turnPhase.ts):
+  // the queue's status line counts down to it.
+  const retry = liveAutoResume(turnPhase(snapshot), snapshot.autoResume)?.retry;
   return (
     <form
       ref={form}
@@ -3317,6 +3325,8 @@ function ComposerFrame({
         queue={snapshot.queue}
         paused={snapshot.summary?.queuePaused === true}
         {...(pauseReason ? { pauseReason } : {})}
+        {...(retry ? { retry } : {})}
+        {...(onOpenHeld ? { onOpenHeld } : {})}
         t={t}
         onRemove={onQueueRemove}
         onCancelEdit={onQueueCancelEdit}

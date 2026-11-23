@@ -16,6 +16,13 @@ import {
 import { errorMessage } from "./transportErrors";
 import "./SurgeHoldRow.css";
 
+/// Asks the chat's held messages row to open on the ones that need the person: a queued surge digest's
+/// row does (ComposerQueue.tsx), which the pane draws in another part of the stack.
+const opens = new EventTarget();
+export function openHeldMessages(sessionId: string): void {
+  opens.dispatchEvent(new CustomEvent("open", { detail: sessionId }));
+}
+
 /// How the line reads (the gallery's variants; the shipped look is `counts`).
 export type SurgeRowLook = "counts" | "sentence" | "needFirst";
 
@@ -76,6 +83,16 @@ export function SurgeHoldRow({
     if (open)
       focusRoute(field.current, "person", "the held messages panel opened: its search field", { preventScroll: true });
   }, [open]);
+  useEffect(() => {
+    const heard = (event: Event) => {
+      if ((event as CustomEvent<string>).detail !== sessionId) return;
+      setOpen(true);
+      setOnlyNeed(needYou > 0);
+      setShown(HELD_PAGE);
+    };
+    opens.addEventListener("open", heard);
+    return () => opens.removeEventListener("open", heard);
+  }, [sessionId, needYou]);
   const threads = listing.state === "ready" ? listing.threads : undefined;
   const found = useMemo(() => {
     const all = threads ?? [];

@@ -1,0 +1,136 @@
+/* The chat's one status line after a failed turn (QueueStatusLine.tsx): the queue's head row while
+   prompts wait, the notice slot's line while none do. Leo, 2026-11-23: "this looks ass idk", on two
+   lines that said one state, the gateway's raw text as the sentence and cut sentences.
+   Instrument (cmuxterm-hq docs/design/design-system-decisions.md): grid 4, control 28, text 13; hue only
+   for status, so only the mark takes the attention hue; the words are ink, the countdown and try count
+   the muted ink in tabular figures, Details and Resume quiet buttons with no fill at rest (the surge
+   row's need-you button, SurgeHoldRow.css). Nothing is cut: a narrow pane wraps the countdown under the
+   words, and Details opens the raw error whole, as selectable text. */
+.acpmux-queue-status {
+  --acpmux-queue-status-inset: 12px;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  color: var(--agent-text);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height, 16px);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+/* In the queue: the list's whole width, over the prompts (the list's two columns are theirs). */
+.acpmux-composer-queue > .acpmux-queue-status.acpmux-queue-paused {
+  grid-column: 1 / -1;
+  display: flex;
+  padding: 0;
+  color: var(--agent-text);
+}
+/* The old paused note's cut-to-one-line rule (styles.css) is no longer this row's: it wraps instead. */
+.acpmux-composer-queue > .acpmux-queue-status > span {
+  overflow: visible;
+  white-space: normal;
+}
+/* In the notice slot: the slot's own side room, the line's words at its edge. */
+output.acpmux-queue-status.acpmux-switch-notice {
+  display: flex;
+  color: var(--agent-text);
+}
+output.acpmux-queue-status.acpmux-switch-notice .acpmux-queue-status-line { padding-inline: 0; }
+
+.acpmux-queue-status-line {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2, 8px);
+  min-width: 0;
+  min-height: var(--ds-control-compact, 24px);
+  padding: 2px 6px 2px var(--acpmux-queue-status-inset);
+  box-sizing: border-box;
+}
+
+.acpmux-queue-status-mark {
+  display: inline-grid;
+  flex: none;
+  width: 14px;
+  place-items: center;
+  color: var(--agent-status-warning);
+}
+.acpmux-queue-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--agent-status-warning);
+}
+
+.acpmux-queue-status-copy {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: var(--ds-space-2, 8px);
+  min-width: 0;
+}
+.acpmux-queue-status-title { font-weight: var(--font-weight-emphasis, 600); }
+.acpmux-queue-status-meta {
+  color: var(--agent-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.acpmux-queue-status[data-look="stacked"] .acpmux-queue-status-copy {
+  flex-direction: column;
+  align-items: flex-start;
+}
+.acpmux-queue-status[data-look="stacked"] .acpmux-queue-status-line { align-items: flex-start; padding-block: 4px; }
+.acpmux-queue-status[data-look="stacked"] .acpmux-queue-status-mark { margin-top: 1px; }
+
+.acpmux-queue-status-button {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: var(--ds-space-1, 4px);
+  height: var(--ds-control-compact, 24px);
+  margin: 0;
+  padding: 0 var(--ds-space-2, 8px);
+  border: 0;
+  border-radius: var(--ds-radius-control, 8px);
+  background: transparent;
+  color: var(--agent-muted);
+  font: inherit;
+  cursor: default;
+}
+.acpmux-queue-status-button.acpmux-queue-resume { color: var(--agent-text); }
+.acpmux-queue-status-button:hover { background: var(--ds-color-hover, var(--agent-control-hover)); color: var(--agent-text); }
+.acpmux-queue-status-button:active { background: var(--ds-color-pressed, var(--agent-control-hover)); }
+.acpmux-queue-status-button:focus-visible {
+  outline: var(--cmux-focus-ring-width, 1.5px) solid var(--cmux-focus-ring-color, var(--agent-text));
+  outline-offset: calc(-1 * var(--cmux-focus-ring-width, 1.5px));
+}
+.acpmux-queue-status-chevron {
+  transition: transform var(--agent-motion-move, var(--cmux-motion-standard, 160ms)) var(--cmux-ease-out, ease-out);
+}
+.acpmux-queue-status[data-open] .acpmux-queue-status-chevron { transform: rotate(180deg); }
+
+/* The raw error, whole: the code face, muted, selectable, under the words at their edge. */
+.acpmux-queue-status-error {
+  display: block;
+  max-height: 96px;
+  margin: 0 var(--ds-space-2, 8px) var(--ds-space-1, 4px) calc(var(--acpmux-queue-status-inset) + 14px + var(--ds-space-2, 8px));
+  overflow-y: auto;
+  color: var(--agent-muted);
+  font-family: var(--cv-code-font, var(--cv-mono, ui-monospace));
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height, 16px);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
+}
+output.acpmux-queue-status .acpmux-queue-status-error { margin-inline-start: calc(14px + var(--ds-space-2, 8px)); }
+
+/* A queued surge digest's label (ComposerQueue.tsx, surgeDigest.ts), as the subagent resume's. */
+.acpmux-queued-kind[data-kind="digest"] {
+  vertical-align: top;
+  margin-right: 6px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .acpmux-queue-status-chevron { transition: none; }
+}
