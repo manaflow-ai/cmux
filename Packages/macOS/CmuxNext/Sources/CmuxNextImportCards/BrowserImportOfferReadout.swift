@@ -9,7 +9,8 @@ import Foundation
 ///   there again); `not_now_until`: ISO 8601, or null.
 /// - `cards`: each browser tab whose chrome holds a card: `showing` (on screen), `waits_for_focus`
 ///   (its tab lost the keyboard), `seen` (it was on screen with the keyboard there: losing it closes the card).
-public enum BrowserImportOfferReadout {
+public struct BrowserImportOfferReadout {
+    public init() {}
     /// A card a browser tab's chrome holds.
     public struct Card: Equatable, Sendable {
         public var showing: Bool
