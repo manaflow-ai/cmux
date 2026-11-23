@@ -130,6 +130,35 @@ pub fn find(home: &Path, id: &str, listed: &[String]) -> Option<Thread> {
     rows(home, &[id.to_owned()], listed).into_iter().next()
 }
 
+/// Thread `id`, while a running Codex holds it, whichever client started it: the thread a cmux
+/// terminal resumed (`hub/release_to_watch.rs`, `codex resume` records `codex-tui`). The bridge
+/// reaches it only through that terminal's binding (`hub/bridge.rs`), never by a listing. Its row
+/// only names it; a thread with no row yet is still the held one.
+pub fn find_held(home: &Path, id: &str) -> Option<Thread> {
+    if !is_thread_id(id) || crate::adopt_live::holder("codex", id, home).is_none() {
+        return None;
+    }
+    let row = cmux_chat_index::codex_thread_rows(home, &[id.to_owned()]).into_iter().next();
+    Some(match row {
+        Some(r) => Thread {
+            id: r.id,
+            originator: r.originator.unwrap_or_default(),
+            cwd: r.cwd.map(PathBuf::from),
+            name: r.name,
+            title: r.title,
+            version: r.cli_version,
+        },
+        None => Thread {
+            id: id.to_owned(),
+            originator: String::new(),
+            cwd: None,
+            name: None,
+            title: None,
+            version: None,
+        },
+    })
+}
+
 /// The thread whose Codex started a process of `ancestry` (the socket peer first, then each
 /// parent): the first process whose environment names a thread (`env_thread`) and whose parent
 /// is a Codex binary (`is_codex`) naming no thread or another one. Unreadable processes are passed.
@@ -181,12 +210,26 @@ pub fn initialize(id: u64) -> Value {
     }})
 }
 
-/// The `thread/queue/add` request that queues `text` for `thread_id` as `client_id`.
-pub fn queue_add(id: u64, thread_id: &str, text: &str, client_id: &str) -> Value {
+/// The `thread/queue/add` request that queues `text` and `images` (`(media type, base64)`, as
+/// data URLs, the app-server's `image` input) for `thread_id` as `client_id`.
+pub fn queue_add(
+    id: u64,
+    thread_id: &str,
+    text: &str,
+    images: &[(String, String)],
+    client_id: &str,
+) -> Value {
+    let mut input = Vec::new();
+    if !text.is_empty() || images.is_empty() {
+        input.push(json!({"type": "text", "text": text, "text_elements": []}));
+    }
+    for (mime, data) in images {
+        input.push(json!({"type": "image", "url": format!("data:{mime};base64,{data}")}));
+    }
     json!({"id": id, "method": "thread/queue/add", "params": {
         "threadId": thread_id,
         "clientUserMessageId": client_id,
-        "input": [{"type": "text", "text": text, "text_elements": []}],
+        "input": input,
     }})
 }
 
@@ -300,6 +343,7 @@ pub async fn deliver(
     home: &Path,
     thread_id: &str,
     text: &str,
+    images: &[(String, String)],
     client_id: &str,
 ) -> Result<String, String> {
     let socket = control_socket(home);
@@ -307,7 +351,7 @@ pub async fn deliver(
     let limit = if daemon { SOCKET_TIMEOUT } else { SPAWNED_TIMEOUT };
     let run = async {
         let mut link = if daemon { connect(&socket).await? } else { spawn(home)? };
-        let result = queue(&mut link, thread_id, text, client_id).await;
+        let result = queue(&mut link, thread_id, text, images, client_id).await;
         link.close().await;
         result
     };
@@ -321,11 +365,12 @@ async fn queue(
     link: &mut Link,
     thread_id: &str,
     text: &str,
+    images: &[(String, String)],
     client_id: &str,
 ) -> Result<String, String> {
     link.call(initialize(1)).await?;
     link.send(&json!({"method": "initialized"})).await?;
-    let added = link.call(queue_add(2, thread_id, text, client_id)).await?;
+    let added = link.call(queue_add(2, thread_id, text, images, client_id)).await?;
     added
         .pointer("/queuedSubmission/id")
         .and_then(Value::as_str)
@@ -365,7 +410,13 @@ fn spawn(home: &Path) -> Result<Link, String> {
 }
 
 #[cfg(not(unix))]
-pub async fn deliver(_: &Path, _: &str, _: &str, _: &str) -> Result<String, String> {
+pub async fn deliver(
+    _: &Path,
+    _: &str,
+    _: &str,
+    _: &[(String, String)],
+    _: &str,
+) -> Result<String, String> {
     Err("delivering to a Codex thread is Unix-only".into())
 }
 
