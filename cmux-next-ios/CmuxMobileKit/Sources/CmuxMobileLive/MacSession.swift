@@ -25,8 +25,44 @@ final class MacSession {
     /// Workspace and tab changes on this Mac.
     let creation: LiveWorkspaceCreationBackend
 
-    /// The last tree this Mac sent.
-    var tree: DaemonTree?
+    /// The last tree this Mac sent. Its arrival resumes ``waitForTree(timeout:clock:)``.
+    var tree: DaemonTree? {
+        didSet { if tree != nil { resumeTreeWaiters(true) } }
+    }
+    private var treeWaiters: [UUID: CheckedContinuation<Bool, Never>] = [:]
+
+    /// Waits until this Mac's tree has come (a phone send made before it knows which session a
+    /// tab shows), for at most `timeout` on `clock`: resumed by the tree's arrival, never polled.
+    /// False on timeout, cancellation or the session closing (``cancelTreeWaiters()``).
+    func waitForTree(timeout: Duration, clock: any Clock<Duration>) async -> Bool {
+        if tree != nil { return true }
+        let id = UUID()
+        let timer = Task { @MainActor [weak self] in
+            try? await clock.sleep(for: timeout)
+            self?.treeWaiters.removeValue(forKey: id)?.resume(returning: false)
+        }
+        defer { timer.cancel() }
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                if tree != nil || Task.isCancelled {
+                    continuation.resume(returning: tree != nil)
+                } else {
+                    treeWaiters[id] = continuation
+                }
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in self?.treeWaiters.removeValue(forKey: id)?.resume(returning: false) }
+        }
+    }
+
+    /// The session closed: nobody waits on its tree.
+    func cancelTreeWaiters() { resumeTreeWaiters(false) }
+
+    private func resumeTreeWaiters(_ arrived: Bool) {
+        let waiters = treeWaiters
+        treeWaiters = [:]
+        for waiter in waiters.values { waiter.resume(returning: arrived) }
+    }
     /// The link to this Mac (identity: a newer link replaces it).
     var currentLink: (any MacLink)?
     /// `currentLink` once its `auth` channel opened (at once without pairing keys): what

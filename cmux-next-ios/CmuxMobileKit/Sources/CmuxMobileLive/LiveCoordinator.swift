@@ -306,9 +306,10 @@ public final class LiveCoordinator {
                     return self.agentSource(owner, session: keptSession, summary: scoped)
                 }
                 self.sourcedSessions[key] = (tabID: summary.id, macID: summary.macID, session: nil, provisional: true)
-                let resolve: @MainActor () async throws -> AcpmuxSessionSource = { [weak self, weak owner] in
+                let resolve: @MainActor () async throws -> any AgentSessionSource = { [weak self, weak owner] in
                     guard let self, let owner else { throw WorkspaceCreationError("Not connected") }
-                    return try await self.firstSendSource(owner, summary: scoped, key: key, claim: false)
+                    let source: AcpmuxSessionSource = try await self.firstSendSource(owner, summary: scoped, key: key, claim: false)
+                    return source
                 }
                 return PendingAgentSource(summary: scoped, cache: self.transcriptCache, keptKey: keptKey, resolve: resolve) { [weak self, weak owner] sessionID in
                     // Its kept records are read: the chat opens on its session's source.
@@ -355,13 +356,13 @@ public final class LiveCoordinator {
 
     /// The source a tab's first message from the phone goes to: its bound session's, else the
     /// session that message starts (``LiveWorkspaceCreationBackend/startTabChat(tabID:willBind:)``).
-    /// Waits for the Mac's tree (at most 30 s) to know which. `claim`: the store asking keeps
-    /// its source across the bind (its tree entry names the new session before the bind is
-    /// sent, so the tree that lists it rebuilds nothing); else the chat rebuilds on the session.
+    /// Waits for the Mac's tree (its arrival, at most 30 s) to know which. `claim`: the store
+    /// asking keeps its source across the bind (its tree entry names the new session before the
+    /// bind is sent, so the tree that lists it rebuilds nothing); else the chat rebuilds on it.
     func firstSendSource(_ owner: MacSession, summary: AgentSessionSummary, key: String, claim: Bool) async throws -> AcpmuxSessionSource {
-        let deadline = ContinuousClock.now + .seconds(30)
-        while owner.tree == nil, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(100)) }
-        guard owner.tree != nil else { throw WorkspaceCreationError("\(owner.name) didn't answer. Not sent.", isForPerson: true) }
+        guard await owner.waitForTree(timeout: .seconds(30), clock: clock) else {
+            throw WorkspaceCreationError(String(localized: "\(owner.name) didn't answer. Not sent."), isForPerson: true)
+        }
         if let session = owner.tree?.agentTabs[summary.id]?.session { return agentSource(owner, session: session, summary: summary) }
         let previous = sourcedSessions[key]
         let claimed = { [weak self] (session: String) in
@@ -886,6 +887,7 @@ public final class LiveCoordinator {
         session.offlineTask?.cancel()
         session.workspacesTimeout?.cancel()
         session.acpmux.cancelWaiters()
+        session.cancelTreeWaiters()
         // Signed out: the unbind below ends each chat's link, which saves its kept copy; nothing
         // of the account may be written back after sign-out deleted it.
         if stopped { session.acpmux.transcriptCache = nil }
@@ -1165,10 +1167,10 @@ final class PendingAgentSource: AgentSessionSource {
     private var continuations: [AsyncStream<AgentSessionEvent>.Continuation] = []
 
     /// The chat's source once the Mac's tree says which session it shows (``send(_:)``).
-    private let resolve: (@MainActor () async throws -> AcpmuxSessionSource)?
+    private let resolve: (@MainActor () async throws -> any AgentSessionSource)?
 
     init(summary: AgentSessionSummary, cache: AgentTranscriptCache?, keptKey: String?,
-         resolve: (@MainActor () async throws -> AcpmuxSessionSource)? = nil, onKept: @escaping @MainActor (String) -> Void) {
+         resolve: (@MainActor () async throws -> any AgentSessionSource)? = nil, onKept: @escaping @MainActor (String) -> Void) {
         self.summary = summary
         self.resolve = resolve
         self.cache = cache
@@ -1185,26 +1187,69 @@ final class PendingAgentSource: AgentSessionSource {
     var loadsHistory: Bool { true }
 
     func events() -> AsyncStream<AgentSessionEvent> {
+        if let resolved { return resolved.events() }
         let (stream, continuation) = AsyncStream<AgentSessionEvent>.makeStream()
         continuations.append(continuation)
         return stream
     }
 
+    /// Intents sent before the chat's source was resolved, in order.
+    private var held: [AgentClientIntent] = []
+    /// The one resolution running for this chat (``send(_:)``); every held intent waits on it.
+    private var resolving: Task<Void, Never>?
+    /// The chat's source once resolved, kept so the rebuilt chat finds the same source in the
+    /// Mac's hub (``AcpmuxHub/source(sessionID:summary:)`` holds sources weakly).
+    private(set) var resolved: (any AgentSessionSource)?
+    private var pipes: [Task<Void, Never>] = []
+
+    isolated deinit {
+        resolving?.cancel()
+        for pipe in pipes { pipe.cancel() }
+        for continuation in continuations { continuation.finish() }
+    }
+
     /// A message sent before the Mac's tree came waits for it, then goes to the chat's session
     /// (``resolve``: the tab's bound session, or the session its first message starts), as if
-    /// sent a moment later; the chat rebuilt on that session shows it. Only a start that fails
-    /// gives the draft back, with why.
+    /// sent a moment later. One resolution serves every message, so they go in the order sent,
+    /// and this chat's readers follow that session's records. Only a start that fails gives the
+    /// drafts back, with why.
     func send(_ intent: AgentClientIntent) {
+        if let resolved { return resolved.send(intent) }
         guard let resolve else { return }
-        Task { [weak self] in
+        held.append(intent)
+        guard resolving == nil else { return }
+        resolving = Task { [weak self] in
             do {
-                try await resolve().send(intent)
+                let source = try await resolve()
+                self?.began(source)
             } catch {
-                guard let self, case .prompt(let text, let attachments, _, let promptID, _) = intent else { return }
-                let event = AgentSessionEvent.promptNotSent(text: text, attachments: attachments, promptID: promptID,
-                                                            reason: AcpmuxSessionSource.message(error))
-                for continuation in self.continuations { continuation.yield(event) }
+                self?.failed(reason: AcpmuxSessionSource.message(error))
             }
+        }
+    }
+
+    private func began(_ source: any AgentSessionSource) {
+        resolving = nil
+        resolved = source
+        for continuation in continuations {
+            let stream = source.events()
+            pipes.append(Task { @MainActor in
+                for await event in stream { continuation.yield(event) }
+            })
+        }
+        let intents = held
+        held = []
+        for intent in intents { source.send(intent) }
+    }
+
+    private func failed(reason: String) {
+        resolving = nil
+        let intents = held
+        held = []
+        for intent in intents {
+            guard case .prompt(let text, let attachments, _, let promptID, _) = intent else { continue }
+            let event = AgentSessionEvent.promptNotSent(text: text, attachments: attachments, promptID: promptID, reason: reason)
+            for continuation in continuations { continuation.yield(event) }
         }
     }
 }
@@ -1229,6 +1274,10 @@ final class UnboundAgentSource: AgentSessionSource {
     private(set) var starting = false
     /// Intents sent while the chat starts, in order.
     @ObservationIgnored private var held: [AgentClientIntent] = []
+    /// The first message's start, and the Mac's default agent being read: owned by this chat.
+    @ObservationIgnored private var startTask: Task<Void, Never>?
+    @ObservationIgnored private var namingTask: Task<Void, Never>?
+    @ObservationIgnored private var pipes: [Task<Void, Never>] = []
 
     init(summary: AgentSessionSummary, start: (@MainActor () async throws -> any AgentSessionSource)?,
          nameAgent: (@MainActor () async -> AgentHarnessChoice?)? = nil) {
@@ -1238,6 +1287,9 @@ final class UnboundAgentSource: AgentSessionSource {
     }
 
     isolated deinit {
+        startTask?.cancel()
+        namingTask?.cancel()
+        for pipe in pipes { pipe.cancel() }
         for continuation in continuations { continuation.finish() }
     }
 
@@ -1245,8 +1297,8 @@ final class UnboundAgentSource: AgentSessionSource {
         if let started { return started.events() }
         let (stream, continuation) = AsyncStream<AgentSessionEvent>.makeStream()
         continuations.append(continuation)
-        if let nameAgent {
-            Task { [weak self] in
+        if let nameAgent, namingTask == nil {
+            namingTask = Task { [weak self] in
                 guard let agent = await nameAgent(), let self, self.started == nil else { return }
                 self.named(agent)
             }
@@ -1271,15 +1323,16 @@ final class UnboundAgentSource: AgentSessionSource {
         held.append(intent)
         guard case .prompt = intent, !starting else { return }
         guard let start else {
-            returnHeld(reason: "Not connected to \(summary.macName). Not sent.")
+            returnHeld(reason: String(localized: "Not connected to \(summary.macName). Not sent."))
             return
         }
         starting = true
-        Task { [weak self] in
+        startTask = Task { [weak self] in
             do {
                 let source = try await start()
                 self?.began(source)
             } catch {
+                self?.startTask = nil
                 self?.starting = false
                 self?.returnHeld(reason: AcpmuxSessionSource.message(error))
             }
@@ -1289,6 +1342,7 @@ final class UnboundAgentSource: AgentSessionSource {
     /// The chat started: this store's readers follow its session, and what was sent meanwhile goes.
     private func began(_ source: any AgentSessionSource) {
         started = source
+        startTask = nil
         let readers = continuations
         continuations = []
         for continuation in readers {
@@ -1297,6 +1351,7 @@ final class UnboundAgentSource: AgentSessionSource {
                 for await event in stream { continuation.yield(event) }
                 continuation.finish()
             }
+            pipes.append(pipe)
             continuation.onTermination = { _ in pipe.cancel() }
         }
         let intents = held
@@ -1334,7 +1389,7 @@ final class UnboundAgentSource: AgentSessionSource {
     func fullToolOutput(_ cut: ACPToolOutputCut) async -> ACPToolCallUpdate? { await started?.fullToolOutput(cut) }
 
     private func running() throws -> any AgentSessionSource {
-        guard let started else { throw AgentFeatureUnavailable("Send a first message to start this chat.") }
+        guard let started else { throw AgentFeatureUnavailable(String(localized: "Send a first message to start this chat.")) }
         return started
     }
 

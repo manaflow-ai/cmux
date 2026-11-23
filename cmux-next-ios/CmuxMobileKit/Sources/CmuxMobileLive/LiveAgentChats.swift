@@ -165,7 +165,7 @@ extension LiveWorkspaceCreationBackend: AgentChatsBackend {
         } else if let own = tree.directories[tab.id] ?? workspace.tabs.lazy.compactMap({ tree.directories[$0.id] }).first {
             folder = own
         } else {
-            throw WorkspaceCreationError("This chat has no folder on the Mac yet.", isForPerson: true)
+            throw WorkspaceCreationError(String(localized: "This chat has no folder on the Mac yet."), isForPerson: true)
         }
         guard let line = Self.changeDirectoryLine(folder) else {
             throw WorkspaceCreationError(Self.untypableFolder, isForPerson: true)

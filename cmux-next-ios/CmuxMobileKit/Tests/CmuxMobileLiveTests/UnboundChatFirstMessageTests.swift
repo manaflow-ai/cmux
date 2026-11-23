@@ -84,6 +84,57 @@ import Testing
         #expect(!source.awaitsFirstPrompt)
     }
 
+    /// A chat whose Mac has not sent its tree yet: messages sent meanwhile wait on one
+    /// resolution and go to the chat's session in the order sent (they used to come back with
+    /// "Send again once the chat loads", and then each resolved on its own, out of order).
+    @Test func messagesSentBeforeTheTreeWaitOnOneResolutionAndGoInOrder() async {
+        let started = Started(summary: summary(harness: "claude", agent: "Claude"))
+        final class Count { var resolves = 0 }
+        let count = Count()
+        let (gate, open) = AsyncStream<Void>.makeStream()
+        let source = PendingAgentSource(summary: summary(), cache: nil, keptKey: nil, resolve: {
+            count.resolves += 1
+            for await _ in gate { break }
+            return started
+        }, onKept: { _ in })
+        var events = source.events().makeAsyncIterator()
+        source.send(prompt("first", "p1"))
+        source.send(prompt("second", "p2"))
+        source.send(prompt("third", "p3"))
+        open.yield()
+        for _ in 0..<10_000 where source.resolved == nil { await Task.yield() }
+
+        #expect(count.resolves == 1, "one resolution serves every early message")
+        #expect(started.sent.map(Self.text) == ["first", "second", "third"])
+        source.send(prompt("fourth", "p4"))
+        #expect(started.sent.count == 4, "once resolved it sends straight to the session")
+        guard case .turnStarted = await events.next() else {
+            Issue.record("the reader made before the tree does not follow the session")
+            return
+        }
+    }
+
+    @Test func aResolutionThatFailsGivesEveryEarlyDraftBack() async {
+        struct Refused: LocalizedError { var errorDescription: String? { "cosmic-gray didn't answer. Not sent." } }
+        let source = PendingAgentSource(summary: summary(), cache: nil, keptKey: nil, resolve: { throw Refused() },
+                                        onKept: { _ in })
+        var events = source.events().makeAsyncIterator()
+        source.send(prompt("one", "p1"))
+        source.send(prompt("two", "p2"))
+        var back: [String] = []
+        for _ in 0..<2 {
+            guard case .promptNotSent(let text, _, _, let reason) = await events.next() else { break }
+            #expect(reason.contains("didn't answer"))
+            back.append(text)
+        }
+        #expect(back == ["one", "two"])
+    }
+
+    static func text(_ intent: AgentClientIntent) -> String {
+        if case .prompt(let text, _, _, _, _) = intent { return text }
+        return ""
+    }
+
     /// The empty state said "What should Agent do?": an unbound tab with no harness is the
     /// Mac's default agent, which the chat now names.
     @Test func aTabWithNoHarnessNamesTheMacsDefaultAgent() async {
