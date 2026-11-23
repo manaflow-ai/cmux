@@ -141,6 +141,7 @@ mod machine_chats;
 mod mobile_chat;
 #[cfg(unix)]
 pub(crate) use agent_session_attach::agent_session_link::chat_marks::ChatMarkError;
+pub(crate) use agent_session_attach::agent_session_link::turn_reply_acpmux::TurnReply;
 #[cfg(unix)]
 pub use agent_session_attach::{
     AGENT_SESSION_ATTACH_CAPABILITY, AGENT_SESSION_FOLDERS_CAPABILITY,
