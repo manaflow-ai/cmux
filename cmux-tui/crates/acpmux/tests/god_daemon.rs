@@ -2065,6 +2065,7 @@ fn timed_rounds(
     let (mut times, mut records, mut error) = (vec![], Value::Null, Value::Null);
     let mut returned_records = vec![];
     let mut original_records = vec![];
+    let mut page_bytes = vec![];
     for round in 0..rounds {
         let asked = Instant::now();
         let reply = rpc.call_until(method, params(round), Some(asked + STEP));
@@ -2084,6 +2085,7 @@ fn timed_rounds(
                 records = json!(count);
                 returned_records.push(count);
                 original_records.push(original);
+                page_bytes.push(reply.to_string().len());
             }
             Err(e) => {
                 error = e;
@@ -2095,6 +2097,7 @@ fn timed_rounds(
     if let Some(timing) = timing.as_object_mut() {
         timing.insert("returnedRecords".into(), json!(returned_records));
         timing.insert("originalRecords".into(), json!(original_records));
+        timing.insert("pageBytes".into(), json!(page_bytes));
     }
     (timing, records, error)
 }
@@ -2472,6 +2475,30 @@ fn size_run(label: &str, bytes: u64) -> Value {
     result
 }
 
+/// One compact line of what a page is at this size (records and JSON bytes of the last round, the
+/// p50 time), so a time that differs between sizes can be told from a page that does.
+fn page_cost_line(label: &str, result: &Value) -> String {
+    let rows: Vec<String> = [
+        ("newest", "newestPageUs"),
+        ("recent", "scrollRecentUs"),
+        ("mid", "scrollMidUs"),
+        ("deep", "scrollDeepUs"),
+    ]
+    .iter()
+    .map(|(name, key)| {
+        let at = |field: &str| result[*key][field].as_array().and_then(|a| a.last()).cloned();
+        format!(
+            "{name}={}rec/{}B/{}orig/{}us",
+            at("returnedRecords").unwrap_or(Value::Null),
+            at("pageBytes").unwrap_or(Value::Null),
+            at("originalRecords").unwrap_or(Value::Null),
+            result[*key]["p50"]
+        )
+    })
+    .collect();
+    format!("CHAT-SIZE-PAGE {label} bytesPerRecord={} {}", result["bytesPerRecord"], rows.join(" "))
+}
+
 fn size_failure(result: &Value) -> Option<String> {
     if !result["skipped"].is_null() {
         return Some(format!("skipped: {}", result["skipped"]));
@@ -2557,6 +2584,7 @@ fn chat_size_sweep() {
     for label in sizes.split(',').map(str::trim).filter(|s| !s.is_empty()) {
         let result = size_run(label, parse_size(label));
         println!("CHAT-SIZE {result}");
+        println!("{}", page_cost_line(label, &result));
         if let Some(base) = results
             .first()
             .filter(|base| size_failure(base).is_none() && size_failure(&result).is_none())
