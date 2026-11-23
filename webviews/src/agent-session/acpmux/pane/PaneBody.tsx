@@ -64,6 +64,7 @@ import { turnView } from "../conversation/turns";
 import { ArtifactPanel } from "../conversation/ArtifactPanel";
 import { changeArtifactPin, type OpenedArtifact } from "../conversation/artifactPin";
 import { ShortcutsContext } from "../shortcuts";
+import { PaneLoadingMark } from "../PaneLoadingMark";
 import { NeedsYouButton } from "../needsYou/NeedsYou";
 import { ImageViewer } from "../conversation/ImageViewer";
 import { ChatHeaderInlineStatus, ChatHeaderStatus } from "../header/ChatHeaderStatus";
@@ -711,7 +712,11 @@ export function drawPaneBody({
         data-solo-tab={soloTab ? "" : undefined}
         aria-busy="true"
         style={inTabRow ? tabRowStyle(tabRow) : undefined}
-      />
+      >
+        {/* The host's loading state covers this until the page paints; a page it gave up on shows here
+            still connecting, so it shows the same mark, never a blank pane (cmux#48605). */}
+        <PaneLoadingMark label={t("transcript.loading")} />
+      </section>
     </ShortcutsContext.Provider>
   ) : (
     <ShortcutsContext.Provider value={shortcuts}>

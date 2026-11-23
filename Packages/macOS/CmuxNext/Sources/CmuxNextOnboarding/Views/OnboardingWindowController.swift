@@ -27,7 +27,8 @@ public final class OnboardingWindowController: NSWindowController, NSWindowDeleg
     /// instead of taking the focus. The presenter sets it on every show.
     public var presentsQuietly = false
     /// `activeLook`: the app's ``ActiveLookScope``, for the window's backdrop (nil follows the key state).
-    public init(model: OnboardingModel, activeLook: ActiveLookScope?) {
+    /// `signIn`: the Agents step's in-place sign-in, else the services' sign-in source's (nil: the step as before).
+    public init(model: OnboardingModel, activeLook: ActiveLookScope?, signIn: OnboardingSignIn? = nil) {
         self.model = model
         let size = model.step.windowSize
         let window = OnboardingWindow(
@@ -41,7 +42,6 @@ public final class OnboardingWindowController: NSWindowController, NSWindowDeleg
         case .agents: OnboardingStrings.agentsTitle
         case .importData: OnboardingStrings.importTitle
         case .computerUse: OnboardingStrings.computerUseTitle
-        case .agentTools: OnboardingStrings.agentToolsTitle
         case .makeItYours: OnboardingStrings.makeItYoursTitle
         }
         window.isMovableByWindowBackground = true
@@ -53,7 +53,7 @@ public final class OnboardingWindowController: NSWindowController, NSWindowDeleg
         window.contentMinSize = size
         window.contentMaxSize = size
         window.identifier = NSUserInterfaceItemIdentifier("cmux.onboarding")
-        let provider = OnboardingPageProvider(model: model)
+        let provider = OnboardingPageProvider(model: model, signIn: signIn ?? model.services.agentSignIns?.onboardingSignIn)
         page = PageWebView(descriptor: .onboarding, routes: [PageRoute(prefix: "cmux.onboarding.", provider: provider)])
         super.init(window: window)
         window.delegate = self
