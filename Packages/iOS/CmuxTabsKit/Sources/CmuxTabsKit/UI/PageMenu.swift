@@ -72,7 +72,7 @@ struct PageMenu: View {
             onSelect(item)
         } label: {
             HStack(spacing: 0) {
-                Image(systemName: item.systemImage)
+                (item.symbolBundle.map { Image(item.systemImage, bundle: $0) } ?? Image(systemName: item.systemImage))
                     .font(.system(size: 18))
                     .frame(width: 30)
                     .padding(.leading, 25)
