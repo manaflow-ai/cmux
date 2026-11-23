@@ -50,11 +50,12 @@ public nonisolated struct ThemeFileOverlay: Sendable, Equatable {
     static let reservedKeys: Set<String> = ["name", "description", "$schema", "colors", "ghostty", "density", "slots"]
     /// Look keys that are no part of a look: the theme file itself, the star list and its rotation,
     /// per-machine and per-display maps, the sun location (where this Mac is), what each background mode
-    /// last showed, and the saved custom densities.
+    /// last showed and the backgrounds shown before, and the saved custom densities.
     static let excludedKeys: Set<String> = [
         ThemeFileSetting.configPath.joined(separator: "."), "appearance.favoriteThemes", "appearance.rotateFavoriteThemes",
         "appearance.machineColors", "appearance.displayBackgrounds", "appearance.displayBackgroundRotations",
         "appearance.customDensities", "appearance.backgroundLocation", "appearance.backgroundMemory",
+        "appearance.backgroundPlacement", "appearance.backgroundRecents",
         ThemeFileExceptionsSetting.configPath.joined(separator: "."),
     ]
     /// Look key prefixes; `agentPane.display.font.` is the agent chat's typography (a font pack's

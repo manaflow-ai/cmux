@@ -260,9 +260,12 @@ await requireBrowserLane("thought-click-targets-browser.test.ts", async () => {
     expect(wrong).toEqual([]);
   });
 
-  // Lucas 2026-11-06: the words light under the pointer only, and the empty line after them is no
-  // hover. The button spans the row for the click (above); the lift stays on glyph, words, chevron.
-  test("a Thought row's hover lights on its words, not on the empty line after them", async () => {
+  // Leo, 2026-11-22: "the highlight of the thought thing needs to be highlighted when you're on the
+  // line and not necessarily on the thought word, because we can collapse from anywhere on the line,
+  // because that's good ergo. just like the rest of the tool calls." The button spans the row for
+  // the click (above), and its words light from anywhere along it. (Before: only on its glyph, words
+  // and chevron, Lucas 2026-11-06.)
+  test("a Thought row's words light from anywhere on its line, as a tool row's do", async () => {
     const page = await browser.newPage({ viewport: { width: 900, height: 600 } });
     const port = (vite!.httpServer!.address() as { port: number }).port;
     for (;;) {
@@ -303,6 +306,161 @@ await requireBrowserLane("thought-click-targets-browser.test.ts", async () => {
       `HOVER words ${Math.round(w.width)}px of ${Math.round(b.width)}px: rest=${rest} onWords=${onWords} pastWords=${pastWords}`,
     );
     expect(onWords).not.toBe(rest);
-    expect(pastWords).toBe(rest);
+    expect(pastWords).toBe(onWords);
+    // The same holds for the tool row under it, measured the same way.
+    const tool = page.locator(".cv-tools > button.cv-tool:not(.cv-thought)").first();
+    if (await tool.count()) {
+      const t = (await tool.boundingBox())!;
+      const toolWords = tool.locator(".cv-tool__text").first();
+      const toolColor = () => toolWords.evaluate((el) => getComputedStyle(el).color);
+      await page.mouse.move(t.x + t.width / 2, t.y - 80);
+      await settle(page);
+      const toolRest = await toolColor();
+      await page.mouse.move(t.x + t.width - 20, t.y + t.height / 2);
+      await settle(page);
+      expect(await toolColor()).not.toBe(toolRest);
+      expect(await toolColor()).toBe(onWords);
+    }
+  });
+
+  // Leo, 2026-11-22: "had the whole line be the line? then you expand and it simply shows you the
+  // rest. the brain, of course, stays." and "a morphing animation to and from thought": the row's
+  // line is the thought's first line, opening swaps no word and moves none, the rest unfolds under
+  // it, and a frame midway through shows the row between its two heights.
+  for (const variant of ["short", "long", "wrapping-line"])
+    test(`opening a thought keeps its line in place and unfolds the rest under it (${variant})`, async () => {
+      const page = await browser.newPage({ viewport: { width: 900, height: 900 } });
+      const port = (vite!.httpServer!.address() as { port: number }).port;
+      for (;;) {
+        await page.goto(`http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant, frame: "component", width: 900 })}`);
+        try {
+          await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
+            timeout: 120_000,
+          });
+          break;
+        } catch (error) {
+          if (!/context was destroyed|navigat/i.test(String(error))) throw error;
+        }
+      }
+      await ready(page);
+      await expand(page, page.locator("button.cv-worked.is-toggle").last());
+      const button = page.locator("button.cv-thought").first();
+      /** The line's words, where its first letter is drawn, its height, and the brain and chevron. */
+      const read = () =>
+        button.evaluate((node) => {
+          const line = node.querySelector<HTMLElement>(".cv-thought__preview")!;
+          const range = document.createRange();
+          range.setStart(line.firstChild!, 0);
+          range.setEnd(line.firstChild!, 1);
+          const letter = range.getBoundingClientRect();
+          const body = node.nextElementSibling?.querySelector<HTMLElement>(".cv-thought__body");
+          return {
+            words: line.textContent ?? "",
+            left: letter.left,
+            top: letter.top,
+            line: line.getBoundingClientRect().height,
+            brain: node.querySelectorAll(".cv-tool__icon svg").length,
+            label: node.querySelectorAll(".cv-thought__label").length,
+            cut: line.scrollHeight > line.clientHeight + 1,
+            // The fold sizes the body's wrapper, so the wrapper's height is what is drawn midway.
+            body: body ? body.parentElement!.getBoundingClientRect().height : 0,
+            rest: body?.textContent ?? "",
+            below: body ? body.getBoundingClientRect().top >= letter.bottom - 1 : true,
+          };
+        });
+      const closed = await read();
+      expect(closed.brain).toBe(1);
+      expect(closed.label).toBe(0);
+      expect(closed.words.startsWith("Thought")).toBe(false);
+      expect(closed.line).toBeLessThanOrEqual(22.5);
+      // Midway: the same words in the same place, the row between its closed and open heights.
+      const box = (await button.boundingBox())!;
+      await page.mouse.click(box.x + box.width - 30, box.y + box.height / 2);
+      await page.waitForFunction((el) => el?.getAttribute("aria-expanded") === "true", await button.elementHandle());
+      const midway = await page.evaluate(() => {
+        const moving = document
+          .getAnimations()
+          .filter((a) => a.playState === "running" && a.effect?.getComputedTiming().iterations !== Infinity);
+        for (const animation of moving) {
+          const timing = animation.effect!.getComputedTiming();
+          animation.pause();
+          animation.currentTime = Number(timing.duration) / 2;
+        }
+        return moving.length;
+      });
+      const mid = await read();
+      await page.evaluate(() => document.getAnimations().forEach((a) => a.playState === "paused" && a.play()));
+      await settle(page);
+      const open = await read();
+      for (const state of [mid, open]) {
+        expect(state.words).toBe(closed.words);
+        expect(Math.abs(state.left - closed.left)).toBeLessThanOrEqual(0.5);
+        expect(Math.abs(state.top - closed.top)).toBeLessThanOrEqual(0.5);
+        expect(state.brain).toBe(1);
+        expect(state.label).toBe(0);
+        expect(state.below).toBe(true);
+      }
+      expect(midway).toBeGreaterThan(0);
+      const grew = open.line + open.body - closed.line;
+      const part = mid.line + mid.body - closed.line;
+      expect(grew).toBeGreaterThan(10);
+      expect(part).toBeGreaterThan(0);
+      expect(part).toBeLessThan(grew);
+      expect(open.cut).toBe(false);
+      if (variant === "wrapping-line") {
+        // Nothing under the line: the line itself wraps open.
+        expect(closed.cut).toBe(true);
+        expect(open.rest).toBe("");
+        expect(open.line).toBeGreaterThan(closed.line + 10);
+      } else {
+        expect(open.rest.length).toBeGreaterThan(0);
+        expect(open.rest.includes(closed.words)).toBe(false);
+      }
+      console.log(
+        `MORPH ${variant}: line ${closed.line}px -> ${mid.line}px -> ${open.line}px, body 0 -> ${Math.round(mid.body)}px -> ${Math.round(open.body)}px, first letter moved ${Math.abs(open.left - closed.left)}px, ${Math.abs(open.top - closed.top)}px`,
+      );
+      // Closing reverses it: one line again, cut where it was.
+      await page.mouse.click(box.x + box.width - 30, box.y + 8);
+      await page.waitForFunction((el) => el?.getAttribute("aria-expanded") === "false", await button.elementHandle());
+      await settle(page);
+      const again = await read();
+      expect(again.words).toBe(closed.words);
+      expect(again.line).toBe(closed.line);
+      expect(again.cut).toBe(closed.cut);
+      expect(Math.abs(again.top - closed.top)).toBeLessThanOrEqual(0.5);
+      await page.close();
+    });
+
+  test("a thought its line holds whole draws no chevron and does not open", async () => {
+    const page = await browser.newPage({ viewport: { width: 900, height: 900 } });
+    const port = (vite!.httpServer!.address() as { port: number }).port;
+    for (;;) {
+      await page.goto(
+        `http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant: "one-line", frame: "component", width: 900 })}`,
+      );
+      try {
+        await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
+          timeout: 120_000,
+        });
+        break;
+      } catch (error) {
+        if (!/context was destroyed|navigat/i.test(String(error))) throw error;
+      }
+    }
+    await page.evaluate(() => document.fonts.ready);
+    await expand(page, page.locator("button.cv-worked.is-toggle").last());
+    const row = page.locator(".cv-thought.is-whole").first();
+    await row.waitFor({ state: "visible" });
+    expect(await page.locator("button.cv-thought").count()).toBe(0);
+    expect(await row.locator(".cv-tool__chevron").count()).toBe(0);
+    expect(await row.locator(".cv-tool__icon svg").count()).toBe(1);
+    expect(await row.locator(".cv-thought__preview").textContent()).toBe(
+      "Check the retry helper first, then the callers.",
+    );
+    expect(await row.locator(".cv-thought__time").textContent()).toBe("4s");
+    await row.click();
+    await settle(page);
+    expect(await page.locator(".cv-thought__body").count()).toBe(0);
+    await page.close();
   });
 });
