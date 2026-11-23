@@ -72,3 +72,23 @@ fn cloud_repo_local_deleted_recent_folder_does_not_block_catalog() {
     });
     assert_eq!(result, json!({"repos":[],"complete":true}));
 }
+
+#[test]
+fn cloud_repo_local_never_reads_a_project_in_a_privacy_protected_folder() {
+    // LAUNCH-NO-TCC-PROMPTS: git in ~/Desktop raised macOS's Desktop prompt for cmux.
+    let home = "/Users/u";
+    let paths = vec![
+        "/Users/u/Desktop/cmux-customization-videos",
+        "/Users/u/documents/notes",
+        "/Users/u/Library/Mobile Documents/com~apple~CloudDocs/app",
+        "/Volumes/External/repo",
+        "/Users/u/Projects/cmux",
+        "/Users/u/Desktopper/repo",
+        "/Users/u",
+    ];
+    assert_eq!(
+        unprotected(paths.clone(), Some(home)),
+        vec!["/Users/u/Projects/cmux", "/Users/u/Desktopper/repo", "/Users/u"]
+    );
+    assert!(unprotected(paths, None).is_empty(), "no known home reads nothing");
+}

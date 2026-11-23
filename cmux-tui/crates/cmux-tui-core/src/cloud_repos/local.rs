@@ -35,8 +35,26 @@ pub(crate) fn local_catalog(mux: &Mux) -> anyhow::Result<Value> {
         .flatten()
         .filter_map(|project| project.get("path").and_then(Value::as_str))
         .collect();
+    let home = crate::platform::home_dir();
+    let paths = unprotected(paths, home.as_deref().and_then(Path::to_str));
     let deadline = Instant::now() + CATALOG_DEADLINE;
     Ok(catalog(&paths, |path| read_remote(path, deadline)))
+}
+
+/// The projects whose folders git may read (LAUNCH-NO-TCC-PROMPTS). git
+/// reading a project in ~/Desktop, ~/Documents or another guarded folder
+/// raises macOS's privacy prompt for cmux, with no user action behind it
+/// (a Claude Code project on the Desktop did, on a dev build's catalog). Such
+/// a project is left out, as a non-git one is; its repository is still found
+/// from GitHub. No known home: nothing is read (fail closed).
+fn unprotected<'a>(paths: Vec<&'a str>, home: Option<&str>) -> Vec<&'a str> {
+    paths
+        .into_iter()
+        .filter(|path| match home {
+            Some(home) => !cmux_config::schema::in_protected_folder(path, home),
+            None => false,
+        })
+        .collect()
 }
 
 fn read_remote(path: &str, deadline: Instant) -> RemoteRead {
