@@ -25,11 +25,13 @@ METRIC_ORDER = [
     "gap_after_link_back_ms",
     "gap_total_ms",
     "redial_after_drop_ms",
+    "dial_from_link_back_ms",
+    "dial_open_ms",
     "bytes_down",
     "bytes_up",
     "round_trips",
 ]
-PHASE_ORDER = ["cold", "warm", "warm-full", "streaming", "reconnect"]
+PHASE_ORDER = ["cold", "warm", "warm-full", "streaming", "reconnect", "path-change"]
 
 
 def first_content_summary(rows: list[dict]) -> list[str]:

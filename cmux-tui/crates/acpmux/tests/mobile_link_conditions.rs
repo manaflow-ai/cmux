@@ -691,6 +691,7 @@ async fn reconnect(
     token: &str,
     session: &str,
     k: &Key<'_>,
+    path_back: bool,
 ) {
     let fail = |why: &str| {
         for m in ["gap_after_link_back_ms", "gap_total_ms"] {
@@ -772,22 +773,29 @@ async fn reconnect(
         }
     }
     drop(old);
-    // Redial: each try bounded as the app's requests are, until the overall bound. A try still
-    // pending when the link comes back is dropped for a new one: the app's NWPathMonitor reports
-    // the path back (NetworkPathFilter yields `.changed` on wasDown, cmux-next-ios
-    // NetworkPathMonitor.swift) and it redials at once, so no dial waits out the dark's backoff.
+    // Redial: each try bounded as the app's requests are, until the overall bound. With
+    // `path_back` (the path-change row), a try still pending when the link comes back is dropped
+    // for a new one: the app's NWPathMonitor reports the path back (NetworkPathFilter yields
+    // `.changed` on wasDown, cmux-next-ios NetworkPathMonitor.swift) and it redials at once. The
+    // reconnect row keeps the dial from the dark, as a phone with no path event would.
     let mut why = String::from("no reconnect before the bound");
+    let mut dialed = None;
     while first.is_none() && Instant::now() < deadline {
         let now = Instant::now();
         let mut attempt = (now + Duration::from_secs(30)).min(deadline);
-        if now < back {
+        let cut = path_back && now < back;
+        if cut {
             attempt = attempt.min(back);
         }
+        let wait_for_back = || tokio::time::sleep_until(if cut { back } else { Instant::now() });
         let mut l = match Link::open(shaper.addr(), token, attempt).await {
-            Ok(l) => l,
+            Ok(l) => {
+                dialed = Some((now, Instant::now()));
+                l
+            }
             Err(e) => {
                 why = e;
-                tokio::time::sleep_until(back.max(Instant::now())).await;
+                wait_for_back().await;
                 continue;
             }
         };
@@ -800,7 +808,7 @@ async fn reconnect(
             }
             Err(e) => {
                 why = e;
-                tokio::time::sleep_until(back.max(Instant::now())).await;
+                wait_for_back().await;
                 continue;
             }
         }
@@ -821,6 +829,13 @@ async fn reconnect(
             let after = if at >= back { ms(at - back) } else { -ms(back - at) };
             emit(k, "gap_after_link_back_ms", Some(after));
             emit(k, "gap_total_ms", Some(ms(at - t0)));
+            // The dial that got through: when it went out against the link's return (negative:
+            // in the dark) and how long it took to open.
+            if let Some((sent, open)) = dialed {
+                let from_back = if sent >= back { ms(sent - back) } else { -ms(back - sent) };
+                emit(k, "dial_from_link_back_ms", Some(from_back));
+                emit(k, "dial_open_ms", Some(ms(open - sent)));
+            }
             emit_bytes(k, shaper);
         }
         None => fail(&why),
@@ -905,7 +920,39 @@ async fn chat_open_and_reconnect_under_mobile_link_profiles() {
                 };
                 if profile.disrupts_lan() {
                     let k = Key { profile: &name, phase: "reconnect", scale, run, seed };
-                    reconnect(&shaper, &mut control, link, &listener.token, &session, &k).await;
+                    reconnect(&shaper, &mut control, link, &listener.token, &session, &k, false)
+                        .await;
+                    // path-change: the same drop, redialing when the path comes back. Only a
+                    // blackout differs: an address change redials at once in both rows.
+                    if matches!(profile.disruption, Some(Disruption::Blackout { .. })) {
+                        let k = Key { profile: &name, phase: "path-change", scale, run, seed };
+                        let open = Instant::now() + BOUND;
+                        let link = match Link::open(shaper.addr(), &listener.token, open).await {
+                            Ok(mut link) => match link.attach(&session, None, open).await {
+                                Ok(_) => Some(link),
+                                Err(e) => {
+                                    emit_error(&k, "gap_after_link_back_ms", &e);
+                                    None
+                                }
+                            },
+                            Err(e) => {
+                                emit_error(&k, "gap_after_link_back_ms", &e);
+                                None
+                            }
+                        };
+                        if let Some(link) = link {
+                            reconnect(
+                                &shaper,
+                                &mut control,
+                                link,
+                                &listener.token,
+                                &session,
+                                &k,
+                                true,
+                            )
+                            .await;
+                        }
+                    }
                 }
             }
         }

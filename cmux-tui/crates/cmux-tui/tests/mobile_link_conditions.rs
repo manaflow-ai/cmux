@@ -656,18 +656,30 @@ impl Bench {
         }
     }
 
-    async fn reconnect(&self, profile: &LinkProfile, surface: u64, run: u64, seed: u64) {
+    /// `path_back` (the path-change row): a dial from the dark still pending when the link comes
+    /// back is dropped for a new one, as the app does on its NWPathMonitor event
+    /// (NetworkPathFilter yields `.changed` on wasDown, cmux-next-ios NetworkPathMonitor.swift).
+    /// The reconnect row keeps the dial from the dark, as a phone with no path event would.
+    async fn reconnect(
+        &self,
+        profile: &LinkProfile,
+        surface: u64,
+        run: u64,
+        seed: u64,
+        path_back: bool,
+    ) {
+        let phase = if path_back { "path-change" } else { "reconnect" };
         let scale = "1x";
         let shaper = match Shaper::start(self.upstream, profile.clone(), seed, &Trace::new()).await
         {
             Ok(shaper) => shaper,
-            Err(e) => return error(profile, "reconnect", scale, run, &format!("shaper: {e}")),
+            Err(e) => return error(profile, phase, scale, run, &format!("shaper: {e}")),
         };
         let Ok(mut conn) = Conn::open(shaper.addr()).await else {
-            return error(profile, "reconnect", scale, run, "connect failed");
+            return error(profile, phase, scale, run, "connect failed");
         };
         if attach(&mut conn, surface, true).await.is_none() {
-            return error(profile, "reconnect", scale, run, "first attach failed");
+            return error(profile, phase, scale, run, "first attach failed");
         }
         // Live: a tick has arrived since the attach.
         if conn
@@ -675,7 +687,7 @@ impl Bench {
             .await
             .is_none()
         {
-            return error(profile, "reconnect", scale, run, "the ticker is not live");
+            return error(profile, phase, scale, run, "the ticker is not live");
         }
         let address_change = matches!(
             profile.disruption,
@@ -715,57 +727,61 @@ impl Bench {
             None => {
                 drop(conn);
                 let addr = shaper.addr();
+                // The fresh output's time, and the dial's: when it went out, when it opened.
                 let dial = move || async move {
-                    match Conn::open(addr).await {
-                        Ok(mut new) => attach(&mut new, surface, true).await,
-                        Err(_) => None,
-                    }
+                    let sent = Instant::now();
+                    let mut new = Conn::open(addr).await.ok()?;
+                    let open = Instant::now();
+                    Some((attach(&mut new, surface, true).await?, sent, open))
                 };
-                // A dial from the dark still pending when the link comes back is dropped for a
-                // new one: the app's NWPathMonitor reports the path back (NetworkPathFilter
-                // yields `.changed` on wasDown, cmux-next-ios NetworkPathMonitor.swift) and it
-                // redials at once, so no dial waits out the dark's backoff.
                 let now = Instant::now();
-                let early = if now < back {
-                    timeout(back - now, dial()).await.ok().flatten()
-                } else {
-                    None
-                };
-                match early {
-                    Some(at) => Some(at),
-                    None => {
-                        tokio::time::sleep_until(back).await;
-                        dial().await
+                let got = if path_back && now < back {
+                    match timeout(back - now, dial()).await.ok().flatten() {
+                        Some(got) => Some(got),
+                        None => {
+                            tokio::time::sleep_until(back).await;
+                            dial().await
+                        }
                     }
+                } else {
+                    dial().await
+                };
+                if let Some((_, sent, open)) = got {
+                    let from_back = if sent >= back { ms(sent - back) } else { -ms(back - sent) };
+                    emit(
+                        profile,
+                        phase,
+                        scale,
+                        "dial_from_link_back_ms",
+                        Some(from_back),
+                        run,
+                        seed,
+                    );
+                    emit(profile, phase, scale, "dial_open_ms", Some(ms(open - sent)), run, seed);
                 }
+                got.map(|(at, _, _)| at)
             }
         };
         let Some(fresh) = fresh else {
             for metric in ["gap_after_link_back_ms", "gap_total_ms"] {
-                emit(profile, "reconnect", scale, metric, None, run, seed);
+                emit(profile, phase, scale, metric, None, run, seed);
             }
-            return error(
-                profile,
-                "reconnect",
-                scale,
-                run,
-                "no fresh output after the link came back",
-            );
+            return error(profile, phase, scale, run, "no fresh output after the link came back");
         };
         emit(
             profile,
-            "reconnect",
+            phase,
             scale,
             "gap_after_link_back_ms",
             Some(ms(fresh.saturating_duration_since(back))),
             run,
             seed,
         );
-        emit(profile, "reconnect", scale, "gap_total_ms", Some(ms(fresh - dropped)), run, seed);
+        emit(profile, phase, scale, "gap_total_ms", Some(ms(fresh - dropped)), run, seed);
         if let Some(redial) = redial_at {
             emit(
                 profile,
-                "reconnect",
+                phase,
                 scale,
                 "redial_after_drop_ms",
                 Some(ms(redial - dropped)),
@@ -812,8 +828,16 @@ fn terminal_attach_under_link_profiles() {
                 }
             }
             if profile.disrupts_lan() {
+                // path-change only differs on a blackout: an address change redials at once.
+                let blackout = matches!(
+                    profile.disruption,
+                    Some(cmux_fault::shaper::Disruption::Blackout { .. })
+                );
                 for run in 0..runs {
-                    bench.reconnect(profile, daemon.ticker, run, seed_base + run).await;
+                    bench.reconnect(profile, daemon.ticker, run, seed_base + run, false).await;
+                    if blackout {
+                        bench.reconnect(profile, daemon.ticker, run, seed_base + run, true).await;
+                    }
                 }
             }
         }
