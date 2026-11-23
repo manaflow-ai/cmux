@@ -4,7 +4,9 @@
 // description and its file. Edit opens the file in cmux's editor; Reveal shows it in Finder; the
 // switch turns a skill on or off in the agent's own settings (Claude Code `skillOverrides`, Codex
 // `[[skills.config]]`), only on a click. A row without a switch has none in its agent (a slash
-// command, a Claude Code plugin's skill). The list is read when the card shows.
+// command, a Claude Code plugin's skill). The list is read when the card shows. New Command saves a
+// prompt as a slash command (`cmux agent-config commands add`): Claude Code's `/NAME`, Codex's
+// `/prompts:NAME`, or cmux's own, which every chat's `/` menu lists whatever its agent.
 import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { Button } from "../../../ui/Button";
 import { Input } from "../../../ui/Input";
@@ -21,6 +23,147 @@ const AGENTS = [
 ] as const;
 
 type Shown = Extract<AgentSkillsState, { enabled: true }>;
+
+/** Where New Command can save: the agents' own folders, or cmux's saved prompts. */
+type CommandAgent = Extract<AgentSkillsRun, { action: "add" }>["agent"];
+const COMMAND_AGENTS: ReadonlyArray<{ id: CommandAgent; name: () => string }> = [
+  { id: "claude", name: () => "Claude Code" },
+  { id: "codex", name: () => "Codex" },
+  { id: "cmux", name: () => t("settingsWindow.agentSkills.newCommand.everyChat") },
+];
+/** The refusal path the host gives a New Command it could not save. */
+const NEW_COMMAND = "new-command";
+/** A name every agent reads as one word (cmux-agent-customize `commands::valid_name`). */
+const COMMAND_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+
+function NewCommandForm({
+  busy,
+  refusal,
+  added,
+  onAdd,
+}: {
+  busy: boolean;
+  refusal: string | null;
+  added: Shown["added"];
+  onAdd: (run: AgentSkillsRun) => Promise<Shown | null>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [agent, setAgent] = useState<CommandAgent>("claude");
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [prompt, setPrompt] = useState("");
+  const typed = name.trim().replace(/^\//, "");
+  const nameOk = COMMAND_NAME.test(typed) && !typed.includes("..") && !typed.endsWith(".md");
+  const saved =
+    added && !open ? (
+      <div className="row-help selectable" data-agent-command-added="">
+        {t("settingsWindow.agentSkills.newCommand.saved", added.invocation, added.path)}
+      </div>
+    ) : null;
+  if (!open) {
+    return (
+      <>
+        <Button className="button" data-agent-skill-action="newCommand" onClick={() => setOpen(true)}>
+          {t("settingsWindow.agentSkills.newCommand")}
+        </Button>
+        {saved}
+      </>
+    );
+  }
+  return (
+    // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+    <div
+      className="accounts-form"
+      data-agent-command-form=""
+      role="group"
+      aria-label={t("settingsWindow.agentSkills.newCommand")}
+    >
+      <label className="row-help">
+        {t("settingsWindow.agentSkills.newCommand.agent")}{" "}
+        <select
+          data-agent-command-field="agent"
+          value={agent}
+          onChange={(change) => setAgent(change.target.value as CommandAgent)}
+        >
+          {COMMAND_AGENTS.map((entry) => (
+            <option key={entry.id} value={entry.id}>
+              {entry.name()}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="row-help">
+        {t("settingsWindow.agentSkills.newCommand.name")}{" "}
+        <input
+          data-agent-command-field="name"
+          aria-label={t("settingsWindow.agentSkills.newCommand.name")}
+          className="font-mono"
+          value={name}
+          placeholder="standup"
+          onChange={(change) => setName(change.target.value)}
+        />
+      </label>
+      <label className="row-help">
+        {t("settingsWindow.agentSkills.newCommand.description")}{" "}
+        <input
+          data-agent-command-field="description"
+          aria-label={t("settingsWindow.agentSkills.newCommand.description")}
+          value={description}
+          onChange={(change) => setDescription(change.target.value)}
+        />
+      </label>
+      <label className="row-help">
+        {t("settingsWindow.agentSkills.newCommand.prompt")}
+        <textarea
+          data-agent-command-field="prompt"
+          aria-label={t("settingsWindow.agentSkills.newCommand.prompt")}
+          rows={4}
+          value={prompt}
+          onChange={(change) => setPrompt(change.target.value)}
+        />
+      </label>
+      <div className="row-help">
+        {t(
+          "settingsWindow.agentSkills.newCommand.where",
+          agent === "codex" ? `/prompts:${typed || "NAME"}` : `/${typed || "NAME"}`,
+        )}
+      </div>
+      {refusal !== null && (
+        <div className="row-error selectable" role="alert" data-agent-command-refusal="">
+          {refusal || t("settingsWindow.agentSkills.notChanged")}
+        </div>
+      )}
+      <div className="accounts-buttons">
+        <Button
+          className="button"
+          data-agent-skill-action="confirmNewCommand"
+          disabled={busy || !nameOk || prompt.trim() === ""}
+          onClick={() =>
+            void onAdd({
+              action: "add",
+              agent,
+              name: typed,
+              prompt,
+              ...(description.trim() ? { description: description.trim() } : {}),
+            }).then((next) => {
+              if (next && next.refusal?.path !== NEW_COMMAND) {
+                setOpen(false);
+                setName("");
+                setDescription("");
+                setPrompt("");
+              }
+            })
+          }
+        >
+          {t("settingsWindow.agentSkills.newCommand.save")}
+        </Button>
+        <Button className="button" data-agent-skill-action="cancelNewCommand" onClick={() => setOpen(false)}>
+          {t("settingsWindow.agentSkills.newCommand.cancel")}
+        </Button>
+      </div>
+    </div>
+  );
+}
 
 function SkillRow({
   row,
@@ -111,21 +254,28 @@ export function AgentSkillsCard() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+  const write = useCallback(
+    async (gesture: AgentSkillsRun): Promise<Shown | null> => {
+      setBusy(true);
+      try {
+        const next = await store.runAgentSkills(gesture);
+        if (next) setState(next);
+        return next && next.enabled ? next : null;
+      } finally {
+        setBusy(false);
+      }
+    },
+    [store],
+  );
   const run = useCallback(
     (gesture: AgentSkillsRun) => {
       if (gesture.action === "open" || gesture.action === "reveal") {
         void store.runAgentSkills(gesture);
         return;
       }
-      setBusy(true);
-      void store
-        .runAgentSkills(gesture)
-        .then((next) => {
-          if (next) setState(next);
-        })
-        .finally(() => setBusy(false));
+      void write(gesture);
     },
-    [store],
+    [store, write],
   );
   const shown: Shown | null = state && state.enabled ? state : null;
   const query = filter.trim().toLowerCase();
@@ -170,6 +320,14 @@ export function AgentSkillsCard() {
         >
           {t("settingsWindow.agentSkills.refresh")}
         </Button>
+      </div>
+      <div className="accounts-header" data-agent-command-new="">
+        <NewCommandForm
+          busy={busy}
+          refusal={state.refusal && state.refusal.path === NEW_COMMAND ? state.refusal.message : null}
+          added={state.added ?? null}
+          onAdd={write}
+        />
       </div>
       {state.problem && (
         <div className="row-error" data-agent-skills-problem={state.problem}>
