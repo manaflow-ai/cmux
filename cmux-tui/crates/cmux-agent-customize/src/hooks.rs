@@ -462,10 +462,10 @@ fn acpmux_free_is_cmux_plugin(folder: &Path) -> bool {
         .take(4)
         .map(|part| part.as_os_str().to_string_lossy().into_owned())
         .collect();
-    let [plugin, _, builds, tui] = parts.as_slice() else {
-        return false;
-    };
-    plugin == "claude-plugin" && builds == "builds" && tui == "cmux-tui"
+    matches!(
+        parts.as_slice(),
+        [plugin, _, builds, tui] if plugin == "claude-plugin" && builds == "builds" && tui == "cmux-tui"
+    )
 }
 
 fn list_codex(
@@ -1046,16 +1046,13 @@ fn claude_layout(store: &[OJson], root: &OJson, hook: &HookEntry, handler: &OJso
     if let Some(groups) = layout.get_mut("groups").and_then(OJson::as_array_mut) {
         match file_group.and_then(|group| layout_group_of(groups, group).map(|at| (group, at))) {
             Some((group, at)) => {
-                let in_group = group_handlers(group);
-                let before =
-                    in_group.get(..hook.location.handler.min(in_group.len())).unwrap_or_default();
+                let before = group_handlers(group).iter().take(hook.location.handler);
                 if let Some(handlers) = groups
                     .get_mut(at)
-                    .and_then(|layout_group| layout_group.get_mut("hooks"))
+                    .and_then(|group| group.get_mut("hooks"))
                     .and_then(OJson::as_array_mut)
                 {
                     let after = before
-                        .iter()
                         .rev()
                         .find_map(|previous| handlers.iter().position(|item| item == previous))
                         .map_or(0, |index| index + 1);

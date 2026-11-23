@@ -17,7 +17,7 @@
   width: 100%;
   min-height: calc(var(--ds-control-compact) + 2 * var(--ds-space-2));
   padding: var(--ds-space-2) var(--ds-space-2) var(--ds-space-2) var(--ds-space-3);
-  border-radius: var(--transient-surface-radius);
+  border-radius: var(--role-toast-radius); /* concentric-allow: the toast role caps the concentric corner (schemas/design-roles) */
   color: var(--ci-ink);
   font-family: var(--font-ui);
   font-size: var(--text-body);

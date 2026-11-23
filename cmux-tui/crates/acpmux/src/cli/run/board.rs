@@ -79,21 +79,16 @@ fn eligible(row: &Value) -> bool {
 /// Idle bookkeeping does not refresh a claim. A wait ages from its start; a running turn
 /// uses its latest record, and idle/disconnected sessions use their actual turn timestamps.
 fn activity_at(row: &Value) -> Option<u64> {
-    let time = |v: Option<&Value>| v.and_then(Value::as_u64).filter(|t| *t > 0);
-    if let Some(waiting) = time(row.get("inputSince")) {
+    let time = |v: &Value| v.as_u64().filter(|t| *t > 0);
+    let at = |pointer: &str| row.pointer(pointer).and_then(time);
+    if let Some(waiting) = at("/inputSince") {
         return Some(waiting);
     }
-    if matches!(row.get("status").and_then(Value::as_str), Some("running" | "waiting")) {
-        return time(row.get("updatedAt"));
+    let status = row.get("status").and_then(Value::as_str);
+    if status == Some("running") || status == Some("waiting") {
+        return at("/updatedAt");
     }
-    [
-        time(row.pointer("/turn/startedAt")),
-        time(row.pointer("/lastTurn/endedAt")),
-        time(row.get("createdAt")),
-    ]
-    .into_iter()
-    .flatten()
-    .max()
+    [at("/turn/startedAt"), at("/lastTurn/endedAt"), at("/createdAt")].into_iter().flatten().max()
 }
 
 #[derive(Default)]

@@ -231,11 +231,10 @@ fn parse_modes(line: &str) -> Option<Modes> {
     if fields.len() != 20 {
         return None;
     }
-    let field = |index: usize| fields.get(index).copied().flatten();
-    let number = |index: usize| field(index).unwrap_or(0);
+    let number = |index: usize| fields[index].unwrap_or(0);
     let short = |index: usize| u16::try_from(number(index)).unwrap_or(u16::MAX);
     // A flag this tmux does not report keeps the terminal's default.
-    let flag = |index: usize, default: bool| field(index).map_or(default, |value| value != 0);
+    let flag = |index: usize, default: bool| fields[index].map_or(default, |value| value != 0);
     let height = short(16);
     let mouse = if flag(9, false) {
         Some(1003)
@@ -246,7 +245,7 @@ fn parse_modes(line: &str) -> Option<Modes> {
     } else {
         None
     };
-    let lower = field(13).map_or(height.saturating_sub(1), |_| short(13));
+    let lower = fields[13].map_or(height.saturating_sub(1), |_| short(13));
     Some(Modes {
         alternate: flag(0, false),
         cursor_visible: flag(1, true),
@@ -329,16 +328,17 @@ impl Parser {
             self.in_reply = true;
             return Event::Other;
         }
-        let mut parts = line.splitn(2, |byte| *byte == b' ');
-        let name = parts.next().unwrap_or_default();
-        let rest = parts.next().unwrap_or_default();
+        let (name, rest) = match line.iter().position(|byte| *byte == b' ') {
+            Some(space) => line.split_at(space),
+            None => (line, &[][..]),
+        };
+        let rest = rest.get(1..).unwrap_or_default();
         match name {
             b"%output" => {
-                let mut parts = rest.splitn(2, |byte| *byte == b' ');
-                let pane = parts.next().unwrap_or_default();
-                let value = parts.next().unwrap_or_default();
+                let space = rest.iter().position(|byte| *byte == b' ').unwrap_or(rest.len());
+                let value = rest.get(space + 1..).unwrap_or_default();
                 Event::Output {
-                    pane: String::from_utf8_lossy(pane).into_owned(),
+                    pane: String::from_utf8_lossy(rest.get(..space).unwrap_or(rest)).into_owned(),
                     bytes: unescape(value),
                 }
             }
@@ -362,9 +362,8 @@ fn unescape(value: &[u8]) -> Vec<u8> {
         });
         match octal {
             Some(digits) => {
-                let decoded =
-                    digits.iter().fold(0u32, |sum, digit| sum * 8 + u32::from(digit - b'0'));
-                bytes.push(decoded as u8);
+                let byte = digits.iter().fold(0u32, |sum, digit| sum * 8 + u32::from(digit - b'0'));
+                bytes.push(byte as u8);
                 index += 4;
             }
             None => {
@@ -531,10 +530,7 @@ fn stream<'scope>(
                 Typed::Bytes(bytes) => {
                     let (send, detached) = detach.scan(&bytes);
                     if send > 0 {
-                        gateway.send(&send_keys(
-                            &pane.id,
-                            bytes.get(..send).unwrap_or(bytes.as_slice()),
-                        ));
+                        gateway.send(&send_keys(&pane.id, bytes.get(..send).unwrap_or(&bytes)));
                     }
                     if detached {
                         break 'attached;
@@ -683,7 +679,7 @@ fn watch_keys(fd: i32, stop: &AtomicBool, typed: &Sender<Typed>) {
             let _ = typed.send(Typed::Closed);
             return;
         }
-        let bytes = buffer.get(..read as usize).unwrap_or_default().to_vec();
+        let Some(bytes) = buffer.get(..read as usize).map(<[u8]>::to_vec) else { return };
         if typed.send(Typed::Bytes(bytes)).is_err() {
             return;
         }

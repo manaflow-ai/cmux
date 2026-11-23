@@ -34,7 +34,6 @@
 //! asks for none.
 
 use crate::hub::*;
-use cmux_json::JsonSet as _;
 
 /// `Session::start_for`: a person's start.
 pub(super) const FOR_A_PERSON: u8 = 1;
@@ -111,9 +110,11 @@ impl Hub {
     /// it again.
     pub(super) fn start_params(&self, session: &Session) -> Value {
         let mut params = super::pool::initialize_params();
-        if !self.for_a_person(session) {
-            params.set(
-                "_meta",
+        if !self.for_a_person(session)
+            && let Some(params) = params.as_object_mut()
+        {
+            params.insert(
+                "_meta".to_owned(),
                 json!({"acpmux": {crate::claude_stdio::prompt_suggestions::NO_SUGGESTIONS: true}}),
             );
         }

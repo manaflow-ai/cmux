@@ -21,8 +21,9 @@
 //! line is written to its copy once, not once per [`COPY_AFTER`] bytes of log: a chat whose
 //! prompts were megabytes each rewrote its whole copy, every prompt in it, on every scan
 //! (cmuxterm-hq#9263: `logged_inbox_answer` → `scan_kinds`, 131 of 757 samples of 549 GB of
-//! writes in a day). Nothing is written on the append path, and a chat's folder is deleted with
-//! its copies.
+//! writes in a day). The append path writes one copy per segment, of the segment a rotation just
+//! filled (`store/segment_writer.rs`), so a chat never scanned still has a copy of every segment
+//! but the open one; a chat's folder is deleted with its copies.
 //!
 //! A strict scan ([`Store::scan_kinds_strict`], the transfer authority's) fails on a line that
 //! does not read, as one of the whole log would: a copy says whether every line it covers read,

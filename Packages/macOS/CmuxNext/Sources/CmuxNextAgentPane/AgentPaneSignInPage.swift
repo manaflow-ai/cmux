@@ -5,7 +5,9 @@ import Foundation
 /// (`_acpmux/agent_login/start`, which takes the click's gesture), and that same start opens the
 /// page the login names, once, with no second click (``AgentPaneTransport/takeSignInPage(_:)``).
 /// Only a provider's own sign-in page over https may be opened this way: the hosts of acpmux's
-/// `agent_login::parse::ALLOWED_HOSTS` and `CURSOR_HOSTS`, and the page's `SIGN_IN_HOSTS`.
+/// `agent_login::parse::ALLOWED_HOSTS` and `CURSOR_HOSTS`, and the page's `SIGN_IN_HOSTS`, plus
+/// GitHub's device page (``githubDevicePage``) and nothing else on github.com: a Cloud chat's
+/// "Sign in to GitHub" (`_acpmux/account/sign_in`, the page's `accountSignInURL`).
 enum AgentPaneSignInPage {
     static let hosts: Set<String> = [
         "claude.com",
@@ -21,14 +23,23 @@ enum AgentPaneSignInPage {
         "cursor.com",
     ]
 
+    /// The one github.com page a sign-in may open: `gh auth login --web`'s device page. Its host is
+    /// not in ``hosts``, so no other github.com page qualifies (Leo: "we likewise want gh auth or
+    /// device stuff to be much more convienient ui/ux wise").
+    static let githubDevicePage = (host: "github.com", path: "/login/device")
+
     /// How long after the start the open may come: the machine reads its CLI's link for up to
     /// 20 s (acpmux `agent_login::URL_WAIT`), then the answer crosses the link back to this Mac.
     static let lifetime: TimeInterval = 90
 
-    /// `url` is a provider sign-in page: https, no user info or port, on ``hosts``.
+    /// `url` is a provider sign-in page: https, no user info or port, on ``hosts``; or exactly
+    /// ``githubDevicePage``, with no query or fragment.
     static func allowed(_ url: URL) -> Bool {
         guard url.scheme?.lowercased() == "https", url.user == nil, url.password == nil, url.port == nil,
               let host = url.host?.lowercased() else { return false }
+        if host == githubDevicePage.host {
+            return url.path == githubDevicePage.path && url.query == nil && url.fragment == nil
+        }
         return hosts.contains(host)
     }
 

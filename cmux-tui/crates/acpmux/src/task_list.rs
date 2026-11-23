@@ -125,12 +125,7 @@ impl TaskList {
         let done = self.items.iter().filter(|i| i.status == TaskStatus::Completed).count();
         let at = self.items.iter().position(|i| i.status == TaskStatus::InProgress);
         let after = at.map_or(0, |at| at + 1);
-        let next = self
-            .items
-            .get(after..)
-            .unwrap_or_default()
-            .iter()
-            .find(|i| i.status == TaskStatus::Pending);
+        let next = self.items.iter().skip(after).find(|i| i.status == TaskStatus::Pending);
         TaskListSummary {
             source: self.source,
             done: u32::try_from(done).unwrap_or(u32::MAX),

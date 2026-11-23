@@ -124,7 +124,7 @@ async fn queue_once(
     if json_out {
         print_json(&handoff_json(&handoff, &key, &id, &prompt_id.id, &status, superseding));
     } else {
-        warn_host_pressure(status.get("accepted").unwrap_or(&Value::Null));
+        warn_host_pressure(&status["accepted"]);
         for line in handoff_lines(&handoff, &key, &id, &status, superseding) {
             println!("{line}");
         }
@@ -238,10 +238,8 @@ pub(crate) fn handoff_lines(
     let program = crate::cli::entry::program();
     if handoff.status == "delivered" {
         let accepted = status.get("accepted").cloned().unwrap_or(Value::Null);
-        let mut said = sent_lines(&accepted, superseding);
-        if let Some(first) = said.first_mut() {
-            first.push_str(&format!(" (delivery {id})"));
-        }
+        let mut said = sent_lines_to(&accepted, superseding, key);
+        said[0].push_str(&format!(" (delivery {id})"));
         lines.extend(said);
     } else if handoff.unreachable {
         lines.push(format!(
@@ -282,11 +280,9 @@ pub(crate) fn handoff_json(
     });
     if superseding {
         // null until delivered, or when the target's daemon predates the key.
-        out.set("replaced", accepted.get("replaced").cloned().unwrap_or(Value::Null));
-        out.set(
-            "replacedPromptIds",
-            accepted.get("replacedPromptIds").cloned().unwrap_or(Value::Null),
-        );
+        out["replaced"] = accepted.get("replaced").cloned().unwrap_or(Value::Null);
+        out["replacedPromptIds"] =
+            accepted.get("replacedPromptIds").cloned().unwrap_or(Value::Null);
     }
     out
 }
@@ -340,7 +336,7 @@ async fn queue_direct(
         print_json(&out);
     } else {
         println!("{}", sent_line(state, &prompt_id.id, key));
-        for line in sent_lines(&accepted, superseding) {
+        for line in sent_lines_to(&accepted, superseding, key) {
             println!("{line}");
         }
     }
