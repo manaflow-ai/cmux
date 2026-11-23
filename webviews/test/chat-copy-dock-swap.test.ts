@@ -319,7 +319,11 @@ await requireBrowserLane("chat-copy-dock-swap.test.ts", async () => {
       if (
         frame.t >= windowMs &&
         (settledDock === undefined ||
-          (!frame.copyShown && !frame.rootHidden && !!box && dock === settledDock && frame.t - recording.changedAt >= quietMs))
+          (!frame.copyShown &&
+            !frame.rootHidden &&
+            !!box &&
+            dock === settledDock &&
+            frame.t - recording.changedAt >= quietMs))
       ) {
         recording.stop();
         return false;
