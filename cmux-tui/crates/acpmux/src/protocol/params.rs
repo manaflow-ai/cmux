@@ -88,6 +88,7 @@ pub const ACPMUX_REQUEST_META: &[&str] = &[
     "callerProtocol",
     "callerSession",
     "cancelToken",
+    "chunkDeltas",
     "class",
     "cliHost",
     "compression",
