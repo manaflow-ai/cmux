@@ -77,7 +77,6 @@ async fn links_keep_pinging_while_the_hub_takes_no_notice() {
     for (n, link) in serving.iter().enumerate() {
         assert!(!link.is_finished(), "link {n} stayed up");
     }
-    for task in serving.iter().chain(&floods) {
-        task.abort();
-    }
+    serving.iter().for_each(tokio::task::JoinHandle::abort);
+    floods.iter().for_each(tokio::task::JoinHandle::abort);
 }
