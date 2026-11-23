@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useId, useMemo, useRef, useState, useContext } from "react";
 import { focusAfterEscape } from "../../ui/escapeFocus";
 import { focusWithRing } from "../../ui/focusWithRing";
 import { UI_ANCHOR_GAP, useUiAnchor } from "../../ui/anchor";
@@ -6,7 +6,7 @@ import { useEscapingPopup } from "../../ui/popupHost";
 import { usePopupHost } from "../../ui/UiProvider";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
 import { isMousePress } from "../../ui/pressRelease";
-import { registerPicker } from "./pickerOpeners";
+import { registerPicker, ChatViewParked } from "./pickerOpeners";
 
 import { useT } from "./i18n";
 import { scrollActiveMenuRow } from "./scrollActiveMenuRow";
@@ -131,7 +131,8 @@ export function PaletteMenu({
     if (!open || !rows.length) return;
     scrollActiveMenuRow(menu.current, `${menuId}-${selected}`);
   }, [open, rows.length, menuId, selected]);
-  useEffect(() => registerPicker(label, openMenu), [label, openMenu]);
+  const parked = useContext(ChatViewParked);
+  useEffect(() => (parked ? undefined : registerPicker(label, openMenu)), [label, openMenu, parked]);
   const pick = async (index: number) => {
     const row = rows[index];
     if (!row) return;

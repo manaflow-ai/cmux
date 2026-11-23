@@ -2,6 +2,13 @@
 // through the same path as a click: the DEBUG `debug.agent_pane` socket method
 // (cmuxAcpmuxDebug.openMenu) and the capture scripts. A scripted pointer click can be
 // cancelled by the window focus changes it causes; this cannot.
+import { createContext } from "react";
+
+/// True inside a chat view parked under a New Tab page (App.tsx `parked`: drawn but unseen and
+/// inert, its effects run so a chat the page takes only shows it). Its menus register no opener and
+/// its keys stay off: the page's own composer menus, under the same labels, are the ones to open.
+export const ChatViewParked = createContext(false);
+
 const openers = new Map<string, () => void>();
 
 /// Registers `open` under `label`; returns the unregister function.

@@ -1,11 +1,10 @@
 import React, { useContext, useEffect, useState } from "react";
-import { SHORTCUT_ACTIONS, useShortcut } from "./shortcuts";
 import { Menu, MenuButton, MenuGroup, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../ui/Menu";
 import { type ConfigOption, optionValueName } from "./agentOptions";
 import { ChevronIcon } from "./ComposerPickers";
 import { unrestricted } from "./composerPickerModel";
 import { useT } from "./i18n";
-import { registerPicker } from "./pickerOpeners";
+import { ChatViewParked, registerPicker } from "./pickerOpeners";
 import { OnNewTab } from "./newTabComposer";
 
 /// The composer's Options chip: every config option the harness advertises that has no chip of
@@ -31,12 +30,15 @@ export function AgentOptionsMenu({
   const newTab = useContext(OnNewTab);
   const [open, setOpen] = useState(false);
   const label = t("picker.options");
-  useEffect(() => registerPicker(label, () => setOpen(true)), [label]);
-  const shortcut = useShortcut(SHORTCUT_ACTIONS.composerAgentOptions);
+  const parked = useContext(ChatViewParked);
+  useEffect(() => (parked ? undefined : registerPicker(label, () => setOpen(true))), [label, parked]);
   if (options.length === 0) return null;
   const only = options.length === 1 ? options[0] : undefined;
   const face = only ? `${only.name ?? only.id}: ${optionValueName(only) ?? ""}` : label;
-  const tooltip = options.map((option) => `${option.name ?? option.id}: ${optionValueName(option) ?? ""}`).join("\n");
+  const tooltip = [
+    ...options.map((option) => `${option.name ?? option.id}: ${optionValueName(option) ?? ""}`),
+    t("picker.optionsHelp"),
+  ].join("\n");
   return (
     <span className="acpmux-picker acpmux-options" data-fit-title={face} data-fit-title-unit="options">
       <Menu open={open} onOpenChange={setOpen}>
@@ -45,19 +47,13 @@ export function AgentOptionsMenu({
           label={label}
           /* tooltip-allow: the chip names one option or reads Options; the tooltip lists every current choice */
           title={tooltip}
-          data-tooltip-shortcut={shortcut}
           aria-haspopup="menu"
           data-menu="options"
         >
           <span className="acpmux-options-text">{face}</span>
           <ChevronIcon />
         </MenuButton>
-        <MenuPopup
-          side={newTab ? "bottom" : "top"}
-          align="start"
-          className="acpmux-access-menu acpmux-options-menu"
-          resize={{ id: "composer.agentOptions" }}
-        >
+        <MenuPopup side={newTab ? "bottom" : "top"} align="start" className="acpmux-access-menu acpmux-options-menu">
           {options.map((option) => (
             <MenuGroup key={option.id} label={option.name ?? option.id}>
               <MenuRadioGroup
