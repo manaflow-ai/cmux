@@ -123,7 +123,7 @@ class Route:
 # skips them, unless it carries the full-ci label; the push that lands it runs them (the safety net), and a red
 # there names the pull requests in its range. `check` holds each one to that: the job's `if:` carries PR_SKIP_IF,
 # its workflow starts on a feat-cmux-next push, and no job that needs it would be skipped with it.
-PR_SKIP_IF = "(github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next' || contains(github.event.pull_request.labels.*.name, 'full-ci'))"
+PR_SKIP_IF = "(github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci'))"
 # A job that runs on a pull request only when its change touches the push paths: the workflow's `changes` job runs
 # cmux-tui-spec-changed.py, which reads the push trigger's own `paths:`, so the push covers every change it runs on.
 PUSH_PATHS_GATE = "needs.changes.outputs.run == 'true'"
@@ -237,7 +237,7 @@ def route(tree: git_tree.GitTree | None, changed: list[str] | None, *, event: st
         jobs_here = jobs
     result = Route()
     for key in skipped_here:
-        result.pr_skip[key] = event != "pull_request" or base_ref != SKIP_BASE or FULL_LABEL in (labels or [])
+        result.pr_skip[key] = event != "pull_request" or not base_ref.startswith(SKIP_BASE) or FULL_LABEL in (labels or [])
 
     def everything(why: str) -> Route:
         result.everything = why

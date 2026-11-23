@@ -135,3 +135,35 @@ fn a_js_server_runs_under_the_app_host_budget() {
         json!({ "value": "go" })
     );
 }
+
+/// The 4096-node cap holds in the host, not only in the VM runtime: a scene batch that takes a
+/// mount past it (the scripted host sends 20,000 creates, as code that reached the native scene
+/// call past `materialize.ts` could) fails the mount with `app.limit`, and none of it reaches
+/// the client.
+#[test]
+fn a_scene_past_the_node_cap_fails_the_mount_in_the_host() {
+    let f = fixture();
+    let prints = f.supervisor.reload_local_apps(&Default::default());
+    write_app(&f.state.join("apps/local"), "huge", "local/huge", json!({}));
+    let path = f.state.join("apps/local/huge/cmux-app.json");
+    let mut manifest: Value =
+        serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    manifest["implements"]["cmux.section/1"]["export"] = json!("renderHuge");
+    std::fs::write(&path, manifest.to_string()).unwrap();
+    f.supervisor.reload_local_apps(&prints);
+    f.install("local/huge");
+    f.supervisor.logs(CLIENT, "local/huge", true);
+    f.supervisor.mount(CLIENT, "big", "local/huge", "cmux.section/1", json!({})).unwrap();
+    let reason = "app.limit: more than 4096 scene nodes";
+    // The log line comes first, then the mount fails (the event order).
+    wait_log(&f, "local/huge", reason);
+    let failed = f.wait("the capped mount", |e| {
+        assert!(
+            !(e["event"] == "apps-scene" && e["mount_id"] == "big"),
+            "no op of a capped batch reaches the client: {}",
+            e["ops"].as_array().map_or(0, Vec::len)
+        );
+        e["event"] == "apps-mount-failed" && e["mount_id"] == "big"
+    });
+    assert_eq!(failed["reason"], reason);
+}
