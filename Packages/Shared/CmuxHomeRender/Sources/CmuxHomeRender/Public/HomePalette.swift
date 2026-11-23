@@ -197,6 +197,11 @@ public struct HomePalette: Hashable, Sendable {
     /// receipts and captions on the page, the Chief's text on its bubble.
     public static let minimumTextContrast: Double = 4.5
 
+    /// How far system glass draws the composer field's fill toward mid grey, at most (measured 6 %
+    /// on white and on the dark field; chief-plain, b409aec1): the placeholder reads at
+    /// ``minimumTextContrast`` on the fill moved this far too.
+    static let glassFieldGreyPull: CGFloat = 0.1
+
     /// The least WCAG contrast of the field's edge against the page (1.4.11,
     /// non-text: a component's boundary needs 3:1) on a light theme, where the
     /// field's white fill is otherwise as pale as the page.
@@ -237,7 +242,10 @@ public struct HomePalette: Hashable, Sendable {
         var p = self
         let field = composeGlass.with(alpha: 1)
         p.incomingText = incomingText.readable(on: incomingBubble).readable(on: field)
-        p.placeholder = placeholder.readable(on: field)
+        // The field is system glass, which draws its fill a step toward mid grey (white came out 247,
+        // the dark field 60: 4.22:1 and 4.43:1 for a placeholder at 4.5:1 on the fill; chief-plain,
+        // b409aec1), so the placeholder reads on the fill and on the fill drawn that step and more.
+        p.placeholder = placeholder.readable(onEvery: [field, field.mixed(with: .gray255(128), Self.glassFieldGreyPull)])
         p.secondaryText = secondaryText.readable(on: background.with(alpha: 1))
         return p
     }

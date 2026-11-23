@@ -708,6 +708,7 @@ class Journey:
         return {"next_key_waits_from": "the last key"}
 
     def step_wait(self, step):
+        # sleep-ok: a journey's "wait" step: the idle time with no input is what the journey asks for
         time.sleep(float(step.get("seconds", 1)))
         return {}
 
@@ -833,6 +834,7 @@ class Journey:
         """Sleeps until CREATION_HOLD_SECONDS after `since` (see CREATION_HOLD_SECONDS); returns the seconds slept."""
         left = since + CREATION_HOLD_SECONDS - now()
         if left > 0:
+            # sleep-ok: outlasts the app's fixed creation-hold timer (holdLimit), which has no event to read
             time.sleep(left)
         return round(max(0.0, left), 2)
 
@@ -1252,6 +1254,7 @@ class Journey:
         if step.get("leftovers_after") is not None:
             # What a person's Mac still runs after the quit: every process run from this bundle (its
             # path) or owned by it (`--owner BUNDLE_ID`, the terminal hosts), `leftovers_after` seconds on.
+            # sleep-ok: the check is defined as what still runs S seconds after the quit (a grace window)
             time.sleep(float(step["leftovers_after"]))
             self.leftovers = {"after_s": float(step["leftovers_after"]), "rows": app.bundle_processes(old)}
             record["leftovers"] = self.leftovers

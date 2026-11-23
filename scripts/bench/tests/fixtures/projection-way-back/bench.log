@@ -1,0 +1,4 @@
+WAY-BACK {"bring_back_ms":61133,"bytes":1644,"edits":50,"files":100000,"listed_ms":null,"mode":"copy","path":"copy (today)","plan_ms":null}
+WAY-BACK {"bring_back_ms":213,"bytes":1644,"edits":50,"files":100000,"listed_ms":68,"mode":"projection","path":"projected","plan_ms":0}
+WAY-BACK {"edits":50,"files":100000,"path":"plan only (in memory)","plan_us":24}
+folder: 100000 notes + a repository; link 50 ms RTT

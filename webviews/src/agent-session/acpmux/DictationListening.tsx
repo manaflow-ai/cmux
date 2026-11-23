@@ -10,7 +10,7 @@
 // as Esc does, and draws the lit mic as Stop (DictationButton).
 import React, { useSyncExternalStore } from "react";
 import { usePresence } from "../../ui/presence";
-import { useComposerLook } from "./composerLook";
+import { lookRowInBox, useComposerLook } from "./composerLook";
 import { readLevel, subscribeLevel, type Dictation } from "./dictation";
 import "./dictation.css";
 import { useT } from "./i18n";
@@ -65,7 +65,7 @@ export function DictationStrip({ dictation, shown }: { dictation: Dictation; sho
   if (!presence.present) return null;
   return (
     <>
-      {look === "codex" && <DictationCancelButton dictation={dictation} leaving={presence.leaving} />}
+      {lookRowInBox(look) && <DictationCancelButton dictation={dictation} leaving={presence.leaving} />}
       <span className="acpmux-dictation-pill" {...presence.props}>
         <DictationWave state={dictation.state} />
       </span>

@@ -59,8 +59,13 @@ final class MarkerView: NSView {
     func bump(_ what: String) {
         counter &+= 1
         if verbose { log("\(what) -> \(counter)") }
-        // Draw now, not at the next run-loop pass, so the change reaches the screen first.
+        // Draw now, not at the next run-loop pass, and hand the layer tree to the window server
+        // now too, so the change reaches the screen first.
         display()
+        CATransaction.flush()
+        // When the draw was committed, on the protocol clock (CLOCK_MONOTONIC, µs): the eval's rd
+        // split measures input to commit and commit to the display time from it.
+        if verbose { log("commit \(counter) \(clock_gettime_nsec_np(CLOCK_MONOTONIC) / 1000)") }
     }
 
     override func keyDown(with event: NSEvent) { bump("key") }
@@ -192,6 +197,7 @@ if let motion {
 }
 log("marker-origin 0,\(originY) click-at \(32 * (cells + padCells / 2)),\(originY + 16)")
 log("marker: stream width \(streamed) px, cell \(marker.cell) pt, display \(frame.size)")
+log("refresh-hz \(screen.maximumFramesPerSecond)")
 marker.frame = NSRect(origin: .zero, size: window.frame.size)
 window.contentView = marker
 // Above every app window, so test clicks land only on the marker.

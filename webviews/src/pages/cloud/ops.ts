@@ -320,6 +320,8 @@ export type MachineSize = Wire.CloudMachineSize;
 
 /** A VM's latest guest disk report. Values are MiB and `observed_at` is epoch milliseconds. */
 export interface CloudDiskHealth {
+  /** Computed by the Cloud API after validating capacity fields. */
+  readonly state?: "healthy" | "warning" | "unknown";
   readonly free_mb: number;
   readonly used_mb: number;
   readonly total_mb: number;
