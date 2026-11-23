@@ -43,11 +43,14 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .jump: "jump"
         case .editShortcut: "editShortcut"
         case .runAction: "runAction"
+        case .editorsList: "editorsList"
         case .browseProject: "browseProject"
         case .sandboxRun: "sandboxRun"
         case .cloudStartChat: "cloudStartChat"
         case .cloudSignIn: "cloudSignIn"
+        case .cloudSetUp: "cloudSetUp"
         case .cloudSignInCancel: "cloudSignInCancel"
+        case .cloudPlanSubscribe: "cloudPlanSubscribe"
         case .cloudReservation: "cloudReservation"
         case .cloudRepickChat: "cloudRepickChat"
         case .cloudAnswerStart: "cloudAnswerStart"
@@ -85,8 +88,8 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .environment: "environment"
         case .cloudMachine: "cloudMachine"
         case .cloudRepository: "cloudRepository"
+        case .gitHub(let request): request.method
         case .cloudEnvironment: "cloudEnvironment"
-        case .cloudCredentialTransfer: "cloudCredentialTransfer"
         case .tryAnotherApproach: "tryAnotherApproach"
         case .cloudTurnRewind(let request): request.method
         case .appAction: "appAction"
@@ -118,6 +121,7 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .checkpointAvailability: "checkpointAvailability"
         case .commandAvailability: "commandAvailability"
         case .clientReady(let ready): ready ? "clientReady" : "clientNotReady"
+        case .launchSettle: "launchSettle"
         case .painted(let fromKeptTail, let settled):
             settled ? (fromKeptTail ? "painted(settled,keptTail)" : "painted(settled)") : fromKeptTail ? "painted(keptTail)" : "painted"
         case .dictation: "dictation"

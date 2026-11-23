@@ -89,6 +89,7 @@ impl Hub {
         }
         // As `session/new`: the catalog and launcher checks, not every chat's adoption.
         self.wait_spawn_ready().await;
+        self.rediscover_head(harness.as_deref(), preset.as_deref()).await;
         let cfg = self.config.read().await;
         let r = self.resolve_new(&cfg, harness, &preset, model.as_deref(), false, cwd)?;
         admits(&cfg, &r.agent, &r.profile, policy, meta)

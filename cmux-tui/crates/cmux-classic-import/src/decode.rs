@@ -4,13 +4,15 @@
 //! every window. The file is checked against [`crate::limits`] before
 //! anything is built from it.
 
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use serde_json::{Map, Value};
 
 use crate::limits::{self, Budget, objects, strings};
 use crate::model::{
-    Agent, Group, Layout, Orientation, Pane, Rect, Remote, Snapshot, Tab, Window, Workspace,
+    Agent, Group, Layout, MAX_KEY_BYTES, Orientation, Pane, Rect, Remote, Snapshot, Tab, Window,
+    Workspace,
 };
 use crate::names::{self, non_empty, text, trim_spaces};
 
@@ -217,8 +219,10 @@ fn flag(value: &Map<String, Value>, names: &[&str]) -> bool {
     names.iter().find_map(|name| value.get(*name).and_then(Value::as_bool)).unwrap_or(false)
 }
 
+/// A group; none without an id, or with one too long for the ledger step
+/// that records it (`MAX_KEY_BYTES`): its workspaces come over ungrouped.
 fn group(value: &Map<String, Value>) -> Option<Group> {
-    let id = non_empty(value, &["id"])?.to_string();
+    let id = non_empty(value, &["id"]).filter(|id| id.len() <= MAX_KEY_BYTES)?.to_string();
     Some(Group {
         id,
         name: text(value, &["name"]).unwrap_or_default().to_string(),
@@ -308,14 +312,14 @@ fn workspace(
         )
     });
     // A snapshot can name a panel twice; the first wins.
-    let mut by_id: std::collections::HashMap<&str, &Tab> = std::collections::HashMap::new();
+    let mut by_id: HashMap<&str, &Tab> = HashMap::new();
     for (id, tab) in &entries {
         by_id.entry(id).or_insert(tab);
     }
     let layout = match value.get("layout").and_then(Value::as_object) {
-        Some(layout_value) => layout(layout_value, &by_id),
+        Some(layout_value) => layout(layout_value, &by_id, &mut HashSet::new()),
         None => {
-            let mut seen = std::collections::HashSet::new();
+            let mut seen = HashSet::new();
             let tabs = entries
                 .iter()
                 .filter(|(id, _)| seen.insert(*id))
@@ -334,7 +338,9 @@ fn workspace(
         left_out_panels,
         color: non_empty(value, &["customColor", "custom_color"]).map(str::to_string),
         pinned: value.get("isPinned").and_then(Value::as_bool).unwrap_or(false),
-        group_id: non_empty(value, &["groupId", "group_id"]).map(str::to_string),
+        group_id: non_empty(value, &["groupId", "group_id"])
+            .filter(|id| id.len() <= MAX_KEY_BYTES)
+            .map(str::to_string),
     }
 }
 
@@ -450,7 +456,15 @@ fn legacy_cloud_vm(remote: &Map<String, Value>) -> Option<String> {
     (remote.get("transport").and_then(Value::as_str) == Some("websocket")).then(String::new)
 }
 
-fn layout(value: &Map<String, Value>, panels: &std::collections::HashMap<&str, &Tab>) -> Layout {
+/// The split tree from classic's `layout`. Each panel is placed once, where
+/// the tree first names it: classic keeps a panel in one pane, so a damaged
+/// snapshot that names it again (256 times in each of 16 panes) does not
+/// copy its scrollback once per reference, past every input budget.
+fn layout<'a>(
+    value: &'a Map<String, Value>,
+    panels: &HashMap<&str, &Tab>,
+    placed: &mut HashSet<&'a str>,
+) -> Layout {
     if value.get("type").and_then(Value::as_str) == Some("split") {
         let split = value.get("split").and_then(Value::as_object).unwrap_or(value);
         let orientation = match split.get("orientation").and_then(Value::as_str) {
@@ -461,10 +475,11 @@ fn layout(value: &Map<String, Value>, panels: &std::collections::HashMap<&str, &
             .iter()
             .find_map(|name| split.get(*name).and_then(Value::as_f64))
             .unwrap_or(0.5);
-        let side = |name: &str| {
-            layout(split.get(name).and_then(Value::as_object).unwrap_or(&EMPTY), panels)
+        let mut side = |name: &str| {
+            layout(split.get(name).and_then(Value::as_object).unwrap_or(&EMPTY), panels, placed)
         };
-        let (first, second) = (side("first"), side("second"));
+        let first = side("first");
+        let second = side("second");
         // A side with no tab left closes up; the other takes its space.
         let empty = |layout: &Layout| matches!(layout, Layout::Pane(pane) if pane.tabs.is_empty());
         if empty(&second) {
@@ -484,11 +499,16 @@ fn layout(value: &Map<String, Value>, panels: &std::collections::HashMap<&str, &
     let ids = strings(pane.get("panelIds"))
         .or_else(|| strings(pane.get("panel_ids")))
         .unwrap_or_default();
-    // Only panels the snapshot still has become tabs; the selection counts those.
-    let resolved: Vec<&str> = ids.into_iter().filter(|id| panels.contains_key(id)).collect();
-    let tabs = resolved.iter().map(|id| (*panels[id]).clone()).collect();
+    // Only panels the snapshot still has, and not placed already, become
+    // tabs; the selection counts those.
+    let resolved: Vec<(&str, &Tab)> = ids
+        .into_iter()
+        .filter_map(|id| panels.get(id).map(|tab| (id, *tab)))
+        .filter(|(id, _)| placed.insert(*id))
+        .collect();
+    let tabs = resolved.iter().map(|(_, tab)| (*tab).clone()).collect();
     let selected = text(pane, &["selectedPanelId", "selected_panel_id"])
-        .and_then(|chosen| resolved.iter().position(|id| *id == chosen))
+        .and_then(|chosen| resolved.iter().position(|(id, _)| *id == chosen))
         .unwrap_or(0);
     Layout::Pane(Pane { tabs, selected_tab: selected })
 }

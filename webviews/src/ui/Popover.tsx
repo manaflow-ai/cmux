@@ -1,5 +1,6 @@
 // A popover over Base UI Popover, anchored to an element or a point (the editor caret). Non-modal:
 // the page stays usable; Escape and a press outside close it, and focus returns where it was.
+import { PopupResizeGrips, type PopupResizeOptions } from "./PopupResize";
 import type { ReactNode } from "react";
 import { Popover as BasePopover } from "@base-ui/react/popover";
 import { useOverlayPosition, usePortalContainer } from "./UiProvider";
@@ -63,6 +64,8 @@ export interface PopoverProps {
   /** The popup's id, which its trigger names in `aria-controls` (`usePopoverTrigger`). */
   id?: string;
   className?: string;
+  /** False keeps a surface on the page's own glass. */
+  hostGlass?: boolean;
   /** Fade a capped popup body when more content lies beyond its scroll edges. */
   fade?: boolean;
   /** Which side of the anchor receives the popover. */
@@ -83,6 +86,9 @@ export interface PopoverProps {
     onEvent?(event: NativePopupEvent): void;
     onDismiss?(): void;
   };
+  /** Resizable from its edges away from the anchor, its size kept under `resize.id` (PopupResize.tsx).
+   *  Top and bottom popovers only. */
+  resize?: PopupResizeOptions;
   children: ReactNode;
 }
 
@@ -93,6 +99,7 @@ export function Popover({
   label,
   id,
   className,
+  hostGlass = true,
   fade = false,
   side = "bottom",
   flip = true,
@@ -100,6 +107,7 @@ export function Popover({
   initialFocus,
   finalFocus,
   native,
+  resize,
   children,
 }: PopoverProps) {
   const popupClassName = cx("ui-popup ui-glass ui-popover", className);
@@ -147,13 +155,16 @@ export function Popover({
             data-popup-shift={flip === "shift" ? "" : undefined}
             className={cx(popupClassName, fade && "ui-popup-scroll-shell")}
             // The App's popover glass under the page (glass/hostGlass.ts).
-            data-host-glass="popover"
-            data-host-glass-cover=""
+            data-host-glass={hostGlass ? "popover" : undefined}
+            data-host-glass-cover={hostGlass ? "" : undefined}
             id={id}
             aria-label={label}
             initialFocus={initialFocus}
             finalFocus={finalFocus}
           >
+            {resize && (side === "top" || side === "bottom") && (
+              <PopupResizeGrips resize={resize} side={side} align={align} />
+            )}
             {fade ? (
               <div ref={edges} className="ui-popup-scroll ui-scroll-edge-fade">
                 {children}

@@ -75,9 +75,53 @@ impl ConfigStore {
         {
             state = state.with_revision(revision + 1);
         }
-        let store = ConfigStore { state, config_path, seed_path, state_dir, reader };
+        let mut store = ConfigStore { state, config_path, seed_path, state_dir, reader };
+        store.migrate_once();
         store.write_cache();
         store
+    }
+
+    /// Moves a key cmux has renamed to its new name in the person's own file,
+    /// once per rename: each one is recorded in the ledger
+    /// (`migrations::once`), so a later open never runs it again. Needs a
+    /// state directory for the ledger and a settings file of the person's
+    /// own (a classic seed is not theirs to rewrite). A broken file, or a
+    /// write that fails, records nothing: the next open tries again.
+    fn migrate_once(&mut self) {
+        use crate::migrations::once::{Ledger, pending};
+        let Some(dir) = self.state_dir.clone() else { return };
+        if self.state.file_problem.is_some()
+            || std::fs::symlink_metadata(&self.config_path).is_err()
+        {
+            return;
+        }
+        let mut ledger = Ledger::read(&dir);
+        let due = pending(&self.state.file_root, &ledger);
+        if due.is_empty() {
+            return;
+        }
+        let at = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |elapsed| elapsed.as_secs());
+        for migration in due {
+            let moved = match migration.edit {
+                None => false,
+                Some(edit) => {
+                    let meta =
+                        store::WriteMeta { origin: store::Origin::App, ..Default::default() };
+                    match self.apply(Op::Edit { edits: vec![edit], meta }).result {
+                        Ok(_) => true,
+                        // Not this open's to finish: the file is broken or unwritable.
+                        Err(Refusal::FileUnreadable { .. } | Refusal::Io { .. }) => break,
+                        // The new row refuses the value (a managed key, a bad value): the file
+                        // keeps the old key, which the table still reads.
+                        Err(_) => false,
+                    }
+                }
+            };
+            ledger.record(migration.id, moved, at);
+        }
+        let _ = ledger.write(&dir);
     }
 
     pub fn state(&self) -> &State {
@@ -97,6 +141,14 @@ impl ConfigStore {
         let mut snapshot = self.state.snapshot().to_json();
         snapshot.set("path", Value::String(self.config_path.to_string_lossy().into_owned()));
         snapshot
+    }
+
+    /// Whether `file` names the settings file this owner reads and writes,
+    /// both paths standardized without touching the disk (`.` and `..`
+    /// folded, as Swift's `standardizedFileURL`; symlinks not followed).
+    /// `settings.edit`'s `file`: an owner started on another file refuses.
+    pub fn serves(&self, file: &Path) -> bool {
+        standardized(file) == standardized(&self.config_path)
     }
 
     /// Runs `op`: refresh from disk (write ops), reduce, publish, adopt.
@@ -237,6 +289,23 @@ fn read_settings(config_path: &Path, seed_path: Option<&Path>) -> FileRead {
     }
 }
 
+/// `path` made absolute with `.` and `..` folded, without reading the disk.
+fn standardized(path: &Path) -> PathBuf {
+    use std::path::Component;
+    let absolute = std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf());
+    let mut out = PathBuf::new();
+    for component in absolute.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                out.pop();
+            }
+            other => out.push(other),
+        }
+    }
+    out
+}
+
 /// The saved team layer, limited to the catalog of this build.
 fn read_team_policy(state_dir: &Path, schema: &Schema) -> Option<TeamPolicyLayer> {
     let text = std::fs::read_to_string(team_policy_path(state_dir)).ok()?;
@@ -248,10 +317,8 @@ fn read_team_policy(state_dir: &Path, schema: &Schema) -> Option<TeamPolicyLayer
 /// `None` when the lock file cannot be opened (a read-only directory): the
 /// write then goes ahead like before, and the publish reports any error.
 ///
-/// The Mac app takes this lock the same way (`flock`, the same file name)
-/// around its own writes of the settings file, until those writes are
-/// `settings.*` ops: Swift `SettingsFileLock` in `CmuxNextSettings`. Change
-/// the lock kind or the file name in both places.
+/// The Mac app no longer writes the settings file (its writes are
+/// `settings.edit` ops), so only owners in this crate take the lock.
 pub(crate) fn lock_config(config_path: &Path) -> Option<ConfigLock> {
     // Beside the configured path, not a symlink's target: a dotfiles repo
     // never gets a lock file.
@@ -290,3 +357,24 @@ impl Drop for ConfigLock {
 #[cfg(all(test, unix))]
 #[path = "owner_lock_tests.rs"]
 mod lock_tests;
+
+#[cfg(all(test, unix))]
+mod serves_tests {
+    use super::*;
+
+    /// `settings.edit`'s `file` check: the configured path, written with `.`
+    /// or `..`, is served; another file is not.
+    #[test]
+    fn the_owner_serves_its_own_file_only() {
+        let dir = std::env::temp_dir().join(format!("cmux-serves-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let config = dir.join("cmux-next.json");
+        let reader = Box::new(crate::managed::FixedManagedReader::default());
+        let store = ConfigStore::open(config.clone(), None, None, reader);
+        assert!(store.serves(&config));
+        assert!(store.serves(&dir.join("./sub/../cmux-next.json")));
+        assert!(!store.serves(&dir.join("other.json")));
+        assert!(!store.serves(&dir.join("sub/cmux-next.json")));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}

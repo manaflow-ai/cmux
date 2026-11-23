@@ -157,6 +157,8 @@ extension CEFRuntime {
         case .unknown:
             break
         default:
+            // A page that becomes (or stops being) an agent chat, a spare page taken for one included.
+            if case .address(let browser, let url) = event { drawOnInput.addressChanged(browser: browser, url: URL(string: url)) }
             if let browser = event.browserID, let tab = tabsByBrowser[browser] {
                 #if DEBUG
                 CEFEventTrace.record(browser, event)
@@ -225,16 +227,26 @@ extension CEFRuntime {
 
     // MARK: Browser lifetime
 
+    /// Keeps `host` and its view until Chromium's creation of its window has returned. Chromium holds the host
+    /// view unretained from `createWindow` until it wraps it (its parent view tracker) right after this callback,
+    /// and `pendingWindows` was the last owner of a host whose tabs closed while the window was being made (a
+    /// workspace hibernated right after a page opened in it): freed here, Chromium retained a freed view and the
+    /// app crashed.
+    private func keepUntilCreationEnds(_ host: CEFPaneHost) {
+        CEFLayerHosting.atEndOfTurn { withExtendedLifetime(host) {} }
+    }
+
     private func browserCreated(_ browser: Int32, request: Int32, window: Int32, created: CEFCreatedBy) {
         if shutdownSequence != nil {
             // Its creation was under way when quit closed every browser (`shutdown`): close it
             // too, or the wait for Chromium's windows runs out and CefShutdown is skipped.
-            pendingWindows[request] = nil
+            if let host = pendingWindows.removeValue(forKey: request) { keepUntilCreationEnds(host) }
             shim?.close(browser)
             return
         }
         if request != 0, let host = pendingWindows.removeValue(forKey: request) {
             host.windowCreated(browser: browser, request: request)
+            keepUntilCreationEnds(host)
             return
         }
         if let tab = tabBeingAdded {
@@ -260,17 +272,28 @@ extension CEFRuntime {
             tab.automaticDownloads.userGesture()
             tab.pageUserInput?(ProcessInfo.processInfo.systemUptime)
         }
+        windowRequests.linkClicks.onPersonInput = { [weak self] browser in self?.tabsByBrowser[browser]?.allowWebAuthnForPerson() }
         windowRequests.linkClicks.startRecordingClicks { [weak self] in self?.windowRequests.clickTargets() ?? [] }
         tabsByBrowser[browser] = tab
+        drawOnInput.addressChanged(browser: browser, url: tab.pendingURL ?? tab.loadAfterAttach ?? tab.state.url)
         tab.attach(browser: browser)
         accessibility.attached(browser)
         signInCallbacks.attached(tab)
+        // An import's unpacked extensions, once the profile has a browser to load them through (after this callback).
+        if extensionStores.hasPendingUnpacked(tab.profileID) {
+            let profile = tab.profileID
+            Task { [weak self] in self?.extensionStores.browserRegistered(profile) }
+        }
     }
 
     private func browserClosed(_ browser: Int32) {
         windowRequests.linkClicks.forget(opener: browser)
+        drawOnInput.closed(browser: browser)
         if let tab = tabsByBrowser.removeValue(forKey: browser) {
+            // Read before the close: a closed tab's state is not this page's any more.
+            let cmuxPage = CEFPageRendererGC.isCmuxPage(tab.state.url)
             tab.browserDidClose(closesTab: shutdownSequence == nil)
+            if cmuxPage, shutdownSequence == nil { pageRendererGC.pageClosed() }
         } else {
             // Never registered: drop a pending adoption of it, or the spare page.
             orphans.closedUnregistered(browser)
@@ -359,8 +382,9 @@ extension CEFRuntime {
 
     /// Closes every browser, waits (without blocking the main thread) until
     /// the Chromium windows are destroyed or `timeout` passes, commits every
-    /// cookie store (main thread free, at most `cookieFlushLimit`), then runs
-    /// `beforeEngineStop` (the App hides its windows) and calls CefShutdown.
+    /// cookie store (main thread free, at most `cookieFlushLimit`), then awaits
+    /// `beforeEngineStop` (the App hides its windows, drains its state files and bounds
+    /// the block that follows) and calls CefShutdown, logging how long it held the main thread.
     /// The App awaits this from `applicationShouldTerminate` (terminate-later),
     /// so the run loop keeps pumping CEF meanwhile.
     ///
@@ -368,7 +392,11 @@ extension CEFRuntime {
     /// thread pool's shutdown tasks and child processes, under load), and in most of those
     /// quits the quit deadline ended the process inside it, before Chromium's own cookie
     /// flush finished. The flush here runs first, while the main thread is free.
-    func shutdown(timeout: Duration, beforeEngineStop: @MainActor () -> Void = {}) async {
+    func shutdown(timeout: Duration) async {
+        await shutdown(timeout: timeout, beforeEngineStop: {})
+    }
+
+    func shutdown(timeout: Duration, beforeEngineStop: @MainActor () async -> Void) async {
         if state == .loading {
             // The library is still mapping: never initialize after quit began.
             state = .shutDown
@@ -410,10 +438,11 @@ extension CEFRuntime {
             state = .shutDown
             return
         }
-        beforeEngineStop()
+        await beforeEngineStop()
+        let stopping = ContinuousClock.now
         shim.shutdown()
         state = .shutDown
-        logger.notice("CEF shutdown complete")
+        logger.notice("CEF shutdown complete: CefShutdown held the main thread \(ContinuousClock.now - stopping, privacy: .public)")
     }
 
     /// Commits every profile's cookie store (`cmux_shim_flush_cookie_stores`) and waits, with the

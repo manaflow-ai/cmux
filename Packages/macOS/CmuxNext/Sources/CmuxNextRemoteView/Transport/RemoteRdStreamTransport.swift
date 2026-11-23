@@ -37,10 +37,13 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
         var statuses: AsyncStream<RemoteViewStatus>.Continuation?
         var cursors: AsyncStream<RemoteCursorState>.Continuation?
         var services: AsyncStream<RemoteRdJSON>.Continuation?
+        var hostStats: AsyncStream<RemoteRdHostStats>.Continuation?
         /// Host stats reports seen (one in five is logged).
         var statsReports = 0
         /// rb/1 popup surface streams and their buffered units.
         var surfaces = RemoteRdSurfaceStreams()
+        /// The remote cursor as metadata (cap `cursor`).
+        var cursorFeed = RemoteCursorFeed()
         var status = RemoteViewStatus(state: .connecting)
     }
 
@@ -186,6 +189,13 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
         requestKeyframe(stream: 0)
     }
 
+    /// The decode time rides the next feedback to the host (its median, `decode_us`).
+    public func noteDecoded(frame: UInt32, decodeMicros: UInt32, decodedAtMicros: UInt64) {
+        queue.async { [self] in
+            try? engine.core.noteDecode(stream: 0, micros: decodeMicros)
+        }
+    }
+
     // MARK: Queue-confined work
 
     private func carrierEvent(_ event: RemoteRdCarrierEvent) {
@@ -230,7 +240,9 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
     func pump() {
         let now = nowMicros()
         _ = try? engine.core.tick(nowMicros: now)
-        while let popped = try? engine.core.popAccessUnit(codec: .h264) {
+        while var popped = try? engine.core.popAccessUnit(codec: .h264) {
+            // The viewer's Decode stage starts here (the decoder's clock, not the injected one).
+            popped.unit.releasedAtNanos = DispatchTime.now().uptimeNanoseconds
             state.withLock { state in
                 if popped.stream == 0 {
                     state.units?.yield(popped.unit)
@@ -280,12 +292,31 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
                     applySurfaceStreams(body)
                     _ = state.withLock { $0.services?.yield(body) }
                 }
-                if case let .stats(stats) = control { logHostStats(stats) }
+                if case let .stats(stats) = control {
+                    logHostStats(stats)
+                    _ = state.withLock { $0.hostStats?.yield(stats) }
+                }
+                if case let .cursorShape(message) = control, let shape = message.cursorShape {
+                    state.withLock { state in
+                        if let cursor = state.cursorFeed.receive(shape: shape) { state.cursors?.yield(cursor) }
+                    }
+                }
                 engine.handshake.receive(control)
                 handleUpstream(control)
             case let .datagram(datagram):
-                // Upstream feedback goes to its sender; InputAck datagrams to
-                // the input channel; any other datagram is refused without a state change.
+                // Cursor positions to the pane (latest wins); upstream feedback goes to its
+                // sender; InputAck datagrams to the input channel; any other datagram is
+                // refused without a state change.
+                let cursor = state.withLock { state -> Bool in
+                    switch state.cursorFeed.receive(datagram: datagram) {
+                    case .notCursor: return false
+                    case .dropped: return true
+                    case let .state(cursor):
+                        state.cursors?.yield(cursor)
+                        return true
+                    }
+                }
+                if cursor { continue }
                 let senders = engine.upstream?.activeSenders ?? []
                 if senders.contains(where: { (try? $0.receive(datagram: datagram, nowMicros: now)) == true }) { continue }
                 try? engine.input.acknowledge(datagram: datagram)
@@ -357,8 +388,10 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
             upstream = RemoteUpstreamStatus(offered: consent.isOffered, requested: consent.requested, active: consent.active)
         }
         let endReason = engine.handshake.isEnded ? engine.endReason : nil
+        let welcome = engine.handshake.welcome
         let status = RemoteViewStatus(path: .direct, state: engine.handshake.sessionState, upstream: upstream, endReason: endReason,
-                                      connectingReason: engine.connectingReason)
+                                      connectingReason: engine.connectingReason,
+                                      streamWidth: welcome.map { Int($0.width) }, streamHeight: welcome.map { Int($0.height) })
         state.withLock { state in
             guard state.status != status else { return }
             state.status = status
@@ -375,6 +408,7 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
             state.units?.finish()
             state.cursors?.finish()
             state.services?.finish()
+            state.hostStats?.finish()
             state.surfaces.endAll()
             state.statuses?.finish()
         }

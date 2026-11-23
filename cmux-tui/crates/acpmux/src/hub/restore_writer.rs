@@ -345,6 +345,34 @@ impl Hub {
         self.scan_kinds_and_kept(session, kinds, f)
     }
 
+    /// [`Self::scan_for_rebuild`] of the records whose head `keep` keeps
+    /// ([`crate::store::Store::scan_kinds_keyed`]), in order: the journal's, then the kept ones.
+    pub(super) fn scan_for_rebuild_keyed(
+        &self,
+        session: &Session,
+        kinds: &[&str],
+        keep: &mut dyn FnMut(&crate::store::KindHead<'_>) -> bool,
+        f: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> anyhow::Result<()> {
+        let mut going = true;
+        self.store.scan_kinds_keyed(&session.id, kinds, keep, &mut |e| {
+            going = f(e);
+            going
+        })?;
+        if self.at_918d() {
+            return Ok(());
+        }
+        for e in self.kept_unstored(session, kinds) {
+            if !going {
+                break;
+            }
+            if keep(&crate::store::KindHead::of(&e)) {
+                going = f(e);
+            }
+        }
+        Ok(())
+    }
+
     /// The records of `kinds` kept for `session` that are not in its journal yet: those the
     /// store refused ([`Session::unparked`]), then those parked while a restore owns it, in
     /// order, numbered past the journal's end as they go in. A rebuild of the queue reads them
@@ -718,10 +746,17 @@ mod tests {
     #[test]
     fn a_chat_journal_is_appended_in_one_place() {
         let root = concat!(env!("CARGO_MANIFEST_DIR"), "/src");
-        let allowed =
-            ["hub/mod.rs", "hub/journal_restore.rs", "hub/transfer.rs", "write_journal.rs"];
-        // A bench home's fixture and the store's stress tests write their own homes, no hub's.
-        let fixtures = ["god_fixture.rs", "stress/"];
+        // A move's import (`transfer.rs`, its tail in `transfer_precopy.rs`) writes a chat not
+        // yet listed.
+        let allowed = [
+            "hub/mod.rs",
+            "hub/journal_restore.rs",
+            "hub/transfer.rs",
+            "hub/transfer_precopy.rs",
+            "write_journal.rs",
+        ];
+        // A bench home's fixtures and the store's stress tests write their own homes, no hub's.
+        let fixtures = ["god_fixture.rs", "chat_size_fixture.rs", "stress/"];
         let mut found = Vec::new();
         let mut dirs = vec![std::path::PathBuf::from(root)];
         while let Some(dir) = dirs.pop() {

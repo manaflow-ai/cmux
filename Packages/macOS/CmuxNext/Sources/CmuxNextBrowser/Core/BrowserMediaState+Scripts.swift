@@ -317,6 +317,10 @@ extension BrowserTab {
         case .play, .playPause, .nextTrack, .previousTrack, .pictureInPicture: .agent
         case .pause, .toggleMute, .seek, .muteTab: .cmux
         }
+        // A frozen page runs no script, so the person's Play from Now Playing or the media menu did nothing
+        // (https://github.com/manaflow-ai/cmux/issues/51079): the command wakes it first, and the hidden-tab
+        // planner freezes it again only once its probe allows.
+        if let frozen = self as? any BrowserFreezeReporting, frozen.isFrozen { frozen.setFrozen(false) }
         _ = try? await evaluate(script.source, world: script.world, gesture: gesture)
     }
 

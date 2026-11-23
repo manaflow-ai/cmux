@@ -34,8 +34,14 @@ public final class AgentPageRedraw {
     }
 
     /// The frame-then-task wait in the page; `done` runs after it (now when the page is gone).
-    private func probeFrame(_ done: @escaping @MainActor () -> Void) {
+    /// `size`: the size the page is laid out at now. A Chromium page learns a new size from its window a frame or more
+    /// after its view, so its next frame can still be one at the old size: it answers for a frame at `size`
+    /// (``PageWebView/afterFrame(at:_:)``).
+    private func probeFrame(at size: CGSize? = nil, _ done: @escaping @MainActor () -> Void) {
         let script = "await new Promise((done) => requestAnimationFrame(() => setTimeout(done, 0)));"
+        if let page, let size, page.showsChromium, size.width > 0, size.height > 0 {
+            return page.afterFrame(at: size) { done() }
+        }
         if let page {
             // task-owner: one frame wait; ends with the page's answer
             Task { @MainActor [weak page] in
@@ -70,6 +76,7 @@ public final class AgentPageRedraw {
 
     /// From the pane's `layout()`: notes the size the page draws at, and answers ``when(_:_:)``.
     func laidOut(_ pane: NSView) {
+        askPictureAtNewSize(of: pane)
         // A hidden page follows the pane's size but draws nothing: its drawn size stays.
         guard pane.window != nil, !pane.bounds.isEmpty, !pane.isHiddenOrHasHiddenAncestor else { return }
         let size = pane.bounds.size
@@ -84,7 +91,7 @@ public final class AgentPageRedraw {
         generation &+= 1
         let generation = generation
         // One animation frame, then a task: it runs after that frame was rendered (PagePaintProbe).
-        probeFrame { [weak self] in
+        probeFrame(at: page?.frame.size) { [weak self] in
             guard let self, self.generation == generation else { return }
             self.probing = false
             self.finish()
@@ -111,6 +118,7 @@ public final class AgentPageRedraw {
         }
     }
 
+    var pictureAskedAt = CGSize.zero // the size the page's pane was last asked for its picture at (``askPictureAtNewSize(of:)``)
     /// A capture for the app's New Tab frame is on the way (one per page at a time).
     public var givesNewTabFrame = false {
         didSet {
@@ -139,7 +147,7 @@ public final class AgentPageRedraw {
         guard let model = (pane as? AgentPaneView)?.model, AgentPaneNewTabFrame.shared.shows(model).0 else { return completion() }
         // A Chromium picture draws the page's clear areas black (``PageWebView/snapshotKeepsClearAreas``):
         // checked before and after, as the page can move to or from Chromium while its picture is taken.
-        guard page?.snapshotKeepsClearAreas ?? true else { return completion() }
+        guard page?.snapshotKeepsClearAreas ?? true else { return rememberChromiumFrame(of: pane, model: model, appearance: appearance, completion: completion) }
         let (size, place, generation) = (pane.frame.size, pane.superview, AgentPaneNewTabFrame.shared.generation)
         // task-owner: one snapshot; dropped when the page moved or resized meanwhile
         Task { @MainActor [weak self, weak page, weak pane, weak place] in
@@ -148,6 +156,23 @@ public final class AgentPageRedraw {
             guard let image, image.size == size, page?.snapshotKeepsClearAreas ?? true,
                   let pane, pane.superview === place, pane.frame.size == size else { return }
             self?.remembered = (image, size, appearance, generation)
+        }
+    }
+
+    /// A parked spare in Chromium gives the app's New Tab frame at its size (``AgentPaneNewTabFrame``), a PNG that keeps
+    /// the page's clear areas (``PageWebView/clearAreaSnapshot()``): what a New Tab page in Chromium that has not painted
+    /// draws until it does (Cmd-T with no spare to adopt). Once per size, appearance and content: a frame already held is
+    /// not taken again, as the PNG costs the main thread more than the JPEG.
+    private func rememberChromiumFrame(of pane: NSView, model: AgentPaneModel, appearance: NSAppearance.Name?, completion: @escaping @MainActor () -> Void) {
+        let frames = AgentPaneNewTabFrame.shared
+        let (size, place, generation) = (pane.frame.size, pane.superview, frames.generation)
+        guard let page, size != .zero, frames.image(size: size, appearance: appearance) == nil else { return completion() }
+        // task-owner: one snapshot; dropped when the page moved, resized or drew other content meanwhile
+        Task { [weak page, weak pane, weak place, weak model] in
+            defer { completion() }
+            guard let image = await page?.clearAreaSnapshot(), image.size == size, let pane, pane.superview === place, pane.frame.size == size,
+                  generation == frames.generation, let model, frames.shows(model).0 else { return }
+            frames.store(image, size: size, appearance: appearance, generation: generation)
         }
     }
 

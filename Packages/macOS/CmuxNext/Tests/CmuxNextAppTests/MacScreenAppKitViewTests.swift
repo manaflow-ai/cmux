@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 import CmuxNextDevices
 @testable import CmuxNextMacScreen
 import CmuxNextTestSupport
@@ -24,7 +25,7 @@ private func findView(_ id: String, under root: NSView) -> NSView? {
 /// The text of every label under `root`.
 @MainActor
 private func texts(under root: NSView) -> [String] {
-    views(under: root).compactMap { ($0 as? NSTextField)?.stringValue }
+    views(under: root).compactMap { ($0 as? NSTextField)?.stringValue ?? ($0 as? ChromeLabel)?.stringValue }
 }
 
 /// Lets the views' Observation updates (main-actor tasks) run until `condition` holds.
@@ -61,13 +62,21 @@ struct MacScreenAppKitViewTests {
         let pages = makePages()
         pages.prepare("home", record: MacScreenRecord(macID: nil), byPerson: true)
         let home = pages.makeView(for: "home")
-        let pane = MacScreenPane(hubDevice: MacScreenHubViewer(deviceID: viewDeviceID) { nil }, name: "Studio", preferences: ScreenPreferences())
+        let pane = MacScreenPane(hubDevice: MacScreenHubViewer(deviceID: viewDeviceID) { nil }, name: "Studio", preferences: ScreenPreferences(), viewerLook: .current)
         let prompt = MacScreenApprovalPrompt()
         prompt.present = { _ in }
         prompt.update([SessionRequest(id: "s1", viewerId: "v1", viewerName: "Laptop", scope: .view)])
-        let approval = MacScreenApprovalView(prompt: prompt)
+        let approval = CmuxDialogView(dialog: .standalone(MacScreenApprovalPrompt.spec(
+            SessionRequest(id: "s1", viewerId: "v1", viewerName: "Laptop", scope: .view), error: nil)) { _ in })
+        // The system's Liquid Glass view (macOS 26) hosts its own private views: not a cmux surface.
+        func ownViews(under root: NSView) -> [NSView] {
+            root.subviews.flatMap { view -> [NSView] in
+                if #available(macOS 26.0, *), view is NSGlassEffectView { return [view] }
+                return [view] + ownViews(under: view)
+            }
+        }
         for root in [home, pane.view, approval] as [NSView] {
-            for view in views(under: root) {
+            for view in ownViews(under: root) {
                 #expect(!String(describing: type(of: view)).contains("Hosting"), "\(type(of: view)) under \(type(of: root))")
             }
         }
@@ -94,7 +103,9 @@ struct MacScreenAppKitViewTests {
         window.close()
     }
 
-    @Test func offlineDeviceExplainsHowToBringItBackAndDisablesScreenActions() throws {
+    /// Leo 2026-11-16 ("this needs to shut up"): an offline Mac has no buttons and no instructions; offline Macs
+    /// fold under one Offline row that opens to their names.
+    @Test func offlineMacsFoldUnderOneRowWithNoButtonsOrInstructions() throws {
         let pages = makePages()
         pages.prepare("home", record: MacScreenRecord(macID: nil), byPerson: true)
         let tab = pages.makeView(for: "home")
@@ -102,14 +113,53 @@ struct MacScreenAppKitViewTests {
         let device = MacScreenHomeSnapshot.Device(id: viewDeviceID, name: "Air Blue", isPhone: false,
                                                    online: false, macScreenShared: true, access: MacScreenAccess(.ask))
         home.build(MacScreenHomeSnapshot(devices: .list([device]), sharingLook: .list))
-        let shown = texts(under: home)
-        #expect(shown.contains("Open cmux on Air Blue to share its screen."))
-        #expect((findView("macScreen.home.view.Air Blue", under: home) as? NSButton)?.isEnabled == false)
-        #expect((findView("macScreen.home.control.Air Blue", under: home) as? NSButton)?.isEnabled == false)
+        #expect(!texts(under: home).contains("Open cmux on Air Blue to share its screen."))
+        #expect(findView("macScreen.home.view.Air Blue", under: home) == nil)
+        #expect(findView("macScreen.home.control.Air Blue", under: home) == nil)
+        #expect(findView("macScreen.home.name.Air Blue", under: home) == nil)
+        let group = try #require(findView("macScreen.home.offlineGroup", under: home) as? NSButton)
+        // The group says what it holds (a symbol-only button once drew just the chevron).
+        #expect(group.attributedTitle.string == "Offline (1)")
+        group.performClick(nil)
+        #expect(findView("macScreen.home.name.Air Blue", under: home) != nil)
+        #expect(findView("macScreen.home.view.Air Blue", under: home) == nil)
         pages.tabClosed("home")
     }
 
-    @Test func askAccessExplainsThatTheFirstConnectAsksOnTheHost() throws {
+    /// The classic look (Debug Settings) keeps the rows from before 2026-11-16 for comparison.
+    @Test func classicLookKeepsTheOldRows() throws {
+        let pages = makePages()
+        pages.prepare("home", record: MacScreenRecord(macID: nil), byPerson: true)
+        let tab = pages.makeView(for: "home")
+        let home = try #require(views(under: tab).compactMap { $0 as? MacScreenHomeView }.first)
+        let device = MacScreenHomeSnapshot.Device(id: viewDeviceID, name: "Air Blue", isPhone: false,
+                                                   online: false, macScreenShared: true, access: MacScreenAccess(.ask))
+        home.build(MacScreenHomeSnapshot(devices: .list([device]), sharingLook: .list, devicesLook: .classic))
+        #expect(texts(under: home).contains("Open cmux on Air Blue to share its screen."))
+        #expect((findView("macScreen.home.view.Air Blue", under: home) as? NSButton)?.isEnabled == false)
+        pages.tabClosed("home")
+    }
+
+    /// The quiet rows keep Start cmux on NAME (Leo 2026-11-14: "agents need to be able to help set up and
+    /// propagate the app for me"): an offline Mac's one button; without the daemon's verbs, none.
+    @Test func quietOfflineRowOffersStartCmux() throws {
+        let pages = makePages()
+        pages.prepare("home", record: MacScreenRecord(macID: nil), byPerson: true)
+        let tab = pages.makeView(for: "home")
+        let home = try #require(views(under: tab).compactMap { $0 as? MacScreenHomeView }.first)
+        let offline = MacScreenHomeSnapshot.Device(id: viewDeviceID, name: "Air Blue", isPhone: false, online: false,
+                                                    macScreenShared: true, access: MacScreenAccess(.full),
+                                                    setup: .make(isMac: true, online: false, verbs: .all, run: nil))
+        let noDaemon = MacScreenHomeSnapshot.Device(id: "other-mac", name: "Studio", isPhone: false, online: false,
+                                                     macScreenShared: true, access: MacScreenAccess(.full))
+        home.build(MacScreenHomeSnapshot(devices: .list([offline, noDaemon]), sharingLook: .list, devicesLook: .offlineLines))
+        #expect(findView("macScreen.home.start.Air Blue", under: home) != nil)
+        #expect(findView("macScreen.home.start.Studio", under: home) == nil)
+        pages.tabClosed("home")
+    }
+
+    /// A usable Mac says nothing about access: name, dot and the buttons.
+    @Test func askAccessSaysNothing() throws {
         let pages = makePages()
         pages.prepare("home", record: MacScreenRecord(macID: nil), byPerson: true)
         let tab = pages.makeView(for: "home")
@@ -117,7 +167,11 @@ struct MacScreenAppKitViewTests {
         let device = MacScreenHomeSnapshot.Device(id: viewDeviceID, name: "Studio", isPhone: false,
                                                    online: true, macScreenShared: true, access: MacScreenAccess(.ask))
         home.build(MacScreenHomeSnapshot(devices: .list([device]), sharingLook: .list))
-        #expect(texts(under: home).contains("The first connect asks on that Mac."))
+        let shown = texts(under: home)
+        #expect(!shown.contains("The first connect asks on that Mac."))
+        #expect(!shown.contains { $0.hasPrefix("Your access") })
+        #expect(shown.contains("Studio"))
+        #expect((findView("macScreen.home.control.Studio", under: home) as? NSButton)?.isEnabled == true)
         pages.tabClosed("home")
     }
 
@@ -163,8 +217,8 @@ struct MacScreenAppKitViewTests {
         pages.tabClosed("home")
     }
 
-    /// Online, sharing and allowed: both buttons work. Sharing off: the row says how, with its own id.
-    @Test func sharingOffSaysHowAndOnlineSharedRowsWork() throws {
+    /// Online, sharing and allowed: both buttons work. Sharing off: one short word, no buttons. Offline: folded.
+    @Test func sharingOffSaysOneWordAndOnlineSharedRowsWork() throws {
         let ask = MacScreenAccess(.ask)
         let (pages, home) = try homeView([
             MacScreenHomeSnapshot.Device(id: "a", name: "Studio", isPhone: false, online: true, macScreenShared: true, access: ask),
@@ -173,11 +227,10 @@ struct MacScreenAppKitViewTests {
         ])
         #expect((findView("macScreen.home.view.Studio", under: home) as? NSButton)?.isEnabled == true)
         #expect((findView("macScreen.home.control.Studio", under: home) as? NSButton)?.isEnabled == true)
-        #expect((findView("macScreen.home.notShared.Office", under: home) as? NSTextField)?.stringValue
-            == "Turn on Allow Mac Screen on Office to share its screen.")
-        #expect((findView("macScreen.home.view.Office", under: home) as? NSButton)?.isEnabled == false)
-        #expect((findView("macScreen.home.offline.Den", under: home) as? NSTextField)?.stringValue
-            == "Open cmux on Den to share its screen.")
+        #expect((findView("macScreen.home.notShared.Office", under: home) as? NSTextField)?.stringValue == "Sharing off")
+        #expect(findView("macScreen.home.view.Office", under: home) == nil)
+        #expect(findView("macScreen.home.name.Den", under: home) == nil)
+        #expect((findView("macScreen.home.offlineGroup", under: home) as? NSButton) != nil)
         pages.tabClosed("home")
     }
 
@@ -202,7 +255,7 @@ struct MacScreenAppKitViewTests {
     }
 
     @Test func connectCardButtonsAskTheHubAndTheCardFollows() async throws {
-        let pane = MacScreenPane(hubDevice: MacScreenHubViewer(deviceID: viewDeviceID) { nil }, name: "Studio", preferences: ScreenPreferences())
+        let pane = MacScreenPane(hubDevice: MacScreenHubViewer(deviceID: viewDeviceID) { nil }, name: "Studio", preferences: ScreenPreferences(), viewerLook: .current)
         let window = window(pane.view)
         #expect(pane.model.card == .hubConnect)
         #expect(texts(under: pane.view.chrome.card).contains(String(format: L.t("macScreen.hub.connectTitle", "Connect to %@"), "Studio")))
@@ -225,7 +278,7 @@ struct MacScreenAppKitViewTests {
     }
 
     @Test func toolbarShowsTheNameAndHidesStreamControlsBeforeASession() async throws {
-        let pane = MacScreenPane(hubDevice: MacScreenHubViewer(deviceID: viewDeviceID) { nil }, name: "Studio", preferences: ScreenPreferences())
+        let pane = MacScreenPane(hubDevice: MacScreenHubViewer(deviceID: viewDeviceID) { nil }, name: "Studio", preferences: ScreenPreferences(), viewerLook: .current)
         let window = window(pane.view)
         let toolbar = pane.view.chrome.toolbar
         #expect(texts(under: toolbar).contains("Studio"))
@@ -238,20 +291,59 @@ struct MacScreenAppKitViewTests {
         window.close()
     }
 
-    @Test func approvalShowsTheRequestAndItsFourAnswers() throws {
+    /// The device-control prompt is the cmux dialog card on its glass (Lawrence 2026-11-17, "think liquid glass"),
+    /// worded plainly (Leo, 2026-11-16: "super ugly", "i dont want to have to click share this mac allow every single
+    /// time"): who asks and what it can do, what Allow keeps, the key in two lines of four groups on a well, and three
+    /// answers stacked the card's width: Allow first (the one fill, the hub's Always; no key: only the person's click
+    /// allows), Allow Only This Time, and Not Now last as quiet text (Escape).
+    @Test func approvalAsksPlainlyWithAllowFirst() throws {
         let prompt = MacScreenApprovalPrompt()
-        prompt.present = { _ in }
-        let fingerprint = String(repeating: "ab", count: 32)
+        defer { prompt.update([]) }
+        let fingerprint = "78be18e0c08c9c4d7443d95e2db68074" + String(repeating: "ab", count: 16)
         prompt.update([SessionRequest(id: "s1", viewerId: "v1", viewerName: "Laptop", viewerKeyFingerprint: fingerprint, scope: .full)])
-        let view = MacScreenApprovalView(prompt: prompt)
+        let view = try #require(prompt.dialogView, "the prompt draws the cmux dialog card")
+        view.window?.contentView?.layoutSubtreeIfNeeded()
         let shown = texts(under: view)
         #expect(shown.contains(String(format: L.t("macScreen.approval.titleFull", "%@ wants to control this Mac"), "Laptop")))
-        #expect(shown.contains(DeviceIdentity.displayFingerprint(fingerprint)))
-        for id in ["macScreen.approval.deny", "macScreen.approval.once", "macScreen.approval.alwaysView", "macScreen.approval.alwaysFull"] {
-            #expect(findView(id, under: view) is NSButton, "\(id)")
+        #expect(shown.contains(L.t("macScreen.approval.bodyFull", "It can see your screen and use your mouse and keyboard.")))
+        #expect(shown.contains("78BE 18E0 C08C 9C4D\n7443 D95E 2DB6 8074"))
+        #expect(view.spec.layout == .stacked)
+        #expect(views(under: view).contains { $0 is OverlaySurfaceView }, "on the dialog glass")
+        let ids = ["alwaysFull", "once", "deny"]
+        #expect(view.spec.buttons.map(\.id) == ids)
+        #expect(view.spec.buttons.map(\.title) == [MacScreenApprovalWords.allow, MacScreenApprovalWords.onlyThisTime,
+                                                   MacScreenApprovalWords.notNow])
+        #expect(view.spec.buttons.map(\.personOnly) == [true, true, false])
+        let buttons = try ids.map { try #require(view.buttonView($0), "\($0)") }
+        let frames = buttons.map { $0.convert($0.bounds, to: nil) }
+        for (upper, lower) in zip(frames, frames.dropFirst()) {
+            #expect(lower.maxY <= upper.minY)
+            #expect(lower.width == upper.width && lower.minX == upper.minX)
         }
-        let size = view.fittingSize
-        #expect(size.width == MacScreenApprovalView.width && size.height > 100)
-        prompt.update([])
+        #expect(buttons[0].keyHint == nil && buttons[2].keyHint == .escape && buttons[2].isQuiet)
+        let card = try #require(prompt.panelFrame)
+        #expect(abs(card.width - view.fittingSize.width) < 1 && card.height > 100)
+    }
+
+    /// Allow is the hub's Always at the scope asked for: View Only for a request to see, Full Control
+    /// for a request to control, so the same Mac's next request of that scope is not asked.
+    @Test func allowRemembersTheScopeAskedFor() {
+        for (scope, choice, stored) in [(SessionScope.view, MacScreenApprovalChoice.alwaysView, SessionScope.view),
+                                        (.full, .alwaysFull, .full)] {
+            let request = SessionRequest(id: "s", viewerId: "v", viewerName: "Laptop", scope: scope)
+            let words = MacScreenApprovalWords(request)
+            #expect(words.allowChoice == choice)
+            #expect(MacScreenApprovalPrompt.spec(request, error: nil).buttons.first?.id == choice.rawValue)
+            let answer = words.allowChoice.answer(requested: scope)
+            #expect(answer.decision == .always && answer.scope == stored && answer.thenPermission == nil)
+        }
+    }
+
+    @Test func aFailedAnswerShowsInTheCard() {
+        let spec = MacScreenApprovalPrompt.spec(SessionRequest(id: "s1", viewerId: "v1", viewerName: "Laptop", scope: .view),
+                                                error: "The answer did not reach the device hub. Try again.")
+        #expect(spec.error == "The answer did not reach the device hub. Try again.")
+        #expect(spec.title == String(format: L.t("macScreen.approval.titleView", "%@ wants to see this Mac"), "Laptop"))
+        #expect(spec.fields.isEmpty, "no fingerprint, no well")
     }
 }

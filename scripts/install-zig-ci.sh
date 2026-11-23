@@ -210,7 +210,11 @@ use_existing_zig_if_available() {
 
   local candidate
   local seen=" "
-  for candidate in "$(command -v zig 2>/dev/null || true)" /opt/homebrew/bin/zig /usr/local/bin/zig; do
+  # ZIG_REUSE_CANDIDATES: the fixed places checked after PATH (tests set it empty, so a Zig a reused runner keeps
+  # in /usr/local/bin cannot answer for the fixture's).
+  local fixed="${ZIG_REUSE_CANDIDATES-/opt/homebrew/bin/zig /usr/local/bin/zig}"
+  # shellcheck disable=SC2086 # word-split on purpose: a space-separated list of paths
+  for candidate in "$(command -v zig 2>/dev/null || true)" $fixed; do
     [ -n "$candidate" ] || continue
     [ -x "$candidate" ] || continue
     candidate="$(cd "$(dirname "$candidate")" && pwd)/$(basename "$candidate")"
@@ -326,7 +330,7 @@ download_sleep() {
     now="$(download_now_seconds)"
     printf '%s\n' "$((now + delay))" > "$ZIG_DOWNLOAD_TEST_CLOCK_FILE"
   else
-    sleep "$delay"
+    sleep "$delay"  # sleep-ok: retry backoff delay (the test clock stands in for it)
   fi
 }
 

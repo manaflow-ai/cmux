@@ -35,8 +35,13 @@ public final class BackdropVideoView: NSView {
     /// The app's Low Power Mode (``LowPowerMode/system``, the `debug.low_power_mode` override included), watched while in a window.
     private var powerObservation: LowPowerModeObservation?
     private var readyObservation: NSKeyValueObservation?
-    private var screensAsleep = false
-    private var sessionInactive = false
+    /// The screens are asleep, or the login session is not the active one (watched while in a window).
+    public private(set) var screensAsleep = false
+    public private(set) var sessionInactive = false
+    /// Told after each change this view watches (visibility, power, heat, motion settings, closing),
+    /// so the living wallpaper in the same backdrop (``BackdropShaderView``) follows the same
+    /// observers instead of registering its own.
+    public var onSightChange: (@MainActor (_ closing: Bool) -> Void)?
     private var coverage = BackdropCoverage()
     private let coverageTimer = DemandTimer(owner: "backdrop-video-coverage")
 
@@ -46,6 +51,9 @@ public final class BackdropVideoView: NSView {
         wantsLayer = true
         playerLayer.videoGravity = .resizeAspectFill
         playerLayer.opacity = 0
+        // Follows the view's size with no layout pass (sized only in layout(), it stayed bottom-left).
+        playerLayer.frame = bounds
+        playerLayer.autoresizingMask = [.layerWidthSizable, .layerHeightSizable]
         layer?.addSublayer(playerLayer)
         isHidden = true
         setAccessibilityElement(false)
@@ -56,11 +64,46 @@ public final class BackdropVideoView: NSView {
 
     override public func hitTest(_ point: NSPoint) -> NSView? { nil }
 
+    /// The person's placement of this wallpaper (`appearance.backgroundPlacement`,
+    /// ``BackdropPlacement``); nil fills the view, centered. The video is laid out by its own size
+    /// (``videoSize``) once its first frame is ready, by `posterSize` before that, and drawn with
+    /// its aspect kept (`stretch` aside), so a poster of another shape never stretches it.
+    public private(set) var placement: BackdropPlacement?
+    private var posterSize: CGSize?
+
+    /// Places the video (nil: fills the view) and lays it out again.
+    public func place(_ placement: BackdropPlacement?, posterSize: CGSize?) {
+        self.posterSize = posterSize
+        if placement != self.placement {
+            self.placement = placement
+            playerLayer.videoGravity = switch placement?.mode {
+            case nil: .resizeAspectFill
+            case .stretch?: .resize
+            default: .resizeAspect
+            }
+            playerLayer.autoresizingMask = placement == nil ? [.layerWidthSizable, .layerHeightSizable] : []
+            layer?.masksToBounds = placement != nil
+        }
+        needsLayout = true
+    }
+
+    /// The playing video's own size; nil before its first frame.
+    var videoSize: CGSize? {
+        guard let size = playerLayer.player?.currentItem?.presentationSize, size.width > 0, size.height > 0 else { return nil }
+        return size
+    }
+
+    /// Where the whole video is drawn in this view while it is placed; nil when it fills the view.
+    public var placedFrame: CGRect? {
+        guard let placement, let size = videoSize ?? posterSize else { return nil }
+        return placement.drawnFrame(image: size, in: bounds)
+    }
+
     override public func layout() {
         super.layout()
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        playerLayer.frame = bounds
+        playerLayer.frame = placedFrame ?? bounds
         CATransaction.commit()
     }
 
@@ -138,6 +181,8 @@ public final class BackdropVideoView: NSView {
     /// under Reduce Motion); frames that stop
     /// (a released decoder) hide at once, leaving the poster below.
     private func showFrames(_ ready: Bool) {
+        // The first frame brings the video's own size: a placed video is laid out by it.
+        if ready, placement != nil { needsLayout = true }
         if ready, playerLayer.opacity == 0, window != nil {
             Motion.panes.set(playerLayer, "opacity", to: Float(1), fade: .fadeIn, from: Float(0))
             return
@@ -210,7 +255,10 @@ public final class BackdropVideoView: NSView {
     }
 
     private func observe() {
-        powerObservation = LowPowerMode.system.observe { [weak self] _ in self?.update() }
+        powerObservation = LowPowerMode.system.observe { [weak self] _ in
+            self?.update()
+            self?.onSightChange?(false)
+        }
         let app = NotificationCenter.default, workspace = NSWorkspace.shared.notificationCenter
         var names: [(NotificationCenter, Notification.Name, AnyObject?)] = [
             (app, NSWindow.didChangeOcclusionStateNotification, window), (app, NSWindow.didMiniaturizeNotification, window),
@@ -236,7 +284,9 @@ public final class BackdropVideoView: NSView {
     private func note(_ name: Notification.Name) {
         switch name {
         // A closed window keeps its views: hand the shared player back now, not when the view goes.
-        case NSWindow.willCloseNotification: return detach()
+        case NSWindow.willCloseNotification:
+            detach()
+            return onSightChange?(true) ?? ()
         // A window brought to the front shows: play now; the next samples rest it again if needed.
         case NSWindow.didBecomeMainNotification, NSWindow.didBecomeKeyNotification: coverage.reset()
         case NSWorkspace.screensDidSleepNotification: screensAsleep = true
@@ -246,6 +296,7 @@ public final class BackdropVideoView: NSView {
         default: break
         }
         update()
+        onSightChange?(false)
     }
 }
 

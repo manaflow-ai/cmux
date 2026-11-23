@@ -546,3 +546,82 @@ fn catalog_is_pinned() {
         );
     }
 }
+
+/// The Chief answers with its `send` tool and ends its own turn (`stopped`,
+/// `reply: null`): every real turn on 2026-11-15 looked like that, and none
+/// counted as active or replied.
+#[test]
+fn a_turn_the_chief_ends_after_send_is_active_and_replied() {
+    let mut state = State {
+        installed_ms: 1_800_000_000_000,
+        ..State::default()
+    };
+    let turn = "turn:optchat:1:1";
+    let ts = 1_800_000_001_000;
+    let send =
+        json!({"ev": "tool", "turn": turn, "name": "mcp__optchat__send", "ok": true, "ts": ts});
+    let end = json!({"ev": "turn.end", "turn": turn, "status": "stopped", "reply": null, "ts": ts});
+    catalog::map(&send, &mut state, ts);
+    let out = catalog::map(&end, &mut state, ts);
+    let names: Vec<_> = out.iter().map(|e| e.name).collect();
+    assert!(names.contains(&"chief_daily_active"), "{names:?}");
+    let done = out
+        .iter()
+        .find(|e| e.name == "chief_turn_completed")
+        .unwrap();
+    assert_eq!(done.properties["turn_status"], json!("stopped"));
+    assert_eq!(done.properties["replied"], json!(true));
+    assert!(
+        out.iter()
+            .any(|e| e.properties.get("milestone") == Some(&json!("first_reply")))
+    );
+
+    // A side chat's turn that overlaps keeps its own mark.
+    let side = "turn:optchat:2:1";
+    let side_send = json!({"ev": "tool", "turn": side, "name": "mcp__optchat__send", "ok": true});
+    let side_end = json!({"ev": "turn.end", "turn": side, "status": "stopped", "reply": null});
+    catalog::map(&side_send, &mut state, ts);
+    catalog::map(&send, &mut state, ts);
+    let out = catalog::map(&side_end, &mut state, ts);
+    let done = out
+        .iter()
+        .find(|e| e.name == "chief_turn_completed")
+        .unwrap();
+    assert_eq!(done.properties["replied"], json!(true));
+
+    // A refused send, or a send in another turn, is no reply.
+    let mut state = State::default();
+    let refused = json!({"ev": "tool", "turn": turn, "name": "mcp__optchat__send", "ok": false});
+    catalog::map(&refused, &mut state, ts);
+    let out = catalog::map(&end, &mut state, ts);
+    assert!(out.iter().all(|e| e.name != "chief_daily_active"));
+    let other =
+        json!({"ev": "tool", "turn": "turn:optchat:1:0", "name": "mcp__optchat__send", "ok": true});
+    catalog::map(&other, &mut state, ts);
+    let out = catalog::map(&end, &mut state, ts);
+    assert!(out.iter().all(|e| e.name != "chief_daily_active"));
+}
+
+/// A failing compactor loop sends a sample per hour, not every failure.
+#[test]
+fn repeated_failures_are_capped_per_hour_with_a_count() {
+    let mut state = State::default();
+    let fail = json!({"ev": "node", "ok": false, "harness": "claude"});
+    let hour = 1_800_000_000_000 / 3_600_000 * 3_600_000;
+    let sent: usize = (0..500)
+        .map(|i| catalog::map(&fail, &mut state, hour + i).len())
+        .sum();
+    assert_eq!(sent, catalog::BURST_PER_HOUR as usize);
+    // Another reason has its own cap.
+    let cap = json!({"ev": "compactor.capacity", "route": "claude", "status": 429});
+    assert_eq!(catalog::map(&cap, &mut state, hour + 1).len(), 1);
+    // The next hour sends again and says how many were held back.
+    let next = catalog::map(&fail, &mut state, hour + 3_600_000);
+    assert_eq!(next.len(), 1);
+    assert_eq!(next[0].properties["repeats_dropped"], json!(490));
+    // The cap is not saved: state.json does not change per failure.
+    assert_eq!(
+        serde_json::to_value(&state).unwrap(),
+        serde_json::to_value(State::default()).unwrap()
+    );
+}

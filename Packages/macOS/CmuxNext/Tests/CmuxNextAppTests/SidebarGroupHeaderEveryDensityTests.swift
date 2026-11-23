@@ -105,7 +105,7 @@ import Testing
         let rowView = try #require(list.rowViews[.workspace(loose)])
         let rich = list.displayed.row(for: .workspace(Self.rich))?.height ?? -1
         var o = SidebarLayoutOptions()
-        (o.minimal, o.expanded) = (minimal, density == .expanded)
+        o.expanded = density == .expanded
         let expectedMetrics = SidebarLayoutMetrics.standard.resolved(for: o)
         var parts = ["row \(row.height)", "rowView \(rowView.frame.height)", "rich \(rich)", "metrics \(expectedMetrics.rowStep)"]
         #expect(abs(row.height - expectedMetrics.rowStep) <= 0.5, "\(label): a plain row is \(row.height), metrics say \(expectedMetrics.rowStep)")
@@ -131,7 +131,7 @@ import Testing
             #expect(abs(memberSlot.height - row.height) <= 0.5, "\(label): member \(memberSlot.height) vs loose \(row.height)")
         }
         // The usual workspace row: a folder and a branch. Compact and comfortable show one line,
-        // Expanded two, Minimal Mode one; a group header matches it at each.
+        // Expanded two, with Minimal Mode on or off; a group header matches it at each.
         let header = try #require(list.displayed.row(for: .group(group))).height
         #expect(abs(rich - header) <= 0.5, "\(label): a workspace row is \(rich) pt, its group header \(header) pt")
         for (name, ws) in Self.badged {
@@ -147,16 +147,16 @@ import Testing
     @Test(arguments: DensityPreset.allCases)
     func resolvedMetricsGiveHeadersAndRowsOneStep(preset: DensityPreset) {
         DensityTokens.$scoped.withValue(preset.tokens) {
-            for minimal in [false, true] {
+            do {
                 for expanded in [false, true] {
                     for tabs in [false, true] {
                         var o = SidebarLayoutOptions()
-                        (o.minimal, o.expanded, o.workspacesAsTabs) = (minimal, expanded, tabs)
+                        (o.expanded, o.workspacesAsTabs) = (expanded, tabs)
                         let m = SidebarLayoutMetrics.standard.resolved(for: o)
                         let plain = m.height(for: WorkspaceRowContent())
                         var usual = WorkspaceRowContent()
-                        usual.detail = expanded && !minimal && !tabs ? "~/fun/cmux" : nil
-                        let label = "\(preset.rawValue) minimal \(minimal) expanded \(expanded) tabs \(tabs)"
+                        usual.detail = expanded && !tabs ? "~/fun/cmux" : nil
+                        let label = "\(preset.rawValue) expanded \(expanded) tabs \(tabs)"
                         #expect(m.groupHeaderHeight == plain, "\(label): header \(m.groupHeaderHeight), plain row \(plain)")
                         #expect(m.groupHeaderHeight == m.height(for: usual), "\(label): header \(m.groupHeaderHeight), usual row \(m.height(for: usual))")
                     }

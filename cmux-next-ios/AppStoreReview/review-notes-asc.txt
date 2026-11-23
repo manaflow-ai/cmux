@@ -23,6 +23,7 @@ First launch:
 ## Hosted Chief answers in chat, with no Mac.
 Review path (no Mac needed):
 1. Home opens. Tap Chief (it is labeled Main · Cloud), type a message, for example: What can you help me with? Then tap Send. Chief answers in the conversation within a few seconds.
+   The first message asks "Chief Uses AI": Chief's replies come from third-party AI models (Anthropic and OpenAI), so the app asks before anything is shared (Guideline 5.1.2(i)). Tap "Agree and Send". Chief's info page turns sharing off again and has "Report a Response…" (Guideline 1.2).
 2. If Home shows "Chief Is Off" instead, tap "Turn On", then open Chief and send the message.
 3. Tap Chief's name at the top. Its page says "This Chief runs in cmux Cloud."
 ## REVIEW DEMO STEPS: END
@@ -43,6 +44,10 @@ Permissions, each optional and asked only when first used:
 
 Background audio (UIBackgroundModes audio): an audio message to Chief keeps recording, and a call with Chief keeps its audio, while the iPhone is locked or another app is open. To see it, start an audio message in a conversation with Chief, lock the iPhone for a few seconds, unlock it and send: the message includes what was said while the iPhone was locked.
 
-Payments: the app sells no digital goods and has no purchase, checkout or billing links.
+In-app purchases:
+- Settings > "Plan" opens "Plans": cmux Go, cmux Pro and cmux Max, monthly. "Subscribe" buys in the Sandbox.
+- "Restore Purchases" is there; when subscribed, "Manage Subscription" too.
+- "Terms of Use", "Privacy Policy" and the 3.1.2 terms (renews until cancelled) are below.
+- No other purchase or billing links.
 
 Contact during review: {{REVIEW_CONTACT_EMAIL}}, {{REVIEW_CONTACT_PHONE}}

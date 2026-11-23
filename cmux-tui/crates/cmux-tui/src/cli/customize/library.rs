@@ -2,10 +2,12 @@
 //! turn on and off and stack in order; shared as one file or one link.
 //! The model is `cmux_customize::library`; this is its grammar and words.
 
+use std::collections::BTreeSet;
 use std::io::{Read, Write};
 
 use base64::Engine;
-use cmux_customize::library::{Changed, Collection, Listing, Position, Recovered};
+use cmux_customize::library::expire::{self, Expired, Expiring, Expiry};
+use cmux_customize::library::{Changed, Collection, Listing, NoLongerApplies, Position, Recovered};
 use cmux_customize::{Customize, Error};
 use serde_json::{Value, json};
 
@@ -55,11 +57,22 @@ pub(in crate::cli) enum Request {
         on: bool,
     },
     /// Every code entry against what is published (a folder: built again)
-    /// and this build.
-    Refresh,
+    /// and this build. `if_app_changed`: only when the app's commit is not
+    /// the one refresh last ran on (the app runs it at start), and quiet
+    /// when it is.
+    Refresh {
+        if_app_changed: bool,
+    },
+    /// `refresh --wait`: waits in the background for the rebuilds refresh
+    /// asked CI for (rebuild.rs), bounded; refresh starts it.
+    RefreshWait,
+    /// Every layer past its bound off: a PR merged or closed, a code layer
+    /// on longer than 24 hours, a hand-installed overlay as old (the app
+    /// runs it at launch).
+    Expire,
 }
 
-const USAGE: &str = "customize library takes list, status, refresh, on NAME, off NAME [--reason TEXT], off --code [--reason TEXT], off --all, reset, order NAME top|bottom|N, remove NAME, export [FILE] [--link] [--on] [--name NAME], import FILE|LINK|- [--on]";
+const USAGE: &str = "customize library takes list, status, refresh [--if-app-changed], expire, on NAME, off NAME [--reason TEXT], off --code [--reason TEXT], off --all, reset, order NAME top|bottom|N, remove NAME, export [FILE] [--link] [--on] [--name NAME], import FILE|LINK|- [--on]";
 
 /// Parses the words after `library`.
 pub(super) fn parse(words: &[String]) -> Result<Request, String> {
@@ -70,7 +83,13 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
     let Some((verb, rest)) = words.split_first() else { return Ok(Request::List) };
     match verb.as_str() {
         "list" | "ls" if rest.is_empty() => Ok(Request::List),
-        "refresh" if rest.is_empty() => Ok(Request::Refresh),
+        "refresh" if rest == ["--wait"] => Ok(Request::RefreshWait),
+        "refresh" => match rest {
+            [] => Ok(Request::Refresh { if_app_changed: false }),
+            [flag] if flag == "--if-app-changed" => Ok(Request::Refresh { if_app_changed: true }),
+            _ => Err("customize library refresh takes only --if-app-changed or --wait".to_owned()),
+        },
+        "expire" if rest.is_empty() => Ok(Request::Expire),
         "status" if rest.is_empty() => Ok(Request::Status),
         "reset" if rest.is_empty() => Ok(Request::OffAll),
         "on" | "enable" => Ok(Request::On { name: name(rest, "on")? }),
@@ -163,6 +182,12 @@ pub(super) fn execute(
     origin: &str,
     now_ms: u64,
 ) -> Result<Answer, Failure> {
+    // Every read first turns off what is past its bound, so a person or an
+    // agent never reads a layer as on that should have expired.
+    let expiring = match request {
+        Request::List | Request::Status => Some(expire_by_age(customize, origin, now_ms)),
+        _ => None,
+    };
     Ok(match request {
         Request::List => {
             let listing = customize.library()?;
@@ -178,10 +203,36 @@ pub(super) fn execute(
                     "Not in the library: {words} (`cmux customize library status`)\n"
                 ));
             }
+            human.push_str(&expired_lines(&customize.expired(now_ms), expiring.as_ref()));
             Answer::Library { json: json!({ "library": listing }), human }
         }
-        Request::Refresh => super::pr::refresh(customize, origin, now_ms)?,
-        Request::On { name } => changed(customize.library_set_on(&name, true, origin, now_ms)?),
+        Request::RefreshWait => super::rebuild::wait(customize, origin, super::now_ms)?,
+        Request::Refresh { if_app_changed } => {
+            let app = super::pr::App::find().commit;
+            refresh_when(customize, app.as_deref(), if_app_changed, || {
+                Ok(with_no_longer_applies(
+                    customize,
+                    super::pr::refresh(customize, origin, now_ms)?,
+                ))
+            })?
+        }
+        Request::Expire => super::expire::run(customize, origin, now_ms)?,
+        Request::On { name } if name == expire::WEB_DEV_OVERLAY => {
+            let path = customize.renew_overlay(now_ms)?;
+            Answer::Library {
+                json: json!({ "renewed": expire::WEB_DEV_OVERLAY, "overlay": path }),
+                human: format!(
+                    "the web-dev.json overlay is on again ({path}) for another {} hours; open pages reload onto it\n",
+                    expire::MAX_AGE_MS / 3_600_000
+                ),
+            }
+        }
+        Request::On { name } => {
+            let before = views_scopes(customize);
+            let mut answer = changed(customize.library_set_on(&name, true, origin, now_ms)?);
+            waiting(&mut answer, &before, &views_scopes(customize));
+            answer
+        }
         Request::Off { name, reason: Some(reason) }
             if customize
                 .library()?
@@ -214,6 +265,13 @@ pub(super) fn execute(
                 }
                 human.push('\n');
             }
+            let entries = customize.library().map(|listing| listing.entries).unwrap_or_default();
+            let still_off =
+                |name: &str| entries.iter().any(|entry| entry.name == name && !entry.on);
+            human.push_str(&super::rebuild::off_lines(
+                &super::rebuild::Rebuilds::load(customize),
+                still_off,
+            ));
             if let Some(overlay) = &layers.overlay {
                 human.push_str(&format!("  web-dev.json overlay: {overlay}\n"));
             }
@@ -234,7 +292,11 @@ pub(super) fn execute(
                     "  cmux customize library reset        everything back to before any layer\n",
                 );
             }
-            Answer::Library { json: json!({ "layers": layers }), human }
+            human.push_str(&expired_lines(&layers.expired, expiring.as_ref()));
+            with_no_longer_applies(
+                customize,
+                Answer::Library { json: json!({ "layers": layers }), human },
+            )
         }
         Request::Order { name, position } => {
             changed(customize.library_order(&name, position, origin, now_ms)?)
@@ -248,6 +310,7 @@ pub(super) fn execute(
         Request::Import { source, on } => {
             let text = read_source(&source)?;
             let collection = Customize::parse_collection(&text)?;
+            let before = views_scopes(customize);
             let imported = customize.library_import(&collection, on, origin, now_ms)?;
             let mut human = String::new();
             if !imported.added.is_empty() {
@@ -274,9 +337,129 @@ pub(super) fn execute(
             if !on && !imported.added.is_empty() {
                 human.push_str("  cmux customize library on NAME   turn one on\n");
             }
-            Answer::Library { json: json!(imported), human }
+            let mut answer = Answer::Library { json: json!(imported), human };
+            waiting(&mut answer, &before, &views_scopes(customize));
+            answer
         }
     })
+}
+
+/// `refresh`, then the app commit it ran on recorded in the library. With
+/// `if_app_changed` it runs only when [`refresh_due`] says so and there is a
+/// code entry to refresh; else it answers nothing at all, so the app's start
+/// says nothing when nothing changed.
+///
+/// [`refresh_due`]: cmux_customize::library::refresh_due
+fn refresh_when(
+    customize: &Customize,
+    app: Option<&str>,
+    if_app_changed: bool,
+    run: impl FnOnce() -> Result<Answer, Failure>,
+) -> Result<Answer, Failure> {
+    if if_app_changed {
+        let has_code = customize.library()?.entries.iter().any(|entry| entry.code.is_some());
+        let recorded = customize.library_refreshed_on()?;
+        if !has_code || !cmux_customize::library::refresh_due(recorded.as_deref(), app) {
+            return Ok(Answer::Library {
+                json: json!({ "refreshed": [], "app_changed": false }),
+                human: String::new(),
+            });
+        }
+    }
+    let answer = run()?;
+    if let Some(app) = app {
+        customize.library_mark_refreshed(app)?;
+    }
+    Ok(answer)
+}
+
+/// `answer` with one line for each entry that is on with keys this app no
+/// longer reads as written (`no_longer_apply` in its JSON); unchanged when
+/// everything applies. Only says: nothing is turned off or rewritten.
+fn with_no_longer_applies(customize: &Customize, answer: Answer) -> Answer {
+    let stale = customize.library_no_longer_applies();
+    no_longer_applies_into(answer, &stale)
+}
+
+fn no_longer_applies_into(answer: Answer, stale: &[NoLongerApplies]) -> Answer {
+    match answer {
+        Answer::Library { mut json, mut human } if !stale.is_empty() => {
+            for entry in stale {
+                human.push_str(&entry.line());
+                human.push('\n');
+            }
+            if let Some(object) = json.as_object_mut() {
+                object.insert("no_longer_apply".to_owned(), json!(stale));
+            }
+            Answer::Library { json, human }
+        }
+        other => other,
+    }
+}
+
+/// The scopes the customize folder's views app asks for (`scopes` in its
+/// manifest, picked as the app's catalog picks it: `cmux-app.json`, else
+/// `cmux-app.v2.json`); empty when there is none.
+fn views_scopes(customize: &Customize) -> BTreeSet<String> {
+    let dir = &customize.roots().customize_dir;
+    ["cmux-app.json", "cmux-app.v2.json"]
+        .iter()
+        .map(|name| dir.join(name))
+        .find(|path| path.is_file())
+        .and_then(|path| std::fs::read_to_string(path).ok())
+        .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+        .and_then(|manifest| {
+            manifest.get("scopes")?.as_object().map(|o| o.keys().cloned().collect())
+        })
+        .unwrap_or_default()
+}
+
+/// The scopes past reading that the views now ask for and did not before. cmux
+/// grants the views' read scopes by itself; these wait for the person, who
+/// allows each one on a card.
+fn widened(before: &BTreeSet<String>, after: &BTreeSet<String>) -> Vec<String> {
+    after.difference(before).filter(|scope| !scope.ends_with(":read")).cloned().collect()
+}
+
+/// Says which new scopes wait for the person's approval, and where they give it.
+fn waiting(answer: &mut Answer, before: &BTreeSet<String>, after: &BTreeSet<String>) {
+    let scopes = widened(before, after);
+    if scopes.is_empty() {
+        return;
+    }
+    if let Answer::Library { json, human } = answer {
+        if let Some(object) = json.as_object_mut() {
+            object.insert("waiting_scopes".into(), json!(scopes));
+        }
+        human.push_str(&format!(
+            "your views now ask for {}: cmux does not grant {} until you allow {} (App Store, Installed, local/customize; a card asks you first)\n",
+            scopes.join(", "),
+            if scopes.len() == 1 { "it" } else { "them" },
+            if scopes.len() == 1 { "it" } else { "each one" },
+        ));
+    }
+}
+
+/// The age-only expiry every read runs first (no network: `library expire`
+/// also asks GitHub which PRs merged or closed).
+fn expire_by_age(customize: &Customize, origin: &str, now_ms: u64) -> Expiring {
+    let expiry = Expiry { now_ms, app_abi: super::app_web_abi(None), ..Expiry::default() };
+    customize.expire_stale(&expiry, origin)
+}
+
+/// What expired, each with its way back, and what could not be turned off.
+pub(super) fn expired_lines(expired: &[Expired], now: Option<&Expiring>) -> String {
+    let mut out = String::new();
+    for expired in expired {
+        out.push_str(&format!(
+            "  expired: {} ({}); back: {}\n",
+            expired.name, expired.why, expired.back
+        ));
+    }
+    for problem in now.map(|now| now.problems.as_slice()).unwrap_or_default() {
+        out.push_str(&format!("  not expired: {problem}\n"));
+    }
+    out
 }
 
 fn changed(change: Changed) -> Answer {
@@ -319,7 +502,19 @@ fn change_lines(change: &Changed) -> String {
         )),
         // A code layer moves web-dev.json, which no generation holds.
         None if change.changed.iter().any(|key| key == cmux_customize::library::WEB_KEY) => {
-            out.push_str("web pages now load from the layer the library says; open pages reload\n");
+            let web = cmux_customize::library::WEB_KEY;
+            let serving = change.library.entries.iter().find(|entry| {
+                entry.on
+                    && entry.code.as_ref().is_some_and(|code| code.has_web())
+                    && !entry.overridden.iter().any(|key| key == web)
+            });
+            out.push_str(&match serving {
+                Some(entry) => {
+                    format!("web pages now load from {}; open pages reload\n", entry.name)
+                }
+                None => "no code layer is on: web pages are as they were before any; open pages reload\n"
+                    .to_owned(),
+            });
         }
         None => out.push_str("nothing live changed\n"),
     }
@@ -340,8 +535,12 @@ fn list_lines(listing: &Listing) -> String {
             entry.settings.iter().chain(entry.files.iter()).cloned().collect();
         if let Some(code) = &entry.code {
             what.push(if code.has_web() {
+                let base = match code.base.get(..12) {
+                    Some(base) => format!(" on {base}"),
+                    None => String::new(),
+                };
                 format!(
-                    "web layer of {} at {}",
+                    "web layer of {} at {}{base}",
                     code.source_label(),
                     code.head.get(..12).unwrap_or(&code.head)
                 )
@@ -352,6 +551,10 @@ fn list_lines(listing: &Listing) -> String {
             if !code.note.is_empty() {
                 what.push(code.note.clone());
             }
+        }
+        if let Some(until) = entry.until_ms {
+            let left = until.saturating_sub(super::now_ms());
+            what.push(format!("trying it on: off by itself in {}", expire::minutes(left)));
         }
         let words = entry.words.first().map(|w| format!("  \"{w}\"")).unwrap_or_default();
         out.push_str(&format!(
@@ -457,117 +660,5 @@ fn io_failure(error: impl std::fmt::Display) -> Failure {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn words(text: &str) -> Vec<String> {
-        text.split_whitespace().map(str::to_owned).collect()
-    }
-
-    #[test]
-    fn library_words_parse() {
-        assert_eq!(parse(&[]).unwrap(), Request::List);
-        assert_eq!(parse(&words("ls")).unwrap(), Request::List);
-        assert_eq!(parse(&words("on roomy")).unwrap(), Request::On { name: "roomy".into() });
-        assert_eq!(
-            parse(&words("off roomy")).unwrap(),
-            Request::Off { name: "roomy".into(), reason: None }
-        );
-        assert_eq!(
-            parse(&words("order roomy 2")).unwrap(),
-            Request::Order { name: "roomy".into(), position: Position::At(2) }
-        );
-        assert_eq!(
-            parse(&words("order roomy top")).unwrap(),
-            Request::Order { name: "roomy".into(), position: Position::Top }
-        );
-        assert_eq!(
-            parse(&words("export set.json --link --on --name mine")).unwrap(),
-            Request::Export {
-                file: Some("set.json".into()),
-                link: true,
-                only_on: true,
-                name: Some("mine".into())
-            }
-        );
-        assert_eq!(
-            parse(&words("import - --on")).unwrap(),
-            Request::Import { source: "-".into(), on: true }
-        );
-        for bad in ["on", "on -x", "order roomy 0", "order roomy", "import", "frob", "export a b"] {
-            assert!(parse(&words(bad)).is_err(), "{bad}");
-        }
-    }
-
-    /// The recovery words, exactly as the app calls them when a layer's
-    /// pages fail to load: `off --code --reason "<one line>"`.
-    #[test]
-    fn recovery_words_parse() {
-        let reason = |text: &str| Some(text.to_owned());
-        let app_call: Vec<String> =
-            ["off", "--code", "--reason", "pages did not load: timeout after 10 s"]
-                .iter()
-                .map(|word| (*word).to_owned())
-                .collect();
-        assert_eq!(
-            parse(&app_call).unwrap(),
-            Request::OffCode { reason: reason("pages did not load: timeout after 10 s") }
-        );
-        assert_eq!(parse(&words("off --code")).unwrap(), Request::OffCode { reason: None });
-        assert_eq!(
-            parse(&words("off --reason=gone --code")).unwrap(),
-            Request::OffCode { reason: reason("gone") }
-        );
-        assert_eq!(
-            parse(&words("off pr-43496 --reason broke")).unwrap(),
-            Request::Off { name: "pr-43496".into(), reason: reason("broke") }
-        );
-        assert_eq!(parse(&words("off --all")).unwrap(), Request::OffAll);
-        assert_eq!(parse(&words("reset")).unwrap(), Request::OffAll);
-        assert_eq!(parse(&words("status")).unwrap(), Request::Status);
-        for bad in [
-            "off",
-            "off --all --code",
-            "off --all --reason x",
-            "off a b",
-            "off a --all",
-            "off --code --reason",
-            "off --frob",
-            "reset now",
-        ] {
-            assert!(parse(&words(bad)).is_err(), "{bad}");
-        }
-    }
-
-    /// `off --code` and `reset` work with no app and a library that does not
-    /// read, and say through the exit code that the base was lost.
-    #[test]
-    fn recovery_runs_with_a_broken_library_and_exits_1_when_not_complete() {
-        use cmux_customize::Roots;
-        let dir = tempfile::tempdir().unwrap();
-        let customize = Customize::open(Roots::under(dir.path()));
-        let answer = execute(&customize, Request::OffCode { reason: None }, "cli", 1).unwrap();
-        assert_eq!(answer.exit(), 0, "nothing on is a clean recovery");
-        assert!(answer.json()["complete"].as_bool().unwrap());
-
-        std::fs::create_dir_all(dir.path().join("state")).unwrap();
-        std::fs::write(dir.path().join("state/library.json"), "{ cut short").unwrap();
-        let answer = execute(&customize, Request::OffAll, "cli", 2).unwrap();
-        assert_eq!(answer.exit(), 1);
-        let human = answer.human(2);
-        assert!(human.contains("library.json.unreadable-2"), "{human}");
-        assert!(human.contains("cmux serves its own pages"), "{human}");
-        let status = execute(&customize, Request::Status, "cli", 3).unwrap();
-        assert_eq!(status.json()["layers"]["line"], "customize: 0 on");
-    }
-
-    #[test]
-    fn a_link_carries_the_collection_and_a_damaged_one_is_refused() {
-        let text = "{\"cmuxCollection\":1,\"entries\":[]}\n";
-        let link = to_link(text).unwrap();
-        assert!(link.starts_with(LINK_PREFIX));
-        assert_eq!(from_link(link.strip_prefix(LINK_PREFIX).unwrap()).unwrap(), text);
-        assert!(from_link("not base64 at all!").is_err());
-        assert!(from_link("AAAA").is_err());
-    }
-}
+#[path = "library_tests.rs"]
+mod tests;

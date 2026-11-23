@@ -27,6 +27,8 @@ mod diff;
 mod diff_comments;
 mod diff_pages;
 mod files;
+#[cfg(all(test, unix))]
+mod files_stress_tests;
 mod fingerprint;
 mod journal;
 mod list;
@@ -101,6 +103,10 @@ pub(crate) const WORKTREE_REMOVE_CAPABILITY: &str = "git-worktree-remove-v1";
 /// recipe, and the session host answers `git.worktree.setup`.
 pub(crate) const WORKTREE_SETUP_CAPABILITY: &str = "git-worktree-setup-v1";
 
+/// Advertised in identify: a repository recipe's setup waits for the
+/// person's approval, and the session host answers `git.worktree.setup.run`.
+pub(crate) const WORKTREE_SETUP_RUN_CAPABILITY: &str = "git-worktree-setup-run-v1";
+
 pub(crate) fn handles(operation: ResourceOperation) -> bool {
     matches!(
         operation,
@@ -116,6 +122,7 @@ pub(crate) fn handles(operation: ResourceOperation) -> bool {
             | ResourceOperation::GitWorktreeApply
             | ResourceOperation::GitWorktreeRemove
             | ResourceOperation::GitWorktreeSetup
+            | ResourceOperation::GitWorktreeSetupRun
     ) || checkpoint::handles(operation)
         || diff_comments::handles(operation)
 }
@@ -138,6 +145,9 @@ pub(crate) fn dispatch(
         ResourceOperation::GitWorktreeApply => return worktree_apply::dispatch(mux, &request),
         ResourceOperation::GitWorktreeRemove => return worktree_remove::dispatch(mux, &request),
         ResourceOperation::GitWorktreeSetup => return worktree_setup::dispatch(mux, &request),
+        ResourceOperation::GitWorktreeSetupRun => {
+            return worktree_setup::dispatch_run(mux, &request);
+        }
         _ => {}
     }
     let operation = match request.envelope.operation {
@@ -151,17 +161,25 @@ pub(crate) fn dispatch(
     };
     let directory = target::directory(mux, &request, operation)?;
     if operation == "git.status" {
-        return status(&directory);
+        let github = request.fields.get("github").and_then(Value::as_bool).unwrap_or(false);
+        return status(&directory, github);
     }
     if operation == "git.fingerprint" {
         return fingerprint::read(&directory, &request.fields);
+    }
+    if operation == "git.files.list" {
+        // A folder in no repository still lists, from the disk: git only adds to a file tree.
+        return match Repository::open(&directory) {
+            Ok(repository) => list::list(&repository, &directory, &request.fields),
+            Err(OpenError::NotARepository) => list::list_folder(&directory, &request.fields),
+            Err(error) => Err(open_failed(operation, &directory, error)),
+        };
     }
     let repository = open_repository(&directory, operation)?;
     match operation {
         "git.diff" => diff::read(&repository, &request.fields),
         "git.branches" => branches(&repository, &request.fields),
-        "git.files.search" => files::search(&repository, &directory, &request.fields),
-        _ => list::list(&repository, &directory, &request.fields),
+        _ => files::search(&repository, &directory, &request.fields),
     }
 }
 
@@ -180,8 +198,10 @@ fn open_failed(operation: &'static str, directory: &Path, error: OpenError) -> R
 /// What HEAD of the checkout `directory` is in is on. A view that shows a
 /// branch asks this often and a person waits for it, so it comes from the
 /// refs (`cmux_git::head`): no run looks at the work tree's files, whose
-/// count would set the cost.
-fn status(directory: &Path) -> Result<Value, ResourceError> {
+/// count would set the cost. `github` adds `github_repo`, the `owner/name`
+/// of the upstream's remote (else `origin`) on github.com: one more git run,
+/// so only a caller that asks pays it.
+fn status(directory: &Path, github: bool) -> Result<Value, ResourceError> {
     const OPERATION: &str = "git.status";
     let repository =
         Checkout::open(directory).map_err(|error| open_failed(OPERATION, directory, error))?;
@@ -197,6 +217,16 @@ fn status(directory: &Path) -> Result<Value, ResourceError> {
     }
     if let Some(head) = headers.head {
         value.set("head", json!(head));
+    }
+    if github {
+        let remote = headers
+            .upstream
+            .as_deref()
+            .and_then(|upstream| upstream.split_once('/'))
+            .map_or("origin", |(remote, _)| remote);
+        if let Some(repo) = repository.github_repo(remote) {
+            value.set("github_repo", json!(repo));
+        }
     }
     if let Some(upstream) = headers.upstream {
         value.set("upstream", json!(upstream));

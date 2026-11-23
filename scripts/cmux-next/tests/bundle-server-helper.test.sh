@@ -43,7 +43,7 @@ label=$(/usr/libexec/PlistBuddy -c 'Print :Label' "$plist")
 [[ "$label" == "com.cmuxterm.app.debug.testtag.server-helper" ]] || { echo "stale label: $label" >&2; exit 1; }
 
 agent="$TMP/build/app.app/Contents/Library/LaunchAgents/com.cmux.server.plist"
-pb() { /usr/libexec/PlistBuddy -c "Print :$1" "$2" 2>/dev/null; }
+pb() { [[ -f "$2" ]] || return 1; /usr/libexec/PlistBuddy -c "Print :$1" "$2" 2>/dev/null; }
 expect() { # <plist> <key> <value>
   local got
   got=$(pb "$2" "$1") || { echo "$1: missing $2" >&2; exit 1; }

@@ -1,4 +1,5 @@
 import CmuxNextCompat
+import CmuxNextSettings
 import Foundation
 
 /// The JSON shapes ``ChromiumPageHostBridge`` reads and writes. Pure, so tests check each shape.
@@ -28,6 +29,9 @@ nonisolated struct ChromiumPageHostWire {
         /// Set for the replying handler.
         var seq: Int?
         var body: Any
+        /// The replying handler's envelope as the router reads it, made here with the parse (off the main
+        /// actor, ``ChromiumPageHostBridge``): the main actor converts nothing of a page call's payload.
+        var json: JSONValue?
 
         init?(payload: String) {
             guard let object = ChromiumPageHostWire.object(payload), let name = object["name"] as? String,
@@ -37,8 +41,12 @@ nonisolated struct ChromiumPageHostWire {
             self.name = name
             self.seq = seq
             self.body = body
+            json = seq == nil ? nil : JSONValue(foundation: body)
         }
     }
+
+    /// What the bridge asks a context to learn who sent its messages (``Sender``).
+    static let senderExpression = "[location.href, window === window.top]"
 
     /// The `Runtime.evaluate` result of `[location.href, window === window.top]`.
     struct Sender: Equatable {

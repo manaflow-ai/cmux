@@ -28,6 +28,10 @@ parser.add_argument("--fullscreen", action="store_true", help="put the window in
 parser.add_argument("--input", choices=["hid", "cua-desktop", "cua-foreground", "cua-background"], default="hid",
                     help="hid: CGEventPost at the HID tap (needs the Accessibility grant); cua-*: cua-driver's pixel click")
 opts = parser.parse_args()
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from bench_launch import require_no_person_mac  # noqa: E402
+from state_wait import wait_stable  # noqa: E402
+require_no_person_mac("close-question-click-live")  # it posts real input (CGEventPost): never on a person's Mac
 os.makedirs(opts.out, exist_ok=True)
 SOCKET = f"/tmp/cmux-debug-{opts.tag}.sock"
 SCRATCH = tempfile.mkdtemp(prefix=f"closeq-{opts.tag}-")
@@ -90,6 +94,25 @@ def wait(predicate, seconds, step=0.2):
             return value
         time.sleep(step)
     return None
+
+
+def foreground(terminal_id):
+    """The daemon's foreground program of a terminal (`terminal process show`), read quietly for a poll."""
+    done = subprocess.run([CLI, "--app-socket", SOCKET, "terminal", str(terminal_id), "process", "show", "--json"],
+                          env=cli_env(), capture_output=True, text=True, timeout=30)
+    try:
+        reply = json.loads(done.stdout)
+    except ValueError:
+        return ""
+    value = reply.get("value", reply) if isinstance(reply, dict) else {}
+    return os.path.basename(str((value or {}).get("foreground_executable") or "")).lstrip("-")
+
+
+def main_bounds():
+    """The main window's bounds as cua-driver lists them."""
+    return next((w.get("bounds") for w in find(cua("list_windows", {"pid": app.pid}),
+                                               lambda o: isinstance(o, dict) and "window_id" in o and o.get("pid") == app.pid)
+                 if w.get("title") == "cmux"), None)
 
 
 def workspace_titles():
@@ -258,10 +281,15 @@ try:
     check(bool(wait(lambda: workspace_titles().count(NAME) > before, 15)), f"the workspace {NAME!r} is listed", workspace_titles())
     if terminal:
         cli("terminal", str(terminal), "write", "--text", "sleep 600\n")
-        time.sleep(1.5)  # test harness: the shell starts sleep before the close asks process-info
+        # The shell starts sleep before the close asks process-info.
+        check(bool(wait(lambda: foreground(terminal) == "sleep", 15, 0.1)), "sleep is the terminal's foreground program",
+              foreground(terminal))
     if opts.browser:
         cli("workspace", workspace or "current", "open-url", "--url", "https://example.com")
-        time.sleep(4)  # test harness: the page window shows beside the terminal
+        # The page shows beside the terminal: a pane other than a terminal or chat has its content in.
+        if not wait(lambda: any(p.get("kind") not in (None, "terminal", "agent") and p.get("content_installed")
+                                for w in (rpc("debug.surfaces") or {}).get("windows") or [] for p in w.get("panes") or []), 20, 0.1):
+            print("the browser pane did not show its content in 20 s", flush=True)
     wins = cua("list_windows", {"pid": app.pid})
     main = next((w for w in find(wins, lambda o: isinstance(o, dict) and "window_id" in o and o.get("pid") == app.pid)
                  if w.get("title") == "cmux"), None)
@@ -272,8 +300,13 @@ try:
         print("set_window_frame", json.dumps(moved)[:300], flush=True)
         cua("bring_to_front", {"pid": app.pid, "window_id": main["window_id"]})
     if opts.fullscreen:
+        windowed = main_bounds()
         print("fullscreen", json.dumps(rpc("debug.toast", {"perform": "toggleFullScreen"}))[:200], flush=True)
-        time.sleep(4)  # test harness: the full screen transition ends
+        # The full screen transition ends: the main window's bounds changed, then held for 1 s.
+        if not wait(lambda: main_bounds() not in (None, windowed), 10, 0.1):
+            print("the main window's bounds never changed for full screen (still %s)" % windowed, flush=True)
+        wait_stable(main_bounds, "the main window's full screen bounds", timeout=10, interval=0.25, reads=5,
+                    raise_on_timeout=False)
     if opts.focus_page:
         # A real click in the page's lower right (clear of the card to come): the Chromium page window takes the key.
         frame = next((w["bounds"] for w in find(cua("list_windows", {"pid": app.pid}), lambda o: isinstance(o, dict) and "window_id" in o
@@ -281,7 +314,9 @@ try:
         if frame:
             print("focus page", json.dumps(cua("click", {"x": frame["x"] + frame["width"] - 120, "y": frame["y"] + frame["height"] - 90,
                                                         "scope": "desktop"}))[:200], flush=True)
-            time.sleep(1)  # test harness: the page takes the key
+            # The page takes the key: the router's focus is the web page.
+            if not wait(lambda: ((rpc("context.keys") or {}).get("keys") or {}).get("surfaceKind") == "page", 10, 0.1):
+                print("the page did not take the key in 10 s:", json.dumps(rpc("context.keys"))[:200], flush=True)
     shot("workspace", f"{NAME} runs sleep" + (" beside a browser split" if opts.browser else ""))
 
     # check: two clicks on the check box ------------------------------------------------------------------------
@@ -302,7 +337,8 @@ try:
     # cancel ---------------------------------------------------------------------------------------------------
     if click("Cancel", "button"):
         check(bool(wait(lambda: question() is None, 3)), "a click on Cancel answers the question", dialogs())
-        time.sleep(0.5)  # test harness: a cancelled close must change nothing
+        # sleep-ok: an observation window; a cancelled close must change nothing within it (an absence has no event)
+        time.sleep(0.5)
         check(workspace_titles().count(NAME) == before + 1, "Cancel keeps the workspace", workspace_titles())
         shot("cancelled", "after a click on Cancel: the workspace stays")
 
