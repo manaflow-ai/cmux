@@ -9,6 +9,7 @@
 // builds behind a disclosure; `header`, a quiet link on the header's line beside What's New; `list`,
 // the builds always open with the previous one marked.
 import { useEffect, useState } from "react";
+import { intl } from "../../ui/intl";
 import type { Strings } from "../shared/i18n";
 import type { RecentBuildRow, UpdateGoBack, UpdateSurfaceActions } from "./updateHighlights";
 import { cardVersion } from "./UpdateSurfaces";
@@ -20,7 +21,7 @@ export function buildDay(date: string, language: string): string {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
   if (!match) return date;
   const day = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]), 12));
-  return new Intl.DateTimeFormat(language, { month: "short", day: "numeric", timeZone: "UTC" }).format(day);
+  return intl.DateTimeFormat(language, { month: "short", day: "numeric", timeZone: "UTC" }).format(day);
 }
 
 type State = { kind: "idle" } | { kind: "going"; build?: string } | { kind: "failed"; message: string };

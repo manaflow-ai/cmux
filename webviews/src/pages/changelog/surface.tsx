@@ -77,9 +77,9 @@ export function mountUpdateSurface(root: HTMLElement, kind: SurfaceKind, client:
     });
   // The Updated card's changes go back to an earlier build (GoBack.tsx); the host answers.
   const goBack = (build?: string) =>
-    (client?.call<{ failure?: string | null }>(SurfaceOps.goBack, build ? { build } : {}) ?? Promise.resolve(null)).then(
-      (answer) => answer?.failure ?? null,
-    );
+    (
+      client?.call<{ failure?: string | null }>(SurfaceOps.goBack, build ? { build } : {}) ?? Promise.resolve(null)
+    ).then((answer) => answer?.failure ?? null);
   const builds = () =>
     (client?.call<{ builds?: RecentBuildRow[] }>(SurfaceOps.builds, { limit: 6 }) ?? Promise.resolve(null)).then(
       (answer) => answer?.builds ?? [],

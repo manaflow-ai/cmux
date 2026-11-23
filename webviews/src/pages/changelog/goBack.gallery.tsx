@@ -22,7 +22,12 @@ const data: UpdateHighlights = {
   source: "whatsNew",
   language: "en",
   items: [
-    { id: "restart", title: "Restart to Update opens the new build in about a second", summary: null, category: "improved" },
+    {
+      id: "restart",
+      title: "Restart to Update opens the new build in about a second",
+      summary: null,
+      category: "improved",
+    },
     { id: "composer", title: "The composer keeps its height while a reply streams", summary: null, category: "fixed" },
     { id: "cloud", title: "Cloud chats retry a relay that never opened", summary: null, category: "fixed" },
   ],
@@ -139,10 +144,12 @@ export default componentEntry<Props>({
   },
   variants: {
     footer: {
-      note: "Picked and shipped (Leo 2026-11-11: \"reverting the app to previous nightly is really slow/doesn't work very well sometimes?/needs less [bad] ui\"): one entry at the foot of the Updated card's changes names the build and its day, \"Go Back to nightly 4288034 from Nov 10\", with \"Other builds\" beside it. Chosen over the header link because it says where it goes before the click, and over the open list because the list is rarely needed and would push the changes up. The click quits with every session and opens the kept build; the sidebar's card names each step.",
+      note: 'Picked and shipped (Leo 2026-11-11: "reverting the app to previous nightly is really slow/doesn\'t work very well sometimes?/needs less [bad] ui"): one entry at the foot of the Updated card\'s changes names the build and its day, "Go Back to nightly 4288034 from Nov 10", with "Other builds" beside it. Chosen over the header link because it says where it goes before the click, and over the open list because the list is rarely needed and would push the changes up. The click quits with every session and opens the kept build; the sidebar\'s card names each step.',
       props: { look: "footer" },
       play: async (ctx) => {
-        await ctx.waitFor(() => ctx.document.querySelector(".wn-goback-entry")?.textContent?.includes("Nov 10") === true);
+        await ctx.waitFor(
+          () => ctx.document.querySelector(".wn-goback-entry")?.textContent?.includes("Nov 10") === true,
+        );
       },
     },
     "footer-open": {
@@ -162,7 +169,8 @@ export default componentEntry<Props>({
         look: "footer",
         state: {
           kind: "failed",
-          message: "The kept copy of nightly 4288034 no longer passes its signature check. Pick it under Other builds to download it again.",
+          message:
+            "The kept copy of nightly 4288034 no longer passes its signature check. Pick it under Other builds to download it again.",
         },
       },
     },
