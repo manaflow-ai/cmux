@@ -18,6 +18,15 @@ pub enum PeerCmd {
     },
     /// List your machines and their connection state.
     Ls,
+    /// Rename a machine's spoken handle while preserving its stable id and route name.
+    Rename {
+        /// Stable machine id, canonical host name, or current handle.
+        machine: String,
+        /// Short spoken handle, for example `Mango` or `Tofu`.
+        handle: String,
+    },
+    /// Look up a machine by stable id, canonical host name, or spoken handle.
+    Lookup { key: String },
     /// Each machine's health, asked live: reachable, round trip, disk free,
     /// load, live sessions and build, this machine first. Run it before
     /// remote work and after a request to a machine fails, instead of retrying blind.

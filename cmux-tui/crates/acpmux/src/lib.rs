@@ -175,6 +175,9 @@ pub mod lossy_lines;
 mod lost_home_race_tests;
 #[path = "cli/machine_consent.rs"]
 pub(crate) mod machine_consent;
+/// Persistent spoken handles for machines and VMs. Handles are display metadata and never replace
+/// the stable provider id or configured routing name.
+pub mod machine_handle;
 pub(crate) mod machine_info;
 pub(crate) mod machine_record;
 /// A local route to each of the person's other machines' cmux-tui session (`machine_routes.rs`).

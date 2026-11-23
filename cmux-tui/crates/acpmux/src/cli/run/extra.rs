@@ -1272,7 +1272,40 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                     }
                     reply
                 }
-                PeerCmd::Ls => client.request("_acpmux/peers", json!({})).await?,
+                PeerCmd::Ls => {
+                    let mut reply = client.request("_acpmux/peers", json!({})).await?;
+                    let path = crate::machine_handle::Registry::default_path();
+                    crate::machine_handle::Registry::update(&path, |registry| {
+                        registry.ensure_rows(&mut reply)
+                    })?;
+                    reply
+                }
+                PeerCmd::Rename { machine, handle } => {
+                    let path = crate::machine_handle::Registry::default_path();
+                    let entry = crate::machine_handle::Registry::update(&path, |registry| {
+                        Ok(registry.rename(&machine, handle)?.clone())
+                    })?;
+                    if json_out {
+                        print_json(&json!({"machine": entry}));
+                    } else {
+                        println!("{}", crate::machine_handle::display(entry));
+                    }
+                    return Ok(());
+                }
+                PeerCmd::Lookup { key } => {
+                    let registry = crate::machine_handle::Registry::load(
+                        &crate::machine_handle::Registry::default_path(),
+                    )?;
+                    let entry = registry
+                        .resolve(&key)?
+                        .ok_or_else(|| anyhow!("no machine named {key:?}"))?;
+                    if json_out {
+                        print_json(&json!({"machine": entry}));
+                    } else {
+                        println!("{} {}", entry.id, crate::machine_handle::display(entry));
+                    }
+                    return Ok(());
+                }
                 PeerCmd::Status { name } => {
                     let v = client.request("_acpmux/peer_status", json!({"name": name})).await?;
                     if json_out {
@@ -1452,9 +1485,14 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             for p in peers {
                 let state = crate::peer_link::state_label(&p, crate::store::now_ms());
                 let build = p.get("remoteBuild").and_then(Value::as_str).unwrap_or("");
+                let name = p
+                    .get("displayName")
+                    .and_then(Value::as_str)
+                    .or_else(|| p.get("name").and_then(Value::as_str))
+                    .unwrap_or("");
                 println!(
                     "{:<16} {:<10} {:>3} sessions  {}  {:<24} {}{}{}{}",
-                    p.get("name").and_then(Value::as_str).unwrap_or(""),
+                    name,
                     state,
                     p.get("sessions").and_then(Value::as_u64).unwrap_or(0),
                     crate::cli::peer_status::resources(&p),
