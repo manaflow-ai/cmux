@@ -476,6 +476,12 @@ pub fn default_dir(repo: Option<&Path>) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("scenarios")
 }
 
+/// Sets `key` in `table` the way `table[key] = item` does (a comment above the key stays), without
+/// the panicking index.
+fn set(table: &mut toml_edit::Table, key: &str, item: toml_edit::Item) {
+    *table.entry(key).or_insert(toml_edit::Item::None) = item;
+}
+
 /// `scenario new`: a new scenario file's text, from `base` (another scenario file's text) with
 /// its name, summary and sources replaced and the pause events' lengths set, its comments kept.
 /// The result is checked the way `scenario run` reads it.
@@ -489,25 +495,26 @@ pub fn new_text(
     let mut doc: toml_edit::DocumentMut =
         base.parse().map_err(|error: toml_edit::TomlError| error.to_string())?;
     let base_name = doc.get("name").and_then(|item| item.as_str()).unwrap_or_default().to_owned();
-    doc["name"] = toml_edit::value(name);
-    doc["summary"] = toml_edit::value(summary);
+    set(&mut doc, "name", toml_edit::value(name));
+    set(&mut doc, "summary", toml_edit::value(summary));
     let mut sources = toml_edit::Array::new();
     sources.push(source);
     sources.push(format!("made with `cmux-duress scenario new {name} --like {base_name}`"));
-    doc["sources"] = toml_edit::value(sources);
+    set(&mut doc, "sources", toml_edit::value(sources));
     if let Some(ms) = pause_ms {
-        let events = doc.get_mut("event").and_then(|item| item.as_array_of_tables_mut());
-        let mut pauses = 0;
         if ms == 0 {
             return Err("--pause-ms must be above 0".into());
         }
+        let length = i64::try_from(ms).map_err(|_| format!("--pause-ms {ms} is too long"))?;
+        let events = doc.get_mut("event").and_then(|item| item.as_array_of_tables_mut());
+        let mut found = false;
         for event in events.into_iter().flat_map(|events| events.iter_mut()) {
             if event.get("kind").and_then(|kind| kind.as_str()) == Some("pause") {
-                event["ms"] = toml_edit::value(ms as i64);
-                pauses += 1;
+                set(event, "ms", toml_edit::value(length));
+                found = true;
             }
         }
-        if pauses == 0 {
+        if !found {
             return Err(format!("--pause-ms: {base_name} has no pause event to set"));
         }
     }
@@ -1024,7 +1031,9 @@ duress = "heavy"
 
     #[test]
     fn new_text_copies_a_scenario_under_a_new_name_keeping_its_comments() {
-        let base = MINIMAL.replace("[[check]]", "# why this budget\n[[check]]");
+        let base = MINIMAL
+            .replace("[[check]]", "# why this budget\n[[check]]")
+            .replace("name = \"tiny\"", "# what it reproduces\nname = \"tiny\"");
         let text =
             new_text(&base, "resume-after-30s", "back after 30 s", "Leo, 2026-11-22", Some(30_000))
                 .unwrap();
@@ -1034,6 +1043,7 @@ duress = "heavy"
         assert_eq!(made.events, vec![Event::Pause { at_ms: 1000, ms: 30_000 }]);
         assert_eq!(made.checks, Scenario::parse(MINIMAL).unwrap().checks);
         assert!(text.contains("# why this budget"), "{text}");
+        assert!(text.contains("# what it reproduces\nname = \"resume-after-30s\""), "{text}");
         assert!(text.contains("Leo, 2026-11-22"), "{text}");
         assert!(text.contains("scenario new resume-after-30s --like tiny"), "{text}");
         // Without --pause-ms the pause stays as it was.
