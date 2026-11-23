@@ -37,7 +37,9 @@ export type HomeIconName =
   | "download"
   | "video"
   | "expand"
-  | "chevronLeft";
+  | "chevronLeft"
+  | "chevronDown"
+  | "clock";
 
 const PATHS: Record<HomeIconName, ReactNode> = {
   bold: <path d="M6 4h5a3 3 0 0 1 0 6H6zM6 10h6a3 3 0 0 1 0 6H6z" strokeWidth="2" />,
@@ -108,6 +110,13 @@ const PATHS: Record<HomeIconName, ReactNode> = {
   chevronRight: <path d="m8 5 5 5-5 5" />,
   chevronLeft: <path d="m12 5-5 5 5 5" />,
   expand: <path d="M11.5 4.5h4v4M15.5 4.5 11 9M8.5 15.5h-4v-4M4.5 15.5 9 11" />,
+  chevronDown: <path d="m6 8 4 4 4-4" />,
+  clock: (
+    <>
+      <circle cx="10" cy="10" r="6.5" />
+      <path d="M10 6.5V10l2.5 1.5" />
+    </>
+  ),
   attach: (
     <path d="m15.5 9.5-5.8 5.8a3.6 3.6 0 0 1-5.1-5.1l6.2-6.2a2.4 2.4 0 0 1 3.4 3.4l-6.1 6.1a1.2 1.2 0 0 1-1.7-1.7l5.5-5.5" />
   ),
