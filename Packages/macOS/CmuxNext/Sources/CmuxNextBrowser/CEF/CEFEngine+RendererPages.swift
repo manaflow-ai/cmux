@@ -14,6 +14,9 @@ public nonisolated struct CEFRendererPage: Sendable, Equatable {
     public var title: String = ""
     /// The content lifecycle hid the page (a background tab, a parked page).
     public var hidden: Bool
+    /// Chromium still loads the page (its last loading-state report): Chrome's tab icon spins
+    /// while it does, so a page that never ends its load keeps a compositor animation at idle.
+    public var loading: Bool = false
     /// Renderer client ids (the `--renderer-client-id=` of the helper processes that host its frames).
     public var rendererClients: [Int32]
 }
@@ -29,6 +32,7 @@ extension CEFEngine {
                                        hidden: tab.isContentHidden, rendererClients: clients)
             page.url = tab.state.url?.absoluteString ?? ""
             page.title = tab.state.title ?? ""
+            page.loading = tab.chromiumLoading
             return page
         }
     }
