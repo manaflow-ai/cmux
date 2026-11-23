@@ -137,7 +137,8 @@ impl Hub {
                         keys
                     };
                     for (peer, generation) in expired {
-                        let shard = &shards[notice_shard(&peer)];
+                        // notice_shard is below NOTICE_SHARDS, the shards' count: always Some.
+                        let Some(shard) = shards.get(notice_shard(&peer)) else { continue };
                         tokio::select! {
                             sent = shard.send(Work::Expire(peer, generation)) => if sent.is_err() { break },
                             _ = stop.changed() => break,
@@ -173,7 +174,7 @@ impl Hub {
                 }
             };
             let Work::Notice(peer, ..) = &work else { continue };
-            let shard = &shards[notice_shard(peer)];
+            let Some(shard) = shards.get(notice_shard(peer)) else { continue };
             // A full shard holds only the notices behind it here; the other shards keep going.
             tokio::select! {
                 sent = shard.send(work) => if sent.is_err() { break },
