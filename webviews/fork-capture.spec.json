@@ -1,0 +1,7 @@
+{"envs": [["light","none"],["dark","none"]],
+ "shots": [
+  {"name": "answer-hover", "entry": "agent-pane.user-bubble", "variant": "answer-hover", "width": 900, "height": 640},
+  {"name": "prompt-hover", "entry": "agent-pane.user-bubble", "variant": "prompt-hover", "width": 900, "height": 640},
+  {"name": "chat-menu", "entry": "agent-pane.header-tools", "variant": "menu-open", "width": 900, "height": 640},
+  {"name": "fork-glyph", "entry": "agent-pane.fork-glyph", "variant": "split-arrow", "width": 760, "height": 260}
+ ]}
