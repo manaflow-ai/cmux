@@ -239,7 +239,8 @@ def drive(args: argparse.Namespace) -> int:
     print_report(report)
     summary(report)
     if report.state in ("current", "unreadable", "unpublished"):
-        return EXIT_CURRENT if report.state == "current" else EXIT_BEHIND
+        # A newer tree still building is the normal case for a push's point step: nothing to do, not red.
+        return EXIT_CURRENT if report.state == "current" or args.point_only else EXIT_BEHIND
     if args.point_only and report.newest_tested is None:
         print("point only: no published, daemon-tested tree past the channel; nothing to point at.")
         return EXIT_CURRENT

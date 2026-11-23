@@ -106,6 +106,14 @@ class KeeperTests(unittest.TestCase):
             self.assertEqual(keeper.drive(drive_args(point_only=True)), keeper.EXIT_CURRENT)
         run.assert_not_called()
 
+    def test_point_only_is_never_red_while_newer_trees_build(self) -> None:
+        history = ["a" * 40, CHANNEL_COMMIT]
+        with Fake(history, published=set(), tested=set()).patch(), \
+                mock.patch.object(keeper.subprocess, "run") as run:
+            self.assertEqual(keeper.drive(drive_args(point_only=True)), keeper.EXIT_CURRENT)
+            self.assertEqual(keeper.drive(drive_args()), keeper.EXIT_BEHIND)
+        run.assert_not_called()
+
     def test_drive_tests_an_untested_tree_on_our_machines_then_marks_and_points(self) -> None:
         history = ["a" * 40, CHANNEL_COMMIT]
         env = {"R2_ENDPOINT": "x", "AWS_ACCESS_KEY_ID": "x", "AWS_SECRET_ACCESS_KEY": "x", "GH_TOKEN": "x"}
