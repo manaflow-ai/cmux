@@ -219,6 +219,7 @@ pub mod placement;
 pub mod plan_build_records;
 #[cfg(not(unix))]
 mod platform;
+pub mod pr_poller;
 pub mod pricing;
 pub mod probe_cleanup;
 pub mod probe_prompt;
