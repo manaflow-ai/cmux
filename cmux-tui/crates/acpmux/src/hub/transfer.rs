@@ -70,7 +70,7 @@ impl Hub {
         let mut out = std::io::BufWriter::new(file);
         let mut event_count = 0usize;
         let mut failed: Option<anyhow::Error> = None;
-        self.store.scan(&meta.id, after.unwrap_or(0), &mut |mut e: EventRecord| {
+        self.scan_off(&meta.id, after.unwrap_or(0), &mut |mut e: EventRecord| {
             // An ask carries the display line acpmux works out now, never a logged one.
             self.display_logged(Some(&**session), &mut e);
             let written = serde_json::to_string(&e).map_err(anyhow::Error::from).and_then(|line| {
