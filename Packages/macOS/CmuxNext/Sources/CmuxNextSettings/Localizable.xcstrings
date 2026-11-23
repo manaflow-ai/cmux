@@ -55,6 +55,268 @@
         "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "代理工作時傳送的訊息按 Return 後如何處理。Command-Return 執行另一種。"}}
       }
     },
+    "settings.chats.deleteHistoryAfterDays.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permanently deletes closed chats unused for this many days. 0 never deletes."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يحذف نهائيًا المحادثات المغلقة غير المستخدمة لهذا العدد من الأيام. القيمة 0 لا تحذف أبدًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trajno briše zatvorene razgovore nekorištene ovoliko dana. 0 nikad ne briše."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sletter lukkede chats, der ikke er brugt i dette antal dage, permanent. 0 sletter aldrig."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Löscht geschlossene Chats, die so viele Tage nicht genutzt wurden, endgültig. 0 löscht nie."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elimina de forma permanente los chats cerrados sin usar durante esta cantidad de días. 0 nunca elimina."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Supprime définitivement les chats fermés inutilisés depuis ce nombre de jours. 0 ne supprime jamais."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elimina definitivamente le chat chiuse non usate da questo numero di giorni. 0 non elimina mai."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この日数使われていない閉じたチャットを完全に削除します。0 にすると削除しません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "លុបជជែកដែលបានបិទ ហើយមិនបានប្រើក្នុងចំនួនថ្ងៃនេះ ជាអចិន្ត្រៃយ៍។ 0 មិនលុបទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 일수 동안 사용하지 않은 닫힌 채팅을 영구적으로 삭제합니다. 0이면 삭제하지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sletter lukkede chatter som ikke er brukt på så mange dager, permanent. 0 sletter aldri."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trwale usuwa zamknięte czaty nieużywane przez tyle dni. 0 nigdy nie usuwa."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apaga permanentemente chats fechados sem uso por essa quantidade de dias. 0 nunca apaga."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Безвозвратно удаляет закрытые чаты, не использовавшиеся столько дней. 0 — никогда не удалять."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ลบแชทที่ปิดแล้วและไม่ได้ใช้ตามจำนวนวันนี้อย่างถาวร 0 คือไม่ลบเลย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu kadar gün kullanılmayan kapalı sohbetleri kalıcı olarak siler. 0 hiç silmez."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Остаточно видаляє закриті чати, якими не користувалися стільки днів. 0 — ніколи не видаляти."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Xóa vĩnh viễn các cuộc trò chuyện đã đóng không dùng trong số ngày này. 0 là không bao giờ xóa."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "永久删除这么多天未使用的已关闭聊天。0 表示从不删除。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "永久刪除這麼多天未使用的已關閉聊天。0 表示永不刪除。"
+          }
+        }
+      }
+    },
+    "settings.chats.deleteHistoryAfterDays": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete Chat History After"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حذف سجل المحادثات بعد"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Izbriši historiju razgovora nakon"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slet chathistorik efter"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chatverlauf löschen nach"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eliminar historial de chats después de"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Supprimer l’historique des chats après"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elimina la cronologia delle chat dopo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャット履歴を削除するまでの期間"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "លុបប្រវត្តិជជែកបន្ទាប់ពី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "채팅 기록 삭제 기간"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slett chatlogg etter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usuń historię czatów po"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apagar histórico de chats após"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Удалять историю чатов через"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ลบประวัติแชทหลังจาก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sohbet geçmişini şu süreden sonra sil"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Видаляти історію чатів через"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Xóa lịch sử trò chuyện sau"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聊天记录删除时间"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聊天記錄刪除時間"
+          }
+        }
+      }
+    },
     "settings.choice.followUpModeSteer": {
       "comment": "Settings > Agent Chat > Follow-Up Messages: choice that takes a message sent mid-turn into the running turn (the agent reads it when its current step ends)",
       "extractionState": "manual",
@@ -107,6 +369,530 @@
         "vi": {"stringUnit": {"state": "needs_review", "value": "Xếp hàng"}},
         "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "排队"}},
         "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "排隊"}}
+      }
+    },
+    "settings.machines.hosts.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computers you reach over ssh, each a label and the addresses tried in order. cmux hosts check says which ones answer."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أجهزة الكمبيوتر التي تصل إليها عبر ssh، لكل منها تسمية وعناوين تُجرَّب بالترتيب. يُظهر cmux hosts check أيها يستجيب."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Računari do kojih dolazite preko ssh, svaki s oznakom i adresama koje se pokušavaju redom. cmux hosts check kaže koji odgovaraju."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computere, du når via ssh, hver med en etiket og adresser, der prøves i rækkefølge. cmux hosts check viser, hvilke der svarer."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer, die du per ssh erreichst, jeweils mit einem Namen und Adressen, die der Reihe nach versucht werden. cmux hosts check zeigt, welche antworten."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Equipos a los que accedes por ssh, cada uno con una etiqueta y las direcciones que se prueban en orden. cmux hosts check indica cuáles responden."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ordinateurs que vous joignez via ssh, chacun avec un libellé et des adresses essayées dans l’ordre. cmux hosts check indique lesquels répondent."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer che raggiungi via ssh, ciascuno con un’etichetta e gli indirizzi provati in ordine. cmux hosts check indica quali rispondono."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh で接続するコンピュータ。それぞれにラベルと、順に試すアドレスがあります。cmux hosts check で応答するものがわかります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កុំព្យូទ័រដែលអ្នកភ្ជាប់តាម ssh នីមួយៗមានស្លាក និងអាសយដ្ឋានដែលសាកល្បងតាមលំដាប់។ cmux hosts check ប្រាប់ថាមួយណាឆ្លើយតប។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh로 접속하는 컴퓨터로, 각각 레이블과 순서대로 시도할 주소가 있습니다. cmux hosts check로 응답하는 컴퓨터를 확인할 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Datamaskiner du når via ssh, hver med en etikett og adresser som prøves i rekkefølge. cmux hosts check viser hvilke som svarer."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Komputery, z którymi łączysz się przez ssh, każdy z etykietą i adresami próbowanymi po kolei. cmux hosts check pokazuje, które odpowiadają."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computadores que você acessa por ssh, cada um com um rótulo e os endereços tentados em ordem. cmux hosts check mostra quais respondem."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Компьютеры, к которым вы подключаетесь по ssh, у каждого метка и адреса, которые пробуются по порядку. cmux hosts check показывает, какие отвечают."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คอมพิวเตอร์ที่คุณเข้าถึงผ่าน ssh แต่ละเครื่องมีป้ายชื่อและที่อยู่ที่ลองตามลำดับ cmux hosts check บอกว่าเครื่องใดตอบสนอง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh ile eriştiğiniz bilgisayarlar; her birinin bir etiketi ve sırayla denenen adresleri vardır. cmux hosts check hangilerinin yanıt verdiğini söyler."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Комп’ютери, до яких ви підключаєтеся через ssh, кожен з міткою та адресами, які пробуються по черзі. cmux hosts check показує, які відповідають."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Các máy tính bạn truy cập qua ssh, mỗi máy có một nhãn và các địa chỉ được thử theo thứ tự. cmux hosts check cho biết máy nào phản hồi."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你通过 ssh 连接的电脑，每台有一个标签和按顺序尝试的地址。cmux hosts check 会显示哪些有响应。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你透過 ssh 連線的電腦，每台有一個標籤和依序嘗試的位址。cmux hosts check 會顯示哪些有回應。"
+          }
+        }
+      }
+    },
+    "settings.machines.hosts": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hosts"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المضيفون"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hostovi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Værter"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hosts"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hosts"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hôtes"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Host"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホスト"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ម៉ាស៊ីនមេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "호스트"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hosty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hosts"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Хосты"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โฮสต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ana bilgisayarlar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Хости"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máy chủ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主机"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主機"
+          }
+        }
+      }
+    },
+    "settings.labs.bundledCodexAppServer.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Codex chats use the app server bundled with cmux when it checks out, else your installed Codex."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تستخدم محادثات Codex الجديدة خادم التطبيق المضمّن مع cmux عندما يجتاز الفحص، وإلا فنسخة Codex المثبتة لديك."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Novi Codex razgovori koriste app server ugrađen u cmux kada prođe provjeru, inače vaš instalirani Codex."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nye Codex-chats bruger den appserver, der følger med cmux, når den består kontrollen, ellers din installerede Codex."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neue Codex-Chats nutzen den mit cmux gelieferten App-Server, wenn er die Prüfung besteht, sonst dein installiertes Codex."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los chats nuevos de Codex usan el servidor de app incluido con cmux cuando pasa la comprobación; si no, tu Codex instalado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les nouveaux chats Codex utilisent le serveur d’app fourni avec cmux s’il passe la vérification, sinon votre Codex installé."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le nuove chat Codex usano il server app incluso in cmux quando supera il controllo, altrimenti il Codex installato."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しい Codex チャットは、チェックに通れば cmux 同梱のアプリサーバーを、通らなければインストール済みの Codex を使います。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ជជែក Codex ថ្មីប្រើម៉ាស៊ីនមេកម្មវិធីដែលភ្ជាប់មកជាមួយ cmux នៅពេលវាឆ្លងការពិនិត្យ បើមិនដូច្នោះទេ ប្រើ Codex ដែលអ្នកបានដំឡើង។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 Codex 채팅은 검사를 통과하면 cmux에 번들된 앱 서버를, 아니면 설치된 Codex를 사용합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nye Codex-chatter bruker appserveren som følger med cmux når den består sjekken, ellers din installerte Codex."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nowe czaty Codex używają serwera aplikacji dołączonego do cmux, gdy przejdzie kontrolę, a w przeciwnym razie zainstalowanego Codex."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Novos chats do Codex usam o servidor de app incluído no cmux quando ele passa na verificação; senão, o Codex instalado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Новые чаты Codex используют сервер приложения из комплекта cmux, если он проходит проверку, иначе установленный Codex."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แชท Codex ใหม่ใช้เซิร์ฟเวอร์แอปที่มาพร้อม cmux เมื่อผ่านการตรวจสอบ ไม่เช่นนั้นใช้ Codex ที่คุณติดตั้งไว้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yeni Codex sohbetleri, denetimi geçerse cmux ile gelen uygulama sunucusunu, geçmezse yüklü Codex'inizi kullanır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нові чати Codex використовують сервер застосунку з комплекту cmux, якщо він проходить перевірку, інакше встановлений Codex."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuộc trò chuyện Codex mới dùng máy chủ ứng dụng đi kèm cmux khi nó vượt qua kiểm tra, nếu không thì dùng Codex bạn đã cài."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新的 Codex 聊天在 cmux 内置的应用服务器通过检查时使用它，否则使用你安装的 Codex。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新的 Codex 聊天在 cmux 內建的應用程式伺服器通過檢查時使用它，否則使用你安裝的 Codex。"
+          }
+        }
+      }
+    },
+    "settings.labs.bundledCodexAppServer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Bundled Codex App Server"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استخدام خادم تطبيق Codex المضمّن"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koristi ugrađeni Codex app server"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brug medfølgende Codex-appserver"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mitgelieferten Codex-App-Server verwenden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usar el servidor de app de Codex incluido"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utiliser le serveur d’app Codex intégré"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa il server app Codex incluso"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同梱の Codex アプリサーバーを使う"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប្រើម៉ាស៊ីនមេកម្មវិធី Codex ដែលភ្ជាប់មកជាមួយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "번들 Codex 앱 서버 사용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bruk medfølgende Codex-appserver"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Używaj dołączonego serwera aplikacji Codex"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usar o servidor de app do Codex incluído"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Встроенный сервер приложения Codex"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ใช้เซิร์ฟเวอร์แอป Codex ที่มาพร้อมกัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paketle gelen Codex uygulama sunucusunu kullan"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вбудований сервер застосунку Codex"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dùng máy chủ ứng dụng Codex đi kèm"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用内置的 Codex 应用服务器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用內建的 Codex 應用程式伺服器"
+          }
+        }
       }
     },
     "settings.sidebarSection.more": {
