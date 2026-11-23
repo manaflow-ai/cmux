@@ -666,12 +666,16 @@ fn run_case(step: &str, kill: &str, seed: u64) -> (Outcome, Trace) {
         trace.note("the Cloud machine's daemons started again");
     }
 
-    // The app's Retry (the relaunched app finishes a pinned move): the same pump, same state.
+    // The app's Retry (the relaunched app finishes a pinned move): the same pump, same state,
+    // same sockets. The move record is keyed by the `--from-socket` path and names the
+    // `--to-socket` one, so a Retry on other paths could never resolve it. The taps stay: each
+    // fires once, and they forward to the revived daemons' sockets.
     let mut retry = None;
     if first.answer["ok"] != json!(true) {
         let started = Instant::now();
-        let child =
-            pump(&mac, &mac.socket, &vm.socket, surface, &repo, &synced, &state).spawn().unwrap();
+        let child = pump(&mac, &src_tap.path, &dst_tap.path, surface, &repo, &synced, &state)
+            .spawn()
+            .unwrap();
         let run = finish_pump(child, started);
         trace.note(format!("retry: {} in {} ms", run.answer, run.ms));
         retry = Some(run);
