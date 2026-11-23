@@ -21,7 +21,12 @@
 //! The terminal theme travels apart from the chrome's (`terminal`): the value of each key in
 //! [`TERMINAL_KEYS`] in the Mac's applied Ghostty config (`key = value` lines). The phone loads exactly these lines into every terminal of this Mac, after resetting
 //! each key, so its terminals show the Mac's terminal theme and nothing of their own. Lines with
-//! another key or an unexpected value are dropped here.
+//! another key or an unexpected value are dropped here. hostd alone writes
+//! [`TERMINAL_OPACITY_KEY`] (ask-a6804c4472): with a wallpaper the Mac's terminals sit over its
+//! picture under the theme's background at the window's tint, so the served lines end with
+//! `background-opacity = <tint_opacity>` and the phone draws the same picture behind a terminal
+//! that lets it through; without one the key is not served (the phone's terminals stay opaque, as
+//! a phone cannot show the Mac's desktop through glass).
 //!
 //! The rest of the Mac's look travels apart too (`look`, every field optional): its window
 //! style (`appearance.chromeStyle`, two-tone included), hue and saturation, glass transparency,
@@ -53,7 +58,7 @@ const ACCENTS: [&str; 9] = ["neutral", "theme", "red", "green", "yellow", "blue"
 /// The Ghostty keys of the terminal theme the phone takes from the Mac. The Mac sends these
 /// (`GhosttyRuntime.phoneTerminalThemeKeys`) and the phone resets and loads these
 /// (`CmuxMobileTerminalTheme.keys`); keep the three lists the same.
-pub const TERMINAL_KEYS: [&str; 19] = [
+pub const TERMINAL_KEYS: [&str; 20] = [
     "background",
     "foreground",
     "palette",
@@ -73,7 +78,11 @@ pub const TERMINAL_KEYS: [&str; 19] = [
     "search-foreground",
     "search-selected-background",
     "search-selected-foreground",
+    TERMINAL_OPACITY_KEY,
 ];
+/// The terminal key hostd writes from the wallpaper's tint (`terminal_lines`); a line of it
+/// from the app is dropped.
+pub const TERMINAL_OPACITY_KEY: &str = "background-opacity";
 /// `appearance.chromeStyle` values (`ChromeStyle`, schemas/settings/chrome-styles.json).
 pub const CHROME_STYLES: [&str; 10] = [
     "default",
@@ -304,13 +313,27 @@ impl Current {
         chat_look(&self.theme, self.wallpaper.as_ref().map(|(info, _)| info), self.look.as_ref())
     }
 
+    /// The terminal lines served: the app's, without any [`TERMINAL_OPACITY_KEY`] line of its
+    /// own, then with a wallpaper `background-opacity = <tint_opacity>` (the Mac's terminals show
+    /// its picture under the theme's background at that tint). None from an app that sends none.
+    pub fn terminal_lines(&self) -> Option<Vec<String>> {
+        let opacity_line =
+            |line: &String| line.split_once('=').is_some_and(|(key, _)| key.trim() == TERMINAL_OPACITY_KEY);
+        let mut lines: Vec<String> =
+            self.terminal.as_ref()?.iter().filter(|line| !opacity_line(line)).cloned().collect();
+        if let Some((info, _)) = &self.wallpaper {
+            lines.push(format!("{TERMINAL_OPACITY_KEY} = {}", info.tint_opacity));
+        }
+        Some(lines)
+    }
+
     /// The `appearance` message.
     pub fn message(&self) -> Value {
         let mut message = serde_json::json!({
             "theme": self.theme,
             "wallpaper": self.wallpaper.as_ref().map(|(info, _)| info),
         });
-        if let Some(terminal) = &self.terminal {
+        if let Some(terminal) = self.terminal_lines() {
             message["terminal"] = serde_json::json!(terminal);
         }
         if let Some(look) = &self.look {
@@ -898,6 +921,55 @@ mod tests {
         assert_eq!(chat.background_opacity, 0.35);
         assert_eq!(chat.wallpaper.as_deref(), Some("ab".repeat(32).as_str()));
         assert_eq!(current.message()["chat"]["wallpaper"], current.message()["wallpaper"]["id"]);
+    }
+
+    /// A picture on the Mac: the terminal lines end with the window's tint as the terminal's
+    /// background opacity, so the phone's terminal lets the picture through as the Mac's does.
+    #[test]
+    fn a_wallpaper_makes_the_terminal_see_through_at_the_windows_tint() {
+        let mut current = current_of(&format!("{GHOSTTY_DEFAULT_LINE}}}"));
+        current.terminal = sanitize_terminal(vec![
+            "background = #1e1e2e".into(),
+            "foreground = #cdd6f4".into(),
+            "background-opacity = 0.2".into(),
+        ]);
+        // Without a picture hostd serves no opacity, whatever the app sent.
+        assert_eq!(
+            current.message()["terminal"],
+            serde_json::json!(["background = #1e1e2e", "foreground = #cdd6f4"])
+        );
+        current.wallpaper = Some((wallpaper_info(0.45), Bytes::from_static(b"\xFF\xD8\xFF")));
+        assert_eq!(
+            current.message()["terminal"],
+            serde_json::json!(["background = #1e1e2e", "foreground = #cdd6f4", "background-opacity = 0.45"])
+        );
+        // The tint the chat shows is the one the terminal shows.
+        assert_eq!(current.chat().unwrap().background_opacity, 0.45);
+        // An app that sends no terminal theme still gets no `terminal`.
+        let older = Current { terminal: None, ..current };
+        assert!(older.message().get("terminal").is_none());
+    }
+
+    /// The control line's wallpaper tint reaches the terminal lines, clamped like the chat's.
+    #[tokio::test]
+    async fn the_wallpaper_tint_read_from_the_app_is_the_terminals_opacity() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("wall.jpg");
+        std::fs::write(&path, b"\xFF\xD8\xFF\xE0rest").unwrap();
+        for (sent, served) in [(0.45, "0.45"), (1.5, "1"), (-0.2, "0")] {
+            let file = WallpaperFile { path: path.to_string_lossy().into_owned(), tint_opacity: sent };
+            let current = Current {
+                theme: sanitize(theme()).unwrap(),
+                wallpaper: read_wallpaper(&file).await,
+                terminal: sanitize_terminal(vec![
+                    "background = #1e1e2e".into(),
+                    "foreground = #cdd6f4".into(),
+                ]),
+                look: None,
+            };
+            let lines = current.terminal_lines().unwrap();
+            assert_eq!(lines.last().unwrap(), &format!("background-opacity = {served}"));
+        }
     }
 
     /// Bubble colors picked on the Mac ride the chat look, even under Ghostty's own colors.

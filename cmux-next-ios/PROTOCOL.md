@@ -918,7 +918,11 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   of those keys and load these lines, live, whatever Mac the phone focuses, while its
   Match Mac theme switch is on (the default; off, terminals show the phone's stock black,
   since 2026-11-22); a frame without `terminal` (an
-  older Mac) stands in with `theme`'s colors. Since 2026-11-14 a frame may also carry
+  older Mac) stands in with `theme`'s colors. Since 2026-11-23 hostd alone writes
+  `background-opacity` (an app's own line of it is dropped): with a `wallpaper` the lines
+  end with `background-opacity = <tint_opacity>`, as the Mac's terminals show its picture
+  under the theme's background at the window's tint, and the phone draws that picture
+  behind a terminal that lets it through; without one no opacity is served (opaque). Since 2026-11-14 a frame may also carry
   `"look"`, the rest of what the Mac's windows show, every field optional (absent: the
   phone's own default): `{"chrome_style"?: appearance.chromeStyle (`default`, `card`,
   `card-outlined`, `flat`, `flat-sidebar-line`, `bare`, `panes`, `two-tone`, `floating`,

@@ -16,7 +16,12 @@ public struct CmuxMobileTerminalTheme: Equatable, Sendable {
         "minimum-contrast", "faint-opacity", "palette-generate", "palette-harmonious",
         "alpha-blending", "window-colorspace",
         "search-background", "search-foreground", "search-selected-background", "search-selected-foreground",
+        opacityKey,
     ]
+    /// The key hostd writes from the Mac's wallpaper tint (`appearance.rs` `TERMINAL_OPACITY_KEY`):
+    /// below 1, the Mac's terminals show its picture under ``background`` at this opacity
+    /// (ask-a6804c4472), and so does this phone's terminal page (``seesThrough``).
+    public static let opacityKey = "background-opacity"
     /// The longest value kept on one line (hostd's bound).
     static let maxValueLength = 64
 
@@ -56,6 +61,32 @@ public struct CmuxMobileTerminalTheme: Equatable, Sendable {
         if let selection = theme.selectionForeground { lines.append("selection-foreground = \(selection)") }
         self.init(lines: lines)
     }
+
+    /// The terminal theme of `appearance` as its Mac's terminals show it: ``init(appearance:)``,
+    /// and over a wallpaper the window's tint as ``opacityKey`` when hostd (an older one) sent no
+    /// such line, so the picture shows behind the terminal as it does on the Mac.
+    public init?(showing appearance: CmuxMobileMacAppearance) {
+        guard var theme = Self(appearance: appearance) else { return nil }
+        if let wallpaper = appearance.wallpaper, !theme.lines.contains(where: { $0.hasPrefix("\(Self.opacityKey) =") }),
+           let tinted = Self(lines: theme.lines + ["\(Self.opacityKey) = \(min(max(wallpaper.tintOpacity, 0), 1))"]) {
+            theme = tinted
+        }
+        self = theme
+    }
+
+    /// The Mac's terminal background opacity (``opacityKey``), 0...1; 1 (opaque) when unset.
+    public var backgroundOpacity: Double {
+        let prefix = "\(Self.opacityKey) = "
+        guard let line = lines.last(where: { $0.hasPrefix(prefix) }), let value = Double(line.dropFirst(prefix.count)),
+              value.isFinite else { return 1 }
+        return min(max(value, 0), 1)
+    }
+
+    /// Whether the Mac's terminals let its wallpaper through (``backgroundOpacity`` below 1): the
+    /// phone's terminal then draws no background of its own and the page behind it paints the
+    /// picture under ``background`` at ``backgroundOpacity`` (or the plain background until the
+    /// picture is on this phone).
+    public var seesThrough: Bool { backgroundOpacity < 1 }
 
     /// The Ghostty config text that gives a terminal this theme: every theme key (and `theme`, so
     /// no theme file of the phone's loads) reset to Ghostty's default, then the Mac's lines.
@@ -108,6 +139,8 @@ private let themeLog = Logger(subsystem: "dev.cmux.mobile", category: "terminal-
 extension CmuxMobileTerminalTheme {
     /// The background as an opaque color (the surface, its backing and its card).
     public var backgroundColor: UIColor { Self.color(background) }
+    /// The background at ``backgroundOpacity``: the tint over the Mac's picture.
+    public var tintColor: UIColor { backgroundColor.withAlphaComponent(backgroundOpacity) }
     public var foregroundColor: UIColor { Self.color(foreground) }
     /// The look of the terminal page's own chrome (keys, glass, keyboard).
     public var interfaceStyle: UIUserInterfaceStyle { isDark ? .dark : .light }
@@ -141,7 +174,7 @@ public final class CmuxMobileTerminalThemes {
 
     public init(cached: CmuxMobileMacAppearance? = CmuxMobileMacAppearanceCache.standard.load(),
                 macTheme: CmuxMobileMacTheme = .shared) {
-        self.cached = cached.flatMap(CmuxMobileTerminalTheme.init(appearance:))
+        self.cached = cached.flatMap(CmuxMobileTerminalTheme.init(showing:))
         followsMac = { [weak macTheme] in macTheme?.matchesMac ?? true }
         switchObserver = NotificationCenter.default.addObserver(
             forName: CmuxMobileMacTheme.matchesMacDidChange, object: macTheme, queue: nil
@@ -164,7 +197,7 @@ public final class CmuxMobileTerminalThemes {
 
     /// `macID`'s newest appearance frame.
     public func apply(_ appearance: CmuxMobileMacAppearance, macID: String) {
-        guard let theme = CmuxMobileTerminalTheme(appearance: appearance), byMac[macID] != theme else { return }
+        guard let theme = CmuxMobileTerminalTheme(showing: appearance), byMac[macID] != theme else { return }
         byMac[macID] = theme
         guard followsMac() else { return }
         themeLog.info("terminal theme of \(macID, privacy: .private(mask: .hash)): \(theme.lines.count) lines, background \(theme.background, privacy: .public), from \(appearance.terminal == nil ? "chrome colors" : "terminal lines", privacy: .public)")
