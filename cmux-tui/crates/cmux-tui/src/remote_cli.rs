@@ -63,6 +63,7 @@ mod remote_link_binding_tests;
 mod remote_link_mux;
 mod self_install;
 mod spill;
+mod spill_cloud;
 use daemon_lifecycle::*;
 use enroll::*;
 use exec_cp::{ExitWith, run_cp, run_exec};
