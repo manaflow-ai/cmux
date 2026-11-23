@@ -188,3 +188,25 @@ fn a_widget_mount_is_quiet_outside_its_settle_window() {
     assert!(section.offer(quiet, update("n", "a")).deliver.is_some());
     assert!(section.offer(quiet + Duration::from_millis(20), update("n", "b")).deliver.is_some());
 }
+
+/// A batch past the node cap is not forwarded, and nothing after it is, until the tree starts
+/// over (a restart or remount clears the held ops and the count).
+#[test]
+fn a_batch_past_the_node_cap_fails_and_drops_until_the_tree_starts_over() {
+    let start = Instant::now();
+    let mut budget = MountBudget::default();
+    let creates = |from: usize, n: usize| -> Vec<Value> {
+        (from..from + n)
+            .map(|i| json!({ "op": "create", "id": format!("n{i}"), "type": "Text", "props": {} }))
+            .collect()
+    };
+    let full = super::super::scene_nodes::MAX_NODES;
+    assert!(budget.offer(start, creates(0, full)).deliver.is_some(), "4096 nodes are allowed");
+    let over = budget.offer(start + Duration::from_secs(1), creates(full, 1));
+    assert!(over.node_cap && over.deliver.is_none(), "{over:?}");
+    let after = budget.offer(start + Duration::from_secs(2), update("n0", "x"));
+    assert_eq!(after, Outcome::default(), "a capped mount's later batches are dropped");
+    budget.clear_pending();
+    let fresh = budget.offer(start + Duration::from_secs(3), creates(0, full));
+    assert!(fresh.deliver.is_some() && !fresh.node_cap, "a fresh tree gets the full cap");
+}
