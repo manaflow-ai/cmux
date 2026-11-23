@@ -712,12 +712,16 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
             // laying out the hosted stack from here aborts in AttributeGraph
             // (step a9eaae4e), so the spring starts on the next main-queue turn.
             springTarget = target
+            let began = CACurrentMediaTime()
             DispatchQueue.main.async { [weak self] in
                 guard let self, self.springTarget == target else { return }
                 self.springTarget = nil
                 UIView.animate(springDuration: 0.35, bounce: 0, options: [.allowUserInteraction, .beginFromCurrentState]) {
                     self.applyStackHeight(target)
                     self.view.layoutIfNeeded()
+                } completion: { [weak self] finished in
+                    guard finished else { return }
+                    self?.noteStackMotionSettled(since: began)
                 }
             }
             return
@@ -725,6 +729,30 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         springTarget = nil
         applyStackHeight(height)
     }
+
+    /// BASE PROBE ONLY (the before number for #52368): base has one stack spring (0.35 s).
+    private func noteStackMotionSettled(since began: CFTimeInterval) {
+        let ms = Int(((CACurrentMediaTime() - began) * 1000).rounded())
+        let line = "kind=smooth spring_ms=350 settled_ms=\(ms)"
+        print("STACKMOTION \(line)")
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("-cmux-mobile-motion-probe") {
+            if motionProbe == nil {
+                let probe = UIView(frame: CGRect(x: 0, y: 0, width: 1, height: 1))
+                probe.isAccessibilityElement = true
+                probe.accessibilityIdentifier = "chat.stackMotion"
+                probe.alpha = 0.02
+                probe.isUserInteractionEnabled = false
+                view.addSubview(probe)
+                motionProbe = probe
+            }
+            motionProbe?.accessibilityValue = line
+        }
+        #endif
+    }
+    #if DEBUG
+    private var motionProbe: UIView?
+    #endif
 
     private func applyStackHeight(_ height: CGFloat) {
         stackHeight = height
