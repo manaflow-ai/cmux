@@ -38,6 +38,12 @@ const DRIVE_DEADLINE: Duration = Duration::from_secs(60 * 60);
 const TURN_SLICE: Duration = Duration::from_secs(10 * 60);
 /// The plan's read on the start path (`billing.status`, a network call in the app).
 const PLAN_TIMEOUT: Duration = Duration::from_secs(5);
+/// How old a cached plan that grants the hybrid start may be and still decide it. The driver reads
+/// the plan again after each start, so this bounds only a plan that changed with no start since.
+const PLAN_CACHE_AGE: Duration = Duration::from_secs(7 * 24 * 60 * 60);
+/// How long a driver past its deadline still waits for a machine on its way, to pause it: the
+/// machine start's own waits end well before this.
+const MACHINE_GRACE: Duration = Duration::from_secs(30 * 60);
 
 /// The driver's `--machine` word for a Cloud route a chat here can stand in for: `new`, or the
 /// machine's id. None: the Cloud start runs as before (a named machine, `--environment`,
@@ -122,6 +128,61 @@ fn account_of(global: &GlobalArgs, flag: Option<bool>) -> Account {
     account(flag, cloud_start_chat::app_machines(global), read_plan)
 }
 
+/// The plan cache: the last plan `cloud.plan.get` answered and when (`{plan, read_at_ms}`, Unix
+/// milliseconds), so a start decides with no network read in front of the chat.
+fn plan_cache() -> Result<PathBuf, String> {
+    Ok(root()?.join("plan.json"))
+}
+
+fn unix_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |since| u64::try_from(since.as_millis()).unwrap_or(u64::MAX))
+}
+
+/// The cached plan when it grants the hybrid start and is fresh at `now_ms`. A cached plan that
+/// does not grant it decides nothing: the start reads the plan again (a plan just bought counts).
+pub(super) fn cached_plan(cache: &Value, now_ms: u64) -> Option<String> {
+    let read_at = cache.get("read_at_ms").and_then(Value::as_u64)?;
+    let fresh = now_ms.saturating_sub(read_at) <= PLAN_CACHE_AGE.as_millis() as u64;
+    let plan = cache.get("plan").and_then(Value::as_str)?;
+    (fresh && read_at <= now_ms && hybrid::PLANS.contains(&plan)).then(|| plan.to_owned())
+}
+
+fn read_cached_plan() -> Option<String> {
+    let text = std::fs::read_to_string(plan_cache().ok()?).ok()?;
+    cached_plan(&serde_json::from_str(&text).ok()?, unix_ms())
+}
+
+/// Reads the plan and keeps it in the cache (written whole, then renamed). None: unread.
+fn refresh_plan() -> Option<String> {
+    let plan = read_plan()?;
+    if let Ok(path) = plan_cache() {
+        let line = json!({"plan": plan, "read_at_ms": unix_ms()}).to_string();
+        let staged = path.with_extension(format!("json.{}", std::process::id()));
+        let wrote = path.parent().is_some_and(|parent| std::fs::create_dir_all(parent).is_ok())
+            && std::fs::write(&staged, line).is_ok();
+        if !wrote || std::fs::rename(&staged, &path).is_err() {
+            let _ = std::fs::remove_file(&staged);
+        }
+    }
+    Some(plan)
+}
+
+/// [`account_of`] for a start: the cached plan when it grants it, else the plan read beside the
+/// machine list (both bounded as before), never one after the other.
+fn account_for_start(global: &GlobalArgs, flag: Option<bool>) -> Account {
+    let cached = if flag.is_none() { read_cached_plan() } else { None };
+    if cached.is_some() || flag.is_some() {
+        return account(flag, cloud_start_chat::app_machines(global), || cached);
+    }
+    std::thread::scope(|scope| {
+        let plan = scope.spawn(refresh_plan);
+        let listed = cloud_start_chat::app_machines(global);
+        account(flag, listed, || plan.join().ok().flatten())
+    })
+}
+
 /// The hybrid start of a Cloud route, when it is on and takes this start: its exit code. None: the
 /// Cloud start runs as before. A flag that says off reads nothing.
 pub(super) fn start(global: &GlobalArgs, start: &Start, machine: &Machine) -> Option<i32> {
@@ -130,13 +191,15 @@ pub(super) fn start(global: &GlobalArgs, start: &Start, machine: &Machine) -> Op
     if flag == Some(false) {
         return None;
     }
-    hybrid::enabled(&account_of(global, flag)).ok()?;
-    Some(begin(global, start, &target))
+    let gate = Instant::now();
+    hybrid::enabled(&account_for_start(global, flag)).ok()?;
+    let gate_ms = u64::try_from(gate.elapsed().as_millis()).unwrap_or(u64::MAX);
+    Some(begin(global, start, &target, gate_ms))
 }
 
 /// The chat here, in a fresh empty folder (a Cloud chat with no folder starts in one), then the
 /// driver beside it.
-fn begin(global: &GlobalArgs, start: &Start, target: &str) -> i32 {
+fn begin(global: &GlobalArgs, start: &Start, target: &str, gate_ms: u64) -> i32 {
     let here = match fresh_folder() {
         Ok(folder) => here_of(start, &folder.display().to_string()),
         Err(error) => {
@@ -154,7 +217,7 @@ fn begin(global: &GlobalArgs, start: &Start, target: &str) -> i32 {
         return code;
     }
     let Some(started) = chat::last_started() else { return code };
-    let said = match spawn(global, &started.id, target) {
+    let said = match spawn(global, &started.id, target, gate_ms) {
         Ok(log) => format!(
             "cmux: the chat runs here while its Cloud machine starts; it moves there between \
              turns (log: {})",
@@ -177,10 +240,18 @@ pub(super) fn here_of(start: &Start, folder: &str) -> Start {
 
 /// The words of the driver for `session` on `target` (`new` or a machine id), after the globals
 /// that reach the same app and daemon.
-pub(super) fn drive_words(global: &GlobalArgs, session: &str, target: &str) -> Vec<String> {
+/// `gate_ms`: what deciding the start cost, for the driver's log.
+pub(super) fn drive_words(
+    global: &GlobalArgs,
+    session: &str,
+    target: &str,
+    gate_ms: u64,
+) -> Vec<String> {
     let mut words = cloud_start_chat::forwarded_globals(global);
+    let gate = gate_ms.to_string();
     words.extend(
-        ["cloud", DRIVE_VERB, "--session", session, "--machine", target].map(str::to_owned),
+        ["cloud", DRIVE_VERB, "--session", session, "--machine", target, "--gate-ms", &gate]
+            .map(str::to_owned),
     );
     words
 }
@@ -206,7 +277,12 @@ fn log_path(session: &str) -> Result<PathBuf, String> {
     Ok(root()?.join(format!("{safe}.log")))
 }
 
-fn spawn(global: &GlobalArgs, session: &str, target: &str) -> Result<PathBuf, String> {
+fn spawn(
+    global: &GlobalArgs,
+    session: &str,
+    target: &str,
+    gate_ms: u64,
+) -> Result<PathBuf, String> {
     let path = log_path(session)?;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
@@ -219,7 +295,7 @@ fn spawn(global: &GlobalArgs, session: &str, target: &str) -> Result<PathBuf, St
     let err = log.try_clone().map_err(|error| error.to_string())?;
     let exe = std::env::current_exe().map_err(|error| error.to_string())?;
     let mut child = cmux_process::Command::new(exe)
-        .args(drive_words(global, session, target))
+        .args(drive_words(global, session, target, gate_ms))
         .stdin(cmux_process::Stdio::null())
         .stdout(log)
         .stderr(err)
@@ -320,6 +396,8 @@ struct Live {
     /// The turn watcher and the machine's start: this driver owns them, and they end with its
     /// process (the drive's own deadline bounds it).
     threads: Vec<std::thread::JoinHandle<()>>,
+    /// The machine's start is under way: no answer from it yet.
+    pending: bool,
 }
 
 fn reason_of(error: &Value) -> String {
@@ -443,6 +521,7 @@ impl Live {
             send,
             events,
             threads,
+            pending: false,
         }
     }
 }
@@ -462,7 +541,10 @@ impl Drive for Live {
                 let _ = send.send(Msg::Machine(made));
             });
         match spawned {
-            Ok(thread) => self.threads.push(thread),
+            Ok(thread) => {
+                self.threads.push(thread);
+                self.pending = true;
+            }
             Err(error) => {
                 let _ = failed.send(Msg::Machine(Err(format!("the machine start: {error}"))));
             }
@@ -470,14 +552,33 @@ impl Drive for Live {
     }
 
     fn next(&mut self) -> Option<Event> {
-        let left = self.deadline.checked_duration_since(Instant::now())?;
-        match self.events.recv_timeout(left).ok()? {
+        let now = Instant::now();
+        let message = match self.deadline.checked_duration_since(now) {
+            Some(left) => self.events.recv_timeout(left).ok()?,
+            // Past the deadline only a machine on its way is waited on, so the one that comes is
+            // paused, never left awake with no chat on it.
+            None if self.pending => {
+                let end = self.deadline + MACHINE_GRACE;
+                loop {
+                    let left = end.checked_duration_since(Instant::now())?;
+                    match self.events.recv_timeout(left).ok()? {
+                        Msg::Event(_) => {}
+                        machine => break machine,
+                    }
+                }
+            }
+            None => return None,
+        };
+        match message {
             Msg::Event(event) => Some(event),
             Msg::Machine(Ok(id)) => {
-                self.machine = Some(id);
+                (self.machine, self.pending) = (Some(id), false);
                 Some(Event::MachineReady)
             }
-            Msg::Machine(Err(reason)) => Some(Event::MachineFailed { reason }),
+            Msg::Machine(Err(reason)) => {
+                self.pending = false;
+                Some(Event::MachineFailed { reason })
+            }
         }
     }
 
@@ -540,6 +641,11 @@ fn run_drive(global: &GlobalArgs, rest: &[String]) -> i32 {
         eprintln!("usage: cmux cloud {DRIVE_VERB} --session ID --machine new|ID");
         return 2;
     };
+    // The start's own cost, then the plan read again for the next start (off the start's path).
+    let gate = value("--gate-ms").unwrap_or_else(|| "unknown".to_owned());
+    println!("{}gate {gate} ms", hybrid::PREFIX);
+    let plan = refresh_plan();
+    println!("{}", json!({"plan": plan}));
     let mut live = Live::new(global, &session, &target);
     let state = drive(&mut live);
     // A thread still waiting (a turn watch's slice) ends with this process.
