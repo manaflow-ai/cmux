@@ -523,8 +523,13 @@ class WebviewsWarnSplitCoversCheck(unittest.TestCase):
         # The warn branch runs fast_gate_webviews_checks.py, which runs each of its CHECKS (#24252).
         import fast_gate_webviews_checks
         gated = set()
-        if re.search(r"fast_gate_webviews_checks\.py[^\n]*\|\| status=1", warn_branch):
-            gated = set(fast_gate_webviews_checks.CHECKS)
+        call = re.search(r"fast_gate_webviews_checks\.py([^\n]*)\|\| status=1", warn_branch)
+        if call:
+            gated = set(fast_gate_webviews_checks.CHECKS) - set(re.findall(r"--skip (\S+)", call.group(1)))
+        # A check the step skips runs in its own job (the type check: webviews-typecheck, ci-self-heal 0c).
+        typecheck_run = "\n".join(step.get("run", "") for step in jobs["webviews-typecheck"]["steps"])
+        self.assertIn("fast_gate_webviews_checks.py", typecheck_run)
+        gated |= set(re.findall(r"--only (\S+)", typecheck_run))
         gated_commands = {package["scripts"][name] for name in gated if name in package["scripts"]}
         ci_web = ".github/workflows/ci-web.yml"
         loop_line = line_of(ci_web, "for check in ")
@@ -907,7 +912,7 @@ class PathRoutingStructure(unittest.TestCase):
         # swift-test's gate names the base since #49046: a pull request into another base is not a cmux-next one.
         for job_id, gate in [*((job_id, "github.event_name != 'pull_request' || ") for job_id in HEAVY_COMPILES),
                              ("swift-test", "github.event_name != 'pull_request' || "
-                                            "github.event.pull_request.base.ref != 'feat-cmux-next' || ")]:
+                                            "!startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || ")]:
             self.assertIn(gate + "contains(github.event.pull_request.labels.*.name, 'full-ci')", jobs[job_id]["if"], job_id)
             self.assertNotIn("github.event.pull_request.head.repo.full_name == github.repository || ", jobs[job_id]["if"], job_id)
         # macos-placement places owned runners: same-repository pull requests only.
@@ -1559,12 +1564,14 @@ OVERFLOW_FAILOVER = re.compile(
 
 
 def can_run_on_owned_runner(job: dict) -> bool:
-    """A runs-on that reads a repository variable, or portable placement's mini, can resolve to a mini (glaeda-*)."""
+    """A runs-on that reads a repository variable or a job output can resolve to a mini (glaeda-*)."""
     cells = workflow_jobs.runs_on_cells(job)
     if cells is None:
         return True  # a matrix value nothing resolves may name a mini
     for runs_on in cells:  # each matrix cell (`${{ matrix.runner }}` read as its values)
         runs_on = unwrap_fork_pool_reads(runs_on)
+        # The fork pull request arm (scripts/ci/one_linux_label.py) names a hosted or Blacksmith label, never a mini.
+        runs_on = runs_on.replace("(vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04')", "")
         runs_on = OVERFLOW_FAILOVER.sub("", runs_on)
         runs_on = re.sub(r"fromJSON\(vars\.RUNNER_POOLS\)\.[A-Za-z0-9_]+", "", runs_on)
         if "vars." in runs_on or "outputs.mini_runner" in runs_on:
@@ -1607,10 +1614,10 @@ class ReusedWorkspaceSubmodules(unittest.TestCase):
                     following = job_steps[after] if after < len(job_steps) else {}
                     self.assertIn(RESET_STALE_SUBMODULES, following.get("run", ""),
                                   "the step after checkout must drop stale submodule checkouts")
-        # The nightly-next requests read LINUX_RUNNER (Blacksmith Linux, never GitHub-hosted).
-        self.assertEqual(sorted(checked), ["checks", "cmux-scheme-compile", "daemon-test", "dev-landing-compile", "fast-tier", "generated-files", "path_route",
-                                           "release-compile", "request-nightly-next",
-                                           "swift-canary", "swift-test", "web-bundles"])
+        # checks, path_route, the nightly-next requests and the web bundles take the one Linux label (cmux-linux)
+        # now and never land on a mini.
+        self.assertEqual(sorted(checked), ["cmux-scheme-compile", "daemon-test", "dev-landing-compile", "fast-tier", "generated-files",
+                                           "release-compile", "swift-canary", "swift-test"])
 
 
 
@@ -2747,14 +2754,7 @@ FAST_LANE_CLAUSE = (
 # (cmux#44966: the plain fallback queued re-runs on a Blacksmith label with no runner online).
 FAST_TIER_REPORT_CLAUSE = (
     "contains(fromJSON('[\"success\",\"failure\",\"cancelled\"]'), needs.fast-tier-fleet.result) "
-    "&& needs.fast-tier-fleet.outputs.verdict != 'queued' "
-    "&& !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || "
-    "contains(fromJSON('[\"success\",\"failure\",\"cancelled\"]'), needs.fast-tier-fleet.result) "
-    "&& needs.fast-tier-fleet.outputs.verdict != 'queued' "
-    "&& vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_4 || "
-    "contains(fromJSON('[\"success\",\"failure\",\"cancelled\"]'), needs.fast-tier-fleet.result) "
-    "&& needs.fast-tier-fleet.outputs.verdict != 'queued' "
-    "&& fromJSON(vars.RUNNER_POOLS).linux_2 || "
+    "&& needs.fast-tier-fleet.outputs.verdict != 'queued' && 'cmux-linux' || "
     "needs.fast-tier-fleet.outputs.verdict == 'queued' && needs.fast-tier-handback-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.fast-tier-handback-placement.outputs.runner || "
     "needs.fast-tier-fleet.outputs.verdict == 'queued' && "
     "(vars.CI_BLACKSMITH_MACOS != 'on' && "
@@ -2946,61 +2946,36 @@ def evaluate(expression: str, context: dict):
     return eval(text, {"__builtins__": {}}, names)  # noqa: S307 - this repository's workflow, not input
 
 
-class PortablePlacementBootstrapAdmission(unittest.TestCase):
-    def test_stale_fleet_label_cannot_block_the_router_before_placement_runs(self):
-        jobs = yaml.safe_load((ROOT / ".github/workflows/cmux-next.yml").read_text())["jobs"]
-        bootstrap = one_runs_on(jobs["portable-placement"])
-        for fleet in ("", "cmux-fleet-linux-x64", "stale-fleet-label"):
-            # Never GitHub-hosted Ubuntu (it left the job queued for hours, cmux#45735). A same-repository pull
-            # request's first attempt takes the persistent pool's cmux-linux (it took the reserved PR control
-            # label, #48405, until that label's one-job VMs queued 1,860 jobs); a re-run takes Blacksmith, the
-            # 2 vCPU size like the other placement bootstraps, overflow or not.
-            for attempt, overflow, expected in ((1, "", "cmux-linux"),
-                                                (1, "1", "cmux-linux"),
-                                                (2, "", "blacksmith-2vcpu-ubuntu-2404"),
-                                                (2, "1", "blacksmith-2vcpu-ubuntu-2404")):
-                with self.subTest(fleet=fleet, attempt=attempt, overflow=overflow):
-                    context = {"github.repository_owner": "manaflow-ai",
-                               "github.event_name": "pull_request",
-                               "github.event.pull_request.head.repo.full_name": "manaflow-ai/cmux",
-                               "github.repository": "manaflow-ai/cmux",
-                               "github.run_attempt": attempt,
-                               "vars.LINUX_RUNNER": fleet,
-                               "vars.CI_CLOUD_OVERFLOW_SAVED": overflow}
-                    self.assertEqual(evaluate(bootstrap, context), expected)
+class ChecksAndRouterTakeOneLabel(unittest.TestCase):
+    """The checks job and the path router run on cmux-linux for every own-branch run, on every attempt.
 
-
-class ChecksTimeoutFitsItsRunner(unittest.TestCase):
-    """A checks job placed on a mini gets a verdict, not a timeout's cancel (docs note-349).
-
-    #42624, a data-only devbox image promotion, was placed on a mini on all three of its heads; each run
-    hit the 15-minute timeout sized for Blacksmith (jobs 131984422217, 132002973791, 132013731059: the
-    runner hook's admission wait and the slower checks), ended cancelled, and land-judge had no verdict.
+    No placement job picks their runner (cmuxterm-hq decisions/junctions.md: one label for every own-branch Linux job,
+    the pickers deleted). A fork's run takes GitHub-hosted Ubuntu, a fork pull request vars.CI_FORK_LINUX_RUNNER
+    (GitHub-hosted Ubuntu while it is unset).
     """
 
     def context(self, **extra) -> dict:
         return {"github.repository_owner": "manaflow-ai", "github.repository": "manaflow-ai/cmux",
                 "github.event_name": "pull_request", "github.run_attempt": 1,
-                "github.event.pull_request.head.repo.full_name": "manaflow-ai/cmux",
-                "needs.portable-placement.outputs.placed_attempt": "1", **extra}
+                "github.event.pull_request.head.repo.full_name": "manaflow-ai/cmux", **extra}
 
-    def test_a_mini_placed_checks_job_outlasts_the_hook_wait_and_the_slow_checks(self):
-        job = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"][JOB]
-        mini = self.context(**{"needs.portable-placement.outputs.mini_jobs": " path_route checks ",
-                               "needs.portable-placement.outputs.mini_runner": "glaeda-side-std-xcode-26.6"})
-        self.assertEqual(evaluate(one_runs_on(job), mini), "glaeda-side-std-xcode-26.6")
-        # Observed on a mini: 8 min 5 s of admission wait (job 132013731059) plus about 16 min of checks.
-        self.assertGreaterEqual(evaluate(str(job["timeout-minutes"]), mini), 30)
-        for why, context in (
-                ("Blacksmith", self.context()),
-                ("fleet Linux", self.context(**{"needs.portable-placement.outputs.linux_jobs": " checks ",
-                                                "needs.portable-placement.outputs.linux_runner": "glaeda-linux"})),
-                ("an earlier attempt's mini", {**mini, "github.run_attempt": 2}),
-                ("a listed job with no mini label", {**mini, "needs.portable-placement.outputs.mini_runner": ""}),
-                ("a fork repository", {**mini, "github.repository_owner": "someone"})):
-            with self.subTest(why=why):
-                self.assertNotEqual(evaluate(one_runs_on(job), context), "glaeda-side-std-xcode-26.6")
-                self.assertEqual(evaluate(str(job["timeout-minutes"]), context), 15)
+    def test_own_runs_take_cmux_linux_and_forks_keep_their_labels(self):
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        for name in (JOB, "path_route"):
+            runs_on = one_runs_on(jobs[name])
+            with self.subTest(job=name):
+                self.assertNotIn("vars.", runs_on.replace("vars.CI_FORK_LINUX_RUNNER", ""))
+                self.assertNotIn("needs.", runs_on)
+                for attempt in (1, 2, 3):
+                    self.assertEqual(evaluate(runs_on, self.context(**{"github.run_attempt": attempt})), "cmux-linux")
+                self.assertEqual(evaluate(runs_on, self.context(**{"github.event_name": "push"})), "cmux-linux")
+                self.assertEqual(evaluate(runs_on, self.context(**{"github.repository_owner": "someone"})),
+                                 "ubuntu-24.04")
+                fork_pr = self.context(**{"github.event.pull_request.head.repo.full_name": "someone/cmux"})
+                self.assertEqual(evaluate(runs_on, fork_pr), "ubuntu-24.04")
+                self.assertEqual(evaluate(runs_on, {**fork_pr, "vars.CI_FORK_LINUX_RUNNER": "blacksmith-4vcpu-ubuntu-2404"}),
+                                 "blacksmith-4vcpu-ubuntu-2404")
+        self.assertEqual(evaluate(str(jobs[JOB]["timeout-minutes"]), self.context()), 15)
 
 
 class ReleaseCompileOnCmuxNextSwiftPullRequests(unittest.TestCase):
@@ -3366,7 +3341,7 @@ class SameRepositoryPullRequestsRunTheirTiers(unittest.TestCase):
             "vars.CI_PR_POOL_OWNED": "1",
             "needs.push-head-preflight.outputs.current": "true",
             "needs.web-bundles.result": "success",
-            # The router ran: web-bundles checks its result (a re-run skips portable-placement before it).
+            # The router ran: web-bundles checks its result.
             "needs.path_route.result": "success",
             "needs.path_route.outputs.tree_state": "ready",
             "needs.app-compile-fleet.outputs.verdict": "pass",
@@ -3674,7 +3649,7 @@ class BuildFleetGatewayJobsFallBack(unittest.TestCase):
     # fleet's own compile of the same sha (2026-11-02: every gateway runner busy from 09:39Z sent pushes 622a6b75
     # and 0fa148c5 to the Mac Release queue for over two hours while cmux-next/compile had passed both). Their
     # Mac fallback runs only when that read gives no verdict.
-    LINUX_ROUTE = {"release-compile-fast": ("blacksmith-2vcpu-ubuntu-2404", "blacksmith-8vcpu-ubuntu-2404")}
+    LINUX_ROUTE = {"release-compile-fast": ("cmux-linux",)}
 
     def jobs(self) -> dict:
         return yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
@@ -4321,7 +4296,7 @@ esac
         self.assertEqual(evaluate(one_runs_on(client), read), gateway)
         reported = {**read, "needs.fast-tier-fleet.result": "success", "needs.fast-tier-fleet.outputs.verdict": "pass",
                     "needs.macos-placement.outputs.placed_attempt": "1"}
-        self.assertEqual(evaluate(one_runs_on(tier), reported), "blacksmith-2vcpu-ubuntu-2404")
+        self.assertEqual(evaluate(one_runs_on(tier), reported), "cmux-linux")
         self.assertEqual(evaluate(tier["timeout-minutes"], reported), 5)
         # A reading from another attempt (a later re-run carries this job too), none idle, or none listed:
         # the client skips and the tier keeps its re-run route.
@@ -4476,7 +4451,7 @@ esac
             with self.subTest(verdict=verdict):
                 context = {**base, "needs.fast-tier-fleet.outputs.verdict": verdict}
                 self.assertEqual(evaluate(job_env(tier)["CMUX_FAST_TIER_FLEET"], context), "report")
-                self.assertEqual(evaluate(one_runs_on(tier), context), "blacksmith-2vcpu-ubuntu-2404")
+                self.assertEqual(evaluate(one_runs_on(tier), context), "cmux-linux")
 
     def test_the_report_exits_with_the_clients_result(self):
         report = self.jobs()["fast-tier"]["steps"][0]
