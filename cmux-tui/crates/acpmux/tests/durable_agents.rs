@@ -4363,3 +4363,29 @@ fn log_while_down(daemon: &Daemon, session: &str, kind: &str, msg: Value) {
     let mut f = std::fs::OpenOptions::new().append(true).open(last).unwrap();
     writeln!(f, "{record}").unwrap();
 }
+
+/// RFD 0049, leg `disk`, the bench's wakes: a link that breaks because an entry from its host
+/// could not be stored (a full disk; the debug seam `ACPMUX_TEST_UNLOGGED_ONCE`) answers the
+/// prompt open on it at once, with the store's refusal or the link's own error, rather than
+/// leaving it open until the client's 30 s limit. The next prompt reattaches and is answered.
+#[tokio::test]
+async fn a_prompt_open_when_its_link_breaks_on_an_unstored_entry_is_answered_at_once() {
+    let env = [("ACPMUX_TEST_UNLOGGED_ONCE", "wake-unstored")];
+    let daemon = Daemon::with_env("unstoredwake", "approve-all", &env);
+    let session = new_session(&daemon).await;
+    let mut rpc = daemon.rpc().await;
+    let hi = json!({"sessionId": session, "prompt": [{"type": "text", "text": "hi"}]});
+    rpc.call("session/prompt", hi.clone()).await;
+    let wake = json!({"sessionId": session, "prompt": [{"type": "text", "text": "wake-unstored"}]});
+    let started = Instant::now();
+    let reply = tokio::time::timeout(Duration::from_secs(1), rpc.reply("session/prompt", wake))
+        .await
+        .unwrap_or_else(|_| panic!("the prompt whose link broke was still open after 1 s"));
+    assert!(
+        reply.get("error").is_some() || reply["result"]["stopReason"].is_string(),
+        "neither an answer nor an error after {:?}: {reply}",
+        started.elapsed()
+    );
+    let again = rpc.reply("session/prompt", hi).await;
+    assert!(again.get("error").is_none(), "the next prompt after the break: {again}");
+}
