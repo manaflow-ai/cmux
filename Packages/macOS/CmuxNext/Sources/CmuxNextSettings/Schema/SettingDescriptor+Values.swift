@@ -23,6 +23,7 @@ extension SettingDescriptor {
         if path == CustomDensitiesSetting.configPath { return CustomDensitiesSetting.accepts(value) }
         if path == CommandLabelsSetting().configPath { return CommandLabelsSetting.accepts(value) }
         if path == TranscriptTokensSetting.configPath { return TranscriptTokensSetting.accepts(value) }
+        if path == HostsSetting.configPath { return HostsSetting.accepts(value) }
         if path == ThemeFileSetting.configPath { return value.stringValue.map(ThemeFileSetting.isValidName) ?? false }
         if path == BackdropSelectionSetting.lightPath || path == BackdropSelectionSetting.darkPath {
             return BackdropSelectionSetting.acceptsPicture(value)

@@ -1931,6 +1931,39 @@
 
         ],
         "aliases" : [
+          "server"
+        ],
+        "groups" : [
+          {
+            "key" : "settings.group.screenSharing",
+            "rows" : [
+              "macScreen.onlyPersonStartsViewing"
+            ],
+            "title" : {
+              "key" : "settings.group.screenSharing",
+              "text" : "Screen Sharing"
+            }
+          }
+        ],
+        "id" : "devices",
+        "lead" : [
+          "devices"
+        ],
+        "symbol" : "laptopcomputer",
+        "title" : {
+          "key" : "settings.category.devices",
+          "text" : "Devices"
+        },
+        "trail" : [
+          "server",
+          "tailnet"
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
 
         ],
         "groups" : [
@@ -2115,39 +2148,6 @@
         },
         "trail" : [
 
-        ]
-      },
-      {
-        "actions" : [
-
-        ],
-        "aliases" : [
-          "server"
-        ],
-        "groups" : [
-          {
-            "key" : "settings.group.screenSharing",
-            "rows" : [
-              "macScreen.onlyPersonStartsViewing"
-            ],
-            "title" : {
-              "key" : "settings.group.screenSharing",
-              "text" : "Screen Sharing"
-            }
-          }
-        ],
-        "id" : "devices",
-        "lead" : [
-          "devices"
-        ],
-        "symbol" : "laptopcomputer",
-        "title" : {
-          "key" : "settings.category.devices",
-          "text" : "Devices"
-        },
-        "trail" : [
-          "server",
-          "tailnet"
         ]
       },
       {
@@ -2462,7 +2462,8 @@
       {
         "categories" : [
           "accounts",
-          "mobile"
+          "mobile",
+          "devices"
         ],
         "id" : "devices",
         "title" : {
@@ -2478,7 +2479,6 @@
           "mcpServers",
           "cloud",
           "keys",
-          "devices",
           "import",
           "privacy",
           "advanced",
@@ -9887,7 +9887,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : false,
+      "default" : true,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.updates",
@@ -115157,20 +115157,12 @@
     },
     {
       "accepts" : [
-        "ask",
         "on",
         "off"
       ],
       "agent_refusal" : "userOnly",
       "agent_settable" : false,
       "choices" : [
-        {
-          "title" : {
-            "key" : "settings.agents.cmuxMcp.ask",
-            "text" : "Ask"
-          },
-          "value" : "ask"
-        },
         {
           "title" : {
             "key" : "settings.agents.cmuxMcp.on",
@@ -115189,7 +115181,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "ask",
+      "default" : "on",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.agentTools",
@@ -115197,7 +115189,7 @@
       },
       "help" : {
         "key" : "settings.agents.cmuxMcp.help",
-        "text" : "Agents you start in cmux get cmux’s tools, Computer Use included: Claude Code and Codex in cmux’s terminals and agent chats. Until you choose, they get nothing. cmux never changes your agents’ own settings."
+        "text" : "Agents you start in cmux get cmux’s tools, Computer Use included: Claude Code and Codex in cmux’s terminals and agent chats. cmux never changes your agents’ own settings."
       },
       "kept_on_reset_all" : false,
       "key" : "agents.cmuxMcp",
@@ -115209,8 +115201,7 @@
         "claude",
         "codex",
         "coding agents",
-        "agents",
-        "onboarding"
+        "agents"
       ],
       "kind" : "choice",
       "page_hidden" : false,

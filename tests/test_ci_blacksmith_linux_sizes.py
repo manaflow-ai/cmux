@@ -12,7 +12,8 @@ vCPUs: one 32 vCPU job holds the room of eight 4 vCPU jobs, and on 2026-10-31 th
 - a job whose runner text (runs-on, a matrix runner, an env or `with` value it hands on) names
   blacksmith-32vcpu-ubuntu-2404, or reads the capability map's `linux_32`, with no entry, or with an entry
   that neither says `why_32` nor is `pending` on a named open pull request;
-- an entry whose `size` or `failover` the job's runner text does not name (the table and the workflow drift);
+- an entry whose `size` or `failover` the job's runner text does not name (the table and the workflow drift),
+  unless the job's same-repository branch names the persistent pool 'cmux-linux';
 - an entry for a job that no longer exists;
 - a `pending` list longer or shorter than PENDING: it only shrinks, so a moved job cannot come back.
 
@@ -36,6 +37,9 @@ BIG = "blacksmith-32vcpu-ubuntu-2404"
 LABEL = re.compile(r"blacksmith-(\d+)vcpu-ubuntu-2404(?![-\w])")
 POOL = re.compile(r"fromJSON\(vars\.RUNNER_POOLS\)\.linux_(\d+)\b")
 CAPABILITY_32 = re.compile(r"outputs\.map\)\.linux_32\b")
+# A job whose same-repository branch names the persistent pool runs there, not on a Blacksmith size; its entry
+# keeps the Blacksmith measurement for the fork branch and any return to Blacksmith.
+PERSISTENT_POOL = "'cmux-linux'"
 # Jobs still on 32 vCPU while an open pull request changes the same runs-on. Lower it as they move; never raise it.
 PENDING = 13
 
@@ -79,7 +83,7 @@ def problems(entries: dict, found: dict[str, str]) -> list[str]:
             continue
         if not isinstance(entry.get("measured"), dict):
             out.append(f"{key}: entry has no measured map")
-        if entry.get("pending"):
+        if entry.get("pending") or PERSISTENT_POOL in found[key]:
             continue
         named = sizes(found[key])
         if not named:

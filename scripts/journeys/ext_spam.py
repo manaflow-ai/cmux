@@ -108,7 +108,7 @@ def _send(j, key, modifiers, at, is_repeat, window):
     """One key at its scheduled uptime `at` (sleeps until then); returns the reply."""
     wait = at - uptime()
     if wait > 0:
-        time.sleep(wait)
+        time.sleep(wait)  # sleep-ok: the key goes at its scheduled time (the spam's own rate)
     params = {"key": key, "modifiers": modifiers, "timestamp": at}
     if is_repeat:
         params["repeat"] = True
@@ -191,7 +191,7 @@ def step_hold_key(j, step):
     mark = _budget_mark(j)
     threads, replies = _play(j, step["key"], step.get("modifiers", []), schedule, window)
     # The key goes up at key_up: debug.key stops reading it as held (repeats still queued then are a backlog).
-    time.sleep(max(0.0, key_up - uptime()))
+    time.sleep(max(0.0, key_up - uptime()))  # sleep-ok: the key is held for SECONDS, the spam's length
     try:
         up = {"key": step["key"], "modifiers": step.get("modifiers", []), "up": True}
         if window or j.key_window:
@@ -200,7 +200,7 @@ def step_hold_key(j, step):
     except Exception:
         pass
     # One frame after the key-up: what the person sees when they let go.
-    time.sleep(max(0.0, key_up + FRAME - uptime()))
+    time.sleep(max(0.0, key_up + FRAME - uptime()))  # sleep-ok: the read is defined as one frame after the key-up
     name = step["as"]
     j.marks[step.get("mark", name)] = D.now()
     j.spam[name + "_release"] = counts(j)
