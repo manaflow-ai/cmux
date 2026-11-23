@@ -37,7 +37,7 @@
   --ds-radius-control: var(--cmux-button-radius, calc(8px * var(--page-density)));
   --ds-radius-popup: calc(8px * var(--page-density));
   --ds-radius-card: calc(12px * var(--page-density));
-  --ds-radius-composer: calc(16px * var(--page-density));
+  --ds-radius-composer: calc(18px * var(--page-density));
   --text-caption: calc(11px * var(--page-density-text));
   --text-caption--line-height: calc(14px * var(--page-density-text));
   --text-detail: calc(12px * var(--page-density-text));
@@ -61,7 +61,6 @@
 :root[data-corner-rule="classic"][data-page-density] {
   --ui-popup-radius: var(--ds-radius-popup);
   --ds-radius-card: calc(14px * var(--page-density));
-  --ds-radius-composer: calc(18px * var(--page-density));
 }
 
 :root {

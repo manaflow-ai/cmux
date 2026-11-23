@@ -61,10 +61,9 @@ body {
 }
 
 /* CORNER RULE (ui/cornerRule.experiment.ts): the generated tokens draw Instrument's corners (card 12,
-   composer 16, toast 12); the classic arm draws the corners from before the rule. */
+   toast 12; the composer keeps its own rounding); the classic arm draws the corners from before the rule. */
 :root[data-corner-rule="classic"] {
   --ds-radius-card: 14px;
-  --ds-radius-composer: 18px;
   --surface-card-radius: 10px;
   --surface-toast-radius: 9px;
 }
@@ -121,7 +120,7 @@ body {
   --ds-radius-control: var(--cmux-button-radius, 8px); /* every button: the tab's corner (Metrics.buttonCornerRadius; Lawrence 2026-11-12, buttons round as tabs) */
   --ds-radius-popup: 8px;
   --ds-radius-card: 12px; /* a card: the container corner, control 8 + inset 4 (Instrument v0.1 corner rule; the corner-rule experiment's classic arm draws the earlier 14) */
-  --ds-radius-composer: 16px; /* the composer: control 8 + inset 8 (Instrument v0.1 corner rule; the corner-rule experiment's classic arm draws the earlier 18) */
+  --ds-radius-composer: 18px; /* today's composer radius; grid.md moves it to 12 after a gallery comparison */
   --ds-radius-menu: var(--cmux-menu-highlight-radius); /* AppKit's menu highlight (menu-metrics) */
   /* glass chrome (level): chrome docked on the window where no native glass is under the page: panes, bars, rails, side tabs, sticky headers and the minimap; over the App's own window glass the page draws text only (design/glass-system.md, rule 1) */
   --ds-glass-chrome-tint: 62%;
@@ -915,7 +914,7 @@ label:not([for]):has(:is(input, select, textarea):disabled):not(
   --grid-queue-trail-center: calc(22px * var(--cmux-interface-scale, 1)); /* Trailing glyph center from the right edge. */
   --grid-composer-block-inset: calc(10px * var(--cmux-interface-scale, 1)); /* Control inset from the top and bottom of a one-line composer. */
   --grid-composer-box: calc(48px * var(--cmux-interface-scale, 1)); /* One-line composer height. */
-  --grid-composer-radius: calc(12px * var(--cmux-interface-scale, 1)); /* Composer corner radius. */
+  --grid-composer-radius: calc(22px * var(--cmux-interface-scale, 1)); /* Composer corner radius, concentric with its round controls: half a control plus the inset. */
   --grid-composer-quiet-row-gap: calc(4px * var(--cmux-interface-scale, 1)); /* Gap below composer box. */
   --grid-composer-quiet-row-height: calc(28px * var(--cmux-interface-scale, 1)); /* Quiet row height. */
   --grid-composer-quiet-row-text: calc(14px * var(--cmux-interface-scale, 1)); /* First quiet chip text at leading glyph left edge. */

@@ -36,7 +36,7 @@
     { "name": "control", "var": "var(--cmux-button-radius, 8px)", "for": "every button: the tab's corner (Metrics.buttonCornerRadius; Lawrence 2026-11-12, buttons round as tabs)" },
     { "name": "popup", "px": 8 },
     { "name": "card", "px": 12, "for": "a card: the container corner, control 8 + inset 4 (Instrument v0.1 corner rule; the corner-rule experiment's classic arm draws the earlier 14)" },
-    { "name": "composer", "px": 16, "for": "the composer: control 8 + inset 8 (Instrument v0.1 corner rule; the corner-rule experiment's classic arm draws the earlier 18)" },
+    { "name": "composer", "px": 18, "for": "today's composer radius; grid.md moves it to 12 after a gallery comparison" },
     { "name": "menu", "var": "var(--cmux-menu-highlight-radius)", "for": "AppKit's menu highlight (menu-metrics)" }
   ],
   "glass": [

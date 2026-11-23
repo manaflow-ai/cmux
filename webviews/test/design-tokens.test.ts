@@ -224,12 +224,11 @@ describe("token copies (a px/ms literal a named token already holds)", () => {
 
   test("names the token for a value in its own family only", () => {
     expect(tokenFor("ui/x.css", "2px", "spacing", ".x", false)?.name).toBe("--grid-half-step");
-    // 14px is the sheet radius, never a gap (the corner rule put the composer's 16 on --ds-radius-2xl's
-    // value, so it names no one token).
-    expect(tokenFor("ui/x.css", "14px", "spacing", ".x", false)).toBeUndefined();
-    expect(tokenFor("ui/x.css", "14px", "radius", ".sheet", false)?.name).toBe("--surface-sheet-radius");
+    // 18px is the composer radius, never a gap.
+    expect(tokenFor("ui/x.css", "18px", "spacing", ".x", false)).toBeUndefined();
+    expect(tokenFor("ui/x.css", "18px", "radius", ".composer", false)?.name).toBe("--ds-radius-composer");
     // A component's token names only that component's values.
-    expect(tokenFor("ui/x.css", "14px", "radius", ".card", false)).toBeUndefined();
+    expect(tokenFor("ui/x.css", "18px", "radius", ".card", false)).toBeUndefined();
     expect(tokenFor("ui/x.css", "0px", "spacing", ".x", false)).toBeUndefined();
   });
 
