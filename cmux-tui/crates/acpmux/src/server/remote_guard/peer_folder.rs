@@ -188,7 +188,15 @@ pub(super) async fn cwd_refused(cwd: &str) -> RpcError {
 /// `cwd` outside the roots, refused; for a proven peer (`told`: the configured roots) told the configured roots (`roots`, and
 /// in the message) and `tryCwd`, a folder in the first one a start may use: `ROOT/<cwd's last
 /// name>` when nothing is there yet or it is a real folder (no link), else `ROOT` itself.
-pub(super) async fn outside_told(cwd: &str, told: &Option<Vec<PathBuf>>) -> RpcError {
+/// For a Claude Code start (`checkout`), which runs only in a checkout or a scratch folder
+/// (`hub/remote_cwd.rs`), `tryCwd` is `ROOT/<leaf>` only when that is a checkout already:
+/// a folder made there, or `ROOT`, would be refused next as "not a checkout", so with none
+/// the start's way out is no folder (a scratch folder, which both checks admit).
+pub(super) async fn outside_told(
+    cwd: &str,
+    told: &Option<Vec<PathBuf>>,
+    checkout: bool,
+) -> RpcError {
     let mut e = super::outside_roots("cwd");
     // The Web is not told this machine's folders.
     let Some(roots) = told.as_deref() else { return e };
@@ -199,15 +207,23 @@ pub(super) async fn outside_told(cwd: &str, told: &Option<Vec<PathBuf>>) -> RpcE
         format!("; this machine's webRoots: {}", listed.join(", "))
     });
     e.message.push_str(" (with no folder at all, a scratch folder is made for the session)");
-    let mut pick = roots.first().cloned();
+    let mut pick = roots.first().cloned().filter(|_| !checkout);
     if let (Some(root), Some(leaf)) = (roots.first(), Path::new(cwd).file_name()) {
         let candidate = root.join(leaf);
         let usable = match tokio::fs::symlink_metadata(&candidate).await {
             Ok(m) => m.is_dir(),
             Err(e) => e.kind() == std::io::ErrorKind::NotFound,
         };
-        if usable {
+        if usable && !checkout {
             pick = Some(candidate);
+        } else if usable {
+            let at = candidate.clone();
+            let tree = tokio::task::spawn_blocking(move || {
+                at.is_dir() && crate::hub::remote_cwd::in_work_tree(&at)
+            });
+            if tree.await.unwrap_or(false) {
+                pick = Some(candidate);
+            }
         }
     }
     if let Some(data) = e.data.as_mut() {
