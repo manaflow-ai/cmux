@@ -71,6 +71,13 @@ pub trait Desktop {
     fn pump(&mut self) -> Res<Option<std::time::Duration>> {
         Ok(None)
     }
+    /// SECURITY: called once before the session's first frame, on a desktop that may have opened
+    /// before the app's newest `exclude_windows` line (`cmux-rd serve` opens it during the
+    /// handshake): returns once the newest picture leaves those windows out (macOS), else the
+    /// session ends. Desktops without window exclusions have nothing to wait for.
+    fn ready_for_start(&mut self) -> Res<()> {
+        Ok(())
+    }
     /// Reads the cursor, for a desktop opened with cursor metadata (cap `cursor`): it left
     /// the cursor out of its pictures. `None`: this desktop draws the cursor in the picture.
     fn cursor(&mut self) -> Option<crate::cursor::CursorSample> {

@@ -263,10 +263,11 @@ pub(super) async fn start_daemon_with(key: Option<zeroize::Zeroizing<String>>) -
     // keyed start (the app's restart over ssh) stays here and says so.
     #[cfg(target_os = "macos")]
     {
-        let this = crate::self_command::SelfCommand::current()?;
+        let choice = super::start_exe::current(&home())?;
         crate::config::private_state_dir(&home())?;
         let log = home().join("daemon.log");
         drop(open_daemon_log(&log)?);
+        let this = choice.this.clone();
         let (home, keyed) = (home(), key.is_some());
         let placed = tokio::task::spawn_blocking(move || {
             login_session::start_in_login_session(&this, &home, &log, keyed)
@@ -274,7 +275,12 @@ pub(super) async fn start_daemon_with(key: Option<zeroize::Zeroizing<String>>) -
         .await
         .map_err(|e| anyhow!("{e}"))?;
         match placed {
-            Ok(login_session::Started::Job(job)) => return wait_for_job(&path, job).await,
+            Ok(login_session::Started::Job(job)) => {
+                if let Ok(mut log) = open_daemon_log(&home().join("daemon.log")) {
+                    super::log_start_choice(&mut log, &choice);
+                }
+                return wait_for_job(&path, job).await;
+            }
             Ok(login_session::Started::Running) => return Ok(LOCK_HELD_LINE.to_owned()),
             Ok(login_session::Started::No) => {}
             Ok(login_session::Started::NoGuiLogin) => {
