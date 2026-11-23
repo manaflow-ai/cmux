@@ -5,10 +5,22 @@
       "comment": "The reason in the New Workspace toast when the folder is pinned (Settings > Machines, Where Folders Run) to a machine that is paused or not connected.",
       "extractionState": "manual",
       "localizations": {
-        "en": {
+        "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "The machine this folder is pinned to is not connected; resume it, then open the workspace again."
+            "value": "الجهاز المثبّت عليه هذا المجلد غير متصل؛ استأنفه، ثم افتح مساحة العمل مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Računar za koji je ova fascikla vezana nije povezan; nastavite ga, pa ponovo otvorite radni prostor."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maskinen, denne mappe er fastgjort til, er ikke forbundet; genoptag den, og åbn så arbejdsområdet igen."
           }
         },
         "de": {
@@ -17,16 +29,10 @@
             "value": "Die Maschine, an die dieser Ordner gebunden ist, ist nicht verbunden; setze sie fort und öffne den Arbeitsbereich dann erneut."
           }
         },
-        "fr": {
+        "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "La machine à laquelle ce dossier est associé n’est pas connectée ; reprenez-la, puis rouvrez l’espace de travail."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "الجهاز المثبّت عليه هذا المجلد غير متصل؛ استأنفه، ثم افتح مساحة العمل مرة أخرى."
+            "value": "The machine this folder is pinned to is not connected; resume it, then open the workspace again."
           }
         },
         "es": {
@@ -35,16 +41,28 @@
             "value": "La máquina a la que está fijada esta carpeta no está conectada; reanúdala y vuelve a abrir el espacio de trabajo."
           }
         },
-        "zh-Hant": {
+        "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "此資料夾固定的機器未連線；請恢復它，然後再次開啟工作區。"
+            "value": "La machine à laquelle ce dossier est associé n’est pas connectée ; reprenez-la, puis rouvrez l’espace de travail."
           }
         },
-        "zh-Hans": {
+        "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "此文件夹固定的机器未连接；请恢复它，然后再次打开工作区。"
+            "value": "La macchina a cui è fissata questa cartella non è connessa; riprendila, poi riapri il workspace."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このフォルダが固定されたマシンは接続されていません。再開してから、もう一度ワークスペースを開いてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ម៉ាស៊ីនដែលថតនេះត្រូវបានខ្ទាស់ទៅមិនបានភ្ជាប់ទេ។ សូមបន្តវា រួចបើកកន្លែងធ្វើការម្ដងទៀត។"
           }
         },
         "ko": {
@@ -53,10 +71,64 @@
             "value": "이 폴더가 고정된 머신이 연결되어 있지 않습니다. 머신을 재개한 다음 작업 공간을 다시 여세요."
           }
         },
-        "ja": {
+        "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "このフォルダが固定されたマシンは接続されていません。再開してから、もう一度ワークスペースを開いてください。"
+            "value": "Maskinen denne mappen er festet til, er ikke tilkoblet; gjenoppta den, og åpne deretter arbeidsområdet igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maszyna, do której przypięto ten folder, nie jest połączona; wznów ją, a potem ponownie otwórz obszar roboczy."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A máquina à qual esta pasta está fixada não está conectada; retome-a e abra o espaço de trabalho novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Компьютер, к которому привязана эта папка, не подключён; возобновите его и снова откройте рабочую область."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เครื่องที่โฟลเดอร์นี้ปักหมุดไว้ไม่ได้เชื่อมต่ออยู่ ให้กลับมาใช้งานเครื่องนั้น แล้วเปิดเวิร์กสเปซอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu klasörün sabitlendiği makine bağlı değil; makineyi sürdürün, sonra çalışma alanını yeniden açın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Комп’ютер, до якого прив’язано цю папку, не під’єднано; відновіть його, а тоді знову відкрийте робочу область."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máy mà thư mục này được ghim vào chưa kết nối; hãy tiếp tục máy đó rồi mở lại không gian làm việc."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此文件夹固定的机器未连接；请恢复它，然后再次打开工作区。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此資料夾固定的機器未連線；請恢復它，然後再次開啟工作區。"
           }
         }
       }
@@ -65,10 +137,22 @@
       "comment": "The reason in the New Workspace toast when the person's cap on running Cloud machines (Settings > Machines) is reached.",
       "extractionState": "manual",
       "localizations": {
-        "en": {
+        "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Your running Cloud machines are at the cap you set in Settings > Machines."
+            "value": "بلغت أجهزة Cloud العاملة لديك الحد الذي عيّنته في الإعدادات > الأجهزة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vaši pokrenuti Cloud računari su dostigli ograničenje postavljeno u Postavke > Računari."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dine kørende Cloud-maskiner har nået grænsen, du har sat i Indstillinger > Maskiner."
           }
         },
         "de": {
@@ -77,16 +161,10 @@
             "value": "Deine laufenden Cloud-Maschinen haben das Limit erreicht, das du unter Einstellungen > Maschinen festgelegt hast."
           }
         },
-        "fr": {
+        "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vos machines Cloud actives ont atteint la limite définie dans Réglages > Machines."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "بلغت أجهزة Cloud العاملة لديك الحد الذي عيّنته في الإعدادات > الأجهزة."
+            "value": "Your running Cloud machines are at the cap you set in Settings > Machines."
           }
         },
         "es": {
@@ -95,16 +173,28 @@
             "value": "Tus máquinas de Cloud en ejecución alcanzaron el límite que fijaste en Ajustes > Máquinas."
           }
         },
-        "zh-Hant": {
+        "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "執行中的 Cloud 機器已達你在「設定 > 機器」中設定的上限。"
+            "value": "Vos machines Cloud actives ont atteint la limite définie dans Réglages > Machines."
           }
         },
-        "zh-Hans": {
+        "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "运行中的 Cloud 机器已达到你在“设置 > 机器”中设置的上限。"
+            "value": "Le tue macchine Cloud in esecuzione hanno raggiunto il limite impostato in Impostazioni > Macchine."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実行中の Cloud マシンが「設定 > マシン」で設定した上限に達しています。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ម៉ាស៊ីន Cloud ដែលកំពុងដំណើរការរបស់អ្នកបានដល់កម្រិតដែលអ្នកកំណត់ក្នុង ការកំណត់ > ម៉ាស៊ីន។"
           }
         },
         "ko": {
@@ -113,10 +203,64 @@
             "value": "실행 중인 Cloud 머신이 설정 > 머신에서 정한 한도에 도달했습니다."
           }
         },
-        "ja": {
+        "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "実行中の Cloud マシンが「設定 > マシン」で設定した上限に達しています。"
+            "value": "De kjørende Cloud-maskinene dine har nådd grensen du satte i Innstillinger > Maskiner."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Twoje uruchomione maszyny Cloud osiągnęły limit ustawiony w Ustawienia > Maszyny."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suas máquinas Cloud em execução atingiram o limite definido em Ajustes > Máquinas."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ваши запущенные Cloud-компьютеры достигли лимита, заданного в Настройки > Компьютеры."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เครื่อง Cloud ที่กำลังทำงานของคุณถึงขีดจำกัดที่คุณตั้งไว้ใน การตั้งค่า > เครื่อง แล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Çalışan Cloud makineleriniz Ayarlar > Makineler'de belirlediğiniz sınıra ulaştı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ваші запущені Cloud-комп’ютери досягли ліміту, заданого в Налаштування > Комп’ютери."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Các máy Cloud đang chạy của bạn đã đạt giới hạn bạn đặt trong Cài đặt > Máy."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "运行中的 Cloud 机器已达到你在“设置 > 机器”中设置的上限。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "執行中的 Cloud 機器已達你在「設定 > 機器」中設定的上限。"
           }
         }
       }

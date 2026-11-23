@@ -221379,10 +221379,22 @@
       "comment": "Settings > Machines: title of the map of folders to where their new workspaces run.",
       "extractionState": "manual",
       "localizations": {
-        "en": {
+        "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Where Folders Run"
+            "value": "أين تعمل المجلدات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gdje se fascikle pokreću"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvor mapper kører"
           }
         },
         "de": {
@@ -221391,16 +221403,10 @@
             "value": "Wo Ordner laufen"
           }
         },
-        "fr": {
+        "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Où s’exécutent les dossiers"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "أين تعمل المجلدات"
+            "value": "Where Folders Run"
           }
         },
         "es": {
@@ -221409,16 +221415,28 @@
             "value": "Dónde se ejecutan las carpetas"
           }
         },
-        "zh-Hant": {
+        "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "資料夾的執行位置"
+            "value": "Où s’exécutent les dossiers"
           }
         },
-        "zh-Hans": {
+        "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "文件夹的运行位置"
+            "value": "Dove vengono eseguite le cartelle"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォルダの実行場所"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កន្លែងដែលថតដំណើរការ"
           }
         },
         "ko": {
@@ -221427,10 +221445,64 @@
             "value": "폴더 실행 위치"
           }
         },
-        "ja": {
+        "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "フォルダの実行場所"
+            "value": "Hvor mapper kjører"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gdzie działają foldery"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Onde as pastas são executadas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Где запускаются папки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตำแหน่งที่โฟลเดอร์ทำงาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klasörlerin çalıştığı yer"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Де запускаються папки"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nơi thư mục chạy"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文件夹的运行位置"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "資料夾的執行位置"
           }
         }
       }
@@ -221439,10 +221511,22 @@
       "comment": "Settings > Machines: help for Where Folders Run. \"thisMac\", \"cloud\" and \"machine:<id>\" are literal values the person types; keep them untranslated.",
       "extractionState": "manual",
       "localizations": {
-        "en": {
+        "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "A folder and where its new workspaces run: \"thisMac\", \"cloud\" or \"machine:<id>\". Overrides Run New Workspaces in Cloud."
+            "value": "مجلد والمكان الذي تعمل فيه مساحات العمل الجديدة الخاصة به: \"thisMac\" أو \"cloud\" أو \"machine:<id>\". يتقدّم على تشغيل مساحات العمل الجديدة في Cloud."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fascikla i gdje se pokreću njeni novi radni prostori: \"thisMac\", \"cloud\" ili \"machine:<id>\". Ima prednost nad Pokreni nove radne prostore u Cloudu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En mappe og hvor dens nye arbejdsområder kører: \"thisMac\", \"cloud\" eller \"machine:<id>\". Tilsidesætter Kør nye arbejdsområder i Cloud."
           }
         },
         "de": {
@@ -221451,16 +221535,10 @@
             "value": "Ein Ordner und wo seine neuen Arbeitsbereiche laufen: \"thisMac\", \"cloud\" oder \"machine:<id>\". Hat Vorrang vor „Neue Arbeitsbereiche in Cloud ausführen“."
           }
         },
-        "fr": {
+        "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un dossier et l’endroit où s’exécutent ses nouveaux espaces de travail : \"thisMac\", \"cloud\" ou \"machine:<id>\". Prime sur « Exécuter les nouveaux espaces de travail dans Cloud »."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "مجلد والمكان الذي تعمل فيه مساحات العمل الجديدة الخاصة به: \"thisMac\" أو \"cloud\" أو \"machine:<id>\". يتقدّم على تشغيل مساحات العمل الجديدة في Cloud."
+            "value": "A folder and where its new workspaces run: \"thisMac\", \"cloud\" or \"machine:<id>\". Overrides Run New Workspaces in Cloud."
           }
         },
         "es": {
@@ -221469,16 +221547,28 @@
             "value": "Una carpeta y dónde se ejecutan sus nuevos espacios de trabajo: \"thisMac\", \"cloud\" o \"machine:<id>\". Tiene prioridad sobre Ejecutar nuevos espacios de trabajo en Cloud."
           }
         },
-        "zh-Hant": {
+        "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "資料夾及其新工作區的執行位置：\"thisMac\"、\"cloud\" 或 \"machine:<id>\"。優先於「在 Cloud 中執行新工作區」。"
+            "value": "Un dossier et l’endroit où s’exécutent ses nouveaux espaces de travail : \"thisMac\", \"cloud\" ou \"machine:<id>\". Prime sur « Exécuter les nouveaux espaces de travail dans Cloud »."
           }
         },
-        "zh-Hans": {
+        "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "文件夹及其新工作区的运行位置：\"thisMac\"、\"cloud\" 或 \"machine:<id>\"。优先于“在 Cloud 中运行新工作区”。"
+            "value": "Una cartella e dove vengono eseguiti i suoi nuovi workspace: \"thisMac\", \"cloud\" o \"machine:<id>\". Ha la precedenza su Esegui i nuovi workspace nel Cloud."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォルダと、その新しいワークスペースを実行する場所：\"thisMac\"、\"cloud\"、または \"machine:<id>\"。「新しいワークスペースを Cloud で実行」より優先されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ថតមួយ និងកន្លែងដែលកន្លែងធ្វើការថ្មីរបស់វាដំណើរការ៖ \"thisMac\", \"cloud\" ឬ \"machine:<id>\"។ បដិសេធ ដំណើរការកន្លែងធ្វើការថ្មីនៅលើ Cloud។"
           }
         },
         "ko": {
@@ -221487,10 +221577,64 @@
             "value": "폴더와 그 폴더의 새 작업 공간이 실행될 위치: \"thisMac\", \"cloud\" 또는 \"machine:<id>\". Cloud에서 새 작업 공간 실행보다 우선합니다."
           }
         },
-        "ja": {
+        "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "フォルダと、その新しいワークスペースを実行する場所：\"thisMac\"、\"cloud\"、または \"machine:<id>\"。「新しいワークスペースを Cloud で実行」より優先されます。"
+            "value": "En mappe og hvor de nye arbeidsområdene dens kjører: \"thisMac\", \"cloud\" eller \"machine:<id>\". Overstyrer Kjør nye arbeidsområder i Cloud."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Folder i miejsce, w którym działają jego nowe obszary robocze: \"thisMac\", \"cloud\" lub \"machine:<id>\". Zastępuje Uruchamiaj nowe obszary robocze w chmurze."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uma pasta e onde seus novos espaços de trabalho são executados: \"thisMac\", \"cloud\" ou \"machine:<id>\". Substitui Executar novos espaços de trabalho na nuvem."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Папка и место, где запускаются её новые рабочие области: \"thisMac\", \"cloud\" или \"machine:<id>\". Имеет приоритет над «Запускать новые рабочие области в облаке»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โฟลเดอร์และตำแหน่งที่เวิร์กสเปซใหม่ของโฟลเดอร์นั้นทำงาน: \"thisMac\", \"cloud\" หรือ \"machine:<id>\" ใช้แทน เรียกใช้เวิร์กสเปซใหม่บนคลาวด์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir klasör ve yeni çalışma alanlarının çalıştığı yer: \"thisMac\", \"cloud\" veya \"machine:<id>\". Yeni çalışma alanlarını bulutta çalıştır ayarını geçersiz kılar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Папка і місце, де запускаються її нові робочі області: \"thisMac\", \"cloud\" або \"machine:<id>\". Має пріоритет над «Запускати нові робочі області в хмарі»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Một thư mục và nơi các không gian làm việc mới của nó chạy: \"thisMac\", \"cloud\" hoặc \"machine:<id>\". Ghi đè Chạy không gian làm việc mới trên đám mây."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文件夹及其新工作区的运行位置：\"thisMac\"、\"cloud\" 或 \"machine:<id>\"。优先于“在 Cloud 中运行新工作区”。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "資料夾及其新工作區的執行位置：\"thisMac\"、\"cloud\" 或 \"machine:<id>\"。優先於「在 Cloud 中執行新工作區」。"
           }
         }
       }
@@ -221499,10 +221643,22 @@
       "comment": "Settings > Machines: title of the cap on running Cloud machines before new workspaces stay on this Mac.",
       "extractionState": "manual",
       "localizations": {
-        "en": {
+        "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Most Cloud Machines Running"
+            "value": "الحد الأقصى لأجهزة Cloud العاملة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Najviše pokrenutih Cloud računara"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flest kørende Cloud-maskiner"
           }
         },
         "de": {
@@ -221511,16 +221667,10 @@
             "value": "Höchstens laufende Cloud-Maschinen"
           }
         },
-        "fr": {
+        "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Machines Cloud actives au maximum"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "الحد الأقصى لأجهزة Cloud العاملة"
+            "value": "Most Cloud Machines Running"
           }
         },
         "es": {
@@ -221529,16 +221679,28 @@
             "value": "Máximo de máquinas de Cloud en ejecución"
           }
         },
-        "zh-Hant": {
+        "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "執行中的 Cloud 機器上限"
+            "value": "Machines Cloud actives au maximum"
           }
         },
-        "zh-Hans": {
+        "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "运行中的 Cloud 机器上限"
+            "value": "Massimo di macchine Cloud in esecuzione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実行中の Cloud マシンの上限"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ម៉ាស៊ីន Cloud ដំណើរការច្រើនបំផុត"
           }
         },
         "ko": {
@@ -221547,10 +221709,64 @@
             "value": "실행 중인 Cloud 머신 최대 수"
           }
         },
-        "ja": {
+        "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "実行中の Cloud マシンの上限"
+            "value": "Flest kjørende Cloud-maskiner"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Najwięcej uruchomionych maszyn Cloud"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máximo de máquinas Cloud em execução"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Максимум запущенных Cloud-компьютеров"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "จำนวนเครื่อง Cloud ที่ทำงานได้สูงสุด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En fazla çalışan Cloud makinesi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Максимум запущених Cloud-комп’ютерів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Số máy Cloud chạy tối đa"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "运行中的 Cloud 机器上限"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "執行中的 Cloud 機器上限"
           }
         }
       }
@@ -221559,10 +221775,22 @@
       "comment": "Settings > Machines: help for Most Cloud Machines Running.",
       "extractionState": "manual",
       "localizations": {
-        "en": {
+        "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "At this many running, new workspaces open on this Mac instead. 0 uses your plan's limit."
+            "value": "عند تشغيل هذا العدد، تُفتح مساحات العمل الجديدة على جهاز Mac هذا بدلاً من ذلك. القيمة 0 تستخدم حد خطتك."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kada je ovoliko pokrenuto, novi radni prostori se umjesto toga otvaraju na ovom Macu. 0 koristi ograničenje vašeg plana."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når så mange kører, åbner nye arbejdsområder på denne Mac i stedet. 0 bruger din plans grænse."
           }
         },
         "de": {
@@ -221571,16 +221799,10 @@
             "value": "Laufen so viele, öffnen neue Arbeitsbereiche stattdessen auf diesem Mac. 0 nutzt das Limit deines Tarifs."
           }
         },
-        "fr": {
+        "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "À partir de ce nombre de machines actives, les nouveaux espaces de travail s’ouvrent sur ce Mac. 0 utilise la limite de votre forfait."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "عند تشغيل هذا العدد، تُفتح مساحات العمل الجديدة على جهاز Mac هذا بدلاً من ذلك. القيمة 0 تستخدم حد خطتك."
+            "value": "At this many running, new workspaces open on this Mac instead. 0 uses your plan's limit."
           }
         },
         "es": {
@@ -221589,16 +221811,28 @@
             "value": "Con estas en ejecución, los nuevos espacios de trabajo se abren en este Mac. 0 usa el límite de tu plan."
           }
         },
-        "zh-Hant": {
+        "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "執行中的機器達到此數量時，新工作區改在這台 Mac 上開啟。0 表示使用方案的上限。"
+            "value": "À partir de ce nombre de machines actives, les nouveaux espaces de travail s’ouvrent sur ce Mac. 0 utilise la limite de votre forfait."
           }
         },
-        "zh-Hans": {
+        "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "运行中的机器达到此数量时，新工作区改在这台 Mac 上打开。0 表示使用套餐的上限。"
+            "value": "Con questo numero in esecuzione, i nuovi workspace si aprono invece su questo Mac. 0 usa il limite del tuo piano."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この数が実行中になると、新しいワークスペースは代わりにこの Mac で開きます。0 はプランの上限を使います。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "នៅពេលដំណើរការចំនួននេះ កន្លែងធ្វើការថ្មីនឹងបើកនៅលើ Mac នេះជំនួសវិញ។ 0 ប្រើកម្រិតនៃគម្រោងរបស់អ្នក។"
           }
         },
         "ko": {
@@ -221607,10 +221841,64 @@
             "value": "이만큼 실행 중이면 새 작업 공간이 대신 이 Mac에서 열립니다. 0이면 요금제 한도를 사용합니다."
           }
         },
-        "ja": {
+        "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "この数が実行中になると、新しいワークスペースは代わりにこの Mac で開きます。0 はプランの上限を使います。"
+            "value": "Når så mange kjører, åpnes nye arbeidsområder på denne Mac-en i stedet. 0 bruker grensen i abonnementet ditt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gdy tyle jest uruchomionych, nowe obszary robocze otwierają się zamiast tego na tym Macu. 0 oznacza limit Twojego planu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Com esse número em execução, novos espaços de trabalho abrem neste Mac. 0 usa o limite do seu plano."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Когда запущено столько, новые рабочие области открываются на этом Mac. 0 — лимит вашего тарифа."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เมื่อทำงานถึงจำนวนนี้ เวิร์กสเปซใหม่จะเปิดบน Mac เครื่องนี้แทน 0 ใช้ขีดจำกัดของแพ็กเกจคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu kadar makine çalışırken yeni çalışma alanları bunun yerine bu Mac'te açılır. 0, planınızın sınırını kullanır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Коли запущено стільки, нові робочі області відкриваються на цьому Mac. 0 — ліміт вашого тарифу."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Khi đã chạy đến số này, không gian làm việc mới sẽ mở trên máy Mac này. 0 dùng giới hạn của gói của bạn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "运行中的机器达到此数量时，新工作区改在这台 Mac 上打开。0 表示使用套餐的上限。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "執行中的機器達到此數量時，新工作區改在這台 Mac 上開啟。0 表示使用方案的上限。"
           }
         }
       }
@@ -221619,10 +221907,22 @@
       "comment": "Settings > Machines: title of the choice of where a new workspace opens while this Mac is overloaded.",
       "extractionState": "manual",
       "localizations": {
-        "en": {
+        "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "When This Mac Is Busy"
+            "value": "عندما يكون هذا الـMac مشغولًا"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kada je ovaj Mac zauzet"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når denne Mac er optaget"
           }
         },
         "de": {
@@ -221631,16 +221931,10 @@
             "value": "Wenn dieser Mac ausgelastet ist"
           }
         },
-        "fr": {
+        "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Quand ce Mac est occupé"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "عندما يكون هذا الـMac مشغولًا"
+            "value": "When This Mac Is Busy"
           }
         },
         "es": {
@@ -221649,16 +221943,28 @@
             "value": "Cuando este Mac está ocupado"
           }
         },
-        "zh-Hant": {
+        "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "當這台 Mac 忙碌時"
+            "value": "Quand ce Mac est occupé"
           }
         },
-        "zh-Hans": {
+        "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "当这台 Mac 繁忙时"
+            "value": "Quando questo Mac è occupato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac が混んでいるとき"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពេល Mac នេះរវល់"
           }
         },
         "ko": {
@@ -221667,10 +221973,64 @@
             "value": "이 Mac이 바쁠 때"
           }
         },
-        "ja": {
+        "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "この Mac が混んでいるとき"
+            "value": "Når denne Mac-en er opptatt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gdy ten Mac jest zajęty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quando este Mac estiver ocupado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Когда этот Mac занят"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เมื่อ Mac เครื่องนี้ไม่ว่าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu Mac meşgulken"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Коли цей Mac зайнятий"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Khi máy Mac này bận"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当这台 Mac 繁忙时"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "當這台 Mac 忙碌時"
           }
         }
       }
@@ -221679,10 +222039,22 @@
       "comment": "Settings > Machines: help under When This Mac Is Busy.",
       "extractionState": "manual",
       "localizations": {
-        "en": {
+        "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Where a new workspace opens while this Mac is overloaded."
+            "value": "مكان فتح مساحة عمل جديدة أثناء تحميل هذا الـMac فوق طاقته."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gdje se otvara novi radni prostor dok je ovaj Mac preopterećen."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvor et nyt arbejdsområde åbner, mens denne Mac er overbelastet."
           }
         },
         "de": {
@@ -221691,16 +222063,10 @@
             "value": "Wo ein neuer Workspace öffnet, während dieser Mac überlastet ist."
           }
         },
-        "fr": {
+        "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Où s’ouvre un nouvel espace de travail quand ce Mac est surchargé."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "مكان فتح مساحة عمل جديدة أثناء تحميل هذا الـMac فوق طاقته."
+            "value": "Where a new workspace opens while this Mac is overloaded."
           }
         },
         "es": {
@@ -221709,16 +222075,28 @@
             "value": "Dónde se abre un espacio de trabajo nuevo mientras este Mac está sobrecargado."
           }
         },
-        "zh-Hant": {
+        "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "這台 Mac 過載時，新工作區在哪裡開啟。"
+            "value": "Où s’ouvre un nouvel espace de travail quand ce Mac est surchargé."
           }
         },
-        "zh-Hans": {
+        "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "这台 Mac 过载时，新工作区在哪里打开。"
+            "value": "Dove si apre un nuovo workspace mentre questo Mac è sovraccarico."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac が過負荷のときに新しいワークスペースを開く場所。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កន្លែងដែលកន្លែងធ្វើការថ្មីបើក ពេល Mac នេះផ្ទុកលើសចំណុះ។"
           }
         },
         "ko": {
@@ -221727,10 +222105,64 @@
             "value": "이 Mac에 부하가 클 때 새 워크스페이스가 열리는 곳입니다."
           }
         },
-        "ja": {
+        "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "この Mac が過負荷のときに新しいワークスペースを開く場所。"
+            "value": "Hvor et nytt arbeidsområde åpnes mens denne Mac-en er overbelastet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gdzie otwiera się nowy obszar roboczy, gdy ten Mac jest przeciążony."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Onde um novo espaço de trabalho abre enquanto este Mac está sobrecarregado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Где открывается новая рабочая область, пока этот Mac перегружен."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตำแหน่งที่เวิร์กสเปซใหม่จะเปิด ขณะที่ Mac เครื่องนี้ทำงานหนักเกินไป"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu Mac aşırı yüklüyken yeni bir çalışma alanının açılacağı yer."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Де відкривається нова робоча область, поки цей Mac перевантажений."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nơi mở không gian làm việc mới khi máy Mac này quá tải."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这台 Mac 过载时，新工作区在哪里打开。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這台 Mac 過載時，新工作區在哪裡開啟。"
           }
         }
       }
@@ -221739,10 +222171,22 @@
       "comment": "Settings > Machines > When This Mac Is Busy: keep new workspaces on this Mac (the default).",
       "extractionState": "manual",
       "localizations": {
-        "en": {
+        "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "This Mac"
+            "value": "هذا الـMac"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ovaj Mac"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne Mac"
           }
         },
         "de": {
@@ -221751,16 +222195,10 @@
             "value": "Dieser Mac"
           }
         },
-        "fr": {
+        "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ce Mac"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "هذا الـMac"
+            "value": "This Mac"
           }
         },
         "es": {
@@ -221769,16 +222207,28 @@
             "value": "Este Mac"
           }
         },
-        "zh-Hant": {
+        "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "這台 Mac"
+            "value": "Ce Mac"
           }
         },
-        "zh-Hans": {
+        "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "这台 Mac"
+            "value": "Questo Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac នេះ"
           }
         },
         "ko": {
@@ -221787,10 +222237,64 @@
             "value": "이 Mac"
           }
         },
-        "ja": {
+        "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "この Mac"
+            "value": "Denne Mac-en"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ten Mac"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este Mac"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Этот Mac"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac เครื่องนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu Mac"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цей Mac"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máy Mac này"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这台 Mac"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這台 Mac"
           }
         }
       }
@@ -221799,10 +222303,22 @@
       "comment": "Settings > Machines > When This Mac Is Busy: open on a connected machine of the person's own that has room.",
       "extractionState": "manual",
       "localizations": {
-        "en": {
+        "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Your Machine With Room"
+            "value": "جهازك الذي لديه سعة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vaš računar sa slobodnim mjestom"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Din maskine med plads"
           }
         },
         "de": {
@@ -221811,16 +222327,10 @@
             "value": "Ihr Rechner mit Kapazität"
           }
         },
-        "fr": {
+        "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Votre machine disponible"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "جهازك الذي لديه سعة"
+            "value": "Your Machine With Room"
           }
         },
         "es": {
@@ -221829,16 +222339,28 @@
             "value": "Tu máquina con espacio"
           }
         },
-        "zh-Hant": {
+        "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "你有餘裕的機器"
+            "value": "Votre machine disponible"
           }
         },
-        "zh-Hans": {
+        "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "你有余量的机器"
+            "value": "La tua macchina con spazio"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "余裕のある自分のマシン"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ម៉ាស៊ីនរបស់អ្នកដែលមានទំនេរ"
           }
         },
         "ko": {
@@ -221847,10 +222369,64 @@
             "value": "여유 있는 내 머신"
           }
         },
-        "ja": {
+        "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "余裕のある自分のマシン"
+            "value": "Din maskin med plass"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Twoja maszyna z wolnym miejscem"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sua máquina com espaço"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ваш компьютер со свободными ресурсами"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เครื่องของคุณที่ยังว่าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yeri olan makineniz"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ваш комп’ютер із вільними ресурсами"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máy của bạn còn chỗ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你有余量的机器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你有餘裕的機器"
           }
         }
       }
@@ -221859,10 +222435,22 @@
       "comment": "Settings > Machines > When This Mac Is Busy: a machine of the person's own with room, else a new Cloud machine.",
       "extractionState": "manual",
       "localizations": {
-        "en": {
+        "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Your Machine, Else Cloud"
+            "value": "جهازك، وإلا Cloud"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vaš računar, inače Cloud"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Din maskine, ellers Cloud"
           }
         },
         "de": {
@@ -221871,16 +222459,10 @@
             "value": "Ihr Rechner, sonst Cloud"
           }
         },
-        "fr": {
+        "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Votre machine, sinon Cloud"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "جهازك، وإلا Cloud"
+            "value": "Your Machine, Else Cloud"
           }
         },
         "es": {
@@ -221889,16 +222471,28 @@
             "value": "Tu máquina, si no Cloud"
           }
         },
-        "zh-Hant": {
+        "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "你的機器，否則 Cloud"
+            "value": "Votre machine, sinon Cloud"
           }
         },
-        "zh-Hans": {
+        "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "你的机器，否则 Cloud"
+            "value": "La tua macchina, altrimenti Cloud"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自分のマシン、なければ Cloud"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ម៉ាស៊ីនរបស់អ្នក បើមិនដូច្នោះទេ Cloud"
           }
         },
         "ko": {
@@ -221907,10 +222501,64 @@
             "value": "내 머신, 없으면 Cloud"
           }
         },
-        "ja": {
+        "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "自分のマシン、なければ Cloud"
+            "value": "Din maskin, ellers Cloud"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Twoja maszyna, w przeciwnym razie Cloud"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sua máquina, senão Cloud"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ваш компьютер, иначе Cloud"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เครื่องของคุณ หรือไม่ก็ Cloud"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Makineniz, olmazsa Cloud"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ваш комп’ютер, інакше Cloud"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máy của bạn, nếu không thì Cloud"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的机器，否则 Cloud"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的機器，否則 Cloud"
           }
         }
       }
