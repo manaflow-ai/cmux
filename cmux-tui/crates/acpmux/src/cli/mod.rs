@@ -20,6 +20,7 @@ pub mod command_host;
 pub mod command_new;
 pub(crate) mod consent_admin;
 pub mod daemon_service;
+pub mod daemon_stats;
 pub mod desktop;
 pub mod detach;
 pub mod entry;
