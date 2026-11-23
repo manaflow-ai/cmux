@@ -28,7 +28,9 @@ pub struct Stat {
 }
 
 impl Stat {
-    #[allow(clippy::unnecessary_cast)]
+    // `stat`'s field types differ by architecture (`st_nlink` is u64 on x86_64, u32 on arm64),
+    // so a cast or conversion one needs is a no-op on the other.
+    #[allow(clippy::unnecessary_cast, clippy::useless_conversion)]
     fn of(st: &libc::stat) -> Self {
         let ns = |secs: i64, nanos: i64| secs.saturating_mul(1_000_000_000).saturating_add(nanos);
         Self {
@@ -248,17 +250,20 @@ impl Upper {
     pub fn rename(&self, from: &str, to: &str, flags: u32) -> Result<(), i32> {
         let (from_dir, from_name) = self.parent(from)?;
         let (to_dir, to_name) = self.parent(to)?;
-        // SAFETY: valid descriptors and C strings.
-        check(unsafe {
-            libc::renameat2(
+        // The raw syscall: musl, which the Linux release binaries link, has no `renameat2`
+        // wrapper, so `libc::renameat2` left the musl builds with an undefined symbol.
+        // SAFETY: valid descriptors and C strings; renameat2 takes exactly these arguments.
+        let done = unsafe {
+            libc::syscall(
+                libc::SYS_renameat2,
                 from_dir.as_raw_fd(),
                 from_name.as_ptr(),
                 to_dir.as_raw_fd(),
                 to_name.as_ptr(),
                 flags,
             )
-        })
-        .map(drop)
+        };
+        check(done as libc::c_int).map(drop)
     }
 
     /// Moves a file from outside the upper folder (the scratch folder, same disk) to `to`.

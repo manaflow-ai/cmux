@@ -1,0 +1,61 @@
+{
+  "family": "inbox_app",
+  "ops": {
+    "inbox_app.cycle_variant": {
+      "source": "app",
+      "owner": "app:cmux/inbox",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "digest": "6f4b5bf1ae7263b1"
+    },
+    "inbox_app.mark_all_read": {
+      "source": "app",
+      "owner": "app:cmux/inbox",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "digest": "a227007054b2552e"
+    },
+    "inbox_app.mark_done": {
+      "source": "app",
+      "owner": "app:cmux/inbox",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "digest": "1711e040fda03af5"
+    },
+    "inbox_app.next_item": {
+      "source": "app",
+      "owner": "app:cmux/inbox",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "digest": "402f1f5e4aa4cd5c"
+    },
+    "inbox_app.open": {
+      "source": "app",
+      "owner": "app:cmux/inbox",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "digest": "b08f133f9ef3f605"
+    },
+    "inbox_app.open_item": {
+      "source": "app",
+      "owner": "app:cmux/inbox",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "digest": "2f94ac0e444f4438"
+    },
+    "inbox_app.previous_item": {
+      "source": "app",
+      "owner": "app:cmux/inbox",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "digest": "aa148cd178db358b"
+    },
+    "inbox_app.snooze": {
+      "source": "app",
+      "owner": "app:cmux/inbox",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "digest": "6b2da7b063db1c11"
+    }
+  }
+}
