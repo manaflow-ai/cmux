@@ -1,6 +1,8 @@
 public import CmuxNextServer
 public import CmuxNextSidebar
 import CmuxNextCompat
+import CmuxNextDesign
+import CmuxNextWakeups
 import Foundation
 public import Observation
 
@@ -84,6 +86,14 @@ public final class HostsSidebar {
     @ObservationIgnored private var visible: @MainActor () -> Bool = { true }
     @ObservationIgnored private var running = false
     public private(set) var expanded = true
+    /// A connect usually heals on its own (Leo, 2026-11-14: "i also want all our connectivity stuff to shut the
+    /// fuck up"): a row says "Connecting…" and spins only once its connect has lasted
+    /// ``NoticeTiming/connectionQuiet``. One ``QuietHold`` per connecting row; nothing runs while none connects.
+    @ObservationIgnored private var connectHolds: [String: QuietHold] = [:]
+    /// The rows whose connect has lasted ``connectQuiet``; reading it here redraws the section when one does.
+    private var connectLasted: Set<String> = []
+    /// ``NoticeTiming/connectionQuiet``; tests shorten it.
+    @ObservationIgnored var connectQuiet: Duration = NoticeTiming.connectionQuiet
 
     public init(host: Host? = nil, visible: @escaping @MainActor () -> Bool = { true }) {
         self.host = host
@@ -167,7 +177,25 @@ public final class HostsSidebar {
             return []
         }
         if initialRefresh == nil { start(host, visible: visible) }
-        return Self.rows(machines: host.rows(), expanded: expanded)
+        let machines = host.rows()
+        return Self.rows(machines: machines, expanded: expanded, connectLasted: holdConnects(machines))
+    }
+
+    /// Starts a hold for each row that began connecting and ends the hold of each that stopped; returns the rows
+    /// whose connect has lasted ``connectQuiet``.
+    private func holdConnects(_ machines: [MachineSectionRow]) -> Set<String> {
+        let connecting = Set(machines.lazy.filter { $0.isConnecting && !$0.failed }.map(\.id))
+        for (id, hold) in connectHolds where !connecting.contains(id) {
+            hold.update(false) {}
+            connectHolds[id] = nil
+        }
+        if !connectLasted.isSubset(of: connecting) { connectLasted.formIntersection(connecting) }
+        for id in connecting where connectHolds[id] == nil {
+            let hold = QuietHold(owner: "HostsSidebar.connecting", delay: connectQuiet)
+            connectHolds[id] = hold
+            hold.update(true) { [weak self] in self?.connectLasted.insert(id) }
+        }
+        return connectLasted
     }
 
     /// Handles the header, Add Host and machine-row clicks. Returns false for another transient item.
@@ -189,7 +217,12 @@ public final class HostsSidebar {
     }
 
     @MainActor
-    static func rows(machines: [MachineSectionRow], expanded: Bool) -> [SidebarTransientItem] {
+    /// `connectLasted`: the connecting rows whose connect has lasted ``NoticeTiming/connectionQuiet``; a row still
+    /// under it shows neither words nor spinner. Nil: every connecting row has (a snapshot with no clock).
+    static func rows(machines: [MachineSectionRow], expanded: Bool, connectLasted: Set<String>? = nil) -> [SidebarTransientItem] {
+        func connecting(_ machine: MachineSectionRow) -> Bool {
+            machine.isConnecting && !machine.failed && connectLasted.map { $0.contains(machine.id) } != false
+        }
         var items: [SidebarTransientItem] = []
         var previous: [LayoutItemRef] = [.app("cmux/app-store"), SidebarTransientItem.channels.item.ref,
                                           SidebarLayoutDocument.homeRef, .builtIn(.home)]
@@ -199,7 +232,7 @@ public final class HostsSidebar {
         }
 
         var header = SidebarItemInfo(title: "Hosts", symbol: "server.rack", badge: machines.isEmpty ? nil : machines.count)
-        header.activity = machines.contains(where: { $0.isConnecting && !$0.failed }) ? .working : .idle
+        header.activity = machines.contains(where: connecting) ? .working : .idle
         add(Self.headerID, header)
         guard expanded else { return items }
 
@@ -209,11 +242,12 @@ public final class HostsSidebar {
         add(Self.addID, addHost)
         for machine in machines {
             var info = SidebarItemInfo(title: machine.name, symbol: symbol(for: machine))
-            info.caption = caption(for: machine)
+            let held = machine.isConnecting && !machine.failed && !connecting(machine)
+            info.caption = held ? nil : caption(for: machine)
             info.tooltip = machine.failure
             info.indent = 1
             info.isMissing = !machine.isConnected && !machine.isConnecting && machine.serverState == nil
-            info.activity = machine.isConnecting && !machine.failed ? .working : .idle
+            info.activity = connecting(machine) ? .working : .idle
             add(LayoutItemID(Self.rowPrefix + machine.id), info)
         }
         return items

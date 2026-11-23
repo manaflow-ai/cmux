@@ -73,6 +73,32 @@ struct HostsSidebarTests {
         #expect(rows.first { $0.item.id.rawValue.hasSuffix("offline") }?.info.isMissing == true)
     }
 
+    /// Leo, 2026-11-14: "i also want all our connectivity stuff to shut the f*** up". A connecting row said
+    /// "Connecting…" and spun from the first frame of every connect; it now waits ``NoticeTiming/connectionQuiet``
+    /// (shortened here), then says so while the connect lasts, and a row that connected never waits.
+    @Test func aConnectingRowWaitsOutTheQuietBoundBeforeItSaysSo() async {
+        var machines = [Self.machine("joining", "Joining", connected: false, connecting: true), Self.machine("desk", "Desk")]
+        let hosts = HostsSidebar()
+        hosts.connectQuiet = .milliseconds(20)
+        hosts.bind(host: .init(rows: { machines }, add: {}, openConnected: { _ in }, openJoined: { _ in }))
+        defer { hosts.stop() }
+        func row(_ id: String) -> SidebarItemInfo? { hosts.rows().first { $0.item.id.rawValue.hasSuffix(id) }?.info }
+        #expect(row("joining")?.caption == nil && row("joining")?.activity == .idle, "no words, no spinner under the bound")
+        #expect(hosts.rows().first?.info.activity == .idle)
+        #expect(row("desk")?.caption == "Connected")
+        var lasted = false
+        for _ in 0..<200 where !lasted {
+            try? await Task.sleep(for: .milliseconds(10))
+            lasted = row("joining")?.caption == "Connecting…"
+        }
+        #expect(lasted, "a lasting connect says so")
+        #expect(row("joining")?.activity == .working && hosts.rows().first?.info.activity == .working)
+        machines[0] = Self.machine("joining", "Joining")
+        #expect(row("joining")?.caption == "Connected" && row("joining")?.activity == .idle)
+        machines[0] = Self.machine("joining", "Joining", connected: false, connecting: true)
+        #expect(row("joining")?.caption == nil, "a new connect waits again")
+    }
+
     @Test func addAndHostClicksUseTheSharedMachineRows() throws {
         let machine = Self.machine("m1", "Desk", kind: .server)
         var added = false
