@@ -18,11 +18,11 @@ use std::ffi::{CString, c_char};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 /// Bumped on any change to a type or function in the header.
-const ABI_VERSION: u32 = 4;
+const ABI_VERSION: u32 = 5;
 
 /// Floats in the Frame uniform (`cmux_wallpaper_frame_pack` writes this
 /// many; 4 bytes each). Size the uniform buffer from this, never a literal.
-pub const CMUX_WALLPAPER_FRAME_FLOATS: usize = 104;
+pub const CMUX_WALLPAPER_FRAME_FLOATS: usize = 108;
 /// Points in a `CmuxWallpaperTrail`, and rows in `Frame.trail`.
 pub const CMUX_WALLPAPER_TRAIL_POINTS: usize = 16;
 /// Floats `cmux_wallpaper_trail_rows` writes: 4 per point (x, y, age, valid).
@@ -141,6 +141,9 @@ pub struct CmuxWallpaperFrameInput {
     pub since_agent_event: f32,
     /// `CmuxWallpaperActivity.count`.
     pub agent_events: f32,
+    /// The tritone grade over the program's colors, 0 (off) ..1 (`appearance.liveWallpaperGrade`):
+    /// lightness mapped from the darker of paper and ink, through accent, to the lighter.
+    pub grade: f32,
     pub ink: [f32; 3],
     pub paper: [f32; 3],
     pub accent: [f32; 3],
@@ -175,6 +178,7 @@ impl Default for CmuxWallpaperFrameInput {
             activity: 0.0,
             since_agent_event: 0.0,
             agent_events: 0.0,
+            grade: 0.0,
             ink: [0.0; 3],
             paper: [0.0; 3],
             accent: [0.0; 3],
@@ -301,6 +305,7 @@ impl From<&CmuxWallpaperFrameInput> for FrameInput {
             activity: i.activity,
             since_agent_event: i.since_agent_event,
             agent_events: i.agent_events,
+            grade: i.grade,
             button_down: i.button_down,
             dark: i.dark,
             ink: i.ink,

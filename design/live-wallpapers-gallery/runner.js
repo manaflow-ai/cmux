@@ -9,8 +9,8 @@ void main() {
   gl_Position = vec4(xy * 2.0 - 1.0, 0.0, 1.0);
 }`;
 
-// cmux-wallpaper's Frame (src/frame.rs): 104 floats, 416 bytes; its last 64 are the trail.
-const FRAME_FLOATS = 104;
+// cmux-wallpaper's Frame (src/frame.rs): 108 floats, 432 bytes; 40..44 the grade, the last 64 the trail.
+const FRAME_FLOATS = 108;
 const TRAIL_POINTS = 16;
 const TRAIL_STEP_S = 0.05;
 const TRAIL_LIFE_S = 1.0;
@@ -37,7 +37,7 @@ function compile(gl, type, source) {
 }
 
 export class Wallpaper {
-  // wallpaper: { manifest, glsl }; options: { theme, accent, params, scale, still }
+  // wallpaper: { manifest, glsl }; options: { theme, accent, params, scale, still, grade }
   constructor(canvas, wallpaper, options = {}) {
     this.canvas = canvas;
     this.wallpaper = wallpaper;
@@ -182,8 +182,10 @@ export class Wallpaper {
     }
     const sinceAgent = a.has ? Math.min(Math.max(time - a.last, 0), 1e4) : 1e4;
     data.set([a.level, sinceAgent, a.count, 0], 36);
+    // The tritone grade (appearance.liveWallpaperGrade), 0 off ..1, clamped as pack_frame does.
+    data.set([Math.min(Math.max(Number(options.grade) || 0, 0), 1), 0, 0, 0], 40);
     // A still has no trail (the program draws its own); a live frame has the pointer's.
-    if (!options.still) data.set(this.trailRows(performance.now() / 1000), 40);
+    if (!options.still) data.set(this.trailRows(performance.now() / 1000), 44);
     gl.viewport(0, 0, canvas.width, canvas.height);
     gl.useProgram(this.program);
     gl.bindBuffer(gl.UNIFORM_BUFFER, this.ubo);
