@@ -18,14 +18,7 @@ type SpinnerProps = {
 /// `dots` three pulsing dots; both stay for the gallery's side by sides (BackgroundSpinner.gallery.ts).
 export type SpinnerLook = "track" | "arc" | "dots";
 
-export const Spinner = ({
-  size = 16,
-  className,
-  style,
-  strokeWidth,
-  loading = false,
-  look = "arc",
-}: SpinnerProps) => {
+export const Spinner = ({ size = 16, className, style, strokeWidth, loading = false, look = "arc" }: SpinnerProps) => {
   // The ring takes the line icons' weight (iconSize.ts ICON_STROKE) so it sits with the clock and terminal beside it.
   const weight = strokeWidth ?? (look === "track" ? 1.25 : 1.5);
   return (

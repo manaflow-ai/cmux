@@ -23,8 +23,10 @@ pub(crate) struct MeshBook {
     /// The book reads so far: a row no read lists now has an older one (`Bare::read`).
     reads: u64,
     /// Each machine listed, by its hub `daemonId` (its node key: what the hub carrier dials and
-    /// what its Noise handshake proves), to its host. Kept whole by each read (`mine_by_key`).
-    /// Only the hub carrier reads it.
+    /// what its Noise handshake proves), to its host. Kept whole by each read (`mine_by_key`),
+    /// an ssh peer's machine too: the carrier is that machine's route when its ssh is down.
+    /// Only the hub carrier reads it; the app's workspace targets leave ssh peers out
+    /// (`mesh_book_route_machines`).
     #[cfg(feature = "hub-carrier")]
     machines: BTreeMap<String, String>,
 }
@@ -183,6 +185,7 @@ pub(crate) fn mine(
 /// The keys every session row lists, from this machine or another: a hub row lists each one,
 /// null when the hub does not say, so no reader drops or misfiles a chat for a missing key (Leo,
 /// 2026-11-22: "my gui chats are not showing yet").
+#[cfg(test)]
 pub(crate) const ROW_KEYS: [&str; 10] = [
     "name",
     "nameGiven",
@@ -243,8 +246,13 @@ impl Hub {
         let ssh: std::collections::HashSet<String> =
             self.peers.lock().unwrap_or_else(|e| e.into_inner()).keys().cloned().collect();
         let skip = |host: &str| ssh.contains(host);
+        // Every one of this person's other machines keeps its carrier route, an ssh peer's too
+        // (no skip): the carrier is how `remote.pipe` (`tools/carrier-pipe`, ssh's ProxyCommand)
+        // reaches a machine when its ssh is the thing that is down. Skipping ssh peers here made
+        // every fleet lane VM an ssh peer of the controller `machine.unknown` on the carrier
+        // (2026-11-22). Only the session rows below leave ssh peers out, so none is listed twice.
         #[cfg(feature = "hub-carrier")]
-        self.set_mesh_book_machines(mine_by_key(&book, own_user, own_daemon, &skip));
+        self.set_mesh_book_machines(mine_by_key(&book, own_user, own_daemon, &|_| false));
         let (hosts, sessions) = mine(book, own_user, own_daemon, &skip);
         self.set_mesh_book(hosts, sessions);
     }
@@ -268,6 +276,18 @@ impl Hub {
     pub(crate) fn mesh_book_machines(&self) -> Vec<(String, String)> {
         let book = self.mesh_book.lock().unwrap_or_else(|e| e.into_inner());
         book.machines.iter().map(|(key, host)| (key.clone(), host.clone())).collect()
+    }
+
+    /// The machines of [`Self::mesh_book_machines`] no ssh peer of this daemon already names:
+    /// the app's workspace targets (`_acpmux/machine_routes`), where an ssh peer's machine is
+    /// listed by its ssh row, not twice.
+    #[cfg(feature = "hub-carrier")]
+    pub(crate) fn mesh_book_route_machines(&self) -> Vec<(String, String)> {
+        let ssh: std::collections::HashSet<String> =
+            self.peers.lock().unwrap_or_else(|e| e.into_inner()).keys().cloned().collect();
+        let mut machines = self.mesh_book_machines();
+        machines.retain(|(_, host)| !ssh.contains(host));
+        machines
     }
 
     /// Replace the hub rows: watching clients hear each one that appeared, changed or left, and

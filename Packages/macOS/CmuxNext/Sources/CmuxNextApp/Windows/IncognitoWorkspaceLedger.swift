@@ -25,8 +25,7 @@ final class IncognitoWorkspaceLedger {
 
     /// `<Application Support>/<bundle id>/incognito-workspaces.json`.
     static func forApplication(bundleIdentifier: String?) -> IncognitoWorkspaceLedger {
-        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? URL(filePath: NSTemporaryDirectory())
+        let support = NextSupport.applicationSupportDirectory()
         let bundle = bundleIdentifier.flatMap { $0.isEmpty ? nil : $0 } ?? "com.cmuxterm.app.next"
         return IncognitoWorkspaceLedger(url: support.appending(path: bundle).appending(path: "incognito-workspaces.json"))
     }
