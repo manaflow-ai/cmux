@@ -468,6 +468,67 @@ async fn a_full_disk_refuses_changes_at_once_answers_reads_and_never_stops_the_d
     assert_eq!(*stop.borrow(), None);
 }
 
+/// RFD 0049 R6, leg `disk`, the bench's wakes: a prompt sent as the disk fills, and each one
+/// after it, is answered within a second, its turn's answer or a typed `disk.full` refusal, even
+/// when the space the reserve freed is gone before the journal's writer retries (another file
+/// took it) and the records appended before the failure never become durable. Before, the
+/// gate held each reply behind those records for good: the store's stall check never stops a
+/// full daemon, and nothing else ended the wait.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn prompts_as_the_disk_fills_are_answered_within_a_second() {
+    const FAKE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let work = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(66);
+    let mut config: Config = serde_json::from_value(json!({
+        "harnesses": {"fake": {"argv": ["python3", FAKE]}},
+        "defaultHarness": "fake",
+        "permissionPolicy": "approve-all",
+    }))
+    .unwrap_or_else(|e| panic!("config: {e}"));
+    config.store.mode = StoreMode::Local;
+    let store = crate::store::open_with_journal(
+        &config.store,
+        home.path(),
+        Arc::new(journal.clone()),
+        journal_config(),
+    )
+    .unwrap_or_else(|e| panic!("open the store: {e:#}"));
+    let hub = crate::hub::Hub::new(config, store);
+    let stop = hub.store.stop_reason().unwrap_or_else(|| panic!("no stop reason"));
+    let (input, mut outgoing) = connect(&hub).await;
+    let new = json!({"cwd": work.path(), "mcpServers": []});
+    send(&input, Message::request(2, method::SESSION_NEW, new)).await;
+    let made = until(&mut outgoing, |line| line["id"] == 2).await;
+    let sid = made["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{made}")).to_owned();
+    let prompt = |text: &str| json!({"sessionId": sid, "prompt": [{"type": "text", "text": text}]});
+    send(&input, Message::request(3, method::SESSION_PROMPT, prompt("hello"))).await;
+    let first = until(&mut outgoing, |line| line["id"] == 3).await;
+    assert!(first.get("error").is_none(), "the first prompt: {first}");
+    // The disk fills, and stays full: the reserve's removal frees nothing the journal gets.
+    crate::store::set_test_free(home.path(), Some(0));
+    journal.fail_all_appends(Some(std::io::ErrorKind::StorageFull));
+    for id in 10..16 {
+        let started = Instant::now();
+        send(&input, Message::request(id, method::SESSION_PROMPT, prompt("hello"))).await;
+        let reply = until(&mut outgoing, |line| line["id"] == id).await;
+        let took = started.elapsed();
+        assert!(took < Duration::from_secs(1), "prompt {id} was answered after {took:?}: {reply}");
+        let answered = reply["result"]["stopReason"].is_string();
+        let refused = reply["error"]["data"]["errorKind"] == "disk.full";
+        assert!(answered || refused, "prompt {id}: neither its answer nor disk.full: {reply}");
+    }
+    // A second connection's read is answered too.
+    let (other, mut heard) = connect(&hub).await;
+    send(&other, Message::request(2, method::SESSION_LIST, json!({}))).await;
+    let started = Instant::now();
+    let listed = until(&mut heard, |line| line["id"] == 2).await;
+    assert!(started.elapsed() < Duration::from_secs(1), "session/list: {listed}");
+    assert_eq!(*stop.borrow(), None, "a full disk asked the daemon to stop");
+    journal.fail_all_appends(None);
+    crate::store::set_test_free(home.path(), None);
+}
+
 /// F1, the streaming read: `session/load`'s replay sends each record as it reads it
 /// (`Hub::scan_events`). It must stop at the records whose journal record was appended when it
 /// started: a line the log holds while its record is not appended is not sent.
