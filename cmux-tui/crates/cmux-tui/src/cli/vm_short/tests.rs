@@ -2,7 +2,7 @@ use serde_json::json;
 
 use super::{
     Resolved, Short, app_list, cloud_words, confirmed, misuse, not_listed, parse, pausable,
-    resolve, restore_machine, table,
+    pause_all_misuse, resolve, restore_machine, table,
 };
 
 fn words(list: &[&str]) -> Vec<String> {
@@ -324,4 +324,15 @@ fn pause_all_picks_the_running_vms() {
     let short = parse(&words(&["vm", "pause", "--all"])).expect("pause --all parses");
     assert_eq!(short.cloud_verb, "pause-machine");
     assert!(short.named.is_none() && short.tail == words(&["--all"]));
+}
+
+/// Review F2 on #48221: `vm pause --all --minutes 15` was a silent mass pause; it is refused.
+#[test]
+fn pause_all_refuses_other_words() {
+    let check = |typed: &[&str]| pause_all_misuse(&parse(&words(typed)).unwrap());
+    assert_eq!(check(&["vm", "pause", "--all"]), None);
+    assert_eq!(check(&["vm", "shutdown", "--all"]), None);
+    let refused = check(&["vm", "pause", "--all", "--minutes", "15"]).expect("refused");
+    assert!(refused.contains("--minutes"), "{refused}");
+    assert_eq!(check(&["vm", "pause", "box"]), None);
 }

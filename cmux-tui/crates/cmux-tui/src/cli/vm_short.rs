@@ -50,7 +50,8 @@ pub(super) fn long_verb(short: &str) -> Option<&'static str> {
 }
 
 /// The short verbs the VM API (vm.rs) also has: with no signed-in app to answer, they go there.
-const API_VERBS: &[&str] = &["ls", "list", "pause", "shutdown", "resume", "rm", "fork", "exec"];
+pub(super) const API_VERBS: &[&str] =
+    &["ls", "list", "pause", "shutdown", "resume", "rm", "fork", "exec"];
 
 /// Options only the VM API reads (its issuer, team and page size): a short verb with one goes
 /// there, app or not.
@@ -265,6 +266,16 @@ pub(super) fn misuse(short: &Short) -> Option<&'static str> {
     }
 }
 
+/// `vm pause --all` with any other word (`--all --minutes 15`): refused, so a mass pause never
+/// runs with a flag it quietly drops.
+pub(super) fn pause_all_misuse(short: &Short) -> Option<String> {
+    if short.cloud_verb != "pause-machine" || !short.tail.iter().any(|word| word == "--all") {
+        return None;
+    }
+    let extra = short.tail.iter().find(|word| word.as_str() != "--all")?;
+    Some(format!("`--all` pauses every VM; it takes no `{extra}`"))
+}
+
 /// `error`, marked retryable.
 fn retryable(mut error: Value) -> Value {
     if let Some(map) = error.as_object_mut() {
@@ -411,6 +422,9 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     let action = format!("cloud {}", short.cloud_verb);
     if let Some(message) = misuse(&short) {
         return Some(usage(&global, message));
+    }
+    if let Some(message) = pause_all_misuse(&short) {
+        return Some(usage(&global, &message));
     }
     let listed = match app_list(&short, super::cloud_start_chat::app_machines(&global)) {
         Ok(listed) => listed,

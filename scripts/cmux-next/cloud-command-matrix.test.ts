@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { cloudVerbs, helpRows, judge, shortVerbs } from "./cloud-command-matrix";
+import { acpmuxMachineVerbs, cloudVerbs, helpRows, judge, remoteVerbs, shortVerbs } from "./cloud-command-matrix";
 
 describe("cloud-command-matrix", () => {
   test("reads the verb lists from the source", () => {
@@ -7,6 +7,14 @@ describe("cloud-command-matrix", () => {
     for (const v of ["list-machines", "pause-machine", "exec", "start-session", "start-chat", "env"]) expect(cloud).toContain(v);
     const short = shortVerbs();
     for (const v of ["ls", "status", "pause", "resume", "rm", "exec", "ssh", "move"]) expect(short).toContain(v);
+  });
+
+  test("remote and acpmux machine rows come from their parsers, not a hand list", () => {
+    const remote = remoteVerbs();
+    for (const v of ["connect", "ssh", "exec", "cp", "stop", "disconnect", "reconnect"]) expect(remote).toContain(v);
+    for (const v of ["doctor", "trust"]) expect(remote).not.toContain(v);
+    const machine = acpmuxMachineVerbs();
+    for (const v of ["add", "ls", "enroll-self", "tunnel", "consent"]) expect(machine).toContain(v);
   });
 
   test("every row asks for help and short verbs are checked under vm and cloud", () => {
