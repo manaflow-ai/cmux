@@ -29,7 +29,7 @@ extension StreamedBrowserDirectory {
                                   refused: @escaping @MainActor @Sendable (String) -> Void) -> StreamedBrowserModel? {
         guard isLive else { return nil }
         let tab = Self.cloudDesktopTab(machineID: machineID, teamID: teamID)
-        return StreamedBrowserModel(tab: tab, url: nil) { [weak self] sink, tab, _ in
+        let model = StreamedBrowserModel(tab: tab, url: nil) { [weak self] sink, tab, _ in
             guard let link = await self?.link(macID: macID) else {
                 throw LinkError(code: "no-link", message: "Not connected to the Mac")
             }
@@ -40,6 +40,8 @@ extension StreamedBrowserDirectory {
                 throw error
             }
         }
+        model.linkDownSince = { [weak self] in self?.linkDownSince?(macID) }
+        return model
     }
 }
 

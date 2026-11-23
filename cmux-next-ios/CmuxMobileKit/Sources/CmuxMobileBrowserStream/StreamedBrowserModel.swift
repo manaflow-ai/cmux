@@ -104,6 +104,15 @@ public final class StreamedBrowserModel: BrowserTabState {
     /// When the page last lost its link (the first `.waiting` since it was live): the link
     /// chip's quiet wait counts from here, not from when the chip appeared.
     public private(set) var waitingSince: Date?
+    /// When this page's Mac link dropped (``StreamedBrowserDirectory/linkDownSince``), or nil
+    /// while it is up or unknown.
+    @ObservationIgnored var linkDownSince: (@MainActor () -> Date?)?
+    /// What the link chip counts its 10 s from: the Mac's link drop when the link is down, else
+    /// the page's own wait. A stream closes some time after its link drops, so counting from
+    /// the close alone would add that time again on top of the bound.
+    public var chipDownSince: Date? {
+        [linkDownSince?(), waitingSince].compactMap { $0 }.min()
+    }
     /// Why the Mac did not load an address (the address bar's, or a link's inside the
     /// page): shown over the page until the next navigation or a tap.
     public private(set) var notice: String?

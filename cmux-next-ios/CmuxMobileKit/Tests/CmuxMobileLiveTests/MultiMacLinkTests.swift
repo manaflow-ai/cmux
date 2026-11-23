@@ -434,6 +434,32 @@ final class PerMacDialer: MacLinkDialer, @unchecked Sendable {
         #expect(dialer.dialCount("m2") == 0)
     }
 
+    /// Every chip for a Mac counts its 10 s from that Mac's own link drop, focused or not:
+    /// `phaseChanged` records it per Mac and keeps it while the link stays down (cleared when
+    /// back: `LinkDownSinceTests`).
+    @Test func eachMacsLinkDropIsRecordedForItsChips() async throws {
+        let key = "cmuxMobile.live.mac.t-multimac"
+        UserDefaults.standard.removeObject(forKey: key)
+        defer { UserDefaults.standard.removeObject(forKey: key) }
+        let store = emptyStore()
+        let dialer = PerMacDialer()
+        let live = coordinator(store: store, dialer: dialer)
+        defer { live.stop() }
+        live.showing(macIDs: nil)
+        await settle { store.macConnection["m1"] == .connected && store.macConnection["m2"] == .connected }
+        #expect(store.macLinkDownSince["m1"] == nil)
+        #expect(store.macLinkDownSince["m2"] == nil)
+        let second = try #require(live.sessions["m2"])
+        let link = second.link
+        link.send(.linkDropped(generation: link.dialGeneration, reason: "dropped"))
+        live.phaseChanged(second)
+        let dropped = try #require(store.macLinkDownSince["m2"], "the unfocused Mac's drop is recorded")
+        #expect(store.macLinkDownSince["m1"] == nil, "only that Mac's")
+        link.send(.dialFailed(generation: link.dialGeneration, reason: "timeout"))
+        live.phaseChanged(second)
+        #expect(store.macLinkDownSince["m2"] == dropped, "kept while it stays down")
+    }
+
     @Test func bannerRetryKeepsItsMacWhenFocusChanges() async throws {
         let key = "cmuxMobile.live.mac.t-multimac"
         UserDefaults.standard.removeObject(forKey: key)

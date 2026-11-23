@@ -49,6 +49,10 @@ public final class AppStore {
     /// Plain live link status per Mac id ("Connected", "Reconnecting…"),
     /// shown in the Workspaces Mac section header. Empty in mock mode.
     public var macLinkStatus: [String: String] = [:]
+    /// When each Mac's link stopped being connected (nil or absent: connected, or closed).
+    /// Every connection chip for that Mac counts its quiet 10 s from here
+    /// (`ConnectionChip`), never from when the chip itself appeared. Empty in mock mode.
+    public var macLinkDownSince: [String: Date] = [:]
     /// Raw connection and service details, shown only in Settings diagnostics.
     public var macLinkDiagnostics: [String: String] = [:]
     /// Live mode: where each Mac's workspaces came from (cached, live, ...).

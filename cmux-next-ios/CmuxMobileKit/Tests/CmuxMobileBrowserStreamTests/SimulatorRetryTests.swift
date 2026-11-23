@@ -24,3 +24,31 @@ import Testing
     }
 }
 #endif
+
+#if os(iOS)
+/// A page's link chip counts from its Mac's link drop, not from when its stream closed: a
+/// stream closes some time after the link drops, and counting from the close added that
+/// time again (the review of cmux#51275).
+@MainActor @Suite struct BrowserChipDownTimeTests {
+    @Test func theChipCountsFromTheEarlierOfTheLinkDropAndTheClose() async throws {
+        let opener = FakeOpener()
+        let model = StreamedBrowserModel(tab: "page", url: nil) { sink in
+            try await opener.openBrowser(tab: "page", url: nil, sink: sink)
+        }
+        let drop = Date(timeIntervalSince1970: 1_000)
+        var link: Date? = drop
+        model.linkDownSince = { link }
+        let rig = RedialTests()
+        await rig.show(model, on: opener)
+        #expect(model.chipDownSince == drop, "the link record, before the page notices")
+        await rig.dropLink(opener, ["page"])
+        let closed = try #require(model.waitingSince)
+        #expect(closed > drop)
+        #expect(model.chipDownSince == drop, "the drop, not the close")
+        link = nil
+        #expect(model.chipDownSince == closed, "no link record: the page's own wait")
+        model.setVisible(false)
+        model.close()
+    }
+}
+#endif

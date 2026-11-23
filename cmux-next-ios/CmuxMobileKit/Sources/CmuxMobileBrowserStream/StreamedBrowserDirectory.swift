@@ -23,6 +23,10 @@ public final class StreamedBrowserDirectory {
         didSet { if opener == nil, macOpener == nil { reset() } else if appActive { localhost.resume() } }
     }
 
+    /// When a Mac's link dropped (`macID`: its own; nil: the focused Mac's), or nil while it
+    /// is up: a page's link chip counts its 10 s from here (``StreamedBrowserModel/chipDownSince``).
+    public var linkDownSince: (@MainActor (_ macID: String?) -> Date?)?
+
     /// A tab's model key: tab ids (`s<surface>`) repeat across Macs.
     static func key(tab: String, macID: String?) -> String {
         guard let macID, !macID.isEmpty else { return tab }
@@ -88,6 +92,7 @@ public final class StreamedBrowserDirectory {
             guard let link else { throw LinkError(code: "no-link", message: "Not connected to the Mac") }
             return try await link.openBrowser(tab: tab, url: (current ?? url)?.absoluteString, sink: sink)
         }
+        model.linkDownSince = { [weak self] in self?.linkDownSince?(macID) }
         model.openedHidden = { [weak self] in
             guard let self else { return }
             for shown in models.values where shown.isShown { shown.reassertShown() }
@@ -117,6 +122,7 @@ public final class StreamedBrowserDirectory {
             guard let link else { throw LinkError(code: "no-link", message: "Not connected to the Mac") }
             return try await link.openSurface(tab: tab, sink: sink)
         }
+        model.linkDownSince = { [weak self] in self?.linkDownSince?(macID) }
         model.openedHidden = { [weak self] in
             guard let self else { return }
             for shown in models.values where shown.isShown { shown.reassertShown() }

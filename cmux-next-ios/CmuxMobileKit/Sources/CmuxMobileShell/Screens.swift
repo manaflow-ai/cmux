@@ -115,7 +115,8 @@ struct WorkspacesScreen: View {
                     WorkspaceScreen(store: shell.store, workspaceID: ws.id, terminal: shell.terminalTabs, creator: shell.creator,
                                     openWorkspace: { shell.show(workspace: $0) }, screenSharing: shell.screenSharing)
                 }
-                .cmuxMobileBanner(shell.banner, retry: shell.bannerHasAction ? { shell.bannerAction() } : nil)
+                .cmuxMobileBanner(shell.banner, linkDownSince: shell.bannerLinkDownSince,
+                                  retry: shell.bannerHasAction ? { shell.bannerAction() } : nil)
             }
         }
     }

@@ -234,12 +234,16 @@ extension View {
     /// list down). A link state (reconnecting, offline) is a ``ConnectionChip``
     /// a few words wide; a state with a sentence to read or an action (signed
     /// out, pairing) is the banner. A swipe up or sideways, or a tap, hides it
-    /// until the state changes.
-    public func cmuxMobileBanner(_ state: ConnectionBannerState?, retry: (() -> Void)? = nil) -> some View {
+    /// until the state changes. `linkDownSince` is when the link under it dropped
+    /// (``AppStore``'s `macLinkDownSince`): a chip counts its quiet 10 s from there, so a
+    /// state the caller already held for the bound shows at once; nil counts from when the
+    /// chip appeared.
+    public func cmuxMobileBanner(_ state: ConnectionBannerState?, linkDownSince: Date? = nil,
+                                 retry: (() -> Void)? = nil) -> some View {
         // An overlay, not a safe-area inset: showing or hiding it moves nothing under it (Leo,
         // 2026-11-21: "these messages should not be pushing up the text ... stop layout
         // shifting"). A link state is a chip a few words wide, top center.
-        overlay(alignment: .top) { BannerHost(state: state, retry: retry) }
+        overlay(alignment: .top) { BannerHost(state: state, linkDownSince: linkDownSince, retry: retry) }
     }
 
     /// Shows a toast under the top safe area for 3 s. One at a time; newest replaces.
@@ -252,6 +256,7 @@ extension View {
 /// dismissed state stays hidden until the state changes (to no banner, or to another one).
 private struct BannerHost: View {
     let state: ConnectionBannerState?
+    let linkDownSince: Date?
     let retry: (() -> Void)?
     @State private var dismissed: ConnectionBannerState?
     /// When the link went down (any chip state), kept across a change of state while down.
@@ -262,7 +267,7 @@ private struct BannerHost: View {
             if let state, state != dismissed {
                 Group {
                     if let chip = state.chip {
-                        ConnectionChip(chip, downSince: downSince ?? ConnectionChip.justDropped, retry: state.offersRetry ? retry.map { action -> @MainActor () async -> Void in { action() } } : nil)
+                        ConnectionChip(chip, downSince: ConnectionChip.earliest(linkDownSince, downSince), retry: state.offersRetry ? retry.map { action -> @MainActor () async -> Void in { action() } } : nil)
                     } else {
                         ConnectionBanner(state, retry: retry)
                     }

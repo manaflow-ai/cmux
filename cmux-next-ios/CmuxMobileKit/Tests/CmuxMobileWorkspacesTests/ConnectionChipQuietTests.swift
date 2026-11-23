@@ -71,6 +71,42 @@ import Testing
                 "a caller that held it shows at once")
     }
 
+    /// The review of cmux#51275: a chip that appears only after a hold upstream (the
+    /// coordinator holds Reconnecting for the bound, a stream closes some time after its link)
+    /// counted its own 10 s from when it appeared, so Reconnecting showed at about 20 s. It
+    /// counts from the link's drop now: the earliest record wins.
+    @Test func aChipAfterAHoldCountsFromTheLinkDrop() {
+        let drop = Date(timeIntervalSince1970: 1_000)
+        let appeared = drop.addingTimeInterval(10)
+        #expect(ConnectionChip.earliest(drop, appeared) == drop)
+        #expect(ConnectionChip.earliest(nil, appeared) == appeared, "no link record: the chip's own")
+        #expect(ConnectionChip.earliest(nil, nil) == ConnectionChip.justDropped)
+    }
+
+    @Test func aChipHeldForTheBoundUpstreamShowsAtOnce() {
+        let clock = RecordedClock()
+        let drop = Date(timeIntervalSince1970: 1_000)
+        let appeared = drop.addingTimeInterval(10)
+        let gate = QuietStatusGate(clock: clock)
+        gate.update(down: true, alreadyDownFor: ConnectionChip.alreadyDownFor(
+            ConnectionChip.earliest(drop, appeared), now: appeared))
+        #expect(gate.isShown, "zero extra wait after the coordinator's 10 s hold")
+        #expect(clock.sleptUntil.isEmpty)
+    }
+
+    @Test func aChipThatAppearsFourSecondsIntoTheDropWaitsSix() async {
+        let clock = RecordedClock()
+        let drop = Date(timeIntervalSince1970: 1_000)
+        let appeared = drop.addingTimeInterval(4)
+        let gate = QuietStatusGate(clock: clock)
+        gate.update(down: true, alreadyDownFor: ConnectionChip.alreadyDownFor(
+            ConnectionChip.earliest(drop, appeared), now: appeared))
+        #expect(!gate.isShown)
+        await settle()
+        #expect(clock.sleptUntil == [RecordedClock.at(.seconds(6))], "10 s from the drop, not from the chip")
+        #expect(gate.isShown)
+    }
+
     @Test func theFirstFrameBeforeTheDropIsRecordedWaitsTheWholeBound() {
         let now = Date(timeIntervalSince1970: 1_000)
         #expect(ConnectionChip.alreadyDownFor(ConnectionChip.justDropped, now: now) == .zero)

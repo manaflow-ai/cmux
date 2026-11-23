@@ -479,6 +479,10 @@ final class ShellModel {
             }
             StreamedBrowserDirectory.shared.opener = { [weak live] in await live?.browserLink() }
             StreamedBrowserDirectory.shared.macOpener = { [weak live] macID in await live?.browserLink(macID: macID) }
+            // A page's link chip counts from its Mac's link drop (the focused Mac's when unnamed).
+            StreamedBrowserDirectory.shared.linkDownSince = { [weak live, store] macID in
+                (macID ?? live?.focusedMacID).flatMap { store.macLinkDownSince[$0] }
+            }
             // Chief info's Computer card reads the connected Mac's Cloud directory.
             ChiefComputer.shared.source = live
             creator.onTabResolved = { from, to in StreamedBrowserDirectory.shared.rename(tab: from, to: to) }
@@ -493,6 +497,7 @@ final class ShellModel {
         } else {
             StreamedBrowserDirectory.shared.opener = nil
             StreamedBrowserDirectory.shared.macOpener = nil
+            StreamedBrowserDirectory.shared.linkDownSince = nil
             ChiefComputer.shared.source = nil
             FeedRouting.shared.clearAllNotifications = nil
             FeedRouting.shared.markAllNotificationsRead = nil
@@ -757,6 +762,10 @@ final class ShellModel {
         guard !id.hasPrefix("personal-") else { return }
         Task { await auth.selectTeam(id) }
     }
+
+    /// When the focused Mac's link dropped: the banner's chip counts its 10 s from here, so a
+    /// state the coordinator already held for the bound (Reconnecting) shows at once.
+    var bannerLinkDownSince: Date? { live?.focusedMacID.flatMap { store.macLinkDownSince[$0] } }
 
     /// The banner over Workspaces: no network first, then the live link (SPEC 7.4).
     var banner: ConnectionBannerState? {

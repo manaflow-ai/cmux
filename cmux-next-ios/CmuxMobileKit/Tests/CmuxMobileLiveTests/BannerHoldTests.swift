@@ -85,6 +85,37 @@ import Testing
         #expect(await exposure(outage: .seconds(12), firstConnect: false, held: true) == 3500)
     }
 
+    /// The time from a link drop to a visible Reconnecting chip, on an injected clock: the
+    /// coordinator holds the state for the bound (``HeldNotice``), then the banner draws it as
+    /// a chip whose own quiet gate (``QuietStatusGate``) counts from `countsFromDrop` ? the link's
+    /// drop : the moment the chip appeared (cmux#51275 as merged, the review's finding).
+    private func timeToChip(countsFromDrop: Bool) async -> Duration {
+        let clock = LinkTestClock()
+        defer { clock.stop() }
+        let drop = clock.now
+        let notice = HeldNotice<ConnectionBannerState>(clock: clock)
+        notice.hold(.reconnecting(to: "Mac"), for: QuietStatusGate.threshold)
+        var gate: QuietStatusGate?
+        while clock.now.offset < .seconds(40) {
+            if gate == nil, notice.shown != nil {
+                let chip = QuietStatusGate(clock: clock)
+                chip.update(down: true, alreadyDownFor: countsFromDrop ? drop.duration(to: clock.now) : .zero)
+                gate = chip
+            }
+            if gate?.isShown == true { return drop.duration(to: clock.now) }
+            await advance(clock, by: .milliseconds(100))
+        }
+        return .seconds(40)
+    }
+
+    @Test func aReconnectingChipShowsTenSecondsAfterTheDropNotTwenty() async {
+        let before = await timeToChip(countsFromDrop: false)
+        let after = await timeToChip(countsFromDrop: true)
+        print("time-to-chip (injected clock, idle fixture): before \(before), after \(after)")
+        #expect(before == QuietStatusGate.threshold * 2, "the double hold this fixes")
+        #expect(after == QuietStatusGate.threshold, "zero extra wait after the coordinator's hold")
+    }
+
     @Test func aRetryInsideTheWaitDoesNotRestartIt() async {
         let clock = LinkTestClock()
         defer { clock.stop() }

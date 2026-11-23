@@ -1072,6 +1072,11 @@ extension LiveCoordinator {
         } else if session.linkDownSince == nil {
             session.linkDownSince = now
         }
+        // The same drop, on the wall clock the chips read (``AppStore/macLinkDownSince``):
+        // every connection chip for this Mac counts its 10 s from here, so a chip that only
+        // appears after a hold (the banner's, a stream's close) shows at once, not 10 s later.
+        let wall = Self.nextLinkDownSince(store.macLinkDownSince[session.macID], down: session.linkDownSince != nil, now: Date())
+        if store.macLinkDownSince[session.macID] != wall { store.macLinkDownSince[session.macID] = wall }
         let down = session.linkDownSince.map { now - $0 } ?? .zero
         // A closed (idle) link cannot reattach: its terminals say so until it opens again.
         // Not while the team is still starting (a cold launch before its first list):
@@ -1091,6 +1096,13 @@ extension LiveCoordinator {
             guard let self, let session else { return }
             self.updateTerminalsOffline(session)
         }
+    }
+
+    /// A Mac's wall-clock link down time (``AppStore/macLinkDownSince``): set at the first
+    /// phase that is not connected, kept while it stays down (Connecting to Reconnecting to
+    /// Mac offline), cleared when it is connected or closed.
+    nonisolated static func nextLinkDownSince(_ since: Date?, down: Bool, now: Date) -> Date? {
+        down ? (since ?? now) : nil
     }
 
     /// One line per linked Mac for its section header and Settings.

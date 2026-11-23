@@ -107,6 +107,13 @@ public struct ConnectionChip: View {
         return .milliseconds(Int64(max(0, now.timeIntervalSince(downSince)) * 1000))
     }
 
+    /// The down time a chip counts from: the earliest of the records it has (the link's own
+    /// drop, and the caller's record of when its chip state began), so a chip that appears
+    /// after a hold upstream adds no second wait; neither yet: ``justDropped``.
+    public static func earliest(_ records: Date?...) -> Date {
+        records.compactMap { $0 }.min() ?? justDropped
+    }
+
     /// A caller's record of when its link dropped: kept while it stays down (whatever the
     /// state says), set at the first down, cleared when it is back.
     public static func nextDownSince(_ since: Date?, down: Bool, now: Date) -> Date? {

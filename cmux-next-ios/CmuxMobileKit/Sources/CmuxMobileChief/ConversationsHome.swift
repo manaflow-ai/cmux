@@ -87,6 +87,10 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     /// and for as long as a retry runs.
     private var showsHomeProblem: Bool { connectionStatus != nil }
 
+    /// When the Home Mac's link dropped (``AppStore/macLinkDownSince``): Home's chips count
+    /// their 10 s from it, so one that appears late (kept rows after a reload) adds no wait.
+    private var homeLinkDownSince: Date? { homeMacID.flatMap { store.macLinkDownSince[$0] } }
+
     private var homeIsOffline: Bool {
         guard store.tracksMacData, let homeMacID else { return false }
         return store.macConnection[homeMacID] != .connected && store.macConnection[homeMacID] != .connecting
@@ -448,7 +452,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         // "a symbol or short thing, not a sentence. stop layout shifting").
         .overlay(alignment: .bottom) {
             if listNote(searching: searching) == .updating {
-                ConnectionChip(.init(.updating, sentence: String(localized: "Updating…")), downSince: updatingSince ?? ConnectionChip.justDropped)
+                ConnectionChip(.init(.updating, sentence: String(localized: "Updating…")), downSince: ConnectionChip.earliest(homeLinkDownSince, updatingSince))
                     .padding(.bottom, 8)
                     .accessibilityIdentifier("home.note.updating")
             }
@@ -471,7 +475,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         // Kept rows while the Mac is not live: Workspaces' connection toast over them (the user,
         // 2026-11-13: "reuse the toast strategy"). It takes its own room and covers no row; a
         // swipe hides it. With nothing kept, the empty state says it instead.
-        .cmuxMobileBanner(homeBanner, retry: { Task { await retryHome() } })
+        .cmuxMobileBanner(homeBanner, linkDownSince: homeLinkDownSince, retry: { Task { await retryHome() } })
         .onChange(of: connectionStatus?.kind, initial: true) { old, kind in
             // VoiceOver hears that Home is not live when it stops being live (also on arriving
             // with the Mac already away), not on each retry.
