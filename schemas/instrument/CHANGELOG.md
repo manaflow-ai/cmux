@@ -32,7 +32,7 @@ First version: the token table of Instrument v0.1 as the 2026-11-22 debate adopt
   surfaces that read the scale, and `offToken` lists (file, line, value) the ones that draw a raw value.
   `corner.card` lists 13: the transcript's cards draw 8px each, the permission ask the layout grid's 12,
   the panel's card 6, none of them `--ds-radius-card`. `corner.composer` lists 7: the composer box draws
-  `calc(12px * var(--acpmux-density))` (layout-grid), not `--ds-radius-composer`'s 18. `--check` warns when
+  layout-grid's half a control plus the inset (22 at Default), not `--ds-radius-composer`'s 18. `--check` warns when
   an entry's line no longer holds its value; that list is the gap this file exists to close.
 - What fails today on an off-token raw value in webviews CSS: `webviews/scripts/check-design-tokens.ts`
   (`bun run check:design-tokens`, in `check:pieces`; it gates a PR to `main` and warns on
