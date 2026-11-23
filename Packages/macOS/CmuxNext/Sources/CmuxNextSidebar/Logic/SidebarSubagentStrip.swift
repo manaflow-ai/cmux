@@ -79,7 +79,9 @@ public nonisolated struct SidebarSubagentStrip: Hashable, Sendable {
         let order: [SidebarSubagent.State] = [.running, .failed, .done, .stopped]
         let marks = items.sorted { (order.firstIndex(of: $0.state) ?? 0) < (order.firstIndex(of: $1.state) ?? 0) }
             .prefix(stackMarks).map(\.state)
-        let done = max(0, subagents.total - subagents.running - failed)
+        // Stopped ones (cancelled, disconnected) are not done: a chat whose subagents were all stopped never reads "N done".
+        let stopped = items.filter { $0.state == .stopped }.count
+        let done = max(0, subagents.total - subagents.running - failed - stopped)
         return SidebarSubagentStrip(mode: .stack, rows: [], more: 0,
                                     marks: marks.isEmpty ? [.running] : Array(marks),
                                     running: subagents.running, done: done, failed: failed,

@@ -60,6 +60,8 @@ import Testing
         #expect(Strings.subagentStack(strip) == "2 running")
         let finished = try #require(Self.layout(Self.subagents([.done, .done, .failed], total: 9), tree: tree)?.content?.subagents)
         #expect(Strings.subagentStack(finished) == "8 done · 1 failed")
+        let stopped = try #require(Self.layout(Self.subagents([.done, .stopped, .stopped]), tree: tree)?.content?.subagents)
+        #expect(stopped.done == 1, "a stopped subagent is not done")
     }
 
     @Test func withTheTreeOffOnlyRunningWorkShowsAndItFoldsAway() throws {
