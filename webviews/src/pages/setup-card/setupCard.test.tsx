@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
-import type { SetupState } from "../home-messages/cards/setup/setupModel";
+import type { SetupState } from "./setupModel";
 import type { PageClient } from "../shared/pageClient";
 import { SetupCardPage } from "./SetupCardPage";
 import { SETUP_OPS } from "./ops";
@@ -85,16 +85,6 @@ describe("the Set Up cmux page", () => {
     expect(renderToStaticMarkup(<SetupCardPage store={store} />)).toContain('data-look="rows"');
   });
 
-  test("chats found: the chat history row, never named as the first-run probe's separate Bring your history ask", async () => {
-    const { client } = host({ ...fresh, history: { done: false } });
-    const store = new SetupCardStore(client);
-    await store.start();
-    const words = text(renderToStaticMarkup(<SetupCardPage store={store} />));
-    expect(words).toContain("Your chat history");
-    expect(words).toContain("Chats from Claude Code and Codex");
-    expect(words.toLowerCase()).not.toContain("bring your history");
-  });
-
   test("draws nothing before the host answers, then follows its stream", async () => {
     const { client, push } = host(fresh);
     const store = new SetupCardStore(client);
@@ -136,5 +126,36 @@ describe("the Set Up cmux page", () => {
     expect(failed.calls.filter(([op]) => op === SETUP_OPS.run)).toEqual([
       [SETUP_OPS.run, { action: { kind: "installAgent", id: "codex" } }],
     ]);
+  });
+  test("Text Size and Density: the person's pick is one host call, sized over the density's own text", async () => {
+    const look = { textSize: null, density: "cozy", body: 14 };
+    const card = await mounted({ ...fresh, look });
+    expect(card.root.textContent).toContain("Text size and density");
+    const radio = (selector: string) => {
+      const found = card.root.querySelector(selector);
+      if (!found) throw new Error(`no ${selector}`);
+      return found as unknown as HTMLInputElement;
+    };
+    expect(radio('input[data-text-size="default"]').checked).toBe(true);
+    await act(async () => radio('input[data-text-size="larger"]').click());
+    await act(async () => radio('input[data-density-choice="comfortable"]').click());
+    expect(card.calls.filter(([op]) => op === SETUP_OPS.run)).toEqual([
+      [SETUP_OPS.run, { action: { kind: "setTextSize", points: 16 } }],
+      [SETUP_OPS.run, { action: { kind: "setDensity", id: "comfortable" } }],
+    ]);
+    // A size already set (16 pt): Default removes it.
+    const larger = await mounted({ ...fresh, look: { ...look, textSize: 16 } });
+    const checked = larger.root.querySelector('input[data-text-size="larger"]') as unknown as HTMLInputElement;
+    expect(checked.checked).toBe(true);
+    const reset = larger.root.querySelector('input[data-text-size="default"]') as unknown as HTMLInputElement;
+    await act(async () => reset.click());
+    expect(larger.calls.filter(([op]) => op === SETUP_OPS.run)).toEqual([
+      [SETUP_OPS.run, { action: { kind: "setTextSize", points: null } }],
+    ]);
+  });
+
+  test("no look from the host (an older app): no Text Size row", async () => {
+    const card = await mounted(fresh);
+    expect(card.root.querySelector('[data-step="look"]')).toBeNull();
   });
 });

@@ -89,8 +89,11 @@ guard; a scripting sandbox was considered and decided against.
   after it (`batch_time_limit`).
 - An acting step runs through `dispatch` like its own call: policy, the
   guards, the desktop's caret and web gates and priming scope, and the focus
-  guard (the batch is guarded once, as a whole). It then settles on its own
-  (adaptive, its own AX watch) and gets its own outcome from its own read-back,
+  guard (the batch is guarded once, as a whole). It captures the window at once,
+  with no wait. Only a step whose outcome is required (`require: "confirmed"`
+  or `"not_no_effect"`) or that asks for `settle: "adaptive"` settles on its
+  own (adaptive, its own AX watch): `confirmed` and `no_effect` need a real
+  settle to read back and compare. It gets its own outcome from its own read-back,
   pixels (against the previous step's capture), elements (against the
   previous step's tree) and what changed outside the window. Its outcome is
   decided before the next step runs, so a later step can never confirm it.
@@ -117,6 +120,55 @@ guard; a scripting sandbox was considered and decided against.
   screenshot from before the batch; the steps' captures never become what the
   agent is said to have seen, and pixel coordinates in later steps still map
   through the agent's own screenshot.
+
+## Recording a display
+
+`record` records a display to an MP4 (H.264) file, so a script that needs a
+video of the screen uses the product and not a second screen recorder.
+
+- One call: `{"seconds": N}` records N seconds and returns when the file is
+  whole. Two calls: `{"action": "start", "max_seconds": N}` (default 300)
+  returns at once with a `recording_id`, and `{"action": "stop"}` ends it and
+  returns the file. The recording runs in the worker, so nothing is held open
+  between start and stop: the stop can come from another process or
+  connection of the same session. `seconds` and `max_seconds` are hard caps
+  (at most 1800): a recording whose caller crashed ends by itself and its
+  file is still finished.
+- The result has `path` (in the worker's own `recordings` folder in its state
+  dir, mode 0700; the tool never takes a path to write to), `duration_ms`,
+  `frames`, `keyframes`, `bytes`, `width`, `height`, `fps`, `encoder`,
+  `display`, and `ended`: `stopped`, `max_seconds`, `locked`,
+  `stopped_by_person`, `computer_use_off`, `display_changed`,
+  `capture_failed`, `encode_failed` or `write_failed`. A recording that ended
+  early still returns the file up to that point. The worker keeps the newest
+  8 recordings.
+- `{"action": "read", "recording_id", "offset"}` returns the file in pieces
+  (base64, 256 KiB each) for a caller that cannot read the worker's disk
+  (another machine). Only the session that started a recording stops or
+  reads it.
+- One recording runs per machine at a time; a second start is
+  `already_recording`. `fps` is 1 to 30 (default 10); the long edge is scaled
+  down to `max_edge` (default 1920, 320 to 3840).
+- Policy: a recording is a display screenshot many times over. Starting one
+  passes the same decision (the mode, the whole-screen question in the asking
+  modes, the other-machine rules), a locked screen refuses it (`mac_locked`)
+  and ends a running one, and every frame is captured by the display
+  screenshot's own path under the settings as they are at that frame: denied
+  apps are left out of the capture on macOS and painted out elsewhere, so an
+  app denied halfway through is gone from the next frame. Stop (the person's
+  or the tool's) and turning Computer Use off end it. `stop` works on a locked
+  screen: it captures nothing.
+- The frames are the engine's screenshots, encoded by the platform's encoder
+  (`Desktop::frame_encoder`): VideoToolbox on macOS, in the Screen Sharing
+  helper that already holds the Screen Recording grant
+  (`cmux-rd-host/src/mac/cu_record.rs`). The MP4 is written by the engine
+  (`record/mp4.rs`, no dependency), one sample per frame with its real time.
+  Linux and Windows have no encoder yet and answer `unsupported`; the fake
+  desktop has a synthetic one for tests. The agent cursor and the system
+  pointer are not in the picture, as in a screenshot.
+- CLI: `cmux computer-use record --out FILE --seconds N [--display ID]
+  [--machine M]`, or `record start` and later `record stop --out FILE`. The
+  CLI copies the worker's file to `FILE` (through `read` for `--machine`).
 
 ## Policy
 
@@ -157,9 +209,93 @@ the agent's words.
 - `computerUse.allowForeground` (default off; on for cloud VMs): whether
   `delivery: "foreground"` may raise a window and use system-wide input.
 
+- `computerUse.alerts` (default off, also on cloud VMs): see System alerts below.
+
+### System alerts
+
+An unattended Mac collects system dialogs nobody is there to answer: a crash
+notice, an iCloud sign-in reminder, "Keychain Not Found", a privacy ask. Their
+owners are protected targets, so no tool could see or answer them. With
+`computerUse.alerts` on (the person's setting; no Computer Use tool changes a
+`computerUse.*` key, see Trust) two tools can, and only this far:
+
+- `list_alerts` (observe) reads the on-screen dialogs of the system's agents
+  (SecurityAgent, CoreServicesUIAgent, UserNotificationCenter, coreautha,
+  universalAccessAuthWarn, tccd, akd, AuthKitUIService, and loginwindow's
+  panels below its lock-screen shields). For each: `alert_id`, `owner`,
+  `bundle_id`, `pid`, `layer`, `title`, `text`, `buttons`, a `class` and
+  `put_off`, the buttons `dismiss_alert` would press. Text and button titles
+  come from accessibility; no picture is taken, and a password field is only
+  noted (`secure_field`), never read; no button of an alert with one is
+  ever pressed.
+- `dismiss_alert` (act) presses one button of one listed alert with an
+  accessibility press: no pointer, no focus change. The button must be in the
+  alert's `put_off`. The alert is read again first and the press is refused if
+  it changed.
+
+Classes are the build fleet's (`icloud-sign-in`, `apple-password`,
+`crash-report`, `damaged`, `cant-be-opened`, `not-responding`,
+`protected-folder`, `screen-picker`, `vpn-configuration`, `local-network`,
+`screen-recording`, `automation`, `accessibility`, `privacy-access`,
+`gatekeeper`, `keychain-not-found`, `keychain`, `password`, `out-of-memory`,
+`other`, `unreadable`). The table of who may be put off with what is
+`alerts::put_off_titles`:
+
+| Class | Put off with |
+| --- | --- |
+| `icloud-sign-in` | Later |
+| `apple-password` (not shown by SecurityAgent or coreautha, no password field) | Not Now, Cancel, Later |
+| `crash-report` | Ignore, OK |
+| `cant-be-opened`, `damaged` | OK, Cancel |
+| `not-responding` | OK |
+| `gatekeeper` | Cancel, OK (Cancel only on "downloaded from the Internet", whose other button opens the app) |
+| `out-of-memory` | Cancel, Close |
+| `keychain-not-found` | Cancel |
+| privacy asks (`protected-folder`, `local-network`, `screen-recording`, `automation`, `accessibility`, `privacy-access`) | Don't Allow, Deny |
+| `keychain`, `password`, `screen-picker`, `vpn-configuration`, anything of Tailscale's, `other`, `unreadable` | nothing: a person answers |
+
+What it cannot do, whatever the arguments: press a button that allows, grants,
+opens Settings or an app, reports, relaunches, force quits, resets a keychain
+("Reset To Defaults") or submits a password. Such a title is refused before the
+alert's class is even looked at (`alerts::never`), a title outside the eight
+put-off titles is refused, and a test holds every row of the table inside
+those eight. Refusals are typed and name the alert, so an alert nobody has a
+rule for becomes an issue instead of a guess: `alerts_off` (the setting is off;
+names it), `alert_not_found`, `alert_unknown` (no put-off rule for this alert),
+`alert_button_refused`.
+
+The protected list is unchanged by the setting: `click`, `type_text`,
+`get_ui_tree`, `screenshot` and every other tool still refuse those processes.
+Linux and Windows list no alerts.
+
 Grants, saved approvals and every acting call (recorded before it acts and again
 with its result) live in the worker's state dir, so a worker restart keeps them
 and a retried call never acts twice.
+
+## Displays and the doctor
+
+`list_displays` (a Discover call: no grant, no prompt, answered while the screen
+is locked) lists each display with `id`, `frame` (points), `scale` (pixels per
+point), `main`, and `builtin`/`virtual` where the OS says. The `id` is the
+string `screenshot`'s `display` argument takes: the decimal CGDirectDisplayID on
+macOS (`CGGetActiveDisplayList`; `builtin` from `CGDisplayIsBuiltin`, `virtual`
+never set, macOS has no public call for it), the RandR monitor name on X11 (or
+`root`, the whole screen, when RandR lists none; `virtual` on a headless X
+server), the output name on wlroots (`virtual` for headless outputs), and `0`
+on the in-memory test desktop. Windows and the portal desktop answer
+`unsupported` for now. From a shell: `cmux computer-use displays` and
+`cmux computer-use screenshot --display ID --out FILE`.
+
+`cmux computer-use doctor [--machine M] [--json]` reads, in order, the daemon's
+worker endpoint (skipped with `--machine`), the engine's `status` and
+`list_displays`, and prints one line per check (daemon, worker, helper, each
+grant, lock screen, mode, displays) with a fix line for each failure. It exits 0
+only when capture and input would work. It never shows an OS prompt (grants are
+the preflight reads `status` already does) and needs no app window. `helper`
+names the worker's executable (`status.worker.executable`); on macOS a
+`cmux-screen-sharing` outside the staging root
+(`~/Library/Application Support/cmux-next/screen-sharing/<bundle id>/computer-use/`)
+fails with the staging fix.
 
 ## Trust
 

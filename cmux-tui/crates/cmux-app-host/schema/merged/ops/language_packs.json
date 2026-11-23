@@ -1,0 +1,10 @@
+{
+  "family": "language_packs",
+  "ops": {
+    "language_packs.ensure": {
+      "source": "local",
+      "class": "read",
+      "digest": "f3d7e6395210f72f"
+    }
+  }
+}
