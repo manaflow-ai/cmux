@@ -26,7 +26,7 @@ import { NewTabPage } from "../NewTabPage";
 import { FOCUS_LOCATION_EVENT, type NewTabHost, type NewTabChat } from "../newTabModel";
 import { NewTabScreen, type NewTabScreenActions } from "../newtab/NewTabScreen";
 import { HistoryScreen } from "../newtab/HistoryScreen";
-import { NewTabAppPage } from "../newtab/NewTabAppPage";
+import { NewTabAppSlot } from "../newtab/NewTabAppSlot";
 import { historyPages } from "../queue/historyPages";
 import type { AllChatsPage } from "../newtab/allChatsListModel";
 import { newTabScreenActions } from "../newtab/screenActions";
@@ -36,14 +36,11 @@ import { StyleSwitch } from "../newtab/StyleSwitch";
 import { screenTemplate, shownTemplate, pageStyle, pickNewTabStyle } from "../newtab/templates";
 import { newTabPageSubmit } from "../newtab/pageSubmit";
 import type { ComposerAttachment, DroppedKind, KnownPaths } from "../attachments";
-import { EmptyState, type EmptyStateProjects } from "../EmptyState";
+import { EmptyState } from "../EmptyState";
 import { projectName } from "../emptyStateModel";
 import { TourStartContext } from "../repoTour/TourBlock";
 import { ChatUnavailableState } from "../ChatUnavailableState";
 import { PastChat } from "../PastChat";
-import { answerFromHome } from "../homeInboxModel";
-import { HomeLists } from "../HomeLists";
-import { AgentDotGrid } from "../dotGrid/AgentDotGrid";
 import { ComputerUsePreviewCard } from "../computerUse/ComputerUsePreviewCard";
 import { translate, type Translate } from "../i18n";
 import { LINK_DOWN_SAID_MS } from "../afterDelay";
@@ -333,6 +330,8 @@ export type PaneBodyDeps = NewTabShown &
     setShareOpen: React.Dispatch<React.SetStateAction<boolean>>;
     sessionInfo: ReturnType<typeof useSessionInfo>;
     readOnlySubagent: boolean;
+    /// The dock draws the composer and its quiet row (App.tsx `dockFoot`; bottomStack.css `data-foot`).
+    dockFoot: boolean;
     localCwd: string | undefined;
     remoteChat: boolean;
     runSplitAction: (id: string, cwd: string | undefined, mode: QuickActionMode) => void;
@@ -379,7 +378,6 @@ export type PaneBodyDeps = NewTabShown &
     githubRepository: string | undefined;
     sandboxView: SandboxRun | undefined;
     sandboxHoldsChat: boolean;
-    heroPicker: EmptyStateProjects | undefined;
     tourOffer: TourOfferActions | undefined;
     chatTones: Map<string, number> | undefined;
     chatAgentNames: ReadonlyMap<string, string>;
@@ -396,10 +394,8 @@ export type PaneBodyDeps = NewTabShown &
     paneToasts: NoticeQueue;
     toastTop: HTMLDivElement | null;
     asks: React.JSX.Element | null;
-    dotGridArm: "off" | "on" | "compact";
     hostLine: React.JSX.Element;
     forkPendingLine: React.JSX.Element | undefined;
-    sandboxDraftMoved: boolean;
     composer: false | React.JSX.Element;
     artifact: OpenedArtifact | undefined;
     liveArtifact: Artifact | undefined;
@@ -599,6 +595,7 @@ export function drawPaneBody({
   setShareOpen,
   sessionInfo,
   readOnlySubagent,
+  dockFoot,
   localCwd,
   remoteChat,
   runSplitAction,
@@ -646,7 +643,6 @@ export function drawPaneBody({
   cloudStartShown,
   sandboxView,
   sandboxHoldsChat,
-  heroPicker,
   tourOffer,
   chatTones,
   chatAgentNames,
@@ -663,10 +659,8 @@ export function drawPaneBody({
   paneToasts,
   toastTop,
   asks,
-  dotGridArm,
   hostLine,
   forkPendingLine,
-  sandboxDraftMoved,
   composer,
   artifact,
   liveArtifact,
@@ -793,37 +787,40 @@ export function drawPaneBody({
           ref={setPaneMain}
         >
           <div ref={setToastTop} className="acpmux-toasts-top" />
-          {!harnessesOpen &&
-            showNewTab &&
-            !newTab.history &&
-            !newTabApp &&
-            pageStyle(shownTemplate(newTab)) !== "minimal" && (
-              <StyleSwitch
-                current={pageStyle(shownTemplate(newTab))}
-                onPick={(next) =>
-                  pickNewTabStyle(next, {
-                    callNative,
-                    show: (template) => setNewTab((current) => current && { ...current, template }),
-                  })
-                }
-                onCancel={() => window.dispatchEvent(new Event(FOCUS_LOCATION_EVENT))}
-              />
-            )}
-          {showNewTab && folderAskView}
-          {newTabApp && !harnessesOpen ? (
-            <NewTabAppPage
-              key={`${newTabGeneration}:${newTabApp}`}
-              app={newTabApp}
-              {...(newTab?.cwd ? { cwd: newTab.cwd } : {})}
-              onUnavailable={() => setNewTabAppGone(newTabAdoptions)}
-              inputToken={newTab?.inputToken}
-              onInputReady={(token) => void callNative("newTab.inputReady", { token })}
+          {!harnessesOpen && showNewTab && !newTab.history && pageStyle(shownTemplate(newTab)) !== "minimal" && (
+            <StyleSwitch
+              current={pageStyle(shownTemplate(newTab))}
+              onPick={(next) =>
+                pickNewTabStyle(next, {
+                  callNative,
+                  show: (template) => setNewTab((current) => current && { ...current, template }),
+                })
+              }
+              onCancel={() => window.dispatchEvent(new Event(FOCUS_LOCATION_EVENT))}
             />
-          ) : showNewTab && !newTab.history && shownTemplate(newTab) !== "classic" ? (
+          )}
+          {showNewTab && folderAskView}
+          {showNewTab && !newTab.history && shownTemplate(newTab) !== "classic" ? (
             <>
               {/* Setup keeps this page's draft and project, while its hidden input effects stop. */}
               <Activity mode={harnessesOpen ? "hidden" : "visible"}>
                 <NewTabScreen
+                  // `tabs.newTabApp`: the extension draws in a slot over cmux's composer, never in its
+                  // place; whatever it does, the composer, its focus and its input-ready report stay
+                  // the page's own (Leo 2026-11-16, newtab/NewTabAppSlot.tsx).
+                  // `newTab.app`, not `newTabApp`: the room stays after the slot gives up, so the composer never jumps.
+                  {...(newTab.app
+                    ? {
+                        above: newTabApp ? (
+                          <NewTabAppSlot
+                            key={`${newTabGeneration}:${newTabApp}`}
+                            app={newTabApp}
+                            {...(newTab.cwd ? { cwd: newTab.cwd } : {})}
+                            onUnavailable={() => setNewTabAppGone(newTabAdoptions)}
+                          />
+                        ) : null,
+                      }
+                    : {})}
                   onSetup={(resume) => {
                     setupContinuation.current = resume;
                     setHarnessesOpen(true);
@@ -1187,7 +1184,13 @@ export function drawPaneBody({
                   <ChatHeaderStatus status={header.status} detail={header.detail}>
                     {!inTabRow && !showNewTab && snapshot.sessionId && (
                       <span className="acpmux-header-status-content">
-                        <ThreadTitle key={snapshot.sessionId} title={chatName} onRename={renameFromTitle} />
+                        <ThreadTitle
+                          key={snapshot.sessionId}
+                          title={chatName}
+                          onRename={renameFromTitle}
+                          icon={snapshot.summary?.icon}
+                          formerNames={snapshot.summary?.formerNames}
+                        />
                         {/* Where the chat stands and its next action (header/ChatSummaryLine.tsx). */}
                         <ChatSummaryLine summary={snapshot.summary?.rollingSummary} />
                       </span>
@@ -1398,14 +1401,18 @@ export function drawPaneBody({
                   preview={previewShown ? computerUsePreview : null}
                   onClose={() => ignoreFailure(callNative("chat.computerUsePreview", { action: "close" }))}
                 />
-                {underHeader.watching && snapshot.summary?.watching && !snapshot.liveTakeOver && (
-                  <WatchBanner
-                    family={snapshot.summary.watching}
-                    bridged={snapshot.summary.bridged === true}
-                    onTakeOver={() => void directClient.current?.takeOver().catch(() => undefined)}
-                    onContinue={() => void directClient.current?.continueWatched().catch(() => undefined)}
-                  />
-                )}
+                {underHeader.watching &&
+                  snapshot.summary?.watching &&
+                  // A chat its terminal drives is a live view of the same session, not View Only.
+                  !snapshot.summary.terminal &&
+                  !snapshot.liveTakeOver && (
+                    <WatchBanner
+                      family={snapshot.summary.watching}
+                      bridged={snapshot.summary.bridged === true}
+                      onTakeOver={() => void directClient.current?.takeOver().catch(() => undefined)}
+                      onContinue={() => void directClient.current?.continueWatched().catch(() => undefined)}
+                    />
+                  )}
                 {underHeader.watching && snapshot.liveTakeOver && (
                   <LiveChatChoice
                     {...snapshot.liveTakeOver}
@@ -1488,9 +1495,7 @@ export function drawPaneBody({
                   />
                 ) : freshView && !premountsChatView ? (
                   <EmptyState
-                    project={projectName(composerSnapshot.summary?.cwd)}
-                    picker={heroPicker}
-                    tour={tourOffer}
+                    {...(projectName(composerSnapshot.summary?.cwd) && tourOffer ? { tour: tourOffer } : {})}
                   />
                 ) : (
                   <AgentTonesContext.Provider value={chatTones}>
@@ -1522,37 +1527,19 @@ export function drawPaneBody({
                   />
                 )}
               </div>
-              <div ref={setDock} className="acpmux-dock" style={parkStyle} inert={parkedVisible || undefined}>
+              <div
+                ref={setDock}
+                className="acpmux-dock"
+                style={parkStyle}
+                inert={parkedVisible || undefined}
+                // The stack holds the composer, whose card always draws its quiet row (ComposerFoot):
+                // bottomStack.css gives the transcript up first for it, from this, not from a
+                // `.acpmux-dock:has(.acpmux-composer-foot)` checked again for every inserted node.
+                data-foot={dockFoot ? "" : undefined}
+              >
                 {/* The pane's toasts stand on the stack's top edge, over the transcript (ToastLayer.tsx). */}
                 <ToastLayer queue={paneToasts} topHost={toastTop} />
                 {asks}
-                {/* Between the hero and the docked composer. */}
-                {/* A Sandboxed send holds the new chat: no recent chat replaces it while it is out.
-                      Neither does a Cloud start's chat, which shows its sent message (CloudStartView). */}
-                {freshView && !premountsChatView && !sandboxHoldsChat && !viewedSandbox && !cloudStartShown && (
-                  <div className="acpmux-home-area">
-                    {dotGridArm !== "off" && (
-                      <AgentDotGrid
-                        sessions={snapshot.sessions}
-                        currentId={snapshot.sessionId}
-                        onSelect={selectSession}
-                        size={dotGridArm === "compact" ? "compact" : "regular"}
-                      />
-                    )}
-                    <HomeLists
-                      sessions={snapshot.sessions}
-                      currentId={snapshot.sessionId}
-                      asks={snapshot.asks}
-                      tabs={needsYou.attentionTabs}
-                      onSelect={selectSession}
-                      onOpen={(item) =>
-                        item.kind === "tab" ? needsYou.actions.goTo(item) : selectSession(item.sessionId)
-                      }
-                      onAnswer={(item, choice) => answerFromHome(callNative, item, choice, selectSession)}
-                      shortcuts={!hasBottomAsk}
-                    />
-                  </div>
-                )}
                 {hostLine}
                 {forkPendingLine}
                 <LiveTypingLine
@@ -1560,7 +1547,7 @@ export function drawPaneBody({
                   fallback={snapshot.presence}
                 />
                 {/* A draft a refusal put back stays in reach even once the tab's run shows. */}
-                {(!sandboxHoldsChat || sandboxDraftMoved) && !viewedSandbox && composer}
+                {dockFoot && composer}
               </div>
             </Activity>
           )}

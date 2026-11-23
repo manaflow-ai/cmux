@@ -111,10 +111,13 @@ import { StopButton } from "./SubagentGroup";
 import { ResumeControl, type ResumeActions } from "./ResumeControl";
 import { SubagentHarnessContext, ticking } from "./subagentGroupModel";
 import { Elapsed } from "./Elapsed";
-import { commandStatus, itemStart, trayItemKey, type TrayItem } from "./runningTray";
+import { commandStatus, trayItemKey, type TrayItem, itemStart } from "./runningTray";
 import { longestRunningFirst, runSince } from "./trayHeadOrder";
 import { attentionFirst, type TrayCard } from "./trayAttention";
 import { actionDetail, latestLine, namedAction } from "./trayDetail";
+import { hatStepLook, type HatStepArm } from "./hatStep.experiment";
+import { hatPhase, PHASE_DWELL_MS } from "./hatStep";
+import { Dwelt, HatPhaseSlot, HatSampledSlot, useDwell } from "./HatStepSlot";
 import { trayPanelLook, trayRowLook, trayStopLook } from "./trayPanel.experiment";
 import { trayMotionLook } from "./trayMotion.experiment";
 import { trayHeadLook } from "./trayHead.experiment";
@@ -144,7 +147,7 @@ import type { StartedSession } from "../started/startedSessions";
 import { awaitsOwnWork, type Subagent } from "./subagentFold";
 import type { SubagentTrayPlacement } from "./subagentTrayPlacement";
 import { rememberTrayOpen, trayOpenFor } from "./trayFoldMemory";
-import { HAT_OPEN_SLOP, hatDragEnd, hatDragHeight, setHatHeight, useHatHeight } from "./trayResize";
+import { setHatHeight, useHatHeight, HAT_OPEN_SLOP, hatDragEnd, hatDragHeight } from "./trayResize";
 import { PlanList } from "../conversation/PlanList";
 import type { AcpmuxPlanEntry } from "../model";
 import type { TrayHandleSide } from "../chatDisplay";
@@ -187,6 +190,7 @@ export const SubagentTray = memo(function SubagentTray({
   resume,
   placement = "tray",
   shown,
+  stepLook,
   enters = false,
   chat,
   plan,
@@ -233,6 +237,9 @@ export const SubagentTray = memo(function SubagentTray({
   /// The chat on screen, as of the latest render (App.tsx): the tray plays its exit only when it
   /// goes while its chat still shows (trayMotion.tsx `useTrayMotion`); none, no entrance or exit.
   shown?: { readonly current: string | undefined };
+  /// The hat-step arm, pinned: a gallery stage about one arm's look (the exact step's roll in
+  /// StatusSwapStage.tsx) keeps it when the default moves. Else the experiment's arm.
+  stepLook?: HatStepArm;
   /// The tray appears in a chat that showed without it: it eases in.
   enters?: boolean;
   /// The chat the tray belongs to: the person's open or fold holds for it (trayFoldMemory.ts).
@@ -314,6 +321,9 @@ export const SubagentTray = memo(function SubagentTray({
   const [kindsArm] = useState(() => experimentArm(trayHeadKindsLook));
   const [kindLine] = useState(() => experimentArm(trayKindLineLook));
   const [latestAt] = useState(() => experimentArm(trayLatestLook));
+  // What a running subagent's line says it does now (hatStep.experiment.ts; Leo, 2026-11-22: "we dont
+  // show the exact calls, ever, at the top").
+  const [stepArm] = useState(() => stepLook ?? (experimentArm(hatStepLook) as HatStepArm));
   const [chevronAt] = useState(() => experimentArm(hatChevronLook));
   const [tuckLook] = useState(() => experimentArm(hatTuckLook));
   const [doneLook] = useState(() => experimentArm(hatDoneLook));
@@ -394,7 +404,11 @@ export const SubagentTray = memo(function SubagentTray({
   const headButton = useRef<HTMLButtonElement | null>(null);
   // "+N more" and the time move as one trailing segment: a width change before them glides them to
   // their new place instead of jumping (trayMotion.tsx `useGlide`).
-  useGlide(headButton, ":scope > .acpmux-running-tray__more, :scope > .acpmux-running-tray__time");
+  // The kinds after the subagent icons glide too, when the icon row widens (HatFaces).
+  useGlide(
+    headButton,
+    ":scope > .acpmux-running-tray__more, :scope > .acpmux-running-tray__time, :scope > .acpmux-running-tray__kinds > .acpmux-running-tray__kind",
+  );
   const focusInList = useRef(false);
   useLayoutEffect(() => {
     if (open || !focusInList.current) return;
@@ -866,17 +880,28 @@ export const SubagentTray = memo(function SubagentTray({
           {/* Its words slide as a status line hands over: a new name joining, the lone item's task (Leo,
               2026-11-07); its counts roll in place (trayMotion.tsx `Tick`). */}
           {!kindsHead && (
-            <Tick className="acpmux-summary-text acpmux-running-tray__title" text={headText} steadyCounts slide />
+            // Held at least PHASE_DWELL_MS, as the step is: twenty subagents joining in a burst is one
+            // change of words, not twenty (Leo, 2026-11-22: "huge churn in numbers"; feel-composer-hat.test.ts).
+            // A fold or unfold is the reader's own change: keyed by it, the words change at once.
+            <Dwelt key={open ? "open" : "folded"} value={headText} dwellMs={PHASE_DWELL_MS}>
+              {(text) => (
+                <Tick className="acpmux-summary-text acpmux-running-tray__title" text={text} steadyCounts slide />
+              )}
+            </Dwelt>
           )}
           {/* Kept while the hat is open, faded out in place (subagents.css), so it never leaves or comes
               back at once; it gives way to the counts first, so its room costs them nothing. */}
-          {loneEnd?.latest && loneEnd.latest !== loneEnd.title && (
-            <Tick
-              className={`acpmux-running-tray__latest${loneEnd.latestCode ? " is-code" : ""}`}
-              text={loneEnd.latest}
-              slide
-            />
-          )}
+          {loneEnd?.agent && loneEnd.status === "running" && !loneEnd.retry && stepArm !== "exact"
+            ? showLatest &&
+              agentStep(stepArm, loneEnd.agent, loneEnd.latest, loneEnd.status, "acpmux-running-tray__latest")
+            : loneEnd?.latest &&
+              loneEnd.latest !== loneEnd.title && (
+                <Tick
+                  className={`acpmux-running-tray__latest${loneEnd.latestCode ? " is-code" : ""}`}
+                  text={loneEnd.latest}
+                  slide
+                />
+              )}
           {loneHead?.agent && <LoneProgress agent={loneHead.agent} fallback={loneHead.progress} />}
           {/* Open (or in the counts arm), what ended failed, in the danger colour, and a subagent of
               another model family by its harness's mark, as its line draws it. */}
@@ -897,11 +922,15 @@ export const SubagentTray = memo(function SubagentTray({
           {/* The rest of the names, one word space after them (subagents.css); its count rolls in place
               and its "+" sits on the figures' centre (Typography.tsx `Sign`). */}
           {named && moreCount > 0 && (
-            <Tick
-              className="acpmux-summary-meta acpmux-running-tray__more"
-              text={t("tools.more", { n: moreCount })}
-              steadyCounts
-            />
+            <Dwelt key={open ? "open" : "folded"} value={moreCount} dwellMs={PHASE_DWELL_MS}>
+              {(n) => (
+                <Tick
+                  className="acpmux-summary-meta acpmux-running-tray__more"
+                  text={t("tools.more", { n })}
+                  steadyCounts
+                />
+              )}
+            </Dwelt>
           )}
           {/* Quiet meta right after the counts, never a column of its own far from them. */}
           {loneEnd ? (
@@ -1127,6 +1156,11 @@ export const SubagentTray = memo(function SubagentTray({
               progressAt={row === "below" || narrow ? "below" : "meta"}
               // What it did last, on its own quiet line (Leo, 2026-11-03: "Tray only, richer").
               latest={showLatest ? agentLatest : undefined}
+              step={
+                showLatest
+                  ? agentStep(stepArm, item.agent, agentLatest, subagentStatus(item.agent, waiting))
+                  : undefined
+              }
               latestAt={latestPlacement}
               via={parent ? subagentTaskLabel(t, parent) : undefined}
               onOpen={() => onOpen(item.agent.id)}
@@ -1366,6 +1400,20 @@ type LoneHead = {
 
 /// A folded lone subagent's progress after what it does now, as its line says it: folded, the
 /// header is all that shows it.
+/// What a running subagent's line says it does now, by the hat-step arm: undefined keeps the line's
+/// exact `latest` (the `exact` arm, and any line not running).
+function agentStep(
+  arm: HatStepArm,
+  agent: Subagent,
+  latest: string | undefined,
+  status: string,
+  className?: string,
+): ReactNode | undefined {
+  if (arm === "exact" || status !== "running") return undefined;
+  if (arm === "quiet") return null;
+  if (arm === "sampled") return latest ? <HatSampledSlot text={latest} className={className} /> : null;
+  return <HatPhaseSlot phase={hatPhase(agent)} className={className} />;
+}
 function LoneProgress({ agent, fallback }: { agent: Subagent; fallback?: string }) {
   const progress = useAgentProgress(agent) ?? fallback;
   return progress ? <span className="acpmux-summary-meta acpmux-running-tray__stats">{progress}</span> : null;
@@ -1505,6 +1553,8 @@ function HeadKind({
   faced: boolean;
 }) {
   const [names, setNames] = useState<string | undefined>(undefined);
+  // Its count changes at most once per dwell, as the step does: a burst of joins is one roll.
+  const kindText = useDwell(part.text, PHASE_DWELL_MS);
   // A subagent kind draws its first subagent's harness mark, in its tone, as its line does.
   const lead = part.items[0];
   const agent = part.key === "agents" && lead?.kind === "agent" ? lead.agent : undefined;
@@ -1535,7 +1585,7 @@ function HeadKind({
       ) : (
         <Icon name={part.icon} size={ROW_ICON} row />
       )}
-      <Tick className="acpmux-running-tray__kind-text" text={part.text} steadyCounts />
+      <Tick className="acpmux-running-tray__kind-text" text={kindText} steadyCounts />
     </span>
   );
 }
