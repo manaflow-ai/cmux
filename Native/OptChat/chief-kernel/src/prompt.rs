@@ -42,9 +42,10 @@ fn full_base_prompt() -> String {
 
 /// Remove the compactor-only section from a Chief turn's base prompt.
 fn without_compactions(prompt: String) -> String {
-    prompt
-        .split_once(COMPACTIONS_HEADER)
-        .map_or(prompt, |(before, _)| before.trim_end().to_owned())
+    match prompt.split_once(COMPACTIONS_HEADER) {
+        Some((before, _)) => before.trim_end().to_owned(),
+        None => prompt,
+    }
 }
 
 /// The compactor's system prompt. It keeps the identity and view description
