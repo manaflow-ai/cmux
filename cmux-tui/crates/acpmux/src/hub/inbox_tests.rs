@@ -37,6 +37,7 @@ fn item(
         sender: Value::Null,
         class,
         report: false,
+        waited: false,
         at,
         text: text.to_owned(),
         details: None,
