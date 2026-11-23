@@ -99,8 +99,13 @@ export const transactionOn = (thread: Element): boolean =>
   "transaction";
 
 /// A keyframe's style alone: its own offset, easing and composite go.
-const keyframeStyle = ({ offset: _o, computedOffset: _c, easing: _e, composite: _m, ...style }: ComputedKeyframe): Keyframe =>
-  style;
+const keyframeStyle = ({
+  offset: _o,
+  computedOffset: _c,
+  easing: _e,
+  composite: _m,
+  ...style
+}: ComputedKeyframe): Keyframe => style;
 
 const transactions = new WeakMap<HTMLElement, ThreadTransaction>();
 
