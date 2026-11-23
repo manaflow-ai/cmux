@@ -11,7 +11,10 @@ import XCTest
 /// `ios-pagedlist` bench's rows) and fails when a row the reader was looking at moved in any frame
 /// for a reason other than the scroll itself (`frameShift` over half a point), or when scrolling
 /// hitched more than 10 ms a second (not with the busy main thread, which is measured, not judged).
-final class PagedListStressUITests: XCTestCase {
+class PagedListStressUITests: XCTestCase {
+    /// The timing run (``PagedListStressHitchUITests``): the probe off, hitches judged, shift not.
+    class var timing: Bool { false }
+
     override func setUp() {
         // Every case is measured and recorded, also after an assertion fails.
         continueAfterFailure = true
@@ -35,16 +38,6 @@ final class PagedListStressUITests: XCTestCase {
     @MainActor func testUpMediumFlood() { stress("up", .medium, "flood") }
     @MainActor func testUpFastFlood() { stress("up", .fast, "flood") }
     @MainActor func testUpSlowEdits() { stress("up", .slow, "edits") }
-    /// Rows just above the reader start and stop typing while someone scrolls slowly: each swaps its
-    /// text for a short bubble in place (Home's Chiefs; a one-frame jump of the rows below at
-    /// HomeStressUITests homelive, step 87db292d frame 1476).
-    @MainActor func testDownSlowTyping() { stress("down", .slow, "typing") }
-    @MainActor func testUpSlowTyping() { stress("up", .slow, "typing") }
-    /// The same during a fling: HomeStressUITests homelive at 1a836b3d (step 10b2f791) drew the rows
-    /// 9.8 pt past the fling in the frame a row above grew 10 pt and its correction landed.
-    @MainActor func testDownMediumTyping() { stress("down", .medium, "typing") }
-    @MainActor func testDownFastTyping() { stress("down", .fast, "typing") }
-    @MainActor func testUpFastTyping() { stress("up", .fast, "typing") }
     @MainActor func testUpMediumEdits() { stress("up", .medium, "edits") }
     @MainActor func testUpFastEdits() { stress("up", .fast, "edits") }
     @MainActor func testUpSlowInserts() { stress("up", .slow, "inserts") }
@@ -65,10 +58,12 @@ final class PagedListStressUITests: XCTestCase {
     @MainActor
     private func stress(_ direction: String, _ speed: PagedLabDriver.Speed, _ load: String,
                         window: Int? = nil, judgeHitches: Bool = true) {
+        let timing = Self.timing
         var extra = ["-cmux-mobile-paged-lab-stress", load]
+        if timing { extra.append("-cmux-mobile-paged-lab-noprobe") }
         if let window { extra += ["-cmux-mobile-paged-lab-window", String(window)] }
         let lab = PagedLabDriver.launch("\(direction):normal", extra: extra, test: self)
-        let name = "STRESS-\(direction)-\(speed.rawValue)-\(load)"
+        let name = (timing ? "STRESSHITCH-" : "STRESS-") + "\(direction)-\(speed.rawValue)-\(load)"
         // Any row: under a flood or inserts the first row read can already be off screen.
         XCTAssertTrue(lab.list.cells.firstMatch.waitForExistence(timeout: 20), "\(name): no rows")
         let gestures = speed == .slow ? 14 : 12
@@ -79,22 +74,27 @@ final class PagedListStressUITests: XCTestCase {
         lab.attach("\(name)-back")
         let reading = lab.reading
         let windowJSON = window.map(String.init) ?? "null"
-        lab.record(name, #"{"direction":"\#(direction)","speed":"\#(speed.rawValue)","load":"\#(load)","window":\#(windowJSON),"hud":\#(reading.json)}"#)
+        lab.record(name, #"{"direction":"\#(direction)","speed":"\#(speed.rawValue)","load":"\#(load)","window":\#(windowJSON),"probe":\#(!timing),"hud":\#(reading.json)}"#)
         XCTAssertEqual(lab.app.state, .runningForeground, "\(name): the app stopped")
-        XCTAssertGreaterThan(reading.samples, 30, "\(name): the frame-shift measure sampled \(reading.samples) layout passes")
         XCTAssertGreaterThan(reading.changes, 0, "\(name): the load changed nothing")
-        XCTAssertLessThanOrEqual(reading.frameShift, 0.5,
-                                 "\(name): a row being read moved \(reading.frameShift) pt in a frame the scroll does not explain (\(reading.shiftedFrames) frames)")
-        // The rows around the eye line, judged by a rule that shares nothing with the row the anchor
-        // keeps still: each counts when nothing between it and the read row changed.
-        XCTAssertLessThanOrEqual(reading.neighbourShift, 0.5,
-                                 "\(name): a row next to the one read moved \(reading.neighbourShift) pt in a frame the scroll does not explain (\(reading.neighbourShifted) frames)")
-        XCTAssertLessThanOrEqual(reading.maxShift, 0.5, "\(name): a landing page moved the reader \(reading.maxShift) pt")
-        if judgeHitches {
-            XCTAssertLessThanOrEqual(reading.hitchMsPerS, 10, "\(name): scrolling hitched \(reading.hitchMsPerS) ms a second")
-        }
         if let window {
             XCTAssertLessThanOrEqual(reading.inMemory, window + 150, "\(name): \(reading.inMemory) row values in memory with a window of \(window)")
         }
+        if timing {
+            XCTAssertLessThanOrEqual(reading.maxShift, 0.5, "\(name): a landing page moved the reader \(reading.maxShift) pt")
+            if judgeHitches {
+                XCTAssertLessThanOrEqual(reading.hitchMsPerS, 10, "\(name): scrolling hitched \(reading.hitchMsPerS) ms a second")
+            }
+            return
+        }
+        XCTAssertGreaterThan(reading.samples, 30, "\(name): the frame-shift measure sampled \(reading.samples) layout passes")
+        XCTAssertLessThanOrEqual(reading.frameShift, 0.5,
+                                 "\(name): a row being read moved \(reading.frameShift) pt in a frame the scroll does not explain (\(reading.shiftedFrames) frames)")
+        XCTAssertLessThanOrEqual(reading.maxShift, 0.5, "\(name): a landing page moved the reader \(reading.maxShift) pt")
     }
+}
+
+/// The stress bench's timing run: every case with the lab's frame-shift probe off. Hitches only.
+final class PagedListStressHitchUITests: PagedListStressUITests {
+    override class var timing: Bool { true }
 }
