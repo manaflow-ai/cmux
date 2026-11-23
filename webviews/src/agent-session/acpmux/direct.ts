@@ -1,4 +1,3 @@
-import { experimentArm } from "../../experiments/experiment";
 import { askLedger } from "./askLedger/askLedger.experiment";
 import type { BrowserWorkspaces } from "./browser/workspaces";
 import {
