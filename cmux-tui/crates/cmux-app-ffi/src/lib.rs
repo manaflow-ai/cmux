@@ -32,11 +32,19 @@
 
 //! `wallpaper` is cmux-wallpaper's C ABI: live wallpapers (the program check and
 //! its Metal translation, the scheduler, the Frame packer; include/cmux_wallpaper_ffi.h).
+//! `files_lister` is the client of cmux-tui's `__files-lister` child, the DEV
+//! build's Files pane reader (include/cmux_files_lister.h).
+//! `system_calendar` is the `system_calendar.*` app ops' params, window and
+//! answer (include/cmux_system_calendar.h); EventKit stays in the app.
 //! `agent_client` is the no-I/O agent list client (acpmux-client,
 //! include/acpmux_client.h); the app owns and drives its byte connection.
 
+/// cbindgen:ignore
+pub mod files_lister;
 pub mod hover;
 pub mod motion;
+/// cbindgen:ignore
+pub mod system_calendar;
 pub mod terminal_selection;
 /// cbindgen:ignore
 /// Live wallpapers: its own header (include/cmux_wallpaper_ffi.h, cbindgen-wallpaper.toml),

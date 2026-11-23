@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 9e23695456a61db1d4ae9aa726f4287919ff5a51a8c001cf11da3b30c1555dd2. */
+/* cmux-tui mux protocol 12, IR 2e0877c88adc3bd75bf9e49964f9345f01e89bccf21a8b32cbba5f203a9bd76f. */
 
 
 import type * as T from "./types.js";
@@ -70,6 +70,8 @@ export interface AttachSurfaceRequest extends CmuxRequestBase {
   "output_coalesce_ms"?: (number) | null;
   "replay_history_rows"?: (number) | null;
   "replay_history_start"?: (bigint) | null;
+  "resume_generation"?: (string) | null;
+  "resume_offset"?: (bigint) | null;
   "rows"?: (number) | null;
   "snapshot"?: (string) | null;
   "snapshot_images"?: boolean;
@@ -2749,6 +2751,7 @@ export interface ShutdownDaemonRequest extends CmuxRequestBase {
   "end_terminals"?: boolean;
   "force"?: boolean;
   "generation": string;
+  "if_idle"?: boolean;
   "keep_layout"?: boolean;
   "pid": number;
   "restart"?: (boolean) | null;
