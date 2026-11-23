@@ -1242,18 +1242,18 @@ mod tests {
     }
 
     /// A program outside any session (glaeda-land's notice, shadow-leo's nudge) is named by the
-    /// relay record its daemon sent, on the stamped machine; before, "a session on cmux-cp-1"
+    /// relay record its daemon sent, on the stamped machine; before, "a session on build-host"
     /// (ask-1e0e42a38e, ask-ee9ef79cbb).
     #[test]
     fn a_program_outside_any_session_is_named_by_its_relay_record() {
         use crate::mesh::SenderRelay;
-        let mut message = from("cmux-cp-1", "");
+        let mut message = from("build-host", "");
         message.from.relay = Some(SenderRelay {
             by: "glaeda-land".into(),
-            machine: "cmux-cp-1".into(),
+            machine: "build-host".into(),
             session: None,
         });
-        assert_eq!(sender_name(&message, None), "glaeda-land on cmux-cp-1");
+        assert_eq!(sender_name(&message, None), "glaeda-land on build-host");
         // The machine is the hub's stamp, not the record's word.
         message.from.daemon_id = Some("inst_a".into());
         assert_eq!(sender_name(&message, Some("book-host")), "glaeda-land on book-host");
