@@ -346,9 +346,20 @@ enum OmnibarStyle {
     static var chipHoverFill: NSColor { Palette.hoverFill } // theme-scoped
     /// Text selection inside the field.
     static var selection: NSColor { Palette.textSelection } // theme-scoped
-    static var textPrimary: NSColor { Palette.textPrimary } // theme-scoped
-    static var textSecondary: NSColor { Palette.textSecondary } // theme-scoped
-    /// The chip's and the suggestion rows' glyphs: Chrome's `kColorOmniboxResultsIcon` tone, the primary text at 83%
-    /// (#C6C6C6 over Helium's dark bar, #464747 over its light one).
+    /// The bar's ink (`OmnibarInk`): fitted to every ground the bar shows with the look in effect (its rest and
+    /// hover fill, glass or none, a see-through window over any desktop, the editing card), so the URL, the
+    /// placeholder, the site-info chip, the star and the badges read in light, dark and custom backgrounds alike,
+    /// one color per element in every state (https://github.com/manaflow-ai/cmux/issues/50986).
+    static var ink: OmnibarInk { OmnibarGlassLook.current.ink } // theme-scoped
+    /// The host, the typed text and the chip's label.
+    static var textPrimary: NSColor { ink.primaryColor } // theme-scoped
+    /// The path after the host and the placeholder.
+    static var textSecondary: NSColor { ink.secondaryColor } // theme-scoped
+    /// The chip's glyph, the star in both states and the badges: Chrome's `kColorOmniboxResultsIcon` tone, the primary
+    /// text at 83% (#C6C6C6 over Helium's dark bar, #464747 over its light one), where that reads on the bar.
+    static var iconInk: NSColor { ink.iconColor(on: [chipHoverFill, Palette.pressedFill, starHoverFill(isDark: isDarkTheme)]) } // theme-scoped
+    /// Whether the active theme scope is dark.
+    static var isDarkTheme: Bool { Palette.addressBar.isDark } // theme-scoped
+    /// The suggestion rows' glyphs, on the card: Chrome's results-icon tone, the theme's primary text at 83%.
     static var resultsIcon: NSColor { Palette.textPrimary.withAlphaComponent(Palette.textPrimary.alphaComponent * 0.83) } // theme-scoped
 }
