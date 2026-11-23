@@ -117,7 +117,14 @@ async fn a_50_mb_chat_starts_on_a_second_daemon_from_its_tail_and_its_history_fo
 
     // The whole log reads on the target as it did on the source, then what it did there.
     let (records, said) = whole_log(&mut dst, &id).await;
-    assert_eq!(arrived["records"].as_u64().unwrap() as usize + tail_records, source_records);
+    // The tail on the target also holds the move's own records, so the two parts cover the
+    // source's log and more.
+    let history_records = arrived["records"].as_u64().unwrap() as usize;
+    assert!(history_records < source_records, "{arrived}");
+    assert!(
+        history_records + tail_records >= source_records,
+        "{arrived}, {tail_records} in the tail"
+    );
     assert!(records > source_records, "{records} records, {source_records} on the source");
     assert_eq!(said.len(), prompts + 2);
     assert_eq!(said[..=prompts], source_said[..]);
