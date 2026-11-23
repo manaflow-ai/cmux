@@ -25,6 +25,8 @@ extension SettingsSchema {
         "agents.chats.sessionRecap": .userOnly,
         // Machine cleanup removes worktrees and build caches from this Mac's disk: only the person turns it on or off.
         "worktrees.autoCleanup": .destructive, "worktrees.cleanBuildCaches": .destructive,
+        // Deleting old chats removes their history from this machine for good: only the person sets it.
+        "agents.chats.deleteHistoryAfterDays": .destructive,
         "picker.pinned": .userOnly,
         // Whether workspaces leave the sidebar on their own: the person decides (auto-archive-DESIGN.md).
         "workspaces.autoArchive.style": .userOnly, "workspaces.autoArchive.idleDays": .userOnly,

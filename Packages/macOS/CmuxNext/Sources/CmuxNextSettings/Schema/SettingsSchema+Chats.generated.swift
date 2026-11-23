@@ -21,6 +21,10 @@ extension ChatSettings {
     public nonisolated static let coldArchiveAfterDaysPath = ["agents", "chats", "coldArchiveAfterDays"]
     public nonisolated static let coldArchiveAfterDaysDefault: Double = 30
     public nonisolated static let coldArchiveAfterDaysRange: ClosedRange<Double> = 1...3650
+    /// `agents.chats.deleteHistoryAfterDays`: 0 (never) by default: nothing is deleted, as before. The customization matrix row history-retention (Claude Code cleanupPeriodDays, Codex history.persistence). A number of days: the acpmux daemon's retention worker deletes every closed chat (or cold-archived idle one) with no record and no change for that long, as `acpmux session rm` does; never one that is open, pinned, running, attached or busy. Irreversible. Read from the settings file at each pass (cmux-tui acpmux hub/history_delete.rs).
+    public nonisolated static let deleteHistoryAfterDaysPath = ["agents", "chats", "deleteHistoryAfterDays"]
+    public nonisolated static let deleteHistoryAfterDaysDefault: Double = 0
+    public nonisolated static let deleteHistoryAfterDaysRange: ClosedRange<Double> = 0...3650
     /// `agents.chats.archiveInactive`: Never by default (Leo, 2026-11-18: "there's the archived/settled chats for it, etc", the Claude app's Archive inactive sessions). A number of days: the acpmux daemon archives every chat with no activity for that long (tags archived=<ms> and archivedBy=auto), never one that is running or waiting, has background commands or subagents, is pinned or is a side chat; a pass every 10 minutes, read from the settings file at each pass (cmux-tui acpmux hub/inactive_archive.rs). The daemon also reads a plain number of days.
     public nonisolated static let archiveInactivePath = ["agents", "chats", "archiveInactive"]
     public nonisolated static let archiveInactiveDefault = "never"
@@ -96,6 +100,16 @@ nonisolated enum ChatSettingsSchema {
                 kind: .number(SettingNumber(ChatSettings.coldArchiveAfterDaysRange, step: 1, unit: .days)),
                 default: .number(ChatSettings.coldArchiveAfterDaysDefault),
                 keywords: ["agents", "chats", "archive", "cold", "compress", "disk", "idle", "days"]
+            ),
+            SettingDescriptor(
+                ChatSettings.deleteHistoryAfterDaysPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.chats.deleteHistoryAfterDays", "Delete Chat History After"),
+                help: SettingsText.keyed("settings.chats.deleteHistoryAfterDays.help", "Permanently deletes closed chats unused for this many days. 0 never deletes."),
+                kind: .number(SettingNumber(ChatSettings.deleteHistoryAfterDaysRange, step: 1, unit: .days)),
+                default: .number(ChatSettings.deleteHistoryAfterDaysDefault),
+                keywords: ["agents", "chats", "history", "delete", "retention", "cleanup", "old", "days", "disk", "privacy"]
             ),
             SettingDescriptor(
                 ChatSettings.archiveInactivePath,
