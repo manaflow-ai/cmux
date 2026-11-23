@@ -107,7 +107,7 @@ pub fn list(homes: &Homes, cwd: Option<&Path>) -> Listing {
             &mut out,
             &mut problems,
         );
-        for agent in &mut out[start..] {
+        for agent in out.iter_mut().skip(start) {
             agent.active = on;
         }
     }
@@ -170,7 +170,9 @@ fn folder(
             shadowed_by: None,
         });
     }
-    out[start..].sort_by(|a, b| a.name.cmp(&b.name));
+    if let Some(added) = out.get_mut(start..) {
+        added.sort_by(|a, b| a.name.cmp(&b.name));
+    }
 }
 
 fn find_md(dir: &Path, depth: usize, out: &mut Vec<PathBuf>) {

@@ -28,7 +28,7 @@ Usage:
                             [--header KEY=VALUE]...
   cmux agent-config mcp remove|enable|disable NAME --agent claude|codex [--scope ...] [--project DIR]
   cmux agent-config hooks list|enable|disable|add|remove ...   (cmux agent-config hooks --help)
-  cmux agent-config subagents list [--cwd DIR]                  (cmux agent-config subagents --help)
+  cmux agent-config subagents [list] [--cwd DIR] [--json]       (cmux agent-config subagents --help)
 
 Scopes: user (every folder: ~/.claude.json, ~/.codex/config.toml), local (Claude only: this folder,
 private to you), project (this folder's .mcp.json or .codex/config.toml), plugin (Codex only: from an

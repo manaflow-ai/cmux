@@ -12,7 +12,7 @@ use super::super::OutputMode;
 pub(in crate::cli) const USAGE: &str = "\
 cmux agent-config subagents: Claude Code's subagents, in its own folders.
 
-  cmux agent-config subagents list [--cwd DIR] [--json]
+  cmux agent-config subagents [list] [--cwd DIR] [--json]
       Every subagent Claude Code loads: the project's .claude/agents (the working folder's, or
       DIR's, up to its git root), ~/.claude/agents and each enabled plugin's agents/. One name
       used twice: project wins over user over plugin, and the loser shows the winner's file.
@@ -28,12 +28,16 @@ pub(in crate::cli) enum Request {
 
 /// `words` start after `subagents`.
 pub(in crate::cli) fn parse(words: &[String]) -> Result<Request, String> {
-    let Some((verb, rest)) = words.split_first() else { return Ok(Request::Help) };
-    match verb.as_str() {
-        "-h" | "--help" | "help" => return Ok(Request::Help),
-        "list" | "ls" => {}
-        other => return Err(format!("unknown subagents verb {other:?}: list")),
-    }
+    // A bare `subagents` (or one that starts with a flag) lists.
+    let rest = match words.split_first() {
+        None => words,
+        Some((verb, rest)) => match verb.as_str() {
+            "-h" | "--help" | "help" => return Ok(Request::Help),
+            "list" | "ls" => rest,
+            flag if flag.starts_with('-') => words,
+            other => return Err(format!("unknown subagents verb {other:?}: list")),
+        },
+    };
     let mut cwd = None;
     let mut words = rest.iter();
     while let Some(word) = words.next() {
@@ -146,7 +150,7 @@ pub(in crate::cli) fn table(listing: &Listing) -> String {
 
 fn clip(text: &str, max: usize) -> String {
     if text.chars().count() > max {
-        format!("{}…", text.chars().take(max - 1).collect::<String>())
+        format!("{}…", text.chars().take(max.saturating_sub(1)).collect::<String>())
     } else {
         text.to_owned()
     }
@@ -162,7 +166,9 @@ mod tests {
 
     #[test]
     fn parses_list() {
-        assert_eq!(parse(&[]), Ok(Request::Help));
+        assert_eq!(parse(&[]), Ok(Request::List { cwd: None }));
+        assert_eq!(parse(&words("--help")), Ok(Request::Help));
+        assert_eq!(parse(&words("--cwd /w")), Ok(Request::List { cwd: Some("/w".into()) }));
         assert_eq!(parse(&words("list")), Ok(Request::List { cwd: None }));
         assert_eq!(parse(&words("ls --cwd /w")), Ok(Request::List { cwd: Some("/w".into()) }));
         assert!(parse(&words("list extra")).is_err());
