@@ -29,14 +29,14 @@ const LOOKS: [&str; 6] = ["icon", "tint", "tone", "font", "style", "count"];
 /// A quoted prop is cut to this many characters.
 const MAX_WORDS: usize = 80;
 
-struct Node {
-    kind: String,
-    props: Map<String, Value>,
-    children: Vec<String>,
+pub(super) struct Node {
+    pub kind: String,
+    pub props: Map<String, Value>,
+    pub children: Vec<String>,
 }
 
 /// The scene the op batches `batches` build: its root and its nodes.
-fn apply(batches: &[&Value]) -> (Option<String>, BTreeMap<String, Node>) {
+pub(super) fn apply(batches: &[&Value]) -> (Option<String>, BTreeMap<String, Node>) {
     let mut nodes: BTreeMap<String, Node> = BTreeMap::new();
     let mut root = None;
     for op in batches.iter().flat_map(|batch| batch.as_array().into_iter().flatten()) {
@@ -83,7 +83,7 @@ fn apply(batches: &[&Value]) -> (Option<String>, BTreeMap<String, Node>) {
 }
 
 /// One node's line, without its indent.
-fn line(node: &Node) -> String {
+pub(super) fn line(node: &Node) -> String {
     let mut text = node.kind.clone();
     for key in WORDS {
         if let Some(words) = node.props.get(key).and_then(Value::as_str) {

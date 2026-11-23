@@ -1179,11 +1179,24 @@ enum OnTicket {
     Drop(String),
 }
 
-/// The answer to a host ticket `push`; `admit` maps its scope to `Some(view_only)` or None
+/// The hub says both devices are signed in to one account (`ownerKind: "user"`, which the hub
+/// writes from its own authenticated record, never from the viewer): the person reaching their
+/// own desktop. A missing field (an older hub) or any other owner is not shown to be own.
+fn own_account(push: &Value) -> bool {
+    push.get("ownerKind").and_then(Value::as_str) == Some("user")
+}
+
+/// The answer to a host ticket `push`; `admit` maps a scope to `Some(view_only)` or None
 /// when this desktop does not allow it. A ticket that does not parse is ended too, as the
 /// Mac host does: the hub approved the session, and only `/end` closes it.
-fn on_ticket(push: &Value, admit: impl FnOnce(&str) -> Option<bool>) -> OnTicket {
-    let ticket = match Ticket::from_push(push) {
+///
+/// The person's own device (``own_account``) is never refused a screen this desktop shares
+/// (Leo, 2026-11-17, ask-834a26b463: "if i've connected, i need to share the screen"): a
+/// control ticket on a desktop enabled `--view-only` is served view only, as a `view` session,
+/// instead of ended. This desktop's `--view-only` still keeps control off. A refusal ends the
+/// session `consent_required`, as the Mac hosts do, so the viewer reads why.
+fn on_ticket(push: &Value, admit: impl Fn(&str) -> Option<bool>) -> OnTicket {
+    let mut ticket = match Ticket::from_push(push) {
         Ok(t) => t,
         Err(e) => {
             return match push["sessionId"].as_str().filter(|id| !id.is_empty()) {
@@ -1192,14 +1205,19 @@ fn on_ticket(push: &Value, admit: impl FnOnce(&str) -> Option<bool>) -> OnTicket
             }
         }
     };
-    match admit(&ticket.scope) {
-        Some(view_only) => OnTicket::Serve(ticket, view_only),
-        None => OnTicket::End(
-            ticket.session_id,
-            "failed",
-            format!("a {} session is not allowed on this desktop", printable(&ticket.scope)),
-        ),
+    if let Some(view_only) = admit(&ticket.scope) {
+        return OnTicket::Serve(ticket, view_only);
     }
+    if own_account(push) && ticket.scope == "full" && admit("view").is_some() {
+        // Served and watched as the view session it is (`withdraw_unconsented` reads this scope).
+        ticket.scope = "view".to_owned();
+        return OnTicket::Serve(ticket, true);
+    }
+    OnTicket::End(
+        ticket.session_id,
+        "consent_required",
+        format!("a {} session is not allowed on this desktop", printable(&ticket.scope)),
+    )
 }
 
 fn handle_push(
@@ -1864,7 +1882,7 @@ mod tests {
         assert!(matches!(on_ticket(&ticket_push("s1"), |_| Some(true)), OnTicket::Serve(_, true)));
         assert!(matches!(
             on_ticket(&ticket_push("s1"), |_| None),
-            OnTicket::End(id, "failed", _) if id == "s1"
+            OnTicket::End(id, "consent_required", _) if id == "s1"
         ));
         // A ticket that does not agree with its JWS is ended too, as the Mac host does: the
         // approved session would otherwise stay open on the hub.
@@ -1881,6 +1899,46 @@ mod tests {
         // With no session id there is nothing to end.
         malformed["sessionId"] = Value::Null;
         assert!(matches!(on_ticket(&malformed, |_| Some(true)), OnTicket::Drop(_)));
+    }
+
+    /// The person's own device (`ownerKind: "user"`) gets the screen on a desktop enabled
+    /// `--view-only`: its control ticket serves view only, watched as a `view` session, where
+    /// another device's is ended `consent_required`. Nothing serves what the desktop refuses.
+    #[test]
+    fn an_own_device_control_ticket_serves_view_only_on_a_view_only_desktop() {
+        let view_only = LocalConsent { view: true, full: false };
+        let admit = |scope: &str| view_only.serve(scope, true);
+        let mut own = ticket_push("s1");
+        own["ownerKind"] = "user".into();
+        match on_ticket(&own, admit) {
+            OnTicket::Serve(ticket, true) => {
+                assert_eq!(ticket.scope, "view");
+                let current: Current = Arc::new(Mutex::new(Some(Served {
+                    id: ticket.session_id,
+                    scope: ticket.scope,
+                    stop: Arc::new(AtomicBool::new(false)),
+                })));
+                // The view-only consent it was served under does not withdraw it a second later.
+                assert_eq!(withdraw_unconsented(&current, Ok(view_only), true), None);
+            }
+            other => panic!("own device not served view only: {other:?}"),
+        }
+        for kind in [Value::Null, "team".into(), "shared".into()] {
+            let mut push = ticket_push("s1");
+            push["ownerKind"] = kind;
+            assert!(matches!(
+                on_ticket(&push, admit),
+                OnTicket::End(id, "consent_required", _) if id == "s1"
+            ));
+        }
+        // A desktop that allows control serves it as asked; one whose consent is unreadable
+        // (`admit` None for every scope) serves nothing, own device or not.
+        let both = LocalConsent { view: true, full: true };
+        assert!(matches!(
+            on_ticket(&own, |s| both.serve(s, true)),
+            OnTicket::Serve(t, false) if t.scope == "full"
+        ));
+        assert!(matches!(on_ticket(&own, |_| None), OnTicket::End(_, "consent_required", _)));
     }
 
     #[test]

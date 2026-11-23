@@ -217,6 +217,7 @@ function ChecklistRow({
         data-checklist-item={item.id}
         aria-pressed={item.on}
         disabled={locked}
+        // tooltip-allow: a chip shows only its title; the lock reason or the detail shows nowhere else
         title={item.locked ?? (item.detail || help || undefined)}
         onClick={() => onToggle(item, !item.on)}
       >
@@ -230,6 +231,7 @@ function ChecklistRow({
   }
   return (
     <div className="checklist-row" data-checklist-item={item.id} data-locked={locked ? "" : undefined}>
+      {/* tooltip-allow: the detail, when it differs from the help line, shows nowhere else */}
       <div className="checklist-text" title={hover}>
         <span className="row-title" id={labelId}>
           {item.title}

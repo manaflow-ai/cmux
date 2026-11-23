@@ -12,6 +12,16 @@
       "title" : "Attachment View",
       "type" : "string"
     },
+    "agentPane.composerLook" : {
+      "default" : "auto",
+      "description" : "Where the mode, model and effort sit: under the box or inside it.",
+      "enum" : [
+        "auto",
+        "studio"
+      ],
+      "title" : "Composer Look",
+      "type" : "string"
+    },
     "agentPane.composerRing" : {
       "default" : "context",
       "description" : "What the ring at the end of the composer shows.",
@@ -325,6 +335,26 @@
       "title" : "Shimmer Speed",
       "type" : "number"
     },
+    "agentPane.display.transcriptLook" : {
+      "default" : "cmux",
+      "description" : "How messages, cards and spacing look.",
+      "enum" : [
+        "cmux",
+        "claude",
+        "codex",
+        "studio"
+      ],
+      "title" : "Transcript Look",
+      "type" : "string"
+    },
+    "agentPane.display.transcriptTokens" : {
+      "default" : {
+
+      },
+      "description" : "Token values that override the transcript look.",
+      "title" : "Transcript Look Tokens",
+      "type" : "string"
+    },
     "agentPane.display.transcriptView" : {
       "default" : "normal",
       "description" : "How much of each turn a chat shows. A chat's ··· menu sets its own.",
@@ -408,6 +438,16 @@
         "never"
       ],
       "title" : "Edited Files Card",
+      "type" : "string"
+    },
+    "agentPane.emptyChatComposerPosition" : {
+      "default" : "bottom",
+      "description" : "Where the message box sits in a chat with no messages yet.",
+      "enum" : [
+        "bottom",
+        "center"
+      ],
+      "title" : "Empty Chat Message Box",
       "type" : "string"
     },
     "agentPane.images.remote" : {
@@ -859,6 +899,12 @@
       "default" : true,
       "description" : "app.warnBeforeClosingTab",
       "title" : "Warn Before Closing a Running Program",
+      "type" : "boolean"
+    },
+    "app.warnBeforeQuitShortcut" : {
+      "default" : true,
+      "description" : "⌘Q asks before quitting; press it again to quit. The Quit menu item and the Dock quit at once.",
+      "title" : "Warn Before Quitting with ⌘Q",
       "type" : "boolean"
     },
     "appearance.accent" : {
@@ -1625,6 +1671,22 @@
       "title" : "Opacity",
       "type" : "number"
     },
+    "appearance.backgroundPlacement" : {
+      "description" : "Picture ID to fill, fit, center or stretch, with optional X Y anchor and zoom.",
+      "properties" : {
+
+      },
+      "title" : "Background Placement",
+      "type" : "object"
+    },
+    "appearance.backgroundRecents" : {
+      "description" : "The backgrounds shown before, newest first, so one click goes back.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Recent Backgrounds",
+      "type" : "array"
+    },
     "appearance.backgroundRotation" : {
       "default" : "daily",
       "description" : "How often a shuffled background changes. Also accepts a number from 1 to 1440 in a raw profile.",
@@ -1907,6 +1969,12 @@
       "minimum" : 0.9,
       "title" : "Interface Size",
       "type" : "number"
+    },
+    "appearance.liquidGlass" : {
+      "default" : false,
+      "description" : "Off draws the composer, menus, popovers and cards as solid surfaces with a plain border.",
+      "title" : "Liquid Glass",
+      "type" : "boolean"
     },
     "appearance.machineColors" : {
       "default" : {
@@ -3069,7 +3137,7 @@
       "type" : "boolean"
     },
     "computerUse.settle" : {
-      "default" : "adaptive",
+      "default" : "openai",
       "description" : "What an agent waits for after each click or key press before it looks again: the screen to stop changing, a fixed 2 seconds, or nothing.",
       "enum" : [
         "adaptive",
@@ -3094,6 +3162,12 @@
       "default" : false,
       "description" : "Adds Customize Menu… to the end of every right-click menu.",
       "title" : "Show Customize Menu…",
+      "type" : "boolean"
+    },
+    "customize.doctorNotice" : {
+      "default" : true,
+      "description" : "customize.doctorNotice",
+      "title" : "Customization notices",
       "type" : "boolean"
     },
     "customize.fromTheApp" : {
@@ -3639,6 +3713,12 @@
       "title" : "Glass Toolbar Groups",
       "type" : "boolean"
     },
+    "experiments.toastsV2" : {
+      "default" : false,
+      "description" : "Spinner toasts that turn into their result in place, and an Undo after closing a tab or workspace or archiving a chat.",
+      "title" : "Toasts v2",
+      "type" : "boolean"
+    },
     "feed.agentPermissionPrompts" : {
       "default" : false,
       "description" : "Each request's tool and command summary goes to your own cmux feed, so your iPhone can answer it.",
@@ -3956,6 +4036,12 @@
       "title" : "Screen Sharing for Joined Machines",
       "type" : "boolean"
     },
+    "labs.pauseAgentMachines" : {
+      "default" : false,
+      "description" : "Pause a new agent machine after 15 idle minutes; it resumes when work arrives.",
+      "title" : "Pause Agent Machines",
+      "type" : "boolean"
+    },
     "labs.previewFeatures" : {
       "default" : false,
       "description" : "Unfinished surfaces, such as the App Store and the agent session's coverage label and Pull requests view.",
@@ -4214,6 +4300,12 @@
       "default" : false,
       "description" : "Mac Screen tabs connect only through the relay, to test it.",
       "title" : "Relay Only",
+      "type" : "boolean"
+    },
+    "macScreen.onlyPersonStartsViewing" : {
+      "default" : false,
+      "description" : "On, a Screen Sharing tab an agent or the cmux CLI opens waits until you choose View Only or Full Control. Off, it starts viewing your own devices at once and says who started it. A device someone else owns always asks first.",
+      "title" : "Only Your Click Starts Viewing a Screen",
       "type" : "boolean"
     },
     "macScreen.shareWithoutAsking" : {
@@ -5457,6 +5549,12 @@
       "title" : "Settle Finished Chats",
       "type" : "boolean"
     },
+    "sidebar.showAutomaticSessions" : {
+      "default" : false,
+      "description" : "Sessions that scripts and tools start show in place. Off, they wait in Automatic at the end of their list.",
+      "title" : "Show Automatic Sessions",
+      "type" : "boolean"
+    },
     "sidebar.showChats" : {
       "default" : true,
       "description" : "New Tab lists every agent chat on this computer, not only recent ones.",
@@ -5785,6 +5883,116 @@
       "description" : "sidebar.workspaceRow.lastActivity",
       "title" : "Last Activity",
       "type" : "boolean"
+    },
+    "sidebar.workspaceRow.lines" : {
+      "description" : "The lines each workspace row shows, as lists of items, such as [[\"icon\", \"name\", \"branch\"], [\"agentStatus\"]]. Up to 3 lines of 6 items; the name always leads the first line. Nested; see `cmux settings schema` for its shape.",
+      "items" : {
+        "items" : {
+          "enum" : [
+            "icon",
+            "name",
+            "working",
+            "progress",
+            "notification",
+            "directory",
+            "branch",
+            "process",
+            "agentStatus",
+            "tabCount",
+            "ports",
+            "lastActivity",
+            "pullRequest",
+            "log"
+          ]
+        },
+        "maxItems" : 10,
+        "minItems" : 1,
+        "type" : "array",
+        "uniqueItems" : true
+      },
+      "maxItems" : 3,
+      "title" : "Row Layout",
+      "type" : "array"
+    },
+    "sidebar.workspaceRow.linesByAgent" : {
+      "additionalProperties" : {
+        "items" : {
+          "items" : {
+            "enum" : [
+              "icon",
+              "name",
+              "working",
+              "progress",
+              "notification",
+              "directory",
+              "branch",
+              "process",
+              "agentStatus",
+              "tabCount",
+              "ports",
+              "lastActivity",
+              "pullRequest",
+              "log"
+            ]
+          },
+          "maxItems" : 10,
+          "minItems" : 1,
+          "type" : "array",
+          "uniqueItems" : true
+        },
+        "maxItems" : 3,
+        "type" : "array"
+      },
+      "description" : "A row layout for each agent, by agent id such as claude or codex. It wins over the other row layouts. Nested; see `cmux settings schema` for its shape.",
+      "maxProperties" : 32,
+      "propertyNames" : {
+        "maxLength" : 64,
+        "minLength" : 1,
+        "type" : "string"
+      },
+      "title" : "Row Layout by Agent",
+      "type" : "object"
+    },
+    "sidebar.workspaceRow.linesByKind" : {
+      "additionalProperties" : {
+        "items" : {
+          "items" : {
+            "enum" : [
+              "icon",
+              "name",
+              "working",
+              "progress",
+              "notification",
+              "directory",
+              "branch",
+              "process",
+              "agentStatus",
+              "tabCount",
+              "ports",
+              "lastActivity",
+              "pullRequest",
+              "log"
+            ]
+          },
+          "maxItems" : 10,
+          "minItems" : 1,
+          "type" : "array",
+          "uniqueItems" : true
+        },
+        "maxItems" : 3,
+        "type" : "array"
+      },
+      "description" : "A row layout for each kind of workspace: terminal, agent, browser or mixed. It wins over Row Layout. Nested; see `cmux settings schema` for its shape.",
+      "propertyNames" : {
+        "enum" : [
+          "terminal",
+          "agent",
+          "browser",
+          "mixed"
+        ]
+      },
+      "title" : "Row Layout by Kind",
+      "type" : "object"
     },
     "sidebar.workspaceRow.log" : {
       "default" : false,
@@ -6175,6 +6383,16 @@
       "title" : "+ Button Visibility",
       "type" : "string"
     },
+    "tabs.shellIconTheme" : {
+      "default" : "default",
+      "description" : "Machines shows each shell tab with the icon of the machine it runs on.",
+      "enum" : [
+        "default",
+        "machine"
+      ],
+      "title" : "Shell Tab Icons",
+      "type" : "string"
+    },
     "tabs.swapCmdTAndCmdN" : {
       "default" : false,
       "description" : "Cmd-T opens a workspace and Cmd-N opens a tab.",
@@ -6410,7 +6628,7 @@
       "type" : "number"
     },
     "updates.downloadAutomatically" : {
-      "default" : false,
+      "default" : true,
       "description" : "Off: cmux asks before downloading. It always asks before restarting.",
       "title" : "Download Updates Automatically",
       "type" : "boolean"
@@ -6641,6 +6859,18 @@
       ],
       "title" : "New Workspace Position",
       "type" : "string"
+    },
+    "worktrees.autoCleanup" : {
+      "default" : true,
+      "description" : "Archive and remove worktrees agents finished with, and trim the build output of idle ones. Unpushed work is kept in git and comes back when the chat reopens.",
+      "title" : "Clean Up Agent Worktrees",
+      "type" : "boolean"
+    },
+    "worktrees.cleanBuildCaches" : {
+      "default" : false,
+      "description" : "Also remove this Mac's build caches nobody used lately, such as Xcode DerivedData. Package caches go only when the disk is nearly full.",
+      "title" : "Clean Up Build Caches",
+      "type" : "boolean"
     }
   },
   "title" : "cmux (com.manaflow.cmux)"
