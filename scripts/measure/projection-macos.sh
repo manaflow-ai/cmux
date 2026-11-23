@@ -5,8 +5,10 @@
 # git-mount: the commit served over NFSv3 from localhost, mounted with the Mac's own mount_nfs, no
 # kernel or app extension, no prompt). Run on a fleet Mac:
 #   cmux-ci run --class exclusive --measurement --script scripts/measure/projection-macos.sh --ref SHA
-#     [--arg JOBS]
-#   JOBS  checkouts made at once in the duress arms (default 10)
+#     [--arg JOBS [--arg BUILD_SHA]]
+#   JOBS       checkouts made at once in the duress arms (default 10)
+#   BUILD_SHA  the commit whose cmux-projection is measured (default the step's own), fetched from
+#              origin: the script runs only at a reviewed commit, the code under test need not
 #
 # Per arm a line `PROJMAC {json}`: checkout_ms (to a usable checkout), events and paths (FSEvents
 # under the scratch root, unique paths), status_ms and status_clean (the first `git status`),
@@ -17,6 +19,7 @@
 set -euo pipefail
 
 jobs="${1:-10}"
+build_sha="${2:-}"
 [[ "$jobs" =~ ^[1-9][0-9]?$ ]] || { echo "projection-macos: JOBS must be 1-99" >&2; exit 2; }
 [ "$(uname -s)" = Darwin ] || { echo "projection-macos: macOS only" >&2; exit 2; }
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -56,7 +59,15 @@ json() { python3 -c 'import json, sys; print(json.dumps(dict(a.split("=", 1) for
 # Builds: the counter (swiftc) and cmux-projection (cargo, this step's own target dir).
 swiftc -O -o "$root/bin/fsevents-count" "$here/fsevents-count.swift"
 target="$repo/.build/cmux-tui-rust-target"
-(cd "$repo/cmux-tui" && CARGO_TARGET_DIR="$target" cargo build --release --locked \
+src="$repo"
+if [ -n "$build_sha" ]; then
+  [[ "$build_sha" =~ ^[0-9a-f]{40}$ ]] || { echo "projection-macos: BUILD_SHA must be a full SHA" >&2; exit 2; }
+  git -C "$repo" cat-file -e "$build_sha^{commit}" 2>/dev/null || git -C "$repo" fetch -q origin "$build_sha"
+  src="$root/src"
+  mkdir -p "$src"
+  git -C "$repo" archive "$build_sha" cmux-tui | tar -x -C "$src"
+fi
+(cd "$src/cmux-tui" && CARGO_TARGET_DIR="$target" cargo build --release --locked \
   -p cmux-projection --bin cmux-projection >"$root/log/cargo.log" 2>&1) || {
   tail -40 "$root/log/cargo.log" >&2; exit 1; }
 projection="$target/release/cmux-projection"
@@ -230,6 +241,6 @@ watch=$(watch_stop "$watch_pid" duress-worktree)
 echo "PROJMAC $(json arm=duress-worktree jobs="$jobs" all_ready_ms="$ms" \
   events="$(field "$watch" events)" paths="$(field "$watch" paths)")"
 
-echo "PROJMAC-SUMMARY $(json rev="$rev" fseventsd_kb_before="$before_kb" \
+echo "PROJMAC-SUMMARY $(json rev="$rev" build_sha="${build_sha:-$rev}" fseventsd_kb_before="$before_kb" \
   fseventsd_kb_after="$(fseventsd_kb)" macos="$(sw_vers -productVersion)" \
   host_model="$(sysctl -n hw.model)")"
