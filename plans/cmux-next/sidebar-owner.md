@@ -424,6 +424,14 @@
   Gallery: `AAAppHealthIndicatorGalleryTests` (a-overlay shipped, b-dot on the avatar's corner, c-hidden) and web
   `ui.app-health.footer-row`. Regression: `SidebarProfileChipTests.theHealthLineMovesNothingInTheFooterRow` (replaces
   `aLongHealthLineLeavesTheSpacesStripRoom`).
+- 2026-11-23: app health's line leaves the sidebar for good (ask-eacfb2ec1f). Leo, verbatim (2026-11-22): "i see in
+  the sidebar a repair connection to agent service... which i have requested to remove a while ago. or some similar
+  message to it a while ago. we dont need it. ever. entire classes of bullshit fucking error/status bullshit. fuck
+  em. remove them all." `AppHealthIndicatorView`, `SidebarView.healthIndicator`,
+  `SidebarFooterBand.placeHealthIndicator(above:)` and `AvatarBadgePlacing` are gone, with
+  `AAAppHealthIndicatorGalleryTests` and `SidebarProfileChipTests.theHealthLineMovesNothingInTheFooterRow`. The health
+  model and its self-repairs stay and say nothing; the "Restoring sessions…" card's Details opens app health's
+  popover through `SidebarView.onHealthDetails`.
 - 2026-11-10 (lane/small-views-react-sidebar-history): the session tree's chat history blocks (Pinned, Earlier) are a
   React page (webviews/src/pages/sidebar-chats) in each block's gap of the list (`SidebarChatHistoryHost`,
   CmuxNextSidebar); the AppKit `SidebarChatHistoryView`, `SidebarChatHistoryRow` and `SidebarChatHistoryHeader` are
