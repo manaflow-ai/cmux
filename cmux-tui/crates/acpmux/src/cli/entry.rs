@@ -131,7 +131,8 @@ pub fn main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
     let daemon = crate::daemon_priority::is_daemon_run(&args);
     let word_rule = runtime_workers(&args);
     let parsed = parse(args, invocation);
-    runtime_with(daemon, workers_for(word_rule, parsed.cli.command.as_ref()))?.block_on(async_main(parsed))
+    runtime_with(daemon, workers_for(word_rule, parsed.cli.command.as_ref()))?
+        .block_on(async_main(parsed))
 }
 
 /// The stdio MCP servers acpmux gives each agent session (`agent_tools.rs`).
