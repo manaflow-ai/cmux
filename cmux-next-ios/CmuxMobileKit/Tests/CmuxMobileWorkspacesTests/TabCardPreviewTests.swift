@@ -38,7 +38,9 @@ import WebKit
         source.activate("t-claude")
         for _ in 0..<2000 where page.snapshot == nil { try await Task.sleep(for: .milliseconds(5)) }
         #expect(page.snapshot != nil, "the card of a page left for another tab shows that page")
-        print("CMUX_PREVIEW_TIME_TO_CORRECT browser-left \(ContinuousClock.now - left)")
+        let ms = (ContinuousClock.now - left).components
+        let line = "PREVIEW_TIME_TO_CORRECT browser-left-for-another-tab \(ms.seconds * 1000 + ms.attoseconds / 1_000_000_000_000_000) ms\n"
+        Attachment.record(line, named: "preview-time-to-correct.txt")
     }
 }
 #endif
