@@ -782,6 +782,7 @@ function TranscriptView({
   jumpButton = false,
   needsYou,
   dock,
+  stackOutside = false,
   queueWithdrawn,
   queueIds,
   queuedTail,
@@ -850,6 +851,11 @@ function TranscriptView({
   /// it, the scrollbar's track to the pane's bottom as in the Claude and Codex apps, and its end sits
   /// above it. Its height is room under the last row, followed as it changes before the frame paints.
   dock?: HTMLElement | null;
+  /// The bottom stack sits under the scroller, in the pane's flow (composerPlace.experiment.ts
+  /// `outside`): the composer's growth shrinks the viewport. While the chat follows the latest, each
+  /// resize of the viewport puts its end back on the last row before the frame paints; scrolled up,
+  /// the offset stays, so the reader's top row holds.
+  stackOutside?: boolean;
   /// Prompts withdrawn from the queue (snapshot `queueWithdrawn`): no row comes for one whose card
   /// leaves the stack, so the view keeps no room for it.
   queueWithdrawn?: readonly string[];
@@ -1502,6 +1508,12 @@ function TranscriptView({
   withdrawn.current = withdrawnSet;
   const dockRef = useRef(dock);
   dockRef.current = dock;
+  const stackOutsideRef = useRef(stackOutside);
+  stackOutsideRef.current = stackOutside;
+  /// Puts a following view's end back on the last row after the viewport resized (set below, where
+  /// the layout it reads is in scope).
+  const holdEndRef = useRef<(node: HTMLElement) => void>(() => {});
+  const holdEndOnViewResize = (node: HTMLElement) => holdEndRef.current(node);
   // The wheel over the stack's parts scrolls nothing (wheelPassThrough.ts installDockWheelHold).
   useEffect(() => (dock ? installDockWheelHold(dock) : undefined), [dock]);
   const queueSession = useRef(sessionId);
@@ -2780,6 +2792,7 @@ function TranscriptView({
     const observer = new ResizeObserver(() => {
       noteQueue();
       let stepped = false;
+      const viewWas = box.height;
       runThen(
         () =>
           flushSync(() =>
@@ -2791,6 +2804,7 @@ function TranscriptView({
         // Even if the pass threw: widthStep cleared the settle's timer, and only this places it again.
         () => servedWidth(stepped),
       );
+      if (stackOutsideRef.current && node.clientHeight !== viewWas) holdEndOnViewResize(node);
     });
     observer.observe(node);
     measure(false);
@@ -5241,6 +5255,18 @@ function TranscriptView({
   const anchorTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const latestLayout = useRef({ layout, rows });
   latestLayout.current = { layout, rows };
+  // The stack outside the scroller (`stackOutside`): the composer's growth resizes the viewport, in
+  // the frame's own rendering steps, after a forced layout may already have clamped the offset to a
+  // shorter field's end. While the chat follows, the end goes back on the last row here, before the
+  // frame paints: the bottom edge holds on every frame of the field's motion. Scrolled up, nothing
+  // writes: the offset is the reader's top row, and it holds.
+  holdEndRef.current = (node) => {
+    if (!followingRef.current || jumpTarget.current !== undefined || foldAnchor.current) return;
+    const sendTopAt = sendTop.end > 0 ? Math.max(0, sendTop.end - node.clientHeight) : Number.POSITIVE_INFINITY;
+    const latest = Math.min(Math.max(0, latestLayout.current.layout.totalHeight - node.clientHeight), sendTopAt);
+    const { top } = settleFollowBottomAt(node, latest);
+    scrolledTo.current = { top, atLatest: true };
+  };
   /// Lets the room above the loaded rows go when they are a tail shorter than the view and the view is
   /// within a viewport of their top with no page there yet (`roomGone` above). Runs after each
   /// placement and on every scroll event.

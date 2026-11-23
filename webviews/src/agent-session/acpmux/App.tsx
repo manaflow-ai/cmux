@@ -122,6 +122,7 @@ import type { InboxMessage } from "./conversation/inboxNotice";
 import { hatPlanOf } from "./chatTaskList";
 import { goalHatPlace } from "./goalHat.experiment";
 import { jumpLatestPlace } from "./jumpPlace.experiment";
+import { composerPlace } from "./composerPlace.experiment";
 import { jumpSide } from "./jumpPlace";
 import { githubFolder, githubFolderRepo } from "./githubRepos";
 import { StyleSwitch } from "./newtab/StyleSwitch";
@@ -2630,6 +2631,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // Where the jump stack stands over the composer (jumpPlace.experiment.ts; Leo, 2026-11-21: "didn't
   // we say we wanted to move these to the side or smth?"): beside the hat's handle, never on it.
   const [jumpPlaceArm] = useState(() => experimentArm(jumpLatestPlace));
+  // Whether the bottom stack lies over the transcript's foot (today) or sits outside the scroller
+  // (composerPlace.experiment.ts, clean-slate design): off by default.
+  const [composerPlaceArm] = useState(() => experimentArm(composerPlace));
   // Debug Settings agent.sessionStatus draws its activity line under the pinned list, so it pins it.
   const planInHat = subagentTray && !pinnedPlan && !sessionStatus && !quick && !childRows && snapshot.isWorking;
   const hatPlanRow = useMemo(() => (planInHat ? liveTurnPlan(turnRowsShown) : undefined), [planInHat, turnRowsShown]);
@@ -8613,6 +8617,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                                   focusComposer={() => composerHandle.current?.focus()}
                                                                   // Quick Chat's panel stacks its composer below the transcript.
                                                                   dock={quick ? undefined : dock}
+                                                                  stackOutside={!quick && composerPlaceArm === "outside"}
                                                                   queueWithdrawn={snapshot.queueWithdrawn}
                                                                   queueIds={quick ? undefined : queueIds}
                                                                   queuedTail={queuedRows}
@@ -10383,7 +10388,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           }
           // The transcript runs the pane's height under the bottom stack (bottomStack.css) while the
           // stage shows it; a new chat's hero, a handoff review, the diff and the inspector keep it in flow.
-          data-dock={!reviewing && !freshView && !inspectorOpen ? "float" : undefined}
+          // The composer-place experiment's `outside` arm keeps it in flow there too.
+          data-dock={!reviewing && !freshView && !inspectorOpen && composerPlaceArm === "over" ? "float" : undefined}
           data-summary={summaryCard.column ? "inline" : "popover"}
           data-cu-preview={previewBeside ? "" : undefined}
           // The jump stack's place and side (jumpPlace.css): the whole stack moves together.
