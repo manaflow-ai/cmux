@@ -16,7 +16,7 @@ Run `cmux customize discard` to restore your previous values, or `cmux customize
 Once the branch includes the pack, install it as a removable setup layer.
 
 ```sh
-cmux setup install github.com/manaflow-ai/cmux/examples/looks/rex/preferences@lane/rex-feature-looks
+cmux setup install github.com/manaflow-ai/cmux/examples/looks/rex/preferences@feat-cmux-next
 ```
 
 Remove that layer with `cmux setup remove manaflow-ai/rex-preferences`.

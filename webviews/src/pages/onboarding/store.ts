@@ -2,9 +2,13 @@
 // replaced by every `cmux.onboarding.changed`. Every gesture is one call; the host answers on the
 // stream within a frame, so nothing here is optimistic.
 import type { PageClient } from "../shared/pageClient";
+import type { AccountRunParams, AccountRunResult } from "../shared/signIn/accountSignIn";
 import { OPS, type OnboardingOps, type OnboardingState } from "./ops";
 
-type GestureOp = Exclude<keyof OnboardingOps, "cmux.onboarding.state" | "cmux.onboarding.focused">;
+type GestureOp = Exclude<
+  keyof OnboardingOps,
+  "cmux.onboarding.state" | "cmux.onboarding.focused" | "cmux.onboarding.accounts.run"
+>;
 
 export class OnboardingStore {
   private state: OnboardingState | null;
@@ -64,6 +68,21 @@ export class OnboardingStore {
   /** One gesture; its result comes back on the stream. */
   call<Op extends GestureOp>(op: Op, params: OnboardingOps[Op][0] = {} as OnboardingOps[Op][0]): void {
     void this.client?.call(op, params).catch(() => {});
+  }
+
+  /** One in-place sign-in gesture (`cmux.onboarding.accounts.run`): the shared sign-in controller
+   * (shared/signIn/useAccountSignIn.ts) reads the daemon's reply, so this one answers. A host
+   * without the op rejects, and the controller shows that as a failed sign-in. */
+  async runAccountSignIn(params: AccountRunParams): Promise<AccountRunResult> {
+    if (!this.client) return { ok: false, error: { code: "cmux.onboarding.no_host" } };
+    try {
+      return {
+        ok: true,
+        value: await this.client.call<OnboardingOps["cmux.onboarding.accounts.run"][1]>(OPS.accountsRun, params),
+      };
+    } catch (error) {
+      return { ok: false, error };
+    }
   }
 
   /** The gallery and tests set a state directly. */

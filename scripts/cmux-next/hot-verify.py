@@ -101,6 +101,8 @@ from pathlib import Path
 from xml.etree import ElementTree
 
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+from state_wait import StateWaitTimeout, wait_stable, wait_until  # noqa: E402
 ROOT = HERE.parents[1]
 BASE_BRANCH = "feat-cmux-next"
 NO_APP = "/nonexistent/hot-verify-no-app"
@@ -148,12 +150,12 @@ LAUNCH_SECONDS = 120
 WINDOW_SECONDS = 60
 STEP_SECONDS = 45
 APPLY_SECONDS = 900
-# The app repainting after a theme change or an overlay reload: a capture's own bounded delay, never a wait on
-# a condition (the release socket says nothing about paint).
-SETTLE_LAUNCH = 4.0
-SETTLE_THEME = 1.5
-SETTLE_WEB = 5.0
-SETTLE_DEV_SERVER = 10.0
+# The most a look waits for the copy's window to repaint (the release socket says nothing about paint, so the
+# window's own pixels are read: Repaint): after launch, a theme change, and an overlay reload.
+REPAINT_LAUNCH = 20.0
+REPAINT_THEME = 10.0
+REPAINT_WEB = 20.0
+REPAINT_DEV_SERVER = 30.0
 MAX_STEPS = 60
 ENGINES = ("webkit", "chromium")
 DEFAULT_ENGINE = "webkit"
@@ -1412,9 +1414,9 @@ def start_dev_server_behind(tree: Path, side: Side, env: dict) -> int | None:
 def apply_web(repo: Path, planned: dict, src_tree: Path | None, side: Side, scratch: Path,
               settle: bool = True) -> dict:
     """The head's web into the copy: published bundles as its overlay, else a dev server of the head. web-overlay.sh
-    server returns once the server answers the agent pane; SETTLE (a look, whose after shot follows) then also gives
-    the copy's pages their bounded reload. A run takes no shot, so it waits for nothing more (cmux app try .: about
-    10 of its 11.7-14.9 s edit_to_live were this wait, 2026-11-18)."""
+    server returns once the server answers the agent pane. A look (SETTLE, whose after shot follows) then waits for
+    the copy's window to repaint (Repaint, in look); a run takes no shot, so it waits for nothing more (cmux app
+    try .: about 10 of its 11.7-14.9 s edit_to_live were a fixed wait here, 2026-11-18)."""
     env = {**os.environ, **side.env()}
     head = planned["head"]
     # A run (no settle) of a checkout whose web, as it is on disk, CI already published (a pushed branch, an
@@ -1431,8 +1433,6 @@ def apply_web(repo: Path, planned: dict, src_tree: Path | None, side: Side, scra
         if done.returncode != 0:
             raise LookError(f"web-overlay.sh install: {why_failed(done.stderr, 300)}")
         applied = {"how": "published bundles", "key": key}
-        if settle:
-            time.sleep(SETTLE_WEB)
         if src_tree is not None:
             applied["dev_server_starter_pid"] = start_dev_server_behind(src_tree, side, env)
         return applied
@@ -1454,8 +1454,6 @@ def apply_web(repo: Path, planned: dict, src_tree: Path | None, side: Side, scra
                            str(port)], env=env, capture_output=True, text=True, timeout=APPLY_SECONDS)
     if done.returncode != 0:
         raise LookError(f"web-overlay.sh server --local: {why_failed(done.stderr or done.stdout, 300)}")
-    if settle:
-        time.sleep(SETTLE_DEV_SERVER)
     return {"how": "dev server", "port": port}
 
 
@@ -1576,7 +1574,56 @@ def set_theme(sock: str, mode: str) -> None:
     answer = rpc(sock, "settings.set", {"path": "appearance.theme", "value": THEMES[mode]}, timeout=30)
     if "error" in answer:
         raise LookError(f"settings.set appearance.theme: {answer['error']}")
-    time.sleep(SETTLE_THEME)
+
+
+def png_pixels(path: Path) -> str:
+    """A digest of a PNG's image data (its IDAT chunks, not its metadata), or of the whole file if it is no PNG."""
+    data = path.read_bytes()
+    if not data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return hashlib.sha256(data).hexdigest()
+    digest, at = hashlib.sha256(), 8
+    while at + 8 <= len(data):
+        size = int.from_bytes(data[at:at + 4], "big")
+        if data[at + 4:at + 8] == b"IDAT":
+            digest.update(data[at + 8:at + 8 + size])
+        at += 12 + size
+    return digest.hexdigest()
+
+
+class Repaint:
+    """Waits for the copy's window to finish repainting, by its own pixels: shots into a scratch file until they
+    stop changing (and, after a change the window must show, until they first differ from the last shot). Best
+    effort: past the bound the look goes on and logs it, as the fixed delays this replaces did. A shot that fails
+    ends the wait at once; the look's own shot then says why."""
+
+    def __init__(self, shoot: Shooter, pid: int, scratch: Path):
+        self.shoot, self.pid, self.path = shoot, pid, scratch / "repaint.png"
+        self.last = None
+
+    def pixels(self):
+        try:
+            self.shoot(self.pid, self.path)
+            return png_pixels(self.path)
+        except (RuntimeError, OSError, ValueError, subprocess.SubprocessError) as error:
+            return ("no shot", str(error)[:200])
+
+    def saw(self, path: Path) -> None:
+        """PATH is the look's latest shot of the window: a later wait(changed=True) waits to differ from it."""
+        with contextlib.suppress(OSError):
+            self.last = png_pixels(path)
+
+    def wait(self, what: str, seconds: float, changed: bool = False) -> None:
+        began = time.monotonic()
+        if changed and self.last is not None:
+            last = self.last
+            if not wait_until(lambda: self.pixels() != last, f"the window to change after {what}", seconds,
+                              interval=0.2, raise_on_timeout=False):
+                log(f"the window did not change within {seconds:g} s after {what}; shooting it as it is")
+        left = max(5.0, seconds - (time.monotonic() - began))
+        try:
+            self.last = wait_stable(self.pixels, f"the window after {what}", left, interval=0.2, reads=3)
+        except StateWaitTimeout as error:
+            log(f"{error}; shooting it as it is")
 
 
 def commit_time(repo: Path, sha: str) -> float | None:
@@ -1688,11 +1735,15 @@ def look(args, repo, planned, side, the_app, out, receipt, phases, began) -> int
             named = side.socket()
             sock = until("the copy's control socket", LAUNCH_SECONDS, lambda: control_socket(pid, named))
             until("the copy's window", WINDOW_SECONDS, lambda: window_id(pid) if kit is None else True)
-            time.sleep(SETTLE_LAUNCH)
+            repaint = Repaint(shoot, pid, scratch)
+            repaint.wait("launch", REPAINT_LAUNCH)
         with phases("before"):
-            for mode in ("light", "dark"):
+            for index, mode in enumerate(("light", "dark")):
                 set_theme(sock, mode)
+                # The first theme may be the one the copy has: only a later switch must show a change.
+                repaint.wait(f"the {mode} theme", REPAINT_THEME, changed=index > 0)
                 shoot(pid, out / "before" / f"{mode}.png")
+                repaint.saw(out / "before" / f"{mode}.png")
         if not args.no_video:
             with phases("video"):
                 video = Video(out, kit)
@@ -1709,11 +1760,17 @@ def look(args, repo, planned, side, the_app, out, receipt, phases, began) -> int
                 applied["rust"] = apply_rust(rules, planned, src_tree, side, scratch, given)
             if "web" in planned["layers"]:
                 applied["web"] = apply_web(rules, planned, src_tree, side, scratch)
+                # The copy's pages reload on the new overlay: wait for the window to change from the before shot
+                # and settle (a change the main window does not show waits out the bound).
+                dev = applied["web"].get("how") == "dev server"
+                repaint.wait("the web reload", REPAINT_DEV_SERVER if dev else REPAINT_WEB, changed=True)
         receipt["applied"] = applied
         with phases("after"):
             for index, mode in enumerate(("light", "dark")):
                 set_theme(sock, mode)
+                repaint.wait(f"the {mode} theme", REPAINT_THEME, changed=True)
                 shoot(pid, out / "after" / f"{mode}.png")
+                repaint.saw(out / "after" / f"{mode}.png")
                 if index == 0:
                     receipt["edit_to_visible_s"] = round(time.monotonic() - handed, 3)
                     pushed = commit_time(repo, planned["head"])
