@@ -221016,6 +221016,534 @@
         }
       }
     },
+    "settings.appearance.backgroundPlacement": {
+      "comment": "Settings > Appearance > Window Background: title of the hidden setting that keeps where each background picture lies (CLI and docs only)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Background Placement"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "背景の配置"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "موضع الخلفية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Položaj pozadine"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Baggrundens placering"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hintergrundplatzierung"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Posición del fondo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Position de l’arrière-plan"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Posizione dello sfondo"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទីតាំងផ្ទៃខាងក្រោយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "배경 배치"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bakgrunnsplassering"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Położenie tła"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Posição do fundo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Расположение фона"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตำแหน่งพื้นหลัง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arka Plan Yerleşimi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Розташування фону"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vị trí hình nền"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "背景位置"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "背景位置"
+          }
+        }
+      }
+    },
+    "settings.appearance.backgroundPlacement.help": {
+      "comment": "Settings > Appearance > Window Background: help of the hidden Background Placement setting; fill, fit, center and stretch are literal values",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Picture ID to fill, fit, center or stretch, with optional X Y anchor and zoom."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画像IDごとに fill、fit、center、stretch を指定し、任意で X Y アンカーとズームを付けます。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "معرّف الصورة إلى fill أو fit أو center أو stretch، مع مرساة X Y وتكبير اختياريين."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ID slike na fill, fit, center ili stretch, uz opcionalno X Y sidro i zum."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Billed-id til fill, fit, center eller stretch med valgfrit X Y-anker og zoom."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bild-ID zu fill, fit, center oder stretch, optional mit X-Y-Anker und Zoom."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ID de imagen a fill, fit, center o stretch, con ancla X Y y zoom opcionales."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ID d’image vers fill, fit, center ou stretch, avec ancre X Y et zoom facultatifs."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ID immagine su fill, fit, center o stretch, con ancoraggio X Y e zoom facoltativi."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "លេខសម្គាល់រូបភាពទៅ fill, fit, center ឬ stretch ជាមួយយុថ្កា X Y និងការពង្រីកស្រេចចិត្ត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "그림 ID별 fill, fit, center 또는 stretch와 선택적 X Y 기준점 및 확대/축소."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bilde-ID til fill, fit, center eller stretch, med valgfritt X Y-anker og zoom."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ID obrazu na fill, fit, center lub stretch, z opcjonalną kotwicą X Y i powiększeniem."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ID da imagem para fill, fit, center ou stretch, com âncora X Y e zoom opcionais."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ID изображения на fill, fit, center или stretch с необязательными якорем X Y и масштабом."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "รหัสภาพเป็น fill, fit, center หรือ stretch พร้อมจุดยึด X Y และการซูมที่ไม่บังคับ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resim kimliğinden fill, fit, center veya stretch'e; isteğe bağlı X Y çapası ve yakınlaştırma."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ID зображення на fill, fit, center або stretch з необов’язковими якорем X Y і масштабом."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ID ảnh thành fill, fit, center hoặc stretch, kèm neo X Y và thu phóng tùy chọn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "图片 ID 对应 fill、fit、center 或 stretch，可选 X Y 锚点和缩放。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "圖片 ID 對應 fill、fit、center 或 stretch，可選 X Y 錨點與縮放。"
+          }
+        }
+      }
+    },
+    "settings.appearance.backgroundRecents.help": {
+      "comment": "Settings > Appearance > Window Background: help for the hidden setting that keeps the backgrounds shown before",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الخلفيات المعروضة سابقًا، الأحدث أولًا، للعودة إليها بنقرة واحدة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ranije prikazane pozadine, najnovije prve, da se jednim klikom vratite."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "De baggrunde, der blev vist før, nyeste først, så ét klik går tilbage."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die zuvor gezeigten Hintergründe, neueste zuerst, damit ein Klick zurückführt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The backgrounds shown before, newest first, so one click goes back."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los fondos mostrados antes, el más reciente primero, para volver con un clic."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les fonds affichés auparavant, du plus récent au plus ancien, pour revenir en un clic."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gli sfondi mostrati prima, dal più recente, per tornare indietro con un clic."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以前に表示した背景(新しい順)。クリック1回で戻せます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ទៃខាងក្រោយដែលបានបង្ហាញពីមុន ថ្មីបំផុតមុនគេ ដើម្បីត្រឡប់ក្រោយដោយចុចតែម្តង។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이전에 표시된 배경을 최신순으로 보여 주어 한 번의 클릭으로 되돌아갈 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bakgrunnene som ble vist før, nyeste først, så ett klikk går tilbake."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wcześniej wyświetlane tła, od najnowszego, aby wrócić jednym kliknięciem."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os fundos mostrados antes, do mais recente, para voltar com um clique."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Фоны, показанные раньше, сначала новые, чтобы вернуться одним щелчком."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "พื้นหลังที่เคยแสดง เรียงจากล่าสุด เพื่อย้อนกลับได้ในคลิกเดียว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Daha önce gösterilen arka planlar, en yenisi önce; tek tıkla geri dönün."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Фони, показані раніше, спершу новіші, щоб повернутися одним клацанням."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Các hình nền đã hiển thị trước đó, mới nhất trước, để quay lại chỉ bằng một cú nhấp."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "之前显示过的背景,最新的在前,点一下即可返回。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "之前顯示過的背景,最新的在前,按一下即可返回。"
+          }
+        }
+      }
+    },
+    "settings.appearance.backgroundRecents": {
+      "comment": "Settings > Appearance > Window Background: title of the hidden setting that keeps the backgrounds shown before (CLI and docs only)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الخلفيات الأخيرة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nedavne pozadine"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seneste baggrunde"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zuletzt verwendete Hintergründe"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recent Backgrounds"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fondos recientes"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fonds récents"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sfondi recenti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最近の背景"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ទៃខាងក្រោយថ្មីៗ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "최근 배경"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nylige bakgrunner"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ostatnie tła"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fundos recentes"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Недавние фоны"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "พื้นหลังล่าสุด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Son arka planlar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нещодавні фони"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hình nền gần đây"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最近的背景"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最近的背景"
+          }
+        }
+      }
+    },
     "settings.default.fromTimeZone": {
       "comment": "Settings default label: the sun location comes from the time zone.",
       "extractionState": "manual",
@@ -243756,6 +244284,530 @@
         "vi": {"stringUnit": {"state": "translated", "value": "Khi tắt, ô soạn thảo, menu, cửa sổ bật lên và thẻ được vẽ thành bề mặt đặc với viền đơn giản."}},
         "zh-Hans": {"stringUnit": {"state": "translated", "value": "关闭后，输入框、菜单、弹出窗口和卡片显示为带简单边框的不透明表面。"}},
         "zh-Hant": {"stringUnit": {"state": "translated", "value": "關閉後，輸入框、選單、彈出視窗和卡片會顯示為帶簡單邊框的不透明表面。"}}
+      }
+    },
+    "settings.group.screenSharing": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مشاركة الشاشة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dijeljenje ekrana"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skærmdeling"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bildschirmfreigabe"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Screen Sharing"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compartir pantalla"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Partage d’écran"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Condivisione schermo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画面共有"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការចែករំលែកអេក្រង់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "화면 공유"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skjermdeling"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Udostępnianie ekranu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compartilhamento de Tela"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Общий экран"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การแชร์หน้าจอ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ekran Paylaşma"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Спільний екран"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chia sẻ màn hình"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "屏幕共享"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "螢幕共享"
+          }
+        }
+      }
+    },
+    "settings.macScreen.onlyPersonStartsViewing": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يبدأ عرض الشاشة إلا بنقرتك"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Samo vaš klik pokreće pregled ekrana"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kun dit klik starter visning af en skærm"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nur dein Klick startet die Bildschirmansicht"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only Your Click Starts Viewing a Screen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo tu clic inicia la visualización de una pantalla"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seul votre clic lance l’affichage d’un écran"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo il tuo clic avvia la visualizzazione di uno schermo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画面の表示はクリックでのみ開始"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មានតែការចុចរបស់អ្នកទេដែលចាប់ផ្ដើមមើលអេក្រង់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "내가 클릭할 때만 화면 보기 시작"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bare ditt klikk starter visning av en skjerm"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tylko Twoje kliknięcie rozpoczyna podgląd ekranu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Só Seu Clique Inicia a Visualização de uma Tela"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Просмотр экрана только по вашему щелчку"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เริ่มดูหน้าจอได้เมื่อคุณคลิกเท่านั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ekran Görüntülemeyi Yalnızca Tıklamanız Başlatır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перегляд екрана лише після вашого клацання"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chỉ cú nhấp của bạn mới bắt đầu xem màn hình"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仅在你点按时开始查看屏幕"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "僅在你點按時開始檢視螢幕"
+          }
+        }
+      }
+    },
+    "settings.macScreen.onlyPersonStartsViewing.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عند التشغيل، تنتظر علامة تبويب مشاركة الشاشة التي يفتحها وكيل أو cmux CLI حتى تختار عرض فقط أو تحكم كامل. عند الإيقاف، تبدأ عرض أجهزتك فورًا وتوضح من بدأها. الجهاز الذي يملكه شخص آخر يطلب الإذن أولًا دائمًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kad je uključeno, kartica Dijeljenje ekrana koju otvori agent ili cmux CLI čeka dok ne odaberete Samo pregled ili Puna kontrola. Kad je isključeno, odmah počinje prikazivati vaše uređaje i navodi ko ju je pokrenuo. Uređaj čiji je vlasnik neko drugi uvijek prvo pita."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Til: En Skærmdeling-fane, som en agent eller cmux CLI åbner, venter, til du vælger Kun visning eller Fuld kontrol. Fra: Den begynder straks at vise dine egne enheder og viser, hvem der startede den. En enhed, som en anden ejer, spørger altid først."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein: Ein Bildschirmfreigabe-Tab, den ein Agent oder die cmux CLI öffnet, wartet, bis du „Nur ansehen“ oder „Volle Kontrolle“ wählst. Aus: Er zeigt deine eigenen Geräte sofort an und nennt, wer ihn gestartet hat. Ein Gerät, das jemand anderem gehört, fragt immer zuerst."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On, a Screen Sharing tab an agent or the cmux CLI opens waits until you choose View Only or Full Control. Off, it starts viewing your own devices at once and says who started it. A device someone else owns always asks first."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activado, una pestaña de Compartir pantalla que abre un agente o la CLI de cmux espera hasta que elijas Solo ver o Control total. Desactivado, empieza a mostrar tus propios dispositivos al instante e indica quién la inició. Un dispositivo de otra persona siempre pregunta primero."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activé, un onglet Partage d’écran ouvert par un agent ou la CLI cmux attend que vous choisissiez Affichage seul ou Contrôle total. Désactivé, il affiche aussitôt vos propres appareils et indique qui l’a lancé. Un appareil qui appartient à quelqu’un d’autre demande toujours d’abord."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attivo: una scheda Condivisione schermo aperta da un agente o dalla CLI di cmux attende finché non scegli Solo visualizzazione o Controllo completo. Disattivo: inizia subito a mostrare i tuoi dispositivi e indica chi l’ha avviata. Un dispositivo di proprietà di altri chiede sempre prima."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オンにすると、エージェントや cmux CLI が開いた画面共有タブは、「表示のみ」か「フルコントロール」を選ぶまで待機します。オフにすると、自分のデバイスはすぐに表示が始まり、誰が開始したかが表示されます。他の人が所有するデバイスは常に先に確認を求めます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពេលបើក ផ្ទាំងការចែករំលែកអេក្រង់ដែលភ្នាក់ងារ ឬ cmux CLI បើក នឹងរង់ចាំរហូតដល់អ្នកជ្រើស មើលតែប៉ុណ្ណោះ ឬ ការគ្រប់គ្រងពេញលេញ។ ពេលបិទ វាចាប់ផ្ដើមមើលឧបករណ៍ផ្ទាល់ខ្លួនរបស់អ្នកភ្លាមៗ ហើយបង្ហាញថាអ្នកណាជាអ្នកចាប់ផ្ដើម។ ឧបករណ៍ដែលអ្នកផ្សេងជាម្ចាស់ តែងតែសួរមុនជានិច្ច។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "켜면 에이전트나 cmux CLI가 연 화면 공유 탭은 보기 전용 또는 전체 제어를 선택할 때까지 기다립니다. 끄면 내 기기는 바로 보기가 시작되고 누가 시작했는지 표시됩니다. 다른 사람이 소유한 기기는 항상 먼저 묻습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "På: En Skjermdeling-fane som en agent eller cmux CLI åpner, venter til du velger Kun visning eller Full kontroll. Av: Den begynner straks å vise dine egne enheter og viser hvem som startet den. En enhet som noen andre eier, spør alltid først."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Włączone: karta Udostępnianie ekranu otwarta przez agenta lub cmux CLI czeka, aż wybierzesz Tylko podgląd lub Pełna kontrola. Wyłączone: od razu zaczyna pokazywać Twoje urządzenia i informuje, kto ją uruchomił. Urządzenie należące do kogoś innego zawsze najpierw pyta."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ativado, uma aba de Compartilhamento de Tela aberta por um agente ou pela CLI do cmux espera até você escolher Somente Visualização ou Controle Total. Desativado, ela começa a mostrar seus próprios dispositivos na hora e diz quem a iniciou. Um dispositivo de outra pessoa sempre pergunta antes."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Если включено, вкладка «Общий экран», открытая агентом или cmux CLI, ждёт, пока вы не выберете «Только просмотр» или «Полный контроль». Если выключено, она сразу начинает показывать ваши устройства и сообщает, кто её запустил. Устройство другого владельца всегда сначала спрашивает."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เมื่อเปิด แท็บการแชร์หน้าจอที่เอเจนต์หรือ cmux CLI เปิดจะรอจนกว่าคุณจะเลือก ดูเท่านั้น หรือ ควบคุมทั้งหมด เมื่อปิด แท็บจะเริ่มแสดงอุปกรณ์ของคุณเองทันทีและบอกว่าใครเป็นผู้เริ่ม อุปกรณ์ที่ผู้อื่นเป็นเจ้าของจะถามก่อนเสมอ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Açıkken, bir ajanın veya cmux CLI’ın açtığı Ekran Paylaşma sekmesi siz Yalnızca Görüntüleme veya Tam Denetim’i seçene kadar bekler. Kapalıyken kendi aygıtlarınızı hemen göstermeye başlar ve kimin başlattığını belirtir. Başka birine ait bir aygıt her zaman önce sorar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Якщо ввімкнено, вкладка «Спільний екран», яку відкрив агент або cmux CLI, чекає, доки ви не виберете «Лише перегляд» або «Повний контроль». Якщо вимкнено, вона одразу починає показувати ваші пристрої й повідомляє, хто її запустив. Пристрій іншого власника завжди спершу питає."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Khi bật, tab Chia sẻ màn hình do tác tử hoặc cmux CLI mở sẽ chờ đến khi bạn chọn Chỉ xem hoặc Toàn quyền điều khiển. Khi tắt, tab bắt đầu hiển thị thiết bị của chính bạn ngay và cho biết ai đã bắt đầu. Thiết bị của người khác luôn hỏi trước."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开后，智能体或 cmux CLI 打开的屏幕共享标签页会等你选择“仅查看”或“完全控制”。关闭后，它会立即开始查看你自己的设备，并显示是谁发起的。他人拥有的设备始终会先询问。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開啟後，代理或 cmux CLI 開啟的螢幕共享分頁會等你選擇「僅檢視」或「完全控制」。關閉後，它會立即開始檢視你自己的裝置，並顯示是誰發起的。他人擁有的裝置一律會先詢問。"
+          }
+        }
+      }
+    },
+    "settings.macScreen.onlyPersonStartsViewing.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يمكن للوكلاء بدء عرض شاشاتك"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenti ne mogu pokrenuti pregled vaših ekrana"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenter kan ikke starte visning af dine skærme"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenten können deine Bildschirme nicht von selbst anzeigen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agents can't start viewing your screens"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los agentes no pueden empezar a ver tus pantallas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les agents ne peuvent pas lancer l’affichage de vos écrans"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gli agenti non possono aprire i tuoi schermi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントは画面の表示を開始できない"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ភ្នាក់ងារមិនអាចចាប់ផ្ដើមមើលអេក្រង់របស់អ្នកបានទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트가 화면 보기를 시작할 수 없음"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenter kan ikke starte visning av skjermene dine"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenci nie mogą rozpocząć podglądu Twoich ekranów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentes não podem começar a ver suas telas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Агенты не могут начать просмотр ваших экранов"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เอเจนต์เริ่มดูหน้าจอของคุณไม่ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajanlar ekranlarınızı görüntülemeyi başlatamaz"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Агенти не можуть почати перегляд ваших екранів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tác tử không thể bắt đầu xem màn hình của bạn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "智能体无法开始查看你的屏幕"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理無法開始檢視你的螢幕"
+          }
+        }
       }
     }
   },
