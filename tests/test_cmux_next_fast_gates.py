@@ -333,6 +333,10 @@ class WorkflowShape(unittest.TestCase):
         gates = job(doc)
         self.assertNotIn("continue-on-error", gates)
         for step in gates["steps"]:
+            # The R2 cache reads (#51750) are best-effort: a miss or an error falls through to the GitHub store's
+            # restore step, so they are the one kind of step allowed to keep going; no gate is.
+            if step.get("uses") == "./.github/actions/cache-restore" and step.get("with", {}).get("backend") == "r2":
+                continue
             self.assertNotIn("continue-on-error", step, step.get("name"))
         run = step_named(gates["steps"], "Fast gates")
         self.assertIn("scripts/ci/cmux_next_fast_gates.py run", run["run"])
@@ -543,9 +547,13 @@ class WorkflowShape(unittest.TestCase):
         # job saves the key on each feat-cmux-next push. So no step here saves a cache at all.
         for step in steps:
             self.assertFalse(step.get("uses", "").startswith("actions/cache@"), step.get("name"))
+        # #51750 reads R2 first (./.github/actions/cache-restore, backend r2), then the GitHub store's restore step.
         for name in ("Restore the Bun package cache", "Restore the pinned lint tools"):
-            restore = step_named(steps, name)
+            restore = step_named([s for s in steps if not s["name"].endswith(" from R2")], name)
             self.assertTrue(restore["uses"].startswith("actions/cache/restore@"), name)
+            r2 = step_named(steps, f"{name} from R2")
+            self.assertEqual(r2["uses"], "./.github/actions/cache-restore", name)
+            self.assertEqual(r2["with"]["backend"], "r2", name)
 
     def test_the_webviews_checks_are_ci_webs_fail_mode_checks(self):
         # The gate reruns what a pull request's ci-web fails on, so a check that landed after the PR's CI
