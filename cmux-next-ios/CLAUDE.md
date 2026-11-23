@@ -152,10 +152,12 @@ receipt). Their Linux tests: `python3 ios/tests/test_cnx_review.py`.
 
 ## Terminal on iPhone
 
-- **Projection** ([#42219](https://github.com/manaflow-ai/cmux/pull/42219), open): the
+- **Projection** ([#49901](https://github.com/manaflow-ai/cmux/pull/49901), the default): the
   phone re-wraps the Mac's terminal text at its own width, and the Mac pane keeps its grid. The phone
   claims a size only for the exception, a full-screen app on the alternate screen, and releases it
-  when the app exits. Settings → Terminal → Fit to Phone (off by default) keeps the old resize. The logic
+  when the app exits. Settings → Terminal → Fit to Phone (off by default) keeps the old resize, and the
+  terminal page's menu toggles it per program. It is the default because its cell-by-cell parity
+  harness is green in CI ("cargo test (terminal projection parity)", `cmux-next-terminal.yml`). The logic
   is Rust (the `cmux-terminal-projection` crate); Swift is glue. Size claims:
   [PROTOCOL.md](PROTOCOL.md), "Terminal size claims".
 - **Lean agent-CLI view** ([#44052](https://github.com/manaflow-ai/cmux/pull/44052), off by default,

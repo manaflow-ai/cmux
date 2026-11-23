@@ -140,6 +140,81 @@ struct AgentPaneChromiumVisibilityTests {
         #expect(chromium.visibility.last == true)
     }
 
+    /// A chat that drew, moved to another pane at another size: the pane's paint hold keeps the tab before it until the
+    /// chat drew at the new size. In place its Chromium page was hidden for the hold and drew no frame, so the pane
+    /// showed the other tab for the hold's whole limit of 500 ms (60 frames at 120 Hz in the split-move bench; Leo
+    /// 2026-11-22: "panes moving back and forth between splits ... slow ... jitters"). It draws outside the window for
+    /// the hold and is back in place in the turn that ends it.
+    private func movedChat() async throws -> (view: AgentPaneView, chromium: FakeChromiumPage, window: NSWindow, host: NSView, outgoing: NSView) {
+        let (view, chromium, window) = try await pane()
+        view.loadingView.leave(over: view.pageContent, fades: false)
+        view.model.markPainted()
+        try #require(view.pageDrawsOverCovers, "setup: the page shows in Chromium")
+        let size = NSRect(x: 0, y: 0, width: 800, height: 600)
+        let host = NSView(frame: size), outgoing = NSView(frame: size)
+        window.setContentSize(size.size)
+        window.contentView = host
+        host.addSubview(outgoing)
+        view.frame = size
+        host.addSubview(view)
+        view.layoutSubtreeIfNeeded()
+        return (view, chromium, window, host, outgoing)
+    }
+
+    @Test func aPaintedPageUnderItsPanesPaintHoldDrawsOutOfSight() async throws {
+        let (view, chromium, window, host, outgoing) = try await movedChat()
+        defer { view.page?.close(); window.close() }
+        let place = view.pageContent.frame
+        let hold = PanePaintHold(owner: "test.pane.moved-chat")
+        hold.begin(outgoing: outgoing, incoming: view, in: host, release: { $0.removeFromSuperview() })
+        #expect(view.alphaValue == 0)
+        #expect(view.pageContent.frame == AgentPaneView.awayFrame(of: place), "the page stayed in place under the hold")
+        #expect(chromium.visibility.last == true, "a painted page under its pane's paint hold was hidden: it draws no frame and the hold lasts its limit")
+        // A layout during the hold (its pane takes its size) keeps it out of sight, and drawing.
+        view.setFrameSize(NSSize(width: 800, height: 400))
+        view.layoutSubtreeIfNeeded()
+        #expect(view.pageContent.frame.minX < -50_000 && view.pageContent.frame.height < place.height)
+        #expect(chromium.visibility.last == true)
+        hold.end()
+        #expect(view.alphaValue == 1)
+        #expect(view.pageContent.frame == view.topBar.pageFrame(in: view.bounds), "the page is not back in place when the hold ends")
+        #expect(chromium.visibility.last == true)
+        #expect(outgoing.superview == nil)
+        // The next layout leaves it in place.
+        view.needsLayout = true
+        view.layoutSubtreeIfNeeded()
+        #expect(view.pageContent.frame == view.topBar.pageFrame(in: view.bounds))
+    }
+
+    @Test func aHandedOffHoldPutsThePageBackInPlace() async throws {
+        let (view, _, window, host, outgoing) = try await movedChat()
+        defer { view.page?.close(); window.close() }
+        let place = view.pageContent.frame
+        let hold = PanePaintHold(owner: "test.pane.moved-chat-handoff")
+        hold.begin(outgoing: outgoing, incoming: view, in: host, release: { $0.removeFromSuperview() })
+        try #require(view.pageContent.frame != place)
+        hold.handOff { $0.removeFromSuperview() }
+        #expect(view.pageContent.frame == place, "a page that left with a handed-off hold stayed outside the window")
+        #expect(view.alphaValue == 1)
+    }
+
+    /// A page that never painted is not this: its loading state or its picture covers it, and it keeps its own hold.
+    @Test func aPageThatNeverPaintedStaysInPlaceUnderItsPanesPaintHold() async throws {
+        let (view, chromium, window) = try await pane()
+        defer { view.page?.close(); window.close() }
+        view.loadingView.leave(over: view.pageContent, fades: false)
+        let host = NSView(), outgoing = NSView()
+        window.contentView = host
+        host.addSubview(outgoing)
+        host.addSubview(view)
+        let place = view.pageContent.frame
+        let hold = PanePaintHold(owner: "test.pane.unpainted-chat")
+        hold.begin(outgoing: outgoing, incoming: view, in: host, release: { $0.removeFromSuperview() })
+        #expect(view.pageContent.frame == place)
+        #expect(chromium.visibility.last == false)
+        hold.end()
+    }
+
     /// A prewarmed spare parked off screen must paint before it is adopted. Hidden by its parking's alpha, a
     /// Chromium spare never painted, and every Cmd-T waited for the pane hold's 500 ms limit (Leo 2026-10-30:
     /// "MAN WE FUCKINGKNOW WHAT THE NEW TAB PAGE LOOKS LIKE HOW CAN IT BE FUCKING SDLOW").
