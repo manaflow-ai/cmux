@@ -10,7 +10,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { popupItems } from "../../ui/popupHost";
-import { setHintsRevealed } from "./composerOutcomeHintsModel";
+import { setHintsRevealed, useOutcomeHints } from "./composerOutcomeHintsModel";
 import { SlashMenu } from "./SlashMenu";
 import type { SlashMatch } from "./slashCommands";
 import { settleReact } from "../../../test/support/domTeardown";
@@ -73,6 +73,49 @@ const MATCHES: SlashMatch[] = [
   },
   { command: { name: "review", description: "Review a pull request", source: "skill" }, ranges: [] },
 ];
+
+test("a menu opened while Option is held inherits the composer's hints", async () => {
+  const host = installDom();
+  globalThis.cmuxExperiments = { "composer-outcome-hints": "option" };
+  root = createRoot(host);
+  function ComposerWithMenu({ open }: { open: boolean }) {
+    const hints = useOutcomeHints();
+    return (
+      <>
+        <output data-composer-hints={hints.rows} />
+        {open && (
+          <SlashMenu
+            query="model"
+            matches={[MATCHES[1]]}
+            active={0}
+            empty="No commands"
+            onHover={() => undefined}
+            onPick={() => undefined}
+          />
+        )}
+      </>
+    );
+  }
+  const show = (open: boolean) => act(async () => root!.render(<ComposerWithMenu open={open} />));
+  const key = (down: boolean) =>
+    act(async () => {
+      window.dispatchEvent(new window.KeyboardEvent(down ? "keydown" : "keyup", { key: "Alt", altKey: down }));
+    });
+  const hint = () => host.querySelector(".acpmux-slash-actions")?.textContent;
+  await show(false);
+  await key(true);
+  expect(host.querySelector("output")?.getAttribute("data-composer-hints")).toBe("true");
+  await show(true);
+  expect(hint()).toBe("↩Run⇥Complete");
+  await key(false);
+  expect(hint()).toBeUndefined();
+  await key(true);
+  await show(false);
+  await show(true);
+  expect(hint()).toBe("↩Run⇥Complete");
+  await act(async () => window.dispatchEvent(new window.Event("blur")));
+  expect(hint()).toBeUndefined();
+});
 
 // Every row reads its description; the highlighted row also reads its arguments.
 // Optional keyboard hints never change the native panel labels.
