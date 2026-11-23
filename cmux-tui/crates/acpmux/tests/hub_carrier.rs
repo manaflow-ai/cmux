@@ -507,8 +507,8 @@ async fn hub_carrier_a_dial_to_a_machine_whose_carrier_is_off_says_so_fast() {
     assert!(started.elapsed() < Duration::from_secs(5), "the dial waited {:?}", started.elapsed());
     assert!(said.contains("hub carrier is off"), "{said}");
     assert!(said.contains("carrier.not_serving"), "{said}");
-    // The hub's own 404 (`machine.not_found`: FixedTickets knows no such machine) ends the same
-    // way, at once: it is no relay wait at all.
+    // The hub's own 404 (`machine.not_found`: FixedTickets knows no such machine) ends at once
+    // too, on its own terminal reason: it is no relay wait at all.
     let started = std::time::Instant::now();
     let said = match dialer
         .dial_service(&public(&random_key()), CircuitService::CmuxTui { port: 7781 })
@@ -518,7 +518,7 @@ async fn hub_carrier_a_dial_to_a_machine_whose_carrier_is_off_says_so_fast() {
         Err(said) => said,
     };
     assert!(started.elapsed() < Duration::from_secs(2), "the dial waited {:?}", started.elapsed());
-    assert!(said.contains("carrier.not_serving"), "{said}");
+    assert!(said.ends_with("(machine.not_joined)"), "{said}");
     // The hub scopes the ticket to the caller's team: the words name it, not the far carrier.
     assert!(said.contains("another of your teams"), "{said}");
 }
