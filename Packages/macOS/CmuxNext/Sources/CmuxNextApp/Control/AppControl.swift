@@ -373,6 +373,10 @@ final class AppControl {
             .mainActor("debug.app_activation") { call in
                 .value(DebugAppActivation.send(call.params))
             },
+            // The main window off the screen and back without activating, its page layers sampled (DebugPageReveal).
+            .mainActor("debug.page_reveal") { call in
+                .value(DebugPageReveal.run(call.params))
+            },
             .mainActor("debug.palette.capture") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugPaletteCapture.capture(call.params, services: services))
