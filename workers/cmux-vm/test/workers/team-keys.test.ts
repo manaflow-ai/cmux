@@ -212,17 +212,22 @@ describe("a team key's running and spend caps", () => {
   });
 
   it("refuses a create and a resume past maxUsdPerDay naming the cap and the estimated spend today", async () => {
-    const { t, secrets } = await harness({ maxVms: 5, maxUsdPerDay: 0.000001 });
+    // 0.001 USD is ~14 s of a 4 vCPU / 8 GiB VM (0.26 USD/h): the milliseconds between these creates stay under it on a
+    // slow runner, and the minute `backdate` adds goes past it. (0.000001 USD was ~14 ms, so a slow runner refused the
+    // second create and its id came back undefined.)
+    const { t, secrets } = await harness({ maxVms: 5, maxUsdPerDay: 0.001 });
     const key = bearer(secrets[0]!);
     // One VM runs for a minute; a second is paused (its span ends at its pause, so it costs nothing more).
     expect((await create(t, secrets[0]!)).status).toBe(201);
-    const { id } = await (await create(t, secrets[0]!)).json<{ id: string }>();
+    const second = await create(t, secrets[0]!);
+    expect(second.status).toBe(201);
+    const { id } = await second.json<{ id: string }>();
     await t.request(`/v1/vms/${id}/start`, key, { method: "POST" });
     expect((await t.request(`/v1/vms/${id}/pause`, key, { method: "POST" })).status).toBe(200);
     backdate(t, 60_000);
     const over = await refusal(await create(t, secrets[0]!));
     expect(over.budget).toBe("agent_usd_per_day");
-    expect(over.message).toMatch(/team key tk-lanes has spent an estimated \d+\.\d\d USD today \(UTC\), at its maxUsdPerDay cap of 0\.000001 USD/);
+    expect(over.message).toMatch(/team key tk-lanes has spent an estimated \d+\.\d\d USD today \(UTC\), at its maxUsdPerDay cap of 0\.001 USD/);
     expect((await refusal(await t.request(`/v1/vms/${id}/resume`, key, { method: "POST" }))).budget).toBe("agent_usd_per_day");
   });
 
