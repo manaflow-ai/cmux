@@ -241,8 +241,8 @@ try {
   // A prompt whose attachments the composer placed records each one `placed` (inlinePrompt.ts,
   // acpmux hub/prompt_images.rs). Its sent bubble preserves every recorded part in order, including
   // attachments and text runs. An unplaced prompt with no text after its media keeps the legacy band.
-  const inlineShape = () => [
-    ...[...host.querySelectorAll<HTMLElement>("[data-inline-content] > *")].map((node) =>
+  const inlineShape = () =>
+    [...host.querySelectorAll<HTMLElement>("[data-inline-content] > *")].map((node) =>
       node.querySelector("img")
         ? `image:${node.querySelector("img")!.getAttribute("alt")}`
         : node.querySelector(".cv-user__image-placeholder")
@@ -254,8 +254,7 @@ try {
               : node.classList.contains("cv-user__pasted")
                 ? "apart"
                 : node.textContent,
-    ),
-  ];
+    );
   test("inline: a placed trailing image stays after its text", async () => {
     clearImageEntries();
     resetTranscriptDisclosure();
