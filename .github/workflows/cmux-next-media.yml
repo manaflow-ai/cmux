@@ -108,13 +108,13 @@ concurrency:
 
 env:
   # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
-  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/0d5b239cfa47036c6f7d49b4933d124f87138eff/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
 
 jobs:
   route:
     name: Pick the tour runner
     if: ${{ github.repository_owner == 'manaflow-ai' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch' && inputs.base_sha != '' || github.event.pull_request.head.repo.full_name == github.repository && github.event.action == 'labeled' && (github.event.label.name == 'media-tour' || github.event.label.name == 'no-media-tour')) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -557,17 +557,53 @@ jobs:
           # --rev: plain key prints CMUX_TUI_TREE_KEY when the job has one.
           base_key="$(cd "$base" && "./$pin" key --rev HEAD)"
           head_key="$("./$pin" key --rev HEAD)"
+          # The newest published tree in DIR's history whose daemon-capabilities.json
+          # matches DIR's; prints "key from" or nothing. Never waits, writes no summary,
+          # starts no publisher. The window is by age (24 h), not 50 commits: about 40
+          # commits land an hour, so a 2 h gap in publication emptied a 50-commit window.
+          newest() {
+            local out
+            out="$(cd "$1" && GITHUB_STEP_SUMMARY='' CMUX_TUI_TREE_DISPATCH='' \
+              CMUX_TUI_TREE_SAME_PATHS=plans/cmux-next/daemon-capabilities.json \
+              CMUX_TUI_TREE_SEARCH_COMMITS="${CMUX_TUI_TREE_SEARCH_COMMITS:-400}" \
+              "./$pin" resolve-newest-published)" || return 0
+            local k f
+            k="$(sed -n 's/^key=//p' <<<"$out")"; f="$(sed -n 's/^source_commit=//p' <<<"$out")"
+            [[ "$k" =~ ^[0-9a-f]{40}$ ]] && echo "$k $f"
+          }
           if [ "$head_key" != "$base_key" ]; then
-            echo "the head changes cmux-tui ($head_key, base $base_key): both apps use their own trees"
+            # The head changes cmux-tui. A pull request's head keeps its own tree (that daemon is
+            # what it changes). The base's own tree may never publish: a newer push supersedes its
+            # artifacts run, or it sits off feat-cmux-next's first-parent line (nightly-next
+            # 45103578485: base eeee23affafe, tree 569fcf9b4b83, waited 45 min and failed the tour,
+            # every nightly tour from 2026-11-22 23:52Z to 2026-11-23 04:10Z). So the base takes
+            # a published stand-in, and a nightly tip (push) whose own tree is unpublished does too:
+            # the nightly itself bundles the newest published tree (pin-cmux-tui.sh resolve-newest-published).
+            read -r bkey bfrom <<<"$(newest "$base")" || true
+            note=""
+            if [ -n "${bkey:-}" ] && [ "$bkey" != "$base_key" ]; then
+              echo "BASE_TUI_TREE_KEY=$bkey" >> "$GITHUB_ENV"
+              note="The before app runs cmux-tui from ${bfrom:0:12} (tree ${bkey:0:12}): the merge base's own tree ${base_key:0:12} was not published."
+            elif [ -z "${bkey:-}" ]; then
+              echo "no published cmux-tui tree near the base; the base build waits for $base_key"
+            fi
+            if [ "${GITHUB_EVENT_NAME:-}" = push ]; then
+              read -r hkey hfrom <<<"$(newest "$GITHUB_WORKSPACE")" || true
+              if [ -n "${hkey:-}" ] && [ "$hkey" != "$head_key" ]; then
+                echo "HEAD_TUI_TREE_KEY=$hkey" >> "$GITHUB_ENV"
+                note="${note:+$note }The after app runs cmux-tui from ${hfrom:0:12} (tree ${hkey:0:12}): the tip's own tree ${head_key:0:12} was not published."
+              fi
+            fi
+            if [ -z "$note" ]; then
+              echo "the head changes cmux-tui ($head_key, base $base_key): both apps use their own trees"
+              exit 0
+            fi
+            echo "$note"
+            echo "note=$note" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          resolved="$(cd "$base" && GITHUB_STEP_SUMMARY='' CMUX_TUI_TREE_DISPATCH='' \
-            CMUX_TUI_TREE_SAME_PATHS=plans/cmux-next/daemon-capabilities.json \
-            "./$pin" resolve-newest-published)" || {
-            echo "no published cmux-tui tree near the base; the builds wait for $base_key"; exit 0; }
-          key="$(sed -n 's/^key=//p' <<<"$resolved")"
-          from="$(sed -n 's/^source_commit=//p' <<<"$resolved")"
-          [[ "$key" =~ ^[0-9a-f]{40}$ ]] || { echo "unexpected resolve output: $resolved"; exit 0; }
+          read -r key from <<<"$(newest "$base")" || true
+          [ -n "${key:-}" ] || { echo "no published cmux-tui tree near the base; the builds wait for $base_key"; exit 0; }
           if [ "$key" = "$base_key" ]; then
             echo "the base's own cmux-tui tree $base_key is published"
             exit 0
@@ -784,7 +820,7 @@ jobs:
     name: Publish the What's New clips
     needs: tour
     if: ${{ !cancelled() && github.event_name != 'pull_request' && needs.tour.outputs.clips != '' && needs.tour.outputs.clips != '0' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 20
     environment: pr-media
     permissions:
@@ -842,7 +878,7 @@ jobs:
     name: Hand the tour to the publisher
     needs: [route, tour]
     if: ${{ github.event_name == 'pull_request' && !cancelled() && needs.route.result == 'success' && needs.route.outputs.wanted == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 5
     # actions: write starts the publisher; nothing here can write pr-media.
     permissions:
@@ -885,7 +921,7 @@ jobs:
     # nightly tour spans many pull requests and a batch dispatch has none, so
     # neither posts: the tour's artifact is the result.
     if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && inputs.publish_run != '' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     # OCR of every still and of one frame per second of each video comes first.
     timeout-minutes: 30
     # The private-terms secret lives only in this environment, which admits only

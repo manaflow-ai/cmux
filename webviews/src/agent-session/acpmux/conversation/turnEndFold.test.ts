@@ -36,7 +36,11 @@ test("an update ends the turn only when it takes the line away", () => {
 });
 
 test("switching the running status line does not end its turn", () => {
-  const running = [row("u", "user"), row("working-u", "working"), row(LIVE_THINKING, "thinking")];
+  const running = [
+    row("u", "user"),
+    { ...row("worked-u", "worked"), turnPhase: "running" as const },
+    row(LIVE_THINKING, "thinking"),
+  ];
   const status = [row("u", "user"), row("activityLine-u", "activityLine")];
   expect(hasLiveLine(status)).toBe(true);
   expect(endsTurn(running, status)).toBe(false);
@@ -133,7 +137,8 @@ test("folded work stays between the header and final answer while they move", as
     thread.append(node);
     return node;
   };
-  draw("working-u", "working", 0, 34);
+  // The turn's header, running: one row with the ended one, its chevron's slot held unseen.
+  draw("worked-u", "worked", 0, 34).innerHTML = '<svg class="cv-worked__chevron is-reserved"></svg>';
   draw("work", "activity", 34, 60);
   draw("answer", "assistant", 94, 50);
   draw(LIVE_THINKING, "thinking", 144, 22);
@@ -353,7 +358,7 @@ test("a turn that ends on a tool call keeps its work's copy in sight while the f
   // show a blank view.
   const { captureTurnEnd, playTurnEnd, settleTurnEnd } = await import("./turnEndFold");
   const { dom, thread, frames, draw } = await foldDom();
-  draw("working-u", "working", 0, 34);
+  draw("worked-u", "worked", 0, 34);
   draw("work", "activity", 34, 60);
   draw(LIVE_THINKING, "thinking", 94, 22);
   const capture = captureTurnEnd(
@@ -379,7 +384,7 @@ test("a turn that ends on a tool call keeps its work's copy in sight while the f
   }
   // The next turn's own rows coming in there do take that place: the copies under them go.
   const next = await foldDom();
-  next.draw("working-u", "working", 0, 34);
+  next.draw("worked-u", "worked", 0, 34);
   next.draw("work", "activity", 34, 60);
   next.draw(LIVE_THINKING, "thinking", 94, 22);
   const before = captureTurnEnd(next.thread, next.thread, [row("worked-u", "worked"), row("u2", "user")], "chat")!;
@@ -402,7 +407,7 @@ test("a reply the swap grew opens to its full height on the fold's clock", async
   // opens with the fold, one motion.
   const { captureTurnEnd, playTurnEnd, settleTurnEnd } = await import("./turnEndFold");
   const { dom, thread, frames, draw } = await foldDom();
-  draw("working-u", "working", 0, 34);
+  draw("worked-u", "worked", 0, 34);
   draw("work", "activity", 34, 60);
   draw("answer", "assistant", 94, 46);
   draw(LIVE_THINKING, "thinking", 140, 22);

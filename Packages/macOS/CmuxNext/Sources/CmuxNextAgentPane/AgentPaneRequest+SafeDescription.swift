@@ -43,6 +43,7 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .jump: "jump"
         case .editShortcut: "editShortcut"
         case .runAction: "runAction"
+        case .editorsList: "editorsList"
         case .browseProject: "browseProject"
         case .sandboxRun: "sandboxRun"
         case .cloudStartChat: "cloudStartChat"
@@ -120,6 +121,7 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .checkpointAvailability: "checkpointAvailability"
         case .commandAvailability: "commandAvailability"
         case .clientReady(let ready): ready ? "clientReady" : "clientNotReady"
+        case .launchSettle: "launchSettle"
         case .painted(let fromKeptTail, let settled):
             settled ? (fromKeptTail ? "painted(settled,keptTail)" : "painted(settled)") : fromKeptTail ? "painted(keptTail)" : "painted"
         case .dictation: "dictation"

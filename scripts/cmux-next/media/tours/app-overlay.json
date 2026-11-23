@@ -1,0 +1,197 @@
+{
+  "title": "App overlay: opened by the person, redrawn on save",
+  "customize": true,
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "New workspace",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "Tour"
+      ],
+      "shot": false
+    },
+    {
+      "title": "Show the Tour workspace",
+      "cmux": [
+        "workspace",
+        "name:Tour",
+        "focus"
+      ],
+      "shot": false
+    },
+    {
+      "title": "Save an extension whose pane may open as an overlay (presentation.overlay)",
+      "daemon": true,
+      "cmux": [
+        "workspace",
+        "name:Tour",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "clear; D=\"${CMUX_CUSTOMIZE_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/cmux/customize}\"; mkdir -p \"$D\" && echo Ly8gQSBub3RlIHBhZCB0aGF0IGZsb2F0cyBvdmVyIHRoZSB3aW5kb3c6IGNtdXggZHJhd3MgdGhpcyBzY2VuZSBpbiBhbiBvdmVybGF5Ci8vIHRoYXQgb25seSB5b3Ugb3BlbiAocGFsZXR0ZTogT3BlbiBTY3JhdGNoIE92ZXJsYXkpLiBFc2NhcGUgb3IgYSBjbGljayBvdXRzaWRlIGNsb3NlcyBpdC4KZnVuY3Rpb24gcmVuZGVyUGFkKCkgewogIHJldHVybiBWU3RhY2soWwogICAgUGFuZWwoeyB0aXRsZTogIlNjcmF0Y2giIH0sIFsKICAgICAgVGV4dCgiTm90ZXMgdGhhdCBmbG9hdCBvdmVyIHRoZSB3aW5kb3ciKS5mb250KCJoZWFkbGluZSIpLAogICAgICBUZXh0KCJPcGVuZWQgZnJvbSB0aGUgcGFsZXR0ZS4gRXNjYXBlIG9yIGEgY2xpY2sgb3V0c2lkZSBjbG9zZXMgaXQuIiksCiAgICBdKSwKICBdKQp9Cmdsb2JhbFRoaXMuX19jbXV4QXBwRXhwb3J0cyA9IHsgcmVuZGVyUGFkIH0K | base64 -d > \"$D/main.js\" && echo ewogICJtYW5pZmVzdFZlcnNpb24iOiAyLAogICJpZCI6ICJsb2NhbC9jdXN0b21pemUiLAogICJuYW1lIjogIlNjcmF0Y2giLAogICJ2ZXJzaW9uIjogIjEuMC4wIiwKICAiZGVzY3JpcHRpb24iOiAiQSBub3RlIHBhZCB0aGF0IGZsb2F0cyBvdmVyIHRoZSB3aW5kb3cuIiwKICAiZW5naW5lcyI6IHsgImNtdXgiOiAiXjIuMCIgfSwKICAicnVudGltZSI6IHsgIm1haW4iOiAibWFpbi5qcyIgfSwKICAiaW1wbGVtZW50cyI6IHsKICAgICJjbXV4LnBhbmUvMSI6IHsgImV4cG9ydCI6ICJyZW5kZXJQYWQiLCAidGl0bGUiOiAiU2NyYXRjaCIgfQogIH0sCiAgInByZXNlbnRhdGlvbiI6IHsgIm92ZXJsYXkiOiB7ICJ0aXRsZSI6ICJTY3JhdGNoIiwgIndpZHRoIjogNDIwLCAiaGVpZ2h0IjogMjIwIH0gfQp9Cg== | base64 -d > \"$D/cmux-app.json\" && echo saved\r"
+      ],
+      "wait": 6,
+      "shot": false
+    },
+    {
+      "title": "Open the command palette",
+      "cmux": [
+        "action",
+        "run",
+        "commandPalette"
+      ],
+      "wait": 1.5,
+      "shot": false
+    },
+    {
+      "title": "Type 'o'",
+      "rpc": {
+        "method": "debug.key",
+        "params": {
+          "key": "o",
+          "target": "palette"
+        }
+      },
+      "wait": 0.2,
+      "shot": false
+    },
+    {
+      "title": "Type 'v'",
+      "rpc": {
+        "method": "debug.key",
+        "params": {
+          "key": "v",
+          "target": "palette"
+        }
+      },
+      "wait": 0.2,
+      "shot": false
+    },
+    {
+      "title": "Type 'e'",
+      "rpc": {
+        "method": "debug.key",
+        "params": {
+          "key": "e",
+          "target": "palette"
+        }
+      },
+      "wait": 0.2,
+      "shot": false
+    },
+    {
+      "title": "Type 'r'",
+      "rpc": {
+        "method": "debug.key",
+        "params": {
+          "key": "r",
+          "target": "palette"
+        }
+      },
+      "wait": 0.2,
+      "shot": false
+    },
+    {
+      "title": "Type 'l'",
+      "rpc": {
+        "method": "debug.key",
+        "params": {
+          "key": "l",
+          "target": "palette"
+        }
+      },
+      "wait": 0.2,
+      "shot": false
+    },
+    {
+      "title": "Type 'a'",
+      "rpc": {
+        "method": "debug.key",
+        "params": {
+          "key": "a",
+          "target": "palette"
+        }
+      },
+      "wait": 0.2,
+      "shot": false
+    },
+    {
+      "title": "Type 'y'",
+      "rpc": {
+        "method": "debug.key",
+        "params": {
+          "key": "y",
+          "target": "palette"
+        }
+      },
+      "wait": 0.2,
+      "shot": false
+    },
+    {
+      "title": "The palette offers Open Scratch Overlay (only the person opens an overlay)",
+      "wait": 1,
+      "rpc": {
+        "method": "debug.palette.capture",
+        "params": {
+          "path": "{collect}"
+        }
+      },
+      "collect": "palette-offer.png"
+    },
+    {
+      "title": "Pick it: the person's gesture",
+      "rpc": {
+        "method": "debug.key",
+        "params": {
+          "key": "return",
+          "target": "palette"
+        }
+      },
+      "wait": 2.5,
+      "shot": false
+    },
+    {
+      "title": "The overlay: the extension's scene in a glass card over the window",
+      "wait": 0.5
+    },
+    {
+      "title": "Save an edited main.js (no relaunch)",
+      "daemon": true,
+      "cmux": [
+        "workspace",
+        "name:Tour",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "D=\"${CMUX_CUSTOMIZE_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/cmux/customize}\"; mkdir -p \"$D\" && echo Ly8gQSBub3RlIHBhZCB0aGF0IGZsb2F0cyBvdmVyIHRoZSB3aW5kb3c6IGNtdXggZHJhd3MgdGhpcyBzY2VuZSBpbiBhbiBvdmVybGF5Ci8vIHRoYXQgb25seSB5b3Ugb3BlbiAocGFsZXR0ZTogT3BlbiBTY3JhdGNoIE92ZXJsYXkpLiBFc2NhcGUgb3IgYSBjbGljayBvdXRzaWRlIGNsb3NlcyBpdC4KZnVuY3Rpb24gcmVuZGVyUGFkKCkgewogIHJldHVybiBWU3RhY2soWwogICAgUGFuZWwoeyB0aXRsZTogIlNjcmF0Y2giIH0sIFsKICAgICAgVGV4dCgiTm90ZXMgdGhhdCBmbG9hdCBvdmVyIHRoZSB3aW5kb3cgKGVkaXRlZCBsaXZlKSIpLmZvbnQoImhlYWRsaW5lIiksCiAgICAgIFRleHQoIk9wZW5lZCBmcm9tIHRoZSBwYWxldHRlLiBFc2NhcGUgb3IgYSBjbGljayBvdXRzaWRlIGNsb3NlcyBpdC4iKSwKICAgIF0pLAogIF0pCn0KZ2xvYmFsVGhpcy5fX2NtdXhBcHBFeHBvcnRzID0geyByZW5kZXJQYWQgfQo= | base64 -d > \"$D/main.js\"\r"
+      ],
+      "wait": 5,
+      "shot": false
+    },
+    {
+      "title": "The open overlay redrew with the saved script (edited live)",
+      "wait": 0.5
+    }
+  ]
+}

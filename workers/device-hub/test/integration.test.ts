@@ -1,14 +1,15 @@
 import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
+import { OFFLINE_GRACE_MS } from "../src/userDo";
 import { Device, approvedSession, auditEvents, hubEnv, setup, signIn } from "./helpers";
 
 const userStub = (userId: string) => hubEnv.USER_DO.get(hubEnv.USER_DO.idFromName(userId));
 
-/** Moves every pending offline mark 31 s into the past, then runs the alarm. */
+/** Moves every pending offline mark past the grace (and 1 s more) into the past, then runs the alarm. */
 async function expireGrace(userId: string) {
   const stub = userStub(userId);
   await runInDurableObject(stub, (_i, s) => {
-    s.storage.sql.exec("UPDATE offline SET since = since - 31000");
+    s.storage.sql.exec("UPDATE offline SET since = since - ?", OFFLINE_GRACE_MS + 1000);
   });
   return runDurableObjectAlarm(stub);
 }

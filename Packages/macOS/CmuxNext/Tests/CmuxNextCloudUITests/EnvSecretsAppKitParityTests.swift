@@ -103,5 +103,24 @@ import Testing
         let title = try #require(page.line(containing: "STRIPE_SECRET_KEY"), "the highlighted card's title is drawn")
         #expect(page.accentEdgeWidth(leftOf: title) == 1.5, "border \(page.accentEdgeWidth(leftOf: title)) pt")
     }
+
+    /// Inspector, Paste (the Type radios) and the two "agent asks" cards (the "Keep in" radios): each radio
+    /// circle is centred on the first line of its title, as SwiftUI centres a radio on its label, not on the
+    /// top of the title-and-note column.
+    @Test(arguments: [(EnvSecretsPlaygroundModel.Direction.inspector, EnvSecretsPlaygroundModel.Scene.paste),
+                      (.ledger, .request), (.sentences, .request)])
+    func radioCirclesSitOnTheirTitlesFirstLine(direction: EnvSecretsPlaygroundModel.Direction,
+                                               scene: EnvSecretsPlaygroundModel.Scene) throws {
+        let model = EnvSecretsPlaygroundModel()
+        model.direction = direction
+        model.scene = scene
+        let page = EnvLaidOutPage(model)
+        let rows = page.radioRows()
+        #expect(rows.count >= 3, "\(direction) \(scene): radio rows found: \(rows.map(\.title.stringValue))")
+        for row in rows {
+            let offset = row.radioMidY - row.titleFirstLineMidY
+            #expect(abs(offset) <= 0.5, "\(direction) \(scene): the radio of \"\(row.title.stringValue)\" sits \(offset) pt off its title's first line")
+        }
+    }
 }
 #endif

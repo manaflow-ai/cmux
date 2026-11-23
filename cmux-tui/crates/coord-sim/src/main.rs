@@ -8,6 +8,7 @@
 //!   coord-sim agent   --script FILE --rate X                                       a stand-in ACP agent replaying one script
 //!   coord-sim drive   --coordinators N --rate X --target acpmux|app-host|ios|relay  N coordinators at once, plus readers
 //!   coord-sim degen   --case NAME ...                                              one degenerate case under load
+//!   coord-sim surface --target app-host|relay|ios ...                             the app surfaces' load (surfaces/)
 //!   coord-sim report  RUN_DIR                                                      one JSON of numbers (coord-sim-run.v1)
 
 mod agent;
@@ -19,6 +20,7 @@ mod generate;
 mod metrics;
 mod rng;
 mod shape;
+mod surfaces;
 
 fn main() -> std::process::ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -33,6 +35,7 @@ fn main() -> std::process::ExitCode {
         "drive" => drive::run(rest),
         "degen" => degen::run(rest),
         "report" => metrics::run(rest),
+        "surface" => surfaces::run(rest),
         "shape" => shape::Shape::load(rest.first().map(String::as_str)).map(|s| {
             println!("{} sessions, {} kinds", s.acpmux.sessions, s.kind_mix().len());
         }),
@@ -50,7 +53,8 @@ fn main() -> std::process::ExitCode {
     }
 }
 
-const USAGE: &str = "usage: coord-sim gen|agent|drive|degen|report|shape ... (see src/main.rs)";
+const USAGE: &str =
+    "usage: coord-sim gen|agent|drive|degen|report|surface|shape ... (see src/main.rs)";
 
 /// `--name value` from an argument list.
 pub fn flag<'a>(args: &'a [String], name: &str) -> Option<&'a str> {

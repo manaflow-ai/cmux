@@ -1,0 +1,187 @@
+name: cmux NEXT pair-e2e on an ephemeral macOS VM (staging agent account)
+run-name: ${{ github.event_name == 'workflow_dispatch' && format('pair-e2e {0}', inputs.ref) || format('pair-e2e {0}', github.ref_name) }}
+
+# The real-link pair-e2e (scripts/ci/cmux-next-ios-sim.sh pair-e2e: a tagged DEBUG cmux NEXT Mac app and
+# the Demo iPhone app on a simulator, paired by the Mac's QR code over the real Cloud path, then the upload
+# and discovery legs, scripts/ci/cmux_next_pair_e2e.py) on an ephemeral macOS VM, for a ref no host with
+# the agent account can run it for. Both apps sign in as the staging agent test account: the
+# CMUX_DOGFOOD_STACK_EMAIL and _PASSWORD pair in cmux-next-vm-image-dev, the pair cloud-rd-link-readback.yml
+# and cloud-chat-proof.yml's staging job read. Staging is the development Stack project, the one the DEBUG
+# Mac app and the Demo iPhone app sign in to. The pair goes to the CI auth profile file in the pair step's own HOME (0600,
+# removed in an always() step), as ios-e2e.yml does; it is never printed and never in an artifact.
+#
+# A tool, not a gate: it runs only when dispatched, or on a push to a pair-e2e/** branch (a branch made
+# to test one PR, e.g. pair-e2e/pr-49393: the PR head merged with the base it needs). No pull request,
+# merge queue or branch protection reads it. Dispatch needs this file on the default branch; until a copy
+# is registered there, push a pair-e2e/** branch, which runs the file in that branch. A lane VM's broker
+# pushes only lane/** branches and dispatches no workflow, so a lane/pair-e2e-** push runs it too.
+#
+# Evidence: SUMMARY.md only (the run summary and a 3-day artifact). The screens and logs stay on the VM:
+# the account's Settings > Devices list names other Macs signed in to it.
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: The branch, tag or commit to test (it must carry scripts/ci/cmux-next-ios-sim.sh pair-e2e)
+        required: true
+        type: string
+  push:
+    branches: ["pair-e2e/**", "lane/pair-e2e-**"]
+
+permissions:
+  contents: read
+
+# One run at a time: every run signs in to the same account and names its Mac the same.
+concurrency:
+  group: cmux-next-pair-e2e-vm
+  cancel-in-progress: false
+
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+
+jobs:
+  pair-e2e:
+    if: github.repository == 'manaflow-ai/cmux'
+    environment: cmux-next-vm-image-dev
+    # An ephemeral Blacksmith macOS 26 VM from the declared pool, as cloud-rd-link-readback.yml.
+    runs-on: ${{ fromJSON(vars.RUNNER_POOLS).macos_26 }}
+    timeout-minutes: 150
+    env:
+      CMUX_SKIP_ZIG_BUILD: "1"
+      SWIFT_BACKTRACE: interactive=no,timeout=0s,symbolicate=off,color=no
+    steps:
+      - name: Checkout the ref under test
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.sha }}
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Refuse a ref without the pair-e2e step
+        run: |
+          set -euo pipefail
+          echo "commit under test: $(git rev-parse HEAD)" | tee -a "$GITHUB_STEP_SUMMARY"
+          test -f scripts/ci/cmux_next_pair_e2e.py || { echo "::error::this ref has no scripts/ci/cmux_next_pair_e2e.py"; exit 1; }
+          grep -q 'pair-e2e' scripts/ci/cmux-next-ios-sim.sh || { echo "::error::this ref's cmux-next-ios-sim.sh has no pair-e2e mode"; exit 1; }
+
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      # As cloud-chat-proof.yml's tagged build: the webviews build runs on node and the pinned bun.
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24.22.1"
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+
+      - name: Ensure an iOS simulator runtime
+        run: xcrun simctl list runtimes available | grep -Eq '\biOS\b' || xcodebuild -downloadPlatform iOS
+
+      # The classic Ghostty Zig (CMUX_ZIG, PATH) and ghostty-next's own as CMUX_VT_ZIG, as cloud-chat-proof.yml.
+      - name: Install build prerequisites
+        run: |
+          set -euo pipefail
+          ./scripts/install-zig-ci.sh
+          GHOSTTY_ZIG_SOURCE=ghostty-next ZIG_FORCE_LOCAL_INSTALL=1 ZIG_PUBLISH_ENV=CMUX_VT_ZIG ./scripts/install-zig-ci.sh
+          ./scripts/download-prebuilt-ghosttykit.sh || ./scripts/ensure-ghosttykit.sh
+          ./scripts/install-rust-ci.sh
+
+      - name: Build in-tree acpmux
+        run: |
+          set -euo pipefail
+          if [[ -z "${ZIG:-}" && -n "${CMUX_VT_ZIG:-}" ]]; then export ZIG="$CMUX_VT_ZIG"; fi
+          acpmux_bin="$RUNNER_TEMP/cmux-next-acpmux/acpmux"
+          scripts/cmux-next/build-acpmux.sh --output "$acpmux_bin"
+          echo "CMUX_NEXT_ACPMUX_BIN=$acpmux_bin" >> "$GITHUB_ENV"
+
+      # reload.sh bundles the cmux-tui client published for this tree; a tree no artifacts run published
+      # (a PR merged with its base here) builds it on this VM instead of waiting for one.
+      - name: The cmux-tui client for this tree
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if scripts/cmux-next/pin-cmux-tui.sh probe 2>/dev/null | grep -q ': ready ('; then
+            echo "published client for this tree: reload.sh fetches it"
+          else
+            if [[ -z "${ZIG:-}" && -n "${CMUX_VT_ZIG:-}" ]]; then export ZIG="$CMUX_VT_ZIG"; fi
+            client="$(scripts/cmux-next/build-cmux-tui-client.sh --print-path)"
+            echo "CMUX_TUI_CLIENT_LOCAL=$client" >> "$GITHUB_ENV"
+            echo "built the client for this tree: $client"
+          fi
+
+      - name: Materialize the CI auth profile (staging agent account)
+        env:
+          STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "${STACK_EMAIL:-}" ] || [ -z "${STACK_PASSWORD:-}" ]; then
+            echo "::error::the staging agent Stack pair is missing from cmux-next-vm-image-dev"
+            exit 1
+          fi
+          # In the pair step's own HOME (below), where the rig reads ~/.secrets/cmuxterm-dev.env.
+          mkdir -p "$RUNNER_TEMP/pair-home/.secrets"
+          chmod 700 "$RUNNER_TEMP/pair-home" "$RUNNER_TEMP/pair-home/.secrets"
+          (
+            umask 077
+            printf 'CMUX_UITEST_STACK_EMAIL=%s\nCMUX_UITEST_STACK_PASSWORD=%s\n' "$STACK_EMAIL" "$STACK_PASSWORD"
+          ) > "$RUNNER_TEMP/pair-home/.secrets/cmuxterm-dev.env"
+          chmod 600 "$RUNNER_TEMP/pair-home/.secrets/cmuxterm-dev.env"
+
+      - name: pair-e2e (cmux-next-ios-sim.sh pair-e2e)
+        id: pair
+        timeout-minutes: 110
+        run: |
+          set -euo pipefail
+          if [[ -z "${ZIG:-}" && -n "${CMUX_VT_ZIG:-}" ]]; then export ZIG="$CMUX_VT_ZIG"; fi
+          # The rig makes its own keychain the user default for the run and refuses the account's HOME
+          # (cmux_next_pair_e2e.py: "the rig's keychain needs the step's own HOME"). Run it under a HOME
+          # of this run's own, as cmux-ci's build env does, with Rust still where the earlier steps put it.
+          export CARGO_HOME="${CARGO_HOME:-$HOME/.cargo}" RUSTUP_HOME="${RUSTUP_HOME:-$HOME/.rustup}"
+          export HOME="$RUNNER_TEMP/pair-home"
+          bash scripts/ci/cmux-next-ios-sim.sh pair-e2e
+
+      - name: Summarize
+        if: always()
+        run: |
+          set -euo pipefail
+          file=artifacts/ios-sim/SUMMARY.md
+          {
+            echo '## pair-e2e (staging agent account, ephemeral macOS VM)'
+            echo
+            echo "- step outcome: ${{ steps.pair.outcome }}"
+            if [ -s "$file" ]; then
+              if grep -Eiq 'sk-(ant-)?[A-Za-z0-9_-]{10,}|eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}|bearer[[:space:]]+[A-Za-z0-9._~+/=-]+|refresh[_-]?token"?[[:space:]]*[:=]|password"?[[:space:]]*[:=]|[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[a-z]{2,}' "$file"; then
+                echo '- SUMMARY.md holds a secret- or address-shaped value; it is not shown or uploaded.'
+                rm -f "$file"
+              else
+                echo "- PASS lines: $(grep -c 'PASS\|PAIRED' "$file" || true); FAIL lines: $(grep -c 'FAIL\|NOT paired\|NO ' "$file" || true)"
+                echo
+                cat "$file"
+              fi
+            else
+              echo '- no SUMMARY.md (the step stopped before it wrote one)'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the summary
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pair-e2e-summary-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/ios-sim/SUMMARY.md
+          if-no-files-found: warn
+          retention-days: 3
+
+      - name: Remove the CI auth profile
+        if: always()
+        run: |
+          rm -f "$RUNNER_TEMP/pair-home/.secrets/cmuxterm-dev.env"
+          rmdir "$RUNNER_TEMP/pair-home/.secrets" 2>/dev/null || true

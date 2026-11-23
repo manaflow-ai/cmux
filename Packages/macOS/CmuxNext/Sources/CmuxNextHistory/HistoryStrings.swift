@@ -4,7 +4,7 @@ import Foundation
 /// the History page's own are webviews/src/pages/history/Localizable.xcstrings).
 nonisolated enum HistoryStrings {
     private static func t(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, bundle: .module)
+        String(localized: key, defaultValue: value, bundle: .localizedModule)
     }
 
     static var menuShowAll: String { t("titlebarHistory.showFull", "Show Full History") }

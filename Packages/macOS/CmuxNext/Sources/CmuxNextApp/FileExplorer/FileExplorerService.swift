@@ -94,8 +94,6 @@ final class FileExplorerService {
     /// registry's `fileExplorerRow` menu, whose rows imply the same fact.
     private func perform(_ id: ActionID) {
         guard let registry = services?.registry else { return }
-        var invocation = ActionInvocation()
-        invocation.keyContext = registry.context.union(.fileExplorerFocused)
-        registry.perform(id, invocation: invocation)
+        registry.perform(id, invocation: ActionInvocation(keyContext: registry.context.union(.fileExplorerFocused)))
     }
 }
