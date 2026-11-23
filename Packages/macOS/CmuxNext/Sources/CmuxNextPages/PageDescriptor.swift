@@ -35,7 +35,8 @@ public nonisolated struct PageDescriptor: Sendable, Hashable {
     /// another built-in page adds image sources.
     public let csp: PageCSP
     /// The file `cmux-page://<id>/` serves (default `index.html`): a page whose root is a shared
-    /// build (the diff viewer in the one webviews-app build) names its own entry html.
+    /// build (the diff viewer in the one webviews-app build) names its own entry html. A nested
+    /// entry (`ui/index.html`, an extension's) is also the page URL's path (``url(route:)``).
     public let entry: String
     /// First path components the page instance's ``PageDynamicResourceSource`` answers
     /// (`__patch`); the scheme handler never serves a static file under one.
@@ -59,12 +60,18 @@ public nonisolated struct PageDescriptor: Sendable, Hashable {
     /// The page belongs to the Chief chat (Bring your history): Agent Chat Zoom scales it too
     /// (``PageWebView/followsChatZoom``). Off by default: a page keeps `app.uiScale` alone.
     public let followsChatZoom: Bool
+    /// The router serves this page its own host ops and streams with no descriptor entry: the title
+    /// bar double-click, the swipe's two, the heartbeat, popups, the context menu and the built-in
+    /// streams (``PageRouter``). False for an app page (``appPage(id:resource:namespaces:entry:)``):
+    /// every message it sends passes ``admits(_:)`` before anything runs, and its namespaces are its
+    /// own (`<host>.`), so it reaches none of them (next-review's BLOCK on #43033).
+    public let servesHostOps: Bool
 
     public init(id: String, resource: String, namespaces: [String], nativeOps: Set<String> = [], denied: Set<String> = [],
                 actions: Set<String> = [], gestureActions: Set<String> = [], commands: Set<String> = PageNativeOp.commands,
                 confirmedOps: [String: PageConfirmation.Kind] = [:], csp: PageCSP = .strict, entry: String = "index.html",
                 dynamicPrefixes: Set<String> = [], ownsSearchField: Bool = false, acceptsFirstMouse: Bool = false,
-                passiveFrames: Bool = false, followsChatZoom: Bool = false) {
+                passiveFrames: Bool = false, followsChatZoom: Bool = false, servesHostOps: Bool = true) {
         self.id = id
         self.resource = resource
         self.namespaces = namespaces
@@ -80,19 +87,33 @@ public nonisolated struct PageDescriptor: Sendable, Hashable {
         // follow-up on #38075, F2); any other id gets the strict one.
         self.csp = PageID.isFirstParty(id) ? csp
             : PageID.isReserved(id) ? PageCSP(image: csp.image, inlineScript: csp.inlineScript) : .strict
-        // One file name inside the root, never a path.
-        self.entry = entry.isEmpty || entry.contains("/") || entry.hasPrefix(".") ? "index.html" : entry
+        // A file inside the root: a name or a nested path (`ui/index.html`, an app's entry), never
+        // an empty, `.`/`..` or dot-file component, a backslash or an absolute path.
+        self.entry = Self.isEntryPath(entry) ? entry : "index.html"
         self.dynamicPrefixes = dynamicPrefixes
         self.ownsSearchField = ownsSearchField
         self.acceptsFirstMouse = acceptsFirstMouse
         self.passiveFrames = passiveFrames
         self.followsChatZoom = followsChatZoom
+        self.servesHostOps = servesHostOps
     }
 
     /// Whether the page may call `op` (or subscribe to the stream `op`).
     public func admits(_ op: String) -> Bool {
         guard !denied.contains(op) else { return false }
         return nativeOps.contains(op) || namespaces.contains { op.hasPrefix($0) && op.count > $0.count }
+    }
+
+    /// Whether the router may run its own host op or stream `op` for this page: always for a page
+    /// it serves them (``servesHostOps``), else only one the descriptor admits.
+    public func admitsHostOp(_ op: String) -> Bool {
+        servesHostOps || admits(op)
+    }
+
+    /// Whether `entry` names a file inside the page's root (``entry``).
+    static func isEntryPath(_ entry: String) -> Bool {
+        let parts = entry.split(separator: "/", omittingEmptySubsequences: false)
+        return !parts.isEmpty && parts.allSatisfy { !$0.isEmpty && !$0.hasPrefix(".") && !$0.contains("\\") }
     }
 
     /// `cmux-page://<id>`.
@@ -105,7 +126,8 @@ public nonisolated struct PageDescriptor: Sendable, Hashable {
         var components = URLComponents()
         components.scheme = Self.scheme
         components.host = id
-        components.path = "/"
+        // A nested entry loads at its own path, so its relative links resolve as in its folder.
+        components.path = entry.contains("/") ? "/" + entry : "/"
         if let route, !route.isEmpty {
             let fragment = route.hasPrefix("#") ? String(route.dropFirst()) : route
             if fragment.removingPercentEncoding != nil, let encoded = fragment.addingPercentEncoding(withAllowedCharacters: Self.encodedFragmentCharacters) {
@@ -208,20 +230,30 @@ public extension PageDescriptor {
                   "server.addServer",
                   // Machines > Add Device… opens the one Add Device card (add-device-DESIGN.md).
                   "device.add",
+                  // Labs preview in Devices: reuse the remote host picker and workspace group.
+                  "remote.newGroup",
                   // Agents > Computer Use card (ComputerUseSetup).
                   "palette.computerUse.setup", "palette.computerUse.accessibility", "palette.computerUse.screenRecording", "palette.computerUse.restart",
+                  // Settings › Computer Use › Saved Approvals (the person's own forget / always / never).
+                  "computerUse.approval.forget", "computerUse.approval.set",
                   // Settings › Import's cards (CmuxNextImportCards): a card's button, and Import from Browser.
-                  "import.card", "importFromBrowser"])
+                  "import.card", "importFromBrowser",
+                  // A search no setting matches: Ask cmux to do this opens the Customize chat with the words.
+                  "customize.open"])
             .union(settingsSectionActions),
+        gestureActions: ["remote.newGroup"],
         dynamicPrefixes: ["backdrop", "museum", "icon", "symbol", "symbol-bold"], ownsSearchField: true, acceptsFirstMouse: false)
 
     /// The App Store page (react-pages.md 3). Install, update, Remove, `set` and allowing a scope pass
     /// the host's native sheet before they reach the owner (the app's ConfirmingPageProvider); Open
-    /// runs the registry action `app.open` (a host verb, cx-hnmbt.13).
-    /// Its icons are the host's drawings (``AppsPageNativeOps/glyphPrefix``).
+    /// runs the registry action `app.open` (a host verb, cx-hnmbt.13); the Customize cmux… card runs
+    /// `openSettings` on Settings > Customize (`setting: card.customizeChecklist`).
+    /// Its icons are the host's drawings (``AppsPageNativeOps/glyphPrefix``). A click on Open is the
+    /// person's own `app.open` (`gestureActions`): it opens the app as their Cmd-T would, where a page
+    /// script's run gets no view change (a real build: the Clock's Open opened nothing).
     static let apps = PageDescriptor(
         id: "cmux.apps", resource: "apps", namespaces: ["cmux.apps."], nativeOps: [PageNativeOp.actionRun],
-        actions: ["app.open"], dynamicPrefixes: [AppsPageNativeOps.glyphPrefix])
+        actions: ["app.open", "openSettings"], gestureActions: ["app.open"], dynamicPrefixes: [AppsPageNativeOps.glyphPrefix])
 
     /// The CodeRouter page (coordinator decision: a separate page for the CodeRouter dashboard;
     /// Settings > Accounts links to it). Its ops are the CodeRouter app's `coderouter.*` family;

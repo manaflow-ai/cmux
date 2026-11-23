@@ -1,0 +1,10 @@
+{
+  "date": "2026-11-20",
+  "row": "app_lines",
+  "allow": 73,
+  "why": "User 2026-11-20: bring back the terminal/chat switch inside the pane's ⋯ menu. The rows, the directional Switch to Chat / Switch to Terminal title and the chat page's tabState flag are wiring between App-only types (AppServices, TabModel, PaneController, PaneToolbar, AgentTabs, WindowRules); about 9 lines are the DEBUG-only debug.object_menu paneMore case for the capture tour. The page side lives in CmuxNextAgentPane and webviews.",
+  "author": "terminal-chat-switch lane (claude opus subagent)",
+  "owner": "terminal-chat-switch lane",
+  "receipt": "Review (claude opus reviewer, acpmux policy review): SHIP at 9db009f412220f63b3e0276394528ff2e5ab3396",
+  "expiry": "2026-12-20"
+}

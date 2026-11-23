@@ -131,12 +131,9 @@ final class ExternalOpenController {
         if case .deepLink(let url) = route {
             // The user clicked it in another app: their run, which brings
             // cmux forward. Agent links are addresses published in public
-            // trailers, so they must not put an agent composer or terminal
-            // under the next keystroke from the opening app.
-            let isAgent = DeepLink.read(url, scheme: services.linkScheme).map { link in
-                if case .agent = link.link.target { return true }
-                return false
-            } == true
+            // trailers (opaque `?id=aid-…` ones too), so they must not put an agent
+            // composer or terminal under the next keystroke from the opening app.
+            let isAgent = DeepLink.opensAgentChat(url, linkScheme: services.linkScheme)
             var arguments: [String: ActionValue] = ["url": .string(url.absoluteString)]
             if isAgent { arguments["background"] = .bool(true) }
             services.registry.perform("link.open", invocation: ActionInvocation(arguments: arguments))
@@ -197,12 +194,12 @@ final class ExternalOpenController {
         case .file(let url): services.viewers.openFile(url, in: pane, markdown: false)
         case .shareLink(let url): AgentShareLinks(host: services).open(url) { [weak pane] in pane?.newBrowserTab(url: $0) }
         case .attachImages(let urls, let source):
-            // The pane's chat, else the one shown in the workspace's most recently focused pane; a New Tab page is no chat.
+            // The pane's chat, else the one shown in the workspace's most recently focused pane; a New Tab page is no chat; a chat not made answers nil, so its files go with the next.
             let recent = pane.workspace.map { content in content.recentPanes.compactMap { content.panes[$0] } } ?? []
             let target = ([pane] + recent).lazy.compactMap { candidate in candidate.shownChat.map { (pane: candidate, view: $0) } }.first
             let shown = target?.pane ?? pane, tabs = services.agentTabs, machine = pane.daemon.machineID
             chatAttach.attach(urls, claimed: source, target: target?.view, openChat: { made in
-                pane.openAgentTab(seed: pane.agentSeedFromSelectedTab()) { made(tabs.existingView($0, machine: machine) ?? tabs.view(for: $0, machine: machine)) }
+                pane.openAgentTab(seed: pane.agentSeedFromSelectedTab(), then: { made(tabs.existingView($0, machine: machine) ?? tabs.view(for: $0, machine: machine)) }, failed: { made(nil) })
             }, show: { [weak shown, services] view in
                 // The pane that shows the chat: a new one may have been placed beside the pane it opened from.
                 guard let shown, case let pane = shown.workspace?.panes.values.first(where: { $0.shownChat === view }) ?? shown,

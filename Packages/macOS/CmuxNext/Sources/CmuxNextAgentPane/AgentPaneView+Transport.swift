@@ -6,7 +6,7 @@ import WebKit
 extension AgentPaneView {
     func refreshQuestionKeyBinding() {
         guard let page else { return }
-        guard page.window != nil, !page.isHiddenOrHasHiddenAncestor else { return }
+        guard page.window != nil, !page.isHiddenOrHasHiddenAncestor, !page.isDrawnAway else { return }
         guard let session = model.sessionId, let connection = model.transport.connection else {
             if questionKeyBinding != nil { page.bindQuestionKeyTargets([]) { _ in } }
             questionKeyBinding = nil
@@ -45,9 +45,12 @@ extension AgentPaneView {
             var params: [String: Any] = ["sessionId": snapshot.target.sessionID, "permissionId": snapshot.target.permissionID,
                                           "optionId": option, "answers": answers]
             if let annotations { params["annotations"] = annotations }
+            var refusal: String?
             let intent = AgentPaneGestureIntent(gestureParams: ["intent": ["method": "_acpmux/permission_respond",
-                "params": params]])
+                "params": params]], refusal: &refusal)
             guard let intent else {
+                AgentPaneRefusalLog.log(.gestureParse, method: "_acpmux/permission_respond", session: snapshot.target.sessionID,
+                                        cause: refusal ?? "intent not parsed")
                 self.model.transport.rejectQuestionKeyReply(connection: connection, requestID: requestID,
                                                              target: snapshot.target, error: .intentInvalid)
                 return
@@ -87,14 +90,14 @@ extension AgentPaneView {
         refreshQuestionKeyBinding()
         // A config option that is not free (paired devices): the user confirms it natively.
         model.onConfirmMode = { [weak self] asked, answer in
-            guard let self, self.window != nil, !self.isHiddenOrHasHiddenAncestor else { return answer(false) }
+            guard let self, self.isShownToPerson else { return answer(false) }
             let spec = Self.confirmationSpec(asked)
             // Pane scope: a closed pane ends the sheet as Cancel, so the app-wide gate never stays shut.
             _ = CmuxDialogCenter.shared.present(spec, in: .tab(self)) { reply in answer(reply.button == "switch") }
         }
         // A folder harness profile: the user reads acpmux's prompt and enables it natively.
         model.onConfirmHarness = { [weak self] prompt, answer in
-            guard let self, self.window != nil, !self.isHiddenOrHasHiddenAncestor else { return answer(false) }
+            guard let self, self.isShownToPerson else { return answer(false) }
             _ = CmuxDialogCenter.shared.present(Self.harnessEnableSpec(prompt), in: .tab(self)) { reply in
                 answer(reply.button == "enable")
             }
@@ -104,6 +107,10 @@ extension AgentPaneView {
         let pacer = AgentPaneFramePacer(view: self)
         transportPacer = pacer
         model.transport.pacer = pacer
+        // A pane nobody sees hears no other chat's row until it shows (AcpmuxPaneSocket.setAsleep).
+        let transport = model.transport
+        pacer.onSightChange = { [weak transport] sight in transport?.pageSight = sight }
+        pacer.reportSight()
         model.transport.onOtherInstall = { [weak self] other in self?.showOtherInstallNotice(other) }
         model.transport.onPersonProof = { [weak self] proven in self?.showPersonProof(proven) }
         model.transport.recoverPersonProof = { [weak self] in await self?.recoverPersonProof() ?? false }
@@ -182,6 +189,7 @@ extension AgentPaneView {
         default:
             guard webView.bounds.contains(webView.convert(event.locationInWindow, from: nil)) else { return }
         }
+        if !model.hostTouch.marked, !isHiddenOrHasHiddenAncestor { model.hostTouch.mark(by: event) } // the mark's own check first: a marked page asks no hidden state at a key. A parked page has the pane's frame too, and gets no input
         // Repeats belong to the original press, whose DOM proof may still be redeeming.
         // A new page event revokes it, even when posted input cannot grant a fresh witness.
         model.transport.gestures.recordQuestionReturn(false)
@@ -205,6 +213,7 @@ extension AgentPaneView {
         default:
             guard chromiumPageContains(eventWindow.convertPoint(toScreen: event.locationInWindow), eventWindow: eventWindow) else { return }
         }
+        if !model.hostTouch.marked, !isHiddenOrHasHiddenAncestor { model.hostTouch.mark(by: event) }
         model.transport.gestures.recordQuestionReturn(false)
         guard AgentPanePersonInput.isPerson(event, sources: eventSources) else { return recordPosted(event) }
         model.transport.gestures.record(click: event.type != .keyDown)

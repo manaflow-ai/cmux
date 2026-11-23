@@ -239,6 +239,54 @@ pub struct WallpaperInfo {
     pub tint_opacity: f64,
 }
 
+/// Ghostty's own colors (`ThemeInput.ghosttyDefault`, CmuxTheme): what a Mac shows when the
+/// person set no terminal theme and no app theme.
+const GHOSTTY_DEFAULT_BACKGROUND: &str = "#282c34";
+const GHOSTTY_DEFAULT_FOREGROUND: &str = "#ffffff";
+
+/// What the phone's chat shows behind and around its messages, as the Mac's chat shows it
+/// (Leo, 2026-11-17: "the lack of themeing/background inheriting (these need to be improved)"):
+/// the theme's colors and, when the Mac shows a picture, that picture under the theme's color
+/// at the window's tint (`ThemeScope.shownWindowOpacity`: with a picture the window lays its
+/// theme color over it at the tint opacity; without one the color covers everything).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct ChatLook {
+    /// The theme's background, `#rrggbb`: the chat's ground and the color over the picture.
+    pub background: String,
+    /// The theme's foreground, `#rrggbb`.
+    pub foreground: String,
+    /// How much of `background` covers the picture, 0...1 (1 with no picture).
+    pub background_opacity: f64,
+    /// The picture behind the chat: the content id of the frame's `wallpaper`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub wallpaper: Option<String>,
+    /// `home.bubbleColors.*` the person picked on the Mac.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bubbles: Option<ChatColors>,
+}
+
+// `sanitize` and `read_wallpaper` keep only finite numbers: equality is total here.
+impl Eq for ChatLook {}
+
+/// The chat's look from what the Mac shows; None when the person chose nothing the chat would
+/// show (Ghostty's own colors, no picture, no bubble colors). The phone then keeps its stock
+/// chat, exactly as before hostd sent a `chat`: a Mac at its defaults never changes the phone.
+pub fn chat_look(theme: &Theme, wallpaper: Option<&WallpaperInfo>, look: Option<&Look>) -> Option<ChatLook> {
+    let bubbles = look.and_then(|look| look.chat.clone());
+    let default_colors =
+        theme.background == GHOSTTY_DEFAULT_BACKGROUND && theme.foreground == GHOSTTY_DEFAULT_FOREGROUND;
+    if default_colors && wallpaper.is_none() && bubbles.is_none() {
+        return None;
+    }
+    Some(ChatLook {
+        background: theme.background.clone(),
+        foreground: theme.foreground.clone(),
+        background_opacity: wallpaper.map_or(1.0, |info| info.tint_opacity),
+        wallpaper: wallpaper.map(|info| info.id.clone()),
+        bubbles,
+    })
+}
+
 /// The current appearance: what the `appearance` service sends, and the wallpaper's bytes.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Current {
@@ -251,6 +299,11 @@ pub struct Current {
 }
 
 impl Current {
+    /// What the phone's chat shows ([`chat_look`]).
+    pub fn chat(&self) -> Option<ChatLook> {
+        chat_look(&self.theme, self.wallpaper.as_ref().map(|(info, _)| info), self.look.as_ref())
+    }
+
     /// The `appearance` message.
     pub fn message(&self) -> Value {
         let mut message = serde_json::json!({
@@ -262,6 +315,9 @@ impl Current {
         }
         if let Some(look) = &self.look {
             message["look"] = serde_json::json!(look);
+        }
+        if let Some(chat) = self.chat() {
+            message["chat"] = serde_json::json!(chat);
         }
         message
     }
@@ -444,6 +500,18 @@ pub fn publish(current: Current) {
         if now.as_ref() == Some(&current) {
             return false;
         }
+        // One line per change phones hear, so a run times this hop of a theme change
+        // (scripts/ci/cmux_next_pair_e2e.py's theme-file leg reads it from the hostd log).
+        let terminal_background = current
+            .terminal
+            .as_ref()
+            .and_then(|lines| lines.iter().rev().find_map(|line| line.strip_prefix("background = ")))
+            .unwrap_or("none");
+        tracing::info!(
+            background = %current.theme.background,
+            terminal_background = %terminal_background,
+            "appearance: published a changed appearance"
+        );
         *now = Some(current);
         true
     });
@@ -454,16 +522,37 @@ pub fn subscribe() -> watch::Receiver<Option<Current>> {
     current_sender().subscribe()
 }
 
+/// A short identity of a sent appearance frame: the first 12 hex digits of its SHA-256, so two
+/// log lines with the same `theme` carried the same bytes.
+pub fn frame_identity(frame: &[u8]) -> String {
+    Sha256::digest(frame).iter().take(6).map(|b| format!("{b:02x}")).collect()
+}
+
 /// The `appearance` service: the message now and on each change, until the phone closes it.
-pub async fn serve(sender: &ChannelSender, mut receiver: ChannelReceiver) -> Result<(), Refusal> {
+/// Each frame sent logs one line (device, theme identity, background, bytes), so the Mac's log
+/// says whether and which theme a phone got.
+pub async fn serve(
+    sender: &ChannelSender,
+    mut receiver: ChannelReceiver,
+    device: &str,
+) -> Result<(), Refusal> {
     let mut current = subscribe();
+    if current.borrow().is_none() {
+        tracing::info!(device, "appearance not known yet: nothing sent until the app sends one");
+    }
     loop {
-        let message = current.borrow_and_update().as_ref().map(Current::message);
+        let message = current
+            .borrow_and_update()
+            .as_ref()
+            .map(|current| (current.message().to_string(), current.theme.background.clone()));
         // Not known yet: nothing is sent until the app's first appearance arrives.
-        if let Some(message) = message
-            && sender.send(Bytes::from(message.to_string())).await.is_err()
-        {
-            return Ok(());
+        if let Some((message, background)) = message {
+            let theme = frame_identity(message.as_bytes());
+            let bytes = message.len();
+            if sender.send(Bytes::from(message)).await.is_err() {
+                return Ok(());
+            }
+            tracing::info!(device, theme, background, bytes, "appearance sent");
         }
         loop {
             tokio::select! {
@@ -520,6 +609,15 @@ mod tests {
             accent_color: None,
             background_opacity: 0.9,
         }
+    }
+
+    #[test]
+    fn a_frame_is_named_by_a_short_stable_hash() {
+        let id = frame_identity(b"{\"theme\":1}");
+        assert_eq!(id.len(), 12);
+        assert!(id.bytes().all(|b| b.is_ascii_hexdigit()));
+        assert_eq!(id, frame_identity(b"{\"theme\":1}"));
+        assert_ne!(id, frame_identity(b"{\"theme\":2}"));
     }
 
     #[test]
@@ -767,15 +865,83 @@ mod tests {
     fn appearance_without_look_is_the_message_from_before_it() {
         let older = current_of(&format!("{LINE_HEAD}}}"));
         assert_eq!(older.look, None);
-        // What `message` built before `look` existed, byte for byte.
+        // What `message` built before `look` existed, byte for byte, apart from the `chat` this
+        // theme (not Ghostty's own colors) adds.
+        let without_chat = |current: &Current| {
+            let mut message = current.message();
+            message.as_object_mut().unwrap().remove("chat");
+            message.to_string()
+        };
         let before = serde_json::json!({"theme": older.theme, "wallpaper": Option::<WallpaperInfo>::None});
-        assert_eq!(older.message().to_string(), before.to_string());
+        assert_eq!(without_chat(&older), before.to_string());
         assert_eq!(
-            older.message().to_string(),
+            without_chat(&older),
             r##"{"theme":{"accent":"neutral","background":"#000000","background_opacity":1.0,"foreground":"#ffffff","palette":["#000000","#111111","#222222","#333333","#444444","#555555","#666666","#777777"]},"wallpaper":null}"##
         );
         // An empty `look` from the app is the same message.
         let empty = current_of(&format!(r##"{LINE_HEAD},"look":{{}}}}"##));
-        assert_eq!(empty.message().to_string(), before.to_string());
+        assert_eq!(empty.message().to_string(), older.message().to_string());
+    }
+
+    const GHOSTTY_DEFAULT_LINE: &str = r##"{"theme":{"background":"#282C34","foreground":"#FFFFFF","palette":["#1d1f21","#cc6666","#b5bd68","#f0c674","#81a2be","#b294bb","#8abeb7","#c5c8c6"]}"##;
+
+    fn wallpaper_info(tint_opacity: f64) -> WallpaperInfo {
+        WallpaperInfo { id: "ab".repeat(32), bytes: 42, tint_opacity }
+    }
+
+    /// A Mac at its defaults (Ghostty's own colors, no picture, no bubble colors) sends no
+    /// `chat`: the phone keeps its stock chat, the message is the one from before `chat`.
+    #[test]
+    fn a_mac_at_its_defaults_sends_no_chat_look() {
+        let current = current_of(&format!("{GHOSTTY_DEFAULT_LINE}}}"));
+        assert_eq!(current.chat(), None);
+        assert!(current.message().get("chat").is_none());
+        // Look fields other than the bubble colors (window style, fonts) are no chat look either.
+        let styled = current_of(&format!(
+            r##"{GHOSTTY_DEFAULT_LINE},"look":{{"chrome_style":"two-tone","terminal_font":{{"size":13}}}}}}"##
+        ));
+        assert_eq!(styled.chat(), None);
+    }
+
+    /// A theme the person chose: the chat takes its colors, opaque (no picture).
+    #[test]
+    fn a_chosen_theme_is_the_chats_ground() {
+        let current = current_of(&format!("{LINE_HEAD}}}"));
+        assert_eq!(
+            current.message()["chat"],
+            serde_json::json!({"background": "#000000", "foreground": "#ffffff", "background_opacity": 1.0})
+        );
+        let mocha =
+            Current { theme: sanitize(theme()).unwrap(), wallpaper: None, terminal: None, look: None };
+        let chat = mocha.chat().unwrap();
+        assert_eq!((chat.background.as_str(), chat.foreground.as_str()), ("#1e1e2e", "#cdd6f4"));
+    }
+
+    /// A picture on the Mac, even under Ghostty's own colors: the chat shows it under the theme's
+    /// color at the window's tint, as the Mac's window does.
+    #[test]
+    fn a_wallpaper_shows_behind_the_chat_under_the_windows_tint() {
+        let mut current = current_of(&format!("{GHOSTTY_DEFAULT_LINE}}}"));
+        current.wallpaper = Some((wallpaper_info(0.35), Bytes::from_static(b"\xFF\xD8\xFF")));
+        let chat = current.chat().unwrap();
+        assert_eq!(chat.background, "#282c34");
+        assert_eq!(chat.background_opacity, 0.35);
+        assert_eq!(chat.wallpaper.as_deref(), Some("ab".repeat(32).as_str()));
+        assert_eq!(current.message()["chat"]["wallpaper"], current.message()["wallpaper"]["id"]);
+    }
+
+    /// Bubble colors picked on the Mac ride the chat look, even under Ghostty's own colors.
+    #[test]
+    fn picked_bubble_colors_ride_the_chat_look() {
+        let current = current_of(&format!(
+            r##"{GHOSTTY_DEFAULT_LINE},"look":{{"chat":{{"sent":"#0A84FF","sent_text":"#ffffff"}}}}}}"##
+        ));
+        let chat = current.chat().unwrap();
+        assert_eq!(chat.background_opacity, 1.0);
+        assert_eq!(chat.wallpaper, None);
+        assert_eq!(
+            current.message()["chat"]["bubbles"],
+            serde_json::json!({"sent": "#0a84ff", "sent_text": "#ffffff"})
+        );
     }
 }

@@ -65,7 +65,7 @@ pathlib.Path(path_output).write_text(str(binary.resolve()))
 PY
 candidate="$(cat "$work/binary-path")"
 url="https://files-next.cmux.com/nightly-next/cmux-nightly-next-macos-arm64-$nightly.dmg"
-curl --fail --location --retry 2 --connect-timeout 15 --max-time 600 -o "$work/nightly.dmg" "$url"
+curl --fail --location --retry 2 --retry-all-errors --connect-timeout 15 --max-time 600 -o "$work/nightly.dmg" "$url"
 [[ "$(shasum -a 256 "$work/nightly.dmg" | cut -c1-64)" == "$digest" ]] || {
   echo 'Nightly DMG checksum mismatch' >&2; exit 1;
 }
@@ -112,9 +112,9 @@ if [[ $# == 7 ]]; then
   for variant in base next; do
     if [[ "$variant" == base ]]; then cli_ref="$4"; cli_digest="$5"; else cli_ref="$6"; cli_digest="$7"; fi
     cli_url="https://files.cmux.com/cmux-tui/$cli_ref"
-    curl --fail --location --retry 2 --connect-timeout 15 --max-time 600 \
+    curl --fail --location --retry 2 --retry-all-errors --connect-timeout 15 --max-time 600 \
       -o "$out/cli-$variant-manifest.json" "$cli_url/manifest.json"
-    curl --fail --location --retry 2 --connect-timeout 15 --max-time 600 \
+    curl --fail --location --retry 2 --retry-all-errors --connect-timeout 15 --max-time 600 \
       -o "$work/cli-$variant" "$cli_url/cmux-tui-aarch64-apple-darwin"
     python3 - "$out/cli-$variant-manifest.json" "$work/cli-$variant" "$cli_ref" "$cli_digest" <<'PY'
 import hashlib, json, pathlib, sys

@@ -140,6 +140,7 @@ fn the_257th_origin_is_refused_through_the_queue_and_direct_writer() {
         writer.process_batch();
         assert_eq!(hub.snapshot().origins().count(), 256);
         let refused = refused_origins();
+        assert_eq!(hub.origins_refused(), 0);
         if queued {
             hub.origin("overflow", OriginState::Down, 2).unwrap();
             writer.process_batch();
@@ -150,6 +151,7 @@ fn the_257th_origin_is_refused_through_the_queue_and_direct_writer() {
             ));
         }
         assert!(refused_origins() > refused);
+        assert_eq!(hub.origins_refused(), 1, "this hub counts its own refusal");
         assert_eq!(hub.snapshot().seq(), 256);
         assert!(hub.snapshot().origin("overflow").is_none());
     }
@@ -170,6 +172,7 @@ fn row_sources_are_bounded_without_charging_local_rows_an_origin_slot() {
     hub.submit_from(Source::V1, overflow).unwrap();
     writer.process_batch();
     assert!(refused_origins() > refused);
+    assert_eq!(hub.origins_refused(), 1);
     assert_eq!(hub.snapshot().len(), 257);
     assert!(hub.snapshot().get("local-row").is_some());
     assert!(hub.snapshot().get_row(&RowKey::new("overflow-origin", "overflow")).is_none());
@@ -425,9 +428,19 @@ fn append_failure_retries_keep_the_source_and_respect_a_later_removed_record() {
             ])
             .env(CHILD, directory.path())
             .env(MODE, mode)
-            .status()
+            // Pipes, not the suite's own stdout: under `ulimit -f 0` a write to an inherited
+            // log file fails (EFBIG), so the child's first line panicked it (exit 101) in CI.
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .output()
             .unwrap();
-        assert!(status.success(), "append failure {mode} child: {status}");
+        assert!(
+            status.status.success(),
+            "append failure {mode} child: {}\n{}{}",
+            status.status,
+            String::from_utf8_lossy(&status.stdout),
+            String::from_utf8_lossy(&status.stderr)
+        );
     }
 }
 

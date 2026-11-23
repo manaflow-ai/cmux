@@ -1,4 +1,4 @@
-// The showcase example extensions (examples/extensions/{weather,recent-prs,agent-pet,
+// The showcase example extensions (examples/extensions/{weather,recent-prs,changes,agent-pet,
 // agent-standup,workspace-notes}) in the fake host. Each imports nothing but cmux-extension-sdk.
 // Their dist/ is build output (gitignored): `cmux ext dev` packs src/main.ts the same way, so
 // these tests pack each one here and mount the result.
@@ -12,7 +12,7 @@ const root = join(import.meta.dir, "../../../../..")
 const dir = (name: string) => join(root, "examples/extensions", name)
 const ok = (value: unknown) => ({ ok: true, body: { value } })
 const fail = (code: string, message = code) => ({ ok: false, body: { code, message, retryable: false } })
-const NAMES = ["weather", "recent-prs", "agent-pet", "agent-standup", "workspace-notes"]
+const NAMES = ["weather", "recent-prs", "agent-pet", "agent-standup", "workspace-notes", "changes"]
 const built = new Map<string, string>()
 beforeAll(async () => {
   for (const name of NAMES) built.set(name, await pack(dir(name)))
@@ -261,5 +261,98 @@ describe("local/showcase-workspace-notes", () => {
     h.mount("w2", "renderNotes")
     await h.settle(10)
     expect(rows(h, "w2").map((r) => r.title)).toEqual(["Ship the weather sample"])
+  })
+})
+
+describe("local/changes", () => {
+  const pull = (n: number, sha: string, extra: Record<string, unknown> = {}) => ({
+    id: 900 + n, number: n, title: `PR ${n}`, html_url: `https://github.com/manaflow-ai/cmux/pull/${n}`, state: "open", draft: false, merged_at: null,
+    user: { login: "octo" }, head: { sha, ref: `topic-${n}` }, additions: 61331, deletions: 707, requested_reviewers: [], requested_teams: [],
+    updated_at: `2026-11-15T0${n % 10}:00:00Z`, ...extra
+  })
+  /** A fake GitHub with `count` open pull requests in manaflow-ai/cmux; `runs` moves a head's checks. */
+  function changes(settings: Record<string, unknown> = {}, count = 2) {
+    const runs: Record<string, unknown[]> = {}
+    for (let n = 1; n <= count; n++) runs[`s${n}`] = [{ status: "completed", conclusion: "failure" }, { status: "completed", conclusion: "failure" }, { status: "completed", conclusion: "success" }]
+    const h = host("changes", settings)
+    h.handlers["integration.request"] = (p) => {
+      const path = new URL(`https://api.github.com${String(p.path)}`).pathname
+      if (path === "/search/issues") return ok({ items: Array.from({ length: count }, (_, i) => ({ number: i + 1, state: "open", repository_url: "https://api.github.com/repos/manaflow-ai/cmux" })) })
+      if (path === "/repos/manaflow-ai/cmux/pulls") return ok([{ number: 2, state: "open" }])
+      const m = path.match(/\/pulls\/(\d+)(\/reviews)?$/)
+      if (m) return ok(m[2] ? [] : pull(Number(m[1]), `s${m[1]}`))
+      const c = path.match(/\/commits\/(\w+)\/(check-runs|status)$/)
+      if (c) return ok(c[2] === "status" ? { statuses: [] } : { check_runs: runs[c[1]!] ?? [] })
+      return fail("validation.invalid", path)
+    }
+    h.handlers["action.run"] = () => ok(null)
+    h.handlers["clipboard.write"] = () => ok(null)
+    h.handlers["workspace.create"] = () => ok({ ok: true })
+    h.handlers["workspace.list"] = () => ok([{ id: "workspace_1", session_id: "session_1", name: "cmux", index: 0, focused: true }])
+    h.handlers["git.status"] = () => ok({ root: "/Users/me/cmux", branch: "topic-2", detached: false, ahead: 0, behind: 0, github_repo: "manaflow-ai/cmux" })
+    return { h, runs }
+  }
+
+  test("a row reads like the reference: title, repo #N, +lines −lines, checks", async () => {
+    const { h } = changes()
+    expect(h.mount("m", "renderChanges")).toBe("")
+    await h.settle(20)
+    const t = texts(h, "m")
+    expect(t).toContain("PR 1")
+    expect(t).toContain("cmux #1")
+    expect(t).toContain("+61,331")
+    expect(t).toContain("−707")
+    expect(t).toContain("2 failing")
+  })
+
+  test("a check that flips redraws only that row's text", async () => {
+    const { h, runs } = changes()
+    h.mount("m", "renderChanges")
+    await h.settle(20)
+    runs.s1 = [{ status: "completed", conclusion: "success" }]
+    h.eval("cmux.watch.refresh('github.changes', { show: 'mine', limit: 10, include: 'open-and-merged' })")
+    await h.settle(20)
+    const t = texts(h, "m")
+    expect(t).toContain("Checks passed")
+    expect(t.filter((x) => x === "2 failing").length).toBe(1)
+  })
+
+  test("five rows, then Show more", async () => {
+    const { h } = changes({}, 8)
+    h.mount("m", "renderChanges")
+    await h.settle(30)
+    expect(texts(h, "m").filter((x) => /^PR \d$/.test(x)).length).toBe(5)
+    const more = h.findNode("m", (n) => n.type === "Button" && n.props.title === "Show more")!
+    h.dispatch("m", more, "tap", { gesture: "g1" })
+    await h.settle(5)
+    expect(texts(h, "m").filter((x) => /^PR \d$/.test(x)).length).toBe(8)
+  })
+
+  test("show: branch lists the selected workspace's branch", async () => {
+    const { h } = changes({ show: "branch" })
+    h.mount("m", "renderChanges")
+    await h.settle(30)
+    const first = h.calls.find((c) => c.name === "integration.request")!
+    expect(String(first.params.path)).toBe("/repos/manaflow-ai/cmux/pulls?head=manaflow-ai%3Atopic-2&state=all&per_page=10")
+    expect(h.calls.find((c) => c.name === "git.status")!.params).toEqual({ workspace: "workspace_1", github: true })
+    expect(texts(h, "m")).toContain("PR 2")
+  })
+
+  test("a click opens the pull request in a cmux browser tab", async () => {
+    const { h } = changes()
+    h.mount("m", "renderChanges")
+    await h.settle(20)
+    const row = h.findNode("m", (n) => n.type === "HStack" && String(n.props.help ?? "").startsWith("PR 1\n"))!
+    h.dispatch("m", row, "tap", { gesture: "g1" })
+    await h.settle()
+    expect(h.calls.find((c) => c.name === "action.run")!.params).toEqual({ id: "openBrowser", args: { url: "https://github.com/manaflow-ai/cmux/pull/1" } })
+  })
+
+  test("a saved search with no query says what to set", async () => {
+    const { h } = changes({ show: "search" })
+    h.mount("m", "renderChanges")
+    await h.settle(10)
+    expect(String(empty(h, "m")!.title)).toBe("No saved search")
+    expect(h.calls.some((c) => c.name === "integration.request")).toBe(false)
   })
 })

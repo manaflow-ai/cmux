@@ -22,16 +22,20 @@ public struct AppsStoreRequest: DaemonRequest, VerbatimFieldsRequest {
 
     public var op: String
     public var args: JSONValue
+    /// The request origin; nil sends none (the daemon reads `script`). `user` (a person's gesture,
+    /// such as a widget layout edit) needs the verified cmux app connection.
+    public var origin: AppsRunRequest.Origin?
 
     /// `apps.panels.list`: the Session Info sections of installed, visible apps.
     public static let panelsList = AppsStoreRequest(op: "apps.panels.list")
 
-    public init(op: String, args: JSONValue = .object([:])) {
+    public init(op: String, args: JSONValue = .object([:]), origin: AppsRunRequest.Origin? = nil) {
         self.op = op
         self.args = args
+        self.origin = origin
     }
 
-    enum CodingKeys: String, CodingKey { case op }
+    enum CodingKeys: String, CodingKey { case op, origin }
     var verbatimFields: [String: JSONValue] { ["args": args] }
 }
 

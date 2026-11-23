@@ -13,6 +13,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { sessionInfoPushAlways, papercutPane } from "./support/papercutChat";
+import { SESSION_INFO, SESSION_INFO_TOGGLE } from "../src/agent-session/acpmux/session-info/sessionInfoSelectors";
 
 await requireBrowserLane("session-info-overlay-transcript.test.ts", async () => {
   setDefaultTimeout(300_000);
@@ -91,8 +92,8 @@ await requireBrowserLane("session-info-overlay-transcript.test.ts", async () => 
               window as unknown as { cmuxAcpmuxBridge: { applyHeaderState(state: unknown): void } }
             ).cmuxAcpmuxBridge.applyHeaderState({ inspector: true, version: 2 });
           });
-          const panel = page.locator("aside.acpmux-session-info");
-          const toggle = page.locator("button.acpmux-session-info-toggle");
+          const panel = page.locator(SESSION_INFO);
+          const toggle = page.locator(SESSION_INFO_TOGGLE);
           await toggle.waitFor({ timeout: 10_000 });
           await page.locator(".acpmux-scroll .acpmux-row .cv-user__bubble").first().waitFor({ timeout: 10_000 });
           if ((await panel.count()) > 0) {

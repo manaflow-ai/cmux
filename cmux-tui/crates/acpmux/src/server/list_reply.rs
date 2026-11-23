@@ -244,7 +244,7 @@ pub(super) async fn watch(hub: &Hub, conn: &Conn, params: &Value) -> Result<Valu
     let on = params.get("enabled").and_then(Value::as_bool).unwrap_or(true);
     let tools = with_tools(params)?;
     conn.watch_tools.store(on && tools, Ordering::SeqCst);
-    conn.watch_all.store(on, Ordering::SeqCst);
+    conn.set_watching(on);
     // The position the reply is current to, read once the watch is on: every change after it is
     // a notice on this connection (`row_log.rs`).
     let head = hub.list_cursor().0;
@@ -425,7 +425,7 @@ fn acp_row(s: &Value) -> Value {
         "sessionId": s.get("sessionId").cloned().unwrap_or(Value::Null),
         "cwd": s.get("cwd").cloned().unwrap_or(Value::Null),
         "title": text("title").or_else(|| text("name")),
-        "updatedAt": super::clock_text::iso(s.get("updatedAt").and_then(Value::as_u64).unwrap_or(0)),
+        "updatedAt": crate::clock_text::iso(s.get("updatedAt").and_then(Value::as_u64).unwrap_or(0)),
         "_meta": {"acpmux": s},
     })
 }

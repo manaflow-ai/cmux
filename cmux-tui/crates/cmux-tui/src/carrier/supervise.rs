@@ -14,14 +14,34 @@
 //!   resume `closed`); `{"token":R,"env":{…}}` answers `read_token` `R` with
 //!   the child's environment (the access token under
 //!   `CMUX_CLOUD_ACCESS_TOKEN`), `{"token":R,"error":E}` with why it has
-//!   none, `{"token":R,"fenced":true}` with the account having ended. Any
-//!   other line is skipped. The end of stdin is a stop.
+//!   none, `{"token":R,"fenced":true}` with the account having ended;
+//!   `{"ahead":D,"keep_ms":K}` dials the machine ahead of its session (ask
+//!   `D`, unique per process; see below). Any other line is skipped. The end
+//!   of stdin is a stop.
 //! - stderr, one JSON object per line, to the app: `{"read_token":R}`;
 //!   `{"resume":[W…],"socket":PATH}` or `{"resume":[W…],"error":E}`;
 //!   `{"publish":"owner"|"team"|"unknown"}` for each connection's grant
 //!   answer; and `{"state":{"refusal":E|null,"answer":…|null}}` whenever
 //!   either changes, before the lines of the same step. `E` is
 //!   `{"kind":…}` with the app's link error fields ([`supervise_wire`]).
+//!   `{"log":TEXT}` names each link step (a connect, park or stop, a child's
+//!   start and exit, the socket ready or a connect's failure, a refusal, an
+//!   unanswered token read) in one bounded line with no credential
+//!   ([`supervise_wire::log_line`]); the app writes it to its unified log,
+//!   category `cloud.carrier`, at a level release builds keep.
+//! - Dial ahead: while a child serves, `ahead` makes this process open one
+//!   connection on the serving socket, which the serve answers by dialing
+//!   the machine (its first accepted connection), so the session's own first
+//!   connection only opens a stream on the session held. The connection
+//!   carries nothing (what the serve sends on it is read and dropped) and is
+//!   held, so the serve keeps that session, until the first of: the next
+//!   `connect` line, a park, a stop or the account's end, its child's exit,
+//!   the serve closing its end (a refused dial), or `K` ms (at most an hour).
+//!   At most one is held. Its dial's outcome comes as every connection's
+//!   does (a `publish` line, or a refusal in `state`). An ask that holds no
+//!   connection (no child serves yet, one is held already, or the socket took
+//!   none), or whose child exits under its connection, is answered
+//!   `{"ahead":D,"held":false}`.
 //! - The serve child is this executable's `carrier serve --machine --socket`,
 //!   spawned with this process's environment plus the app's `env`. Its stdin
 //!   gets the token lines; its stderr lines become the machine's events; its
@@ -46,12 +66,13 @@ use std::time::Duration;
 
 use cmux_file_lock::{FileLock, Kind};
 use cmux_scope::Scope;
-use tokio::io::AsyncBufReadExt as _;
+use tokio::io::{AsyncBufReadExt as _, AsyncReadExt as _};
+use tokio::net::UnixStream;
 use tokio::net::unix::pipe;
 use tokio::sync::{mpsc, oneshot};
 
 use super::serve_machine::{
-    Caller, ChildId, Effect, Env, Epoch, Event, LinkError, ReadId, ServeMachine, State,
+    Caller, ChildId, Effect, Env, Epoch, Event, LinkError, ReadId, ServeMachine, State, TokenRead,
 };
 use super::supervise_wire::{self as wire, AppLine};
 use super::{contract, serve_policy};
@@ -66,6 +87,14 @@ pub(super) const KILL_AFTER: Duration = Duration::from_secs(5);
 /// The longest a launch waits for another supervisor's child to give up
 /// the socket: its stop grace and SIGTERM.
 pub(super) const LEASE_WAIT: Duration = Duration::from_secs(10);
+/// How long the app has to answer a `read_token` line. The launch waits
+/// for that answer with the socket's lease held and every connect joins it,
+/// so an answer that never comes (lost, or an app read that never returns)
+/// would wedge the session's link for good (2026-11-15: every Cloud chat
+/// start waited 180 s on such a read). Past it the read fails, the connects
+/// resume with that error and the next connect reads again. The app answers
+/// within its own 75 s.
+pub(super) const TOKEN_READ_DEADLINE: Duration = Duration::from_secs(90);
 /// How long a token line may take to go out.
 const WRITE_LIMIT: Duration = Duration::from_secs(5);
 /// How long stderr is still read after the child exited (a process it
@@ -87,6 +116,8 @@ pub(super) struct Config {
     pub stop_grace: Duration,
     pub kill_after: Duration,
     pub lease_wait: Duration,
+    /// How long a `read_token` line waits for the app's answer.
+    pub token_read_deadline: Duration,
     pub refresh_delay: fn(&str) -> Duration,
     pub check: fn(&str) -> Result<(), LinkError>,
 }
@@ -106,6 +137,7 @@ impl Config {
             stop_grace: STOP_GRACE,
             kill_after: KILL_AFTER,
             lease_wait: LEASE_WAIT,
+            token_read_deadline: TOKEN_READ_DEADLINE,
             refresh_delay: wire::refresh_delay,
             check: serve_policy::check,
         }
@@ -223,7 +255,16 @@ enum Msg {
         generation: u64,
         epoch: Epoch,
     },
+    /// A `read_token` line's deadline: the read fails when it is still unanswered.
+    TokenReadDeadline(ReadId),
     Signal(ChildId, i32),
+    /// The connection of `ahead` ask `dial` is gone (its keep ended or the
+    /// serve closed its end), or was never made (`connected` false).
+    AheadEnded {
+        generation: u64,
+        dial: u64,
+        connected: bool,
+    },
 }
 
 /// A child's pid, signalled only while it is unreaped: its waiter marks it
@@ -258,7 +299,8 @@ struct Supervisor {
     tx: mpsc::UnboundedSender<Msg>,
     scope: Scope,
     children: HashMap<ChildId, ChildSlot>,
-    reads: HashMap<ReadId, Epoch>,
+    /// Each unanswered `read_token` line: its launch's epoch, and its deadline (dropping it cancels the deadline).
+    reads: HashMap<ReadId, (Epoch, oneshot::Sender<()>)>,
     /// The socket lease and the child that took it over (None: the launch
     /// that claimed it has not spawned yet).
     lease: Option<(FileLock, Option<ChildId>)>,
@@ -267,6 +309,10 @@ struct Supervisor {
     /// The refusal and answer the app last got.
     shown: (Option<LinkError>, Option<Caller>),
     queue: VecDeque<Event>,
+    /// The connection that dialed the machine ahead of its session, held by
+    /// its task for the ask it names: dropping the sender closes it. The
+    /// generation tells a current task's end from an older one's.
+    ahead: (u64, Option<(u64, oneshot::Sender<()>)>),
 }
 
 impl Supervisor {
@@ -286,6 +332,7 @@ impl Supervisor {
             refresh: (0, None),
             shown,
             queue: VecDeque::new(),
+            ahead: (0, None),
         }
     }
 
@@ -298,23 +345,52 @@ impl Supervisor {
         match msg {
             Msg::App(text) => match wire::app_line(&text) {
                 Some(AppLine::Connect { waiter, keep_refusal }) => {
+                    // A client connects: the connection that dialed ahead
+                    // goes. A dial still running for it goes on in the serve
+                    // (which reads no connection before its stream is open),
+                    // and the client's connection joins it.
+                    self.drop_ahead();
+                    self.note(&format!("connect {waiter}"));
                     self.dispatch(Event::Connect { waiter, keep_refusal });
                 }
-                Some(AppLine::Park) => self.dispatch(Event::Park),
-                Some(AppLine::Stop) => self.dispatch(Event::Stop),
-                Some(AppLine::AccountEnded) => self.dispatch(Event::AccountEnded),
+                Some(AppLine::Park) => {
+                    self.drop_ahead();
+                    self.note("park");
+                    self.dispatch(Event::Park);
+                }
+                Some(AppLine::Stop) => {
+                    self.drop_ahead();
+                    self.note("stop");
+                    self.dispatch(Event::Stop);
+                }
+                Some(AppLine::AccountEnded) => {
+                    self.drop_ahead();
+                    self.note("account ended: stop");
+                    self.dispatch(Event::AccountEnded);
+                }
                 Some(AppLine::Token { read, result }) => {
-                    if let Some(epoch) = self.reads.remove(&read) {
+                    if let Some((epoch, _deadline)) = self.reads.remove(&read) {
                         self.dispatch(Event::TokenRead { epoch, read, result });
                     }
                 }
+                Some(AppLine::Ahead { dial, keep }) => self.dial_ahead(dial, keep),
                 None => {}
             },
-            Msg::AppEnded => self.dispatch(Event::Stop),
+            Msg::AppEnded => {
+                self.drop_ahead();
+                self.note("the app's input ended: stop");
+                self.dispatch(Event::Stop);
+            }
             Msg::Event(event) => self.dispatch(event),
             Msg::Claimed { epoch, lease } => {
                 // A claim the machine left behind gives its lease back here.
                 if self.machine.is_claiming(epoch) {
+                    if lease.is_none() {
+                        let waited = self.config.lease_wait.as_secs();
+                        self.note(&format!(
+                            "another supervisor kept the socket past {waited} s: launching anyway"
+                        ));
+                    }
                     self.lease = lease.map(|lease| (lease, None));
                     self.dispatch(Event::SocketClaimed(epoch));
                 }
@@ -322,6 +398,15 @@ impl Supervisor {
             Msg::ReadyTimer { generation, epoch } => {
                 if generation == self.ready.0 {
                     self.dispatch(Event::ReadyDeadline(epoch));
+                }
+            }
+            Msg::TokenReadDeadline(read) => {
+                if let Some((epoch, _deadline)) = self.reads.remove(&read) {
+                    let waited = self.config.token_read_deadline.as_secs();
+                    self.note(&format!("token read {read} unanswered after {waited} s"));
+                    let reason = "the app did not answer its access token read".to_owned();
+                    let result = TokenRead::Failed(LinkError::HelperNotRunning { reason });
+                    self.dispatch(Event::TokenRead { epoch, read, result });
                 }
             }
             Msg::RefreshTimer { generation, epoch } => {
@@ -334,7 +419,45 @@ impl Supervisor {
                     slot.reap.signal(signal);
                 }
             }
+            Msg::AheadEnded { generation, dial, connected } => {
+                // An older ask's task, or one already dropped, says nothing.
+                if generation == self.ahead.0 && self.ahead.1.take().is_some() {
+                    if connected {
+                        self.note(&format!("ahead {dial}: its connection ended"));
+                    } else {
+                        self.note(&format!("ahead {dial}: the serving socket took no connection"));
+                        (self.out)(wire::ahead_not_held_line(dial));
+                    }
+                }
+            }
         }
+    }
+
+    /// One connection on the serving socket, held for at most `keep`: the
+    /// serve dials the machine for it (the contract's "Dial ahead").
+    fn dial_ahead(&mut self, dial: u64, keep: Duration) {
+        if !matches!(self.machine.state(), State::Ready(..)) || self.ahead.1.is_some() {
+            self.note(&format!("ahead {dial}: not held (no serve is ready, or one is held)"));
+            (self.out)(wire::ahead_not_held_line(dial));
+            return;
+        }
+        let generation = self.ahead.0.wrapping_add(1);
+        let (cancel, cancelled) = oneshot::channel::<()>();
+        let (socket, tx) = (self.config.socket.clone(), self.tx.clone());
+        self.scope.spawn_until_cancelled("carrier supervise ahead", async move {
+            let connected = hold_ahead(&socket, keep, cancelled).await;
+            let _ = tx.send(Msg::AheadEnded { generation, dial, connected });
+        });
+        self.ahead = (generation, Some((dial, cancel)));
+        self.note(&format!("ahead {dial}: dialing"));
+    }
+
+    /// Closes the connection held ahead, if one is; its ask.
+    fn drop_ahead(&mut self) -> Option<u64> {
+        let (dial, _cancel) = self.ahead.1.take()?;
+        self.ahead.0 = self.ahead.0.wrapping_add(1);
+        self.note(&format!("ahead {dial}: its connection is dropped"));
+        Some(dial)
     }
 
     /// Reduces `event`, and every event its effects queue, in order.
@@ -342,7 +465,10 @@ impl Supervisor {
         self.queue.push_back(event);
         while let Some(event) = self.queue.pop_front() {
             let exited = match &event {
-                Event::ChildExit { child, .. } => Some(*child),
+                Event::ChildExit { child, code } => {
+                    self.note(&format!("serve child {child} exited with code {code}"));
+                    Some(*child)
+                }
                 _ => None,
             };
             let effects = self.machine.reduce(event);
@@ -356,6 +482,11 @@ impl Supervisor {
                 self.lease = None;
             }
             if let Some(child) = exited {
+                // Its socket is gone with it: an ask still waiting for the
+                // serve's answer is told now, not left to its limit.
+                if let Some(dial) = self.drop_ahead() {
+                    (self.out)(wire::ahead_not_held_line(dial));
+                }
                 self.children.remove(&child);
                 if matches!(self.lease, Some((_, Some(owner))) if owner == child) {
                     self.lease = None;
@@ -367,16 +498,34 @@ impl Supervisor {
     fn show_state(&mut self) {
         let now = (self.machine.refusal(), self.machine.answer());
         if now != self.shown {
+            if now.0 != self.shown.0 {
+                match &now.0 {
+                    Some(refusal) => self.note(&format!("refused: {}", wire::error_json(refusal))),
+                    None => self.note("refusal cleared"),
+                }
+            }
+            if let Some(answer) = now.1
+                && now.1 != self.shown.1
+            {
+                self.note(&format!("answer {}", answer.word()));
+            }
             (self.out)(wire::state_line(now.0.as_ref(), now.1));
             self.shown = now;
         }
+    }
+
+    /// One link step's `log` line ([`wire::log_line`]).
+    fn note(&self, text: &str) {
+        (self.out)(wire::log_line(text));
     }
 
     fn run(&mut self, effect: Effect) {
         match effect {
             Effect::ClaimSocket(epoch) => self.claim(epoch),
             Effect::ReadToken(epoch, read) => {
-                self.reads.insert(read, epoch);
+                let deadline =
+                    self.timer(self.config.token_read_deadline, Msg::TokenReadDeadline(read));
+                self.reads.insert(read, (epoch, deadline));
                 (self.out)(wire::read_token_line(read));
             }
             Effect::Spawn { child, env } => self.spawn(child, &env),
@@ -411,7 +560,17 @@ impl Supervisor {
             }
             Effect::Terminate(child) => self.terminate(child, Duration::ZERO),
             Effect::TerminateAfterGrace(child) => self.terminate(child, self.config.stop_grace),
-            Effect::Resume(waiters, result) => (self.out)(wire::resume_line(&waiters, &result)),
+            Effect::Resume(waiters, result) => {
+                let connects =
+                    waiters.iter().map(ToString::to_string).collect::<Vec<_>>().join(",");
+                match &result {
+                    _ if waiters.is_empty() => {}
+                    Ok(_) => self.note(&format!("socket ready for connect {connects}")),
+                    Err(error) => self
+                        .note(&format!("connect {connects} failed: {}", wire::error_json(error))),
+                }
+                (self.out)(wire::resume_line(&waiters, &result));
+            }
             Effect::Publish(caller) => (self.out)(wire::publish_line(caller)),
         }
     }
@@ -482,6 +641,7 @@ impl Supervisor {
         let mut process = match command.spawn() {
             Ok(process) => process,
             Err(error) => {
+                self.note(&format!("serve child {child} did not start: {error}"));
                 let failure =
                     LinkError::disconnected(&format!("cmux carrier serve did not start: {error}"));
                 self.queue.push_back(Event::Spawned { child, failure: Some(failure) });
@@ -518,8 +678,37 @@ impl Supervisor {
         {
             *owner = Some(child);
         }
+        self.note(&format!("serve child {child} started"));
         self.queue.push_back(Event::Spawned { child, failure: None });
     }
+}
+
+/// One connection on the serving socket at `socket`, held until `keep`
+/// passed (counted from the ask), the serve closed its end, or `cancelled`
+/// (its sender dropped), which also ends a connect still under way. What
+/// the serve sends on it is read and dropped. False when no connection was
+/// made: the socket took none, or `keep` passed first.
+async fn hold_ahead(socket: &str, keep: Duration, mut cancelled: oneshot::Receiver<()>) -> bool {
+    let kept = tokio::time::sleep(keep);
+    tokio::pin!(kept);
+    let mut stream = tokio::select! {
+        stream = UnixStream::connect(socket) => match stream {
+            Ok(stream) => stream,
+            Err(_) => return false,
+        },
+        () = &mut kept => return false,
+        _ = &mut cancelled => return true,
+    };
+    let ended = async {
+        let mut dropped = [0_u8; 1024];
+        while matches!(stream.read(&mut dropped).await, Ok(read) if read > 0) {}
+    };
+    tokio::select! {
+        () = ended => {}
+        () = &mut kept => {}
+        _ = &mut cancelled => {}
+    }
+    true
 }
 
 /// Takes the lease at `path` within `wait`; None when another holder kept
@@ -527,6 +716,7 @@ impl Supervisor {
 fn take_lease(path: &Path, wait: Duration) -> Option<FileLock> {
     let file =
         OpenOptions::new().create(true).truncate(false).write(true).mode(0o600).open(path).ok()?;
+    // short-gate: 50 ms is the retry interval between lock attempts; `wait` is the deadline.
     FileLock::take_within(file, Kind::Exclusive, wait, Duration::from_millis(50)).ok()
 }
 
