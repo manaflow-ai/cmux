@@ -18,11 +18,12 @@ import { Popover, type UiVirtualAnchor } from "../../ui/Popover";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
 import { focusRoute } from "../../ui/focusRoute";
 import { DrivenList, DrivenRow, InlineCard } from "../../ui/DrivenList";
+import { VirtualList } from "../../ui/VirtualList";
 import { isMousePress } from "../../ui/pressRelease";
 import { useOpenSide } from "../../ui/openSide";
 import { AddAccountDialog } from "./AddAccountDialog";
 import { SearchIcon } from "./ComposerPickers";
-import { nearestLevel, reasoningChoices, type Choice } from "./composerPickerModel";
+import { reasoningChoices, type Choice, nearestLevel } from "./composerPickerModel";
 import { isDefaultChoice } from "./defaultChoice";
 import { useT } from "./i18n";
 import { OnNewTab } from "./newTabComposer";
@@ -60,6 +61,7 @@ import {
   type QuickFamily,
   type QuickMenu,
   type QuickModel,
+  type QuickSearchGroup,
 } from "./quickModelMenuModel";
 import "./quickModelColumns.css";
 
@@ -150,6 +152,14 @@ const PlusIcon = () => (
     <path d="M6 2v8M2 6h8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
   </svg>
 );
+
+/// From this many model rows the models column draws only the rows in view (VirtualList); a shorter
+/// column draws every row, as it always has.
+const VIRTUAL_COLUMN_ROWS = 100;
+/// Where the virtual list places a row: its style, its measuring ref and its index.
+type RowPlace = { style: React.CSSProperties; ref?: (element: Element | null) => void; "data-index": string };
+/// A drawn entry of a long models column: a search's harness heading, or a model row with its index.
+type ColumnEntry = { kind: "group"; group: QuickSearchGroup } | { kind: "row"; model: QuickModel; index: number };
 
 /// Marks a scrolling column with the edges that have more rows past them (`data-fade-top`,
 /// `data-fade-bottom`), so CSS fades that edge: a sign the column scrolls.
@@ -836,6 +846,7 @@ function Columns({
     }
   }, []);
   const rowsKey = rows.map((model) => `${model.family}\u0000${model.id}`).join("\u0001");
+  const virtualRows = rows.length > VIRTUAL_COLUMN_ROWS;
   useLayoutEffect(() => {
     const list = modelsListElement;
     if (!open || !list) return;
@@ -843,8 +854,16 @@ function Columns({
     if (typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(() => markStarRooms(list));
     observer.observe(list);
-    return () => observer.disconnect();
-  }, [open, modelsListElement, rowsKey, pending, current, markStarRooms]);
+    // A long list draws only its rows in view (VirtualList): rows drawn as it scrolls get theirs too.
+    const drawn = list.querySelector(".ui-virtual-space");
+    const added =
+      drawn && typeof MutationObserver !== "undefined" ? new MutationObserver(() => markStarRooms(list)) : undefined;
+    if (drawn) added?.observe(drawn, { childList: true });
+    return () => {
+      observer.disconnect();
+      added?.disconnect();
+    };
+  }, [open, modelsListElement, rowsKey, pending, current, markStarRooms, virtualRows]);
   // Edge and corner drags share one frame update and pin the sides nearest the chip.
   const startResize = (event: React.PointerEvent<HTMLDivElement>, axes: "width" | "height" | "both") => {
     const popup = popupRef.current;
@@ -1326,14 +1345,16 @@ function Columns({
     </InlineCard>
   );
 
-  const modelRow = (model: QuickModel, index: number) => {
+  const modelRow = (model: QuickModel, index: number, place?: RowPlace) => {
     const stars = families.stars;
     const starred = stars?.has(model) ?? false;
     const running = isChosen(model);
     return (
       <DrivenRow
         key={`${model.family}\u0000${model.id}`}
-        data-flip={`${model.family}\u0000${model.id}`}
+        {...place}
+        // A virtual row is placed by its own transform, which the glide's keyframe would override.
+        data-flip={place ? undefined : `${model.family}\u0000${model.id}`}
         id={`acpmux-cols-model-${index}`}
         kind="option"
         aria-selected={running}
@@ -1388,27 +1409,65 @@ function Columns({
     );
   };
 
+  // A search's harness heading over its rows.
+  const groupHead = (group: QuickSearchGroup, place?: RowPlace) => (
+    <div
+      key={`group\u0000${group.id}`}
+      className="acpmux-cols-group"
+      data-flip={place ? undefined : `group\u0000${group.id}`}
+      {...place}
+    >
+      <AgentMark agent={list.find((family) => family.id === group.rows[0]?.family)?.mark} size={12} />
+      {group.name}
+      {group.note && <span className="acpmux-cols-group-note">{group.note}</span>}
+    </div>
+  );
+  // The list as the virtual list draws it: each heading, then its rows (the rows keep their index).
+  const entries: ColumnEntry[] = !virtualRows
+    ? []
+    : groups
+      ? groups.flatMap((group, at) => {
+          const start = groups.slice(0, at).reduce((sum, prior) => sum + prior.rows.length, 0);
+          return [
+            { kind: "group" as const, group },
+            ...group.rows.map((model, offset) => ({ kind: "row" as const, model, index: start + offset })),
+          ];
+        })
+      : rows.map((model, index) => ({ kind: "row" as const, model, index }));
+  const hlEntry = virtualRows ? entries.findIndex((entry) => entry.kind === "row" && entry.index === hl) : -1;
   let before = 0;
-  const models = groups
-    ? groups.map((group) => {
-        const start = before;
-        before += group.rows.length;
-        return (
-          <Fragment key={group.id}>
-            <div className="acpmux-cols-group" data-flip={`group\u0000${group.id}`}>
-              <AgentMark agent={list.find((family) => family.id === group.rows[0]?.family)?.mark} size={12} />
-              {group.name}
-              {group.note && <span className="acpmux-cols-group-note">{group.note}</span>}
-            </div>
-            {group.rows.map((model, offset) => modelRow(model, start + offset))}
-          </Fragment>
-        );
-      })
-    : // One plain list: no caption names the tab or its Legacy models, which follow its models
-      // (standup 2026-11-12: "we don't need labels"). The rail's selected tab names the harness.
-      rows.map((model, index) => (
-        <Fragment key={`${model.family}\u0000${model.id}`}>{modelRow(model, index)}</Fragment>
-      ));
+  const models = virtualRows ? (
+    // Past VIRTUAL_COLUMN_ROWS (a harness listing a whole provider, a broad search) only the rows in
+    // view are drawn: opening the menu or typing a key costs the same at 1,000 models as at a dozen.
+    <VirtualList
+      count={entries.length}
+      estimateSize={(at) => (entries[at]?.kind === "group" ? 26 : 28)}
+      measureRows
+      activeIndex={hlEntry >= 0 ? hlEntry : undefined}
+      activeScrollKey={`${tab}:${query}`}
+      role="presentation"
+      scrollParent=".acpmux-cols-list"
+      renderRow={(at, style, measure) => {
+        const entry = entries[at]!;
+        const place: RowPlace = { style, ref: measure, "data-index": String(at) };
+        return entry.kind === "row" ? modelRow(entry.model, entry.index, place) : groupHead(entry.group, place);
+      }}
+    />
+  ) : groups ? (
+    groups.map((group) => {
+      const start = before;
+      before += group.rows.length;
+      return (
+        <Fragment key={group.id}>
+          {groupHead(group)}
+          {group.rows.map((model, offset) => modelRow(model, start + offset))}
+        </Fragment>
+      );
+    }) // One plain list: no caption names the tab or its Legacy models, which follow its models
+  ) : (
+    // (standup 2026-11-12: "we don't need labels"). The rail's selected tab names the harness.
+    rows.map((model, index) => <Fragment key={`${model.family}\u0000${model.id}`}>{modelRow(model, index)}</Fragment>)
+  );
 
   let tuneIndex = -1;
   const tuneRow = (

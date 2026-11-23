@@ -916,6 +916,47 @@ export const CHAT_FLOWS_PAGE: LatencyPageSpec = {
   actions: flowActions,
 };
 
+// The model menu over a harness that lists 1,000 more models (flows.harness.ts `models=1000`): the
+// menu the chip opens (QuickModelColumns), and a key into its search, which lists every match under
+// its harness. Each should paint as fast as with a dozen models (constant cost as the list grows).
+const MODEL_MENU = ".acpmux-cols";
+const MODEL_SEARCH = ".acpmux-cols-search input";
+const MODEL_ROW = ".acpmux-cols .acpmux-cols-list .acpmux-cols-row[role='option']";
+async function closeModelMenu(page: Page): Promise<void> {
+  await page.keyboard.press("Escape");
+  if (await page.$(MODEL_MENU)) await page.keyboard.press("Escape");
+  await page.waitForSelector(MODEL_MENU, { state: "detached" });
+  await quiet(page);
+}
+const longModelActions: LatencyAction[] = [
+  pickerOpen("chat.picker.model.open.models-1000", "model menu open (1,000 models)", MODEL_PICKER, MODEL_ROW),
+  {
+    id: "chat.picker.model.search.models-1000",
+    name: "model menu search key (1,000 models)",
+    metricType: "target_painted",
+    requiredInstrumentation: requiredProfiled,
+    async prepare(page) {
+      await flowChat(page);
+      await page.click(MODEL_PICKER);
+      await page.waitForSelector(MODEL_ROW);
+      await page.focus(MODEL_SEARCH);
+      await quiet(page);
+      return shown(".acpmux-cols .acpmux-cols-group");
+    },
+    async input(page) {
+      await page.keyboard.press("l");
+    },
+    settle: closeModelMenu,
+  },
+];
+
+export const LONG_MODEL_PICKER_PAGE: LatencyPageSpec = {
+  name: "chat flows 1000 models",
+  path: "/test/latency/flows.html?mock&recents=demo&models=1000",
+  ready: `document.documentElement.dataset.latencyFlowsReady === "true"`,
+  actions: longModelActions,
+};
+
 function longScroll(resident: boolean): LatencyAction {
   return {
     id: `chat.scroll.3000.${resident ? "resident" : "paged"}`,
@@ -1375,6 +1416,8 @@ export const PAGES: LatencyPageSpec[] = [
   // demand with CMUX_LATENCY_EXPERIMENTS=1, never in the CI scoreboard.
   // Typing behind a long draft: run on demand with CMUX_LATENCY_DRAFTS=1, never in the CI scoreboard.
   ...(process.env.CMUX_LATENCY_DRAFTS === "1" ? DRAFT_TYPING_PAGES : []),
+  // A 1,000-model picker: run on demand with CMUX_LATENCY_PICKERS=1, never in the CI scoreboard.
+  ...(process.env.CMUX_LATENCY_PICKERS === "1" ? [LONG_MODEL_PICKER_PAGE] : []),
   ...(process.env.CMUX_LATENCY_EXPERIMENTS === "1" ? CHAT_SWITCH_PAGES : []),
   ...(process.env.CMUX_LATENCY_EXPERIMENTS === "1" ? GLASS_PAGES : []),
   ...(process.env.CMUX_LATENCY_EXPERIMENTS === "1" ? LIVE_BACKGROUND_PAGES : []),

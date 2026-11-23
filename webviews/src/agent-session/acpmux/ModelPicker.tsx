@@ -10,6 +10,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 import { AgentMark, agentBrand, hasAgentMark } from "../shared/AgentMark";
@@ -57,6 +58,7 @@ import {
   PickerOptionList,
 } from "../../ui/PickerPrimitives";
 import { ScrollArea } from "../../ui/ScrollArea";
+import { VirtualList } from "../../ui/VirtualList";
 import { quantizePickerRail } from "./pickerRailGeometry";
 import { CLAUDE_STDIO_KIND, type HarnessChoice, uniqueHarnesses, withoutVendor } from "./modelPickerModel";
 import { ClaudeConnectRow } from "./ClaudeConnectRow";
@@ -354,6 +356,11 @@ const railTab =
 /// utilities on one element resolve by Tailwind's output order, not by the class list.
 const modelRow =
   "flex h-[var(--ui-row-height,28px)] w-full cursor-default items-center gap-2 rounded-[var(--ui-row-radius,5px)] border-0 px-2 text-left font-[inherit] text-control text-fg disabled:opacity-50";
+/// From this many model rows the list draws only the rows in view (VirtualList); a shorter list
+/// draws every row, as it always has.
+const VIRTUAL_MODEL_ROWS = 100;
+/// A model row's height before it is measured: the shared row height.
+const modelRowEstimate = () => 28;
 /// The active row (pointer or arrows) has the hover wash; any other row gets it on hover.
 const rowFill = (active: boolean) => (active ? "bg-hover" : "bg-transparent hover:bg-hover");
 const emptyNote = "px-2.5 py-2 text-body text-muted";
@@ -1361,6 +1368,69 @@ export function ModelPicker(props: ModelPickerProps) {
       <span className="sr-only">{forkText}</span>
     </span>
   );
+  // One model row; `style` and `measure` place it in the virtual list.
+  const modelRowAt = (
+    model: ModelChoice,
+    index: number,
+    style?: CSSProperties,
+    measure?: (element: Element | null) => void,
+  ) => {
+    const ran = model.id === props.model && !!owners.get(model)?.ids.includes(harness ?? "");
+    // The checked row is what the next message runs: a held pick, else the chat's model.
+    const checked = held ? model.id === held.model && !!owners.get(model)?.ids.includes(held.harness) : ran;
+    return (
+      <div
+        className="group relative flex items-center"
+        key={`${owners.get(model)?.id}:${model.id}`}
+        style={style}
+        ref={measure}
+        data-index={measure ? index : undefined}
+      >
+        <PickerOption
+          type="button"
+          id={modelRowId(model.id)}
+          data-key={`model:${model.id}`}
+          selected={index === active}
+          aria-checked={checked}
+          className={`acpmux-mp-row ${modelRow} ${rowFill(index === active)} ${checked ? "pr-14" : "pr-8"}${index === active ? " acpmux-mp-active" : ""}`}
+          onPointerEnter={() => setActive(index)}
+          disabled={Boolean(model.unavailable || model.defaultChoice)}
+          onClick={() => selectModel(model)}
+          active={index === active}
+        >
+          {(starredView || searching) && (
+            <AgentMark agent={owners.get(model)?.mark ?? owners.get(model)?.id} size={14} reserve />
+          )}
+          <span className="acpmux-menu-label min-w-0 truncate">{model.name}</span>
+          {ran && used && <UsedMark look={used} />}
+          <span className="flex-1" />
+          {searching && (parsed.effort || parsed.fast) && (
+            <span className="acpmux-mp-combo flex-none text-detail text-dim">
+              {[modelEffort(model, parsed.effort), parsed.fast ? fastText : undefined].filter(Boolean).join(" · ")}
+            </span>
+          )}
+          {model.unavailable && <span className="flex-none text-detail text-dim">{unavailableText}</span>}
+        </PickerOption>
+        <span className="pointer-events-none absolute right-1.5 flex items-center">
+          <button
+            type="button"
+            className={`acpmux-mp-favorite pointer-events-auto grid size-6 cursor-default place-items-center rounded-control border-0 bg-transparent p-0 text-muted hover:text-fg ${favorites.has(model.id) ? "" : "invisible group-hover:visible focus-visible:visible"}`}
+            aria-label={`${starredText}: ${model.name}`}
+            aria-pressed={favorites.has(model.id)}
+            title={t(favorites.has(model.id) ? "picker.unstar" : "picker.star")}
+            onClick={() => toggleFavorite(model.id)}
+          >
+            <StarGlyph filled={favorites.has(model.id)} size={14} />
+          </button>
+          {checked && (
+            <span className="grid size-6 place-items-center text-muted">
+              <CheckIcon />
+            </span>
+          )}
+        </span>
+      </div>
+    );
+  };
   // The chip's right-click customizes it (Leo 2026-11-08: "make right clicking the model picker let
   // you customize"). Its menu host wraps the chip's button inside the chip, drawn as display:
   // contents, so the composer row's chips keep their siblings and fit (composerRowFit.ts). A
@@ -1722,7 +1792,7 @@ export function ModelPicker(props: ModelPickerProps) {
                 </button>
               )}
             </div>
-            <ScrollArea fade className="min-h-0 flex-1">
+            <ScrollArea fade className="min-h-0 flex-1" viewportClassName="acpmux-mp-scroll">
               <PickerOptionList
                 id={`${menuId}-models`}
                 className="acpmux-mp-models"
@@ -1838,64 +1908,21 @@ export function ModelPicker(props: ModelPickerProps) {
                         ? t("picker.noModels")
                         : noMatchesText}
                   </div>
+                ) : visible.length >= VIRTUAL_MODEL_ROWS ? (
+                  // A list past ~100 rows (a harness listing a whole provider, a broad search) draws
+                  // only the rows in view, so opening it or typing costs the same at 1,000 models.
+                  <VirtualList
+                    count={visible.length}
+                    estimateSize={modelRowEstimate}
+                    activeIndex={active}
+                    activeScrollKey={visible[active]?.id}
+                    role="presentation"
+                    scrollParent=".acpmux-mp-scroll"
+                    measureRows
+                    renderRow={(index, style, measure) => modelRowAt(visible[index]!, index, style, measure)}
+                  />
                 ) : (
-                  visible.map((model, index) => {
-                    const ran = model.id === props.model && !!owners.get(model)?.ids.includes(harness ?? "");
-                    // The checked row is what the next message runs: a held pick, else the chat's model.
-                    const checked = held
-                      ? model.id === held.model && !!owners.get(model)?.ids.includes(held.harness)
-                      : ran;
-                    return (
-                      <div className="group relative flex items-center" key={`${owners.get(model)?.id}:${model.id}`}>
-                        <PickerOption
-                          type="button"
-                          id={modelRowId(model.id)}
-                          data-key={`model:${model.id}`}
-                          selected={index === active}
-                          aria-checked={checked}
-                          className={`acpmux-mp-row ${modelRow} ${rowFill(index === active)} ${checked ? "pr-14" : "pr-8"}${index === active ? " acpmux-mp-active" : ""}`}
-                          onPointerEnter={() => setActive(index)}
-                          disabled={Boolean(model.unavailable || model.defaultChoice)}
-                          onClick={() => selectModel(model)}
-                          active={index === active}
-                        >
-                          {(starredView || searching) && (
-                            <AgentMark agent={owners.get(model)?.mark ?? owners.get(model)?.id} size={14} reserve />
-                          )}
-                          <span className="acpmux-menu-label min-w-0 truncate">{model.name}</span>
-                          {ran && used && <UsedMark look={used} />}
-                          <span className="flex-1" />
-                          {searching && (parsed.effort || parsed.fast) && (
-                            <span className="acpmux-mp-combo flex-none text-detail text-dim">
-                              {[modelEffort(model, parsed.effort), parsed.fast ? fastText : undefined]
-                                .filter(Boolean)
-                                .join(" · ")}
-                            </span>
-                          )}
-                          {model.unavailable && (
-                            <span className="flex-none text-detail text-dim">{unavailableText}</span>
-                          )}
-                        </PickerOption>
-                        <span className="pointer-events-none absolute right-1.5 flex items-center">
-                          <button
-                            type="button"
-                            className={`acpmux-mp-favorite pointer-events-auto grid size-6 cursor-default place-items-center rounded-control border-0 bg-transparent p-0 text-muted hover:text-fg ${favorites.has(model.id) ? "" : "invisible group-hover:visible focus-visible:visible"}`}
-                            aria-label={`${starredText}: ${model.name}`}
-                            aria-pressed={favorites.has(model.id)}
-                            title={t(favorites.has(model.id) ? "picker.unstar" : "picker.star")}
-                            onClick={() => toggleFavorite(model.id)}
-                          >
-                            <StarGlyph filled={favorites.has(model.id)} size={14} />
-                          </button>
-                          {checked && (
-                            <span className="grid size-6 place-items-center text-muted">
-                              <CheckIcon />
-                            </span>
-                          )}
-                        </span>
-                      </div>
-                    );
-                  })
+                  visible.map((model, index) => modelRowAt(model, index))
                 )}
                 {olderCount > 0 && !(selectedOther && selected?.folder && visible.length === 0) && (
                   <button
