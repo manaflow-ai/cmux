@@ -1373,6 +1373,9 @@ dependencies = [
 [[package]]
 name = "cmux-auth-coordinator"
 version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
 
 [[package]]
 name = "cmux-automations"
@@ -2392,6 +2395,7 @@ dependencies = [
  "cmux-pty",
  "cmux-relay",
  "cmux-remote-protocol",
+ "cmux-signed-envelope",
  "cmux-tui-core",
  "cmux-unix-socket",
  "cmux-wg",
