@@ -74,9 +74,8 @@ const MATCHES: SlashMatch[] = [
   { command: { name: "review", description: "Review a pull request", source: "skill" }, ranges: [] },
 ];
 
-// The rows are names only (a1315's cuts, 2026-11-21): the highlighted row also reads its arguments,
-// then a dash and what it does, and the panel's line follows the highlight (popupHost re-reads the
-// rows on every change).
+// Every row reads its description; the highlighted row also reads its arguments.
+// Optional keyboard hints never change the native panel labels.
 test("the highlighted row reads as command, arguments, then a dash and what it does in the native panel", async () => {
   const host = installDom();
   root = createRoot(host);
@@ -99,16 +98,16 @@ test("the highlighted row reads as command, arguments, then a dash and what it d
   const labels = () => popupItems(list, "list").items.map((item) => item.label);
   expect(labels()).toEqual([
     "/compact — Clear conversation history but keep a summary",
-    "/model",
-    "/customize",
-    "/review",
+    "/model — Model",
+    "/customize — Customize cmux by asking: it changes live, then you apply or discard",
+    "/review — Review a pull request",
   ]);
   await show(2);
   expect(labels()).toEqual([
-    "/compact",
-    "/model",
+    "/compact — Clear conversation history but keep a summary",
+    "/model — Model",
     "/customize <change> — Customize cmux by asking: it changes live, then you apply or discard",
-    "/review",
+    "/review — Review a pull request",
   ]);
 });
 

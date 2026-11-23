@@ -82,6 +82,7 @@ fn paths(peer: &FakePeer) -> Paths {
         cloud_vm: peer.home.join("etc/cmux/vm-kind"),
         unit: peer.home.join(format!("{UNITS}/acpmux.service")),
         target: TARGET,
+        rd: None,
     }
 }
 
@@ -115,7 +116,7 @@ async fn ready(peer: &FakePeer, files: &Files) -> Plan {
         Prepared::Ready(plan) => plan,
         Prepared::Off => panic!("automatic updates are off"),
         Prepared::Locked => panic!("the lock is held"),
-        Prepared::RolledBackBefore(_) => panic!("the build was rolled back before"),
+        Prepared::RolledBackBefore(..) => panic!("the build was rolled back before"),
     }
 }
 
@@ -325,7 +326,7 @@ async fn a_build_whose_daemon_does_not_come_back_is_rolled_back_and_not_tried_ag
     // The next run leaves that build alone: no download, no restart.
     let files = serving(&bad);
     let again = prepared(&peer, &files).await;
-    assert!(matches!(&again, Prepared::RolledBackBefore(commit) if commit == COMMIT));
+    assert!(matches!(&again, Prepared::RolledBackBefore(commit, _) if commit == COMMIT));
     assert!(peer.take_calls().is_empty(), "the daemon is not restarted again");
     assert_eq!(files.asked().len(), 1);
 
@@ -345,7 +346,7 @@ async fn a_build_whose_daemon_does_not_come_back_is_rolled_back_and_not_tried_ag
     // channel that moved back to the bad build installed it again.
     let files = serving(&bad);
     let again = prepared(&peer, &files).await;
-    assert!(matches!(&again, Prepared::RolledBackBefore(commit) if commit == COMMIT));
+    assert!(matches!(&again, Prepared::RolledBackBefore(commit, _) if commit == COMMIT));
     assert!(peer.take_calls().is_empty(), "the healthy daemon is not restarted");
     assert_eq!(files.asked().len(), 1, "the bad build is not downloaded again");
     assert_eq!(peer.daemon(), newer);

@@ -15,6 +15,8 @@ use crate::link::{Link, LinkConfig, Role};
 use crate::signaling::{SessionEvent, SignalEnvelope, SignalPayload, SignalingClient, SignalingEvent};
 
 pub(crate) mod turn;
+/// Measurement support (cmux-mobile-path-probe).
+pub use turn::{TimedAllocation, TurnTransport, timed_allocation};
 pub mod webrtc;
 pub mod wireguard;
 
@@ -97,6 +99,12 @@ impl TransportKind {
     }
 }
 
+/// A [`DialOptions::impair_inbound`] hook: whether the datagram came through
+/// this side's TURN allocation, where from, and its size in bytes, to its fate
+/// (`None` drops it, `Some(delay)` delivers it that much later).
+#[doc(hidden)]
+pub type ImpairInbound = fn(bool, &std::net::SocketAddr, usize) -> Option<Duration>;
+
 #[derive(Debug, Clone)]
 pub struct DialOptions {
     /// ICE servers (from `GET /v1/ice`). STUN entries also serve WireGuard
@@ -148,10 +156,13 @@ pub struct DialOptions {
     pub restrict_inbound_udp: bool,
     /// Test and measurement support: what WireGuard does with each datagram
     /// it receives, by whether it came through this side's TURN allocation
-    /// and where from: `None` drops it (a cut path), `Some(delay)` delivers
-    /// it that much later, in order (a path's one-way latency).
+    /// and where from, and its size in bytes: `None` drops it (a cut path,
+    /// a loss), `Some(delay)` delivers it that much later, ordered by when
+    /// it is due (a path's one-way latency; jitter reorders, as on UDP).
+    /// `testing::shape_by_profile` (feature `testing`) plays a named phone
+    /// link profile.
     #[doc(hidden)]
-    pub impair_inbound: Option<fn(bool, &std::net::SocketAddr) -> Option<Duration>>,
+    pub impair_inbound: Option<ImpairInbound>,
     /// Offer and accept the input lane (PROTOCOL.md "Lanes"): a second
     /// stream for keystrokes and resizes. Off only to measure or test the
     /// single-stream behavior of older peers.

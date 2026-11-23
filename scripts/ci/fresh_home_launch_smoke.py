@@ -75,6 +75,7 @@ import json
 import os
 import plistlib
 import re
+import select
 import shutil
 import signal
 import socket
@@ -291,14 +292,22 @@ def detach(mount: Path) -> None:
     log(f"warning: could not detach {mount}")
 
 
-def fresh_env(root: Path, socket_path: Path, marks_fd: int) -> dict[str, str]:
-    """No runner variable reaches the app (no token, no key, no CMUX_* routing): only these."""
+# The app's updater stays off in every copy a harness starts (ManagedUpdatePolicy.environmentKey, a forced
+# DisableAutoUpdate for that one process). A copy of an older build otherwise sees a newer one, downloads it, and
+# Sparkle's installer asks the unattended Mac for an administrator password (launch_tti_check's cold_install round,
+# 2026-11-22). A harness that measures a real Sparkle update passes updater=True.
+UPDATER_OFF_VARIABLE = "CMUX_DISABLE_AUTO_UPDATE"
+
+
+def fresh_env(root: Path, socket_path: Path, marks_fd: int, updater: bool = False) -> dict[str, str]:
+    """No runner variable reaches the app (no token, no key, no CMUX_* routing): only these. The app's updater is
+    off (UPDATER_OFF_VARIABLE) unless UPDATER."""
     home = root / "h"
     for sub in ("Library/Preferences", "Library/Application Support", "Library/Caches", "Library/Logs"):
         (home / sub).mkdir(parents=True, exist_ok=True)
     (root / "t").mkdir(exist_ok=True)
     user = os.environ.get("USER") or os.environ.get("LOGNAME") or ""
-    return {
+    env = {
         "HOME": str(home),
         "CFFIXED_USER_HOME": str(home),
         "TMPDIR": str(root / "t") + "/",
@@ -312,6 +321,9 @@ def fresh_env(root: Path, socket_path: Path, marks_fd: int) -> dict[str, str]:
         "CMUX_NEXT_NO_ACTIVATE": "1",
         "CMUX_NEXT_LAUNCH_MARKS_FD": str(marks_fd),
     }
+    if not updater:
+        env[UPDATER_OFF_VARIABLE] = "1"
+    return env
 
 
 def login_keychain(env: dict) -> None:
@@ -942,6 +954,24 @@ def screenshot(out: Path) -> str | None:
     return str(path) if ok and path.exists() else None
 
 
+# The longest the watch waits between its looks at the app (its socket, the cookie sync, the app's exit).
+WATCH_TICK = 0.25
+
+
+def wait_for_marks(marks_fd: int | None, seconds: float) -> None:
+    """Until the app writes a launch mark to MARKS_FD, at most SECONDS. Each step of the launch writes a mark (the
+    first frame, Home's first page), so the watch looks for Home as a step ends instead of up to a tick later:
+    a fixed 0.25 s sleep put up to 250 ms of the harness's own wait into each launch's time to Home. With no
+    pipe (None: it reached its end, or Home is already in) it is a plain wait."""
+    if marks_fd is None:
+        time.sleep(seconds)  # sleep-ok: the caller's poll tick when there is no mark pipe to wait on
+        return
+    try:
+        select.select([marks_fd], [], [], seconds)
+    except (OSError, ValueError):
+        time.sleep(seconds)  # sleep-ok: the caller's poll tick when the pipe cannot be selected
+
+
 def watch(process: subprocess.Popen, marks_fd: int, marks_path: Path, socket_path: Path,
           seconds: float, startup_timeout: float, seed: dict | None = None, scan_wait: float = 0.0,
           daemon: bool = False, env: dict[str, str] | None = None) -> dict:
@@ -959,15 +989,21 @@ def watch(process: subprocess.Popen, marks_fd: int, marks_path: Path, socket_pat
     host = {"cpus": os.cpu_count(), "load_at_launch": host_load(), "load_at_home": None}
     snap, rendered_at, status, scan, scanned_at = None, None, None, None, None
     ready = READY if seed is None else None
+    marks_ended = False
     with open(marks_path, "ab") as marks:
         while True:
-            try:
-                chunk = os.read(marks_fd, 1 << 16)
-                if chunk:
-                    marks.write(chunk)
-                    marks.flush()
-            except (BlockingIOError, OSError):
-                pass
+            if not marks_ended:
+                try:
+                    chunk = os.read(marks_fd, 1 << 16)
+                    if chunk:
+                        marks.write(chunk)
+                        marks.flush()
+                    else:
+                        marks_ended = True  # every writer closed it: a select on it would answer at once
+                except BlockingIOError:
+                    pass
+                except OSError:
+                    marks_ended = True
             elapsed = time.monotonic() - started
             status = process.poll()
             if status is not None:
@@ -989,7 +1025,8 @@ def watch(process: subprocess.Popen, marks_fd: int, marks_path: Path, socket_pat
                 # A seeded arm with Home up waits for the scan; without Home it ends as the first arm does.
                 if seed is None or scan is not None or rendered_at is None or elapsed >= scan_wait:
                     break
-            time.sleep(0.25)
+            # Until Home: a new mark ends the wait at once. After it the marks are only kept.
+            wait_for_marks(None if marks_ended or rendered_at is not None else marks_fd, WATCH_TICK)
     reads, app = None, Path(process.args[0]).parents[2]  # the launch's app copy
     computer_use = None
     if daemon and status is None and rendered_at is not None and ready is None:
