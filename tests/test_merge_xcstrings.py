@@ -370,7 +370,8 @@ def test_key_conflicts_preserve_clean_key_merges_and_formatting():
         assert all(json.dumps(key) not in region for region in regions)
         assert merged.count(json.dumps(key) + ":") == 1
     driver = load_driver()
-    for source, key in ((ours, "untouched"), (ours, "ours-only"), (theirs, "theirs-only")):
+    # "untouched" keeps theirs' text: only theirs rewrote it (indent 4), and a one-sided change wins.
+    for source, key in ((theirs, "untouched"), (ours, "ours-only"), (theirs, "theirs-only")):
         top = driver.Layout(source, source.index("{"))
         strings = driver.Layout(source, top.spans["strings"][1])
         assert strings.blocks[key] in merged
@@ -703,6 +704,37 @@ def test_two_conflict_keys_on_one_line_stay_balanced_and_lossless():
     # Ours' value for the second key was truncated to ',: "O2" }'.
     assert '"b": { "v": "O2" }' in merged, merged
     assert_conflict_preserves(merged, "O1", "O2", "T1", "T2", "B1", "B2")
+
+
+def test_merging_a_reformatted_base_in_takes_the_base_format():
+    """A base that only rewrote the catalog's layout keeps its layout through a branch's merge of it (#50146).
+
+    #40447 compacted the agent-pane catalog from 458k lines to 267k and changed no value; merging that base
+    into a branch kept the branch's nested text for every key, so the branch's diff put 360k lines back.
+    """
+    base = catalog({key: unit(key) for key in "abc"})
+    pull_request = catalog({key: unit(key) for key in "abpc"})
+    newer_base = catalog({key: unit(key) for key in "abcq"})
+    compact = json.dumps(newer_base, ensure_ascii=False, separators=(",", ":")) + "\n"
+    code, merged, stderr = run(base, render(pull_request), compact)
+    assert code == 0, stderr
+    expected = catalog({key: unit(key) for key in "abpcq"})
+    assert json.loads(merged) == expected
+    # Every key base carries is base's text, verbatim; only the branch's own key is the branch's.
+    for key in "abcq":
+        assert json.dumps(key) + ":" + json.dumps(unit(key), separators=(",", ":")) in merged, merged
+    assert len(merged.splitlines()) < len(render(pull_request).splitlines()), merged
+
+
+def test_our_own_reformat_is_kept():
+    """The rule only follows the side that rewrote a key; a branch's own rewrite stays the branch's."""
+    base = catalog({key: unit(key) for key in "abc"})
+    ours = json.dumps(catalog({key: unit(key) for key in "abc"}), separators=(",", ":")) + "\n"
+    theirs = catalog({key: unit(key) for key in "abcq"})
+    code, merged, stderr = run(base, ours, theirs)
+    assert code == 0, stderr
+    assert json.loads(merged) == catalog({key: unit(key) for key in "abcq"})
+    assert '"a":' + json.dumps(unit("a"), separators=(",", ":")) in merged, merged
 
 
 def main():
