@@ -30,6 +30,7 @@ use serde_json::Value;
 
 use crate::domains::Domains;
 use crate::keypath::{dotted, key_path};
+use crate::migrations::Notice;
 use crate::refusal::Refusal;
 use crate::render::compact;
 use crate::schema::{Accepted, DomainKind, Row, Schema, Validation, accepts};
@@ -313,6 +314,10 @@ pub struct ThemeFile {
     pub diagnostics: Vec<ThemeDiagnostic>,
     /// The color tokens the contrast guard raised (`foreground`).
     pub corrected: Vec<String>,
+    /// Keys the file names by an older name, rewritten through the
+    /// retired-keys table ([`crate::migrations`]): the look applies a renamed
+    /// key under its new name and leaves out a removed one.
+    pub notices: Vec<Notice>,
 }
 
 impl ThemeFile {
@@ -337,6 +342,7 @@ impl ThemeFile {
             diagnostics: Vec::new(),
             corrected: Vec::new(),
             is_unparsable: false,
+            notices: Vec::new(),
         };
         let is_loaded = reader.read(source, base);
         let mut values = reader.values;
@@ -348,6 +354,7 @@ impl ThemeFile {
             values,
             diagnostics: reader.diagnostics,
             corrected: reader.corrected,
+            notices: reader.notices,
         }
     }
 
@@ -427,6 +434,7 @@ struct Reader<'a> {
     diagnostics: Vec<ThemeDiagnostic>,
     corrected: Vec<String>,
     is_unparsable: bool,
+    notices: Vec<Notice>,
 }
 
 impl<'a> Reader<'a> {
@@ -454,6 +462,9 @@ impl<'a> Reader<'a> {
                 return false;
             }
         };
+        // A key an older cmux named differently reads under its new name.
+        let (parsed, notices) = crate::migrations::migrate(&parsed);
+        self.notices = notices;
         let Value::Object(members) = parsed else {
             self.unreadable("root is not an object", Some(1));
             return false;
@@ -608,6 +619,10 @@ fn expectation(refusal: &Refusal) -> String {
             format!("expected a {name}: {}", values.join(", "))
         }
         Accepted::Domain { name, .. } => format!("expected an installed {name}"),
+        Accepted::Json { .. } => match accepted.first_problem() {
+            Some(problem) => format!("expected a value of its shape ({problem})"),
+            None => "expected a value of its shape".to_owned(),
+        },
     }
 }
 
