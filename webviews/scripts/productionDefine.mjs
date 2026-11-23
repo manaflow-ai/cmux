@@ -3,7 +3,7 @@
 // written, and in the app's pages it is undefined at run time: `import.meta.env.DEV` in the
 // agent pane threw on every handshake (cmux#50616, fixed by cmux#51194).
 // scripts/cmux-next/check-bundle-import-meta-env.py fails a build whose output still has one.
-// The esbuild CLI builds (build-agent-activity-web.sh, build-optchat-inspector-web.sh) pass the
+// The esbuild CLI build of Agent Activity (build-agent-activity-web.sh) passes the
 // same object to --define.
 export const productionImportMetaEnv = { BASE_URL: "/", DEV: false, MODE: "production", PROD: true, SSR: false };
 
