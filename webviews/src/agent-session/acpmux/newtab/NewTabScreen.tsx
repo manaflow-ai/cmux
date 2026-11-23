@@ -212,6 +212,9 @@ export type NewTabScreenActions = NewTabCommandActions & {
   /// A chat card's Compress Chat or Decompress Chat: acpmux's cold archive (`_acpmux/cold_archive`) of
   /// that session. It rejects with acpmux's refusal (a chat under way), which the page shows.
   onColdArchive?(sessionId: string, archived: boolean): Promise<unknown>;
+  /// The chat cards' place and Evacuate menu rows (newtab/ChatCards.tsx); omitted where the page cannot ask the app.
+  onPlace?(sessionId: string, mode: "local" | "cloud" | "auto"): void;
+  onEvacuate?(sessions?: readonly string[]): void;
   onViewChat?(key: string): void;
   /// One page of All chats from the host (`chats.page`); without it the page shows no All chats list.
   loadChatsPage?: LoadChatsPage;
@@ -2280,6 +2283,8 @@ export function NewTabScreen(props: Props) {
           onOpen={openCard}
           {...(props.onOpenChatInTerminal ? { onOpenInTerminal: openCardInTerminal } : {})}
           {...(props.onColdArchive ? { onColdArchive: coldArchiveCard } : {})}
+          {...(props.onPlace ? { onPlace: props.onPlace } : {})}
+          {...(props.onEvacuate ? { onEvacuate: props.onEvacuate } : {})}
           onShowAll={props.onShowAll}
         />
       )}

@@ -588,6 +588,7 @@ import {
 import { cloudChatHintDue, cloudChatHintShown, useCloudChatHint, useCloudChatHintClaim } from "./cloudChatHintModel";
 import { withCloudMachineSummary } from "./cloudSummary";
 import { callNative } from "./callNative";
+import { evacuateActions } from "./place/usePlace";
 import { awaitsProjectPreview, takeProjectPreview } from "./newtab/newProject";
 import { copyShowsRunningTurn, showsChatSnapshot, swapChatSnapshot, watchChatSnapshot } from "./chatSnapshot/live";
 import { watchLaunchSettle } from "./launchSettle";
@@ -1133,6 +1134,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     () => paneNotices({ transcript: () => directClient.current, toasts: paneToasts, native: postNativePaneToast }),
     [paneToasts],
   );
+  const chatListPlace = useMemo(() => evacuateActions(notices.transient), [notices]);
   /// The pane's connected clients, one after another: a prompt a connection lost waits on the next
   /// one for the host's journal to send it again there (lostPrompt.ts).
   const [connectedClients] = useState(() => clientWaiter<AcpmuxDirectClient>());
@@ -9694,6 +9696,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     sendPerf,
     setDock,
     paneToasts,
+    chatListPlace,
     toastTop,
     asks,
     dotGridArm,

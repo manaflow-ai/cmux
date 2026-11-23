@@ -97,6 +97,7 @@ import { sandboxRetryable, type SandboxTab, type RunModeRows, type SandboxRun } 
 import { SandboxRunView } from "../SandboxRunView";
 import { PaneFeatureTips } from "../featureTips";
 import { callNative } from "../callNative";
+import type { EvacuateActions } from "../place/usePlace";
 import { openOfferChat } from "../rows/rowActions";
 import { VirtualTranscript } from "../VirtualTranscript";
 import { LiveTreePill } from "../header/LiveTreePill";
@@ -393,6 +394,8 @@ export type PaneBodyDeps = NewTabShown &
     sendPerf: PerfSend;
     setDock: React.Dispatch<React.SetStateAction<HTMLElement | null>>;
     paneToasts: NoticeQueue;
+    /// The chat list's place and Evacuate calls (place/usePlace.ts).
+    chatListPlace: EvacuateActions;
     toastTop: HTMLDivElement | null;
     asks: React.JSX.Element | null;
     dotGridArm: "off" | "on" | "compact";
@@ -660,6 +663,7 @@ export function drawPaneBody({
   sendPerf,
   setDock,
   paneToasts,
+  chatListPlace,
   toastTop,
   asks,
   dotGridArm,
@@ -1060,6 +1064,10 @@ export function drawPaneBody({
                           directClient.current?.coldArchive(sessionId, archived) ??
                           Promise.reject(new Error(translate("error.notOpen"))),
                       }
+                    : {})}
+                  // A chat card's place and Evacuate rows: the app moves the chats (chatPlace.set, cloudEvacuate).
+                  {...(snapshot.origin !== "remote" && snapshot.origin !== "peer"
+                    ? { onPlace: chatListPlace.setMode, onEvacuate: chatListPlace.evacuate }
                     : {})}
                 />
               </Activity>
