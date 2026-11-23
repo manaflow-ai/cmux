@@ -126,7 +126,7 @@ public final class MacScreenPages {
     /// Settings > cmux Remote > Screen Sharing Quality and Bitrate Limit (`remoteDesktop.quality`,
     /// `remoteDesktop.maxBitrateMbps`): the toolbar picks a new tab's session starts at, so its offer asks for them.
     /// An open tab keeps the picks it has.
-    public var defaultPreferences = ScreenPreferences()
+    var defaultPreferences = ScreenPreferences()
     /// Settings > cmux Remote > Screen Sharing Frame Rate Limit (`remoteDesktop.maxFps`): the most the next
     /// offer's `a=cmux-rd-max-fps` asks for; nil (Auto) leaves the quality's rate.
     public var maxFpsCap: Int? {
