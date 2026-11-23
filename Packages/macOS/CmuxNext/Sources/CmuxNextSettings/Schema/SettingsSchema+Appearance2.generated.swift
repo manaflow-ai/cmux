@@ -88,6 +88,20 @@ extension AppearanceSettingsSchema {
                 keywords: ["accent", "color", "colour", "highlight", "selection", "personality", "rose pine", "ansi"]
             ),
             SettingDescriptor(
+                SelectionSetting.configPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.selection", "Selection"),
+                help: SettingsText.keyed("settings.appearance.selection.help", "Accent tints the selected row and tab with the accent. Neutral keeps them gray."),
+                summary: SettingsText.keyed("settings.appearance.selection.summary", "Color of the selected row and tab"),
+                kind: .choice([
+                    SettingChoice(ThemeSelection.accent.rawValue, SettingsText.keyed("settings.choice.selection.accent", "Accent")),
+                    SettingChoice(ThemeSelection.neutral.rawValue, SettingsText.keyed("settings.choice.selection.neutral", "Neutral")),
+                ]),
+                default: .string(SelectionSetting.fallback.rawValue),
+                keywords: ["selection", "selected", "row", "highlight", "accent", "gray", "neutral", "sidebar"]
+            ),
+            SettingDescriptor(
                 ThemeFileSetting.configPath,
                 section: .appearance,
                 group: group,

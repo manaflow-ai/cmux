@@ -7350,6 +7350,56 @@
               "name": "WorkspaceRef"
             }
           }
+        },
+        "created_by": {
+          "required": false,
+          "type": {
+            "kind": "object",
+            "fields": {
+              "kind": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                },
+                "description": "agent or script."
+              },
+              "session": {
+                "required": false,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                },
+                "description": "The agent session that made it."
+              },
+              "session_name": {
+                "required": false,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                },
+                "description": "That session's name."
+              },
+              "host": {
+                "required": false,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                },
+                "description": "The host it ran on."
+              },
+              "purpose": {
+                "required": false,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                },
+                "description": "One line on what the space is for."
+              }
+            },
+            "extra": false
+          },
+          "description": "Who made the space and why (created-by-detail-v1), when an agent or a script said so; absent for the person's own."
         }
       },
       "extra": false
@@ -15704,6 +15754,17 @@
             }
           },
           "description": "The pull request URLs it opened, oldest first."
+        },
+        "preview": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "Its last reply, one short line as acpmux keeps it (a New Tab card's message); null before the first reply. Kept fresh with updated_ms and, like it, no change signal of its own. Absent from a daemon older than the field."
         }
       },
       "extra": false
@@ -18983,7 +19044,54 @@
           "machine": "required",
           "session": "required"
         },
-        "fields": {},
+        "fields": {
+          "limit": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32",
+              "minimum": 1,
+              "maximum": 1000
+            },
+            "description": "At most this many chats, the newest first. Omitted: every chat."
+          },
+          "state": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "ChatState"
+            },
+            "description": "Only the chats in this state (input: the ones waiting for the person)."
+          },
+          "before_ms": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "The page after a row: that row's updated_ms (its created_ms when updated_ms is null, 0 when both are). Needs before_id."
+          },
+          "before_id": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "The page after a row: that row's id. Needs before_ms."
+          },
+          "before_machine": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "The page after a row: that row's machine, when it has one (a peer's chat). Needs before_ms and before_id."
+          }
+        },
         "extra": false
       },
       "result": {
@@ -19002,8 +19110,9 @@
         "validation.invalid"
       ],
       "constraints": [
-        "Every ACP chat acpmux on this machine knows, its peers' included, that is neither closed nor archived, in no particular order: the reader ranks them.",
-        "The daemon keeps the list from acpmux's own pushes, so a read costs no acpmux call. An App Store app's chat.changed fires once for each change of a listed field other than updated_ms.",
+        "Every ACP chat acpmux on this machine knows, its peers' included, that is neither closed nor archived, the newest first: by updated_ms, else created_ms, then id, then machine.",
+        "limit, state and the before_ms/before_id/before_machine cursor read only the rows they return from the daemon's ordered chat index: a read of the 5 newest chats costs 5 rows, never a sort of every chat. Page through every chat with limit and the cursor of each page's last row.",
+        "The daemon keeps the list from acpmux's own pushes, so a read costs no acpmux call. An App Store app's chat.changed fires once for each change of a listed field other than updated_ms and preview.",
         "Empty while acpmux is not running."
       ]
     },
@@ -21212,6 +21321,128 @@
         "name": "JsonValue"
       },
       "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "cloud.machine.chief_start": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "api": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 2048
+            },
+            "description": "The API's base URL: https, or http to a loopback host; no user, query or fragment. A path prefix is kept."
+          },
+          "auth": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "stack",
+                "owner",
+                "worker"
+              ]
+            },
+            "description": "Which credentials and headers the call sends: stack (classic cmux.com's Stack session), owner (the API Worker's person routes) or worker (the platform's machine routes)."
+          },
+          "access_token": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "The caller's bearer credential. Never kept, logged, put in a URL or echoed in a refusal."
+          },
+          "refresh_token": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "stack: the Stack refresh token, sent as X-Stack-Refresh-Token."
+          },
+          "team": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "The team the call acts for."
+          },
+          "app_version": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "description": "stack: X-Cmux-App-Version (default cmux-next)."
+          },
+          "local_only": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "The build points at a loopback backend: a refused connection is the no_backend failure."
+          },
+          "args": {
+            "required": false,
+            "type": {
+              "kind": "map",
+              "values": {
+                "kind": "ref",
+                "name": "JsonValue"
+              }
+            },
+            "description": "The call's arguments (the cmux-cloud-api crate's call of the same name reads them)."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Starts a Chief on its own Cloud machine, resumably by args.key: creates the machine sized for a Chief (cloud.machine.create, 4 CPU, 8 GiB memory, 32 GiB disk, idempotency key chief-machine-<key>-create), sets idle_seconds 0 and keep, runs the machine's own optchat-chief cloud pair and approves its code as the caller (server.pair.approve), creates the Chief placed on that install (chief.create with brain_place, not the default), and enables and starts cmux-chief.service. Owner or worker auth; args are key (1 to 48 of a-z, 0-9 and -), name (the Chief's, default Chief), machine_name (default chief-<key>) and until (machine: stop once the machine runs with its policies set). Running it again with the same key finishes a half-done start and never makes a second machine or Chief. Answers {machine, machine_name, host, install, chief, conversation, host_unit (image or installed), stage (machine or done)}; refusals chief.host_missing (the image has no Chief host), chief.machine_gone, chief.pair_failed, chief.place_unsupported, chief.machine_exec.",
+          "The daemon keeps no credential and grants none: the call runs with the request's own. Only a local socket client may call (operation.failed reason \"operation requires a trusted local connection\" otherwise).",
+          "A Cloud refusal is operation.failed: reason is the failure's kind (timed_out, transport, no_backend, http, plan_required or decoding) and extra.failure the failure object (kind and its fields: path; message; status, code, message, action, trace_id; upgrade_url, plan). Neither credential is ever in it.",
+          "No redirect is followed and nothing is cached. An answer over 16 MiB less 64 KiB is a transport failure.",
+          "The daemon keeps no ledger of these calls: revision is \"0\" and replayed is false. A call that must not run twice carries the API's own key in args (idempotencyKey)."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "JsonValue"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
         "operation.failed",
         "origin.forbidden",
         "selector.ambiguous",
@@ -33024,6 +33255,64 @@
           "session": "required"
         },
         "fields": {
+          "created_by": {
+            "required": false,
+            "type": {
+              "kind": "object",
+              "fields": {
+                "kind": {
+                  "required": true,
+                  "type": {
+                    "kind": "enum",
+                    "values": [
+                      "person",
+                      "agent",
+                      "script"
+                    ]
+                  },
+                  "description": "Who made the space: the person, an agent session, or a script."
+                },
+                "session": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "min_length": 1
+                  },
+                  "description": "The agent session that made it."
+                },
+                "session_name": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "min_length": 1
+                  },
+                  "description": "The agent session's name (acpmux ACPMUX_SESSION_NAME)."
+                },
+                "host": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "min_length": 1
+                  },
+                  "description": "The host the agent or script runs on."
+                },
+                "purpose": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "min_length": 1
+                  },
+                  "description": "One line on what it is for; the CLI defaults it to the agent session's title."
+                }
+              },
+              "extra": false
+            },
+            "description": "Who made the space and why (created-by-detail-v1), never a trust claim. Shown as created_by on the space."
+          },
           "name": {
             "required": true,
             "type": {
@@ -38086,6 +38375,64 @@
           "pane": "optional"
         },
         "fields": {
+          "created_by": {
+            "required": false,
+            "type": {
+              "kind": "object",
+              "fields": {
+                "kind": {
+                  "required": true,
+                  "type": {
+                    "kind": "enum",
+                    "values": [
+                      "person",
+                      "agent",
+                      "script"
+                    ]
+                  },
+                  "description": "Who made the tab: the person, an agent session, or a script."
+                },
+                "session": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "min_length": 1
+                  },
+                  "description": "The agent session that made it."
+                },
+                "session_name": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "min_length": 1
+                  },
+                  "description": "The agent session's name (acpmux ACPMUX_SESSION_NAME)."
+                },
+                "host": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "min_length": 1
+                  },
+                  "description": "The host the agent or script runs on."
+                },
+                "purpose": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "min_length": 1
+                  },
+                  "description": "One line on what it is for; the CLI defaults it to the agent session's title."
+                }
+              },
+              "extra": false
+            },
+            "description": "Who made the tab and why (created-by-detail-v1), never a trust claim. Shown as extra.created_by on the tab."
+          },
           "correlation_key": {
             "required": false,
             "type": {
@@ -38197,6 +38544,64 @@
           "pane": "optional"
         },
         "fields": {
+          "created_by": {
+            "required": false,
+            "type": {
+              "kind": "object",
+              "fields": {
+                "kind": {
+                  "required": true,
+                  "type": {
+                    "kind": "enum",
+                    "values": [
+                      "person",
+                      "agent",
+                      "script"
+                    ]
+                  },
+                  "description": "Who made the tab: the person, an agent session, or a script."
+                },
+                "session": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "min_length": 1
+                  },
+                  "description": "The agent session that made it."
+                },
+                "session_name": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "min_length": 1
+                  },
+                  "description": "The agent session's name (acpmux ACPMUX_SESSION_NAME)."
+                },
+                "host": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "min_length": 1
+                  },
+                  "description": "The host the agent or script runs on."
+                },
+                "purpose": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "min_length": 1
+                  },
+                  "description": "One line on what it is for; the CLI defaults it to the agent session's title."
+                }
+              },
+              "extra": false
+            },
+            "description": "Who made the tab and why (created-by-detail-v1), never a trust claim. Shown as extra.created_by on the tab."
+          },
           "correlation_key": {
             "required": false,
             "type": {
@@ -41618,11 +42023,38 @@
                     "min_length": 1
                   },
                   "description": "The agent session that made it."
+                },
+                "session_name": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "min_length": 1
+                  },
+                  "description": "The agent session's name (acpmux ACPMUX_SESSION_NAME)."
+                },
+                "host": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "min_length": 1
+                  },
+                  "description": "The host the agent or script runs on."
+                },
+                "purpose": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "min_length": 1
+                  },
+                  "description": "One line on what it is for; the CLI defaults it to the agent session's title."
                 }
               },
               "extra": false
             },
-            "description": "Who made the workspace: a place hint, never a trust claim. An agent or script workspace goes below its creator workspace, after the creator's earlier children, in its group; with no live creator workspace, at the end. A person's workspace, or one without created_by, follows placement or the setting. Shown as extra.created_by on the workspace."
+            "description": "Who made the workspace: a place hint, never a trust claim. An agent or script workspace goes below its creator workspace, after the creator's earlier children, in its group; with no live creator workspace, at the end. A person's workspace, or one without created_by, follows placement or the setting. Shown as extra.created_by on the workspace. Its session_name, host and purpose say who made it and why (created-by-detail-v1); workspace list shows them."
           },
           "cwd": {
             "required": false,

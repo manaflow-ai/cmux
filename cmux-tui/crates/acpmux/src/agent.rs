@@ -1601,6 +1601,13 @@ impl ChildAgent {
             return;
         }
         let pgid = self.pid.map(|p| p as i32);
+        // A caller that stops waiting (the daemon's shutdown cuts its session cleanup at its
+        // deadline) drops this future inside the grace: the group still gets its SIGKILL then,
+        // or an agent that ignores SIGTERM outlives the daemon (Codex review of #42296). Armed
+        // before the first await: the helper scan below reads the whole process table, which
+        // on a loaded machine can outlast the caller's cut, and a cut there sent no signal.
+        #[cfg(unix)]
+        let escalate = KillGroupOnDrop(pgid);
         // Busy: the exit watcher holds it while it reaps the agent (its
         // stdout closed); a helper then is not taken here.
         #[cfg(unix)]
@@ -1614,11 +1621,6 @@ impl ChildAgent {
                 libc::killpg(pg, libc::SIGTERM);
             }
         }
-        // A caller that stops waiting (the daemon's shutdown cuts its session cleanup at its
-        // deadline) drops this future inside the grace: the group still gets its SIGKILL then,
-        // or an agent that ignores SIGTERM outlives the daemon (Codex review of #42296).
-        #[cfg(unix)]
-        let escalate = KillGroupOnDrop(pgid);
         // Windows: Ctrl+Break to the agent's process group first.
         #[cfg(windows)]
         if let Some(pg) = pgid {
@@ -1945,6 +1947,11 @@ impl ChildAgent {
                 tokio::select! {
                     () = fence.settled() => {}
                     answer = &mut rx => {
+                        // A direct child may answer its line before its writer, preempted
+                        // between the write and `written()`, marks it: every direct writer
+                        // settles it, so that answer waits for it. Only a host can answer with
+                        // no receipt to come.
+                        if self.hosted.is_none() { fence.settled().await; }
                         if fence.now() == Fence::WRITTEN { on_written(); }
                         return answer.unwrap_or_else(|_| Err(RpcError::internal("agent response channel dropped")));
                     }
@@ -2669,12 +2676,13 @@ impl ChildAgent {
     }
 
     /// Takes custody of `link`'s harness (`agent_host/custody.rs`) in the background, when the
-    /// holder is on and this agent has none of that host yet. Best effort: without it, a host that
-    /// dies cuts the turn as before.
+    /// holder is on, the host can hold (not a translated or bridged harness,
+    /// `HostRecord::may_hold`) and this agent has none of that host yet. Best effort: without it,
+    /// a host that dies cuts the turn as before.
     #[cfg(unix)]
     fn take_custody(self: &Arc<Self>, link: &Arc<crate::agent_host::link::Link>) {
         let Some(hosted) = &self.hosted else { return };
-        if !crate::agent_host::custody::holder_on() {
+        if !crate::agent_host::custody::holder_on() || !link.record.may_hold() {
             return;
         }
         let held = hosted.custody.lock_or_recover().clone();

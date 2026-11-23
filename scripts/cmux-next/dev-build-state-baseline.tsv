@@ -26,7 +26,7 @@ Packages/macOS/CmuxNext/Sources/CmuxNextBrowserCore/Core/BrowserDownloadTempFile
 Packages/macOS/CmuxNext/Sources/CmuxNextBrowserCore/PageInfo/Model/SiteSettingsRegistry.swift	1	per build: the folder is named after the bundle id (a DEV build has its own)
 Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Bootstrap/CloudMachineSecrets+SSHReceiver.swift	1	a Cloud or SSH machine's file (written there over SSH or read by acpmux on that machine), not this Mac's state
 Packages/macOS/CmuxNext/Sources/CmuxNextCloudCredentials/CloudCredentialInstaller.swift	2	a Cloud or SSH machine's file (written there over SSH or read by acpmux on that machine), not this Mac's state
-Packages/macOS/CmuxNext/Sources/CmuxNextCompat/BuildStatePaths.swift	3	the resolver: shared builds keep this path, a DEV build gets its own (BuildStatePaths, NextSupport, BuildIdentity)
+Packages/macOS/CmuxNext/Sources/CmuxNextCompat/BuildStatePaths.swift	2	the resolver: shared builds keep this path, a DEV build gets its own (BuildStatePaths, NextSupport, BuildIdentity)
 Packages/macOS/CmuxNext/Sources/CmuxNextCompat/NextSupport.swift	1	the resolver: shared builds keep this path, a DEV build gets its own (BuildStatePaths, NextSupport, BuildIdentity)
 Packages/macOS/CmuxNext/Sources/CmuxNextControl/Diagnostics/LaunchTimesFile.swift	1	per build: the folder is named after the bundle id (a DEV build has its own)
 Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/CloudLinkLauncher.swift	1	cmux-tui's default state root, only for a build without its own state directory (release); a DEV build has its own (linkStateRoot)
@@ -94,6 +94,7 @@ cmux-tui/crates/cmux-server-core/src/layout.rs	1	the user-mode server (cmux host
 cmux-tui/crates/cmux-tui-core/src/apps/local_reload.rs	2	an inline test module's temporary home, not product state
 cmux-tui/crates/cmux-tui-util/src/user_settings.rs	2	its default only: a DEV build's launch sets the variable that names its own file (BuildStatePaths.environment)
 cmux-tui/crates/cmux-tui/src/claude_wrapper.rs	2	read-only input of the Cloud Claude launcher: agent-auth.sh selects this isolated profile across builds, so refusal must be read there; the second site is a temporary test fixture, never a build's state
+cmux-tui/crates/cmux-tui/src/cli/app/try_cmd/share.rs	1	an input of this Mac read by every build on purpose: the team build cache URL (app-share.json) the HQ menu bar app writes once per Mac, never written by a build
 cmux-tui/crates/cmux-tui/src/cli/cloud_secret.rs	3	its default only: a DEV build's launch sets the variable that names its own file (BuildStatePaths.environment)
 cmux-tui/crates/cmux-tui/src/cli/ext/dev.rs	1	text only (help, a description, an error message), no path is read
 cmux-tui/crates/cmux-tui/src/cli/inference_setup.rs	3	a Cloud or SSH machine's file (written there over SSH or read by acpmux on that machine), not this Mac's state
@@ -102,3 +103,4 @@ cmux-tui/crates/cmux-tui/src/cli/theme_file.rs	1	text only (help, a description,
 cmux-tui/crates/cmux-tui/src/coderouter_usage.rs	1	a Cloud or SSH machine's file (written there over SSH or read by acpmux on that machine), not this Mac's state
 cmux-tui/crates/cmux-tui/src/link/access_cli.rs	1	not a read or write: a deny-list entry (SECRET_PATHS) that keeps ~/.config/cmux/auth.json from being shared out of a folder (base #40159)
 cmux-tui/crates/cmux-tui/src/link/mod.rs	1	the user-mode server (cmux host run, ~/.config/cmux/server.json): one per Mac, a DEV build never registers it (ServerLaunchAgent)
+cmux-tui/crates/cmux-tui/src/localization/app_control.rs	4	text only (help, a description, an error message), no path is read

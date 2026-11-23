@@ -63,6 +63,7 @@ export interface AcpmuxRequestMeta {
   requestId?: unknown;
   requireFullAccess?: unknown;
   resend?: unknown;
+  restricted?: unknown;
   route?: unknown;
   senderHarness?: unknown;
   senderHarnessChecked?: unknown;
@@ -1103,7 +1104,9 @@ export interface ProcessKillParams {
 
 export interface ProcessListParams {
   _meta?: RequestMeta;
+  calls?: unknown;
   cursor?: unknown;
+  endedWithin?: unknown;
   limit?: unknown;
   recent?: unknown;
   sessionId?: unknown;
@@ -1562,6 +1565,14 @@ export type SessionDetail = {
   /** Where a fork branched off its parent. */
   forkSeq?: (number | null);
   /**
+   * Whether the chat forks, and edits, through any completed turn, not only its latest: its
+   * harness cuts a conversation at a turn (Claude Code and Codex, `config::turn_cut`), whatever
+   * family name its profile carries. Absent when unknown (the configuration was being written
+   * as the summary was built) and from a peer on an older acpmux: a client then falls back to
+   * the family, never reads absence as false.
+   */
+  forksAnyTurn?: (boolean | null);
+  /**
    * The names it had before its renames, oldest first: each still names it where no session
    * has it as its current name. Absent when it was never renamed, and from an older acpmux.
    */
@@ -1933,6 +1944,14 @@ export type SessionSummary = {
   family?: (string | null);
   /** Where a fork branched off its parent. */
   forkSeq?: (number | null);
+  /**
+   * Whether the chat forks, and edits, through any completed turn, not only its latest: its
+   * harness cuts a conversation at a turn (Claude Code and Codex, `config::turn_cut`), whatever
+   * family name its profile carries. Absent when unknown (the configuration was being written
+   * as the summary was built) and from a peer on an older acpmux: a client then falls back to
+   * the family, never reads absence as false.
+   */
+  forksAnyTurn?: (boolean | null);
   /**
    * The names it had before its renames, oldest first: each still names it where no session
    * has it as its current name. Absent when it was never renamed, and from an older acpmux.
