@@ -14,8 +14,9 @@ This reads the pinned runner live once, before the build is queued:
   the rescue still watches it), with a warning.
 
 `blacksmith` is the Blacksmith macOS 26 label whose queue moves, by simple_pool_picker's one stall
-rule over the queue janitor's snapshot: 12 vCPU first (the build's old default), then 6 vCPU; with
-both stalled, 6 vCPU (more slots); with no fresh snapshot, 12 vCPU. A re-run of failed jobs keeps
+rule over the queue janitor's snapshot: 12 vCPU first unless FIRST says otherwise, then 6 vCPU; with
+both stalled, 6 vCPU (more slots); with no fresh snapshot, the first label. main's build-nightly-app
+sets FIRST=6vcpu (#39585: 12 vCPU starved behind the 6 vCPU queue), so 12 vCPU is its overflow. A re-run of failed jobs keeps
 these outputs, so attempt 2 on takes `cloud`. Nothing here routes to any owned label other
 than the pinned pair, so the ci-cache-writer keys and the Sentry token stay on the trusted mini.
 FIRST (a label among those two, or its size, `6vcpu` or `12vcpu`) puts that label ahead: the sign

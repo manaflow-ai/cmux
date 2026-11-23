@@ -1374,6 +1374,8 @@ jobs:
           SNAPSHOT_TOKEN: ${{ github.token }}
           # Its `_dead` marks and live macos_26 member (classic_nightly_build_runner.py).
           RUNNER_POOLS: ${{ vars.RUNNER_POOLS }}
+          # 6 vCPU first, 12 vCPU only as overflow once 6 vCPU stalls (runners.json's macos_26_large order, #39585).
+          FIRST: 6vcpu
           TRUSTED_POOL: ${{ vars.CI_SEED_TRUSTED_POOL }}
           TRUSTED_RUNNER: ${{ vars.CI_NIGHTLY_TRUSTED_RUNNER }}
           ENABLED: ${{ needs.decide.outputs.fast_build != 'true' && (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/main' && vars.CI_PR_POOL_OWNED == '1' && '1' || '0' }}
