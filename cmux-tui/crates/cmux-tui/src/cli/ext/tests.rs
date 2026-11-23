@@ -590,8 +590,14 @@ fn serve(
                             .unwrap_or_default();
                     let interface = request["interface"].as_str().unwrap_or("");
                     let export = manifest["implements"][interface]["export"].as_str().unwrap_or("");
+                    // As the daemon does (cmux-tui-core apps/widgets.rs): a widget renders with
+                    // `surface: "widget"`, which gives its ctx the host-owned now() clock.
+                    let mut context = request["context"].clone();
+                    if interface == "cmux.widget/1" && context.is_object() {
+                        context["surface"] = json!("widget");
+                    }
                     out.push(
-                        match host_scene(app, &script, export, &request["context"]) {
+                        match host_scene(app, &script, export, &context) {
                             Ok(ops) => json!({"event": "apps-scene", "mount_id": mount_id, "ops": ops}),
                             Err(reason) => json!({"event": "apps-mount-failed", "mount_id": mount_id, "reason": reason}),
                         },
@@ -1638,7 +1644,7 @@ fn an_older_daemon_reloads_on_its_watch() {
     assert!(outcome.changed);
 }
 
-/// `ext dev` says where a whole New Tab page shows: only once the person picks it.
+/// `ext dev` says where a New Tab view shows: over the composer, only once the person picks it.
 #[test]
 fn a_new_tab_page_is_placed_where_the_person_picks_it() {
     let manifest = json!({ "implements": { "cmux.newtab/1": { "export": "renderNewTab" } } });

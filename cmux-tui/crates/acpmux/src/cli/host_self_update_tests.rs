@@ -672,6 +672,8 @@ fn host_update(peer: &FakePeer, build: &str, now: bool) -> PeerUpdate {
 #[tokio::test]
 async fn a_self_update_and_a_host_update_restart_a_daemon_once_an_hour() {
     let peer = FakePeer::new("self-window");
+    // With the idle restart off, the guarantee is as it was: one an hour.
+    peer.write(".acpmux/update.idle-restart", "0\n");
     let new = fake_acpmux(NEW, Some(NEW));
     let files = serving(&new);
     let plan = ready(&peer, &files).await;
@@ -716,6 +718,123 @@ async fn a_self_update_and_a_host_update_restart_a_daemon_once_an_hour() {
         "{up:?}"
     );
     peer.assert_only_read(&installed, newer);
+    drop(plan);
+
+    // The idle restart on (the default): the bound moves to one an hour
+    // amortized, at most two in any rolling hour. After a restart, one idle
+    // early restart may happen; a third update in the same window is held.
+    std::fs::remove_file(peer.home.join(".acpmux/update.idle-restart")).unwrap();
+    peer.write("sessions.json", IDLE);
+    restarted_ago(&peer, 5 * 60);
+    let up = windowed_apply(&peer, newest).await;
+    assert_eq!((up.outcome, up.build.as_deref()), (Outcome::Updated, Some(newest)), "{up:?}");
+    let third = "d4e5f6a7b 2026-10-24";
+    let installed = peer.read(".local/bin/acpmux");
+    peer.take_calls();
+    let up = windowed_apply(&peer, third).await;
+    assert_eq!(
+        (up.outcome, up.reason.as_deref()),
+        (Outcome::Busy, Some("restartWindow")),
+        "{up:?}"
+    );
+    peer.assert_only_read(&installed, newest);
+}
+
+/// A self-update of a peer the window holds, pushing `build`, idle or not as
+/// the fake host's `sessions.json` says.
+async fn windowed_apply(peer: &FakePeer, build: &str) -> PeerUpdate {
+    let files = serving(&fake_acpmux(build, Some(build)));
+    let plan = ready(peer, &files).await;
+    apply(peer, &plan, TARGET, false)
+}
+
+const IDLE: &str = r#"{"sessions": []}"#;
+const MID_TURN: &str =
+    r#"{"sessions": [{"name": "w", "status": "running", "turn": {"startedAt": 1}}]}"#;
+
+/// While the window holds and no session is mid-turn, the update goes in at
+/// once, one restart; and a second channel move inside the same window waits
+/// (at most one idle restart per window), so restarts per host per hour stay
+/// at the window's bound plus this one.
+#[tokio::test]
+#[cfg(unix)]
+async fn a_window_that_holds_an_idle_daemon_restarts_it_once() {
+    let peer = FakePeer::new("idle-early");
+    peer.write("sessions.json", IDLE);
+    restarted_ago(&peer, 5 * 60);
+    let up = windowed_apply(&peer, NEW).await;
+    assert_eq!((up.outcome, up.build.as_deref()), (Outcome::Updated, Some(NEW)), "{up:?}");
+    let early: u64 = peer.read(".acpmux/update.idle-restarted").trim().parse().unwrap();
+    assert!((clock() - 60..=clock()).contains(&early), "the early restart is timed");
+
+    // A newer build ten minutes on, idle: the early restart made one
+    // stamp, but the guard counts from the early restart itself, so no
+    // cascade; coalesced into the window's forced restart.
+    restarted_ago(&peer, 10 * 60);
+    peer.write(".acpmux/update.idle-restarted", &format!("{}\n", clock() - 10 * 60));
+    let newer = "b2c3d4e5f 2026-10-22";
+    let installed = peer.read(".local/bin/acpmux");
+    let up = windowed_apply(&peer, newer).await;
+    assert_eq!(
+        (up.outcome, up.reason.as_deref()),
+        (Outcome::Busy, Some("restartWindow")),
+        "{up:?}"
+    );
+    assert_eq!(peer.read(".local/bin/acpmux"), installed, "nothing installed");
+
+    // The window's forced restart still comes, as today, newest build.
+    restarted_ago(&peer, 61 * 60);
+    let up = windowed_apply(&peer, newer).await;
+    assert_eq!((up.outcome, up.build.as_deref()), (Outcome::Updated, Some(newer)), "{up:?}");
+}
+
+/// A session mid-turn keeps the window as it is: nothing installed, busy;
+/// the first run after the window forces the restart as before.
+#[tokio::test]
+#[cfg(unix)]
+async fn a_window_that_holds_a_busy_daemon_changes_nothing_until_it_ends() {
+    let peer = FakePeer::new("idle-early-busy");
+    peer.write("sessions.json", MID_TURN);
+    restarted_ago(&peer, 5 * 60);
+    let installed = peer.read(".local/bin/acpmux");
+    let up = windowed_apply(&peer, NEW).await;
+    assert_eq!(
+        (up.outcome, up.reason.as_deref()),
+        (Outcome::Busy, Some("restartWindow")),
+        "{up:?}"
+    );
+    assert_eq!(peer.read(".local/bin/acpmux"), installed, "nothing installed");
+    assert!(peer.read(".acpmux/update.idle-restarted").is_empty(), "no early restart was made");
+
+    // Idle a run later: it restarts then.
+    peer.write("sessions.json", IDLE);
+    let up = windowed_apply(&peer, NEW).await;
+    assert_eq!((up.outcome, up.build.as_deref()), (Outcome::Updated, Some(NEW)), "{up:?}");
+
+    // Busy for the whole window: the forced restart after it, as today.
+    let peer = FakePeer::new("idle-early-forced");
+    peer.write("sessions.json", MID_TURN);
+    restarted_ago(&peer, 61 * 60);
+    let up = windowed_apply(&peer, NEW).await;
+    assert_eq!((up.outcome, up.build.as_deref()), (Outcome::Updated, Some(NEW)), "{up:?}");
+}
+
+/// `0` in `~/.acpmux/update.idle-restart` is today's behaviour.
+#[tokio::test]
+#[cfg(unix)]
+async fn the_idle_restart_switch_turns_it_off() {
+    let peer = FakePeer::new("idle-early-off");
+    peer.write("sessions.json", IDLE);
+    peer.write(".acpmux/update.idle-restart", "0\n");
+    restarted_ago(&peer, 5 * 60);
+    let installed = peer.read(".local/bin/acpmux");
+    let up = windowed_apply(&peer, NEW).await;
+    assert_eq!(
+        (up.outcome, up.reason.as_deref()),
+        (Outcome::Busy, Some("restartWindow")),
+        "{up:?}"
+    );
+    assert_eq!(peer.read(".local/bin/acpmux"), installed, "nothing installed");
 }
 
 /// A person's `--now` (no window) restarts it within the hour.

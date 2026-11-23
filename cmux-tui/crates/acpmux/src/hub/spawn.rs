@@ -324,6 +324,12 @@ impl Hub {
         for (k, v) in &meta.session_env {
             p.env.insert(k.clone(), v.clone());
         }
+        // A chat a person started asks sr2 for its person reserve (`sr2_priority.rs`), decided
+        // here from who created it, after the session env: never a profile's or request's.
+        crate::sr2_priority::mark(
+            &mut p.env,
+            meta.created_by.as_ref().is_some_and(|c| c.kind == crate::store::CreatorKind::Person),
+        );
         // A remote-origin chat with no answer of its own (a phone or Web client started it; one
         // another Mac's daemon started carries that Mac's, `cmux_tools_answer.rs`) gets none of
         // cmux's servers (`agent_tools::left_out`), and its person's own `cmux` entry gets `off`.
