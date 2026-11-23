@@ -101,12 +101,14 @@ public final class SidebarCustomizationService: SidebarCustomization {
         onRowDecorationsChange?()
     }
 
-    /// Every `Group` node with a `row` prop, read as a decoration (later nodes win).
+    /// Every `Group` node naming its row by `row` (the id) or `title`, read as a decoration (later nodes win).
+    /// `title` is read too: a rows view that names rows by title (the documented example, the example
+    /// looks) decorated nothing while only `row` was read.
     static func decorations(_ scene: AppScene) -> [String: SidebarRowDecoration] {
         var out: [String: SidebarRowDecoration] = [:]
         for node in scene.nodes.values where node.type == .group {
             var props: [String: String] = [:]
-            for key in ["row", "icon", "weight", "indicator", "badge"] { props[key] = node.string(key) }
+            for key in ["row", "title", "icon", "weight", "indicator", "badge"] { props[key] = node.string(key) }
             if let (id, decoration) = SidebarRowDecoration.parse(props) { out[id] = decoration }
         }
         return out

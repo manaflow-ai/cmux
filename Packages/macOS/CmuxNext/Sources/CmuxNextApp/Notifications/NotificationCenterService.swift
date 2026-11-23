@@ -124,7 +124,7 @@ final class NotificationCenterService {
     /// The deadline clock; tests inject their own.
     @ObservationIgnored var clock: any Clock<Duration> = ContinuousClock()
     /// The languages banner titles the app writes are in (OSC 7501 alerts, cx-6so.36.8); tests pick one.
-    @ObservationIgnored var localizations: [String] = Bundle.module.preferredLocalizations
+    @ObservationIgnored var localizations: [String] = Bundle.main.preferredLocalizations
     /// Ghostty's `desktop-notifications`: off reads terminal notifications
     /// at once, as Ghostty then posts none (read per arrival, so a config
     /// reload applies).
@@ -400,9 +400,9 @@ final class NotificationCenterService {
         let owner = known ?? self.owner(of: tab), local = owner?.isLocal ?? true
         // Going into a tab a strip press held ends the hold: its focus is a look again.
         if [.click, .keystroke, .open].contains(trigger), !viewHolds.isEmpty { viewHolds.remove(tab.id) }
-        // Any look at the tab sees its OSC 7501 done and error records and an
-        // agent chat's completed turn (client view state; the owners keep the facts).
+        // Any look sees OSC 7501 done/error, a chat's done turn, its row's symbols (view state; owners keep facts).
         ProgramStatusSeenStore.shared.markSeen(tab)
+        if [.focus, .click, .open].contains(trigger), let store = (owner ?? services?.daemon)?.store { StatusMapping.shared.markSeen(workspaceOf: tab, in: store) }
         if local, agentFinished[tab.id] != nil, NotificationPolicy(prefs: preferences).clears(trigger, for: .agent) {
             note("\(trigger.rawValue) read agent turn \(tab.id)")
             agentFinished[tab.id] = nil
@@ -518,14 +518,7 @@ final class NotificationCenterService {
         guard let services else { return }
         let store = services.daemon.store
         let located = notification.surface.flatMap { locate(surface: $0, in: store) }
-        arrive(notification, located: located, workspace: located == nil ? Self.workspace(of: notification, in: store) : nil)
-    }
-
-    /// The workspace a terminal-less notification names (`cmux notify --workspace ws_…`), when
-    /// it is in `store`.
-    static func workspace(of notification: DaemonNotification, in store: DaemonStore) -> WorkspaceModel? {
-        guard notification.surface == nil, let id = notification.workspaceID else { return nil }
-        return store.workspace(resourceID: id)
+        arrive(notification, located: located, workspace: located == nil ? store.workspace(namedBy: notification) : nil)
     }
 
     /// One arrival on `located` (nil: its tab is not in the store). `workspace`: the workspace a
@@ -650,10 +643,12 @@ final class NotificationCenterService {
             post(notification, tab: digest == nil ? located.tab : nil, workspace: located.workspace.id,
                  workspaceName: located.workspace.displayName, sound: digest == nil ? decision.sound : nil, volume: decision.soundVolume,
                  program: program, headline: digest.map { String(localized: "notifications.finishedBurst.title", defaultValue: "\($0.count) agents finished",
-                                                                       table: "NotificationsPanel", bundle: .module) },
+                                                                       table: "NotificationsPanel", bundle: .module.inAppLanguage) },
                  owner: located.tab)
         }
         if !decision.desktop, let sound = decision.sound { soundGate.player.play(sound, volume: decision.soundVolume, banner: notification.desktop) }
+        if let kind = desktop.announce(notification, decision: decision, appActive: services?.appActiveSource() ?? false, paneIsViewed: isViewed(located.tab.id),
+                                       name: services?.windows.isIncognito(workspace: located.workspace.id) == true ? nil : shownName(of: located.tab)) { note("announced \(kind) tab=\(located.tab.id)") }
         if let seconds = decision.timeout { scheduleTimeout(seconds, tabID: located.tab.id) }
         if let mode = decision.bounce { dockAttention.bounce(untilActive: mode == .untilActive) }
     }

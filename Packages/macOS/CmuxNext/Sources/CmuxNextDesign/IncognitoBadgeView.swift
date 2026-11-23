@@ -77,7 +77,7 @@ public final class IncognitoBadgeView: NSView, TitlebarPressDeciding {
         compactIcon.imageScaling = .scaleNone
         compactIcon.isHidden = true
         addSubview(compactIcon)
-        themedToolTip = help
+        // It shows its word: no tooltip (a1315's cut 2); the accessibility label carries the help.
         setAccessibilityElement(true)
         setAccessibilityRole(.staticText)
         setAccessibilityLabel(help)

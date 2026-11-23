@@ -26,6 +26,10 @@ public nonisolated enum CmuxToastStyle: String, Sendable, CaseIterable, Hashable
     /// An opaque surface in the window's background color, a 1 px edge, the button corner, no shadow, no glass:
     /// for themes (Leo 2026-11-22: "the toast is this awkward pill glass. im not sure if it should be that rounded.").
     case flat
+    /// Toasts v2 (Settings > Advanced > Experiments, `experiments.toastsV2`): one quiet glass line, a mark in the
+    /// tone's color (a spinner while working), the action as a small ink-filled button. A working toast
+    /// turns into its result in place.
+    case v2
 
     /// The style's name in the playground.
     public var title: String {
@@ -41,6 +45,7 @@ public nonisolated enum CmuxToastStyle: String, Sendable, CaseIterable, Hashable
         case .accentTinted: "Accent bar"
         case .solid: "Solid, no glass"
         case .flat: "Flat"
+        case .v2: "Toasts v2: mark and ink Undo"
         }
     }
 
@@ -58,6 +63,7 @@ public nonisolated enum CmuxToastStyle: String, Sendable, CaseIterable, Hashable
         case .accentTinted: "A bar in the tone's color on the leading edge: errors read red at a glance."
         case .solid: "Opaque theme surface, no glass: the most legible over a busy page."
         case .flat: "The window's background color, a 1 px edge, the button corner, no shadow."
+        case .v2: "Quiet glass, a mark in the tone's color (a spinner while working), Undo as a small ink-filled button."
         }
     }
 
@@ -87,6 +93,9 @@ public nonisolated enum CmuxToastStyle: String, Sendable, CaseIterable, Hashable
         case .flat:
             look.solid = true
             look.flat = true
+        case .v2:
+            look.marksTone = true
+            look.inkAction = true
         }
         return look
     }

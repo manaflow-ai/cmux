@@ -170,6 +170,8 @@ cmux agent session stop NAME --if-idle [--expect-revision LASTSEQ]   # stop only
 `send` on a busy or blocked session never refuses: the prompt queues and the
 output says `queued behind …`.
 
+A `--no-wait` or agent send exits 0 once handed off and prints `sent queued|held|delivered|steered id=ID to=TARGET` first (`--json`: `{"ok":true,"state":…,"id":…}`); a retry loop checks the exit code, never greps the text.
+
 ### Messages between agents
 
 In a chat with acpmux's MCP tools, message with the `send` tool
@@ -383,8 +385,8 @@ build output, or run it in a lane with `approve-edits`. Rules sit above the poli
 name, case-insensitively. File writes a harness delegates to acpmux (ACP
 `fs/write_text_file`) are gated the same way and show as `Write PATH [edit]`.
 
-A session you start from inside your own session (`cmux agent new|run`, a local
-`dispatch`, `--parent`, `start_session`) inherits your policy and mode when you
+A session you start from inside your own session (`cmux agent new` or its alias
+`cmux agent run`, a local `dispatch`, `--parent`, `start_session`) inherits your policy and mode when you
 pass neither: your policy, and your mode (or, on another harness family, the
 same level: full access, asking, or its own mode). It never runs wider than
 you: a wider `--mode` is refused. A start from a plain shell with no session
@@ -492,12 +494,16 @@ acpmux chats search flaky test --harness codex --folder ~/wt/cmux
 acpmux chats list -q acpmux --folder ~/proj    # by title or folder, newest first; --account for one account home
 acpmux chats open claude-code:5f0c2a9e         # open one again (KEY from list or search)
 acpmux chats roots                             # which folders the index reads, and which it refuses and why
+acpmux board                                   # this machine's branches, read-only (`--json` for scripts)
 cmux agent resolve 'https://cmux.com/deeplink/agent?harness=claude&session=…'   # the session a link, id or name names
 acpmux who-else src/lib.rs --topic "resize lag" # live and recent sessions here and on peers on these files or topic
 cmux agent history NAME                            # what a session did, one turn per line
 acpmux ledger --since 30d --by pr              # what turns cost, per repo, pull request, day, model or account
 acpmux bead ls cx-cus7j.230                    # the sessions working on a tracker bead
 acpmux process list                            # background processes agents left running
+acpmux ps --json                               # every process and lock acpmux owns: owner now, session, state, why
+acpmux gc                                      # proven orphans only (dry run); --apply ends them, logged; never guess from ps/argv
+acpmux board                                   # read-only local branch board (Labs > Show Preview Features); --json
 acpmux worktree list                           # this machine's worktrees and the agents that made them
 acpmux ls --archived                           # archived chats, newest archive first, and who archived each
 acpmux archive NAME OTHER                      # take chats off the lists (--json says what changed)
@@ -510,7 +516,7 @@ several models), `continue` (move a chat to another harness), `briefs` and `task
 (tracked work), `watch` (wake me when others finish), `inbox` and `deliver`
 (durable messages, reports), `forum`, `bridge`, `desktop` and `register`
 (desktop apps), `group` (sidebar groups), `harness`, `capabilities`,
-`machine-auth`, `hand`, `share-host`, `router`, `web`, `attach`, `resume-here`,
+`machine-auth`, `hand`, `share-host`, `router`, `web`, `board`, `attach`, `resume-here`,
 `stdio`, `cli-agent`, `uniichat-agent`, and `skill` (this guide).
 
 ## 8. Output

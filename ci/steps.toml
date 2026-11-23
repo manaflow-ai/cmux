@@ -5,7 +5,8 @@
 # reds per 100 landings today). Advisory steps run idle-class and never block."
 #
 # A step is one command. It names the job that runs it (one of `jobs` below, at most 8), the paths that
-# route it (`inputs`, globs; none means every change), whether it blocks, its class and its timeout.
+# route it (`inputs`, globs; none means every change), whether it blocks, its class and its timeout;
+# `alone = true` runs it by itself, after the job's other steps.
 # `ci/run` (scripts/ci/ci_steps.py) routes a diff to steps and runs one job's steps in parallel. A step
 # with `blocks = false` runs in the `advisory` job, in class `idle`, and its failure is a warning: the
 # job still passes. tests/test_ci_step_table.py holds both rules.
@@ -55,6 +56,43 @@ mkdir -p "$CI_TOOLS/bin"
 node_bin="$(tail -n 1 "$GITHUB_PATH")"
 [ -n "$node_bin" ] || node_bin="$(dirname "$(command -v node)")"
 for tool in node npm npx; do ln -sf "$node_bin/$tool" "$CI_TOOLS/bin/$tool"; done
+'''
+# The exact Go of daemon/remote/go.mod's `toolchain` line (setup-go's go-version-file; the daemon's release
+# script refuses any other). A host go of that version is used as is. Otherwise tailnet-go.sh's Go (the host's
+# Go 1.21+, or its pinned, checksummed download into $CI_TOOLS) fetches it as Go's toolchain module, checked
+# against sum.golang.org, into a module cache the runner keeps (Go extracts it beside and renames it).
+go = '''
+want="$(sed -n 's/^toolchain \(go[0-9.]*\)$/\1/p' daemon/remote/go.mod)"
+if [ "$(GOTOOLCHAIN=local go env GOVERSION 2>/dev/null)" = "$want" ]; then
+  goroot="$(GOTOOLCHAIN=local go env GOROOT)"
+else
+  . scripts/ci/tailnet-go.sh
+  ensure_tailnet_go "$CI_TOOLS"
+  export GOMODCACHE="${RUNNER_TOOL_CACHE:-$CI_TOOLS}/go-toolchains"
+  goroot="$(GOTOOLCHAIN="$want" go env GOROOT)"
+fi
+mkdir -p "$CI_TOOLS/bin"
+ln -sf "$goroot/bin/go" "$goroot/bin/gofmt" "$CI_TOOLS/bin/"
+"$CI_TOOLS/bin/go" version
+'''
+# rustup's proxies, so a directory's rust-toolchain.toml or the step's RUSTUP_TOOLCHAIN picks the toolchain, and
+# the 1.94.0 coderouter-ci.yml pinned for dtolnay/rust-toolchain (rustup checks each download against its
+# manifest). A runner with no rustup gets it the way setup-cmux-tui-rust does, from a checksummed rustup-init.
+rust = '''
+cargo_bin="${CARGO_HOME:-$HOME/.cargo}/bin"
+if [ ! -x "$cargo_bin/rustup" ]; then
+  url="https://static.rust-lang.org/rustup/dist/$(uname -m)-unknown-linux-gnu/rustup-init"
+  curl -fsSL --retry 3 --max-time 120 -o "$CI_TOOLS/rustup-init" "$url"
+  sum="$(curl -fsSL --retry 3 --max-time 30 "$url.sha256" | cut -d' ' -f1)"
+  echo "$sum  $CI_TOOLS/rustup-init" | sha256sum -c -
+  chmod +x "$CI_TOOLS/rustup-init"
+  "$CI_TOOLS/rustup-init" -y --profile minimal --default-toolchain none --no-modify-path
+fi
+"$cargo_bin/rustup" toolchain install 1.94.0 --profile minimal --component clippy,rustfmt
+mkdir -p "$CI_TOOLS/bin"
+for tool in rustup cargo rustc rustdoc rustfmt cargo-fmt cargo-clippy clippy-driver; do
+  ln -sf "$cargo_bin/$tool" "$CI_TOOLS/bin/$tool"
+done
 '''
 
 # Python contract tests that each had a workflow, a runner and a checkout of their own
@@ -435,6 +473,111 @@ npm ci --ignore-scripts --no-audit --no-fund
 WRANGLER_SEND_METRICS=false npm run check
 '''
 
+# Two more checks whose pull request runs each took a Linux job: cmux-vm-clients.yml's sdk job (its rust job
+# stays) and web-complexity.yml's complexity job. Both keep their other runs (pushes, dispatch, pull requests
+# into main); a feat-cmux-next pull request runs the same commands here. `inputs` is each workflow's former
+# pull_request path filter (cmux-vm-clients.yml's is shared by its rust job and its sdk job), plus the
+# workflow file where the filter listed it. A failure in one command of a step does not stop the step's others,
+# as the jobs' `!cancelled()` steps did. The sdk job's failure-only artifact upload (the regenerated schema) is
+# not a step: a failed step prints its `git diff --stat`.
+[step.cmux-vm-sdk]
+job = "linux"
+timeout = 300
+title = "cmux VM SDK"
+about = "the @cmux/vm SDK's generated schema (src/schema.d.ts) matches workers/cmux-vm/openapi.json, and the SDK typechecks"
+needs = ["bun"]
+inputs = [
+  "workers/cmux-vm/openapi.json",
+  "workers/cmux-vm/cli/**",
+  "cmux-tui/crates/cmux-cloud-config/**",
+  "workers/cmux-vm/sdk/**",
+  "skills/cmux-cloud-vm/references/headless.md",
+  "cmux-tui/rust-toolchain.toml",
+  ".github/actions/setup-cmux-tui-rust/**",
+  ".github/actions/runner-cargo-home/**",
+  ".github/workflows/cmux-vm-clients.yml",
+]
+run = '''
+cd workers/cmux-vm/sdk
+bun install --frozen-lockfile
+status=0
+bun run generate
+if [[ -n "$(git status --porcelain -- .)" ]]; then
+  git --no-pager diff --stat -- .
+  echo "::error::src/schema.d.ts is stale: run \`bun run generate\` in workers/cmux-vm/sdk and commit the result"
+  status=1
+fi
+bun run typecheck || status=1
+exit "$status"
+'''
+
+[step.web-complexity]
+job = "linux"
+timeout = 300
+title = "Web complexity candidate"
+about = "web's Oxlint configuration parses and its complexity baseline holds against the base tip (the contributor-side diagnostic; web-complexity-trusted.yml is the required check)"
+needs = ["bun", "node"]
+inputs = ["web/**"]
+run = '''
+# The merge commit's first parent is the base tip the router diffed against; its second is the pull request.
+base="$(git rev-parse -q --verify 'HEAD^1')"
+bash scripts/ci/fetch-complexity-base.sh "$base"
+cd web
+bash ../scripts/ci/bun-install.sh --frozen-lockfile
+./node_modules/.bin/oxlint --config .oxlintrc.json --print-config app/page.tsx >/dev/null
+bun run lint:complexity -- --base "$base" --head "$(git rev-parse HEAD)"
+'''
+
+# ci-guards.yml's workflow-guard-submodule-forward-only job, which a feat-cmux-next pull request reached through
+# cmux-next-guards.yml's nightly-guards call on every change but a docs-only one. A docs-only change stays out
+# of the pipeline (test_the_router_starts_it_only_when_a_step_is_routed) and globs cannot say "not docs-only", so
+# `inputs` is what the step's verdict reads: the gitlinks and .gitmodules (a change touching neither passes the
+# guard, which only compares gitlinks that moved), every build.zig.zon (the Zig host check reads all of the tree's),
+# the lock, the three commands' scripts and what they import, and the job's workflow. The job keeps pushes,
+# dispatch, the post-merge batch and pull requests into other bases, and skips only feat-cmux-next's pull
+# requests, where Guard status counts that skip as fine. The job's checkout was this one's (depth 2, no
+# submodules): the guard compares the merge commit against its first parent, which that depth holds, and fetches
+# what else it needs itself (a changed gitlink's submodule, bounded deepening). This job passes no GITHUB_TOKEN, so
+# the guard's GitHub compare fallback is unauthenticated; its bounded deepening is the fallback after that. One
+# failed command does not stop the others. 110 s on 2 CPUs (its unit test is 102 s of that).
+[step.submodule-forward-only]
+job = "linux"
+timeout = 300
+title = "Submodule forward-only guard"
+about = "no submodule gitlink moves backwards from the merge base (unless a commit declares the rollback), the guard's tests pass, and no Ghostty build fetches a Zig package from a third-party host"
+inputs = [
+  ".gitmodules",
+  "ghostty",
+  "ghostty-next",
+  "homebrew-cmux",
+  "**/build.zig.zon",
+  "scripts/ci/zig-packages.lock",
+  "scripts/ci/zig_package_mirror.py",
+  "scripts/ci/deadline_http.py",
+  "scripts/ci/submodule_forward_only.py",
+  "scripts/ci/ci_process_tree.py",
+  "scripts/ci/git_fetch_retry.py",
+  "tests/test_submodule_forward_only.py",
+  "tests/git_fixture_env.py",
+  ".github/workflows/ci-guards.yml",
+]
+run = '''
+base="$(git rev-parse HEAD^1)"
+git cat-file -e "$base^{commit}"
+export GITHUB_BASE_SHA="$base" GITHUB_HEAD_SHA="$(git rev-parse HEAD)"
+status=0
+python3 scripts/ci/submodule_forward_only.py || status=1
+python3 tests/test_submodule_forward_only.py || status=1
+# A change to the lock, a Ghostty gitlink or the detector also downloads every mirrored copy and checks it.
+git submodule update --init --depth 1 ghostty ghostty-next
+args=()
+if git diff --name-only HEAD^1 HEAD -- scripts/ci/zig-packages.lock scripts/ci/zig_package_mirror.py ghostty ghostty-next | grep -q .; then
+  args+=(--online)
+fi
+python3 scripts/ci/zig_package_mirror.py check ${args[@]+"${args[@]}"} || status=1
+exit "$status"
+'''
+
 # Python-only checks whose pull request runs each took a Linux job of their own (agent-brands.yml's
 # drift job, terminal-hang-diagnostics.yml's release-gate job, repair-nightly-appcast-content-types.yml's
 # test job). Those workflows keep their push, dispatch and macOS runs; a pull request runs these here.
@@ -486,6 +629,63 @@ inputs = [
   "tests/test_repair_nightly_appcast_content_types.py",
 ]
 run = "python3 tests/test_repair_nightly_appcast_content_types.py"
+
+# cmux-next-remote-daemon.yml's release-packaging job, which keeps its feat-cmux-next push and dispatch runs.
+# `inputs` is its former pull_request path filter, less the workflow file. Cold on 2 CPUs: 143 s (four
+# platforms built three times with an empty Go build cache); the runner keeps that cache.
+[step.remote-daemon-packaging]
+job = "linux"
+timeout = 360
+title = "cmux-next remote daemon packaging"
+about = "cmuxd-remote's licenses are allowed, its third-party notices and release verification pass their tests, and stable, nightly and rc daemon artifacts build with the go.mod Go and pass verification"
+needs = ["go"]
+inputs = [
+  "daemon/remote/**",
+  "scripts/*remote_daemon*",
+  "tests/*remote_daemon*",
+  "tests/fixtures/remote-daemon-notices/**",
+  "cmux-tui/build-support/notices/license_match.py",
+  "scripts/cmux-next/check_app_crate_licenses.py",
+  "scripts/cmux-next/cargo-locks.py",
+]
+run = '''
+# Every check runs after a red one, as the job's `!cancelled()` steps did.
+rc=0
+python3 scripts/remote_daemon_notices.py check --daemon-root daemon/remote || rc=1
+python3 tests/test_remote_daemon_release_verification.py || rc=1
+python3 tests/test_remote_daemon_notices.py || rc=1
+python3 tests/test_remote_daemon_release_assets.py || rc=1
+exit "$rc"
+'''
+
+# coderouter-ci.yml's test job, which keeps its main push runs. `inputs` is its former pull_request path filter
+# (`.github/workflows/coderouter-*.yml`) less coderouter-ci.yml. It had a Swatinem/rust-cache; here coderouter/target
+# starts empty: 159 s on 2 CPUs with an empty cargo registry too, which the runner keeps.
+[step.coderouter]
+job = "linux"
+# Its cargo build takes every core: a step with deadlines beside it fails (broker.test.mjs, twice).
+alone = true
+timeout = 360
+title = "coderouter CLI"
+about = "coderouter is rustfmt- and clippy-clean and passes its tests on Rust 1.94.0, its cargo, Python and npm versions agree, and its npm package packs"
+needs = ["rust", "node"]
+inputs = [
+  "coderouter/**",
+  ".github/workflows/coderouter-publish-npm.yml",
+  ".github/workflows/coderouter-publish-pypi.yml",
+  ".github/workflows/coderouter-release.yml",
+  ".github/workflows/coderouter-verify-release.yml",
+]
+run = '''
+cd coderouter
+export RUSTUP_TOOLCHAIN=1.94.0
+cargo fmt --all -- --check
+cargo clippy --locked --all-targets -- -D warnings
+cargo test --locked --all-targets
+node scripts/check-version.mjs
+cd npm
+npm pack --dry-run
+'''
 
 # The description lints from pr-body-checks.yml. They judge the description, not the code, and only
 # ever warned (Leo, 2026-11-01: "keep only what catches real breakage"; cmuxterm-hq#5745).
@@ -640,7 +840,8 @@ esac
 '''
 
 # Webview and native UI changes carry the review loop from the aiforui course: a missing `## UI review`
-# section or `Verdict:` line warns. The changed paths come from the event's merge commit without blobs, as
+# section, `Verdict:` line or `Try:` line (the command that opens the pull request in a copy of cmux NEXT,
+# so a reviewer clicks through before reading the diff) warns. The changed paths come from the event's merge commit without blobs, as
 # pr-body-checks.yml reads them (no API call); the paginated REST file list is only the fallback.
 [step.ui-review]
 job = "advisory"
@@ -648,7 +849,7 @@ blocks = false
 class = "idle"
 timeout = 300
 title = "UI review"
-about = "a pull request that changes webview or native UI files has a ## UI review section with a Verdict: line"
+about = "a pull request that changes webview or native UI files has a ## UI review section with Verdict: and Try: lines"
 run = '''
 if [ ! -f scripts/ci/ui_review_advisory.py ]; then
   echo "::warning title=UI review::the advisory script is not present on the base; review the UI section manually"
@@ -676,7 +877,7 @@ if ! listed || ! python3 -c 'import json, sys; json.dump([{"filename": l} for l 
   exit 0
 fi
 printf '%s' "$BODY" > "$body_file"
-python3 scripts/ci/ui_review_advisory.py --body-file "$body_file" --files-json "$files" \
+python3 scripts/ci/ui_review_advisory.py --body-file "$body_file" --files-json "$files" --pr "${PR:-}" \
   || echo "::warning title=UI review::the advisory script could not run; review the UI section manually"
 '''
 

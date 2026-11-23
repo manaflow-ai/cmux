@@ -36,6 +36,11 @@ check(bool(full_input) and "default: false" in full_input.group(1) and "type: bo
 
 route = re.search(r"- name: Classify pull request paths\n        id: route\n(.*?)(?=\n      - name: )", WORKFLOW, re.DOTALL)
 route_text = route.group(1) if route else ""
+# The step's commands live in scripts/ci/cmux-next-steps/ (moved out to keep cmux-next.yml under its size budget,
+# tests/test_ci_workflow_file_size.py); its env: stays in the workflow. Read both.
+step_script = re.search(r"run: bash -e (scripts/ci/cmux-next-steps/[A-Za-z0-9_.-]+\.sh)\n", route_text + "\n")
+if step_script:
+    route_text += "\n" + (ROOT / step_script.group(1)).read_text()
 check("FULL_DISPATCH: ${{ inputs.full || false }}" in route_text, "the route step must read inputs.full")
 block = re.search(r"\n( +)if \[\[ \"\$EVENT_NAME\" == workflow_dispatch && -z \"\$SAME_TREE_SHA\" && \"\$FULL_DISPATCH\" != true(.*?)\n\1fi\n",
                   route_text, re.DOTALL)

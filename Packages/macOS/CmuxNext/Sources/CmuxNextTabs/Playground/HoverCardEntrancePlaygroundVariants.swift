@@ -13,15 +13,15 @@ struct HoverCardEntrancePlaygroundVariants {
     var all: [TabBarPlaygroundVariant] {
         [
             variant(String(localized: "tabs.playground.hoverCard.morph", defaultValue: "Grows out of the tab, settling like a drop",
-                           bundle: .module), .morph, shipped: true),
+                           bundle: .localizedModule), .morph, shipped: true),
             variant(String(localized: "tabs.playground.hoverCard.slide", defaultValue: "Fades in while it slides down from the tab",
-                           bundle: .module), .slide),
-            variant(String(localized: "tabs.playground.hoverCard.fade", defaultValue: "Fades in where it rests", bundle: .module), .fade),
+                           bundle: .localizedModule), .slide),
+            variant(String(localized: "tabs.playground.hoverCard.fade", defaultValue: "Fades in where it rests", bundle: .localizedModule), .fade),
             variant(String(localized: "tabs.playground.hoverCard.retarget.jump", defaultValue: "Switches to the next tab in place",
-                           bundle: .module), .morph, retarget: .jump, shipped: true),
+                           bundle: .localizedModule), .morph, retarget: .jump, shipped: true),
             variant(String(localized: "tabs.playground.hoverCard.retarget.crossfade",
-                           defaultValue: "Switches in place, its content cross-fading", bundle: .module), .morph, retarget: .crossfade),
-            variant(String(localized: "tabs.playground.hoverCard.retarget.glide", defaultValue: "Glides to the next tab", bundle: .module),
+                           defaultValue: "Switches in place, its content cross-fading", bundle: .localizedModule), .morph, retarget: .crossfade),
+            variant(String(localized: "tabs.playground.hoverCard.retarget.glide", defaultValue: "Glides to the next tab", bundle: .localizedModule),
                     .morph, retarget: .glide),
         ]
     }

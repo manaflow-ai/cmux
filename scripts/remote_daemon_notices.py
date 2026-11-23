@@ -27,8 +27,8 @@ license is allowed (Leo, 2026-10-22: fix it, don't fail "without a review"):
 Anything else (an unknown text, a disallowed license, an unrecognised notice)
 fails, naming the module, the file and the license. Approvals the record does not have yet, and entries for modules
 the build no longer links, are notes; `--update-review` writes the record.
-`check` is the fast guard (cmux-next-remote-daemon.yml, on pull requests and
-feat-cmux-next pushes): it prints the notes as warnings and fails only where
+`check` is the fast guard (the ci/steps.toml step remote-daemon-packaging on pull
+requests, cmux-next-remote-daemon.yml on feat-cmux-next pushes): it prints the notes as warnings and fails only where
 `generate` would. build_remote_daemon_release_assets.sh writes the file as
 cmuxd-remote-THIRD_PARTY_LICENSES[-<suffix>].txt beside the binaries. Python
 3.9+ standard library only.

@@ -9,6 +9,7 @@ had already fixed (transcript-density: "Module not found health.ts" after #23333
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
 import re
 import subprocess
@@ -46,6 +47,14 @@ def step(name: str) -> dict:
     return found[0]
 
 
+def plan_step(name: str) -> dict:
+    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    found = [entry for entry in workflow["jobs"]["plan"]["steps"] if entry.get("name") == name]
+    if not found:
+        raise AssertionError(f"gallery-health.yml's plan job has no step named {name!r}")
+    return found[0]
+
+
 class GalleryHealthMergeRef(unittest.TestCase):
     def test_a_pull_request_renders_its_merge_with_base(self) -> None:
         checkout = step("Checkout")
@@ -60,7 +69,7 @@ class GalleryHealthMergeRef(unittest.TestCase):
     def test_the_touched_entries_are_the_pull_requests_own_change(self) -> None:
         # The merge's first parent is the base it was merged with: diffing against it is the pull
         # request's change, never base commits the branch has not merged yet.
-        run = step("Choose the entries to render")["run"]
+        run = plan_step("Choose the entries to render")["run"]
         self.assertIn('git diff --name-only HEAD^1 HEAD', run)
         self.assertNotIn("git merge-base", run)
 
@@ -132,10 +141,13 @@ class GalleryHealthBaseReds(unittest.TestCase):
         self.assertLess(int(judge["timeout-minutes"]), int(workflow["jobs"]["health"]["timeout-minutes"]))
 
     def test_the_shard_count_matches_the_matrix(self) -> None:
+        # The plan job sizes the matrix; health.ts splits the cases over exactly the shards that started.
         workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
-        shards = workflow["jobs"]["health"]["strategy"]["matrix"]["shard"]
-        self.assertEqual(shards, list(range(len(shards))))
-        self.assertIn(f"--shard-count {len(shards)} ", step("Render the gallery and judge it")["run"])
+        self.assertEqual(workflow["jobs"]["health"]["strategy"]["matrix"]["shard"],
+                         "${{ fromJSON(needs.plan.outputs.shards) }}")
+        render = step("Render the gallery and judge it")
+        self.assertEqual(render["env"]["SHARDS"], "${{ strategy.job-total }}")
+        self.assertIn('--shard-count "$SHARDS" --shard-index "$SHARD"', render["run"])
 
     def test_every_health_run_may_render(self) -> None:
         # health.ts refuses to render without CMUX_GALLERY_IN_VM=1 and writes no verdict; the base replay
@@ -180,9 +192,9 @@ class GalleryHealthBaseReds(unittest.TestCase):
         self.assertIn("github.event_name == 'pull_request'", job["if"])
         self.assertIn("head.repo.full_name == github.repository", job["if"])
         self.assertNotIn("needs", job, "it runs beside the shards, not before them")
-        self.assertNotIn("needs", workflow["jobs"]["health"])
+        self.assertEqual(workflow["jobs"]["health"]["needs"], "plan", "the shards wait only for their plan")
         runs_on = "\n".join(workflow_jobs.runs_on_cells(job) or ["<unresolved matrix>"])
-        self.assertIn("fromJSON(vars.RUNNER_POOLS).linux", runs_on)
+        self.assertTrue(runs_on.endswith("'cmux-linux' }}"), runs_on)
         self.assertNotIn("blacksmith", runs_on)
         # It checks out what the shards check out, and restores the base by the judge step's own command.
         self.assertEqual(job["steps"][0]["with"], step("Checkout")["with"])
@@ -320,7 +332,7 @@ class GalleryHealthBrowserConsistency(unittest.TestCase):
                 "PATH": str(work / "bin") + os.pathsep + os.defpath,
                 "GITHUB_WORKSPACE": str(work), "GITHUB_ENV": str(env_file),
                 "RUNNER_TEMP": str(work), "TEST_BROWSER": browser, "TEST_LAUNCHES": str(launches),
-                "ALL": "true", "IDS": "", "SHARD": "0", "pass": "1",
+                "ALL": "true", "IDS": "", "SHARD": "0", "SHARDS": "1", "pass": "1",
             })
             render = next(entry for entry in steps if entry.get("id") == "render")
             for entry in steps:
@@ -581,7 +593,7 @@ class GalleryHealthPathRouting(unittest.TestCase):
         for path in ("Packages/Shared/CmuxAgentQuestion/Sources/CmuxAgentQuestion/Fixtures/cancelled.json",
                      "webviews/src/unused/Thing.tsx", "Packages/macOS/CmuxNext/Sources/CmuxNextApp/AppDelegate.swift"):
             self.assertEqual(unplaced_tool.unplaced(paths, [path], touched), [], path)
-        run = step("Choose the entries to render")["run"]
+        run = plan_step("Choose the entries to render")["run"]
         self.assertIn("scripts/gallery-matrix/unplaced.py ../.github/workflows/gallery-health.yml", run)
 
     def test_an_untraced_webviews_asset_or_string_catalog_renders_every_entry(self) -> None:
@@ -600,7 +612,7 @@ class GalleryHealthPathRouting(unittest.TestCase):
         # The nightly full render of the base: a main-side dispatcher starts it on feat-cmux-next, since a
         # schedule on this branch never fires.
         self.assertIn("workflow_dispatch", triggers())
-        run = step("Choose the entries to render")["run"]
+        run = plan_step("Choose the entries to render")["run"]
         branch = run[run.index('[ "$EVENT" = workflow_dispatch ]'):]
         branch = branch[:branch.index("elif", 1)]
         self.assertIn("echo .github/workflows/gallery-health.yml", branch)
@@ -645,6 +657,33 @@ class GalleryHealthTime(unittest.TestCase):
                      "scripts/gallery-matrix/upload-set.ts", "webviews/package.json"):
             self.assertTrue(in_sparse(path, patterns), path)
         self.assertFalse(in_sparse("cmux-tui/Cargo.toml", patterns))
+
+    def test_the_checkout_has_every_file_webviews_imports_from_outside_it(self) -> None:
+        # Base red, 2026-11-22: Customize looks imported examples/gallery/gallery.json and globbed
+        # examples/looks/*/cmux-setup.json, the checkout had no examples/, and every shard's gallery:build
+        # failed with "Could not resolve". A relative import or glob that leaves webviews/ must be checked out.
+        patterns = sparse_patterns()
+        # A static import or re-export (not `import type`/`export type`, which the bundler erases), a dynamic
+        # import, or an import.meta.glob.
+        static = re.compile(r"""^\s*(?:import|export)(\s+type\b)?[^;"']*?\bfrom\s+["'](\.\.?/[^"']+)["']""",
+                            re.MULTILINE)
+        dynamic = re.compile(r"""(?:\bimport\s*\(\s*|import\.meta\.glob(?:<[^>]*>)?\(\s*)["'](\.\.?/[^"']+)["']""")
+        missing: set[str] = set()
+        for source in tracked("webviews/src"):
+            if not source.endswith((".ts", ".tsx")) or source.endswith((".test.ts", ".test.tsx")):
+                continue
+            text = (ROOT / source).read_text(encoding="utf-8")
+            targets = [target for erased, target in static.findall(text) if not erased] + dynamic.findall(text)
+            for target in targets:
+                resolved = os.path.normpath(os.path.join(os.path.dirname(source), target))
+                if resolved.startswith("webviews/") or resolved.startswith(".."):
+                    continue
+                if "*" in resolved:
+                    files = [p for p in tracked(resolved.split("*")[0]) if unplaced_tool.glob_regex(resolved).match(p)]
+                else:
+                    files = [resolved]
+                missing.update(f"{source} -> {path}" for path in files if not in_sparse(path, patterns))
+        self.assertEqual(sorted(missing), [], "add these to the Checkout step's sparse-checkout")
         self.assertFalse(in_sparse("Packages/macOS/CmuxNext/Sources/CmuxNextApp/AppDelegate.swift", patterns))
 
     def test_a_shard_past_its_case_budget_fails_naming_the_shard_count(self) -> None:
@@ -661,27 +700,63 @@ class GalleryHealthTime(unittest.TestCase):
         self.assertIn("steps.cap.outcome == 'failure'", fail["if"])
         self.assertLess(names.index("Judge the red states against the base"), names.index("Fail past the case budget"))
         self.assertIn("exit 1", fail["run"])
-        with tempfile.TemporaryDirectory(prefix="gallery-cap-") as tmp:
+        self.assertEqual(cap["env"]["CASES"], "${{ needs.plan.outputs.cases }}")
+        def run(cases: int) -> subprocess.CompletedProcess:
+            env = {**os.environ, "CASES": str(cases), "SHARDS": "16",
+                   "MAX_CASES_PER_SHARD": cap["env"]["MAX_CASES_PER_SHARD"]}
+            return subprocess.run(["bash", "-c", cap["run"]], env=env, capture_output=True, text=True)
+
+        limit = 16 * int(cap["env"]["MAX_CASES_PER_SHARD"])
+        self.assertEqual(run(limit).returncode, 0, run(limit).stdout + run(limit).stderr)
+        over = run(limit + 1)
+        self.assertEqual(over.returncode, 1, over.stdout + over.stderr)
+        self.assertIn("::error", over.stdout)
+        self.assertIn("to 17 shards", over.stdout)
+
+    def test_the_matrix_is_sized_to_the_cases_the_run_renders(self) -> None:
+        # 2026-11-22: sixteen shards started for every run, a one-entry push included, and a full render past
+        # 16 x 800 cases failed shard 0 on every run. The plan gives ceil(cases / 800) shards, none for no cases.
+        size = plan_step("Size the matrix to the cases")
+        self.assertEqual(size["env"]["MAX_CASES_PER_SHARD"],
+                         step("Hold each shard within its time budget")["env"]["MAX_CASES_PER_SHARD"])
+        workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        plan = workflow["jobs"]["plan"]
+        self.assertEqual(plan["outputs"]["shards"], "${{ steps.size.outputs.shards }}")
+        self.assertIn("needs.plan.outputs.shards != '[]'", workflow["jobs"]["health"]["if"])
+        # A fork's pull request gets no plan and so no shards, as before.
+        self.assertIn("head.repo.full_name == github.repository", plan["if"])
+        with tempfile.TemporaryDirectory(prefix="gallery-size-") as tmp:
             root = Path(tmp)
-            (root / "webviews/scripts/gallery").mkdir(parents=True)
+            (root / "webviews").mkdir()
             (root / "bin").mkdir()
-            # A stand-in manifest.ts: bun writes N cases to --out.
             (root / "bin/bun").write_text(
                 "#!/bin/sh\nwhile [ $# -gt 0 ]; do [ \"$1\" = --out ] && { python3 -c \"import json,sys; "
                 "json.dump([{}]*int(sys.argv[1]), open(sys.argv[2], 'w'))\" \"$CASES\" \"$2\"; }; shift; done\n")
             (root / "bin/bun").chmod(0o755)
 
-            def run(cases: int) -> subprocess.CompletedProcess:
+            def shards(cases: int, all_: str = "false", ids: str = "a") -> list[int]:
+                out = root / "out"
+                out.write_text("")
                 env = {**os.environ, "PATH": f"{root / 'bin'}:{os.environ['PATH']}", "RUNNER_TEMP": tmp,
-                       "CASES": str(cases), "SHARDS": "16", "MAX_CASES_PER_SHARD": cap["env"]["MAX_CASES_PER_SHARD"]}
-                return subprocess.run(["bash", "-c", cap["run"]], cwd=root, env=env, capture_output=True, text=True)
+                       "GITHUB_OUTPUT": str(out), "CASES": str(cases), "ALL": all_, "IDS": ids,
+                       **{k: str(v) for k, v in size["env"].items() if k.startswith("MAX_")}}
+                done = subprocess.run(["bash", "-c", size["run"]], cwd=root, env=env, capture_output=True, text=True)
+                self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+                values = dict(line.split("=", 1) for line in out.read_text().splitlines())
+                self.assertEqual(values["cases"], str(0 if all_ == "false" and not ids else cases))
+                return json.loads(values["shards"])
 
-            limit = 16 * int(cap["env"]["MAX_CASES_PER_SHARD"])
-            self.assertEqual(run(limit).returncode, 0, run(limit).stdout + run(limit).stderr)
-            over = run(limit + 1)
-            self.assertEqual(over.returncode, 1, over.stdout + over.stderr)
-            self.assertIn("::error", over.stdout)
-            self.assertIn("to 17 shards", over.stdout)
+            per = int(size["env"]["MAX_CASES_PER_SHARD"])
+            self.assertEqual(shards(0), [])
+            self.assertEqual(shards(5, ids=""), [], "nothing touched: no shard starts")
+            self.assertEqual(shards(1), [0])
+            self.assertEqual(shards(per), [0])
+            self.assertEqual(shards(per + 1), [0, 1])
+            self.assertEqual(shards(13002, all_="true", ids=""), list(range(17)))
+            self.assertEqual(len(shards(10**6, all_="true")), int(size["env"]["MAX_SHARDS"]))
+
+    def test_the_plan_checks_out_what_the_shards_do(self) -> None:
+        self.assertEqual(plan_step("Checkout")["with"], step("Checkout")["with"])
 
 
 if __name__ == "__main__":

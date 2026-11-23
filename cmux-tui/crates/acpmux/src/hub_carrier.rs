@@ -1115,14 +1115,24 @@ pub(crate) fn carrier_not_serving(waited: Duration) -> String {
     carrier_off(&format!("it did not answer on the relay within {}s", waited.as_secs().max(1)))
 }
 
-/// A refused connect ticket, as the dialer words it: the hub's `machine.not_found` names a
-/// machine with no carrier to connect to ([`carrier_off`]); any other refusal keeps its text.
+/// A refused connect ticket, as the dialer words it: the hub's `machine.not_found` is
+/// [`not_a_teammate_machine`]; any other refusal keeps its text.
 pub(crate) fn ticket_refusal(text: String) -> String {
-    if text.contains("machine.not_found") {
-        carrier_off("the hub has no carrier registered for it")
-    } else {
-        text
-    }
+    if text.contains("machine.not_found") { not_a_teammate_machine() } else { text }
+}
+
+/// The hub's connect ticket answers `machine.not_found` for any key that is not one of the
+/// caller's person's live machines joined in the caller's own team (cmux-platform
+/// `server/mesh/MeshCarrier.ts`: rows of `caller.team` minted by `caller.user`). Whether the far
+/// carrier serves does not enter into it: a machine joined in another team of the same person
+/// registers and serves on its own slot and still answers this, so the words name the team.
+pub(crate) fn not_a_teammate_machine() -> String {
+    "the hub knows no live machine of yours with that key in this machine's team: it is not \
+     joined, its join was revoked or expired, or it is joined in another of your teams (the hub \
+     carrier only connects machines joined in the same team). Compare teamId in `acpmux machine \
+     join --status --json` on both machines; `acpmux machine doctor --here` names the team and \
+     how to move a join. (carrier.not_serving)"
+        .to_owned()
 }
 
 /// A relay's refusal of a dial, as the dialer words it: the relay's `slot-offline` (no daemon
