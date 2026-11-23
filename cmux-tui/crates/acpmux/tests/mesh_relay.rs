@@ -411,11 +411,16 @@ async fn a_relayed_message_names_its_sending_session_for_display() {
     relay.stop().await;
 }
 
-/// The provenance of the user message `prompt_id` in `session`, once it is recorded.
+/// The provenance of `prompt_id` in `session`, once it is recorded: as the turn's user message,
+/// or as an inbox entry, where a relay's message to a chat that did not delegate to it waits
+/// (`hub/inbox.rs`), as it does over a peer link.
 async fn delivered_provenance(local: &mut Client, session: &str, prompt_id: &str) -> Value {
     for _ in 0..600 {
         let page = local
-            .call("_acpmux/events", json!({"sessionId": session, "kinds": ["user_message"]}))
+            .call(
+                "_acpmux/events",
+                json!({"sessionId": session, "kinds": ["user_message", "inbox"]}),
+            )
             .await;
         let events = page.pointer("/result/events").and_then(Value::as_array).cloned();
         if let Some(e) = events.into_iter().flatten().find(|e| e["msg"]["promptId"] == prompt_id) {
