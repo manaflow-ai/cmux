@@ -1,5 +1,5 @@
 name: Cloud chat proof (staging and production, tagged DEV app)
-run-name: ${{ inputs.signin_pubkey != '' && format('DEV sign-in session {0}', inputs.request_id) || inputs.flow == 'github-pr-app' && format('GitHub main path recording (staging, {0}){1}', inputs.build, inputs.request_id != '' && format(' {0}', inputs.request_id) || '') || inputs.cleanup_machine != '' && format('Cloud machine cleanup ({0})', inputs.cleanup_machine) || inputs.paused_capture && format('Cloud paused price capture (staging, {0}){1}', inputs.build, inputs.request_id != '' && format(' {0}', inputs.request_id) || '') || inputs.matrix && format('Cloud workspace matrix ({0}, {1}){2}', inputs.build, inputs.agent, inputs.request_id != '' && format(' {0}', inputs.request_id) || '') || format('Cloud chat proof ({0}, {1}{2}){3}', inputs.build, inputs.agent, inputs.from_folder && ', from a folder' || '', inputs.request_id != '' && format(' {0}', inputs.request_id) || '') }}
+run-name: ${{ inputs.signin_pubkey != '' && format('DEV sign-in session {0}', inputs.request_id) || inputs.flow == 'share-two-accounts' && 'Two-account chat sharing (staging)' || inputs.flow == 'github-pr-app' && format('GitHub main path recording (staging, {0}){1}', inputs.build, inputs.request_id != '' && format(' {0}', inputs.request_id) || '') || inputs.cleanup_machine != '' && format('Cloud machine cleanup ({0})', inputs.cleanup_machine) || inputs.paused_capture && format('Cloud paused price capture (staging, {0}){1}', inputs.build, inputs.request_id != '' && format(' {0}', inputs.request_id) || '') || inputs.matrix && format('Cloud workspace matrix ({0}, {1}){2}', inputs.build, inputs.agent, inputs.request_id != '' && format(' {0}', inputs.request_id) || '') || format('Cloud chat proof ({0}, {1}{2}){3}', inputs.build, inputs.agent, inputs.from_folder && ', from a folder' || '', inputs.request_id != '' && format(' {0}', inputs.request_id) || '') }}
 
 # One manual trip through a Cloud chat from one tagged DEV build of the dispatched commit, signed in as
 # the agent test account on staging and production. The bundle is built (or downloaded) once per backend job,
@@ -39,6 +39,9 @@ run-name: ${{ inputs.signin_pubkey != '' && format('DEV sign-in session {0}', in
 # browser step, the step log). Leo (2026-11-20): "those steps, we ought to be able to make it more repeatable. a la ci.
 # all these things. they will be useful for testing out onboarding flows and interaction flows". A new flow is a new
 # file there and one more option of `flow`.
+# flow: share-two-accounts: the staging owner shares a chat with the staging guest. A dedicated
+# driver keeps the owner daemon connected while Playwright records the signed-in guest. The job
+# reports guest-visible update, Talk delivery and revoke latency in share-two-accounts.json.
 # flow: github-pr-app: no proof chat, staging only, build=tagged only. Records cmux's GitHub main path
 # (docs/cmux-next/cloud-github-main-path-recording.md; Leo 2026-11-19: "Having all those paths be proper"): job
 # github-config first checks staging (cloud-github-config-check.py: the App's public page answers 200, and the staging
@@ -117,11 +120,11 @@ on:
         default: false
         type: boolean
       flow:
-        description: "chat: the proof chat (or a mode above). github-connect, cloud-first-chat: instead, that flow file (scripts/cmux-next/flows/) on Linux against staging, with video. github-pr-app: the GitHub main path in a tagged app on macOS (build=tagged)"
+        description: "chat: the proof chat (or a mode above). github-connect, cloud-first-chat: instead, that flow file (scripts/cmux-next/flows/) on Linux against staging, with video. share-two-accounts: live chat sharing on staging. github-pr-app: the GitHub main path in a tagged app on macOS (build=tagged)"
         required: false
         default: chat
         type: choice
-        options: [chat, github-connect, cloud-first-chat, github-pr-app]
+        options: [chat, github-connect, cloud-first-chat, github-pr-app, share-two-accounts]
 
 permissions:
   contents: read
@@ -192,7 +195,7 @@ jobs:
     # environment and the production pair lives only in cmux-next-cloud-journey. Owner only: production has no guest.
     if: github.ref == 'refs/heads/feat-cmux-next' && inputs.signin_pubkey != '' && inputs.signin_backend == 'production'
     environment:
-      name: cmux-next-cloud-journey
+      name: ${{ inputs.flow == 'share-two-accounts' && 'cmux-next-vm-image-dev' || 'cmux-next-cloud-journey' }}
       deployment: false
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 10
@@ -291,7 +294,7 @@ jobs:
     # scripts/cmux-next/cloud-flows.ts on Linux against staging: its steps, each timed and read back, and a headless
     # Chromium's video of the browser steps. A step whose secrets are absent is a named skip, not a red (the GitHub test
     # user's CMUX_GITHUB_TEST_* until they are sealed into cmux-next-cloud-journey). Manual dispatch only; no gate.
-    if: github.ref == 'refs/heads/feat-cmux-next' && inputs.signin_pubkey == '' && (inputs.flow == 'github-connect' || inputs.flow == 'cloud-first-chat')
+    if: github.ref == 'refs/heads/feat-cmux-next' && inputs.signin_pubkey == '' && (inputs.flow == 'github-connect' || inputs.flow == 'cloud-first-chat' || inputs.flow == 'share-two-accounts')
     environment:
       name: cmux-next-cloud-journey
       deployment: false
@@ -324,6 +327,7 @@ jobs:
           bunx playwright install ffmpeg || echo "::warning::no Playwright ffmpeg; the flow records no video"
 
       - name: Run the flow
+        if: inputs.flow != 'share-two-accounts'
         env:
           FLOW: ${{ inputs.flow }}
           # This environment's CMUX_DOGFOOD_STACK_* is production's; the staging journey account is CMUX_STAGING_STACK_*.
@@ -341,6 +345,17 @@ jobs:
           [ -s "$out/summary.md" ] && cat "$out/summary.md" >> "$GITHUB_STEP_SUMMARY"
           exit "$status"
 
+      - name: Measure two-account sharing
+        if: inputs.flow == 'share-two-accounts'
+        timeout-minutes: 28
+        env:
+          OWNER_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          OWNER_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+          GUEST_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_GUEST_STACK_EMAIL }}
+          GUEST_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_GUEST_STACK_PASSWORD }}
+        run: |
+          bun scripts/cmux-next/share-two-accounts.ts --out "$RUNNER_TEMP/flow"
+
       - name: Upload the video and the step log
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -349,6 +364,7 @@ jobs:
           path: |
             ${{ runner.temp }}/flow/flow.webm
             ${{ runner.temp }}/flow/*.png
+            ${{ runner.temp }}/flow/share-two-accounts.json
             ${{ runner.temp }}/flow/journey.json
             ${{ runner.temp }}/flow/summary.md
             ${{ runner.temp }}/flow/journey-*/journey.json
