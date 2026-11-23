@@ -82,7 +82,7 @@ import Testing
     }
 
     /// A freezer that reports its page's wakes, as `WebKitTab` does.
-    @MainActor final class ReportingFreezer: BrowserFreezeReporting {
+    @MainActor final class ReportingFreezer: @MainActor BrowserFreezeReporting {
         var key = ""
         var calls: [Bool] = []
         private(set) var isFrozen = false
