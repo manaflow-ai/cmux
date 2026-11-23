@@ -7014,6 +7014,7 @@ export class AcpmuxDirectClient {
     } finally {
       this.rows.current = current;
     }
+  }
 
   /// The held index the shed keeps from for the drawn row `rowId` (`setKeepFrom`): its own oldest record, else the
   /// first held record at or after `at`, else 0 (all of them).
