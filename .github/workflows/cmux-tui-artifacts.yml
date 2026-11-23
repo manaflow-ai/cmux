@@ -1428,18 +1428,33 @@ jobs:
     if: ${{ !cancelled() && (needs.build.result == 'failure' || needs.build.result == 'cancelled') && needs.tree-preflight.outputs.darwin_builder == 'linux' }}
     needs: [tree-preflight, build]
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
-    timeout-minutes: 5
+    # PLAN_WAITS_OUT_THE_RATE_LIMIT: its gh reads go through scripts/ci/gh_budget_wait.sh. A bare
+    # read refused "API rate limit exceeded for installation" (HTTP 403) failed the plan, so no
+    # Mac built the missing targets: all 31 plan failures from 2026-11-22 19:30Z to 11-23 07:00Z
+    # (job 137531598015 one of them). The wait is bounded at 20 minutes inside a 25-minute job.
+    timeout-minutes: 25
     permissions:
       actions: read # this run's artifacts and its legs' conclusions
-      contents: read # a branch push's current head (BRANCH_BUILD_SUPERSEDED)
+      contents: read # a branch push's current head (BRANCH_BUILD_SUPERSEDED), and the checkout
     outputs:
       target_set: ${{ steps.plan.outputs.target_set }}
       recovered: ${{ steps.plan.outputs.recovered }}
     steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          # BASH_ENV (above) sources scripts/ci/api_call_log/env.sh in every step.
+          sparse-checkout: |
+            scripts/ci/gh_budget_wait.sh
+            scripts/ci/api_call_log/
+          sparse-checkout-cone-mode: false
       - name: Find the macOS targets the build left without artifacts
         id: plan
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_BUDGET_WAIT_MAX_SECONDS: "1200"
           REPOSITORY: ${{ github.repository }}
           RUN_ID: ${{ github.run_id }}
           RUN_ATTEMPT: ${{ github.run_attempt }}
@@ -1449,6 +1464,7 @@ jobs:
           BRANCH_PUSH: ${{ (github.event_name == 'push' && github.ref != 'refs/heads/main' && github.ref != 'refs/heads/feat-cmux-next' && github.ref != 'refs/heads/nightly-next' && github.ref != 'refs/heads/release-next' && !startsWith(github.ref, 'refs/heads/feat-cmux-next-') && !startsWith(github.ref, 'refs/heads/next-batch/') && !startsWith(github.ref, 'refs/heads/rc/') && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-')) && '1' || '' }}
         run: |
           set -euo pipefail
+          gh() { bash scripts/ci/gh_budget_wait.sh "$@"; }
           if [[ "$BUILD_RESULT" == cancelled && -n "${BRANCH_PUSH:-}" ]]; then
             # A failed read keeps the fallback (as the superseded check: any lookup failure keeps the run).
             head="$(gh api "repos/$REPOSITORY/git/ref/heads/${GITHUB_REF#refs/heads/}" --jq .object.sha 2>/dev/null || true)"

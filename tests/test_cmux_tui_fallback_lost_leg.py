@@ -52,6 +52,13 @@ while i < len(rest):
     if rest[i].startswith("-"):
         i += 1; continue
     path = rest[i]; i += 1
+refuse = os.environ.get("FAKE_GH_REFUSE", "")
+if refuse and path.split("?")[0] == refuse:
+    count = os.path.join(os.path.dirname(os.environ["FAKE_GH_LOG"]), "refused")
+    if not os.path.exists(count):
+        open(count, "w").close()
+        print("gh: API rate limit exceeded for installation. (HTTP 403)", file=sys.stderr)
+        sys.exit(1)
 routes = json.load(open(os.environ["FAKE_GH_ROUTES"]))
 body = routes.get(path.split("?")[0])
 if body is None:
@@ -90,7 +97,7 @@ def leg(target: str, conclusion: str, failed_step: str | None = None) -> dict:
 
 @unittest.skipIf(shutil.which("jq") is None, "jq runs the step's --jq filters (GitHub's runners have it)")
 class FallbackIgnoresALostLinuxLeg(unittest.TestCase):
-    def run_plan(self, built, jobs=None, build_result="failure") -> tuple[dict, str, str]:
+    def run_plan(self, built, jobs=None, build_result="failure", refuse="") -> tuple[dict, str, str]:
         step = plan_step()
         with tempfile.TemporaryDirectory() as temp:
             temp_path = Path(temp)
@@ -99,6 +106,10 @@ class FallbackIgnoresALostLinuxLeg(unittest.TestCase):
             gh = bin_dir / "gh"
             gh.write_text(FAKE_GH, encoding="utf-8")
             gh.chmod(gh.stat().st_mode | stat.S_IEXEC)
+            # gh_budget_wait.sh's waits are logged, not slept.
+            sleep = bin_dir / "sleep"
+            sleep.write_text('#!/bin/bash\necho "$1" >> "$FAKE_GH_LOG.slept"\n', encoding="utf-8")
+            sleep.chmod(sleep.stat().st_mode | stat.S_IEXEC)
             routes = {f"repos/{REPO}/actions/runs/100/artifacts": artifacts(built)}
             if jobs is not None:
                 routes[f"repos/{REPO}/actions/runs/100/attempts/1/jobs"] = {"total_count": len(jobs), "jobs": jobs}
@@ -123,13 +134,26 @@ class FallbackIgnoresALostLinuxLeg(unittest.TestCase):
                 "BUILD_RESULT": build_result,
                 "FIRST_ON_MAC": "false",
                 "BRANCH_PUSH": "",
+                "GH_BUDGET_WAIT_MAX_SECONDS": "1200",
+                "RUNNER_TEMP": temp,
+                "FAKE_GH_REFUSE": refuse,
             }
             for name in step["env"]:
                 self.assertIn(name, env, f"the test sets the plan step's env {name}")
-            result = subprocess.run(["bash", "-c", step["run"]], env=env, capture_output=True, text=True, timeout=60)
+            # The job checks out scripts/ci/gh_budget_wait.sh; the step runs from the workspace root.
+            result = subprocess.run(["bash", "-c", step["run"]], env=env, cwd=ROOT, capture_output=True, text=True, timeout=60)
             self.assertEqual(result.returncode, 0, result.stderr)
             values = dict(line.split("=", 1) for line in output.read_text().splitlines() if "=" in line)
             return values, result.stdout, log.read_text()
+
+    def test_a_rate_limited_artifacts_read_waits_and_still_plans(self) -> None:
+        # Job 137531598015 (2026-11-23): the artifacts read was refused "API rate limit exceeded for
+        # installation" (HTTP 403) and the bare gh failed the plan, so no Mac built the macOS targets.
+        # All 31 plan failures from 11-22 19:30Z to 11-23 07:00Z were this refusal.
+        values, _, log = self.run_plan(list(LINUX), refuse=f"repos/{REPO}/actions/runs/100/artifacts")
+        self.assertEqual(values.get("target_set"), "macos-arm64")
+        self.assertEqual(values.get("recovered"), "false")
+        self.assertEqual(log.count("/artifacts"), 2, log)
 
     def test_a_cancelled_linux_leg_still_plans_the_macos_fallback(self) -> None:
         # Run 44942698705: x86_64 musl cancelled 60 s in, aarch64 musl built, the macOS link failed.
