@@ -165,6 +165,7 @@ export function shareClient(sessionId: string, host: ShareCall = nativeShareCall
 
 export type ShareClient = ReturnType<typeof shareClient>;
 
+<<<<<<< ours
 /** An account as the daemon compares it (agent_session_shares.rs `normal_account`): trimmed, lowercased. */
 export function normalAccount(text: string): string {
   return text.trim().toLowerCase();
@@ -183,6 +184,13 @@ export function inviteStep(
   return { kind: known.role === role ? "already" : "role", account: known.account };
 }
 
+=======
+/** An account as the daemon compares it (agent_session_shares.rs `normal_account`): trimmed, lowercased. */
+export function normalAccount(text: string): string {
+  return text.trim().toLowerCase();
+}
+
+>>>>>>> theirs
 /** Whether `text` reads as an account the daemon takes: an email address or a cmux `@handle`. */
 export function isAccount(text: string): boolean {
   const value = text.trim();
