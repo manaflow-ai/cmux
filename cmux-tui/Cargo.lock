@@ -1650,6 +1650,13 @@ name = "cmux-command-class"
 version = "0.1.0"
 
 [[package]]
+name = "cmux-composer-send"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-computer-use"
 version = "1.0.0"
 dependencies = [
@@ -2752,6 +2759,7 @@ dependencies = [
  "cmux-cloud-machine",
  "cmux-cloud-start-core",
  "cmux-cloud-wire",
+ "cmux-composer-send",
  "cmux-computer-use",
  "cmux-config",
  "cmux-conversation",
