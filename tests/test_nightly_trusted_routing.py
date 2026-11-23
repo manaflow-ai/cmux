@@ -339,7 +339,9 @@ class NightlyTrustedRouting(unittest.TestCase):
         changes = {'github.ref': 'refs/heads/main'}
         self.assertEqual(select(**changes), 'glaeda-trusted-std-xcode-26.6')
         self.assertEqual(select('environment', **changes), 'ci-cache-writer')
-        self.assertEqual(select('environment'), '')
+        # nightly-next enters artifacts for the App Store signing key (CMUX_STORE_SIGNING_KEY); any other ref none.
+        self.assertEqual(select('environment'), 'artifacts')
+        self.assertEqual(select('environment', **{'github.ref': 'refs/heads/feat-cmux-next'}), '')
 
     def test_next_build_never_waits_on_one_label_with_no_fallback(self):
         # Row 3 of the 2026-10-27 nightly path audit: the build read vars.CI_NIGHTLY_NEXT_BUILD_RUNNER
@@ -716,7 +718,6 @@ class NightlyTrustedRouting(unittest.TestCase):
             "github.event_name == 'workflow_dispatch' && inputs.nightly_next_loop_retry != '') && "
             "(vars.NIGHTLY_NEXT_ONE_JOB != 'on' || vars.NIGHTLY_NEXT_SUBMISSIONS_PAUSED == '1' || "
             "vars.NIGHTLY_NEXT_NOTARY_PAUSED == '1') && 'push' || "
-            "github.event_name == 'workflow_dispatch' && inputs.nightly_next_sign_stage != '' && 'sign' || "
             "format('run-{0}', github.run_id))",
             group,
         )

@@ -17,9 +17,9 @@ covers your change:
 
 | Route | Edit to visible | Use it for |
 |---|---|---|
-| Fleet simulator step: `cmux-ci run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --ref SHA --arg build --artifact artifacts/ios-sim/evidence.zip` | about 15 min (queue median about 8 min) | PR evidence: `build`, `test` (with `only=`, `ui=`, `video`, `profile`), `bench`; modes are in the script's header |
-| Swift live code, `scripts/live-code/ios-sim.sh patch OUT FILE.swift` ([#45397](https://github.com/manaflow-ai/cmux/pull/45397), open; not on `feat-cmux-next` yet) | about 1.9 s | DEBUG simulator builds only. A patch that changes a `some View` type (a view or modifier added or removed) is refused; rebuild for those |
-| Always-on simulator, `scripts/ios-live/ios-live` ([#45435](https://github.com/manaflow-ai/cmux/pull/45435), once it lands) | 1.9 s live, about 16 s rebuild | One driver at a time: `ios-live lease take` before anything that touches the app; `shot`, `tree`, `status`, `log` need no lease. Leave it running. See `scripts/ios-live/README.md` |
+| Fleet simulator step: `cmux-ci run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --ref SHA --arg build --artifact artifacts/ios-sim/evidence.zip` | `build` from a few minutes to about 40 min, mostly queue (measured below) | PR evidence: `build`, `test` (with `only=`, `ui=`, `video`, `profile`), `bench`; modes are in the script's header |
+| Always-on simulator, `scripts/ios-live/ios-live swap` (on `feat-cmux-next` since [#45435](https://github.com/manaflow-ai/cmux/pull/45435), 2026-11-23): your checkout's diff, warm-rebuilt and relaunched | about 16 s | Any change, from any checkout, no fleet step. One driver at a time: `ios-live lease take` before anything that touches the app; `shot`, `tree`, `status`, `log` need no lease. Leave it running. See `scripts/ios-live/README.md` |
+| Swift live code, `ios-live swift` / `scripts/live-code/ios-sim.sh patch OUT FILE.swift` ([#45397](https://github.com/manaflow-ai/cmux/pull/45397), `ios-sim.sh` not on `feat-cmux-next` yet; check `ls scripts/live-code/ios-sim.sh`) | about 1.9 s once it lands | DEBUG simulator builds only. Until `ios-sim.sh` is on the branch, `ios-live swift` and `undo` refuse ("not a live code build") and `swap` is the live route. A patch that changes a `some View` type is refused; use `swap` for those |
 
 ### From a lane VM (Linux, no Mac)
 
@@ -47,8 +47,20 @@ Measured from a lane VM on 2026-11-22: step 1 took 4 min 2 s end to end (36 s of
 queue; job `7b91777edac21acc8f892f3a`); step 3 took 39 min 41 s end to end on a fleet simulator Mac (the
 Rust FFI xcframework missed its cache and took 308 s; FFI plus app build 581 s; the rest was queue,
 boot and install). The FFI is cached by its inputs, so a Swift-only change skips those 308 s.
-A PR into `feat-cmux-next` that touches `cmux-next-ios/**` also runs the whole kit
-(`cmux-next-ios-kit.yml`, about 18 min on a Blacksmith macOS runner) without a label.
+What CI runs on a PR into `feat-cmux-next` (checked against the workflows on 2026-11-23):
+
+- Kit tests (`cmux-next-ios-kit.yml`, about 17 min): run with no label on a PR touching `cmux-next-ios/**` or
+  a package CmuxMobileKit links. `scripts/ci/ios_runner_pool.py` picks one of our Macs (a fork PR gets a
+  Blacksmith Mac). A tree that already passed is skipped (same-tree reuse). The instant-list bench steps are
+  advisory: they warn, never fail the job.
+- App Review gate (`ios-review-gate.yml`): skipped on the PR unless it is labeled `full-ci`; the
+  `feat-cmux-next` push after the merge runs it.
+- `ios-e2e.yml`: its tailnet jobs skip on PRs while the repo variable `IOS_E2E_PR_TAILNET` isn't `true`; a
+  dispatch runs them.
+- `billing.yml`: its StoreKit lane runs on a Mac when the PR touches `Packages/iOS/CmuxMobileBilling/**` or
+  billing files in the app.
+- Most Linux jobs on our own branches run on the `cmux-linux` label (cmux#48644); fork PRs use
+  `CI_FORK_LINUX_RUNNER` or `ubuntu-24.04`. A few, such as the kit's `runner` job, still pick from `RUNNER_POOLS`.
 
 ## Try a PR on the person's phone: cmux Dev
 
@@ -152,10 +164,12 @@ receipt). Their Linux tests: `python3 ios/tests/test_cnx_review.py`.
 
 ## Terminal on iPhone
 
-- **Projection** ([#42219](https://github.com/manaflow-ai/cmux/pull/42219), open): the
+- **Projection** ([#49901](https://github.com/manaflow-ai/cmux/pull/49901), the default): the
   phone re-wraps the Mac's terminal text at its own width, and the Mac pane keeps its grid. The phone
   claims a size only for the exception, a full-screen app on the alternate screen, and releases it
-  when the app exits. Settings → Terminal → Fit to Phone (off by default) keeps the old resize. The logic
+  when the app exits. Settings → Terminal → Fit to Phone (off by default) keeps the old resize, and the
+  terminal page's menu toggles it per program. It is the default because its cell-by-cell parity
+  harness is green in CI ("cargo test (terminal projection parity)", `cmux-next-terminal.yml`). The logic
   is Rust (the `cmux-terminal-projection` crate); Swift is glue. Size claims:
   [PROTOCOL.md](PROTOCOL.md), "Terminal size claims".
 - **Lean agent-CLI view** ([#44052](https://github.com/manaflow-ai/cmux/pull/44052), off by default,

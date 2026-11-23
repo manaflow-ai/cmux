@@ -13,6 +13,7 @@ mod config;
 mod creation_history;
 mod error;
 mod files;
+pub mod guest;
 mod output;
 mod prompt;
 mod run;
@@ -387,6 +388,13 @@ struct ExecArgs {
     /// Kill the command after this many milliseconds
     #[arg(long)]
     timeout_ms: Option<u64>,
+    /// Pass this variable of the CLI's own environment to the command (repeatable). Only the
+    /// name is typed: its value never appears in argv, so a secret stays out of `ps`
+    #[arg(long = "env", value_name = "NAME")]
+    env_names: Vec<String>,
+    /// The values of `env_names`, read from the environment before the request (not a flag)
+    #[arg(skip)]
+    env_values: Vec<(String, String)>,
     /// The command; several words are joined with spaces (put them after `--`)
     #[arg(required = true, trailing_var_arg = true, allow_hyphen_values = true)]
     command: Vec<String>,
@@ -452,9 +460,48 @@ struct CreateArgs {
     /// Seconds without network activity before the VM pauses; -1 never pauses
     #[arg(long, value_name = "SECONDS", allow_negative_numbers = true)]
     idle_timeout: Option<i64>,
+    /// vCPUs of the new VM (2-32) [default: the base image's, 4]
+    #[arg(long, value_parser = clap::value_parser!(u32).range(2..=32))]
+    vcpus: Option<u32>,
+    /// Memory of the new VM in MiB (4096-65536) [default: the base image's, 8192]
+    #[arg(long, value_parser = clap::value_parser!(u32).range(4096..=65536))]
+    memory_mib: Option<u32>,
+    /// Disk of the new VM in MiB (16384-131072) [default: the base image's, 32768]
+    #[arg(long, value_parser = clap::value_parser!(u32).range(16384..=131072))]
+    disk_mib: Option<u32>,
+    /// Label the VM KEY=VALUE (repeatable); `list` answers each VM's labels
+    #[arg(long = "label", value_name = "KEY=VALUE", value_parser = parse_label)]
+    labels: Vec<(String, String)>,
     /// Reuse this key when retrying, so the VM is created only once [default: a new random key]
     #[arg(long, value_name = "KEY")]
     idempotency_key: Option<String>,
+}
+
+/// `KEY=VALUE` of `create --label`, both sides non-empty.
+fn parse_label(raw: &str) -> Result<(String, String), String> {
+    match raw.split_once('=') {
+        Some((key, value)) if !key.is_empty() && !value.is_empty() => {
+            Ok((key.to_owned(), value.to_owned()))
+        }
+        _ => Err(format!("expected KEY=VALUE, got {raw:?}")),
+    }
+}
+
+/// `exec --env NAME`'s values from ENV: every name must be set, so a missing secret refuses the
+/// exec instead of running the command without it.
+fn exec_env(
+    names: &[String],
+    env: &dyn Fn(&str) -> Option<String>,
+) -> Result<Vec<(String, String)>, CliError> {
+    names
+        .iter()
+        .map(|name| match env(name) {
+            Some(value) => Ok((name.clone(), value)),
+            None => Err(CliError::usage(format!(
+                "exec --env {name}: {name} is not set in this environment"
+            ))),
+        })
+        .collect()
 }
 
 #[derive(Args, Debug)]
@@ -650,46 +697,22 @@ async fn execute(
             };
             return token_command(command, token, &cli, env, stdout).await;
         }
-        // A stored token that cannot be read is refused, never skipped: the
-        // default config file's key may carry far more than the token's VM
-        // scopes and budget. An explicit key or config file is the override.
-        _ => match token::load(env) {
-            Ok(token) => token,
-            Err(problem)
-                if cli.config.is_some()
-                    || ["CMUX_VM_API_KEY", "CMUX_VM_CONFIG"]
-                        .iter()
-                        .any(|name| env(name).is_some_and(|value| !value.is_empty())) =>
-            {
-                error::report_warning(&problem, cli.json, stderr);
-                None
-            }
-            Err(problem) => {
-                return Err(CliError::unauthenticated(format!(
-                    "the stored VM token cannot be used: {problem}; fix it, run `cmux vm token create` again, or set CMUX_VM_API_KEY"
-                )));
-            }
-        },
+        _ => stored_token(cli.config.is_some(), env, cli.json, stderr)?,
     };
-    let settings = Settings::resolve_with_token(
+    let (client, settings) = authenticated(
         cli.base_url.as_deref(),
         cli.team.as_deref(),
         cli.config.as_deref(),
         env,
         stored.as_ref(),
-        token::now_unix(),
+        cli.json,
+        stderr,
     )?;
-    for warning in &settings.warnings {
-        error::report_warning(warning, cli.json, stderr);
+    let mut command = cli.command;
+    if let Command::Exec(args) = &mut command {
+        args.env_values = exec_env(&args.env_names, env)?;
     }
-    let client = cmux_vm_client::authenticated_raw_client(
-        &settings.base_url,
-        &settings.api_key,
-        settings.team_id.as_deref(),
-        concat!("cmux-vm/", env!("CARGO_PKG_VERSION")),
-    )
-    .map_err(|e| CliError::usage(e.to_string()))?;
-    match cli.command {
+    match command {
         Command::Run(args) => run::run(&client, args, stdout, stderr).await,
         Command::File(command) => files::run(&client, command, cli.json, stdout)
             .await
@@ -716,6 +739,59 @@ async fn execute(
                 .map(|()| exit::OK)
         }
     }
+}
+
+/// The stored token every verb but `token …` reads. A stored token that cannot
+/// be read is refused, never skipped: the default config file's key may carry
+/// far more than the token's VM scopes and budget. An explicit key or config
+/// file (`config_flag`, `CMUX_VM_API_KEY`, `CMUX_VM_CONFIG`) is the override.
+fn stored_token(
+    config_flag: bool,
+    env: &dyn Fn(&str) -> Option<String>,
+    json: bool,
+    stderr: &mut dyn Write,
+) -> Result<Option<token::StoredToken>, CliError> {
+    match token::load(env) {
+        Ok(token) => Ok(token),
+        Err(problem)
+            if config_flag
+                || ["CMUX_VM_API_KEY", "CMUX_VM_CONFIG"]
+                    .iter()
+                    .any(|name| env(name).is_some_and(|value| !value.is_empty())) =>
+        {
+            error::report_warning(&problem, json, stderr);
+            Ok(None)
+        }
+        Err(problem) => Err(CliError::unauthenticated(format!(
+            "the stored VM token cannot be used: {problem}; fix it, run `cmux vm token create` again, or set CMUX_VM_API_KEY"
+        ))),
+    }
+}
+
+/// The settings (flags, environment, config file, `stored`) and the client
+/// they authenticate, with the settings' warnings on `stderr`.
+fn authenticated(
+    base_url: Option<&str>,
+    team: Option<&str>,
+    config: Option<&Path>,
+    env: &dyn Fn(&str) -> Option<String>,
+    stored: Option<&token::StoredToken>,
+    json: bool,
+    stderr: &mut dyn Write,
+) -> Result<(Client, Settings), CliError> {
+    let settings =
+        Settings::resolve_with_token(base_url, team, config, env, stored, token::now_unix())?;
+    for warning in &settings.warnings {
+        error::report_warning(warning, json, stderr);
+    }
+    let client = cmux_vm_client::authenticated_raw_client(
+        &settings.base_url,
+        &settings.api_key,
+        settings.team_id.as_deref(),
+        concat!("cmux-vm/", env!("CARGO_PKG_VERSION")),
+    )
+    .map_err(|e| CliError::usage(e.to_string()))?;
+    Ok((client, settings))
 }
 
 /// `token status` and `token revoke`, on the stored token.
@@ -774,6 +850,14 @@ async fn dispatch(
                 "idleTimeoutSeconds": args.idle_timeout,
                 "image": image,
                 "initialNetwork": args.public_egress.then(|| json!({ "publicEgress": true })),
+                "resources": requested_resources(args.vcpus, args.memory_mib, args.disk_mib),
+                "labels": (!args.labels.is_empty())
+                    .then(|| {
+                        args.labels
+                            .iter()
+                            .map(|(key, value)| (key.clone(), Value::String(value.clone())))
+                            .collect::<serde_json::Map<String, Value>>()
+                    }),
             }))?;
             let key_text = args.idempotency_key.unwrap_or_else(new_idempotency_key);
             let key = parse_key::<types::VmsCreateVmIdempotencyKey>(&key_text)?;
@@ -992,9 +1076,15 @@ async fn dispatch(
             out.retired(&response, id.as_str())
         }
         Command::Exec(args) => {
+            let env: serde_json::Map<String, Value> = args
+                .env_values
+                .into_iter()
+                .map(|(name, value)| (name, Value::String(value)))
+                .collect();
             let body: types::ExecRequest = request_body(json!({
                 "command": args.command.join(" "),
                 "timeoutMs": args.timeout_ms,
+                "env": (!env.is_empty()).then_some(env),
             }))?;
             let result = fetch_body(client.exec_exec_vm(&args.vm_id, None, &body))
                 .await
@@ -1409,6 +1499,25 @@ fn request_body<T: serde::de::DeserializeOwned>(mut body: Value) -> Result<T, Cl
         fields.retain(|_, v| !v.is_null());
     }
     serde_json::from_value(body).map_err(|e| CliError::usage(format!("invalid argument: {e}")))
+}
+
+/// `create`'s `resources`: the axes given (none: the base image's size).
+fn requested_resources(
+    vcpus: Option<u32>,
+    memory_mib: Option<u32>,
+    disk_mib: Option<u32>,
+) -> Option<Value> {
+    let mut axes = serde_json::Map::new();
+    for (key, value) in [
+        ("vcpus", vcpus),
+        ("memoryMib", memory_mib),
+        ("diskMib", disk_mib),
+    ] {
+        if let Some(value) = value {
+            axes.insert(key.to_owned(), json!(value));
+        }
+    }
+    (!axes.is_empty()).then_some(Value::Object(axes))
 }
 
 fn parse_key<T>(key: &str) -> Result<T, CliError>

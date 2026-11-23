@@ -249,9 +249,15 @@ assert SIM_LABEL in pr_runner_pool.CAPABILITY_LABELS
 OWNED_CHOICE = "owned"
 IOS_OWNED_VARIABLE = "CI_IOS_OWNED"
 # The workflows whose in-flight runs since the snapshot hold simulators.
-IOS_WORKFLOWS = ("test-ios.yml", "ios-screenshots.yml", "cmux-next-ios-kit.yml", "ios-reliability-matrix.yml")
+IOS_WORKFLOWS = ("test-ios.yml", "ios-screenshots.yml", "cmux-next-ios-kit.yml", "ios-reliability-matrix.yml",
+                 "ios-review-gate.yml")
 # The workflows that pick with the kit lane: one simulator job on one Mac.
 KIT_WORKFLOWS = ("/cmux-next-ios-kit.yml", "/ios-reliability-matrix.yml")
+# The App Review gate: its plan job picks with the review-gate lane, one
+# reviewer-path leg (a simulator job) per planned device family, two at most.
+REVIEW_GATE_WORKFLOWS = ("/ios-review-gate.yml",)
+# The job that picks in REVIEW_GATE_WORKFLOWS (PICKER_JOB elsewhere).
+REVIEW_GATE_PICKER_JOB = "plan"
 # How far back an in-flight iOS run is charged its simulator jobs on the live
 # path: longer than any iOS run lives (ios-screenshots.yml's 300 minute
 # capture; see Live capacity).
@@ -270,7 +276,7 @@ PICKER_JOB = "runner"
 # and ios-screenshots.yml's capture. ios-simulator-build carries SIM_LABEL only
 # to land on a mini with the runtime; glaeda runs it as an isolated build job.
 SIM_JOB = re.compile(r"ios-simulator(?: \(.*\))?|screenshots|CmuxMobileKit tests \(macOS swift test, iOS simulator\)"
-                     r"|phone cells \(iOS simulator\)")
+                     r"|phone cells \(iOS simulator\)|Reviewer path \(.*\)")
 # In-flight iOS runs whose jobs are read (one request each), newest first.
 MAX_JOB_READS = 20
 # Job statuses before a runner has taken the job.
@@ -302,6 +308,11 @@ LANES = {
     # ios-reliability-matrix.yml's phone cells: the kit lane's one simulator
     # job on one Mac, which glaeda classes as a simulator job.
     "phone-cells": Lane(jobs=1, measured=True),
+    # ios-review-gate.yml's reviewer-path legs, side by side: one simulator
+    # job on one Mac per device family (--device-family when one is planned).
+    # Not sim-first: its runs_on serves Reviewer path jobs, which the sim-first
+    # runner does not class as simulator jobs.
+    "review-gate": Lane(jobs=2, measured=True),
 }
 # The most simulator jobs any one iOS run holds: test-ios.yml's two families.
 MAX_SIM_JOBS = 2
@@ -385,8 +396,10 @@ def sim_jobs(lane: str, device_family: str | None, swift_package: str | None = N
     return 1 if (device_family or "").strip() in ("iphone", "ipad") else MAX_SIM_JOBS
 
 
-def run_jobs(lane: str, swift_package: str | None = None) -> int:
+def run_jobs(lane: str, swift_package: str | None = None, device_family: str | None = None) -> int:
     """The owned machines this run holds at once."""
+    if lane == "review-gate":
+        return sim_jobs(lane, device_family)
     return 1 if lane == "test-ios" and (swift_package or "").strip() else LANES[lane].jobs
 
 
@@ -499,7 +512,7 @@ def resolve(
         return ephemeral(default)
     if load.live is not None:
         pools = pr_runner_pool.owned_pools(pr_xcode_app)
-        jobs = run_jobs(lane, swift_package)
+        jobs = run_jobs(lane, swift_package, device_family)
         if pools and pools[0] in limits.order and load.live.pool >= jobs and load.live.sim >= needed:
             log(f"live: {load.live.pool} owned runner(s) and {load.live.sim} {SIM_LABEL} free, {jobs} and "
                 f"{needed} needed -> {pools[0]} with {SIM_LABEL}")
@@ -520,7 +533,7 @@ def resolve(
     try:
         choice = e2e_runner_pool.decide(load.pool, limits, now=now,
                                         owned_slots=pool_slots(owned_slots, pr_xcode_app),
-                                        jobs=run_jobs(lane, swift_package),
+                                        jobs=run_jobs(lane, swift_package, device_family),
                                         owned_choices=pr_runner_pool.owned_pools(pr_xcode_app)[:1])
         free = sim_free(load, capacity)
     except Exception as error:  # noqa: BLE001 - every failure is fail-safe
@@ -605,7 +618,13 @@ def charged_sim_jobs(run: Mapping[str, Any], placements: Placements | None = Non
     With `placements`, an `auto` run the picker sent to Blacksmith is charged nothing (see "Where an
     `auto` run went").
     """
-    kit_run = str(run.get("path") or "").split("@", 1)[0].endswith(KIT_WORKFLOWS)
+    path = str(run.get("path") or "").split("@", 1)[0]
+    if path.endswith(REVIEW_GATE_WORKFLOWS):
+        # Untitled: charged both legs unless the picker sent it off the fleet.
+        if placements is not None and placements.off_fleet(run, now or dt.datetime.now(dt.timezone.utc)):
+            return 0
+        return MAX_SIM_JOBS
+    kit_run = path.endswith(KIT_WORKFLOWS)
     if screenshots_run(run) or kit_run:
         if kit_run and placements is not None and placements.off_fleet(run, now or dt.datetime.now(dt.timezone.utc)):
             return 0
@@ -627,6 +646,8 @@ def charged_sim_jobs(run: Mapping[str, Any], placements: Placements | None = Non
 
 def charged_jobs(run: Mapping[str, Any]) -> int:
     """The owned machines an in-flight iOS run may hold, read from its title; in full when unsure."""
+    if str(run.get("path") or "").split("@", 1)[0].endswith(REVIEW_GATE_WORKFLOWS):
+        return LANES["review-gate"].jobs
     kit_run = str(run.get("path") or "").split("@", 1)[0].endswith(KIT_WORKFLOWS)
     if screenshots_run(run) or kit_run:
         return LANES["screenshots" if screenshots_run(run) else "kit"].jobs
@@ -683,7 +704,9 @@ def hosted_macos(label: str) -> bool:
 
 def picked_unmarked(run: Mapping[str, Any], jobs: Sequence[Mapping[str, Any]]) -> bool:
     """The run's picker finished and no macOS job exists yet: its marker alone says where it went."""
-    return (any(job.get("name") == PICKER_JOB and job.get("status") == "completed" for job in jobs)
+    picker = (REVIEW_GATE_PICKER_JOB if str(run.get("path") or "").split("@", 1)[0].endswith(REVIEW_GATE_WORKFLOWS)
+              else PICKER_JOB)
+    return (any(job.get("name") == picker and job.get("status") == "completed" for job in jobs)
             and not any(hosted_macos(label) for job in jobs for label in job_labels(job)))
 
 
@@ -926,10 +949,12 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         choice = simple_pool_picker.pick(simple_pool_picker.observe(
             token=values.get("ROUTE_TOKEN") or values.get("GH_TOKEN") or "",
             repository=values.get("GH_REPO") or values.get("GITHUB_REPOSITORY") or "",
-            jobs=1, env=values, fork=args.fork == "true"))
+            jobs=run_jobs(args.lane, device_family=args.device_family) if args.lane == "review-gate" else 1,
+            env=values, fork=args.fork == "true"))
         label = runner_variable(choice.label) or args.variable or SMALL_RUNNER
         persistent = choice.owned and args.owned.strip() == "1" and args.ios_owned.strip() == "1"
-        lane_jobs = 1 if args.swift_package else (2 if args.lane == "test-ios" else 1)
+        lane_jobs = 1 if args.swift_package else (2 if args.lane == "test-ios"
+                                                  else run_jobs(args.lane, device_family=args.device_family))
         for key, value in {"label": label, "retry_label": label if not persistent else SMALL_RUNNER,
                            "runs_on": json.dumps([label, SIM_LABEL] if persistent else label),
                            "build_runs_on": json.dumps([label, SIM_LABEL] if persistent else label),
@@ -1029,7 +1054,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     print(f"package_runs_on={route.package_runs_on}")
     print(f"retry_runs_on={route.retry_runs_on}")
     print(f"persistent={'true' if route.persistent else 'false'}")
-    print(f"jobs={run_jobs(args.lane, args.swift_package)}")
+    print(f"jobs={run_jobs(args.lane, args.swift_package, args.device_family)}")
     print(f"sim_jobs={sim_jobs(args.lane, args.device_family, args.swift_package)}")
     return 0
 

@@ -141,7 +141,6 @@
       "resolve-nightly-cmux-tui-client": {
         "Fix this run's build number": {"plumbing": true},
         "Install gh if this runner lacks it": {"plumbing": true},
-        "Leave a sign stage a newer published build superseded": {"nightly_only": "reads the published feeds for a sign stage's build number (nightly_version.py check-build --superseded-ok; tests/test_nightly_next_pipeline.py)"},
         "Compute portable OptChat Chief input key": {"plumbing": true, "note": "computes the source key before the Mac build so the Chief cache is portable across nightly runs; no product check"},
         "Wait through GitHub API rate limits in this job's gh calls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly publish-path gh calls wait through a rate limit"},
         "Validate the saved unsigned nightly source": {"pr": "ci-guards.yml:workflow-guard-tests:Validate unsigned nightly resume provenance and routing"},
@@ -223,7 +222,6 @@
         "Add the workflow commit's new step scripts to an older build tree": {"plumbing": true, "note": "only runs when the build tree predates the step scripts it calls"},
         "Initialize cmux-next notices submodule": {"plumbing": true}, "Select Xcode": {"plumbing": true}, "Select the SDK of the selected Xcode": {"plumbing": true},
         "Restore signed app": {"plumbing": true},
-        "Download signed app (parallel)": {"plumbing": true, "note": "a sign stage's ranged, digest-checked download of the signed app; download-artifact stays the fallback"},
         "Verify version surfaces": {"pr": "cmux-next.yml:checks:Script tests (pin-cmux-tui, embed-cef, ensure-cef store)"},
         "Verify bundled CLI commands run from the bundle alone": {"nightly_only": "it runs the signed bundle's bin/cmux with an empty environment; pull requests build no app bundle, and the cmux-tui unit test vm_help_runs_in_process_without_a_cmux_vm_binary covers the in-process path"},
         "Verify signed diff sidecar protocol contract": {"nightly_only": "verify-diff-sidecar-artifact.sh --require-signed checks the signed Release sidecar's deterministic transport contract without launching app code; ci-macos.yml release-build runs the unsigned static check for pull requests into main"},
@@ -386,7 +384,8 @@
         "Check the published feed offers deltas": {"nightly_only": "reads the live nightly-next feed and fails when the published build lists no served delta (tests/test_nightly_next_delta_check.py)"}},
       "build-live-code-variant": {
         "Select Xcode": {"plumbing": true}, "Select the SDK of the selected Xcode": {"plumbing": true},
-        "Build the commit's live code overlay": {"nightly_only": "builds the published commit -interposable after the feed is written, continue-on-error (scripts/ci/nightly-steps/live-code-variant.sh; tests/test_swap_binary.py)"}},
+        "Build the commit's live code overlay": {"nightly_only": "builds the published commit -interposable after the feed is written, continue-on-error (scripts/ci/nightly-steps/live-code-variant.sh; tests/test_swap_binary.py)"},
+        "Mark the live code overlay built": {"nightly_only": "sets built=true only when both xcodebuild logs say BUILD SUCCEEDED and the archives exist; sign-live-code-variant gates on it (scripts/ci/nightly-steps/live-code-variant.sh built)"}},
       "sign-live-code-variant": {
         "Hold the whole Mac before any credential": {"pr": "ci-guards.yml:workflow-guard-tests:Validate a signing job on an owned Mac holds the whole Mac and deletes its keychain"},
         "Claim the whole Mac for signing": {"pr": "ci-guards.yml:workflow-guard-tests:Validate a signing job on an owned Mac holds the whole Mac and deletes its keychain"},
@@ -398,9 +397,6 @@
         "Notarize the variant and its DMG": {"nightly_only": "notarizes as the nightly does (scripts/ci/notarize-nightly-dmg.sh)"},
         "Delete the signing keychain": {"pr": "ci-guards.yml:workflow-guard-tests:Validate a signing job on an owned Mac holds the whole Mac and deletes its keychain"},
         "Publish the variant and its module outputs": {"nightly_only": "uploads the variant DMG, its module outputs and live-code-<commit>.json write-once to the nightly-next files"}},
-      "dispatch-nightly-next-sign": {
-        "Wait through GitHub API rate limits in this job's gh calls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly publish-path gh calls wait through a rate limit"},
-        "Ask for this build's sign run": {"nightly_only": "dispatches nightly.yml with nightly_next_sign_stage and this run's unsigned app (tests/test_nightly_next_pipeline.py)"}},
       "retry-nightly-next": {
         "Wait through GitHub API rate limits in this job's gh calls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly publish-path gh calls wait through a rate limit"},
         "Ask the push group for the newest head": {"nightly_only": "dispatches nightly.yml with nightly_next_loop_retry after a failed nightly-next run whose commit is still the head (tests/test_nightly_next_single_loop.py)"}},

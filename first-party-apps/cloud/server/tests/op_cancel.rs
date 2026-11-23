@@ -69,7 +69,7 @@ fn host() -> (Host, Sender<&'static str>, Arc<Mutex<usize>>) {
 
 fn stat(host: &Host, id: &str, path: &str) {
     host.send(&json!({ "type": "op", "id": id, "op": "cloud.fs.stat",
-        "args": { "machine": "vm-alpha01", "path": path } }));
+        "args": { "machine": "vm_alpha01", "path": path } }));
 }
 
 fn cancel(host: &Host, id: &str) {

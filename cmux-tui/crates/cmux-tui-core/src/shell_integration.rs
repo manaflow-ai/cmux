@@ -43,6 +43,7 @@ const SCRIPTS: &[Script] = &[
         contents: concat!(
             include_str!("../../../../ghostty-next/src/shell-integration/zsh/ghostty-integration"),
             include_str!("shell_integration/agent-shims.zsh"),
+            include_str!("shell_integration/shell-state.zsh"),
             include_str!("shell_integration/incognito-history.zsh"),
         ),
     },
@@ -51,6 +52,7 @@ const SCRIPTS: &[Script] = &[
         contents: concat!(
             include_str!("../../../../ghostty-next/src/shell-integration/bash/ghostty.bash"),
             include_str!("shell_integration/agent-shims.bash"),
+            include_str!("shell_integration/shell-state.bash"),
             include_str!("shell_integration/incognito-history.bash"),
         ),
     },
@@ -676,6 +678,9 @@ mod prompt_redraw_tests;
 
 #[cfg(all(test, unix))]
 mod incognito_history_tests;
+
+#[cfg(all(test, unix))]
+mod shell_state_tests;
 
 #[cfg(all(test, target_os = "macos"))]
 mod fork_watch;
