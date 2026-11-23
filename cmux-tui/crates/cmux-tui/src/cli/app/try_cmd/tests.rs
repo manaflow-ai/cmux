@@ -983,7 +983,9 @@ impl Signing for NoSigning {
 }
 
 const HELPER_ID: &str = "com.cmuxterm.app.nightly.screen-sharing";
-const HELPER_NAME: &str = "cmux NIGHTLY Screen Sharing.app";
+const HELPER_NAME: &str = "cmux NIGHTLY Helper.app";
+/// The same helper in an app built before the rename.
+const LEGACY_HELPER_NAME: &str = "cmux NIGHTLY Screen Sharing.app";
 /// What `codesign -d -r-` prints for the NIGHTLY's helper, byte for byte (ss-host-helper's ask (a)).
 const REQUIREMENT: &str = "identifier \"com.cmuxterm.app.nightly.screen-sharing\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"7WLXT3NR37\"";
 /// The requirement form without the Developer ID clauses (cmux_signed_bundle::team_requirement).
@@ -1075,7 +1077,10 @@ impl Signing for FakeSigning {
         Ok(())
     }
     fn requirement(&self, bundle: &Path) -> Result<String, String> {
-        assert!(bundle.ends_with(HELPER_NAME), "the INSTALLED helper's requirement: {bundle:?}");
+        assert!(
+            bundle.ends_with(HELPER_NAME) || bundle.ends_with(LEGACY_HELPER_NAME),
+            "the INSTALLED helper's requirement: {bundle:?}"
+        );
         Ok(self.installed.to_owned())
     }
     fn verify(&self, bundle: &Path, requirement: &str) -> Result<(), String> {
@@ -1200,6 +1205,42 @@ fn app_try_with_the_helper_key_swaps_the_bundle_and_undo_restores_it() {
     assert!(undone.changed);
     assert_eq!(helper_bytes(&fixture.app).as_deref(), Some(OLD_HELPER));
     assert_eq!(read(&fixture.app, "cmux").as_deref(), Some(OLD_CMUX));
+}
+
+/// An app built before the rename holds `<app> Screen Sharing.app`: the try still finds it,
+/// swaps in the commit's helper (named `<app> Helper.app` in the zip) under the app's own name,
+/// and undo puts the old one back.
+#[test]
+fn app_try_still_finds_a_helper_named_screen_sharing_and_keeps_its_name() {
+    let (fixture, unpacked) = helper_fixture();
+    let library = fixture.app.join(helper::LIBRARY);
+    fs::remove_dir_all(library.join(HELPER_NAME)).unwrap();
+    write_helper(&library.join(LEGACY_HELPER_NAME), HELPER_ID, OLD_HELPER);
+    let exe =
+        |name: &str| fs::read(library.join(name).join("Contents/MacOS").join(helper::EXECUTABLE));
+    let (files, helper) = live_plan(&fixture, &found_value(&payload_with_helper(helper_key())));
+    let signing = signing(unpacked, true);
+    let daemon = FakeDaemon::new(fixture.app.join(live::BIN).join("cmux"), true);
+    let applied = try_live(
+        &fixture.app,
+        &files,
+        helper.as_ref(),
+        &fixture.store,
+        &daemon,
+        &signing,
+        &mut Phases::default(),
+    )
+    .unwrap();
+    assert_eq!(applied.helper_step.as_ref().unwrap()["did"], "swapped");
+    assert_eq!(exe(LEGACY_HELPER_NAME).unwrap(), NEW_HELPER);
+    assert!(!library.join(HELPER_NAME).exists(), "the app keeps its own helper name");
+    fixture
+        .store
+        .record(&json!({"action": "try", "ok": true, "app": fixture.app.to_string_lossy(), "app_commit": APP_COMMIT,
+                        "steps": applied.steps, "undo": {"files": applied.prior, "screen_sharing_helper": applied.helper_undo}}))
+        .unwrap();
+    undo_live(&fixture.store, &daemon).unwrap();
+    assert_eq!(exe(LEGACY_HELPER_NAME).unwrap(), OLD_HELPER);
 }
 
 /// A bundle that fails the installed helper's requirement is refused before anything changes.
@@ -1478,7 +1519,7 @@ fn app_try_live_set_covers_every_helper_app_the_app_bundles() {
             continue;
         }
         let text = fs::read_to_string(&path).unwrap();
-        // The script's own shell variables (`SUFFIX=" Screen Sharing"`), to read its destination.
+        // The script's own shell variables (`SUFFIX=" Helper"`), to read its destination.
         let vars: Vec<(String, String)> = text
             .lines()
             .filter_map(|line| {
@@ -1505,7 +1546,7 @@ fn app_try_live_set_covers_every_helper_app_the_app_bundles() {
     );
     for (script, bundle) in &helpers {
         // `$name` is the app's name ("cmux NIGHTLY"): the live set's helper is every
-        // `<app name> Screen Sharing.app`.
+        // `<app name> Helper.app`.
         let covered = bundle.strip_prefix("$name").is_some_and(|tail| tail == helper::SUFFIX);
         assert!(covered, "{script} bundles {bundle}, which `cmux app try` does not carry live");
     }
