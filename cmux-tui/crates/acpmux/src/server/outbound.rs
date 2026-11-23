@@ -749,6 +749,15 @@ impl Pump {
         true
     }
 
+    /// A taken line with its text replaced (`durable_gate.rs`: a reply answered `disk.full`),
+    /// the queue's bytes moved by the difference.
+    pub(super) fn replace(&self, line: Line, text: String) -> Line {
+        let mut state = self.shared.lock();
+        let held = state.held.saturating_sub(line.text.len()).saturating_add(text.len());
+        state.set_held(held);
+        Line { text, ..line }
+    }
+
     /// What this queue's lines were raised to (the durable gate raises it).
     pub(super) fn raised(&self) -> Arc<Raised> {
         Arc::clone(&self.shared.raised)
