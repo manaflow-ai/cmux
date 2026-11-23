@@ -159,22 +159,18 @@ jobs:
           persist-credentials: false
 
       # The freshness guard and the changed paths need the true merge base: the
-      # history of the merge commit alone (its parents are the base and the
-      # head), commits and trees but no blobs, instead of every branch's.
-      # Blobs arrive on demand. Like the fetch-depth 0 checkout it replaces, a
-      # fetch that still fails after actions/checkout's three tries fails the
-      # job: the guard and the base's scripts need this history.
+      # merge commit, the base and the head back to it (deeper in steps until
+      # git finds it), commits and trees but no blobs, instead of every
+      # branch's or the whole of feat-cmux-next's (823 s median on Freestyle
+      # VMs, 2026-11-23). Blobs arrive on demand. A fetch that still fails
+      # after three tries fails the job: the guard and the base's scripts need
+      # this history.
       - name: History of the merge commit
-        run: |
-          set -euo pipefail
-          for try in 1 2 3; do
-            # A try that completed the history before failing needs no other.
-            [ "$(git rev-parse --is-shallow-repository)" = false ] && exit 0
-            git fetch --no-tags --quiet --filter=blob:none --unshallow origin "$GITHUB_SHA" && exit 0
-            echo "::warning::history fetch failed (try $try of 3)"
-            sleep $((try * 10))
-          done
-          exit 1
+        timeout-minutes: 15
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: scripts/cmux-next/fetch-pr-history.sh "$GITHUB_SHA" "$BASE_SHA" "$HEAD_SHA"
 
       # The pull request's changed paths from the commit graph this job already
       # fetched, instead of the files API (a call per 100 files, on every push):
@@ -693,16 +689,29 @@ jobs:
     outputs:
       patch: ${{ steps.patch.outputs.patch }}
     steps:
+      # The merge commit's tree at depth 1, then only the history the repairs read (next step), as
+      # action-areas. fetch-depth 0 fetched every branch's (about 32,000) commit graphs: 150 s median
+      # on the GCP pool, and on Freestyle VMs a fetch silent for 60 s that git gave up on three times
+      # (25 of 37 runs failed there, 2026-11-23 00:55-03:36Z).
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ github.sha }}
-          fetch-depth: 0
-          filter: blob:none # the commit graph without historical blobs, as action-areas
+          filter: blob:none
           sparse-checkout-cone-mode: false # patterns: .github/checkout-lean.json
           sparse-checkout: |
             /*
             !/cmux-next-ios/verify/
           persist-credentials: false
+
+      # The merge base for Changed paths and the stale-inputs guard, and the base commit the autofix
+      # scripts come from (scripts/cmux-next/fetch-pr-history.sh). A fetch that still fails after
+      # three tries fails the job, as the fetch-depth 0 checkout it replaces did.
+      - name: History of the merge commit
+        timeout-minutes: 15
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: scripts/cmux-next/fetch-pr-history.sh "$GITHUB_SHA" "$BASE_SHA" "$HEAD_SHA"
 
       # The pull request's changed paths from the commit graph this job already
       # fetched, instead of the files API (a call per 100 files, on every push):
@@ -729,7 +738,9 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/autofix"
-          git archive "$BASE_SHA" scripts/cmux-next scripts/ci | tar -x -C "$RUNNER_TEMP/autofix"
+          # restore, not git archive: archive of a partial clone fetched every blob under the paths one
+          # request at a time (1,584 s in one run on 2026-11-23); restore fetches them in one batch.
+          git --work-tree="$RUNNER_TEMP/autofix" restore --ignore-skip-worktree-bits --source="$BASE_SHA" --worktree -- scripts/cmux-next scripts/ci
           echo "AUTOFIX=$RUNNER_TEMP/autofix/scripts/cmux-next" >> "$GITHUB_ENV"
 
       - name: Refuse stale generator inputs
@@ -777,8 +788,14 @@ jobs:
 
       # dump-package needs the Swift 6.2 tools (ci-target-graph.py); see
       # cmux-next-base-autofix.yml.
+      # Bounded: a stalled pull of the Swift image held this step 11-35 minutes in 9 runs on 2026-11-23
+      # (00:55-03:36Z), three of them until the job's limit. A dump that does not finish leaves the CI
+      # target graph to the base autofix (the Repair step says so) and the other repairs still run.
       - name: Dump the CmuxNext package manifest
+        id: dump
         if: steps.areas.outputs.graph == 'true'
+        continue-on-error: true
+        timeout-minutes: 6
         run: |
           set -euo pipefail
           docker run --rm -v "$GITHUB_WORKSPACE:$GITHUB_WORKSPACE:ro" -w "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext" \
@@ -877,6 +894,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GRAPH: ${{ steps.areas.outputs.graph }}
+          DUMP: ${{ steps.dump.outcome }}
           STRINGS: ${{ steps.areas.outputs.strings }}
           SDK: ${{ steps.areas.outputs.sdk }}
           CAPABILITIES: ${{ steps.areas.outputs.capabilities }}
@@ -903,7 +921,11 @@ jobs:
             args+=(--generated "$RUNNER_TEMP/action-exports")
             [[ -d "$RUNNER_TEMP/action-exports/plans/cmux-next" ]] && SHORTCUTS=true APPHOST=true
           fi
-          [[ "$GRAPH" == true ]] && args+=(--package-dump "$RUNNER_TEMP/package-dump.json")
+          if [[ "$GRAPH" == true && "${DUMP:-}" == success && -s "$RUNNER_TEMP/package-dump.json" ]]; then
+            args+=(--package-dump "$RUNNER_TEMP/package-dump.json")
+          elif [[ "$GRAPH" == true ]]; then
+            echo "left: the CI target graph (the Swift package dump did not finish); the base autofix regenerates it" | tee -a "$RUNNER_TEMP/autofix-left.txt"
+          fi
           [[ "$STRINGS" == true ]] && args+=(--strings)
           [[ "$SDK" == true ]] && args+=(--sdk)
           # The source parser regenerates the daemon capability export without a Swift build.
@@ -922,7 +944,7 @@ jobs:
           [[ "$JOB_INPUTS" == true ]] && grep -q -- '--job-inputs)' "$AUTOFIX/base-autofix.sh" && args+=(--job-inputs)
           [[ -s "$RUNNER_TEMP/webviews-fmt.patch" ]] && args+=(--webviews-fmt-patch "$RUNNER_TEMP/webviews-fmt.patch")
           [[ "$FMT" == true ]] || args+=(--no-fmt)
-          cat "$RUNNER_TEMP/clippy.txt" 2>/dev/null > "$RUNNER_TEMP/autofix.txt" || true
+          cat "$RUNNER_TEMP/clippy.txt" "$RUNNER_TEMP/autofix-left.txt" 2>/dev/null > "$RUNNER_TEMP/autofix.txt" || true
           "$AUTOFIX/base-autofix.sh" ${args[@]+"${args[@]}"} "$GITHUB_WORKSPACE" | tee -a "$RUNNER_TEMP/autofix.txt"
           # The GhosttyKit checksum, when the release for the pull request's
           # ghostty commit is already published (exit 3: not yet; the base
