@@ -1565,5 +1565,89 @@ class RefusedRead(BlacksmithFailover, unittest.TestCase):
         finally:
             runner_pools.pr_runner_pool.GitHub = real
 
+# RFD 0012 step 6 (cmuxterm-hq docs/rfd/0012-ci-compute.md, "The meta-problem: nothing checked that a pool had a rung
+# we own"); cmuxterm-hq tools/fleet-reconcilers/test_runner_pools.py EveryLinuxPoolHasAnOwnedRung is HQ's copy.
+OWNED_RUNG_LINUX_MEMBER = re.compile(r"ubuntu|linux")
+# The Linux pools with no owned rung yet, each with its reason. Shrink only: OwnedRung fails once a pool listed here
+# gains an owned member. The handoff table: cmuxterm-hq docs/handbook/linux-ci-on-one-provider.md.
+NO_OWNED_RUNG = {
+    "linux_4": "ephemeral_only: its jobs need a fresh machine, and the GCP and Freestyle labels are persistent "
+               "(cmux#50327 leads it with a one-job GCP JIT label)",
+    "promotion": "ephemeral_only: the nightly promotion (cmux#30076)",
+    "linux_arm64": "no owned arm64 Linux label takes pull request jobs: glaeda-linux-arm64's runner group admits only "
+                   "main and feat-cmux-next (docs/handbook/linux-ci-on-one-provider.md)",
+    "provenance": "structural: npm provenance, PyPI trusted publishing and attestations accept only GitHub's OIDC from "
+                  "a GitHub-hosted runner, its hosted_why (docs/handbook/linux-ci-on-one-provider.md)",
+}
+# A job that moves work between pools: the RUNNER_POOLS writer and the queued-job rescue.
+POOL_SCALER = re.compile(r"scripts/ci/(?:runner_pools\.py(?! --check)|linux_pool_spill\.py|owned_pool_rescue\.py)")
+
+
+def owned_rung(label: str) -> bool:
+    """A label neither Blacksmith nor GitHub-hosted: a runner we own, whose cap no vendor sets."""
+    return not runner_pools.EPHEMERAL.match(label) and not runner_pools.HOSTED.match(label)
+
+
+def pools_without_an_owned_rung(pools: dict) -> list[str]:
+    return sorted(name for name, spec in pools.items()
+                  if any(OWNED_RUNG_LINUX_MEMBER.search(member) for member in spec["members"])
+                  and not any(owned_rung(member) for member in spec["members"]))
+
+
+def scaler_jobs() -> dict[str, str]:
+    """workflow:job -> runs-on, for every job whose run steps invoke a pool writer or rescue."""
+    found = {}
+    for path in sorted((ROOT / ".github" / "workflows").glob("*.yml")):
+        jobs = (yaml.safe_load(path.read_text(encoding="utf-8")) or {}).get("jobs") or {}
+        for job, spec in jobs.items():
+            runs = "\n".join(line for step in spec.get("steps") or [] for line in str(step.get("run", "")).splitlines()
+                             if not line.lstrip().startswith("#"))
+            if POOL_SCALER.search(runs):
+                found[f"{path.name}:{job}"] = str(spec.get("runs-on", ""))
+    return found
+
+
+class OwnedRung(unittest.TestCase):
+    """Every Linux pool has a member outside Blacksmith and GitHub-hosted, and no job that moves pools waits on one
+    (cmuxterm-hq docs/handbook/linux-ci-on-one-provider.md). 2026-11-18: cmux-next's preflight queued for hours on
+    Blacksmith and placement on ubuntu-24.04 with zero owned Linux runners registered; a ladder of one provider's
+    sizes is one rung long, because one org cap covers every size."""
+
+    def test_every_linux_pool_lists_a_member_we_own(self) -> None:
+        missing = [name for name in pools_without_an_owned_rung(runner_pools.load_pools(env={}))
+                   if name not in NO_OWNED_RUNG]
+        self.assertEqual(missing, [], "these Linux pools list only Blacksmith or GitHub-hosted labels: add an owned "
+                                      "rung, or name the pool in NO_OWNED_RUNG with its reason and handoff issue")
+
+    def test_the_exemptions_only_shrink(self) -> None:
+        lacking = pools_without_an_owned_rung(runner_pools.load_pools(env={}))
+        self.assertEqual([name for name in NO_OWNED_RUNG if name not in lacking], [],
+                         "these pools now have an owned rung or are gone: drop them from NO_OWNED_RUNG")
+        for name, why in NO_OWNED_RUNG.items():
+            with self.subTest(pool=name):
+                self.assertRegex(why, r"#\d+|docs/handbook/", "an exemption names its PR or handbook handoff")
+
+    def test_the_rule_refuses_a_blacksmith_and_hosted_only_pool(self) -> None:
+        pools = {"a": {"members": ["blacksmith-4vcpu-ubuntu-2404", "ubuntu-24.04"]},
+                 "b": {"members": ["cmux-fleet-linux-x64", "blacksmith-4vcpu-ubuntu-2404"]},
+                 "c": {"members": ["glaeda-linux-arm64"]},
+                 "mac": {"members": ["blacksmith-6vcpu-macos-26", "macos-15"]}}
+        self.assertEqual(pools_without_an_owned_rung(pools), ["a"])
+
+    def test_no_pool_scaler_runs_on_a_pool_it_moves(self) -> None:
+        pools = runner_pools.load_pools(env={})
+        listed = {member for spec in pools.values() for member in spec["members"]}
+        jobs = scaler_jobs()
+        self.assertIn("ci-cloud-overflow-probe.yml:watch", jobs, "the scan sees the RUNNER_POOLS writer")
+        self.assertIn("ci-owned-pool-rescue.yml:rescue", jobs, "the scan sees the queued-job rescue")
+        for name, runs_on in jobs.items():
+            with self.subTest(job=name):
+                self.assertNotIn("RUNNER_POOLS", runs_on, "a pool scaler never reads the pools it moves")
+                labels = re.findall(r"'([a-z0-9][a-z0-9.-]+)'", runs_on)
+                own = [label for label in labels if owned_rung(label) and label not in listed and label != "manaflow-ai"]
+                self.assertTrue(own, f"{runs_on}: reaches a label we own that no pool lists, so it starts when "
+                                     "every pool it moves is starved")
+
+
 if __name__ == "__main__":
     unittest.main()
