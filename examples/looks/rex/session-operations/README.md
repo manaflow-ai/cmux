@@ -38,7 +38,7 @@ Choose `cmux customize apply` to keep the bindings or `cmux customize discard` t
 Install the standalone setup from the published branch:
 
 ```sh
-cmux setup install github.com/manaflow-ai/cmux/examples/looks/rex/session-operations@lane/rex-feature-looks
+cmux setup install github.com/manaflow-ai/cmux/examples/looks/rex/session-operations@feat-cmux-next
 ```
 
 Remove it with `cmux setup remove manaflow-ai/rex-session-operations`.
