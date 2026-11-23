@@ -1171,6 +1171,21 @@ mod tests {
         assert!(matches!(policy().evaluate(line), Verdict::Refuse(_)));
     }
 
+    /// The phone's first window (`list-workspaces-page-v1`, CmuxMobileLive
+    /// ListFirstWindow) and the pages after it are params of an allowed command,
+    /// not a new command: they pass as the whole list does.
+    #[test]
+    fn allows_the_first_window_and_its_pages() {
+        for line in [
+            br#"{"cmd":"list-workspaces","id":"m1"}"#.as_slice(),
+            br#"{"cmd":"list-workspaces","id":"m2","limit":40}"#,
+            br#"{"cmd":"list-workspaces","id":"m3","limit":40,"after":40}"#,
+            br#"{"cmd":"list-workspaces","id":"m4","known":{},"limit":40,"after":0}"#,
+        ] {
+            assert_eq!(policy().evaluate(line), Verdict::Forward, "{}", String::from_utf8_lossy(line));
+        }
+    }
+
     /// The exact lines the iOS Feed sends for terminal agents (CmuxMobileLive
     /// TerminalFeed): the notification ledger read and the per-tab read mark
     /// the Mac's own notifications panel uses. Both were already on the

@@ -69,6 +69,8 @@ final class ListStressRig: NSObject {
                 scroll.contentOffset.y = top + (bottom - top) * CGFloat(min(max(fraction, 0), 1))
             }
             rig.log.notice("FRAMELOG list-stress holding \(screen, privacy: .public)")
+            // The capture suites shoot the held screen on this mark, not after a fixed pause.
+            LaunchMarks.shared.markWhenStill("list_hold")
             if settings.pullTrace, let scroll = rig.findScrollView(horizontal: false) { rig.tracePull(scroll) }
             return
         }
