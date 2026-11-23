@@ -439,7 +439,7 @@ jobs:
         run: |
           # Under RUNNER_TEMP: upload-artifact refuses a path with '..'
           # (run 42799920852 lost every result that way).
-          echo "DERIVED=$RUNNER_TEMP/dd" >> "$GITHUB_ENV"
+          echo "DERIVED=${CMUX_DERIVED_DATA_SLOT:-$RUNNER_TEMP/dd}" >> "$GITHUB_ENV"
           echo "RESULTS=$RUNNER_TEMP/results" >> "$GITHUB_ENV"
           mkdir -p "$RUNNER_TEMP/dd" "$RUNNER_TEMP/results"
       # The app source at the workspace root, so its local actions resolve;
