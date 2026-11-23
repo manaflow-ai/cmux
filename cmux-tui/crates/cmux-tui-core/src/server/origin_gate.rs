@@ -521,18 +521,40 @@ const MOBILE_HOST_NAME: &str = "cmux-mobile-host";
 
 /// Whether `path` (a peer's executable) is this build's bundled
 /// `cmux-mobile-host`: by real path, the regular file of that name beside
-/// the daemon's own (canonical) executable. Any lookup failure is false (a
+/// the daemon's own (canonical) executable. In an app that downloads the
+/// host on first use (`tool_packs`), that name is a link to the daemon's own
+/// executable, which is never the host: the host is then the cached copy
+/// whose bytes hash to the app's signed pin. Any lookup failure is false (a
 /// daemon with no hostd beside it, such as a development build run from
 /// another folder, has no phone lane that may write the host policy).
 fn is_bundled_mobile_host_path(path: &Path) -> bool {
-    static SIBLING: std::sync::OnceLock<Option<PathBuf>> = std::sync::OnceLock::new();
+    /// The bundled host beside the daemon: its own file, or a link to the
+    /// daemon in the bin folder given.
+    enum Sibling {
+        File(PathBuf),
+        Linked(PathBuf),
+    }
+    static SIBLING: std::sync::OnceLock<Option<Sibling>> = std::sync::OnceLock::new();
     let sibling = SIBLING.get_or_init(|| {
         let own = std::fs::canonicalize(std::env::current_exe().ok()?).ok()?;
-        let sibling = std::fs::canonicalize(own.parent()?.join(MOBILE_HOST_NAME)).ok()?;
-        std::fs::metadata(&sibling).ok()?.is_file().then_some(sibling)
+        let bin = own.parent()?.to_path_buf();
+        let sibling = std::fs::canonicalize(bin.join(MOBILE_HOST_NAME)).ok()?;
+        if sibling == own {
+            return Some(Sibling::Linked(bin));
+        }
+        std::fs::metadata(&sibling).ok()?.is_file().then_some(Sibling::File(sibling))
     });
-    let Some(sibling) = sibling else { return false };
-    std::fs::canonicalize(path).is_ok_and(|path| &path == sibling)
+    let Ok(path) = std::fs::canonicalize(path) else { return false };
+    match sibling {
+        Some(Sibling::File(sibling)) => &path == sibling,
+        #[cfg(unix)]
+        Some(Sibling::Linked(bin)) => {
+            crate::tool_packs::verified(bin, MOBILE_HOST_NAME).is_some_and(|host| host == path)
+        }
+        #[cfg(not(unix))]
+        Some(Sibling::Linked(_)) => false,
+        None => false,
+    }
 }
 
 /// The executable of the accepted peer, read so that a process that reused

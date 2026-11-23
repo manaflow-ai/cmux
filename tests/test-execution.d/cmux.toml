@@ -317,6 +317,11 @@ path = "tests/test_cmux_next_tip_swift_suite.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_next_tool_packs.py"
+lane = "manual"
+reason = "No workflow step runs it yet. Run it yourself: python3 -I tests/test_cmux_next_tool_packs.py"
+
+[[test]]
 path = "tests/test_cmux_next_tour.py"
 lane = "linux-guard"
 
