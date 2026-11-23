@@ -155,44 +155,12 @@
     "BrowserProfileProxy": {
       "kind": "object",
       "fields": {
-        "scheme": {
-          "required": true,
-          "type": {
-            "kind": "enum",
-            "values": [
-              "http",
-              "https",
-              "socks5"
-            ]
-          }
-        },
-        "host": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "string",
-            "min_length": 1,
-            "max_length": 253
-          }
-        },
-        "port": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "uint32"
-          }
-        },
+        "scheme": {"required": true, "type": {"kind": "enum", "values": ["http", "https", "socks5"]}},
+        "host": {"required": true, "type": {"kind": "primitive", "name": "string", "min_length": 1, "max_length": 253}},
+        "port": {"required": true, "type": {"kind": "primitive", "name": "uint32"}},
         "bypass": {
           "required": false,
-          "type": {
-            "kind": "array",
-            "items": {
-              "kind": "primitive",
-              "name": "string",
-              "min_length": 1,
-              "max_length": 253
-            }
-          },
+          "type": {"kind": "array", "items": {"kind": "primitive", "name": "string", "min_length": 1, "max_length": 253}},
           "description": "Hosts that skip the proxy (Chromium bypass rules)."
         }
       },
@@ -1484,79 +1452,20 @@
     "JournalAppendResult": {
       "kind": "object",
       "fields": {
-        "producer_id": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "string",
-            "min_length": 1,
-            "max_length": 64
-          }
-        },
-        "sequence": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "decimal"
-          }
-        },
-        "event_id": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "string",
-            "min_length": 1,
-            "max_length": 128
-          }
-        }
+        "producer_id": {"required": true, "type": {"kind": "primitive", "name": "string", "min_length": 1, "max_length": 64}},
+        "sequence": {"required": true, "type": {"kind": "primitive", "name": "decimal"}},
+        "event_id": {"required": true, "type": {"kind": "primitive", "name": "string", "min_length": 1, "max_length": 128}}
       },
       "extra": false
     },
     "JournalProducerPutResult": {
       "kind": "object",
       "fields": {
-        "producer_id": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "string",
-            "min_length": 1,
-            "max_length": 64
-          }
-        },
-        "manifest_version": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "uint32",
-            "minimum": 1
-          }
-        },
-        "namespace": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "string",
-            "min_length": 1,
-            "max_length": 128
-          }
-        },
-        "sequence": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "decimal"
-          }
-        },
-        "event_id": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "string",
-            "min_length": 1,
-            "max_length": 128
-          }
-        }
+        "producer_id": {"required": true, "type": {"kind": "primitive", "name": "string", "min_length": 1, "max_length": 64}},
+        "manifest_version": {"required": true, "type": {"kind": "primitive", "name": "uint32", "minimum": 1}},
+        "namespace": {"required": true, "type": {"kind": "primitive", "name": "string", "min_length": 1, "max_length": 128}},
+        "sequence": {"required": true, "type": {"kind": "primitive", "name": "decimal"}},
+        "event_id": {"required": true, "type": {"kind": "primitive", "name": "string", "min_length": 1, "max_length": 128}}
       },
       "extra": false
     },
@@ -1565,15 +1474,7 @@
       "fields": {
         "producers": {
           "required": true,
-          "type": {
-            "kind": "array",
-            "min_items": 0,
-            "max_items": 1024,
-            "items": {
-              "kind": "ref",
-              "name": "JournalProducerManifest"
-            }
-          }
+          "type": {"kind": "array", "min_items": 0, "max_items": 1024, "items": {"kind": "ref", "name": "JournalProducerManifest"}}
         }
       },
       "extra": false
@@ -1583,68 +1484,27 @@
       "fields": {
         "kinds": {
           "required": false,
-          "type": {
-            "kind": "array",
-            "min_items": 1,
-            "max_items": 64,
-            "items": {
-              "kind": "primitive",
-              "name": "string",
-              "min_length": 1,
-              "max_length": 128
-            }
-          }
+          "type": {"kind": "array", "min_items": 1, "max_items": 64, "items": {"kind": "primitive", "name": "string", "min_length": 1, "max_length": 128}}
         },
         "classes": {
           "required": false,
-          "type": {
-            "kind": "array",
-            "min_items": 1,
-            "max_items": 4,
-            "items": {
-              "kind": "ref",
-              "name": "JournalClass"
-            }
-          }
+          "type": {"kind": "array", "min_items": 1, "max_items": 4, "items": {"kind": "ref", "name": "JournalClass"}}
         },
         "subject_kinds": {
           "required": false,
-          "type": {
-            "kind": "array",
-            "min_items": 1,
-            "max_items": 64,
-            "items": {
-              "kind": "primitive",
-              "name": "string",
-              "min_length": 1,
-              "max_length": 64
-            }
-          }
+          "type": {"kind": "array", "min_items": 1, "max_items": 64, "items": {"kind": "primitive", "name": "string", "min_length": 1, "max_length": 64}}
         },
         "max_sensitivity": {
           "required": false,
-          "type": {
-            "kind": "enum",
-            "values": [
-              "public",
-              "metadata",
-              "sensitive"
-            ]
-          }
+          "type": {"kind": "enum", "values": ["public", "metadata", "sensitive"]}
         },
         "regex": {
           "required": false,
-          "type": {
-            "kind": "ref",
-            "name": "JournalRegexFilter"
-          }
+          "type": {"kind": "ref", "name": "JournalRegexFilter"}
         },
         "include_causal_descendants": {
           "required": false,
-          "type": {
-            "kind": "primitive",
-            "name": "boolean"
-          }
+          "type": {"kind": "primitive", "name": "boolean"}
         }
       },
       "extra": false,
@@ -1660,723 +1520,175 @@
           "required": true,
           "sensitive": true,
           "description": "Executable path and arguments. SDK Debug, toString, exceptions, and logs redact the complete argv array.",
-          "type": {
-            "kind": "array",
-            "min_items": 1,
-            "max_items": 64,
-            "items": {
-              "kind": "primitive",
-              "name": "string",
-              "min_length": 1,
-              "max_length": 4096
-            }
-          }
+          "type": {"kind": "array", "min_items": 1, "max_items": 64, "items": {"kind": "primitive", "name": "string", "min_length": 1, "max_length": 4096}}
         },
-        "timeout_ms": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "uint32",
-            "minimum": 1,
-            "maximum": 300000
-          }
-        },
-        "max_parallel": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "uint32",
-            "minimum": 1,
-            "maximum": 64
-          }
-        }
+        "timeout_ms": {"required": true, "type": {"kind": "primitive", "name": "uint32", "minimum": 1, "maximum": 300000}},
+        "max_parallel": {"required": true, "type": {"kind": "primitive", "name": "uint32", "minimum": 1, "maximum": 64}}
       },
       "extra": false,
-      "constraints": [
-        "argv[0] is an absolute executable path. The dispatcher never invokes a shell."
-      ]
+      "constraints": ["argv[0] is an absolute executable path. The dispatcher never invokes a shell."]
     },
     "JournalHookRetry": {
       "kind": "object",
       "fields": {
-        "max_attempts": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "uint32",
-            "minimum": 1,
-            "maximum": 100
-          }
-        },
-        "backoff_ms": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "uint32",
-            "maximum": 86400000
-          }
-        }
+        "max_attempts": {"required": true, "type": {"kind": "primitive", "name": "uint32", "minimum": 1, "maximum": 100}},
+        "backoff_ms": {"required": true, "type": {"kind": "primitive", "name": "uint32", "maximum": 86400000}}
       },
       "extra": false
     },
     "JournalHookDeliveryPolicy": {
       "kind": "object",
       "fields": {
-        "start": {
-          "required": true,
-          "type": {
-            "kind": "enum",
-            "values": [
-              "tail",
-              "beginning"
-            ]
-          }
-        },
-        "retry": {
-          "required": true,
-          "type": {
-            "kind": "ref",
-            "name": "JournalHookRetry"
-          }
-        }
+        "start": {"required": true, "type": {"kind": "enum", "values": ["tail", "beginning"]}},
+        "retry": {"required": true, "type": {"kind": "ref", "name": "JournalHookRetry"}}
       },
       "extra": false
     },
     "JournalHookManifest": {
       "kind": "object",
       "fields": {
-        "hook_id": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "string",
-            "min_length": 1,
-            "max_length": 64
-          }
-        },
-        "manifest_version": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "uint32",
-            "minimum": 1
-          }
-        },
-        "filter": {
-          "required": true,
-          "type": {
-            "kind": "ref",
-            "name": "JournalHookFilter"
-          }
-        },
-        "exec": {
-          "required": true,
-          "type": {
-            "kind": "ref",
-            "name": "JournalHookExec"
-          }
-        },
-        "delivery": {
-          "required": true,
-          "type": {
-            "kind": "ref",
-            "name": "JournalHookDeliveryPolicy"
-          }
-        },
+        "hook_id": {"required": true, "type": {"kind": "primitive", "name": "string", "min_length": 1, "max_length": 64}},
+        "manifest_version": {"required": true, "type": {"kind": "primitive", "name": "uint32", "minimum": 1}},
+        "filter": {"required": true, "type": {"kind": "ref", "name": "JournalHookFilter"}},
+        "exec": {"required": true, "type": {"kind": "ref", "name": "JournalHookExec"}},
+        "delivery": {"required": true, "type": {"kind": "ref", "name": "JournalHookDeliveryPolicy"}},
         "permissions": {
           "required": true,
-          "type": {
-            "kind": "array",
-            "min_items": 1,
-            "max_items": 32,
-            "items": {
-              "kind": "primitive",
-              "name": "string",
-              "min_length": 1,
-              "max_length": 128
-            }
-          }
+          "type": {"kind": "array", "min_items": 1, "max_items": 32, "items": {"kind": "primitive", "name": "string", "min_length": 1, "max_length": 128}}
         }
       },
       "extra": false,
-      "constraints": [
-        "Manifest versions increase monotonically.",
-        "journal.read.sensitive is required when max_sensitivity is sensitive."
-      ]
+      "constraints": ["Manifest versions increase monotonically.", "journal.read.sensitive is required when max_sensitivity is sensitive."]
     },
     "JournalHookState": {
       "kind": "object",
       "fields": {
-        "manifest": {
-          "required": true,
-          "type": {
-            "kind": "ref",
-            "name": "JournalHookManifest"
-          }
-        },
-        "enabled": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "boolean"
-          }
-        },
-        "cursor": {
-          "required": true,
-          "type": {
-            "kind": "ref",
-            "name": "Cursor"
-          }
-        }
+        "manifest": {"required": true, "type": {"kind": "ref", "name": "JournalHookManifest"}},
+        "enabled": {"required": true, "type": {"kind": "primitive", "name": "boolean"}},
+        "cursor": {"required": true, "type": {"kind": "ref", "name": "Cursor"}}
       },
       "extra": false
     },
     "JournalHookListResult": {
       "kind": "object",
       "fields": {
-        "hooks": {
-          "required": true,
-          "type": {
-            "kind": "array",
-            "min_items": 0,
-            "max_items": 1024,
-            "items": {
-              "kind": "ref",
-              "name": "JournalHookState"
-            }
-          }
-        }
+        "hooks": {"required": true, "type": {"kind": "array", "min_items": 0, "max_items": 1024, "items": {"kind": "ref", "name": "JournalHookState"}}}
       },
       "extra": false
     },
     "JournalHookPutResult": {
       "kind": "object",
       "fields": {
-        "hook_id": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "string",
-            "min_length": 1,
-            "max_length": 64
-          }
-        },
-        "manifest_version": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "uint32",
-            "minimum": 1
-          }
-        },
-        "sequence": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "decimal"
-          }
-        },
-        "event_id": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "string",
-            "min_length": 1,
-            "max_length": 128
-          }
-        }
+        "hook_id": {"required": true, "type": {"kind": "primitive", "name": "string", "min_length": 1, "max_length": 64}},
+        "manifest_version": {"required": true, "type": {"kind": "primitive", "name": "uint32", "minimum": 1}},
+        "sequence": {"required": true, "type": {"kind": "primitive", "name": "decimal"}},
+        "event_id": {"required": true, "type": {"kind": "primitive", "name": "string", "min_length": 1, "max_length": 128}}
       },
       "extra": false
     },
     "JournalContentRef": {
       "kind": "object",
       "fields": {
-        "content_id": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "string",
-            "min_length": 1,
-            "max_length": 128
-          }
-        },
-        "terminal_id": {
-          "required": true,
-          "type": {
-            "kind": "resource_id",
-            "resource": "terminal"
-          }
-        },
-        "format": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "string",
-            "min_length": 1,
-            "max_length": 64
-          }
-        },
-        "codec": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "string",
-            "min_length": 1,
-            "max_length": 64
-          }
-        },
-        "sha256": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "string",
-            "min_length": 64,
-            "max_length": 64
-          }
-        },
-        "uncompressed_bytes": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "decimal"
-          }
-        },
-        "cols": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "uint32",
-            "minimum": 1
-          }
-        },
-        "rows": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "uint32",
-            "minimum": 1
-          }
-        }
+        "content_id": {"required": true, "type": {"kind": "primitive", "name": "string", "min_length": 1, "max_length": 128}},
+        "terminal_id": {"required": true, "type": {"kind": "resource_id", "resource": "terminal"}},
+        "format": {"required": true, "type": {"kind": "primitive", "name": "string", "min_length": 1, "max_length": 64}},
+        "codec": {"required": true, "type": {"kind": "primitive", "name": "string", "min_length": 1, "max_length": 64}},
+        "sha256": {"required": true, "type": {"kind": "primitive", "name": "string", "min_length": 64, "max_length": 64}},
+        "uncompressed_bytes": {"required": true, "type": {"kind": "primitive", "name": "decimal"}},
+        "cols": {"required": true, "type": {"kind": "primitive", "name": "uint32", "minimum": 1}},
+        "rows": {"required": true, "type": {"kind": "primitive", "name": "uint32", "minimum": 1}}
       },
       "extra": false
     },
     "JournalCheckpointSummary": {
       "kind": "object",
       "fields": {
-        "checkpoint_id": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "string",
-            "min_length": 1,
-            "max_length": 128
-          }
-        },
-        "source_sequence": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "decimal"
-          }
-        },
-        "reducer_version": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "uint32",
-            "minimum": 1
-          }
-        },
-        "sha256": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "string",
-            "min_length": 64,
-            "max_length": 64
-          }
-        },
-        "created_at_ms": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "decimal"
-          }
-        },
-        "content_refs": {
-          "required": true,
-          "type": {
-            "kind": "array",
-            "min_items": 0,
-            "max_items": 4096,
-            "items": {
-              "kind": "ref",
-              "name": "JournalContentRef"
-            }
-          }
-        }
+        "checkpoint_id": {"required": true, "type": {"kind": "primitive", "name": "string", "min_length": 1, "max_length": 128}},
+        "source_sequence": {"required": true, "type": {"kind": "primitive", "name": "decimal"}},
+        "reducer_version": {"required": true, "type": {"kind": "primitive", "name": "uint32", "minimum": 1}},
+        "sha256": {"required": true, "type": {"kind": "primitive", "name": "string", "min_length": 64, "max_length": 64}},
+        "created_at_ms": {"required": true, "type": {"kind": "primitive", "name": "decimal"}},
+        "content_refs": {"required": true, "type": {"kind": "array", "min_items": 0, "max_items": 4096, "items": {"kind": "ref", "name": "JournalContentRef"}}}
       },
       "extra": false
     },
     "JournalCheckpointCreateResult": {
       "kind": "object",
       "fields": {
-        "checkpoint_id": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "string",
-            "min_length": 1,
-            "max_length": 128
-          }
-        },
-        "source_sequence": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "decimal"
-          }
-        },
-        "reducer_version": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "uint32",
-            "minimum": 1
-          }
-        },
-        "sha256": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "string",
-            "min_length": 64,
-            "max_length": 64
-          }
-        },
-        "created_at_ms": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "decimal"
-          }
-        },
-        "content_refs": {
-          "required": true,
-          "type": {
-            "kind": "array",
-            "min_items": 0,
-            "max_items": 4096,
-            "items": {
-              "kind": "ref",
-              "name": "JournalContentRef"
-            }
-          }
-        },
-        "sequence": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "decimal"
-          }
-        },
-        "event_id": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "string",
-            "min_length": 1,
-            "max_length": 128
-          }
-        }
+        "checkpoint_id": {"required": true, "type": {"kind": "primitive", "name": "string", "min_length": 1, "max_length": 128}},
+        "source_sequence": {"required": true, "type": {"kind": "primitive", "name": "decimal"}},
+        "reducer_version": {"required": true, "type": {"kind": "primitive", "name": "uint32", "minimum": 1}},
+        "sha256": {"required": true, "type": {"kind": "primitive", "name": "string", "min_length": 64, "max_length": 64}},
+        "created_at_ms": {"required": true, "type": {"kind": "primitive", "name": "decimal"}},
+        "content_refs": {"required": true, "type": {"kind": "array", "min_items": 0, "max_items": 4096, "items": {"kind": "ref", "name": "JournalContentRef"}}},
+        "sequence": {"required": true, "type": {"kind": "primitive", "name": "decimal"}},
+        "event_id": {"required": true, "type": {"kind": "primitive", "name": "string", "min_length": 1, "max_length": 128}}
       },
       "extra": false
     },
     "JournalCheckpointListResult": {
       "kind": "object",
       "fields": {
-        "checkpoints": {
-          "required": true,
-          "type": {
-            "kind": "array",
-            "min_items": 0,
-            "max_items": 4096,
-            "items": {
-              "kind": "ref",
-              "name": "JournalCheckpointSummary"
-            }
-          }
-        }
+        "checkpoints": {"required": true, "type": {"kind": "array", "min_items": 0, "max_items": 4096, "items": {"kind": "ref", "name": "JournalCheckpointSummary"}}}
       },
       "extra": false
     },
     "JournalUnsupportedReplayRecord": {
       "kind": "object",
       "fields": {
-        "sequence": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "decimal"
-          }
-        },
-        "event_id": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "string",
-            "min_length": 1,
-            "max_length": 128
-          }
-        },
-        "kind": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "string",
-            "min_length": 1,
-            "max_length": 128
-          }
-        }
+        "sequence": {"required": true, "type": {"kind": "primitive", "name": "decimal"}},
+        "event_id": {"required": true, "type": {"kind": "primitive", "name": "string", "min_length": 1, "max_length": 128}},
+        "kind": {"required": true, "type": {"kind": "primitive", "name": "string", "min_length": 1, "max_length": 128}}
       },
       "extra": false
     },
     "JournalRestorePreview": {
       "kind": "object",
       "fields": {
-        "checkpoint_id": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "string",
-            "min_length": 1,
-            "max_length": 128
-          }
-        },
-        "checkpoint_source_sequence": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "decimal"
-          }
-        },
-        "head_sequence": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "decimal"
-          }
-        },
-        "reducer_version": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "uint32",
-            "minimum": 1
-          }
-        },
-        "fully_reducible": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "boolean"
-          }
-        },
-        "applied_required_records": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "decimal"
-          }
-        },
-        "ignored_non_required_records": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "decimal"
-          }
-        },
-        "unsupported_required_record_count": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "decimal"
-          }
-        },
-        "unsupported_required_records_truncated": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "boolean"
-          }
-        },
-        "unsupported_required_records": {
-          "required": true,
-          "type": {
-            "kind": "array",
-            "min_items": 0,
-            "max_items": 4096,
-            "items": {
-              "kind": "ref",
-              "name": "JournalUnsupportedReplayRecord"
-            }
-          }
-        },
-        "state_sha256": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "string",
-            "min_length": 64,
-            "max_length": 64
-          }
-        },
-        "state": {
-          "required": true,
-          "type": {
-            "kind": "ref",
-            "name": "JsonValue"
-          }
-        },
-        "content_refs": {
-          "required": true,
-          "type": {
-            "kind": "array",
-            "min_items": 0,
-            "max_items": 4096,
-            "items": {
-              "kind": "ref",
-              "name": "JournalContentRef"
-            }
-          }
-        }
+        "checkpoint_id": {"required": true, "type": {"kind": "primitive", "name": "string", "min_length": 1, "max_length": 128}},
+        "checkpoint_source_sequence": {"required": true, "type": {"kind": "primitive", "name": "decimal"}},
+        "head_sequence": {"required": true, "type": {"kind": "primitive", "name": "decimal"}},
+        "reducer_version": {"required": true, "type": {"kind": "primitive", "name": "uint32", "minimum": 1}},
+        "fully_reducible": {"required": true, "type": {"kind": "primitive", "name": "boolean"}},
+        "applied_required_records": {"required": true, "type": {"kind": "primitive", "name": "decimal"}},
+        "ignored_non_required_records": {"required": true, "type": {"kind": "primitive", "name": "decimal"}},
+        "unsupported_required_record_count": {"required": true, "type": {"kind": "primitive", "name": "decimal"}},
+        "unsupported_required_records_truncated": {"required": true, "type": {"kind": "primitive", "name": "boolean"}},
+        "unsupported_required_records": {"required": true, "type": {"kind": "array", "min_items": 0, "max_items": 4096, "items": {"kind": "ref", "name": "JournalUnsupportedReplayRecord"}}},
+        "state_sha256": {"required": true, "type": {"kind": "primitive", "name": "string", "min_length": 64, "max_length": 64}},
+        "state": {"required": true, "type": {"kind": "ref", "name": "JsonValue"}},
+        "content_refs": {"required": true, "type": {"kind": "array", "min_items": 0, "max_items": 4096, "items": {"kind": "ref", "name": "JournalContentRef"}}}
       },
       "extra": false
     },
     "JournalSegment": {
       "kind": "object",
       "fields": {
-        "segment_id": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "string",
-            "min_length": 1,
-            "max_length": 256
-          }
-        },
-        "start_sequence": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "decimal"
-          }
-        },
-        "end_sequence": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "decimal"
-          }
-        },
-        "record_count": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "decimal"
-          }
-        },
-        "codec": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "string",
-            "min_length": 1,
-            "max_length": 64
-          }
-        },
-        "uncompressed_bytes": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "decimal"
-          }
-        },
-        "sha256": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "string",
-            "min_length": 64,
-            "max_length": 64
-          }
-        },
-        "sealed_at_ms": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "decimal"
-          }
-        }
+        "segment_id": {"required": true, "type": {"kind": "primitive", "name": "string", "min_length": 1, "max_length": 256}},
+        "start_sequence": {"required": true, "type": {"kind": "primitive", "name": "decimal"}},
+        "end_sequence": {"required": true, "type": {"kind": "primitive", "name": "decimal"}},
+        "record_count": {"required": true, "type": {"kind": "primitive", "name": "decimal"}},
+        "codec": {"required": true, "type": {"kind": "primitive", "name": "string", "min_length": 1, "max_length": 64}},
+        "uncompressed_bytes": {"required": true, "type": {"kind": "primitive", "name": "decimal"}},
+        "sha256": {"required": true, "type": {"kind": "primitive", "name": "string", "min_length": 64, "max_length": 64}},
+        "sealed_at_ms": {"required": true, "type": {"kind": "primitive", "name": "decimal"}}
       },
       "extra": false
     },
     "JournalSegmentListResult": {
       "kind": "object",
       "fields": {
-        "segments": {
-          "required": true,
-          "type": {
-            "kind": "array",
-            "min_items": 0,
-            "max_items": 4096,
-            "items": {
-              "kind": "ref",
-              "name": "JournalSegment"
-            }
-          }
-        }
+        "segments": {"required": true, "type": {"kind": "array", "min_items": 0, "max_items": 4096, "items": {"kind": "ref", "name": "JournalSegment"}}}
       },
       "extra": false
     },
     "JournalSegmentSealResult": {
       "kind": "object",
       "fields": {
-        "through_sequence": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "decimal"
-          }
-        },
-        "segments": {
-          "required": true,
-          "type": {
-            "kind": "array",
-            "min_items": 1,
-            "max_items": 4096,
-            "items": {
-              "kind": "ref",
-              "name": "JournalSegment"
-            }
-          }
-        },
-        "sequence": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "decimal"
-          }
-        },
-        "event_id": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "string",
-            "min_length": 1,
-            "max_length": 128
-          }
-        }
+        "through_sequence": {"required": true, "type": {"kind": "primitive", "name": "decimal"}},
+        "segments": {"required": true, "type": {"kind": "array", "min_items": 1, "max_items": 4096, "items": {"kind": "ref", "name": "JournalSegment"}}},
+        "sequence": {"required": true, "type": {"kind": "primitive", "name": "decimal"}},
+        "event_id": {"required": true, "type": {"kind": "primitive", "name": "string", "min_length": 1, "max_length": 128}}
       },
       "extra": false
     },
@@ -15308,18 +14620,12 @@
       "fields": {
         "continued": {
           "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "boolean"
-          },
+          "type": {"kind": "primitive", "name": "boolean"},
           "description": "true when the last owner-stopped messages were reopened and a turn started."
         },
         "reason": {
           "required": false,
-          "type": {
-            "kind": "primitive",
-            "name": "string"
-          },
+          "type": {"kind": "primitive", "name": "string"},
           "description": "busy when a turn, queued message or pending resume prevents Continue."
         }
       },
@@ -15385,18 +14691,12 @@
       "fields": {
         "retried": {
           "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "boolean"
-          },
+          "type": {"kind": "primitive", "name": "boolean"},
           "description": "true when the named owner message was reopened and a retry turn started."
         },
         "reason": {
           "required": false,
-          "type": {
-            "kind": "primitive",
-            "name": "string"
-          },
+          "type": {"kind": "primitive", "name": "string"},
           "description": "busy or invalid_message when Retry cannot start."
         }
       },
@@ -20418,47 +19718,20 @@
       "class": "mutation",
       "idempotency": "required",
       "target": "session",
-      "ancestors": [
-        "machine"
-      ],
+      "ancestors": ["machine"],
       "params": {
-        "selectors": {
-          "machine": "required",
-          "session": "required"
-        },
+        "selectors": {"machine": "required", "session": "required"},
         "fields": {
           "chief": {
             "required": false,
-            "type": {
-              "kind": "primitive",
-              "name": "string",
-              "min_length": 1,
-              "max_length": 70
-            },
+            "type": {"kind": "primitive", "name": "string", "min_length": 1, "max_length": 70},
             "description": "The Chief whose brain receives the owner action; absent selects the default Chief."
           }
         },
         "extra": false
       },
-      "result": {
-        "kind": "apply",
-        "name": "MutationResult",
-        "arguments": [
-          {
-            "kind": "ref",
-            "name": "ChiefContinueResult"
-          }
-        ]
-      },
-      "errors": [
-        "idempotency.conflict",
-        "operation.failed",
-        "origin.forbidden",
-        "selector.ambiguous",
-        "selector.invalid",
-        "selector.not_found",
-        "validation.invalid"
-      ],
+      "result": {"kind": "apply", "name": "MutationResult", "arguments": [{"kind": "ref", "name": "ChiefContinueResult"}]},
+      "errors": ["idempotency.conflict", "operation.failed", "origin.forbidden", "selector.ambiguous", "selector.invalid", "selector.not_found", "validation.invalid"],
       "constraints": [
         "Owner only (risk: owner). Only the owner's trusted connection may call it; agent-bound, relayed, WebSocket and page connections are refused before forwarding.",
         "The daemon forwards one line to the selected Chief brain's tools socket. A missing brain is unavailable and never starts for this operation.",
@@ -21513,57 +20786,25 @@
       "class": "mutation",
       "idempotency": "required",
       "target": "session",
-      "ancestors": [
-        "machine"
-      ],
+      "ancestors": ["machine"],
       "params": {
-        "selectors": {
-          "machine": "required",
-          "session": "required"
-        },
+        "selectors": {"machine": "required", "session": "required"},
         "fields": {
           "chief": {
             "required": false,
-            "type": {
-              "kind": "primitive",
-              "name": "string",
-              "min_length": 1,
-              "max_length": 70
-            },
+            "type": {"kind": "primitive", "name": "string", "min_length": 1, "max_length": 70},
             "description": "The Chief whose brain receives the owner action; absent selects the default Chief."
           },
           "message": {
             "required": true,
-            "type": {
-              "kind": "primitive",
-              "name": "string",
-              "min_length": 1,
-              "max_length": 128
-            },
+            "type": {"kind": "primitive", "name": "string", "min_length": 1, "max_length": 128},
             "description": "The person's message id in the selected Chief conversation to answer again."
           }
         },
         "extra": false
       },
-      "result": {
-        "kind": "apply",
-        "name": "MutationResult",
-        "arguments": [
-          {
-            "kind": "ref",
-            "name": "ChiefRetryResult"
-          }
-        ]
-      },
-      "errors": [
-        "idempotency.conflict",
-        "operation.failed",
-        "origin.forbidden",
-        "selector.ambiguous",
-        "selector.invalid",
-        "selector.not_found",
-        "validation.invalid"
-      ],
+      "result": {"kind": "apply", "name": "MutationResult", "arguments": [{"kind": "ref", "name": "ChiefRetryResult"}]},
+      "errors": ["idempotency.conflict", "operation.failed", "origin.forbidden", "selector.ambiguous", "selector.invalid", "selector.not_found", "validation.invalid"],
       "constraints": [
         "Owner only (risk: owner). Only the owner's trusted connection may call it; agent-bound, relayed, WebSocket and page connections are refused before forwarding.",
         "The daemon forwards one line to the selected Chief brain's tools socket. A missing brain is unavailable and never starts for this operation.",
@@ -31901,10 +31142,7 @@
         "fields": {
           "catalog": {
             "required": false,
-            "type": {
-              "kind": "primitive",
-              "name": "boolean"
-            },
+            "type": {"kind": "primitive", "name": "boolean"},
             "description": "Opt in to owner metadata and admitted remote records. Omitted or false preserves the original local-only shape; this grants no execution authority."
           }
         },
@@ -31933,10 +31171,7 @@
         "fields": {
           "catalog": {
             "required": false,
-            "type": {
-              "kind": "primitive",
-              "name": "boolean"
-            },
+            "type": {"kind": "primitive", "name": "boolean"},
             "description": "Opt in to owner metadata and admitted remote records. Omitted or false preserves the original local-only shape; this grants no execution authority."
           }
         },
@@ -34201,8 +33436,7 @@
         "A Chief's picture is the chief.profile.avatar.set write: the owner (a registered Unix client acting as user_local) sets any Chief's, a Chief its own only when its self_edit lists avatar (else operation.failed details.reason chief_self_edit_denied), and another Chief's when its tools hold chiefs and that Chief's grant is within its own (else chief_manage_denied or target_exceeds_caller), every other caller is origin.forbidden; the Chief record's rev moves and its brain is told (a picture never restarts a brain). The CLI (cmux avatar set) refuses an agent caller.",
         "The daemon keeps ONE avatar store for people and Chiefs: chiefs.sqlite3 in the session state directory (memory for an in-memory session). Bytes are stored once by SHA-256 and deleted when no participant references them.",
         "The media type comes from the bytes: PNG, JPEG, GIF or WebP, 1 to 1048576 bytes; anything else is validation.invalid on bytes.",
-        "bytes or clear true; anything else is validation.invalid. Setting the same picture again changes nothing; a committed change publishes participant-avatar-changed on subscribe to connections that echoed participant-avatars-v1.",
-        "The idempotency key is per participant for a person (the last 256 keys are kept) and per caller for a Chief: the same key with the same params answers the committed result with replayed true; other params under the key are idempotency.conflict. revision is the Chief record's rev for a Chief and the people's avatar revision (it moves on every change of any person's picture) for a person."
+        "bytes or clear true; anything else is validation.invalid. Setting the same picture again changes nothing; a committed change publishes participant-avatar-changed on subscribe to connections that echoed participant-avatars-v1.", "The idempotency key is per participant for a person (the last 256 keys are kept) and per caller for a Chief: the same key with the same params answers the committed result with replayed true; other params under the key are idempotency.conflict. revision is the Chief record's rev for a Chief and the people's avatar revision (it moves on every change of any person's picture) for a person."
       ]
     },
     "project.actions.list": {
@@ -36687,67 +35921,19 @@
       "class": "mutation",
       "idempotency": "required",
       "target": "session",
-      "ancestors": [
-        "machine"
-      ],
+      "ancestors": ["machine"],
       "params": {
-        "selectors": {
-          "machine": "required",
-          "session": "required"
-        },
+        "selectors": {"machine": "required", "session": "required"},
         "fields": {
-          "event": {
-            "required": true,
-            "type": {
-              "kind": "ref",
-              "name": "JournalIngressEvent"
-            }
-          },
-          "live_prompt": {
-            "required": false,
-            "description": "An agent hook's turn prompt for the hover card task line: kept in daemon memory only (at most 200 characters), never journaled, persisted or logged.",
-            "type": {
-              "kind": "primitive",
-              "name": "string"
-            }
-          },
-          "live_reply": {
-            "required": false,
-            "description": "A finished or failed turn's last agent message for its banner preview: kept in daemon memory only (at most 200 characters) until the turn's notification event carries it as preview, never journaled, persisted or logged.",
-            "type": {
-              "kind": "primitive",
-              "name": "string"
-            }
-          },
-          "live_question": {
-            "required": false,
-            "description": "A question hook's question (Claude Code AskUserQuestion, Codex request_user_input) as compact JSON {harness, tool_use_id?, questions: [{id?, question, header?, multiSelect, isOther?, options: [{label, description?}]}]} (at most 16 KiB, 4 questions, 8 options each): kept in daemon memory only while the agent waits on it, carried by the question notification event as question and by its list-notifications row; never journaled, persisted or logged.",
-            "type": {
-              "kind": "primitive",
-              "name": "string"
-            }
-          },
-          "live_approval": {
-            "required": false,
-            "description": "A Claude Code approval hook's request (PermissionRequest for a tool other than AskUserQuestion or ExitPlanMode) as compact JSON {harness: \"claude\", tool, command?, target?, description?} (at most 16 KiB, 2000 characters a field): kept in daemon memory only while the agent waits on it, carried by its list-notifications row as approval; never journaled or logged (the hook's private queue holds the request line only until the daemon answers it, as for the other live fields).",
-            "type": {
-              "kind": "primitive",
-              "name": "string"
-            }
-          }
+          "event": {"required": true, "type": {"kind": "ref", "name": "JournalIngressEvent"}},
+          "live_prompt": {"required": false, "description": "An agent hook's turn prompt for the hover card task line: kept in daemon memory only (at most 200 characters), never journaled, persisted or logged.", "type": {"kind": "primitive", "name": "string"}},
+          "live_reply": {"required": false, "description": "A finished or failed turn's last agent message for its banner preview: kept in daemon memory only (at most 200 characters) until the turn's notification event carries it as preview, never journaled, persisted or logged.", "type": {"kind": "primitive", "name": "string"}},
+          "live_question": {"required": false, "description": "A question hook's question (Claude Code AskUserQuestion, Codex request_user_input) as compact JSON {harness, tool_use_id?, questions: [{id?, question, header?, multiSelect, isOther?, options: [{label, description?}]}]} (at most 16 KiB, 4 questions, 8 options each): kept in daemon memory only while the agent waits on it, carried by the question notification event as question and by its list-notifications row; never journaled, persisted or logged.", "type": {"kind": "primitive", "name": "string"}},
+          "live_approval": {"required": false, "description": "A Claude Code approval hook's request (PermissionRequest for a tool other than AskUserQuestion or ExitPlanMode) as compact JSON {harness: \"claude\", tool, command?, target?, description?} (at most 16 KiB, 2000 characters a field): kept in daemon memory only while the agent waits on it, carried by its list-notifications row as approval; never journaled or logged (the hook's private queue holds the request line only until the daemon answers it, as for the other live fields).", "type": {"kind": "primitive", "name": "string"}}
         },
         "extra": false
       },
-      "result": {
-        "kind": "apply",
-        "name": "MutationResult",
-        "arguments": [
-          {
-            "kind": "ref",
-            "name": "JournalAppendResult"
-          }
-        ]
-      },
+      "result": {"kind": "apply", "name": "MutationResult", "arguments": [{"kind": "ref", "name": "JournalAppendResult"}]},
       "errors": [
         "idempotency.conflict",
         "operation.failed",
@@ -36763,86 +35949,39 @@
       "class": "mutation",
       "idempotency": "required",
       "target": "session",
-      "ancestors": [
-        "machine"
-      ],
+      "ancestors": ["machine"],
       "params": {
-        "selectors": {
-          "machine": "required",
-          "session": "required"
-        },
+        "selectors": {"machine": "required", "session": "required"},
         "fields": {},
         "extra": false
       },
-      "result": {
-        "kind": "apply",
-        "name": "MutationResult",
-        "arguments": [
-          {
-            "kind": "ref",
-            "name": "JournalCheckpointCreateResult"
-          }
-        ]
-      },
-      "errors": [
-        "idempotency.conflict",
-        "operation.failed",
-        "operation.unsupported",
-        "origin.forbidden",
-        "selector.ambiguous",
-        "selector.invalid",
-        "selector.not_found",
-        "validation.invalid"
-      ]
+      "result": {"kind": "apply", "name": "MutationResult", "arguments": [{"kind": "ref", "name": "JournalCheckpointCreateResult"}]},
+      "errors": ["idempotency.conflict", "operation.failed", "operation.unsupported", "origin.forbidden", "selector.ambiguous", "selector.invalid", "selector.not_found", "validation.invalid"]
     },
     "session.journal.checkpoint.list": {
       "class": "read",
       "idempotency": "forbidden",
       "target": "session",
-      "ancestors": [
-        "machine"
-      ],
+      "ancestors": ["machine"],
       "params": {
-        "selectors": {
-          "machine": "required",
-          "session": "required"
-        },
+        "selectors": {"machine": "required", "session": "required"},
         "fields": {},
         "extra": false
       },
-      "result": {
-        "kind": "ref",
-        "name": "JournalCheckpointListResult"
-      },
-      "errors": [
-        "operation.failed",
-        "operation.unsupported",
-        "origin.forbidden",
-        "selector.ambiguous",
-        "selector.invalid",
-        "selector.not_found",
-        "validation.invalid"
-      ]
+      "result": {"kind": "ref", "name": "JournalCheckpointListResult"},
+      "errors": ["operation.failed", "operation.unsupported", "origin.forbidden", "selector.ambiguous", "selector.invalid", "selector.not_found", "validation.invalid"]
     },
     "session.journal.hook.list": {
       "class": "read",
       "idempotency": "forbidden",
       "target": "session",
-      "ancestors": [
-        "machine"
-      ],
+      "ancestors": ["machine"],
       "params": {
-        "selectors": {
-          "machine": "required",
-          "session": "required"
-        },
+        "selectors": {"machine": "required", "session": "required"},
         "fields": {},
         "extra": false
       },
-      "result": {
-        "kind": "ref",
-        "name": "JournalHookListResult"
-      },
+      "result": {"kind": "ref", "name": "JournalHookListResult"},
       "errors": [
         "operation.failed",
         "operation.unsupported",
@@ -36857,35 +35996,15 @@
       "class": "mutation",
       "idempotency": "required",
       "target": "session",
-      "ancestors": [
-        "machine"
-      ],
+      "ancestors": ["machine"],
       "params": {
-        "selectors": {
-          "machine": "required",
-          "session": "required"
-        },
+        "selectors": {"machine": "required", "session": "required"},
         "fields": {
-          "manifest": {
-            "required": true,
-            "type": {
-              "kind": "ref",
-              "name": "JournalHookManifest"
-            }
-          }
+          "manifest": {"required": true, "type": {"kind": "ref", "name": "JournalHookManifest"}}
         },
         "extra": false
       },
-      "result": {
-        "kind": "apply",
-        "name": "MutationResult",
-        "arguments": [
-          {
-            "kind": "ref",
-            "name": "JournalHookPutResult"
-          }
-        ]
-      },
+      "result": {"kind": "apply", "name": "MutationResult", "arguments": [{"kind": "ref", "name": "JournalHookPutResult"}]},
       "errors": [
         "idempotency.conflict",
         "operation.failed",
@@ -36901,21 +36020,13 @@
       "class": "read",
       "idempotency": "forbidden",
       "target": "session",
-      "ancestors": [
-        "machine"
-      ],
+      "ancestors": ["machine"],
       "params": {
-        "selectors": {
-          "machine": "required",
-          "session": "required"
-        },
+        "selectors": {"machine": "required", "session": "required"},
         "fields": {},
         "extra": false
       },
-      "result": {
-        "kind": "ref",
-        "name": "JournalProducerListResult"
-      },
+      "result": {"kind": "ref", "name": "JournalProducerListResult"},
       "errors": [
         "operation.failed",
         "operation.unsupported",
@@ -36930,35 +36041,15 @@
       "class": "mutation",
       "idempotency": "required",
       "target": "session",
-      "ancestors": [
-        "machine"
-      ],
+      "ancestors": ["machine"],
       "params": {
-        "selectors": {
-          "machine": "required",
-          "session": "required"
-        },
+        "selectors": {"machine": "required", "session": "required"},
         "fields": {
-          "manifest": {
-            "required": true,
-            "type": {
-              "kind": "ref",
-              "name": "JournalProducerManifest"
-            }
-          }
+          "manifest": {"required": true, "type": {"kind": "ref", "name": "JournalProducerManifest"}}
         },
         "extra": false
       },
-      "result": {
-        "kind": "apply",
-        "name": "MutationResult",
-        "arguments": [
-          {
-            "kind": "ref",
-            "name": "JournalProducerPutResult"
-          }
-        ]
-      },
+      "result": {"kind": "apply", "name": "MutationResult", "arguments": [{"kind": "ref", "name": "JournalProducerPutResult"}]},
       "errors": [
         "idempotency.conflict",
         "operation.failed",
@@ -36974,113 +36065,44 @@
       "class": "read",
       "idempotency": "forbidden",
       "target": "session",
-      "ancestors": [
-        "machine"
-      ],
+      "ancestors": ["machine"],
       "params": {
-        "selectors": {
-          "machine": "required",
-          "session": "required"
-        },
+        "selectors": {"machine": "required", "session": "required"},
         "fields": {
-          "checkpoint": {
-            "required": false,
-            "type": {
-              "kind": "primitive",
-              "name": "string",
-              "min_length": 1,
-              "max_length": 128
-            }
-          }
+          "checkpoint": {"required": false, "type": {"kind": "primitive", "name": "string", "min_length": 1, "max_length": 128}}
         },
         "extra": false
       },
-      "result": {
-        "kind": "ref",
-        "name": "JournalRestorePreview"
-      },
-      "errors": [
-        "operation.failed",
-        "operation.unsupported",
-        "origin.forbidden",
-        "selector.ambiguous",
-        "selector.invalid",
-        "selector.not_found",
-        "validation.invalid"
-      ]
+      "result": {"kind": "ref", "name": "JournalRestorePreview"},
+      "errors": ["operation.failed", "operation.unsupported", "origin.forbidden", "selector.ambiguous", "selector.invalid", "selector.not_found", "validation.invalid"]
     },
     "session.journal.segment.list": {
       "class": "read",
       "idempotency": "forbidden",
       "target": "session",
-      "ancestors": [
-        "machine"
-      ],
+      "ancestors": ["machine"],
       "params": {
-        "selectors": {
-          "machine": "required",
-          "session": "required"
-        },
+        "selectors": {"machine": "required", "session": "required"},
         "fields": {},
         "extra": false
       },
-      "result": {
-        "kind": "ref",
-        "name": "JournalSegmentListResult"
-      },
-      "errors": [
-        "operation.failed",
-        "operation.unsupported",
-        "origin.forbidden",
-        "selector.ambiguous",
-        "selector.invalid",
-        "selector.not_found",
-        "validation.invalid"
-      ]
+      "result": {"kind": "ref", "name": "JournalSegmentListResult"},
+      "errors": ["operation.failed", "operation.unsupported", "origin.forbidden", "selector.ambiguous", "selector.invalid", "selector.not_found", "validation.invalid"]
     },
     "session.journal.segment.seal": {
       "class": "mutation",
       "idempotency": "required",
       "target": "session",
-      "ancestors": [
-        "machine"
-      ],
+      "ancestors": ["machine"],
       "params": {
-        "selectors": {
-          "machine": "required",
-          "session": "required"
-        },
+        "selectors": {"machine": "required", "session": "required"},
         "fields": {
-          "through_sequence": {
-            "required": true,
-            "type": {
-              "kind": "primitive",
-              "name": "decimal"
-            }
-          }
+          "through_sequence": {"required": true, "type": {"kind": "primitive", "name": "decimal"}}
         },
         "extra": false
       },
-      "result": {
-        "kind": "apply",
-        "name": "MutationResult",
-        "arguments": [
-          {
-            "kind": "ref",
-            "name": "JournalSegmentSealResult"
-          }
-        ]
-      },
-      "errors": [
-        "idempotency.conflict",
-        "operation.failed",
-        "operation.unsupported",
-        "origin.forbidden",
-        "selector.ambiguous",
-        "selector.invalid",
-        "selector.not_found",
-        "validation.invalid"
-      ]
+      "result": {"kind": "apply", "name": "MutationResult", "arguments": [{"kind": "ref", "name": "JournalSegmentSealResult"}]},
+      "errors": ["idempotency.conflict", "operation.failed", "operation.unsupported", "origin.forbidden", "selector.ambiguous", "selector.invalid", "selector.not_found", "validation.invalid"]
     },
     "session.journal.subscribe": {
       "class": "stream_open",
