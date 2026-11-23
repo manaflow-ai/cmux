@@ -64,6 +64,7 @@ mod remote_link_mux;
 mod self_install;
 mod spill;
 mod spill_cloud;
+mod ssh_carrier;
 use daemon_lifecycle::*;
 use enroll::*;
 use exec_cp::{ExitWith, run_cp, run_exec};
@@ -1504,7 +1505,14 @@ fn run_ssh(
     args: &[String],
     load_config: impl FnOnce() -> crate::config::StartupConfigSnapshot,
 ) -> anyhow::Result<()> {
-    connect_with_flags(direct_ssh_flags(args)?, load_config)
+    // The hub carrier first for one of this person's listed machines (`ssh_carrier.rs`).
+    let (way, rest) = ssh_carrier::split_way(args)?;
+    if way != ssh_carrier::Way::SshOnly
+        && let Some((remote, host)) = ssh_carrier::reach(&rest, way)?
+    {
+        return crate::run_tui(Session::Remote(remote), host, None, load_config());
+    }
+    connect_with_flags(direct_ssh_flags(&rest)?, load_config)
 }
 
 fn direct_ssh_flags(args: &[String]) -> anyhow::Result<ConnectFlags> {
