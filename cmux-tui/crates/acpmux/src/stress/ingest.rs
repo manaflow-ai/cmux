@@ -164,11 +164,13 @@ fn appends_of_many_chats_go_on_side_by_side() {
     // fast as the same chats in stores of their own on the same machine at the same time (a
     // floor against the control, not the core count, so the suite's other tests on the runner
     // do not decide it). A store that writes every chat's line under one lock stays near one
-    // chat's rate, far under the control.
+    // chat's rate, far under the control: about one/apart, 0.2 on the run that set this floor.
+    // 0.4 keeps twice that margin; a loaded runner took the shared store to 0.54 (2026-11-22,
+    // scale 2.6x over one chat), which no one-lock store reaches.
     assert!(
-        of_apart >= 0.6,
+        of_apart >= 0.4,
         "{n} chats appending to one store reached {:.0}/s, {of_apart:.2} of the {:.0}/s they \
-         reach in stores of their own (floor 0.6): the chats' appends wait on one another",
+         reach in stores of their own (floor 0.4): the chats' appends wait on one another",
         many.per_s,
         apart.per_s
     );
