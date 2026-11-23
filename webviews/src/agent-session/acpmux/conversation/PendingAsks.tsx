@@ -99,15 +99,15 @@ function PinnedAsk({
   children: ReactNode;
 }) {
   const t = useT();
-  const fold = useFold(!leaving, () => leaving, false);
+  const { present, ref: foldRef } = useFold(!leaving, () => leaving, false);
   const key = askKey(row);
   useLayoutEffect(() => {
-    if (!fold.present) onFolded?.(key);
-  }, [fold.present, onFolded, key]);
-  if (!fold.present) return null;
+    if (!present) onFolded?.(key);
+  }, [present, onFolded, key]);
+  if (!present) return null;
   return (
     <section
-      ref={fold.ref}
+      ref={foldRef}
       className="acpmux-pending-ask"
       aria-label={t("question.needsInput")}
       data-leaving={leaving || undefined}

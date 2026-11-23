@@ -129,7 +129,7 @@
    is the card's vivid one. Reduce Transparency, Lens and Spectrum over art, and the gallery's `cards`
    look keep what they drew. test/composer-hat-material.test.ts measures it. */
 @media not (prefers-reduced-transparency: reduce) {
-  :root:not([data-reduce-transparency], [data-bottom-stack="cards"]):not(
+  :root:not([data-reduce-transparency], [data-glass="off"], [data-bottom-stack="cards"]):not(
       [data-cmux-see-through]:is([data-glass="lens"], [data-glass="spectrum"])
     )
     .acpmux-dock
@@ -152,12 +152,12 @@
       inset 1px 1.5px 1px -1px var(--acpmux-tray-specular),
       inset 0 16px 20px -16px var(--acpmux-tray-sheen);
   }
-  :root[data-cmux-see-through]:not([data-reduce-transparency], [data-bottom-stack="cards"], [data-glass="lens"], [data-glass="spectrum"])
+  :root[data-cmux-see-through]:not([data-reduce-transparency], [data-glass="off"], [data-bottom-stack="cards"], [data-glass="lens"], [data-glass="spectrum"])
     .acpmux-dock
     > .acpmux-running-tray[data-card]:has(+ .acpmux-composer > .acpmux-composer-box.ui-glass-material) {
     --acpmux-tray-frost: var(--glass-material-backdrop);
   }
-  :root:not([data-reduce-transparency], [data-bottom-stack="cards"]):not(
+  :root:not([data-reduce-transparency], [data-glass="off"], [data-bottom-stack="cards"]):not(
       [data-cmux-see-through]:is([data-glass="lens"], [data-glass="spectrum"])
     )
     .acpmux-dock
@@ -234,8 +234,9 @@
   min-height: 0;
   padding-bottom: 0;
 }
-/* The stack's foot (styles.css `.acpmux-asks-stack` padding-bottom), carried inside the fold. */
-.acpmux-asks-stack[data-leaving] > .acpmux-trust-fold:last-child {
+/* The stack's foot (styles.css `.acpmux-asks-stack` padding-bottom), carried inside the fold of the
+   trust question or a pinned question, whichever leaves last. */
+.acpmux-asks-stack[data-leaving] {
   --acpmux-stack-foot: 10px;
 }
 .acpmux-asks-stack[data-leaving] > .acpmux-trust-fold:last-child::after {
@@ -269,7 +270,7 @@
   content: "";
   display: block;
   margin-top: calc(-1 * var(--ds-space-1, 4px));
-  padding-top: 10px;
+  padding-top: var(--acpmux-stack-foot);
 }
 /* The gallery's wipe arm (`agent-pane.bottom-stack` trust-fold-wipe): the question holds still and the
    fold cuts it from its top, where the shipped fold slides it down under what is below it. */
