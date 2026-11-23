@@ -153,6 +153,13 @@ public final class DesignSettings {
     /// What every window's backdrop shows of the agents now; ``BackdropAgentGlow/calm`` while
     /// ``agentGlowEnabled`` is off. Each window backdrop observes it (``BackdropAgentGlowView``).
     public var agentGlow = BackdropAgentGlow.calm
+    /// Live wallpapers in windows now that read the agents (``LiveWallpaper/agents``); while above
+    /// zero the App's agent reader counts ``agentEvents``, at zero it reads nothing for them.
+    public var agentWallpapers = 0
+    /// Agent events so far: each time an agent on these machines starts or stops working or
+    /// waiting on the person, counted only while ``agentWallpapers`` is above zero. Each live
+    /// wallpaper that reads the agents observes it (`cmux_wallpaper_activity_event`).
+    public var agentEvents = 0
     /// `appearance.wallpaperTint`: where the desktop shows through the window, its tint takes the
     /// desktop picture's hue (``WallpaperTint``), as macOS tints its own windows. Off until the
     /// setting reaches it (``SettingsApplier``).
