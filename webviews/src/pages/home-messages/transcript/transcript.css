@@ -589,3 +589,7 @@
     background: var(--cmux-surface-solid, Canvas);
   }
 }
+/* Liquid Glass off (appearance.liquidGlass): the same solid header. */
+:where(:root[data-glass="off"]) .mt-header {
+  background: var(--cmux-surface-solid, Canvas);
+}

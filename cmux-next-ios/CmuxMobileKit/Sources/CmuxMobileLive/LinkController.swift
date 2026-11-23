@@ -488,6 +488,10 @@ public final class LinkController {
                     log.info("link dropped: \(reason, privacy: .public)")
                     self.events.dropped(reason: reason)
                     self.send(.linkDropped(generation: generation, reason: reason))
+                case .suspect(let silentMillis):
+                    // Rust heard nothing after a ping: prove the link now (cmux#49296).
+                    log.info("link suspect: silent \(silentMillis, privacy: .public) ms")
+                    self.suspect()
                 case .idle, .connecting:
                     break
                 }
