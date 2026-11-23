@@ -27,6 +27,19 @@ fn none() -> BTreeSet<String> {
     BTreeSet::new()
 }
 
+/// A theme written for an older cmux: a key that was removed is left out
+/// with a notice, not refused as unknown (schemas/settings/retired-keys.json).
+#[test]
+fn a_theme_file_names_a_removed_key_and_still_reads_clean() {
+    let file =
+        overlay(r##"{ "appearance.tabBarBackground": "#000000", "appearance.borders": "none" }"##);
+    assert!(file.diagnostics.is_empty(), "{:?}", file.diagnostics);
+    assert_eq!(file.keys(), vec!["appearance.borders".to_string()]);
+    assert_eq!(file.notices.len(), 1);
+    assert_eq!(file.notices[0].from, "appearance.tabBarBackground");
+    assert_eq!(file.notices[0].kind, crate::migrations::NoticeKind::Removed);
+}
+
 #[test]
 fn a_theme_file_sets_look_settings_nested_or_dotted() {
     let file = overlay(
@@ -451,6 +464,26 @@ fn with_no_theme_file_nothing_changes() {
     );
     assert_eq!(state.effective().root, plain.root);
     assert!(state.theme_file().is_none());
+}
+
+/// The transcript look rides in a theme file (docs/cmux-next/transcript-customization.md): the look
+/// and its tokens apply, and a tokens object with an unknown token is refused with its key.
+#[test]
+fn a_theme_file_carries_the_transcript_look_and_its_tokens() {
+    let file = overlay(
+        r#"{ "agentPane.display.transcriptLook": "studio",
+             "agentPane.display.transcriptTokens": { "userMessage.radius": 20, "timestamps": "always" } }"#,
+    );
+    assert!(file.diagnostics.is_empty(), "{:?}", file.diagnostics);
+    let root = file.applied(&json!({}), &none());
+    assert_eq!(at(&root, "agentPane.display.transcriptLook"), Some(&json!("studio")));
+    assert_eq!(
+        at(&root, "agentPane.display.transcriptTokens"),
+        Some(&json!({"userMessage.radius": 20, "timestamps": "always"}))
+    );
+    let bad = overlay(r#"{ "agentPane.display.transcriptTokens": { "avatar": "on" } }"#);
+    assert!(bad.keys().is_empty());
+    assert!(bad.diagnostics.iter().any(|d| d.path == "agentPane.display.transcriptTokens"));
 }
 
 #[test]

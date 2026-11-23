@@ -670,6 +670,7 @@ impl RelaySlot {
             generation: Some(generation),
             issued_at_unix: now,
             expires_at_unix: expires_at,
+            grant: None,
         };
         issue_ticket(&claims, key.as_bytes(), &issuer).map_err(|error| {
             worker::Error::RustError(format!("failed to mint {role:?} join ticket: {error}"))
@@ -779,9 +780,15 @@ impl RelaySlot {
             RelayControl::Register { protocol, slot, ticket } => {
                 self.handle_register(socket, attachment, protocol, slot, ticket).await
             }
-            RelayControl::Connect { protocol, slot, ticket, lane, generation, accepts_parked }
-                if matches!(attachment.phase, SlotPhase::Pending | SlotPhase::ClientControl) =>
-            {
+            RelayControl::Connect {
+                protocol,
+                slot,
+                ticket,
+                lane,
+                generation,
+                accepts_parked,
+                ..
+            } if matches!(attachment.phase, SlotPhase::Pending | SlotPhase::ClientControl) => {
                 self.handle_connect(
                     socket,
                     attachment,
