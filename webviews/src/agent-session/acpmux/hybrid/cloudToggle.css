@@ -2,13 +2,16 @@
    than the chips beside it. On it is the one colored thing in the composer. Three looks for the on
    state (data-look); each plays its turn-on once, on the person's click (data-fresh), and under
    reduced motion shows the lit cloud at once. */
+/* The rainbow, in the order it reads left to right. */
+.acpmux-hybrid-toggle,
+.acpmux-hybrid-dot {
+  --acpmux-hybrid-1: #ff5f6d; /* colour-allow: a rainbow's fixed hue, which is no theme role */
+  --acpmux-hybrid-2: #ffb347; /* colour-allow: a rainbow's fixed hue, which is no theme role */
+  --acpmux-hybrid-3: #3ddc97; /* colour-allow: a rainbow's fixed hue, which is no theme role */
+  --acpmux-hybrid-4: #36a9ff; /* colour-allow: a rainbow's fixed hue, which is no theme role */
+  --acpmux-hybrid-5: #a66bff; /* colour-allow: a rainbow's fixed hue, which is no theme role */
+}
 .acpmux-hybrid-toggle {
-  /* The rainbow, in the order it reads left to right. Token definitions for this control alone. */
-  --acpmux-hybrid-1: #ff5f6d;
-  --acpmux-hybrid-2: #ffb347;
-  --acpmux-hybrid-3: #3ddc97;
-  --acpmux-hybrid-4: #36a9ff;
-  --acpmux-hybrid-5: #a66bff;
   appearance: none;
   -webkit-appearance: none;
   position: relative;
@@ -213,10 +216,7 @@
   width: 6px;
   height: 6px;
   border-radius: 999px;
-  --acpmux-hybrid-dot-1: #ff5f6d;
-  --acpmux-hybrid-dot-2: #36a9ff;
-  --acpmux-hybrid-dot-3: #a66bff;
-  background: linear-gradient(135deg, var(--acpmux-hybrid-dot-1), var(--acpmux-hybrid-dot-2), var(--acpmux-hybrid-dot-3));
+  background: linear-gradient(135deg, var(--acpmux-hybrid-1), var(--acpmux-hybrid-4), var(--acpmux-hybrid-5));
 }
 .acpmux-hybrid-word {
   flex: none;
