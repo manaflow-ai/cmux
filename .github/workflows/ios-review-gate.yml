@@ -281,8 +281,10 @@ jobs:
             --devices gate/.github/ios-review-gate-devices.json --pins gate/scripts/ci/xcode-pins.txt \
             --trust "$TRUST" --out-dir "$RUNNER_TEMP/planned" \
             > "$RUNNER_TEMP/plan.out" 2> "$RUNNER_TEMP/devices.txt" || code=$?
-          # A pull request does not walk the iPad leg while the app is iPhone-only (every
-          # TARGETED_DEVICE_FAMILY in cmux-next-ios/project.yml is "1"). On iPad such an app runs
+          # A pull request does not walk the iPad leg while the app is iPhone-only (every shipped
+          # TARGETED_DEVICE_FAMILY in cmux-next-ios/project.yml is "1"; the gate's `families` reader
+          # leaves out the Debug config, which also targets iPad so the foldable harness runs on an
+          # iPad mini simulator, cmuxterm-hq docs/design/ios-foldable.md). On iPad such an app runs
           # in compatibility mode: the iPhone layout in a phone-sized window, the same screens the
           # iPhone leg walks. Leo, 2026-11-21: "for connection and ci, we can simply
           # move. and go." The leg took a second Mac for 24 min (p50) on every app pull request.
@@ -290,8 +292,8 @@ jobs:
           # so an iPad-only break still shows before an upload. The report reads the skip
           # marker written here (--expect-device-or-skipped ipad on a pull request).
           # The device decision (`devices`) is unchanged, so every leg's image check is too.
-          if [ "$code" = 0 ] && [ "$EVENT" = pull_request ] && grep -qE '^\s*TARGETED_DEVICE_FAMILY:' gate/cmux-next-ios/project.yml \
-            && ! grep -E '^\s*TARGETED_DEVICE_FAMILY:' gate/cmux-next-ios/project.yml | grep -q 2; then
+          if [ "$code" = 0 ] && [ "$EVENT" = pull_request ] \
+            && [ "$(python3 -I gate/cmux-next-ios/scripts/app_review_gate.py families --source-root gate)" = 1 ]; then
             reason="pull request: the app is iPhone-only (TARGETED_DEVICE_FAMILY 1); feat-cmux-next pushes and the production pipeline walk the iPad leg"
             python3 -I -c '
           import json, sys
@@ -439,7 +441,7 @@ jobs:
         run: |
           # Under RUNNER_TEMP: upload-artifact refuses a path with '..'
           # (run 42799920852 lost every result that way).
-          echo "DERIVED=$RUNNER_TEMP/dd" >> "$GITHUB_ENV"
+          echo "DERIVED=${CMUX_DERIVED_DATA_SLOT:-$RUNNER_TEMP/dd}" >> "$GITHUB_ENV"
           echo "RESULTS=$RUNNER_TEMP/results" >> "$GITHUB_ENV"
           mkdir -p "$RUNNER_TEMP/dd" "$RUNNER_TEMP/results"
       # The app source at the workspace root, so its local actions resolve;
