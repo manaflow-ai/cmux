@@ -1,9 +1,11 @@
+import { keycapLegend } from "../../ui/keycapLegend";
 import { useWebSwapHold } from "../../pages/shared/useWebSwapHold";
 import { WEB_SWAP_KEPT_TEXT } from "../../pages/shared/webSwap";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useEscapingList } from "../../ui/popupHost";
 import { useScrollEdges } from "../../ui/scrollEdges";
-import { AgentMark as BrandMark } from "../shared/AgentMark";
+import { AgentMark as BrandMark, SessionMark } from "../shared/AgentMark";
+import type { HarnessIconSpec } from "../shared/harnessIcons";
 import { agentDisplayName } from "./agents";
 import { useLastPick } from "./lastPick";
 import { ArrowUpIcon } from "./ComposerPickers";
@@ -19,9 +21,11 @@ import { BrowseFailure } from "./BrowseFailure";
 import { ErrorDetails } from "./conversation/ErrorDetails";
 import { browseFailureMessage } from "./browseFailureModel";
 import { defaultRow, stepSelection, EMPTY_OMNIBAR, omnibarRows, type OmnibarContext, type OmnibarRow } from "./omnibar";
-import { firstProject, homePath, isTemporaryFolder, mostRecentProject, projectLabel } from "./sessionList";
+import { firstProject, homePath, mostRecentProject, projectLabel, isTemporaryFolder } from "./sessionList";
 import { useT } from "./i18n";
-import { isStartableProject, rememberedStartedProject } from "./newtab/startedProject";
+import { ShortcutKeycaps } from "./ButtonKeycaps";
+import { SHORTCUT_ACTIONS, useShortcut } from "./shortcuts";
+import { isStartableProject, startedProjectChoices } from "./newtab/startedProject";
 import { useNoEntryMotion } from "./newtab/noEntryMotion";
 import { usePasteAnywhere } from "./composer/pasteAnywhere";
 import { newTabStart, useNewTabChipModel } from "./newtab/chipDefaults";
@@ -108,6 +112,9 @@ type Props = NewTabCommandActions & {
   /// The chat view's composer stood in for this page while the host failed before its handshake:
   /// what was typed there, taken once as the page's own draft when the page comes back.
   takeDraft?(): { text: string; attachments: ComposerAttachment[] } | undefined;
+  /// A chat this page started failed after the page had gone (App.tsx `startLeftNewTab`): the page
+  /// came back and says it on its failure line, with Retry, never the chat view's empty-chat hero.
+  startFailure?: { error: string };
   /// The field's text as typed, after each edit (for a draft it was handed: what a pick leaves again).
   onFieldEdit?(text: string): void;
   now?: number;
@@ -144,9 +151,11 @@ export function NewTabPage({
   onInputReady,
   onLeaveDraft,
   takeDraft,
+  startFailure,
   onFieldEdit,
 }: Props) {
   const t = useT();
+  const allChatsKey = useShortcut(SHORTCUT_ACTIONS.searchChats);
   const { plainFooter, spellChecking } = useComposerSettings();
   // The classic template is a New Tab page too: what it opens (the project chooser, its menus)
   // appears at once; exits keep their fades (newtab/noEntryMotion.ts).
@@ -197,12 +206,12 @@ export function NewTabPage({
       browsePending.current = false;
     }
   };
-  const [started] = useState(() => (home ? (rememberedStartedProject() ?? startedProject) : undefined));
+  const [started] = useState(() => (home ? startedProjectChoices(startedProject) : []));
   const projectCwd =
     picked ??
     ((isStartableProject(cwd) && !isTemporaryFolder(cwd)) || !home
       ? cwd
-      : (firstProject(started ? [started.replace(/(.)\/+$/, "$1")] : [], home, knownProjects) ??
+      : (firstProject(started, home, knownProjects) ??
         mostRecentProject(snapshot.sessions, home, knownProjects) ??
         cwd));
   // Where the chips' picks start the chat: the project, never the tab's inherited `~` or agent-home
@@ -237,7 +246,16 @@ export function NewTabPage({
   );
   /// The last open was refused (the host made no tab): a note under the field until the next edit,
   /// saying which kind did not open, with Retry (the same open again) and the host's words under Details.
-  const [openFailed, setOpenFailed] = useState<{ kind: TabKind; detail: string; retry: () => void }>();
+  // Retry on a failure the page came back with asks again with the field as it is then.
+  const retryStart = useRef<() => void>(() => undefined);
+  const [openFailed, setOpenFailed] = useState<{ kind: TabKind; detail: string; retry: () => void } | undefined>(() =>
+    startFailure ? { kind: "agent", detail: startFailure.error.trim(), retry: () => retryStart.current() } : undefined,
+  );
+  // A start that failed in the same turn it left keeps this page mounted: the failure arrives as a prop.
+  useLayoutEffect(() => {
+    if (startFailure)
+      setOpenFailed({ kind: "agent", detail: startFailure.error.trim(), retry: () => retryStart.current() });
+  }, [startFailure]);
   const attachmentRef = useRef<ComposerAttachment[]>([]);
   const make = (next: TabKind, value: string, folder?: string) => {
     setOpenFailed(undefined);
@@ -358,7 +376,9 @@ export function NewTabPage({
   const [focused, setFocused] = useState(false);
   const queryRef = useRef(query);
   queryRef.current = query;
-  const open = focused && query.trim() !== "" && query !== dismissed;
+  retryStart.current = () => make("agent", queryRef.current);
+  // The failure line sits where the rows float: they wait for the next edit, which clears the line.
+  const open = focused && query.trim() !== "" && query !== dismissed && !openFailed;
   // The recent chats are sorted only while the rows show: a page at rest never sorts every chat.
   const recent = useMemo(() => (open ? recentSessions(snapshot.sessions) : []), [open, snapshot.sessions]);
   const rows = useMemo(
@@ -370,6 +390,7 @@ export function NewTabPage({
               sessionId: session.sessionId,
               title: session.displayTitle ?? session.sessionId,
               ...(session.harness ? { harness: session.harness } : {}),
+              ...(session.icon ? { icon: session.icon } : {}),
               detail: projectLabel(session.cwd),
             })),
           })
@@ -705,7 +726,7 @@ export function NewTabPage({
               type="submit"
               className={`acpmux-send${query.trim() || kind !== "browser" ? " acpmux-send-ready" : ""}`}
               aria-label={t(NEW_TAB_LABELS.open)}
-              title={`${t(NEW_TAB_LABELS.open)} ↵`}
+              title={`${t(NEW_TAB_LABELS.open)} ↩`}
             >
               <ArrowUpIcon />
             </button>
@@ -755,7 +776,7 @@ export function NewTabPage({
                   </span>
                   <span className="acpmux-omni-action" data-popup-skip>
                     {row.type === "ask" ? t(NEW_TAB_LABELS.ask, { agent }) : t(NEW_TAB_LABELS.rows[row.type])}
-                    {index === selected && <kbd>↵</kbd>}
+                    {index === selected && <kbd>{keycapLegend("↩")}</kbd>}
                   </span>
                 </div>
               ))}
@@ -782,6 +803,7 @@ export function NewTabPage({
       <div className="acpmux-newtab-actions ui-ghost-row">
         <button type="button" className="acpmux-newtab-all ui-ghost" onClick={onShowAll}>
           <span>{t(NEW_TAB_LABELS.allSessions)}</span>
+          <ShortcutKeycaps shortcut={allChatsKey} />
           <span className="ui-ghost-icon" aria-hidden="true">
             <ChevronRight />
           </span>
@@ -853,7 +875,7 @@ function RowIcon({ row, agent }: { row: OmnibarRow; agent?: string }) {
     case "workspace":
       return <WorkspaceIcon />;
     case "session":
-      return <AgentMark harness={row.harness} />;
+      return <AgentMark harness={row.harness} icon={row.sessionIcon} />;
     case "folder":
       return <FolderIcon />;
     case "command":
@@ -875,7 +897,9 @@ function Favicon({ src }: { src: string }) {
 
 /// The agent's brand mark (design/agent-icons) or its harness's own icon, so a session's row says
 /// which agent it is at a glance; an agent without either draws the generic agent glyph.
-export function AgentMark({ harness }: { harness?: string }) {
+/// A chat's mark: the icon it set (acpmux `icon`), else its harness's.
+export function AgentMark({ harness, icon }: { harness?: string; icon?: HarnessIconSpec }) {
+  if (icon) return <SessionMark icon={icon} agent={harness} size={16} fallback={<KindIcon kind="agent" />} />;
   return <BrandMark agent={harness} size={16} fallback={<KindIcon kind="agent" />} />;
 }
 
