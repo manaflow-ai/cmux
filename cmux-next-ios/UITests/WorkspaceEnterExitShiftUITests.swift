@@ -161,7 +161,7 @@ final class WorkspaceEnterExitShiftUITests: XCTestCase {
             // only TabsKit's address editor.
             let webView = app.webViews.firstMatch
             try require(webView.waitForExistence(timeout: 20), "browser WKWebView")
-            let input = app.textFields["Page input"].firstMatch
+            let input = webView.textFields["Page input"].firstMatch
             try require(input.waitForExistence(timeout: 20), "browser WKWebView page input")
             input.tap()
         default:
