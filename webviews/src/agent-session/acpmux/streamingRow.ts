@@ -104,6 +104,19 @@ function sameButText(previous: AcpmuxRow, next: AcpmuxRow): boolean {
   return keys.every((key) => key === "text" || key === "version" || Object.is(before[key], after[key]));
 }
 
+/// Whether `after` is `before`, the streaming reply's row, with only its text grown.
+export function streamedText(before: AcpmuxRow, after: AcpmuxRow): boolean {
+  return (
+    after.kind === "assistant" &&
+    after.streaming === true &&
+    before.id === after.id &&
+    typeof before.text === "string" &&
+    typeof after.text === "string" &&
+    after.text.startsWith(before.text) &&
+    sameButText(before, after)
+  );
+}
+
 /// The index of the one row `next` changes from `previous` when the change is only a streaming
 /// reply's text growing, else -1. Unchanged rows keep their objects (direct.ts `OrderedRows`), and
 /// the client says how many leading rows a snapshot kept (prefixFlatMap.ts `keptPrefix`), so only
@@ -116,17 +129,7 @@ export function textOnlyRow(previous: readonly AcpmuxRow[], next: readonly Acpmu
     const before = previous[index]!;
     const after = next[index]!;
     if (before === after) continue;
-    if (changed >= 0) return -1;
-    if (
-      after.kind !== "assistant" ||
-      after.streaming !== true ||
-      before.id !== after.id ||
-      typeof before.text !== "string" ||
-      typeof after.text !== "string" ||
-      !after.text.startsWith(before.text) ||
-      !sameButText(before, after)
-    )
-      return -1;
+    if (changed >= 0 || !streamedText(before, after)) return -1;
     changed = index;
   }
   return changed;

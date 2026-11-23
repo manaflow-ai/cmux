@@ -13,10 +13,12 @@
 // the pane as before (`redraw`), and once that commits the entries made before it go (`settle`):
 // its rows are the truth again. The store holds one entry per call updated since the pane drew.
 import { useMemo, useSyncExternalStore } from "react";
-import type { AcpmuxActivity, AcpmuxRow, AcpmuxSnapshot } from "./model";
+import { sameDrawnConnection, type AcpmuxActivity, type AcpmuxRow, type AcpmuxSnapshot } from "./model";
 import { outputShapesRows } from "./conversation/toolGroups";
 import { stripAnsi } from "./conversation/toolOutputModel";
 import { oneRowChangeFrom } from "./rowChanges";
+import { keptPrefix } from "./conversation/prefixFlatMap";
+import { drawsAsIs, streamedText } from "./streamingRow";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 
@@ -252,15 +254,20 @@ function namesSomething(id: string, old: string, output: string): boolean {
 /// The call whose output alone moved on from `previous` to `next`, with its output before and now,
 /// else undefined. The client tells which row changed (`markOneRowChange`), so this reads that row
 /// alone: O(1) in the transcript's length, and O(its items) plus the new text.
-export function toolOutputOnly(
-  previous: AcpmuxSnapshot,
-  next: AcpmuxSnapshot,
-): { id: string; output: string; before: string | undefined } | undefined {
+export function toolOutputOnly(previous: AcpmuxSnapshot, next: AcpmuxSnapshot): ToolOutputGrowth | undefined {
   const index = oneRowChangeFrom(next.rows, previous.rows);
   if (index === undefined || !sameButRows(previous, next)) return undefined;
   const before = previous.rows[index];
   const after = next.rows[index];
-  if (!before || !after || before.id !== after.id || after.kind !== "activity") return undefined;
+  return before && after ? toolOutputGrew(before, after) : undefined;
+}
+
+type ToolOutputGrowth = { id: string; output: string; before: string | undefined };
+
+/// The call whose output alone moved on from row `before` to row `after` (the same activity row),
+/// with its output before and now, else undefined. O(the row's items) plus the new text.
+function toolOutputGrew(before: AcpmuxRow, after: AcpmuxRow): ToolOutputGrowth | undefined {
+  if (before.id !== after.id || after.kind !== "activity") return undefined;
   if (!sameExcept(before, after, ROW_KEYS)) return undefined;
   const was = before.items;
   const now = after.items;
@@ -289,6 +296,45 @@ export function toolOutputOnly(
   if (typeof output !== "string" || output.length <= old.length || !output.startsWith(old)) return undefined;
   if (namesSomething(to.id, old, output)) return undefined;
   return { id: to.id, output, before: from.output };
+}
+
+/// A snapshot that moves the streaming reply's text on, and with it at most one running call's
+/// output, from `received` (the client's snapshot before it), while the pane still shows `drawn`:
+/// the reply's row index (`at`) and the call's growth, else undefined. The client draws at most one
+/// snapshot a frame (direct.ts `emitInFrame`), so a reply streaming while a command prints carries
+/// both changes in every frame, which neither the reply's way around the pane (App.tsx
+/// `streamedOnly`) nor the call's (`toolOutputOnly`) took: each frame redrew the pane, its header
+/// and Session Info, and the keys typed meanwhile waited behind that render (composer-typing L1:
+/// AcpmuxPane rendered once a frame with 2,000 tool lines a second, never without them).
+///
+/// Each part goes its own way around the pane: the reply's text to its row (streamingRow.ts), the
+/// call's output to its row (`liveToolOutput`). `received` differs from `drawn` only by what went
+/// around the pane since it drew (any other change draws the pane and is `drawn` from then on), so
+/// the rows `next` changes from `received` are all it changes from what the pane shows. The reply's
+/// row is told against the row the pane drew, as `streamedOnly` tells it. O(rows past the client's
+/// kept prefix), as `textOnlyRow`.
+export function streamedWithToolOutput(
+  drawn: AcpmuxSnapshot,
+  received: AcpmuxSnapshot,
+  next: AcpmuxSnapshot,
+): { at: number; call: ToolOutputGrowth | undefined } | undefined {
+  const was = received.rows;
+  const now = next.rows;
+  if (was === now || was.length !== now.length || drawn.rows.length !== now.length) return undefined;
+  if (!sameButRows(received, next)) return undefined;
+  const kept = keptPrefix(was, now);
+  let at = -1;
+  let call: ToolOutputGrowth | undefined;
+  for (let index = now.length - 1; index >= kept; index -= 1) {
+    const before = was[index]!;
+    const after = now[index]!;
+    if (before === after) continue;
+    if (at < 0 && streamedText(before, after)) at = index;
+    else if (call || !(call = toolOutputGrew(before, after))) return undefined;
+  }
+  if (at < 0) return undefined;
+  const shown = drawn.rows[at]!;
+  return streamedText(shown, now[at]!) && drawsAsIs(shown) ? { at, call } : undefined;
 }
 
 const JSON_START = /^\s*[[{]/;
@@ -345,12 +391,15 @@ function sameExcept(previous: object, next: object, except: ReadonlySet<string>)
   return count === 0;
 }
 
-/// Every field of the two snapshots is the same object, except `rows`.
+/// Every field of the two snapshots is the same object, except `rows` (and `connection` drawn the same:
+/// `sameDrawnConnection`).
 export function sameButRows(drawn: AcpmuxSnapshot, next: AcpmuxSnapshot): boolean {
   const before = drawn as unknown as Record<string, unknown>;
   const after = next as unknown as Record<string, unknown>;
   const keys = Object.keys(after);
   if (keys.length !== Object.keys(before).length) return false;
-  for (const key of keys) if (key !== "rows" && !Object.is(before[key], after[key])) return false;
+  for (const key of keys)
+    if (key !== "rows" && !Object.is(before[key], after[key]))
+      if (key !== "connection" || !sameDrawnConnection(before[key], after[key])) return false;
   return true;
 }

@@ -1226,6 +1226,26 @@ export function linkUp(connection: string): boolean {
   return connection !== "disconnected" && !connection.startsWith("connecting");
 }
 
+/// The reasons a streamed event's snapshot names (the kind of the last event in its frame): a
+/// reply's text, its thinking, a running call's output. Each says the link is up and nothing failed.
+const STREAMED_REASONS: ReadonlySet<string> = new Set([
+  "agent_message_chunk",
+  "agent_thought_chunk",
+  "tool_call_update",
+]);
+
+/// Whether two snapshots' `connection` draw the pane the same: the same reason, or two streamed
+/// events'. What reads it asks whether the link is up or a request failed (`linkUp`, turnPhase.ts,
+/// emptyStateModel.ts), never which event came last, so a reply streaming while a command prints
+/// (the reason alternating between the two kinds, frame to frame) still takes the ways around the
+/// pane (App.tsx `streamedOnly`, liveToolOutput.ts).
+export function sameDrawnConnection(a: unknown, b: unknown): boolean {
+  return (
+    Object.is(a, b) ||
+    (typeof a === "string" && typeof b === "string" && STREAMED_REASONS.has(a) && STREAMED_REASONS.has(b))
+  );
+}
+
 /** Incremental journal attribution for the Session Info "Where the time went" chart. */
 export type AcpmuxTimeCategory = {
   id: string;
