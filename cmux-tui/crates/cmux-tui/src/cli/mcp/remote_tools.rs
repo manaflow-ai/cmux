@@ -9,6 +9,7 @@ use serde_json::{Map, Value, json};
 use super::super::app::{ActionName, action_run_params, waiting_run_timeout};
 // One person-confirmation budget with `cmux remote-host`.
 use super::super::remote_host::{CONFIRM_TIMEOUT, LowerChange};
+use super::super::remote_host_agent as agent;
 use super::transport::{CallFailure, FailureKind};
 use super::{Backend, envelope, failure_result, success, tool_error, v2_tools};
 
@@ -76,7 +77,7 @@ pub(super) const TOOLS: &[RemoteTool] = &[
     },
     RemoteTool {
         name: "remote_share",
-        description: "Share This Mac on the device hub. Off works at once; on asks the person in cmux first. With device, share another Mac of yours: the person confirms on this device, and nothing is shared without that click.",
+        description: "Share This Mac on the device hub. Off works at once; on asks the person in cmux first, unless they turned on \"My agents can turn screen sharing and control on my machines\" (then it is on at once, announced on that Mac with a Turn Off, and off again after some minutes with no viewer). With device, share another Mac of yours: the person confirms on this device, and nothing is shared without that click.",
         schema: share,
     },
     RemoteTool {
@@ -132,9 +133,24 @@ impl RemoteTool {
                         return invalid("device works with on: true; turn sharing off on that Mac");
                     }
                     (Some(true), None) => {
-                        return confirm(backend, json!({"action": "share", "on": true}));
+                        let params =
+                            agent::with_ticket(json!({"action": "share", "on": true}), || {
+                                mint(backend, "share", None)
+                            });
+                        return confirm(backend, params);
                     }
-                    (Some(false), None) => return lower(backend, LowerChange::ShareOff),
+                    (Some(false), None) => {
+                        return agent::share_off(
+                            || mint(backend, "unshare", None),
+                            |params| {
+                                backend
+                                    .app("remote.confirm", params, CONFIRM_TIMEOUT, None, true)
+                                    .map_err(|failure| failure.error)
+                            },
+                            |value| success(value, true),
+                            || lower(backend, LowerChange::ShareOff),
+                        );
+                    }
                     (None, _) => return invalid("on is required"),
                 }
             }
@@ -211,6 +227,7 @@ fn confirm(backend: &impl Backend, params: Value) -> Value {
 fn share_device(backend: &impl Backend, device: &str) -> Value {
     use crate::remote_host::share_approval;
     let ask = |params| {
+        let params = agent::with_ticket(params, || mint(backend, "share", Some(device)));
         backend
             .app("remote.confirm", params, CONFIRM_TIMEOUT, None, true)
             .map_err(|failure| failure.error)
@@ -234,6 +251,16 @@ fn share_device(backend: &impl Backend, device: &str) -> Value {
             idempotency_key: None,
         }),
     }
+}
+
+/// A ticket for this agent session's change from the daemon (`agent.ticket`); the app makes the
+/// change with no dialog only while the account lets its agents share its machines.
+fn mint(backend: &impl Backend, action: &str, device: Option<&str>) -> Result<Value, Value> {
+    let mut request = agent::ticket_request(action, device, &agent::this_agent());
+    if let Some(fields) = request.as_object_mut() {
+        fields.remove("id");
+    }
+    backend.daemon(request).map_err(|failure| failure.error)
 }
 
 /// A daemon command's failure in the tools' shape.

@@ -319,6 +319,23 @@ else
     { finish "could not build the marker"; exit 4; }
 fi
 granted() { grep -q '"accessibility":true' <<<"$1" && grep -q '"screen_recording":true' <<<"$1"; }
+# follow_log LOG DONE: print LOG from its start as it grows, and end at its end once the file DONE exists, so the
+# caller waits for the follower itself to have printed every last line.
+follow_log() {
+  python3 -I -c 'import os, sys, time
+log, done = sys.argv[1], sys.argv[2]
+with open(log, "rb") as f:
+    while True:
+        finished = os.path.exists(done)  # before the read: what was written before DONE is read
+        chunk = f.read(65536)
+        if chunk:
+            sys.stdout.buffer.write(chunk)
+            sys.stdout.buffer.flush()
+        elif finished:
+            break
+        else:
+            time.sleep(0.1)' "$1" "$2"
+}
 grants=$("$EVAL_BIN/screen-eval-preflight")
 echo "SCREEN-STREAM-EVAL-GRANTS $grants"
 if ! granted "$grants" && [[ -z "${CMUX_SCREEN_EVAL_IN_LAUNCHER:-}" ]]; then
@@ -358,12 +375,15 @@ if ! granted "$grants" && [[ -z "${CMUX_SCREEN_EVAL_IN_LAUNCHER:-}" ]]; then
       done
       # The app ends the run when this process is gone (a killed step), and the step log follows its output.
       : >"$launch/out.log"
-      tail -n +1 -F "$launch/out.log" &
+      rm -f "$launch/out.done"
+      follow_log "$launch/out.log" "$launch/out.done" &
       follow=$!
       pids+=("$follow")
       open -W -n -g -a "$app" --stdout "$launch/out.log" --stderr "$launch/err.log" ${env_args[@]+"${env_args[@]}"} \
         --env "CMUX_SCREEN_EVAL_PARENT=$$" --args "$root/scripts/measure/screen-stream-eval.sh" "$launch/status" ${forward[@]+"${forward[@]}"} || true
-      sleep 1 # the last lines reach the follower
+      # Until the follower has printed the last lines and ended, 10 s.
+      : >"$launch/out.done"
+      for _ in $(seq 1 100); do kill -0 "$follow" 2>/dev/null || break; sleep 0.1; done
       kill "$follow" 2>/dev/null || true
       tail -n 80 "$launch/err.log" 2>/dev/null >&2
       status=$(cat "$launch/status" 2>/dev/null || echo 4)
@@ -394,7 +414,13 @@ if [[ -n "$lan" ]]; then
   pids+=("$server")
   echo "SCREEN-STREAM-EVAL-STAGE peer waiting for the viewer Mac at $lan:$peer_port"
   # Once: does the server answer on the LAN address from this Mac? (403 without the token is an answer.)
-  sleep 1
+  # First until its port takes a connection (or it exits), 10 s; the check below reports either way.
+  for _ in $(seq 1 100); do
+    kill -0 "$server" 2>/dev/null || break
+    python3 -I -c 'import socket, sys; socket.create_connection((sys.argv[1], int(sys.argv[2])), timeout=0.5).close()' \
+      "$lan" "$peer_port" 2>/dev/null && break
+    sleep 0.1
+  done
   echo "SCREEN-STREAM-EVAL-PEER-SELF $(python3 -I -c 'import sys, urllib.request
 try:
     urllib.request.urlopen(f"http://{sys.argv[1]}:{sys.argv[2]}/clock", timeout=5)
