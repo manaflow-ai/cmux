@@ -16,6 +16,7 @@ import { createRoot } from "react-dom/client";
 import { VirtualTranscript } from "../../src/agent-session/acpmux/App";
 import type { EventRecord } from "../../src/agent-session/acpmux/direct";
 import type { AcpmuxRow } from "../../src/agent-session/acpmux/model";
+import { playbackAt, playbackWindow } from "../../src/agent-session/acpmux/sim/playback";
 import { createSimulation, runSimulationAsync, type SimResult } from "../../src/agent-session/acpmux/sim/run";
 import { parseRecords } from "../../src/agent-session/acpmux/sim/sanitize";
 import { replayScenario, type SimScenario } from "../../src/agent-session/acpmux/sim/script";
@@ -183,7 +184,16 @@ export type WatchOptions = {
   shotEvery?: number;
   /** Stop after this many seconds of real time. */
   maxSeconds?: number;
+  /** Start the playback here, s of the full playback (as a whole run's video reads, at this speed and
+   *  gap bound; `playbackAt`): the steps before it are drawn at once, then the view settles
+   *  (WINDOW_SETTLE_MS) and `__chatSimWindow("start")` marks where the window's video begins. */
+  startS?: number;
+  /** Stop the playback here, s of the full playback (as startS). */
+  endS?: number;
 };
+
+/** After the steps before a window are drawn at once, the view settles this long before the window plays. */
+export const WINDOW_SETTLE_MS = 1500;
 
 export type WatchShot = { step: number; label: string; why: "turn-start" | "turn-end" | "every" | "end"; turn: number };
 
@@ -239,8 +249,37 @@ async function watch(options: WatchOptions): Promise<WatchResult> {
   let played = 0;
   let stoppedEarly = false;
   let lastAt = scenario.steps[0]?.at ?? 0;
-  for (let index = 0; index < scenario.steps.length; index += 1) {
-    if (performance.now() > deadline) {
+  const playback = playbackAt(
+    scenario.steps.map((step) => step.at),
+    speed,
+    minGap,
+    maxGap,
+  );
+  const startMs = (options.startS ?? 0) * 1000;
+  const endMs = options.endS === undefined ? Number.POSITIVE_INFINITY : options.endS * 1000;
+  const windowHook = (window as unknown as { __chatSimWindow?: (mark: "start") => Promise<void> }).__chatSimWindow;
+  // The steps before the window: drawn at once (the last of them shown), then the view settles.
+  const { first, end } = playbackWindow(playback, startMs, endMs);
+  if (first > 0) {
+    let rows: ReturnType<typeof sim.advance> = undefined;
+    for (let index = 0; index < first; index += 1) {
+      const drawn = sim.advance(index);
+      if (drawn) sim.check(index);
+      rows = drawn ?? rows;
+      played += 1;
+    }
+    lastAt = virtualAt = scenario.steps[first - 1]!.at;
+    realAt = performance.now();
+    const state = sim.state();
+    turn = state.turn;
+    sends = state.turn;
+    if (rows) flushSync(() => show({ rows: rows!, working: state.working, sends }));
+    // fixed-wait: the drawn-at-once history settles (its folds and follow) before the window plays.
+    await sleep(WINDOW_SETTLE_MS);
+  }
+  if (windowHook) await windowHook("start");
+  for (let index = first; index < scenario.steps.length; index += 1) {
+    if (performance.now() > deadline || index >= end) {
       stoppedEarly = true;
       break;
     }
