@@ -38,6 +38,8 @@ struct MacScreenHomeSnapshot: Equatable {
         var onlineKnown = true
         /// Set up cmux, Start cmux and the run's steps (a Mac only, when the daemon knows `device-setup`).
         var setup = MacScreenDeviceSetupRow.none
+        /// The hub's platform (nil: a record from before platforms; `glyph`, `viewable` read it).
+        var platform: DevicePlatform?
     }
 
     /// Your Devices: a note (signed out, loading, none shared) or the list.
@@ -118,9 +120,7 @@ struct MacScreenHomeSnapshot: Equatable {
             if let hub = source.box.hub {
                 let listed = Self.listed(hub.otherDevices)
                 if listed.isEmpty {
-                    devices = .note(hub.status == .ready || hub.status == .idle
-                        ? L.t("macScreen.home.noSharedDevices", "None of your other devices share Mac Screen. On the Mac you want to see, turn on Allow Mac Screen on this Mac.")
-                        : L.t("macScreen.home.devicesLoading", "Loading your devices…"))
+                    devices = .note(Self.emptyNote(DeviceDiscovery.of(hub, shown: 0)))
                 } else {
                     devices = .list(listed.map { device in
                         Self.device(device, access: MacScreenAccess(hub.scope(host: device.id, viewer: hub.identity.id)),
@@ -146,11 +146,25 @@ struct MacScreenHomeSnapshot: Equatable {
         }
     }
 
+    /// What Your Devices says with no row to list (`DeviceDiscovery`, Rust's rule): "none" only after a
+    /// device-list read succeeded; before it, loading; a failure says why, never "none" (ask-6a79af928f).
+    static func emptyNote(_ discovery: DeviceDiscovery) -> String {
+        switch discovery {
+        case .noDevices:
+            return L.t("macScreen.home.noSharedDevices", "None of your other devices share Mac Screen. On the Mac you want to see, turn on Allow Mac Screen on this Mac.")
+        case .list, .finding:
+            return L.t("macScreen.home.devicesLoading", "Loading your devices…")
+        case let .failed(reason, detail):
+            return reason.words(detail: detail)
+        }
+    }
+
     /// One hub device as the page shows it.
     static func device(_ device: HubDevice, access: MacScreenAccess, hubConnected: Bool,
                        setup: MacScreenDeviceSetupRow = .none) -> Device {
         Device(id: device.id, name: device.name, isPhone: device.platform == .ios, online: device.online,
-               macScreenShared: device.macScreenShared, access: access, onlineKnown: hubConnected, setup: setup)
+               macScreenShared: device.macScreenShared, access: access, onlineKnown: hubConnected, setup: setup,
+               platform: device.platform)
     }
 
     /// Whether the page opens with the first-use steps: until this Mac has shared or viewed once.
@@ -207,21 +221,6 @@ extension MacScreenHomeView {
         return MacScreenHomeParts.section(L.t("macScreen.home.yourDevices", "Your Devices"), content: content)
     }
 
-    private func rowSeparator() -> NSView {
-        let line = MacScreenFill(\.separator)
-        line.heightAnchor.constraint(equalToConstant: 1).isActive = true
-        let inset = NSView()
-        inset.translatesAutoresizingMaskIntoConstraints = false
-        inset.addSubview(line)
-        NSLayoutConstraint.activate([
-            line.leadingAnchor.constraint(equalTo: inset.leadingAnchor, constant: 50),
-            line.trailingAnchor.constraint(equalTo: inset.trailingAnchor),
-            line.topAnchor.constraint(equalTo: inset.topAnchor),
-            line.bottomAnchor.constraint(equalTo: inset.bottomAnchor),
-        ])
-        return inset
-    }
-
     // MARK: Quiet rows (Leo 2026-11-16: "this needs to shut up")
 
     /// What a row can do now, which is all it says.
@@ -232,6 +231,8 @@ extension MacScreenHomeView {
         case sharingOff
         /// Online, and it does not let this Mac in: one word, no buttons.
         case blocked
+        /// Online, and a screen this Mac cannot open yet (a Windows PC): one word, no buttons.
+        case notViewable
         /// Offline: the name alone, dim.
         case offline
     }
@@ -240,13 +241,14 @@ extension MacScreenHomeView {
         // Offline counts only while this Mac's hub link is up; until then the hub's word may be stale and the
         // row stays openable (the pane's Connect card says what it finds).
         guard device.online || !device.onlineKnown else { return .offline }
+        if !device.viewable { return .notViewable }
         if !device.access.allowsRequests { return .blocked }
         return device.macScreenShared ? .usable : .sharingOff
     }
 
     /// Viewable Macs first, then online ones that are not, then offline ones (folded, listed or counted by `look`).
     private func quietRows(_ list: [MacScreenHomeSnapshot.Device], look: MacScreenDevicesLook) -> [NSView] {
-        let order: [RowState] = [.usable, .sharingOff, .blocked]
+        let order: [RowState] = [.usable, .sharingOff, .blocked, .notViewable]
         var views = order.flatMap { state in list.filter { Self.rowState($0) == state }.map { quietRow($0, state: state) } }
         let offline = list.filter { Self.rowState($0) == .offline }
         guard !offline.isEmpty else { return views }
@@ -268,7 +270,7 @@ extension MacScreenHomeView {
 
     private func quietRow(_ device: MacScreenHomeSnapshot.Device, state: RowState) -> NSView {
         let offline = state == .offline
-        let glyph = MacScreenGlyph(device.isPhone ? "iphone" : "desktopcomputer", font: MacScreenType.glyph,
+        let glyph = MacScreenGlyph(device.glyph, font: MacScreenType.glyph,
                                    ink: offline ? \.tertiary : \.secondary, width: 26)
         let name = MacScreenText(device.name, font: offline ? MacScreenType.body : MacScreenType.emphasized,
                                  ink: offline ? \.secondary : \.primary)
@@ -309,6 +311,8 @@ extension MacScreenHomeView {
                 let thisMac = MacScreenHostSetupGuide.ThisMac(id: hub.identity.id, name: hub.thisDevice?.name ?? hub.deviceName)
                 MacScreenHostSetupGuide(host: host, fix: fix, thisMac: thisMac).present(in: window)
             })
+        case .notViewable:
+            views.append(notViewableWord(device))
         case .offline:
             if setup.showsStart { views.append(startButton(device, compact: true)) }
         }
@@ -361,7 +365,7 @@ extension MacScreenHomeView {
     // MARK: Classic rows (Debug Settings `macScreen.devicesLook` = classic)
 
     private func classicRow(_ device: MacScreenHomeSnapshot.Device, placement: MacScreenSetupPlacement) -> NSView {
-        let glyph = MacScreenGlyph(device.isPhone ? "iphone" : "desktopcomputer", font: MacScreenType.glyph, width: 26)
+        let glyph = MacScreenGlyph(device.glyph, font: MacScreenType.glyph, width: 26)
         let status = MacScreenStack.make(.horizontal, spacing: 6, alignment: .centerY, [
             MacScreenFill.dot(device.online ? \.success : \.tertiary, side: 7),
             MacScreenText(device.online ? L.t("macScreen.home.online", "Online") : L.t("macScreen.home.offline", "Offline"),
@@ -563,4 +567,20 @@ enum MacScreenSetupPlacement: String, CaseIterable {
     case below
     /// Both in the row's buttons: Set Up cmux plain, Start the default button while offline.
     case buttons
+}
+
+/// Why Your Devices (and Settings › Devices) cannot list, in words: the reason, then the hub's own words.
+extension DeviceDiscovery.Reason {
+    func words(detail: String?) -> String {
+        let text = switch self {
+        case .hub, .connection, .replaced:
+            L.t("macScreen.home.listFailed.hub", "Can’t reach the device hub, so your other Macs can’t be listed yet. cmux keeps trying.")
+        case .list:
+            L.t("macScreen.home.listFailed.list", "Couldn’t load your devices. cmux tries again when the hub reconnects.")
+        case .removed, .signedOut:
+            L.t("devices.status.removed", "This Mac left your devices.")
+        }
+        guard let detail, !detail.isEmpty else { return text }
+        return text + " (" + detail + ")"
+    }
 }

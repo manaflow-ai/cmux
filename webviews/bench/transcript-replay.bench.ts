@@ -1192,6 +1192,10 @@ if (import.meta.main) {
             for (const [fn, ms] of [...at.selfMs!.entries()].sort((a, b) => b[1] - a[1]).slice(0, 15))
               console.log(`    ${ms.toFixed(3)}  ${fn}`);
           }
+          // A cost that does not grow still counts against the frame: which callers hold it at the largest checkpoint.
+          console.log(`  ${kind}: most total ms per record at ${last.rows} rows`);
+          for (const [fn, ms] of [...last.totalMs!.entries()].sort((a, b) => b[1] - a[1]).slice(0, 40))
+            console.log(`    ${ms.toFixed(3)}  ${fn}`);
           console.log(`  ${kind}: total ms per record that grew from ${first.rows} rows to ${last.rows} rows`);
           for (const [fn, before, after] of grew(first.totalMs!, last.totalMs!, 25))
             console.log(`    ${before.toFixed(3)} -> ${after.toFixed(3)}  ${fn}`);

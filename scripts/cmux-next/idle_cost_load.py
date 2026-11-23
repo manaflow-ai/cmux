@@ -298,8 +298,17 @@ def open_workspace(app: bm.App, session: str) -> str | None:
     if not created:
         print(f"   agent.openSessionWorkspace {session}: {response.get('error') or response}", file=sys.stderr)
         return None
+    # The action makes the workspace without showing it; the show loads the chat. The app's chat-open trace
+    # (armed before the show) says when the pane first showed the chat's content.
+    armed = app.call("debug.chat_open_trace", {"action": "arm"}, timeout=30)
     app.action("goToWorkspace", workspace=created[0])
-    time.sleep(1)  # test script: let the shown chat render
+    if isinstance(armed, dict) and not armed.get("error"):
+        trace = app.call("debug.chat_open_trace", {"action": "wait", "timeout_ms": 15000, "settle_ms": 300}, timeout=40) or {}
+        if trace.get("error") or trace.get("first_content_ms") is None:
+            print(f"   {created[0]}: the shown chat's first content was not seen ({trace.get('error') or trace.get('note')})",
+                  file=sys.stderr)
+    else:
+        print(f"   debug.chat_open_trace arm: {armed}", file=sys.stderr)
     return created[0]
 
 
