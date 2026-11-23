@@ -41,6 +41,8 @@ public final class AcpmuxHub {
     /// How long a read may go unanswered before the channel counts as stalled and is replaced.
     @ObservationIgnored var stallAfter: Duration = AcpmuxHub.defaultStallAfter
     @ObservationIgnored var steadyClock: any Clock<Duration> = ContinuousClock()
+    /// The fixed part of a prompt write's bound (``AcpmuxConnection/writeBound(bytes:base:)``; tests shorten it).
+    @ObservationIgnored var writeBase: Duration = AcpmuxConnection.writeBase
     /// Callers of `waitUntilReady` (a Feed answer whose Mac's link is opening).
     @ObservationIgnored private var readyWaiters: [UUID: CheckedContinuation<Bool, Never>] = [:]
     @ObservationIgnored private var pumpTask: Task<Void, Never>?
@@ -352,7 +354,7 @@ public final class AcpmuxHub {
     /// never retried (a submit is a send).
     public func submit(_ method: String, _ params: JSONValue) async throws -> (AcpmuxConnection, Int) {
         let connection = try await readyConnection()
-        return (connection, try await connection.submit(method, params))
+        return (connection, try await connection.submit(method, params, base: writeBase))
     }
 
     public func notify(_ method: String, _ params: JSONValue) async throws {
@@ -920,7 +922,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         var blocks: [JSONValue]
         /// When it was sent: its place among the held prompts.
         var at: ContinuousClock.Instant
-        /// When it began to wait for the link (its send, or the drop that lost it): its age.
+        /// When it began to wait for the link (its send, or the failure that lost it): its age.
         var waitingSince: ContinuousClock.Instant? = nil
         var waitStart: ContinuousClock.Instant { waitingSince ?? at }
     }
@@ -985,12 +987,12 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     private func promptFailed(_ prompt: HeldPrompt, _ error: any Error, written: Bool) {
         if !(error is AcpmuxConnection.RPCError) {
             var again = prompt
-            if written {
-                // It may have run: sent again it is a resend (acpmux checks its log), aged
-                // from the drop, not from a send a long turn ago.
-                again.resend = true
-                again.waitingSince = now()
-            }
+            // It may have run: sent again it is a resend (acpmux checks its log).
+            if written { again.resend = true }
+            // Aged from this failure: the window counts only time without a usable link, never
+            // the tap, an upload or a slow write before it (a write on a ready link can take
+            // longer than the window, and bounced at once as "unreachable" though the Mac was there).
+            again.waitingSince = now()
             hold(again)
             return
         }
@@ -1001,7 +1003,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     }
 
     /// Keeps a prompt for the next link, in the order it was sent; it comes back to the
-    /// composer if the link is not back within ``heldPromptWindow`` of its send.
+    /// composer if the link is not back within ``heldPromptWindow`` of its wait's start.
     private func hold(_ prompt: HeldPrompt) {
         let index = heldPrompts.firstIndex { $0.at > prompt.at } ?? heldPrompts.endIndex
         heldPrompts.insert(prompt, at: index)
@@ -1029,8 +1031,9 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         guard heldPrompts.contains(where: { instant - $0.waitStart >= window }) else { return false }
         let dropped = heldPrompts
         heldPrompts = []
-        let seconds = max(1, Int(window.components.seconds))
-        let reason = "Not sent: \(summary.macName) was unreachable for more than \(seconds) seconds. Send again when it's back."
+        // Short, with nothing to decode: the draft is back in the composer and Send is the action
+        // (Leo 2026-11-23: the old copy was "way too long and unactionable").
+        let reason = "Not sent: \(summary.macName) is offline."
         log.notice("\(dropped.count, privacy: .public) held prompt(s) of \(self.sessionID, privacy: .public) not sent: the link was down past the window")
         for prompt in dropped {
             emit(.promptNotSent(text: prompt.text, attachments: prompt.attachments, promptID: prompt.promptID, reason: reason))
