@@ -175,9 +175,176 @@ pub(super) fn full_access_device(
 /// (`PromptOptions::full_access_device`), where each rule reads the store again: its Full-access
 /// setting (`Hub::full_access_hold`) and whether it is the owner's own phone (D13,
 /// `Hub::local_claude_refusal`). It grants nothing by itself.
+///
+/// The owner's own peer daemon (`ConnAuth::peer_daemon`), forwarding for a Web client of its own,
+/// says when that client is the owner's own phone paired with it (`_meta.acpmux.ownerPhone`,
+/// [`attest_owner_phone`]): the phone is then named [`crate::pairing::vouched_phone_id`] of this
+/// connection, which [`note_vouched_phone`] recorded with the Full-access setting the forwarding
+/// daemon read, and which that daemon's change notice or this link's end takes back
+/// ([`owner_phone_changed`]). That link already controls every chat here as the owner's daemon
+/// (`Control::Peer` when it asks for itself), so its word gives the phone nothing the link
+/// lacks, as its `personVerified` does not (`requests::person_admitted`). The claim from any
+/// other connection (a Web client, a paired machine, the unix socket) is ignored.
 pub(super) fn sending_device(conn: &super::Conn, params: &Value) -> Option<String> {
-    let id = conn.device.as_deref().filter(|_| conn.auth == super::ConnAuth::Device)?;
-    (control_of(conn.origin, conn.auth, params) == crate::hub::Control::Web).then(|| id.to_owned())
+    if control_of(conn.origin, conn.auth, params) != crate::hub::Control::Web {
+        return None;
+    }
+    if conn.auth == super::ConnAuth::Device {
+        return conn.device.clone();
+    }
+    let (device, ..) = vouched_claim(conn, params)?;
+    Some(crate::pairing::vouched_phone_id(&conn.id, device))
+}
+
+/// The owner's peer daemon's claim on this request (`ownerPhone {device, fullAccess}`), read only
+/// from a link that presented this daemon's peer token, forwarding for its Web client.
+fn vouched_claim<'a>(conn: &super::Conn, params: &'a Value) -> Option<(&'a str, bool, u64)> {
+    if conn.origin != super::Origin::Peer || !conn.auth.peer_daemon() {
+        return None;
+    }
+    if control_of(conn.origin, conn.auth, params) != crate::hub::Control::Web {
+        return None;
+    }
+    let claim = params.pointer("/_meta/acpmux/ownerPhone")?;
+    let device = claim.get("device")?.as_str().filter(|d| !d.is_empty() && d.len() <= 128)?;
+    let epoch = claim.get("epoch").and_then(Value::as_u64).unwrap_or(0);
+    Some((device, claim.get("fullAccess")?.as_bool()?, epoch))
+}
+
+/// Records, before any rule reads it, the phone the owner's peer daemon vouches for on this
+/// request ([`sending_device`]), with the Full-access setting it read for this very request.
+pub(super) fn note_vouched_phone(hub: &crate::hub::Hub, conn: &super::Conn, params: &Value) {
+    if let Some((device, full, epoch)) = vouched_claim(conn, params) {
+        hub.pairing.vouch(&conn.id, device, full, epoch);
+    }
+}
+
+/// `_acpmux/owner_phone_changed {device, fullAccess}` from the owner's peer daemon: the phone
+/// it vouched for had its Full-access setting turned off (`fullAccess: false`) or was removed
+/// (`fullAccess: null`). Every chat out of its policy is held again, as on that daemon itself.
+/// From anything but a peer-token link it changes nothing.
+pub(super) async fn owner_phone_changed(
+    hub: &std::sync::Arc<crate::hub::Hub>,
+    conn: &super::Conn,
+    params: &Value,
+) -> Result<Value, RpcError> {
+    if conn.origin != super::Origin::Peer || !conn.auth.peer_daemon() {
+        return Err(RpcError::method_not_found(&format!(
+            "{} (the owner's peer daemon only)",
+            crate::rpc::method::MUX_OWNER_PHONE_CHANGED
+        )));
+    }
+    let device = params
+        .get("device")
+        .and_then(Value::as_str)
+        .ok_or_else(|| RpcError::invalid_params("device is required"))?;
+    let full = params.get("fullAccess").and_then(Value::as_bool);
+    let epoch = params
+        .get("epoch")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| RpcError::invalid_params("epoch is required"))?;
+    let narrowed = hub.pairing.unvouch(&conn.id, Some(device), full, epoch);
+    let held_again = if narrowed { hub.hold_policies_again().await } else { 0 };
+    Ok(serde_json::json!({"held_again": held_again}))
+}
+
+/// Tells every peer this daemon reaches that its phone `device` had its Full-access setting
+/// turned off or was removed (`full` None), so a turn the phone started there through this
+/// daemon is held at its next tool ([`owner_phone_changed`]). Each peer is told once here; one
+/// that does not acknowledge it (busy, a lost reply) is told again in the background until it
+/// does ([`retell_owner_phone_changed`]). A peer whose link ends drops every phone vouched for
+/// on it (`Pairing::unvouch` at the connection's end), and an older peer that does not know the
+/// method never took the claim.
+pub(crate) async fn tell_peers_owner_phone_changed(
+    hub: &std::sync::Arc<crate::hub::Hub>,
+    device: &str,
+    full: Option<bool>,
+) {
+    let params =
+        serde_json::json!({"device": device, "fullAccess": full, "epoch": crate::store::now_ms()});
+    let peers = hub.connected_peers();
+    let links: Vec<u64> = peers.iter().map(|p| p.link_epoch()).collect();
+    let sent = futures::future::join_all(
+        peers
+            .iter()
+            .map(|peer| peer.request(crate::rpc::method::MUX_OWNER_PHONE_CHANGED, params.clone())),
+    )
+    .await;
+    for ((peer, link), result) in peers.into_iter().zip(links).zip(sent) {
+        if let Err(e) = result
+            && !settled_without_ack(&e)
+        {
+            tracing::info!(peer = %peer.name, device, "owner phone change not acknowledged ({}); retrying", e.message);
+            let params = params.clone();
+            let retell = retell_owner_phone_changed(peer, link, params);
+            drop(hub.scope.spawn_named("owner-phone-retell", retell));
+        }
+    }
+}
+
+/// A refusal that needs no retry: the peer does not know the method (an older acpmux, which never
+/// read the claim either).
+fn settled_without_ack(e: &RpcError) -> bool {
+    e.code == -32601
+}
+
+/// How long [`retell_owner_phone_changed`] keeps telling one peer.
+const RETELL_FOR: std::time::Duration = std::time::Duration::from_secs(30 * 60);
+
+/// Tells `peer` the change again, backing off to 10 s, until it acknowledges it, its link ends
+/// (link `link` is gone: the peer dropped what it was told on it), or [`RETELL_FOR`] passes (then
+/// a warning: the peer may still hold the phone's Full access until that link ends).
+async fn retell_owner_phone_changed(
+    peer: std::sync::Arc<crate::peer::Peer>,
+    link: u64,
+    params: Value,
+) {
+    let started = std::time::Instant::now();
+    let mut wait = std::time::Duration::from_millis(250);
+    loop {
+        tokio::time::sleep(wait).await;
+        if peer.link_epoch() != link {
+            return;
+        }
+        match peer.request(crate::rpc::method::MUX_OWNER_PHONE_CHANGED, params.clone()).await {
+            Ok(_) => return,
+            Err(e) if settled_without_ack(&e) => return,
+            Err(e) if started.elapsed() > RETELL_FOR => {
+                tracing::warn!(peer = %peer.name, "owner phone change never acknowledged: {}", e.message);
+                return;
+            }
+            Err(_) => wait = (wait * 2).min(std::time::Duration::from_secs(10)),
+        }
+    }
+}
+
+/// `_meta.acpmux.ownerPhone` on a request a daemon forwards to its peer: `{device, fullAccess}`,
+/// saying the Web client it forwards for is the owner's own phone ([`attest_owner_phone`]).
+pub(super) const OWNER_PHONE: &str = "ownerPhone";
+
+/// Says on a request forwarded to a peer ([`mark_forwarded`] first, which drops any client's
+/// own claim) that it comes from the owner's own phone, by this daemon's pairing store for this
+/// request (`Pairing::own_phone`, `Pairing::full_access`), so the peer controls a Claude chat it
+/// started for that phone as this daemon does for its own (D13, `Hub::local_claude_refusal`).
+/// Leo, 2026-11-15, typing from his iPhone to a chat another of his machines started: "im still
+/// hitting the \"Only the cmux app on this Mac can control a Claude chat started on this
+/// mac...\" when i try to type from iphone".
+pub(super) fn attest_owner_phone(
+    hub: &crate::hub::Hub,
+    conn: &super::Conn,
+    params: &Value,
+    forwarded: &mut Value,
+) {
+    let Some(device) = sending_device(conn, params).filter(|d| hub.pairing.own_phone(d)) else {
+        return;
+    };
+    // The clock before the setting: a claim read before a narrowing is older than it.
+    let epoch = crate::store::now_ms();
+    let full = hub.pairing.full_access(&device);
+    crate::hub::merge_mux_meta(
+        forwarded,
+        serde_json::json!({OWNER_PHONE: {"device": device, "fullAccess": full, "epoch": epoch}}),
+    );
 }
 
 /// A request forwarded to a peer, which serves this daemon as Peer: one
@@ -227,6 +394,7 @@ pub(super) fn mark_forwarded_with_person(
     if let Some(mux) = forwarded.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) {
         mux.remove("provenance");
         mux.remove(PERSON_PROVEN);
+        mux.remove(OWNER_PHONE);
     }
     if person_verified {
         crate::hub::merge_mux_meta(forwarded, serde_json::json!({PERSON_PROVEN: true}));
@@ -281,6 +449,7 @@ fn log_own_phone_control(hub: &crate::hub::Hub, sender: Option<&str>, m: &str, p
             | method::MUX_SET_RULES
             | method::MUX_SET_POLICY
             | method::MUX_KILL
+            | method::MUX_PAUSE
             | method::MUX_HANDOFF_PREPARE
     );
     if !controls {
@@ -1086,6 +1255,7 @@ pub(super) async fn web_starts_asking(
         method::MUX_SET_RULES
             | method::MUX_SET_POLICY
             | method::MUX_KILL
+            | method::MUX_PAUSE
             | method::SESSION_DELETE
             | method::SESSION_CLOSE
             | method::SESSION_SET_MODEL

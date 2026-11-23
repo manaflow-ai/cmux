@@ -3021,6 +3021,23 @@ pub(super) fn scroll(
     Ok(out)
 }
 
+pub(super) fn move_pointer(
+    d: &MacDesktop,
+    target: &PointerTarget,
+    delivery: Delivery,
+) -> DResult<ActionOutcome> {
+    let t = d.target(target.window_id())?;
+    let at = match target {
+        PointerTarget::Point { point, .. } => d.point_in(&t, *point)?,
+        PointerTarget::Element { element_id, .. } => d.element_center(&t, element_id)?,
+    };
+    // Background: the window must be on screen (pointer_route refuses
+    // otherwise); foreground raises it and posts at the HID tap.
+    let route = d.pointer_route(&t, delivery)?;
+    unprimed(route, |p| input::move_to(p, at))?;
+    Ok(ActionOutcome::delivered(route.name()).at(at))
+}
+
 pub(super) fn drag(
     d: &MacDesktop,
     window_id: &str,
