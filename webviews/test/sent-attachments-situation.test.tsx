@@ -1,6 +1,6 @@
 // l10n-allow-file: test fixture prompts, not shipped UI.
 // Leo, 2026-11-22 (ask-249ca4423f), over a sent prompt, paraphrased: "what is this situation with
-// these attachments!?" acpmux's record of that prompt (cosmic-gray, claude-sr2-coord-old seq 5359294),
+// these attachments!?" acpmux's record of that prompt (the coordinator chat's record),
 // cut down: a pasted image sent as the link to its original (promptBudget.ts `originalLink`: size 0,
 // no type) drew as "image.png 0 byte", and the same screen recording attached twice (two uploads, one
 // name) drew a video tile and then a "Screen Recording ... .mov 179.9 MB" file chip. The two spinner
