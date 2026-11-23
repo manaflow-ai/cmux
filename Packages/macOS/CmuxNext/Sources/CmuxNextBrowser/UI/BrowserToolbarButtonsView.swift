@@ -4,7 +4,7 @@ import CmuxNextDesign
 import CmuxNextIcons
 
 /// The trailing toolbar buttons (`BrowserToolbarButton`): media hub, zoom level,
-/// Favorites, Downloads, design mode, profile, theme, DevTools and More. Engine-neutral: the states come from
+/// Favorites, Downloads, design mode, theme, DevTools, profile and More. Engine-neutral: the states come from
 /// `BrowserToolbarPolicy` over the bound tab, and a press only reports the
 /// button (`onPress`); the App runs the button's catalog action. Holds no
 /// key handling: shortcuts go through the action registry.
@@ -15,12 +15,35 @@ public final class BrowserToolbarButtonsView: NSStackView {
     public var shortcutHint: ((BrowserToolbarButton) -> String?)? { didSet { rebind() } }
     /// The tab's browser profile name, for the profile button's tooltip.
     public var profileName: String? { didSet { render() } }
+    /// The tab's browser profile, drawn on the profile button as its avatar (its letter or icon on its
+    /// color) in place of the plain person glyph; nil keeps the glyph (an incognito tab).
+    public var profileBadge: BrowserProfileBadge? {
+        didSet { if profileBadge != oldValue { applyProfileBadge() } }
+    }
+    /// The profile button's avatar, made the first time a profile shows (tests read it).
+    private(set) var profileAvatar: ProfileBadgeView?
+
+    private func applyProfileBadge() {
+        guard let button = buttons[.profile] else { return }
+        guard var profileBadge else { return button.glyphReplacement = nil }
+        // The toolbar's ink unless the person chose the color level (`browser.profileButton`).
+        if !facts.profile.colored { profileBadge.color = nil }
+        let side = ProfileBadgeView.side(forGlyph: OmnibarStyle.toolbarIconSize, limit: OmnibarStyle.buttonSize - 4)
+        let avatar = profileAvatar ?? ProfileBadgeView(side: side)
+        avatar.setSide(side)
+        avatar.show(profileBadge)
+        profileAvatar = avatar
+        button.glyphReplacement = avatar
+    }
     /// The App's downloads, read while rendering so an observable list
     /// redraws the button as downloads start and end. Set after `bind`, so
     /// it re-arms the observation to track the list.
     public var downloads: (() -> BrowserToolbarDownloads)? { didSet { rebind() } }
     /// Every tab's media, read the same way.
     public var media: (() -> BrowserToolbarMedia)? { didSet { rebind() } }
+    /// Whether the profile button shows and in which ink (`browser.profileButton`, the profile count, the
+    /// tab's profile), read the same way; nil shows it in color.
+    public var profilePresence: (() -> BrowserProfileButtonPresence)? { didSet { rebind() } }
     /// The pinned buttons' ids (`browser.toolbarButtons`), read the same way,
     /// so a pin from any window or from cmux.json reaches every toolbar.
     public var pins: (() -> [String])? { didSet { rebind() } }
@@ -105,6 +128,10 @@ public final class BrowserToolbarButtonsView: NSStackView {
         buttons[button] = view
         insertArrangedSubview(view, at: order.prefix(view.tag).filter { buttons[$0] != nil }.count)
         if let state = states[button] { apply(state, to: view) }
+        if button == .profile {
+            view.onDensityChange = { [weak self] in self?.applyProfileBadge() }
+            applyProfileBadge()
+        }
         return view
     }
 
@@ -257,7 +284,9 @@ public final class BrowserToolbarButtonsView: NSStackView {
         let shown = { [pinned] (facts: BrowserToolbarFacts) in BrowserToolbarButton.allCases.filter { $0.isShown(at: 0, facts, pinned: pinned) } }
         let relayout = shown(facts) != shown(self.facts)
         let zoomed = facts.zoom != self.facts.zoom
+        let recolored = facts.profile.colored != self.facts.profile.colored
         self.facts = facts
+        if recolored { applyProfileBadge() }
         if zoomed { openGlassMenu?.refreshControls() }
         if relayout { relayoutChrome() }
         for button in BrowserToolbarButton.allCases {
@@ -291,8 +320,10 @@ public final class BrowserToolbarButtonsView: NSStackView {
     private func currentFacts() -> BrowserToolbarFacts {
         let downloads = downloads?() ?? BrowserToolbarDownloads()
         let media = media?() ?? BrowserToolbarMedia()
+        let profile = profilePresence?() ?? .always
         guard let tab else {
-            return BrowserToolbarFacts(engine: .webkit, hostsDevTools: false, profileName: profileName, downloads: downloads, media: media)
+            return BrowserToolbarFacts(engine: .webkit, hostsDevTools: false, profileName: profileName, downloads: downloads, media: media,
+                                       profile: profile)
         }
         let url = tab.state.url
         if url != pageURL {
@@ -305,7 +336,7 @@ public final class BrowserToolbarButtonsView: NSStackView {
             engine: tab.engineKind, hostsDevTools: hosting != nil || webKit != nil,
             devToolsOpen: hosting?.devTools.isOpen ?? webKit?.isInspectorVisible ?? false,
             designMode: modes.designMode, colorScheme: modes.colorScheme, profileName: profileName, zoom: tab.state.zoom,
-            downloads: downloads, media: media
+            downloads: downloads, media: media, profile: profile
         )
     }
 

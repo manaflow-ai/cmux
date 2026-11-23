@@ -84,6 +84,21 @@ struct OmnibarCutsTests {
         #expect(bar.field.frame == fieldAtRest, "focus moved the field: \(fieldAtRest) to \(bar.field.frame)")
     }
 
+    /// The address bar holds no profile avatar, at rest or focused (Leo 2026-11-22, "why do we have the profile icon
+    /// here if it's always visible ... move it outside the omnibar"): it is the toolbar's profile button
+    /// (`BrowserToolbarProfileButtonTests`).
+    @Test func theAddressBarHoldsNoProfileAvatar() throws {
+        let (bar, window) = try bar("https://github.com/manaflow-ai/cmux")
+        defer { window.closeAfterTest() }
+        func avatars(in view: NSView) -> [ProfileBadgeView] {
+            view.subviews.flatMap { ($0 as? ProfileBadgeView).map { [$0] } ?? avatars(in: $0) }
+        }
+        #expect(avatars(in: bar).isEmpty, "the address bar draws a profile avatar")
+        bar.focus()
+        window.contentView?.layoutSubtreeIfNeeded()
+        #expect(avatars(in: bar).isEmpty, "the focused address bar draws a profile avatar")
+    }
+
     @Test func aPageThatIsNotSecureShowsItsChip() throws {
         let (bar, window) = try bar("http://example.com/login", security: .insecure)
         defer { window.closeAfterTest() }

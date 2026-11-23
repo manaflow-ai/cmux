@@ -14,7 +14,7 @@ import CmuxNextSettings
 /// | Favorites | `bookmark.manager` |
 /// | Downloads | `browser.downloads.show`, the downloads popup (`BrowserDownloadsPopup`) |
 /// | design mode | `toggleBrowserDesignMode` |
-/// | profile | `browser.profile.choose`, a menu of `browserProfile.moveTab` per profile |
+/// | profile | `browser.profile.choose`, the profile menu (`ActionRegistry.makeBrowserProfileMenu`) |
 /// | theme | a menu of `browserTheme` system, light, dark |
 /// | DevTools | `toggleBrowserDeveloperTools` |
 /// | More | `browser.overflow.menu` |
@@ -44,7 +44,7 @@ enum BrowserToolbarHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         registry.bind("browser.profile.choose", run: { invocation in
             let (entry, chrome) = try context.shownPage(invocation)
-            chrome.toolbarButtons.present(profileMenu(for: entry, services: context.services), from: .profile)
+            chrome.toolbarButtons.present(profileMenu(forTab: entry.key, services: context.services), from: .profile)
         })
         registry.bind("browser.media.show", run: { invocation in
             let (_, chrome) = try context.shownPage(invocation)
@@ -77,6 +77,7 @@ enum BrowserToolbarHandlers {
             }
             buttons.media = { [weak services] in services.map { $0.cache.pageRequests.media.toolbar(in: $0.cache) } ?? BrowserToolbarMedia() }
             buttons.pins = { [weak services] in services?.settings.map(BrowserToolbarButtonsSetting.current)?.pinned ?? BrowserToolbarButtonsSetting.fallback }
+            buttons.profilePresence = { [weak services] in services?.browserProfiles.toolbarPresence(forTab: key) ?? .always }
         }
         entry.state.profileName = profileName(forTab: key, services: services)
         // The omnibar's "Focus Mode" badge leaves focus mode (the action's one path).
@@ -134,13 +135,17 @@ enum BrowserToolbarHandlers {
 
     /// The profile button's menu (`ActionRegistry.makeBrowserProfileMenu`), for the tab by the key the App keeps it
     /// under: an adopted page's own id finds no tab, and Clear Browsing Data or Delete would act on Default.
-    static func profileMenu(for entry: BrowserEntry, services: AppServices) -> NSMenu {
+    static func profileMenu(forTab key: String, services: AppServices) -> NSMenu {
         let profiles = services.browserProfiles
-        let key = entry.key
+        let current = services.cache.tabModel(key).map(profiles.profileID(ofTab:)) ?? BrowserProfileRecord.defaultID
+        let incognito = services.cache.browserTabs.isIncognitoTab(key)
+        let workspace = services.workspaceID(ofTab: key)
+        // The header: the tab's profile as the button draws it (none when incognito), and why the tab has it.
+        let header = profiles.toolbarBadge(forTab: key)?.menuHeader(BrowserProfileCascade.source(
+            tabProfile: current, workspace: profiles.workspaceDefault(workspace), room: profiles.roomDefault(workspace), known: profiles.isKnown))
         return services.registry.makeBrowserProfileMenu(
-            tabKey: key, current: services.cache.tabModel(key).map(profiles.profileID(ofTab:)) ?? BrowserProfileRecord.defaultID,
-            profiles: profiles.ordered.map { record in (record.id, record.icon.map { "\($0)  \(record.name)" } ?? record.name) },
-            profileActions: !services.cache.browserTabs.isIncognitoTab(key))
+            tabKey: key, current: current, profiles: profiles.ordered.map { record in (record.id, record.icon.map { "\($0)  \(record.name)" } ?? record.name) },
+            profileActions: !incognito, header: header, workspace: incognito ? nil : workspace)
     }
 
     /// The More menu (cx-6qwm, `ActionRegistry.makeBrowserMoreMenu`) on glass: the hidden toolbar buttons (and

@@ -169,9 +169,52 @@ import Testing
 
     /// The toolbar's profile menu for tab `tab-1`, whose profile is `current`.
     static func toolbarProfileMenu(_ services: AppServices, current: String = BrowserProfileRecord.defaultID,
-                                   profileActions: Bool = true) -> NSMenu {
+                                   profileActions: Bool = true, header: (title: String, subtitle: String?, image: NSImage?)? = nil,
+                                   workspace: String? = nil) -> NSMenu {
         services.registry.makeBrowserProfileMenu(tabKey: "tab-1", current: current, profiles: profiles.map { ($0.id, $0.name) },
-                                                 profileActions: profileActions)
+                                                 profileActions: profileActions, header: header, workspace: workspace)
+    }
+
+    /// The menu as the toolbar's profile button opens it (cmuxterm-hq RFD 0050, D2): the tab's profile and why it has it
+    /// first, running nothing; each other profile moves the tab, or with Option becomes the workspace's; then New Browser
+    /// Profile and New Incognito Window, once each; Manage Browser Profiles last, opening Settings on the profiles card.
+    @Test func browserToolbarProfileMenuLeadsWithTheTabsProfileAndEndsWithManage() throws {
+        let services = Self.services()
+        let registry = services.registry
+        registry.context = registry.descriptors.reduce(into: ActionContext()) { $0.formUnion($1.requires) }
+        let menu = Self.toolbarProfileMenu(services, current: "work", header: BrowserProfileBadge(monogram: "W", color: nil, name: "Work").menuHeader(.workspace),
+                                           workspace: "ws-1")
+        let palette = Self.paletteIDs(registry)
+        let gaps = Self.gaps(in: [("toolbar profile menu with a header", menu)], registry: registry, palette: palette)
+        #expect(gaps.isEmpty, "\(gaps)")
+
+        let header = try #require(menu.items.first)
+        #expect(header.identifier == ActionRegistry.browserProfileHeaderID && header.title == "Work")
+        if #available(macOS 14.4, *) { #expect(header.subtitle == BrowserProfileStrings.reason(.workspace)) }
+        #expect(header.image != nil)
+        #expect(!header.isEnabled && ActionRegistry.menuRun(of: header) == nil)
+        #expect(BrowserProfileBadge(monogram: "D", color: nil, name: "Default").menuHeader(.builtIn).subtitle == nil)
+        #expect(menu.items.filter { $0.state == .on }.isEmpty, "the header names the tab's profile: no checked row repeats it")
+
+        let runs = menu.items.compactMap { item in ActionRegistry.menuRun(of: item).map { (item, $0) } }
+        let move = try #require(runs.first { $0.1.id == "browserProfile.moveTab" })
+        #expect(move.1.arguments["browserProfile"]?.stringValue == BrowserProfileRecord.defaultID && !move.0.isAlternate)
+        let alternate = try #require(runs.first { $0.1.id == "browserProfile.setWorkspaceDefault" })
+        #expect(alternate.0.isAlternate && alternate.0.keyEquivalentModifierMask == .option)
+        #expect(menu.index(of: alternate.0) == menu.index(of: move.0) + 1, "the Option row does not follow the row it replaces")
+        #expect(alternate.1.target == ActionTargetRef(kind: .workspace, id: "ws-1"))
+        #expect(alternate.1.arguments["browserProfile"]?.stringValue == BrowserProfileRecord.defaultID)
+
+        let ids = runs.map(\.1.id)
+        #expect(ids.filter { $0 == "browserProfile.new" }.count == 1, "New Browser Profile shows \(ids.filter { $0 == "browserProfile.new" }.count) times")
+        #expect(ids.contains("newIncognitoWindow") && ids.contains("importFromBrowser"))
+        let manage = try #require(runs.last)
+        #expect(manage.1.id == "openSettings" && manage.0 === menu.items.last)
+        #expect(manage.1.arguments["section"]?.stringValue == "rooms" && manage.1.arguments["setting"]?.stringValue == "card.browserProfiles")
+        // No separator first, last or doubled.
+        let separators = menu.items.map(\.isSeparatorItem)
+        #expect(separators.first == false && separators.last == false)
+        #expect(!zip(separators, separators.dropFirst()).contains { $0 && $1 }, "two separators in a row")
     }
 
     @Test func everyBrowserToolbarProfileMenuRowHasAPaletteRow() {
