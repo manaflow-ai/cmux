@@ -138,6 +138,56 @@ fn a_command_name_two_extensions_share_is_listed_once() {
     );
 }
 
+/// A prompt saved with `cmux agent-config commands add --agent cmux` is in the composer's `/`
+/// list on the next call, before the extensions' commands and taking its name from them, with
+/// the prompt as the text its pick writes; removing it takes it out again.
+#[test]
+fn a_saved_prompt_is_listed_in_the_slash_menu() {
+    use cmux_agent_customize::commands::{self, NewCommand, Target};
+    let f = fixture();
+    save_commands(&spy_dir(&f), &[("standup", "From spy."), ("retro", "Retro.")], None);
+    f.supervisor.reload_local_apps(&Default::default());
+    f.install("local/spy");
+    let mut homes = cmux_agent_customize::Homes::under(f._root.0.join("home"));
+    homes.cmux_commands = f._root.0.join("saved-prompts");
+    let saved = commands::add(
+        &homes,
+        &NewCommand {
+            agent: Target::Cmux,
+            name: "standup".into(),
+            description: "My standup".into(),
+            prompt: "Write my standup from today's commits.".into(),
+            replace: false,
+        },
+    )
+    .unwrap();
+    assert_eq!(saved.path, f._root.0.join("saved-prompts/standup.md"));
+    let listed = list(&f)["commands"].clone();
+    assert_eq!(
+        listed[0],
+        json!({
+            "app": "cmux/saved-prompts", "extension": "cmux", "name": "standup",
+            "description": "My standup", "insert": "Write my standup from today's commits."
+        })
+    );
+    assert_eq!(
+        commands(&f),
+        vec![
+            ("standup".to_string(), "Write my standup from today's commits.".to_string()),
+            ("retro".to_string(), "Retro.".to_string())
+        ],
+        "the saved prompt takes /standup from the extension"
+    );
+    commands::remove(&homes, Target::Cmux, "standup").unwrap();
+    assert_eq!(
+        commands(&f),
+        vec![
+            ("standup".to_string(), "From spy.".to_string()),
+            ("retro".to_string(), "Retro.".to_string())
+        ]
+    );
+}
+
 /// Safe mode turns every extension off: the composer gets none.
 #[test]
 fn safe_mode_lists_no_extension_commands() {
