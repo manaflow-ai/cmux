@@ -2,6 +2,7 @@
 import CmuxConversationCore
 import CmuxMobileArtifacts
 import CmuxConversationUI
+import CmuxMobileDesign
 import CmuxMobileModel
 import CmuxMobileSupport
 import SwiftUI
@@ -143,6 +144,7 @@ struct ChiefConversationController: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> ChiefConversationContainer {
         let conversation = ConversationViewController(store: session.store, options: options,
                                                       keyboard: context.environment.mobileKeyboardFrameTracker)
+        conversation.dismissesKeyboardAfterSend = { CmuxMobilePreferences.dismissKeyboardAfterSend() }
         // A screen rebuilt in place (a new store) takes over the old one's
         // composer now, before either appears or disappears: SwiftUI may show
         // the new one before the old one leaves.
