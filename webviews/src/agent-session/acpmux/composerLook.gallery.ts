@@ -421,6 +421,24 @@ export default agentPaneEntry({
         await ctx.hover({ selector: ".acpmux-access-trigger" });
       },
     },
+    "plus-hover-claude": {
+      composerLook: "claude",
+      note: "Claude's look with + hovered: the one-line composer keeps its rounded-square chip.",
+      snapshot: startedChat(),
+      play: async (ctx) => {
+        await look(ctx, "claude");
+        await ctx.hover({ selector: ".acpmux-composer-plus .acpmux-picker-button" });
+      },
+    },
+    "plus-hover-codex": {
+      composerLook: "codex",
+      note: "The round look with + hovered: a circle, in a box that starts on two lines (Leo 2026-11-23: a round composer is taller than one line, its highlight a circle).",
+      snapshot: startedChat(),
+      play: async (ctx) => {
+        await look(ctx, "codex");
+        await ctx.hover({ selector: ".acpmux-composer-plus .acpmux-picker-button" });
+      },
+    },
     "codex-chat": {
       composerLook: "codex",
       note: "The former Codex layout: ChatGPT's full-width prompt over one lower controls row, with + and the mode left and the context ring, the model, the mic, then Codex's round Send, right. Every mode, model and context control stays inside the box.",

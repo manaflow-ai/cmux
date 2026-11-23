@@ -441,6 +441,8 @@
     "agent-pane.composer-look#newtab-codex-speed": 0.00564,
     "agent-pane.composer-look#permission-pill-claude": 0,
     "agent-pane.composer-look#permission-pill-codex": 0.01965,
+    "agent-pane.composer-look#plus-hover-claude": 0,
+    "agent-pane.composer-look#plus-hover-codex": 0.01965,
     "agent-pane.composer-look#send-alt-after-mic-claude": 0,
     "agent-pane.composer-look#send-alt-filled-disc": 0.01965,
     "agent-pane.composer-look#send-one-slot-claude-running": 0,
