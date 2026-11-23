@@ -185,9 +185,9 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
                     LinkRow("Join the cmux Discord", symbol: "bubble.left.and.bubble.right", url: "https://discord.gg/xsgFEVrWCZ")
                     LinkRow("Follow @cmux on X", symbol: "at", url: "https://x.com/cmux")
                     LinkRow("cmux on GitHub", symbol: "chevron.left.forwardslash.chevron.right", url: "https://github.com/manaflow-ai/cmux")
-                    // The new-issue page, not the Mac's prefilled bug report form: that form requires a macOS
-                    // version, a Mac chip and an install method, none of which an iPhone report has.
-                    LinkRow("Send feedback", symbol: "envelope", url: "https://github.com/manaflow-ai/cmux/issues/new")
+                    // The bug report form the Mac's Help > Send Feedback opens, marked as sent from the iPhone so
+                    // HQ's feedback_fix.py counts it (SendFeedbackURL).
+                    LinkRow("Send feedback", symbol: "envelope", url: Self.feedbackURL.absoluteString)
                         .accessibilityIdentifier("settings.sendFeedback")
                     CopyLogsRow()
                     LinkRow("Terms of Use", symbol: "doc.text", url: "https://cmux.com/terms-of-service")
@@ -657,6 +657,18 @@ private struct DeveloperSection: View {
     }
 }
 #endif
+
+extension SettingsScreen {
+    /// SendFeedbackURL with this build's version, as the footer shows it, and the iOS version.
+    static var feedbackURL: URL {
+        let info = Bundle.main.infoDictionary ?? [:]
+        let version = info["CFBundleShortVersionString"] as? String ?? "?"
+        let build = info["CFBundleVersion"] as? String ?? "?"
+        let os = ProcessInfo.processInfo.operatingSystemVersion
+        return SendFeedbackURL.iPhone(appVersion: "\(version) (\(build))",
+                                      systemVersion: "\(os.majorVersion).\(os.minorVersion).\(os.patchVersion)")
+    }
+}
 
 /// "Version 1.0 (123) · tag", centered, text only.
 struct VersionFooter: View {
