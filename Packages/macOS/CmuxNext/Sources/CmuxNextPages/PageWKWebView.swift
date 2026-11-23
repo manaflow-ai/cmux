@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 import Foundation
 import WebKit
 
@@ -206,6 +207,8 @@ final class PageWKWebView: WKWebView {
         menuAutoFill.menuWillOpen()
         if let contextMenuEditor { contextMenuEditor(menu) } else { Self.keepDesktopItems(in: menu) }
         contextMenuTail?(menu)
+        // A cmux page's menu is cmux's: no "Ask Siri" field, Services or Writing Tools from AppKit.
+        menu.withoutSystemItems()
         super.willOpenMenu(menu, with: event)
     }
 
