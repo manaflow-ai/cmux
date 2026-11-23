@@ -535,7 +535,10 @@ SIDE_WORKFLOW_PATHS = frozenset({
     ".github/workflows/cmux-next-cua-helper-identity.yml",
     ".github/workflows/cmux-next-frame-pacing.yml",  # feat-cmux-next only
     ".github/workflows/cmux-next-media.yml",  # feat-cmux-next only
+    # feat-cmux-next only; its ci-web.yml call's react-apps-base-check reads vars.CI_LINUX_GATE_OWNED_RUNNER.
+    ".github/workflows/cmux-next-post-merge.yml",
     ".github/workflows/cmux-next-pr-autofix.yml",  # feat-cmux-next only
+    ".github/workflows/cmux-next-remote-browser-host-publish.yml",
     # feat-cmux-next only; its zsh git HEAD watcher job takes the side label on attempt 1.
     ".github/workflows/cmux-next-shell-integration.yml",
     ".github/workflows/cmux-next-terminal.yml",  # feat-cmux-next only
