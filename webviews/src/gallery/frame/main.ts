@@ -13,7 +13,7 @@ import { watchStageErrors } from "./liveErrors";
 import { appHostSeeThrough, appHostTheme, isAppHosted } from "./appHost";
 import { DEFAULT_DARK_THEME, DEFAULT_LIGHT_THEME, themeIsDark, type GhosttyTheme } from "../theme/ghostty";
 import { agentPaneTheme, diffAppearance, themeTokens, webThemePayload } from "../theme/web";
-import { APP_ACCENTS, deriveAppTheme, type AppAccent } from "../../theme/appTheme";
+import { deriveAppTheme, APP_ACCENTS, type AppAccent } from "../../theme/appTheme";
 import { lookTheme, schemeOf } from "../golden/look";
 import themes from "virtual:cmux-gallery/themes";
 import webThemeBootstrap from "virtual:cmux-gallery/web-theme";
@@ -292,6 +292,8 @@ function finishLoad(): void {
     boxShift: boxes.score,
     boxMoves: boxes.moves,
     boxFollow: boxes.follow,
+    // The load declares nothing: a box that drew twice in one place and then moves is undeclared.
+    ...(boxes.motion ? { undeclared: boxes.motion.undeclared, undeclaredMoves: boxes.motion.moves } : {}),
   };
 }
 

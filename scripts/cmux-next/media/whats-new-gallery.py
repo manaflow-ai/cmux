@@ -258,21 +258,30 @@ def marked_before(state: str, cases: list[dict], notes: dict) -> str | None:
     """The variant of `state`'s entry that its gallery file marks as the old look (its note opens with
     "Before", else its name ends in one of OLD_LOOK's words), the one sharing the longest name prefix with
     `state`'s variant, which it must share at least its first word with (`notes-flat` for `notes-sections`,
-    never another surface's old look); None when the entry marks none. It renders beside the after, at the
-    same commit."""
+    never another surface's old look); else the entry's one variant whose note opens "Before" when it has
+    exactly one (jump-place's `center` for `end`, composer-studio's `standard-beside` for `studio`: both
+    shipped with no before, 2026-11-22); None when the entry marks none. It renders beside the after, at
+    the same commit."""
     entry, _, after = state.partition("/")
     variants = list(dict.fromkeys(c["params"]["variant"] for c in _dark(cases)
                                   if c["params"].get("entry") == entry))
     family = after.split("-", 1)[0] + "-"
-    marked = []
+    marked, noted_anywhere = [], []
     for order, variant in enumerate(variants):
-        if variant == after or variant.startswith(f"{after}-light") or not variant.startswith(family):
+        if variant == after or variant.startswith(f"{after}-light"):
             continue
         noted = bool(BEFORE_NOTE.match(_note(notes, entry, variant)))
+        if noted:
+            noted_anywhere.append(variant)
+        if not variant.startswith(family):
+            continue
         if noted or OLD_LOOK.search(variant):
             shared = len(os.path.commonprefix([variant, after]))
             marked.append((not noted, -shared, order, variant))
-    return f"{entry}/{min(marked)[3]}" if marked else None
+    if marked:
+        return f"{entry}/{min(marked)[3]}"
+    # One "Before" note in the whole entry names the old look of the one surface it draws, whatever its name.
+    return f"{entry}/{noted_anywhere[0]}" if len(noted_anywhere) == 1 else None
 
 
 def _source(state: str, cases: list[dict]) -> str | None:
