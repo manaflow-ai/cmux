@@ -174,8 +174,7 @@ jobs:
         with:
           name: own-machine-parity-${{ github.run_id }}
           path: |
-            artifacts/own-machine-parity/own-machine-parity.json
-            artifacts/own-machine-parity/a-machines.json
+            artifacts/own-machine-parity/
           if-no-files-found: warn
           retention-days: 7
 

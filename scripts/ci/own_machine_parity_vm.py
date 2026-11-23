@@ -8,7 +8,7 @@ localhost). Run by .github/workflows/own-machine-parity-vm.yml; the build is its
 
   own_machine_parity_vm.py --app-a APP --app-b APP --work DIR --out DIR
 """
-import argparse, json, os, plistlib, pwd, subprocess, sys, time
+import argparse, json, os, plistlib, pwd, socket, subprocess, sys, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import cmux_next_pair_e2e as r  # noqa: E402
@@ -37,7 +37,19 @@ def launch(app, label, work, out, account):
     plist = plistlib.load(open(os.path.join(app, "Contents/Info.plist"), "rb"))
     exe = os.path.join(app, "Contents/MacOS", plist["CFBundleExecutable"])
     stream = r.Stream([exe], os.path.join(out, f"app-{label}.log"), env=env)
-    return stream, sock
+    return stream, sock, ls_env, tag
+
+
+def probe(sock):
+    """The pair rig's liveness check: a `debug.focus` call answers over the control socket."""
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as c:
+            c.settimeout(5)
+            c.connect(sock)
+            c.sendall((json.dumps({"id": 1, "method": "debug.focus", "params": {}}) + "\n").encode())
+            return bool(c.recv(1 << 16))
+    except OSError:
+        return False
 
 
 def main():
@@ -54,15 +66,23 @@ def main():
     try:
         print("keychain:", keychain.start(), flush=True)
         t0 = time.monotonic()
-        sa, sock_a = launch(a.app_a, "a", a.work, a.out, account)
+        sa, sock_a, env_a, tag_a = launch(a.app_a, "a", a.work, a.out, account)
         streams.append(sa)
-        sb, sock_b = launch(a.app_b, "b", a.work, a.out, account)
+        sb, sock_b, env_b, tag_b = launch(a.app_b, "b", a.work, a.out, account)
         streams.append(sb)
         cli = os.path.join(a.app_a, "Contents/Resources/bin/cmux")
         env = dict(os.environ, PATH=os.path.dirname(cli) + ":" + os.environ["PATH"])
-        for label, sock in (("A", sock_a), ("B", sock_b)):
-            up = r.wait_for(lambda: subprocess.run([cli, "--app-socket", sock, "app", "ping"], env=env, capture_output=True).returncode == 0, 180)
+        for label, sock, st, ls_env, tag in (("A", sock_a, sa, env_a, tag_a), ("B", sock_b, sb, env_b, tag_b)):
+            up = r.wait_for(lambda: st.proc.poll() is None and probe(sock), 180)
             print(f"app {label}: {'answers' if up else 'NO ANSWER'} on its socket after {time.monotonic() - t0:.0f} s", flush=True)
+            if not up:  # evidence only: the harness still runs and reports its own failure
+                try:
+                    print(f"app {label}: {r.no_answer_evidence(st.proc, ls_env, tag, sock, a.out)}", flush=True)
+                except Exception as error:  # noqa: BLE001
+                    print(f"app {label}: no evidence ({type(error).__name__}: {r.redact(str(error))[:200]})", flush=True)
+                socks = subprocess.run("ls -la /tmp/cmux-* 2>&1 | head -40", shell=True, capture_output=True, text=True).stdout
+                open(os.path.join(a.out, f"tmp-cmux-{label.lower()}.txt"), "w").write(r.redact(socks))
+                print(f"app {label}: exited {st.proc.poll()}; expected socket {sock}; /tmp/cmux-*:\n{socks}", flush=True)
         # What A lists after B's sign-in (evidence for the join step, and for the name).
         time.sleep(20)
         listed = subprocess.run([cli, "--app-socket", sock_a, "app", "machines", "--json"], env=env, capture_output=True, text=True)
@@ -74,7 +94,7 @@ def main():
                               "--b-name", B_NAME, "--folder", os.path.realpath(folder), "--runs", "3",
                               "--report", os.path.join(os.path.realpath(a.out), "own-machine-parity.json"), "--sha", sha], env=env)
         print("harness exit", res.returncode, flush=True)
-        return 0  # a first number: the report, not the exit, is the evidence
+        return res.returncode  # 0 pass, 1 fail, 3 not-built: the job fails with the harness
     finally:
         for s in streams:
             s.stop()
