@@ -47,6 +47,14 @@ import Testing
         #expect(state.isDue(renderer: 9, resident: 700 * mb, now: start + .seconds(600), live: [9]))
     }
 
+    @Test func anAbortedTryWaitsTwoMinutes() {
+        var state = CEFChatRendererRecycle()
+        let start = ContinuousClock.now
+        state.aborted(at: start)
+        #expect(!state.isDue(renderer: 7, resident: 700 * mb, now: start + .seconds(119), live: [7]))
+        #expect(state.isDue(renderer: 7, resident: 700 * mb, now: start + .seconds(120), live: [7]))
+    }
+
     @Test func settledSizeIsTheNextBaselineAndDeadRenderersAreForgotten() {
         var state = CEFChatRendererRecycle()
         let now = ContinuousClock.now
