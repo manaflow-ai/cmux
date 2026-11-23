@@ -48,13 +48,13 @@ struct HomeChiefTwoConversationsStopTests {
         let pair = Self.pair()
         defer { pair.window.close() }
         let pick: (NSView) -> HomeHostView? = { $0 as? HomeHostView }
-        #expect(HomeShownView.find(in: pair.window, pick) === pair.first, "with no keyboard, the first visible Home")
+        #expect(pair.window.shownHomeView(pick) === pair.first, "with no keyboard, the first visible Home")
         let field = NSTextField(frame: NSRect(x: 10, y: 10, width: 100, height: 22))
         pair.second.addSubview(field)
         #expect(pair.window.makeFirstResponder(field))
-        #expect(HomeShownView.find(in: pair.window, pick) === pair.second, "the Home holding the keyboard comes first")
+        #expect(pair.window.shownHomeView(pick) === pair.second, "the Home holding the keyboard comes first")
         pair.second.isHidden = true
         #expect(pair.window.makeFirstResponder(nil))
-        #expect(HomeShownView.find(in: pair.window, pick) === pair.first, "a hidden Home is never picked")
+        #expect(pair.window.shownHomeView(pick) === pair.first, "a hidden Home is never picked")
     }
 }

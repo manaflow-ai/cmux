@@ -24,9 +24,9 @@ enum HomeChiefActions {
     /// The front window's Chief Home, unless a hosted cloud Chief (no stop there).
     private static func stopAllTarget() -> HomeHostView? { frontHome().flatMap { $0.chiefControl.isHosted ? nil : $0 } }
 
-    /// The front window's Home showing a Chief, the one with the keyboard first (``HomeShownView``).
+    /// The front window's Home showing a Chief, the one with the keyboard first (``NSWindow/shownHomeView(_:)``).
     static func frontHome() -> HomeHostView? {
-        HomeShownView.find(in: HomeChiefSettingsPopover.frontToggleTarget) { ($0 as? HomeHostView).flatMap { $0.showsChiefOnScreen ? $0 : nil } }
+        HomeChiefSettingsPopover.frontToggleTarget?.shownHomeView { ($0 as? HomeHostView).flatMap { $0.showsChiefOnScreen ? $0 : nil } }
     }
 
     /// A Home's own Stop (its button, Esc, Cmd-.): its Chief, never another Home's in the window.
