@@ -183,10 +183,11 @@ impl Pane {
 ///   turn's label ([`own_prompt_id`]).
 /// - `canonical_digest` `{value}`: `{"digest": hex|null}`, the sha256 of the
 ///   value's canonical JSON ([`canonical_digest`]); null when it has none.
-/// - `service_wait` `{process_alive, socket_accepts}`: `{"state":
-///   "busy"|"starting"|"down", "restart": bool}`, what the pane's line says
-///   while it waits and whether it offers Restart agent service (only when
-///   down) ([`crate::service_wait`]).
+/// - `service_wait` `{process_alive, socket_accepts, waited_ms?}`: `{"state":
+///   "busy"|"starting"|"down", "restart": bool, "line": bool}`, whether it
+///   offers Restart agent service (only when down) and whether the pane draws
+///   its line at all (only when down past the shared bound)
+///   ([`crate::service_wait`]).
 pub fn call(op: &str, request: &Value) -> Result<Value, i32> {
     let text = |key: &str| request.get(key).and_then(Value::as_str);
     match op {

@@ -182,14 +182,17 @@ function ReconnectingLine({ variant }: { variant?: ConnectionChipVariant }) {
 
 /// The pane's handshake waits for this app's acpmux, which has not answered yet. The app never
 /// restarts a slow acpmux on its own (rule R5: a late answer is not a crash, and under load a
-/// restart reloads every chat), so the person sees how long the pane has waited, and may decide:
-/// Restart agent service, a
-/// quiet text button after the time (optional, never a filled button), stops that daemon (its
-/// chats are kept) and the pane asks again, which starts a new one. Nothing shows while a wait is short (`HOST_ERROR_DEADLINE_MS`, the pane's
-/// one rule for saying a recovery: "STOP SHOWING BULLSHIT ON LOAD"); that only decides what is
-/// drawn, never whether acpmux is restarted. `since`: when the wait began (`Date.now()` time).
-/// One host line shows at a time and the newest state wins: until this line shows, `otherwise`
-/// (the line of an earlier failed handshake) stays; once it shows, it replaces that line.
+/// restart reloads every chat), so the person may decide: one calm line, "Can't reach the agent
+/// service.", with Restart agent service, a quiet text button (never a filled button) that stops
+/// that daemon (its chats are kept) so the pane asks again and starts a new one. A wait with no
+/// Restart to offer (`onRestart` none: a remote or Cloud chat, the Chief home's acpmux, a daemon
+/// the host cannot stop) heals by itself and draws nothing at all, however long it lasts; so does
+/// any wait while it is short (`HOST_ERROR_DEADLINE_MS`, past the shared bound). No counter and no
+/// timer (Leo, 2026-11-22: "entire classes of bullshit fucking error/status bullshit. fuck em.
+/// remove them all."). That only decides what is drawn, never whether acpmux is restarted.
+/// `since`: when the wait began (`Date.now()` time). One host line shows at a time and the newest
+/// state wins: until this line shows, `otherwise` (the line of an earlier failed handshake) stays;
+/// once it shows, it replaces that line.
 export function HostWaitingLine({
   since,
   restarting,
@@ -202,19 +205,17 @@ export function HostWaitingLine({
   /// Restart agent service; none when the host cannot restart what this wait waits on.
   onRestart?(): void;
   otherwise?: ReactNode;
-  /// A fixed clock for the gallery; the pane passes none and the line counts each second.
+  /// A fixed clock for the gallery; the pane passes none and the line looks once a second.
   now?: number;
 }) {
   const t = useT();
-  const ticking = useNow(fixedNow === undefined);
+  const ticking = useNow(fixedNow === undefined && !!onRestart);
   const waited = (fixedNow ?? ticking) - since;
-  if (waited < HOST_ERROR_DEADLINE_MS && !restarting) return otherwise;
+  if (!restarting && (!onRestart || waited < HOST_ERROR_DEADLINE_MS)) return otherwise;
   return (
     <output className="acpmux-host-line-group" data-host-waiting>
       <div className="acpmux-host-line">
-        <p className="acpmux-host-line-message">
-          <ClockedWords text={t("host.waitingService", { time: SLOT })} time={waitedText(waited)} />
-        </p>
+        <p className="acpmux-host-line-message">{t("host.unavailable")}</p>
         {onRestart && (
           <button type="button" className="acpmux-host-line-quiet" onClick={onRestart} disabled={restarting}>
             {t(restarting ? "host.restartingService" : "host.restartService")}

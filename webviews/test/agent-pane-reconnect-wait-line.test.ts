@@ -3,10 +3,11 @@
 // A slow acpmux after a drop, end to end: the pane's own lines above the composer while it waits
 // (HostError.tsx). The stand-in daemon holds its answers to the reconnect's watch and attach
 // (support/papercutChat.ts `stall`) and the connection drops, as a restarted, busy acpmux does. Then:
-// - "Reconnecting…" shows at 10 s and hands over to "Waiting for the agent service (0:25)" with no
-//   painted frame between them that shows neither (before: about one second with no line at 25 s).
-// - The waiting line's Restart agent service holds its place while the time ticks (before: it moved
-//   sideways with each second's digits, the time not being the shared fixed-width clock).
+// - "Reconnecting…" shows at 10 s and hands over to "Can't reach the agent service." with its Restart
+//   agent service with no painted frame between them that shows neither (before: about one second
+//   with no line at 25 s).
+// - The waiting line has no counter or timer (Leo, 2026-11-22: "remove them all"), so its Restart
+//   agent service holds its place.
 // - No transcript row in view moves through any of it.
 // Real Chromium against the pane's dev entry; CI fails the file when it cannot launch it
 // (requireBrowserLane). Locally:
@@ -94,7 +95,7 @@ await requireBrowserLane("agent-pane-reconnect-wait-line.test.ts", async () => {
       const shownAt = seen.findIndex((frame) => frame.line);
       const after = seen.slice(shownAt);
       const blank = after.filter((frame) => !frame.line);
-      const waiting = after.filter((frame) => frame.line.startsWith("Waiting for the agent service"));
+      const waiting = after.filter((frame) => frame.line === "Can't reach the agent service.");
       const xs = [...new Set(waiting.map((frame) => frame.restartX))];
       console.log(
         `RECONNECT-WAIT ${JSON.stringify({
@@ -109,8 +110,8 @@ await requireBrowserLane("agent-pane-reconnect-wait-line.test.ts", async () => {
       );
       expect(seen[shownAt]?.line).toBe("Reconnecting…");
       expect(waiting.length).toBeGreaterThan(0);
-      // The line ticked over several seconds.
-      expect(new Set(waiting.map((frame) => frame.line)).size).toBeGreaterThanOrEqual(3);
+      // No timer: the line's words never change while it waits.
+      expect(new Set(waiting.map((frame) => frame.line)).size).toBe(1);
       expect(blank.map((frame) => frame.t)).toEqual([]);
       expect(xs.length).toBe(1);
       for (const frame of seen) expect(frame.moved).toBeLessThanOrEqual(0.5);

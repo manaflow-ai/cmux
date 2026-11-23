@@ -116,9 +116,9 @@ int32_t cmux_agent_pane_policy_filter_reply(const uint8_t *method, size_t method
  *     (the pick a gesture ticket is bound to; params null: no match)
  *   own_prompt_id {id} -> {id}
  *   canonical_digest {value} -> {digest: hex|null}
- *   service_wait {process_alive, socket_accepts}
- *     -> {state: "busy"|"starting"|"down", restart}
- *     (the pane's line while it waits; Restart only when down) */
+ *   service_wait {process_alive, socket_accepts, waited_ms?}
+ *     -> {state: "busy"|"starting"|"down", restart, line}
+ *     (Restart only when down; a line only when down past the shared bound) */
 int32_t cmux_agent_pane_policy_call(const CmuxAgentPanePolicy *pane, const char *op,
                                     const uint8_t *request, size_t request_len,
                                     CmuxAgentPaneBytes *out);
