@@ -24,7 +24,7 @@ function TabRowToolsFit({ paneWidth, summaryInSlot }: Props) {
   }, [paneWidth, summaryInSlot]);
   const fits = need <= paneWidth / 2;
   return (
-    <div style={{ width: paneWidth, display: "grid", gap: 6, padding: 8 }}>
+    <div style={{ width: paneWidth, display: "grid", gap: 8, padding: 8 }}>
       <div className="acpmux-shell" style={{ ["--acpmux-tab-row-height" as string]: "34px" }}>
         <header className="acpmux-header" data-tab-row="" style={{ display: "flex", justifyContent: "flex-end" }}>
           <div className="acpmux-handoff-header-tools" ref={slot} data-tab-row-slot="tools">
