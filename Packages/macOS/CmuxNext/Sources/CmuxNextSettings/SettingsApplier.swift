@@ -113,6 +113,7 @@ public final class SettingsApplier {
         if design.plusButton != snapshot.plusButton { design.plusButton = snapshot.plusButton }
         Self.applyPlacement(snapshot, to: design)
         if design.borders != snapshot.borders { design.borders = snapshot.borders }
+        if design.liquidGlass != snapshot.liquidGlass { design.liquidGlass = snapshot.liquidGlass }
         if design.fontSmoothing != snapshot.fontSmoothing { design.fontSmoothing = snapshot.fontSmoothing }
         if design.focusIndicator != snapshot.focusIndicator { design.focusIndicator = snapshot.focusIndicator }
         if design.inactiveTabStyle != snapshot.inactiveTabStyle { design.inactiveTabStyle = snapshot.inactiveTabStyle }
