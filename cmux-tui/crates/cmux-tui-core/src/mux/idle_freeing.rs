@@ -34,10 +34,11 @@ pub(crate) struct FreeingSettings {
 }
 
 impl Default for FreeingSettings {
-    /// The schema's defaults (schemas/settings/source/workspace-hibernation.json).
+    /// The schema's defaults (schemas/settings/source/workspace-hibernation.json): freeing on
+    /// (Leo, 2026-11-19: "Yes" to freeing idle shells in workspaces hidden for a day by default).
     fn default() -> Self {
         Self {
-            enabled: false,
+            enabled: true,
             idle: Duration::from_secs(1440 * 60),
             agents: true,
             relaunch_running_commands: false,
@@ -53,12 +54,23 @@ pub(crate) struct IdleFreeing {
     wants_launch_wake: AtomicBool,
 }
 
-#[derive(Default)]
 struct FreeingInner {
     settings: FreeingSettings,
     /// `--freeing-idle-seconds`: on, with this idle time.
     override_idle: Option<Duration>,
     tracker: FreeingTracker,
+}
+
+impl Default for FreeingInner {
+    /// Off until the daemon's settings owner reads the settings file (`mux/settings.rs`), whose
+    /// default is on: a mux with no settings owner (tests, embedders) never frees on its own.
+    fn default() -> Self {
+        Self {
+            settings: FreeingSettings { enabled: false, ..FreeingSettings::default() },
+            override_idle: None,
+            tracker: FreeingTracker::default(),
+        }
+    }
 }
 
 impl FreeingInner {
