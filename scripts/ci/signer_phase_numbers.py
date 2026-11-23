@@ -25,11 +25,19 @@ import argparse
 import json
 import re
 import statistics
+import os
 import subprocess
 import sys
+import time
 from datetime import datetime
+from pathlib import Path
 
 REPO = "manaflow-ai/cmux"
+# A finished run's jobs and logs never change: kept here, so a rerun reads nothing again.
+CACHE = Path(os.environ.get("SIGNER_PHASE_CACHE", Path.home() / ".cache" / "signer-phase-numbers"))
+# The shared broker counts reads of a run's jobs (30 runs per 10 min); stay under it.
+PACE_SECONDS = float(os.environ.get("SIGNER_PHASE_PACE", "21"))
+_last_read = [0.0]
 
 
 def gh(path: str, raw: bool = False):
@@ -85,13 +93,28 @@ def add(*parts):
     return sum(vals) if vals else None
 
 
+def cached(name, fetch, raw=False):
+    path = CACHE / name
+    if path.exists():
+        text = path.read_text()
+        return text if raw else json.loads(text)
+    wait = _last_read[0] + PACE_SECONDS - time.monotonic()
+    if wait > 0:
+        time.sleep(wait)
+    value = fetch()
+    _last_read[0] = time.monotonic()
+    CACHE.mkdir(parents=True, exist_ok=True)
+    path.write_text(value if raw else json.dumps(value))
+    return value
+
+
 def jobs_of(run_id):
-    return gh(f"repos/{REPO}/actions/runs/{run_id}/jobs?per_page=100")["jobs"]
+    return cached(f"jobs-{run_id}.json", lambda: gh(f"repos/{REPO}/actions/runs/{run_id}/jobs?per_page=100")["jobs"])
 
 
 def notary_rounds(job_id):
     """Rounds and Apple-side minutes from the rcodesign notary log lines."""
-    log = gh(f"repos/{REPO}/actions/jobs/{job_id}/logs", raw=True)
+    log = cached(f"log-{job_id}.txt", lambda: gh(f"repos/{REPO}/actions/jobs/{job_id}/logs", raw=True), raw=True)
     rounds = len(re.findall(r"created submission ID: ", log))
     polls = [int(s) for s in re.findall(r"poll state after (\d+)s: Accepted", log)]
     return rounds, (sum(polls) if polls else None)
