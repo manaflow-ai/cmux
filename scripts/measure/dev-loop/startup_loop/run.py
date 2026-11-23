@@ -474,6 +474,8 @@ class Loop:
 
     def idle_instance(self, label):
         p, outp, t, pid = self.launch(label, 3600)
+        # sleep-ok: the floor measures quitting an idle app; launch-ready reports its window and echo only at exit,
+        # so this fixed idle window is the condition itself, not a wait on one.
         time.sleep(IDLE_S)
         if not alive(pid):
             raise RuntimeError("launch %s: app %d ended by itself" % (label, pid))
