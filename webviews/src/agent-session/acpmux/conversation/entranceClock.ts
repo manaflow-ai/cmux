@@ -22,7 +22,16 @@
 
 /// The entrance keyframes a generic row's own animation plays (conversation.css).
 /// A sent prompt's pop (conversation.css SEND-POP) plays on its presentation wrapper, inside the row.
-const ENTRANCES = new Set(["cv-enter", "cv-enter-fade", "cv-send-pop", "cv-send-pop-fade", "cv-send-pop-spring"]);
+const ENTRANCES = new Set([
+  "cv-enter",
+  "cv-enter-fade",
+  "cv-send-pop",
+  "cv-send-pop-fade",
+  "cv-send-pop-spring",
+  "cv-recap-rise",
+  "cv-recap-unfurl",
+  "cv-recap-bead",
+]);
 
 type Frames = {
   request: (run: () => void) => number;
