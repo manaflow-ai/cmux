@@ -138,6 +138,7 @@ mod held_asks;
 mod host_level;
 pub(super) mod idle;
 mod idle_census;
+mod paused_fs;
 mod person_prompt_at;
 pub(crate) mod unattended_presets;
 pub(crate) use idle::SessionAtWork;
@@ -194,6 +195,7 @@ pub(crate) use log_load::test_hold;
 #[cfg(test)]
 pub(crate) use log_load::{NOTE_BEFORE_CATCH_UP_LOCK, NOTE_BEFORE_REPLAY_SCAN, NOTE_IN_CATCH_UP};
 mod cold_archive;
+pub(crate) mod history_delete;
 pub(crate) mod inactive_archive;
 pub(crate) use cold_archive::COLD_CHANGED;
 mod machine_info;
@@ -1173,6 +1175,8 @@ pub struct Hub {
     pub(super) resumes: tokio::sync::watch::Sender<u64>,
     /// When a person last prompted a chat here, Unix ms, 0 for never (`person_prompt_at.rs`).
     pub(super) person_prompts: tokio::sync::watch::Sender<u64>,
+    /// Paused machines' replicas and write journals, when `writeJournal.enabled` (`paused_fs.rs`).
+    pub(super) paused_fs: Option<Arc<crate::write_journal::paused::PausedFs>>,
     /// Set when `shutdown_all` starts: the idle reaper stops for good.
     pub(super) stopping: AtomicBool,
     /// Held by one idle reaper pass; shutdown waits for it after `stopping`.
@@ -1477,6 +1481,8 @@ impl Hub {
         // Beside the peer caches, in the home they are in; a memory store keeps neither.
         let home = store.peer_cache_dir().and_then(|p| p.parent().map(Path::to_path_buf));
         let peer_paths = Arc::new(crate::peer_last_good::LastGood::open(home.as_deref()));
+        // `writeJournal.enabled`: the paused machines' replicas and journals (`paused_fs.rs`).
+        let paused_fs = paused_fs::open(&config, home.as_deref());
         // A removed peer's kept remote tokens go with it (`peer_kept_tokens.rs`).
         peer_paths
             .tokens
@@ -1627,6 +1633,7 @@ impl Hub {
             resume_watch: resume::new_watch(),
             resumes: tokio::sync::watch::channel(0).0,
             person_prompts: tokio::sync::watch::channel(0).0,
+            paused_fs,
             stopping: AtomicBool::new(false),
             idle_pass: Mutex::new(()),
             pool: Arc::new(pool::PoolState::new()),
