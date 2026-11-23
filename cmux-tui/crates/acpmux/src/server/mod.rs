@@ -209,6 +209,8 @@ pub struct Conn {
     /// one peer's rows as one `_acpmux/peer_rows_changed` (`Events::send_remote_batch`) and
     /// follow the list for them, not one `session_changed` per row.
     peer_row_batches: AtomicBool,
+    /// Compact text chunks on its event streams (`chunk_deltas.rs`), when its `initialize` asked.
+    chunk_deltas: chunk_deltas::ChunkDeltas,
     /// The client asked, in its `initialize` (`_meta.acpmux.sessionChangedDelta`), to hear a chat's
     /// row changes after the first as `_acpmux/session_patch`; `sent_rows` keeps what it holds.
     session_delta: AtomicBool,
@@ -1885,6 +1887,7 @@ async fn serve_connection_from(
         watch_all: AtomicBool::new(false),
         watch_tools: AtomicBool::new(false),
         peer_row_batches: AtomicBool::new(false),
+        chunk_deltas: Default::default(),
         session_delta: AtomicBool::new(false),
         sent_rows: StdMutex::default(),
         watch_inventory: StdMutex::new(false),
@@ -2478,10 +2481,8 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             // Sent by the replay.
         } else if sub.event_stream {
             if sub.filter.matches_live(rec) {
-                conn.send(&Message::notification(
-                    method::MUX_EVENT,
-                    routed(event_value(&ev.session_id, rec)),
-                ));
+                let params = routed(event_value(&ev.session_id, rec));
+                conn.send(&conn.chunk_deltas.frame(&ev.session_id, params));
             }
         } else {
             // Agent -> client updates as standard ACP notifications.
@@ -2695,6 +2696,7 @@ pub(crate) mod computer_use_relay;
 mod connection_token_tests;
 pub(crate) mod controls;
 mod in_flight;
+mod keys_relay;
 #[cfg(test)]
 #[path = "latency_gauges_tests.rs"]
 mod latency_gauges_tests;
@@ -2710,6 +2712,7 @@ pub(crate) use crate::clock_text::{civil_from_days, iso};
 pub(crate) use change_kind::session_change_kind;
 mod change_kind;
 mod chat_windows;
+mod chunk_deltas;
 pub(crate) mod session_patch;
 pub use chat_windows::live_tasks as live_chat_window_tasks;
 pub mod carrier;
