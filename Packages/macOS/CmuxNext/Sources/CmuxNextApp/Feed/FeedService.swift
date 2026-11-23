@@ -20,7 +20,7 @@ final class FeedService {
     let daemon: FeedDaemonClient
     private let auth: CloudAuth
     /// Whether the app is active (`AppServices.appActiveSource`), for the owner's presence; never the global `NSApp`.
-    private let appActive: @MainActor () -> Bool
+    private let appActive: @MainActor () -> Bool, sleepHandoff: @MainActor () -> Void // the acpmux handoff when the Mac is about to sleep
     private var observers: [MainActorObservation] = []
     private var tasks: [Task<Void, Never>] = []
     private let approvalHolds: CloudApprovalHolds?
@@ -31,8 +31,8 @@ final class FeedService {
         auth.configuration.ownerAPIBaseURL(environment: environment)
     }
 
-    init(auth: CloudAuth, local: DaemonService?, approvalHolds: CloudApprovalHolds? = nil, appActive: @escaping @MainActor () -> Bool) {
-        (self.auth, self.approvalHolds, self.appActive) = (auth, approvalHolds, appActive)
+    init(auth: CloudAuth, local: DaemonService?, approvalHolds: CloudApprovalHolds? = nil, appActive: @escaping @MainActor () -> Bool, sleepHandoff: @escaping @MainActor () -> Void = {}) {
+        (self.auth, self.approvalHolds, self.appActive, self.sleepHandoff) = (auth, approvalHolds, appActive, sleepHandoff)
         apiBaseURL = Self.apiBaseURL(auth: auth)
         daemon = FeedDaemonClient(connection: { [weak local] in local?.connection })
         guard let local else { return }
@@ -81,7 +81,7 @@ final class FeedService {
             on(app, NSApplication.didResignActiveNotification, false),
             on(workspace, NSWorkspace.screensDidSleepNotification, false),
             on(workspace, NSWorkspace.sessionDidResignActiveNotification, false),
-            MainActorObservation(NSWorkspace.willSleepNotification, center: workspace) { [socket = acpmuxEnvironment?.socketPath] in update(false); AcpmuxSleepHandoff(socketPath: socket).notify() },
+            MainActorObservation(NSWorkspace.willSleepNotification, center: workspace) { [weak self] in update(false); self?.sleepHandoff() },
             on(workspace, NSWorkspace.didWakeNotification, nil),
             on(workspace, NSWorkspace.screensDidWakeNotification, nil),
             on(workspace, NSWorkspace.sessionDidBecomeActiveNotification, nil),
