@@ -331,6 +331,7 @@ fn move_sessions_takes_the_same_flags_as_session_move() {
         all_idle: false,
         interrupt: true,
         after_turn: false,
+        timeout: 600,
         leave_dirty: false,
         carry_changes: true,
         cwd: None,

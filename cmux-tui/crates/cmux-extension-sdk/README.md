@@ -78,6 +78,7 @@ cmux ext dev --once --json   # one round, for an agent's loop
 | `chatWidget(render)` | A chat widget (`cmux.chat.widget/1`): a card under each agent tool call whose name matches the manifest's `options.tools` (`*` matches any run of characters), and for widget parts an agent sends naming the extension. Render gets `{ surface: "chatWidget", widget: { key }, tool?: { name, title?, status?, input?, output? }, props? }`. cmux ships no widgets of its own; a missing, hidden or failing extension leaves the call as it was. Export the same render with `section(...)` to show it in the sidebar too. |
 | `command(run)` | A command an extension declares in `catalog.json`; runs from the palette, the CLI or another extension. |
 | `workspaces()`, `agents()`, `chats()` | Live lists: call one for the latest value; `.loading()`, `.error()`, `.refresh()`. One read however many views use it; re-read on the matching event. |
+| `recentChats({limit, state?, after?})` | The newest chats, at most `limit` (1 to 1000): a New Tab page's recent chats, a waiting-on-you list (`state: "input"`), or a page of All chats (`after` the last chat of the page before). cmux reads them from its ordered chat index, so a read costs the chats it returns, never a sort of every chat. Rows carry `preview`, the last reply. |
 | `on(stream, fn)` | Runs `fn` each time `stream` fires; returns the unsubscribe, and unsubscribes with the render that called it. An unknown stream throws at load. |
 | `onChange(live, fn, {initial})` | Runs `fn` with each new value of a live list. |
 | `EVENT_STREAMS`, `scopeFor(stream)` | The streams cmux sends and the scope each needs. |
@@ -141,8 +142,13 @@ agent chat composer, so saving `cmux-app.json` updates the composer without a re
 - `cmux.composer.mention/1`: items the daemon ranks for a query (`apps.composer.mentions`). Up to
   200 per extension.
 
-The TypeScript types are `ComposerCommand` and `ComposerMention`; in Rust,
-`Manifest::slash_command` and `Manifest::mention`.
+- `cmux.composer.chip/1`: context chips (`{"chips": [{"id", "label", "insert", "detail"?}]}`), short
+  labels the person clicks to add `insert` to the draft. The daemon lists them in
+  `apps.composer.list` (`chips`), in app id and manifest order, dropping a chip whose insert text
+  an earlier one already writes. Up to 12 per extension.
+
+The TypeScript types are `ComposerCommand`, `ComposerMention` and `ComposerChip`; in Rust,
+`Manifest::slash_command`, `Manifest::mention` and `Manifest::composer_chip`.
 
 ## The Rust API
 

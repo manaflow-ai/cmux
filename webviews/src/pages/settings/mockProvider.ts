@@ -8,6 +8,7 @@
 // pair, so the page's calls cross the real envelope (call/ok/err/sub/ev).
 import { runMockAgentKeys } from "./mockAgentKeys";
 import { mockModels, runMockModels } from "./mockModels";
+import { mockAllotments, runMockAllotment } from "./mockAllotments";
 import { createMockPair } from "../../protocol/adapters/mock";
 import { updatable } from "./harnesses";
 import { MockTeams } from "./mockTeams";
@@ -74,6 +75,8 @@ import {
   type AgentConfigAgent,
   type AgentConfigRun,
   type AgentConfigState,
+  type AllotmentSet,
+  type AllotmentView,
 } from "./ops";
 import { rowsByKey, schema } from "./schema";
 import { withEdits, type ThemeEditMap } from "../../theme/themeEdits";
@@ -654,6 +657,21 @@ export class MockSettingsProvider {
         this.worktreeReadHold
           ? this.worktreeReadHold.then(() => this.readWorktree(params as { path: string }))
           : this.readWorktree(params as { path: string }),
+      "cmux.settings.cloud.allotment.get": () => {
+        if (!this.allotment) throw new ProtocolError("cmux.settings.unavailable", "this host has no Compute part");
+        return this.allotment;
+      },
+      "cmux.settings.cloud.allotment.set": (params) => {
+        const run = params as AllotmentSet;
+        this.allotmentRuns.push(run);
+        if (!this.allotment) throw new ProtocolError("cmux.settings.unavailable", "this host has no Compute part");
+        if (run.action !== undefined && run.action !== "down" && run.action !== "hold" && run.action !== "up")
+          throw new ProtocolError("cmux.settings.invalid", "action must be down, hold or up");
+        if (run.action === undefined && run.auto === undefined)
+          throw new ProtocolError("cmux.settings.invalid", "a set names an action or auto");
+        this.allotment = runMockAllotment(this.allotment, run);
+        return this.allotment;
+      },
       "cmux.settings.models.state": () => {
         if (!this.models) throw new ProtocolError("cmux.settings.unavailable", "this host has no Models part");
         return this.models;
@@ -924,6 +942,8 @@ export class MockSettingsProvider {
       "cmux.settings.harnesses.run",
       "cmux.settings.models.state",
       "cmux.settings.models.run",
+      "cmux.settings.cloud.allotment.get",
+      "cmux.settings.cloud.allotment.set",
       "cmux.settings.devices.state",
       "cmux.settings.devices.run",
       "cmux.settings.environments.state",
@@ -1015,6 +1035,11 @@ export class MockSettingsProvider {
     provide("cmux.settings.channels.machines.changed", (ctx) => this.track(this.machinesChanged, ctx));
     provide("cmux.settings.channels.switch.changed", (ctx) => this.track(this.switchChanged, ctx));
   }
+
+  /** Settings > Team > Compute as the backend serves it (mockAllotments.ts); null is a host without it. */
+  allotment: AllotmentView | null = structuredClone(mockAllotments.proposalUp);
+  /** Compute gestures the page sent, in order. */
+  readonly allotmentRuns: AllotmentSet[] = [];
 
   /** Settings > Models as the app serves it (mockModels.ts); null is a host without the part. */
   models: ModelsState | null = structuredClone(mockModels.macLogins);

@@ -442,6 +442,23 @@
 			<string>string</string>
 		</dict>
 		<dict>
+			<key>pfm_default</key>
+			<string>default</string>
+			<key>pfm_description</key>
+			<string>Machines shows each shell tab with the icon of the machine it runs on.</string>
+			<key>pfm_name</key>
+			<string>tabs.shellIconTheme</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>default</string>
+				<string>machine</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Shell Tab Icons</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
 			<key>pfm_description</key>
 			<string>Widest a tab gets when the strip has room.</string>
 			<key>pfm_name</key>
@@ -6728,6 +6745,18 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Sessions that scripts and tools start show in place. Off, they wait in Automatic at the end of their list.</string>
+			<key>pfm_name</key>
+			<string>sidebar.showAutomaticSessions</string>
+			<key>pfm_title</key>
+			<string>Show Automatic Sessions</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<true/>
 			<key>pfm_name</key>
 			<string>sidebar.showColors</string>
@@ -10228,6 +10257,18 @@
 			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
+			<string>Pause a new agent machine after 15 idle minutes; it resumes when work arrives.</string>
+			<key>pfm_name</key>
+			<string>labs.pauseAgentMachines</string>
+			<key>pfm_title</key>
+			<string>Pause Agent Machines</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
 			<string>Hold Option over a part of the window to see what changes it, and right-click it for Customize…. Turn this off to hide both.</string>
 			<key>pfm_name</key>
 			<string>customize.fromTheApp</string>
@@ -10293,6 +10334,18 @@
 			<string>experiments.agentBadgesBeam</string>
 			<key>pfm_title</key>
 			<string>Agent Badges: Running Beam</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Spinner toasts that turn into their result in place, and an Undo after closing a tab or workspace or archiving a chat.</string>
+			<key>pfm_name</key>
+			<string>experiments.toastsV2</string>
+			<key>pfm_title</key>
+			<string>Toasts v2</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
