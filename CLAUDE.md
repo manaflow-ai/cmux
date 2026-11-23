@@ -27,6 +27,10 @@ deletes the clone; off a Mac it prints the fleet route, `cmux-ci hot-verify N --
 Full loop: the [cmux-hot-loop skill](skills/cmux-hot-loop/SKILL.md) and
 [docs/cmux-next/hot-reload.md](docs/cmux-next/hot-reload.md#the-loop).
 
+A signed-in build to drive is a copy of a signed-in app, not an "authenticated dev build": `cmux app try <PR|sha>`
+in your NIGHTLY (production account), `cmux-ci run ... --sign-in agent` for an agent step, `--for-person` on a
+Swift build handed to a person. Table: [cmux-hot-loop, Signed in](skills/cmux-hot-loop/SKILL.md#signed-in-without-an-authenticated-dev-build).
+
 ## Every session
 
 - **Agents never compile or test on the person's Mac.** No local `swift build`/`swift test`, `xcodebuild`,
