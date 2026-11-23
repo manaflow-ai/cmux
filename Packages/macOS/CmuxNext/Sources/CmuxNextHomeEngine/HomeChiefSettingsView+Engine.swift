@@ -15,6 +15,8 @@ extension HomeChiefSettingsView {
         let home = muxHome
         // task-owner: one read off the main actor; ends when it is shown
         return Task { [weak self] in
+            // The automations come in their own read, so a slow engine read never holds them.
+            self?.refreshAutomations()
             // This Mac's acpmux harnesses, for a brain that runs here (a paired server's are its own).
             if let self, source.isLocal { listedHarnesses = await listHarnesses() }
             let result = await Task.detached { () async -> Result<HomeChiefSnapshot, HomeChiefEngineError> in
