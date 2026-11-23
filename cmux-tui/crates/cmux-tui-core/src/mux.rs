@@ -331,6 +331,8 @@ mod holder_late;
 mod loss_causes;
 mod orphan_hosts;
 mod pending_terminals;
+#[cfg(any(unix, windows))]
+pub mod process_census;
 mod startup_adoption_gate;
 mod startup_record;
 mod terminal_adoption;
