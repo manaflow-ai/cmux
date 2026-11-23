@@ -215,7 +215,7 @@ function MemberTable({ model }: { model: ComputeModel }) {
               <div className="row-help">{model.spares.detail}</div>
             </td>
             <td className={cell}>{model.spares.month}</td>
-            <td className={`${cell} row-help`} colSpan={2}>
+            <td className={`${cell} row-help whitespace-normal`} colSpan={2}>
               {model.spares.note}
             </td>
           </tr>
@@ -234,7 +234,7 @@ function MemberLine({ row, cell }: { row: MemberRow; cell: string }) {
       </td>
       <td className={cell}>{row.month}</td>
       <td className={cell}>{row.share}</td>
-      <td className={`${cell} row-help`} data-compute-note="">
+      <td className={`${cell} row-help whitespace-normal`} data-compute-note="">
         {row.note}
       </td>
     </tr>
