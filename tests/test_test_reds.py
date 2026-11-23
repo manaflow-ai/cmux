@@ -719,6 +719,80 @@ class ReportedFailuresAreAllNamed(unittest.TestCase):
                 self.assertEqual(self.unnamed(*reds.lines_of(path.read_text())), [])
 
 
+# One `test result:` summary, as cargo's libtest prints it per test binary.
+def cargo_summary(passed: int, failed: int, filtered: int = 0) -> str:
+    return (f"test result: {'FAILED' if failed else 'ok'}. {passed} passed; {failed} failed; 0 ignored; "
+            f"0 measured; {filtered} filtered out; finished in 1.00s")
+
+
+# The live shape of cmux#50814's step: a binary that names its one failure, then the lib target's 16 names, then a
+# single-test rerun binary's summary, then the lib target's own `15 failed` summary, then the integration target's
+# names and summary. 20 names against 1 + 1 + 15 + 3 = 20 reported.
+LIVE_MULTI_TARGET = ["test session_hibernate::idle_sessions_hibernate_at_once ... FAILED",
+                     cargo_summary(855, 1),
+                     *[f"test gauges::tests::case_{n} ... FAILED" for n in range(16)],
+                     cargo_summary(0, 1, 6945),
+                     cargo_summary(6854, 15),
+                     *[f"test hub::origin_tests::case_{n} ... FAILED" for n in range(3)],
+                     cargo_summary(320, 3)]
+
+
+class SeveralSummariesInOneStepAreOneTally(unittest.TestCase):
+    """cmux#50814 (run 45075034049, job `acpmux tests (lib, hub_integration)`): one `cargo test -p acpmux --lib
+    --test hub_integration` step prints a `test result:` summary per test binary, and cargo buffers each binary's
+    block, so the names between two summaries are not the names of the summary that follows them. With a per-summary
+    reset a small rerun summary (`0 passed; 1 failed; ...; 6945 filtered out`) swallowed the 16 names the lib target
+    had printed and left its own `15 failed` summary with none, so the step read as a failure no parser names and no
+    multi-target cargo job could ever be excused as a base red. Each runner's summaries are now one cumulative tally
+    over the step: totals summed, names drawn from the pool no earlier summary accounted for. Detector:
+    `tests/test_test_reds.py` `SeveralSummariesInOneStepAreOneTally`, with
+    `ReportedFailuresAreAllNamed.test_a_summary_counting_more_than_its_runner_named_is_unnamed` (one summary) and
+    `CargoBinariesPrintTheirSummary` (a cut-short run)."""
+
+    def unnamed(self, *lines):
+        found: list = []
+        reds.failed_tests(list(lines), found)
+        return found
+
+    def test_a_multi_target_step_whose_names_are_all_present_is_named(self):
+        self.assertEqual(self.unnamed(*LIVE_MULTI_TARGET), [])
+        found = reds.read(log(*LIVE_MULTI_TARGET))
+        self.assertEqual((found.unnamed, found.truncated), ([], []))
+        self.assertEqual(sum(reds.failed_in(log(*LIVE_MULTI_TARGET)).values()), 20)
+
+    def test_a_multi_target_step_is_judged_on_the_sum_not_the_last_summary(self):
+        # The last summary alone is fully named; the step is not, because one failure of an earlier summary is not.
+        lines = [*LIVE_MULTI_TARGET[:-4], "test hub::origin_tests::case_0 ... FAILED", cargo_summary(320, 3)]
+        self.assertEqual(self.unnamed(*lines), [cargo_summary(320, 3)])
+
+    def test_an_unnamed_failure_in_a_multi_target_step_still_refuses(self):
+        # cargo's doctest line (`test src/lib.rs - f (line 3) ... FAILED`) is named by no parser: the step reports 21
+        # failures and names 20, so it is refused however many summaries it has.
+        lines = [*LIVE_MULTI_TARGET[:-1], "test src/lib.rs - f (line 3) ... FAILED", cargo_summary(320, 4)]
+        self.assertEqual(self.unnamed(*lines), [cargo_summary(320, 4)])
+
+    def test_a_later_summarys_names_never_cover_an_earlier_unnamed_failure(self):
+        # A deficit never carries: the first summary reports 2 with one name, and the names the next binary prints
+        # afterwards are not its. (A surplus does carry: that is what the live shape needs.)
+        lines = ["test a::one ... FAILED", cargo_summary(0, 2),
+                 "test b::one ... FAILED", "test b::two ... FAILED", cargo_summary(0, 2)]
+        self.assertEqual(self.unnamed(*lines), [cargo_summary(0, 2)])
+
+
+class CargoBinariesPrintTheirSummary(unittest.TestCase):
+    """A multi-target step cut short -- a test binary killed before its `test result:` line -- is never a base red,
+    whatever the summaries that did print tally to. Detector: `tests/test_test_reds.py`
+    `CargoBinariesPrintTheirSummary`."""
+
+    def test_a_binary_with_no_summary_leaves_the_results_not_whole(self):
+        lines = ["running 2 tests", "test a::one ... FAILED", cargo_summary(1, 1),
+                 "running 3 tests", "test b::one ... FAILED"]
+        found = reds.read(log(*lines))
+        self.assertEqual(found.unnamed, [])  # the tally balances; the missing summary is what refuses
+        self.assertTrue(any("printed no `test result:` line" in why for why in found.truncated), found.truncated)
+        self.assertTrue(reds.classify(log(*lines), log(*lines), "acpmux tests").own)
+
+
 # One bun invocation of test/a.test.ts: RESULTS printed in the run, the recap (`N tests failed:`) of RECAP titles, and
 # bun's ` N fail` count.
 def bun_invocation(results=(), recap=(), fail=None):
