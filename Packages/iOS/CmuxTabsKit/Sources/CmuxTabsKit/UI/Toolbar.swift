@@ -58,6 +58,8 @@ struct TabsToolbar: View {
     var size: CGSize
     var safeBottom: CGFloat
     var keyboard: CGFloat
+    /// Moves the tabs circle into the host's top chrome while the page is open.
+    var tabsButtonAtTop = false
     /// Long-press menus on back and forward (nil: none).
     var history: ((TabsKitHistoryDirection) -> [TabsKitHistoryItem])?
     var onHistoryItem: (TabsKitHistoryItem) -> Void
@@ -137,10 +139,10 @@ struct TabsToolbar: View {
                 .position(x: layout.capsule.midX, y: layout.capsule.midY)
             rightButton(layout.right)
                 .scaleEffect(collapsed ? 0.8 : 1)
-                .opacity(chrome.editing ? 1 : sideOpacity)
+                .opacity(chrome.editing || !tabsButtonAtTop ? (chrome.editing ? 1 : sideOpacity) : 0)
                 .position(x: layout.right.midX, y: layout.right.midY)
-                .allowsHitTesting(chrome.editing || sideOpacity > 0)
-                .accessibilityHidden(!chrome.editing && sideOpacity == 0)
+                .allowsHitTesting(!tabsButtonAtTop && (chrome.editing || sideOpacity > 0) || tabsButtonAtTop && chrome.editing)
+                .accessibilityHidden(!chrome.editing && (sideOpacity == 0 || tabsButtonAtTop))
         }
         .frame(width: size.width, height: size.height, alignment: .topLeading)
         .background(alignment: .topLeading) {
@@ -492,6 +494,49 @@ struct TabsToolbar: View {
                 withAnimation(theme.motion.resolve(.easeOut(duration: 0.25))) { progressOpacity = 0 }
             }
         }
+    }
+}
+
+/// The workspace controls kept above the page so Back and Tabs remain reachable
+/// while an agent chat's composer owns the keyboard.
+struct TabsTopChrome: View {
+    let onBack: () -> Void
+    let onTabs: () -> Void
+    let safeTop: CGFloat
+    let size: CGSize
+    @Environment(\.tabsKitTheme) private var theme
+
+    var body: some View {
+        HStack {
+            Button(action: onBack) {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 19, weight: .medium))
+                    .frame(width: theme.metrics.control, height: theme.metrics.control)
+                    .contentShape(.circle)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(theme.colors.label)
+            .glassEffect(.regular.interactive(), in: .circle)
+            .accessibilityLabel("Back")
+            .accessibilityIdentifier("workspace.back")
+
+            Spacer(minLength: 0)
+
+            Button(action: onTabs) {
+                Image(systemName: "square.on.square")
+                    .font(.system(size: 22.2, weight: .regular))
+                    .frame(width: theme.metrics.control, height: theme.metrics.control)
+                    .contentShape(.circle)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(theme.colors.label)
+            .glassEffect(.regular.interactive(), in: .circle)
+            .accessibilityLabel("Tabs")
+            .accessibilityIdentifier("workspace.tabs")
+        }
+        .padding(.top, safeTop + 8)
+        .padding(.horizontal, theme.metrics.sideInset)
+        .frame(width: size.width, height: size.height, alignment: .top)
     }
 }
 

@@ -75,7 +75,7 @@ public struct WorkspaceScreen: View {
     private var source: WorkspaceTabsSource { holder.source(makeSource) }
 
     public var body: some View {
-        TabsView(source: source, isShowingOverview: $showsGrid)
+        TabsView(source: source, isShowingOverview: $showsGrid, showsTopChrome: true, onTopBack: { source.exit() })
             .tabsKitTheme(.mobile)
             // The overview shows as many columns as the page's width fits (Rust's
             // `overview_columns`): two on a phone, more on an unfolded screen.

@@ -13,13 +13,21 @@ import UIKit
 public struct TabsView<Source: TabsDataSource>: View {
     let source: Source
     let isShowingOverview: Binding<Bool>?
+    /// When true, the workspace controls stay at the top while the page's
+    /// accessory and address capsule remain above the keyboard.
+    let showsTopChrome: Bool
+    /// The leading top control's action, normally the host's workspace exit.
+    let onTopBack: () -> Void
 
     /// `isShowingOverview`: optional two-way binding to the tab grid. Set it
     /// to open or close the grid with the same zoom as the tabs button; the
     /// kit sets it when the user opens or closes the grid.
-    public init(source: Source, isShowingOverview: Binding<Bool>? = nil) {
+    public init(source: Source, isShowingOverview: Binding<Bool>? = nil, showsTopChrome: Bool = false,
+                onTopBack: @escaping () -> Void = {}) {
         self.source = source
         self.isShowingOverview = isShowingOverview
+        self.showsTopChrome = showsTopChrome
+        self.onTopBack = onTopBack
     }
 
     public var body: some View {
@@ -30,7 +38,8 @@ public struct TabsView<Source: TabsDataSource>: View {
             GeometryReader { outer in
                 GeometryReader { full in
                     let kb = withKeyboard.safeAreaInsets.bottom
-                    TabsScreen(source: source, isShowingOverview: isShowingOverview, size: full.size, safeTop: outer.safeAreaInsets.top,
+                    TabsScreen(source: source, isShowingOverview: isShowingOverview, showsTopChrome: showsTopChrome,
+                               onTopBack: onTopBack, size: full.size, safeTop: outer.safeAreaInsets.top,
                                safeBottom: outer.safeAreaInsets.bottom,
                                keyboard: kb > outer.safeAreaInsets.bottom + 1 ? kb : 0)
                 }
@@ -44,6 +53,8 @@ public struct TabsView<Source: TabsDataSource>: View {
 struct TabsScreen<Source: TabsDataSource>: View {
     let source: Source
     let isShowingOverview: Binding<Bool>?
+    let showsTopChrome: Bool
+    let onTopBack: () -> Void
     let size: CGSize
     let safeTop: CGFloat
     let safeBottom: CGFloat
@@ -196,6 +207,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
             // accessibility tools list hidden views too).
             if zoomState.phase != .overview {
             TabsToolbar(chrome: chrome, tab: activeTab, size: size, safeBottom: safeBottom, keyboard: keyboard,
+                        tabsButtonAtTop: showsTopChrome,
                         history: source.providesHistoryMenus ? { direction in
                             activeID.map { source.history(direction, for: $0) } ?? []
                         } : nil,
@@ -212,6 +224,13 @@ struct TabsScreen<Source: TabsDataSource>: View {
                 // Usable on the page, and while a zoom heads back to the page
                 // (the tabs button then reverses it).
                 .allowsHitTesting(!chrome.menuOpen && (zoomState.pageInteractive || (zoomState.phase == .animating && !zoomState.headingToOverview)))
+            }
+
+            if showsTopChrome, zoomState.phase != .overview {
+                TabsTopChrome(onBack: onTopBack, onTabs: openOverview, safeTop: safeTop, size: size)
+                    .opacity(1 - overviewShown)
+                    .allowsHitTesting(!chrome.menuOpen && (zoomState.pageInteractive ||
+                        (zoomState.phase == .animating && !zoomState.headingToOverview)))
             }
 
             // Kept mounted (transparent) so the droplet starts growing on
