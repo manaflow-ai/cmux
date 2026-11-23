@@ -39,6 +39,6 @@
     "stable-next.yml:slack-smoke-26": "a nightly, dev or promote delivery workflow: its behaviour stays its owner's call (2026-11-18 brief: timeouts only); left for the owner to move to !cancelled()",
     "stable-next.yml:slack-smoke-27": "a nightly, dev or promote delivery workflow: its behaviour stays its owner's call (2026-11-18 brief: timeouts only); left for the owner to move to !cancelled()",
     "stable-next.yml:slack-soak": "a nightly, dev or promote delivery workflow: its behaviour stays its owner's call (2026-11-18 brief: timeouts only); left for the owner to move to !cancelled()",
-    "web-validation.yml:web-validation": "the web rollup gate: on a cancel it must run and fail closed, because a skipped gate reads as passing (tests/test_ci_portable_job_placement.py holds it)"
+    "web-validation.yml:web-validation": "the web rollup gate: on a cancel it must run and fail closed, because a skipped gate reads as passing (tests/test_ci_routed_jobs_check_needs.py holds it)"
   }
 }

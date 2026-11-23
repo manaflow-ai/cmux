@@ -2676,12 +2676,13 @@ impl ChildAgent {
     }
 
     /// Takes custody of `link`'s harness (`agent_host/custody.rs`) in the background, when the
-    /// holder is on and this agent has none of that host yet. Best effort: without it, a host that
-    /// dies cuts the turn as before.
+    /// holder is on, the host can hold (not a translated or bridged harness,
+    /// `HostRecord::may_hold`) and this agent has none of that host yet. Best effort: without it,
+    /// a host that dies cuts the turn as before.
     #[cfg(unix)]
     fn take_custody(self: &Arc<Self>, link: &Arc<crate::agent_host::link::Link>) {
         let Some(hosted) = &self.hosted else { return };
-        if !crate::agent_host::custody::holder_on() {
+        if !crate::agent_host::custody::holder_on() || !link.record.may_hold() {
             return;
         }
         let held = hosted.custody.lock_or_recover().clone();
