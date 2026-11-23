@@ -338,10 +338,6 @@ pub(crate) fn publish_pty_output(host: &HostShared, bytes: &[u8]) -> bool {
 // perf-hot: 1us terminal-host-output (every PTY read)
 fn publish_pty_frame(host: &HostShared, bytes: &[u8]) -> bool {
     let count = bytes.len();
-    // The daemon's mirror sets the drain's pace (it parses slower than a
-    // flood drains): wait for room in its queue before taking any lock, so a
-    // resize or a new client never waits behind the mirror.
-    host.smart.wait_for_owner_room(crate::terminal_host_protocol::HEADER_LEN.saturating_add(count));
     let _source_order = host.source_order_lock.lock().recover_poison();
     host.parser_budget.reserve(count);
     // Publication deliberately precedes parser enqueue. The bounded queue

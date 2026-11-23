@@ -355,28 +355,7 @@ pub(crate) struct HostTap {
     pub(crate) queued_output_bytes: Arc<AtomicUsize>,
     pub(crate) shutdown: Arc<HostStream>,
     pub(crate) max_queued_bytes: usize,
-    /// Set for the daemon's own mirror (the owner's smart admin
-    /// connection): the PTY reader waits for room in this tap's output queue
-    /// ([`SmartStreamState::wait_for_owner_room`]) instead of cutting it off
-    /// 8 MiB behind. `None` for every other client, which keeps the cutoff.
-    pub(crate) room: Option<Arc<TapRoom>>,
 }
-
-/// Wakes a PTY reader that waits for room in a backpressured tap: its
-/// writer notifies after every write it releases.
-#[derive(Default)]
-pub(crate) struct TapRoom {
-    pub(crate) lock: Mutex<()>,
-    pub(crate) freed: Condvar,
-}
-
-/// The longest the PTY reader waits for the daemon's mirror to make room in
-/// its 8 MiB output queue. A mirror that drains (about 100-140 MB/s under a
-/// flood, 8 MiB in under 100 ms) never comes near it; one that stops for
-/// longer is cut off and resyncs from a snapshot, as every client was before.
-pub(crate) const OWNER_BACKPRESSURE_MAX_WAIT: Duration = Duration::from_secs(1);
-/// One slice of that wait: a tap that left the map stops the wait within it.
-const OWNER_BACKPRESSURE_SLICE: Duration = Duration::from_millis(5);
 
 impl HostTap {
     pub(crate) fn new(
@@ -390,20 +369,7 @@ impl HostTap {
             queued_output_bytes: Arc::new(AtomicUsize::new(0)),
             shutdown,
             max_queued_bytes,
-            room: None,
         }
-    }
-
-    /// This tap backpressures the PTY reader instead of being cut off.
-    pub(crate) fn with_backpressure(mut self) -> Self {
-        self.room = Some(Arc::new(TapRoom::default()));
-        self
-    }
-
-    /// True when `retained` more output bytes would not fit the output queue.
-    fn output_full(&self, retained: usize) -> bool {
-        self.queued_output_bytes.load(Ordering::Acquire).saturating_add(retained)
-            > MAX_HOST_CLIENT_OUTPUT_QUEUED_BYTES
     }
 
     pub(crate) fn try_reserve(counter: &AtomicUsize, retained: usize, limit: usize) -> bool {
@@ -465,12 +431,6 @@ impl HostTap {
         self.queued_bytes.fetch_sub(retained, Ordering::AcqRel);
         if frame.kind == MessageKind::Output {
             self.queued_output_bytes.fetch_sub(retained, Ordering::AcqRel);
-            if let Some(room) = &self.room {
-                // Under the lock, so a reader between its check and its wait
-                // cannot miss this wake.
-                let _room = room.lock.lock().recover_poison();
-                room.freed.notify_all();
-            }
         }
     }
 
@@ -546,40 +506,6 @@ impl SmartStreamState {
         self.retained.lock().recover_poison().push(frame.clone());
         self.taps.lock().recover_poison().retain(|_, tap| tap.try_send(frame.clone()));
         (cursor, frame)
-    }
-
-    /// Called by the PTY reader before it publishes `retained` bytes of
-    /// Output, holding no lock: waits until every backpressured tap (the
-    /// daemon's mirror) has room for them, so the reader drains the PTY at
-    /// the mirror's pace instead of cutting the mirror off 8 MiB behind and
-    /// losing the bytes in between. Each such tap then holds at most
-    /// `MAX_HOST_CLIENT_OUTPUT_QUEUED_BYTES` of output, as before. The wait
-    /// ends after [`OWNER_BACKPRESSURE_MAX_WAIT`]; the publish that follows
-    /// then cuts the tap off as it does every other client. Only the PTY
-    /// reader publishes Output, so the room it waited for is still there.
-    pub(crate) fn wait_for_owner_room(&self, retained: usize) {
-        self.wait_for_owner_room_until(retained, Instant::now() + OWNER_BACKPRESSURE_MAX_WAIT);
-    }
-
-    pub(crate) fn wait_for_owner_room_until(&self, retained: usize, deadline: Instant) {
-        loop {
-            let full = self.taps.lock().recover_poison().values().find_map(|tap| {
-                tap.room
-                    .as_ref()
-                    .filter(|_| tap.output_full(retained))
-                    .map(|room| (tap.clone(), room.clone()))
-            });
-            let Some((tap, room)) = full else { return };
-            let now = Instant::now();
-            if now >= deadline {
-                return;
-            }
-            let slice = deadline.saturating_duration_since(now).min(OWNER_BACKPRESSURE_SLICE);
-            let guard = room.lock.lock().recover_poison();
-            if tap.output_full(retained) {
-                let _ = room.freed.wait_timeout(guard, slice).recover_poison();
-            }
-        }
     }
 
     pub(crate) fn publish_after_targeted(

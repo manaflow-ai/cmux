@@ -84,7 +84,6 @@ fn changing_defaults_forces_smart_renderers_to_a_fresh_snapshot() {
                 queued_output_bytes: Arc::new(AtomicUsize::new(0)),
                 shutdown: Arc::new(host_socket),
                 max_queued_bytes: usize::MAX,
-                room: None,
             },
         )
         .unwrap();
@@ -126,7 +125,6 @@ fn repeating_defaults_does_not_resync_smart_renderers() {
                 queued_output_bytes: Arc::new(AtomicUsize::new(0)),
                 shutdown: Arc::new(host_socket),
                 max_queued_bytes: usize::MAX,
-                room: None,
             },
         )
         .unwrap();
@@ -196,7 +194,6 @@ fn smart_attach_replays_source_bytes_ahead_of_parser_boundary_exactly_once() {
         queued_output_bytes: Arc::new(AtomicUsize::new(0)),
         shutdown: Arc::new(host_socket),
         max_queued_bytes: usize::MAX,
-        room: None,
     };
     let boundary = state.subscribe(7, tap).unwrap();
     assert_eq!(boundary, 0);
@@ -261,7 +258,6 @@ fn smart_attach_cannot_miss_exit_between_dead_check_and_subscribe() {
         queued_output_bytes: Arc::new(AtomicUsize::new(0)),
         shutdown: Arc::new(host_socket),
         max_queued_bytes: usize::MAX,
-        room: None,
     };
     assert_eq!(host.smart.subscribe(7, tap).unwrap(), 0);
     drop(term);
@@ -299,7 +295,6 @@ fn smart_retention_drops_applied_frames_and_still_replays_the_rest() {
         queued_output_bytes: Arc::new(AtomicUsize::new(0)),
         shutdown: Arc::new(host_socket),
         max_queued_bytes: usize::MAX,
-        room: None,
     };
     assert_eq!(state.subscribe(11, tap).unwrap(), 2);
     let replayed = receiver.try_recv().unwrap();
@@ -323,7 +318,6 @@ fn smart_attach_reports_retention_gap_instead_of_silent_corruption() {
         queued_output_bytes: Arc::new(AtomicUsize::new(0)),
         shutdown: Arc::new(host_socket),
         max_queued_bytes: usize::MAX,
-        room: None,
     };
     let gap = state.subscribe(9, tap).unwrap_err();
     assert_eq!(gap, SmartReplayGap::Retention { requested_after: 0, retained_after: 1 });
@@ -343,7 +337,6 @@ fn smart_attach_distinguishes_subscriber_queue_overflow() {
         queued_output_bytes: Arc::new(AtomicUsize::new(0)),
         shutdown: Arc::new(host_socket),
         max_queued_bytes: 0,
-        room: None,
     };
 
     let gap = state.subscribe(10, tap).unwrap_err();
@@ -367,7 +360,6 @@ fn smart_noisy_neighbor_is_evicted_without_stalling_other_renderers() {
                 queued_output_bytes: Arc::new(AtomicUsize::new(0)),
                 shutdown: Arc::new(host_socket),
                 max_queued_bytes: capacity * (crate::terminal_host_protocol::HEADER_LEN + 1),
-                room: None,
             },
             receiver,
         )
@@ -396,7 +388,6 @@ fn smart_failed_transition_is_closed_by_applied_resync_boundary() {
         queued_output_bytes: Arc::new(AtomicUsize::new(0)),
         shutdown: Arc::new(host_socket),
         max_queued_bytes: usize::MAX,
-        room: None,
     };
     state.subscribe(1, tap).unwrap();
 
@@ -424,7 +415,6 @@ fn parser_output_send_failure_closes_published_transition() {
                 queued_output_bytes: Arc::new(AtomicUsize::new(0)),
                 shutdown: Arc::new(host_socket),
                 max_queued_bytes: usize::MAX,
-                room: None,
             },
         )
         .unwrap();
