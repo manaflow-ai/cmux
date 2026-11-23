@@ -40,11 +40,11 @@ use cmux_remote::link::FrameLink;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::sync::{Notify, Semaphore, mpsc, oneshot};
 
-use super::CircuitService;
 use super::{
     CHUNK_BYTES, DUPLEX_BYTES, HubStream, Incoming, SERVICE_HELLO, ServiceRefusal, Stats,
     connect_session, named_service, read_service_answer, service_answer,
 };
+use super::{CircuitLane as Lane, CircuitService};
 
 const OPEN: u8 = 1;
 const ANSWER: u8 = 2;
@@ -566,18 +566,18 @@ pub(crate) struct Kept {
     pub(crate) no_mux_until: Option<Instant>,
 }
 
-/// Every kept circuit of a carrier, by machine (`daemonId`).
+/// Every kept circuit of a carrier, by machine (`daemonId`) and [`Lane`](super::CircuitLane).
 #[derive(Default)]
 pub(crate) struct KeptCircuits {
-    by_machine: Mutex<HashMap<String, Arc<tokio::sync::Mutex<Kept>>>>,
+    by_machine: Mutex<HashMap<(String, Lane), Arc<tokio::sync::Mutex<Kept>>>>,
 }
 
 impl KeptCircuits {
-    pub(crate) fn slot(&self, daemon: &str) -> Arc<tokio::sync::Mutex<Kept>> {
+    pub(crate) fn slot(&self, daemon: &str, lane: Lane) -> Arc<tokio::sync::Mutex<Kept>> {
         self.by_machine
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .entry(daemon.to_owned())
+            .entry((daemon.to_owned(), lane))
             .or_default()
             .clone()
     }
@@ -597,11 +597,15 @@ impl KeptCircuits {
         }
     }
 
-    /// The live kept circuit to `daemon`, if one is open now.
-    pub(crate) fn live(&self, daemon: &str) -> Option<Arc<Mux>> {
-        let slot = self.by_machine.lock().unwrap_or_else(|e| e.into_inner()).get(daemon)?.clone();
-        let kept = slot.try_lock().ok()?;
-        kept.live.clone().filter(|mux| !mux.is_closed())
+    /// The live kept circuits to `daemon` open now, cheap first.
+    pub(crate) fn live(&self, daemon: &str) -> Vec<Arc<Mux>> {
+        let by_machine = self.by_machine.lock().unwrap_or_else(|e| e.into_inner());
+        [Lane::Cheap, Lane::Bulk]
+            .into_iter()
+            .filter_map(|lane| by_machine.get(&(daemon.to_owned(), lane)).cloned())
+            .filter_map(|slot| slot.try_lock().ok()?.live.clone())
+            .filter(|mux| !mux.is_closed())
+            .collect()
     }
 }
 
@@ -637,11 +641,19 @@ mod live {
             shown: relay.shown(),
         });
         let key = crate::mesh_node_key::read_noise_static(&home).unwrap();
-        let carrier = HubCarrier::new(tickets.clone(), *key, Timings::default());
+        // CARRIER_STAGES_FRESH=1: a new carrier per run, so every dial is a first one (no kept
+        // ticket, no kept circuit): the cold dial before cut 5's ticket cache.
+        let fresh = std::env::var_os("CARRIER_STAGES_FRESH").is_some();
+        let mut carrier = HubCarrier::new(tickets.clone(), *key, Timings::default());
         let ms = |d: Duration| format!("{:.0}", d.as_secs_f64() * 1e3);
         for run in 0..runs {
             // A raw TCP connect to the relay the ticket names, to split TCP from TLS+WS+allocate.
             let answer = tickets.connect(&peer).await.unwrap();
+            let now_s = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs();
+            eprintln!("CARRIER-STAGES ticket expires_at={} now={now_s}", answer.expires_at);
             let url = url::Url::parse(&answer.relay).unwrap();
             let target = format!("{}:{}", url.host_str().unwrap(), url.port().unwrap_or(443));
             let started = Instant::now();
@@ -649,6 +661,9 @@ mod live {
             let tcp_ms = started.elapsed();
             drop(tcp);
 
+            if fresh {
+                carrier = HubCarrier::new(tickets.clone(), *key, Timings::default());
+            }
             let started = Instant::now();
             let (secure, stages) = carrier.open_circuit(&peer).await.unwrap();
             let step = Instant::now();

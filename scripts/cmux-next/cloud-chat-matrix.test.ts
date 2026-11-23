@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { CELLS, PICKER_HARNESSES, appStartDetail, judge, table } from "./cloud-chat-matrix";
+import { JOURNEY_ONLY_STEPS } from "./cloud-journey";
 
 const cell = (id: string) => CELLS.find((c) => c.id === id)!;
 const pass = (step: string, ms = 1000, detail = "") => ({ step, status: "pass" as const, ms, detail });
@@ -19,6 +20,26 @@ test("a hung Codex reply is a failure that names the step", () => {
   const row = judge(cell("codex-model-plane"), [pass("start agent (codex)"), fail("reply", 305357, "no reply within 300 s; last: ")], 1);
   expect(row.verdict).toBe("fail");
   expect(row.why).toStartWith("reply: no reply within 300 s");
+});
+
+test("the live Codex GitHub cell uses the ChatGPT auth row", () => {
+  const c = cell("codex-github-live");
+  expect(c.agent).toBe("codex");
+  expect(c.args).toEqual(["--agent", "codex"]);
+  expect(c.needs?.env).toEqual(["CODEX_AUTH_JSON", "CMUX_JOURNEY_GITHUB_REPO"]);
+  // Its proof steps are the journey's own names.
+  for (const name of c.must ?? []) expect(JOURNEY_ONLY_STEPS as readonly string[]).toContain(name);
+});
+
+test("the live GitHub cell fails, never passes, when its GitHub steps were skipped", () => {
+  const c = cell("codex-github-live");
+  const chat = [pass("create machine"), pass("reply", 1000, "ok")];
+  const skipped = { step: "GitHub by the agent (live)", status: "skip" as const, ms: 0, detail: "CMUX_JOURNEY_GITHUB_REPO is not set" };
+  const row = judge(c, [...chat, pass("GitHub on the machine (live)"), skipped], 0);
+  expect(row.verdict).toBe("fail");
+  expect(row.why).toBe("GitHub by the agent (live) did not run: CMUX_JOURNEY_GITHUB_REPO is not set");
+  expect(judge(c, chat, 0).why).toBe("GitHub on the machine (live) did not run: not run");
+  expect(judge(c, [...chat, pass("GitHub on the machine (live)"), pass("GitHub by the agent (live)")], 0).verdict).toBe("pass");
 });
 
 test("a signed-out agent passes only by failing fast with its sign-in error", () => {
