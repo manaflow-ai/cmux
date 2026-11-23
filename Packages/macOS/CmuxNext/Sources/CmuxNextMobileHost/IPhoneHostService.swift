@@ -159,9 +159,7 @@ public final class IPhoneHostService {
     private(set) var phonesError: String?
     /// The phones the signed-in user allowed on this Mac (cmux-next-ios verify/phone-approvals.md).
     /// Settings > Mobile marks them; Remove (or ``revokePhone(id:)``) forgets one.
-    internal(set) var paired: MobileHostPairedDevices? {
-        didSet { updateKeepAwake() }
-    }
+    internal(set) var paired: MobileHostPairedDevices? { didSet { updateKeepAwake() } }
     public let pairedStore: MobileHostPairedStore
     /// The app's one guard of the Keychain UI switch (this Mac's identity key).
     private let loginKeychain: LoginKeychain
@@ -567,12 +565,6 @@ public final class IPhoneHostService {
             guard let self, self.running == nil else { return }
             self.reconcile()
         }
-    }
-
-    /// Idle sleep is held off only while a phone this account allowed can reach this Mac: phone
-    /// access is on by default, so a Mac with no paired phone sleeps as it would without cmux.
-    func updateKeepAwake() {
-        setKeepAwake(allowed && account != nil && !removed && !(paired?.hostdDevices.isEmpty ?? true))
     }
 
     private func reconcile() {
