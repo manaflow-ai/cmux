@@ -87,7 +87,23 @@ type Props = {
   working?: boolean;
   /// The messages under the line ("157 new messages"); 0 for a line not counted yet ("New").
   count?: number;
+  /// The next row is a "Background task finished" line, no Worked for divider: the mark draws its own
+  /// rule, centred in the gap (manaflow-ai/cmux#51747).
+  task?: boolean;
 };
+
+/// A "Background task finished" line (BackgroundTurnLine.tsx), the turn's tail: 8 px under the row
+/// above (transcriptSpacing.ts), no divider of its own.
+function TaskLine() {
+  return (
+    <p className="cv-task-line" style={{ margin: 0, color: "var(--agent-muted)", lineHeight: "20px" }}>
+      Background task finished: Submit the fix build
+    </p>
+  );
+}
+
+/// The gap from the row above to a turn's tail line (transcriptSpacing.ts, "Lone system rows").
+const TAIL_GAP = 8;
 
 /// The gap between the seen turn and the next (the transcript's turn gap), which the line lies over.
 const TURN_GAP = 32;
@@ -102,7 +118,9 @@ function UnreadLooks({
   none = false,
   working = false,
   count = 157,
+  task = false,
 }: Props) {
+  const gap = task ? TAIL_GAP : TURN_GAP;
   return (
     <div
       className="acpmux-shell"
@@ -147,7 +165,14 @@ function UnreadLooks({
             right: 0,
             minHeight: 0,
             paddingBottom: 0,
-            "--cv-since-gap": `${TURN_GAP}px`,
+            // As in the transcript, the 0 px row takes no gap above it: its top is the row above's
+            // end, so the gap it reads is the whole space between the two rows (#51747).
+            // In the transcript the row is placed absolutely and keeps its 34 px box (.acpmux-row's
+            // min-height), which its paint containment clips to, so the mark paints over the gap
+            // under it. Here the box is that tall too, and the margin under it gives the height
+            // back to the grid; `alignSelf: start` keeps the grid from stretching it.
+            ...(task && { marginTop: -8, alignSelf: "start", height: 34, marginBottom: -34 }),
+            "--cv-since-gap": `${gap}px`,
           } as React.CSSProperties
         }
       >
@@ -168,10 +193,19 @@ function UnreadLooks({
         )}
       </div>
       <div
-        className={`acpmux-row ${working ? "acpmux-working" : "acpmux-worked"}`}
-        style={{ position: "relative", left: 0, right: 0, marginTop: TURN_GAP - 8 }}
+        className={`acpmux-row ${task ? "acpmux-system" : working ? "acpmux-working" : "acpmux-worked"}`}
+        // The stage's grid gap is 8; the margin makes the gap under the line's row the transcript's.
+        // Over a task line the line's row gave back the gap above it, so this row also gives back the
+        // gap under it: the task line sits `gap` under the reply, as in the transcript.
+        style={{
+          position: "relative",
+          left: 0,
+          right: 0,
+          marginTop: task ? gap - 16 : gap - 8,
+          ...(task && { minHeight: 0 }),
+        }}
       >
-        <Worked />
+        {task ? <TaskLine /> : <Worked />}
       </div>
       <Reply text="Missing fields now default instead of failing; I added a test for each one." />
       <Reply text="The fuzz corpus ran clean for 10 minutes. The PR is ready for review." />
@@ -237,6 +271,14 @@ export default componentEntry<Props>({
     "no-line-working": {
       note: "No line over the running turn's Working for line: where its divider sits.",
       props: { part: "line", theme: "dark", none: true, working: true },
+    },
+    "line-task": {
+      note: "B over a Background task finished line (no Worked for divider): its own rule, centred in the gap, New on the rule's centre line.",
+      props: { part: "line", theme: "dark", look: "worked", task: true },
+    },
+    "no-line-task": {
+      note: "No line over a Background task finished line: where the rows sit.",
+      props: { part: "line", theme: "dark", none: true, task: true },
     },
     "line-read": {
       note: "Read (dissipated after a moment on screen at a focused pane, or Mark read): nothing drawn, and nothing moved.",
