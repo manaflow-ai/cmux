@@ -34,6 +34,8 @@ pub(super) const BOOLEAN_FLAGS: &[&str] = &[
     // `workspace create --no-focus`: accepted and ignored (creation does not
     // move focus without `--focus`); agents pass it out of habit.
     "no-focus",
+    // `project actions --no-global`: without this it would swallow a following `--json`.
+    "no-global",
     // `agent list`: only the agents waiting on the person.
     "needs-me",
     // `terminal list --agents`: without this it would swallow a following `--json`.
