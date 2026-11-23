@@ -46,6 +46,7 @@ public struct CloudCLICall: Sendable {
             case let .failure(error): return Self.unreachable(String(describing: error))
             }
             // The request is parsed and re-encoded inside the envelope, so its bytes can never add a field of their own.
+            // main-actor-ok: runs in the returned @Sendable closure, not on the main actor; one relay request.
             let parsed = (try? JSONSerialization.jsonObject(with: request, options: .fragmentsAllowed)) ?? NSNull()
             let envelope: [String: Any] = ["api": api, "credential": credential.map { $0 as Any } ?? NSNull(), "request": parsed]
             guard let stdin = try? JSONSerialization.data(withJSONObject: envelope) else { return Self.unreachable("the request is not JSON") }
