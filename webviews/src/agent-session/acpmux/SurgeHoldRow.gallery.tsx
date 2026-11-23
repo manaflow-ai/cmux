@@ -15,6 +15,8 @@ import type { InboxMessage } from "./conversation/inboxNotice";
 /// (bottomStack.css), so it joins the composer where the stack joins and is its own card where the
 /// stack is gapped; `own-card` and `line` (SurgeHoldRow.gallery.css) are the alternatives that lost.
 type Design = "stack" | "own-card" | "line";
+/// The ways a listing fails, as the pane's relay and acpmux answer (conversation/surgeHold.ts `listFailure`).
+type Failing = "host" | "offline" | "daemon";
 
 type Props = {
   look?: SurgeRowLook;
@@ -24,8 +26,10 @@ type Props = {
   held: number;
   needYou: number;
   open?: boolean;
-  /// The listing's refusal, in acpmux's own words.
-  failing?: string;
+  /// How the listing fails.
+  failing?: Failing;
+  /// A listing that names no thread held (the daemon counts a surge but marks none yet).
+  unmarked?: boolean;
 };
 
 /// The chat the row sits over: the real composer under it, so the shot shows the row in the stack.
@@ -74,13 +78,33 @@ const THREADS = [
 ];
 
 const listThreads = async () => ({ surge: undefined, threads: THREADS });
-const failingList = (reason: string) => () => Promise.reject(new Error(reason));
+const unmarkedList = async () => ({ surge: undefined, threads: THREADS.map(({ surgeHeld: _, ...t }) => t) });
+const FAILURES: Record<Failing, unknown> = {
+  host: Object.assign(new Error("refused"), {
+    code: "transport.method_refused",
+    data: { origin: "native", method: "chat.inbox.threads" },
+  }),
+  offline: Object.assign(new Error("not connected"), { code: "native.not_connected" }),
+  daemon: Object.assign(new Error("inbox.other_session: only the person or the chat's own agent reads its inbox"), {
+    code: -32000,
+  }),
+};
 const readThread = async (threadId: string): Promise<InboxMessage[]> => {
   const thread = THREADS.find((t) => t.threadId === threadId)!;
   return [{ promptId: `${threadId}-1`, from: thread.from[0]!, at: thread.newestAt, text: thread.newestPreview }];
 };
 
-function Stage({ look = "counts", design = "stack", cards = false, held, needYou, open = false, failing }: Props) {
+function Stage({
+  look = "counts",
+  design = "stack",
+  cards = false,
+  held,
+  needYou,
+  open = false,
+  failing,
+  unmarked,
+}: Props) {
+  const list = failing ? () => Promise.reject(FAILURES[failing]) : unmarked ? unmarkedList : listThreads;
   useLayoutEffect(() => {
     if (!cards) return;
     const root = document.documentElement;
@@ -98,12 +122,13 @@ function Stage({ look = "counts", design = "stack", cards = false, held, needYou
         <div className="acpmux-dock">
           <SurgeHoldRow
             surge={{ held, needYou, seq: 1 }}
-            sessionId={`gallery-surge-${look}-${design}-${open}`}
-            listThreads={failing ? failingList(failing) : listThreads}
+            sessionId={`gallery-surge-${look}-${design}-${open}-${failing ?? ""}-${unmarked ?? ""}`}
+            listThreads={list}
             readThread={readThread}
             onOpenSender={() => undefined}
             look={look}
             initiallyOpen={open}
+            connected={failing !== "offline"}
           />
           {/* The losing arms never join, so nothing of the stack's join reaches them. */}
           {design === "stack" ? null : <i hidden />}
@@ -116,6 +141,11 @@ function Stage({ look = "counts", design = "stack", cards = false, held, needYou
 
 const listed: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-surge-threads .cv-inbox"));
+};
+const noted: Play = async (ctx) => {
+  await ctx.waitFor(() =>
+    ctx.document.querySelector('.acpmux-surge-failed[role="alert"], .acpmux-surge-note[data-empty]'),
+  );
 };
 
 export default componentEntry<Props>({
@@ -175,14 +205,25 @@ export default componentEntry<Props>({
       note: "Open on a surge where many need the person: the need-you filter beside held.",
       play: listed,
     },
-    "open-failed": {
-      props: {
-        held: 37,
-        needYou: 0,
-        open: true,
-        failing: "inbox.other_session: only the person or the chat's own agent reads its inbox",
-      },
-      note: "Open while acpmux refuses the listing: what failed, acpmux's own words as selectable text, and Try again; the row stays.",
+    "open-unmarked": {
+      props: { held: 100, needYou: 0, open: true, unmarked: true },
+      note: "Open while acpmux counts a surge but marks no thread held: says so, lists nothing (before, every inbox thread showed).",
+      play: noted,
+    },
+    "open-daemon-error": {
+      props: { held: 37, needYou: 0, open: true, failing: "daemon" },
+      note: "Open while acpmux refuses the listing: what failed, in acpmux's own words, and no button (Leo, 2026-11-22: a \"useless 'try again.'\"); it reads again on the next snapshot; the row stays.",
+      play: noted,
+    },
+    "open-host-refused": {
+      props: { held: 37, needYou: 0, open: true, failing: "host" },
+      note: "The app refuses the listing (an older cmux): says to update cmux; no button, a retry cannot help.",
+      play: noted,
+    },
+    "open-offline": {
+      props: { held: 37, needYou: 0, open: true, failing: "offline" },
+      note: "Not connected: says the list loads on reconnect; no button, it reads by itself.",
+      play: noted,
     },
   },
 });

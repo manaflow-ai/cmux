@@ -133,6 +133,7 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/draft_get": (["sessionId"], []),
         "_acpmux/draft_set": (["sessionId", "text"], []),
         "_acpmux/inbox_thread": (["sessionId", "threadId"], []),
+        "_acpmux/inbox_threads": (["sessionId"], []),
         "_acpmux/bookmark_get": (["sessionId"], []),
         "_acpmux/turn_shots": (["sessionId", "turnId"], []),
         "_acpmux/bookmark_set": (["sessionId", "seq", "bookmarked"], []),

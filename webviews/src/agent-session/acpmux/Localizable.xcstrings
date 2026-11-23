@@ -1222,6 +1222,666 @@
         }
       }
     },
+    "surge.failedHost": {
+      "comment": "Agent pane: the held messages could not be listed because the cmux app hosting the pane refused to pass the request to acpmux (this build's relay allowlist lacks it); updating cmux is the fix",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This cmux can't list held messages: its app doesn't pass the request to acpmux. Update cmux to see them."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يمكن لهذا الإصدار من cmux عرض الرسائل المحتجزة: لا يمرّر تطبيقه الطلب إلى acpmux. حدّث cmux لرؤيتها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ovaj cmux ne može prikazati zadržane poruke: njegova aplikacija ne prosljeđuje zahtjev acpmuxu. Ažurirajte cmux da ih vidite."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne cmux kan ikke vise tilbageholdte beskeder: appen sender ikke anmodningen videre til acpmux. Opdater cmux for at se dem."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieses cmux kann zurückgehaltene Nachrichten nicht auflisten: Die App leitet die Anfrage nicht an acpmux weiter. Aktualisiere cmux, um sie zu sehen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este cmux no puede mostrar los mensajes retenidos: su app no pasa la solicitud a acpmux. Actualiza cmux para verlos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ce cmux ne peut pas lister les messages en attente : son app ne transmet pas la requête à acpmux. Mettez cmux à jour pour les voir."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questo cmux non può elencare i messaggi trattenuti: la sua app non inoltra la richiesta ad acpmux. Aggiorna cmux per vederli."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "この cmux では保留中のメッセージを一覧できません。アプリがリクエストを acpmux に渡しません。表示するには cmux をアップデートしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux នេះមិនអាចបង្ហាញសារដែលបានរក្សាទុកបានទេ៖ កម្មវិធីរបស់វាមិនបញ្ជូនសំណើទៅ acpmux ទេ។ ធ្វើបច្ចុប្បន្នភាព cmux ដើម្បីមើលពួកវា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 cmux는 보류된 메시지를 표시할 수 없습니다. 앱이 요청을 acpmux에 전달하지 않습니다. 보려면 cmux를 업데이트하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne cmux kan ikke vise tilbakeholdte meldinger: appen sender ikke forespørselen videre til acpmux. Oppdater cmux for å se dem."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ten cmux nie może wyświetlić wstrzymanych wiadomości: jego aplikacja nie przekazuje żądania do acpmux. Zaktualizuj cmux, aby je zobaczyć."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este cmux não consegue listar as mensagens retidas: o app não repassa a solicitação ao acpmux. Atualize o cmux para vê-las."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Этот cmux не может показать отложенные сообщения: его приложение не передаёт запрос в acpmux. Обновите cmux, чтобы увидеть их."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux เวอร์ชันนี้แสดงข้อความที่พักไว้ไม่ได้ เพราะแอปไม่ส่งคำขอต่อไปยัง acpmux อัปเดต cmux เพื่อดูข้อความเหล่านั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu cmux bekletilen mesajları listeleyemiyor: uygulaması isteği acpmux'a iletmiyor. Görmek için cmux'ı güncelleyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Цей cmux не може показати відкладені повідомлення: його застосунок не передає запит до acpmux. Оновіть cmux, щоб побачити їх."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bản cmux này không liệt kê được tin nhắn đang giữ: ứng dụng không chuyển yêu cầu tới acpmux. Hãy cập nhật cmux để xem."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此版本的 cmux 无法列出暂存的消息：它的应用不会把请求转给 acpmux。请更新 cmux 后查看。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此版本的 cmux 無法列出暫存的訊息：它的 App 不會把請求轉給 acpmux。請更新 cmux 後查看。"
+          }
+        }
+      }
+    },
+    "surge.failedOld": {
+      "comment": "Agent pane: the held messages could not be listed because the acpmux daemon does not know the request (an older acpmux); updating cmux is the fix",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This acpmux can't list held messages yet. Update cmux to see them."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يستطيع acpmux هذا عرض الرسائل المحتجزة بعد. حدّث cmux لرؤيتها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ovaj acpmux još ne može prikazati zadržane poruke. Ažurirajte cmux da ih vidite."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne acpmux kan endnu ikke vise tilbageholdte beskeder. Opdater cmux for at se dem."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieses acpmux kann zurückgehaltene Nachrichten noch nicht auflisten. Aktualisiere cmux, um sie zu sehen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este acpmux aún no puede mostrar los mensajes retenidos. Actualiza cmux para verlos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cet acpmux ne peut pas encore lister les messages en attente. Mettez cmux à jour pour les voir."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questo acpmux non può ancora elencare i messaggi trattenuti. Aggiorna cmux per vederli."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "この acpmux はまだ保留中のメッセージを一覧できません。表示するには cmux をアップデートしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux នេះមិនទាន់អាចបង្ហាញសារដែលបានរក្សាទុកបានទេ។ ធ្វើបច្ចុប្បន្នភាព cmux ដើម្បីមើលពួកវា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 acpmux는 아직 보류된 메시지를 표시할 수 없습니다. 보려면 cmux를 업데이트하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne acpmux kan ikke vise tilbakeholdte meldinger ennå. Oppdater cmux for å se dem."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ten acpmux nie potrafi jeszcze wyświetlić wstrzymanych wiadomości. Zaktualizuj cmux, aby je zobaczyć."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este acpmux ainda não consegue listar as mensagens retidas. Atualize o cmux para vê-las."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Этот acpmux пока не умеет показывать отложенные сообщения. Обновите cmux, чтобы увидеть их."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux เวอร์ชันนี้ยังแสดงข้อความที่พักไว้ไม่ได้ อัปเดต cmux เพื่อดูข้อความเหล่านั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu acpmux bekletilen mesajları henüz listeleyemiyor. Görmek için cmux'ı güncelleyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Цей acpmux ще не вміє показувати відкладені повідомлення. Оновіть cmux, щоб побачити їх."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bản acpmux này chưa liệt kê được tin nhắn đang giữ. Hãy cập nhật cmux để xem."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此 acpmux 还不能列出暂存的消息。请更新 cmux 后查看。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此 acpmux 還不能列出暫存的訊息。請更新 cmux 後查看。"
+          }
+        }
+      }
+    },
+    "surge.failedOffline": {
+      "comment": "Agent pane: the held messages are not listed because the pane is not connected to acpmux; the list loads by itself when the chat reconnects",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not connected to acpmux. The list loads when the chat reconnects."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "غير متصل بـ acpmux. ستُحمَّل القائمة عند إعادة اتصال المحادثة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nema veze s acpmuxom. Lista se učitava kada se chat ponovo poveže."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ikke forbundet til acpmux. Listen indlæses, når chatten genopretter forbindelsen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Keine Verbindung zu acpmux. Die Liste lädt, sobald der Chat wieder verbunden ist."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sin conexión con acpmux. La lista se carga cuando el chat se vuelva a conectar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Non connecté à acpmux. La liste se charge quand la discussion se reconnecte."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Non connesso ad acpmux. L'elenco si carica quando la chat si riconnette."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux に接続されていません。チャットが再接続されると一覧を読み込みます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនបានភ្ជាប់ទៅ acpmux ទេ។ បញ្ជីនឹងផ្ទុកនៅពេលការជជែកភ្ជាប់ឡើងវិញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux에 연결되어 있지 않습니다. 채팅이 다시 연결되면 목록을 불러옵니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ikke koblet til acpmux. Listen lastes når chatten kobler til igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Brak połączenia z acpmux. Lista wczyta się, gdy czat połączy się ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sem conexão com o acpmux. A lista carrega quando o chat se reconectar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Нет подключения к acpmux. Список загрузится, когда чат переподключится."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่ได้เชื่อมต่อกับ acpmux รายการจะโหลดเมื่อแชทเชื่อมต่อใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux'a bağlı değil. Sohbet yeniden bağlandığında liste yüklenir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Немає з'єднання з acpmux. Список завантажиться, коли чат знову під'єднається."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chưa kết nối với acpmux. Danh sách sẽ tải khi cuộc trò chuyện kết nối lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "未连接到 acpmux。聊天重新连接后会加载列表。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "未連線到 acpmux。聊天重新連線後會載入清單。"
+          }
+        }
+      }
+    },
+    "surge.failedDaemon": {
+      "comment": "Agent pane: acpmux answered the held messages listing with an error; {why} is acpmux's own message, shown as it sent it",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "acpmux couldn't list the held messages: {why}"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعذّر على acpmux عرض الرسائل المحتجزة: {why}"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux nije mogao prikazati zadržane poruke: {why}"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux kunne ikke vise de tilbageholdte beskeder: {why}"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux konnte die zurückgehaltenen Nachrichten nicht auflisten: {why}"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux no pudo mostrar los mensajes retenidos: {why}"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux n'a pas pu lister les messages en attente : {why}"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux non è riuscito a elencare i messaggi trattenuti: {why}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux が保留中のメッセージを一覧できませんでした: {why}"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux មិនអាចបង្ហាញសារដែលបានរក្សាទុកបានទេ៖ {why}"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux가 보류된 메시지를 표시하지 못했습니다: {why}"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux kunne ikke vise de tilbakeholdte meldingene: {why}"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux nie mógł wyświetlić wstrzymanych wiadomości: {why}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O acpmux não conseguiu listar as mensagens retidas: {why}"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux не смог показать отложенные сообщения: {why}"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux แสดงข้อความที่พักไว้ไม่ได้: {why}"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux bekletilen mesajları listeleyemedi: {why}"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux не зміг показати відкладені повідомлення: {why}"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux không liệt kê được tin nhắn đang giữ: {why}"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux 无法列出暂存的消息：{why}"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux 無法列出暫存的訊息：{why}"
+          }
+        }
+      }
+    },
+    "surge.noneMarked": {
+      "comment": "Agent pane: the held messages panel's empty state when acpmux counts held messages but its inbox listing marks none of the threads as held",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "acpmux counts held messages but hasn't named which ones yet."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يحصي acpmux رسائل محتجزة لكنه لم يحدد أيّها بعد."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux broji zadržane poruke, ali još nije naveo koje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux tæller tilbageholdte beskeder, men har endnu ikke angivet hvilke."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux zählt zurückgehaltene Nachrichten, hat aber noch nicht gesagt, welche."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux cuenta mensajes retenidos, pero aún no ha indicado cuáles."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux compte des messages en attente, mais n'a pas encore indiqué lesquels."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux conta messaggi trattenuti, ma non ha ancora indicato quali."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux は保留中のメッセージを数えていますが、どれかはまだ示していません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux រាប់សារដែលបានរក្សាទុក ប៉ុន្តែមិនទាន់បញ្ជាក់ថាមួយណាទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux가 보류된 메시지 수를 세고 있지만 어떤 메시지인지는 아직 알려 주지 않았습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux teller tilbakeholdte meldinger, men har ikke oppgitt hvilke ennå."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux liczy wstrzymane wiadomości, ale jeszcze nie wskazał, które to są."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O acpmux conta mensagens retidas, mas ainda não indicou quais são."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux считает отложенные сообщения, но ещё не указал, какие именно."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux นับข้อความที่พักไว้แล้ว แต่ยังไม่ได้ระบุว่าเป็นข้อความใด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux bekletilen mesajları sayıyor ama hangileri olduğunu henüz belirtmedi."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux рахує відкладені повідомлення, але ще не вказав, які саме."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux đếm được tin nhắn đang giữ nhưng chưa cho biết là những tin nào."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux 统计了暂存的消息，但还没有指明是哪些。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux 統計了暫存的訊息，但還沒有指明是哪些。"
+          }
+        }
+      }
+    },
     "surge.more": {
       "comment": "Agent pane: the row under the held threads that shows more of them; {n} is how many more there are",
       "extractionState": "manual",

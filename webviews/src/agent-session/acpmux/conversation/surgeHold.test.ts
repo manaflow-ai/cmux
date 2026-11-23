@@ -1,7 +1,18 @@
 // l10n-allow-file: test fixtures.
 // The held surge's one row (surgeHold.ts): the newest snapshot by seq, the panel's threads and search.
 import { expect, test } from "bun:test";
-import { heldNotice, heldThreads, newerSurge, searchThreads, surgeCounts, surgeOfEvent, surgeShows } from "./surgeHold";
+import {
+  heldNotice,
+  heldThreads,
+  listFailure,
+  newerSurge,
+  retriesItself,
+  retryDelay,
+  searchThreads,
+  surgeCounts,
+  surgeOfEvent,
+  surgeShows,
+} from "./surgeHold";
 
 test("a held inbox event carries the cumulative snapshot; an ordinary inbox event carries none", () => {
   const msg = { surgeHeld: true, surge: { held: 12, needYou: 2 }, threadId: "from:lane", promptId: "p1" };
@@ -98,9 +109,10 @@ test("the daemon's needYou, not the urgent class, says which threads need the pe
   ]);
 });
 
-test("a listing that marks none lists every thread, newest first", () => {
+test("a listing that marks none lists none: the inbox's other threads are not held", () => {
   const unmarked = { threads: listing.threads.map(({ surgeHeld: _, ...rest }) => rest) };
-  expect(heldThreads(unmarked).map((t) => t.threadId)).toEqual(["pr:48001", "from:coord", "from:ci-bot"]);
+  expect(heldThreads(unmarked)).toEqual([]);
+  expect(heldThreads({ threads: [{ threadId: "t", newestAt: 1, held: true }] }).map((t) => t.threadId)).toEqual(["t"]);
   expect(heldThreads(null)).toEqual([]);
   expect(heldThreads({ threads: [null, { label: "no id" }] })).toEqual([]);
 });
@@ -116,8 +128,40 @@ test("search keeps threads holding every word in their label, senders or preview
 
 test("the panel draws a page of threads at a time", () => {
   const many = heldThreads({
-    threads: Array.from({ length: 45 }, (_, i) => ({ threadId: `t${i}`, newestAt: i, newestPreview: `m${i}` })),
+    threads: Array.from({ length: 45 }, (_, i) => ({
+      threadId: `t${i}`,
+      newestAt: i,
+      newestPreview: `m${i}`,
+      surgeHeld: true,
+    })),
   });
   expect(heldNotice(many, 20).threads.length).toBe(20);
   expect(heldNotice(many, 60).threads.length).toBe(45);
+});
+
+test("a failed listing names its cause, and only a transient one reads again by itself", () => {
+  const host = listFailure({ code: "transport.method_refused", data: { origin: "native" }, message: "refused" });
+  expect(host).toEqual({ kind: "host" });
+  expect(listFailure({ code: -32601, message: "Method not found" })).toEqual({ kind: "daemonOld" });
+  expect(listFailure({ code: "native.not_connected" })).toEqual({ kind: "offline" });
+  expect(listFailure({ code: -32000, message: " inbox store locked " })).toEqual({
+    kind: "daemon",
+    why: "inbox store locked",
+  });
+  expect(listFailure(new Error("timed out"))).toEqual({ kind: "other" });
+  expect(listFailure(undefined)).toEqual({ kind: "other" });
+  const settled = [
+    host,
+    { kind: "daemonOld" as const },
+    { kind: "offline" as const },
+    { kind: "daemon" as const, why: "x" },
+  ];
+  expect(settled.map(retriesItself)).toEqual([false, false, false, false]);
+  expect(retriesItself({ kind: "other" })).toBe(true);
+});
+
+test("transient retries back off with jitter and stop after the last", () => {
+  expect([0, 1, 2, 3].map((n) => retryDelay(n, () => 0))).toEqual([1000, 2000, 4000, 8000]);
+  expect(retryDelay(0, () => 1)).toBe(1250);
+  expect(retryDelay(4)).toBeUndefined();
 });

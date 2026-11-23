@@ -8,9 +8,13 @@ import { PromptMarksSession } from "./threadMinimap/promptMarks";
 import {
   HELD_PAGE,
   heldThreads,
+  listFailure,
+  retriesItself,
+  retryDelay,
   searchThreads,
   surgeShows,
   type HeldThread,
+  type ListFailure,
   type SurgeHold,
 } from "./conversation/surgeHold";
 import { errorMessage } from "./transportErrors";
@@ -19,8 +23,12 @@ import "./SurgeHoldRow.css";
 /// How the line reads (the gallery's variants; the shipped look is `counts`).
 export type SurgeRowLook = "counts" | "sentence" | "needFirst";
 
-/// The listing's read: under way, failed with acpmux's (or the bridge's) own words, or its threads.
-type Listing = { state: "loading" } | { state: "failed"; reason: string } | { state: "ready"; threads: HeldThread[] };
+/// The listing's read: under way, failed (what failed, conversation/surgeHold.ts `listFailure`, and
+/// acpmux's or the bridge's own words), or its threads.
+type Listing =
+  | { state: "loading" }
+  | { state: "failed"; failure: ListFailure; reason: string }
+  | { state: "ready"; threads: HeldThread[] };
 
 /// The chat's held surge as one row of the composer hat (conversation/surgeHold.ts): how many
 /// messages its inbox holds without a turn and how many of them need the person, updated in place as
@@ -36,6 +44,7 @@ export function SurgeHoldRow({
   readThread,
   onOpenSender,
   look = "counts",
+  connected = true,
   initiallyOpen = false,
 }: {
   surge: SurgeHold | undefined;
@@ -45,6 +54,9 @@ export function SurgeHoldRow({
   readThread: ReadInboxThread;
   onOpenSender(sessionId: string): void;
   look?: SurgeRowLook;
+  /// Whether the pane is connected to acpmux now: while it is not, the open panel says so and reads
+  /// nothing; it reads by itself once the connection is back.
+  connected?: boolean;
   initiallyOpen?: boolean;
 }) {
   const t = useT();
@@ -54,29 +66,60 @@ export function SurgeHoldRow({
   const [shown, setShown] = useState(HELD_PAGE);
   const [listing, setListing] = useState<Listing>({ state: "loading" });
   const [attempt, setAttempt] = useState(0);
+  const tries = useRef(0);
   const panelId = useId();
   const field = useRef<HTMLInputElement>(null);
   // The listing is read when the panel opens and again when a new snapshot moves the counts while it
   // is open: one read per change the person can see, never a poll.
   const held = surge?.held ?? 0;
   const needYou = surge?.needYou ?? 0;
+  // A new snapshot or a reopened panel starts the retries over (declared first, so it runs before the
+  // read below).
+  useEffect(() => {
+    tries.current = 0;
+  }, [open, held, needYou]);
   useEffect(() => {
     if (!open) return;
+    if (!connected) {
+      setListing({ state: "failed", failure: { kind: "offline" }, reason: "" });
+      return;
+    }
     let live = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     listThreads().then(
-      (reply) => live && setListing({ state: "ready", threads: heldThreads(reply) }),
-      // The failure keeps its own words: a bare "Try again" told Leo nothing (2026-11-22).
-      (error: unknown) => live && setListing({ state: "failed", reason: errorMessage(error) }),
+      (reply) => {
+        if (!live) return;
+        tries.current = 0;
+        setListing({ state: "ready", threads: heldThreads(reply) });
+      },
+      (error: unknown) => {
+        if (!live) return;
+        const failure = listFailure(error);
+        // A transient failure reads again by itself, on a jittered backoff, while the panel is open;
+        // past the last try it says so with its own words and reads again on the next snapshot. A
+        // failure no retry can help (the host's refusal, acpmux's own error) says what failed, with
+        // no button: a bare "Try again" told Leo nothing (2026-11-22).
+        const wait = retriesItself(failure) ? retryDelay(tries.current) : undefined;
+        if (wait === undefined) {
+          setListing({ state: "failed", failure, reason: errorMessage(error) });
+          return;
+        }
+        tries.current += 1;
+        timer = setTimeout(() => setAttempt((n) => n + 1), wait);
+      },
     );
     return () => {
       live = false;
+      if (timer !== undefined) clearTimeout(timer);
     };
-  }, [open, held, needYou, attempt, listThreads]);
-  useEffect(() => {
-    if (open)
-      focusRoute(field.current, "person", "the held messages panel opened: its search field", { preventScroll: true });
-  }, [open]);
+  }, [open, held, needYou, attempt, listThreads, connected]);
   const threads = listing.state === "ready" ? listing.threads : undefined;
+  // The search field shows once there are threads to search; it takes the focus then.
+  const searchable = open && threads !== undefined && threads.length > 0;
+  useEffect(() => {
+    if (searchable)
+      focusRoute(field.current, "person", "the held messages panel opened: its search field", { preventScroll: true });
+  }, [searchable]);
   const found = useMemo(() => {
     const all = threads ?? [];
     return searchThreads(onlyNeed ? all.filter((thread) => thread.blocker) : all, query);
@@ -113,21 +156,24 @@ export function SurgeHoldRow({
     >
       {open && (
         <section id={panelId} className="acpmux-surge-panel" aria-label={t("surge.title")}>
-          <label className="acpmux-surge-search">
-            <Magnifier size={14} />
-            <input
-              ref={field}
-              type="search"
-              value={query}
-              placeholder={t("surge.search")}
-              aria-label={t("surge.search")}
-              onChange={(event) => {
-                setQuery(event.target.value);
-                setShown(HELD_PAGE);
-              }}
-            />
-          </label>
-          {needYou > 0 && (
+          {/* Search only what is there to search: no field over a failure or an empty listing. */}
+          {searchable && (
+            <label className="acpmux-surge-search">
+              <Magnifier size={14} />
+              <input
+                ref={field}
+                type="search"
+                value={query}
+                placeholder={t("surge.search")}
+                aria-label={t("surge.search")}
+                onChange={(event) => {
+                  setQuery(event.target.value);
+                  setShown(HELD_PAGE);
+                }}
+              />
+            </label>
+          )}
+          {needYou > 0 && searchable && (
             <fieldset className="acpmux-surge-filters">
               <button type="button" aria-pressed={!onlyNeed} onClick={() => setOnlyNeed(false)}>
                 {heldText}
@@ -141,24 +187,18 @@ export function SurgeHoldRow({
             {listing.state === "loading" ? (
               <p className="acpmux-surge-note">{t("surge.loading")}</p>
             ) : listing.state === "failed" ? (
-              <div className="acpmux-surge-failed" role="alert">
+              <div className="acpmux-surge-failed" role="alert" data-failure={listing.failure.kind}>
                 <p className="acpmux-surge-failed-copy">
-                  <span className="acpmux-surge-failed-title">{t("surge.loadFailed")}</span>
-                  {listing.reason && <span className="acpmux-surge-failed-reason">{listing.reason}</span>}
+                  <span className="acpmux-surge-failed-title">{failureText(t, listing.failure)}</span>
+                  {listing.reason && listing.failure.kind !== "daemon" && (
+                    <span className="acpmux-surge-failed-reason">{listing.reason}</span>
+                  )}
                 </p>
-                <button
-                  type="button"
-                  className="acpmux-surge-retry"
-                  onClick={() => {
-                    setListing({ state: "loading" });
-                    setAttempt(attempt + 1);
-                  }}
-                >
-                  {t("surge.retry")}
-                </button>
               </div>
             ) : found.length === 0 ? (
-              <p className="acpmux-surge-note">{t("surge.noMatch")}</p>
+              <p className="acpmux-surge-note" data-empty={threads?.length === 0 ? "unmarked" : "search"}>
+                {threads?.length === 0 ? t("surge.noneMarked") : t("surge.noMatch")}
+              </p>
             ) : (
               <PromptMarksSession.Provider value={`surge:${sessionId}`}>
                 <div className="cv-incoming">
@@ -220,4 +260,21 @@ export function SurgeHoldRow({
       </div>
     </section>
   );
+}
+
+/// What the open panel says when the held threads could not be listed (conversation/surgeHold.ts
+/// `listFailure`): what failed, and the step that helps.
+function failureText(t: ReturnType<typeof useT>, failure: ListFailure): string {
+  switch (failure.kind) {
+    case "host":
+      return t("surge.failedHost");
+    case "daemonOld":
+      return t("surge.failedOld");
+    case "offline":
+      return t("surge.failedOffline");
+    case "daemon":
+      return t("surge.failedDaemon", { why: failure.why });
+    case "other":
+      return t("surge.loadFailed");
+  }
 }

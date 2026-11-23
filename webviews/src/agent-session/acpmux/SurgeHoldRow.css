@@ -107,8 +107,7 @@
 .acpmux-surge[data-open] .acpmux-surge-toggle { border-radius: 0; }
 .acpmux-surge-toggle:focus-visible,
 .acpmux-surge-need:focus-visible,
-.acpmux-surge-filters button:focus-visible,
-.acpmux-surge-retry:focus-visible {
+.acpmux-surge-filters button:focus-visible {
   outline: var(--cmux-focus-ring-width) solid var(--cmux-focus-ring-color);
   outline-offset: calc(-1 * var(--cmux-focus-ring-width));
 }
@@ -282,19 +281,6 @@ button.acpmux-surge-need:active { background: var(--ds-color-pressed); }
   -webkit-user-select: text;
   cursor: text;
 }
-.acpmux-surge-retry {
-  min-height: 24px;
-  margin: 0 0 0 calc(-1 * var(--ds-space-2));
-  padding: 0 var(--ds-space-2);
-  border: 0;
-  border-radius: var(--ds-radius-control, 8px);
-  background: transparent;
-  color: var(--agent-text);
-  font: inherit;
-  cursor: default;
-}
-.acpmux-surge-retry:hover { background: var(--ds-color-hover); }
-.acpmux-surge-retry:active { background: var(--ds-color-pressed); }
 
 @media (prefers-reduced-motion: reduce) {
   .acpmux-surge-chevron { transition: none; }

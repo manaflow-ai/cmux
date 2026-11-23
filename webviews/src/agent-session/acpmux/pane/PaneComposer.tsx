@@ -80,6 +80,7 @@ import { keptInChat, removeQueued, sendWhenTaken, heldRefusal, heldGoesAfterTrus
 import { keptAttachments } from "./draftHost";
 import { withdrawForTypedReply } from "./hatHost";
 import type { AcpmuxSnapshot, AcpmuxPlanEntry, AcpmuxRow, AcpmuxPermission } from "../model";
+import { linkUp } from "../model";
 import type { RunMode, SandboxRun, SandboxTab } from "../sandboxRun";
 import type { CloudEnvironmentPick } from "../cloudEnvironmentChoice";
 import type { CloudChatHintState } from "../cloudChatHintModel";
@@ -820,6 +821,7 @@ export function drawPaneComposer({
             listThreads={listSurgeThreads}
             readThread={readInboxThread}
             onOpenSender={openSenderChat}
+            connected={linkUp(snapshot.connection)}
           />
         )}
         {!goalAtFoot && goalNode}
