@@ -44,7 +44,8 @@ extension [FeedSwipeAction] {
     }
 }
 
-/// How a swipe's outcome feels: a decision that grants is a success, one that refuses a warning,
+/// How a swipe's outcome feels: a decision that grants is a success (an Allow's once it went out),
+/// one that refuses (or an Allow that failed) a warning,
 /// filing a row away a light tap; opening and read state need none (the screen changes or the dot does).
 enum FeedSwipeOutcome {
     case none, granted, refused, filed
@@ -109,8 +110,11 @@ extension FeedItem {
             }
             if let allow {
                 // The allow is signed with the approval key, no prompt (verify/phone-approvals.md).
-                actions.append(FeedSwipeAction(id: "allow", title: "Allow", systemImage: "checkmark.shield", tint: FeedSwipeTint.approve, outcome: .granted) {
-                    withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { store.respond(id, option: allow) }
+                // Its haptic waits for the signed allow to go out: success once sent, a warning if it failed.
+                actions.append(FeedSwipeAction(id: "allow", title: "Allow", systemImage: "checkmark.shield", tint: FeedSwipeTint.approve) {
+                    withAnimation(.cmuxMobileSmooth.unlessReduceMotion) {
+                        store.respond(id, option: allow) { sent in (sent ? FeedSwipeOutcome.granted : .refused).play() }
+                    }
                 })
             }
             return actions
