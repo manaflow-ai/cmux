@@ -197,6 +197,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var wallpaperTint = WallpaperTintSetting.fallback
     /// `appearance.liveWallpaperFrameRate`: a live wallpaper's frame cap, 15, 30 (the default) or 60.
     public var liveWallpaperFrameRate = 30
+    /// `appearance.backgroundPlacement`: where each picture lies; empty (every picture centered and
+    /// filled) unless set.
+    public var backgroundPlacements: [String: BackdropPlacement] = [:]
     /// `appearance.surfaces.<surface>.color|opacity` (R55); no override
     /// (every surface shows the window's backdrop) when unset or invalid.
     public var surfaceBackgrounds = SurfaceBackgrounds.none
@@ -228,6 +231,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var statusBehavior = StatusBehaviorSettings()
     /// `appearance.borders`; "default" when unset or invalid.
     public var borders: BorderMode = BordersSetting.fallback
+    /// `appearance.liquidGlass`; off when unset or invalid, so web pages draw no glass.
+    public var liquidGlass: Bool = LiquidGlassSetting.fallback
     /// `appearance.fontSmoothing`; `antialiased` when unset or invalid. Applied once per launch
     /// (``ProcessFontSmoothing/apply(_:to:)``), so a change shows after a restart.
     public var fontSmoothing: FontSmoothing = FontSmoothingSetting.fallback
@@ -442,6 +447,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.inactiveWindowDim = WindowBackgroundSetting.parseInactiveDim(root, diagnostics: &snapshot.diagnostics)
         snapshot.wallpaperTint = WallpaperTintSetting().parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.liveWallpaperFrameRate = LiveWallpaperFrameRateSetting().parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.backgroundPlacements = BackdropPlacementSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.surfaceBackgrounds = SurfaceBackgroundSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.surfaceBackgrounds.twoTone = TwoToneSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.backdropSelection = BackdropSelectionSetting().parse(root, diagnostics: &snapshot.diagnostics)
@@ -450,6 +456,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.take(AgentGlowSetting.parse(root), \.agentGlow)
         snapshot.take(PreviousGlassSetting.parse(root), \.previousGlass)
         snapshot.take(FontSmoothingSetting.parse(root), \.fontSmoothing)
+        snapshot.take(LiquidGlassSetting.parse(root), \.liquidGlass)
         snapshot.experimentalAppearance = ExperimentalAppearanceSetting().parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.appearanceTuning = AppearanceTuningSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.statusIndicator = StatusIndicatorConfigParser.parse(root, diagnostics: &snapshot.diagnostics)
