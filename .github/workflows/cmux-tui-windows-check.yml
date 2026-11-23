@@ -31,6 +31,8 @@ on:
     paths:
       - "Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings"
       - "schemas/settings/source/general.json"
+      - "schemas/type-scale/scene-type.json"
+      - "webviews/src/apps/scene/fixtures/design-check-scenes.json"
       - "web/public/tui/install-static.sh"
       - "cmux-tui/**"
       - "ghostty-next"
@@ -64,6 +66,7 @@ on:
       - "plans/cmux-next/action-surfaces.json"
       - "plans/cmux-next/daemon-capabilities.json"
       - "plans/cmux-next/spec-proposals/visuals/design-tokens.json"
+      - "schemas/agent-pane/stylesheet-guard.json"
       - "schemas/agent-url-policy/vectors.json"
       - "schemas/automation-input/vectors.json"
       - "schemas/automation-lease/vectors.json"
@@ -80,6 +83,7 @@ on:
       - "schemas/settings/source/mcp-servers.json"
       - "schemas/settings/source/subsessions.json"
       - "schemas/settings/source/trust.json"
+      - "schemas/settings/source/updates.json"
       - "schemas/terminal-sizing/fixtures.json"
       - "schemas/theme/slots.json"
       - "schemas/transcript-look/transcript-look.json"
@@ -156,7 +160,7 @@ jobs:
     # Off pull requests (CI 10x, 2026-11-21: 1.33% of PR runner-minutes, 1.36% of heads it alone caught): it runs
     # after merge on feat-cmux-next pushes, and on a same-repository pull request only with the full-ci label.
     if: github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'full-ci'))
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 5
     outputs:
       windows_gnu_check: ${{ steps.graph.outputs.windows_gnu_check }}
@@ -194,7 +198,7 @@ jobs:
     # router never skips it.
     needs: route
     if: ${{ (inputs.only == '' || inputs.only == 'windows-gnu-check') && (!cancelled() && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'full-ci'))) && (needs.route.result != 'success' || needs.route.outputs.windows_gnu_check != 'false')) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
