@@ -7,7 +7,7 @@
 // top less the scroller's offset. A toggled "Worked for" also plays (turnFold.ts, Leo 2026-10-21: "and
 // we shuold also have some animation for collapsing and expanding"): the rows below slide from where
 // they were drawn, the rows it reveals fade in and copies of the rows it hides fade out.
-import { afterAll, beforeEach, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import { MOTION_SETTLE_MS } from "../src/motion/scale.generated";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
@@ -15,10 +15,22 @@ import { turnView, WORKED } from "../src/agent-session/acpmux/conversation/turns
 import { FOLD_SETTLE_MS } from "../src/agent-session/acpmux/conversation/foldAnchor";
 import { teardownDom } from "./support/domTeardown";
 
+/// An exception thrown in a listener reaches the DOM, not the test: jsdom hands it to its console as
+/// a `jsdomError`, and a VirtualConsole with nothing listening drops it. One did, for a day: the
+/// transcript's click listener threw before it took its hold, this file read the line 48px up its
+/// own placement had followed the latest row to, and the cause was nowhere in the failure. Kept, so
+/// the next one fails as itself.
+const errors: Error[] = [];
+const virtualConsole = new VirtualConsole();
+virtualConsole.on("jsdomError", (error: Error) => {
+  // jsdom reports what it does not implement the same way (the minimap's canvas `getContext`): a
+  // notice, not this page's bug. Anything else is an exception the DOM swallowed.
+  if (!/^Not implemented:/.test(error.message)) errors.push(error);
+});
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
   pretendToBeVisual: true,
-  virtualConsole: new VirtualConsole(),
+  virtualConsole,
 });
 const scope = globalThis as Record<string, unknown>;
 const replacements: Record<string, unknown> = {
@@ -105,6 +117,10 @@ let played: Played[] = [];
 beforeEach(() => {
   played = [];
   delete dom.window.document.documentElement.dataset.agentMotion;
+});
+afterEach(() => {
+  const thrown = errors.splice(0, errors.length);
+  if (thrown.length) throw (thrown[0] as { detail?: Error }).detail ?? thrown[0];
 });
 
 // The page's clock, which the test moves on past a hold (foldAnchor.ts) instead of waiting it out.

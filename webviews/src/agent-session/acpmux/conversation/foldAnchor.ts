@@ -127,6 +127,15 @@ export function toggleState(control: HTMLElement): string | undefined {
   return control.querySelector?.("[aria-expanded]:not([aria-haspopup])")?.getAttribute("aria-expanded") ?? undefined;
 }
 
+/// An id as an attribute selector's value. `CSS.escape` where the page has it; else the quoting a
+/// `[attr="..."]` value needs, which is all an id taken from our own rows can need. Every row-id
+/// selector in the transcript goes through this: the one that did not threw `CSS is not defined` on
+/// a click, from a listener whose exception took the fold's hold with it, and the clicked line
+/// jumped (transcript-fold-anchor.test.tsx).
+export function cssName(id: string): string {
+  return typeof CSS === "undefined" ? id.replace(/["\\]/g, "\\$&") : CSS.escape(id);
+}
+
 /// The id-keyed lines a streamed update can draw anew (a call's, a group's, a run's: the ids outlast
 /// a regroup, keepOpenedLineModel.ts) and a transcript row; anything else is not found again.
 const LINE_IDS = ["data-tool-id", "data-tool-group", "data-tool-run"] as const;

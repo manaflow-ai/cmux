@@ -518,7 +518,10 @@ export function startLayoutWatch(scroller: HTMLElement, options: LayoutWatchOpti
 }
 
 function outline(scroller: HTMLElement, item: ShiftFlag): void {
-  const row = scroller.querySelector<HTMLElement>(`.acpmux-row[data-row-id="${CSS.escape(item.rowId)}"]`);
+  // `CSS` is a browser global a headless DOM need not have (foldAnchor.ts `cssName`; this module
+  // takes no imports). A throw here would come from a listener and take its caller's work with it.
+  const name = typeof CSS === "undefined" ? item.rowId.replace(/["\\]/g, "\\$&") : CSS.escape(item.rowId);
+  const row = scroller.querySelector<HTMLElement>(`.acpmux-row[data-row-id="${name}"]`);
   if (!row) return;
   row.dataset.layoutFlag = item.invariant;
   // One timer per flag, ended by itself (stop condition: 600 ms).

@@ -106,7 +106,15 @@ test("a completed turn folds all pre-answer work and received reports under one 
 test("a running turn keeps intermediate prose, tools, and received reports visible", () => {
   const rows = completedTurn().slice(0, -1);
   const live = turnView(rows, new Set(), { working: true });
-  expect(live.some((entry) => entry.kind === WORKED)).toBe(false);
+  // The running "Working for" and the ended "Worked for" are one row, one id and one kind in two
+  // phases (#50242, turns.ts `turnHeaderId`), so the turn's end changes its words and not the rows
+  // on screen. A WORKED row in its running phase is that clock, not a fold: only an ended one folds.
+  const folds = live.filter((entry) => entry.kind === WORKED && entry.turnPhase !== "running");
+  expect(folds).toEqual([]);
+  // And the running header folds nothing away: no fold state, no count of what it holds.
+  const header = live.find((entry) => entry.kind === WORKED);
+  expect(header?.foldOpen).toBeUndefined();
+  expect(header?.toolCount).toBeUndefined();
   const ids = shownIds(live);
   for (const id of ["prompt", "read", "progress", "test", "report", "final"]) expect(ids).toContain(id);
 });

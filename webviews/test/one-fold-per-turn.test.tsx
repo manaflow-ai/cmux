@@ -13,6 +13,7 @@ import { act } from "react";
 import type { Root } from "react-dom/client";
 import { layoutConversation, type AcpmuxActivity, type AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView, WORKED } from "../src/agent-session/acpmux/conversation/turns";
+import { gridLength, TRANSCRIPT_LINE_ROW } from "../src/agent-session/acpmux/transcriptGrid";
 import { teardownDom } from "./support/domTeardown";
 
 const START = Date.UTC(2026, 10, 7, 9, 0, 0);
@@ -161,9 +162,14 @@ test("a plain turn's opened run line starts closed, as before", async () => {
 // The estimate of an open run line is the rows it draws (review of cmux#37710): a run that keeps a
 // coordination card (a message to another agent) and a change waiting for permission in sight draws,
 // with `runOpen`, each stretch's line over its steps (ToolRunSteps.tsx, a line per call), as a run of
-// plain work does. Every one of those rows is one 22px tool line (design/chat-transcript.md "One-line row pitch"), so the drawn
-// height is the count of `.cv-tool` lines and sent-message rows (`.cv-sent-msg`, one each) times 22.
-const LINE = 22;
+// plain work does. Every one of those rows is one one-line tool row (TRANSCRIPT_LINE_ROW: its words
+// and the row air, conversation.css `--cv-tool-row-height`; design/chat-transcript.md "One-line row
+// pitch"), so the drawn height is the count of `.cv-tool` lines and sent-message rows
+// (`.cv-sent-msg`, one each) times that pitch, plus the gap each opened body draws as its own first
+// item (`.cv-tools > * + .cv-fold::before`, one `--grid-base`, #46119). Read from both sources, not
+// written down: the air token moved the pitch from 22 to 32 (#50376) and this file held the 22.
+const LINE = TRANSCRIPT_LINE_ROW;
+const FOLD_GAP = gridLength("base");
 const read = (id: string): AcpmuxActivity => ({
   kind: "tool",
   text: "Read",
@@ -211,7 +217,9 @@ for (const [name, run, lines] of [
       (node) => !node.parentElement?.closest(".cv-sent-msg"),
     ).length;
     expect(drawn).toBe(lines);
-    expect([...layoutConversation([run], 720).heights][0]).toBe(drawn * LINE);
+    // The bodies that opened under their lines, each drawing its one gap over itself.
+    const bodies = host.querySelectorAll(".cv-fold").length;
+    expect([...layoutConversation([run], 720).heights][0]).toBe(drawn * LINE + bodies * FOLD_GAP);
   });
 
 // The `header` arm's line names the work it holds, and the memoized row redraws when that changes
