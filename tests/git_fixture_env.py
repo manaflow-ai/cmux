@@ -315,3 +315,12 @@ else:
     without_redirects(os.environ)
     without_auto_maintenance(os.environ)
     os.environ.setdefault("GIT_CONFIG_GLOBAL", GLOBAL_CONFIG)
+
+    # Every git fixture test passes through here: on a fleet host that runs no tests (a person's own Mac),
+    # refuse and name the fleet command instead (tests/fleet_test_host.py; cosmic-gray, 2026-11-10).
+    import sys as _sys
+
+    _sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import fleet_test_host as _fleet_test_host
+
+    _fleet_test_host.refuse_here()
