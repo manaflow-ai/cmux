@@ -360,6 +360,10 @@ extension LiveCoordinator {
                     session.daemonError = error
                     self.updateDiagnostics(session)
                     self.store.handleMacData(.failed("Offline"), macID: macID)
+                    // The link reached the Mac; cmux on it did not answer (cmux#52200).
+                    self.store.macFailure[macID] = .serviceDown
+                } else if session.currentLink === link, self.store.macFailure[macID] == .serviceDown {
+                    self.store.macFailure[macID] = nil
                 }
             } catch {
                 log.error("daemon channel: \(String(describing: error), privacy: .public)")
@@ -367,6 +371,7 @@ extension LiveCoordinator {
                     session.daemonError = LinkController.reason(error)
                     self.updateDiagnostics(session)
                     self.store.handleMacData(.failed("Offline"), macID: macID)
+                    self.store.macFailure[macID] = .serviceDown
                 }
             }
         }
@@ -387,6 +392,7 @@ extension LiveCoordinator {
             session.daemonError = "the Mac didn't send its workspaces"
             self.updateDiagnostics(session)
             self.store.handleMacData(.failed("Offline"), macID: macID)
+            self.store.macFailure[macID] = .serviceDown
         }
     }
 
@@ -1036,6 +1042,7 @@ extension LiveCoordinator {
             // The list on screen stays (last-known data); nothing reconnects.
             store.handleMacData(.failed("Signed out"), macID: macID)
             store.macConnection[macID] = .failed("Signed out")
+            store.macFailure[macID] = .authRequired
         case .connecting:
             if store.macData[macID]?.source == .live { store.handleMacData(.disconnected(at: Date()), macID: macID) }
             store.handleMacData(.connecting, macID: macID)
@@ -1044,9 +1051,15 @@ extension LiveCoordinator {
             }
         case .connected:
             store.macConnection[macID] = .connected
-        case .waiting:
+            // The Mac answered: a dial failure from before no longer stands (a daemon that
+            // did not answer is cleared once its workspaces come).
+            if let failure = store.macFailure[macID], failure != .serviceDown { store.macFailure[macID] = nil }
+        case .waiting(_, _, let reason, _):
             store.handleMacData(.failed("Offline"), macID: macID)
             store.macConnection[macID] = .failed("Offline")
+            // The dial reached no Mac, or the Mac refused: which, for the Mac's view (cmux#52200).
+            let failure = Self.failure(waitingReason: reason)
+            if store.macFailure[macID] != failure { store.macFailure[macID] = failure }
         }
         scheduleSnapshotSave()
     }

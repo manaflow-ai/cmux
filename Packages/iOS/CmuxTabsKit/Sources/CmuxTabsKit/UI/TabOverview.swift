@@ -113,6 +113,8 @@ struct TabCard<Content: View>: View {
                     .truncationMode(.tail)
             }
             .frame(width: width, height: m.titleRow)
+            // A title never draws past its own card into a neighbour's.
+            .clipped()
             .padding(.top, 2)
             .offset(y: titleOffset)
             .opacity(titleOpacity)

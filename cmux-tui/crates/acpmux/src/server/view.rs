@@ -55,6 +55,8 @@ pub(super) fn attach(hub: &Hub, conn: &Conn, s: &crate::hub::Session, opts: SubO
         }
     };
     let mut subs = conn.subs.lock().unwrap_or_else(|e| e.into_inner());
+    // The client starts this chat over: its next chunk goes whole (`chunk_deltas.rs`).
+    conn.chunk_deltas.forget(&s.id);
     conn.interest.attach(&s.id);
     // Its live stream starts after the chat's last record now; read under the subscriptions'
     // lock, so a lap's catch-up never reads from before it (`stream_cursor.rs`).
@@ -109,6 +111,9 @@ pub(super) fn subscribe_remote(hub: &Hub, conn: &Conn, id: &str, opts: Option<Su
         conn.message_notices.lock().unwrap_or_else(|e| e.into_inner()).forget(None, id);
         conn.stream_cursors.forget(id);
     }
+    if opts.is_some() {
+        conn.chunk_deltas.forget(id);
+    }
     let mut next = opts.or(before).unwrap_or_default();
     next.remote = true;
     next.idle = false;
@@ -147,6 +152,7 @@ pub(super) fn subscribe_local(hub: &Hub, conn: &Conn, s: &crate::hub::Session) {
 pub(super) fn detach(hub: &Hub, conn: &Conn, s: &crate::hub::Session) {
     let mut subs = conn.subs.lock().unwrap_or_else(|e| e.into_inner());
     conn.message_notices.lock().unwrap_or_else(|e| e.into_inner()).forget(None, &s.id);
+    conn.chunk_deltas.forget(&s.id);
     conn.stream_cursors.forget(&s.id);
     if let Some(mut before) = subs.remove(&s.id) {
         conn.interest.detach(&s.id);
