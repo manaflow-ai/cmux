@@ -59,6 +59,7 @@ GUARD_ALWAYS_JOBS = ("workflow-guard-submodule-forward-only",)
 WEB_JOBS = (
     "web-subarea-scope",
     "web-typecheck",
+    "webviews-typecheck",
     "web-production-build",
     "web-tests",
     "web-instant-navigation",
@@ -3199,7 +3200,7 @@ def test_ci_status_job_accepts_skipped_routed_jobs() -> None:
 
 
 # ci.yml's legacy lanes skip PRs into feat-cmux-next, which cmux-next.yml covers.
-FEAT_CMUX_NEXT_PR_SKIP = "(github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next')"
+FEAT_CMUX_NEXT_PR_SKIP = "(github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next'))"
 
 
 def test_feat_next_route_keeps_one_compile_for_webview_resources() -> None:
@@ -3407,7 +3408,7 @@ def test_ci_instant_navigation_owns_typecheck_once() -> None:
     assert '          CMUX_INSTANT_SKIP_TYPECHECK: "1"' in instant
     assert "        run: bun run test:instant" in instant
 
-    validation_typecheck = web_validation.index("      - run: bun run typecheck")
+    validation_typecheck = web_validation.index("        run: bun run typecheck")
     validation_instant = web_validation.index("      - run: bun run test:instant")
     assert validation_typecheck < validation_instant
     assert web_validation[validation_typecheck:validation_instant].count("bun run typecheck") == 1
@@ -5028,6 +5029,7 @@ def test_web_status_allows_unselected_subarea_jobs_to_skip() -> None:
     result = run_web_status(
         results={
             "web-typecheck": "skipped",
+            "webviews-typecheck": "skipped",
             "web-production-build": "skipped",
             "web-tests": "skipped",
             "web-instant-navigation": "skipped",
