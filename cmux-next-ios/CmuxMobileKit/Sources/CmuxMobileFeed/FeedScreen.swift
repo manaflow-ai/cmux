@@ -85,6 +85,17 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
                     DemoDirector.shared.post(.feedScroll(toEvent: event))
                 }
             }
+            // Screenshot rig: CMUX_MOBILE_FEED_SHOT_FILTER=needsYou|finished|errors|all picks the filter;
+            // CMUX_MOBILE_FEED_SHOT_CAUGHT_UP=1 marks every open ask done (the "All caught up" state).
+            let env = ProcessInfo.processInfo.environment
+            if env["CMUX_MOBILE_FEED_SHOT_CAUGHT_UP"] == "1" {
+                for item in store.items where item.needsYou { store.markDone(item.id) }
+                store.clearDone()
+            }
+            if let name = env["CMUX_MOBILE_FEED_SHOT_FILTER"],
+               let filter = FeedFilter.allCases.first(where: { "\($0)".lowercased() == name.lowercased() }) {
+                store.filter = filter
+            }
             #endif
             FeedRouting.shared.sendPrompt = { item, text in
                 guard let workspace = appStore.workspaces.first(where: { $0.id == item.workspaceID }),
