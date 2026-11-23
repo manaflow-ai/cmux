@@ -30,13 +30,20 @@ export function CopyButton({
   const t = useT();
   const [copied, setCopied] = useState(false);
   const timer = useRef<number | undefined>(undefined);
-  useEffect(() => () => window.clearTimeout(timer.current), []);
+  // Most buttons never set a timer; a chat switch unmounts every mounted one at once.
+  useEffect(
+    () => () => {
+      if (timer.current !== undefined) window.clearTimeout(timer.current);
+    },
+    [],
+  );
   const name = copied ? t("code.copied") : label;
   return (
     <button
       type="button"
       className={className}
       aria-label={name}
+      // tooltip-allow: an icon button; the word "Copied" shows only after a copy, in the card corner's look.
       title={name}
       /* A transcript row's roving tab stop and its keys, from src/ui (rovingTabStopProps). */
       {...tabStop}

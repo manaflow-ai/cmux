@@ -75,11 +75,11 @@ import CmuxNextTestSupport
     }
 
     /// Leo 2026-11-07: "at least let's just make the automatic updates thing, like, bigger ... Why is the font so
-    /// small in general". The label is the sidebar rows' body size, not a caption, and the switch grows with it.
+    /// small in general". The label is the card scale's body size (#49579), not its caption, and the switch grows with it.
     @Test func automaticUpdatesLabelIsBodySizeAndItsSwitchGrowsWithIt() throws {
         #expect(SidebarTunables.updateCardAutomaticSize.defaultValue == .regular)
-        #expect(SidebarUpdateToggle.font.pointSize == Typography.body.pointSize, "the Automatic Updates label is smaller than body text")
-        #expect(SidebarUpdateToggle.font.pointSize > Typography.caption.pointSize)
+        #expect(SidebarUpdateToggle.font.pointSize == Typography.cardBody.pointSize, "the Automatic Updates label is not the card's body text (#49579)")
+        #expect(SidebarUpdateToggle.font.pointSize > Typography.cardCaption.pointSize)
         #expect(SidebarUpdateToggle.boxSize == Metrics.smallIconSize, "the switch did not grow with its label")
         let control = SidebarUpdateToggle(frame: NSRect(x: 0, y: 0, width: 180, height: SidebarUpdateToggle.height))
         control.configure(title: "Automatic Updates", isOn: true)

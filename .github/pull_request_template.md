@@ -57,6 +57,7 @@ The pr-capture-check job warns on a native UI change without the required eviden
 <!-- Required for changes under webviews/ or CmuxNext UI paths. The advisory check only warns when this section or its verdict is missing; it never blocks a PR. Run the ui-review skill and paste its verdict and ranked findings here. Remove this section when the PR does not change UI. -->
 
 Verdict: blocked | approve with changes | ship it
+Try: `scripts/cmux-next/try-pr.sh N` <!-- this PR's number: a reviewer opens it in a copy of cmux NEXT before reading the diff; or `Try: none, <why>` -->
 
 ### Findings
 
