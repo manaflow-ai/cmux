@@ -22,7 +22,7 @@ public nonisolated final class QuitDeadline: Sendable {
     /// A quit that keeps the sessions (every quit but End Sessions and End
     /// Everything) ends this long after it was decided, whatever any step
     /// does (slow quit, 2026-10-20). The save steps have their own limits
-    /// (`QuitSaveSteps.worstCase`, 2.6 s if every one of them hangs, a few
+    /// (`QuitSaveSteps.worstCase`, 2.8 s if every one of them hangs, a few
     /// hundred ms in practice), so with the quit mark, the "Don't ask again"
     /// write and the reply margin they end inside this limit; then the
     /// engines' close wait (`engineCloseWait`) and CefShutdown, then the wait

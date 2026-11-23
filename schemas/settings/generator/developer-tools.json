@@ -4,6 +4,7 @@
   "type": "DeveloperToolsSettingsSchema",
   "lists": {
     "developerTools": ["descriptors", null],
-    "internalDeveloperMode": ["internalDeveloperMode", null]
+    "internalDeveloperMode": ["internalDeveloperMode", null],
+    "relaunchCover": ["relaunchCover", null]
   }
 }

@@ -70,6 +70,84 @@
           "swift_owner": "InternalDeveloperModeSetting"
         }
       ]
+    },
+    {
+      "name": "relaunchCover",
+      "section": "development",
+      "group": {
+        "key": "settings.group.relaunchCover",
+        "text": "App Relaunch"
+      },
+      "note": "Settings > Development (DEV and NIGHTLY only) > App Relaunch: how a relaunch swaps each window's saved picture for its live content, for comparing the swaps.",
+      "rows": [
+        {
+          "key": "launch.relaunchCoverSwap",
+          "note": "How an app relaunch (an update, or `cmux app quit --keep-sessions`) swaps each window's saved picture (the relaunch cover) for its live content. off (the default): no picture is shown (the behavior before relaunch covers). instant: each window's picture is removed in one frame once all its panes are ready. crossfade: the window's picture fades out over 120 ms at that moment. progressive: each pane's region of the picture fades out over 80 ms as that pane becomes ready. A comparison setting for judging the swap: a row in Settings > Development and the Command Palette in DEV and NIGHTLY; the CLI and MCP set it in every build.",
+          "title": {
+            "key": "settings.launch.relaunchCoverSwap",
+            "text": "Relaunch Cover Swap"
+          },
+          "help": {
+            "key": "settings.launch.relaunchCoverSwap.help",
+            "text": "How a relaunched window swaps its saved picture for live content."
+          },
+          "kind": "choice",
+          "swift_owner": "RelaunchCoverSwapSetting",
+          "swift_enum": {
+            "name": "RelaunchCoverSwap"
+          },
+          "choices": [
+            {
+              "value": "off",
+              "title": {
+                "key": "settings.choice.off",
+                "text": "Off"
+              },
+              "note": "No picture: windows open with their live content as it loads."
+            },
+            {
+              "value": "instant",
+              "title": {
+                "key": "settings.choice.instant",
+                "text": "Instant"
+              },
+              "note": "The window's picture goes in one frame once all its panes are ready."
+            },
+            {
+              "value": "crossfade",
+              "title": {
+                "key": "settings.choice.crossfade",
+                "text": "Crossfade"
+              },
+              "note": "The window's picture fades out over 120 ms once all its panes are ready."
+            },
+            {
+              "value": "progressive",
+              "title": {
+                "key": "settings.choice.progressive",
+                "text": "Progressive"
+              },
+              "note": "Each pane's region of the picture fades out over 80 ms as that pane becomes ready."
+            }
+          ],
+          "default": "off",
+          "keywords": [
+            "relaunch",
+            "restart",
+            "update",
+            "launch",
+            "cover",
+            "snapshot",
+            "picture",
+            "screenshot",
+            "crossfade",
+            "fade",
+            "swap",
+            "restore",
+            "debug"
+          ]
+        }
+      ]
     }
   ]
 }

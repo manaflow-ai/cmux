@@ -155,6 +155,9 @@ final class QuitCoordinator {
                 quitRefused()
                 return
             }
+            // An update's relaunch or `cmux app quit --keep-sessions` (not Cmd-Q): the next launch covers
+            // its restore with these windows' pictures (CmuxNextRelaunchCover). Taken before any step closes one.
+            if origin == .explicit(.keep) { services.windows.captureRelaunchCover(.keepSessionsQuit) }
             await complete(choice, sender)
         }
         return .terminateLater
@@ -222,7 +225,8 @@ final class QuitCoordinator {
                     stopSavingWindows: { services.windows.stopSavingForTermination() },
                     sidebar: { await services.sidebarSnapshots.flush() },
                     homeCache: { await services.home.flushCacheForQuit() },
-                    cloud: { await services.cloud.prepareForTermination() }
+                    cloud: { await services.cloud.prepareForTermination() },
+                    relaunchCover: { await services.windows.relaunchCover.finish() }
                 ).run(steps)
             },
             endLocalSessions: { await services.daemon.endSessionsAndStop(choice) },

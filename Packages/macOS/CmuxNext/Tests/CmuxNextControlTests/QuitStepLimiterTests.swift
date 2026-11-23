@@ -44,7 +44,8 @@ import Testing
             stopSavingWindows: { order("stop_saving_windows") },
             sidebar: { order("sidebar") },
             homeCache: { order("home_cache") },
-            cloud: { order("cloud"); await cloud() }
+            cloud: { order("cloud"); await cloud() },
+            relaunchCover: { order("relaunch_cover") }
         )
     }
 
@@ -59,9 +60,10 @@ import Testing
         await Self.steps({ order.append($0) }).run(limiter)
         #expect(order.contains("cloud"))
         #expect(order.filter { $0 != "cloud" } == ["browser_records", "windows", "stop_saving_windows", "sidebar", "home_cache",
-                                                   "agent_composers", "terminal_frames", "agent_images", "remote_snapshots"])
+                                                   "agent_composers", "terminal_frames", "agent_images", "relaunch_cover",
+                                                   "remote_snapshots"])
         #expect(marks == ["quit.browser_records", "quit.windows", "quit.sidebar", "quit.home_cache", "quit.agent_composers",
-                          "quit.terminal_frames", "quit.agent_images", "quit.remote_snapshots", "quit.cloud"])
+                          "quit.terminal_frames", "quit.agent_images", "quit.relaunch_cover", "quit.remote_snapshots", "quit.cloud"])
     }
 
     /// Review of #22919 at c0756ab, finding 1: Cloud's quit work (the Codex broker's stop and the

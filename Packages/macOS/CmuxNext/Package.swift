@@ -21,6 +21,7 @@ import PackageDescription
 //   CmuxNextWakeups -> Compat, Signposts, system frameworks (the only sanctioned wakeup primitives:
 //     FrameScheduler, DemandTimer, Backoff, WakeupLedger, and the one main-thread scheduler's
 //     per-frame budget MainFrameBudget; plans/cmux-next/idle-wakeups.md, main-thread-budget.md)
+//   CmuxNextRelaunchCover -> CCmuxAppFFI (cmux-launch-shell relaunch_cover), Compat, Design, DesignTokens, Settings, Wakeups
 //   CmuxNextDesign -> CmuxTheme, CCmuxAppFFI (cmux-motion curves and color mix), Icons (OverflowButton's glyph); CmuxNextActions -> Signposts, CCmuxAppFFI (the action catalog); CmuxNextDaemon -> Wakeups
 //   CmuxNextSignposts -> Compat, system frameworks (always-on os_signpost intervals, the one name catalog, CommitBoundary,
 //     the opt-in MetricKit mirror for hang reports)
@@ -191,7 +192,7 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// line together (scripts/cmux-next/repin-app-ffi.sh), never anything else.
 /// scripts/cmux-next/check-app-ffi-pin.sh fails CI when the FFI sources
 /// differ from the pinned source sha.
-// app-ffi-pin-checksum: f8195c5b7317d2ff376b6a12ca08e3c75c4ebe0fd0ab5edfaeef629c0a6149ba
+// app-ffi-pin-checksum: c4171edefe4575ae3f1d816e380d59093ed097319a128306d286d0e65a443bb3
 struct AppFFIPin: Decodable {
     let url: String
     let checksum: String
@@ -426,6 +427,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextPhoneAccess",
                 "CmuxNextPopups",
                 "CmuxNextProcessEnvironment",
+                "CmuxNextRelaunchCover",
                 "CmuxNextRemote",
                 "CmuxNextRemoteBrowser",
                 "CmuxNextRemoteFetch",
@@ -1345,6 +1347,28 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CmuxNextKeepAwake",
                 "CmuxNextSettings",
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
+        // Relaunch cover (launch.relaunchCoverSwap): an update's relaunch or a keep quit saves each window's
+        // picture; the next launch shows the pictures at their frames until each window's panes paint. Every
+        // decision (stale, mismatched, which part goes when) is cmux-launch-shell's relaunch_cover in Rust.
+        .target(
+            name: "CmuxNextRelaunchCover",
+            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CCmuxAppFFI",
+                "CmuxNextCompat",
+                "CmuxNextDesign",
+                "CmuxNextDesignTokens",
+                "CmuxNextSettings",
+                "CmuxNextWakeups",
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextRelaunchCoverTests",
+            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextRelaunchCover",
             ],
             swiftSettings: uiSwiftSettings
         ),
@@ -2616,7 +2640,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 .process("Localizable.xcstrings"),
             ],
             swiftSettings: daemonSwiftSettings,
-            // The Schema/*.generated.swift files, from schemas/settings (RFD 0048).
+            // The Schema folder's generated Swift files, from schemas/settings (RFD 0048).
             plugins: [.plugin(name: "SettingsSchemaPlugin")]
         ),
         // Runs scripts/cmux-next/gen-settings-sources.py --swift-out into its work directory.
