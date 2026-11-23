@@ -4723,6 +4723,39 @@
         }
       }
     },
+    "browser.permission.screenShare": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ wants to share your screen."
+          }
+        }
+      }
+    },
+    "browser.permission.screenShare.allow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Share Screen"
+          }
+        }
+      }
+    },
+    "browser.permission.screenShare.dontAllow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Don't Allow"
+          }
+        }
+      }
+    },
     "browser.permission.cameraAndMicrophone": {
       "extractionState": "manual",
       "localizations": {

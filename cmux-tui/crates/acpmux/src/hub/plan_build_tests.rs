@@ -96,3 +96,29 @@ fn one_build_call_holds_an_approval_at_a_time() {
     drop(first);
     assert!(claim("s-claim", "p1").is_ok(), "released when the call ends");
 }
+
+#[test]
+fn an_edited_plan_goes_back_as_the_agents_input() {
+    let mut exit_plan = ask(json!({"kind": "switch_mode",
+        "rawInput": {"plan": "1. Old step", "other": 1},
+        "_meta": {"claude": {"tool": "ExitPlanMode"}}}));
+    // Not edited: the input goes back as the agent sent it.
+    assert_eq!(edited_input(&exit_plan), None);
+    edit_plan(&mut exit_plan, "  1. New step\n2. Added step  ").unwrap();
+    let input = edited_input(&exit_plan).unwrap();
+    assert_eq!(input, json!({"plan": "1. New step\n2. Added step", "other": 1}));
+    // The card and a build elsewhere read the edit too.
+    assert_eq!(plan_of(&exit_plan).as_deref(), Some("1. New step\n2. Added step"));
+    assert_eq!(exit_plan["toolCall"]["_meta"]["claude"]["tool"], "ExitPlanMode");
+    // Empty, oversized, or not Claude Code's ExitPlanMode: refused, nothing changes.
+    assert!(edit_plan(&mut exit_plan, "   ").is_err());
+    assert!(edit_plan(&mut exit_plan, &"x".repeat(MAX_EDITED_PLAN + 1)).is_err());
+    assert_eq!(plan_of(&exit_plan).as_deref(), Some("1. New step\n2. Added step"));
+    let mut grok = ask(json!({"kind": "switch_mode", "rawInput": {"plan": "p"}}));
+    let refused = edit_plan(&mut grok, "q").unwrap_err();
+    assert!(refused.message.contains("only a Claude Code"), "{}", refused.message);
+    assert_eq!(edited_input(&grok), None);
+    let mut no_input = ask(json!({"kind": "switch_mode",
+        "_meta": {"claude": {"tool": "ExitPlanMode"}}}));
+    assert!(edit_plan(&mut no_input, "q").is_err());
+}
