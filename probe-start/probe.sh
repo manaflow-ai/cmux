@@ -7,9 +7,15 @@ work="$(mktemp -d)"
 echo "host=$(hostname) cores=$(nproc) load='$(cut -d' ' -f1-3 /proc/loadavg)' free=$(df -h --output=avail "$work" | tail -1)"
 which perf strace ltrace 2>&1 | sed 's/^/tool: /'
 cd "$tui"
-cargo build --release -p acpmux --bin acpmux 2>&1 | tail -2
 tgt="$(cargo metadata --format-version 1 --no-deps 2>/dev/null | python3 -c 'import json,sys;print(json.load(sys.stdin)["target_directory"])')"
-cp "$tgt/release/acpmux" "$work/acpmux"; B="$work/acpmux"
+cargo build --release -p acpmux --bin acpmux 2>&1 | tail -2
+cp "$tgt/release/acpmux" "$work/after"
+(cd "$here/.." && git apply -R "$here/fix.patch")
+cargo build --release -p acpmux --bin acpmux 2>&1 | tail -2
+cp "$tgt/release/acpmux" "$work/before"
+(cd "$here/.." && git apply "$here/fix.patch")
+sha256sum "$work/before" "$work/after"
+B="$work/before"; A="$work/after"
 ls -la "$B"; size "$B" 2>/dev/null
 readelf -S -W "$B" | grep -E 'init_array|rela.dyn|data.rel.ro' 
 readelf -d "$B" | grep -E 'NEEDED|FLAGS|BIND_NOW'
@@ -32,6 +38,10 @@ echo "== idle strace -f -c (--version)"
 strace -f -c -o "$work/c2.txt" "$B" --version >/dev/null; head -25 "$work/c2.txt"
 echo "== execve/open/connect on ls path"
 strace -f -e trace=execve,openat,connect,clone,clone3,statx,newfstatat -o "$work/o.txt" "$B" --json ls >/dev/null; grep -v ENOENT "$work/o.txt" | grep -vE 'clone|exited' | head -60; echo "clones: $(grep -cE 'clone3?\(' "$work/o.txt")"; echo "ENOENT opens: $(grep -c ENOENT "$work/o.txt")"
+echo "== threads (clones) per call, before vs after"
+for b in "$B" "$A"; do for v in "--version" "--json ls"; do
+  strace -f -e trace=clone,clone3 -o "$work/cl.txt" "$b" $v >/dev/null 2>&1; echo "$(basename "$b") $v: clones=$(grep -cE 'clone3?\(' "$work/cl.txt")"
+done; done
 echo "== LD_DEBUG=statistics"
 LD_DEBUG=statistics "$B" --version 2>&1 >/dev/null | head -20
 echo "== perf record --version x200 (idle)"
@@ -52,21 +62,24 @@ load_off() { kill -- -"$pg" 2>/dev/null; sleep 2; }
 echo "== under load ($(( $(nproc) * 10 )) busy loops)"
 load_on
 echo "load='$(cut -d' ' -f1-3 /proc/loadavg)'"
-for round in 1 2; do
-timeit true /bin/true
-timeit version "$B" --version
-TOKIO_WORKER_THREADS=1 timeit version-w1 env TOKIO_WORKER_THREADS=1 "$B" --version
-timeit ls "$B" --json ls
-timeit ls-w1 env TOKIO_WORKER_THREADS=1 "$B" --json ls
+for which in before after after before; do
+b="$work/$which"
+timeit "$which true" /bin/true
+timeit "$which version" "$b" --version
+timeit "$which ls" "$b" --json ls
+timeit "$which send" "$b" send --no-wait duress-nobody hi
+timeit "$which register" "$b" register "duress-reg-$which"
 done
+timeit "before version TOKIO_WORKER_THREADS=1" env TOKIO_WORKER_THREADS=1 "$B" --version
+timeit "before ls TOKIO_WORKER_THREADS=1" env TOKIO_WORKER_THREADS=1 "$B" --json ls
 echo "-- perf stat under load"
-for v in "--version" "--json ls"; do for t in "" 1; do
-  echo "-- $v TOKIO_WORKER_THREADS=${t:-default}"
-  env ${t:+TOKIO_WORKER_THREADS=$t} perf stat -r 20 -e task-clock,context-switches,cpu-migrations "$B" $v 2>&1 >/dev/null | grep -E 'task-clock|context|migrations|elapsed'
+for v in "--version" "--json ls"; do for t in "$B" "$A"; do
+  echo "-- $v $(basename "$t")"
+  perf stat -r 20 -e task-clock,context-switches,cpu-migrations "$t" $v 2>&1 >/dev/null | grep -E 'task-clock|context|migrations|elapsed'
 done; done
 echo "-- strace -f -r -tt ls under load (3 runs, biggest gaps)"
 for i in 1 2 3; do
-  strace -f -tt -T -o "$work/r$i.txt" "$B" --json ls >/dev/null
+  strace -f -tt -T -o "$work/r$i.txt" "$([ $i = 3 ] && echo "$A" || echo "$B")" --json ls >/dev/null
   python3 - "$work/r$i.txt" <<'PY'
 import sys,re
 lines=open(sys.argv[1]).read().splitlines()
