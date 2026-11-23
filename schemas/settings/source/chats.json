@@ -150,6 +150,39 @@
           ]
         },
         {
+          "key": "agents.chats.deleteHistoryAfterDays",
+          "name": "deleteHistoryAfterDays",
+          "note": "0 (never) by default: nothing is deleted, as before. The customization matrix row history-retention (Claude Code cleanupPeriodDays, Codex history.persistence). A number of days: the acpmux daemon's retention worker deletes every closed chat (or cold-archived idle one) with no record and no change for that long, as `acpmux session rm` does; never one that is open, pinned, running, attached or busy. Irreversible. Read from the settings file at each pass (cmux-tui acpmux hub/history_delete.rs).",
+          "title": {
+            "key": "settings.chats.deleteHistoryAfterDays",
+            "text": "Delete Chat History After"
+          },
+          "help": {
+            "key": "settings.chats.deleteHistoryAfterDays.help",
+            "text": "Permanently deletes closed chats unused for this many days. 0 never deletes."
+          },
+          "kind": "number",
+          "range": {
+            "min": 0,
+            "max": 3650,
+            "step": 1,
+            "unit": "days"
+          },
+          "default": 0,
+          "keywords": [
+            "agents",
+            "chats",
+            "history",
+            "delete",
+            "retention",
+            "cleanup",
+            "old",
+            "days",
+            "disk",
+            "privacy"
+          ]
+        },
+        {
           "key": "agents.chats.archiveInactive",
           "name": "archiveInactive",
           "note": "Never by default (Leo, 2026-11-18: \"there's the archived/settled chats for it, etc\", the Claude app's Archive inactive sessions). A number of days: the acpmux daemon archives every chat with no activity for that long (tags archived=<ms> and archivedBy=auto), never one that is running or waiting, has background commands or subagents, is pinned or is a side chat; a pass every 10 minutes, read from the settings file at each pass (cmux-tui acpmux hub/inactive_archive.rs). The daemon also reads a plain number of days.",
