@@ -576,6 +576,7 @@ dependencies = [
  "cmux-fault",
  "cmux-message-preview",
  "cmux-mobile-link",
+ "cmux-output-paint",
  "cmux-rd-core",
  "cmux-rd-engine",
  "cmux-rd-proto",
@@ -674,6 +675,10 @@ dependencies = [
  "url",
  "uuid",
 ]
+
+[[package]]
+name = "cmux-output-paint"
+version = "0.1.0"
 
 [[package]]
 name = "cmux-process"

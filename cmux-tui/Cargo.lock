@@ -3173,6 +3173,7 @@ dependencies = [
  "cmux-link",
  "cmux-local-auth",
  "cmux-local-url",
+ "cmux-output-paint",
  "cmux-palette-ranker",
  "cmux-panic-log",
  "cmux-process",
