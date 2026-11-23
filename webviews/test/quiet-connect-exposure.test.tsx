@@ -273,7 +273,7 @@ function room() {
 const guest = (link: ReturnType<typeof room>) => (
   <GuestPage
     shareId="c2hhcmUtMTIzNDU2Nzg"
-    secret="c2VjcmV0LWFiY2RlZmdo"
+    secret={btoa("secret-abcdefgh")}
     guestId="g1"
     redeem={() => new Promise(() => undefined)}
     attempt={() => "a".repeat(32)}
