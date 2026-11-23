@@ -91,7 +91,17 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     /// splits into the stack moving (the keyboard) and the stack growing (a composer line):
     /// only the move carries a scrolled-up reader's view (`updateInsets`).
     private var insetStackHeight: CGFloat?
-    private var positionedInitially = false
+    private var positionedInitially = false {
+        didSet { if positionedInitially { endFirstFrameHold(bounded: false) } }
+    }
+    /// The view handoff (hq RFD 0082, "The screen is part of the handoff"): the transcript is
+    /// laid out from the kept store while hidden, and shown in one frame once it sits at its
+    /// newest turn. Before, a pushed chat drew its first rows at the top for a frame or two and
+    /// then jumped 2,728 pt to the bottom under the push (WorkspaceEnterExitShiftUITests). Bound:
+    /// never a blank transcript past `firstFrameHoldSeconds`; it shows anyway and says so.
+    private var firstFrameHeld = false
+    private var firstFrameBound: Task<Void, Never>?
+    static let firstFrameHoldSeconds: Double = 0.5
     private var shownIdentity: ObjectIdentifier?
     private var keyboardPin: NSLayoutConstraint?
     private var fallbackPin: NSLayoutConstraint?
@@ -225,6 +235,7 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
             if let jump { jumpHost?.rootView = jump }
             positionedInitially = false
             surface.following = true
+            beginFirstFrameHold()
         }
         shownIdentity = identity
         jumpHost?.view.isUserInteractionEnabled = surface.showJump
@@ -274,6 +285,7 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         scrollView.addGestureRecognizer(transcriptTap)
         view.addSubview(scrollView)
         setContentScrollView(scrollView, for: .top)
+        beginFirstFrameHold()
 
         if placement == .external {
             topShelf.isUserInteractionEnabled = false
@@ -586,6 +598,29 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         }
         lastOffsetY = scrollView.contentOffset.y
         updateJump()
+    }
+
+    private func beginFirstFrameHold() {
+        guard !positionedInitially else { return }
+        firstFrameHeld = true
+        scrollView.alpha = 0
+        firstFrameBound?.cancel()
+        firstFrameBound = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(Self.firstFrameHoldSeconds))
+            guard !Task.isCancelled else { return }
+            self?.endFirstFrameHold(bounded: true)
+        }
+    }
+
+    private func endFirstFrameHold(bounded: Bool) {
+        guard firstFrameHeld else { return }
+        firstFrameHeld = false
+        firstFrameBound?.cancel()
+        firstFrameBound = nil
+        if bounded {
+            print("ChatKeyboardDock: transcript not positioned within \(Self.firstFrameHoldSeconds) s; shown anyway (view handoff bound)")
+        }
+        UIView.performWithoutAnimation { scrollView.alpha = 1 }
     }
 
     /// No turns yet (the empty state shows).
