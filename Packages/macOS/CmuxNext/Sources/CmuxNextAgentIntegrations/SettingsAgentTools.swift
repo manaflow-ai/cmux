@@ -2,7 +2,7 @@ public import CmuxNextPages
 public import CmuxNextSettings
 import Foundation
 
-/// Settings > Agents > cmux Tools for Agents in cmux: each coding agent found on this Mac and
+/// Settings > Agents > Give Agents cmux’s Tools: each coding agent found on this Mac and
 /// whether it gets cmux's MCP server when cmux starts it, beside the `agents.cmuxMcp` choice row
 /// (on by default), and the manual lines a person runs themselves to use cmux's tools in agents
 /// started elsewhere (`cmux setup mcp`'s `manual`; cmux never runs them). Turn On (shown once the

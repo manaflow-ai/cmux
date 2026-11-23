@@ -23,6 +23,7 @@ import argparse, base64, functools, glob, http.server, json, os, plistlib, socke
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown  # noqa: E402
 from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
+from state_wait import wait_stable  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -145,7 +146,8 @@ def real_drag(now, grow):
     click = {"pid": app.pid, "window_id": window_id, "x": round((tools[0] + tools[2] / 2) * scale),
              "y": round((tools[1] + tools[3] / 2 + titlebar) * scale), "delivery_mode": "foreground"}
     cua("click", click)
-    time.sleep(1)
+    # DevTools' window takes key from cmux's (printed below; best effort, the drag goes on either way).
+    quiet_wait(lambda: layout().get("window_key") is False, 10)
     print("after a click in DevTools: cmux window key", layout().get("window_key"), flush=True)
     print("cua drag", params, json.dumps(cua("drag", params))[:300], flush=True)
 
@@ -213,8 +215,9 @@ try:
         rpc("action.run", {"action": "toggleBrowserDeveloperTools", "origin": "script"})
         if not wait_for(docked, "DevTools opens docked", 30):
             return None, None
-        time.sleep(2)
-        return tab, layout()
+        # The docked layout (divider, frames) holds still before the drag reads it.
+        return tab, wait_stable(layout, "the docked DevTools layout", timeout=15, interval=0.2,
+                                raise_on_timeout=False)
 
 
     def drag(before, grow, what):
@@ -253,7 +256,7 @@ try:
         wait_for(lambda: not layout().get("open"), "DevTools closes", 20)
         rpc("action.run", {"action": "toggleBrowserDeveloperTools", "origin": "script"})
         if wait_for(docked, "DevTools reopens docked", 30):
-            time.sleep(1)
+            wait_stable(layout, "the reopened DevTools layout", timeout=15, interval=0.2, raise_on_timeout=False)
             check(abs(extent(layout()) - extent(moved)) <= 2, f"reopened DevTools keeps its size ({extent(moved)} -> {extent(layout())})")
 finally:
     rpc("action.run", {"action": "quitEndSessions"})
