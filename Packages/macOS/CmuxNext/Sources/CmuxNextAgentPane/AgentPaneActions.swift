@@ -90,7 +90,7 @@ extension ActionRegistry {
 
     /// A header state with every value given (no Debug Settings read), only to ask which commands
     /// are toggles the App can read (``AgentPageCommand/isOn(in:)`` not nil).
-    private static let blankHeaderState = AgentPaneHeaderState(sessionInfo: false, headerControls: .standard, headerMotion: .still)
+    private static let blankHeaderState = AgentPaneHeaderState(sessionInfo: false, headerControls: .standard, headerMotion: .still, headerIcons: .standard)
 
     /// Binds Session Info for the invocation's pane, focused when there is no target. With
     /// `agent.sessionInfo` off the page has no Session Info, so the action refuses instead of
@@ -115,12 +115,16 @@ extension ActionRegistry {
     /// runs it too, with a `draft` argument.
     /// Returns false when a descriptor is missing from the catalog.
     @discardableResult
-    public func bindAgentPane(openNewChat: @escaping @MainActor (ActionInvocation) -> Void) -> Bool {
+    /// `customizeRows` says whether the right-click menus show Customize… (`customize.fromTheApp`,
+    /// off by default); the palette and the app menu always offer it.
+    public func bindAgentPane(customizeRows: @escaping @MainActor () -> Bool = { false },
+                              openNewChat: @escaping @MainActor (ActionInvocation) -> Void) -> Bool {
         // Customize… opens the same new chat with `/customize ` in its composer (AgentPaneCustomize.swift).
         let customize = bindEffect(.customizeOpen) { invocation in
             openNewChat(invocation.customizing)
             return .done
         }
+        ActionTargetVisibility.hide(.customizeOpen, in: self) { _ in !customizeRows() }
         return bind(.newAgentChat, invoke: openNewChat) && customize
     }
 
@@ -156,11 +160,12 @@ extension ActionRegistry {
     /// refused, so the page shows its notice instead of the app's beep; an
     /// editor that fails after it starts opening is not reported back.
     @discardableResult
-    public func openAgentFile(path: String, target: AgentPaneFileTarget, pane: String, machineID: String? = nil) -> Bool {
-        let invocation = ActionInvocation(
+    public func openAgentFile(path: String, target: AgentPaneFileTarget, pane: String, machineID: String? = nil, line: Int? = nil) -> Bool {
+        var invocation = ActionInvocation(
             target: ActionTargetRef(kind: .pane, id: pane),
             arguments: ["path": .string(path), "where": .string(target.rawValue)]
         ).onMachine(machineID)
+        invocation.editorLine = line
         var performed = false
         let refusal = reportingRefusal { performed = perform(.fileOpen, invocation: invocation) }
         return performed && refusal == nil

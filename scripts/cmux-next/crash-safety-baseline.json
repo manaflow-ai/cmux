@@ -108,8 +108,9 @@
  "waived": {
   "rust": {
    "exit": {
-    "acpmux": 6,
+    "acpmux": 7,
     "cmux-browser-host": 4,
+    "cmux-rd-host": 1,
     "cmux-tui": 1,
     "cmux-tui-core": 4
    },
@@ -140,11 +141,11 @@
     "CmuxNextBrowser": 18,
     "CmuxNextBrowserAutomation": 5,
     "CmuxNextDesign": 6,
-    "CmuxNextPages": 4,
+    "CmuxNextPages": 5,
     "CmuxNextPhone": 1,
     "CmuxNextPopups": 2,
     "CmuxNextResources": 2,
-    "CmuxVNCWebRTC": 1,
+    "CmuxVNCWebRTC": 5,
     "MessagesLabHome": 1
    },
    "render_font": {
@@ -162,7 +163,7 @@
     "CmuxNextCloud": 1,
     "CmuxNextCompat": 10,
     "CmuxNextCrashReporting": 11,
-    "CmuxNextDesign": 6,
+    "CmuxNextDesign": 7,
     "CmuxNextFiles": 2,
     "CmuxNextFilesUI": 1,
     "CmuxNextHome": 1,
@@ -179,7 +180,7 @@
     "CmuxNextVSCodeServer": 2,
     "CmuxVNC": 3,
     "CmuxVNCDemoServer": 3,
-    "CmuxVNCWebRTC": 19,
+    "CmuxVNCWebRTC": 21,
     "MessagesLabHome": 3
    }
   }

@@ -153,3 +153,113 @@ fn cmux_next_a_port_watch_worker_that_waits_for_the_registry_does_not_keep_the_m
     drop(open());
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// The worker holds no registry lock while it waits for the store's
+/// connection: a pass that meets a busy connection puts its request back,
+/// lets the registry and the mux go, and looks again. The journal writer
+/// has the connection for the time of its commit. A worker that waited for
+/// the connection with the registry's lock made each thread that takes the
+/// registry wait for that commit too, and it kept its mux for that wait.
+#[test]
+fn cmux_next_a_port_watch_worker_that_meets_a_busy_connection_holds_no_registry_lock() {
+    let root = std::env::temp_dir()
+        .join(format!("cmux-port-watch-busy-connection-{}", WorkspacePublicId::random().unwrap()));
+    let open = || {
+        let registry = WorkspaceRegistry::open(&root, "port-watch").unwrap();
+        Mux::from_workspace_registry(
+            "port-watch".into(),
+            SurfaceOptions::default(),
+            registry,
+            ProviderWorkspaceState::default(),
+            true,
+        )
+        .unwrap()
+    };
+    // True when `ready` held within the bound. It reads the watch's state
+    // and the count of strong muxes under the watch's lock.
+    let reached = |mux: &Arc<Mux>, ready: &dyn Fn(&WatchState, usize) -> bool| {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            if ready(&mux.terminal_port_watch.lock(), Arc::strong_count(mux)) {
+                return true;
+            }
+            if Instant::now() >= deadline {
+                return false;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    };
+    // True when each take of the registry's lock in a window of 500 ms came
+    // within 2 s. The worker looks again each `REGISTRY_BUSY_LOOK`, so the
+    // window has many looks of the worker.
+    let registry_stays_free = |mux: &Arc<Mux>| {
+        let window = Instant::now() + Duration::from_millis(500);
+        while Instant::now() < window {
+            let bound = Instant::now() + Duration::from_secs(2);
+            loop {
+                if let Some(registry) = mux.workspace_registry.try_lock_free() {
+                    drop(registry);
+                    break;
+                }
+                if Instant::now() >= bound {
+                    return false;
+                }
+                std::thread::sleep(Duration::from_millis(1));
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        true
+    };
+    let mux = open();
+    mux.reconcile_terminal_ports();
+    assert!(
+        reached(&mux, &|state, muxes| {
+            state.worker && !state.reconcile && state.last_pass.is_some() && muxes == 1
+        }),
+        "the first pass never ran to its end"
+    );
+    let first_pass = mux.terminal_port_watch.lock().last_pass;
+    // Another thread has the store's connection when the next pass comes to
+    // it, as the journal writer has at a commit. It has no mux.
+    let connection = Arc::clone(&mux.registry_connection);
+    let (held, is_held) = std::sync::mpsc::sync_channel(1);
+    let (let_go, go) = std::sync::mpsc::sync_channel::<()>(1);
+    let holder = std::thread::spawn(move || {
+        let hold = connection.get();
+        let _ = held.send(());
+        let _ = go.recv();
+        drop(hold);
+    });
+    is_held.recv_timeout(Duration::from_secs(10)).expect("the holder never had the connection");
+    mux.reconcile_terminal_ports();
+    let pass_came = reached(&mux, &|state, _| state.last_pass != first_pass);
+    let registry_free = pass_came && registry_stays_free(&mux);
+    // The request is in the watch again and the worker has no mux, read
+    // under the watch's lock while the connection is still held: the pass
+    // gave its request back before it let its mux go.
+    let mux_free = registry_free
+        && reached(&mux, &|state, muxes| {
+            state.last_pass != first_pass && state.reconcile && muxes == 1
+        });
+    drop(let_go);
+    holder.join().unwrap();
+    assert!(pass_came, "the pass after the hold of the connection never came");
+    assert!(
+        registry_free,
+        "the port watch worker keeps the registry's lock while it waits for the store's connection"
+    );
+    assert!(
+        mux_free,
+        "the port watch worker keeps the mux or loses its request while it waits for the connection"
+    );
+    // The pass that met the busy connection runs now.
+    assert!(
+        reached(&mux, &|state, muxes| state.worker && !state.reconcile && muxes == 1),
+        "the pass that waited for the connection never ran"
+    );
+    let weak = Arc::downgrade(&mux);
+    drop(mux);
+    assert!(weak.upgrade().is_none(), "the port watch worker still holds the mux");
+    drop(open());
+    let _ = std::fs::remove_dir_all(&root);
+}

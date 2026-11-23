@@ -8,8 +8,9 @@ import Foundation
 import Testing
 
 /// CMUX-383's first two projection slices rendered through the real sidebar.
-/// The three variants exercise the default, section visibility/order, and
-/// workspace grouping surfaces. Set CMUX_TEST_REQUIRE_GUI=1 to write PNGs.
+/// The variants exercise the default, a hidden section, section order,
+/// workspace grouping and a hidden workspace: one per landed slice-2 setting.
+/// Set CMUX_TEST_REQUIRE_GUI=1 to write PNGs.
 @MainActor @Suite(.serialized, .closesItsWindows) struct AASidebarCustomizationGalleryTests {
     struct Variant: Sendable {
         let name: String
@@ -20,6 +21,11 @@ import Testing
         Variant(name: "default", settings: .defaults),
         Variant(name: "sections", settings: .init(hiddenSections: ["recents"], sectionOrder: ["projects"])),
         Variant(name: "workspace", settings: .init(workspaces: ["ws-2": .init(group: "grp", order: 0)])),
+        // "projects" is the machine section's alias and already leads, so order shows only by moving Recents up.
+        // The planner reorders within a region (the app and fixed bands stay put), so Recents sits in the machine
+        // section's middle region here.
+        Variant(name: "order", settings: .init(sectionOrder: ["recents"])),
+        Variant(name: "hidden-workspace", settings: .init(workspaces: ["ws-2": .init(hidden: true)])),
     ]
 
     private static func workspace(_ id: String, _ title: String? = nil) -> SidebarWorkspace {
@@ -33,7 +39,7 @@ import Testing
         let group = SidebarGroup(id: GroupID("grp"), name: "Pinned work", workspaces: [workspace("ws-1")])
         return [
             SidebarSection(kind: .machine(machine), nodes: [.workspace(workspace("ws-2")), .group(group)]),
-            SidebarSection(kind: .custom(.init(id: "recents", title: "Recents", showsTitle: true, region: .bottom)),
+            SidebarSection(kind: .custom(.init(id: "recents", title: "Recents", showsTitle: true, region: .middle)),
                            nodes: [.workspace(workspace("ws-3"))]),
         ]
     }
@@ -101,6 +107,21 @@ import Testing
     }
 
     private static var baseSectionIDs: [SectionID] { Self.sections().map(\.id) }
+
+    @Test func orderAndHiddenWorkspaceVariantsChangeWhatTheGalleryDraws() throws {
+        let order = try #require(Self.variants.first { $0.name == "order" })
+        let model = SidebarModel(sections: Self.sections())
+        model.sectionCustomization = order.settings
+        model.setSections(Self.sections())
+        #expect(model.sections.map(\.id) == Array(Self.baseSectionIDs.reversed()))
+
+        let hidden = try #require(Self.variants.first { $0.name == "hidden-workspace" })
+        model.sectionCustomization = hidden.settings
+        model.setSections(Self.sections())
+        #expect(model.sections.map(\.id) == Self.baseSectionIDs)
+        let machineNodes = try #require(model.sections.first).nodes
+        #expect(!machineNodes.contains { if case let .workspace(w) = $0 { w.id == WorkspaceID("ws-2") } else { false } })
+    }
 
     @Test func selectionPreservesPatchedRowsWithoutRebuildingDefaultProjection() {
         let model = SidebarModel(sections: Self.sections())

@@ -66,6 +66,14 @@ public nonisolated final class AcpmuxPaneReplacements: Sendable {
         }
     }
 
+    /// Whether ``beginSandbox(replacingOpened:)`` would admit a hand-off now, taking nothing: a Cloud
+    /// reserve for the empty chat a start would replace is held to the same rule as that start.
+    func admits(replacingOpened: Bool = false) -> Bool {
+        state.withLock { state in
+            !state.sandbox && (replacingOpened || !state.opened) && !state.waiting.values.contains(where: { $0 > 0 })
+        }
+    }
+
     func endSandbox() {
         state.withLock { $0.sandbox = false }
     }

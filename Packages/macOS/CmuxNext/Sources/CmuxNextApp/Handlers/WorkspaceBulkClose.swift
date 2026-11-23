@@ -205,24 +205,24 @@ enum WorkspaceBulkClose {
         let heading = switch prompt.title {
         case .given: title ?? ""
         case .one: ConfirmationStrings.closeWorkspaceTitle(first.0.displayName)
-        case .count(let count): String(localized: "confirm.closeWorkspaces.title", defaultValue: "Close \(count) workspaces?", table: "Handlers", bundle: .module)
+        case .count(let count): String(localized: "confirm.closeWorkspaces.title", defaultValue: "Close \(count) workspaces?", table: "Handlers", bundle: .module.inAppLanguage)
         }
         let body = switch prompt.body {
         case .running(let running): ConfirmationStrings.stillRunning(running.joined(separator: ", "))
         // Incognito workspaces are never saved: nothing brings them back (WindowRegistry).
         case .noUndo(incognito: true):
             String(localized: "confirm.closeWorkspaces.noUndoIncognito",
-                   defaultValue: "No window stays open to undo this. Incognito workspaces cannot be reopened.", table: "Handlers", bundle: .module)
+                   defaultValue: "Incognito workspaces can’t be reopened.", table: "Handlers", bundle: .module.inAppLanguage)
         case .noUndo(incognito: false):
             String(localized: "confirm.closeWorkspaces.noUndo",
                    defaultValue: "No window stays open to undo this. Reopen Closed Workspace and History bring them back.",
-                   table: "Handlers", bundle: .module)
+                   table: "Handlers", bundle: .module.inAppLanguage)
         }
         return DestructiveConfirmation.Prompt(title: heading, body: body, button: ConfirmationStrings.close,
                                               suppresses: prompt.suppressesWarning ? CmuxConfigSnapshot.warnBeforeClosingTabPath : nil)
     }
 
     static func closedToast(_ count: Int) -> String {
-        String(localized: "workspaces.closedToast", defaultValue: "Closed \(count) workspaces", table: "Handlers", bundle: .module)
+        String(localized: "workspaces.closedToast", defaultValue: "Closed \(count) workspaces", table: "Handlers", bundle: .module.inAppLanguage)
     }
 }

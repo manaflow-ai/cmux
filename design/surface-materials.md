@@ -19,7 +19,8 @@ The other specs, and what each one owns:
 - `design/overlay-surfaces.md`: the roles and the never-opaque rule.
 - `design/menus.md`: menu rows and how menus open.
 
-This page decides only which kind a surface is. The shared non-chat material,
+This page decides only which kind a surface is. The glass levels, their numbers and the audit of
+every glass surface are in [glass-system.md](glass-system.md). The shared non-chat material,
 chat adoption and before/after galleries are specified in
 [transient-material.md](transient-material.md).
 
@@ -80,7 +81,7 @@ His reference is the account menu of a desktop chat app: one translucent surface
 
 - **Every floating web surface is one material**: menus, context menus, selects, popovers, pickers
   (the model picker included), the combobox, the slash and @ lists, hover cards and the context
-  ring's card are all the menu glass level (`--ds-glass-menu-tint` 78%, `--ds-glass-menu-blur`),
+  ring's card are all the menu glass level (`--ds-glass-menu-tint` 80% light, 72% dark, `--ds-glass-menu-blur`; [glass-system.md](glass-system.md)),
   one radius (`--ui-popup-radius`, the native popovers' 8 pt), one hairline and one drop. On the
   App's glass each lays the same 40% veil of the theme surface (`--host-glass-fill`). No surface
   sets a tint, blur, veil or radius of its own (`webviews/test/glass-levels.test.ts`).
@@ -134,7 +135,7 @@ His reference is the account menu of a desktop chat app: one translucent surface
 | Dock backdrop | window-chrome | real glass rim around the terminal's background | `CmuxNextLayout/Views/DockBackdropView.swift` |
 | Browser omnibar | window-chrome | real glass | `CmuxNextBrowser/UI/OmnibarViews.swift` |
 | Terminal pane | (content, native Metal) | clear on the window material | `CmuxNextTerminal` |
-| Sidebar cards | sidebar-card | card veil | `SidebarNoticeCardView`, `SidebarUpdateCardView`, `SidebarNowPlayingCardView`, app health's footer chip (`AppHealthIndicatorView`) |
+| Sidebar cards | sidebar-card | card veil | `SidebarNoticeCardView`, `SidebarUpdateCardView`, `SidebarNowPlayingCardView` |
 | Command palette | native-overlay | real glass | `CmuxNextPalette/PaletteContentView.swift` |
 | Tooltips, hover cards | material-source | real glass | `CmuxNextDesign/Tooltip/TooltipPanel.swift`, `HoverCards/HoverCardPanel.swift` |
 | Toasts | native-overlay | real glass (the toast role: Liquid Glass on macOS 26, the blur before it, opaque under Reduce Transparency) | `CmuxNextDesign/Toast/CmuxToastView.swift`, `CmuxToastOverlayHost.swift` |
@@ -167,7 +168,7 @@ His reference is the account menu of a desktop chat app: one translucent surface
 | New Tab page | web-content | clear; its suggestions at 86% page glass | `W/agent-session/acpmux/newtab/*` |
 | Settings | web-content | clear; its menus page glass (no host glass in that page) | `W/pages/settings`, `W/pages/shared/pageBase.css` |
 | Markdown, diff, files | web-content | clear; headers and toolbar menus page glass | `W/pages/markdown`, `W/pages/diff`, `W/styles.css` |
-| Home messages and channels | web-content | page glass headers | `W/pages/home-messages`, `W/pages/home-channels` |
+| Home messages and channels | web-content | page glass headers | `W/pages/home-channels` |
 | Onboarding | web-content | page glass cards | `W/pages/onboarding/styles.css` |
 | In-page dialogs | web-floating | page glass | `W/ui/Dialog.tsx` |
 

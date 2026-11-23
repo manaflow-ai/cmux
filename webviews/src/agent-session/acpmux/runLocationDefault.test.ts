@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import {
   cloudFolderName,
+  defaultFolderFor,
   cloudFolders,
   folderRunLocation,
   newChatRunLocation,
@@ -103,4 +104,20 @@ test("Start New Chats In: Cloud makes every new chat Cloud; This Mac leaves the 
   expect(newChatRunLocation("local", undefined)).toBeUndefined();
   expect(newChatRunLocation("local", "cloud")).toBe("cloud");
   expect(newChatRunLocation("local", "local")).toBe("local");
+});
+
+// cmux#47677: the folder, the place and the model are each their own pick. A folder picked after a new
+// chat showed its first one never re-reads the default place, so This Mac stays This Mac.
+test("a new chat's default place reads its first folder only; a later folder pick keeps it", () => {
+  const first = defaultFolderFor(undefined, "chat-a", "/Users/me/src/paint");
+  expect(first).toEqual({ chat: "chat-a", folder: "/Users/me/src/paint" });
+  expect(defaultFolderFor(first, "chat-a", "/Users/me/src/other")).toBe(first);
+  expect(defaultFolderFor(first, "chat-a", undefined)).toBe(first);
+  // Another new chat reads its own first folder.
+  expect(defaultFolderFor(first, "chat-b", "/Users/me/src/other")).toEqual({
+    chat: "chat-b",
+    folder: "/Users/me/src/other",
+  });
+  // No folder yet: nothing is kept, so the first folder that shows is the one.
+  expect(defaultFolderFor(undefined, "chat-a", undefined)).toBeUndefined();
 });

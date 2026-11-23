@@ -67,7 +67,7 @@ nonisolated struct SidebarColumns: Hashable, Sendable {
     /// The next mark's slot from a right-to-left cursor. Wider labels end on the slot's edge,
     /// growing inward; a small glyph centers in the slot regardless of its drawn size.
     func trailingFrame(before edge: CGFloat, centerY: CGFloat, size: CGSize) -> CGRect {
-        let index = max(0, Int(((trailingEdge - edge) / trailingPitch).rounded(.up)))
+        let index = max(0, pitches(trailingEdge - edge))
         let center = trailingCenter(index: index)
         let x = size.width > trailingPitch ? center + LayoutGrid.iconBox / 2 - size.width : center - size.width / 2
         return CGRect(x: x, y: centerY - size.height / 2, width: size.width, height: size.height)
@@ -78,8 +78,15 @@ nonisolated struct SidebarColumns: Hashable, Sendable {
         let gap = frame.width <= trailingPitch
             ? min(LayoutGrid.base, (trailingPitch - frame.width) / 2) : LayoutGrid.base
         let limit = frame.minX - gap
-        let slots = max(1, Int(((trailingEdge - limit) / trailingPitch).rounded(.up)))
+        let slots = max(1, pitches(trailingEdge - limit))
         return trailingEdge - CGFloat(slots) * trailingPitch
+    }
+
+    /// Whole pitches that cover `distance`, rounding up. The pitch need not be whole (the control plus a tenth of it,
+    /// #44449), so a distance of exactly n pitches can come out a hair over n in floating point (`17.6 / 17.6`):
+    /// a thousandth of a pitch counts as none, or the next mark would skip a column.
+    private func pitches(_ distance: CGFloat) -> Int {
+        Int((distance / trailingPitch - 0.001).rounded(.up))
     }
 
     func textOriginY(centerY: CGFloat, baseline: CGFloat, capHeight: CGFloat) -> CGFloat {

@@ -110,27 +110,57 @@ def _canonical(value: object) -> str:
     return json.dumps(value, sort_keys=True, ensure_ascii=False)
 
 
+def _shared_order(mapping: dict, shared: set[str]) -> list[str]:
+    return [key for key in mapping if key in shared]
+
+
+def ordering_side(base: dict, ours: dict, theirs: dict) -> str:
+    """Whose key order the merged keys follow: the side that reordered them.
+
+    Ours by default, so a pull request keeps its own order. But a merge must not
+    undo a reorder either: when the keys all three files share sit in ours in the
+    base's order and in theirs in a different one, theirs reordered them on
+    purpose and the result follows theirs. Merging the base into a branch whose
+    catalog the base reordered then lands the base's order, not an order that is
+    neither side's -- which every check passes and only `base...HEAD` shows.
+    If ours reordered them, or both did, ours wins as before.
+    """
+    shared = set(base) & set(ours) & set(theirs)
+    if len(shared) < 2:
+        return "ours"
+    base_order = _shared_order(base, shared)
+    ours_kept = _shared_order(ours, shared) == base_order
+    theirs_kept = _shared_order(theirs, shared) == base_order
+    return "theirs" if ours_kept and not theirs_kept else "ours"
+
+
 def merge_keys(
     base: dict, ours: dict, theirs: dict, label: str
 ) -> tuple[list[tuple[str, str]], list[str]]:
     """Three-way merge one mapping by key. Returns ((key, side) list, conflicts).
 
     `side` is "ours" or "theirs", naming which file the key's text comes from.
-    Keys keep ours' order; a key only theirs has goes before the key that follows
-    it in theirs, so merging the base into a branch leaves the base's order alone.
+    Keys keep the order of the side `ordering_side` names -- ours unless only
+    theirs reordered the shared keys -- and a key only the other side has goes
+    before the key that follows it there, so merging the base into a branch
+    leaves the base's order alone.
     """
     decided, conflicts = _decide_keys(base, ours, theirs, label)
     side_of = dict(decided)
+    if ordering_side(base, ours, theirs) == "ours":
+        skeleton, other = ours, theirs
+    else:
+        skeleton, other = theirs, ours
     before: dict[str | None, list[str]] = {}
     following: str | None = None
-    for key in reversed(list(theirs)):
-        if key in ours:
+    for key in reversed(list(other)):
+        if key in skeleton:
             if key in side_of:
                 following = key
         elif key in side_of:
             before.setdefault(following, []).insert(0, key)
     ordered: list[tuple[str, str]] = []
-    for key in [k for k in ours if k in side_of] + [None]:
+    for key in [k for k in skeleton if k in side_of] + [None]:
         ordered.extend((placed, side_of[placed]) for placed in before.get(key, []))
         if key is not None:
             ordered.append((key, side_of[key]))

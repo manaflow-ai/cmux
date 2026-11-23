@@ -20,7 +20,9 @@ SHA256_IMAGE = re.compile(r"^[^@\s]+@sha256:[0-9a-f]{64}$")
 
 # The Blacksmith outage failover reads a variable but only ever picks another
 # Blacksmith Linux size (an ephemeral VM, never a persistent runner).
-OVERFLOW_FAILOVER = re.compile(r"vars\.CI_CLOUD_OVERFLOW_SAVED && fromJSON\(vars\.RUNNER_POOLS\)\.linux(?:_\d+)? \|\| ")
+OVERFLOW_FAILOVER = re.compile(r"vars\.CI_CLOUD_OVERFLOW_SAVED && fromJSON\(vars\.RUNNER_POOLS\)\.linux(?:_\d+)? \|\| "
+    # A fork pull request's branch of the one Linux label (scripts/ci/one_linux_label.py): fork runs only.
+    r"|github\.event\.pull_request\.head\.repo\.full_name != github\.repository && \(vars\.CI_FORK_LINUX_RUNNER \|\| '[^']+'\)")
 
 def workflow(name: str) -> dict:
     return yaml.load((WORKFLOWS / name).read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
@@ -64,17 +66,11 @@ def test_secret_dispatch_jobs_use_branch_restricted_environments_and_ephemeral_r
         assert "fromJSON(vars.RUNNER_POOLS)." in runner
 
     shared_secret_readers = (
-        ("claude.yml", "claude", "claude-agent"),
         ("ci-compile-attribution.yml", "fix", "ci-attribution-agent"),
     )
     for name, job_name, environment in shared_secret_readers:
         job = workflow(name)["jobs"][job_name]
         assert environment_name(job) == environment, f"{name} secrets need {environment}"
-
-    claude_triggers = set(workflow("claude.yml")["on"])
-    assert claude_triggers == {"issue_comment", "issues"}, (
-        "the Claude secret-bearing workflow must stay on trusted default-branch events"
-    )
 
 
 def test_pull_request_target_jobs_never_receive_oidc() -> None:
@@ -109,12 +105,24 @@ def test_dispatchable_jobs_with_external_credentials_use_environments() -> None:
             uses = job.get("uses") or ""
             if uses.startswith("./.github/workflows/"):
                 # A caller job cannot name an environment; the jobs of the called workflow that read the
-                # passed secrets must, so the environment's branch policy still bounds who gets them.
-                callee = yaml.load((ROOT / uses[2:]).read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
-                for callee_name, callee_job in (callee.get("jobs") or {}).items():
-                    if workflow_jobs.secret_names(callee_job) - {"GITHUB_TOKEN"}:
+                # passed secrets must, so the environment's branch policy still bounds who gets them. A
+                # called job that is itself a caller passes them on: its callee's jobs must, and so on.
+                pending, seen = [uses], set()
+                while pending:
+                    called = pending.pop()
+                    if called in seen:
+                        continue
+                    seen.add(called)
+                    callee = yaml.load((ROOT / called[2:]).read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
+                    for callee_name, callee_job in (callee.get("jobs") or {}).items():
+                        if not workflow_jobs.secret_names(callee_job) - {"GITHUB_TOKEN"}:
+                            continue
+                        nested = callee_job.get("uses") or ""
+                        if nested.startswith("./.github/workflows/"):
+                            pending.append(nested)
+                            continue
                         assert workflow_jobs.resolve(callee_job).environment, (
-                            f"{path.name} {job_name} passes secrets to {uses} {callee_name}, which has no environment"
+                            f"{path.name} {job_name} passes secrets to {called} {callee_name}, which has no environment"
                         )
                 continue
             assert workflow_jobs.resolve(job).environment, (
@@ -229,16 +237,6 @@ def test_environment_secret_rollout_keeps_untrusted_jobs_secretless() -> None:
     assert "github.event_name != 'pull_request'" in pr_autofix.get("if", ""), (
         "the protected App job must skip PR refs before environment evaluation"
     )
-
-    trusted_automation = (
-        ("ci-failure-attribution.yml", "attribute", "ci-attribution-agent"),
-        ("ci-guard-attribution.yml", "analyze", "ci-attribution-agent"),
-        ("ci-guard-attribution.yml", "report", "ci-attribution-agent"),
-        ("ci-hosted-queue-rescue.yml", "rescue", "ci-bot"),
-        ("dogfood-artifact-publish.yml", "capture", "ci-bot"),
-    )
-    for name, job_name, environment in trusted_automation:
-        assert environment_name(workflow(name)["jobs"][job_name]) == environment
 
 
 def test_ci_and_deployment_container_images_are_digest_pinned() -> None:

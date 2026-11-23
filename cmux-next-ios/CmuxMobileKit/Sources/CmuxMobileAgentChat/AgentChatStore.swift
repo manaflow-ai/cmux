@@ -5,6 +5,9 @@ import CmuxMobileMarkdown
 import CmuxMobileModel
 import Foundation
 import Observation
+#if DEBUG && os(iOS)
+import QuartzCore
+#endif
 
 /// One prompt and everything the agent did for it.
 public struct AgentTurn: Identifiable, Hashable, Sendable, Codable {
@@ -274,6 +277,26 @@ public final class AgentChatStore {
     }
     /// Every subagent seen, nested ones included, in start order.
     public private(set) var subagents: [AgentSubagent] = []
+    /// Every file, folder, link and image the session referenced (`SessionArtifacts.collect`),
+    /// built once per change of what it reads. The collection scans every turn's text, tool
+    /// input and output; the artifacts sheet's body and the composer's `@` picker read it on
+    /// every pass (each streamed chunk, each key typed after `@`), which made each pass
+    /// linear in the chat's length. Reading it observes `turns`, `subagents` and `summary`, so
+    /// a view still updates when they change; an unchanged chat costs three array identity
+    /// checks (Array `==` returns at once for the same storage).
+    public var artifacts: SessionArtifacts {
+        let input = ArtifactsInput(turns: turns, subagents: subagents, cwd: summary.cwd)
+        if let artifactsCache, artifactsCache.input == input { return artifactsCache.value }
+        let value = SessionArtifacts.collect(turns: input.turns, subagents: input.subagents, cwd: input.cwd)
+        artifactsCache = (input, value)
+        return value
+    }
+    private struct ArtifactsInput: Equatable {
+        let turns: [AgentTurn]
+        let subagents: [AgentSubagent]
+        let cwd: String
+    }
+    @ObservationIgnored private var artifactsCache: (input: ArtifactsInput, value: SessionArtifacts)?
     /// The newest refused intent, shown over the composer until the next send.
     public var clientError: String?
     /// What the chat says when the Mac refused a send for this phone's Full-access setting
@@ -334,6 +357,10 @@ public final class AgentChatStore {
     /// Set by the composer when it took its place without motion (the chat opened on its
     /// history): the bottom stack's next height lands at once too (then cleared).
     @ObservationIgnored var placeBottomStackInstantly = false
+    #if os(iOS)
+    /// The new-chat entrance (`NewChatEntrance`) plays once per chat: which parts already did.
+    @ObservationIgnored var newChatEntrance = NewChatEntrance.Played()
+    #endif
     private var currentMessageID: String?
     /// Retained output belongs to the failed attempt, even when chunks carry no message ID.
     private var startsNewAttempt = false
@@ -546,9 +573,17 @@ public final class AgentChatStore {
         keepSent(attachments, promptID: promptID)
         // One of the agent's own slash commands waits for the turn and runs as its own.
         let steers = steer && !Self.commandWaitsForTurn(text, harness: summary.harness, commands: availableCommands)
+        #if DEBUG && os(iOS)
+        if InputLatencyTrace.isEnabled { sendStarts[promptID] = CACurrentMediaTime() }
+        #endif
         source.send(.prompt(text: text, attachments: attachments, steer: steers,
                             promptID: promptID, resend: resend != nil))
     }
+
+    #if DEBUG && os(iOS)
+    /// When each prompt was sent (`InputLatencyTrace`: `chat_send_acked`, `chat_send_visible`).
+    private var sendStarts: [String: CFTimeInterval] = [:]
+    #endif
 
     /// Whether `text` is one of a Claude agent's own slash commands (`commands`, its
     /// `available_commands_update`: built-ins, skills, plugin commands such as `/loop`), the Mac's
@@ -930,6 +965,13 @@ public final class AgentChatStore {
             currentMessageID = nil
             startsNewAttempt = true
         case .userMessage(let text, let promptId, let turnId, let attachments, let at):
+            #if DEBUG && os(iOS)
+            if let start = sendStarts.removeValue(forKey: promptId), let trace = InputLatencyTrace.shared {
+                // The Mac's echo of the prompt is its ack; the turn draws in the next frame.
+                trace.sample("chat_send_acked", since: start)
+                trace.sampleAtNextFrame("chat_send_visible", since: start)
+            }
+            #endif
             retryRequested = false
             currentMessageID = nil
             reached(promptId)
@@ -1319,6 +1361,21 @@ public final class AgentChatStore {
     func relieveMemoryPressureOffScreen() {
         guard !isShown else { return }
         spillOlder(keeping: Self.pressureKeep)
+    }
+
+    /// What this chat holds in memory, in bytes of its turns as JSON: the turns shown, the
+    /// spill's turns short of a page, and what it keeps of the turns on disk (their ids, the
+    /// first prompt). One store's own bytes, whatever else the process holds (tests and
+    /// measurements). A new place the chat keeps turns in memory must be counted here, or the
+    /// memory checks stop seeing it.
+    func residentBytes() -> Int {
+        let encoder = JSONEncoder()
+        let shown = (try? encoder.encode(turns))?.count ?? 0
+        let waiting = spill.flatMap { try? encoder.encode($0.rowsInMemory()) }?.count ?? 0
+        let onDisk = spilledTurnIDs.reduce(0) { $0 + $1.utf8.count }
+            + spilledTurns.reduce(0) { $0 + $1.id.utf8.count + 1 }
+            + (spilledFirstPrompt?.utf8.count ?? 0)
+        return shown + waiting + onDisk
     }
 
     /// Moves the oldest turns to disk, keeping the newest `keeping` and every turn from

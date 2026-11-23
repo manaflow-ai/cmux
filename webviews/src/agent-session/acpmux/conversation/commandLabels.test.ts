@@ -98,7 +98,7 @@ const CASES: [command: string, label: string][] = [
   ["sed -n '380,460p' webviews/src/agent-session/acpmux/conversation/toolGroups.ts", "Read toolGroups.ts"],
   ["head -40 ~/Projects/leo-workspace/tools/agent-memory", "Read agent-memory"],
   ["tail -n 30 /tmp/crl-install.log", "Read crl-install.log"],
-  ["cat package.json tsconfig.json", "Read 2 files"],
+  ["cat package.json tsconfig.json", "Read 2 files (package.json, tsconfig.json)"],
   ["curl -s 'https://api.example.com/v1/items?page=2' | jq .", "Fetched api.example.com/v1/items"],
   ["bun test src/agent-session/acpmux/conversation/commandLabels.test.ts", "Ran tests in commandLabels.test.ts"],
   ["FOO=1 bun test", "Ran tests with bun"],

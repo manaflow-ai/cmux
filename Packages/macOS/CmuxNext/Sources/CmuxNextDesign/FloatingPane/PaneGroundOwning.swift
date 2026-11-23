@@ -10,6 +10,15 @@ public protocol PaneGroundOwning: NSView {
     var ownsContentGround: Bool { get }
     /// A view inside has another ground to give now (its theme changed, its program set a background).
     func contentGroundDidChange()
+    /// Whether an opaque ground lies under the pane while the views inside paint their own (a floating pane's card
+    /// with a solid background). In a see-through window those views are then not over the window's one sheet: a
+    /// ground that a view paints at the window's tint for that sheet is opaque here.
+    var hasSolidGroundUnder: Bool { get }
+}
+
+public extension PaneGroundOwning {
+    /// No opaque ground of the owner's lies under the pane, unless the owner says so.
+    var hasSolidGroundUnder: Bool { false }
 }
 
 /// A view inside a pane that paints a ground under the pane's content and paints none while an owner above

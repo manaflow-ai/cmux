@@ -431,3 +431,104 @@ async fn a_follow_of_one_row_larger_than_a_reply_fits_under_the_cap() {
     assert!(row["name"].as_str().is_none_or(|n| n.len() < 3 << 20), "the row went whole");
     assert_eq!(follow["more"], false, "{}", follow.to_string().get(..400).unwrap_or_default());
 }
+
+/// Peer `name` with `rows` rows, its list applied as a link's first list is.
+async fn add_peer(hub: &Arc<Hub>, name: &str, rows: usize) {
+    let (tx, _rx) = mpsc::channel(8);
+    let peer = Peer::new(name, "ws://127.0.0.1:9", None, None, tx);
+    hub.peers.lock().unwrap().insert(name.to_owned(), peer.clone());
+    let list = (0..rows)
+        .map(|r| json!({"sessionId": format!("m{r}"), "name": "lane", "status": "idle", "updatedAt": 5}))
+        .collect();
+    let mut settled = peer.settled();
+    for notice in [PeerNotice::sessions_from_values(list), PeerNotice::Connected] {
+        hub.peer_notices.send((name.to_owned(), peer.generation, notice)).await.unwrap();
+    }
+    tokio::time::timeout(Duration::from_secs(10), settled.wait_for(|n| *n >= 1))
+        .await
+        .expect("the hub applies the notices")
+        .unwrap();
+}
+
+/// The next message a client reads, a notice or a reply.
+async fn next_message(client: &mut Client) -> Value {
+    let line = tokio::time::timeout(Duration::from_secs(10), client.output.recv())
+        .await
+        .expect("a message within 10 s")
+        .unwrap();
+    serde_json::from_str(&line).unwrap()
+}
+
+/// A peer row's `session_changed` of `peer`.
+fn peer_row_notice(message: &Value, peer: &str) -> bool {
+    message["method"] == method::MUX_SESSION_CHANGED && message["params"]["peer"] == peer
+}
+
+/// Peer row batches (`initialize` `_meta.acpmux.peerRowBatches`, `Events::send_remote_batch`): a
+/// client that asked hears a peer's list of 40 rows as one `_acpmux/peer_rows_changed` naming
+/// the 40 positions it took, and a follow from its `afterSeq` reads all 40; a client that did not
+/// ask hears each row's `session_changed`, as before. A list of 3 rows stays 3 notices for both.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_peer_list_is_one_batch_for_a_client_that_asked_and_every_row_for_one_that_did_not() {
+    let hub = hub_with(1, 0, 0).await;
+    let mut old = Client::new(&hub, Origin::Web).await;
+    let mut new = Client::new(&hub, Origin::Web).await;
+    // `Client::new` names itself a peer link, which hears no peer rows at all: both name
+    // themselves an app, one with the opt-in and one without.
+    let hello = |batches: bool| {
+        let mut hello = json!({"protocolVersion": 1, "clientCapabilities": {},
+            "clientInfo": {"name": "app", "version": "0"}});
+        if batches {
+            hello["_meta"] = json!({"acpmux": {"peerRowBatches": true}});
+        }
+        hello
+    };
+    old.call(method::INITIALIZE, hello(false)).await;
+    new.call(method::INITIALIZE, hello(true)).await;
+    old.call(method::MUX_WATCH, json!({"enabled": true})).await;
+    let listed = new.call(method::MUX_WATCH, json!({"enabled": true})).await;
+    add_peer(&hub, "peer-0", 40).await;
+    add_peer(&hub, "peer-1", 3).await;
+
+    // The old client: every row of both lists, and no batch.
+    let (mut rows, mut small) = (0, 0);
+    while rows < 40 || small < 3 {
+        let message = next_message(&mut old).await;
+        assert_ne!(message["method"], method::MUX_PEER_ROWS_CHANGED, "{message}");
+        rows += peer_row_notice(&message, "peer-0") as usize;
+        small += peer_row_notice(&message, "peer-1") as usize;
+    }
+
+    // The new client: one batch for the 40, no row of them on its own, then the 3 small ones.
+    let batch = loop {
+        let message = next_message(&mut new).await;
+        assert!(!peer_row_notice(&message, "peer-0"), "a batched row came alone: {message}");
+        if message["method"] == method::MUX_PEER_ROWS_CHANGED {
+            break message["params"].clone();
+        }
+    };
+    assert_eq!(batch["peer"], "peer-0", "{batch}");
+    assert_eq!(batch["count"], 40, "{batch}");
+    let (after, through) =
+        (batch["afterSeq"].as_u64().unwrap(), batch["listSeq"].as_u64().unwrap());
+    assert_eq!(through - after, 40, "consecutive positions: {batch}");
+    let mut small = 0;
+    while small < 3 {
+        let message = next_message(&mut new).await;
+        assert_ne!(message["method"], method::MUX_PEER_ROWS_CHANGED, "a small list: {message}");
+        small += peer_row_notice(&message, "peer-1") as usize;
+    }
+
+    // One follow from the batch's `afterSeq` reads every row of it.
+    let params = json!({"enabled": true, "afterSeq": after, "listEpoch": listed["listEpoch"]});
+    let followed = new.call(method::MUX_WATCH, params).await;
+    let of_peer = |peer: &str| {
+        followed["sessions"].as_array().unwrap().iter().filter(|r| r["peer"] == peer).count()
+    };
+    assert_eq!(of_peer("peer-0"), 40, "{followed}");
+    assert_eq!(of_peer("peer-1"), 3, "{followed}");
+    assert!(followed["listSeq"].as_u64().unwrap() >= through, "{followed}");
+}
+
+#[path = "phone_list_tests.rs"]
+mod phone;

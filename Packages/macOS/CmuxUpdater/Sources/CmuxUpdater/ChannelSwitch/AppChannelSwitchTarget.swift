@@ -81,9 +81,10 @@ public enum AppChannelSwitchTarget: String, Sendable, CaseIterable, Equatable {
 
     /// The DMG to download when the target app is not installed.
     ///
-    /// NIGHTLY and cmux NEXT's NIGHTLY use the per-architecture DMG the updater's
-    /// manual-download recovery offers. Stable uses the `cmux-macos.dmg` asset of the release
-    /// the stable Sparkle feed points at. DEV uses the zip of the `cmux-next-dev` release.
+    /// NIGHTLY uses the per-architecture DMG the updater's manual-download recovery offers;
+    /// cmux NEXT's NIGHTLY uses the same cmux.com route to its update feed's newest DMG.
+    /// Stable uses the `cmux-macos.dmg` asset of the release the stable Sparkle feed points at.
+    /// DEV uses the zip of the `cmux-next-dev` release.
     ///
     /// - Parameter architecture: The machine architecture; nightly ships one DMG per architecture.
     /// - Returns: The DMG URL; `nil` only if a constant failed to parse (a test pins that both parse).
@@ -91,7 +92,7 @@ public enum AppChannelSwitchTarget: String, Sendable, CaseIterable, Equatable {
         let string = switch self {
         case .stable: UpdateManualDownloadRecovery.stableDownloadURLString
         case .nightly: UpdateManualDownloadRecovery.nightlyDownloadURLString(for: architecture)
-        case .nightlyNext: UpdateManualDownloadRecovery.nightlyNextDownloadURLString(for: architecture)
+        case .nightlyNext: UpdateManualDownloadRecovery.nightlyNextDownloadURLString
         case .dev: Self.devDownloadURLString
         }
         // All are compile-time constant https URLs.

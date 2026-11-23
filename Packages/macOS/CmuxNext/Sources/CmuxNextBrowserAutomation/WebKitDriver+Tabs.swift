@@ -19,13 +19,13 @@ extension WebKitDriver {
         })
     }
 
-    func tabsOpen(_ params: DriverParams) async throws(DriverError) -> DriverJSON {
+    func tabsOpen(_ params: DriverParams, place: AutomationTabPlace) async throws(DriverError) -> DriverJSON {
         guard let provider else { throw DriverError(.closed, "tabs.open: the browser is gone") }
         let raw = try params.optionalString("url")
         let url = try raw.map { raw throws(DriverError) in try Self.navigableURL(raw, method: "tabs.open") }
         let tab: WebKitTab
         do {
-            tab = try await provider.openAutomationTab(url: nil)
+            tab = try await provider.openAutomationTab(url: nil, place: place)
         } catch {
             throw DriverError(.unsupported, "tabs.open: \(error.localizedDescription)")
         }

@@ -289,7 +289,19 @@ export function hostTailOf(tail: KeptTail): KeptTail | undefined {
   const rest = { ...tail, events: [] as EventRecord[] };
   // Each message's streamed chunks as one record (`packStreamed`): the host bounds a tail at
   // ``KEPT_EVENTS`` records, which `keptEvents` counts this way.
-  const packed = packStreamed(tail.events);
+  // Full command catalogs repeat on each harness restart. Only the newest is current; keeping
+  // several large copies can leave the byte-bounded tail with no reply at all.
+  let commandsKept = false;
+  const eventsToPack: EventRecord[] = [];
+  for (let index = tail.events.length - 1; index >= 0; index -= 1) {
+    const event = tail.events[index]!;
+    if (event.kind === "available_commands_update") {
+      if (commandsKept) continue;
+      commandsKept = true;
+    }
+    eventsToPack.push(event);
+  }
+  const packed = packStreamed(eventsToPack.reverse());
   const events = newestWithin(packed, Math.max(0, HOST_TAIL_BYTES - bytesOf(rest)));
   if (events.length === 0) return undefined;
   return {

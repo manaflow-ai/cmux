@@ -13,7 +13,7 @@
 use serde_json::{Map, Value, json};
 
 /// Reads, answered from `/v1/read`.
-pub const READS: [&str; 8] = [
+pub const READS: [&str; 9] = [
     "automation.list",
     "automation.get",
     "automation.runs.list",
@@ -22,12 +22,13 @@ pub const READS: [&str; 8] = [
     "run.get",
     "chief.list",
     "automation.audit.list",
+    "automation.secret.list",
 ];
 
 /// Mutations, sent to `/v1/ops`, with the teleport steps
 /// (docs/automations-teleport-teams.md). `automation.deploy` and
 /// `automation.settings.set` stay out.
-pub const MUTATIONS: [&str; 8] = [
+pub const MUTATIONS: [&str; 10] = [
     "automation.create",
     "automation.update",
     "automation.delete",
@@ -36,6 +37,8 @@ pub const MUTATIONS: [&str; 8] = [
     "automation.teleport.begin",
     "automation.teleport.complete",
     "automation.teleport.abort",
+    "automation.secret.set",
+    "automation.secret.remove",
 ];
 
 /// The longest idempotency key forwarded.
@@ -156,6 +159,22 @@ mod tests {
         assert!(r.body.get("idempotency_key").is_none());
         let audit = routed(json!({"op": "automation.audit.list", "params": {}}));
         assert_eq!(audit.path, "/v1/read");
+    }
+
+    #[test]
+    fn secret_ops_pass_with_list_a_read_and_set_and_remove_keyed_mutations() {
+        assert_eq!(
+            routed(json!({"op": "automation.secret.list", "params": {"automation": "auto_x"}}))
+                .path,
+            "/v1/read"
+        );
+        for op in ["automation.secret.set", "automation.secret.remove"] {
+            let r = routed(
+                json!({"op": op, "params": {"automation": "auto_x", "name": "A"}, "idempotency_key": "k"}),
+            );
+            assert_eq!(r.path, "/v1/ops", "{op}");
+            assert_eq!(refused_code(json!({"op": op, "params": {}})), "invalid_params", "{op}");
+        }
     }
 
     #[test]

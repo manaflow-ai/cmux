@@ -8,8 +8,13 @@ export interface PushTargetsState {
   readonly installs: Readonly<Record<string, { readonly kind: string; readonly revoked_at: number | null }>>
 }
 
-/** Bundle ids our APNs key may push to: the cmux iOS apps (dev.cmux.ios, dev.cmux.app.beta, tagged dev builds). */
-export const PUSH_TOPIC_PREFIXES: ReadonlyArray<string> = ["dev.cmux.", "com.cmuxterm."]
+/**
+ * Bundle ids our APNs key may push to: the cmux iOS apps. `dev.cmux.` covers dev.cmux.ios, dev.cmux.app.beta,
+ * dev.cmux.app.internal and tagged dev builds; `com.cmux.` the App Store app com.cmux.app (cmux-next ships under it).
+ * Each prefix ends in a dot, so a look-alike such as `com.cmuxapp.x` never matches; the APNs key is scoped to our
+ * team, so a topic of another team's app could not receive a push anyway.
+ */
+export const PUSH_TOPIC_PREFIXES: ReadonlyArray<string> = ["dev.cmux.", "com.cmux.", "com.cmuxterm."]
 
 const liveInstall = (s: PushTargetsState, id: string) => s.installs[id]?.revoked_at === null
 
