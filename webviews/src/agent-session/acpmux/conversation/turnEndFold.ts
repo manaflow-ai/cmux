@@ -236,7 +236,8 @@ function workedUnderNextPrompt(before: readonly AcpmuxRow[], after: readonly Acp
   for (let index = after.length - 1; index >= 0; index -= 1) {
     const row = after[index]!;
     if (row.id === prompt) return undefined;
-    if (row.id === worked) return worked;
+    // An ended header only: the running one is still the running turn's (turns.ts `turnHeaderId`).
+    if (row.id === worked) return row.turnPhase === "running" ? undefined : worked;
   }
   return undefined;
 }

@@ -65,7 +65,7 @@ test("a turn's end drawn with the next prompt and its line still ends the turn",
   // `after` has a live line again, under the next prompt (the reply jumped 87 px with no fold).
   const running = [
     row("user-5865", "user"),
-    row("working-user-5865", "working"),
+    { ...row("worked-user-5865", "worked"), turnPhase: "running" },
     row("activity-5868", "activity"),
     row("assistant-5874"),
     row("activity-5877", "activity"),
@@ -81,13 +81,18 @@ test("a turn's end drawn with the next prompt and its line still ends the turn",
   const next = row("user-5886", "user");
   expect(endsTurn(running, [...ended, next])).toBe(true);
   expect(endsTurn(running, [...ended, next, row(LIVE_THINKING, "thinking")])).toBe(true);
-  expect(endsTurn(running, [...ended, next, row("working-user-5886", "working"), row(LIVE_THINKING, "thinking")])).toBe(
-    true,
-  );
+  expect(
+    endsTurn(running, [
+      ...ended,
+      next,
+      { ...row("worked-user-5886", "worked"), turnPhase: "running" },
+      row(LIVE_THINKING, "thinking"),
+    ]),
+  ).toBe(true);
   // The next prompt another agent's message, drawn as a line (model.ts `isLineRow`).
   const line: AcpmuxRow = { ...next, incoming: { kind: "message" } as AcpmuxRow["incoming"] };
   const lineTurn = [
-    row("working-user-5886", "working"),
+    { ...row("worked-user-5886", "worked"), turnPhase: "running" },
     line,
     row("activity-5889", "activity"),
     row(LIVE_THINKING, "thinking"),
