@@ -9764,7 +9764,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     dotGridArm,
     hostLine,
     forkPendingLine,
-    sandboxDraftMoved,
     composer,
     artifact,
     liveArtifact,

@@ -401,7 +401,6 @@ export type PaneBodyDeps = NewTabShown &
     dotGridArm: "off" | "on" | "compact";
     hostLine: React.JSX.Element;
     forkPendingLine: React.JSX.Element | undefined;
-    sandboxDraftMoved: boolean;
     composer: false | React.JSX.Element;
     artifact: OpenedArtifact | undefined;
     liveArtifact: Artifact | undefined;
@@ -669,7 +668,6 @@ export function drawPaneBody({
   dotGridArm,
   hostLine,
   forkPendingLine,
-  sandboxDraftMoved,
   composer,
   artifact,
   liveArtifact,
