@@ -38,6 +38,12 @@ pub trait FrameSource: Send {
     fn set_changed_pixels(&mut self, _pixels: u64) {}
     fn kbps(&self) -> u32;
     fn encoder_name(&self) -> String;
+    /// The picture the next [`FrameSource::encode`] makes, from the engine's resolution ladder
+    /// (design D5): its size (the source scales the stream down to it) and QP ceiling. Set
+    /// before each capture; `None` (no ladder): the full stream, no ceiling. The default
+    /// ignores it and encodes the full stream (the Linux and Windows sources today; the macOS
+    /// source scales on the GPU).
+    fn set_picture(&mut self, _picture: Option<cmux_rd_core::resolution::Picture>) {}
     /// Why the last [`FrameSource::encode`] made an IDR it was not asked for (the encoder's
     /// [`cmux_encode::VideoEncoder::idr_cause`]).
     fn idr_cause(&self) -> Option<&'static str> {
@@ -79,6 +85,21 @@ pub fn reports_cursor() -> bool {
     #[cfg(target_os = "macos")]
     {
         synthetic_size().is_none() && crate::mac::cursor::available()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        false
+    }
+}
+
+/// Whether this OS's frame source encodes the resolution ladder's smaller picture
+/// (`FrameSource::set_picture`), so a host offers the `video.scaled` cap: the macOS capture
+/// and synthetic sources scale on the GPU; the Linux and Windows sources always encode the
+/// full stream.
+pub fn scales_pictures() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        true
     }
     #[cfg(not(target_os = "macos"))]
     {

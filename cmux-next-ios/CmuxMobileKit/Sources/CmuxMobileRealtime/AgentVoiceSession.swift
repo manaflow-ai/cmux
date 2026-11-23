@@ -399,9 +399,20 @@ public final class AgentVoiceLauncher {
     /// Starts voice mode on the source, or ends it when it runs there.
     public var handler: (@MainActor (any AgentVoiceSource) -> Void)?
 
-    public init() {}
+    @ObservationIgnored private let preferences: VoiceCallPreferences
 
-    public var isAvailable: Bool { handler != nil }
+    public init(preferences: VoiceCallPreferences = .shared) {
+        self.preferences = preferences
+    }
+
+    /// Where the composers show the voice button: off when signed out or
+    /// while the user hasn't turned it on (Settings → Composer).
+    public var placement: ComposerVoicePlacement {
+        handler == nil ? .off : preferences.composerVoice
+    }
+
+    /// A composer shows a voice button at all.
+    public var isAvailable: Bool { placement != .off }
 
     public func toggle(_ source: any AgentVoiceSource) {
         handler?(source)

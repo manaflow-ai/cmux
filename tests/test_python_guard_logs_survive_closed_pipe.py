@@ -215,7 +215,15 @@ class Fixture(unittest.TestCase):
                                 start_new_session=True)
         self.addCleanup(proc.wait)
         self.kill_at_cleanup(proc.pid)
-        time.sleep(0.3)  # until bash has exec'd sleep under the bundle path
+        # Until bash has exec'd sleep under the bundle path, as ps reads its command (10 s at most).
+        deadline = time.monotonic() + 10
+        while True:
+            command = subprocess.run(["ps", "-o", "command=", "-p", str(proc.pid)], capture_output=True, text=True).stdout
+            if command.startswith(f"{self.app}/Contents/MacOS/cmux-helper"):
+                break
+            self.assertIsNone(proc.poll(), f"the leftover exited ({proc.returncode}) before it exec'd sleep")
+            self.assertLess(time.monotonic(), deadline, f"pid {proc.pid} never exec'd sleep under the bundle path: {command!r}")
+            time.sleep(0.02)
         return proc.pid
 
     def run_cleanup(self, script: str, state: dict) -> None:

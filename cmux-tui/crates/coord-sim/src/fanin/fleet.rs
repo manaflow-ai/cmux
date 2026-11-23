@@ -136,6 +136,10 @@ fn env_for(cmd: &mut Command, rec_home: &Path, socket: &Path, agent_hosts: bool)
     if !agent_hosts {
         cmd.env("ACPMUX_AGENT_HOSTS", "0");
     }
+    // An A/B of the daemon's malloc arena cap (`malloc_arenas.rs`): the run's own setting wins.
+    if let Some(arenas) = std::env::var_os("MALLOC_ARENA_MAX") {
+        cmd.env("MALLOC_ARENA_MAX", arenas);
+    }
 }
 
 /// The harness every daemon runs its sessions with: this binary's `fanin agent`.
