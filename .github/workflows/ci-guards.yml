@@ -2162,6 +2162,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_fork_runner_routing.py
 
+      - name: Validate write-token jobs lead with a JIT label
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_write_token_jit_label.py
+
       - name: Validate compile jobs run on the 16 or 32 vCPU size
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_linux_compile_runners.py
