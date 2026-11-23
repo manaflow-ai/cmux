@@ -150,7 +150,7 @@ import Testing
             .zoomOut, .zoomIn, .launcher(.claude), .launcher(.codex), .launcher(.ollama),
         ])
         #expect(KeyBarLayout.standard == .agentsLast)
-        #expect(KeyBarLayout.standard.launcherSeparatorKey == .launcher(.claude), "the hairline before the launchers")
+        #expect(KeyBarLayout.standard.launcherSeparatorKey == KeyBarKey.launcher(.claude), "the hairline before the launchers")
         #expect(Set(KeyBarKey.row).count == KeyBarKey.row.count)
         // The compose key is pinned, never in the scroller.
         #expect(!KeyBarKey.row.contains(.composer))

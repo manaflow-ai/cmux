@@ -4269,7 +4269,7 @@ final class KeyRowHitSlopView: UIView {
         super.init(frame: .zero)
     }
 
-    required init?(coder: NSCoder) { nil }
+    required init?(coder: NSCoder) { return nil }
 
     override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
         bounds.insetBy(dx: 0, dy: -verticalSlop).contains(point)

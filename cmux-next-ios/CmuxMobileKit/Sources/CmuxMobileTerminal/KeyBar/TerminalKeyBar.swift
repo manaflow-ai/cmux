@@ -402,7 +402,7 @@ final class PasteKeyHitView: UIView {
         addSubview(control)
     }
 
-    required init?(coder: NSCoder) { nil }
+    required init?(coder: NSCoder) { return nil }
 
     override func layoutSubviews() {
         super.layoutSubviews()
