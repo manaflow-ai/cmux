@@ -19,10 +19,18 @@ the row is the median.
 
 Rows (report.json `rows`, perf-cron.py kind budgets; reporting only, perf-cron.py judges no terminal.throughput row):
   terminal.throughput.next_mb_s, terminal.throughput.ghostty_mb_s (MB/s), terminal.throughput.ratio (x, NEXT/Ghostty).
+  With --payload sgr the same three rows are named terminal.throughput_sgr.*.
 Prints TERMINAL-THROUGHPUT lines. Exits 1 when a terminal gave no timed burst (the report says why in `missing`).
 
   terminal-throughput-bench.py --app "<cmux DEV tag.app>" --out DIR [--json FILE] [--mb 200] [--runs 3]
       [--warmup-mb 16] [--timeout 240] [--ghostty-app PATH] [--no-ghostty] [--breakdown] [--trace]
+      [--payload mixed|sgr]
+
+--payload sgr: every printable character carries its own 256-color SGR change (ESC[38;5;Nm), the escape-heavy output
+that per-run renderers fall over on (termbench's color arm). The default mixed payload has SGR runs per word, so a
+style change per cell is never measured there. Escape bytes count as payload bytes, so read the ratio, not the MB/s,
+against the mixed arm: a lower sgr ratio says NEXT's extra parses (host, daemon, app) or the attach hop handle
+escape-dense bytes worse than Ghostty does.
 
 --trace (terminal_throughput_trace.py): the first timed burst of each terminal runs under one Instruments recording of
 every process (System Trace and Time Profiler). Per thread of the terminal's processes, over the burst window: running,
@@ -47,7 +55,7 @@ Both clocks are time.time() on one Mac. Bytes the daemon or app still hold past 
 in either number. Rows: terminal.interrupt.key_to_signal_ms, terminal.interrupt.signal_to_drained_ms (median as p50,
 worst as p95; reporting only). TERMINAL-THROUGHPUT-INTERRUPT per run.
 """
-import argparse, hashlib, json, os, platform, random, shlex, shutil, statistics, subprocess, sys, tempfile, time
+import argparse, hashlib, json, os, platform, random, re, shlex, shutil, statistics, subprocess, sys, tempfile, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -320,8 +328,29 @@ def payload_block(seed=571, size=1 << 20):
     return b"".join(out)
 
 
-def write_payload(path, mb):
-    block, want = payload_block(), mb * MB
+def sgr_payload_block(seed=571, size=1 << 20):
+    """About `size` bytes of text where every printable character has its own SGR color change (pure)."""
+    rng = random.Random(seed)
+    text = re.sub(r"\x1b\[[0-9;]*m", "", payload_block(seed, size // 8).decode())  # its own SGR runs out
+    out, total = [], 0
+    while total < size:
+        for ch in text:
+            b = (ch if ch == "\n" else f"\x1b[38;5;{rng.randrange(256)}m{ch}").encode()
+            if ch == "\n":
+                b = b"\x1b[0m\n"
+            out.append(b)
+            total += len(b)
+            if total >= size:
+                break
+    return b"".join(out)
+
+
+PAYLOADS = {"mixed": payload_block, "sgr": sgr_payload_block}
+ROW_PREFIX = {"mixed": "terminal.throughput", "sgr": "terminal.throughput_sgr"}
+
+
+def write_payload(path, mb, kind="mixed"):
+    block, want = PAYLOADS[kind](), mb * MB
     with open(path, "wb") as f:
         left = want
         while left > 0:
@@ -536,16 +565,16 @@ def interrupt_rows(runs):
     return rows
 
 
-def report_rows(next_mb_s, ghostty_mb_s, interrupts=None):
+def report_rows(next_mb_s, ghostty_mb_s, interrupts=None, prefix="terminal.throughput"):
     """The report's rows (pure): each MB/s median and their ratio, when both are known, and the ^C rows."""
     rows = interrupt_rows(interrupts)
-    for name, v, unit in (("terminal.throughput.next_mb_s", next_mb_s, "MB/s"),
-                          ("terminal.throughput.ghostty_mb_s", ghostty_mb_s, "MB/s")):
+    for name, v, unit in ((f"{prefix}.next_mb_s", next_mb_s, "MB/s"),
+                          (f"{prefix}.ghostty_mb_s", ghostty_mb_s, "MB/s")):
         if v is not None:
             rows.append({"name": name, "p50": v, "p95": v, "unit": unit, "budget": None, "floor": round(0.1 * v, 1)})
     if next_mb_s and ghostty_mb_s:
         ratio = round(next_mb_s / ghostty_mb_s, 3)
-        rows.append({"name": "terminal.throughput.ratio", "p50": ratio, "p95": ratio, "unit": "x", "budget": None,
+        rows.append({"name": f"{prefix}.ratio", "p50": ratio, "p95": ratio, "unit": "x", "budget": None,
                      "floor": 0.1})
     return rows
 
@@ -567,6 +596,9 @@ def main(argv=None):
     parser.add_argument("--trace", action="store_true",
                         help="the first timed burst of each terminal under Instruments (System Trace and Time Profiler): "
                              "per thread, its states, system calls and bytes over the burst (TERMINAL-THROUGHPUT-TRACE)")
+    parser.add_argument("--payload", choices=sorted(PAYLOADS), default="mixed",
+                        help="mixed (default): lines, wraps, SGR runs per word, UTF-8; sgr: an SGR color change on "
+                             "every character (rows terminal.throughput_sgr.*)")
     parser.add_argument("--interrupt-runs", type=int, default=3,
                         help="after NEXT's bursts, this many ^C-under-a-flood runs (TERMINAL-THROUGHPUT-INTERRUPT); 0 skips")
     parser.add_argument("--interrupt-flood-s", type=float, default=2.0, help="seconds of flood before each ^C")
@@ -582,8 +614,9 @@ def main(argv=None):
         with open(writer, "w") as f:
             f.write(WRITER)
         payload = os.path.join(scratch, "payload.txt")
-        size = write_payload(payload, opts.mb)
-        report = {"suite": "terminal-throughput", "payload_bytes": size, "runs_per_terminal": opts.runs,
+        size = write_payload(payload, opts.mb, opts.payload)
+        prefix = ROW_PREFIX[opts.payload]
+        report = {"suite": "terminal-throughput", "payload": opts.payload, "payload_bytes": size, "runs_per_terminal": opts.runs,
                   "host": platform.node(), "missing": []}
         arms = [parse_arm(a) for a in opts.next_arm]
         for arm, env in arms:
@@ -609,9 +642,9 @@ def main(argv=None):
         report["next"]["median_mb_s"], report["ghostty"]["median_mb_s"] = next_mb_s, ghostty_mb_s
         for label, v in (("next", next_mb_s), ("ghostty", ghostty_mb_s)):
             if v is None:
-                report["missing"].append({"name": f"terminal.throughput.{label}_mb_s",
+                report["missing"].append({"name": f"{prefix}.{label}_mb_s",
                                              "reason": report[label].get("error") or "no timed burst"})
-        report["rows"] = report_rows(next_mb_s, ghostty_mb_s, report["next"].get("interrupts"))
+        report["rows"] = report_rows(next_mb_s, ghostty_mb_s, report["next"].get("interrupts"), prefix)
         if opts.interrupt_runs > 0 and not any(r["name"].startswith("terminal.interrupt.") for r in report["rows"]):
             report["missing"].append({"name": "terminal.interrupt.key_to_signal_ms",
                                       "reason": report["next"].get("error") or "no ^C run gave a result"})
@@ -622,7 +655,8 @@ def main(argv=None):
         print("TERMINAL-THROUGHPUT-SUMMARY " + json.dumps({"next_mb_s": next_mb_s, "ghostty_mb_s": ghostty_mb_s,
                                                            "ratio": next((r["p50"] for r in report["rows"]
                                                                           if r["name"].endswith(".ratio")), None),
-                                                           "host": report["host"], "payload_mb": opts.mb}), flush=True)
+                                                           "host": report["host"], "payload_mb": opts.mb,
+                                                           "payload": opts.payload}), flush=True)
         if opts.json:
             with open(opts.json, "w") as f:
                 json.dump(report, f, indent=1)
