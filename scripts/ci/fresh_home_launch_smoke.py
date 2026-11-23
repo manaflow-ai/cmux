@@ -964,12 +964,12 @@ def wait_for_marks(marks_fd: int | None, seconds: float) -> None:
     a fixed 0.25 s sleep put up to 250 ms of the harness's own wait into each launch's time to Home. With no
     pipe (None: it reached its end, or Home is already in) it is a plain wait."""
     if marks_fd is None:
-        time.sleep(seconds)
+        time.sleep(seconds)  # sleep-ok: the caller's poll tick when there is no mark pipe to wait on
         return
     try:
         select.select([marks_fd], [], [], seconds)
     except (OSError, ValueError):
-        time.sleep(seconds)
+        time.sleep(seconds)  # sleep-ok: the caller's poll tick when the pipe cannot be selected
 
 
 def watch(process: subprocess.Popen, marks_fd: int, marks_path: Path, socket_path: Path,

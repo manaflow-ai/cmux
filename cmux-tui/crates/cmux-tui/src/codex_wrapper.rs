@@ -122,7 +122,7 @@ fn prepare_hooks(
     }
     let settings = mcp_settings(
         &McpLaunch { cwd: &cwd, executable: &executable, socket: &socket },
-        cmux_tui_core::user_settings::AgentsCmuxMcp::current(),
+        cmux_tui_core::user_settings::AgentsCmuxMcp::current_for("codex"),
         &|name| std::env::var_os(name),
         &entry,
     );

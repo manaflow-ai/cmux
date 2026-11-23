@@ -10,7 +10,7 @@
 import type { EventRecord } from "../direct";
 
 /** What the reader does between two records: the simulator's only steps that are not acpmux's. */
-export type ReaderAction = { scroll: "top" | "bottom" } | { scrollBy: number };
+export type ReaderAction = { scroll: "top" | "bottom" } | { scrollBy: number } | { open: string };
 
 /** One step of a run: a record folded, or a reader action, at virtual time `at` (ms since the epoch). */
 export type SimStep =
@@ -160,6 +160,37 @@ export class SimBuilder {
     return this.started(300);
   }
 
+  /** Another agent's message steered into the running turn (acpmux's `steer: true` `agent_message`): it opens no turn. */
+  message(value: string, { fromName = "other-lane", after = 400 } = {}): this {
+    const fromSessionId = "sim-0000-0000-0000-0000000000bb";
+    return this.record(
+      "mux",
+      "user_message",
+      {
+        text: value,
+        steer: true,
+        turnId: this.turnId,
+        promptId: `${this.promptId}-steer-${this.seq + 1}`,
+        client: "acpmux-peer#sim",
+        _meta: {
+          provenance: { kind: "agent_message", from: "fromAgent", fromName, fromSessionId, to: this.sessionId },
+          _acpmuxMessage: {
+            message: {
+              at: this.now + after,
+              messageId: `sim-msg-${this.seq + 1}`,
+              receiverId: this.sessionId,
+              recordSenderCopy: false,
+              sender: { label: fromName, name: fromName, sessionId: fromSessionId },
+              text: value,
+            },
+          },
+        },
+      },
+      after,
+      `message from ${fromName}: ${value.slice(0, 40)}`,
+    );
+  }
+
   /** A thought, streamed in `chunks` deltas `chunkMs` apart. */
   think(value: string, { chunks = 3, chunkMs = 120, after = 400 } = {}): this {
     chunked(value, chunks).forEach((part, index) =>
@@ -288,10 +319,15 @@ export class SimBuilder {
     return this.record("mux", "status", { status: "ready" }, 10, "status ready");
   }
 
-  /** The reader scrolls (`top`, `bottom`, or by px), `after` ms from now. */
+  /** The reader scrolls (`top`, `bottom`, or by px) or opens a fold (its row id, `worked-user-12`), `after` ms from now. */
   reader(action: ReaderAction, after = 200): this {
     this.now += after;
-    const label = "scroll" in action ? `reader scroll ${action.scroll}` : `reader scrollBy ${action.scrollBy}`;
+    const label =
+      "scroll" in action
+        ? `reader scroll ${action.scroll}`
+        : "open" in action
+          ? `reader open ${action.open}`
+          : `reader scrollBy ${action.scrollBy}`;
     this.steps.push({ type: "reader", at: this.now, label, reader: action });
     return this;
   }
