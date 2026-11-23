@@ -57,6 +57,10 @@ on:
         description: "Preclaim burst size (1-20)"
         type: string
         default: "10"
+      journey_ref:
+        description: "A commit already on feat-cmux-next to run instead of its head (time both sides of a change)"
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -137,8 +141,18 @@ jobs:
         if: env.SELECTED == 'true' && steps.gate.outputs.skip != 'true'
         with:
           persist-credentials: false
-          ref: feat-cmux-next
+          ref: ${{ inputs.journey_ref || 'feat-cmux-next' }}
           submodules: recursive
+      # A dispatch's journey_ref runs with the production account, so it must already be on feat-cmux-next.
+      - name: The journey commit is on feat-cmux-next
+        if: env.SELECTED == 'true' && inputs.journey_ref != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          sha="$(git rev-parse HEAD)"
+          status="$(gh api "repos/$GITHUB_REPOSITORY/compare/$sha...feat-cmux-next" --jq .status)"
+          case "$status" in ahead|identical) echo "journey commit $sha is on feat-cmux-next ($status)" ;; *) echo "::error::journey_ref $sha is not on feat-cmux-next (compare: $status)"; exit 1 ;; esac
       # The shipped Linux cmux-tui, for the app's part on a warm spare (--preclaim-login: warm-spare, ready, installed
       # and the login receipt), built as the staging preclaim job below builds it.
       - name: Install Linux cmux-tui build dependencies
@@ -203,8 +217,10 @@ jobs:
           mkdir -p "$out"
           probe=cloud-chat-replies-production
           [ "$MODEL" = stub ] || probe=cloud-chat-replies-production-real-model
+          # --cmux: execs and the carrier dial (the app's own connect over the machine's relay slot) go through the
+          # cmux-tui this job built, so the hourly run times the connect the app makes, not only connect_info.
           bun scripts/cmux-next/cloud-journey.ts --backend prod --model "$MODEL" --out "$out" --probe-out "$out/probe.json" --probe "$probe" --skip sync,pause \
-            --preclaim-login "$CMUX_TUI"
+            --preclaim-login "$CMUX_TUI" --cmux "$CMUX_TUI"
           code=$?
           { echo "### Production, $MODEL model"; echo; cat "$out/summary.md" 2>/dev/null || echo "(no summary written)"; } >> "$GITHUB_STEP_SUMMARY"
           exit "$code"

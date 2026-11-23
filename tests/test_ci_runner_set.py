@@ -71,6 +71,8 @@ PINNED: dict[str, tuple[str, set[str]]] = {
      {'publish'}),
     'ios-appstore-upload.yml': ('App Store upload with signing keys',
      {'upload', 'set-testflight-notes', 'assign-internal'}),
+    'ios-app-review-readiness.yml': ('app-store-connect holds the App Store Connect API key (release environment), as ios-asc-ops.yml op does: the fork-routing secret rule forbids a variable-movable runner',
+     {'app-store-connect'}),
     'ios-asc-ops.yml': ('holds the App Store Connect API key (release environment): the fork-routing secret rule forbids a variable-movable runner',
      {'op'}),
     'ios-screenshots.yml': ('App Store upload with signing keys',
