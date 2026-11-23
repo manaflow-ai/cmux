@@ -13,12 +13,16 @@ struct CEFPermissionPrompts {
     static let cameraPanTiltZoom: Int64 = 1 << 1
     static let microphone: Int64 = 1 << 12
 
+    /// Not a CEF bit: the shim sends it for getDisplayMedia() (`kPermissionDisplayCapture`).
+    static let displayCapture: Int64 = 1 << 30
+
     /// The prompt-bar question for a request's bits (`kHostPermissions` in
     /// `permission_prompt_policy.h`); nil for a set the bar does not ask.
     /// Chromium groups a page's camera and microphone into one request,
     /// and pan-tilt-zoom comes with the camera.
     static func kind(of permissions: Int64) -> BrowserPermissionKind? {
         if permissions == geolocation { return .location }
+        if permissions == displayCapture { return .screenShare }
         guard permissions != 0, permissions & ~(camera | cameraPanTiltZoom | microphone) == 0 else { return nil }
         let wantsCamera = permissions & (camera | cameraPanTiltZoom) != 0
         let wantsMicrophone = permissions & microphone != 0
@@ -58,6 +62,14 @@ struct CEFPermissionPrompts {
         tab.pageInfoActivity.recordRequest(kind.siteKinds)
         Self.waiting.insert(token)
         let tab = tab
+        if kind == .screenShare {
+            // Sharing the screen is asked every time and never remembered for the site.
+            tab.enqueuePrompt(.permission(kind), origin: site) { response in
+                Self.waiting.remove(token)
+                runtime.permissionContinue(token, response == .allowOnce || response == .allow ? .grant : .deny)
+            }
+            return
+        }
         let ask: @MainActor (BrowserPromptKind, String, @escaping (BrowserPromptResponse) -> Void) -> Void = { kind, origin, answer in
             guard Self.waiting.contains(token) else { return answer(.cancel) }
             tab.enqueuePrompt(kind, origin: origin, completion: answer)
@@ -73,7 +85,7 @@ private extension BrowserPromptKind {
     /// A question `CEFPermissionPrompts` puts in the bar for Chromium.
     var isChromiumPermission: Bool {
         switch self {
-        case .permission(.location), .permission(.camera), .permission(.microphone), .permission(.cameraAndMicrophone): true
+        case .permission(.location), .permission(.camera), .permission(.microphone), .permission(.cameraAndMicrophone), .permission(.screenShare): true
         default: false
         }
     }

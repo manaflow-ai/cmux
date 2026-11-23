@@ -249,6 +249,28 @@ fn visible_below<'a>(
     Err("cyclic mount ancestry".into())
 }
 
+/// Whether a deeper mount stacked on `under` hides `path` there: `under`'s
+/// files at `path` cannot be reached by that path. A service started with
+/// systemd's PrivateTmp sees its `/tmp` as a mount of the root filesystem's
+/// `/tmp/systemd-private-*/tmp`; that directory is under the very `/tmp` it is
+/// mounted on, so it is no second way in. A stack at `under`'s own point is
+/// not this case (`visible_below` refuses it).
+fn covered(path: &Path, under: &MountEntry, mounts: &[MountEntry]) -> Result<bool, String> {
+    for cover in mounts {
+        if cover.id == under.id
+            || cover.point == under.point
+            || !cover.point.starts_with(&under.point)
+            || !path.starts_with(&cover.point)
+        {
+            continue;
+        }
+        if visible_below(cover, under.id, mounts)? {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 /// Whether `path`, read in `mount`, is hidden by a mount visible below `mount` at `path` or one
 /// of its ancestors: a lookup of `path` crosses into that mount, so `mount`'s files there are
 /// out of reach. systemd's `PrivateTmp=yes` binds `/tmp/systemd-private-*/tmp` over `/tmp`; the
@@ -522,6 +544,7 @@ fn check_trees(
                 // at the view the session did not name).
                 if source != alternate
                     && !masked_by_rebuild(&source, mount.id, &alternate, other.id, rebuilt)
+                    && !covered(&alternate, other, &mounts)?
                     && !covered_below(&alternate, other, &mounts)?
                 {
                     reasons.insert(format!(
@@ -541,6 +564,28 @@ mod tests {
     use super::*;
 
     const ROOT: &str = "1 0 8:1 / / rw - ext4 root rw\n";
+
+    /// systemd PrivateTmp: the service's `/tmp` is the root filesystem's
+    /// `/tmp/systemd-private-*/tmp`, mounted over the root's `/tmp`, so the
+    /// root mount shows no second path to it (CI runners run as such a service).
+    #[test]
+    fn a_private_tmp_mount_is_not_an_alias_of_itself() {
+        let private = "/tmp/systemd-private-97259c5-runner.service-DVpdTq/tmp";
+        let info = format!("{ROOT}2 1 8:1 {private} /tmp rw - ext4 root rw\n");
+        let scratch = Path::new("/tmp/acpmux-bwrap-test/claude-scratch/session");
+        assert_eq!(guarded_aliases(&[(scratch, 2, true)], &info), Vec::<String>::new());
+        // The same directory bind-mounted somewhere the root's /tmp is not
+        // covered is still a second way in.
+        let leak = format!("{info}3 1 8:1 {private} /mnt/leak rw - ext4 root rw\n");
+        let reasons = guarded_aliases(&[(scratch, 2, true)], &leak);
+        assert!(
+            reasons.contains(&format!(
+                "{} is also visible at /mnt/leak/acpmux-bwrap-test/claude-scratch/session",
+                scratch.display()
+            )),
+            "{reasons:?}"
+        );
+    }
 
     fn guarded_aliases(trees: &[(&Path, u64, bool)], info: &str) -> Vec<String> {
         guarded_aliases_with(trees, info, |p| Ok(p.to_path_buf()), |_| Ok(true))

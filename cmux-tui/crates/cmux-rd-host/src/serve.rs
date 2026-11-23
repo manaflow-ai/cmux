@@ -315,7 +315,7 @@ const WAN_START_KBPS: u32 = 8_000;
 const LAN_START_KBPS: u32 = 30_000;
 /// A round trip under this counts as LAN when the path's class does not say so (a peer
 /// first learned during the handshake is classed `direct_wan`).
-const LAN_RTT_US: u64 = 5_000;
+const LAN_RTT_US: u64 = cmux_rd_core::cc::LAN_RTT_US;
 
 /// The start bitrate when `--start-kbps` is not given, from the current path's class and
 /// medium (wire names) and round trip; never above `max_kbps`. A relay is never LAN.
@@ -493,7 +493,8 @@ fn session_cfg(
         content: "screen".into(),
         openh264_lib: None,
         threads: crate::encoder::default_threads(),
-        stats_every_ms: 1000,
+        // `--stats-every-ms 100` (the bench's 100 ms rate series); 100 ms is the floor.
+        stats_every_ms: opts.num_or("stats-every-ms", 1000u64)?,
         settle_us: crate::host::DEFAULT_SETTLE_US,
         upstream_record: None,
         upstream_record_max_bytes: 0,
@@ -502,6 +503,9 @@ fn session_cfg(
         // On by default: the frame that shows an input's effect goes out at once instead of
         // waiting out the frame-rate interval. `--input-frame-now 0` turns it off.
         input_frame_now: opts.flag_or("input-frame-now", true),
+        // Off by default: `--rtt-tail-probe 1` probes a lost newest frame after a round
+        // trip instead of 250 ms (design D6), for measuring before it ships.
+        rtt_tail_probe: opts.flag_or("rtt-tail-probe", false),
         // Off by default: `--resolution-ladder 1` makes the picture smaller, not blurrier,
         // below the bits-per-pixel floor (design D5), with `--max-qp N` as its QP ceiling.
         resolution_ladder: opts.flag_or("resolution-ladder", false),
@@ -858,16 +862,16 @@ mod tests {
         assert_eq!(default_start_kbps(Some("direct_lan"), None, None, 50_000), 30_000);
         assert_eq!(default_start_kbps(Some("direct_wan"), Some("lan"), None, 50_000), 30_000);
         assert_eq!(default_start_kbps(Some("direct_wan"), Some("link"), None, 50_000), 30_000);
-        // A peer learned in the handshake is classed WAN; a sub-5 ms round trip is LAN.
+        // A peer learned in the handshake is classed WAN; a sub-10 ms round trip is LAN.
         assert_eq!(default_start_kbps(Some("direct_wan"), None, Some(1_200), 50_000), 30_000);
-        assert_eq!(default_start_kbps(None, None, Some(4_999), 50_000), 30_000);
+        assert_eq!(default_start_kbps(None, None, Some(9_999), 50_000), 30_000);
     }
 
     #[test]
     fn other_paths_keep_the_old_start_and_max_caps_both() {
         assert_eq!(default_start_kbps(None, None, None, 50_000), 8_000);
         assert_eq!(
-            default_start_kbps(Some("direct_wan"), Some("routed"), Some(5_000), 50_000),
+            default_start_kbps(Some("direct_wan"), Some("routed"), Some(10_000), 50_000),
             8_000
         );
         assert_eq!(default_start_kbps(Some("direct_wan"), None, Some(40_000), 50_000), 8_000);

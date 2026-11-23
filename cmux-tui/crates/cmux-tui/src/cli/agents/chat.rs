@@ -325,6 +325,50 @@ fn own_chat() -> Option<String> {
         .find_map(|name| std::env::var(name).ok().filter(|value| !value.trim().is_empty()))
 }
 
+/// The name the caller's own chat goes by, sent as its message's sender name. The daemon knows
+/// a chat's sender only by its launch credential, which a chat the app's acpmux starts lacks
+/// (that acpmux has no `CMUX_TUI_SOCKET` to mint one), so without a name the receiving chat
+/// showed every chat's message, a Chief's too, as `cli`, the person's shell
+/// (manaflow-ai/cmux#51004). A name claims what `--from` claims and proves nothing more: the
+/// daemon still treats the send as unverified. None from a shell, which has no chat.
+fn own_sender_name() -> Option<String> {
+    let own = own_chat()?;
+    let (_, info) = acp::lookup(&own, None).ok()?;
+    sender_name_of(&info)
+}
+
+/// The longest sender name the daemon stores (cmux-tui-core `MAX_SENDER_NAME_CHARS`) and acpmux
+/// shows (`prompt_provenance` `MAX_NAME_CHARS`).
+const MAX_SENDER_NAME_CHARS: usize = 64;
+
+/// A chat's shown name from its `_acpmux/info`: its `mux.label` (a Chief turn's: the Chief's own
+/// name, optchat-chief `acpmux::turn_tags`), else its name; one line, spaces collapsed, at most
+/// [`MAX_SENDER_NAME_CHARS`] characters. A Chief turn's session name (`optchat-<home>-<n>`) is
+/// never shown.
+fn sender_name_of(info: &Value) -> Option<String> {
+    let shown = |value: &Value| {
+        let words: Vec<&str> = value
+            .as_str()?
+            .split(|c: char| c.is_whitespace() || c.is_control())
+            .filter(|word| !word.is_empty())
+            .collect();
+        let line = words.join(" ");
+        let line: String =
+            line.chars().filter(|c| !format_mark(*c)).take(MAX_SENDER_NAME_CHARS).collect();
+        let line = line.trim().to_owned();
+        (!line.is_empty()).then_some(line)
+    };
+    info.pointer("/tags/mux.label").and_then(shown).or_else(|| shown(&info["name"]))
+}
+
+/// A bidi or zero-width format mark, which acpmux refuses in a provenance name.
+fn format_mark(c: char) -> bool {
+    matches!(
+        c,
+        '\u{200B}'..='\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}' | '\u{FEFF}'
+    )
+}
+
 /// Refuses `chat` when it is the caller's own: a chat never prompts or
 /// interrupts itself.
 pub(super) fn refuse_own_chat(chat: &str, target: &str) -> Result<(), CallFailure> {
@@ -361,7 +405,7 @@ fn send(
     let plan = MessagePlan {
         target: Some(recipient.clone()),
         body: Body::Text(text.to_owned()),
-        from: None,
+        from: own_sender_name(),
         thread: None,
         reply_to: None,
         idempotency_key: Some(key.clone()),
