@@ -4935,9 +4935,16 @@ jobs:
                  gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" \
                    --pattern "cmux-tui-*-unknown-linux-musl" --dir "$lr/artifacts"
                  mkdir -p "$lr/built" && find "$lr/artifacts" -type f -exec mv -t "$lr/built" {} +
+                 # sequence orders the channel (installers refuse a lower one than they installed): above
+                 # the published pointer'"'"'s, which a missing or unverifiable pointer leaves at 0.
+                 curl -sS --max-time 60 -o "$lr/current.json" \
+                   "https://files.cmux.com/cmux-tui/channels/linux-feat-cmux-next.json?sequence=$GITHUB_RUN_ID" || true
+                 current="$(python3 scripts/cmux-next/web-ota-pointer.py sequence --pointer "$lr/current.json" \
+                   --keys Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/Resources/web-update-keys.json \
+                   --channel feat-cmux-next)"
                  python3 scripts/ci/cmux-machine-channel.py payload --purpose linux-release --channel feat-cmux-next \
                    --binaries-dir "$lr/built" --commit "$GITHUB_SHA" --committed-at "$(git show -s --format=%ct HEAD)" \
-                   --download-dir "$lr/binaries" --out "$lr/payload.json"
+                   --min-sequence "$((current + 1))" --download-dir "$lr/binaries" --out "$lr/payload.json"
                  rm -rf "$lr/binaries"
                  scripts/ci/cmux-machine-channel-point.sh "$lr/payload.json" "$lr"'; then
             echo "::warning::the signed Linux release file of $GITHUB_SHA was not published; the next push signs its own"

@@ -93,6 +93,12 @@ if [[ -n "${once:-}" ]]; then
           echo "::error title=immutable-r2-conflict::$release already holds another build; it is never replaced"
           exit 1
         }
+        # A Linux release file's sequence and version are the signing run's (same-build ignores them):
+        # the channel gets the kept file's bytes, so it never names a version the commit's file lacks.
+        if [[ "$purpose" == cmux-linux-release ]]; then
+          cp "$dir/release-current.json" "$signed"
+          echo "kept $release; the channel gets its bytes"
+        fi
         break ;;
       404)
         rc=0
