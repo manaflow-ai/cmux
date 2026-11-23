@@ -27,6 +27,19 @@ fn none() -> BTreeSet<String> {
     BTreeSet::new()
 }
 
+/// A theme written for an older cmux: a key that was removed is left out
+/// with a notice, not refused as unknown (schemas/settings/retired-keys.json).
+#[test]
+fn a_theme_file_names_a_removed_key_and_still_reads_clean() {
+    let file =
+        overlay(r##"{ "appearance.tabBarBackground": "#000000", "appearance.borders": "none" }"##);
+    assert!(file.diagnostics.is_empty(), "{:?}", file.diagnostics);
+    assert_eq!(file.keys(), vec!["appearance.borders".to_string()]);
+    assert_eq!(file.notices.len(), 1);
+    assert_eq!(file.notices[0].from, "appearance.tabBarBackground");
+    assert_eq!(file.notices[0].kind, crate::migrations::NoticeKind::Removed);
+}
+
 #[test]
 fn a_theme_file_sets_look_settings_nested_or_dotted() {
     let file = overlay(
@@ -608,4 +621,22 @@ fn a_theme_file_keeps_the_corner_treatment() {
     assert!(bad.keys().is_empty());
     assert!(bad.diagnostics.iter().any(|d| d.path == "appearance.cornerFlush"
         && d.message.starts_with("expected one of")));
+}
+
+/// `appearance.tabShape` (block, rounded) is a look a theme file sets (the gooey look is `appearance.cornerFlush`); any other value is refused by the
+/// schema's choices, as `cmux settings set` refuses it.
+#[test]
+fn a_theme_file_sets_the_tab_shape() {
+    for shape in ["block", "rounded"] {
+        let file = overlay(&format!(r#"{{ "appearance.tabShape": "{shape}" }}"#));
+        assert!(file.diagnostics.is_empty(), "{shape}: {:?}", file.diagnostics);
+        let root = file.applied(&json!({}), &none());
+        assert_eq!(at(&root, "appearance.tabShape"), Some(&json!(shape)));
+    }
+    // "gooey" is the corner treatment's `flush-goo`, not a tab shape.
+    let wobbly = overlay(r#"{ "appearance.tabShape": "gooey" }"#);
+    assert!(wobbly.keys().is_empty());
+    let refused =
+        wobbly.diagnostics.iter().find(|d| d.path == "appearance.tabShape").expect("gooey refused");
+    assert!(refused.message.starts_with("expected one of"), "{}", refused.message);
 }

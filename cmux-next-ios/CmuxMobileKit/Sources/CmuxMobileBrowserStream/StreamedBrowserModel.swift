@@ -106,6 +106,8 @@ public final class StreamedBrowserModel: BrowserTabState {
     public private(set) var meter = Meter()
     /// The last shown picture for the grid card.
     public private(set) var snapshot: CGImageBox?
+    /// A snapshot was taken (the tab's last-known picture is kept from it).
+    @ObservationIgnored public var onSnapshot: (@MainActor (CGImage) -> Void)?
     /// The page's open `<select>` popup (`rb.menu.show` of kind `select`): the page shows
     /// its options until the person picks or cancels, or the page closes it.
     public private(set) var selectMenu: OpenMenu?
@@ -669,7 +671,11 @@ public final class StreamedBrowserModel: BrowserTabState {
     public func takeSnapshot() {
         decoder.lastPicture { [weak self] pixels in
             guard let pixels, let image = CGImageBox(pixels) else { return }
-            Task { @MainActor in self?.snapshot = image }
+            Task { @MainActor in
+                guard let self else { return }
+                self.snapshot = image
+                self.onSnapshot?(image.image)
+            }
         }
     }
 

@@ -31,6 +31,7 @@ import { isBrowserPick } from "./browserPickModel";
 import { isUIPick } from "./uiPickModel";
 import { pastedSize } from "./textAttachmentCardModel";
 import { RemoveGlyph } from "./RemoveGlyph";
+import { TILE_SHAPE_EVENT } from "./fieldGrowthEvent";
 import { chipRef } from "../conversation/sendMorph";
 
 type Options = {
@@ -355,6 +356,27 @@ export function useInlineAttachments(options: Options) {
     placingWas.current = now;
     if (now) api.ready();
   });
+
+  // Each tile's shape as its render draws it: one that changed (or is new) tells the field to move to
+  // its new height in this commit (fieldGrowth.ts TILE_SHAPE_EVENT), before the frame lays out.
+  const shapes = useRef(new Map<string, string>());
+  useLayoutEffect(() => {
+    let changed: HTMLElement | undefined;
+    const next = new Map<string, string>();
+    for (const [id, dom] of views) {
+      const pending = options.pending.find((chip) => chip.id === id);
+      const ready = options.attachments.some((attachment) => attachment.id === id);
+      const size = pending?.size ? `${pending.size.width}x${pending.size.height}` : "";
+      const shape = `${ready}|${pending ? `${pending.sizing ?? false}|${pending.failed ?? ""}|${size}` : "none"}`;
+      next.set(id, shape);
+      const before = shapes.current.get(id);
+      // A tile new to this render counts too: an edit that swaps a node (a placeholder's for its
+      // attachment's) has the field follow before this render draws the new tile.
+      if (before !== shape) changed = dom;
+    }
+    shapes.current = next;
+    changed?.dispatchEvent(new CustomEvent(TILE_SHAPE_EVENT, { bubbles: true }));
+  }, [views, options.pending, options.attachments]);
 
   const chips = [...views].map(([id, dom]) =>
     createPortal(

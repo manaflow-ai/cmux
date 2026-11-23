@@ -58,6 +58,7 @@ ran past their class budget with their stacks (debug.hangs over_budget). Fleet (
 import argparse, csv, glob, json, os, random, re, shutil, socket, statistics, subprocess, sys, tempfile, threading, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bench_launch import BenchApp, LaunchError  # noqa: E402
+from state_wait import wait_stable, wait_until  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--app", required=True)
@@ -312,10 +313,20 @@ def trace_start(pid, name, seconds):
     path = os.path.join(OUT, "traces", f"{name}.trace")
     if os.path.exists(path):
         shutil.rmtree(path)
-    proc = subprocess.Popen(["xcrun", "xctrace", "record", "--template", "Time Profiler", "--attach", str(pid),
-                             "--time-limit", f"{seconds}s", "--output", path, "--no-prompt"],
-                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-    time.sleep(4)  # the recorder attaches
+    log = path + ".log"
+    with open(log, "w") as out:
+        proc = subprocess.Popen(["xcrun", "xctrace", "record", "--template", "Time Profiler", "--attach", str(pid),
+                                 "--time-limit", f"{seconds}s", "--output", path, "--no-prompt"],
+                                stdout=out, stderr=subprocess.STDOUT, text=True)
+
+    def attached():
+        with open(log) as handle:
+            text = handle.read()
+        return proc.poll() is not None or "Ctrl-C to stop" in text or "Starting recording" in text
+    # xctrace prints "Starting recording" / "Ctrl-C to stop the recording" once it is attached and recording.
+    if not wait_until(attached, "xctrace attached", timeout=30, interval=0.1, raise_on_timeout=False) or proc.poll() is not None:
+        with open(log) as handle:
+            note(f"xctrace not confirmed recording: {handle.read()[-400:]}")
     return proc, path
 
 
@@ -475,7 +486,9 @@ def type_keys(count, pid=None, label="warmup"):
         rest = opts.interval - (time.perf_counter() - t0)
         if rest > 0:
             time.sleep(rest)  # one key in flight at a time
-    time.sleep(0.5)  # the last echo lands
+    # The last echo landed: the probe's key-to-frame rows stop growing.
+    wait_stable(lambda: len(probe_rows()), "the probe rows after the last key", timeout=10, interval=0.15, reads=4,
+                raise_on_timeout=False)
     return trips, stalls
 
 
@@ -493,7 +506,10 @@ def phase(name, pid, ids, groups, churn_hz, trace=False, builder=None):
     if churn_hz > 0:
         churn = LargeChurn(builder, ids, opts.status_hz) if opts.session == "large" else Churn(ids, groups, churn_hz)
         churn.start()
-        time.sleep(1.0)  # the churn is running before the first key
+        # The churn is running before the first key: its first op went through.
+        if not wait_until(lambda: sum(churn.ops.values()) > 0, "the churn's first op", timeout=30, interval=0.05,
+                          raise_on_timeout=False):
+            note(f"{name}: the churn made no op in 30 s; typing anyway")
     t0 = time.monotonic()
     trips, stalls = type_keys(opts.samples, pid, name)
     wall = time.monotonic() - t0
@@ -642,7 +658,10 @@ def main():
         rpc("debug.mouse", {"x": 900, "y": 450, "action": "hover"})  # the pointer rests over the terminal, not the list
         if opts.input == "real":
             bring_front(app.pid)
-        time.sleep(4)
+        # Until the setup settled: the snapshot's topology (workspaces, focus) reads the same several times in a row.
+        if wait_stable(lambda: json.dumps((rpc("snapshot.get") or {}).get("topology"), sort_keys=True, default=str),
+                       "the app after setup", timeout=30, interval=0.2, reads=5, raise_on_timeout=False) is None:
+            note("the app's topology never settled in 30 s after setup")
         settle_t0 = time.monotonic()
         while opts.settle_load is not None and os.getloadavg()[0] >= opts.settle_load and time.monotonic() - settle_t0 < opts.settle_max:
             time.sleep(2)  # the session's build is a burst of load; the numbers start after it
