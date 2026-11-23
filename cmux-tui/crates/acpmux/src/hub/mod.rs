@@ -917,6 +917,10 @@ pub struct Hub {
     pub(super) forum: std::sync::OnceLock<crate::forum::Forum>,
     /// The team's hosted forum, set up from the env on first use (`hub/forum_hosted.rs`).
     pub(super) forum_hosted: std::sync::OnceLock<forum_hosted::Slot>,
+    /// Where the forum log lives, once opened on disk; the digest log sits beside it.
+    pub(super) forum_root: std::sync::OnceLock<std::path::PathBuf>,
+    /// Each person's digest log and cursors (`hub/forum_hosted.rs`).
+    pub(super) digest_log: std::sync::OnceLock<Arc<acpmux_team_space::log::JsonlLog>>,
     pub(super) sessions: StdMutex<HashMap<String, Arc<Session>>>,
     spoken_handle_renames: StdMutex<()>,
     /// Session ids whose metadata is still live. Closed records remain in `sessions` and on
@@ -1511,6 +1515,8 @@ impl Hub {
             mailbox,
             forum: std::sync::OnceLock::new(),
             forum_hosted: std::sync::OnceLock::new(),
+            forum_root: std::sync::OnceLock::new(),
+            digest_log: std::sync::OnceLock::new(),
             sessions: StdMutex::new(HashMap::new()),
             spoken_handle_renames: StdMutex::new(()),
             live_session_ids: StdMutex::new(std::collections::HashSet::new()),

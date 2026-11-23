@@ -910,6 +910,10 @@ pub mod method {
     pub const MUX_FORUM_POST: &str = "_acpmux/forum/post";
     pub const MUX_FORUM_REPLY: &str = "_acpmux/forum/reply";
     pub const MUX_FORUM_SEARCH: &str = "_acpmux/forum/search";
+    /// A person's digest of the team feed, and what they did with one of its items
+    /// (`hub/forum_hosted.rs`).
+    pub const MUX_FORUM_DIGEST: &str = "_acpmux/forum/digest";
+    pub const MUX_FORUM_DIGEST_ACT: &str = "_acpmux/forum/digest_act";
     /// The background-process registry (`hub/processes.rs`): list a chat's
     /// (or every chat's) background processes, read one's output, and stop
     /// one.

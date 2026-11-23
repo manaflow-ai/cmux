@@ -74,7 +74,8 @@ fn open_private(path: &Path) -> std::io::Result<std::fs::File> {
 
 /// The log in a file, replayed when opened.
 pub struct JsonlLog {
-    path: PathBuf,
+    /// None: kept in memory only.
+    path: Option<PathBuf>,
     opener: Opener,
     state: Mutex<State>,
 }
@@ -102,7 +103,12 @@ impl JsonlLog {
             // End a torn last line, so the next record starts on its own.
             opener(&path)?.write_all(b"\n")?;
         }
-        Ok(Self { path, opener, state: Mutex::new(state) })
+        Ok(Self { path: Some(path), opener, state: Mutex::new(state) })
+    }
+
+    /// A log with no file: what a daemon without a store on disk keeps.
+    pub fn in_memory() -> Self {
+        Self { path: None, opener: open_private, state: Mutex::default() }
     }
 
     fn lock(&self) -> MutexGuard<'_, State> {
@@ -111,12 +117,13 @@ impl JsonlLog {
 
     /// Written before it counts: a failed write leaves the state as it was.
     fn write(&self, line: &Line) -> Result<(), StoreError> {
+        let Some(path) = &self.path else { return Ok(()) };
         let unavailable = |e: &dyn std::fmt::Display| {
-            StoreError::Unavailable(format!("the digest log {}: {e}", self.path.display()))
+            StoreError::Unavailable(format!("the digest log {}: {e}", path.display()))
         };
         let mut bytes = serde_json::to_vec(line).map_err(|e| unavailable(&e))?;
         bytes.push(b'\n');
-        let mut file = (self.opener)(&self.path).map_err(|e| unavailable(&e))?;
+        let mut file = (self.opener)(path).map_err(|e| unavailable(&e))?;
         if let Err(e) = file.write_all(&bytes) {
             let _ = file.write_all(b"\n");
             return Err(unavailable(&e));

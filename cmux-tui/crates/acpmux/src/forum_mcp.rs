@@ -3,7 +3,7 @@
 //! current rules, ack one (hq#2570). Each tool is one daemon request
 //! (`server/forum.rs`) over a connection that carries the session's caller
 //! token from this server's own env, so the daemon knows which session posts.
-//! `post`, `reply` and `search` reach the team's hosted forum through the daemon
+//! `post`, `reply`, `search`, `forum_digest` and `forum_digest_act` reach the team's hosted forum through the daemon
 //! (`hub/forum_hosted.rs`); each answers one JSON object as its text, which the
 //! chat's card reads.
 
@@ -84,6 +84,34 @@ fn tools() -> Value {
                     "space": {"type": "string", "description": "Only this space."}
                 },
                 "required": ["query"]
+            }
+        },
+        {
+            "name": "forum_digest",
+            "description": "Your person's digest of a team space's feed since their last acknowledged read: what needs them or touches their area, with a source link each, and everything else counted (duplicates folded). Reads only: the next digest starts at the same place until you pass ack: true after the person has seen this one. counts says how many posts were read, raised and summarized, and how many items were opened, answered and dismissed, since the time you pass.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "space": {"type": "string", "description": "The team space to read, e.g. \"team\"."},
+                    "ack": {"type": "boolean", "description": "Move the person's cursor past this digest. Only after they have seen it."},
+                    "since": {"type": "integer", "description": "Milliseconds since the epoch: counts cover records from then on. Default: all."},
+                    "areas": {"type": "array", "items": {"type": "string"}, "description": "Paths or labels the person owns, as globs (cmux-tui/crates/acpmux/**, label:forum): posts touching them are raised."},
+                    "budget": {"type": "integer", "description": "Most characters of text (200 to 20000)."}
+                },
+                "required": ["space"]
+            }
+        },
+        {
+            "name": "forum_digest_act",
+            "description": "Record what your person did with one item of a digest they were shown: opened it, answered it, or dismissed it. An answered or dismissed item is not raised again if a duplicate of it is posted.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "space": {"type": "string"},
+                    "item": {"type": "string", "description": "The item's id from forum_digest (needsYou, affectsYou or shown)."},
+                    "action": {"type": "string", "enum": ["opened", "answered", "dismissed"]}
+                },
+                "required": ["space", "item", "action"]
             }
         }
     ])
@@ -195,6 +223,8 @@ async fn call(daemon: &Client, params: &Value) -> Value {
         "post" => hosted(daemon, method::MUX_FORUM_POST, args).await,
         "reply" => hosted(daemon, method::MUX_FORUM_REPLY, args).await,
         "search" => hosted(daemon, method::MUX_FORUM_SEARCH, args).await,
+        "forum_digest" => digest(daemon, method::MUX_FORUM_DIGEST, args).await,
+        "forum_digest_act" => hosted(daemon, method::MUX_FORUM_DIGEST_ACT, args).await,
         other => {
             error_result(crate::mcp_hint::unknown_tool(other, crate::mcp_hint::names(&tools())))
         }
@@ -205,6 +235,33 @@ async fn call(daemon: &Client, params: &Value) -> Value {
 async fn hosted(daemon: &Client, m: &str, args: Value) -> Value {
     match daemon.request(m, args).await {
         Ok(r) => ok(r.to_string(), r),
+        Err(e) => error_result(format!("{e:#}")),
+    }
+}
+
+/// A digest: its text for the agent to read, the whole answer as structured content.
+async fn digest(daemon: &Client, m: &str, args: Value) -> Value {
+    match daemon.request(m, args).await {
+        Ok(r) => {
+            let counts = &r["counts"];
+            let n = |k: &str| counts[k].as_u64().unwrap_or(0);
+            let text = format!(
+                "{}\nCounts: {} posts read, {} raised, {} summarized; items opened {}, answered {}, dismissed {}.{}",
+                r["text"].as_str().unwrap_or_default().trim_end(),
+                n("postsRead"),
+                n("raised"),
+                n("summarized"),
+                n("opened"),
+                n("answered"),
+                n("dismissed"),
+                if r["acked"] == true {
+                    " Cursor moved."
+                } else {
+                    " Cursor not moved (pass ack: true once seen)."
+                }
+            );
+            ok(text, r)
+        }
         Err(e) => error_result(format!("{e:#}")),
     }
 }

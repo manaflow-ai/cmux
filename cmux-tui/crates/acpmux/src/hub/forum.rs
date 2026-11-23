@@ -181,6 +181,7 @@ impl Hub {
     /// before it, a hub keeps posts in memory. Call once, before serving.
     pub fn open_forum(&self, root: &Path) -> anyhow::Result<()> {
         let forum = Forum::open(root)?;
+        let _ = self.forum_root.set(root.to_owned());
         self.forum.set(forum).map_err(|_| anyhow::anyhow!("the forum is already open"))
     }
 
