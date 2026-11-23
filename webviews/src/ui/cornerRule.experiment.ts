@@ -21,8 +21,7 @@ export const cornerRule = defineExperiment({
     },
     classic: {
       label: "Classic",
-      description:
-        "Card 14 (surface card 10), popup 8 with 4 rows, toast 9 by role and 16 drawn.",
+      description: "Card 14 (surface card 10), popup 8 with 4 rows, toast 9 by role and 16 drawn.",
     },
   },
   defaultArm: "instrument",
