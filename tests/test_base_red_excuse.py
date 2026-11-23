@@ -194,6 +194,38 @@ class FakeGitHub:
         return frame_legacy(job, self.logs[job["id"]])
 
 
+class TwoWorkflowGitHub(FakeGitHub):
+    """FakeGitHub with a second workflow (8, its head run 11), GraphQL refused, and glaeda-gh's sweep guard on job-list
+    reads: past GUARD distinct lists read live it refuses as glaeda-gh does. live_lists: the run ids read live."""
+
+    GUARD = 30
+
+    def __init__(self):
+        super().__init__()
+        self.workflows = {10: 7, 11: 8}
+        self.second_runs: list[dict] = []
+        self.live_lists: list[int] = []
+
+    def run(self, args):
+        # Every GraphQL read is refused (the suite checks, SuiteChecks), so no run is passed over by its check suite:
+        # every base run's list is read, kept or live.
+        raise excuse.Refused("GraphQL refused (the broker's mark)")
+
+    def json(self, route, *, paginate=False):
+        if "/actions/workflows/8/runs?" in route:
+            self.routes.append(route)
+            return {"workflow_runs": copy.deepcopy(self.second_runs)}
+        if "/actions/runs/" in route and route.endswith("/jobs?filter=latest&per_page=100"):
+            run = int(route.split("/actions/runs/", 1)[1].split("/", 1)[0])
+            if run not in (10, 11):
+                if run not in self.live_lists and len(set(self.live_lists)) >= self.GUARD:
+                    raise excuse.Refused(f"{excuse.REQUEST_FAILED}glaeda-gh: refused: this caller read the jobs of "
+                                         f"{self.GUARD} different runs or jobs in the last 10 minutes, which is a "
+                                         f"runner-occupancy sweep")
+                self.live_lists.append(run)
+        return super().json(route, paginate=paginate)
+
+
 def frame_legacy(job, text):
     """TEXT as the job-log endpoint serves it for JOB, for a fixture written before lines were placed by step order:
     its steps have no times, and its log no STEP_START lines. Then the whole log was kept as the failed steps' (no
@@ -1335,8 +1367,16 @@ class Excusing(unittest.TestCase):
     def test_the_tip_swift_suite_behind_a_burst_of_dev_daily_runs_is_the_base_verdict(self):
         # 2026-10-28: 16 of the base's 20 newest completed runs were DEV daily dispatches, the tip
         # suite run fell out of a 20-run window, and no Swift red on any PR could be compared.
-        self.gh.base_runs = self.dev_daily_runs(30) + self.gh.base_runs
-        text = "\n".join(self.judge())
+        runs = self.dev_daily_runs(30)
+        for run in runs:
+            run.update(run_attempt=1, updated_at="2026-10-28T12:00:00Z")
+        self.gh.base_runs = runs + self.gh.base_runs
+        # 31 lists before run 20's verdict: more than one judgement's search_reads, so the first is the timed
+        # "incomplete" and the next reads on from the kept lists to the tip suite run.
+        with tempfile.TemporaryDirectory() as kept, unittest.mock.patch.dict(os.environ, {excuse.JOBS_CACHE_ENV: kept}):
+            with self.assertRaisesRegex(excuse.Refused, excuse.INCOMPLETE):
+                self.judge()
+            text = "\n".join(self.judge())
         self.assertIn("run 20", text)
         lookup = next(route for route in self.gh.routes if "/actions/workflows/7/runs?" in route)
         self.assertIn(f"per_page={excuse.BASE_RUNS_PAGE}", lookup)
@@ -1351,11 +1391,11 @@ class Excusing(unittest.TestCase):
 
     def test_base_job_reads_are_bounded(self):
         self.gh.base_runs = self.dev_daily_runs(excuse.BASE_JOB_READS + 5) + self.gh.base_runs
-        with self.assertRaisesRegex(excuse.Refused, f"{excuse.INCOMPLETE} {excuse.BASE_JOB_READS} job lists"):
+        with self.assertRaisesRegex(excuse.Refused, f"{excuse.INCOMPLETE} {excuse.search_reads(SWIFT)} job lists"):
             self.judge()
         reads = [route for route in self.gh.routes if route.endswith("/jobs?filter=latest&per_page=100")
                  and "/runs/10/" not in route]
-        self.assertEqual(len(reads), excuse.BASE_JOB_READS)
+        self.assertEqual(len(reads), excuse.search_reads(SWIFT))  # the judgement's budget binds before the workflow's
 
     def test_a_base_search_the_cap_cut_short_is_incomplete_and_a_retry_reads_past_it(self):
         # cmuxterm-hq#14126, 2026-11-19: the search stopped at BASE_JOB_READS with runs still unread and said "no
@@ -1370,11 +1410,132 @@ class Excusing(unittest.TestCase):
             with self.assertRaises(excuse.Refused) as cut:
                 self.judge()
             said = str(cut.exception)
-            self.assertRegex(said, rf"{excuse.INCOMPLETE} {excuse.BASE_JOB_READS} job lists .*not a verdict: retry "
+            self.assertRegex(said, rf"{excuse.INCOMPLETE} {excuse.search_reads(SWIFT)} job lists .*not a verdict: retry "
                                    r"after \d\d:\d\dZ")
             self.assertNotIn("has a verdict for it to compare with", said)
-            text = "\n".join(self.judge())
+            # Each later judgement reads on from the kept lists: the run with the verdict, behind 45 with none and the
+            # cancelled run 21, is reached within ceil(47 / search_reads) judgements.
+            for _ in range(-(-(len(runs) + 2) // excuse.search_reads(SWIFT)) - 1):
+                try:
+                    text = "\n".join(self.judge())
+                    break
+                except excuse.Refused as again:
+                    self.assertIn(excuse.INCOMPLETE, str(again))
+            else:
+                self.fail("the search never reached run 20")
         self.assertIn("run 20", text)
+
+    def two_workflow_setup(self, each=20):
+        """Head runs 10 (workflow 7) and 11 (workflow 8), each with the Swift red; each workflow's base window holds
+        EACH runs with no verdict for it before its red base run (20 and 22). Every run is completed at one attempt,
+        so a list read once is kept (kept_run_jobs)."""
+        gh = TwoWorkflowGitHub()
+        gh.jobs[5] = failed_job(5, 11, HEAD)
+        gh.logs[5] = gh.logs[1]
+        gh.jobs[6] = failed_job(6, 22, BASE_SHA)
+        gh.logs[6] = gh.logs[2]
+        first = self.dev_daily_runs_on(gh, each, 1000)
+        second = self.dev_daily_runs_on(gh, each, 3000)
+        gh.base_runs = first + gh.base_runs
+        gh.second_runs = second + [{"id": 22, "event": "push", "head_branch": "feat-cmux-next",
+                                    "status": "completed", "conclusion": "failure", "head_sha": BASE_SHA}]
+        for run in gh.base_runs + gh.second_runs:
+            run.update(run_attempt=1, updated_at="2026-11-20T12:00:00Z")
+        self.gh = gh
+        return gh
+
+    @staticmethod
+    def dev_daily_runs_on(gh, count, first_id):
+        for offset in range(count):
+            run_id = first_id + offset
+            gh.jobs[run_id] = dict(failed_job(run_id, run_id, BASE_SHA), conclusion="skipped", steps=[])
+        return [{"id": first_id + offset, "event": "workflow_dispatch", "head_branch": "feat-cmux-next",
+                 "status": "completed", "conclusion": "success"} for offset in range(count)]
+
+    def test_two_workflows_of_20_base_lists_are_a_timed_retry_under_the_sweep_guard_and_the_retry_finishes(self):
+        # cmux#47687 (2026-11-20, 10:01Z, 10:32Z, 11:14Z) and cmuxterm-hq#14535: each workflow's search read up to
+        # BASE_JOB_READS (40) lists, two of them passed glaeda-gh's sweep guard (30 a caller in 10 minutes), and the
+        # guard's refusal ended the judgement "unreadable". One budget per judgement, under the guard, cuts it to the
+        # timed "incomplete"; the lists read are kept, so the next judgement reads on and finishes.
+        gh = self.two_workflow_setup()
+        with tempfile.TemporaryDirectory() as kept, unittest.mock.patch.dict(os.environ, {excuse.JOBS_CACHE_ENV: kept}):
+            with self.assertRaises(excuse.Refused) as cut:
+                self.judge(runs=(10, 11))
+            said = str(cut.exception)
+            self.assertRegex(said, rf"{excuse.INCOMPLETE} \d+ job lists .*not a verdict: retry after \d\d:\d\dZ")
+            self.assertNotIn("glaeda-gh: refused", said)
+            self.assertEqual(len(gh.live_lists), excuse.search_reads(SWIFT))
+            self.assertLess(excuse.CALL_JOB_READS, gh.GUARD)
+            # Cold, its 42 lists finish within ceil(42 / search_reads) judgements (3 for a suite job's 17 a call),
+            # each under the guard, each reading on from the lists the one before kept.
+            calls = -(-42 // excuse.search_reads(SWIFT))
+            for call in range(2, calls + 1):
+                gh.live_lists.clear()
+                try:
+                    text = "\n".join(self.judge(runs=(10, 11)))
+                    break
+                except excuse.Refused as again:
+                    self.assertIn(excuse.INCOMPLETE, str(again))
+                self.assertLessEqual(len(gh.live_lists), excuse.search_reads(SWIFT))
+            else:
+                self.fail(f"not judged within {calls} judgements")
+            self.assertIn("run 20", text)
+            self.assertIn("run 22", text)
+            self.assertLessEqual(len(gh.live_lists), excuse.search_reads(SWIFT))
+            gh.live_lists.clear()
+            text = "\n".join(self.judge(runs=(10, 11)))  # GraphQL refused, every list kept: no live list read
+            self.assertIn("run 22", text)
+            self.assertEqual(gh.live_lists, [])
+
+    def test_a_sweep_guard_refusal_mid_search_is_the_timed_retry_never_unreadable(self):
+        # Another judgement of the same caller (the land queue is one) spent the guard's window: the refusal is a read
+        # that never happened, so the search is cut and says when to retry.
+        gh = self.two_workflow_setup(each=4)
+        gh.GUARD = 3
+        with tempfile.TemporaryDirectory() as kept, unittest.mock.patch.dict(os.environ, {excuse.JOBS_CACHE_ENV: kept}):
+            with self.assertRaises(excuse.Refused) as cut:
+                self.judge(runs=(10, 11))
+        said = str(cut.exception)
+        self.assertRegex(said, rf"{excuse.INCOMPLETE} \d+ job lists .*not a verdict: retry after \d\d:\d\dZ")
+        self.assertNotIn("glaeda-gh: refused", said)
+        self.assertEqual(len(gh.live_lists), 3)
+
+    def test_a_per_test_path_shares_the_judgements_one_job_list_budget(self):
+        """#48048's review: budgeted_run_jobs counted only base_verdicts' and tip_suite_verdicts' reads, and the per-test
+        paths (web_base_runs, gallery_run_results, pr_only_step_verdict, compile_errors_verdict) called base_run_jobs
+        directly, so a web or gallery judgement still met glaeda-gh's sweep guard and answered with its raw refusal.
+        Every live base job-list read is now counted against the one budget: a per-test path that spends reads
+        before the base search leaves the search only what is left, and a guard refusal on any path is the timed
+        retry, never the guard's text."""
+        gh = TwoWorkflowGitHub()
+        for run in range(500, 560):
+            gh.jobs[run] = dict(failed_job(run, run, BASE_SHA, name="gallery shard 1"), conclusion="success")
+
+        @excuse.one_judgement
+        def per_test_then_search(repo, base, spend):
+            for run in range(500, 500 + spend):  # a gallery path reading base runs' lists (gallery_run_results)
+                excuse.gallery_run_results(repo, {"id": run}, gh)
+            reads = {}
+            listed = [excuse.budgeted_run_jobs(repo, {"id": run}, gh, 7, "x", reads) for run in range(530, 560)]
+            return sum(1 for jobs in listed if jobs is not None), excuse.search_cut(reads, "x", 7)
+
+        with tempfile.TemporaryDirectory() as kept, unittest.mock.patch.dict(os.environ, {excuse.JOBS_CACHE_ENV: kept}):
+            got, cut = per_test_then_search(REPO, "feat-cmux-next", 20)
+            self.assertEqual(got, excuse.CALL_JOB_READS - 20)  # the search got only what the gallery path left
+            self.assertIsNotNone(cut)
+            self.assertLessEqual(len(set(gh.live_lists)), excuse.CALL_JOB_READS)  # never up to the guard's 30
+        # Past the budget inside a per-test path itself, and a guard refusal there: the timed retry.
+        for guard in (TwoWorkflowGitHub.GUARD, 3):
+            gh.live_lists.clear()
+            gh.GUARD = guard
+            with self.subTest(guard=guard), tempfile.TemporaryDirectory() as kept, \
+                    unittest.mock.patch.dict(os.environ, {excuse.JOBS_CACHE_ENV: kept}):
+                with self.assertRaises(excuse.Refused) as said:
+                    per_test_then_search(REPO, "feat-cmux-next", 40)
+                self.assertRegex(str(said.exception), rf"{excuse.INCOMPLETE} \d+ job lists .*not a verdict: retry after "
+                                                      r"\d\d:\d\dZ")
+                self.assertNotIn("glaeda-gh: refused", str(said.exception))
+                self.assertLessEqual(len(set(gh.live_lists)), min(guard, excuse.CALL_JOB_READS))
 
     def tip_daemon_setup(self, *, verdict="failure"):
         # 2026-10-30 (#27692): a feat-cmux-next push never runs daemon-test, base pushes land every
@@ -3685,6 +3846,14 @@ class CancelledWebShardPerFile(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "is cancelled: it has no verdict to compare with the base"):
             self.judge(self.gh(cut_short_log((FOOTER, "PASS"), (CAPSULES, "PASS"))))
 
+    def test_a_red_file_that_only_timed_out_on_the_base_is_its_own(self):
+        # Review of #39840, F1: the base's TIMEOUT says nothing of how the file fares, so it matches no head red.
+        gh = self.gh(cut_short_log((CAPSULES, "FAIL")))
+        gh.logs[5] = web_log(timeouts=[CAPSULES])
+        with self.assertRaisesRegex(excuse.Refused, re.escape(f"1 red file(s) pass or do not run on feat-cmux-next "
+                                                              f"run 40: {CAPSULES}")):
+            self.judge(gh)
+
     def test_a_file_that_timed_out_on_the_head_is_its_own(self):
         with self.assertRaisesRegex(excuse.Refused, "timed out \\(a cut-short file is never a base red\\)"):
             self.judge(self.gh(cut_short_log((CAPSULES, "FAIL"), (FOOTER, "TIMEOUT"))))
@@ -4346,6 +4515,68 @@ class StatusGitHub(FakeGitHub):
             if route.endswith(f"commits/{sha}/status?per_page=100"):
                 return {"statuses": copy.deepcopy(statuses)}
         return super().json(route, paginate=paginate)
+
+
+class PoolStatusRed(unittest.TestCase):
+    """cmux#49885 at 8b11f0c2 (2026-11-22): 'clippy (changed cmux-tui packages)' was a failed commit status of the
+    controller's required-checks pool while the Actions job of that name was skipped by path routing. The classifier
+    read only the Actions twin and refused "is skipped: it has no verdict to compare with the base; re-run it", and a
+    re-run of a skipped job comes back skipped. The pool's red is named as the pool's, with the controller's rerun."""
+    NAME = "clippy (changed cmux-tui packages)"
+    CONTROLLER = "http://100.89.225.106:18765"
+
+    def setUp(self):
+        self.gh = StatusGitHub()
+        self.gh.head_status = {
+            "context": self.NAME, "state": "failure",
+            "description": f"failed on the cmux pool (exit 1); rerun: POST /v1/required-checks/rerun?head={HEAD}; "
+                           "on cmux-linux-pool-1…",
+            "target_url": f"{self.CONTROLLER}/v1/required-checks?head={HEAD}"}
+        self.twin = [{"id": 137206491874, "name": self.NAME, "status": "completed", "conclusion": "skipped",
+                      "app": {"slug": "github-actions"},
+                      "details_url": f"https://github.com/{REPO}/actions/runs/10/job/137206491874"}]
+        self.gh.jobs[137206491874] = dict(failed_job(137206491874, 10, HEAD, name=self.NAME), conclusion="skipped")
+        original = self.gh.json
+
+        def json(route, *, paginate=False):
+            if route.endswith(f"commits/{HEAD}/check-runs?filter=all&per_page=100"):
+                return [{"check_runs": copy.deepcopy(self.twin)}]
+            return original(route, paginate=paginate)
+        self.gh.json = json
+
+    def judge(self):
+        return excuse.judge(REPO, "feat-cmux-next", HEAD, [], self.gh, checks=[self.NAME])
+
+    def assertPoolRed(self):
+        with self.assertRaises(excuse.Refused) as got:
+            self.judge()
+        said = str(got.exception)
+        self.assertIn(f"'{self.NAME}': pool status red at {HEAD[:12]}", said)
+        self.assertIn(f"rerun it through the controller (POST {self.CONTROLLER}/v1/required-checks/rerun?head={HEAD})",
+                      said)
+        self.assertNotIn("is skipped", said)
+        self.assertNotIn("re-run it", said)
+
+    def test_49885_a_pool_red_whose_actions_twin_was_skipped_names_the_controller_rerun(self):
+        self.assertPoolRed()
+
+    def test_a_pool_red_with_no_actions_twin_names_the_controller_rerun(self):
+        self.twin = []
+        self.assertPoolRed()
+
+    def test_a_pool_status_for_another_head_or_a_green_one_is_judged_as_before(self):
+        self.gh.head_status["description"] = self.gh.head_status["description"].replace(HEAD, "c" * 40)
+        with self.assertRaisesRegex(excuse.Refused, "is skipped: it has no verdict to compare with the base"):
+            self.judge()
+        self.assertIsNone(excuse.pool_status_refusal(HEAD, self.NAME, dict(self.gh.head_status, state="success")))
+        self.assertIsNone(excuse.pool_status_refusal(HEAD, self.NAME, {"state": "failure", "description": "Build failed"}))
+
+    def test_a_failed_actions_twin_is_still_judged_as_its_job(self):
+        # A twin that ran and failed is a verdict of its own: compared with the base as before, not the pool's.
+        self.twin[0]["conclusion"] = "failure"
+        with unittest.mock.patch.object(excuse, "job_for", side_effect=excuse.Refused("judged as its job")):
+            with self.assertRaisesRegex(excuse.Refused, "judged as its job"):
+                self.judge()
 
 
 class CompileStatusGitHub(StatusGitHub):
@@ -5221,6 +5452,20 @@ class NoVerdictCompileIsNeverABaseRed(unittest.TestCase):
         (COMPILE_STATUS_POSTER): a lane's or a person's look-alike, or another App's, leaves the head uncompiled."""
         for creator in (self.LANE, {**excuse.COMPILE_STATUS_POSTER, "id": 1}, {**excuse.COMPILE_STATUS_POSTER,
                         "login": "cmux-bot"}, {**excuse.COMPILE_STATUS_POSTER, "type": "User"}, None):
+            with self.subTest(creator=creator):
+                self.gh.statuses = [{**self.FALLBACK, "creator": creator}]
+                with self.assertRaisesRegex(excuse.Refused, "no compile verdict.*nothing else compiled"):
+                    self.judge()
+
+    def test_the_controllers_own_compile_status_is_a_pass_and_its_look_alikes_are_not(self):
+        """The build fleet's controller posts cmux-next/compile itself as the manaflow-checks App
+        (COMPILE_STATUS_CONTROLLER_POSTER) on the pull request heads it compiles. Its success passes the head like
+        cmux-bot's; its GraphQL-style login, another id or a User of that name do not."""
+        controller = excuse.COMPILE_STATUS_CONTROLLER_POSTER
+        self.gh.statuses = [{**self.FALLBACK, "creator": dict(controller)}]
+        self.assertIn("cmux-next/compile status", "\n".join(self.judge()))
+        for creator in ({**controller, "login": "manaflow-checks"}, {**controller, "id": 1},
+                        {**controller, "type": "User"}):
             with self.subTest(creator=creator):
                 self.gh.statuses = [{**self.FALLBACK, "creator": creator}]
                 with self.assertRaisesRegex(excuse.Refused, "no compile verdict.*nothing else compiled"):
@@ -8804,6 +9049,16 @@ class SweepGitHub(FakeGitHub):
         except excuse.Refused as why:
             return f"refused: {why}"
 
+    def judge_to_the_end(self, reds, calls=12):
+        """judge() again while the judgement's job-list budget cuts it ("incomplete", search_reads), with completed
+        runs' lists kept between calls as the land queue's retries keep them: the verdict a search read whole gives."""
+        with tempfile.TemporaryDirectory() as kept, unittest.mock.patch.dict(os.environ, {excuse.JOBS_CACHE_ENV: kept}):
+            for _ in range(calls):
+                said = self.judge(reds)
+                if not (isinstance(said, str) and excuse.INCOMPLETE in said):
+                    return said
+        return said
+
 
 class TreeReuseGitHub(FakeGitHub):
     """cmux#42047 at 69e5e634 (2026-11-13): its red 'build / build x86_64-apple-darwin' (head run 10) and base run 20,
@@ -8893,9 +9148,9 @@ class BaseRunsThatNeverBuildTheJob(unittest.TestCase):
     def test_runs_whose_suites_cannot_be_read_are_still_bounded(self):
         gh = TreeReuseGitHub(nodes=True)
         gh.run = lambda args: json.dumps({"errors": [{"message": "Something went wrong"}]})
-        with self.assertRaisesRegex(excuse.Refused, f"{excuse.INCOMPLETE} {excuse.BASE_JOB_READS} job lists"):
+        with self.assertRaisesRegex(excuse.Refused, f"{excuse.INCOMPLETE} {excuse.CALL_JOB_READS} job lists"):
             self.judge(gh)
-        self.assertEqual(len([run for run in gh.job_reads() if run != 10]), excuse.BASE_JOB_READS)
+        self.assertEqual(len([run for run in gh.job_reads() if run != 10]), excuse.CALL_JOB_READS)
 
 
 class SweepLimit(unittest.TestCase):
@@ -8906,7 +9161,9 @@ class SweepLimit(unittest.TestCase):
         for reds, base_logs in ((1, None), (4, None), (4, (OTHER,))):
             with self.subTest(reds=reds, base_logs=base_logs):
                 read = SweepGitHub(reds, base_logs=base_logs).judge(reds)
-                rest = SweepGitHub(reds, suites=False, base_logs=base_logs).judge(reds)
+                # Without the suite reads every base run's list is read live: more than one judgement's budget, so it
+                # takes the retries; the verdict is the same.
+                rest = SweepGitHub(reds, suites=False, base_logs=base_logs).judge_to_the_end(reds)
                 self.assertEqual(read, rest)
                 self.assertTrue(read)
         self.assertIn("excused 'suite 3'", "\n".join(SweepGitHub(4).judge(4)))
@@ -16501,6 +16758,148 @@ class HeadCheckNamedAnotherWay(unittest.TestCase):
             self.found("Web tests (2/4)", statuses=[status])
 
 
+class OneJobNameAtThreeCheckRuns(unittest.TestCase):
+    """2026-11-22, manaflow-ai/cmuxterm-hq at eb73df0c: three check runs are named exactly 'tests' -- two success
+    (137452469910, 137452467955) and the red one the caller was asking about (137452467640, run 45101284995 of
+    'fleet-reconcilers tests'). latest_checks keeps one check run per name, so
+    `--check 'fleet-reconcilers tests / tests'` read the newest id and answered "'tests' is success: it has no
+    verdict to compare with the base; re-run it": a verdict about a check run nobody asked about, and the caller's
+    next step was to re-run a check that had passed while the red one was never read. The name's own
+    'WORKFLOW / JOB' prefix is the disambiguator the caller already gave: it is read as the workflow of the run each
+    candidate belongs to. With no prefix that names one, the red candidate is what a caller asking why a head is red
+    can mean; two reds, or two of a workflow, are refused naming every candidate, never picked."""
+
+    SHA = "eb73df0c6535fb535091e2c36a56de8735b3eb35"
+    RUNS = {45101285663: "lane-gh-broker tests", 45101285056: "fleet alert registry",
+            45101284995: "fleet-reconcilers tests"}
+    CHECKS = {137452469910: (45101285663, "success"), 137452467955: (45101285056, "success"),
+              137452467640: (45101284995, "failure")}
+
+    class Fake:
+        def __init__(self, outer, conclusions):
+            self.outer, self.conclusions, self.routes = outer, conclusions, []
+
+        def json(self, route, *, paginate=False):
+            self.routes.append(route)
+            outer = self.outer
+            if route.endswith("/check-runs?filter=all&per_page=100"):
+                return [{"check_runs": [outer.check(check) for check in outer.CHECKS]}]
+            if "/actions/jobs/" in route:
+                return outer.job(int(route.rsplit("/", 1)[1]))
+            if "/actions/runs/" in route:
+                run = int(route.rsplit("/", 1)[1])
+                return {"id": run, "name": outer.RUNS[run], "workflow_id": run % 1000, "head_sha": outer.SHA,
+                        "path": f".github/workflows/{outer.RUNS[run].replace(' ', '-')}.yml"}
+            if route.endswith("/status?per_page=100"):
+                return {"statuses": []}
+            if "/actions/runs?head_sha=" in route:
+                return {"workflow_runs": []}
+            raise AssertionError(route)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.conclusions = {}
+
+    def check(self, check_id):
+        run, conclusion = self.CHECKS[check_id]
+        return {"id": check_id, "name": "tests", "status": "completed",
+                "conclusion": self.conclusions.get(check_id, conclusion), "head_sha": self.SHA,
+                "app": {"slug": "github-actions"},
+                "details_url": f"https://github.com/{REPO}/actions/runs/{run}/job/{check_id}"}
+
+    def job(self, job_id):
+        run, conclusion = self.CHECKS[job_id]
+        return {"id": job_id, "run_id": run, "name": "tests", "status": "completed", "head_sha": self.SHA,
+                "conclusion": self.conclusions.get(job_id, conclusion), "steps": []}
+
+    def found(self, name, conclusions=None):
+        self.conclusions = conclusions or {}
+        self.gh = gh = self.Fake(self, self.conclusions)
+        audit: list[str] = []
+        return excuse.head_jobs(REPO, self.SHA, [], [name], gh, excused=audit), audit
+
+    def test_the_workflow_prefix_names_the_red_check_run_the_caller_asked_about(self):
+        jobs, audit = self.found("fleet-reconcilers tests / tests")
+        self.assertEqual([job["id"] for job in jobs], [137452467640])
+        self.assertTrue(any("'fleet-reconcilers tests'" in line and "137452467640" in line for line in audit), audit)
+
+    def test_the_workflow_prefix_names_a_green_check_run_too(self):
+        # The prefix is read before the reds: it names one check run, whatever its conclusion. head_jobs hands that
+        # job back; judging it as a green check with no base verdict ("'tests' is success: re-run it") is downstream.
+        jobs, audit = self.found("lane-gh-broker tests / tests")
+        self.assertEqual([job["id"] for job in jobs], [137452469910])
+        self.assertTrue(any("'lane-gh-broker tests'" in line and "137452469910" in line for line in audit), audit)
+
+    def test_the_bare_name_is_the_one_check_run_of_it_that_failed(self):
+        jobs, audit = self.found("tests")
+        self.assertEqual([job["id"] for job in jobs], [137452467640])
+        self.assertTrue(any("that failed" in line and "137452467640" in line for line in audit), audit)
+
+    def test_two_reds_of_one_name_are_refused_naming_every_candidate(self):
+        with self.assertRaises(excuse.Refused) as caught:
+            self.found("tests", conclusions={137452469910: "failure"})
+        gh = self.gh
+        said = str(caught.exception)
+        self.assertIn("names 3 check runs at exact head", said)
+        for check_id, (run, _) in self.CHECKS.items():
+            self.assertIn(str(check_id), said)
+            # The run each candidate links, from its details URL: naming the workflow instead would be a REST read
+            # per candidate on a path that is already refusing (the bare name resolved no prefix, so none was read).
+            self.assertIn(str(run), said)
+        self.assertEqual([route for route in gh.routes if "/actions/runs/4510" in route], [], gh.routes)
+
+    def test_a_prefix_no_workflow_answers_to_falls_back_to_the_red(self):
+        jobs, _ = self.found("some other workflow / tests")
+        self.assertEqual([job["id"] for job in jobs], [137452467640])
+
+class CheckoutNarrowingIsNotAFailure(unittest.TestCase):
+    """A step that did not fail printed 54 error annotations, and they refused a red the base was failing too.
+
+    2026-11-22, cmuxterm-hq eb73df0c's 'go vet + go test' (job 137452468531): actions/checkout narrowed a sparse
+    checkout in a reused self-hosted workspace and annotated every path it kept, `##[error]error: Path '<path>' not
+    uptodate; will not remove from working tree.`, its own step green. The job ran five more minutes and ended in
+    `FAIL\tcmuxterm-hq/build-fleet/cmd/controller`, the failure main's own 'build-fleet Go tests' was failing at
+    three consecutive heads -- but the 54 paths are that workspace's history, printed by no base run, so compared
+    whole the head had 54 error lines the base did not and the red was refused. They are the workspace's, never the
+    change's: a base can never print them, so a verdict that reads them is a verdict no base can earn.
+    """
+
+    STAMP = "2026-11-22T02:37:42.1234567Z "
+    PATHS = ("docs/handbook/stalled-work-nobody-moves.md", "docs/handbook/alert-filed-as-fyi.md",
+             "docs/handbook/blobless-mirror-reads.md")
+    TAIL = ("FAIL\tcmuxterm-hq/build-fleet/cmd/controller\t241.426s", "FAIL",
+            "##[error]Process completed with exit code 1.")
+
+    def log(self, *, narrowed: bool) -> str:
+        said = [f"##[group]Run actions/checkout@v5", "Syncing repository: manaflow-ai/cmuxterm-hq"]
+        if narrowed:
+            said += [f"##[error]error: Path '{path}' not uptodate; will not remove from working tree."
+                     for path in self.PATHS]
+        said += ["##[endgroup]", *self.TAIL]
+        return "".join(f"{self.STAMP}{line}\n" for line in said)
+
+    def signature(self, *, narrowed: bool):
+        return excuse.unplaced_signature(failed_job(1, 10, HEAD, "go vet + go test", "go test (every package)"),
+                                         self.log(narrowed=narrowed))
+
+    def test_the_narrowing_annotations_are_no_error_lines_of_the_job(self):
+        said = [error for error in self.signature(narrowed=True).errors if "not uptodate" in error]
+        self.assertEqual(said, [], said)
+
+    def test_a_narrowed_checkout_reads_as_the_same_red_as_a_clean_one(self):
+        # What a base run of the same red prints: the Go failure, and none of this workspace's paths.
+        self.assertEqual(self.signature(narrowed=True), self.signature(narrowed=False))
+
+    def test_the_go_failure_is_still_read(self):
+        whole = self.signature(narrowed=True)
+        self.assertTrue(whole.errors or whole.tests, whole)
+
+    def test_another_error_line_still_counts(self):
+        text = self.log(narrowed=True) + f"{self.STAMP}##[error]error: the controller never came up\n"
+        whole = excuse.unplaced_signature(failed_job(1, 10, HEAD, "go vet + go test", "go test (every package)"), text)
+        self.assertTrue([error for error in whole.errors if "never came up" in error], whole.errors)
+
+
 OTHER_PR_SETUP_FIXTURES = ROOT / "tests/fixtures/base_red_excuse_other_pr_setup"
 
 
@@ -17484,7 +17883,7 @@ class CutSearchConsumers(unittest.TestCase):
                 for offset in range(count)]
 
     def assert_incomplete(self, said):
-        self.assertRegex(said, rf"^'[^']+': {excuse.INCOMPLETE} {excuse.BASE_JOB_READS} job lists .*not a verdict: "
+        self.assertRegex(said, rf"^'[^']+': {excuse.INCOMPLETE} \d+ job lists .*not a verdict: "
                                r"retry after \d\d:\d\dZ")
 
     def test_f1_a_cut_search_of_the_base_callers_workflow_is_incomplete(self):
@@ -17506,12 +17905,12 @@ class CutSearchConsumers(unittest.TestCase):
         evidence.listed[7] = runs
         job_reads, base_jobs = {}, {}
         self.assertEqual(list(excuse.base_verdicts(REPO, 7, SWIFT, github, evidence, base_jobs, job_reads)), [])
-        self.assertEqual(excuse.search_cut(job_reads, SWIFT, 7), excuse.BASE_JOB_READS)
+        self.assertEqual(excuse.search_cut(job_reads, SWIFT, 7), excuse.search_reads(SWIFT))
         # A second job of the same workflow whose search reads only kept lists has nothing left unread.
         evidence.listed[7] = [run for run in runs if run["id"] in base_jobs]
         self.assertEqual(list(excuse.base_verdicts(REPO, 7, "other job", github, evidence, base_jobs, job_reads)), [])
         self.assertIsNone(excuse.search_cut(job_reads, "other job", 7))
-        self.assertEqual(excuse.search_cut(job_reads, SWIFT, 7), excuse.BASE_JOB_READS)
+        self.assertEqual(excuse.search_cut(job_reads, SWIFT, 7), excuse.search_reads(SWIFT))
 
     def test_f3_a_window_extension_cut_short_is_incomplete_not_a_pass(self):
         # One newer red that fails other tests, then more runs without a verdict than the cap, then the matching red.

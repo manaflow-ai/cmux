@@ -108,6 +108,13 @@ viewer_start() {
   echo $! >"$EVAL_STATE/viewer.pid"
 }
 
+# Exit 0 when Moonlight's front window covers the main display (its stream is up and full screen).
+moonlight_full_screen() {
+  osascript -l JavaScript -e 'ObjC.import("AppKit"); const f = $.NSScreen.mainScreen.frame.size;
+const w = Application("System Events").processes.byName("Moonlight").windows;
+(w.length > 0 && w[0].size().join("x") === [f.width, f.height].join("x")) ? "yes" : "no"' 2>/dev/null | grep -qx yes
+}
+
 case "$verb" in
   build)
     gv_build
@@ -122,7 +129,10 @@ case "$verb" in
   latency-view)
     # latency-view INPUT SAMPLES RAW
     viewer_start || { printf '{"error":"viewer did not start"}\n' >"$3"; exit 1; }
-    sleep 3 # Moonlight's stream starts and goes full screen before the locate
+    # Until Moonlight's stream is up and full screen before the locate, 20 s (best effort: the locate retries).
+    full_deadline=$((SECONDS + 20))
+    while ((SECONDS < full_deadline)); do moonlight_full_screen && break; sleep 0.2; done
+    moonlight_full_screen || echo "moonlight: the viewer window did not cover the main display within 20 s" >>"$EVAL_STATE/view.log"
     rc=0
     gv_latency Moonlight "$1" "$2" "$3" || rc=$?
     stop_pid "$EVAL_STATE/viewer.pid"
