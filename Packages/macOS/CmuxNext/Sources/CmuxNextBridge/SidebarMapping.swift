@@ -254,12 +254,13 @@ public struct SidebarMapping {
         }
     }
 
-    /// Automatic agent names prefer the chat title, then its task gist. Explicit workspace
-    /// and chat names retain their original text; the rendered row label is not naming provenance.
+    /// Automatic agent names prefer the name given to the session (acpmux `displayName`, "Mango"), then the
+    /// chat title, then its task gist. Explicit workspace and chat (tab) names retain their original text and
+    /// win over the given name; the rendered row label is not naming provenance.
     public static func agentRowTitle(workspaceTitle: String, workspaceName: String? = nil,
                                     workspaceNameSource: WorkspaceNameSource = .user, workspaceNameRevision: UInt64 = 0,
-                                    explicitWorkspaceTitle: String? = nil, sessionName: String?, chatTitle: String?,
-                                    explicitChatTitle: String? = nil, taskSummary: String?) -> String {
+                                    explicitWorkspaceTitle: String? = nil, sessionName: String?, displayName: String? = nil,
+                                    chatTitle: String?, explicitChatTitle: String? = nil, taskSummary: String?) -> String {
         if let explicitWorkspaceTitle, !explicitWorkspaceTitle.isEmpty { return workspaceTitle }
         let originalName = workspaceName ?? workspaceTitle
         // A rename remains authoritative even when the user chose a default-looking name or
@@ -269,6 +270,7 @@ public struct SidebarMapping {
             || originalName == sessionName || originalName == shortSessionName(sessionName)
         guard machineNamed else { return workspaceTitle }
         if let explicitChatTitle, !explicitChatTitle.isEmpty { return explicitChatTitle }
+        if let displayName, !displayName.isEmpty { return displayName }
         for candidate in [chatTitle, taskSummary] {
             guard let value = candidate?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty,
                   value.caseInsensitiveCompare(sessionName ?? "") != .orderedSame,
