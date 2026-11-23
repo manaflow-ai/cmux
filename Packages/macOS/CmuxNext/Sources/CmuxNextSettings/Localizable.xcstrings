@@ -223149,6 +223149,60 @@
         }
       }
     },
+    "settings.cloud.autoMode": {
+      "comment": "Settings > Machines: toggle named Auto. When on, new chats keep running on the person's Cloud machine while this Mac sleeps or is offline, and return to the Mac when it is back. Auto is the feature's name.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Auto"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "تلقائي"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Automatski"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Automatisk"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Automatisch"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Automático"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Automatique"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Automatico"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "自動"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ស្វ័យប្រវត្តិ"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "자동"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Automatisk"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Automatycznie"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Automático"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Авто"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "อัตโนมัติ"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Otomatik"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Авто"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Tự động"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "自动"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "自動"}}
+      }
+    },
+    "settings.cloud.autoMode.help": {
+      "comment": "Settings > Machines: help for the Auto toggle. Chats continue on the person's Cloud machine while this Mac is asleep or has no network, and return to this Mac when it is awake and online again.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Chats keep running in the Cloud when this Mac sleeps or goes offline, and come back when it returns."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "تستمر الدردشات في العمل في السحابة عندما يدخل هذا الـ Mac في وضع السكون أو ينقطع اتصاله، وتعود عند عودته."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Chatovi nastavljaju raditi u Cloudu kad ovaj Mac spava ili ostane bez mreže, i vraćaju se kad se on vrati."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Chats kører videre i Cloud, når denne Mac går i dvale eller offline, og kommer tilbage, når den vender tilbage."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Chats laufen in der Cloud weiter, wenn dieser Mac in den Ruhezustand geht oder offline ist, und kommen zurück, sobald er wieder da ist."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Los chats siguen ejecutándose en la nube cuando este Mac entra en reposo o se queda sin conexión, y vuelven cuando regresa."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Les discussions continuent dans le Cloud quand ce Mac se met en veille ou passe hors ligne, et reviennent à son retour."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Le chat continuano nel Cloud quando questo Mac va in stop o offline, e tornano quando è di nuovo disponibile."}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "この Mac がスリープまたはオフラインになってもチャットはクラウドで動き続け、Mac が戻るとこの Mac に戻ります。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ការជជែកបន្តដំណើរការក្នុងពពក នៅពេល Mac នេះដេក ឬដាច់ពីបណ្ដាញ ហើយត្រឡប់មកវិញនៅពេលវាត្រឡប់មក។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "이 Mac이 잠자기 상태가 되거나 오프라인이 되어도 채팅은 클라우드에서 계속 실행되고, Mac이 돌아오면 다시 돌아옵니다."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Chatter fortsetter i skyen når denne Mac-en går i dvale eller blir frakoblet, og kommer tilbake når den er tilbake."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Czaty działają dalej w chmurze, gdy ten Mac przechodzi w stan uśpienia lub traci połączenie, i wracają, gdy on wróci."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Os chats continuam rodando na nuvem quando este Mac entra em repouso ou fica offline, e voltam quando ele retorna."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Чаты продолжают работать в облаке, когда этот Mac засыпает или теряет сеть, и возвращаются, когда он снова доступен."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "แชตจะทำงานต่อในคลาวด์เมื่อ Mac เครื่องนี้พักเครื่องหรือออฟไลน์ และจะกลับมาเมื่อเครื่องกลับมา"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Bu Mac uyuduğunda veya çevrimdışı olduğunda sohbetler Bulutta çalışmayı sürdürür ve Mac döndüğünde geri gelir."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Чати продовжують працювати в хмарі, коли цей Mac засинає або втрачає мережу, і повертаються, коли він знову доступний."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Các cuộc trò chuyện tiếp tục chạy trên đám mây khi Mac này ngủ hoặc ngoại tuyến, và quay lại khi máy trở lại."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "这台 Mac 睡眠或离线时，聊天会继续在云端运行，并在它恢复后回到这台 Mac。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "這部 Mac 睡眠或離線時，聊天會繼續在雲端執行，並在它恢復後回到這部 Mac。"}}
+      }
+    },
     "settings.cloud.turnCheckpoints": {
       "comment": "Settings > Machines: toggle that saves a whole-machine checkpoint between the turns of a Cloud chat, so a turn can be undone.",
       "extractionState": "manual",

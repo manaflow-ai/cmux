@@ -993,6 +993,13 @@
       ]
     },
     {
+      "agent": "privacy",
+      "why": "Auto copies each new chat and its folder off this Mac to the person's Cloud machine: theirs to turn on.",
+      "keys": [
+        "cloud.autoMode"
+      ]
+    },
+    {
       "agent": "userOnly",
       "why": "The key chord the dictation mic posts to another app: only the person picks what cmux types into other apps.",
       "keys": [
