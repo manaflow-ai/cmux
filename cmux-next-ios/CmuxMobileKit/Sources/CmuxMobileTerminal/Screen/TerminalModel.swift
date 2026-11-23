@@ -611,7 +611,11 @@ public final class TerminalModel {
         let text = composerText
         composerSending = true
         let viaDaemon = submit.steps.first == .paste(text)
-            && session.sendPasteAndSubmit(text, notSent: { [weak self] in self?.composerSendNotSent(text) })
+            && session.sendPasteAndSubmit(
+                text,
+                notSent: { [weak self] in self?.composerSendNotSent(text) },
+                maybeSent: { [weak self] in self?.composerSendMaybeSent(text) }
+            )
         composerSending = false
         if !viaDaemon {
             controller?.surface.sendText(text, pressReturn: true, fullScreenApp: isTUI)
@@ -623,7 +627,7 @@ public final class TerminalModel {
     @ObservationIgnored private var composerSending = false
 
     /// The session dropped, refused or got an error for a composer send
-    /// (``TerminalSession/sendPasteAndSubmit(_:notSent:)``): never silent.
+    /// (``TerminalSession/sendPasteAndSubmit(_:notSent:maybeSent:)``): never silent.
     /// The notice shows and the text comes back to an empty composer (one the
     /// person typed into since keeps what they typed).
     private func composerSendNotSent(_ text: String) {
@@ -633,6 +637,20 @@ public final class TerminalModel {
             composerSendRefused = true
         } else if composerText.isEmpty {
             composerText = text
+        }
+    }
+
+    /// A composer send went out and its answer never came: the Mac may have
+    /// typed it. The notice says so, and the text never comes back as unsent
+    /// (Leo, 2026-11-23: "there's like a sort of like double send type
+    /// thing"); a blip's restore that already put it back is taken out again.
+    private func composerSendMaybeSent(_ text: String) {
+        composerNotice = TerminalConnectionState.composerSendMaybeSentNotice
+        heldComposerSend = nil
+        if composerSending {
+            composerSendRefused = false
+        } else if composerText == text {
+            composerText = ""
         }
     }
 

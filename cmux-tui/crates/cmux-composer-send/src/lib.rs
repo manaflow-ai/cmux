@@ -75,6 +75,11 @@ pub enum Answer {
     Refused,
     /// No answer: the channel failed or timed out after the request may have been written.
     Lost,
+    /// The daemon answered an error that does not say nothing was written (its
+    /// `error_delivery` is not `known-not-delivered`: the text went in and its Return failed,
+    /// say). The key stays applied there, so a resend would write nothing and read as sent:
+    /// it ends as [`Outcome::MaybeSent`] at once.
+    Uncertain,
 }
 
 /// How a Send ended.
@@ -178,6 +183,7 @@ impl Outbox {
             Answer::Applied => Outcome::Sent,
             // The key was never applied (a later attempt under an applied key answers success).
             Answer::Refused => Outcome::NotSent { text: self.entries[index].text.clone() },
+            Answer::Uncertain => Outcome::MaybeSent { text: self.entries[index].text.clone() },
             Answer::Lost => {
                 self.entries[index].in_flight = false;
                 return None;
@@ -198,11 +204,10 @@ impl Outbox {
     /// Sends older than the hold, given up (in tap order). One in flight waits for its answer.
     pub fn expire(&mut self, now: Instant) -> Vec<Done> {
         let mut done = Vec::new();
-        while let Some(entry) = self.entries.front() {
-            if entry.in_flight || now.saturating_duration_since(entry.queued) < self.hold {
-                break;
-            }
-            let entry = self.entries.pop_front().expect("front exists");
+        while self.entries.front().is_some_and(|entry| {
+            !entry.in_flight && now.saturating_duration_since(entry.queued) >= self.hold
+        }) {
+            let Some(entry) = self.entries.pop_front() else { break };
             let outcome = if entry.tried {
                 Outcome::MaybeSent { text: entry.text }
             } else {
@@ -211,6 +216,36 @@ impl Outbox {
             done.push(Done { seq: entry.seq, outcome });
         }
         done
+    }
+
+    /// One Send, given up now (its owner dropped it: keys before it were lost, say), if it is
+    /// not in flight: [`Outcome::MaybeSent`] when an attempt went out, else [`Outcome::NotSent`].
+    pub fn give_up_send(&mut self, seq: u64) -> Option<Done> {
+        let index = self.entries.iter().position(|e| e.seq == seq && !e.in_flight)?;
+        let entry = self.entries.remove(index)?;
+        let outcome = if entry.tried {
+            Outcome::MaybeSent { text: entry.text }
+        } else {
+            Outcome::NotSent { text: entry.text }
+        };
+        Some(Done { seq, outcome })
+    }
+
+    /// Every Send, given up now (the attached daemon takes no keys, so none may go): in tap
+    /// order, [`Outcome::MaybeSent`] for one an attempt went out for, else
+    /// [`Outcome::NotSent`].
+    pub fn give_up(&mut self) -> Vec<Done> {
+        self.entries
+            .drain(..)
+            .map(|entry| Done {
+                seq: entry.seq,
+                outcome: if entry.tried {
+                    Outcome::MaybeSent { text: entry.text }
+                } else {
+                    Outcome::NotSent { text: entry.text }
+                },
+            })
+            .collect()
     }
 
     /// Sends not answered yet.
@@ -301,6 +336,57 @@ mod tests {
                 Done { seq: untried, outcome: Outcome::NotSent { text: "untried".into() } },
             ]
         );
+    }
+
+    #[test]
+    fn an_uncertain_error_is_maybe_sent_and_never_resent() {
+        let t0 = Instant::now();
+        let mut outbox = Outbox::new("n", DEFAULT_HOLD);
+        let seq = outbox.push("make deploy", true, t0);
+        outbox.next_request(Form::PasteSubmit).unwrap();
+        assert_eq!(
+            outbox.answer(seq, Answer::Uncertain),
+            Some(Done { seq, outcome: Outcome::MaybeSent { text: "make deploy".into() } })
+        );
+        assert!(outbox.next_request(Form::PasteSubmit).is_none());
+    }
+
+    #[test]
+    fn giving_up_says_which_sends_may_have_left() {
+        let t0 = Instant::now();
+        let mut outbox = Outbox::new("n", DEFAULT_HOLD);
+        let tried = outbox.push("a", true, t0);
+        let untried = outbox.push("b", true, t0);
+        outbox.next_request(Form::PasteSubmit).unwrap();
+        outbox.link_lost();
+        assert_eq!(
+            outbox.give_up(),
+            vec![
+                Done { seq: tried, outcome: Outcome::MaybeSent { text: "a".into() } },
+                Done { seq: untried, outcome: Outcome::NotSent { text: "b".into() } },
+            ]
+        );
+        assert!(outbox.is_empty());
+    }
+
+    #[test]
+    fn one_send_given_up_says_whether_it_may_have_left() {
+        let t0 = Instant::now();
+        let mut outbox = Outbox::new("n", DEFAULT_HOLD);
+        let a = outbox.push("a", true, t0);
+        let b = outbox.push("b", true, t0);
+        outbox.next_request(Form::PasteSubmit).unwrap();
+        assert_eq!(outbox.give_up_send(a), None, "in flight: its answer decides");
+        assert_eq!(
+            outbox.give_up_send(b),
+            Some(Done { seq: b, outcome: Outcome::NotSent { text: "b".into() } })
+        );
+        outbox.answer(a, Answer::Lost);
+        assert_eq!(
+            outbox.give_up_send(a),
+            Some(Done { seq: a, outcome: Outcome::MaybeSent { text: "a".into() } })
+        );
+        assert!(outbox.is_empty());
     }
 
     #[test]
