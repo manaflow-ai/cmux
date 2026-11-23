@@ -39,9 +39,9 @@ public final class LiveCodeRedraw {
     public init() {}
 
     /// cmux Dev's bundle id: the one app that watches a live folder on a device.
-    public static let deviceBundleID = "dev.cmux.mobile.dev"
+    public nonisolated static let deviceBundleID = "dev.cmux.mobile.dev"
     /// Where cmux Dev's live folder is, relative to its data container (ios-device.sh copies there).
-    public static let deviceFolder = "Library/LiveCode"
+    public nonisolated static let deviceFolder = "Library/LiveCode"
 
     /// In the Simulator, watches the folder CMUX_LIVE_CODE_DIR names; on a device, only cmux Dev
     /// watches, its container's `Library/LiveCode` (``deviceFolder``). Does nothing otherwise.
