@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { LINK_DOWN_SAID_MS, RESUME_NOTE_DELAY_MS, useAfterDelay } from "./afterDelay";
+import { RESUME_NOTE_DELAY_MS, useAfterDelay } from "./afterDelay";
 import { experimentArm } from "../../experiments/experiment";
 import { Spinner } from "./conversation/icons";
 import { relativeTime } from "./conversation/relativeTime";
@@ -15,23 +15,25 @@ import { pausedMachineResume } from "./pausedMachine.experiment";
 /// (peerCloudMachine.ts), a paused one says it is paused and offers Resume, and one starting says
 /// so with a spinner, instead of "offline" (cmuxterm-hq#4755).
 ///
-/// A Cloud machine pauses on its own, between tool calls too, so for any peer that may be one (the App
-/// passes `noteDelayMs` 0 for an ssh peer) the banner stays out of sight at first: it shows only once
-/// the machine has been away for RESUME_NOTE_DELAY_MS (afterDelay.ts), so a quick pause and resume
-/// draws nothing. By then the account's machine list has been read, so a paused machine never reads
-/// "offline" first. Its place is taken from the first frame, as before (empty and out of the
+/// A machine that is only away (its link dropped, or the app wakes it) draws no banner at all: the
+/// kept transcript is shown as it is. A Cloud machine pauses on its own, between tool calls too, so a
+/// paused one's banner shows only once the machine has been away for RESUME_NOTE_DELAY_MS
+/// (afterDelay.ts), and a quick pause and resume draws nothing. Its place is taken from the first frame, as before (empty and out of the
 /// accessibility tree until then), so its text fading in moves no row, and it sits above the
 /// transcript, never over it.
 export function PeerCopyBanner(
   props: Parameters<typeof PeerCopyBannerBody>[0] & { noteDelayMs?: number; asked?: boolean },
 ) {
   const { noteDelayMs = RESUME_NOTE_DELAY_MS, asked = false, ...body } = props;
-  // What the app recovers by itself waits out LINK_DOWN_SAID_MS (Leo, 2026-11-14: connectivity says
-  // nothing the person can do nothing about): a link that dropped ("offline"), and a machine the app
-  // wakes on its own (opening the chat, a send) that reads "starting". A paused machine (it has a
-  // Resume) and a start the person asked for here keep `noteDelayMs`.
+  // What the app recovers by itself draws nothing at all, at any duration (Leo, 2026-11-22: "i dont
+  // wanna see connecting to [machine]... with the spinner, i want it to just work"; 2026-11-12:
+  // "just show the cache"): a link that dropped ("offline"), and a machine the app wakes on its own
+  // (opening the chat, a send) that reads "starting". The kept transcript is the chat; a send waits
+  // and goes once the machine answers. Only a paused machine (it has a Resume) and a start the person
+  // asked for here show, after `noteDelayMs`.
   const quiet = body.machine === undefined || (body.machine === "starting" && !asked);
-  const shown = useAfterDelay(true, quiet && noteDelayMs > 0 ? Math.max(noteDelayMs, LINK_DOWN_SAID_MS) : noteDelayMs);
+  const shown = useAfterDelay(!quiet, noteDelayMs);
+  if (quiet) return null;
   return (
     <div className="acpmux-peer-copy-slot" data-shown={shown || undefined}>
       <PeerCopyBannerBody {...body} />

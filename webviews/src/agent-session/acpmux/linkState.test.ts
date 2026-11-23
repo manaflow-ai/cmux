@@ -13,44 +13,45 @@ import { PeerStateEvents } from "./peerStateEvents";
 
 const t = (key: Parameters<typeof translate>[0]) => translate(key, {}, "en");
 
-/// Each acpmux state: the dot the row draws (null: the peer copy banner's), its words, and whether it
-/// offers Reconnect. The dots are the sidebar rule's (`peer_link`'s table test).
-const ROWS: [AcpmuxLink, string | null, string, boolean][] = [
-  ["connected", "connected", "Connected", false],
-  ["connecting", "connecting", "Connecting…", false],
-  ["reconnecting", "connecting", "Reconnecting…", false],
-  ["restarting", "connecting", "Reconnecting…", false],
-  ["degraded", "connecting", "Reconnecting…", false],
-  ["offline", "offline", "Offline", true],
-  ["authFailed", "offline", "Sign-in needed", false],
-  ["updateRequired", "offline", "Update required", false],
-  ["paused", null, "", false],
+/// Each acpmux state: the link the row reads (null: the peer copy banner's), and its words: none for a
+/// state acpmux recovers from by itself (Leo, 2026-11-22: "i dont wanna see connecting to
+/// [machine]... with the spinner, i want it to just work"), the step for one a person must take. The
+/// links are the sidebar rule's (`peer_link`'s table test).
+const ROWS: [AcpmuxLink, string | null, string | undefined][] = [
+  ["connected", "connected", undefined],
+  ["connecting", "connecting", undefined],
+  ["reconnecting", "connecting", undefined],
+  ["restarting", "connecting", undefined],
+  ["degraded", "connecting", undefined],
+  ["offline", "offline", undefined],
+  ["authFailed", "offline", "Sign-in needed"],
+  ["updateRequired", "offline", "Update required"],
+  ["paused", null, undefined],
 ];
 
 test("the renderer draws every acpmux link state, one dot each", () => {
   expect(ROWS.map(([state]) => state as string).sort()).toEqual([...ACPMUX_LINKS].sort());
   expect(Object.keys(PEER_LINKS).sort()).toEqual([...ACPMUX_LINKS].sort());
-  for (const [state, dot, words, reconnects] of ROWS) {
+  for (const [state, dot, words] of ROWS) {
     const link = peerLink({ summary: { peer: "walk-remote" }, peerLinks: { "walk-remote": { link: state } } });
     expect(link?.link ?? null, state).toBe(dot as never);
     if (!link) continue;
-    expect(linkWords(link, t), state).toBe(words);
-    expect(link.link === "offline" && !link.stuck, state).toBe(reconnects);
+    expect(linkWords(link, t), state).toBe(words as never);
   }
 });
 
-test("the row says this Mac's network is down when acpmux says so", () => {
+test("the row reads this Mac's network as the cause, and says nothing of it", () => {
   const link = peerLink({
     summary: { peer: "walk-remote" },
     peerLinks: { "walk-remote": { link: "reconnecting", cause: "localNetwork", nextRetryAt: 5 } },
   });
   expect(link).toEqual({ machine: "walk-remote", link: "connecting", reconnecting: true, why: "localNetwork" });
-  expect(linkWords(link!, t)).toBe("This Mac is offline");
+  expect(linkWords(link!, t)).toBeUndefined();
   const peerDown = peerLink({
     summary: { peer: "walk-remote" },
     peerLinks: { "walk-remote": { link: "offline", cause: "peerDown" } },
   });
-  expect(linkWords(peerDown!, t)).toBe("Offline");
+  expect(linkWords(peerDown!, t)).toBeUndefined();
 });
 
 test("an older daemon's state word still draws, and its whole state wins when sent", () => {

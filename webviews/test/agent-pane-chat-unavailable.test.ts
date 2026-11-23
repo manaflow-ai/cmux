@@ -2,8 +2,10 @@
 // A tab's chat that the daemon does not list (`sessionMustExist`): the pane says which case it is
 // (Leo 2026-10-21: "second pic is weird has "this chat isn't available""), centered where the chat
 // would be and in the pane's own type. Deleted: "This chat was deleted" and Remove from Sidebar.
-// Its machine is not connected: a neutral "Reconnecting…" (Leo, #26115), when it was last seen, and
-// Reconnect. A chat that is only loading (its attach in flight, or its machine still connecting)
+// Its machine is not connected: nothing over the kept rows, and in place of a chat the pane has no
+// copy of, only once the machine has been unreachable two minutes (PEER_LINK_DEADLINE_MS), a calm
+// "Can't reach {machine}." with no spinner, when it was last seen, and Reconnect (Leo, 2026-11-22:
+// "i dont wanna see connecting to [machine]... with the spinner, i want it to just work"). A chat that is only loading (its attach in flight, or its machine still connecting)
 // never reads as unavailable,
 // and a chat on another machine whose tab names it by another id than acpmux's opens.
 //
@@ -149,14 +151,26 @@ await requireBrowserLane("agent-pane-chat-unavailable.test.ts", async () => {
   });
 
   /// Opens the pane on the tab's chat `chat`, which must exist (`#must`, the app's `sessionMustExist`).
-  async function open(chat: string, machine?: string): Promise<Page> {
+  async function open(chat: string, machine?: string, { clock = false } = {}): Promise<Page> {
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
+    // With `clock` the page's timers run on Playwright's clock (flowing as real time), so a test moves
+    // a machine past its two-minute deadline (`pastDeadline`) rather than waiting it out.
+    if (clock) await page.clock.install();
     const { port } = vite!.httpServer!.address() as { port: number };
     const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
     const hash = new URLSearchParams({ endpoint, token: "t", session: chat, must: "" });
     if (machine) hash.set("machine", machine);
     await page.goto(`http://127.0.0.1:${port}/#${hash.toString()}`);
     return page;
+  }
+  /// Moves the page's clock on, ten seconds at a time, until `shown` is drawn: a machine that does
+  /// not answer is said only once it has been unreachable PEER_LINK_DEADLINE_MS (two minutes).
+  async function pastDeadline(page: Page, shown: ReturnType<Page["locator"]>) {
+    for (let step = 0; step < 30 && (await shown.count()) === 0; step++) {
+      await page.clock.fastForward(10_000);
+      await shown.waitFor({ timeout: 500 }).catch(() => undefined);
+    }
+    await shown.waitFor({ timeout: 10_000 });
   }
   const state = (page: Page) => page.evaluate(() => (window as any).cmuxAcpmuxDebug.chatState() as Record<string, any>);
   const notify = (method: string, params: Record<string, unknown>) =>
@@ -319,7 +333,7 @@ await requireBrowserLane("agent-pane-chat-unavailable.test.ts", async () => {
     await page.close();
   });
 
-  test("a tab whose machine is down shows its kept rows under one Reconnecting line with every action", async () => {
+  test("a tab whose machine is down shows its kept rows with nothing over them, however long", async () => {
     scenario = {
       sessions: [summary("chat-other")],
       peers: [
@@ -327,6 +341,7 @@ await requireBrowserLane("agent-pane-chat-unavailable.test.ts", async () => {
       ],
     };
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
+    await page.clock.install();
     await withHostTail(page, "chat-on-box", "Kept chat-on-box");
     const { port } = vite!.httpServer!.address() as { port: number };
     const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
@@ -334,14 +349,14 @@ await requireBrowserLane("agent-pane-chat-unavailable.test.ts", async () => {
       `http://127.0.0.1:${port}/#${new URLSearchParams({ endpoint, token: "t", session: "chat-on-box", must: "" })}`,
     );
     await page.getByText("Kept chat-on-box", { exact: true }).waitFor({ timeout: 25_000 });
-    const line = page.locator('.acpmux-unavailable-line[data-unavailable="offline"]');
-    await line.waitFor({ timeout: 25_000 });
-    // One state: the line over the rows, never the centered state as well.
-    expect(await page.locator("[data-unavailable]").count()).toBe(1);
-    expect(await line.innerText()).toContain("Reconnecting…");
+    // No line over the rows, no centered state in their place, however long the machine is down.
+    await page.clock.fastForward(10 * 60_000);
+    // fixed-wait: a frame for the pane to draw what the clock moved on to.
+    await page.waitForTimeout(500);
+    expect(await page.locator('[data-unavailable="offline"]').count()).toBe(0);
+    expect(await page.getByText("Kept chat-on-box", { exact: true }).count()).toBe(1);
+    expect(await page.locator("body").innerText()).not.toMatch(/Reconnecting|Can't reach/);
     expect((await state(page)).isWorking).toBe(false);
-    for (const action of ["reconnect", "resume", "close"])
-      expect(await line.locator(`[data-action="${action}"]`).count()).toBe(1);
     await page.close();
   });
 
@@ -473,12 +488,12 @@ await requireBrowserLane("agent-pane-chat-unavailable.test.ts", async () => {
     await page.close();
   });
 
-  test("a chat whose machine goes offline says it is reconnecting, when it was last seen, and Reconnect opens it", async () => {
+  test("a chat whose machine goes offline says, past two minutes, it can't be reached, when it was last seen, and Reconnect opens it", async () => {
     scenario = {
       sessions: [summary("chat-kept"), summary("chat-on-box", { peer: "build-box" })],
       peers: [{ name: "build-box", transport: "ssh", connected: true, state: "connected", lastSeen: Date.now() }],
     };
-    const page = await open("chat-on-box");
+    const page = await open("chat-on-box", undefined, { clock: true });
     await page.getByText("Opened chat-on-box", { exact: true }).waitFor({ timeout: 60_000 });
     // The machine drops and acpmux no longer lists the chat (a restarted daemon with no saved list
     // of that machine's chats): the pane reads the list again after a lag.
@@ -489,20 +504,12 @@ await requireBrowserLane("agent-pane-chat-unavailable.test.ts", async () => {
     scenario.sessions = [summary("chat-kept")];
     notify("_acpmux/lagged", { watch: true, dropped: 1 });
     const shown = page.locator('[data-unavailable="offline"]');
-    await shown.waitFor({ timeout: 60_000 });
-    // Neutral, as connecting (86ebb89edfcf, #26115): "Reconnecting…", when it was last seen, and Reconnect.
-    expect(await shown.locator("h2").innerText()).toBe("Reconnecting…");
+    await pastDeadline(page, shown);
+    // Calm, no spinner (Leo, 2026-11-22): "Can't reach build-box.", when it was last seen, and Reconnect.
+    expect(await shown.locator("h2").innerText()).toBe("Can't reach build-box.");
     expect(await shown.getAttribute("role")).toBe("status");
-    const offlineSpinnerColors = await shown.locator(".acpmux-unavailable-spinner").evaluate((node) => {
-      const probe = document.createElement("span");
-      probe.style.color = "var(--acpmux-composer-placeholder)";
-      node.parentElement?.append(probe);
-      const colors = { spinner: getComputedStyle(node).color, placeholder: getComputedStyle(probe).color };
-      probe.remove();
-      return colors;
-    });
-    expect(offlineSpinnerColors.spinner).toBe(offlineSpinnerColors.placeholder);
-    await page.waitForFunction(() => document.body.innerText.includes("Last seen 5 minutes ago."));
+    expect(await shown.locator(".cv-spinner").count()).toBe(0);
+    await page.waitForFunction(() => /Last seen \d+ minutes ago\./.test(document.body.innerText));
     expect(await page.getByText(/isn't available|was deleted/).count()).toBe(0);
     const reconnect = shown.getByRole("button", { name: "Reconnect" });
     // Reconnect reads the machines and the list again; once the machine lists the chat it opens.
@@ -576,9 +583,9 @@ await requireBrowserLane("agent-pane-chat-unavailable.test.ts", async () => {
       sessions: [summary("chat-kept")],
       peers: [{ name: "build-box", transport: "ssh", connected: false, state: "offline", attempts: 6 }],
     };
-    const page = await open(chat);
+    const page = await open(chat, undefined, { clock: true });
     const offline = page.locator('[data-unavailable="offline"]');
-    await offline.waitFor({ timeout: 60_000 });
+    await pastDeadline(page, offline);
     expect(await offline.innerText()).toContain("Session 01a1201b-d3c3");
     expect(await offline.innerText()).not.toContain(chat);
     const close = offline.getByRole("button", { name: "Close Tab" });
@@ -608,7 +615,7 @@ await requireBrowserLane("agent-pane-chat-unavailable.test.ts", async () => {
       sessions: [summary("chat-kept")],
       peers: [{ name: "build-box", transport: "ssh", connected: false, state: "connecting", attempts: 0 }],
     };
-    const page = await open("chat-on-box");
+    const page = await open("chat-on-box", undefined, { clock: true });
     await page.locator('[data-unavailable="connecting"]').waitFor({ timeout: 60_000 });
     // Its machine lists the chat, then drops again before the pane's attach is answered.
     scenario.attachFails = new Set(["chat-on-box"]);
@@ -626,7 +633,7 @@ await requireBrowserLane("agent-pane-chat-unavailable.test.ts", async () => {
     scenario.sessions = [...scenario.sessions, listed];
     notify("_acpmux/session_changed", { kind: "created", session: listed });
     const offline = page.locator('[data-unavailable="offline"]');
-    await offline.waitFor({ timeout: 60_000 });
+    await pastDeadline(page, offline);
     expect((await state(page)).sessionId).toBeNull();
     expect((await state(page)).missingSession).toBe("chat-on-box");
     // The machine is back: Reconnect opens the chat.

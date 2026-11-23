@@ -3,7 +3,7 @@
 // language and the theme are in place before the page's own modules load, as the app has them
 // before a page's first script runs.
 import { installGalleryClock } from "../clock";
-import { overPicture, readEnv, SHELL_DEFAULT_BACKGROUND, widthPx } from "../env";
+import { overPicture, readEnv, widthPx, SHELL_DEFAULT_BACKGROUND } from "../env";
 import { readTunes } from "../../experiments/tunable";
 import { readOptions } from "../options";
 import type { GalleryEntry } from "../format";
@@ -13,7 +13,7 @@ import { watchStageErrors } from "./liveErrors";
 import { appHostSeeThrough, appHostTheme, isAppHosted } from "./appHost";
 import { DEFAULT_DARK_THEME, DEFAULT_LIGHT_THEME, themeIsDark, type GhosttyTheme } from "../theme/ghostty";
 import { agentPaneTheme, diffAppearance, themeTokens, webThemePayload } from "../theme/web";
-import { deriveAppTheme, APP_ACCENTS, type AppAccent } from "../../theme/appTheme";
+import { APP_ACCENTS, deriveAppTheme, type AppAccent } from "../../theme/appTheme";
 import { lookTheme, schemeOf } from "../golden/look";
 import themes from "virtual:cmux-gallery/themes";
 import webThemeBootstrap from "virtual:cmux-gallery/web-theme";
@@ -35,8 +35,7 @@ installGalleryClock();
 // A fixture's lasting states (disconnected, offline) show at once, not after the pages' grace.
 setLastingGrace(0);
 // The same for a machine whose link is down: a fixture draws the state the pane says once the drop
-// lasts (afterDelay.ts LINK_DOWN_SAID_MS, 10 s), not 10 s of the plain pane. A fixture of the quiet
-// stretch itself passes its own bound (MachineLinkStatus `quietMs`).
+// lasts (afterDelay.ts LINK_DOWN_SAID_MS, 10 s), not 10 s of the plain pane.
 setLinkDownSaidMs(0);
 
 const params = new URLSearchParams(location.search);

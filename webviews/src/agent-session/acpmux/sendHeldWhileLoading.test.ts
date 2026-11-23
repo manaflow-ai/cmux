@@ -196,7 +196,7 @@ test("a prompt that waits out the host's deadline stays as a failed row with Ret
   }
 });
 
-test("the composer stops saying Sending when ready once acpmux takes the prompt, not when its turn ends", async () => {
+test("the composer stops holding the send once acpmux takes the prompt, not when its turn ends", async () => {
   const { AcpmuxDirectClient } = await import("./direct");
   const { MockAcpmuxSocket, mockHost } = await import("./mock");
   const { sendsHeldForHost } = await import("./sendWhenReady");

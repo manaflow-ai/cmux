@@ -1,4 +1,5 @@
-import { RESUME_NOTE_DELAY_MS, useAfterDelay, useLinkDownSaid } from "./afterDelay";
+import { RESUME_NOTE_DELAY_MS, useAfterDelay } from "./afterDelay";
+import { PEER_LINK_DEADLINE_MS } from "./hostLine";
 import type { ChatUnavailable } from "./chatUnavailable";
 import { Spinner } from "./conversation/icons";
 import { relativeTime } from "./conversation/relativeTime";
@@ -56,8 +57,8 @@ export function ChatUnavailableState({
   /// How long a paused machine, and a resume, stay out of sight (afterDelay.ts); the gallery's
   /// settled variants pass 0.
   noteDelayMs?: number;
-  /// How long a machine whose link dropped stays out of sight (afterDelay.ts `LINK_DOWN_SAID_MS`);
-  /// a settled variant (`noteDelayMs` 0) shows it at once.
+  /// How long a machine whose link dropped stays out of sight in place of a chat the pane has no
+  /// copy of (hostLine.ts `PEER_LINK_DEADLINE_MS`); a settled variant (`noteDelayMs` 0) shows it at once.
   offlineDelayMs?: number;
   /// Over the chat's last-read rows: a line under the header, not the centered state.
   line?: boolean;
@@ -69,14 +70,14 @@ export function ChatUnavailableState({
   // shifts nothing when it appears.
   const pausedShown = useAfterDelay(unavailable.reason === "paused", noteDelayMs);
   const resumeSlow = useAfterDelay(resuming, noteDelayMs);
-  // A machine whose link just dropped: "Reconnecting…" shows only once the drop has lasted past
-  // LINK_DOWN_SAID_MS, the time acpmux takes to notice a dead link and redial it, so a link back on
-  // its own never shows the state (Leo, 2026-11-14: "i also want all our connectivity stuff to shut
-  // the fuck up").
-  const offlineShown = useLinkDownSaid(
-    unavailable.reason === "offline",
-    undefined,
-    offlineDelayMs ?? (noteDelayMs <= 0 ? 0 : undefined),
+  // A machine whose link dropped is something acpmux brings back by itself: nothing is drawn for it
+  // (Leo, 2026-11-22: "i dont wanna see connecting to [machine]... with the spinner, i want it to
+  // just work"). Over the chat's kept rows (`line`) never; in place of a chat the pane has no copy of,
+  // only once the machine has been unreachable past PEER_LINK_DEADLINE_MS, when it is gone rather
+  // than slow, and then as a calm state with Reconnect, no spinner and no "Reconnecting…".
+  const offlineShown = useAfterDelay(
+    unavailable.reason === "offline" && !line,
+    offlineDelayMs ?? (noteDelayMs <= 0 ? 0 : PEER_LINK_DEADLINE_MS),
   );
   // Still loading, or paused or offline for less than the threshold: nothing shows, in the loading
   // layout, until the chat opens or the wait goes on (then offline or paused, below).
@@ -133,7 +134,7 @@ export function ChatUnavailableState({
     title = t("unavailable.notFound.title");
     detail = named ? t("unavailable.notFound.detailOn", { machine: named }) : t("unavailable.notFound.detail");
   } else {
-    title = `${t("header.reconnecting")}…`;
+    title = named ? t("host.peerUnreachable", { machine: named }) : t("host.peerUnreachableUnnamed");
     detail =
       unavailable.lastSeen !== undefined
         ? t("unavailable.offline.lastSeen", {
@@ -178,9 +179,7 @@ export function ChatUnavailableState({
         data-enter="top"
       >
         <p className="acpmux-peer-copy-title">
-          {(unavailable.reason === "offline" || resuming) && (
-            <Spinner size={12} loading className="acpmux-peer-copy-spinner" />
-          )}
+          {resuming && <Spinner size={12} loading className="acpmux-peer-copy-spinner" />}
           {title}
         </p>
         {error && (
@@ -200,33 +199,29 @@ export function ChatUnavailableState({
       role={unavailable.reason === "offline" || unavailable.reason === "paused" ? "status" : "alert"}
       data-enter="fade"
     >
-      {unavailable.reason === "offline" ? (
-        <Spinner size={28} loading className="acpmux-unavailable-spinner" />
-      ) : (
-        <svg
-          className="acpmux-empty-glyph"
-          width={36}
-          height={36}
-          viewBox="0 0 36 36"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth={1.5}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          aria-hidden="true"
-          focusable="false"
-        >
-          <rect x="4.75" y="6.75" width="26.5" height="22.5" rx="6" />
-          {unavailable.reason === "deleted" ||
-          unavailable.reason === "notFound" ||
-          unavailable.reason === "gone" ||
-          unavailable.reason === "unreached" ? (
-            <path d="M13.5 18h9" />
-          ) : (
-            <path d="M11.5 18h1M17.5 18h1M23.5 18h1" />
-          )}
-        </svg>
-      )}
+      <svg
+        className="acpmux-empty-glyph"
+        width={36}
+        height={36}
+        viewBox="0 0 36 36"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={1.5}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+        focusable="false"
+      >
+        <rect x="4.75" y="6.75" width="26.5" height="22.5" rx="6" />
+        {unavailable.reason === "deleted" ||
+        unavailable.reason === "notFound" ||
+        unavailable.reason === "gone" ||
+        unavailable.reason === "unreached" ? (
+          <path d="M13.5 18h9" />
+        ) : (
+          <path d="M11.5 18h1M17.5 18h1M23.5 18h1" />
+        )}
+      </svg>
       <h2 className="acpmux-empty-title acpmux-unavailable-title">{title}</h2>
       <div className="acpmux-unavailable-copy">
         {unavailable.reason === "paused" ? (

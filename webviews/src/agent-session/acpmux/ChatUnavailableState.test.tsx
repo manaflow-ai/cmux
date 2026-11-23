@@ -3,6 +3,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { ChatUnavailableState } from "./ChatUnavailableState";
+import { PEER_LINK_DEADLINE_MS } from "./hostLine";
 import { settleReact } from "../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
@@ -42,7 +43,7 @@ afterEach(async () => {
   saved.clear();
 });
 
-test("an offline chat uses a neutral status spinner", async () => {
+test("an offline chat, once shown, is a calm status with no spinner and no Reconnecting…", async () => {
   const container = installDom();
   root = createRoot(container);
   await act(async () => {
@@ -61,11 +62,12 @@ test("an offline chat uses a neutral status spinner", async () => {
   });
   expect(container.querySelector('[role="status"]')).not.toBeNull();
   expect(container.querySelector('[role="alert"]')).toBeNull();
-  expect(container.querySelector(".cv-spinner")).not.toBeNull();
-  expect(container.textContent).toContain("Reconnecting…");
+  expect(container.querySelector(".cv-spinner")).toBeNull();
+  expect(container.textContent).toContain("Can't reach remote.");
+  expect(container.textContent).not.toContain("Reconnecting");
 });
 
-test("an offline chat shows nothing until the drop has lasted past the threshold, then Reconnecting…", async () => {
+test("an offline chat shows nothing until the drop has lasted past the threshold", async () => {
   jest.useFakeTimers();
   const container = installDom();
   root = createRoot(container);
@@ -86,13 +88,14 @@ test("an offline chat shows nothing until the drop has lasted past the threshold
   expect(container.querySelector('[data-unavailable="offline"]')).toBeNull();
   await act(async () => void jest.advanceTimersByTime(1));
   expect(container.querySelector('[data-unavailable="offline"]')).not.toBeNull();
-  expect(container.textContent).toContain("Reconnecting…");
+  expect(container.querySelector(".cv-spinner")).toBeNull();
+  expect(container.textContent).toContain("Can't reach remote.");
 });
 
-test("a machine whose link dropped says nothing for 10 s, acpmux's own redial, then Reconnecting… once", async () => {
-  // Leo, 2026-11-14: "i also want all our connectivity stuff to shut the fuck up". Before, the state
-  // showed 1.5 s into any drop, which a redial after a dead ssh link (6 s to notice, then a login)
-  // always outlasts.
+test("a machine whose link dropped says nothing for two minutes, then that it can't be reached", async () => {
+  // Leo, 2026-11-22: "i dont wanna see connecting to [machine]... with the spinner, i want it to just
+  // work". A machine acpmux brings back by itself draws nothing; only one gone past
+  // PEER_LINK_DEADLINE_MS, in place of a chat the pane has no copy of, is said.
   jest.useFakeTimers();
   const container = installDom();
   root = createRoot(container);
@@ -106,12 +109,34 @@ test("a machine whose link dropped says nothing for 10 s, acpmux's own redial, t
       />,
     );
   });
-  await act(async () => void jest.advanceTimersByTime(9_999));
+  await act(async () => void jest.advanceTimersByTime(PEER_LINK_DEADLINE_MS - 1));
   expect(container.querySelector('[data-unavailable="offline"]')).toBeNull();
   expect(container.textContent).toBe("");
   await act(async () => void jest.advanceTimersByTime(1));
   expect(container.querySelector('[data-unavailable="offline"]')).not.toBeNull();
-  expect(container.textContent).toContain("Reconnecting…");
+  expect(container.textContent).toContain("Can't reach remote.");
+  expect(container.textContent).not.toContain("Reconnecting");
+});
+
+test("over the chat's kept rows an offline machine draws nothing, however long", async () => {
+  jest.useFakeTimers();
+  const container = installDom();
+  root = createRoot(container);
+  await act(async () => {
+    root!.render(
+      <ChatUnavailableState
+        unavailable={{ reason: "offline", machine: "remote" }}
+        machine="remote"
+        onRemove={() => undefined}
+        onReconnect={() => undefined}
+        noteDelayMs={0}
+        line
+      />,
+    );
+  });
+  expect(container.innerHTML).toBe("");
+  await act(async () => void jest.advanceTimersByTime(60 * 60_000));
+  expect(container.innerHTML).toBe("");
 });
 
 test("a chat still connecting shows nothing: no spinner, no text, no buttons", async () => {

@@ -25,7 +25,7 @@ export default componentEntry<ComponentProps<typeof ChatUnavailableState>>({
   height: 420,
   variants: {
     before: {
-      note: "Before: paused and deleted machines both offered Reconnect.",
+      note: "A machine unreachable past two minutes (in place of a chat the pane has no copy of): Can't reach Demo machine., calm, no spinner, with Reconnect. Before, paused and deleted machines both offered Reconnect.",
       props: { ...base, unavailable: { reason: "offline", machine: "Demo machine" } },
     },
     paused: {

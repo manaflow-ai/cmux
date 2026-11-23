@@ -134,13 +134,11 @@ import {
   hostErrorShows,
   hostIsReconnecting,
   hostRefusedTooLarge,
-  type HostRestoring,
   jitteredDelay,
   lostRetryDelay,
   nextRetryDelay,
   offersAcpmuxRestart,
   quickRetry,
-  readHostRestoring,
   troubleSinceAfterLoss,
 } from "../hostRetry";
 import { heldStartStop, sendsHeldForHost, untilHostAnswers } from "../sendWhenReady";
@@ -362,10 +360,9 @@ export type PaneSnapshotArgs = {
   restartGate: AcpmuxRestartGate;
   setWaitingSince: React.Dispatch<React.SetStateAction<number | undefined>>;
   setRestartUnavailable: React.Dispatch<React.SetStateAction<boolean>>;
-  setRelinkingSince: React.Dispatch<React.SetStateAction<number | undefined>>;
-  /// When the pane's trouble began (`troubleSince` below): bounds the bare "Reconnecting…".
+  /// When the pane's trouble began (`troubleSince` below): bounds how long a self-retrying failure
+  /// stays quiet (hostRetry.ts SELF_RETRY_SAID_MS).
   setHostTroubleSince: React.Dispatch<React.SetStateAction<number | undefined>>;
-  setHostRestoring: React.Dispatch<React.SetStateAction<HostRestoring | undefined>>;
   runPendingAdoption: React.RefObject<() => void>;
   freshRef: React.RefObject<boolean>;
   inheritedFolderRef: React.MutableRefObject<string | undefined>;
@@ -504,9 +501,7 @@ export function paneSnapshotEffect({
   restartGate,
   setWaitingSince,
   setRestartUnavailable,
-  setRelinkingSince,
   setHostTroubleSince,
-  setHostRestoring,
   runPendingAdoption,
   freshRef,
   inheritedFolderRef,
@@ -1236,10 +1231,10 @@ export function paneSnapshotEffect({
           notifyDraftActionsChanged();
           // Until a client connects again, an open handed this page would wait for that connect.
           if (!mock) void postNative("pane.clientReady", { ready: false }).catch(() => undefined);
-          // Quiet while it comes back: one quiet "Reconnecting…" line (HostRecoveringLine) until
-          // the handshakes fail past the deadline, then the waiting line or the failure.
+          // Nothing is drawn while it comes back, however long (Leo, 2026-11-22: "i dont wanna see
+          // reconnecting to the Mac in a toast, i want it to just connect"): the transcript stays,
+          // and a send waits and goes once it is back (sendWhenReady.ts).
           failingSince = Date.now();
-          setRelinkingSince(failingSince);
           troubleSince = troubleSinceAfterLoss(troubleSince, failingSince - connectedAt, failingSince);
           setHostTroubleSince(troubleSince);
           // A client lost soon after it connected keeps the backoff growing: a daemon that drops
@@ -1347,8 +1342,6 @@ export function paneSnapshotEffect({
       setHostError(undefined);
       setHostErrorShown(false);
       failingSince = undefined;
-      setRelinkingSince(undefined);
-      setHostRestoring(undefined);
       setAcpmuxRestartOffered(false);
       catalogClientId.current += 1;
       setCatalogSource({ id: catalogClientId.current, client });
@@ -2749,7 +2742,6 @@ export function paneSnapshotEffect({
         // hostLine.ts words the line: only the pane's own text stands on it, the rest is Details.
         setHostError(tooLarge ? translate("host.tooLarge") : errorMessage(error) || String(error));
         setHostFailure(error);
-        setHostRestoring(readHostRestoring((error as { details?: unknown } | null)?.details, Date.now()));
         failingSince ??= Date.now();
         troubleSince ??= failingSince;
         setHostTroubleSince(troubleSince);

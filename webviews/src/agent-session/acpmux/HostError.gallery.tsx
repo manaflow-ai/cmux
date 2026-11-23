@@ -3,14 +3,7 @@ import { type ReactNode, useState } from "react";
 import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
 import { Spinner } from "./conversation/icons";
-import {
-  type ConnectionChipVariant,
-  HostError,
-  HostLineSlot,
-  HostRecoveringLine,
-  HostUnavailableLine,
-  HostWaitingLine,
-} from "./HostError";
+import { HostError, HostLineSlot, HostUnavailableLine, HostWaitingLine } from "./HostError";
 
 type Props = {
   message: string;
@@ -41,14 +34,10 @@ type Props = {
   /// machine hosting the agent rebooting, Leo 2026-11-12), not shipped: the machine named
   /// (`named`), the time waited (`timed`), or the line before this change (`before`).
   outage?: "named" | "timed" | "before";
-  /// The connection chip (HostError.tsx ConnectionChip) as a lost link past the 10 s bound draws it
-  /// over a mock transcript and composer: `chip` is shipped, `dot` and `corner` are the alternates;
-  /// `restoring` is the host's "Restoring sessions" as a chip.
-  chip?: ConnectionChipVariant | "restoring";
 };
 
 /// The pane's dock around the host line: three transcript rows above, the composer under. The slot sits
-/// between them, so a chip over it shows where the line is drawn and that the rows never move.
+/// between them, so a line in it shows where the line is drawn and that the rows never move.
 function MockDock({ children, slotted }: { children: ReactNode; slotted: boolean }) {
   return (
     <div className="acpmux-dock" style={{ width: "100%" }}>
@@ -145,7 +134,6 @@ function GalleryHostError({
   pair,
   selfRetrying,
   outage,
-  chip,
 }: Props) {
   const [retrying, setRetrying] = useState(initialRetrying);
   const [restarting, setRestarting] = useState(false);
@@ -154,14 +142,7 @@ function GalleryHostError({
   return (
     <div className="acpmux-shell" data-host-error-fixture>
       <MockDock slotted={slotted}>
-        {chip ? (
-          <HostRecoveringLine
-            relinkingSince={0}
-            restoring={chip === "restoring" ? { waitedMs: 12_000, at: 0 } : undefined}
-            now={12_000}
-            variant={chip === "restoring" ? undefined : chip}
-          />
-        ) : pair ? (
+        {pair ? (
           <div style={{ display: "flex", flexDirection: "column", width: "100%" }}>
             <HostWaitingLine since={0} now={waitedMs ?? 95_000} onRestart={() => undefined} />
             <HostUnavailableLine message={message} detail={detail} onRetry={() => undefined} />
@@ -261,33 +242,15 @@ export default componentEntry<Props>({
     },
     // Leo, 2026-11-12, after the machine hosting the agent rebooted: "the recovery needs to be a lot
     // better and it shouldn't talk so much bullshit"; "try what? no, it should just automatically
-    // do stuff". Picked: "automatic", one quiet line however long the outage, no button.
-    // Leo, 2026-11-21: "these messages should not be pushing up the text... a small unobtrusive thing
-    // somewhere without needing to block any content ... as a symbol or short thing, not a sentence.
-    // stop layout shifting". Picked: "chip".
-    chip: {
-      props: { message: "", initialRetrying: false, withRetry: false, chip: "chip" },
-      note: "Picked. A link down past 10 s: a dot and one word over the composer's top edge, out of flow, so the rows above never move (noLayoutShift.test.tsx). Nothing before 10 s.",
-    },
-    "chip-dot": {
-      props: { message: "", initialRetrying: false, withRetry: false, chip: "dot" },
-      note: "Alternate, not shipped: only the dot (its words are the label and tooltip). Least to look at, but a symbol alone is easy to miss and asks to be learned.",
-    },
-    "chip-corner": {
-      props: { message: "", initialRetrying: false, withRetry: false, chip: "corner" },
-      note: "Alternate, not shipped: the chip fixed in the pane's top end corner, away from the composer. Never over the text being read, but far from where the person is typing.",
-    },
-    "chip-restoring": {
-      props: { message: "", initialRetrying: false, withRetry: false, chip: "restoring" },
-      note: "The host's Restoring sessions, with its clock, as the same chip.",
-    },
+    // do stuff"; 2026-11-22: "i dont wanna see reconnecting to the Mac in a toast, i want it to just
+    // connect"). Picked: "automatic", nothing at all however long the outage.
     automatic: {
       props: {
         message: "Couldn't connect to the agent.",
         initialRetrying: false,
         withRetry: true,
       },
-      note: "Picked. A recovery still failing after 25 s (a machine rebooting, an agent service starting): only Reconnecting…, the line a short reconnect shows. No Retry, no Details, no reassurance; a message sent meanwhile waits in the composer and goes once the agent is back.",
+      note: "Picked. A recovery still failing after 25 s (a machine rebooting, an agent service starting): nothing is drawn, however long. No Reconnecting…, no Retry, no Details; a message sent meanwhile waits and goes once the agent is back, and says so only past two minutes, on its own message.",
     },
     "outage-named": {
       props: { message: "", initialRetrying: false, withRetry: false, outage: "named" },
@@ -365,10 +328,10 @@ export default componentEntry<Props>({
       note: "Alternate, not shipped: a spinner and a muted line. Draws the eye to a wait the person cannot shorten.",
     },
     // The machine is still unreachable after two minutes (rebooting, Leo 2026-11-12): the pane keeps
-    // asking by itself, so the line is only Reconnecting…. Picked: "peer-gone".
+    // asking by itself, so nothing is drawn (Leo 2026-11-22). Picked: "peer-gone".
     "peer-gone": {
       props: { message: "Can't reach box.", detail: PEER_WORDS, initialRetrying: false, withRetry: true },
-      note: "Picked. A machine unreachable for two minutes: only Reconnecting…; acpmux's words and Retry never show, since the pane asks again by itself.",
+      note: "Picked. A machine unreachable for two minutes: nothing is drawn; acpmux's words and Retry never show, since the pane asks again by itself.",
     },
     "peer-gone-details": {
       props: {

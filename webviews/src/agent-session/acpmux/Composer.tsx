@@ -5,14 +5,13 @@ import { chatPlace } from "./chatMachine";
 import React, {
   useCallback,
   useEffect,
-  useId,
   useImperativeHandle,
-  useInsertionEffect,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
-  useSyncExternalStore,
+  useInsertionEffect,
+  useId,
 } from "react";
 import type { ExtraFolderControl } from "./extraFolders";
 import { createPortal } from "react-dom";
@@ -127,7 +126,7 @@ import {
 import { RESTORED_CHAT_EVENT, replacedRestoredDraft, restoredDraft } from "./chatSnapshot/restoredDraft";
 import type { MarkdownFieldHandle, MarkdownFieldProps } from "./MarkdownField";
 import { useT } from "./i18n";
-import { sendsHeldForHost } from "./sendWhenReady";
+import { useHeldForHostLate } from "./sendWhenReady";
 import { remoteComposer } from "./remoteEditing";
 import { UsageRingMenu } from "./composerChrome";
 import { useComposerChrome } from "./composerChromeModel";
@@ -181,7 +180,7 @@ import { keepSendOrigins, noteSendOrigins } from "./conversation/sendMorph";
 import { sendTucks, tuckContent, tuckSent } from "./conversation/sendTuck";
 import { shouldScrollToBottomAfterSend } from "./sendScrollSetting";
 import { MachineLinkStatus } from "./MachineLinkStatus";
-import { peerLink, type PeerLink } from "./peerLink";
+import { peerLink } from "./peerLink";
 import {
   emojiMatches,
   loadEmojiShortcodes,
@@ -522,9 +521,6 @@ type Props = {
   authChecking?: boolean;
   /// Opens Session Info at its Context section: the context ring's card links to it (Details ›).
   onOpenContext?(): void;
-  /// Reconnects the acpmux peer a chat on another machine runs on, from the quiet row's link
-  /// (MachineLinkStatus.tsx).
-  onReconnectMachine?(link: PeerLink): Promise<unknown> | void;
   /// Every change of the prompt (its text and chips), after the render that drew it.
   onDraftChange?(draft: ComposerDraft): void;
   /// Set, nothing may be attached (a file pasted, dropped or chosen), and this note says why.
@@ -577,7 +573,6 @@ const RELAY_KEEPS = [
   "authBlock",
   "authBlocked",
   "authChecking",
-  "onReconnectMachine",
   "onEdit",
 ] as const satisfies readonly (keyof Props)[];
 
@@ -775,7 +770,6 @@ function ComposerFrame({
   authChecking = false,
   placeholder,
   onOpenContext,
-  onReconnectMachine,
   onDraftChange,
   attachRefusal,
   relayed = false,
@@ -783,11 +777,12 @@ function ComposerFrame({
 }: Props) {
   acpmuxPerf.render("composer");
   const t = useT();
-  // A send held while acpmux starts or reconnects stays in the prompt, and this says so (sendWhenReady.ts).
-  const heldForHost = useSyncExternalStore(sendsHeldForHost.subscribe, sendsHeldForHost.get);
   // The chat's peer link for the quiet row, as acpmux reports it; null for a chat on this Mac
   // (peerLink.ts).
   const machineLink = peerLink(snapshot);
+  // A send held while acpmux or the chat's machine comes back stays in the prompt, and nothing says
+  // so until it has waited past SEND_LATE_MS: then one quiet line under it (sendWhenReady.ts).
+  const heldForHostLate = useHeldForHostLate();
   const chrome = useComposerChrome();
   // Off (a queued row's ⋯ menu, queueing.ts), what is sent mid-turn steers on every key.
   const queueing = useQueueing();
@@ -3398,7 +3393,14 @@ function ComposerFrame({
         pending={pending}
         setAttachments={setAttachments}
         attachmentsRef={attachmentsRef}
-        attachError={attachError ?? (heldForHost ? t("composer.sendingWhenReady") : undefined)}
+        attachError={
+          attachError ??
+          (heldForHostLate
+            ? machineLink
+              ? t("prompt.delivery.late", { machine: machineLink.machine })
+              : t("prompt.delivery.lateHere")
+            : undefined)
+        }
         codex={snapshot.summary?.family === "codex" || snapshot.summary?.harness === "codex"}
         onRemoveAttachment={(id) => {
           setAttachments((current) => current.filter((item) => item.id !== id));
@@ -3579,7 +3581,7 @@ function ComposerFrame({
           <PromptFocusProvider focus={focusPrompt}>
             <Chips snapshot={snapshot} />
             <StashedChip drafts={stashed} onRestore={unstash} chat={stashChat} />
-            <MachineLinkStatus link={machineLink} onReconnect={onReconnectMachine} />
+            <MachineLinkStatus link={machineLink} />
           </PromptFocusProvider>
         }
         // The context ring sits left of the model chip (composerLocation.css; Lucas 2026-11-11).
