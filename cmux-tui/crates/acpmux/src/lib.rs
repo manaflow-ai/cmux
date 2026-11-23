@@ -97,6 +97,8 @@ mod fork_tests;
 pub mod forum;
 pub mod forum_mcp;
 pub mod frame_compress;
+/// The always-on frame tally of the visible chat (`_acpmux/perf {op:"frames"}`).
+pub mod frame_tally;
 pub mod gauges;
 pub mod generic_goal;
 pub mod git_state;
@@ -219,6 +221,7 @@ pub mod placement;
 pub mod plan_build_records;
 #[cfg(not(unix))]
 mod platform;
+pub mod pr_poller;
 pub mod pricing;
 pub mod probe_cleanup;
 pub mod probe_prompt;
@@ -281,6 +284,7 @@ pub mod sha256;
 pub mod share_approval;
 /// The share host: a joined Mac's daemon serves screen shares with no app running (`share_host/`).
 pub mod share_host;
+pub(crate) mod worker_lock;
 // The shadow admission verdict beside each placement and create (cmuxterm-hq#7342).
 pub mod memory_inbox;
 pub mod prompt_coach;
