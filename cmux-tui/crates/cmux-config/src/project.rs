@@ -143,14 +143,14 @@ pub fn get_json(state: &State, key: &str, asked: &Path, layer: Option<&ProjectLa
     let view = state.get(&crate::store::Target::Key(key.to_string()));
     let mut reply = view.to_json();
     let project_value = layer.and_then(|layer| layer.value(key));
-    let (value, source) = if let Some((_, managed)) = &view.managed {
-        (view.value.clone(), Source::Managed(managed.clone()))
+    let (value, source) = if let Some((_, managed)) = view.managed {
+        (view.value, Source::Managed(managed))
     } else if let Some(value) = project_value {
         (Some(value.clone()), Source::Project)
     } else if view.file_value.is_some() {
-        (view.value.clone(), Source::User)
+        (view.value, Source::User)
     } else {
-        (view.value.clone(), Source::Default)
+        (view.value, Source::Default)
     };
     if let Some(members) = reply.as_object_mut() {
         members.insert("value".into(), value.unwrap_or(Value::Null));
