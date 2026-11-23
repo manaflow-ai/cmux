@@ -340,12 +340,11 @@
         {
           "key": "agents.cmuxMcp",
           "title": "cmux Tools for Agents in cmux",
-          "help": "Agents you start in cmux get cmux’s tools, Computer Use included: Claude Code and Codex in cmux’s terminals and agent chats. Until you choose, they get nothing. cmux never changes your agents’ own settings.",
+          "help": "Agents you start in cmux get cmux’s tools, Computer Use included: Claude Code and Codex in cmux’s terminals and agent chats. cmux never changes your agents’ own settings.",
           "kind": "choice",
-          "default": "ask",
+          "default": "on",
           "group": "cmux Tools",
           "values": [
-            "ask",
             "on",
             "off"
           ]

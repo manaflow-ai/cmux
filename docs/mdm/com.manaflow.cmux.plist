@@ -10730,14 +10730,13 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<string>ask</string>
+			<string>on</string>
 			<key>pfm_description</key>
-			<string>Agents you start in cmux get cmux’s tools, Computer Use included: Claude Code and Codex in cmux’s terminals and agent chats. Until you choose, they get nothing. cmux never changes your agents’ own settings.</string>
+			<string>Agents you start in cmux get cmux’s tools, Computer Use included: Claude Code and Codex in cmux’s terminals and agent chats. cmux never changes your agents’ own settings.</string>
 			<key>pfm_name</key>
 			<string>agents.cmuxMcp</string>
 			<key>pfm_range_list</key>
 			<array>
-				<string>ask</string>
 				<string>on</string>
 				<string>off</string>
 			</array>
