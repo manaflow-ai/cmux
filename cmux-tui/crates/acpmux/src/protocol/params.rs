@@ -109,6 +109,7 @@ pub const ACPMUX_REQUEST_META: &[&str] = &[
     "harness",
     "harnessFrom",
     "host",
+    "ifNameTaken",
     "inlineParts",
     "interrupt",
     "localAppToken",
@@ -165,6 +166,14 @@ pub const ACPMUX_REQUEST_META: &[&str] = &[
 ];
 
 keyed! {
+    /// `_acpmux/account/sign_in`.
+    AccountSignInParams: ["account", "family", "name"];
+    /// `_acpmux/account/sign_in.finish`.
+    AccountSignInFinishParams: ["loginId", "code"];
+    /// `_acpmux/account/sign_in.cancel`.
+    AccountSignInCancelParams: ["loginId"];
+    /// `_acpmux/account/switch` and `_acpmux/account/remove`.
+    AccountIdParams: ["account"];
     /// `_acpmux/agent_hold`.
     AgentHoldParams: ["sessionId", "held"];
     /// `_acpmux/agent_login/api_key`.
