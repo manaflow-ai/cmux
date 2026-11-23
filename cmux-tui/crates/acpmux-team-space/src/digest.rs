@@ -16,8 +16,13 @@
 //!   kind with a count.
 //! - **Folding**: posts with the same dedupe key, or the same normalized text, are one item with
 //!   one attribution per post. The item sits in the highest section any of its posts earns.
+//! - **Subject**: posts worded differently that name the same single subject (one pull request,
+//!   issue or ask id, and no other) are one item too, showing the newest wording: five agents
+//!   reporting on one pull request are one line, not five. A post naming two subjects folds with
+//!   neither.
 //! - **Settled**: an item whose fold key matches a prior `answered` or `dismissed` record of this
-//!   person goes to rest; a prior `opened` stays where it is and is marked.
+//!   person goes to rest; a prior `opened` stays where it is and is marked. News on a settled
+//!   subject is not settled: a new wording about it comes back up.
 
 use crate::delivery::cut;
 use crate::glob;
@@ -93,9 +98,10 @@ pub struct DigestEntry {
     pub thread: String,
     pub seq: u64,
     pub kind: PostKind,
-    /// The first post's text, cut to [`crate::delivery::DIGEST_TEXT_CHARS`].
+    /// The text of the first post, or of the newest wording folded in by subject, cut to
+    /// [`crate::delivery::DIGEST_TEXT_CHARS`].
     pub text: String,
-    /// Characters in the first post's whole text.
+    /// Characters in that post's whole text.
     pub chars: usize,
     pub link: String,
     pub attributions: Vec<Attribution>,
@@ -179,7 +185,9 @@ enum Section {
 struct Group {
     entry: DigestEntry,
     section: Section,
-    fold_keys: Vec<String>,
+    /// One key set per wording: posts folded by dedupe key or text share a set, a post folded
+    /// in by subject alone starts a new one. The item is settled when every wording is.
+    wordings: Vec<Vec<String>>,
 }
 
 /// Lowercase, alphanumerics only, single spaces: "Build is RED on main!" and "build is red on
@@ -208,6 +216,60 @@ fn fold_keys(event: &Event) -> Vec<String> {
     }
     keys.push(format!("text:{}", normalize(&event.text)));
     keys
+}
+
+fn digits(s: &str) -> Option<&str> {
+    let end = s.find(|c: char| !c.is_ascii_digit()).unwrap_or(s.len());
+    (end > 0 && end <= 9).then(|| &s[..end])
+}
+
+/// The subject a token names: `repo#N` for a pull request or issue (as `owner/repo#N`, `repo#N`
+/// or its GitHub URL), or an ask id (`c-` or `ask-` and ten hex digits). A bare `#N` names no
+/// repository and is not a subject.
+fn subject_ref(token: &str) -> Option<String> {
+    let lower = token.to_lowercase();
+    if let Some(at) = lower.find("github.com/") {
+        let mut parts = lower[at + "github.com/".len()..].split('/');
+        let (_owner, repo, kind, number) =
+            (parts.next()?, parts.next()?, parts.next()?, parts.next()?);
+        if !repo.is_empty() && (kind == "pull" || kind == "issues") {
+            return digits(number).map(|n| format!("{repo}#{n}"));
+        }
+        return None;
+    }
+    if lower.contains("://") {
+        return None; // another site's link: its `#` is a fragment
+    }
+    if let Some((before, after)) = lower.split_once('#') {
+        let repo = before.rsplit('/').next().unwrap_or_default();
+        let named = !repo.is_empty()
+            && repo.chars().all(|c| c.is_ascii_alphanumeric() || "-_.".contains(c))
+            && repo.chars().any(|c| c.is_ascii_alphabetic());
+        let number = digits(after)?;
+        let whole = after[number.len()..].chars().all(|c| !c.is_alphanumeric());
+        return (named && whole).then(|| format!("{repo}#{number}"));
+    }
+    for prefix in ["c-", "ask-"] {
+        if let Some(id) = lower.strip_prefix(prefix) {
+            if id.len() == 10 && id.chars().all(|c| c.is_ascii_hexdigit()) {
+                return Some(lower);
+            }
+        }
+    }
+    None
+}
+
+/// The fold key of the one subject a post names, if it names exactly one.
+pub fn subject_key(text: &str) -> Option<String> {
+    let mut found: Option<String> = None;
+    for subject in text_tokens(text).filter_map(subject_ref) {
+        match &found {
+            Some(first) if *first != subject => return None,
+            Some(_) => {}
+            None => found = Some(subject),
+        }
+    }
+    found.map(|subject| format!("subject:{subject}"))
 }
 
 fn name(s: &str) -> String {
@@ -373,7 +435,10 @@ pub fn build(
             seq: event.seq,
             link: source.clone(),
         };
-        let index = match keys.iter().find_map(|k| by_key.get(k).copied()) {
+        let subject = subject_key(&event.text);
+        let same_wording = keys.iter().find_map(|k| by_key.get(k).copied());
+        let folded = same_wording.or_else(|| subject.as_ref().and_then(|k| by_key.get(k).copied()));
+        let index = match folded {
             Some(index) => {
                 let group = &mut groups[index];
                 group.entry.attributions.push(attribution);
@@ -383,9 +448,21 @@ pub fn build(
                     }
                 }
                 group.section = group.section.max(this_section);
-                for k in &keys {
-                    if !group.fold_keys.contains(k) {
-                        group.fold_keys.push(k.clone());
+                let wording =
+                    group.wordings.iter_mut().find(|w| keys.iter().any(|k| w.contains(k)));
+                match wording {
+                    Some(wording) => {
+                        for k in &keys {
+                            if !wording.contains(k) {
+                                wording.push(k.clone());
+                            }
+                        }
+                    }
+                    None => {
+                        // Folded by subject alone: the newest wording is what the item says.
+                        group.entry.text = cut(&event.text, crate::delivery::DIGEST_TEXT_CHARS);
+                        group.entry.chars = event.text.chars().count();
+                        group.wordings.push(keys.clone());
                     }
                 }
                 index
@@ -409,12 +486,12 @@ pub fn build(
                         prior: prior_action,
                     },
                     section: this_section,
-                    fold_keys: keys.clone(),
+                    wordings: vec![keys.clone()],
                 });
                 groups.len() - 1
             }
         };
-        for k in keys {
+        for k in keys.into_iter().chain(subject) {
             by_key.entry(k).or_insert(index);
         }
     }
@@ -429,8 +506,10 @@ pub fn build(
     let mut affects_you = Vec::new();
     let mut rest: BTreeMap<PostKind, RestGroup> = BTreeMap::new();
     for mut group in groups {
-        if let Some(action) = group.fold_keys.iter().find_map(|k| settled.get(k.as_str())) {
-            group.entry.prior = Some(*action);
+        let settled_by =
+            |wording: &Vec<String>| wording.iter().find_map(|k| settled.get(k.as_str()).copied());
+        if group.wordings.iter().all(|w| settled_by(w).is_some()) {
+            group.entry.prior = group.wordings.iter().rev().find_map(settled_by);
             group.section = Section::Rest;
         }
         match group.section {

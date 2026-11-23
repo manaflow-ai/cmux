@@ -194,6 +194,59 @@ fn duplicates_fold_by_dedupe_key_or_normalized_text_with_every_attribution() {
 }
 
 #[test]
+fn posts_naming_the_same_single_subject_fold_and_show_the_newest_wording() {
+    let feed = Feed::new();
+    feed.post("agent-a", PostKind::Status, "Opened cmux#51930: team feed in NEXT", &[]);
+    feed.post("agent-b", PostKind::Status, "manaflow-ai/cmux#51930 is green", &[]);
+    feed.post(
+        "agent-a",
+        PostKind::Blocker,
+        "https://github.com/manaflow-ai/cmux/pull/51930 conflicts, needs a rebase.",
+        &["@leo"],
+    );
+    // Another subject, two subjects at once, and a bare number fold with none of them.
+    feed.post("agent-a", PostKind::Status, "cmux#50003 is red", &[]);
+    feed.post("agent-b", PostKind::Status, "cmux#51930 waits on cmux#50003", &[]);
+    feed.post("agent-b", PostKind::Status, "see #51930", &[]);
+    feed.post("agent-b", PostKind::Status, "c-a8d2c0a144 still open", &[]);
+    feed.post("agent-a", PostKind::Status, "Reported on ask C-A8D2C0A144.", &[]);
+    let d = feed.digest(&leo(), 0, &[]);
+    assert_eq!((d.posts_seen, d.duplicates_folded), (8, 3));
+    assert_eq!(d.needs_you.len(), 1);
+    let item = &d.needs_you[0];
+    assert_eq!(item.seq, 1, "the item keeps its first post's id");
+    assert!(item.text.contains("needs a rebase"), "{}", item.text);
+    assert_eq!(item.attributions.iter().map(|a| a.seq).collect::<Vec<_>>(), vec![1, 2, 3]);
+    assert_eq!(
+        digest::subject_key("fixed in leo-workspace#9176, thanks"),
+        Some("subject:leo-workspace#9176".to_owned())
+    );
+    assert_eq!(digest::subject_key("see #12 and step #3"), None);
+    assert_eq!(digest::subject_key("c#12x and issue#"), None);
+}
+
+#[test]
+fn news_on_a_settled_subject_comes_back_up() {
+    let feed = Feed::new();
+    feed.post("agent-a", PostKind::Question, "Can I land cmux#49357?", &["@leo"]);
+    let first = feed.digest(&leo(), 0, &[]);
+    let prior = vec![first.action(&first.needs_you[0].id, Action::Answered, 1).unwrap()];
+    // The same wording again stays settled.
+    feed.post("agent-b", PostKind::Question, "can I land cmux#49357", &["@leo"]);
+    let repeat = feed.digest(&leo(), first.to_seq, &prior);
+    assert!(repeat.needs_you.is_empty());
+    assert_eq!(repeat.rest[0].items[0].prior, Some(Action::Answered));
+    // A new wording about the same subject is news, alone or folded with the old one.
+    feed.post("agent-a", PostKind::Blocker, "cmux#49357 broke the base", &["@leo"]);
+    let news = feed.digest(&leo(), repeat.to_seq, &prior);
+    assert_eq!(news.needs_you.len(), 1);
+    let whole = feed.digest(&leo(), 0, &prior);
+    assert_eq!(whole.needs_you.len(), 1);
+    assert_eq!((whole.posts_seen, whole.duplicates_folded), (3, 2));
+    assert!(whole.needs_you[0].text.contains("broke the base"));
+}
+
+#[test]
 fn a_feed_of_only_duplicates_is_one_item() {
     let feed = Feed::new();
     for _ in 0..50 {
