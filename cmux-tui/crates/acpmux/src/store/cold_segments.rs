@@ -814,7 +814,7 @@ impl LocalStore {
         if self.is_cold(id) {
             return Ok(None);
         }
-        let (segments, cut_pending) = self.listed_files(id)?;
+        let (segments, cut_pending, _) = self.listed_files(id)?;
         if cut_pending {
             return Ok(None);
         }
@@ -916,7 +916,7 @@ impl LocalStore {
             let committed = {
                 let _writers = self.writers.lock_or_recover();
                 let _cold = self.cold.lock(id);
-                let (now, cut_pending) = self.listed_files(id)?;
+                let (now, cut_pending, _) = self.listed_files(id)?;
                 let newest = now.last().map_or(0, |(i, _)| *i);
                 let unchanged = !cut_pending
                     && !crate::home_fs::try_exists_nofollow(self.cold_path(id))?
@@ -1104,7 +1104,7 @@ impl LocalStore {
         let session = self.dir(id);
         let events = session.join("events");
         let cold_dir = session.join(COLD_DIR);
-        let (segments, _) = self.listed_files(id)?;
+        let (segments, _, _) = self.listed_files(id)?;
         for (index, path) in segments {
             if !is_cold(&path) {
                 continue;
