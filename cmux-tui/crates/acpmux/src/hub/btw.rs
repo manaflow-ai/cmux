@@ -869,7 +869,7 @@ impl Hub {
     fn btw_transcript(&self, session: &Session) -> String {
         // The two kinds it reads, parsed one record at a time (never the whole log).
         let mut lines: Vec<(&str, String)> = Vec::new();
-        let _ = self.store.scan_kinds(
+        let _ = self.scan_kinds_off(
             &session.id,
             &["user_message", "agent_message_chunk"],
             &mut |e: EventRecord| {
