@@ -98,20 +98,23 @@ async function scrollBack(awayMs: number) {
       );
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
-  const jump = async (top: number, key: string) => {
+  const mounted = (id: string) => host.querySelector(`[data-row-id="${id}"]`) !== null;
+  const jump = async (top: number, key: string, landed: () => boolean) => {
     await act(
       async () => void scroller().dispatchEvent(new dom.window.KeyboardEvent("keydown", { key, bubbles: true })),
     );
     scroller().scrollTop = top;
     await act(async () => void scroller().dispatchEvent(new dom.window.Event("scroll")));
     releaseReaderScroll();
-    // The virtual window follows the scroll on the page's next frames.
-    await act(async () => void (await new Promise((resolve) => setTimeout(resolve, 80))));
+    // The virtual window follows the scroll on the page's next frames: run frames until it holds the
+    // rows at the new position (at most 30, half a second of them).
+    for (let frame = 0; frame < 30 && !landed(); frame++)
+      await act(async () => void (await new Promise((resolve) => dom.window.requestAnimationFrame(resolve))));
   };
   try {
     const rows = history();
     await render(rows);
-    await jump(0, "Home");
+    await jump(0, "Home", () => mounted("prompt-0") && !mounted("reply-59"));
     expect(host.querySelector('[data-row-id="reply-59"]')).toBeNull();
     const added = [
       arrival("late-1", "user", "Late prompt"),
@@ -122,7 +125,7 @@ async function scrollBack(awayMs: number) {
     // Not mounted: the reader is a long way from them (O16).
     for (const item of added) expect(host.querySelector(`[data-row-id="${item.id}"]`)).toBeNull();
     skew = awayMs;
-    await jump(scrollerEnd(scroller()), "End");
+    await jump(scrollerEnd(scroller()), "End", () => added.every((item) => mounted(item.id)));
     return added.map((item) => {
       const node = host.querySelector<HTMLElement>(`[data-row-id="${item.id}"]`);
       return {

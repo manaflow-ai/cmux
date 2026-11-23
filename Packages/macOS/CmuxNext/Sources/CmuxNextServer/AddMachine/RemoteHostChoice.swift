@@ -24,9 +24,9 @@ public nonisolated struct RemoteHostChoice: Equatable, Sendable {
     /// The palette row's title: the name and where the host comes from.
     public var title: String {
         let format = switch kind {
-        case .connected: String(localized: "remoteGroup.host.connected", defaultValue: "%@ · Connected", table: "AddMachine", bundle: .module)
-        case .tailnet: String(localized: "remoteGroup.host.tailnet", defaultValue: "%@ · Tailscale", table: "AddMachine", bundle: .module)
-        case .sshAlias: String(localized: "remoteGroup.host.sshConfig", defaultValue: "%@ · SSH config", table: "AddMachine", bundle: .module)
+        case .connected: String(localized: "remoteGroup.host.connected", defaultValue: "%@ · Connected", table: "AddMachine", bundle: .localizedModule)
+        case .tailnet: String(localized: "remoteGroup.host.tailnet", defaultValue: "%@ · Tailscale", table: "AddMachine", bundle: .localizedModule)
+        case .sshAlias: String(localized: "remoteGroup.host.sshConfig", defaultValue: "%@ · SSH config", table: "AddMachine", bundle: .localizedModule)
         }
         return String(format: format, name)
     }

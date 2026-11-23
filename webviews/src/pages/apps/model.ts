@@ -52,6 +52,30 @@ export function parseExamplesStyle(value: string | null | undefined): ExamplesSt
   return value === "tab" || value === "section" ? value : "chip";
 }
 
+/**
+ * How a listing's page is laid out (`listing=` in the route, like `card=`): `carousel` is the
+ * default, a screenshot carousel with the facts in a column on its right (the App Store mocks);
+ * `stacked` (iOS App Store: a screenshot strip, then an Information grid) and `compact` (Raycast
+ * Store: one narrow column) are DEV variants shown in the gallery.
+ */
+export type ListingStyle = "carousel" | "stacked" | "compact";
+
+export function parseListingStyle(value: string | null | undefined): ListingStyle {
+  return value === "stacked" || value === "compact" ? value : "carousel";
+}
+
+/**
+ * How Discover's home is laid out (`browse=`): `hero` is the default, the top first-party app as
+ * a large hero with a screenshot, then a row of cards per category; `pair` (two featured cards
+ * side by side, then a grid) and `list` (Raycast Store rows: icon, name, one line, category
+ * chips, the action) are DEV variants shown in the gallery.
+ */
+export type BrowseStyle = "hero" | "pair" | "list";
+
+export function parseBrowseStyle(value: string | null | undefined): BrowseStyle {
+  return value === "pair" || value === "list" ? value : "hero";
+}
+
 /** A listing's state on its card: not installed, installed and on, or installed and turned off. */
 export type ItemState = "available" | "installed" | "off";
 
@@ -66,6 +90,8 @@ export interface StoreRoute {
   layout: StoreLayout;
   card: CardStyle;
   examples: ExamplesStyle;
+  listing: ListingStyle;
+  browse: BrowseStyle;
   /** `shelf=examples` opens Discover on the Examples shelf (when the owner offers it). */
   shelf: DiscoverShelf;
   app?: string;
@@ -82,6 +108,8 @@ export function parseRoute(hash: string): StoreRoute {
     layout: parseLayout(params.get("layout")),
     card: parseCardStyle(params.get("card")),
     examples: parseExamplesStyle(params.get("examples")),
+    listing: parseListingStyle(params.get("listing")),
+    browse: parseBrowseStyle(params.get("browse")),
     shelf: params.get("shelf") === "examples" ? "example" : "store",
     app: params.get("app") || undefined,
   };
@@ -116,6 +144,15 @@ export function isRemovable(app: { tier?: AppTier; hide_only?: boolean }): boole
   return app.hide_only === undefined ? app.tier !== "first-party" : !app.hide_only;
 }
 
+/**
+ * Whether Discover shows `app`: a store listing needs a description and an app the host loaded.
+ * A broken or half-written listing never reaches the store (the Examples shelf is for developers
+ * and shows everything it has).
+ */
+export function presentable(app: CatalogApp, shelf: DiscoverShelf = "store"): boolean {
+  return shelf !== "store" || (app.description.trim() !== "" && app.failed !== true);
+}
+
 export function filterApps(
   apps: readonly CatalogApp[],
   query: string,
@@ -123,15 +160,106 @@ export function filterApps(
   shelf: DiscoverShelf = "store",
 ): CatalogApp[] {
   return apps.filter(
-    (app) => onShelf(app, shelf) && (!category || app.categories.includes(category)) && matches(app, query),
+    (app) =>
+      onShelf(app, shelf) &&
+      presentable(app, shelf) &&
+      (!category || app.categories.includes(category)) &&
+      matches(app, query),
   );
 }
 
 /** Categories present on `shelf` of the catalog, in first-seen order. */
 export function categories(apps: readonly CatalogApp[], shelf: DiscoverShelf = "store"): string[] {
   const seen = new Set<string>();
-  for (const app of apps) if (onShelf(app, shelf)) for (const category of app.categories) seen.add(category);
+  for (const app of apps)
+    if (onShelf(app, shelf) && presentable(app, shelf)) for (const category of app.categories) seen.add(category);
   return [...seen];
+}
+
+/**
+ * The apps Discover features first, in order: Cloud, then CodeRouter (the store's curation; the
+ * owner sends no ranking, and its install counts are all 0 today).
+ */
+const FEATURED_FIRST = ["cmux/cloud", "cmux/coderouter"];
+
+/** The first-party apps Discover features: the curated ones first, then most installed, then by name. */
+export function featuredApps(apps: readonly CatalogApp[], count: number): CatalogApp[] {
+  const rank = (app: CatalogApp) => {
+    const at = FEATURED_FIRST.indexOf(app.id);
+    return at < 0 ? FEATURED_FIRST.length : at;
+  };
+  return apps
+    .filter((app) => app.tier === "first-party")
+    .sort((a, b) => rank(a) - rank(b) || b.install_count - a.install_count || a.name.localeCompare(b.name))
+    .slice(0, count);
+}
+
+/** A listing's one line: its tagline, else its description (clamped where it shows). */
+export function oneLine(app: { tagline?: string; description: string }): string {
+  return app.tagline ?? app.description;
+}
+
+// Maps, not object literals: a kind or namespace such as "__proto__" must not resolve.
+const PLACE_KEYS = new Map<string, string>([
+  ["section", "store.contribution.section"],
+  ["sidebarWidget", "store.contribution.sidebarWidget"],
+  ["statusItem", "store.contribution.statusItem"],
+  ["pane", "store.contribution.pane"],
+  ["newTab", "store.contribution.newTab"],
+  ["sessionInfo", "store.contribution.sessionInfo"],
+  ["command", "store.contribution.command"],
+]);
+
+/** The place a contribution kind shows up in, in the person's words; undefined for an unknown kind. */
+export function placeLabel(kind: string, t: (key: string) => string): string | undefined {
+  const key = PLACE_KEYS.get(kind);
+  return key ? t(key) : undefined;
+}
+
+const SCOPE_HEADINGS = new Map<string, string>([
+  ["cloud", "store.scope.cloud"],
+  ["coderouter", "store.scope.coderouter"],
+  ["fs", "store.scope.files"],
+  ["terminal", "store.scope.terminal"],
+  ["actions", "store.scope.actions"],
+  ["net", "store.scope.network"],
+  ["op", "store.scope.cmux"],
+  ["workspace", "store.scope.workspaces"],
+  ["notifications", "store.scope.notifications"],
+  ["integration", "store.scope.accounts"],
+  ["clipboard", "store.scope.clipboard"],
+  ["storage", "store.scope.storage"],
+  ["sidebar", "store.scope.sidebar"],
+  ["process", "store.scope.programs"],
+]);
+
+/**
+ * A permission's plain heading, from its scope's namespace (`cloud:write` is Cloud machines);
+ * undefined for a namespace the table does not know. The scope id itself is never shown.
+ */
+export function scopeHeading(scope: string, t: (key: string) => string): string | undefined {
+  const key = SCOPE_HEADINGS.get(scope.split(":", 1)[0] ?? "");
+  return key ? t(key) : undefined;
+}
+
+/** Permissions in order (orderScopes), grouped under their plain heading; no heading groups alone. */
+export function groupScopes<T extends { scope: string; risk: ScopeRisk; optional: boolean }>(
+  scopes: readonly T[],
+  t: (key: string) => string,
+): { heading?: string; rows: T[] }[] {
+  const groups: { heading?: string; rows: T[] }[] = [];
+  const byHeading = new Map<string, { heading?: string; rows: T[] }>();
+  for (const row of orderScopes(scopes)) {
+    const heading = scopeHeading(row.scope, t);
+    const known = heading === undefined ? undefined : byHeading.get(heading);
+    if (known) known.rows.push(row);
+    else {
+      const group = { heading, rows: [row] };
+      groups.push(group);
+      if (heading !== undefined) byHeading.set(heading, group);
+    }
+  }
+  return groups;
 }
 
 export const TierLabel: Record<AppTier, string> = {

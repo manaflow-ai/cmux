@@ -138,6 +138,46 @@ class GitBatchPrefetchTest(unittest.TestCase):
         self.assertIsNone(git_batch.promisor_remote(self.source))
         self.assertEqual(git_batch.cat_file(self.source, self.specs)["HEAD:dir0/file0.txt"], b"contents 0\n")
 
+    def by_id(self):
+        """git_batch with every rev read by blob id (resolve_specs), however few its specs."""
+        saved = git_batch.RESOLVE_MIN_SPECS
+        git_batch.RESOLVE_MIN_SPECS = 1
+        self.addCleanup(setattr, git_batch, "RESOLVE_MIN_SPECS", saved)
+
+    def test_reading_by_blob_id_answers_as_reading_by_path(self):
+        """2026-11-21: cat_file reads many specs of one rev by blob id from one `ls-tree -r` (cat-file resolved each
+        `<rev>:<path>` from the root, 57.7 s for a merge push's 13,462 specs on big-red; 2 s by id). The answer,
+        found or None (a missing path, a tree), and the ids must be the ones the path read gives."""
+        specs = self.specs + ["HEAD~0:dir1/file1.txt", "no-such-rev:dir0/file0.txt"]
+        plain_ids: dict[str, str] = {}
+        plain = git_batch._cat_file_batch(self.source, specs, None, plain_ids, set())
+        self.by_id()
+        self.assertEqual(len(git_batch.resolve_specs(self.source, specs)), len(FILES) + 1,
+                         "every blob read by id; the missing path, the tree and the bad rev by their text")
+        ids: dict[str, str] = {}
+        self.assertEqual(git_batch.cat_file(self.source, specs, ids=ids), plain)
+        self.assertEqual(ids, plain_ids)
+
+    def test_reading_by_blob_id_still_fetches_in_one_fetch(self):
+        """In a blobless clone the probe asks by id: a missing blob answers `<id> missing`, joins the one fetch, and
+        the reread by id gets it."""
+        if not git_batch.honors_no_lazy_fetch():
+            self.skipTest("git older than 2.44 has no GIT_NO_LAZY_FETCH; cat_file reads as before")
+        self.by_id()
+        clone = self.clone("by-id")
+        trace = self.root / "by-id.trace"
+        found = git_batch.cat_file(clone, self.specs, env={**os.environ, "GIT_TRACE2_EVENT": str(trace)})
+        self.assertEqual(fetches(trace), 1, "every missing blob in one fetch")
+        for name, text in FILES.items():
+            self.assertEqual(found[f"HEAD:{name}"], text.encode())
+        self.assertIsNone(found["HEAD:no/such/file"])
+        self.assertIsNone(found["HEAD:dir0"])
+
+    def test_few_specs_of_a_rev_are_read_by_path(self):
+        """Below RESOLVE_MIN_SPECS the listing costs more than it saves: no ls-tree, the specs are asked as given."""
+        self.assertLess(len(self.specs), git_batch.RESOLVE_MIN_SPECS)
+        self.assertEqual(git_batch.resolve_specs(self.source, self.specs), {})
+
 
 if __name__ == "__main__":
     unittest.main()

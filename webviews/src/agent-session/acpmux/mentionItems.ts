@@ -1,20 +1,27 @@
 // What the composer's @ picker lists (MentionMenu.tsx), as Codex's @ does: the plugins (computer use,
-// browser use), another installed harness to ask, then folders and files of the chat's folder once the
-// word is specific. No chats (Lucas 2026-11-21): a chat is found in the sidebar and All chats. Files
-// come from the host's search (`file.search`, fileSearchModel.ts) with its ranking and matched
-// letters; folders are matched here as the path picker's fuzzy filter ranks a name (viewer-empty/fuzzy.ts).
+// browser use), another installed harness to ask, installed extensions' own items
+// (`cmux.composer.mention/1`, composer/extensionMentions.ts; first when the word names their prefix,
+// `@pr`), then folders and files of the chat's folder once the word is specific. No chats (Lucas
+// 2026-11-21): a chat is found in the sidebar and All chats. Files come from the host's search
+// (`file.search`, fileSearchModel.ts) with its ranking and matched letters; folders are matched here
+// as the path picker's fuzzy filter ranks a name (viewer-empty/fuzzy.ts).
 import { fuzzyScore } from "../../viewer-empty/fuzzy";
 import { matchRuns, type FileMatch, type Run } from "./fileSearchModel";
 import { mentionText } from "./mentionMenuModel";
 import type { AcpmuxSnapshot } from "./model";
 import { isModelRouterKind } from "./routerKinds";
 import { toolMentionsFor, type ToolMention, type ToolMentionId } from "./toolMentions";
+import type { ExtensionMention } from "./composer/extensionMentions";
 
 export type MentionItem =
   | { kind: "harness"; key: string; harnessId: string; family?: string; name: Run[] }
   /** A built-in tool (toolMentions.ts), named from the pane's table (`toolName`). */
   | { kind: "tool"; key: string; toolId: ToolMentionId; icon: string; name: Run[] }
-  | { kind: "folder" | "file"; key: string; path: string; name: Run[]; dir: Run[] };
+  | { kind: "folder" | "file"; key: string; path: string; name: Run[]; dir: Run[] }
+  | { kind: "extension"; key: string; mention: ExtensionMention; name: Run[] };
+
+/// How many extension items the picker lists.
+export const MENTION_EXTENSION_ITEMS = 6;
 
 /// How many folders the picker lists ahead of the files.
 export const MENTION_FOLDERS = 3;
@@ -56,7 +63,7 @@ export function loadRecentMentionPaths(scope: string | undefined): RecentMention
 }
 
 export function rememberMentionPath(scope: string | undefined, item: MentionItem): void {
-  if (!scope || item.kind === "harness" || item.kind === "tool") return;
+  if (!scope || item.kind === "harness" || item.kind === "tool" || item.kind === "extension") return;
   const picked: RecentMention = { kind: item.kind, path: item.path };
   const next = [
     picked,
@@ -224,14 +231,28 @@ export function mentionWantsFiles(query: string): boolean {
   return /[./]/.test(text) || text.length >= MENTION_FILE_LETTERS;
 }
 
-/// The picker's rows for `query`: the plugins and harnesses, then folders, then the host's files in
-/// its order. A query with a `.` or `/` is a path (`app.ts`, `src/`), so its folders and files come first.
+/// Rows for the extension items the daemon matched (in its order), their label's matched letters bold.
+function extensionItems(mentions: readonly ExtensionMention[], query: string): MentionItem[] {
+  const word = query.includes(":") ? query.slice(query.indexOf(":") + 1) : query;
+  return mentions.slice(0, MENTION_EXTENSION_ITEMS).map((mention) => ({
+    kind: "extension",
+    key: `extension:${mention.app}:${mention.prefix}:${mention.id}`,
+    mention,
+    name: textRuns(mention.label, (word && fuzzyIndices(word, mention.label)) || []),
+  }));
+}
+
+/// The picker's rows for `query`: the plugins and harnesses, then extension items, then folders, then
+/// the host's files in its order. A query with a `.` or `/` is a path (`app.ts`, `src/`), so its folders
+/// and files come first. Extension items lead when the word names a provider (`extensionFirst`).
 export function mentionItems({
   query,
   files,
   recent = [],
   harnesses = [],
   toolName = (tool) => tool.id,
+  extension = [],
+  extensionFirst = false,
 }: {
   query: string;
   files: readonly FileMatch[];
@@ -239,6 +260,8 @@ export function mentionItems({
   harnesses?: readonly AcpmuxSnapshot["catalog"][number][];
   /** A built-in tool's name in the app's language ("Computer use"). */
   toolName?: (tool: ToolMention) => string;
+  extension?: readonly ExtensionMention[];
+  extensionFirst?: boolean;
 }): MentionItem[] {
   const text = query.trim();
   const wantsFiles = mentionWantsFiles(text);
@@ -276,18 +299,29 @@ export function mentionItems({
           ...matchRuns(file.path, file.matches),
         })),
       ];
-  if (/[./]/.test(text)) return [...paths, ...toolRows, ...harnessRows];
+  const extensionRows = extensionItems(extension, text);
+  if (extensionFirst) return [...extensionRows, ...toolRows, ...harnessRows, ...paths];
+  if (/[./]/.test(text)) return [...paths, ...toolRows, ...harnessRows, ...extensionRows];
   // The plugins lead, typed word or not, as Codex's @ lists them first (Lucas 2026-11-21): `@c` is
   // Computer Use before a guest harness; files follow, and a word that names no plugin lists only them.
-  return [...toolRows, ...harnessRows, ...paths];
+  return [...toolRows, ...harnessRows, ...extensionRows, ...paths];
 }
 
 /// The row Return or Tab picks: the one the person moved to (by key, so it stays put when the
-/// files land around it), else the first. -1: none.
-export function mentionSelection(items: readonly MentionItem[], activeKey: string | undefined) {
+/// files land around it), else the first. While the files for the word are still on their way, the
+/// first row that is not an extension's item, unless the word named its provider (`@pr`,
+/// `providerAsked`), else the first: a listed row is always chosen, so Return never falls through to
+/// send. -1: no rows.
+export function mentionSelection(
+  items: readonly MentionItem[],
+  activeKey: string | undefined,
+  pending = false,
+  providerAsked = false,
+) {
   const chosen = activeKey === undefined ? -1 : items.findIndex((item) => item.key === activeKey);
   if (chosen >= 0) return chosen;
-  return items.length > 0 ? 0 : -1;
+  if (items.length === 0) return -1;
+  return pending ? Math.max(0, items.findIndex((item) => item.kind !== "extension" || providerAsked)) : 0;
 }
 
 /// What a pick writes in place of the `@word`: a file's or folder's `@path ` (a folder's with its
@@ -295,5 +329,16 @@ export function mentionSelection(items: readonly MentionItem[], activeKey: strin
 export function mentionInsert(item: MentionItem): { markdown: string; shown: string } {
   if (item.kind === "harness") return mentionText(item.harnessId);
   if (item.kind === "tool") return mentionText(item.toolId);
+  // An extension's item writes its own text (a PR's link and title, a ticket), not an `@` path.
+  if (item.kind === "extension") {
+    const shown = `${item.mention.insert.replace(/\s+/g, " ").trim()} `;
+    // Inline marks are escaped as a chat's are; a start that reads as a block (`> `, `- `, `1. `,
+    // `# `, `+ `) is escaped too, since the pick can sit at the start of a line.
+    const markdown = shown
+      .replace(/[\\`*_[\]~<&]/g, "\\$&")
+      .replace(/^(#{1,6}|[>+-])(?= )/, "\\$1")
+      .replace(/^(\d+)([.)])(?= )/, "$1\\$2");
+    return { markdown, shown };
+  }
   return mentionText(item.kind === "folder" ? `${item.path}/` : item.path);
 }

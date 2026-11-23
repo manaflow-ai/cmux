@@ -154,7 +154,7 @@ public final class UpdaterService {
     @ObservationIgnored var prewarmInstallWait: Duration = UpdaterService.prewarmInstallBound
     /// The last skipped pre-warm's build and reason (``prewarmStagedUpdate(trigger:)``), logged once.
     @ObservationIgnored var prewarmSkipLogged: String?
-    /// Replaces a staged build's pre-warm (``StagedUpdatePrewarm/perform(work:processes:timeout:marker:urgency:progress:)``) in tests; returns its log line.
+    /// Replaces a staged build's pre-warm (``StagedUpdatePrewarm/perform(work:processes:timeout:total:clock:marker:urgency:progress:)``) in tests; returns its log line.
     @ObservationIgnored var prewarmRunner: (@Sendable (StagedUpdatePrewarm) async -> String)?
     /// This build's own verified notes, read once when the Updated card has
     /// no change list of its record (``loadCurrentBuildNotesIfNeeded()``).
@@ -169,6 +169,9 @@ public final class UpdaterService {
     /// BOTTOM-LEFT-CARDS K1: today's "Did you know" tip (nil: none, or
     /// `sidebar.cards.tips` off) and what the tips remember on this Mac.
     public internal(set) var tip: Tip?
+    /// ``tip`` as the card shows it: read again from the catalog, so its title and benefit are in
+    /// the app's language now (`app.language` switches live), not the one it was picked in.
+    public var shownTip: Tip? { tip.map { picked in TipCatalog.all.first { $0.id == picked.id } ?? picked } }
     @ObservationIgnored var tipState = TipState()
     /// `sidebar.cards.tips` (set by the App once settings load; nil before,
     /// and no tip shows until then); turning it on again ends a timed mute.
