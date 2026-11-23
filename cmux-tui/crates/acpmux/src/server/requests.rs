@@ -3053,7 +3053,7 @@ async fn dispatch_request_with_identity(
         // One tag with one value, so a page relay can allow it without
         // reading tag names (`_acpmux/tag` may set any tag).
         // An `opId` runs it once (`hub/op_once.rs`): a resend after a lost reply answers the
-        // first result, with no new archive time and no new `listSeq`.
+        // first result and writes nothing, so a late resend never undoes a later unarchive.
         method::MUX_ARCHIVE => {
             hub.op_once
                 .run(m, &params, || async {

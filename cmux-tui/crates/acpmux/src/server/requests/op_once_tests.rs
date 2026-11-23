@@ -199,7 +199,9 @@ async fn retries_across_lost_replies_spend_one_list_seq_and_keep_the_archive_tim
         assert_eq!(after.list_seq_spent, once.list_seq_spent, "the retries spend no listSeq");
         assert_eq!(after.archive_restamped, 0);
         assert!(before.list_seq_spent > after.list_seq_spent, "{before:?}");
-        assert!(before.archive_restamped > 0, "{before:?}");
+        // `set_archived` keeps the first archive time on a repeat (`hub/inactive_archive.rs`), so
+        // the time holds with or without an `opId`; the gain is the listSeq a resend spends.
+        assert_eq!(before.archive_restamped, 0, "{before:?}");
     }
 }
 

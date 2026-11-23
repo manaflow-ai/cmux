@@ -1,7 +1,7 @@
 //! A list op runs once per `opId` (`op-once-v1`). A phone on a lossy link resends
-//! `_acpmux/archive` or `_acpmux/rename` when its reply is lost; each resend used to run again:
-//! it stamped a new archive time (the row's "when" moved) and took a new `listSeq` (every
-//! watcher read the row again). With an `opId`, a repeat answers the first run's result and
+//! `_acpmux/archive` or `_acpmux/rename` when its reply is lost; each resend runs again: a
+//! rename takes new `listSeq`s (every watcher reads the row again), and an archive resent after
+//! an unarchive archives again. With an `opId`, a repeat answers the first run's result and
 //! writes nothing.
 //!
 //! The ids are a bounded LRU of the most recent [`OP_ONCE_MOST`]: a retry comes within seconds,
