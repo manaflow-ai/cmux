@@ -732,3 +732,31 @@ fn hydration_after_a_restart_keeps_the_disk_reserve() {
     assert_eq!(report.fetched_bytes, 0);
     assert_eq!(fake.calls.load(Ordering::Relaxed), calls);
 }
+
+#[test]
+fn pin_states_show_each_pin_and_how_much_of_it_is_on_disk() {
+    let (state, manifest, _) = setup(false);
+    let (_, _, away) = setup(true);
+    // Pinned with the Mac away: on record, nothing on disk yet.
+    let overlay = open(state.path(), &manifest, &away).with_pin_reserve(0);
+    assert!(overlay.pin_states().is_empty());
+    overlay.pin("src").unwrap();
+    let pending = overlay.pin_states();
+    assert_eq!(pending.len(), 1);
+    let first = pending.first().cloned().unwrap_or_default();
+    assert_eq!((first.path.as_str(), first.files, first.bytes), ("src", 4, 36));
+    assert_eq!(first.local_bytes, 0);
+    assert!(first.present && !first.complete());
+    drop(overlay);
+
+    // Back online, a hydration fills it; a second pin of a deeper folder shows on its own.
+    let (_, _, fake) = setup(false);
+    let overlay = open(state.path(), &manifest, &fake).with_pin_reserve(0);
+    overlay.hydrate_pins();
+    overlay.pin("src/deep").unwrap();
+    let states = overlay.pin_states();
+    let paths: Vec<&str> = states.iter().map(|pin| pin.path.as_str()).collect();
+    assert_eq!(paths, ["src", "src/deep"]);
+    assert!(states.iter().all(pin::PinState::complete), "{states:?}");
+    assert_eq!(states.iter().map(|pin| pin.local_bytes).collect::<Vec<_>>(), [36, 9]);
+}

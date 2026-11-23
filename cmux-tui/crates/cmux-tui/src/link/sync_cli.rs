@@ -83,6 +83,7 @@ pub(super) use seed_pull::{
 pub(crate) mod estimate;
 pub(crate) mod project;
 pub(crate) mod project_back;
+pub(crate) mod project_pin;
 pub(crate) mod size_cap;
 pub(crate) mod skips;
 mod store;
