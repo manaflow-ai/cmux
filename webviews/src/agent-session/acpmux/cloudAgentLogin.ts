@@ -282,6 +282,23 @@ export function localAgentLogin(options: LoginOptions): CloudSignIn | undefined 
   return agentLogin(options);
 }
 
+/// What a start refused for its sign-in offers (App.tsx's SwitchNotice props): a start on another
+/// machine takes that machine's card (``cloudAgentLogin``) and never a login on this Mac; one here
+/// takes this Mac's in-place card (``localAgentLogin``) when there is one, and keeps the terminal
+/// login (`runsLogin`) as its fallback either way (SwitchNotice's ``signInRoute`` picks the card).
+export function refusedStartSignIn(options: {
+  startsElsewhere: boolean;
+  elsewhereCard: CloudSignIn | undefined;
+  localCard: CloudSignIn | undefined;
+  loginCommand: string | undefined;
+}): { agentSignIn?: CloudSignIn; runsLogin: boolean } {
+  const card = options.startsElsewhere ? options.elsewhereCard : options.localCard;
+  return {
+    ...(card && { agentSignIn: card }),
+    runsLogin: !options.startsElsewhere && options.loginCommand !== undefined,
+  };
+}
+
 /// The agent's own login on the chat's machine, or undefined for a chat not connected, not one of
 /// ``LOGIN_AGENTS``, or on an acpmux that does not advertise `agent_login`.
 function agentLogin(options: LoginOptions): CloudSignIn | undefined {

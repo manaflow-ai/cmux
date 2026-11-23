@@ -9,6 +9,7 @@ import { HarnessSwitch, type SwitchPort } from "./harnessSwitch";
 import { startFailureView } from "./startFailure";
 import { SIGN_IN_REQUIRED, signInRoute, startRefusalAction } from "./startRefusal";
 import type { Translate } from "./i18n";
+import { refusedStartSignIn, type CloudSignIn } from "./cloudAgentLogin";
 
 const t: Translate = ((key: string, params?: Record<string, string>) =>
   `${key}${params ? JSON.stringify(params) : ""}`) as Translate;
@@ -121,5 +122,52 @@ describe("HarnessSwitch", () => {
     const intent = await failedIntent("grok", error);
     expect(intent.code).toBe("agent_session.sign_in_required");
     expect(intent.signInExpired).toBe(true);
+  });
+});
+
+describe("refusedStartSignIn (App.tsx's choice for a refused start)", () => {
+  // Logins done right: a start on this Mac refused for its sign-in takes the in-place card when
+  // acpmux has one, else its terminal login; one elsewhere takes that machine's card only.
+  const card = { agent: "codex" } as unknown as CloudSignIn;
+  const other = { agent: "claude" } as unknown as CloudSignIn;
+  const route = (choice: ReturnType<typeof refusedStartSignIn>, startsElsewhere: boolean) =>
+    signInRoute({ elsewhere: startsElsewhere, card: choice.agentSignIn !== undefined, login: choice.runsLogin });
+
+  test("here, with the in-place card: the card, the terminal login kept behind it", () => {
+    const choice = refusedStartSignIn({
+      startsElsewhere: false,
+      elsewhereCard: other,
+      localCard: card,
+      loginCommand: "codex login",
+    });
+    expect(choice).toEqual({ agentSignIn: card, runsLogin: true });
+    expect(route(choice, false)).toBe("card");
+  });
+  test("here, with no card (an older acpmux, or a route harness): the terminal login", () => {
+    const choice = refusedStartSignIn({
+      startsElsewhere: false,
+      elsewhereCard: other,
+      localCard: undefined,
+      loginCommand: "codex login",
+    });
+    expect(choice).toEqual({ runsLogin: true });
+    expect(route(choice, false)).toBe("terminal");
+  });
+  test("elsewhere: that machine's card, never this Mac's card or terminal", () => {
+    const choice = refusedStartSignIn({
+      startsElsewhere: true,
+      elsewhereCard: other,
+      localCard: card,
+      loginCommand: "codex login",
+    });
+    expect(choice).toEqual({ agentSignIn: other, runsLogin: false });
+    expect(route(choice, true)).toBe("card");
+    const none = refusedStartSignIn({
+      startsElsewhere: true,
+      elsewhereCard: undefined,
+      localCard: card,
+      loginCommand: "codex login",
+    });
+    expect(route(none, true)).toBeUndefined();
   });
 });
