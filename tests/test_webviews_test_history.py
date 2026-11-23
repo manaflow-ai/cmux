@@ -475,15 +475,6 @@ class OneBaseCheck(unittest.TestCase):
                              ("one", "two"))
             self.assertEqual((tmp / "out/runner/run-webviews-tests.sh").read_text(), "# shard 1\n")
 
-    def test_one_shard_downloaded_without_its_folder_still_joins(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            tmp = Path(tmp)
-            self.shard(tmp / "dl", 1, {TEST: False})
-            (tmp / "dl" / history.HEAD_ARTIFACT.format(1)).rename(tmp / "in")
-            self.assertIsNone(history.join_heads(tmp / "in", [1], tmp / "out"))
-            self.assertEqual(json.loads((tmp / "out" / history.HEAD_RESULTS).read_text()), {TEST: False})
-            self.assertIn("shard1 has no", history.join_heads(tmp / "in", [1, 2], tmp / "out2"))  # two shards keep folders
-
     def test_a_missing_shard_fails_and_an_unreadable_one_leaves_the_results_unreadable(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
@@ -498,6 +489,37 @@ class OneBaseCheck(unittest.TestCase):
             done = subprocess.run([sys.executable, str(ROOT / "scripts/ci/webviews_test_results.py"), "--failed-files",
                                    str(tmp / "out" / history.HEAD_RESULTS)], capture_output=True, text=True)
             self.assertNotEqual(done.returncode, 0)  # read as one shard's unreadable results were: every red replays
+
+    def test_the_lone_picked_shard_lands_in_the_download_root_itself(self):
+        """What refused #48267 and #50979 on 2026-11-22: both change only Swift, so web-subarea-scope picked one
+        shard, and react-apps-base-check failed with "react-apps-head-results-shard1 has no
+        webviews-head-results.json" while shard 1 had uploaded its 165 files and the download verified the same
+        digest. actions/download-artifact (pinned 37930b1c) extracts into the download root, with no folder of the
+        artifact's name, whenever `artifacts.length === 1`, so the folder this join read never exists for a pull
+        request that ran one shard. A shard's own folder still wins wherever there is one."""
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            flat = tmp / "in"
+            flat.mkdir()
+            (flat / history.HEAD_RESULTS).write_text(json.dumps({TEST: False}))
+            (flat / "runner").mkdir()
+            (flat / "runner/run-webviews-tests.sh").write_text("# shard 1\n")
+            (flat / "raw-logs").mkdir()
+            (flat / "raw-logs/summary").write_text("FAIL x /r/test_agent.log\n")
+            matrix = json.dumps([{"shard": 1, "shard_count": 8}])
+            done = subprocess.run([sys.executable, str(SCRIPT), "heads", str(flat), "--matrix", matrix, "--out",
+                                   str(tmp / "out")], capture_output=True, text=True)
+            self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+            self.assertEqual(json.loads((tmp / "out" / history.HEAD_RESULTS).read_text()), {TEST: False})
+            self.assertEqual(json.loads((tmp / "out/shards.json").read_text()), {FILE: 1})
+            self.assertEqual((tmp / "out/runner/run-webviews-tests.sh").read_text(), "# shard 1\n")
+            self.assertEqual((tmp / "out/raw-logs/summary").read_text(), "FAIL x /r/test_agent.log\n")
+            # One shard with a folder of its own (the artifact was not alone in the download): that folder is read,
+            # never a stale map lying beside it in the root.
+            self.shard(tmp / "two", 1, {TEST: True})
+            (tmp / "two" / history.HEAD_RESULTS).write_text(json.dumps({"test/stale.test.ts": False}))
+            self.assertIsNone(history.join_heads(tmp / "two", [1], tmp / "out3"))
+            self.assertEqual(json.loads((tmp / "out3" / history.HEAD_RESULTS).read_text()), {TEST: True})
 
     def test_a_pull_request_joins_only_the_shards_it_ran(self):
         with tempfile.TemporaryDirectory() as tmp:

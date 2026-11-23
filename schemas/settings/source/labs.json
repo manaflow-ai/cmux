@@ -246,6 +246,29 @@
             "agents",
             "config"
           ]
+        },
+        {
+          "key": "labs.hostsSidebar",
+          "note": "Rex-style Hosts section in the sidebar. It projects the Machines page catalog, including Add Host and per-machine terminal actions. Off by default until the sidebar surface is ready.",
+          "title": {
+            "key": "settings.labs.hostsSidebar",
+            "text": "Hosts Sidebar"
+          },
+          "help": {
+            "key": "settings.labs.hostsSidebar.help",
+            "text": "Shows your machines in the sidebar with Add Host and per-host terminal actions."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "labs",
+            "hosts",
+            "sidebar",
+            "machines",
+            "remote",
+            "add",
+            "terminal"
+          ]
         }
       ]
     }
