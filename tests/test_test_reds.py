@@ -713,10 +713,187 @@ class ReportedFailuresAreAllNamed(unittest.TestCase):
             with self.subTest(runner=runner):
                 self.assertEqual(self.unnamed(*lines), [])
 
+    def test_cargos_closing_list_names_what_a_nested_cargo_test_took(self):
+        # cmux#50445 at fb4bd6c4 (run 45036997271): a test re-ran itself under `cargo test`, and that child's summary,
+        # printed inside the parent's output, took the parent's `... FAILED` lines; the parent's closing list names both.
+        nested = ["running 3 tests", "test a::one ... FAILED", "test a::two ... FAILED",
+                  "running 1 test", "test a::two ... FAILED", "", "failures:", "", "failures:", "    a::two", "",
+                  "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6 filtered out",
+                  "", "failures:", "", "---- a::one stdout ----", "boom", "", "failures:", "    a::one", "    a::two", "",
+                  "test result: FAILED. 1 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out"]
+        self.assertEqual(self.unnamed(*nested), [])
+        # A list that names fewer than its summary counts is still unnamed.
+        short = ["failures:", "    a::one", "", "test result: FAILED. 0 passed; 2 failed; 0 ignored"]
+        self.assertTrue(self.unnamed(*short))
+        # Names under a `failures:` heading that other output follows are no list.
+        broken = ["failures:", "    a::one", "    a::two", "some output", "test result: FAILED. 0 passed; 2 failed"]
+        self.assertTrue(self.unnamed(*broken))
+
     def test_the_recorded_fixtures_name_every_failure_they_report(self):
         for path in sorted(FIXTURES.glob("*.log")):
             with self.subTest(fixture=path.name):
                 self.assertEqual(self.unnamed(*reds.lines_of(path.read_text())), [])
+
+
+# One `test result:` summary, as cargo's libtest prints it per test binary.
+def cargo_summary(passed: int, failed: int, filtered: int = 0) -> str:
+    return (f"test result: {'FAILED' if failed else 'ok'}. {passed} passed; {failed} failed; 0 ignored; "
+            f"0 measured; {filtered} filtered out; finished in 1.00s")
+
+
+# The live shape of cmux#50814's step: a binary that names its one failure, then the lib target's 16 names, then a
+# single-test rerun binary's summary, then the lib target's own `15 failed` summary, then the integration target's
+# names and summary. 20 names against 1 + 1 + 15 + 3 = 20 reported.
+LIVE_MULTI_TARGET = ["test session_hibernate::idle_sessions_hibernate_at_once ... FAILED",
+                     cargo_summary(855, 1),
+                     *[f"test gauges::tests::case_{n} ... FAILED" for n in range(16)],
+                     cargo_summary(0, 1, 6945),
+                     cargo_summary(6854, 15),
+                     *[f"test hub::origin_tests::case_{n} ... FAILED" for n in range(3)],
+                     cargo_summary(320, 3)]
+
+
+class SeveralSummariesInOneStepAreOneTally(unittest.TestCase):
+    """cmux#50814 (run 45075034049, job `acpmux tests (lib, hub_integration)`): one `cargo test -p acpmux --lib
+    --test hub_integration` step prints a `test result:` summary per test binary, and cargo buffers each binary's
+    block, so the names between two summaries are not the names of the summary that follows them. With a per-summary
+    reset a small rerun summary (`0 passed; 1 failed; ...; 6945 filtered out`) swallowed the 16 names the lib target
+    had printed and left its own `15 failed` summary with none, so the step read as a failure no parser names and no
+    multi-target cargo job could ever be excused as a base red. Each runner's summaries are now one cumulative tally
+    over the step: totals summed, names drawn from the pool no earlier summary accounted for. Detector:
+    `tests/test_test_reds.py` `SeveralSummariesInOneStepAreOneTally`, with
+    `ReportedFailuresAreAllNamed.test_a_summary_counting_more_than_its_runner_named_is_unnamed` (one summary) and
+    `CargoBinariesPrintTheirSummary` (a cut-short run)."""
+
+    def unnamed(self, *lines):
+        found: list = []
+        reds.failed_tests(list(lines), found)
+        return found
+
+    def test_a_multi_target_step_whose_names_are_all_present_is_named(self):
+        self.assertEqual(self.unnamed(*LIVE_MULTI_TARGET), [])
+        found = reds.read(log(*LIVE_MULTI_TARGET))
+        self.assertEqual((found.unnamed, found.truncated), ([], []))
+        self.assertEqual(sum(reds.failed_in(log(*LIVE_MULTI_TARGET)).values()), 20)
+
+    def test_a_multi_target_step_is_judged_on_the_sum_not_the_last_summary(self):
+        # The last summary alone is fully named; the step is not, because one failure of an earlier summary is not.
+        lines = [*LIVE_MULTI_TARGET[:-4], "test hub::origin_tests::case_0 ... FAILED", cargo_summary(320, 3)]
+        self.assertEqual(self.unnamed(*lines), [cargo_summary(320, 3)])
+
+    def test_an_unnamed_failure_in_a_multi_target_step_still_refuses(self):
+        # cargo's doctest line (`test src/lib.rs - f (line 3) ... FAILED`) is named by no parser: the step reports 21
+        # failures and names 20, so it is refused however many summaries it has.
+        lines = [*LIVE_MULTI_TARGET[:-1], "test src/lib.rs - f (line 3) ... FAILED", cargo_summary(320, 4)]
+        self.assertEqual(self.unnamed(*lines), [cargo_summary(320, 4)])
+
+    def test_a_later_summarys_names_never_cover_an_earlier_unnamed_failure(self):
+        # A deficit never carries: the first summary reports 2 with one name, and the names the next binary prints
+        # afterwards are not its. (A surplus does carry: that is what the live shape needs.)
+        lines = ["test a::one ... FAILED", cargo_summary(0, 2),
+                 "test b::one ... FAILED", "test b::two ... FAILED", cargo_summary(0, 2)]
+        self.assertEqual(self.unnamed(*lines), [cargo_summary(0, 2)])
+
+
+class CargoBinariesPrintTheirSummary(unittest.TestCase):
+    """A multi-target step cut short -- a test binary killed before its `test result:` line -- is never a base red,
+    whatever the summaries that did print tally to. Detector: `tests/test_test_reds.py`
+    `CargoBinariesPrintTheirSummary`."""
+
+    def test_a_binary_with_no_summary_leaves_the_results_not_whole(self):
+        lines = ["running 2 tests", "test a::one ... FAILED", cargo_summary(1, 1),
+                 "running 3 tests", "test b::one ... FAILED"]
+        found = reds.read(log(*lines))
+        self.assertEqual(found.unnamed, [])  # the tally balances; the missing summary is what refuses
+        self.assertTrue(any("printed no `test result:` line" in why for why in found.truncated), found.truncated)
+        self.assertTrue(reds.classify(log(*lines), log(*lines), "acpmux tests").own)
+
+
+# The three shapes a Rust step's failure names come in, each named so a later reader never has to guess at a fixture:
+#
+# ONE TARGET, EACH NAME PRINTED ONCE: libtest's own shape. A failure prints `test NAME ... FAILED` as it fails, and
+# the run closes with a `failures:` list of bare indented names. Only the first is a name line, so the closing list
+# never counts twice -- ONE_TARGET_CLOSING_LIST.
+#
+# SEVERAL TARGETS, EACH WITH ITS OWN SUMMARY: one `cargo test` over several test binaries, cmux#50814's shape
+# (LIVE_MULTI_TARGET above). The totals sum and the names are read per line, so two targets that each fail a test of
+# the same path are two failures, not one -- SAME_PATH_IN_TWO_TARGETS. This is why names are counted per line and
+# never deduplicated by test name across the step: a dedupe would read these two as one identity, leave a summed
+# total of 2 against 1 name, and refuse the step as a failure no parser names, which is cmux#50814's bug again in a
+# narrower shape.
+#
+# ONE TARGET, EACH NAME PRINTED TWICE: nextest under `failure-output = "immediate-final"`
+# (cmux-tui/.config/nextest.toml `[profile.ci]`), which prints each failure when it fails and again in a closing
+# list, with the same duration and thread id. No pattern here reads nextest: its `FAIL [ 1.00s] crate test::name`
+# lines name nothing to this parser and its `Summary [ ... ] N tests run:` line is no summary marker, so a nextest
+# step has no names and no reported total and the tally never runs on it -- NEXTEST_IMMEDIATE_FINAL pins that, so a
+# later reader does not take this parser for one that reads nextest.
+ONE_TARGET_CLOSING_LIST = ["running 3 tests", "test gauges::tests::rate_is_per_second ... FAILED",
+                          "failures:", "", "---- gauges::tests::rate_is_per_second stdout ----",
+                          "assertion failed", "",
+                          "failures:", "    gauges::tests::rate_is_per_second", "",
+                          cargo_summary(2, 1)]
+SAME_PATH_IN_TWO_TARGETS = ["running 2 tests", "test tests::smoke ... FAILED", cargo_summary(1, 1),
+                           "running 2 tests", "test tests::smoke ... FAILED", cargo_summary(1, 1)]
+# The smallest reproduction of the duplicated shape, measured 2026-11-22: one package, `--lib` only, one selected
+# test of 6971, `0 measured`, no second target and no retry. `failure-output = "immediate-final"`
+# (cmux-tui/.config/nextest.toml `[profile.ci]`, the `failure-output` line) prints each failure once when it fails
+# and once in the closing list, so a one-test run prints four lines:
+#   cd cmux-tui && cargo nextest run -p acpmux --lib --profile ci --no-fail-fast -E "test(help_examples)"
+# The duplication is SYMMETRIC -- the name line and its `test result:` summary are both printed twice -- which is
+# why this parser counts name lines and sums totals: 2 name lines against 1 + 1 reported balances exactly. Deduping
+# the names by test name while still summing the totals would compare 1 name against a total of 2 and refuse this
+# run as a failure no parser names, so the dedupe breaks on the very shape it was meant to handle.
+ONE_TEST_PRINTED_TWICE = [
+    "test cli::help_examples::tests::every_visible_command_has_an_about_line_and_examples ... FAILED",
+    "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6970 filtered out; finished in 0.00s",
+    "test cli::help_examples::tests::every_visible_command_has_an_about_line_and_examples ... FAILED",
+    "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6970 filtered out; finished in 0.00s",
+    "error: test run failed",
+]
+NEXTEST_IMMEDIATE_FINAL = ["    Starting 6872 tests across 1 binary",
+                          "        FAIL [ 107.440s] acpmux gauges::tests::rate_is_per_second",
+                          "--- STDERR:              acpmux gauges::tests::rate_is_per_second ---",
+                          "thread 'gauges::tests::rate_is_per_second' (48474) panicked at gauges.rs:91:9:",
+                          "        FAIL [ 107.440s] acpmux gauges::tests::rate_is_per_second",
+                          "------------",
+                          "     Summary [ 450.123s] 6872 tests run: 6867 passed, 5 failed, 77 skipped"]
+
+
+class EveryRustStepShapeIsNamed(unittest.TestCase):
+    """Which shape each Rust fixture is, and that the tally reads names per line rather than deduplicating them by
+    test name across the step. Detector: `tests/test_test_reds.py` `EveryRustStepShapeIsNamed`, beside
+    `SeveralSummariesInOneStepAreOneTally` (the summing rule) and `CargoBinariesPrintTheirSummary` (a cut-short
+    run)."""
+
+    def test_one_targets_closing_failures_list_is_not_a_second_name(self):
+        lines = ONE_TARGET_CLOSING_LIST
+        self.assertEqual(reds.failed_names(reds.lines_of(log(*lines))), {"gauges::tests::rate_is_per_second"})
+        self.assertEqual(sum(reds.failed_in(log(*lines)).values()), 1)  # printed twice, counted once
+        self.assertEqual(reds.read(log(*lines)).unnamed, [])
+
+    def test_two_targets_failing_the_same_test_path_are_two_failures(self):
+        lines = SAME_PATH_IN_TWO_TARGETS
+        # One name, two name lines, 1 + 1 reported: a dedupe by test name would refuse this step.
+        self.assertEqual(reds.failed_names(reds.lines_of(log(*lines))), {"tests::smoke"})
+        self.assertEqual(sum(reds.failed_in(log(*lines)).values()), 2)
+        self.assertEqual(reds.read(log(*lines)).unnamed, [])
+
+    def test_one_test_printed_twice_balances_its_duplicated_summary(self):
+        lines = ONE_TEST_PRINTED_TWICE
+        # Symmetric duplication: 2 name lines against 1 + 1 reported. A dedupe by test name would leave 1 against 2.
+        self.assertEqual(len(reds.failed_names(reds.lines_of(log(*lines)))), 1)
+        self.assertEqual(sum(reds.failed_in(log(*lines)).values()), 2)
+        self.assertEqual(reds.unnamed_failures(reds.lines_of(log(*lines))), [])
+        found = reds.read(log(*lines))
+        self.assertEqual(found.unnamed, [])
+        self.assertEqual(found.truncated, [])
+
+    def test_nextest_immediate_final_is_read_by_no_pattern_here(self):
+        lines = NEXTEST_IMMEDIATE_FINAL
+        self.assertEqual(reds.failed_names(reds.lines_of(log(*lines))), set())
+        self.assertEqual(reds.unnamed_failures(reds.lines_of(log(*lines))), [])
+        self.assertEqual(reds.read(log(*lines)).unnamed, [])
 
 
 # One bun invocation of test/a.test.ts: RESULTS printed in the run, the recap (`N tests failed:`) of RECAP titles, and
@@ -759,6 +936,77 @@ class UnnamedFailuresAreReadOnceForEveryConsumer(unittest.TestCase):
         lines = bun_invocation(results=["a > one"], fail=2)
         self.assertEqual(reds.read(log(*lines)).unnamed, [" 2 fail"])
         self.assertTrue(reds.classify(log(*lines), log(*lines), "web tests").own)
+
+
+def cargo_run(failed, nested, total=None, listed=None):
+    """A cargo test binary's run as libtest prints it (shaped after cmux run 45048355800's `acpmux tests (lib,
+    hub_integration)`): FAILED lines, a `failures:` section whose test `nested` printed a whole nested libtest run in
+    its captured stdout (a test that re-execs its own binary with a filter), the closing list, and the summary."""
+    lines = ["     Running unittests src/lib.rs (target/debug/deps/acpmux-02edcd1085c33921)", "",
+             f"running {len(failed) + 2} tests", "test a::passes ... ok"]
+    lines += [f"test {name} ... FAILED" for name in failed] + ["test z::passes ... ok", "", "failures:", ""]
+    for name in failed:
+        lines += [f"---- {name} stdout ----", "", f"thread '{name}' (816903) panicked at src/lib.rs:888:9:"]
+        if name == nested:
+            lines += ["", "running 1 test", "test other::child_only ... FAILED", "",
+                      "failures:", "", "failures:", "    other::child_only", "",
+                      "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6881 filtered out; "
+                      "finished in 0.01s", "", "", "",
+                      f"thread '{name}' (816915) panicked at src/lib.rs:948:82:"]
+        lines += ["note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace", ""]
+    lines += ["", "failures:"] + [f"    {name}" for name in sorted(listed or failed)] + [""]
+    lines += [f"test result: FAILED. 6795 passed; {len(failed) if total is None else total} failed; 76 ignored; "
+              "0 measured; 0 filtered out; finished in 416.77s", "",
+              "error: test failed, to rerun pass `-p acpmux --lib`"]
+    return lines
+
+
+class NestedCargoOutputIsTheTestsOwn(unittest.TestCase):
+    """2026-11-22, cmux run 45048355800: `acpmux tests (lib, hub_integration)` was refused as "its log reports more
+    failing tests than it names (test result: FAILED. 6795 passed; 11 failed; ...)" while base had the same reds.
+    linux_sandbox::bwrap::tests::real_second_home_mount_hides_denied_names re-execs its own binary, and the nested
+    run it printed in its captured stdout (`test ... FAILED`, `test result: FAILED. 0 passed; 1 failed`) was read as
+    the job's: the nested summary took the cargo count, the real one was compared against nothing. The failures are
+    the outer run's `test NAME ... FAILED` lines, counted against its own last summary (cargo_captured)."""
+
+    OUTER = ["cli::help_examples::tests::every_visible_command_has_an_about_line_and_examples",
+             "linux_sandbox::bwrap::tests::real_second_home_mount_hides_denied_names",
+             "protocol::tests::protocol_ir_is_current"]
+    NESTED = "linux_sandbox::bwrap::tests::real_second_home_mount_hides_denied_names"
+
+    def test_the_excuse_names_exactly_the_outer_failures_and_the_counts_agree(self):
+        lines = cargo_run(self.OUTER, self.NESTED)
+        found = reds.read(log(*lines))
+        self.assertEqual(found.failed, set(self.OUTER))  # never the child's other::child_only
+        self.assertEqual((found.unnamed, found.truncated), ([], []))
+        self.assertEqual(reds.failed_in(log(*lines)), Counter({name: 1 for name in self.OUTER}))
+        self.assertEqual(reds.unnamed_failures(lines), [])
+        verdict = reds.classify(log(*lines), log(*cargo_run(self.OUTER, self.NESTED)), "acpmux tests (lib)")
+        self.assertFalse(verdict.own, verdict.reasons)
+        self.assertEqual(verdict.shared, sorted(self.OUTER))
+
+    def test_the_real_log_reads_no_unnamed_summary(self):
+        # The real job log's three cargo runs (the lib's, and the two `retry ... alone` runs), trimmed.
+        text = (FIXTURES / "cargo-nested-run-45048355800.log").read_text()
+        found = reds.read(text)
+        self.assertEqual((found.unnamed, found.truncated), ([], []))
+        self.assertNotIn("other::child_only", found.failed)
+        self.assertEqual(reds.failed_in(text)[self.NESTED], 3)  # once per run, never its nested line too
+
+    def test_a_summary_counting_more_than_the_outer_run_named_still_refuses(self):
+        lines = cargo_run(self.OUTER, self.NESTED, total=4)
+        found = reds.read(log(*lines))
+        self.assertEqual(found.unnamed, [lines[-3]])
+        self.assertTrue(reds.classify(log(*lines), log(*lines), "acpmux tests (lib)").own)
+
+    def test_a_closing_list_the_failed_lines_disagree_with_hides_nothing(self):
+        # A failed test with no `test NAME ... FAILED` line of its own: the list names it, so no summary is the
+        # outer run's own and its captured output is not hidden. Its count is named by the closing list itself
+        # (#50988: a cargo summary counts the names in its closing `failures:` list).
+        lines = cargo_run(self.OUTER, self.NESTED, total=4, listed=self.OUTER + ["tests::printed_no_failed_line"])
+        hidden = reds.cargo_captured(lines)
+        self.assertFalse(any(lines[n].startswith("---- ") for n in hidden), [lines[n] for n in hidden])
+        self.assertEqual(reds.read(log(*lines)).unnamed, [])
 
 
 class BunCountsTheIdentitiesItKeeps(unittest.TestCase):
@@ -2191,3 +2439,35 @@ class ReadOncePerLog(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CutShortWordsAreWords(unittest.TestCase):
+    """2026-11-22, cmuxterm-hq eb73df0c's 'build-fleet Go tests / go vet + go test' (job 137452468531) was refused
+    "a crash, a cut-short run or a failure no parser names is never a base red", quoting `error: Path
+    'docs/handbook/stalled-work-nobody-moves.md' not uptodate; will not remove from working tree.`: one of 54
+    annotations actions/checkout printed at 02:37:42 narrowing a sparse checkout on a reused self-hosted workspace,
+    which failed nothing. The job ran five more minutes and ended at 02:42:40 in a plain Go failure a comparison can
+    name. The hang watchdog's words matched with `\\b`, so that file name's `stalled` read as the watchdog's word and
+    the first annotation in the log pre-empted the real failure. Each word is read as a word: a path or a longer
+    identifier that carries it is not it."""
+
+    CHECKOUT = ["##[error]error: Path 'docs/handbook/%s' not uptodate; will not remove from working tree." % name
+                for name in ("stalled-work-nobody-moves.md", "timeout-without-a-deadline.md",
+                             "a-run-that-never-finished-its-sweep.md")]
+    GO = ["--- FAIL: TestEveryStepModeReservesItsMeasuredDisk (0.00s)", "FAIL",
+          "FAIL\tcmuxterm-hq/build-fleet/cmd/controller\t241.426s", "FAIL",
+          "##[error]Process completed with exit code 1."]
+
+    def test_a_checkout_annotation_naming_such_a_file_is_not_a_cut_short_run(self):
+        self.assertEqual(reds.read(log(*self.CHECKOUT, *self.GO)).truncated, [])
+
+    def test_the_watchdogs_own_words_are_still_a_cut_short_run(self):
+        for line in ("##[error]go test timed out after 600s",
+                     "##[error]the suite stalled: no output for 600s",
+                     "##[error]hung test: TestX made no progress",
+                     "##[error]TestX stopped by SIGKILL",
+                     "##[error]cancelled test run",
+                     "##[error]Timeout waiting for the controller",
+                     "##[error]2 test(s) never finished"):
+            with self.subTest(line=line):
+                self.assertEqual(reds.read(log(line, *self.GO)).truncated, [line.removeprefix("##[error]")])

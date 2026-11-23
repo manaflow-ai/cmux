@@ -9,6 +9,7 @@
 
 mod actions;
 mod activation;
+mod alerts;
 mod ax;
 mod capture;
 mod cgwindows;
@@ -765,6 +766,10 @@ impl Desktop for MacDesktop {
         actions::scroll(self, target, dx, dy)
     }
 
+    fn move_pointer(&self, target: &PointerTarget, delivery: Delivery) -> DResult<ActionOutcome> {
+        actions::move_pointer(self, target, delivery)
+    }
+
     fn drag(
         &self,
         window_id: &str,
@@ -896,6 +901,14 @@ impl Desktop for MacDesktop {
             }
         }
         self.request_direct(which)
+    }
+
+    fn system_alerts(&self) -> DResult<Vec<crate::alerts::RawAlert>> {
+        Ok(alerts::list())
+    }
+
+    fn press_alert_button(&self, alert: &crate::alerts::RawAlert, title: &str) -> DResult<()> {
+        alerts::press(alert, title)
     }
 
     fn displays(&self) -> DResult<Vec<crate::displays::Display>> {

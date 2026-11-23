@@ -43,7 +43,6 @@ const expectedPages = new Set([
   "group-editor",
   "history",
   "home-channels",
-  "home-messages",
   "icon-picker",
   "keybindings",
   "machines",

@@ -711,22 +711,25 @@ struct AgentChatLoadingState: View {
 }
 
 /// Kept rows show while the chat is away from the Mac or catches up with it; after
-/// ``QuietStatusGate/threshold`` one quiet line by the composer says so
-/// (``AgentChatStore/connectionLine``). Never a pill over the rows.
+/// ``QuietStatusGate/threshold`` a small chip floats just above the composer
+/// (``AgentChatStore/connectionLine`` is its VoiceOver sentence). An overlay, never
+/// in the stack, so it pushes nothing up (Leo, 2026-11-21: "these messages should
+/// not be pushing up the text ... a symbol or short thing, not a sentence. stop
+/// layout shifting").
 struct AgentChatConnectionLine: View {
     let store: AgentChatStore
 
     var body: some View {
-        if let line = store.connectionLine {
-            Text(verbatim: line)
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 20)
-                .accessibilityIdentifier("agentChat.connectionLine")
-                .allowsHitTesting(false)
-                .transition(.opacity)
+        Group {
+            if let line = store.connectionLine {
+                ConnectionChip(.init(store.summary.status == .disconnected ? .connecting : .updating, sentence: line))
+                    .padding(.leading, 20)
+                    .alignmentGuide(.top) { $0[.bottom] + 8 }
+                    .accessibilityIdentifier("agentChat.connectionLine")
+                    .transition(.opacity)
+            }
         }
+        .animation(.cmuxMobileSmooth.unlessReduceMotion, value: store.connectionLine)
     }
 }
 
@@ -828,7 +831,6 @@ public struct AgentChatBottomStack: View {
                     .transition(.opacity.combined(with: .offset(y: 8)))
                     .accessibilityHint("Dismiss")
                 }
-                AgentChatConnectionLine(store: store)
                 // Pinned plan progress while a turn runs (ACP web UI parity).
                 if let progress = store.runningPlan, let entries = store.runningPlanEntries {
                     PlanProgressBar(progress: progress, entries: entries)
@@ -915,6 +917,9 @@ public struct AgentChatBottomStack: View {
                 surface.drawnStackHeight = height
                 surface.stackHeightFrame?(height)
             })
+            // Floats just above the stack, never in it: showing it moves
+            // neither the composer nor the transcript's rows.
+            .overlay(alignment: .topLeading) { AgentChatConnectionLine(store: store) }
             // As in Messages, a downward swipe on the composer takes the
             // keyboard down (the transcript's interactive dismissal covers
             // drags that start above it).
@@ -1311,6 +1316,18 @@ struct RetryModelChoice {
 
     /// The Mac's title (`turn.retryWith`).
     static let title = "Retry with another model"
+    static let systemImage = "arrow.triangle.2.circlepath"
+
+    /// The menu in a row: the live `Menu`, or in a still (`chatStill`) its label as a plain
+    /// button, which takes the same button and label styles (a `Menu` draws as `ImageRenderer`'s
+    /// yellow placeholder).
+    @ViewBuilder func control(still: Bool) -> some View {
+        if still {
+            Button {} label: { Label(Self.title, systemImage: Self.systemImage) }
+        } else {
+            menu
+        }
+    }
 
     var menu: some View {
         Menu {
@@ -1326,7 +1343,7 @@ struct RetryModelChoice {
                 }
             }
         } label: {
-            Label(Self.title, systemImage: "arrow.triangle.2.circlepath")
+            Label(Self.title, systemImage: Self.systemImage)
         }
         .accessibilityIdentifier("chat.retryWithModel")
     }
@@ -1344,6 +1361,7 @@ struct AnswerActionRow: View {
     var polish: ChatPolishMenuButtons?
     let retry: () -> Void
     @State private var copied = false
+    @Environment(\.chatStill) private var still
 
     var body: some View {
         HStack(spacing: 0) {
@@ -1358,24 +1376,23 @@ struct AnswerActionRow: View {
             .sensoryFeedback(.impact(weight: .light, intensity: 0.7), trigger: copied) { _, new in
                 new && CmuxMobileTheme.standard.haptics.isEnabled
             }
-            ShareLink(item: turn.answerMarkdown) {
+            if still {
+                // Share and More are UIKit controls, a placeholder in a still: their glyphs alone.
                 IconActionLabel("square.and.arrow.up")
+            } else {
+                ShareLink(item: turn.answerMarkdown) {
+                    IconActionLabel("square.and.arrow.up")
+                }
+                .accessibilityLabel("Share")
             }
-            .accessibilityLabel("Share")
             if isLast {
                 IconAction("arrow.clockwise", label: "Retry", action: retry)
             }
-            Menu {
-                Section(AgentTurn.menuTimestamp(turn.endedAt ?? turn.promptAt)) {
-                    Button("Copy as Markdown", systemImage: "text.document") { UIPasteboard.general.string = turn.answerMarkdown }
-                    Button("Retry", systemImage: "arrow.clockwise", action: retry)
-                    retryWith?.menu
-                    polish
-                }
-            } label: {
+            if still {
                 IconActionLabel("ellipsis")
+            } else {
+                moreMenu
             }
-            .accessibilityLabel("More")
             Spacer()
             if let duration = ToolWording().shown(turn.duration) {
                 Text(ToolWording().duration(duration)).font(.footnote.monospacedDigit()).foregroundStyle(.tertiary)
@@ -1389,6 +1406,20 @@ struct AnswerActionRow: View {
         .padding(.vertical, insetsTargets ? -6 : 0)
         .padding(.top, insetsTargets ? 2 : 0)
         .padding(.leading, -14)
+    }
+
+    private var moreMenu: some View {
+        Menu {
+            Section(AgentTurn.menuTimestamp(turn.endedAt ?? turn.promptAt)) {
+                Button("Copy as Markdown", systemImage: "text.document") { UIPasteboard.general.string = turn.answerMarkdown }
+                Button("Retry", systemImage: "arrow.clockwise", action: retry)
+                retryWith?.menu
+                polish
+            }
+        } label: {
+            IconActionLabel("ellipsis")
+        }
+        .accessibilityLabel("More")
     }
 }
 

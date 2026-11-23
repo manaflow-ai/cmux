@@ -32,9 +32,16 @@ export function sendPromptAgainTarget(state: SendPromptAgainState) {
   if (!canSend || !sessionId || sessionId !== selectedSessionId || sessionId !== drawnSessionId) return undefined;
   const target = retryTargetIn(rows);
   if (!target.promptId) return undefined;
-  const promptAt = rows.findIndex((row) => row.id === target.promptId);
+  // The prompt is the newest retryable one (`retryTargetIn` walks back from the end): found from the
+  // end too, and its footer read in place, so the cost is the rows after it, not the whole chat
+  // (the pane reads this on renders a change of any listed chat starts).
+  let promptAt = rows.length - 1;
+  while (promptAt >= 0 && rows[promptAt]!.id !== target.promptId) promptAt -= 1;
+  if (promptAt < 0) return undefined;
   const prompt = rows[promptAt]!;
-  const footer = rows.slice(promptAt + 1).find((row) => row.kind === "turnSummary");
+  let footer: AcpmuxRow | undefined;
+  for (let at = promptAt + 1; at < rows.length && !footer; at += 1)
+    if (rows[at]!.kind === "turnSummary") footer = rows[at];
   if (
     !footer ||
     (footer.status !== undefined && footer.status !== "completed" && !isStopped(footer)) ||
