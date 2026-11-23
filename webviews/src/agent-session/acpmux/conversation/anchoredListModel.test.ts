@@ -1,5 +1,13 @@
 import { expect, test } from "bun:test";
-import { HeightCache, HeightIndex, anchorAt, heightsFor, offsetFor, rowContentHash, windowAt } from "./anchoredListModel";
+import {
+  HeightCache,
+  HeightIndex,
+  anchorAt,
+  heightsFor,
+  offsetFor,
+  rowContentHash,
+  windowAt,
+} from "./anchoredListModel";
 
 const ids = (n: number, from = 0) => Array.from({ length: n }, (_, i) => `r${from + i}`);
 const positions = (list: readonly string[]) => new Map(list.map((id, i) => [id, i]));
@@ -34,7 +42,14 @@ test("an older page prepended keeps the reader on the same row", () => {
   const index = new HeightIndex(list.map(() => 40));
   const anchor = anchorAt(index, list, 400)!;
   const grown = [...ids(50, 50), ...list];
-  const next = new HeightIndex(heightsFor(grown.map((id) => ({ id, hash: 0 })), new HeightCache(), 600, 40));
+  const next = new HeightIndex(
+    heightsFor(
+      grown.map((id) => ({ id, hash: 0 })),
+      new HeightCache(),
+      600,
+      40,
+    ),
+  );
   expect(offsetFor(next, positions(grown), anchor, false, 600)).toBe(400 + 50 * 40);
 });
 
@@ -89,7 +104,8 @@ test("the height cache is keyed by row id, content hash and width", () => {
 
 test("the height cache keeps a few measurements per row, newest first", () => {
   const cache = new HeightCache();
-  for (let version = 0; version < 10; version++) cache.set("r1", rowContentHash(version, false, false), 600, 20 + version);
+  for (let version = 0; version < 10; version++)
+    cache.set("r1", rowContentHash(version, false, false), 600, 20 + version);
   expect(cache.exact("r1", rowContentHash(9, false, false), 600)).toBe(29);
   expect(cache.exact("r1", rowContentHash(6, false, false), 600)).toBe(26);
   expect(cache.exact("r1", rowContentHash(5, false, false), 600)).toBeUndefined();

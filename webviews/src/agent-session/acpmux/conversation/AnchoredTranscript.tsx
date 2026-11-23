@@ -155,10 +155,7 @@ export function AnchoredTranscript({
   widthRef.current = width;
   // Rebuilt when the rows, a row's content or the width change (O(n), a few ms at 50k rows); a
   // measured height change is O(log n).
-  const index = useMemo(
-    () => new HeightIndex(heightsFor(keyed, measured, width, ESTIMATE)),
-    [keyed, measured, width],
-  );
+  const index = useMemo(() => new HeightIndex(heightsFor(keyed, measured, width, ESTIMATE)), [keyed, measured, width]);
   const indexRef = useRef(index);
   indexRef.current = index;
   const positionRef = useRef(position);
