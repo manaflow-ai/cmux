@@ -60,7 +60,7 @@
   "rotate", "revoke", "approve", "apply", "yes", "y", "f", "pay", "charge", "refund", "transfer", "evict", "retire",
   "archive", "unlink", "truncate", "erase", "steer", "interrupt", "override"
  ],
- "reads": ["status", "show", "info", "get", "view", "describe", "inspect", "list", "ls", "search", "find", "wait", "watch", "check", "log", "logs", "history", "help", "diff", "who", "path", "outcome", "outcomes", "read"],
+ "reads": ["status", "show", "info", "get", "view", "describe", "inspect", "list", "ls", "search", "find", "wait", "watch", "check", "log", "logs", "history", "help", "diff", "who", "path", "outcome", "outcomes", "read", "report"],
  "cli": {
   "acpmux": {
    "exact": [
@@ -183,6 +183,7 @@
    ]
   },
   "asks_reconciler.py": {
+   "safe": ["trace"],
    "aliases": [
     {
      "from": [

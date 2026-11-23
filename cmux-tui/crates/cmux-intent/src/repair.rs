@@ -496,6 +496,63 @@ fn unsafe_in(root: &Command, argv: &[String], tbl: &Table, prog: &str) -> Option
     words.into_iter().find(|w| tbl.unsafe_word(w))
 }
 
+/// Whether `word` names a read: the table's `reads`, or the CLI's `safe`.
+fn reading(word: &str, tbl: &Table, prog: &str) -> bool {
+    tbl.reads.iter().any(|r| r == word)
+        || tbl.cli_entry(prog).is_some_and(|e| e.safe.iter().any(|r| r == word))
+}
+
+/// The word the layer would supply that is not a known read, else None (the Python twin's `_supplied_write`). A
+/// subcommand or choice word it puts in (`docs pull` -> `docs sync`, `keepupp` -> `keepup`) runs only when it is a
+/// read, or sits under a reading subcommand (`status checks` -> `status pr`), or the path ends in one: a write's
+/// verb is never supplied, whether or not the unsafe list names it. Flags and reordering supply no new word.
+fn supplied_write(
+    root: &Command,
+    typed: &[String],
+    new: &[String],
+    tbl: &Table,
+    prog: &str,
+) -> Option<String> {
+    let mut left: std::collections::HashMap<&str, i32> = std::collections::HashMap::new();
+    for w in new.iter().filter(|w| !w.starts_with('-')) {
+        *left.entry(w.as_str()).or_default() += 1;
+    }
+    for w in typed.iter().filter(|w| !w.starts_with('-')) {
+        *left.entry(w.as_str()).or_default() -= 1;
+    }
+    if left.values().all(|n| *n <= 0) {
+        return None;
+    }
+    let walk = walk::walk(root, new);
+    // (index of the subcommand word, its canonical name) for each level chosen on the way
+    let subs: Vec<(usize, String)> = walk
+        .levels
+        .iter()
+        .zip(walk.levels.iter().skip(1))
+        .filter_map(|(l, next)| l.sub.map(|i| (i, next.cmd.get_name().to_owned())))
+        .collect();
+    let reads_sub =
+        |i: usize, canon: &str| reading(&new[i], tbl, prog) || reading(canon, tbl, prog);
+    let reads_at = subs.iter().find(|(i, c)| reads_sub(*i, c)).map(|(i, _)| *i);
+    let leaf_reads = subs.last().is_some_and(|(i, c)| reads_sub(*i, c));
+    for (i, w) in new.iter().enumerate() {
+        if w.starts_with('-') {
+            continue;
+        }
+        let Some(n) = left.get_mut(w.as_str()) else { continue };
+        if *n <= 0 {
+            continue;
+        }
+        *n -= 1;
+        let is_sub = subs.iter().any(|(j, _)| *j == i);
+        let ok = reading(w, tbl, prog) || leaf_reads || reads_at.is_some_and(|r| !is_sub || i > r);
+        if !ok {
+            return Some(w.clone());
+        }
+    }
+    None
+}
+
 fn error_text(e: &clap::Error) -> String {
     e.to_string().lines().next().unwrap_or_default().trim_start_matches("error: ").to_owned()
 }
@@ -574,7 +631,8 @@ pub fn repair(cmd: &Command, prog: &str, argv: &[String], tbl: &Table) -> Repair
     parsed.truncate(MAX_SHOWN);
     if let [only] = parsed.as_slice() {
         let word = unsafe_in(&built, &only.argv, tbl, prog)
-            .or_else(|| argv.iter().find(|w| w.starts_with('-') && tbl.unsafe_word(w)).cloned());
+            .or_else(|| argv.iter().find(|w| w.starts_with('-') && tbl.unsafe_word(w)).cloned())
+            .or_else(|| supplied_write(&built, &argv, &only.argv, tbl, prog));
         if let Some(word) = word {
             return Repair {
                 outcome: Kind::Exact,
