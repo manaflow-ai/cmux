@@ -89,7 +89,8 @@ public struct ListStressSettings: Equatable, Sendable {
     /// `CMUX_MOBILE_LIST_EDGE` (UI tests' edge cases): `removed` (subagent: its chat's records go
     /// while the transcript is open), `offline` (subagent: the Mac goes offline mid-run),
     /// `drop` (inspector: 60 more records arrive, dropping the oldest under the reader), `burst`
-    /// (subagent: 1000 items in one main-actor turn), `offline` (inspector: no more records).
+    /// (subagent: 1000 items in one main-actor turn; inspector: 2000 records over about 50
+    /// frames), `offline` (inspector: no more records).
     /// `late` (subagent, with `LIST_STREAM=1`): the stream starts after `edgeAfter`.
     /// `text` (subagent, with `LIST_STREAM=1`): tokens into one answer only, no other items.
     /// `follow` (subagent): opens on the end, then streams at `LIST_LIVE_HZ` (default 50) after
