@@ -20,6 +20,11 @@ path = "src/main.rs"
 name = "v2"
 harness = false
 
+# A turn's cost by stage with a stand-in model that answers at once (benches/turn_overhead.rs).
+[[bench]]
+name = "turn_overhead"
+harness = false
+
 [features]
 default = ["build-id"]
 # The stamped build id (acpmux-build-id) as the default of `hub::build()`.
@@ -127,6 +132,7 @@ cmux-device-kind.workspace = true
 cmux-unix-socket.workspace = true
 cmux-panic-log.workspace = true
 cmux-usage-patterns.workspace = true
+cmux-usage-share.workspace = true
 # What package installs a shell call runs (`hub/tool_installs.rs`).
 cmux-command-class.workspace = true
 clap = { version = "4.5", features = ["derive"] }

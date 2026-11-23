@@ -1,6 +1,11 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextCompat
+import CmuxNextDesignTokens
+import CmuxNextMobileHost
 import CmuxNextPages
+import CmuxNextSettings
+import CmuxNextWakeups
 
 extension PageDescriptor {
     /// The Mobile Pairing page (webviews/src/pages/mobile-pairing): cmux-page://cmux.mobile-pairing/.
@@ -47,12 +52,36 @@ final class MobilePairingPageService: InternalPageProvider {
 
     func makeView(for key: String, in window: WindowController?) -> NSView {
         guard let services else { return NSView() }
-        let provider = MobilePairingPageProvider(services: services)
+        let provider = MobilePairingPageProvider(dependencies: .live(services))
         let native = AppPageNativeProvider(services: services, page: .mobilePairing)
         let routes = [PageRoute(prefix: "cmux.mobilePairing.", provider: provider),
                       PageRoute(prefix: "cmux.app.", provider: native)]
         guard let page = PageWebView(descriptor: .mobilePairing, routes: routes) else { return NSView() }
         native.anchor = { [weak page] in page }
         return page
+    }
+}
+
+extension MobilePairingPageProvider.Dependencies {
+    /// What the page reads and writes in the app: the iPhone host, the Cloud account and Settings.
+    static func live(_ services: AppServices) -> Self {
+        Self(
+            host: services.iphone,
+            signedIn: { [weak services] in services?.cloud.isSignedIn ?? false },
+            account: { [weak services] in
+                let user = services?.cloud.auth.user
+                return (user?.primaryEmail ?? user?.displayName, user?.id ?? "")
+            },
+            allowed: { [weak services] in services?.settings?.snapshot.mobile.allowIPhoneConnections ?? false },
+            macName: { await MacName().displayName() },
+            write: { [weak services] path, value in
+                let loaded: @MainActor @Sendable () -> Bool = { [weak services] in services?.settings != nil } // just after launch: wait
+                if !loaded() { await ObservationDeadline(owner: "mobile-pairing-settings").until(loaded, limit: NoticeTiming.connectionQuiet) }
+                guard let settings = services?.settings else {
+                    throw PageError(code: "cmux.mobilePairing.unavailable", message: MobilePairingStrings.settingsNotLoaded, retryable: true)
+                }
+                try await settings.setSetting(at: path, to: value, by: .user)
+            },
+            invite: { [weak services] macName in services?.iphone.pairInvite(macName: macName) })
     }
 }

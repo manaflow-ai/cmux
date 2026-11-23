@@ -29,10 +29,11 @@ public struct AgentChatPerfControl: Sendable {
         self.find = find
     }
 
-    /// The App's control service registers this (`AppControl`).
-    public func controlMethod() -> ControlMethod {
+    /// The App's control service registers this (`AppControl`). `sources`: the app's page-source counts
+    /// (``AgentPageSources``, its ``AgentPageRetirer``'s), which `page_source: true` reads; nil before the app made its tabs.
+    public func controlMethod(sources: @escaping @MainActor @Sendable () -> AgentPageSources? = { nil }) -> ControlMethod {
         let find = find
-        return .async(Self.method) { call in try await Self.run(call.params, find: find) }
+        return .async(Self.method) { call in try await Self.run(call.params, find: find, sources: sources) }
             .withDeadline(.fixed(.seconds(Self.maxSeconds + 15)))
             .withLimit { request, _ in .seconds(((try? Self.seconds(request.params)) ?? Self.maxSeconds) + 15) }
     }
@@ -46,6 +47,11 @@ public struct AgentChatPerfControl: Sendable {
         return Int(value)
     }
 
+    /// The `page_source` read: `sources`' counts (all zero when the app has none yet); `reset` zeroes them after.
+    static func pageSourceReport(_ sources: AgentPageSources?, reset: Bool) -> JSONValue {
+        sources?.report(reset: reset) ?? .object(["page_source": AgentPageSourceCounts().json])
+    }
+
     /// The page call: the capture's JSON as text, or an error object when the page has no capture.
     static let script = """
         const bridge = window.cmuxAcpmuxBridge;
@@ -55,7 +61,10 @@ public struct AgentChatPerfControl: Sendable {
 
     /// On the main actor: the tab is found, and a frozen page refused, in the same turn that sends the call.
     @MainActor
-    static func run(_ params: [String: JSONValue], find: @MainActor @Sendable (String) -> ChatPage) async throws -> JSONValue {
+    static func run(_ params: [String: JSONValue], find: @MainActor @Sendable (String) -> ChatPage,
+                    sources: @MainActor @Sendable () -> AgentPageSources? = { nil }) async throws -> JSONValue {
+        // `page_source: true` (no tab): how the chat pages made since launch got their page (``AgentPageSourceCounts``).
+        if params["page_source"]?.boolValue == true { return pageSourceReport(sources(), reset: params["reset"]?.boolValue == true) }
         let seconds = try seconds(params)
         guard let raw = params["tab"]?.stringValue, !raw.isEmpty else {
             throw ControlError.invalidParams(Text.needsTab)
