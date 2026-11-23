@@ -77,6 +77,9 @@
 #                launches sent a message holding any key. A keys=1 launch opens no terminal (state=bare's shell
 #                request moves focus). It takes no front=tab: that launch reopens a terminal, which would take the keys
 #                and run them as a command. Default keys=0: no keys.
+#   video=1      a screen video of the measured launches (screencapture -v of the console session, Screen Recording
+#                granted to the step's process): launches.mov in report.tgz, its first frame at video-start.txt's
+#                VIDEO_START_EPOCH_MS; each LR-RUN row's start_epoch_ms places its launch in it. Default video=0.
 #   preflight_wait=S  a hot host is checked again every 60 s for up to S s (default 900) before it fails the step: an
 #                indexer's batch (mediaanalysisd at 70-200 %) often ends in minutes, and the builds before it took ~20.
 #   guest=1      a run on a person's own Mac while they work on it, beside their running NIGHTLY (Leo, 2026-11-20: "why
@@ -134,7 +137,7 @@ main() {
 
   local preflight=1 preflight_cpu=30 preflight_wait=900 waited=0
   rm -rf "$out" && mkdir -p "$out" && chmod 0777 "$out"
-  LR_STATE=kept LR_CASE="" LR_DAEMON=warm LR_SNAPSHOT=own LR_FRONT="" LR_KEYS=0 LR_LAYOUT=0 LR_TYPE=0
+  LR_STATE=kept LR_CASE="" LR_DAEMON=warm LR_SNAPSHOT=own LR_FRONT="" LR_KEYS=0 LR_VIDEO=0 LR_LAYOUT=0 LR_TYPE=0
   # Each side's control socket (SIDE.sock). A socket path must fit sun_path (104 bytes with its NUL), and on a fleet
   # worker "$out/home-SIDE/app.sock" is 112: the app bound no socket there and stress3's seed never got an answer.
   LR_SOCKETS="$(mktemp -d /tmp/lr.XXXXXX)" && chmod 0777 "$LR_SOCKETS" || exit 3
@@ -155,6 +158,7 @@ main() {
       snapshot=own|snapshot=unknown) LR_SNAPSHOT="${arg#snapshot=}" ;;
       front=home|front=tab|front=chat) LR_FRONT="${arg#front=}" ;;
       keys=0|keys=1) LR_KEYS="${arg#keys=}" ;;
+      video=0|video=1) LR_VIDEO="${arg#video=}" ;;
       session=small|session=stress3) session="${arg#session=}" ;;
       prerun=*) prerun="${arg#prerun=}" ;;
       copy=same|copy=fresh) copy="${arg#copy=}" ;;
@@ -315,6 +319,14 @@ main() {
     if [[ "$LR_SNAPSHOT" == unknown ]]; then unknown_seed "$out" "$side" || rc=1; fi
   done
   if [[ "$LR_CASE" == update ]]; then sides=(head); fi
+  local rec=""
+  if [[ "$LR_VIDEO" == 1 ]]; then
+    screencapture -v -x -V 3600 "$out/launches.mov" >"$out/video.log" 2>&1 &
+    rec=$!
+    echo "VIDEO_START_EPOCH_MS $(perl -MTime::HiRes=time -e 'printf "%d", time*1000')" >"$out/video-start.txt"
+    sleep 2
+    kill -0 "$rec" 2>/dev/null && echo "LR-VIDEO recording $out/launches.mov" || { echo "LR-VIDEO recorder did not start"; cat "$out/video.log"; rec=""; }
+  fi
   for ((i = 1; i <= runs; i++)); do
     for side in "${sides[@]}"; do
       if [[ "$prerun" != 0 ]]; then probe "$out" "$side" "full$i" "$prerun" 0 || rc=1; fi
@@ -326,6 +338,11 @@ main() {
       probe "$out" "$side" "run$i" 6 "$([[ $profile == 1 && $i == 1 ]] && echo 1 || echo 0)" || rc=1
     done
   done
+  if [[ -n "$rec" ]]; then # only the recorder this run started, by PID
+    kill -INT "$rec" 2>/dev/null
+    for _ in $(seq 1 30); do kill -0 "$rec" 2>/dev/null || break; sleep 1; done
+    echo "LR-VIDEO $(ls -la "$out/launches.mov" 2>&1)"
+  fi
   # Every process a launch left (the daemons a quit keeps): only ones started from this run's copies.
   end_left "$out/"
   # Each case's expectation, LR-REOPENED, LR-SURFACE and LR-SURFACE-DIFF: launch-ready-summary.py.
