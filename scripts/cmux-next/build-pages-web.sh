@@ -44,7 +44,6 @@ github
 group-editor
 history
 home-channels
-home-messages
 icon-picker
 keybindings
 machines
@@ -73,7 +72,7 @@ SPLIT_STRINGS="settings home-channels"
 # pane rows they reuse): it ships the same way, as pane-locales/<locale>.js into __cmuxPaneStrings.
 SPLIT_PANE_STRINGS="home-channels"
 # Pages kept unpacked (pack-pages.mjs --keep): the first window's, and onboarding (a first launch's).
-UNPACKED_PAGES="home-channels,home-messages,sidebar-chats,setup-card,onboarding"
+UNPACKED_PAGES="home-channels,sidebar-chats,setup-card,onboarding"
 command -v bun >/dev/null 2>&1 || { echo "error: bun is required to build the pages" >&2; exit 1; }
 "$ROOT/scripts/check-webviews-bun-version.sh"
 

@@ -127,12 +127,34 @@ version = "0.1.0"
 dependencies = [
  "base64",
  "cmux-app-manifest",
+ "cmux-cloud-client",
  "cmux-cloud-wire",
  "cmux-terminal-iface",
  "getrandom 0.3.4",
  "serde",
  "serde_json",
  "sha2",
+]
+
+[[package]]
+name = "cmux-cloud-client"
+version = "0.1.0"
+dependencies = [
+ "cmux-cloud-machine",
+ "cmux-cloud-wire",
+ "cmux-lifeline",
+ "serde",
+ "serde_json",
+ "url",
+]
+
+[[package]]
+name = "cmux-cloud-machine"
+version = "0.1.0"
+dependencies = [
+ "cmux-lifeline",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -156,6 +178,13 @@ name = "cmux-embed-macros"
 version = "0.1.0"
 dependencies = [
  "zstd",
+]
+
+[[package]]
+name = "cmux-lifeline"
+version = "0.1.0"
+dependencies = [
+ "serde",
 ]
 
 [[package]]
@@ -253,6 +282,15 @@ name = "foldhash"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "77ce24cb58228fbb8aa041425bb1050850ac19177686ea6e0f41a70416f56fdb"
+
+[[package]]
+name = "form_urlencoded"
+version = "1.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cb4cb245038516f5f85277875cdaa4f7d2c9a0fa0468de06ed190163b1581fcf"
+dependencies = [
+ "percent-encoding",
+]
 
 [[package]]
 name = "fraction"
@@ -887,6 +925,18 @@ name = "unicode-ident"
 version = "1.0.26"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d245f478577f809a851594d02313b640fb437e0bb33866753cff937863096954"
+
+[[package]]
+name = "url"
+version = "2.5.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ff67a8a4397373c3ef660812acab3268222035010ab8680ec4215f38ba3d0eed"
+dependencies = [
+ "form_urlencoded",
+ "idna",
+ "percent-encoding",
+ "serde",
+]
 
 [[package]]
 name = "utf8_iter"
