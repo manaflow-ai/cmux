@@ -43,6 +43,8 @@ def run(listing, declared=None, args=()):
                           capture_output=True, text=True)
 
 
+APPSTORE = ("--phone-class", "appstore-6.9")
+
 SIZES = ("iPhone 17 Pro", "iPhone 17", "iPhone 16e", "iPhone 17 Pro Max", "iPhone SE (3rd generation)",
          "iPad Pro 11-inch (M5)")
 FLEET = {"runtimes": [runtime("26.5", "23F77", phones=SIZES)]}
@@ -84,6 +86,29 @@ class IOSSimRuntimeTest(unittest.TestCase):
         p = run({"runtimes": [runtime("26.5", "23F77", phones=("iPad Pro", "iPhone Air"))]}, "23F77")
         self.assertEqual(p.returncode, 0, p.stderr)
         self.assertEqual(p.stdout.split()[1], "com.apple.CoreSimulator.SimDeviceType.iPhone-Air")
+
+    def test_appstore_class_takes_the_69_inch_iphone(self):
+        phones = ("iPhone 17 Pro", "iPhone 16 Pro Max", "iPhone 17 Pro Max")
+        p = run({"runtimes": [runtime("26.5", "23F77", phones=phones)]}, "23F77", APPSTORE)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertEqual(p.stdout.split()[1], "com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro-Max")
+
+    def test_appstore_class_never_falls_back_to_another_size(self):
+        p = run({"runtimes": [runtime("26.5", "23F77")]}, "23F77", APPSTORE)
+        self.assertNotEqual(p.returncode, 0)
+        self.assertEqual(p.stdout, "")
+        self.assertIn("iPhone 17 Pro Max", p.stderr)
+
+    def test_unknown_argument_is_refused(self):
+        p = run(BLACKSMITH, "23F77", ("--phone-class", "6.7"))
+        self.assertNotEqual(p.returncode, 0)
+        self.assertEqual(p.stdout, "")
+
+    def test_step_script_shoots_app_store_screens_on_the_69_inch_iphone(self):
+        text = SCRIPT.read_text()
+        self.assertIn("--phone-class appstore-6.9", text)
+        self.assertIn("status_bar \"$udid\" override --time 9:41", text)
+        self.assertIn("1320x2868", text)
 
     def test_default_device_is_unchanged_without_device(self):
         p = run(FLEET, "23F77")
