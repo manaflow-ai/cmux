@@ -339,7 +339,7 @@ use socket_path::default_socket_path_in_runtime_dir;
 pub(crate) use socket_path::unix_socket_path_fits;
 pub use socket_path::{
     default_socket_path, try_default_socket_path, try_default_socket_path_in_base,
-    validate_session_name,
+    try_default_socket_path_in_base_scoped, validate_session_name,
 };
 pub(crate) mod activity;
 mod browser_input;
