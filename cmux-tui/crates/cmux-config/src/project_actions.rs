@@ -112,7 +112,7 @@ pub fn discover(start: &Path, home: Option<&Path>) -> Found {
         }
         // symlink_metadata: a link named .cmux still counts as there (and is refused on read).
         if std::fs::symlink_metadata(folder.join(PROJECT_FILE)).is_ok()
-            || std::fs::symlink_metadata(folder.join(".cmux")).is_ok_and(|m| m.is_symlink())
+            || std::fs::symlink_metadata(project_folder(folder)).is_ok_and(|m| m.is_symlink())
         {
             return Found {
                 root: Some(folder.to_path_buf()),
@@ -321,11 +321,18 @@ fn icon(value: Option<&Value>, folder: &Path) -> Option<Value> {
     }
 }
 
+/// The repository's own folder that holds [`PROJECT_FILE`] (not a cmux state
+/// root; no trailing slash, so a link there is seen, not followed).
+fn project_folder(root: &Path) -> PathBuf {
+    let file = root.join(PROJECT_FILE);
+    file.parent().unwrap_or(root).to_path_buf()
+}
+
 /// The text of the project file: a regular file, no link at it or at its
 /// `.cmux` folder, at most [`MAX_FILE_BYTES`].
 fn read_file(root: &Path, file: &Path) -> Result<String, String> {
     let folder =
-        std::fs::symlink_metadata(root.join(".cmux")).map_err(|error| error.to_string())?;
+        std::fs::symlink_metadata(project_folder(root)).map_err(|error| error.to_string())?;
     if folder.is_symlink() {
         return Err(LINK_PROBLEM.into());
     }
