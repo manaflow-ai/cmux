@@ -1681,10 +1681,16 @@ export type PreparedRow = {
   closedEnd: number;
   /// The characters the last update lexed (tests, perf).
   lexedLength: number;
+  /// The blocks the last update measured (tests, perf): the ones closed since, and the tail's.
+  measuredBlocks?: number;
   /// Measured text by its source, kept across a streaming row's versions; null where it can't be measured.
   prepared: Map<string, PreparedText | null>;
   /// A plain user row's final line height, keyed by text, font, line height and width.
   plainHeight?: { key: string; height: number };
+  /// The summed heights of the first `count` closed blocks (`last` the last of them), at the width
+  /// and metrics `key` names, and the prepared texts they read: a streaming reply measures only
+  /// the blocks that closed since and its tail, never every block again for each delta.
+  closedHeight?: { key: string; count: number; last: Token | undefined; height: number; used: Set<string> };
 };
 
 export type ConversationLayout = {
@@ -3007,13 +3013,39 @@ function trimPreparedRows(cache: Map<string, PreparedRow>): void {
   }
 }
 
-function trimPreparedCache(prepared: Map<string, PreparedText | null>, used: ReadonlySet<string>): void {
-  const limit = used.size + PREPARED_CACHE_SPARE;
+function trimPreparedCache(
+  prepared: Map<string, PreparedText | null>,
+  used: ReadonlySet<string>,
+  /// The closed blocks' prepared texts, measured once (`closedHeight`) and kept as used.
+  kept?: ReadonlySet<string>,
+): void {
+  const limit = used.size + (kept?.size ?? 0) + PREPARED_CACHE_SPARE;
   if (prepared.size <= limit) return;
   for (const key of prepared.keys()) {
     if (prepared.size <= limit) break;
-    if (!used.has(key)) prepared.delete(key);
+    if (!used.has(key) && !kept?.has(key)) prepared.delete(key);
   }
+}
+
+/// The sum of `entry`'s closed block heights in a column `width` wide: the blocks measured before
+/// at the same width and metrics count as they did, and only the ones that closed since measure.
+// perf-hot: 1ms/delta agent-chat-stream-reveal
+function closedBlocksHeight(entry: PreparedRow, width: number): { height: number; used: Set<string> } {
+  const closed = entry.closedBlocks;
+  const { lineHeight, blockCodeSize, codeLineHeight, codeCharWidth } = metrics();
+  // proseFont: a reply measures in the reply face (measuringReply), another row in the chat's.
+  const key = `${width}\n${proseFont()}\n${lineHeight}\n${blockCodeSize}\n${codeLineHeight}\n${codeCharWidth}`;
+  let kept = entry.closedHeight;
+  // The closed blocks only grow by appending; dropped (a text that is not this one's continuation),
+  // their objects are new, so the last one measured is not where it was.
+  if (!kept || kept.key !== key || kept.count > closed.length || (kept.count && closed[kept.count - 1] !== kept.last))
+    kept = { key, count: 0, last: undefined, height: 0, used: new Set() };
+  let height = kept.height;
+  entry.measuredBlocks = closed.length - kept.count;
+  for (let index = kept.count; index < closed.length; index += 1)
+    height += blockHeight(closed[index]!, width, entry.prepared, kept.used);
+  entry.closedHeight = { key, count: closed.length, last: closed.at(-1), height, used: kept.used };
+  return entry.closedHeight;
 }
 
 function textHeight(
@@ -3377,6 +3409,7 @@ function measuredRowHeight(
   const contentWidth = Math.max(80, row.kind === "user" ? userBubbleShare() * width - userBubbleSides() : width);
   const picks = row.kind === "user" && !inline && !pasted && !plainUser ? sentUIPickSegments(row.text) : undefined;
   const usedPrepared = new Set<string>();
+  let keptPrepared: Set<string> | undefined;
   // A long prompt shut on its fold draws its first lines and Show more whatever follows them
   // (collapsedPromptHeight, below): when its head is past the fold already, the head is all there
   // is to lex and measure. Measured whole, a prompt sent from a draft of thousands of lines laid
@@ -3438,11 +3471,17 @@ function measuredRowHeight(
           );
     } else {
       if (entry.blocks.length === 0) return fallbackRowHeight(row, width, beforeFooter, lastTurn, actions);
-      const blocksHeight = () =>
-        entry.blocks.reduce(
-          (sum, block) => sum + blockHeight(block, contentWidth, entry.prepared, usedPrepared),
-          (entry.blocks.length - 1) * blockGap(),
-        );
+      // `entry.blocks` is the closed blocks followed by the tail's (lexIncrementally): the closed ones
+      // are measured once each (closedBlocksHeight), the tail's every time.
+      const blocksHeight = () => {
+        const closed = closedBlocksHeight(entry, contentWidth);
+        keptPrepared = closed.used;
+        let height = (entry.blocks.length - 1) * blockGap() + closed.height;
+        for (let index = entry.closedBlocks.length; index < entry.blocks.length; index += 1)
+          height += blockHeight(entry.blocks[index]!, contentWidth, entry.prepared, usedPrepared);
+        entry.measuredBlocks! += entry.blocks.length - entry.closedBlocks.length;
+        return height;
+      };
       contentHeight = blocksHeight();
       if (lexed !== row.text && contentHeight <= foldLimit) {
         lexIncrementally(entry, (lexed = row.text));
@@ -3453,7 +3492,7 @@ function measuredRowHeight(
   // A stream changes only its tail block. Preserve prepared entries for the unchanged blocks and
   // trim stale revisions once per row, never once per token or across the transcript. `usedPrepared`
   // includes list items, whose text count can be much larger than the block count.
-  trimPreparedCache(entry.prepared, usedPrepared);
+  trimPreparedCache(entry.prepared, usedPrepared, keptPrepared);
   // A long prompt opens collapsed to its first lines over Show more (conversation/UserBubble.tsx); a
   // Chief's draws its own bubble (ChiefPromptBubble.tsx). One the reader opened (PromptText.tsx, its
   // `prompt:` disclosure) draws whole over the same line, Show less.
