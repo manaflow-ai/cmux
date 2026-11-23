@@ -15,8 +15,11 @@ from __future__ import annotations
 import json
 import os
 import pty
+import select
+import signal
 import socketserver
 import subprocess
+import sys
 import tempfile
 import threading
 import unittest
@@ -29,6 +32,32 @@ from fake_socket_env import cli_environment, unwrap_capability
 CUSTOM_TOKEN = "sk-ant-oat01-" + "C" * 40
 PATH_TOKEN = "sk-ant-oat01-" + "P" * 40
 WRAPPER_MARKER = "cmux claude wrapper - injects hooks and session tracking"
+
+
+# Stands in for a job-control shell: starts the command as a background job,
+# waits until it stops or exits, and brings a stopped job to the foreground once.
+BACKGROUND_JOB_SHELL = """
+import os, signal, sys
+signal.signal(signal.SIGTTOU, signal.SIG_IGN)
+job = os.fork()
+if job == 0:
+    os.setpgid(0, 0)
+    signal.signal(signal.SIGTTOU, signal.SIG_DFL)
+    os.execv(sys.argv[1], sys.argv[1:])
+try:
+    os.setpgid(job, job)
+except OSError:
+    pass
+print("job group", job, flush=True)
+_, status = os.waitpid(job, os.WUNTRACED)
+if os.WIFSTOPPED(status):
+    print("job stopped by signal", os.WSTOPSIG(status), flush=True)
+    os.tcsetpgrp(0, job)
+    os.killpg(job, signal.SIGCONT)
+    _, status = os.waitpid(job, 0)
+    os.tcsetpgrp(0, os.getpgrp())
+print("job exit", os.WEXITSTATUS(status) if os.WIFEXITED(status) else -1, flush=True)
+"""
 
 
 class Handler(socketserver.StreamRequestHandler):
@@ -142,6 +171,65 @@ class CoderouterSetupTokenCustomClaudeTests(unittest.TestCase):
         # hook-injecting shim; the other launch paths skip it too.
         wrapper = self.fake_claude(self.root / "wrapper", CUSTOM_TOKEN, wrapper=True)
         self.assert_token(PATH_TOKEN, custom=str(wrapper))
+
+    def test_background_start_waits_for_the_terminal_and_finishes_in_the_foreground(self) -> None:
+        # Started with `&` the command has no terminal to give `script`, which
+        # then sat stopped with nothing to continue it while the command read
+        # its output forever. It must stop like any background job that wants
+        # the terminal, and finish once the shell brings it to the foreground.
+        case_dir = Path(tempfile.mkdtemp(dir=self.root))
+        socket_path = case_dir / "cmux.sock"
+        home = case_dir / "home"
+        home.mkdir()
+        path_dir = case_dir / "path-bin"
+        self.fake_claude(path_dir, PATH_TOKEN)
+        server = Server(str(socket_path), Handler)
+        server.calls = []  # type: ignore[attr-defined]
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        env = cli_environment(socket_path, home=home)
+        env["PATH"] = f"{path_dir}:/usr/bin:/bin"
+        env.pop("CLAUDE_CODE_OAUTH_TOKEN", None)
+        env.pop("CMUX_CUSTOM_CLAUDE_PATH", None)
+        shell, controller = pty.fork()
+        if shell == 0:
+            os.execve(sys.executable, [
+                sys.executable, "-c", BACKGROUND_JOB_SHELL,
+                self.cli, "--socket", str(socket_path),
+                "coderouter", "claude", "add", "oauth-token", "--label", "work",
+            ], env)
+        shown = b""
+        finished = False
+        try:
+            while select.select([controller], [], [], 20)[0]:
+                try:
+                    chunk = os.read(controller, 4096)
+                except OSError:
+                    chunk = b""
+                if not chunk:
+                    finished = True
+                    break
+                shown += chunk
+        finally:
+            if not finished:
+                # The job is in a group of its own; ending it lets `script` go too.
+                for line in shown.decode("utf-8", "replace").splitlines():
+                    if line.startswith("job group "):
+                        os.killpg(int(line.split()[-1]), signal.SIGKILL)
+                os.kill(shell, signal.SIGKILL)
+            os.close(controller)
+            os.waitpid(shell, 0)
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=2)
+        text = shown.decode("utf-8", "replace")
+        self.assertTrue(finished, f"a background start never finished or stopped: {text!r}")
+        self.assertIn(f"job stopped by signal {int(signal.SIGTTIN)}", text)
+        self.assertIn("job exit 0", text)
+        added = [params.get("token") for method, params in server.calls  # type: ignore[attr-defined]
+                 if method == "coderouter.claude_upstream.add"]
+        self.assertEqual(added, [PATH_TOKEN], text)
+        self.assertNotIn(PATH_TOKEN, text)
 
 
 if __name__ == "__main__":
