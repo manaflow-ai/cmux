@@ -8,18 +8,31 @@ enum PagedListAnchorPick {
         var newIndex: Int
     }
 
+    /// The rows in place are the longest run that kept its order: sorted by where they were, their
+    /// new places rise along it (on a tie, the run that ends later, so a read row that may have moved
+    /// is not preferred). The first anchored row in place is kept: the row being read when it kept
+    /// its place, whatever arrived or left next to it (rows inserted right under it no longer make it
+    /// skipped); a row moved elsewhere (moveToNewest, a re-sort) is never kept.
     static func pick(_ rows: [Row]) -> Int? {
         guard !rows.isEmpty else { return nil }
-        // A row kept its place when the gap to its neighbour (the next anchored row, or the one
-        // before for the last) changed by at most max(2, the gap) and kept its sign.
-        func stable(_ i: Int) -> Bool {
-            guard rows.count > 1 else { return true }
-            let j = i + 1 < rows.count ? i + 1 : i - 1
-            let oldGap = rows[j].oldIndex - rows[i].oldIndex
-            let newGap = rows[j].newIndex - rows[i].newIndex
-            return oldGap.signum() == newGap.signum() && abs(newGap - oldGap) <= max(2, abs(oldGap))
+        let order = rows.indices.sorted { rows[$0].oldIndex < rows[$1].oldIndex }
+        var length = [Int](repeating: 1, count: order.count)
+        var before = [Int](repeating: -1, count: order.count)
+        for a in order.indices {
+            for b in 0 ..< a where rows[order[b]].newIndex < rows[order[a]].newIndex && length[b] + 1 > length[a] {
+                length[a] = length[b] + 1
+                before[a] = b
+            }
         }
-        return rows.indices.first(where: stable)
+        var end = 0
+        for a in order.indices where length[a] >= length[end] { end = a }
+        var inPlace = Set<Int>()
+        var a = end
+        while a >= 0 {
+            inPlace.insert(order[a])
+            a = before[a]
+        }
+        return rows.indices.first { inPlace.contains($0) }
     }
 }
 #endif
