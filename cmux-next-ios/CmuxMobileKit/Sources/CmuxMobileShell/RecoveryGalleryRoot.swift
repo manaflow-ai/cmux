@@ -34,6 +34,9 @@ import SwiftUI
 ///   the rows, which never move: A, top center (the one `cmuxMobileBanner` draws), in the link
 ///   states and over the signed-out banner; B, top leading; C, symbol only at the top trailing edge.
 /// - `keybar`: the terminal key row's layouts, A (the default), B and C (`TerminalKeyBarGallery`).
+/// - `lastsent`: the terminal's top strip back to the last line sent (Leo 2026-11-23: "click (tap)
+///   the top bit of the terminal in phone to jump to that last sent bit"): A, the pill the page
+///   shows; B, a full-width bar; C, the top edge alone (`TerminalLastSentGallery`).
 /// - `reconnect`: a list riding out a dropped or quiet connection to the Mac with its rows kept
 ///   (Leo 2026-11-21: no "didn't answer in time"): A, the line the Chats list shows
 ///   (`ListStatusRow`), in its three states, then the variants it was picked from, B and C.
@@ -91,6 +94,8 @@ public struct RecoveryGalleryRoot: View {
                 MacThemeGallery(variant: scene)
             case "keybar":
                 TerminalKeyBarGallery()
+            case "lastsent":
+                TerminalLastSentGallery()
             default:
                 states
             }
@@ -312,11 +317,11 @@ public struct RecoveryGalleryRoot: View {
                 }
                 if showsVariant("b") {
                     galleryLabel("B · top leading")
-                    list(.topLeading) { ConnectionChip(ConnectionBannerState.reconnecting(to: "Mac Studio").chip!) }
+                    list(.topLeading) { ConnectionChip(ConnectionBannerState.reconnecting(to: "Mac Studio").chip!, downSince: nil) }
                 }
                 if showsVariant("c") {
                     galleryLabel("C · symbol only, top trailing · Mac offline")
-                    list(.topTrailing) { ConnectionChip.SymbolOnly(ConnectionBannerState.macOffline("Mac Studio").chip!) }
+                    list(.topTrailing) { ConnectionChip.SymbolOnly(ConnectionBannerState.macOffline("Mac Studio").chip!, downSince: nil) }
                 }
             }
             .padding(.vertical, 60)

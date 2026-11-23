@@ -6,7 +6,10 @@
 // Hexclave team shares (visibility "team"), never anyone's private account.
 //
 // Off unless both CODEROUTER_CHATMUX_JWKS_URL and CODEROUTER_CHATMUX_ISSUERS
-// are set.
+// are set. Both take a comma-separated list, so one coderouter can trust
+// several signers (cmux Cloud's development and staging cmux-api keys on the
+// staging deployment, each at its own JWKS). A token is checked against the
+// key its `kid` names in any listed set; its issuer must be a listed one.
 import { createRemoteJWKSet, decodeProtectedHeader, jwtVerify, type JWTVerifyGetKey } from "jose";
 
 export const CHATMUX_VM_AUTHORIZATION_HEADER = "x-chatmux-vm-authorization";
@@ -27,19 +30,41 @@ export type ChatmuxVmClaims = {
 
 type Config = { readonly keys: JWTVerifyGetKey; readonly issuers: ReadonlyArray<string> };
 
-let remote: { url: string; keys: JWTVerifyGetKey } | null = null;
+let remote: { urls: string; keys: JWTVerifyGetKey } | null = null;
+
+/** One key resolver over several remote sets: the first set holding the token's key wins. */
+function anyOf(sets: ReadonlyArray<JWTVerifyGetKey>): JWTVerifyGetKey {
+  if (sets.length === 1) return sets[0]!;
+  return async (header, token) => {
+    let last: unknown = new Error("no JWKS configured");
+    for (const set of sets) {
+      try {
+        return await set(header, token);
+      } catch (error) {
+        last = error;
+      }
+    }
+    throw last;
+  };
+}
 
 /** The configured key set and issuers, or null when chatmux tokens are off. */
 export function chatmuxConfig(env: Record<string, string | undefined> = process.env): Config | null {
-  const url = env.CODEROUTER_CHATMUX_JWKS_URL?.trim();
-  const issuers = (env.CODEROUTER_CHATMUX_ISSUERS ?? "")
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-  if (!url || !issuers.length || !url.startsWith("https://")) return null;
-  // jose caches the set, refetches on an unknown kid, and rate-limits refetches.
-  if (remote?.url !== url) remote = { url, keys: createRemoteJWKSet(new URL(url), { cooldownDuration: 60_000 }) };
+  const urls = list(env.CODEROUTER_CHATMUX_JWKS_URL);
+  const issuers = list(env.CODEROUTER_CHATMUX_ISSUERS);
+  // Every listed address must be https: one bad entry turns the whole verifier off rather than trusting less than meant.
+  if (!urls.length || !issuers.length || !urls.every((url) => url.startsWith("https://"))) return null;
+  const key = urls.join(",");
+  // jose caches each set, refetches on an unknown kid, and rate-limits refetches.
+  if (remote?.urls !== key) {
+    const sets = urls.map((url) => createRemoteJWKSet(new URL(url), { cooldownDuration: 60_000 }));
+    remote = { urls: key, keys: anyOf(sets) };
+  }
   return { keys: remote.keys, issuers };
+}
+
+function list(value: string | undefined): string[] {
+  return [...new Set((value ?? "").split(",").map((s) => s.trim()).filter(Boolean))];
 }
 
 function identifier(value: unknown): value is string {
