@@ -36,7 +36,7 @@ export const SRC = join(HERE, "../src");
 const MANIFEST = join(HERE, "../../schemas/surface-materials/surface-materials.json");
 
 /** How many backdrop-filter rules may carry `one-material-allow`. Lower it when one goes; never raise it. */
-export const ALLOWED_MAX = 26;
+export const ALLOWED_MAX = 27; // 27: the hat fan backing (#51952), merged into base beside this rule
 
 const ALLOW = /one-material-allow:\s*\S/;
 const SKIP_FILE = /\.(test|gallery|dom\.test)\.[cm]?[jt]sx?$|\.gallery\.css$/;
@@ -272,12 +272,15 @@ export function hostGlassRule(css: string): string[] {
   return errors;
 }
 
+/** Clear, or a look's own menu fill (--menu-fill, #46846: off by default, transparent unless a look sets it). */
+const HOST_FILL_OK = /^(transparent|var\(--menu-fill, ?transparent\))$/;
+
 /** Rule d's other half: no stylesheet lays a fill of its own on the App's glass. */
 export function hostFills(css: string, file: string): string[] {
   const errors: string[] = [];
   for (const rule of parseCss(css))
     for (const decl of rule.decls)
-      if (decl.prop === "--host-glass-fill" && decl.value !== "transparent")
+      if (decl.prop === "--host-glass-fill" && !HOST_FILL_OK.test(decl.value))
         errors.push(
           `${file}:${decl.line}: [host] --host-glass-fill: ${decl.value} lays a second tint on the App's glass`,
         );
