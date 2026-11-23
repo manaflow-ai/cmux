@@ -620,3 +620,115 @@ fn a_reopen_trims_a_cache_left_over_its_cap() {
     let bytes = big_bytes();
     assert_eq!(overlay.read(big, chunk, 16).unwrap(), bytes[chunk as usize..][..16]);
 }
+
+// MARK: Pins (RFD 0007 gap 5)
+
+#[test]
+fn a_pinned_folder_reads_with_the_mac_away_and_survives_the_cap() {
+    let (state, manifest, fake) = setup(false);
+    // A cap smaller than one file: nothing unpinned stays.
+    let overlay = open(state.path(), &manifest, &fake).with_cache_max(4).with_pin_reserve(0);
+    let report = overlay.pin("src").unwrap();
+    assert_eq!(report.files, 4);
+    assert_eq!(report.bytes, 36);
+    assert_eq!(report.fetched_bytes, 36);
+    assert_eq!((report.failed, report.first_error), (0, None));
+    assert_eq!(overlay.pinned_bytes(), 36);
+    assert_eq!(overlay.cache_bytes(), 0, "pinned bytes are not the LRU's");
+    // Unpinned reads churn the LRU; the pin is never evicted.
+    overlay.read(path_ino(&overlay, "README.md"), 0, 64).unwrap();
+    overlay.read(path_ino(&overlay, "big.bin"), 0, 64).unwrap();
+    assert_eq!(overlay.pinned_bytes(), 36);
+    assert_eq!(overlay.pins(), vec!["src".to_owned()]);
+    drop(overlay);
+
+    // A new daemon with the Mac away reads every pinned file from disk, and the pin is on record.
+    let away = Arc::new(Fake { away: true, bytes: fake.bytes.clone(), ..Fake::default() });
+    let overlay = open(state.path(), &manifest, &away).with_cache_max(4);
+    assert_eq!(overlay.pins(), vec!["src".to_owned()]);
+    assert_eq!(overlay.read(path_ino(&overlay, "src/deep/d.rs"), 0, 64).unwrap(), b"fn d() {}");
+    assert_eq!(overlay.read(path_ino(&overlay, "src/a.rs"), 0, 64).unwrap(), b"fn a() {}");
+    assert_eq!(away.calls.load(Ordering::Relaxed), 0, "a pinned read asked the Mac");
+    // An unpinned file still needs the Mac.
+    assert_eq!(overlay.read(path_ino(&overlay, "README.md"), 0, 64), Err(112));
+    let again = overlay.hydrate_pins();
+    assert_eq!((again.fetched_bytes, again.failed), (0, 0), "already whole on disk");
+}
+
+#[test]
+fn a_pinned_big_file_is_fetched_by_every_chunk() {
+    let (state, manifest, fake) = setup(false);
+    let overlay = open(state.path(), &manifest, &fake).with_cache_max(1).with_pin_reserve(0);
+    let report = overlay.pin("big.bin").unwrap();
+    assert_eq!(report.fetched_bytes, BIG);
+    assert_eq!(overlay.pinned_bytes(), BIG);
+    let calls = fake.calls.load(Ordering::Relaxed);
+    let ino = path_ino(&overlay, "big.bin");
+    let tail = overlay.read(ino, BIG - 10, 10).unwrap();
+    assert_eq!(tail, big_bytes()[(BIG - 10) as usize..]);
+    assert_eq!(fake.calls.load(Ordering::Relaxed), calls, "a pinned chunk asked the Mac");
+}
+
+#[test]
+fn unpin_hands_the_bytes_to_the_lru_and_keeps_an_overlapping_pin() {
+    let (state, manifest, fake) = setup(false);
+    let overlay = open(state.path(), &manifest, &fake).with_cache_max(9).with_pin_reserve(0);
+    overlay.pin("src").unwrap();
+    overlay.pin("src/deep").unwrap();
+    assert_eq!(overlay.pinned_bytes(), 36);
+    overlay.unpin("src").unwrap();
+    // d.rs stays under src/deep; the other three go to the LRU and down to its 9-byte cap.
+    assert_eq!(overlay.pinned_bytes(), 9);
+    assert!(overlay.cache_bytes() <= 9);
+    assert_eq!(overlay.pins(), vec!["src/deep".to_owned()]);
+    assert_eq!(overlay.unpin("src"), Err(ENOENT));
+}
+
+#[test]
+fn a_pin_the_disk_cannot_hold_is_refused_before_any_fetch() {
+    let (state, manifest, fake) = setup(false);
+    let overlay = open(state.path(), &manifest, &fake).with_pin_reserve(u64::MAX / 2);
+    assert_eq!(overlay.pin(""), Err(libc::ENOSPC));
+    assert_eq!(fake.calls.load(Ordering::Relaxed), 0);
+    assert!(overlay.pins().is_empty(), "a refused pin is not recorded");
+    assert_eq!(overlay.pin("nope"), Err(ENOENT));
+    assert_eq!(overlay.pin("../etc"), Err(EINVAL));
+}
+
+#[test]
+fn a_pin_made_with_the_mac_away_holds_and_stops_at_the_first_absence() {
+    let (state, manifest, _) = setup(false);
+    let (_, _, away) = setup(true);
+    let overlay = open(state.path(), &manifest, &away).with_pin_reserve(0);
+    let report = overlay.pin("").unwrap();
+    assert_eq!(report.first_error, Some(112));
+    assert_eq!(report.failed, 1, "the walk stops at the first EHOSTDOWN");
+    assert_eq!(overlay.pins(), vec![String::new()]);
+    drop(overlay);
+    // Back online, a hydration finishes it; the root pin read back from its file.
+    let (_, _, fake) = setup(false);
+    let overlay = open(state.path(), &manifest, &fake).with_pin_reserve(0);
+    assert_eq!(overlay.pins(), vec![String::new()]);
+    let report = overlay.hydrate_pins();
+    assert_eq!((report.files, report.failed), (6, 0));
+    assert_eq!(report.fetched_bytes, report.bytes);
+}
+
+#[test]
+fn hydration_after_a_restart_keeps_the_disk_reserve() {
+    let (state, manifest, fake) = setup(false);
+    let overlay = open(state.path(), &manifest, &fake).with_pin_reserve(0);
+    let (_, _, away) = setup(true);
+    drop(overlay);
+    // Pinned with the Mac away: recorded, nothing fetched.
+    let overlay = open(state.path(), &manifest, &away).with_pin_reserve(0);
+    overlay.pin("src").unwrap();
+    drop(overlay);
+    // The disk filled since: the hydration stops with ENOSPC before asking for anything.
+    let overlay = open(state.path(), &manifest, &fake).with_pin_reserve(u64::MAX / 2);
+    let calls = fake.calls.load(Ordering::Relaxed);
+    let report = overlay.hydrate_pins();
+    assert_eq!(report.first_error, Some(libc::ENOSPC));
+    assert_eq!(report.fetched_bytes, 0);
+    assert_eq!(fake.calls.load(Ordering::Relaxed), calls);
+}
