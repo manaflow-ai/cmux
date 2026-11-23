@@ -30,6 +30,7 @@ pub(super) const CMUX_SCOPES: &[&str] = &[
     "space",
     "closed",
     "git",
+    "project",
 ];
 
 /// Which command-line surface this invocation exposes. The binary ships as
