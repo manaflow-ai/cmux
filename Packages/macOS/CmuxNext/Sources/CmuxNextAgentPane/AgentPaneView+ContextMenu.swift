@@ -67,6 +67,8 @@ final class AgentPaneWKWebView: WKWebView {
     override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
         menuAutoFill.menuWillOpen()
         contextMenuEditor?(menu)
+        // The chat's rows are cmux's: no "Ask Siri" field, Services or Writing Tools from AppKit.
+        menu.withoutSystemItems()
         super.willOpenMenu(menu, with: event)
     }
 
