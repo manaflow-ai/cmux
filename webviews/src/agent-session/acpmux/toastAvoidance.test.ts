@@ -165,7 +165,7 @@ describe("toast avoidance", () => {
   });
 
   test("the page's handshake resends the toast box once the host answers", () => {
-    const app = readFileSync(join(import.meta.dir, "App.tsx"), "utf8");
+    const app = readFileSync(join(import.meta.dir, "pane/paneSnapshot.ts"), "utf8");
     expect(app).toMatch(
       />\("ready", reconnect \? \{ reconnect \} : \{\}\)\s*(\/\/[^\n]*\s*)?\.finally\(resendToastAvoidance\)/,
     );

@@ -13,8 +13,6 @@ cmux-mobile-ffi.yml: rust: Cache cargo
 cmux-next-daemon-macos-shadow.yml: cmux-next-daemon-macos-shadow: Cache cargo build
 cmux-next-daemon-macos-shadow.yml: cmux-next-daemon-macos-shadow: Cache the verified Zig tarball
 cmux-next-degenerate-lab.yml: lab: Save tonight's marker
-cmux-next-fast-gates.yml: fast-gates: Cache Bun package cache
-cmux-next-fast-gates.yml: fast-gates: Cache the pinned lint tools
 cmux-next-ios-kit.yml: kit-tests: Cache cargo
 cmux-next-notices.yml: notices: Restore the crate source cache
 cmux-next-perf-budgets.yml: blacksmith-mac: Save the warm cache
@@ -24,8 +22,6 @@ cmux-next-skew-matrix.yml: skew-matrix: Cache cargo build
 cmux-next-web-lint.yml: web-lint: Cache Bun package cache
 cmux-next-web-perf.yml: measure: Cache Bun package cache
 cmux-next-web.yml: coalesce: Record this push as the last covered one
-cmux-next-web.yml: web-bisect: Cache Bun package cache
-cmux-next-web.yml: web-bisect: Cache Playwright browsers
 cmux-next.yml: cmux-scheme-compile: Save the DEV compile cache (Blacksmith)
 cmux-next.yml: web-bundles: Cache the web bundles under this source key
 cmux-next.yml: web-bundles: Cache the webviews Bun package cache

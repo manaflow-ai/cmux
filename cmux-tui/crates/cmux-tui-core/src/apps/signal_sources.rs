@@ -345,7 +345,7 @@ impl Supervisor {
                 let name = source.name.clone();
                 self.timers.schedule(after, move || {
                     if let Some(me) = me.upgrade() {
-                        me.signal_due(&name);
+                        me.signal_source_due(&name);
                     }
                 });
             }
@@ -356,7 +356,7 @@ impl Supervisor {
     }
 
     /// A floored tell is due: readers hear the source's kept value, if it is still declared.
-    fn signal_due(&self, name: &str) {
+    fn signal_source_due(&self, name: &str) {
         let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
         if !inner.signal_sources.due(name, Instant::now()) {
             return;
