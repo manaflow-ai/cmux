@@ -2702,14 +2702,30 @@ button.cv-subagent > :last-child {
   display: inline-flex;
   line-height: 0;
   border-radius: 999px;
-  /* A thin ring of the hat's own glass between overlapping icons, so each reads as its own. */
-  box-shadow: 0 0 0 1.5px var(--acpmux-hat-face-ring, color-mix(in srgb, var(--agent-bg, Canvas) 85%, transparent));
+  /* No painted ring: the page colour was a dark outline on the hat's lighter glass (Leo, 2026-11-23:
+     "claude icon has a black outline!?"). Where the next icon overlaps, this one is cut a ring out
+     under it instead (the mask, as SenderIcon.tsx cuts under its badge), so it shows the glass
+     behind on any theme. The mask reaches --hat-face-pad past the icon so its badge still hangs out. */
   transition:
     left var(--agent-motion-move, 180ms) var(--agent-ease-out, ease-out),
     transform var(--cmux-motion-quick) var(--agent-ease-out, ease-out);
 }
 .acpmux-hat-face svg {
   display: block;
+}
+.acpmux-hat-face:not(:last-child) {
+  --hat-face-pad: 8px;
+  --hat-face-gap: var(--hat-face-step);
+  /* The next icon's centre, in the mask's own box (the pad out from the icon's). */
+  --hat-face-cut: radial-gradient(
+    circle at calc(var(--hat-face-pad) + var(--hat-face-gap) + var(--hat-face-size) / 2)
+      calc(var(--hat-face-pad) + var(--hat-face-size) / 2),
+    transparent calc(var(--hat-face-size) / 2 + 1.5px),
+    #000 calc(var(--hat-face-size) / 2 + 2px)
+  );
+  mask: var(--hat-face-cut) calc(-1 * var(--hat-face-pad)) calc(-1 * var(--hat-face-pad)) /
+    calc(100% + 2 * var(--hat-face-pad)) calc(100% + 2 * var(--hat-face-pad)) no-repeat;
+  mask-clip: no-clip;
 }
 /* What ended reads quieter than what runs; the tooltip says which state. 80% keeps an icon's 3:1: a tone
    or muted ink fit at 4.5:1 reads 3.1-3.3:1 at 80%, and read 2.2-2.7:1 at 55% (control-contrast-2: Light's
@@ -2735,6 +2751,7 @@ button.cv-subagent > :last-child {
    header (the row keeps its resting width, so nothing beside it moves). */
 .acpmux-hat-faces[data-hat-faces="fan"]:hover .acpmux-hat-face {
   left: calc(var(--hat-face-index) * var(--hat-face-open-step));
+  --hat-face-gap: var(--hat-face-open-step);
 }
 .acpmux-hat-faces[data-hat-faces="fan"] .acpmux-hat-faces__row {
   z-index: var(--layer-raised);

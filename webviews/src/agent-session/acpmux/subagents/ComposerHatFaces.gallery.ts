@@ -111,6 +111,12 @@ function variant(count: number, note: string) {
     play: async (ctx: PlayContext) => {
       await ctx.waitFor(() => head(ctx));
       const before = wordsLeft(ctx);
+      // No face paints a ring of its own: the page colour was a black outline on the hat's glass
+      // (Leo, 2026-11-23). Overlaps are cut out of the face under, which no theme can colour.
+      for (const face of faces(ctx)) {
+        const ring = getComputedStyle(face).boxShadow;
+        if (ring !== "none") throw new Error(`a hat icon paints a ring: ${ring}`);
+      }
       await scrub(ctx);
       const after = wordsLeft(ctx);
       if (Math.abs(after - before) > 0.5) throw new Error(`the header's words moved ${after - before}px on hover`);
