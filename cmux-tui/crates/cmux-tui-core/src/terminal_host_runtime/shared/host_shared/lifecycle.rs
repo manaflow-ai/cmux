@@ -4,6 +4,11 @@
 use super::*;
 use crate::panic_free::RecoverPoison;
 
+/// How often a publisher thread that could not start is tried again within
+/// one request, and the pause between tries (50 ms in all).
+const EXIT_PUBLISHER_START_ATTEMPTS: u32 = 5;
+const EXIT_PUBLISHER_START_RETRY: Duration = Duration::from_millis(10);
+
 impl HostShared {
     pub(crate) fn child_exited(&self) -> bool {
         self.child_exit.0.lock().recover_poison().is_some()
@@ -112,21 +117,75 @@ impl HostShared {
     }
 
     pub(crate) fn publish_exit_if_drained(&self) {
+        // A running program has no exit to publish, and its host no
+        // publisher thread: the child thread asks again once it has stored
+        // the exit, and that request starts the thread.
+        if !self.child_exit_may_be_known() {
+            return;
+        }
+        self.ensure_exit_publisher();
         // Persistence can block or retry under filesystem pressure. A
         // dedicated host-owned worker keeps snapshots, client input, and
         // the listener accept loop independent of that durable write.
         let _ = self.exit_publish_requests.send(());
     }
 
+    /// Whether the child's exit is stored. Also true while the exit's lock
+    /// is held: the child thread asks for publication holding it, right
+    /// after storing the exit, and a wrong yes only starts the publisher
+    /// early. A no is read under the lock, so the store that follows it is
+    /// followed by a request that sees every flag set before this call.
+    fn child_exit_may_be_known(&self) -> bool {
+        match self.child_exit.0.try_lock() {
+            Ok(exit) => exit.is_some(),
+            Err(std::sync::TryLockError::Poisoned(exit)) => exit.into_inner().is_some(),
+            Err(std::sync::TryLockError::WouldBlock) => true,
+        }
+    }
+
+    /// Arms the exit publisher. Its thread (`terminal-host-exit`) starts with
+    /// the first request that has an exit to publish
+    /// ([`Self::publish_exit_if_drained`]): a host whose program runs keeps
+    /// no thread parked for the one write of its life.
     pub(crate) fn start_exit_publisher(
         host: &Arc<Self>,
         requests: Receiver<()>,
     ) -> std::io::Result<()> {
-        let host = Arc::downgrade(host);
-        thread::Builder::new()
-            .name("terminal-host-exit".into())
-            .spawn(move || Self::run_exit_publisher(host, requests))
-            .map(|_| ())
+        *host.exit_publisher.lock().recover_poison() = Some((Arc::downgrade(host), requests));
+        Ok(())
+    }
+
+    /// Starts the armed publisher's thread, once. A start that fails keeps
+    /// the publisher armed, and the request queued behind it, for the next
+    /// request.
+    fn ensure_exit_publisher(&self) {
+        let mut armed = self.exit_publisher.lock().recover_poison();
+        if armed.is_none() {
+            return;
+        }
+        // The thread takes the receiver from this slot, so it is still here
+        // when the thread could not start.
+        let slot = Arc::new(Mutex::new(armed.take()));
+        for attempt in 0..EXIT_PUBLISHER_START_ATTEMPTS {
+            let thread_slot = slot.clone();
+            let spawned =
+                thread::Builder::new().name("terminal-host-exit".into()).spawn(move || {
+                    let taken = thread_slot.lock().recover_poison().take();
+                    if let Some((host, requests)) = taken {
+                        Self::run_exit_publisher(host, requests);
+                    }
+                });
+            match spawned {
+                Ok(_) => return,
+                Err(error) if attempt + 1 == EXIT_PUBLISHER_START_ATTEMPTS => {
+                    eprintln!(
+                        "terminal-host: the exit publisher did not start; the next request starts it: {error}"
+                    );
+                }
+                Err(_) => thread::sleep(EXIT_PUBLISHER_START_RETRY),
+            }
+        }
+        *armed = slot.lock().recover_poison().take();
     }
 
     pub(crate) fn run_exit_publisher(weak_host: Weak<Self>, requests: Receiver<()>) {
