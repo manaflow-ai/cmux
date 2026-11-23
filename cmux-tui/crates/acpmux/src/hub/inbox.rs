@@ -287,6 +287,9 @@ pub struct Inbox {
     /// The messages [`trim`] let go of (read, noticed and answered): a resend of one answers from
     /// the log (`logged_inbox`), never puts it back.
     pub(super) trimmed: std::collections::HashSet<String>,
+    /// The threads whose surge-held messages [`trim`] let go of. Those stay whole in the log
+    /// (`persist_surge_event`), so a thread read (`inbox_thread_whole`) reads them from there.
+    pub(super) held_evicted: std::collections::HashSet<String>,
     /// Woken when a notice is written or ends, or the chat closes: a withdraw waits on it for
     /// a notice that carries its message and is not written yet (`inbox_settled`).
     pub(super) settled: Arc<tokio::sync::Notify>,
@@ -2610,7 +2613,9 @@ fn trim(inbox: &mut Inbox) {
             Some(i) => {
                 let item = inbox.items.remove(i);
                 // The archive reader and resend ledger still resolve an evicted held post.
-                if !item.surge_held {
+                if item.surge_held {
+                    inbox.held_evicted.insert(item.thread);
+                } else {
                     inbox.trimmed.insert(item.prompt_id);
                 }
             }
