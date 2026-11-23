@@ -89,7 +89,7 @@ extension SidebarViewComponents {
          newButton, newWorkspaceOptionsButton, searchButton] + [liveModeBadge, editBar].compactMap { $0 }
     }
 
-    /// Every other view in the sidebar: the cards, the card stack, app health's line, the Update Available button,
+    /// Every other view in the sidebar: the cards, the card stack, the Update Available button,
     /// the Priority bell, the titlebar accessory, the needs-you tray. They fade together with ``SidebarChromeReveal/rest``
     /// (Minimal Mode, the pointer away). A rule over the sidebar's subviews, not a list of cards: a view added later
     /// hides by default.

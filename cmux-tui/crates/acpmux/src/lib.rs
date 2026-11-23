@@ -42,6 +42,7 @@ pub mod bg_run;
 pub(crate) mod bounded_child;
 pub mod build_info;
 pub mod byo_endpoint;
+pub mod caller_stats;
 pub mod capabilities;
 pub mod catalog;
 pub mod chat_fork;
@@ -150,6 +151,9 @@ pub mod idempotency;
 #[cfg(windows)]
 mod job;
 mod joined_model_plane;
+/// `cmux github` and the GitHub MCP bridge on a joined machine ask its hub (`joined_model_plane`).
+#[cfg(unix)]
+pub use joined_model_plane::install_github_source;
 pub mod launch_credential;
 pub mod launch_policy;
 pub mod left_on_mac;
@@ -183,6 +187,7 @@ pub mod mcp_gateway;
 pub mod mcp_hint;
 pub mod mesh;
 pub mod mesh_control;
+pub mod mesh_gate;
 pub mod mesh_http;
 pub mod mesh_node_key;
 pub mod mesh_relay_config;
@@ -304,6 +309,7 @@ mod single_shot_list_tests;
 mod source_scan_smoke;
 pub mod sr2_cost_labels;
 pub(crate) mod ssh_forward;
+pub(crate) mod ssh_forward_owners;
 pub mod stats;
 pub(crate) mod stderr;
 pub mod store;
