@@ -113,17 +113,30 @@ import UIKit
         window.rootViewController = host
         window.isHidden = false
         ChatTranscriptSourceTests.settle(window)
+        // Until the off-main layouts have landed (no more for a few passes).
+        var made = -1
+        var still = 0
+        for _ in 0..<200 where still < 4 {
+            ChatTranscriptSourceTests.settle(window)
+            if host.list.layoutsMadeOffMain == made { still += 1 } else { still = 0 }
+            made = host.list.layoutsMadeOffMain
+        }
         return (host, window)
     }
 
-    /// Opening weighs each row once (compared, estimated, given its layout item), not once for
-    /// the list made without a width and again when the width comes.
+    /// Opening weighs each row once (compared, estimated, given its layout item), and a row
+    /// whose native layout lands off the main thread once more: not every row for the list made
+    /// without a width, again when the width comes, and again for each landing of its turn.
     @Test func openingALongTranscriptWeighsEachRowOnce() {
         let store = Self.finishedLongStore()
         let (host, _) = Self.open(store)
         let rows = host.list.layout.items.count
+        let landed = host.list.layoutsMadeOffMain
         #expect(rows > 1000)
-        #expect(host.list.rowsWeighed <= rows + rows / 10, "opening weighed \(host.list.rowsWeighed) rows for \(rows) rows")
+        #expect(landed > 0, "the off-main layouts landed")
+        let bar = rows + landed + 8
+        #expect(host.list.rowsWeighed <= bar,
+                "opening weighed \(host.list.rowsWeighed) rows (\(String(format: "%.1f", Double(host.list.rowsWeighed) / Double(max(rows, 1))))× its \(rows) rows; bar \(bar) = rows + \(landed) landed + 8)")
     }
 
     /// A finished transcript opens at its top: the rows laid out on the main thread are the
