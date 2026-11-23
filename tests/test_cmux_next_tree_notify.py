@@ -1110,13 +1110,15 @@ class NotifyNeverLost(unittest.TestCase):
                 record = json.load(handle)
             self.assertEqual((record["key"], record["state"]), (KEY, "ready"))
             self.assertIn("HTTP 403", record["why"])
-            # a failed state writes no record: its markers wait for a publication of the key
+            # a failed state is recorded too (DEFERRED_TREE_HAS_A_FILLER, cmux#51086): its sweep re-runs the
+            # unpublished run once, else reports the tiers red
             failed = os.path.join(tmp, "f", "pending.json")
             offline = unittest.mock.patch.object(notify.deadline_http, "request", side_effect=OSError("offline"))
             with unittest.mock.patch.object(notify, "GitHub", Refused), unittest.mock.patch.dict(os.environ, env), \
                     offline:
                 notify.main(["--repo", "o/r", "--key", KEY, "--state", "failed", "--pending-file", failed])
-            self.assertFalse(os.path.exists(failed))
+            with open(failed) as handle:
+                self.assertEqual(json.load(handle)["state"], "failed")
 
     def test_one_marker_left_by_a_refused_dispatch_is_unstarted(self):
         api = FakeApi([pr_marker()], refuse_refs=("lane/x", "feat-cmux-next"))
@@ -1154,8 +1156,8 @@ class NotifyNeverLost(unittest.TestCase):
         self.assertEqual(notify.sweep_pending(api, "o/r", log=lambda _l: None, fetch_completion=lambda key: None),
                          [KEY])
         self.assertEqual(api.dispatched, [])
-        # a fork's record, and a record that is not a ready one: never read as a notify
-        api = PendingApi([pr_marker()], [(500, pending_zip(), FORK_RUN), (501, pending_zip(state="failed"), None)])
+        # a fork's record, and a record that is neither a ready nor a failed one: never read as a notify
+        api = PendingApi([pr_marker()], [(500, pending_zip(), FORK_RUN), (501, pending_zip(state="other"), None)])
         self.assertEqual(notify.sweep_pending(api, "o/r", log=lambda _l: None,
                                               fetch_completion=lambda key: completion_json(key)), [])
         self.assertEqual((api.dispatched, api.deleted), ([], []))

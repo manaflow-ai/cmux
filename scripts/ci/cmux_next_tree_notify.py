@@ -707,6 +707,51 @@ def notify(api: Api, *, repo: str, key: str, state: str, reason: str,
     return dispatched
 
 
+# DEFERRED_TREE_HAS_A_FILLER (cmux#51086): a deferred same-tree status needs a live run that will fill it. When the
+# artifacts run it deferred to ended without publishing, that run is re-run (its failed and cancelled jobs) while it
+# is below this attempt, so a live publisher exists again; past it, or when the re-run is refused, the failed notify
+# reports the tiers red. cmux_tui_tree_handoff.MAX_ATTEMPT bounds the hand-off's re-runs the same way.
+REFILL_MAX_ATTEMPT = 3
+ARTIFACTS_WORKFLOW = ".github/workflows/cmux-tui-artifacts.yml"
+UNPUBLISHED = ("failure", "cancelled", "timed_out", "startup_failure")
+
+
+def refill(api: Api, *, repo: str, key: str, run_id: int, reason: str, log: Callable[[str], None] = print,
+           make: Callable[..., int] | None = None, fetch_completion: Callable[[str], object | None] = fetch_completion,
+           unstarted: list | None = None) -> str:
+    """Give tree KEY's deferred same-tree tiers a run that fills them; returns what it did: "published" (the tree
+    is published: the ready notify started the tree jobs), "live" (RUN_ID has not ended), "rerun" (RUN_ID ended
+    unpublished and was re-run) or "reported" (the failed notify reported the tiers red, or a takeover took it)."""
+    make = make or notify
+    if completion_attests(fetch_completion(key), key):
+        make(api, repo=repo, key=key, state="ready", log=log, unstarted=unstarted,
+             reason=f"tree {key} is published ({TREE_BASE}/{key}/completion.json)")
+        return "published"
+    if run_id:
+        run = api.get(f"repos/{repo}/actions/runs/{run_id}")
+        attempt = int(run.get("run_attempt") or 1)
+        if run.get("status") in OPEN:
+            log(f"tree {key}: artifacts run {run_id} (attempt {attempt}) is still {run.get('status')}; its end "
+                f"fills the same-tree tiers")
+            return "live"
+        if (run.get("path") == ARTIFACTS_WORKFLOW and run.get("conclusion") in UNPUBLISHED
+                and attempt < REFILL_MAX_ATTEMPT):
+            status = api.post(f"repos/{repo}/actions/runs/{run_id}/rerun-failed-jobs", {})
+            if status in (201, 204):
+                log(f"::notice title=tree publisher re-run::tree {key}: artifacts run {run_id} ended "
+                    f"{run.get('conclusion')} without publishing it; its failed jobs were re-run (attempt "
+                    f"{attempt + 1}), and its publish starts the same-tree tiers")
+                return "rerun"
+            log(f"::warning::tree {key}: re-running artifacts run {run_id} was refused (HTTP {status})")
+            if status in (403, 429):
+                raise RuntimeError(f"POST actions/runs/{run_id}/rerun-failed-jobs: HTTP {status}")
+        else:
+            log(f"tree {key}: artifacts run {run_id} ended {run.get('conclusion')} at attempt {attempt}; not re-run "
+                f"(only a {ARTIFACTS_WORKFLOW} run below attempt {REFILL_MAX_ATTEMPT} is)")
+    make(api, repo=repo, key=key, state="failed", reason=reason, log=log, unstarted=unstarted)
+    return "reported"
+
+
 # NOTIFY_NEVER_LOST (lw#5184): a ready notify that GitHub refused, whole or for one marker, leaves its key in an
 # artifact of this name (pending.json: {"key", "state"}); artifact uploads spend no REST quota. Every
 # feat-cmux-next push's sweep-pending-tree-notify job reads the artifacts
@@ -719,12 +764,22 @@ PENDING_ARTIFACT = "cmux-next-tree-notify-pending"
 PENDING_SWEEP_ARTIFACT = "cmux-next-tree-notify-pending-sweep"
 
 
-def write_pending(path: str, keys: str | list[str], state: str, why: str) -> None:
-    """Writes the pending record of KEYS (one tree key or several: a sweep records again every key it claimed)."""
+def write_pending(path: str, keys: str | list[str], state: str, why: str, reason: str = "", run_id: int = 0,
+                  failed: dict[str, dict] | None = None) -> None:
+    """Writes the pending record of KEYS (one tree key or several: a sweep records again every key it claimed).
+    A failed record (DEFERRED_TREE_HAS_A_FILLER) also keeps the failed notify's REASON and the artifacts run
+    that ended without publishing (RUN_ID), which the sweep re-runs once before it reports the tiers red. A
+    sweep's record of several keys names its failed ones in FAILED ({key: {"reason", "run_id"}})."""
     keys = [keys] if isinstance(keys, str) else list(keys)
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    record: dict = {"key": keys[0], "keys": keys, "state": state, "why": why[:500]}
+    if state == "failed":
+        record.update(reason=reason[:900], run_id=int(run_id or 0))
+    if failed:
+        record["failed"] = {key: {"reason": str(value.get("reason", ""))[:900], "run_id": int(value.get("run_id") or 0)}
+                            for key, value in failed.items() if key in keys}
     with open(path, "w", encoding="utf-8") as handle:
-        json.dump({"key": keys[0], "keys": keys, "state": state, "why": why[:500]}, handle)
+        json.dump(record, handle)
 
 
 def read_pending(api: Api, artifact: dict) -> dict | None:
@@ -734,18 +789,31 @@ def read_pending(api: Api, artifact: dict) -> dict | None:
             record = json.loads(archive.read("pending.json"))
     except (KeyError, ValueError, zipfile.BadZipFile, RuntimeError, OSError):
         return None
-    if not isinstance(record, dict) or record.get("state") != "ready":
+    if not isinstance(record, dict) or record.get("state") not in ("ready", "failed"):
+        return None
+    if record["state"] == "failed" and not (isinstance(record.get("run_id", 0), int)
+                                            and isinstance(record.get("reason", ""), str)):
         return None
     keys = record.get("keys", [record.get("key")])
     if not isinstance(keys, list) or not keys or len(keys) > MAX_MARKERS or not all(SHA.match(str(key)) for key in keys):
         return None
-    return dict(record, keys=list(dict.fromkeys(keys)))
+    # The keys whose failed notify GitHub refused, each with its reason and run (DEFERRED_TREE_HAS_A_FILLER).
+    failed: dict[str, dict] = {}
+    if record["state"] == "failed":
+        failed = {key: {"reason": record.get("reason", ""), "run_id": record.get("run_id", 0)} for key in keys}
+    extra = record.get("failed", {})
+    if isinstance(extra, dict):
+        for key, value in extra.items():
+            if key in keys and isinstance(value, dict) and isinstance(value.get("run_id", 0), int):
+                failed[key] = {"reason": str(value.get("reason", "")), "run_id": value.get("run_id", 0)}
+    return dict(record, keys=list(dict.fromkeys(keys)), failed=failed)
 
 
 def sweep_pending(api: Api, repo: str, log: Callable[[str], None] = print,
                   fetch_completion: Callable[[str], object | None] = fetch_completion,
                   make: Callable[..., int] | None = None,
-                  record: Callable[[list[str]], None] | None = None) -> list[str]:
+                  record: Callable[[list[str]], None] | None = None,
+                  failed_out: dict[str, dict] | None = None) -> list[str]:
     """Make again every ready notify a refused publish left (PENDING_ARTIFACT, and PENDING_SWEEP_ARTIFACT that a
     sweep wrote again); returns the keys still pending. Only a same-repository run's record counts, and only for
     a tree whose completion.json is published: a record starts nothing a publish would not.
@@ -765,6 +833,10 @@ def sweep_pending(api: Api, repo: str, log: Callable[[str], None] = print,
     make = make or notify
     records: dict[str, list[dict]] = {}
     keys_of: dict[int, list[str]] = {}
+    # DEFERRED_TREE_HAS_A_FILLER: a failed notify GitHub refused (its key, reason and unpublished run).
+    # main()'s record callback carries the dict it writes failed keys from (record.failed_out).
+    failed_out = failed_out if failed_out is not None else getattr(record, "failed_out", None)
+    failed_of: dict[str, dict] = {} if failed_out is None else failed_out
     for name in (PENDING_ARTIFACT, PENDING_SWEEP_ARTIFACT):
         listing = api.get(f"repos/{repo}/actions/artifacts?name={name}&per_page=100")
         for artifact in listing.get("artifacts", []) if isinstance(listing, dict) else []:
@@ -777,10 +849,14 @@ def sweep_pending(api: Api, repo: str, log: Callable[[str], None] = print,
             keys_of[id(artifact)] = read["keys"]
             for key in read["keys"]:
                 records.setdefault(key, []).append(artifact)
+                if key in read["failed"]:
+                    failed_of.setdefault(key, read["failed"][key])
     left: list[str] = []
     attested = {key for key in records if completion_attests(fetch_completion(key), key)}
+    # A published key makes its ready notify; an unpublished one with a failed record gets a filler (refill).
+    actionable = attested | set(failed_of)
     for key in records:
-        if key not in attested:
+        if key not in actionable:
             log(f"tree {key}: pending, but its completion.json does not attest it; left for a later sweep")
             left.append(key)
     # The claim: delete every record of each attested key. deleted = records whose DELETE may have gone through.
@@ -795,7 +871,7 @@ def sweep_pending(api: Api, repo: str, log: Callable[[str], None] = print,
     # Inside the try: an error of any kind partway through the claim (a later DELETE's
     # http.client.IncompleteRead, say) still records every record already deleted (finally).
     try:
-        for key in [key for key in records if key in attested]:
+        for key in [key for key in records if key in actionable]:
             for artifact in records[key]:
                 if id(artifact) in claimed or id(artifact) in lost or id(artifact) in deleted:
                     continue
@@ -814,13 +890,13 @@ def sweep_pending(api: Api, repo: str, log: Callable[[str], None] = print,
                 else:
                     log(f"::warning::deleting pending record {artifact.get('id')} was refused (HTTP {status}); "
                         f"it stays for a later sweep")
-        mine = [key for key in records if key in attested and all(id(a) in claimed for a in records[key])]
+        mine = [key for key in records if key in actionable and all(id(a) in claimed for a in records[key])]
         if deleted and record is not None:
             record(unfinished())
         elif deleted:
             log(f"::warning::no --pending-file: the claimed notifies {', '.join(unfinished())} are not recorded again")
         for key in records:
-            if key not in attested:
+            if key not in actionable:
                 continue
             if key not in mine:
                 if any(id(artifact) in lost for artifact in records[key]):
@@ -829,9 +905,16 @@ def sweep_pending(api: Api, repo: str, log: Callable[[str], None] = print,
                 continue
             unstarted: list = []
             try:
-                started = make(api, repo=repo, key=key, state="ready", log=log, unstarted=unstarted,
-                               reason=f"tree {key} is published ({TREE_BASE}/{key}/completion.json); its publish's "
-                                      f"notify was refused, and the feat-cmux-next sweep made it again")
+                if key in attested:
+                    started = make(api, repo=repo, key=key, state="ready", log=log, unstarted=unstarted,
+                                   reason=f"tree {key} is published ({TREE_BASE}/{key}/completion.json); its "
+                                          f"publish's notify was refused, and the feat-cmux-next sweep made it again")
+                else:
+                    failed = failed_of[key]
+                    started = refill(api, repo=repo, key=key, run_id=failed.get("run_id", 0), log=log, make=make,
+                                     unstarted=unstarted, fetch_completion=lambda _key: None,
+                                     reason=failed.get("reason") or f"tree {key}: its artifacts run ended without "
+                                                                     f"publishing it, and its notify was refused")
             except (RuntimeError, OSError, ValueError) as error:
                 log(f"::warning::tree {key}: the pending notify was refused again ({error}); recorded again")
                 left.append(key)
@@ -847,7 +930,7 @@ def sweep_pending(api: Api, repo: str, log: Callable[[str], None] = print,
             record(unfinished())
     # A key another sweep owns is not reported as pending here: its records (or theirs) still name it.
     return [key for key in dict.fromkeys(left)
-            if key not in attested or key in unfinished() or not any(id(a) in lost for a in records[key])]
+            if key not in actionable or key in unfinished() or not any(id(a) in lost for a in records[key])]
 
 
 def main(argv: list[str]) -> int:
@@ -867,14 +950,20 @@ def main(argv: list[str]) -> int:
         return 1 if args.sweep_pending else 0
     api = GitHub(token, os.environ.get("GITHUB_API_URL", "https://api.github.com"), os.environ.get("GH_TOKEN_SPARE", ""))
     if args.sweep_pending:
+        sweep_failed: dict[str, dict] = {}
+
         def record(keys: list[str]) -> None:
             if not args.pending_file:
                 return
             if keys:
-                write_pending(args.pending_file, keys, "ready", "the sweep claimed it and could not finish")
+                # A failed record keeps its state, reason and run: a ready record of an unpublished key starts
+                # nothing (DEFERRED_TREE_HAS_A_FILLER).
+                write_pending(args.pending_file, keys, "ready", "the sweep claimed it and could not finish",
+                              failed=sweep_failed)
             elif os.path.exists(args.pending_file):
                 os.remove(args.pending_file)
         try:
+            record.failed_out = sweep_failed  # type: ignore[attr-defined]
             left = sweep_pending(api, args.repo, record=record)
         except (RuntimeError, OSError, ValueError) as error:
             print(f"::error title=tree notify sweep::could not read the pending notifies: {error}")
@@ -889,10 +978,15 @@ def main(argv: list[str]) -> int:
         return 0
 
     def pending(why: str) -> None:
-        if args.pending_file and args.state == "ready":
-            write_pending(args.pending_file, args.key, args.state, why)
+        # DEFERRED_TREE_HAS_A_FILLER (cmux#51086): a failed notify is recorded too. Run 45060021944's was refused
+        # (HTTP 403, the spent quota), only warned, and cmux#50471's same-tree status never posted. Its sweep
+        # re-runs the unpublished run once (refill), else reports the tiers red.
+        if args.pending_file:
+            own = os.environ.get("GITHUB_RUN_ID", "")
+            write_pending(args.pending_file, args.key, args.state, why, reason=args.reason,
+                          run_id=int(own) if own.isdigit() else 0)
             print(f"::warning title=tree notify pending::tree {args.key}: {why}; recorded as {PENDING_ARTIFACT}, "
-                  f"and the next feat-cmux-next push's sweep makes the notify again")
+                  f"and the next sweep makes the notify again")
     try:
         # This script runs inside the artifacts run that reports: that run is no publisher to wait on.
         own_run = os.environ.get("GITHUB_RUN_ID", "")

@@ -4935,3 +4935,35 @@ lan_cache_fetch.py's own bound is 5,420 s, longer than the 60-minute jobs that r
 ("LAN cache host unavailable (...: stalled)"), and the direct download then took 9 more: restores of
 1,289-1,600 s, in jobs cancelled at the 60-minute limit while still building CmuxNext. A healthy host
 serves the 3.6 GB seed in about 40 s, or 343 s when it first fills it from the bucket (wait 304 s).
+
+## note-553
+
+Above `- name: Wait until the pull request has had no push for the quiet period` in `.github/workflows/cmux-next.yml`.
+
+The PR quiet period: a step here, not a job of its own (until 2026-11-21 the pr-quiet-period job took a
+runner for the sleep on every pull request run, 1.64% of pull request runner-minutes over 11-13..19 with no
+verdict of its own: cmuxterm-hq#16094). Only the Mac jobs wait for it (Leo, 2026-11-08) and every one of them
+follows this job, so the Linux jobs still start at once, a change that reaches no Mac tier sleeps on no
+runner, and the routing before this job counts toward the wait. See also note-1.
+
+## note-554
+
+Above `out="$RUNNER_TEMP/generated/files"` in `.github/workflows/cmux-next.yml` (three jobs).
+
+The regenerated files themselves, at their repository paths, so they copy onto the PR head. A diff would
+be against the merge commit, whose context the head may not have.
+
+
+## note-555
+
+Above `same-tree-refill:` in `.github/workflows/cmux-next.yml`.
+
+DEFERRED_TREE_HAS_A_FILLER (cmux#51086). A pull request's daemon and scheme tiers wait on the publisher of
+their cmux-tui tree (the wait marker). On 2026-11-22 cmux#50471 (0d0b49cc, tree ca63fe36) deferred to run
+45060021944 while the rate limit hid its state; that run hung in a download, was cancelled, and its failed
+notify was refused on the spent quota, so nothing filled the pull request's `(same-tree)` status, and every
+re-run of the pull request's run deferred to it again. When the probe could not read the publisher
+(rate-limited) or read that it ended without publishing, it writes `tree_refill=1`, and this job of the pull
+request's own run takes the tier: it waits out the rate limit (up to an hour, on Linux), then starts the
+tree jobs (published), leaves a live publisher to finish, re-runs a publisher that ended unpublished once
+(attempt 3 is its last), or reports the tiers red. `scripts/ci/cmux_next_tree_refill.py`.

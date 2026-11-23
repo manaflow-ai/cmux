@@ -887,6 +887,8 @@ jobs:
       # Why: docs/ci/cmux-next-workflow-notes.md#note-92
       tree_state: ${{ steps.marker-upload.outcome == 'failure' && 'failed' || steps.tree-final.outputs.tree_state || steps.tree.outputs.tree_state }}
       tree_key: ${{ steps.tree.outputs.tree_key }}
+      tree_refill: ${{ steps.tree-final.outputs.tree_state && steps.tree-final.outputs.tree_refill || !steps.tree-final.outputs.tree_state && steps.tree.outputs.tree_refill || '' }}
+      tree_source: ${{ steps.tree-final.outputs.tree_source || steps.tree.outputs.tree_source }}
       # Why: docs/ci/cmux-next-workflow-notes.md#note-93
       tree_fetch_key: ${{ steps.tree-final.outputs.tree_fetch_key || steps.tree.outputs.tree_fetch_key }}
       tree_reason: ${{ steps.marker-upload.outcome == 'failure' && 'the tree wait marker was not uploaded, so no publish would start the tree jobs; re-run this run' || steps.tree-final.outputs.tree_reason || steps.tree.outputs.tree_reason }}
@@ -977,7 +979,7 @@ jobs:
       - name: Write the tree wait marker
         id: marker
         # Why: docs/ci/cmux-next-workflow-notes.md#note-102
-        if: inputs.dev_daily != true && (steps.tree.outputs.tree_state == 'deferred' || (github.event_name != 'pull_request' && steps.tree.outputs.tree_state == 'failed'))
+        if: inputs.dev_daily != true && (steps.tree.outputs.tree_state == 'deferred' || (github.event_name != 'pull_request' || steps.tree.outputs.tree_refill == '1') && steps.tree.outputs.tree_state == 'failed')
         env:
           KEY: ${{ steps.tree.outputs.tree_key }}
           DAEMON: ${{ steps.route.outputs.daemon }}
@@ -1089,6 +1091,30 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: scripts/cmux-next/wait-dev-daily-tree.sh
 
+  # Why: docs/ci/cmux-next-workflow-notes.md#note-555
+  same-tree-refill:
+    needs: path_route
+    if: ${{ !cancelled() && (needs.path_route.outputs.tree_refill == '1' && inputs.same_tree_sha == '' && inputs.dev_daily != true && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'full-ci') }}
+    name: same-tree cmux-tui refill
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 65
+    permissions:
+      actions: write
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/ci
+      - name: Give the deferred same-tree tiers a run that fills them
+        env:
+          GH_TOKEN: ${{ github.token }}
+          KEY: ${{ needs.path_route.outputs.tree_key }}
+          SOURCE: ${{ needs.path_route.outputs.tree_source }}
+          REASON: ${{ needs.path_route.outputs.tree_reason }}
+        run: python3 scripts/ci/cmux_next_tree_refill.py --repo "$GITHUB_REPOSITORY" --key "$KEY" --publisher-sha "$SOURCE" --reason "$REASON"
+
   macos-placement:
     environment: ${{ github.event_name != 'pull_request' && 'ci-routing-agent' || '' }}
     # Why: docs/ci/cmux-next-workflow-notes.md#note-15
@@ -1157,11 +1183,7 @@ jobs:
       free_session_runner: ${{ steps.place.outputs.free_session_runner }}
       nightly_runner_ready: ${{ steps.place.outputs.nightly_runner_ready }}
     steps:
-      # The PR quiet period: a step here, not a job of its own (until 2026-11-21 the pr-quiet-period job took a
-      # runner for the sleep on every pull request run, 1.64% of pull request runner-minutes over 11-13..19 with no
-      # verdict of its own: cmuxterm-hq#16094). Only the Mac jobs wait for it (Leo, 2026-11-08) and every one of them
-      # follows this job, so the Linux jobs still start at once, a change that reaches no Mac tier sleeps on no
-      # runner, and the routing before this job counts toward the wait. Why: docs/ci/cmux-next-workflow-notes.md#note-1
+      # Why: docs/ci/cmux-next-workflow-notes.md#note-553
       - name: Wait until the pull request has had no push for the quiet period
         if: ${{ github.event_name == 'pull_request' && github.run_attempt == 1 && !contains(github.event.pull_request.labels.*.name, 'leo-named-fix') && format('{0}', vars.CI_PR_QUIET_PERIOD_SECONDS) != '0' }}
         # Why: docs/ci/cmux-next-workflow-notes.md#note-86
@@ -4391,9 +4413,7 @@ jobs:
           fi
           # Why: docs/ci/cmux-next-workflow-notes.md#note-454
           python3 scripts/ci/defaults_guard.py snapshot
-          # The regenerated files themselves, at their repository paths, so
-          # they copy onto the PR head. A diff would be against the merge
-          # commit, whose context the head may not have.
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-554
           out="$RUNNER_TEMP/generated/files"
           mkdir -p "$out"
           generated=('plans/cmux-next/*.json' 'plans/cmux-next/*.md'
@@ -4811,9 +4831,7 @@ jobs:
           fi
           # Why: docs/ci/cmux-next-workflow-notes.md#note-454
           python3 scripts/ci/defaults_guard.py snapshot
-          # The regenerated files themselves, at their repository paths, so
-          # they copy onto the PR head. A diff would be against the merge
-          # commit, whose context the head may not have.
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-554
           out="$RUNNER_TEMP/generated/files"
           mkdir -p "$out"
           generated=('plans/cmux-next/*.json' 'plans/cmux-next/*.md'
@@ -5275,9 +5293,7 @@ jobs:
           fi
           # Why: docs/ci/cmux-next-workflow-notes.md#note-454
           python3 scripts/ci/defaults_guard.py snapshot
-          # The regenerated files themselves, at their repository paths, so
-          # they copy onto the PR head. A diff would be against the merge
-          # commit, whose context the head may not have.
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-554
           out="$RUNNER_TEMP/generated/files"
           mkdir -p "$out"
           generated=('plans/cmux-next/*.json' 'plans/cmux-next/*.md'

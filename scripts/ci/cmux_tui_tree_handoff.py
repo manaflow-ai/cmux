@@ -55,6 +55,7 @@ bounded run-by-id read, so the fallback is still fixed per candidate and never w
 usage: cmux_tui_tree_handoff.py --repo OWNER/NAME --run-id ID --key KEY [--published]
 Needs GH_TOKEN with actions: write (job logs are read with actions access).
 GH_TOKEN_SPARE, optional: a second token with actions: write and its own rate limit.
+A call refused by the API limit that resets within HANDOFF_WAIT_MAX_S is waited out once (QUOTA_WAIT_RETRY).
 """
 from __future__ import annotations
 
@@ -90,6 +91,16 @@ ADOPT_JOB_NAME = "write the commit manifest from the published tree"
 ADOPT_JOB_RAN = frozenset({"success", "failure"})
 # Jobs that only follow a failure: they never make an owner's failure their own.
 REPORTING_JOBS = frozenset({"report an unpublished cmux-tui tree to cmux-next"})
+# QUOTA_WAIT_RETRY (cmux#51086): a hand-off refused by the installation's API limit waits in its job for the reset,
+# when the reset is this close, and tries once more. On 2026-11-22 run 45060021944's hand-off was refused with
+# "no attempt before 21:27Z", printed an error, and nothing ever retried it. A reset further away keeps today's
+# error (the cmux-next side is retried by the tree notify's pending record).
+HANDOFF_WAIT_MAX_S = 20 * 60
+# Tests that run the script itself set this to 0, so a refusal never sleeps there.
+if os.environ.get("CMUX_TUI_HANDOFF_WAIT_MAX_S", "").isdigit():
+    HANDOFF_WAIT_MAX_S = int(os.environ["CMUX_TUI_HANDOFF_WAIT_MAX_S"])
+# Seconds past the named minute before the retry: the reset lands on that minute.
+HANDOFF_WAIT_SLACK_S = 5
 GLAEDA_BUDGET = Path(os.environ.get("GLAEDA_GH_DIR") or Path.home() / ".cache" / "glaeda" / "gh") / "budget.json"
 
 
@@ -352,7 +363,42 @@ def handoff(repo: str, run_id: int, key: str) -> None:
     print(f"::warning::no run that deferred tree {key} to this one could be re-run")
 
 
-def main(argv: list[str]) -> int:
+def quota_wait_seconds(retry_before: str, now: datetime) -> float | None:
+    """Seconds from NOW until RETRY_BEFORE (an HH:MMZ boundary, the next such minute) plus the slack, or None when
+    that is unreadable or past HANDOFF_WAIT_MAX_S."""
+    match = re.fullmatch(r"(\d{2}):(\d{2})Z", retry_before.strip())
+    if not match:
+        return None
+    now = now.astimezone(timezone.utc)
+    target = now.replace(hour=int(match.group(1)), minute=int(match.group(2)), second=0, microsecond=0)
+    if target < now - timedelta(minutes=1):
+        target += timedelta(days=1)
+    wait = max(0.0, (target - now).total_seconds()) + HANDOFF_WAIT_SLACK_S
+    return wait if wait <= HANDOFF_WAIT_MAX_S else None
+
+
+def with_quota_wait(call: Callable[[], None], what: str, sleep: Callable[[float], None],
+                    now: Callable[[], datetime]) -> None:
+    """Run CALL; on a QuotaRefused whose reset is within HANDOFF_WAIT_MAX_S, wait it out and run CALL once more.
+    A refusal past that bound, or a second refusal, is raised."""
+    try:
+        call()
+        return
+    except QuotaRefused as error:
+        wait = quota_wait_seconds(error.retry_before, now())
+        if wait is None:
+            raise
+        print(f"::notice title={what} waits for the API limit::the repo installation's API limit refused a call; "
+              f"it resets before {error.retry_before}, so this job waits {int(wait)}s and tries once more")
+        sleep(wait)
+    call()
+
+
+def main(argv: list[str], sleep: Callable[[float], None] | None = None,
+         now: Callable[[], datetime] | None = None) -> int:
+    import time
+    sleep = sleep or time.sleep
+    now = now or (lambda: datetime.now(timezone.utc))
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--repo", required=True)
     parser.add_argument("--run-id", required=True, type=int)
@@ -365,7 +411,8 @@ def main(argv: list[str]) -> int:
         return 2
     if args.published:
         try:
-            rerun_published(args.repo, args.run_id, args.key)
+            with_quota_wait(lambda: rerun_published(args.repo, args.run_id, args.key), "the published re-run",
+                            sleep, now)
         except QuotaRefused as error:
             print(f"::error title=deferred runs not re-run::[quota-only] deferred runs not re-run for the "
                   f"published tree; run {args.run_id}; no attempt before {error.retry_before}; the repo "
@@ -377,7 +424,7 @@ def main(argv: list[str]) -> int:
             return 1
         return 0
     try:
-        handoff(args.repo, args.run_id, args.key)
+        with_quota_wait(lambda: handoff(args.repo, args.run_id, args.key), "the hand-off", sleep, now)
     except QuotaRefused as error:
         print(f"::error title=tree not handed off::tree {args.key} was not handed off: the repo installation's "
               f"API limit refused its API call; no attempt before {error.retry_before}. Dispatch "

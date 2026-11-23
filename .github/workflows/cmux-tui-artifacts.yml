@@ -1917,8 +1917,9 @@ jobs:
     if: ${{ !cancelled() && (needs.build.result == 'success' || needs.build-darwin-fallback.result == 'success' || needs.darwin-fallback-plan.outputs.recovered == 'true') && github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || (github.event_name == 'push' && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-'))) }}
     needs: [build, darwin-fallback-plan, build-darwin-fallback]
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next' || github.ref == 'refs/heads/feat-cmux-next') && 'cmux-gcp-nightly-x64' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
-    # 15 minutes of work, plus the 50 minutes the attestation retry may wait for the API budget.
-    timeout-minutes: 75
+    # 15 minutes of work, plus the 50 minutes the attestation retry may wait for the API budget, plus the
+    # downloads' stall bounds and retries (DOWNLOAD_STALL_RETRY).
+    timeout-minutes: 90
     permissions:
       # actions: write dispatches the Cloud VM image roll (the last step).
       actions: write
@@ -1946,7 +1947,20 @@ jobs:
             git reset -q --hard HEAD
           fi
 
+      # DOWNLOAD_STALL_RETRY (cmux#51086, publish-tree below): a stall bound and one retry.
       - name: Download cmux-tui binaries
+        id: dl-cmux-tui
+        timeout-minutes: 10
+        continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: cmux-tui-*
+          path: assets/cmux-tui
+          merge-multiple: true
+
+      - name: Download cmux-tui binaries (try 2)
+        if: steps.dl-cmux-tui.outcome == 'failure'
+        timeout-minutes: 15
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           pattern: cmux-tui-*
@@ -2000,6 +2014,18 @@ jobs:
           ls assets/cmux-tui assets/cmux-tui-windows
 
       - name: Download cmux-relay binaries
+        id: dl-cmux-relay
+        timeout-minutes: 5
+        continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: cmux-relay-*
+          path: assets/cmux-relay
+          merge-multiple: true
+
+      - name: Download cmux-relay binaries (try 2)
+        if: steps.dl-cmux-relay.outcome == 'failure'
+        timeout-minutes: 10
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           pattern: cmux-relay-*
@@ -2007,6 +2033,18 @@ jobs:
           merge-multiple: true
 
       - name: Download chatmux-relay binaries
+        id: dl-chatmux-relay
+        timeout-minutes: 5
+        continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: chatmux-relay-*
+          path: assets/chatmux-relay
+          merge-multiple: true
+
+      - name: Download chatmux-relay binaries (try 2)
+        if: steps.dl-chatmux-relay.outcome == 'failure'
+        timeout-minutes: 10
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           pattern: chatmux-relay-*
@@ -3391,7 +3429,8 @@ jobs:
     if: ${{ !cancelled() && github.event_name == 'push' && needs.tree-preflight.result == 'success' &&
       (needs.publish-tree.result == 'success' || needs.adopt-commit-manifest.outputs.state == 'adopted') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
-    timeout-minutes: 5
+    # The hand-off waits out a quota refusal that resets within 20 minutes (HANDOFF_WAIT_MAX_S).
+    timeout-minutes: 30
     # Secrets only: no deployment on the PR. The spare token (below) is the cmux-bot App's.
     environment:
       name: ci-routing-agent
@@ -3518,8 +3557,8 @@ jobs:
     if: ${{ !cancelled() && needs.publish.result == 'success' && needs.build-windows.outputs.windows_built == 'true' }}
     needs: [publish, build-windows]
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
-    # As publish: the shared steps' attestation retry may wait up to 50 minutes.
-    timeout-minutes: 75
+    # As publish: the shared steps' attestation retry may wait up to 50 minutes, and their downloads retry.
+    timeout-minutes: 90
     permissions:
       contents: read
       id-token: write
@@ -3777,8 +3816,9 @@ jobs:
     # (tests/test_cmux_tui_feat_publish_order.py).
     needs: [tree-preflight, publish]
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next' || github.ref == 'refs/heads/feat-cmux-next') && 'cmux-gcp-nightly-x64' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
-    # A slow companion fetch may take its retries (fetch below).
-    timeout-minutes: 30
+    # A slow companion fetch may take its retries (fetch below), and each
+    # required download its stall bound and one retry (DOWNLOAD_STALL_RETRY).
+    timeout-minutes: 45
     # Ownership is elected before expensive work; publication stays per run
     # and the write-once uploader makes a rare election race safe.
     concurrency:
@@ -3809,7 +3849,26 @@ jobs:
             git reset -q --hard HEAD
           fi
 
+      # DOWNLOAD_STALL_RETRY (cmux#51086): on 2026-11-22 run 45060021944's
+      # "Download the Linux arm64 cmux-tui" hung (its first two downloads took
+      # 10 and 15 minutes on that runner, about 20 s each normally) until the
+      # 30-minute job limit cancelled the publish, and the PR that deferred its
+      # same-tree status to the run waited for hours. Each required download
+      # now stops at a stall bound and tries once more; a second stall fails
+      # the job, so notify-unpublished-tree reports the miss at once.
+      # tests/test_cmux_tui_tree_handoff.py checks the shape.
       - name: Download the macOS arm64 cmux-tui
+        id: dl-macos-arm64
+        timeout-minutes: 5
+        continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: cmux-tui-aarch64-apple-darwin
+          path: assets/tree
+
+      - name: Download the macOS arm64 cmux-tui (try 2)
+        if: steps.dl-macos-arm64.outcome == 'failure'
+        timeout-minutes: 8
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: cmux-tui-aarch64-apple-darwin
@@ -3818,12 +3877,34 @@ jobs:
       # Linux daemon mode fetches the musl daemon and app host by tree key
       # (scripts/cmux-next/pin-cmux-tui.sh fetch picks the host's target).
       - name: Download the Linux x86_64 cmux-tui
+        id: dl-linux-x86_64
+        timeout-minutes: 5
+        continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: cmux-tui-x86_64-unknown-linux-musl
+          path: assets/tree
+
+      - name: Download the Linux x86_64 cmux-tui (try 2)
+        if: steps.dl-linux-x86_64.outcome == 'failure'
+        timeout-minutes: 8
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: cmux-tui-x86_64-unknown-linux-musl
           path: assets/tree
 
       - name: Download the Linux arm64 cmux-tui
+        id: dl-linux-arm64
+        timeout-minutes: 5
+        continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: cmux-tui-aarch64-unknown-linux-musl
+          path: assets/tree
+
+      - name: Download the Linux arm64 cmux-tui (try 2)
+        if: steps.dl-linux-arm64.outcome == 'failure'
+        timeout-minutes: 8
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: cmux-tui-aarch64-unknown-linux-musl
@@ -3834,6 +3915,7 @@ jobs:
       # without it, that step reads the published acpmux as before.
       - name: Download the macOS x86_64 cmux-tui
         continue-on-error: true
+        timeout-minutes: 5
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: cmux-tui-x86_64-apple-darwin
@@ -3859,6 +3941,7 @@ jobs:
       - name: Download the Windows x86_64 cmux-tui
         if: env.CMUX_TUI_PUBLISH_PASS == 'windows'
         continue-on-error: true
+        timeout-minutes: 5
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: cmux-tui-x86_64-pc-windows-gnu
@@ -4322,8 +4405,8 @@ jobs:
     if: ${{ !cancelled() && needs.publish-tree.result == 'success' && needs.publish-windows.result == 'success' }}
     needs: [tree-preflight, publish-tree, publish-windows]
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
-    # As publish-tree, whose steps it runs: a slow companion fetch may take its retries.
-    timeout-minutes: 30
+    # As publish-tree, whose steps it runs: a slow companion fetch and the downloads may take their retries.
+    timeout-minutes: 45
     concurrency:
       group: cmux-tui-tree-windows-${{ needs.tree-preflight.outputs.key }}-${{ github.sha }}
       cancel-in-progress: false
@@ -5226,7 +5309,8 @@ jobs:
     needs: [tree-preflight, tree-owner-wait, build, build-windows, cmux-next-daemon-tests, publish, publish-windows, publish-tree, publish-tree-windows, macos-cross-shadow, macos-cross-runtime-x86_64]
     if: ${{ !cancelled() && needs.tree-preflight.result == 'success' && ((needs.tree-preflight.outputs.tree_ready != 'true' && needs.tree-preflight.outputs.run_macos == 'true' && (needs.tree-owner-wait.outputs.takeover == 'true' || needs.tree-preflight.outputs.owns_key == 'true') && needs.publish-tree.result != 'success') || (needs.tree-preflight.outputs.tree_ready == 'true' && needs.tree-preflight.outputs.daemon_tested == 'false' && needs.tree-owner-wait.outputs.unmarked == 'true')) && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || (github.event_name == 'push' && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-'))) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
-    timeout-minutes: 5
+    # The hand-off waits out a quota refusal that resets within 20 minutes (HANDOFF_WAIT_MAX_S).
+    timeout-minutes: 30
     # Secrets only: no deployment on the PR. The hand-off's spare token (below) is the cmux-bot App's.
     environment:
       name: ci-routing-agent
@@ -5252,16 +5336,44 @@ jobs:
 
       # A run whose daemon tests found it superseded publishes no tree on
       # purpose: no failure to report. It still hands the key on (below).
+      - name: Mint the hand-off's spare token
+        id: cmux-bot-token
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/feat-cmux-next' || github.ref == 'refs/heads/main') && vars.CMUX_BOT_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-actions: write
+
       - name: Report the unpublished tree to the cmux-next runs that wait for it
         if: needs.tree-preflight.outputs.tree_ready != 'true' && needs.cmux-next-daemon-tests.outputs.superseded != 'true'
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_TOKEN_SPARE: ${{ steps.cmux-bot-token.outputs.token }}
           KEY: ${{ needs.tree-preflight.outputs.key }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           python3 scripts/ci/cmux_next_tree_notify.py --repo "$GITHUB_REPOSITORY" --key "$KEY" --state failed \
+            --pending-file "$RUNNER_TEMP/tree-notify-pending/pending.json" \
             --reason "the cmux-tui artifacts run $RUN_URL ended without publishing tree $KEY (build or publish failed); re-run it, and its publish starts the tree jobs"
+
+      # DEFERRED_TREE_HAS_A_FILLER (cmux#51086): run 45060021944's failed notify was refused (HTTP 403 on the
+      # spent quota), only warned, and cmux#50471's same-tree status never posted. A refused one is recorded
+      # (NOTIFY_NEVER_LOST's pending record, state failed); the sweeps re-run this run once or report it red.
+      - name: Record a refused failed notify for the sweep
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cmux-next-tree-notify-pending
+          path: ${{ runner.temp }}/tree-notify-pending/pending.json
+          if-no-files-found: ignore
+          retention-days: 3
+          overwrite: true
+
 
       # Runs of this key that deferred to this one (tree-owner-wait) left a
       # cmux-tui-tree-deferred-<key> artifact and ended. Re-run one, a
@@ -5278,17 +5390,6 @@ jobs:
       # run built the tree. The hand-off now moves to the cmux-bot App's
       # token when the workflow token is rate limited, and a hand-off that
       # could not run fails this job in red.
-      - name: Mint the hand-off's spare token
-        id: cmux-bot-token
-        if: github.event_name == 'push' && (github.ref == 'refs/heads/feat-cmux-next' || github.ref == 'refs/heads/main') && vars.CMUX_BOT_APP_ID != ''
-        continue-on-error: true
-        timeout-minutes: 1
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
-        with:
-          app-id: ${{ vars.CMUX_BOT_APP_ID }}
-          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
-          permission-actions: write
-
       - name: Hand the key to a run that deferred to this one
         if: github.event_name == 'push'
         env:

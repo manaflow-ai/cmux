@@ -22,7 +22,9 @@ import stat
 import subprocess
 import sys
 import tempfile
+import io
 import unittest
+import unittest.mock
 from datetime import datetime, timezone
 
 import yaml
@@ -170,7 +172,9 @@ class CommandTests(unittest.TestCase):
             gh.chmod(gh.stat().st_mode | stat.S_IEXEC)
             Path(tmp, "state.json").write_text(json.dumps(state))
             env = {**os.environ, "PATH": f"{tmp}:{os.environ['PATH']}", "GH_TOKEN": token, "GH_TOKEN_SPARE": spare,
-                   "FAKE_STATE": str(Path(tmp, "state.json")), "FAKE_LOG": str(Path(tmp, "log"))}
+                   "FAKE_STATE": str(Path(tmp, "state.json")), "FAKE_LOG": str(Path(tmp, "log")),
+                   # The script never sleeps out a refusal here (QuotaWaitTests covers the wait).
+                   "CMUX_TUI_HANDOFF_WAIT_MAX_S": "0"}
             if not token:
                 env.pop("GH_TOKEN")
             result = subprocess.run([sys.executable, str(SCRIPT), "--repo", "o/r", "--run-id", "99", "--key", KEY, *extra],
@@ -432,6 +436,102 @@ class WorkflowTests(unittest.TestCase):
                                         "permission-actions": "write"})
         self.assertEqual(workflow_jobs.resolve(notify, "notify-unpublished-tree").environment,
                          {"name": "ci-routing-agent", "deployment": False})
+
+
+class QuotaWaitTests(unittest.TestCase):
+    """QUOTA_WAIT_RETRY (cmux#51086): run 45060021944's hand-off was refused with "no attempt before 21:27Z" and
+    nothing retried it. A refusal that resets within HANDOFF_WAIT_MAX_S is waited out in the job, once."""
+
+    NOW = datetime(2026, 11, 22, 21, 20, 0, tzinfo=timezone.utc)
+
+    def run_main(self, outcomes, extra=()):
+        calls, slept = [], []
+
+        def fake(*_args):
+            calls.append(1)
+            outcome = outcomes[len(calls) - 1]
+            if outcome is not None:
+                raise handoff.QuotaRefused(outcome)
+        target = "rerun_published" if "--published" in extra else "handoff"
+        with unittest.mock.patch.object(handoff, target, fake), \
+                unittest.mock.patch.object(handoff, "HANDOFF_WAIT_MAX_S", 20 * 60), \
+                unittest.mock.patch.dict(os.environ, {"GH_TOKEN": "t"}), \
+                unittest.mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+            code = handoff.main(["--repo", "o/r", "--run-id", "99", "--key", KEY, *extra],
+                                sleep=slept.append, now=lambda: self.NOW)
+        return code, len(calls), slept, out.getvalue()
+
+    def test_a_reset_within_the_bound_is_waited_out_and_retried_once(self):
+        for extra in ((), ("--published",)):
+            with self.subTest(extra=extra):
+                code, calls, slept, out = self.run_main(["21:27Z", None], extra)
+                self.assertEqual(code, 0, out)
+                self.assertEqual(calls, 2)
+                self.assertEqual(slept, [7 * 60 + handoff.HANDOFF_WAIT_SLACK_S])
+                self.assertIn("waits for the API limit", out)
+
+    def test_a_second_refusal_after_the_wait_is_the_error(self):
+        code, calls, slept, out = self.run_main(["21:27Z", "21:40Z"])
+        self.assertEqual(code, 1)
+        self.assertEqual(calls, 2)
+        self.assertEqual(len(slept), 1)
+        self.assertIn("::error title=tree not handed off::", out)
+
+    def test_a_reset_past_the_bound_errors_at_once(self):
+        for extra in ((), ("--published",)):
+            with self.subTest(extra=extra):
+                code, calls, slept, out = self.run_main(["22:20Z"], extra)
+                self.assertEqual(code, 1)
+                self.assertEqual((calls, slept), (1, []))
+                self.assertIn("no attempt before 22:20Z", out)
+
+    def test_wait_seconds(self):
+        with unittest.mock.patch.object(handoff, "HANDOFF_WAIT_MAX_S", 20 * 60):
+            slack = handoff.HANDOFF_WAIT_SLACK_S
+            self.assertEqual(handoff.quota_wait_seconds("21:27Z", self.NOW), 7 * 60 + slack)
+            self.assertIsNone(handoff.quota_wait_seconds("21:41Z", self.NOW))
+            self.assertIsNone(handoff.quota_wait_seconds("bogus", self.NOW))
+            # A minute just past (the reset already landed) retries at once, not tomorrow.
+            self.assertEqual(handoff.quota_wait_seconds("21:20Z", self.NOW.replace(second=30)), slack)
+            late = datetime(2026, 11, 22, 23, 55, tzinfo=timezone.utc)
+            self.assertEqual(handoff.quota_wait_seconds("00:05Z", late), 10 * 60 + slack)
+
+    def test_hand_off_jobs_leave_room_for_the_wait(self):
+        jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
+        for name in ("notify-unpublished-tree", "rerun-deferred-commits"):
+            self.assertGreaterEqual(jobs[name]["timeout-minutes"] * 60, 20 * 60 + 5 * 60, name)
+
+
+class DownloadStallRetryTests(unittest.TestCase):
+    """DOWNLOAD_STALL_RETRY (cmux#51086): run 45060021944's "Download the Linux arm64 cmux-tui" hung until the
+    30-minute job limit cancelled the publish. Each required download has a stall bound and one gated retry."""
+
+    REQUIRED = {"publish-tree": ("Download the macOS arm64 cmux-tui", "Download the Linux x86_64 cmux-tui",
+                                 "Download the Linux arm64 cmux-tui"),
+                "publish": ("Download cmux-tui binaries", "Download cmux-relay binaries",
+                            "Download chatmux-relay binaries")}
+
+    def test_required_downloads_have_a_stall_bound_and_a_gated_retry(self):
+        jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
+        for job, names in self.REQUIRED.items():
+            steps = {step.get("name"): step for step in jobs[job]["steps"]}
+            budget = 0
+            for name in names:
+                with self.subTest(job=job, step=name):
+                    first, retry = steps[name], steps.get(f"{name} (try 2)")
+                    self.assertTrue(first["uses"].startswith("actions/download-artifact@"))
+                    self.assertIsInstance(first.get("timeout-minutes"), int)
+                    self.assertIs(first.get("continue-on-error"), True)
+                    self.assertIsNotNone(retry, "no try 2")
+                    self.assertEqual(retry["if"], f"steps.{first['id']}.outcome == 'failure'")
+                    self.assertEqual(retry["with"], first["with"])
+                    self.assertIsInstance(retry.get("timeout-minutes"), int)
+                    self.assertNotIn("continue-on-error", retry, "a second stall fails the job")
+                    budget += first["timeout-minutes"] + retry["timeout-minutes"]
+            self.assertLess(budget, jobs[job]["timeout-minutes"], f"{job}: the job limit must outlast its retries")
+        tree_steps = {step.get("name"): step for step in jobs["publish-tree"]["steps"]}
+        for name in ("Download the macOS x86_64 cmux-tui", "Download the Windows x86_64 cmux-tui"):
+            self.assertIsInstance(tree_steps[name].get("timeout-minutes"), int, name)
 
 
 if __name__ == "__main__":

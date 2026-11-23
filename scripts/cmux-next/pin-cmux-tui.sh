@@ -1401,6 +1401,10 @@ tree_published() {
 #   tree_state=failed      nothing will publish it (tree_reason says why)
 #   tree_state=skipped     CMUX_TUI_TREE_BASE_FALLBACK=1 and no tree in the
 #                          history is published: the tree jobs do not run
+# plus tree_refill=1 and tree_source=<publisher sha> when a deferred or failed
+# tree may have no live run to fill it (the publisher's runs were unread for the
+# rate limit, or ended without publishing): cmux-next's same-tree-refill job
+# (scripts/ci/cmux_next_tree_refill.py) then makes sure one does.
 # With CMUX_TUI_TREE_BASE_FALLBACK=1 a tree that is not ready is replaced by
 # the newest published one in the history (resolve-newest-published): ready,
 # with tree_fetch_key= for the tree jobs' CMUX_TUI_TREE_KEY.
@@ -1425,7 +1429,7 @@ tree_published() {
 probe_checkout_tree() {
   local key legacy publisher="${CMUX_TUI_TREE_PUBLISHER_SHA:-}"
   local base_key="" source="" state="" reason="" recheck="${CMUX_TUI_TREE_RECHECK_SECONDS:-20}" superseded=""
-  local fetch_key="" resolved="" publisher_unknown="" head_sha=""
+  local fetch_key="" resolved="" publisher_unknown="" head_sha="" refill=""
   key="$(tree_key HEAD)"
   legacy="$(legacy_tree_key HEAD)"
   [[ "$legacy" == "$key" ]] && legacy=""
@@ -1512,6 +1516,9 @@ probe_checkout_tree() {
       else
         reason="the cmux-tui artifacts runs for ${source#*:} ended without publishing tree $key (${state#ended }). Re-run that run, or for an unmerged commit: $(pin_push_hint)"
         state=failed
+        # DEFERRED_TREE_HAS_A_FILLER (cmux#51086): no live run will publish the tree; the run's
+        # same-tree-refill job re-runs that publisher once, or reports the tier red (tree_refill).
+        refill=1
       fi ;;
     none)
       if [[ -z "$source" && -n "$publisher_unknown" && "${GITHUB_EVENT_NAME:-}" == pull_request ]]; then
@@ -1542,7 +1549,12 @@ probe_checkout_tree() {
       # artifacts run, when it ends, starts the tree jobs through the wait
       # marker (published) or reports the miss (cmux_next_tree_notify.py).
       state=deferred
-      reason="the GitHub API rate limit refused reading the cmux-tui artifacts runs for ${source#*:} and resets after this check's wait, so this run does not wait for tree $key: its publisher's artifacts run starts the tree jobs when it publishes, or reports the miss when it ends without publishing" ;;
+      # DEFERRED_TREE_HAS_A_FILLER (cmux#51086): an unread publisher may already have ended unpublished
+      # (cmux#50471 at 0d0b49cc: run 45060021944 hung in a download, its notify was refused, and every re-run
+      # of the pull request's run deferred to it again). tree_refill=1 has the run's same-tree-refill job wait
+      # out the limit and read it: published, live, re-run once, or reported red. Never a wait on nothing.
+      refill=1
+      reason="the GitHub API rate limit refused reading the cmux-tui artifacts runs for ${source#*:} and resets after this check's wait, so this run does not wait for tree $key: its publisher's artifacts run starts the tree jobs when it publishes, or reports the miss when it ends without publishing; same-tree-refill reads it once the limit resets" ;;
     *) state=failed
       reason="could not read the cmux-tui artifacts runs for ${source#*:} (GitHub API), so no publisher of tree $key is known; re-run this check" ;;
   esac
@@ -1576,6 +1588,10 @@ probe_checkout_tree() {
       [[ -z "$fetch_key" ]] || echo "tree_fetch_key=$fetch_key"
       echo "tree_state=$state"
       echo "tree_reason=$(tr -d '\r\n' <<<"$reason")"
+      if [[ -n "$refill" && "$state" != ready && "$state" != skipped && "$source" == commit:* ]]; then
+        echo "tree_refill=1"
+        echo "tree_source=${source#commit:}"
+      fi
     } >> "$GITHUB_OUTPUT"
   fi
   return 0
