@@ -25,6 +25,13 @@ export type FieldGrowthDetail = {
 
 export type FieldGrowthEvent = CustomEvent<FieldGrowthDetail>;
 
+/// Dispatches `type` on `node`, bubbling, built from the node's own window: a document from another
+/// realm (a test's jsdom) refuses an event the global constructor made.
+export function dispatchBubbling(node: Element, type: string, detail?: unknown) {
+  const Event = node.ownerDocument.defaultView?.CustomEvent ?? CustomEvent;
+  node.dispatchEvent(new Event(type, { bubbles: true, detail }));
+}
+
 /// `delta` px to 0 on the growth's curve, as translate keyframes (what moves with the field).
 export function growthTranslate(detail: FieldGrowthDetail, delta: number): Keyframe[] {
   const progress = detail.progress ?? [0, 1];

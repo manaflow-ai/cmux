@@ -1,6 +1,6 @@
 import { Plugin } from "@milkdown/kit/prose/state";
 import type { EditorView } from "@milkdown/kit/prose/view";
-import { FIELD_GROWTH_EVENT, TILE_SHAPE_EVENT, type FieldGrowthDetail } from "./fieldGrowthEvent";
+import { FIELD_GROWTH_EVENT, TILE_SHAPE_EVENT, dispatchBubbling, type FieldGrowthDetail } from "./fieldGrowthEvent";
 import { experimentArm } from "../../../experiments/experiment";
 import { SETTLING_SCROLLER_ATTRIBUTE } from "../../../scrollers";
 import { MOTION_SPRINGS, springCurve, type SpringParameters } from "../../../files-panel-motion";
@@ -359,7 +359,7 @@ export function fieldGrowth(external: () => boolean): Plugin {
         observer?.observe(view.dom);
         // The transcript takes the end height into its room now and moves its rows on this curve.
         const detail: FieldGrowthDetail = { to, easing, duration, animation, ...(progress ? { progress } : {}) };
-        field.dispatchEvent(new CustomEvent(FIELD_GROWTH_EVENT, { bubbles: true, detail }));
+        dispatchBubbling(field, FIELD_GROWTH_EVENT, detail);
       };
       attach();
       // A tile's new shape, told in its render's commit: the move starts before this frame's layout.
