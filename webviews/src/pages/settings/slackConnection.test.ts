@@ -165,7 +165,7 @@ describe("Slack connection", () => {
     for (const [code, expected] of [
       ["slack.config_token_invalid", "tokenInvalid"],
       ["slack.rate_limited", "rateLimited"],
-      ["slack.app_limit", "appLimit"],
+      ["slack.app_limit", "createFailed"],
       ["slack.app_create_failed", "createFailed"],
     ] as const) {
       const { controller } = harness(() => {

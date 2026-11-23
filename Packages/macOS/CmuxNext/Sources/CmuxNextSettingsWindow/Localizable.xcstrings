@@ -137388,6 +137388,126 @@
             "state": "translated",
             "value": "Use your own bot name"
           }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استخدم اسم البوت الخاص بك"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koristi vlastito ime bota"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brug dit eget bot-navn"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eigenen Bot-Namen verwenden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usar el nombre de tu propio bot"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utiliser le nom de votre propre bot"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa il nome del tuo bot"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自分のボット名を使う"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប្រើឈ្មោះបូតផ្ទាល់ខ្លួនរបស់អ្នក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "내 봇 이름 사용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bruk ditt eget botnavn"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Użyj własnej nazwy bota"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usar o nome do seu próprio bot"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Использовать имя собственного бота"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ใช้ชื่อบอทของคุณเอง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kendi bot adını kullan"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Використати назву власного бота"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dùng tên bot của riêng bạn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用自己的机器人名称"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用自己的機器人名稱"
+          }
         }
       }
     },
@@ -137400,17 +137520,125 @@
             "state": "translated",
             "value": "Bot name"
           }
-        }
-      }
-    },
-    "settingsPage.slack.ownBot.namePlaceholder": {
-      "comment": "Settings > Accounts > Slack connection card",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
+        },
+        "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux"
+            "value": "اسم البوت"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ime bota"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bot-navn"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bot-Name"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nombre del bot"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nom du bot"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nome del bot"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ボット名"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ឈ្មោះបូត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "봇 이름"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Botnavn"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nazwa bota"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nome do bot"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Имя бота"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ชื่อบอท"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bot adı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Назва бота"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tên bot"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "机器人名称"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "機器人名稱"
           }
         }
       }
@@ -137424,6 +137652,126 @@
             "state": "translated",
             "value": "App configuration token"
           }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "رمز تهيئة التطبيق"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konfiguracijski token aplikacije"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Appens konfigurationstoken"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App-Konfigurationstoken"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Token de configuración de la app"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jeton de configuration d'application"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Token di configurazione dell'app"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アプリ設定トークン"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ថូខឹនកំណត់រចនាសម្ព័ន្ធកម្មវិធី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "앱 구성 토큰"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Appens konfigurasjonstoken"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Token konfiguracji aplikacji"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Token de configuração do app"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Токен конфигурации приложения"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โทเคนการกำหนดค่าแอป"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uygulama yapılandırma belirteci"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Токен конфігурації застосунку"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Token cấu hình ứng dụng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "应用配置令牌"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "應用程式設定權杖"
+          }
         }
       }
     },
@@ -137436,17 +137784,125 @@
             "state": "translated",
             "value": "Slack shows it under Your App Configuration Tokens. It is used once and never stored."
           }
-        }
-      }
-    },
-    "settingsPage.slack.ownBot.tokenLink": {
-      "comment": "Settings > Accounts > Slack connection card",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
+        },
+        "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open api.slack.com/apps"
+            "value": "يعرضه Slack ضمن «رموز تهيئة التطبيق الخاصة بك». يُستخدم مرة واحدة ولا يُخزَّن أبدًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slack ga prikazuje pod „Your App Configuration Tokens“. Koristi se jednom i nikad se ne pohranjuje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slack viser det under „Your App Configuration Tokens“. Det bruges én gang og gemmes aldrig."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slack zeigt es unter „Your App Configuration Tokens“ an. Es wird einmal verwendet und nie gespeichert."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slack lo muestra en «Your App Configuration Tokens». Se usa una vez y nunca se guarda."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slack l’affiche sous « Your App Configuration Tokens ». Il est utilisé une seule fois et jamais conservé."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slack lo mostra in «Your App Configuration Tokens». Viene usato una volta e non viene mai salvato."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slack の「Your App Configuration Tokens」に表示されます。1 回だけ使用され、保存されません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slack បង្ហាញវានៅក្រោម «Your App Configuration Tokens»។ វាត្រូវបានប្រើតែម្តង ហើយមិនត្រូវបានរក្សាទុកទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slack의 “Your App Configuration Tokens”에 표시됩니다. 한 번만 사용되며 저장되지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slack viser det under «Your App Configuration Tokens». Det brukes én gang og lagres aldri."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slack pokazuje go w sekcji „Your App Configuration Tokens”. Jest używany raz i nigdy nie jest zapisywany."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O Slack o mostra em “Your App Configuration Tokens”. Ele é usado uma vez e nunca é armazenado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slack показывает его в разделе «Your App Configuration Tokens». Он используется один раз и нигде не сохраняется."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slack แสดงโทเคนนี้ใน “Your App Configuration Tokens” ใช้เพียงครั้งเดียวและไม่เก็บไว้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slack bunu “Your App Configuration Tokens” altında gösterir. Bir kez kullanılır ve asla saklanmaz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slack показує його в розділі «Your App Configuration Tokens». Він використовується один раз і ніде не зберігається."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slack hiển thị token này trong “Your App Configuration Tokens”. Token chỉ được dùng một lần và không bao giờ được lưu."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slack 会在“Your App Configuration Tokens”下显示它。它只使用一次，绝不会被存储。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slack 會在「Your App Configuration Tokens」下顯示它。它只會使用一次，絕不會被儲存。"
           }
         }
       }
@@ -137460,29 +137916,125 @@
             "state": "translated",
             "value": "Create bot and connect"
           }
-        }
-      }
-    },
-    "settingsPage.slack.ownBot.cancel": {
-      "comment": "Settings > Accounts > Slack connection card",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
+        },
+        "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cancel"
+            "value": "أنشئ البوت واتصل"
           }
-        }
-      }
-    },
-    "settingsPage.slack.detailOwnBot": {
-      "comment": "Settings > Accounts > Slack connection card",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
+        },
+        "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Or run the Chief as a bot with your own name in your workspace."
+            "value": "Napravi bota i poveži"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opret bot og forbind"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bot erstellen und verbinden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Crear bot y conectar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Créer le bot et connecter"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Crea il bot e collega"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ボットを作成して接続"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្កើតបូត ហើយភ្ជាប់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "봇 만들고 연결"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opprett bot og koble til"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utwórz bota i połącz"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Criar bot e conectar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Создать бота и подключить"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สร้างบอทและเชื่อมต่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Botu oluştur ve bağlan"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Створити бота й підключити"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tạo bot và kết nối"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "创建机器人并连接"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "建立機器人並連接"
           }
         }
       }
@@ -137496,6 +138048,126 @@
             "state": "translated",
             "value": "Slack did not accept that token. Generate a new configuration token and paste it again."
           }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يقبل Slack هذا الرمز. أنشئ رمز تهيئة جديدًا والصقه مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slack nije prihvatio taj token. Generiši novi konfiguracijski token i zalijepi ga ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slack accepterede ikke det token. Opret et nyt konfigurationstoken, og indsæt det igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slack hat dieses Token nicht akzeptiert. Erzeuge ein neues Konfigurationstoken und füge es erneut ein."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slack no aceptó ese token. Genera un token de configuración nuevo y pégalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slack n’a pas accepté ce jeton. Générez un nouveau jeton de configuration et collez-le à nouveau."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slack non ha accettato quel token. Genera un nuovo token di configurazione e incollalo di nuovo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slack がそのトークンを受け付けませんでした。新しい設定トークンを生成して、もう一度貼り付けてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slack មិនទទួលយកថូខឹននោះទេ។ បង្កើតថូខឹនកំណត់រចនាសម្ព័ន្ធថ្មី ហើយបិទភ្ជាប់ម្តងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slack에서 해당 토큰을 받아들이지 않았습니다. 새 구성 토큰을 생성해 다시 붙여넣으세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slack godtok ikke det tokenet. Opprett et nytt konfigurasjonstoken og lim det inn igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slack nie zaakceptował tego tokenu. Wygeneruj nowy token konfiguracji i wklej go ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O Slack não aceitou esse token. Gere um novo token de configuração e cole-o novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slack не принял этот токен. Создайте новый токен конфигурации и вставьте его снова."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slack ไม่ยอมรับโทเคนนั้น สร้างโทเคนการกำหนดค่าใหม่แล้ววางอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slack bu belirteci kabul etmedi. Yeni bir yapılandırma belirteci oluşturup yeniden yapıştırın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slack не прийняв цей токен. Створіть новий токен конфігурації та вставте його знову."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slack không chấp nhận token đó. Hãy tạo token cấu hình mới và dán lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slack 不接受该令牌。请生成新的配置令牌，然后重新粘贴。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slack 不接受該權杖。請產生新的設定權杖，然後重新貼上。"
+          }
         }
       }
     },
@@ -137507,6 +138179,126 @@
           "stringUnit": {
             "state": "translated",
             "value": "Use 1 to 35 characters, without @ # < > * _ ~ or backticks."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استخدم من 1 إلى 35 حرفًا، من دون @ # < > * _ ~ أو علامات الاقتباس العكسية."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koristi 1 do 35 znakova, bez @ # < > * _ ~ ili backtickova."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brug 1 til 35 tegn, uden @ # < > * _ ~ eller backticks."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwende 1 bis 35 Zeichen, ohne @ # < > * _ ~ oder Backticks."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa de 1 a 35 caracteres, sin @ # < > * _ ~ ni acentos graves."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisez de 1 à 35 caractères, sans @ # < > * _ ~ ni accents graves."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa da 1 a 35 caratteri, senza @ # < > * _ ~ o apici inversi."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1〜35 文字で入力してください。@ # < > * _ ~ とバッククォートは使用できません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប្រើតួអក្សរ 1 ដល់ 35 ដោយគ្មាន @ # < > * _ ~ ឬ backtick។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1~35자로 입력하세요. @ # < > * _ ~ 및 백틱은 사용할 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bruk 1 til 35 tegn, uten @ # < > * _ ~ eller backticks."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Użyj od 1 do 35 znaków, bez @ # < > * _ ~ ani odwrotnych apostrofów."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use de 1 a 35 caracteres, sem @ # < > * _ ~ ou crases."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Используйте от 1 до 35 символов, без @ # < > * _ ~ и обратных кавычек."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ใช้ 1 ถึง 35 ตัวอักษร โดยไม่มี @ # < > * _ ~ หรือเครื่องหมายแบ็กทิก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 ile 35 karakter kullanın; @ # < > * _ ~ veya ters tırnak olmasın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Використовуйте від 1 до 35 символів, без @ # < > * _ ~ та зворотних лапок."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dùng từ 1 đến 35 ký tự, không có @ # < > * _ ~ hoặc dấu backtick."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请使用 1 到 35 个字符，不含 @ # < > * _ ~ 或反引号。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請使用 1 到 35 個字元，不含 @ # < > * _ ~ 或反引號。"
           }
         }
       }
@@ -137520,17 +138312,125 @@
             "state": "translated",
             "value": "Slack is limiting app creation. Try again in a minute."
           }
-        }
-      }
-    },
-    "settingsPage.slack.appLimit": {
-      "comment": "Settings > Accounts > Slack connection card",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
+        },
+        "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "You already made five Slack apps. Remove one in Slack, then try again."
+            "value": "يقيّد Slack إنشاء التطبيقات. حاول مرة أخرى بعد دقيقة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slack ograničava kreiranje aplikacija. Pokušaj ponovo za minut."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slack begrænser oprettelse af apps. Prøv igen om et minut."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slack begrenzt das Erstellen von Apps. Versuche es in einer Minute erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slack está limitando la creación de apps. Inténtalo de nuevo en un minuto."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slack limite la création d’applications. Réessayez dans une minute."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slack sta limitando la creazione di app. Riprova tra un minuto."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slack がアプリの作成を制限しています。1 分後にもう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slack កំពុងកំណត់ការបង្កើតកម្មវិធី។ សូមព្យាយាមម្តងទៀតក្នុងរយៈពេលមួយនាទី។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slack에서 앱 생성을 제한하고 있습니다. 1분 후에 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slack begrenser oppretting av apper. Prøv igjen om et minutt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slack ogranicza tworzenie aplikacji. Spróbuj ponownie za minutę."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O Slack está limitando a criação de apps. Tente novamente em um minuto."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slack ограничивает создание приложений. Повторите попытку через минуту."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slack จำกัดการสร้างแอป ลองอีกครั้งในอีกหนึ่งนาที"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slack uygulama oluşturmayı sınırlıyor. Bir dakika sonra tekrar deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slack обмежує створення застосунків. Спробуйте ще раз за хвилину."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slack đang giới hạn việc tạo ứng dụng. Hãy thử lại sau một phút."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slack 正在限制创建应用。请一分钟后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slack 正在限制建立應用程式。請一分鐘後再試。"
           }
         }
       }
@@ -137542,7 +138442,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Slack could not create the app. Check that your workspace allows apps."
+            "value": "Slack could not create the app. You may already have five bot apps, or your workspace may not allow new apps."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر على Slack إنشاء التطبيق. ربما لديك خمسة تطبيقات بوت بالفعل، أو لا تسمح مساحة العمل بتطبيقات جديدة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slack nije mogao napraviti aplikaciju. Možda već imaš pet bot aplikacija ili tvoj radni prostor ne dopušta nove aplikacije."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slack kunne ikke oprette appen. Du har måske allerede fem bot-apps, eller dit arbejdsområde tillader ikke nye apps."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slack konnte die App nicht erstellen. Möglicherweise hast du schon fünf Bot-Apps, oder dein Workspace erlaubt keine neuen Apps."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slack no pudo crear la app. Puede que ya tengas cinco apps de bot o que tu espacio de trabajo no permita apps nuevas."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slack n’a pas pu créer l’application. Vous avez peut-être déjà cinq applications de bot, ou votre espace de travail n’autorise pas de nouvelles applications."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slack non è riuscito a creare l'app. Potresti avere già cinque app bot, oppure il tuo workspace non consente nuove app."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slack がアプリを作成できませんでした。ボットアプリがすでに 5 つある、またはワークスペースで新しいアプリが許可されていない可能性があります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slack មិនអាចបង្កើតកម្មវិធីបានទេ។ អ្នកប្រហែលជាមានកម្មវិធីបូតប្រាំរួចហើយ ឬកន្លែងធ្វើការរបស់អ្នកមិនអនុញ្ញាតកម្មវិធីថ្មី។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slack에서 앱을 만들지 못했습니다. 봇 앱이 이미 5개이거나 워크스페이스에서 새 앱을 허용하지 않을 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slack kunne ikke opprette appen. Du kan allerede ha fem bot-apper, eller arbeidsområdet tillater ikke nye apper."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slack nie mógł utworzyć aplikacji. Możesz mieć już pięć aplikacji bota albo Twoja przestrzeń robocza nie zezwala na nowe aplikacje."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O Slack não conseguiu criar o app. Você pode já ter cinco apps de bot, ou seu workspace pode não permitir novos apps."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slack не смог создать приложение. Возможно, у вас уже пять приложений-ботов или рабочее пространство не разрешает новые приложения."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slack สร้างแอปไม่ได้ คุณอาจมีแอปบอทครบห้าแอปแล้ว หรือเวิร์กสเปซไม่อนุญาตให้สร้างแอปใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slack uygulamayı oluşturamadı. Zaten beş bot uygulamanız olabilir veya çalışma alanınız yeni uygulamalara izin vermiyor olabilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slack не зміг створити застосунок. Можливо, у вас уже п’ять застосунків-ботів, або робочий простір не дозволяє нові застосунки."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slack không thể tạo ứng dụng. Có thể bạn đã có năm ứng dụng bot, hoặc không gian làm việc không cho phép ứng dụng mới."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slack 无法创建应用。你可能已有五个机器人应用，或工作区不允许新建应用。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slack 無法建立應用程式。你可能已有五個機器人應用程式，或工作區不允許新增應用程式。"
           }
         }
       }

@@ -93,15 +93,13 @@ export function SlackConnectionRow({
         ? t("settingsPage.slack.loading")
         : connected
           ? state.teams.map((team) => team.name).join(" · ")
-          : form
-            ? t("settingsPage.slack.detailOwnBot")
-            : t("settingsPage.slack.detail");
+          : t("settingsPage.slack.detail");
   useEffect(() => {
     if (waiting) setToken("");
   }, [waiting]);
   return (
     <section className="group" data-card="slack-connection" aria-busy={busy}>
-      <h3 className="group-title">{t("settingsPage.slack.title")}</h3>
+      <h3 className="group-title">Slack</h3>
       <div className="rows">
         <div className="row accounts-row">
           <div className="row-label">
@@ -160,7 +158,7 @@ export function SlackConnectionRow({
                 autoComplete="off"
                 spellCheck={false}
                 maxLength={BOT_NAME_MAX}
-                placeholder={t("settingsPage.slack.ownBot.namePlaceholder")}
+                placeholder={"cmux"}
                 value={name}
                 onChange={(event) => setName(event.target.value)}
               />
@@ -180,7 +178,7 @@ export function SlackConnectionRow({
               <span className="row-help">
                 {t("settingsPage.slack.ownBot.tokenHelp")}{" "}
                 <Button className="link-button" variant="ghost" size="sm" type="button" onClick={openTokenPage}>
-                  {t("settingsPage.slack.ownBot.tokenLink")}
+                  api.slack.com/apps
                 </Button>
               </span>
             </label>
@@ -195,7 +193,7 @@ export function SlackConnectionRow({
                 {t("settingsPage.slack.ownBot.submit")}
               </Button>
               <Button className="button" type="button" disabled={busy} onClick={() => setOwnBot(false)}>
-                {t("settingsPage.slack.ownBot.cancel")}
+                {t("settingsPage.cancel")}
               </Button>
             </div>
           </form>

@@ -60,4 +60,15 @@ import Testing
         }
         #expect(seen.count == 1)
     }
+
+    @Test func connectedLinkOpensAccountsOnlyForTheSlackReturnLink() {
+        var routes: [String] = []
+        for (text, handled) in [("cmux://slack/connected", true), ("cmux-next://slack/connected?team=x", true), ("cmux://slack/other", false),
+                                ("https://slack/connected", false), ("cmux://integration/complete", false)] {
+            let url = URL(string: text)!
+            #expect(SlackConnectedLink.handle(url, scheme: "cmux-next", show: { routes.append($0) }) == handled, "\(text)")
+        }
+        #expect(routes.count == 2)
+        #expect(routes.allSatisfy { $0.hasPrefix("#/settings/accounts?slack=connected&open=") })
+    }
 }

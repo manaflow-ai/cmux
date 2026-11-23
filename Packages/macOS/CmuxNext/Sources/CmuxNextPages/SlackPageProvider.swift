@@ -52,3 +52,16 @@ public struct SlackOwnBot: Sendable {
         self.name = name
     }
 }
+
+/// The platform's Allow-page return link, `cmux://slack/connected` (or this build's scheme).
+public enum SlackConnectedLink {
+    /// Shows Settings > Accounts with a one-shot hint to re-read the connection, and reports whether `url` was the link.
+    /// The link carries nothing the page trusts: the page asks Cloud which workspace is connected.
+    @MainActor
+    public static func handle(_ url: URL, scheme: String, show: (String) -> Void) -> Bool {
+        guard let urlScheme = url.scheme?.lowercased(), ["cmux", scheme.lowercased()].contains(urlScheme),
+              url.host?.lowercased() == "slack", url.path == "/connected" else { return false }
+        show("#/settings/accounts?slack=connected&open=\(UUID().uuidString)")
+        return true
+    }
+}

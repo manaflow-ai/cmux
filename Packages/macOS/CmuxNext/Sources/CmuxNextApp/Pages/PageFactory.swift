@@ -311,12 +311,7 @@ struct PageFactory {
                                        inUse: { [weak services] in services?.settings?.snapshot.backdropSelection }, settings: services.settings,
                                        pickFolder: { [weak services] in await services?.viewers.picker.open(.init(choose: .folders))?.first })
         }
-        let slack = SlackPageProvider(request: { [weak cloud = services.cloud] method, ownBot in
-            guard let cloud else { throw PageError.closed }
-            do { return try await CloudAPIClient.slackRequest(configuration: cloud.configuration, auth: cloud.auth, identity: cloud.installIdentity, method: method, ownBot: ownBot.map { ($0.configToken, $0.name) }) }
-            catch let error as CloudAPIError { throw PageError(code: "cmux.slack." + error.code, message: error.code) }
-        }, open: { LinkRouter.shared.open($0) })
-        let routes = [PageRoute(prefix: "cmux.settings.slack.", provider: slack),
+        let routes = [PageRoute(prefix: "cmux.settings.slack.", provider: SlackPageProvider.live(configuration: services.cloud.configuration, auth: services.cloud.auth, identity: services.cloud.installIdentity)),
                       PageRoute(prefix: "cmux.settings.", provider: provider), PageRoute(prefix: "cmux.app.", provider: PageGestureActionProvider(page: .settings, wrapping: native)),
                       // Agents > Chiefs: the same Chief editor routes as Home (ChiefProfilePageRelay, AgentHarnessCenter).
                       PageRoute(prefix: ChiefProfilePageRoute.prefix, provider: ChiefProfilePageRoute(owner: services.home.chief)),

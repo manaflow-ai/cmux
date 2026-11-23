@@ -109,7 +109,7 @@ test("own bot door links to where Slack shows the token", async () => {
   try {
     const card = page.container.querySelector('[data-card="slack-connection"]')!;
     await click(card.querySelector('[data-slack-action="own-bot"]')!);
-    const link = [...card.querySelectorAll("form button")].find((b) => b.textContent === "Open api.slack.com/apps")!;
+    const link = [...card.querySelectorAll("form button")].find((b) => b.textContent === "api.slack.com/apps")!;
     await click(link);
     expect(ops(page.provider, "cmux.settings.slack.open")).toEqual([{ url: "https://api.slack.com/apps" }]);
   } finally {

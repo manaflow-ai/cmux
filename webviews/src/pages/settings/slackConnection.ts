@@ -5,16 +5,7 @@ export type SlackConnection = { connected: boolean; teams: SlackTeam[] };
 export type SlackState = {
   phase: "loading" | "ready" | "connecting" | "awaiting" | "disconnecting";
   teams: SlackTeam[];
-  error:
-    | "failed"
-    | "signIn"
-    | "unavailable"
-    | "tokenInvalid"
-    | "nameInvalid"
-    | "rateLimited"
-    | "appLimit"
-    | "createFailed"
-    | null;
+  error: "failed" | "signIn" | "unavailable" | "tokenInvalid" | "nameInvalid" | "rateLimited" | "createFailed" | null;
   confirmed: boolean;
 };
 
@@ -61,8 +52,7 @@ export class SlackConnectionController {
       [
         [/config_token_invalid/, "tokenInvalid"],
         [/rate_limited/, "rateLimited"],
-        [/app_limit/, "appLimit"],
-        [/app_create_failed/, "createFailed"],
+        [/app_create_failed|app_limit/, "createFailed"],
         [/unauthorized|signed_out|not_signed_in|http_401|authentication/, "signIn"],
         [/not_found|not_configured|unavailable|http_404|http_501/, "unavailable"],
       ] as const
