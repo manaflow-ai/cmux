@@ -3,6 +3,7 @@ import type { ExtraFolderControl } from "../extraFolders";
 import { authBlocksSend, authText, useSessionAuth, authLoginText, authParty } from "../sessionAuth";
 import { useWebSwapHold } from "../../../pages/shared/useWebSwapHold";
 import { WEB_SWAP_KEPT_TEXT } from "../../../pages/shared/webSwap";
+import { watchFocusVisible } from "../focusVisibleMark";
 import React, {
   useCallback,
   useEffect,
@@ -159,6 +160,7 @@ import { elementBox, reportToastAvoidance } from "../toastAvoidance";
 import { githubIssueLink } from "../../../githubReferences";
 import { reportInputReadyWhenFocused } from "./inputReady";
 import { rememberNewChatPlace } from "../lastNewChatPlace";
+import { KEYCAP_THEN, keycapLegend, keycapStrokes } from "../../../ui/keycapLegend";
 
 /// What the screen asks the host to do. A prompt stays in the page (the tab becomes the chat).
 /// Where a browser pick of the page opens: by default it navigates the page's own tab; `beside` asks for a
@@ -1231,6 +1233,7 @@ export function NewTabScreen(props: Props) {
         id: entry.sessionId,
         title: entry.displayTitle ?? entry.name ?? entry.sessionId,
         ...(entry.harness ? { harness: entry.harness } : {}),
+        ...(entry.icon ? { icon: entry.icon } : {}),
         state: entry.indicator === "failed" ? ("failed" as const) : (sessionMark(entry, false) ?? ("idle" as const)),
         label: nt("leads.reports", { count: String(reports.length) }),
       }))
@@ -1304,6 +1307,12 @@ export function NewTabScreen(props: Props) {
     box.addEventListener("focusin", requestEmoji);
     return () => box.removeEventListener("focusin", requestEmoji);
   }, [box, requestEmoji]);
+  // Focus-visible in the box (focusVisibleMark.ts), the box's own state: the box, the composer around
+  // it and the suggestions' popover read it as `data-focused` (and the popover's `nt-popover-focused`,
+  // a class since Popover takes no attributes), never a `body:has(.nt-box :focus-visible)` checked
+  // again for every node the page inserts (transcript-motion-model step 7). Set on focus changes only.
+  const [boxFocused, setBoxFocused] = useState(false);
+  useLayoutEffect(() => (box ? watchFocusVisible(box, setBoxFocused) : undefined), [box]);
   // With the split, the mode, model and effort sit in the quiet row under the box: the rows hang
   // under the whole composer instead, so they never cover those controls (a press there would pick
   // a row).
@@ -2309,6 +2318,7 @@ export function NewTabScreen(props: Props) {
             id: card.sessionId,
             title: card.title,
             ...(card.harness ? { harness: card.harness } : {}),
+            ...(card.icon ? { icon: card.icon } : {}),
             state: card.state,
             label:
               card.state === "failed"
@@ -2337,6 +2347,7 @@ export function NewTabScreen(props: Props) {
       <div
         ref={setComposer}
         className="nt-composer"
+        data-focused={boxFocused ? "" : undefined}
         data-cloud-starting={props.cloudStarting === true ? "true" : undefined}
         data-trailing-gap={trailingGap}
         data-icon-column={iconColumn}
@@ -2427,6 +2438,7 @@ export function NewTabScreen(props: Props) {
         <div
           ref={setBox}
           className="ui-glass ui-glass-floats nt-composer-surface nt-box"
+          data-focused={boxFocused ? "" : undefined}
           inert={props.cloudStarting === true}
         >
           {/* Drawn out of the card's glass, above it, as the chat composer's (backdropLayer.tsx). */}
@@ -2725,7 +2737,7 @@ export function NewTabScreen(props: Props) {
             // The Console template's field has the popup corner; the portal cannot see the screen's template.
             `nt-composer-surface nt-popover${drawnRows === 1 ? " nt-popover-single" : ""}${
               template === "console" ? " nt-popover-console" : ""
-            }`
+            }${boxFocused ? " nt-popover-focused" : ""}`
           }
           hostGlass={false}
           initialFocus={false}
@@ -2770,16 +2782,21 @@ export function NewTabScreen(props: Props) {
                   {rowDetail(row) && <span className="nt-row-detail">{rowDetail(row)}</span>}
                   {row.type === "action" && !!row.keycaps?.length && (
                     <span className="nt-row-shortcut" data-popup-skip>
-                      {row.keycaps.map((cap, index) => (
-                        <kbd key={index}>{cap}</kbd>
+                      {keycapStrokes(row.keycaps).map((stroke, strokeIndex) => (
+                        <React.Fragment key={strokeIndex}>
+                          {strokeIndex > 0 && <span className="nt-row-then">{KEYCAP_THEN}</span>}
+                          {stroke.map((cap, index) => (
+                            <kbd key={index}>{cap}</kbd>
+                          ))}
+                        </React.Fragment>
                       ))}
                     </span>
                   )}
-                  {/* Return's row says so: ↩ at its end. The prompt for the chip's agent is no row, so a
+                  {/* Return's row says so: a "return" cap at its end. The prompt for the chip's agent is no row, so a
                     highlighted row is never the prompt: no highlight, Return sends to the agent. */}
                   {index === current && (
                     <kbd className="nt-row-return" aria-hidden="true" data-popup-skip>
-                      ↩
+                      {keycapLegend("↩")}
                     </kbd>
                   )}
                 </div>
