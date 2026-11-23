@@ -1312,6 +1312,8 @@ img.onb-make-tile-image {
 /* The little window. Every gap comes from the density, so a pick reflows it in one transition. */
 .onb-make-window {
   --w-gap: 4px;
+  --onb-make-term: light-dark(#1d1d1f, #0c0c0d); /* colour-allow: a drawn terminal, dark in both schemes as a default terminal theme is */
+  --onb-make-term-ink: light-dark(#f2f2f4, #e6e6ea); /* colour-allow: light ink on the terminal and on a painting */
   position: relative;
   display: flex;
   flex-direction: column;
@@ -1392,7 +1394,8 @@ img.onb-make-tile-image {
 }
 .onb-make-pane-term {
   flex: 1;
-  background: color-mix(in srgb, var(--ds-color-fg) 82%, transparent);
+  border-color: transparent;
+  background: color-mix(in srgb, var(--onb-make-term) 88%, transparent);
 }
 .onb-make-line {
   flex: none;
@@ -1403,15 +1406,23 @@ img.onb-make-tile-image {
 .onb-make-line.is-short {
   width: 60%;
 }
+/* On a painting (dark by nature) the chrome that sits on the glass takes light ink in both schemes. */
+.onb-make-window[data-art] .onb-make-window-bar span,
+.onb-make-window[data-art] .onb-make-pane-side .onb-make-line {
+  background: color-mix(in srgb, var(--onb-make-term-ink) 40%, transparent);
+}
+.onb-make-window[data-art] .onb-make-pane-side .onb-make-line[data-on] {
+  background: var(--onb-make-term-ink);
+}
 .onb-make-pane-side .onb-make-line[data-on] {
   background: var(--ds-color-accent);
 }
 .onb-make-pane-term .onb-make-line {
-  background: color-mix(in srgb, var(--ds-color-surface, Canvas) 45%, transparent);
+  background: color-mix(in srgb, var(--onb-make-term-ink) 35%, transparent);
 }
 .onb-make-pane-term .onb-make-line.is-prompt {
   width: 40%;
-  background: color-mix(in srgb, var(--ds-color-surface, Canvas) 85%, transparent);
+  background: color-mix(in srgb, var(--onb-make-term-ink) 85%, transparent);
 }
 .onb-make-bubble {
   flex: none;

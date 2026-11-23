@@ -216,7 +216,12 @@ function MakeItYoursPreview({
 }) {
   const gui = choices.workStyle === "gui";
   return (
-    <div className="onb-make-window" data-density={choices.density} data-work={choices.workStyle}>
+    <div
+      className="onb-make-window"
+      data-density={choices.density}
+      data-work={choices.workStyle}
+      data-art={image != null || undefined}
+    >
       <HostIcon image={image} className={cx("onb-make-window-art", image == null && "is-none")} />
       <div className="onb-make-window-bar">
         <span />
