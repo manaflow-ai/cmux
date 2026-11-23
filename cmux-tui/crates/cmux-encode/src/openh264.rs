@@ -277,9 +277,17 @@ pub enum Usage {
     Switch,
 }
 
-/// The shipped usage and long-term references for screen content.
+/// The shipped usage and long-term references for screen content (the Windows host, tests;
+/// the Linux host codes in [`LINUX_HOST_USAGE`]).
 pub const SHIPPED_USAGE: Usage = Usage::Switch;
 pub const SHIPPED_LTR: u8 = 0;
+
+/// The Linux host's usage for screen content: camera usage throughout. Screen usage's
+/// feature motion search cost a 1080p frame 3.7x camera usage's encode time on the same
+/// four cores (cmux#51662: page/scroll/drag/typing p50 6.8/9.1/7.9/6.4 ms against
+/// 1.8/2.0/1.6/1.5), up to 6.3x x264 ultrafast's, the Linux host's floor; camera usage is
+/// within 1.6x of it. The host's `CMUX_RD_OPENH264_USAGE=screen|switch` codes as before.
+pub const LINUX_HOST_USAGE: Usage = Usage::Camera;
 
 impl Default for OpenH264Options {
     fn default() -> Self {
@@ -300,9 +308,19 @@ impl Default for OpenH264Options {
 }
 
 impl OpenH264Options {
+    /// The Linux host's shipped settings: the default with [`LINUX_HOST_USAGE`].
+    pub fn linux_host() -> Self {
+        Self { usage: LINUX_HOST_USAGE, ..Self::default() }
+    }
+
     /// Reads `key=value` pairs, comma separated, over the default.
     pub fn parse(s: &str) -> Res<Self> {
-        let mut o = Self::default();
+        Self::parse_over(Self::default(), s)
+    }
+
+    /// Reads `key=value` pairs, comma separated, over `base`.
+    pub fn parse_over(base: Self, s: &str) -> Res<Self> {
+        let mut o = base;
         for pair in s.split(',').map(str::trim).filter(|p| !p.is_empty()) {
             let (k, v) =
                 pair.split_once('=').ok_or(format!("openh264 options: {pair} is not key=value"))?;
@@ -1021,5 +1039,27 @@ mod decoder_tests {
         assert_eq!((out.width, out.y.len()), (w, w * h));
         let err: u64 = out.y.iter().zip(&src.y).map(|(a, b)| u64::from(a.abs_diff(*b))).sum();
         assert!(err / (w * h) as u64 <= 8, "mean luma error {}", err / (w * h) as u64);
+    }
+}
+
+#[cfg(all(test, feature = "openh264-source"))]
+mod linux_host_tests {
+    use super::*;
+
+    /// The Linux host codes screen content in camera usage, says so in its name, and
+    /// `usage=screen` over its settings (the host's toggle) codes in screen usage again.
+    #[test]
+    fn linux_host_codes_in_camera_usage_and_toggles_back_to_screen() {
+        let cfg =
+            EncCfg { width: 64, height: 64, fps: 30, kbps: 500, threads: 1, screen_content: true };
+        let host = OpenH264Options::linux_host();
+        assert_eq!(host.usage, Usage::Camera);
+        let enc = OpenH264::with_options(&cfg, OpenH264Api::from_source(), &host).expect("encoder");
+        assert!(enc.name().contains("camera-realtime usage=camera"), "{}", enc.name());
+        let screen = OpenH264Options::parse_over(host, "usage=screen").expect("parse");
+        assert_eq!(screen, OpenH264Options { usage: Usage::Screen, ..OpenH264Options::default() });
+        let enc =
+            OpenH264::with_options(&cfg, OpenH264Api::from_source(), &screen).expect("encoder");
+        assert!(enc.name().contains("screen-realtime"), "{}", enc.name());
     }
 }
