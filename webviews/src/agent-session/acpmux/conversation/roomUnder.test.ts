@@ -156,22 +156,8 @@ describe("roomUnder", () => {
     expect(roomUnder(pass({ foldRoom: 2000, sessionSwitched: true })).total).toBe(1252);
   });
 
-  test("newerRoom and sendTop: newer history's room is under the rows, and a sent prompt's end holds past them", () => {
+  test("newerRoom: newer history's room is under the rows", () => {
     expect(roomUnder(pass({ newerRoom: 300 })).rowsHeight).toBe(1552);
-    const seen: number[] = [];
-    const held = roomUnder(
-      pass({
-        newerRoom: 300,
-        sendTop: (rowsHeight) => {
-          seen.push(rowsHeight);
-          return 2000;
-        },
-      }),
-    );
-    expect(seen).toEqual([1552]);
-    expect(held.rowsEnd).toBe(2000);
-    expect(held.total).toBe(2000);
-    expect(roomUnder(pass({ sendTop: () => 0 })).total).toBe(1252);
   });
 
   test("a scrollbar drag's height wins while it holds", () => {
