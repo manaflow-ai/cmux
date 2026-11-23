@@ -16,6 +16,28 @@ pub struct AppOpenArgs {
     pub options: Vec<String>,
 }
 
+/// `session recover`: what a dead chat's death routing knows that this machine cannot read.
+#[derive(Args, Debug, Clone, PartialEq, Eq)]
+pub struct RecoverArgs {
+    /// The dead chat (id or name).
+    pub session: String,
+    /// Restarts already spent on this death.
+    #[arg(long, default_value_t = 0)]
+    pub restarts: u32,
+    /// Restarts in place before it needs a successor.
+    #[arg(long, default_value_t = 2)]
+    pub max_restarts: u32,
+    /// It died of its own network (DNS, a refused or unroutable route): never restarted here.
+    #[arg(long)]
+    pub network: bool,
+    /// A move of it already failed: not tried again.
+    #[arg(long)]
+    pub move_failed: bool,
+    /// Print the route and run nothing.
+    #[arg(long)]
+    pub dry_run: bool,
+}
+
 /// `session move` (and its flat spelling `move-sessions`): which chats move, and where.
 #[derive(Args, Debug, Clone, PartialEq, Eq)]
 pub struct MoveSessionsArgs {
@@ -770,6 +792,8 @@ pub enum Command {
     #[command(hide = true)]
     RestartAgent { session: String },
     #[command(hide = true)]
+    RecoverSession(RecoverArgs),
+    #[command(hide = true)]
     PauseAgent { session: String },
     #[command(hide = true)]
     WakeAgent { session: String },
@@ -1246,6 +1270,10 @@ pub enum SessionCmd {
     /// It then runs the installed version and gets a new caller token (after
     /// a daemon restart left it the earlier daemon's).
     Restart { session: String },
+    /// Death routing for a dead chat: restart it in place, move it to the machine placement
+    /// picks, or name why it needs a successor, a wait or a hand-off (exit 1, detail
+    /// `recover_not_here`). Prints the route first; `--dry-run` runs nothing.
+    Recover(RecoverArgs),
     /// Rename a session.
     Rename {
         session: String,
@@ -1742,6 +1770,7 @@ pub fn flatten(c: Command) -> Command {
                 Command::Kill { session, purge, condition }
             }
             SessionCmd::Restart { session } => Command::RestartAgent { session },
+            SessionCmd::Recover(args) => Command::RecoverSession(args),
             SessionCmd::Pause { session } => Command::PauseAgent { session },
             SessionCmd::Wake { session } => Command::WakeAgent { session },
             SessionCmd::Rename { session, new_name, handle } => {
