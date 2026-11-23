@@ -1355,7 +1355,14 @@ function BranchPicker({ branch }: { branch: string }) {
         <MenuButton className="acpmux-location-button ui-ghost ui-ghost-sm" label={t("changes.scope.branch")}>
           <LocationFace icon={<BranchIcon />} value={branch} chevron />
         </MenuButton>
-        <MenuPopup side={side} flip={flip} anchor={anchor} className="acpmux-menu acpmux-location-menu" align="end">
+        <MenuPopup
+          side={side}
+          flip={flip}
+          anchor={anchor}
+          className="acpmux-menu acpmux-location-menu"
+          align="end"
+          resize={{ id: "composer.branch" }}
+        >
           <MenuRadioGroup value={branch} onValueChange={() => undefined}>
             <MenuRadioItem value={branch} disabled className="acpmux-menu-item">
               <span className="acpmux-menu-text">
@@ -1733,6 +1740,7 @@ function LocationPicker({
         className="acpmux-menu acpmux-location-menu"
         side={side}
         flip={flip}
+        resize={{ id: "composer.location" }}
       >
         <Combobox
           key={addingExtra ? "extra" : "pick"}
