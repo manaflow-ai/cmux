@@ -27,7 +27,7 @@ extension AppServices {
         hibernation.agentPages = AgentPageHibernation(services: self)
         // Off by default: the bench turns it on to compare (CEFChatRendererRecycle).
         if CEFChatRendererRecycle.isEnabled(ProcessInfo.processInfo.environment) {
-            let recycler = ChatRendererRecycler(services: self)
+            let recycler = AgentPageHibernation.RendererRecycler(services: self)
             cache.cef.afterPageRendererChecks { await recycler.check() }
         }
         hibernation.follow(settings)
