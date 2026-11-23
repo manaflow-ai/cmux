@@ -32,9 +32,9 @@ import {
   isAgentHome,
   projectLabel,
   sessionMark,
+  isTemporaryFolder,
   SessionsBy,
   FolderRecency,
-  isTemporaryFolder,
 } from "../sessionList";
 import { leaders } from "../leads";
 import { WorktreeFailure } from "../startFolder";
