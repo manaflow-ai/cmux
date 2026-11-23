@@ -1,6 +1,6 @@
 import CmuxNextCloud
 import CmuxNextWakeups
-import Foundation
+public import Foundation
 
 /// One chat as the place controls see it, read by the app (``CloudPlaceHost``).
 public struct CloudPlaceChat: Sendable {
@@ -129,10 +129,10 @@ public final class CloudPlaceDriver {
         guard !queue.isEmpty else { return }
         place.beginEvacuation(direction: request.direction, chats: queue.map { ($0.session, $0.title) })
         // task-owner: one-shot; ends when the last move ends.
-        Task {
+        Task { @MainActor in
             var next = queue.makeIterator()
             await withTaskGroup(of: Void.self) { group in
-                func launch() -> Bool {
+                @MainActor func launch() -> Bool {
                     guard !self.place.evacuationStopped, let chat = next.next() else { return false }
                     self.place.evacuationPhase(chat.session, .running)
                     group.addTask { @MainActor in

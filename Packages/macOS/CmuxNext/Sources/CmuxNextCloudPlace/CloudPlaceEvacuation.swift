@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// An Evacuate (to Cloud) or Bring Back All (to this Mac) run as the chat header's `evacuate` shows it. The plan (which chats,
 /// how many at once) is Rust's; this only keeps each chat's place in the run, and reads each running chat's step from its move's view.
