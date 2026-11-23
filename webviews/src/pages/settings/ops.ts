@@ -12,6 +12,7 @@
 import type { AcpmuxUsageLimits } from "../../agent-session/acpmux/model";
 import type { GhosttyTheme } from "../../theme/ghosttyTheme";
 import type { WorktreeRecipe } from "../../worktreeRecipe";
+import type { AccountFamily, AccountRowWire, SignInFinishWire, SignInStartWire } from "../shared/signIn/accountSignIn";
 import { OWNER_SENTENCE } from "../shared/userMessage";
 
 /** A museum search result (cmux.settings.art.search); its thumbnail is at `museum/<key>`. */
@@ -780,6 +781,10 @@ export type AccountsState = {
   cmux: AccountsCmux;
   removeTitle: string;
   groups: Array<{ id: string; title: string; rows: AccountsRow[] }>;
+  /** The daemon's sign-in accounts (`account.list` rows: GitHub, ChatGPT and Claude, several each).
+   * Present only from a host that signs in in place (shared/signIn/accountSignIn.ts); without it the
+   * page keeps the terminal sign-in. */
+  signInAccounts?: AccountRowWire[] | null;
 };
 
 /**
@@ -793,6 +798,19 @@ export type AccountsRun = {
   secret?: string;
   team?: string;
   name?: string;
+  /** The in-place sign-in's gestures (ACCOUNT_ACTIONS): its login, a pasted code, a new account's family. */
+  loginId?: string;
+  code?: string;
+  family?: AccountFamily;
+};
+
+/** `cmux.settings.accounts.run`'s answer. A sign-in gesture adds the daemon's answer: `signIn` for
+ * a start, `finished` for a finish, `reason` for a refusal (SignInFailure). */
+export type AccountsRunReply = {
+  error?: string;
+  signIn?: SignInStartWire;
+  finished?: SignInFinishWire;
+  reason?: string;
 };
 
 /** One Settings > Agents row: a harness acpmux knows (never its command line or env). */
@@ -984,7 +1002,9 @@ export type HarnessesRun = {
   id?: string;
   /** With every account gesture but `accountAdd`: a listed account id. */
   account?: string;
-  /** With `accountAdd`: the provider family (`codex`, `claude`) that gets a new account. */
+  /** With `accountAdd`: the provider family (`codex`, `claude`) that gets a new account; `github`
+   * (way `new` only) types gh's own `gh auth login` into a terminal tab, the in-place sign-in's
+   * fallback for a daemon without `_acpmux/account/sign_in`. */
   family?: string;
   /** With `accountAdd`: `new` signs in a login folder of its own, `key` adds an API key. */
   way?: "new" | "key";
@@ -1861,7 +1881,7 @@ export type SettingsOps = {
   /** Native: the Accounts part (providers, linked accounts, forms). */
   "cmux.settings.accounts.state": [Record<string, never>, AccountsState];
   /** Native: one Accounts gesture; a failed Keychain save answers its message. */
-  "cmux.settings.accounts.run": [AccountsRun, { error?: string }];
+  "cmux.settings.accounts.run": [AccountsRun, AccountsRunReply];
   /** Native: Settings > Agents, the harnesses acpmux knows and the last doctor answers. */
   "cmux.settings.agents.state": [Record<string, never>, AgentsState];
   /** Native: one Agents gesture; a daemon refusal rejects with `cmux.agents.<code>` and its text. */
