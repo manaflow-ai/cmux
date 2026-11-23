@@ -98,7 +98,7 @@ final class AllUIStatesSurfacesCaptureUITests: UIStateCaptureCase {
             Scene(group: g, id: "mock-browser-tab", args: ["-cmux-mobile-tab", "workspaces"]) { app in
                 C.steps([
                     { C.tap(app.buttons["workspace.row.ws-cmux"], "ws-cmux row") },
-                    { C.pause(1.5); return C.tap(app.buttons["Tabs"].firstMatch, "Tabs") },
+                    { C.tap(app.buttons["Tabs"].firstMatch, "Tabs") },
                     { C.tap(app.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'docs' AND label ENDSWITH ', tab'")).firstMatch, "docs card") },
                 ])
             },
@@ -130,10 +130,10 @@ final class AllUIStatesSurfacesCaptureUITests: UIStateCaptureCase {
             Scene(group: s, id: "viewer-mac-locked-toolbar", args: ["-CmuxMobileScreenSharingDemo", "-cmux-mobile-no-restore",
                                                                     "-CmuxMobileScreenSharingDemoSource", "locked",
                                                                     "-CmuxMobileScreenSharingDemoNotice", "toolbar"], signedIn: false),
-            Scene(group: s, id: "viewer-landscape", args: ["-CmuxMobileScreenSharingDemo", "-cmux-mobile-no-restore"], signedIn: false) { _ in
+            Scene(group: s, id: "viewer-landscape", args: ["-CmuxMobileScreenSharingDemo", "-cmux-mobile-no-restore"], signedIn: false) { app in
                 XCUIDevice.shared.orientation = .landscapeLeft
-                C.pause(1.5)
-                return nil
+                let window = app.windows.firstMatch
+                return C.until(5) { window.frame.width > window.frame.height } ? nil : "not landscape"
             },
         ]
         capture(scenes)

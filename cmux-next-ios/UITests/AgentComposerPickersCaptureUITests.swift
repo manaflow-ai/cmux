@@ -39,7 +39,7 @@ final class AgentComposerPickersCaptureUITests: UIStateCaptureCase {
         C.steps([
             { openSubmenu(app, submenu) },
             { C.tap(app.buttons[item].firstMatch, item) },
-            { C.pause(0.8); return nil },
+            { _ = row(app, submenu).waitForNonExistence(timeout: 3); return nil },
         ])
     }
 

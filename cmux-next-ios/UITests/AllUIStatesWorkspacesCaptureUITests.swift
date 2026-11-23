@@ -14,7 +14,7 @@ final class AllUIStatesWorkspacesCaptureUITests: UIStateCaptureCase {
 
     @MainActor
     private static func openGrid(_ app: XCUIApplication) -> String? {
-        steps([{ openCmux(app) }, { pause(1.5); return tap(app.buttons["Tabs"].firstMatch, "Tabs button") }])
+        steps([{ openCmux(app) }, { tap(app.buttons["Tabs"].firstMatch, "Tabs button") }])
     }
 
     @MainActor
@@ -183,18 +183,18 @@ final class AllUIStatesWorkspacesCaptureUITests: UIStateCaptureCase {
             },
             Scene(group: g, id: "refused-tab-toast", args: Self.list + ["-cmux-mobile-toast-demo"]) { app in Self.openCmux(app) },
             Scene(group: g, id: "page-menu", args: Self.list) { app in
-                C.steps([{ Self.openCmux(app) }, { C.pause(1.5); return C.tap(app.buttons["Page Menu"].firstMatch, "Page Menu") }])
+                C.steps([{ Self.openCmux(app) }, { C.tap(app.buttons["Page Menu"].firstMatch, "Page Menu") }])
             },
             Scene(group: g, id: "rename-tab-alert", args: Self.list) { app in
-                C.steps([{ Self.openCmux(app) }, { C.pause(1.5); return C.tap(app.buttons["Page Menu"].firstMatch, "Page Menu") },
+                C.steps([{ Self.openCmux(app) }, { C.tap(app.buttons["Page Menu"].firstMatch, "Page Menu") },
                          { C.tap(C.label(app, contains: "Rename Tab"), "Rename Tab…") }])
             },
             Scene(group: g, id: "move-tab-sheet", args: Self.list) { app in
-                C.steps([{ Self.openCmux(app) }, { C.pause(1.5); return C.tap(app.buttons["Page Menu"].firstMatch, "Page Menu") },
+                C.steps([{ Self.openCmux(app) }, { C.tap(app.buttons["Page Menu"].firstMatch, "Page Menu") },
                          { C.tap(C.label(app, contains: "Move Tab to Workspace"), "Move Tab to Workspace…") }])
             },
             Scene(group: g, id: "command-palette", args: Self.list) { app in
-                C.steps([{ Self.openCmux(app) }, { C.pause(1.5); return C.tap(app.buttons["Page Menu"].firstMatch, "Page Menu") },
+                C.steps([{ Self.openCmux(app) }, { C.tap(app.buttons["Page Menu"].firstMatch, "Page Menu") },
                          { C.tap(C.label(app, contains: "Command Palette"), "Command Palette…") }])
             },
             Scene(group: g, id: "workspaces-reopen-demo", args: ["-cmux-mobile-demo", "workspaces-reopen"],

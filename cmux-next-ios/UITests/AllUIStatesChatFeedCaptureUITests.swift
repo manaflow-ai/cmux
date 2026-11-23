@@ -63,10 +63,10 @@ final class AllUIStatesChatFeedCaptureUITests: UIStateCaptureCase {
                 C.steps([{ Self.send(app, "Summarize the transport layer") }, { C.wait(app.buttons["Stop"].firstMatch, "Stop button", timeout: 10) }])
             },
             Scene(group: g, id: "turn-finished", args: Self.idleChat) { app in
-                C.steps([{ Self.send(app, "Summarize the transport layer") }, { C.pause(14); return nil }])
+                C.steps([{ Self.send(app, "Summarize the transport layer") }, { C.turnEnded(app) }])
             },
             Scene(group: g, id: "rich-first-turn", args: ["-cmux-mobile-demo", "kbd-chat-empty"]) { app in
-                C.steps([{ Self.send(app, "Plan the release") }, { C.pause(10); return nil }])
+                C.steps([{ Self.send(app, "Plan the release") }, { C.turnEnded(app) }])
             },
             Scene(group: g, id: "empty-chat-home", args: ["-cmux-mobile-demo", "kbd-chat-empty"]),
             Scene(group: g, id: "offline-queued", args: ["-cmux-mobile-demo", "offline-send"]),
@@ -111,7 +111,7 @@ final class AllUIStatesChatFeedCaptureUITests: UIStateCaptureCase {
             Scene(group: g, id: "pending-permission-codex", args: ["-cmux-mobile-tab", "workspaces"]) { app in
                 C.steps([
                     { C.tap(app.buttons["workspace.row.ws-ghostty"], "ws-ghostty row") },
-                    { C.pause(1.5); return C.tap(app.buttons["Tabs"].firstMatch, "Tabs") },
+                    { C.tap(app.buttons["Tabs"].firstMatch, "Tabs") },
                     { C.tap(app.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'codex' AND label ENDSWITH ', tab'")).firstMatch, "Codex card") },
                 ])
             },
@@ -188,22 +188,22 @@ final class AllUIStatesChatFeedCaptureUITests: UIStateCaptureCase {
                     if kind == "permission" && look == .light { attachShot(group: g, id: "system-permission-alert", look: look, miss: nil) }
                     allow.tap()
                 }
+                // keep: the app posts its dev push on its own clock after launch, with no marker; home sooner suspends it.
                 C.pause(3)
                 XCUIDevice.shared.press(.home)
-                C.pause(1.5)
+                _ = app.wait(for: .runningBackground, timeout: 5)
                 springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.005))
                     .press(forDuration: 0.1, thenDragTo: springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.6)))
-                C.pause(2)
                 let platter = springboard.descendants(matching: .any).matching(identifier: "NotificationShortLookView").firstMatch
-                let found = platter.waitForExistence(timeout: 6)
+                let found = platter.waitForExistence(timeout: 8)
                 attachShot(group: g, id: "\(kind)-notification-center", look: look, miss: found ? nil : "no notification platter")
                 if found {
                     platter.press(forDuration: 1.2)
+                    // keep: the long look is drawn by the content extension out of process, which this test cannot query.
                     C.pause(2.5)
                     attachShot(group: g, id: "\(kind)-long-look", look: look, miss: nil)
                 }
                 XCUIDevice.shared.press(.home)
-                C.pause(1)
                 app.terminate()
             }
         }
