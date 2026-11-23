@@ -240,7 +240,7 @@ fn median_cut(mut colors: Vec<[u8; 3]>, k: usize) -> Vec<(Rgb, f64)> {
 }
 
 /// Hue (0...360), saturation and lightness (0...1).
-fn hsl(c: Rgb) -> (f64, f64, f64) {
+pub(crate) fn hsl(c: Rgb) -> (f64, f64, f64) {
     let max = c.r.max(c.g).max(c.b);
     let min = c.r.min(c.g).min(c.b);
     let l = (max + min) / 2.0;
@@ -276,11 +276,11 @@ fn from_hsl(h: f64, s: f64, l: f64) -> Rgb {
 }
 
 /// Chroma (max - min channel), 0...1: how colorful, independent of lightness.
-fn chroma(c: Rgb) -> f64 {
+pub(crate) fn chroma(c: Rgb) -> f64 {
     c.r.max(c.g).max(c.b) - c.r.min(c.g).min(c.b)
 }
 
-fn hue_distance(a: f64, b: f64) -> f64 {
+pub(crate) fn hue_distance(a: f64, b: f64) -> f64 {
     let d = (a - b).rem_euclid(360.0);
     d.min(360.0 - d)
 }
