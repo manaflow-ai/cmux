@@ -52,7 +52,7 @@ const MAX_EARLY_BYTES: usize = 4 * 1024 * 1024;
 
 /// The prompt states that never change again.
 fn decided(state: &str) -> bool {
-    matches!(state, "approved" | "declined" | "removed")
+    matches!(state, "sent" | "approved" | "declined" | "removed")
 }
 
 /// Whether a prompt's state may go from `from` to `to`: forward only. A decision is final;
@@ -206,6 +206,7 @@ fn lock(held: &Held) -> MutexGuard<'_, Ledger> {
 /// What the room asked of one guest.
 pub(super) enum Ask {
     Prompt { client_id: String, text: String },
+    Cancel,
     Typing(bool),
     Older(u64),
     Status(Vec<String>),
@@ -224,7 +225,7 @@ pub(super) fn refuse(held: &Held, ids: (&str, &str), ask: Ask, reason: &str) -> 
             ledger.frame(ids.1, &prompt)
         }
         Ask::Older(_) => Some(bounded(json!({"v": 1, "t": "page", "to": ids.1}), Vec::new(), true)),
-        Ask::Prompt { .. } | Ask::Typing(_) | Ask::Status(_) => None,
+        Ask::Prompt { .. } | Ask::Cancel | Ask::Typing(_) | Ask::Status(_) => None,
     }
 }
 
@@ -261,7 +262,6 @@ pub(super) fn start(
     generation: u64,
     out: mpsc::UnboundedSender<Out>,
     held: Held,
-    drive: bool,
 ) -> Option<Relay> {
     let permit = claim_connection(mux.connection_stats())?;
     let (ours, daemons) = std::os::unix::net::UnixStream::pair().ok()?;
@@ -275,7 +275,7 @@ pub(super) fn start(
     std::thread::Builder::new().name("mux-share-guest".into()).spawn(serve).ok()?;
     let (asks, receiver) = mpsc::channel(MAX_ASKS);
     let (read, write) = ours.into_split();
-    let link = Link::new(ids, generation, out, write, held, drive);
+    let link = Link::new(ids, generation, out, write, held);
     tokio::spawn(run(BufReader::new(read), link, receiver));
     Some(Relay { asks, generation, sockets: Some(1), tries: 0 })
 }
@@ -334,6 +334,7 @@ enum Pending {
     Page,
     /// A prompt sent: its id.
     Prompt(String),
+    Cancel,
     Ignore,
 }
 
@@ -344,7 +345,8 @@ struct Link {
     out: mpsc::UnboundedSender<Out>,
     write: OwnedWriteHalf,
     next_id: u64,
-    /// The calls awaiting the daemon's answer (at most [`MAX_PENDING`] the room's asks made).
+    /// The calls awaiting the daemon's answer (room asks are bounded by [`MAX_PENDING`],
+    /// plus one cancellation).
     pending: HashMap<u64, Pending>,
     /// The attachment answered: the room's asks go to the daemon.
     attached: bool,
@@ -357,8 +359,6 @@ struct Link {
     early_bytes: usize,
     /// This guest's prompts (kept by the bridge across relays and host sockets).
     held: Held,
-    /// A named Drive invite's prompts run without owner approval. Link guests never set this.
-    drive: bool,
 }
 
 impl Link {
@@ -368,7 +368,6 @@ impl Link {
         out: mpsc::UnboundedSender<Out>,
         write: OwnedWriteHalf,
         held: Held,
-        drive: bool,
     ) -> Self {
         Self {
             share_id: ids.0.to_owned(),
@@ -383,7 +382,6 @@ impl Link {
             early: VecDeque::new(),
             early_bytes: 0,
             held,
-            drive,
         }
     }
 
@@ -483,10 +481,10 @@ impl Link {
                 self.busy(Ask::Older(0));
                 true
             }
-            // A talk guest is held. A Drive guest is accepted without owner approval, regardless
-            // of whether an older acpmux includes its awaiting-owner marker in the response.
+            // Follow acpmux's actual acceptance, including an older peer that still holds Drive.
             Pending::Prompt(prompt) if ok => {
-                self.note(&prompt, if self.drive { "approved" } else { "held" }, None);
+                let unheld = frame.pointer("/data/awaiting_owner") == Some(&Value::Bool(false));
+                self.note(&prompt, if unheld { "sent" } else { "held" }, None);
                 true
             }
             Pending::Prompt(prompt) => {
@@ -498,7 +496,7 @@ impl Link {
                 self.note(&prompt, "refused", Some(reason));
                 true
             }
-            Pending::Ignore => true,
+            Pending::Cancel | Pending::Ignore => true,
         }
     }
 
@@ -551,6 +549,14 @@ impl Link {
                     Some(prompt) => self.send(prompt, client_id, text).await,
                     None => true,
                 }
+            }
+            // Keep one cancellation in flight even when other asks fill the relay.
+            Ask::Cancel if self.pending.values().any(|call| matches!(call, Pending::Cancel)) => {
+                true
+            }
+            Ask::Cancel => {
+                let frame = json!({"cmd": "agent-session-cancel", "surface": 0});
+                self.call(frame, Pending::Cancel).await
             }
             // Dropped when the daemon is behind: the next one says the same.
             Ask::Typing(_) if full => true,

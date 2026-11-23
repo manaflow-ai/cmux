@@ -30,7 +30,7 @@ use tokio_tungstenite::tungstenite::client::IntoClientRequest as _;
 use tokio_tungstenite::tungstenite::http::HeaderValue;
 use zeroize::Zeroizing;
 
-use super::{GuestState, LinkShare, LinkShares, Redeem, Role, ShareState, find, op_of};
+use super::{GuestState, LinkShare, LinkShares, Redeem, ShareState, find, op_of};
 use crate::mux::Mux;
 use crate::server::RenderService;
 
@@ -250,8 +250,6 @@ struct View {
     expires_at: u64,
     /// The guests it holds active (none once the share ended).
     active: Vec<String>,
-    /// Active guests whose named invite grants Drive.
-    drive: HashMap<String, bool>,
     kicks: Vec<String>,
     delete: bool,
     body: Value,
@@ -261,10 +259,6 @@ fn view(mux: &Mux, share_id: &str) -> Option<View> {
     change(mux, share_id, |s| {
         let room = |field: &str| s.room_str(field).map(str::to_owned);
         let active = s.guests.iter().filter(|g| g.state == GuestState::Active && s.live().is_ok());
-        let drive = active
-            .clone()
-            .filter_map(|g| (g.role == Some(Role::Drive)).then(|| (g.guest_id.clone(), true)))
-            .collect();
         let body = json!({"provision_key": s.provision_key, "secret_sha256": s.secret_sha256,
             "expires_at": s.expires_at, "uses": s.uses_left});
         let view = View {
@@ -273,7 +267,6 @@ fn view(mux: &Mux, share_id: &str) -> Option<View> {
             state: s.state,
             expires_at: s.expires_at,
             active: active.map(|g| g.guest_id.clone()).collect(),
-            drive,
             kicks: s
                 .pending_room_ops
                 .iter()
@@ -1074,6 +1067,7 @@ impl Guests {
                 }
                 ask
             }
+            "guest_cancel" => relay::Ask::Cancel,
             "guest_typing" => relay::Ask::Typing(frame.get("on") == Some(&Value::Bool(true))),
             "older" => match frame.get("before_seq").and_then(Value::as_u64) {
                 Some(before) => relay::Ask::Older(before),
@@ -1120,9 +1114,8 @@ impl Guests {
         self.next = self.next.wrapping_add(1);
         let ids = (share_id, guest);
         let held = bridge.held(share_id, guest);
-        let drive = view.drive.contains_key(guest);
         let out = self.out.clone();
-        match relay::start(mux, render, ids, self.next, out, held, drive) {
+        match relay::start(mux, render, ids, self.next, out, held) {
             Some(mut relay) => {
                 relay.sockets = sockets;
                 relay.tries = tries;
@@ -1211,7 +1204,7 @@ fn answer(mux: &Mux, share_id: &str, frame: &Value, ready: &mut bool) -> Vec<Val
                 |name: &str| frame.get(name).and_then(Value::as_str).unwrap_or_default().to_owned();
             let redeem = Redeem {
                 share_id: share_id.to_owned(),
-                secret: field("secret"),
+                secret: frame.get("secret").map(|_| field("secret")),
                 name: field("name"),
                 attempt_id: field("attempt_id"),
                 // The account the room signed in: an invitee's (no secret then), or a signed-in

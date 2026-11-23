@@ -62,12 +62,14 @@ pub(super) fn scope(
         let guest = is_guest(author);
         // `agent-session-permission` is in the member's list only so it is answered
         // `agent_session.owner_only` (`run_on_worker`), not a bare not-trusted.
-        let verbs: &[&str] = match (guest, shares::view_only(author), shares::can_drive(author)) {
-            (true, true, _) => &VIEWER_VERBS,
-            (true, false, true) => &DRIVER_VERBS,
-            (true, false, false) => &GUEST_VERBS,
-            (false, _, _) if is_member(author) => &MEMBER_VERBS,
-            (false, _, _) => &TEAMMATE_VERBS,
+        let verbs: &[&str] = match (guest, shares::view_only(author)) {
+            (true, true) => &VIEWER_VERBS,
+            (true, false) if author.get("role").and_then(Value::as_str) == Some("drive") => {
+                &DRIVER_VERBS
+            }
+            (true, false) => &GUEST_VERBS,
+            (false, _) if is_member(author) => &MEMBER_VERBS,
+            (false, _) => &TEAMMATE_VERBS,
         };
         if !verbs.contains(&cmd.as_str()) {
             let refusal = if guest { Refusal::ScopeNotGranted } else { Refusal::NotTrusted };
