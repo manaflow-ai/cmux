@@ -40,11 +40,11 @@ use cmux_remote::link::FrameLink;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::sync::{Notify, Semaphore, mpsc, oneshot};
 
-use super::CircuitService;
 use super::{
     CHUNK_BYTES, DUPLEX_BYTES, HubStream, Incoming, SERVICE_HELLO, ServiceRefusal, Stats,
     connect_session, named_service, read_service_answer, service_answer,
 };
+use super::{CircuitLane as Lane, CircuitService};
 
 const OPEN: u8 = 1;
 const ANSWER: u8 = 2;
@@ -566,18 +566,18 @@ pub(crate) struct Kept {
     pub(crate) no_mux_until: Option<Instant>,
 }
 
-/// Every kept circuit of a carrier, by machine (`daemonId`).
+/// Every kept circuit of a carrier, by machine (`daemonId`) and [`Lane`](super::CircuitLane).
 #[derive(Default)]
 pub(crate) struct KeptCircuits {
-    by_machine: Mutex<HashMap<String, Arc<tokio::sync::Mutex<Kept>>>>,
+    by_machine: Mutex<HashMap<(String, Lane), Arc<tokio::sync::Mutex<Kept>>>>,
 }
 
 impl KeptCircuits {
-    pub(crate) fn slot(&self, daemon: &str) -> Arc<tokio::sync::Mutex<Kept>> {
+    pub(crate) fn slot(&self, daemon: &str, lane: Lane) -> Arc<tokio::sync::Mutex<Kept>> {
         self.by_machine
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .entry(daemon.to_owned())
+            .entry((daemon.to_owned(), lane))
             .or_default()
             .clone()
     }
@@ -597,11 +597,15 @@ impl KeptCircuits {
         }
     }
 
-    /// The live kept circuit to `daemon`, if one is open now.
-    pub(crate) fn live(&self, daemon: &str) -> Option<Arc<Mux>> {
-        let slot = self.by_machine.lock().unwrap_or_else(|e| e.into_inner()).get(daemon)?.clone();
-        let kept = slot.try_lock().ok()?;
-        kept.live.clone().filter(|mux| !mux.is_closed())
+    /// The live kept circuits to `daemon` open now, cheap first.
+    pub(crate) fn live(&self, daemon: &str) -> Vec<Arc<Mux>> {
+        let by_machine = self.by_machine.lock().unwrap_or_else(|e| e.into_inner());
+        [Lane::Cheap, Lane::Bulk]
+            .into_iter()
+            .filter_map(|lane| by_machine.get(&(daemon.to_owned(), lane)).cloned())
+            .filter_map(|slot| slot.try_lock().ok()?.live.clone())
+            .filter(|mux| !mux.is_closed())
+            .collect()
     }
 }
 

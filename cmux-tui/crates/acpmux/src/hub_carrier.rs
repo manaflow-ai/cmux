@@ -148,6 +148,31 @@ pub enum CircuitService {
     CmuxTuiSession,
 }
 
+/// Which of a pair's two kept circuits a stream rides (RFD 0039 cut 5, H13): a cheap read never
+/// waits behind bulk bytes in one circuit's TCP. A plain port pipe (`remote.pipe`: ssh, scp,
+/// rsync, a forwarded port) is bulk; the acpmux and cmux-tui session services are cheap.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum CircuitLane {
+    Cheap,
+    Bulk,
+}
+
+impl CircuitLane {
+    pub fn of(service: CircuitService) -> Self {
+        match service {
+            CircuitService::CmuxTui { .. } => Self::Bulk,
+            CircuitService::Acpmux | CircuitService::CmuxTuiSession => Self::Cheap,
+        }
+    }
+
+    pub(crate) fn name(self) -> &'static str {
+        match self {
+            Self::Cheap => "kept",
+            Self::Bulk => "kept bulk",
+        }
+    }
+}
+
 /// The `target` a hello gives [`CircuitService::CmuxTuiSession`].
 pub const SESSION_TARGET: &str = "session";
 
@@ -593,10 +618,21 @@ impl HubCarrier {
     /// it reached it (or fails with its refusal). A named service rides the machine's kept
     /// circuit as a new stream when the machine serves one (`hub_carrier_mux.rs`): one relay
     /// round trip once the circuit is open, else a plain circuit of its own.
+    /// It rides the kept circuit of the service's [`CircuitLane`].
     pub async fn dial_service(
         &self,
         daemon: &str,
         service: CircuitService,
+    ) -> Result<HubStream, String> {
+        self.dial_service_on(daemon, service, CircuitLane::of(service)).await
+    }
+
+    /// [`Self::dial_service`] on the kept circuit of `lane`, whatever the service's own lane.
+    pub async fn dial_service_on(
+        &self,
+        daemon: &str,
+        service: CircuitService,
+        lane: CircuitLane,
     ) -> Result<HubStream, String> {
         if !self.key_current() {
             return Err("the node key was replaced; this carrier is stopped".into());
@@ -606,7 +642,7 @@ impl HubCarrier {
             stages.log(daemon, "plain");
             return Ok(self.carry_plain(secure));
         };
-        match self.kept_open(daemon, hello.clone()).await {
+        match self.kept_open(daemon, lane, hello.clone()).await {
             KeptOpen::Stream(stream) => return Ok(stream),
             KeptOpen::Refused(refusal) => return Err(refusal.to_string()),
             KeptOpen::Failed(e) => return Err(e),
@@ -668,10 +704,10 @@ impl HubCarrier {
         ours
     }
 
-    /// A stream on the kept circuit to `daemon`, opening that circuit first if there is none.
-    /// A circuit that fails under the open is dropped and opened again, once.
-    async fn kept_open(&self, daemon: &str, hello: Bytes) -> KeptOpen {
-        let slot = self.kept.slot(daemon);
+    /// A stream on the `lane` kept circuit to `daemon`, opening that circuit first if there is
+    /// none. A circuit that fails under the open is dropped and opened again, once.
+    async fn kept_open(&self, daemon: &str, lane: CircuitLane, hello: Bytes) -> KeptOpen {
+        let slot = self.kept.slot(daemon, lane);
         let mut why = String::new();
         for _ in 0..2 {
             let mux = {
@@ -698,7 +734,7 @@ impl HubCarrier {
                             tokio::time::timeout(wait, said)
                         );
                         stages.answer = asked.elapsed();
-                        stages.log(daemon, "kept");
+                        stages.log(daemon, lane.name());
                         match said {
                             Ok(Ok(Ok(()))) => {
                                 self.stats.kept_circuits.fetch_add(1, Ordering::Relaxed);
@@ -772,21 +808,26 @@ impl HubCarrier {
         self.serves_kept.store(on, Ordering::SeqCst);
     }
 
-    /// Whether a kept circuit to `daemon` is open now, and how many streams ride it.
+    /// Whether a kept circuit to `daemon` is open now, and how many streams ride its kept
+    /// circuits (the cheap one and the bulk one).
     pub fn kept_streams(&self, daemon: &str) -> Option<usize> {
-        self.kept.live(daemon).map(|mux| mux.streams())
+        let live = self.kept.live(daemon);
+        (!live.is_empty()).then(|| live.iter().map(|mux| mux.streams()).sum())
+    }
+
+    /// How many kept circuits to `daemon` are open now (at most one per lane).
+    pub fn kept_circuits(&self, daemon: &str) -> usize {
+        self.kept.live(daemon).len()
     }
 
     /// Cut the kept circuit to `daemon` under its streams, as a relay drop would (tests, and a
     /// caller that knows the path changed).
     pub async fn cut_kept(&self, daemon: &str) -> bool {
-        match self.kept.live(daemon) {
-            Some(mux) => {
-                mux.close().await;
-                true
-            }
-            None => false,
+        let live = self.kept.live(daemon);
+        for mux in &live {
+            mux.close().await;
         }
+        !live.is_empty()
     }
 
     /// One relay circuit to `daemon` with the Noise handshake done, its key pinned to the
