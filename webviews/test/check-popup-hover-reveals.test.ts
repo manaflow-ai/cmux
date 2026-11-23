@@ -128,5 +128,7 @@ test("the flag form covers an attribute-scoped :is(:hover, :focus-within) reveal
   `;
   expect(findHoverRevealViolations(css)).toEqual([]);
   // A flag set on another look of the block does not cover this one.
-  expect(findHoverRevealViolations(css.replace(".tools[data-look=peek]:has(", ".tools[data-look=other]:has("))).toHaveLength(1);
+  expect(
+    findHoverRevealViolations(css.replace(".tools[data-look=peek]:has(", ".tools[data-look=other]:has(")),
+  ).toHaveLength(1);
 });
