@@ -1,5 +1,6 @@
 #if os(iOS)
 import CmuxMobileDesign
+import CmuxMobileMarkdown
 import CmuxSpinner
 import SwiftUI
 import UIKit
@@ -235,9 +236,14 @@ struct ChiefLiveDetailRow: View {
                     InPlaceSelectionLabel(shown, textStyle: .caption1, color: .secondaryLabel, onSelectionChange: { selecting in
                         heldText = selecting ? shown : nil
                     }) {
-                        [UIAction(title: String(localized: "mobile.chief.live.copyDetail", defaultValue: "Copy Detail", bundle: .module), image: UIImage(systemName: "doc.on.doc")) { _ in
-                            UIPasteboard.general.string = shown
-                        }]
+                        [
+                            UIAction(title: String(localized: "mobile.chief.live.copyDetail", defaultValue: "Copy Detail", bundle: .module), image: UIImage(systemName: "doc.on.doc")) { _ in
+                                UIPasteboard.general.string = shown
+                            },
+                            SelectionMenu.action("Select Text", "selection.pin.in.out") {
+                                SelectableTextView(shown).present()
+                            },
+                        ]
                     }
                 }
             }

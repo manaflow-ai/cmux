@@ -79,6 +79,7 @@ struct AgentIncomingCard: View {
     private var messageActions: [UIMenuElement] {
         var rows: [UIMenuElement] = [
             SelectionMenu.action("Copy Message", "doc.on.doc") { UIPasteboard.general.string = incoming.text },
+            SelectionMenu.action("Select Text", "selection.pin.in.out") { ChatSelectText.present(incoming.text) },
             SelectionMenu.action("Copy as Sent", "envelope") { UIPasteboard.general.string = incoming.raw },
         ]
         if let id = incoming.messageID {
