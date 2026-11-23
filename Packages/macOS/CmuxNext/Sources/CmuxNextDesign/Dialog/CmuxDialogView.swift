@@ -16,7 +16,7 @@ public final class CmuxDialogView: NSView, CmuxDialogRendering {
     private(set) var buttonViews: [CmuxDialogButtonView] = []
     private var inputs: [String: NSControl] = [:]
     /// Text fields, choices, check boxes, then buttons: the focus order.
-    private(set) var focusables: [NSView] = []
+    var focusables: [NSView] = []
     private let body = NSStackView()
     private let row = NSStackView()
     private(set) var surface: CmuxDialogCardSurface?
@@ -142,7 +142,7 @@ public final class CmuxDialogView: NSView, CmuxDialogRendering {
         for button in buttonViews { button.isEnabled = enabled }
     }
 
-    @objc private func pressed(_ sender: CmuxDialogButtonView) {
+    @objc func pressed(_ sender: CmuxDialogButtonView) {
         noteEdit()
         dialog.press(sender.button.id)
     }
@@ -184,11 +184,11 @@ public final class CmuxDialogView: NSView, CmuxDialogRendering {
         outer.addArrangedSubview(body)
         body.widthAnchor.constraint(equalToConstant: contentWidth).isActive = true
 
-        let titleFont = Typography.system(.default, size: TypeScale.title, weight: TypeScale.emphasis)
+        let titleFont = Typography.dialogTitle
         let title = label(spec.title, font: titleFont, role: .primary, width: contentWidth)
         body.addArrangedSubview(title)
         if let origin = spec.origin {
-            body.addArrangedSubview(label(CmuxDialogStrings.from(origin), font: Typography.caption, role: .secondary, width: contentWidth))
+            body.addArrangedSubview(label(CmuxDialogStrings.from(origin), font: Typography.cardBody, role: .secondary, width: contentWidth))
         }
         if !spec.lines.isEmpty {
             let lines = linesView(width: contentWidth)
@@ -203,7 +203,7 @@ public final class CmuxDialogView: NSView, CmuxDialogRendering {
             for view in fieldViews(field, width: contentWidth) { body.addArrangedSubview(view) }
         }
         if let error = spec.error {
-            let line = label(error, font: Typography.caption, role: .danger, width: contentWidth)
+            let line = label(error, font: Typography.cardBody, role: .danger, width: contentWidth)
             line.identifier = NSUserInterfaceItemIdentifier("cmux.dialog.error")
             body.addArrangedSubview(line)
         }
@@ -256,7 +256,7 @@ public final class CmuxDialogView: NSView, CmuxDialogRendering {
         let content = NSView()
         content.addSubview(outer)
         // The card keeps the key-window glass while it fades out (debug.dialog_strip).
-        let surface = CmuxDialogCardSurface(content: content, activeLook: dialog.activeLook)
+        let surface = CmuxDialogCardSurface(content: content, activeLook: dialog.activeLook, usesTransientMaterial: dialog.usesTransientMaterial)
         surface.translatesAutoresizingMaskIntoConstraints = false
         addSubview(surface)
         self.surface = surface
@@ -276,7 +276,7 @@ public final class CmuxDialogView: NSView, CmuxDialogRendering {
 
     /// The lines; a long message (an import preview) scrolls in a box of bounded height, so the buttons stay on screen.
     private func linesView(width: CGFloat) -> NSView {
-        let lines = NSStackView(views: spec.lines.map { label($0, font: Typography.body, role: .secondary, width: width) })
+        let lines = NSStackView(views: spec.lines.map { label($0, font: Typography.cardMessage, role: .secondary, width: width) })
         lines.orientation = .vertical
         lines.alignment = .leading
         lines.spacing = Metrics.space2
@@ -297,7 +297,7 @@ public final class CmuxDialogView: NSView, CmuxDialogRendering {
             lines.topAnchor.constraint(equalTo: clip.topAnchor),
             lines.widthAnchor.constraint(equalToConstant: width),
             scroll.widthAnchor.constraint(equalToConstant: width),
-            scroll.heightAnchor.constraint(lessThanOrEqualToConstant: Self.cutHeight(Typography.body, spacing: lines.spacing)),
+            scroll.heightAnchor.constraint(lessThanOrEqualToConstant: Self.cutHeight(Typography.cardMessage, spacing: lines.spacing)),
             fit,
         ])
         return scroll
@@ -367,11 +367,11 @@ public final class CmuxDialogView: NSView, CmuxDialogRendering {
         }
     }
 
-    private enum TextRole { case primary, secondary, danger }
+    enum TextRole { case primary, secondary, danger }
 
     /// A themed label: it re-reads its ink in the scope it draws in (on joining a window and on every theme
     /// change), never the scope it was built in.
-    private func label(_ text: String, font: NSFont, role: TextRole, width: CGFloat) -> ThemedLabel {
+    func label(_ text: String, font: NSFont, role: TextRole, width: CGFloat) -> ThemedLabel {
         let label = ThemedLabel(wrappingLabelWithString: text)
         label.font = font
         label.preferredMaxLayoutWidth = width
@@ -392,7 +392,7 @@ public final class CmuxDialogView: NSView, CmuxDialogRendering {
         switch field {
         case .text(let id, let caption, let initial, let placeholder, let secure):
             let input: NSTextField = secure ? ThemedSecureTextField(string: initial) : ThemedTextField(string: initial)
-            input.font = Typography.body
+            input.font = Typography.cardMessage
             input.placeholderString = placeholder
             input.delegate = self
             input.identifier = NSUserInterfaceItemIdentifier("cmux.dialog.field.\(id)")
@@ -420,40 +420,13 @@ public final class CmuxDialogView: NSView, CmuxDialogRendering {
             return captioned(caption, popup, width: width)
         case .check(let id, let title, _):
             let check = ThemedCheckbox(checkboxWithTitle: title, target: self, action: #selector(controlChanged(_:)))
-            check.font = Typography.body
+            check.font = Typography.cardMessage
             check.identifier = NSUserInterfaceItemIdentifier("cmux.dialog.field.\(id)")
             register(check, id: id)
             return [check]
-        case .preview(let text):
-            let preview = label(text, font: Typography.system(.monospaced, size: TypeScale.body), role: .primary, width: width)
-            preview.maximumNumberOfLines = 8
-            preview.lineBreakMode = .byTruncatingTail
-            return [preview]
-        case .code(let caption, let text):
-            return captioned(caption, codeWell(text, width: width), width: width)
+        case .preview, .code, .copyLine, .pairingCode, .progress, .note, .steps:
+            return readOnlyFieldViews(field, width: width)
         }
-    }
-
-    /// A code to compare (``CmuxDialogField/code(label:text:)``): monospaced digits on an inset well that rounds
-    /// as the buttons do, so it reads as one thing to check, apart from the prose around it.
-    private func codeWell(_ text: String, width: CGFloat) -> NSView {
-        let inset = CmuxDialogMetrics.codeInset
-        let code = label(text, font: Typography.system(.monospaced, size: TypeScale.body), role: .primary,
-                         width: width - inset * 2)
-        code.identifier = NSUserInterfaceItemIdentifier("cmux.dialog.code")
-        // VoiceOver reads the groups, not one long word.
-        code.setAccessibilityLabel(text.replacingOccurrences(of: "\n", with: " "))
-        let well = CmuxDialogCodeWell()
-        well.translatesAutoresizingMaskIntoConstraints = false
-        well.addSubview(code)
-        code.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([
-            code.leadingAnchor.constraint(equalTo: well.leadingAnchor, constant: inset),
-            code.topAnchor.constraint(equalTo: well.topAnchor, constant: CmuxDialogMetrics.codeVerticalInset),
-            well.bottomAnchor.constraint(equalTo: code.bottomAnchor, constant: CmuxDialogMetrics.codeVerticalInset),
-            well.widthAnchor.constraint(equalToConstant: width),
-        ])
-        return well
     }
 
     /// The danger ink as the quiet destructive button draws it: fit to 4.5:1 on the card. Call in the theme scope.
@@ -468,9 +441,9 @@ public final class CmuxDialogView: NSView, CmuxDialogRendering {
         focusables.append(control)
     }
 
-    private func captioned(_ caption: String?, _ view: NSView, width: CGFloat) -> [NSView] {
+    func captioned(_ caption: String?, _ view: NSView, width: CGFloat) -> [NSView] {
         guard let caption else { return [view] }
-        return [label(caption, font: Typography.caption, role: .secondary, width: width), view]
+        return [label(caption, font: Typography.cardBody, role: .secondary, width: width), view]
     }
 }
 
@@ -487,43 +460,6 @@ extension CmuxDialogView: NSTextFieldDelegate {
         case #selector(NSResponder.insertTab(_:)): handle(.tab, modifiers: [])
         case #selector(NSResponder.insertBacktab(_:)): handle(.tab, modifiers: .shift)
         default: false
-        }
-    }
-}
-
-/// The inset well under a dialog's code (``CmuxDialogField/code(label:text:)``): a faint fill of the text's own ink
-/// with a hairline edge, rounded as the dialog's buttons are, so it sits on any glass, light or dark, and under
-/// Increase Contrast its edge reads as a line.
-@MainActor
-final class CmuxDialogCodeWell: NSView {
-    override init(frame: NSRect) {
-        super.init(frame: frame)
-        wantsLayer = true
-        setAccessibilityElement(false)
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") } // crash-allow: never decoded from a nib
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        paint()
-    }
-
-    override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        paint()
-    }
-
-    private func paint() {
-        let contrast = NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
-        performWithTheme {
-            let ink = Palette.sheetText(.primary)
-            layer?.cornerRadius = CmuxDialogMetrics.buttonCornerRadius
-            layer?.cornerCurve = .continuous
-            layer?.backgroundColor = ink.withAlphaComponent(CmuxDialogMetrics.codeWellFill).cgColor
-            layer?.borderWidth = contrast ? 1 : CmuxDialogMetrics.hairline(in: window)
-            layer?.borderColor = ink.withAlphaComponent(contrast ? 0.5 : CmuxDialogMetrics.codeWellEdge).cgColor
         }
     }
 }

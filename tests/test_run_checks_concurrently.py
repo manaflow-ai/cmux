@@ -70,8 +70,10 @@ class RunChecksConcurrently(unittest.TestCase):
                      if "run-checks-concurrently.sh --start" in str(s.get("run", "")))
         commands = [line.strip() for line in start["run"].split("<<'CHECKS'", 1)[1].splitlines()
                     if line.strip() and not line.strip().startswith(("[", "#"))]
-        self.assertEqual(commands[0], "python3 tests/test_cmux_next_prepush_gate.py")
-        self.assertEqual(commands.count("python3 tests/test_cmux_next_prepush_gate.py"), 1)
+        # Its four parts (tests/unittest_shard.py; tests/test_unittest_shard.py) start first, each once.
+        parts = [f"python3 tests/test_cmux_next_prepush_gate.py --shard {i}/4" for i in range(1, 5)]
+        self.assertEqual(commands[:4], parts)
+        self.assertEqual([c for c in commands if "test_cmux_next_prepush_gate.py" in c], parts)
 
     def test_skips_blank_lines_and_comments(self):
         result = run("\n  # a note\n  echo only\n")
@@ -148,6 +150,39 @@ class APoolDeadlineEndsInAVerdict(unittest.TestCase):
         # The job clock starts when the runner writes the event file (Set up job), before the runner hook's wait.
         self.assertIn('"$GITHUB_EVENT_PATH"', start["run"])
         self.assertIn("POOL_TAIL_SECONDS", start["run"])
+
+
+class AffectedSkipsWhatTheChangeCannotReach(unittest.TestCase):
+    """--affected BASE: a command whose inputs the change leaves as they were passes as skipped, unrun."""
+
+    # Exits 2 (its usage) when run, so a pass proves it was skipped; tracked, so its inputs are known.
+    UNREACHED = "bash scripts/ci/timeout.sh"
+
+    def test_an_unreached_command_is_skipped_and_an_unreadable_one_runs(self):
+        # HEAD...HEAD changes nothing: the tracked script is unreached; `echo` is no test invocation, so it runs.
+        result = run(f"{self.UNREACHED}\necho ran\n", "--jobs", "2", "--affected", "HEAD")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn(f"skipped (inputs unchanged): {self.UNREACHED}", result.stdout)
+        self.assertIn("ran", result.stdout)
+        self.assertIn("1 passed, 0 failed, 1 skipped (inputs unchanged)", result.stdout)
+
+    def test_no_base_or_an_unreadable_one_runs_everything(self):
+        for base in ("", "no-such-revision-xyz"):
+            with self.subTest(base=base):
+                result = run(f"{self.UNREACHED}\n", "--jobs", "1", "--affected", base)
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                self.assertIn(f"::error title=check failed::{self.UNREACHED}", result.stdout)
+
+    def test_a_name_whose_commands_all_skipped_waits_green(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pool = os.path.join(tmp, "pool")
+            started = run(f"[a]\n{self.UNREACHED}\n[b]\necho b\n", "--start", pool, "--jobs", "2", "--affected", "HEAD")
+            self.assertEqual(started.returncode, 0, started.stdout + started.stderr)
+            self.assertIn("1 of 2 commands started", started.stdout)
+            for name in ("a", "b"):
+                waited = subprocess.run(["bash", str(RUNNER), "--wait", pool, name], capture_output=True, text=True,
+                                        timeout=60, cwd=ROOT)
+                self.assertEqual(waited.returncode, 0, waited.stdout + waited.stderr)
 
 
 if __name__ == "__main__":

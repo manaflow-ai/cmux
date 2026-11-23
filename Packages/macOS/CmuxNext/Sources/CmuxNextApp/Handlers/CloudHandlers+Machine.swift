@@ -80,6 +80,7 @@ extension CloudHandlers {
         bind("cloudExec", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)
             let command = try rules.text("command", invocation)
+            if let held = cloud.computerControl.heldRefusal(invocation, machine: session.machineID) { throw ActionFailure(message: held) }
             // A CLI or agent run gets the command's exit code and output: it runs through the
             // Cloud API's exec and opens no tab (the CLI cannot read a tab on the machine's
             // daemon); a machine without API exec refuses it. A person's run types it into a new tab.
@@ -121,16 +122,19 @@ extension CloudHandlers {
         bind("cloudFileWrite", registry, reason: reason) { invocation in
             let session = try machine(invocation, context), path = try filePath(invocation)
             let contents = try rules.text("contents", invocation)
+            if let held = cloud.computerControl.heldRefusal(invocation, machine: session.machineID) { throw ActionFailure(message: held) }
             runTracked("write Cloud file", context) {
                 try await cloud.machineAPI.writeFile(session.machineID, path: path, data: Data(contents.utf8))
             }
         }
         bind("cloudFileMkdir", registry, reason: reason) { invocation in
             let session = try machine(invocation, context), path = try filePath(invocation)
+            if let held = cloud.computerControl.heldRefusal(invocation, machine: session.machineID) { throw ActionFailure(message: held) }
             runTracked("create Cloud directory", context) { try await cloud.machineAPI.makeDirectory(session.machineID, path: path) }
         }
         bind("cloudFileRemove", registry, reason: reason) { invocation in
             let session = try machine(invocation, context), path = try filePath(invocation)
+            if let held = cloud.computerControl.heldRefusal(invocation, machine: session.machineID) { throw ActionFailure(message: held) }
             runTracked("remove Cloud file", context) { try await cloud.machineAPI.removeFile(session.machineID, path: path) }
         }
         bind("cloudFileStat", registry, reason: reason) { invocation in
@@ -477,7 +481,8 @@ extension CloudHandlers {
             guard let declared = CloudMachineSecrets.declared(status: await read(CloudMachineConfig.statusPath)) else {
                 throw ActionFailure(message: CloudStrings.machineConfigNotApplied)
             }
-            let indexURL = home.appendingPathComponent(".config/cmux/cloud-secrets.json")
+            // This build's index (BuildStatePaths: a DEV build's own), the file `cmux cloud secret` writes.
+            let indexURL = BuildStatePaths.cloudSecretsIndex(environment: ProcessInfo.processInfo.environment, home: home)
             // Never through a link, never waiting on a FIFO, bounded: the files lane is shared.
             let (index, ledgerFile) = try await work.run(.userBlocking, mayBlock: .files) {
                 (CloudMachineSecrets.read(indexURL.path), CloudMachineSecrets.read(ledgerURL.path))
@@ -528,18 +533,18 @@ extension CloudHandlers {
 
     private static var operationUnavailable: ActionFailure {
         ActionFailure(message: String(localized: "cloud.operationUnavailable",
-            defaultValue: "This action is unavailable for this Cloud machine.", bundle: .module))
+            defaultValue: "This action is unavailable for this Cloud machine.", bundle: .module.inAppLanguage))
     }
 
-    /// A machine change (resize, snapshot, template, restore, fork): an agent's or a script's run waits for the person's Allow (``CloudChangeRuns``), Don't Allow a refusal; a person's own run goes as before, `sheet` showing its answer.
+    /// A machine change (resize, snapshot, template, restore, fork): an agent's or a script's restore or fork waits for the person's Allow (``CloudChangeRuns``), Don't Allow a refusal, its other changes (``CloudChangeRequest/unasked``) run at once and toast; a person's own run goes as before, `sheet` showing its answer.
     static func change(_ label: String, _ id: ActionID, _ invocation: ActionInvocation, _ registry: ActionRegistry, _ context: AppActionContext, sheet: Bool = false, pending: [String: ActionResultValue],
                        ask: CloudChangeRuns.Ask? = nil, _ work: @escaping @MainActor (_ allow: @escaping @MainActor () async -> Bool) async throws -> CloudAnswer) {
         let wait = sheet ? snapshotAnswerWait : machineAnswerWait, allow = allows(id, invocation, registry, context)
         if origin(of: invocation) == .user { if sheet { answer(label, invocation, context, pendingAfter: wait, pending: pending) { try await work(allow) } } else { result(label, context, pendingAfter: wait, pending: pending) { try await work(allow).fields } }; return }
         let key = CloudChangeRuns.key(action: id.rawValue, machine: (try? machine(invocation, context))?.machineID ?? "", arguments: invocation.arguments, caller: invocation.callerAgentSession, account: context.services.cloud.account)
         result(label, context) {
-            do { return try await context.services.cloud.machineChanges.run(key, within: wait, pending: pending, ask: ask ?? { allows(id, invocation, registry, context, shown: $0) }) { allow in
-                let answer = try await work(allow); return sheet ? answer.fields.merging(["text": .string(answer.text)]) { field, _ in field } : answer.fields } } catch CloudMachineCreateFlow.Failure.declined { throw ActionFailure(message: CloudChangeRequest.declined) }
+            do { return try await context.services.cloud.machineChanges.run(key, within: wait, pending: pending, ask: CloudChangeRuns.ask(id.rawValue, ask ?? { allows(id, invocation, registry, context, shown: $0) })) { allow in
+                let answer = try await work(allow); CloudChangeRequest(machine: (try? machine(invocation, context))?.machine.title, arguments: invocation.arguments).noticed(id.rawValue, title: registry.descriptor(for: id)?.title ?? id.rawValue, in: window(context)); return sheet ? answer.fields.merging(["text": .string(answer.text)]) { field, _ in field } : answer.fields } } catch CloudMachineCreateFlow.Failure.declined { throw ActionFailure(message: CloudChangeRequest.declined) }
         }
     }
 

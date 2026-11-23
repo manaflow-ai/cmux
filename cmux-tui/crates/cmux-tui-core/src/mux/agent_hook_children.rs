@@ -213,6 +213,10 @@ impl Mux {
         terminal_id: &TerminalPublicId,
         held: &HeldFinish,
     ) -> anyhow::Result<()> {
+        use super::agent_notification_delivery::{AgentEvent, Delivery};
+        if self.agent_notification_delivery(Some(AgentEvent::TaskComplete)) == Delivery::Off {
+            return Ok(());
+        }
         let Some(surface) = self.resource_surface_for_terminal(terminal_id) else { return Ok(()) };
         self.create_durable_notification(
             &Actor::Daemon,

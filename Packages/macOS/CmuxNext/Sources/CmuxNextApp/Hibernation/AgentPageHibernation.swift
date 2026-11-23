@@ -93,7 +93,7 @@ final class AgentPageHibernation: HiddenChatPagesHost {
         isRendering = { [weak cache] key in cache?.isRendering(key) ?? true }
         pages.pairedFace = { [weak services, weak cache] key in // Toggle Terminal and Chat: a chat whose pane draws its terminal face
             guard let services, let cache, let (tab, pane) = services.locateTab(AgentTabKey(relaunchStorageKey: key).key), tab.kind != .pty,
-                  let session = TerminalChatHandler.facts(tab, services: services, membership: true).facts.session else { return false }
+                  let session = TerminalChatHandler.chatSession(of: tab, services: services)?.agentSessionId else { return false }
             return pane.tabs.contains { $0.kind == .pty && $0.agent?.harnessSessionID == session && cache.isRendering($0.id) }
         }
         cache.presentationChanges.subscribe("agent-page-hibernation") { [weak self, weak cache] in
@@ -148,10 +148,7 @@ final class AgentPageHibernation: HiddenChatPagesHost {
     func pageIsUntouchedNewTab(_ key: String) -> Bool {
         guard let tabs = store() else { return false }
         let scoped = scopedKey(key, in: tabs)
-        guard let view = tabs.existingView(scoped.key, machine: scoped.machine),
-              let page = view.model.newTab, !view.model.userTouched, !view.model.remoteChat,
-              page.draft?.isEmpty != false, view.model.sessionId == nil, tabs.sessions[scoped] == nil,
-              !view.model.shell.hasRuns, !view.showsCrashNotice,
+        guard let view = tabs.existingView(scoped.key, machine: scoped.machine), view.isUntouchedNewTab, tabs.sessions[scoped] == nil,
               let (record, _) = tabs.record(for: tabs.resolvedKey(scoped)), record.session == nil,
               tabs.hostKind(record, listedHere: true) == .local,
               tabs.daemon(for: tabs.resolvedKey(scoped))?.isLocal != false else { return false }

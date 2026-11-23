@@ -44,6 +44,8 @@ final class CEFPaneHost {
     /// API 11): the hidden Chromium window this popup host attaches to its
     /// view when the panel first shows it (`CEFPaneHost+PopupWindows`).
     var popupWindow: Int32?
+    /// Closes `popupWindow`'s tab when no panel attached the window in time (`closeUnattachedPopupWindow`).
+    var popupAttachDeadline: DemandTimer?
 
     let lifecycleTrace: BrowserLifecycleTrace
     let contextMenus: BrowserContextMenuBuilder
@@ -106,6 +108,9 @@ final class CEFPaneHost {
 
     /// Runs a block at the end of this run-loop turn (`CEFLayerHosting.atEndOfTurn`); tests run it when they choose.
     var endOfTurn: CEFLayerHosting.Scheduler = { CEFLayerHosting.atEndOfTurn($0) }
+    /// How a page that took its pane's next size ahead of a commit tells it laid out there (``CEFCommitLayoutWait``);
+    /// tests pass their own.
+    var commitLayoutWait = CEFCommitLayoutWait()
     /// Whether a host visibility pass is queued for this run-loop turn.
     private var hostVisibilityPending = false
     /// Tabs shown before their browser existed, created once the frame committed (`createAfterCommit`).
@@ -156,6 +161,7 @@ final class CEFPaneHost {
         tab.applyHostBackdrop()
         // Tabs from windows cmux does not host go to a pane, never a panel.
         if !holdsOwnTab { runtime.lastShownHost = self }
+        if hostsExtensionWindows { runtime.lastShownWebHost = self }
         if attachPopupWindowIfNeeded(tab) { return }
         // A tab shown before its browser exists (a new tab, a hibernated one waking) gets it once
         // this turn's frame is committed: building or joining a Chromium window holds the main
@@ -427,7 +433,7 @@ final class CEFPaneHost {
             window = .none
             hostView.layerHosting.stop()
             hostView.removeFromSuperview()
-            if holdsOwnTab, runtime.hosts[key] === self { runtime.hosts[key] = nil }
+            if holdsOwnTab || isOwnTabHost, runtime.hosts[key] === self { runtime.hosts[key] = nil }
         }
         // A lent tab closed while its window was still being made: the placeholder goes too.
         if isAgentHost { retireIfUnused() }

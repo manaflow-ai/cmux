@@ -39,8 +39,19 @@ names its `blank_frames` count), or a missed run, else the highest p95, then the
 bench. The quick and cold openings are reported, not judged: the exit status is the warm openings' (and the
 `--cold` launch opening's), as before.
 
+`--screen` is another use of the same app and keys, with no judgement and none of the openings above: each key
+alone, and each key a set time after another key, as the screen showed it frame by frame, in a session of
+`--workspaces` workspaces (new_surface_screen.py has its arguments and its report). The recording is then
+`--duration-ms` 2000 long unless that is given. With `w` in `--keys`, the mode also records the Close Tab key
+(Command-W): alone, a set time after a New Tab key, the same time after key-downs of the New Tab key at a hold's
+times with no repeat flag, and the same time after a hold of the New Tab key (`--close-cases`).
+
 Usage: cmd-n-paint-e2e.py (--socket <path> | --app PATH --tag TAG) [--runs 3] [--keys n,t] [--out DIR] [--cold] [--split N]
        [--arms warm,quick,cold] [--quick-runs 3] [--cold-runs 3] [--json FILE]
+       cmd-n-paint-e2e.py (--socket <path> | --app PATH --tag TAG) --screen [--runs 3] [--keys n,t[,w]] [--gaps 0,100]
+       [--workspaces N] [--live-shells 8] [--duration-ms 2000] [--page-watch 3] [--json FILE] [--screen-tgz FILE]
+       [--close-cases idle,key,downs,hold] [--close-gap-ms 100] [--hold-keys 6] [--hold-delay-ms 375] [--hold-repeat-ms 90]
+       [--key-tabs 6,84]
 """
 import argparse, atexit, glob, json, os, signal, socket, subprocess, sys, tempfile, time
 
@@ -54,14 +65,28 @@ parser.add_argument("--tag")
 parser.add_argument("--runs", type=int, default=3)
 parser.add_argument("--keys", default="n,t", help="Command-<key> openings to check, comma separated")
 parser.add_argument("--out", default="/tmp/cmd-n-paint", help="where the app writes each run's frames")
-parser.add_argument("--duration-ms", type=float, default=700)
+parser.add_argument("--duration-ms", type=float, help="ms recorded after the key (700; with --screen 2000)")
 parser.add_argument("--cold", action="store_true", help="the first Cmd-N right after launch: no ready spare, no blank frame")
 parser.add_argument("--split", type=int, default=1, help="split the workspace into this many panes before the openings")
 parser.add_argument("--arms", default="warm,quick,cold", help="the arms to time (bench_arms.py)")
 parser.add_argument("--quick-runs", type=int, default=3, help="quick arm: openings right after another press, per key")
 parser.add_argument("--cold-runs", type=int, default=3, help="cold arm: openings right after the spare was dropped, per key")
 parser.add_argument("--json", help="write the openings and the arms here")
+parser.add_argument("--screen", action="store_true", help="report each key from the screen's frames (new_surface_screen.py); no judgement")
+parser.add_argument("--window-screen", default="last", help="the screen of the launched app's window (an index, or last)")
+if "--screen" in sys.argv:
+    # Only this mode reads its module and its arguments: the openings below need no file that they did not need before.
+    import new_surface_screen  # noqa: E402
+    new_surface_screen.add_arguments(parser)
 opts = parser.parse_args()
+if opts.screen and "--screen" not in sys.argv:
+    parser.error("--screen: write the flag whole (the mode's module and arguments are read by that word)")
+if opts.screen and new_surface_screen.openings(opts) > new_surface_screen.OPENINGS_LIMIT:
+    parser.error(f"--screen: {new_surface_screen.openings(opts)} opening records can come in one recording (2 for each New Tab or "
+                 f"New Workspace key of it: --gaps, --hold-keys); at most {new_surface_screen.OPENINGS_LIMIT}: the app keeps its "
+                 "newest 64 opening records, and the tool counts a recording's new ones in that list")
+if opts.duration_ms is None:
+    opts.duration_ms = 2000 if opts.screen else 700
 ARMS = [a for a in opts.arms.split(",") if a]
 if set(ARMS) - set(bench_arms.ARMS):
     parser.error(f"--arms: one of {', '.join(bench_arms.ARMS)}")
@@ -107,8 +132,9 @@ def spare_ready():
     return any(s.get("ready") for s in state.get("spares") or [])
 
 
-def launch(app_path, tag):
-    """Starts the tagged app on its debug socket with a scratch config; it quits at exit."""
+def launch(app_path, tag, at_end=None):
+    """Starts the tagged app on its debug socket with a scratch config; it quits at exit. Returns (the process, the
+    quit). `at_end(pid, what the quit did)` is called after the quit at exit."""
     app_path = os.path.abspath(app_path.rstrip("/"))
     binary = next((p for p in sorted(glob.glob(os.path.join(app_path, "Contents/MacOS/*"))) if not p.endswith(".dylib")), None)
     if not binary:
@@ -121,30 +147,65 @@ def launch(app_path, tag):
     open(config, "w").write("{}\n")
     env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
-           "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": config,
+           "CMUX_NEXT_TEST_WINDOW_SCREEN": opts.window_screen, "CMUX_NEXT_CONFIG_FILE": config,
            "CMUX_NEXT_GHOSTTY_CONFIG": os.path.join(scratch, "ghostty"), "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1200,900"}
+    if opts.screen:
+        # --window-look: its keys go into this launch's 2 config files before the app starts (new_surface_look.py).
+        unwritten = new_surface_screen.new_surface_look.write(opts.window_look, env)
+        if unwritten:
+            sys.exit(f"FAIL --window-look: {unwritten}")
+        LAUNCHED.update(cli=os.path.join(app_path, "Contents/Resources/bin/cmux"), env=env)
     os.makedirs(opts.out, exist_ok=True)
     log = open(os.path.join(opts.out, f"app-{tag}.log"), "a")
     process = subprocess.Popen([binary], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
 
+    fact = {}
+
     def quit_app():
-        rpc("action.run", {"action": "quitEndSessions"}, timeout=10)
+        """Quits the app, one time (the exit's call after the screen mode's own call does nothing). Returns what the
+        quit did: the app's answer, whether the process ended in 20 s, whether KILL ended it, its return code."""
+        if fact:
+            return fact
+        fact["ended_before_the_quit"] = process.poll() is not None
+        fact["quit_reply"] = rpc("action.run", {"action": "quitEndSessions"}, timeout=10)
         try:
             process.wait(timeout=20)
+            fact["ended_in_20_s"] = True
         except subprocess.TimeoutExpired:
+            fact["ended_in_20_s"] = False
             os.kill(process.pid, signal.SIGKILL)
+            fact["killed_by_the_driver"] = True
+            try:
+                process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                pass
+        fact["returncode"] = process.returncode
         cli = os.path.join(app_path, "Contents/Resources/bin/cmux")
         subprocess.run([cli, "server", "stop", "--session", f"cmux-app-{tag}", "--end-terminals"],
                        env={k: v for k, v in os.environ.items() if not k.startswith("CMUX_")}, capture_output=True, timeout=30)
         if os.path.exists(opts.socket):
             os.remove(opts.socket)
-    atexit.register(quit_app)
+        return fact
+    # `at_end` (the screen mode's): what the launch left is printed at each exit, also at a stop inside this launch.
+    atexit.register(lambda: at_end(process.pid, quit_app()) if at_end else quit_app())
     wait("the tagged app's socket", lambda: os.path.exists(opts.socket) and (rpc("debug.windows") or {}).get("windows"), 120)
     time.sleep(2)  # test harness wait: the first workspace settles
+    return process, quit_app
 
 
+RUN_END = LAUNCH_FAULT = APP = None
+LAUNCHED = {}  # --screen: the launch's environment and the bundle's CLI, for the report's settings lines
 if opts.app:
-    launch(opts.app, opts.tag)
+    if opts.screen:
+        # The record of the bundle's last run goes into the log whole before a thing of it moves (run_end_record.py).
+        import run_end_record  # noqa: E402
+        RUN_END = run_end_record.RunEnd(opts.app)
+        RUN_END.last()
+        new_surface_screen.fresh_session(opts.tag, opts.app)  # the tag's saved session of an earlier run is not this run's
+        RUN_END.set_aside()  # after fresh_session: it stops the run when an app of the bundle runs now
+    APP = launch(opts.app, opts.tag, RUN_END.own if RUN_END else None)
+    if RUN_END:
+        LAUNCH_FAULT = RUN_END.launch_fault(APP[0].pid)
 failures = []
 if opts.split > 1:
     wait("a ready spare before the splits", spare_ready, 60)
@@ -222,6 +283,23 @@ def terminal_tab():
     rpc("debug.key", {"key": "`", "modifiers": ["control"]})
     time.sleep(1.0)  # test harness wait: the terminal tab shows
 
+if opts.screen:
+    # Each key as the screen showed it: a report, with no judgement; the openings below do not run.
+    # The exit code says only whether the run went to its last case (a stopped run is not 0): no row is judged.
+    # A launch of the driver's own that crashed is the exit code 1, after the report is written.
+    screen = new_surface_screen.Screen(opts, rpc, {"spare_ready": spare_ready, "terminal_tab": terminal_tab, "close_new": close_new})
+    screen.launch_fault, screen.launched = LAUNCH_FAULT, LAUNCHED or None
+    screen.launch = None if not RUN_END else {"pid": APP[0].pid, "bundle": RUN_END.bundle, "fault": LAUNCH_FAULT}
+    stop = None
+    try:
+        code = screen.run()["exit_code"]
+    except BaseException as error:  # the run's own stop: the app's end record is still printed, then the stop goes on
+        stop = error
+    if RUN_END and RUN_END.own(APP[0].pid, APP[1]()):
+        sys.exit(1)
+    if stop:
+        raise stop
+    sys.exit(code)
 
 for run in range(opts.runs):
     for key in opts.keys.split(","):
