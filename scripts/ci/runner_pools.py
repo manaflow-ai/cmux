@@ -114,6 +114,8 @@ HEALTH_VARIABLE = "CI_CLOUD_LABEL_HEALTH"
 # jobs sat queued on it, the oldest for over an hour. Each pass now writes the pool's live member to
 # them too (mirror_writes()), and --check fails while one names a label outside its pool.
 MIRRORS = {"LINUX_RUNNER": "linux"}
+# The persistent Linux pool's labels (cmux-runner-pool VMs; signing_runner_variables.SIGNING_ISOLATION_DEFERRED).
+PERSISTENT_LINUX_POOL_LABELS = frozenset({"cmux-fleet-linux-x64", "cmux-linux"})
 # Variables that hold one raw Blacksmith Linux label and that runs-on reads ahead of a Linux pool or literal
 # (`vars.X || ... fromJSON(vars.RUNNER_POOLS).linux_16`, `vars.X || 'blacksmith-...-ubuntu-2404'`), on main or
 # feat-cmux-next. They follow no pool, so moving a pool off a dead label left them on it: on 2026-11-18
@@ -194,9 +196,34 @@ def owned_gcp(label: object) -> bool:
     return isinstance(label, str) and label in OWNED_GCP_LINUX
 
 
+# The Freestyle Linux rung's label (pr_runner_pool.OWNED_FREESTYLE_LINUX): an 8 vCPU Freestyle VM per queued
+# same-repository job. Blacksmith's runners never take it. It sits right after the owned GCP lead (or leads) in an x64
+# pool whose jobs need no fresh machine, with a Blacksmith x64 member after it (spec_problems()): a full GCP pool moves
+# to Freestyle, and a full Freestyle rung moves to Blacksmith (label_evidence()'s full mark, as for the GCP lead).
+# Leo, 2026-11-19: "We still keep Blacksmith sometimes, but stop fucking relying on it. We can't rely on it. [...] We
+# could use Freestyle."
+OWNED_FREESTYLE_LINUX = frozenset(pr_runner_pool.OWNED_FREESTYLE_LINUX)
+
+
+def owned_freestyle(label: object) -> bool:
+    """The Freestyle Linux rung's label (OWNED_FREESTYLE_LINUX)."""
+    return isinstance(label, str) and label in OWNED_FREESTYLE_LINUX
+
+
 def owned_lead(label: object) -> bool:
-    """An owned Linux label a pool may lead with: the Mac fleet's VMs (owned_ephemeral()) or the GCP pool (owned_gcp())."""
-    return owned_ephemeral(label) or owned_gcp(label)
+    """An owned Linux label a pool may lead with: the Mac fleet's VMs (owned_ephemeral()), the GCP pool (owned_gcp())
+    or the Freestyle rung after it (owned_freestyle()). None has a size or is probed; a full one overflows."""
+    return owned_ephemeral(label) or owned_gcp(label) or owned_freestyle(label)
+
+
+def owned_prefix(listed: Sequence[object]) -> list[str]:
+    """A pool's leading owned x64 members (the GCP lead, the Freestyle rung), which the outage override keeps first."""
+    lead: list[str] = []
+    for member in listed:
+        if not (owned_gcp(member) or owned_freestyle(member)):
+            break
+        lead.append(str(member))
+    return lead
 
 
 KEY = re.compile(r"^[a-z][a-z0-9_]*$")
@@ -245,9 +272,10 @@ def load_pools(path: Path = RUNNERS, env: Mapping[str, str] | None = None) -> di
     for name, spec in declared.items():
         listed = spec.get("members")
         if HOSTED_OVERRIDE_POOL.match(name) and isinstance(listed, list) and listed \
-                and all(isinstance(m, str) and (X64_UBUNTU.match(m) or owned_gcp(m) and m == listed[0]) for m in listed):
-            # An owned GCP lead (owned_gcp()) stays first: the override replaces only the Blacksmith overflow.
-            lead = listed[:1] if owned_gcp(listed[0]) else []
+                and all(isinstance(m, str) and X64_UBUNTU.match(m) for m in listed[len(owned_prefix(listed)):]):
+            # The owned GCP lead and Freestyle rung (owned_prefix()) stay first: the override replaces only the
+            # Blacksmith overflow.
+            lead = owned_prefix(listed)
             declared[name] = {**spec, "members": [*lead, label, *listed[len(lead):]], "hosted": True,
                               "hosted_why": f"{HOSTED_OVERRIDE} is set: Blacksmith Linux pause override"}
     return declared
@@ -337,6 +365,16 @@ def spec_problems(pools: Mapping[str, Mapping[str, Any]]) -> list[str]:
                 if spec.get("ephemeral_only"):
                     found.append(f"{where}: {member} is the owned GCP Linux label, whose persistent runners take it "
                                  "too; an ephemeral_only pool's jobs need a fresh machine (OWNED_GCP_LINUX)")
+            elif owned_freestyle(member):
+                at = listed.index(member)
+                if not all(owned_gcp(other) for other in listed[:at]) \
+                        or not any(X64_SIZE.match(other) for other in listed[at + 1:]):
+                    found.append(f"{where}: {member} is the Freestyle Linux label; it may only lead an x64 pool or "
+                                 "follow its owned GCP lead, with a Blacksmith x64 member after it to overflow to "
+                                 "(OWNED_FREESTYLE_LINUX)")
+                if spec.get("ephemeral_only"):
+                    found.append(f"{where}: {member} is the Freestyle Linux label, whose VMs keep their disk between "
+                                 "jobs; an ephemeral_only pool's jobs need a fresh machine (OWNED_FREESTYLE_LINUX)")
             elif not EPHEMERAL.match(member):
                 found.append(f"{where}: {member} is not an ephemeral Blacksmith label; owned Macs come only "
                              "through a picker, never a pool")
@@ -626,7 +664,10 @@ def mirror_problems(live: Mapping[str, str | None], pools: Mapping[str, Mapping[
             continue
         current = (live.get(name) or "").strip()
         allowed_labels = allowed(pools[pool], pools) if pool in pools else []
-        if current not in allowed_labels:
+        # The persistent pool, set by hand on purpose (Leo, 2026-11-21 00:38Z: "just... accept all labels"): it
+        # serves every x64 Linux label, so nothing waits on it; not a pools.linux member, so the writer never
+        # routes the pool's own readers there.
+        if current not in allowed_labels and current not in PERSISTENT_LINUX_POOL_LABELS:
             found.append(f"{name}={current or 'unset'} is not a member or release valve of pools.{pool} "
                          f"({', '.join(allowed_labels)}): "
                          f"every `vars.{name} || ...` runs-on waits on it; runner_pools.py writes the live member")
@@ -659,6 +700,19 @@ def started_nothing_while_queued(snapshot: Mapping[str, Any], label: str, load: 
         return False
     started = parse_time(starts.get(label))
     return started is None or (generated - started).total_seconds() / 60 >= oldest_minutes
+
+
+# The idle runners an owned label keeps as headroom: more than this many idle beside a stalled queue and the label is
+# not full (label_evidence()). A few idle runners are a reading's noise (one finishing its job, one about to take the
+# next); hundreds are room the queue is not using. Leo, 2026-11-19, on Blacksmith: "stop ... relying on it".
+OWNED_IDLE_HEADROOM = 4
+
+
+def owned_idle(load: Mapping[str, Any]) -> int | None:
+    """The idle runners the janitor's roster read (queue_janitor.attach_owned_idle()) shows on an owned label's
+    pool entry, or None without a usable reading (an older janitor, no token, a failed read)."""
+    idle = load.get("idle")
+    return idle if isinstance(idle, int) and not isinstance(idle, bool) and idle >= 0 else None
 
 
 def label_evidence(health: Mapping[str, Any] | None, snapshot: Mapping[str, Any] | None, *,
@@ -715,16 +769,26 @@ def label_evidence(health: Mapping[str, Any] | None, snapshot: Mapping[str, Any]
             except (TypeError, ValueError):
                 continue
             if owned_lead(label):
-                # Our own machines, not a cloud: a job that waited the cutoff there means every VM is taken, so the
-                # pool overflows to its Blacksmith members until the queue drains, even while the VMs start jobs.
+                # Our own machines, not a cloud: a job that waited the cutoff there and no idle runner past
+                # OWNED_IDLE_HEADROOM means every VM is taken, so the pool overflows to its Blacksmith members until
+                # the queue drains, even while the VMs start jobs. Idle runners beside the wait mean the waiting
+                # jobs are ones these runners do not take, so the pool stays (owned_idle()). With no idle reading
+                # the wait alone decides, as before.
                 # The wait is the one the snapshot measured, never that plus the snapshot's age. Adding the age
                 # assumes nothing took the job since, which for our pool (hundreds of idle runners, a start in
                 # seconds) is a guess that sends every x64 pool to Blacksmith. 2026-11-22 09:37Z: the 09:02Z snapshot
                 # read cmux-fleet-linux-x64 1 queued, oldest 0 min, 884 running, a start at 09:03Z; at 35 min old,
                 # 0 + 35 crossed the cutoff, the label was marked full, and linux, linux_2, linux_8, linux_16 and
                 # linux_32 ran on Blacksmith until 10:25Z. Leo, 2026-11-19, on Blacksmith: "stop ... relying on it".
-                if simple_pool_picker.blacksmith_stalled(queued, oldest):
-                    full.add(label)
+                if not simple_pool_picker.blacksmith_stalled(queued, oldest):
+                    continue
+                idle = owned_idle(load)
+                if idle is not None and idle > OWNED_IDLE_HEADROOM:
+                    started.add(label)
+                    notes.append(f"{label}: {queued} queued, oldest {oldest:g} min, but {idle} runners idle; "
+                                 "not full")
+                    continue
+                full.add(label)
                 continue
             if not simple_pool_picker.blacksmith_stalled(queued, oldest + age):
                 continue
