@@ -2,11 +2,6 @@ import CmuxNextActions
 import CmuxNextAgentPane
 
 extension AgentPaneCloudMachines {
-    /// How old the App's machine list may be when a picker reads it: an open picker reads every
-    /// few seconds, the server's list at most this often (the store also follows each machine's
-    /// own link between reads).
-    static let listAge: Duration = .seconds(60)
-
     /// The App's answers to `cloudMachine.*`: the signed-in account's machines (``CloudService``, never another user's or team's
     /// list), Open, Resume, Pause, Kill Machine and typing prewarm on one, run as the person's own; and each switch of team.
     func wire(_ services: AppServices) {
