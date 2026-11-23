@@ -5,7 +5,7 @@
   "description": "Near-black chrome, rounded panes beside a quiet sidebar, a mint accent.",
 
   "appearance.theme": "Builtin Dark",
-  "colors": { "background": "#0b0c0e", "foreground": "#e4e6eb", "selection": "#23272e", "cursor": "#7ee2b8", "accent": "#5fd4a4" },
+  "colors": { "background": "#0b0c0e", "foreground": "#e4e6eb", "selection": "#71757c", "cursor": "#7ee2b8", "accent": "#5fd4a4" },
   "appearance.accent": "theme",
 
   "appearance.background": "none",
