@@ -21,7 +21,7 @@ final class TabRetapUITests: XCTestCase {
         for _ in 0..<6 { app.swipeUp(velocity: .fast) }
         XCTAssertFalse(all.isHittable, "did not scroll away from the top")
         XCTAssertFalse(first.exists && first.isHittable, "the first row still shows after scrolling down")
-        attach(app, "feed-scrolled-down")
+        attachBothLooks(app, "feed-scrolled-down")
 
         // Leaving the tab and coming back is not a re-tap: the Feed keeps its place.
         app.tabBars.buttons["Settings"].tap()
@@ -40,7 +40,7 @@ final class TabRetapUITests: XCTestCase {
         XCTAssertEqual(wait(landed, "Feed back at its top", timeout: 30), .completed,
                        "after the tab tap: chips at \(all.exists ? "\(all.frame)" : "gone"), expected \(topFrame)")
         XCTAssertTrue(app.navigationBars["Feed"].exists, "the Feed stays the screen shown")
-        attach(app, "feed-after-tab-tap")
+        attachBothLooks(app, "feed-after-tab-tap")
     }
 
     /// New events wait above the reader ("N new"): the tab tap lands at the top and the pill goes.
@@ -121,6 +121,19 @@ final class TabRetapUITests: XCTestCase {
         let expectation = XCTNSPredicateExpectation(predicate: predicate, object: nil)
         expectation.expectationDescription = what
         return XCTWaiter.wait(for: [expectation], timeout: timeout)
+    }
+
+    /// The same screen in light and in dark (NAME-light, NAME-dark); the device's look is put back.
+    @MainActor private func attachBothLooks(_ app: XCUIApplication, _ name: String) {
+        let before = XCUIDevice.shared.appearance
+        for (look, suffix) in [(XCUIDevice.Appearance.light, "light"), (.dark, "dark")] {
+            XCUIDevice.shared.appearance = look
+            let settle = XCTestExpectation(description: "the look change settles")
+            settle.isInverted = true
+            _ = XCTWaiter.wait(for: [settle], timeout: 1)
+            attach(app, "\(name)-\(suffix)")
+        }
+        XCUIDevice.shared.appearance = before
     }
 
     @MainActor private func attach(_ app: XCUIApplication, _ name: String) {
