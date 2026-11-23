@@ -1682,8 +1682,8 @@ public final class DaemonTerminalSession: TerminalSession {
             return
         }
         if inputInFlight > 0, inputRecovering || inputTarget !== target || inputInFlight >= Self.maxInputInFlight { return }
-        // A composer Send goes as the outbox's request (its key made at the tap), one in flight
-        // at a time; the next waits for its answer.
+        // A composer Send goes as the outbox's request (its key made at the tap), pipelined in
+        // tap order up to the outbox's window; past it, the next waits for an answer.
         let composerRequest: String?
         #if canImport(CmuxMobileLinkFFI)
         if let paste = input[0].paste {

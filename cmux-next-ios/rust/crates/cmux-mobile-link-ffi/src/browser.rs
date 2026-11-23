@@ -264,9 +264,7 @@ async fn peer_close(receiver: &mut ChannelReceiver) -> (String, String) {
         }
         ("link_closed".to_owned(), String::new())
     };
-    tokio::time::timeout(SEND_STALL, closed)
-        .await
-        .unwrap_or_else(|_| ("link_closed".to_owned(), String::new()))
+    tokio::time::timeout(SEND_STALL, closed).await.unwrap_or_else(|_| ("link_closed".to_owned(), String::new()))
 }
 
 impl Viewer {
