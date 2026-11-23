@@ -3091,7 +3091,7 @@ async fn dispatch_request_with_identity(
             reply
         }
         name if super::account_sign_in::METHODS.contains(&name) => {
-            heap(|| super::account_sign_in::handle(hub, conn.origin, name, &params)).await
+            heap(|| super::account_sign_in::handle(hub, conn, name, &params)).await
         }
         method::MUX_ACCOUNTS | method::MUX_ACCOUNT_SET | method::MUX_ACCOUNT_USAGE => {
             let reply = heap(|| super::accounts::handle(hub, conn.origin, m, &params)).await;
