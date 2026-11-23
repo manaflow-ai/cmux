@@ -1,0 +1,129 @@
+{
+  "_comment": "One change classifier, shared: scripts/ci/piece_swap.py (hot swap out; .github/piece-swap.json names the classes it acts on), the cmuxterm-hq fix-forward cost model, and the two-commit check read it. A file's class is the first class below whose paths match it (fnmatch, where * also crosses /, and DIR/** is everything under DIR); a file no class matches is `other` (swap never). `swap` says how a piece of the class comes out of a running build without reverting its whole commit: file (a file revert, nothing ships), live (scripts/cmux-next/live_apply.py's web-live or daemon layer: cmux customize, cmux app try, hot-apply), build (out only with a new app build), never (no piece-level neutralizing: its owner's whole revert). piece_roots are the feature boundaries a commit splits on: a root is a path prefix whose * stands for one folder name; every changed file under the same matched prefix (the first root that matches) is one piece, and a file under no root is a piece of its own.",
+  "classes": [
+    {
+      "name": "drill",
+      "paths": [
+        ".github/post-merge-drill-red",
+        ".github/post-merge-drill/**"
+      ],
+      "swap": "file",
+      "why": "The post-merge drill's markers: red exactly when planted. Never present on feat-cmux-next."
+    },
+    {
+      "name": "signing-release",
+      "paths": [
+        "*.entitlements",
+        "glaeda.apple.json",
+        "homebrew-cmux/**",
+        "scripts/release/**",
+        "scripts/*sign*",
+        "scripts/*notar*",
+        "scripts/*release*",
+        "scripts/ci/nightly-steps/**",
+        ".github/workflows/*release*",
+        ".github/workflows/*nightly*",
+        ".github/workflows/*sign*",
+        ".github/workflows/*notar*",
+        ".github/workflows/*appcast*",
+        ".asc/**"
+      ],
+      "swap": "never",
+      "why": "What signs, notarizes or publishes a build: a half-signed artifact is worse than either whole one."
+    },
+    {
+      "name": "migrations",
+      "paths": [
+        "*/migrations/**",
+        "web/tests/fixtures/run-migrations/**"
+      ],
+      "swap": "never",
+      "why": "A migration that ran cannot be swapped out; its undo is a new forward migration."
+    },
+    {
+      "name": "published-builds",
+      "paths": [
+        "Packages/*/Package.swift",
+        "Packages/*/Package.resolved",
+        "cmux.xcodeproj/**",
+        "cmux.xcworkspace/**",
+        "*.xcconfig",
+        "*/Info.plist",
+        "Resources/**",
+        "AppIcon.icon/**",
+        "Assets.xcassets/**",
+        "ghostty",
+        "ghostty-next",
+        ".gitmodules"
+      ],
+      "swap": "build",
+      "why": "Manifests, pins and resources a published app or package is built from: out only with a new build."
+    },
+    {
+      "name": "web-ui",
+      "paths": [
+        "webviews/**",
+        "cmux-tui/frontends/web/**",
+        "clients/ts/**",
+        "config/vite-plus/**"
+      ],
+      "swap": "live",
+      "why": "The app's web bundles: a piece swaps out of a running app as a web layer (cmux customize use dir:, cmux app try)."
+    },
+    {
+      "name": "rust-core",
+      "paths": [
+        "cmux-tui/**",
+        "acpmux/**",
+        "*.rs",
+        "*Cargo.toml",
+        "*Cargo.lock"
+      ],
+      "swap": "live",
+      "why": "The daemons and linked Rust: a daemon piece swaps by a daemon handoff (hot-apply), an app-FFI piece warm (a relaunch)."
+    },
+    {
+      "name": "tools",
+      "paths": [
+        ".github/**",
+        "scripts/**",
+        "tests/**",
+        "tests_v2/**",
+        "ci/**",
+        "tools/**",
+        "skills.sh",
+        ".agents/**",
+        ".claude/**",
+        ".codex/**",
+        ".cmux/**"
+      ],
+      "swap": "file",
+      "why": "CI, scripts and tests: nothing ships in the app, a piece is a file revert."
+    },
+    {
+      "name": "docs",
+      "paths": [
+        "docs/**",
+        "plans/**",
+        "release-notes/**",
+        "design/**",
+        "*.md",
+        "LICENSE"
+      ],
+      "swap": "file",
+      "why": "Prose: nothing ships, a piece is a file revert."
+    }
+  ],
+  "piece_roots": [
+    "webviews/src/*/*",
+    "webviews/src/*",
+    "webviews/*",
+    "cmux-tui/crates/*",
+    "acpmux/crates/*",
+    "Packages/macOS/CmuxNext/Sources/*",
+    "Packages/macOS/CmuxNext/Tests/*",
+    "backend/packages/*",
+    "workers/*",
+    "docs/*"
+  ]
+}

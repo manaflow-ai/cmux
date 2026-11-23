@@ -393,6 +393,54 @@ await requireBrowserLane("tooltip-surface.test.ts", async () => {
     }
   });
 
+  // https://github.com/manaflow-ai/cmux/issues/49650: the composer's model chip ("Opus 5.5 Medium") showed "Opus 5.5 ⌃⌘M" in a tooltip at the
+  // whole max width, wider than the chip and off its center: the keycap floats to the box's end, and
+  // the fit measured from the text to that far edge. A keyed tooltip is as wide as its text and keycap.
+  test("a tooltip with a shortcut hugs its text and keycap, centered under its control (https://github.com/manaflow-ai/cmux/issues/49650)", async () => {
+    for (const scale of [1, 1.25]) {
+      const page = await open(
+        theme("dark", `--cmux-interface-scale:${scale};`),
+        `<div style="display:flex;justify-content:center;padding:40px">
+           <button id="chip" title="Opus 5.5" data-tooltip-shortcut="⌃⌘M"
+             style="width:${Math.round(170 * scale)}px;height:${Math.round(26 * scale)}px">Opus 5.5 Medium</button>
+         </div>`,
+      );
+      try {
+        await hoverAndWait(page, "chip");
+        const seen = await page.evaluate(() => {
+          const tip = document.querySelector<HTMLElement>(".ui-title-tooltip")!;
+          const rect = tip.getBoundingClientRect();
+          const anchor = document.getElementById("chip")!.getBoundingClientRect();
+          const text = tip.querySelector(".ui-tooltip-text")!.getBoundingClientRect();
+          const key = tip.querySelector(".ui-tooltip-hint")!.getBoundingClientRect();
+          const style = getComputedStyle(tip);
+          return {
+            width: rect.width,
+            height: rect.height,
+            lineHeight: parseFloat(style.lineHeight),
+            anchorWidth: anchor.width,
+            centerOffset: rect.left + rect.width / 2 - (anchor.left + anchor.width / 2),
+            // The room between the text's end and the keycap: the keycap gap, never the rest of the max width.
+            between: key.left - text.right,
+            maxWidth: parseFloat(style.maxWidth),
+          };
+        });
+        const gap = await page.evaluate(() =>
+          parseFloat(getComputedStyle(document.querySelector(".ui-tooltip-hint")!).marginInlineStart),
+        );
+        expect(seen.width).toBeLessThan(seen.anchorWidth);
+        expect(seen.width).toBeLessThan(seen.maxWidth / 2);
+        expect(Math.abs(seen.centerOffset)).toBeLessThanOrEqual(1);
+        expect(seen.between).toBeGreaterThanOrEqual(gap - 0.5);
+        expect(seen.between).toBeLessThanOrEqual(gap + 2);
+        // One line: the keycap never wraps under its text.
+        expect(seen.height).toBeLessThan(seen.lineHeight * 2);
+      } finally {
+        await page.close();
+      }
+    }
+  });
+
   // A tooltip is one line, like the native one (Chief, 2026-11-21: "Make web tooltips one line, like
   // native"; TooltipContentView.swift): a long title ends in an ellipsis at the widest tooltip, a
   // title's second line never shows, and a detail line is gone (its words describe the control).

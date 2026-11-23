@@ -903,7 +903,8 @@ esac
 '''
 
 # Webview and native UI changes carry the review loop from the aiforui course: a missing `## UI review`
-# section or `Verdict:` line warns. The changed paths come from the event's merge commit without blobs, as
+# section, `Verdict:` line or `Try:` line (the command that opens the pull request in a copy of cmux NEXT,
+# so a reviewer clicks through before reading the diff) warns. The changed paths come from the event's merge commit without blobs, as
 # pr-body-checks.yml reads them (no API call); the paginated REST file list is only the fallback.
 [step.ui-review]
 job = "advisory"
@@ -911,7 +912,7 @@ blocks = false
 class = "idle"
 timeout = 300
 title = "UI review"
-about = "a pull request that changes webview or native UI files has a ## UI review section with a Verdict: line"
+about = "a pull request that changes webview or native UI files has a ## UI review section with Verdict: and Try: lines"
 run = '''
 if [ ! -f scripts/ci/ui_review_advisory.py ]; then
   echo "::warning title=UI review::the advisory script is not present on the base; review the UI section manually"
@@ -939,7 +940,7 @@ if ! listed || ! python3 -c 'import json, sys; json.dump([{"filename": l} for l 
   exit 0
 fi
 printf '%s' "$BODY" > "$body_file"
-python3 scripts/ci/ui_review_advisory.py --body-file "$body_file" --files-json "$files" \
+python3 scripts/ci/ui_review_advisory.py --body-file "$body_file" --files-json "$files" --pr "${PR:-}" \
   || echo "::warning title=UI review::the advisory script could not run; review the UI section manually"
 '''
 

@@ -624,7 +624,7 @@ class PipelineTest(unittest.TestCase):
         self.assertEqual(
             wf["jobs"]["linux"]["runs-on"],
             "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && "
-            "github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || "
+            "github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || "
             "vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}")
 
     def test_the_shim_step_runs_every_cpp_script(self) -> None:
