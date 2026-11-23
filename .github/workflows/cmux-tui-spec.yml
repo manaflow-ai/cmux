@@ -92,6 +92,7 @@ on:
       - "schemas/settings/source/mcp-servers.json"
       - "schemas/terminal-sizing/fixtures.json"
       - "scripts/ci/init-submodule.sh"
+      - "scripts/ci/apt-ensure.sh"
       - "scripts/cmux-next/cargo-locks.py"
       - "scripts/install-zig-ci.sh"
       - "webviews/src/agent-session/acpmux/rows/parity/**"
@@ -506,8 +507,7 @@ jobs:
       - name: Install bubblewrap
         if: ${{ steps.tree.outputs.hit != 'true' }}
         run: |
-          sudo apt-get update
-          sudo apt-get install -y bubblewrap
+          bash scripts/ci/apt-ensure.sh bubblewrap
           # Ubuntu 24.04 (the pool runners) refuses unprivileged user namespaces to unconfined
           # programs, so bwrap cannot start and the four linux_sandbox::bwrap tests fail on every
           # run, base included (as cmux-tui-sdks.yml).
@@ -878,9 +878,7 @@ jobs:
 
       - name: Install Linux build dependencies
         if: ${{ steps.tree.outputs.hit != 'true' }}
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y clang libclang-dev pkg-config
+        run: bash scripts/ci/apt-ensure.sh clang libclang-dev pkg-config
 
       # cmux-remote depends on ghostty-vt: ghostty-vt-sys builds libghostty-vt from the
       # ghostty-next gitlink with zig, as the clippy job does.
@@ -1023,7 +1021,7 @@ jobs:
 
       # A replay checks the old tree with this run's script.
       - name: Keep this run's check scripts
-        run: cp .github/scripts/cmux-tui-clippy-changed.py .github/scripts/cmux-tui-fmt-changed.py "$RUNNER_TEMP/"
+        run: cp .github/scripts/cmux-tui-clippy-changed.py .github/scripts/cmux-tui-fmt-changed.py scripts/ci/apt-ensure.sh "$RUNNER_TEMP/"
 
       - name: Check out the replayed commit
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.commit != '' }}
@@ -1060,9 +1058,10 @@ jobs:
           echo "sha=$BASE_SHA" >> "$GITHUB_OUTPUT"
 
       - name: Install Linux build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y clang libclang-dev pkg-config
+        # Persistent fleet images already carry these packages. Avoid network and
+        # sudo work on that path; cold runners still install every missing package.
+        # The kept copy: a replayed commit from before the helper has no scripts/ci/apt-ensure.sh.
+        run: bash "$RUNNER_TEMP/apt-ensure.sh" clang libclang-dev pkg-config
 
       - name: Init the ghostty-next submodule (libghostty-vt for ghostty-vt-sys)
         run: bash scripts/ci/init-submodule.sh ghostty-next
