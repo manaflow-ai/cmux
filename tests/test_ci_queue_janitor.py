@@ -6000,7 +6000,15 @@ def daemon_job(*, started, conclusion="success", status="completed"):
 
 
 class OrphanedDispatchRerunTests(unittest.TestCase):
-    """An orphaned dispatch on a long-lived branch comes back (orphan_reruns()): base's daemon-tests verdict."""
+    """An orphaned dispatch on a long-lived branch comes back (orphan_reruns()): base's daemon-tests verdict.
+
+    These pin the off switch, CMUX_NEXT_BASE_TIER_KEEP_QUEUED=0: by default a base tier run waiting for a Mac
+    runner is kept, never cancelled (BaseTierWaitingTests)."""
+
+    def setUp(self):
+        patcher = mock.patch.dict(os.environ, {"CMUX_NEXT_BASE_TIER_KEEP_QUEUED": "0"})
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def test_scope_is_a_long_lived_branch_dispatch_below_the_attempt_bound(self):
         def scoped(run, job_name="cmux-next daemon tests"):
@@ -6298,6 +6306,69 @@ def finished_jobs(age):
              "labels": [HOSTED], "created_at": iso(age), "runner_name": None},
             {"status": "completed", "conclusion": "skipped", "name": "changes",
              "labels": [LINUX], "created_at": iso(age), "runner_name": None}]
+
+
+class BaseTierWaitingTests(unittest.TestCase):
+    """2026-11-22: base tier run 45066513743's `cmux-next generated files` job waited 2h23m with no runner while 6
+    newer jobs on its label got one; the orphan pass cancelled it at 22:57:18Z (sweep 45079169808) and no later
+    sweep re-ran it. By default the orphan pass now keeps a base tier run whose only waiting jobs wait for a Mac,
+    and reports it; CMUX_NEXT_BASE_TIER_KEEP_QUEUED=0 cancels it again."""
+
+    def setUp(self):
+        patcher = mock.patch.dict(os.environ, {}, clear=False)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        os.environ.pop("CMUX_NEXT_BASE_TIER_KEEP_QUEUED", None)
+
+    def starved(self, run=None, jobs=None):
+        run = run or base_tier_dispatch()
+        jobs = jobs if jobs is not None else real_41190186270_jobs()
+        orphans = find([run], {run["id"]: jobs, 1: served_mac26()[1]})
+        self.assertEqual(len(orphans), 1)
+        return orphans
+
+    def test_a_base_tier_run_waiting_for_a_mac_is_kept_and_reported(self):
+        orphans = self.starved()
+        self.assertTrue(orphans[0].mac_wait_only)
+        decisions = orphan_plan(orphans)
+        self.assertEqual([d.action for d in decisions], ["skip"])
+        self.assertIn("starved base tier run waiting for a Mac runner", decisions[0].note)
+        self.assertEqual(janitor.orphan_reruns(decisions, {}, {}, now=NOW), [])
+        summary = janitor.render_orphan_summary(decisions, dry_run=False, now=NOW,
+                                                min_age=dt.timedelta(minutes=120), results={})
+        self.assertIn("keep (starved base tier run waiting for a Mac runner", summary)
+        self.assertIn(str(orphans[0].run.get("html_url") or orphans[0].run["id"]), summary)
+
+    def test_zero_cancels_it_again(self):
+        os.environ["CMUX_NEXT_BASE_TIER_KEEP_QUEUED"] = "0"
+        self.assertEqual([d.action for d in orphan_plan(self.starved())], ["cancel"])
+
+    def test_the_switch_is_on_unless_zero(self):
+        for value, expected in ((None, True), ("", True), ("1", True), (" 0 ", False), ("0", False)):
+            env = {} if value is None else {"CMUX_NEXT_BASE_TIER_KEEP_QUEUED": value}
+            self.assertEqual(janitor.keep_waiting_base_tier(env), expected, value)
+
+    def test_other_dispatches_are_still_cancelled(self):
+        for run in (base_tier_dispatch(kind="cmux-next tip daemon suite"),
+                    dict(base_tier_dispatch(), head_branch="main"),
+                    dict(base_tier_dispatch(), path=".github/workflows/cmux-tui.yml")):
+            self.assertEqual([d.action for d in orphan_plan(self.starved(run))], ["cancel"], run)
+        orphan = self.starved(dict(base_tier_dispatch(), event="push"))[0]
+        self.assertTrue(orphan.mac_wait_only)
+        self.assertFalse(janitor.waiting_base_tier(orphan))
+
+    def test_a_base_tier_run_with_a_waiting_linux_job_is_still_cancelled(self):
+        jobs = real_41190186270_jobs()
+        jobs.append({"id": next(_ids), "name": "cmux-next checks", "labels": [LINUX], "created_at": iso(134.7),
+                     "started_at": iso(134.7), "status": "queued", "conclusion": None, "runner_id": None,
+                     "runner_name": None})
+        orphans = self.starved(jobs=jobs)
+        self.assertFalse(orphans[0].mac_wait_only)
+        self.assertEqual([d.action for d in orphan_plan(orphans)], ["cancel"])
+
+    def test_the_sweep_passes_the_repository_variable(self):
+        text = (ROOT / ".github/workflows/ci-queue-janitor.yml").read_text()
+        self.assertIn("CMUX_NEXT_BASE_TIER_KEEP_QUEUED: ${{ vars.CMUX_NEXT_BASE_TIER_KEEP_QUEUED }}", text)
 
 
 class ConcurrencyHolderTests(unittest.TestCase):
