@@ -114,7 +114,22 @@ await requireBrowserLane("composer-bottom-controls.browser.test.ts", async () =>
           }
         return {
           line,
-          controls: { plus: centre(PLUS_PICKER), mic: centre(".acpmux-mic"), send: centre(".acpmux-send") },
+          controls: {
+            plus: centre(PLUS_PICKER),
+            mic: centre(".acpmux-mic"),
+            send: centre(".acpmux-send"),
+            // Every other control drawn inside the box (outside the draft): none may stay at the top.
+            ...Object.fromEntries(
+              [...(box?.querySelectorAll<HTMLElement>("button, [role=button]") ?? [])]
+                .filter((element) => !field?.contains(element) && shown(element))
+                .map((element, index) => {
+                  const rect = element.getBoundingClientRect();
+                  const name =
+                    element.getAttribute("aria-label") || element.className.toString().split(" ")[0] || "control";
+                  return [`${name}#${index}`, (rect.top + rect.bottom) / 2];
+                }),
+            ),
+          },
         };
       },
       { COMPOSER_MD_FIELD, PLUS_PICKER },
