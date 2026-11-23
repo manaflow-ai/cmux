@@ -673,6 +673,7 @@ impl Mux {
         let terminals = self.workspace_registry.lock().unwrap().terminal_snapshot()?.terminals;
         let mut chosen = Vec::new();
         let mut parked_surfaces = Vec::new();
+        let mut parked_ids = Vec::new();
         {
             let registry = self.workspace_registry.lock().unwrap();
             for terminal in terminals {
@@ -696,9 +697,15 @@ impl Mux {
                     continue;
                 }
                 parked_surfaces.extend(mine);
+                parked_ids.push(public_id);
                 chosen.push(terminal);
             }
         }
+        // Each shell saves its state for its tab's restart (`shell_state`),
+        // with no lock held, before its record is written. The freeing
+        // policy parks only a shell whose save succeeded
+        // (`shell_state_saved`); that save is fresh and not asked again.
+        let _ = self.save_shell_states(&parked_ids);
         // Every tab is recorded before any shell is asked to exit, so no exit removes one.
         let kept = self.record_kept_tabs(&chosen, KeptStart::OnShow)?;
         let mut failures = Vec::new();

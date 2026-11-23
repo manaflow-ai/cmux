@@ -77,7 +77,18 @@ impl Daemon {
     /// A daemon whose peer `target` is the daemon at `peer` (home, socket), its agent started
     /// with `agent_env`.
     async fn spawn(tag: &str, peer: Option<(PathBuf, PathBuf)>, agent_env: Value) -> Self {
-        Self::spawn_linked(tag, peer, agent_env, None).await
+        Self::spawn_inner(tag, peer, agent_env, false, None).await
+    }
+
+    /// [`Self::spawn`]; `linked`: it serves its WebSocket port too, so the daemon whose peer
+    /// it is holds a live link to it (`session_move::fake_ssh` carries the link).
+    async fn spawn_with(
+        tag: &str,
+        peer: Option<(PathBuf, PathBuf)>,
+        agent_env: Value,
+        linked: bool,
+    ) -> Self {
+        Self::spawn_inner(tag, peer, agent_env, linked, None).await
     }
 
     /// [`Daemon::spawn`], and with `link` (this daemon's WebSocket port, the peer's, a one-way
@@ -90,11 +101,26 @@ impl Daemon {
         agent_env: Value,
         link: Option<(u16, u16, u64)>,
     ) -> Self {
+        Self::spawn_inner(tag, peer, agent_env, false, link).await
+    }
+
+    async fn spawn_inner(
+        tag: &str,
+        peer: Option<(PathBuf, PathBuf)>,
+        agent_env: Value,
+        linked: bool,
+        link: Option<(u16, u16, u64)>,
+    ) -> Self {
         let (home, socket) = Self::place(tag);
         let _ = std::fs::remove_dir_all(&home);
         std::fs::create_dir_all(&home).expect("home");
         let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
         let mut config = json!({"harnesses": {"fake": {"argv": ["python3", fake], "env": agent_env}}, "defaultHarness": "fake", "permissionPolicy": "approve-all"});
+        if linked {
+            let free = std::net::TcpListener::bind("127.0.0.1:0").expect("a free port");
+            let listen = free.local_addr().expect("its address").to_string();
+            config["websocket"] = json!({"listen": listen, "token": format!("token-{tag}")});
+        }
         let path = peer.map(|(peer_home, peer_socket)| {
             config["peers"] = json!({"target": {"url": "ssh://target"}});
             let link = link.map(|(_, port, delay)| (port, delay));
@@ -172,6 +198,8 @@ async fn a_chat_whose_folder_is_missing_on_the_target_is_refused_with_a_reason_t
 
 #[path = "transfer_cli/session_move.rs"]
 mod session_move;
+#[path = "transfer_cli/session_move_follow.rs"]
+mod session_move_follow;
 #[path = "transfer_cli/session_move_live.rs"]
 mod session_move_live;
 #[path = "transfer_cli/view_latency.rs"]
