@@ -1,8 +1,12 @@
 public import CMUXMobileCore
 internal import CmuxMobileShellModel
+#if canImport(CmuxMobileSupport)
 internal import CmuxMobileSupport
+#endif
 public import Foundation
+#if canImport(os)
 internal import os
+#endif
 
 /// Controls whether a request carries the connection's attach-ticket context.
 /// Stack account authorization is always sent for authorized bearer requests.

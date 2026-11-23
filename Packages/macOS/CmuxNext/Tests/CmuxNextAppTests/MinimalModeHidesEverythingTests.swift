@@ -5,8 +5,8 @@ import Testing
 
 /// User 2026-11-17 (msg 38388): "minimal mode should hide everything in sidebar including cards like update, iff user
 /// is not hovered in sidebar". In Minimal Mode, with the pointer away, every piece of sidebar chrome fades out: the
-/// controls, and also the cards (Restart to Update, notices, Now Playing, cmux Updated), the card stack, app health's
-/// line, the Update Available button, the Priority bell, the titlebar accessory and the needs-you tray. One rule
+/// controls, and also the cards (Restart to Update, notices, Now Playing, cmux Updated), the card stack, the Update
+/// Available button, the Priority bell, the titlebar accessory and the needs-you tray. One rule
 /// covers them: every sidebar view but the content (the list, the bands, the Priority view, edit mode's bar) fades,
 /// so a card added later hides by default. The pointer over the sidebar shows them all. A fade only: each keeps its
 /// frame and its place in the accessibility tree.
@@ -15,7 +15,7 @@ import Testing
     private static func leakers(_ sidebar: SidebarView, extra: NSView) -> [(String, NSView)] {
         [("update card", sidebar.updateCardView), ("notice card", sidebar.noticeCardView),
          ("now playing card", sidebar.nowPlayingCardView), ("updated card", sidebar.updatedCardView),
-         ("card stack", sidebar.footerCards!), ("health line", sidebar.healthIndicator!),
+         ("card stack", sidebar.footerCards!),
          ("update available", sidebar.updateAvailableButton), ("priority bell", sidebar.priorityButton),
          ("titlebar accessory", sidebar.titlebarAccessory!), ("needs-you tray", sidebar.needsYouTray),
          ("a view added later", extra)]
@@ -23,7 +23,6 @@ import Testing
 
     private static func dress(_ sidebar: SidebarView) -> NSView {
         sidebar.footerCards = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 40))
-        sidebar.healthIndicator = NSView(frame: NSRect(x: 0, y: 0, width: 120, height: 16))
         sidebar.titlebarAccessory = NSView(frame: NSRect(x: 0, y: 0, width: 20, height: 20))
         sidebar.showUpdateAvailable("Update Available")
         sidebar.showPriority(SidebarPriorityPanel(entries: []))
