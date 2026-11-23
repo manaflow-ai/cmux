@@ -158,6 +158,8 @@ final class ShellModel {
         self.settings = settings
         self.sidebar = sidebar
         terminalTabs.accountUserIDProvider = { [weak auth] in auth?.user?.id }
+        // Every tab card's last-known picture is this account's alone.
+        TabCardSnapshots.shared.accountID = { [weak auth] in auth?.user?.id }
         // Mock content only in DEBUG mock mode (mock auth); a live account
         // never falls back to it.
         let mockMode = TerminalSessionChoice.mockCompiledIn && auth.isMock

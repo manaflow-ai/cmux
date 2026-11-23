@@ -10,9 +10,16 @@ policy): `cmux-rd-core`.
 ```
 cmux-rd host    --listen-systemd --peer-uid 1000 [--display :99] [--xauthority PATH] [--idle-exit-s 120] [--no-udp-link] [--link-stun HOST:PORT,...]   (Cloud machines; below)
 cmux-rd host    --owner USER --token-fd N [--bind 127.0.0.1] [--single-tenant-overlay 1] [--display :99] [--port 4103] [--codec openh264] [--upstream-record DIR [--upstream-record-max-mb 1024]]
-cmux-rd bench   --addr HOST:4103 --token-fd N [--carrier udp|stream] [--samples 300] [--user USER] [--upstream mic|camera|screen --upstream-frames 100]
+cmux-rd bench   --addr HOST:4103 --token-fd N [--carrier udp|stream] [--mode view|control] [--samples 300] [--user USER] [--upstream mic|camera|screen --upstream-frames 100]
 cmux-rd testapp --display :99 --workload marker|text|motion|idle
 ```
+
+The bench requests control by default. With `--mode view --input click --samples 1`,
+it sends the same click and watches the decoded marker for one second. In the active
+bench report, `input_sent` counts attempted samples and `input_acked` records whether
+the host acknowledged the last event. A view-only host acknowledges discarded input.
+`marker_changes` counts observed counter changes after the first sample begins, and
+`g2g_ms` measures the time to the expected counter for each successful sample.
 
 ## macOS host
 
