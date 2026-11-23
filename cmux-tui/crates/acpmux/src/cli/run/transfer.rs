@@ -44,17 +44,17 @@ pub(super) async fn run(
 /// A move begun on the source: the chat is frozen there and its bundle made. `stage_id`: the
 /// target's staged prefix of a pre-copied move, whose bundle holds only what follows it.
 pub(super) struct Begun {
-    begin: Value,
-    transfer_id: String,
-    epoch: u64,
-    stage_id: Option<String>,
+    pub(super) begin: Value,
+    pub(super) transfer_id: String,
+    pub(super) epoch: u64,
+    pub(super) stage_id: Option<String>,
 }
 
 /// A prefix of the chat staged on the target before the freeze (`hub/transfer_precopy.rs`).
 pub(super) struct Staged {
-    prepare_id: String,
-    after_seq: u64,
-    stage_id: String,
+    pub(super) prepare_id: String,
+    pub(super) after_seq: u64,
+    pub(super) stage_id: String,
 }
 
 /// Freezes the chat `id` on `src` and makes its bundle (`_acpmux/transfer_begin`). `watch` is
@@ -218,12 +218,12 @@ pub(super) async fn move_chat(
     finish_move(src, dst, dst_init, id, &begun, cwd, name, to_meta).await
 }
 
-fn refused_as(e: &anyhow::Error, code: &str) -> bool {
+pub(super) fn refused_as(e: &anyhow::Error, code: &str) -> bool {
     format!("{e:#}").contains(code)
 }
 
 /// Whether a daemon's `initialize` or `_acpmux/status` reply lists pre-copy.
-fn lists_precopy(reply: &Value, pointer: &str) -> bool {
+pub(super) fn lists_precopy(reply: &Value, pointer: &str) -> bool {
     let ids = reply.pointer(pointer).and_then(Value::as_array);
     ids.is_some_and(|ids| ids.iter().any(|id| id == crate::capabilities::TRANSFER_PRECOPY))
 }
