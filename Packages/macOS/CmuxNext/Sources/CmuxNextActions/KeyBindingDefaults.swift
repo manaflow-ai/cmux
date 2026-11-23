@@ -120,23 +120,13 @@ public nonisolated struct KeyBindingDefaults {
         .equals(KeyContext.surfaceKind, .string("home-dock")),
     ])
 
-    /// The `topPage` Bring your history had on top of a window (the first-run import over Home). That page is
-    /// gone (2026-11-20), so no window has it; the term stays in ``onChiefZoom`` until the Rust catalog's
-    /// binding text (`bindings.rs`) drops it, which reaches the app only with an app FFI re-pin.
-    public static let historyImportTopPage = "import-history"
-
-    /// Where the Chief chat's zoom keys run: Home (``onHome``'s terms), and Bring your history
-    /// (`cmux.import-history`) as the window's top page or with the keyboard in a pane, whose page
-    /// zooms with the Chief chat (`PageWebView.followsChatZoom`; issue 38049: Cmd-= / Cmd-- did
-    /// nothing on the first-run import). As on Home, the top page takes the zoom keys wherever the
-    /// window's keyboard is (a sidebar click leaves it shown). One flat `or`, the tree its text
-    /// parses back to, so the Rust catalog's text form (`bindings.rs`) gives this clause.
+    /// Where the Chief chat's zoom keys run: Home (``onHome``'s terms). As on Home, the top page takes the zoom keys
+    /// wherever the window's keyboard is (a sidebar click leaves it shown). One flat `or`, the tree its text parses back
+    /// to, so the Rust catalog's text form (`bindings.rs`) gives this clause.
     public static let onChiefZoom = WhenClause.or([
         .equals(KeyContext.topPage, .string("home")),
         .equals(KeyContext.surfaceKind, .string("home")),
         .equals(KeyContext.surfaceKind, .string("home-dock")),
-        .equals(KeyContext.topPage, .string(historyImportTopPage)),
-        .equals(KeyContext.pageID, .string("cmux.import-history")),
     ])
 
     /// The arrow aliases for pane resize. These are defaults in addition to
