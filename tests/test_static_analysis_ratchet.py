@@ -117,6 +117,16 @@ class RatchetTest(unittest.TestCase):
         self.assertEqual(ratchet.annotate("error", "a.yml", "m", 4), "::error file=a.yml,line=4::m")
         self.assertEqual(ratchet.annotate("warning", "a.yml", "m"), "::warning file=a.yml::m")
 
+    def test_a_shape_only_finding_in_a_test_file_warns_and_a_provider_token_fails_anywhere(self) -> None:
+        for path in ("cmux-tui/crates/cmux-voice/src/provider_tests.rs", "webviews/src/pages/x/card.test.tsx",
+                     "cmux-tui/crates/cmux-tui/tests/terminal_host_recovery/lazy_start.rs", "tests/test_x.py",
+                     "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/SettingsModelsTests.swift"):
+            self.assertFalse(ratchet.gitleaks_fails({"RuleID": "generic-api-key", "File": path}), path)
+            self.assertTrue(ratchet.gitleaks_fails({"RuleID": "github-pat", "File": path}), path)
+        for path in ("cmux-tui/crates/cmux-voice/src/provider.rs", "scripts/deploy.sh", "webviews/src/latest.ts",
+                     "config/contest.json"):
+            self.assertTrue(ratchet.gitleaks_fails({"RuleID": "generic-api-key", "File": path}), path)
+
     def test_the_workflows_ship_failing_on(self) -> None:
         self.assertIn('CMUX_STATIC_ANALYSIS_BLOCKING: "1"', (ROOT / ".github/workflows/ci-guards.yml").read_text())
         guards = (ROOT / ".github/workflows/cmux-next-guards.yml").read_text()
