@@ -123,6 +123,7 @@ pub const ACPMUX_REQUEST_META: &[&str] = &[
     "parent",
     "peer",
     "peerHops",
+    "peerRowBatches",
     "personDecision",
     "personKey",
     "personStop",
@@ -137,6 +138,7 @@ pub const ACPMUX_REQUEST_META: &[&str] = &[
     "requestId",
     "requireFullAccess",
     "resend",
+    "restricted",
     "route",
     "sessionCreatedAt",
     "senderHarness",
@@ -181,6 +183,8 @@ keyed! {
     ArchiveParams: ["sessionId", "archived"];
     /// `_acpmux/attachment`.
     AttachmentParams: ["sessionId", "id"];
+    /// `_acpmux/turn_shots`.
+    TurnShotsParams: ["sessionId", "turnId"];
     /// `_acpmux/bookmark_get`.
     BookmarkGetParams: ["sessionId"];
     /// `_acpmux/bookmark_set`.
@@ -225,6 +229,8 @@ keyed! {
     McpReconnectParams: ["sessionId", "server"];
     /// `_acpmux/models`.
     ModelsParams: ["refresh", "probe", "localOnly"];
+    /// `_acpmux/move_targets`.
+    MoveTargetsParams: ["source", "sourceKind"];
     /// `_acpmux/native_history`.
     NativeHistoryParams: ["sessionId", "before", "mark"];
     /// `_acpmux/offer_respond`.
@@ -240,7 +246,7 @@ keyed! {
     /// `_acpmux/process/kill`.
     ProcessKillParams: ["sessionId", "processId", "signal"];
     /// `_acpmux/process/list`.
-    ProcessListParams: ["sessionId", "cursor", "limit"];
+    ProcessListParams: ["sessionId", "cursor", "limit", "recent", "endedWithin", "calls"];
     /// `_acpmux/process/tail`.
     ProcessTailParams: ["sessionId", "processId", "fromByte", "maxBytes"];
     /// `_acpmux/queue_approve`.

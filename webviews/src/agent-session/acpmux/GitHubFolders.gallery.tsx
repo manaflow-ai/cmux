@@ -86,7 +86,7 @@ export default componentEntry<Props>({
   },
   variants: {
     "not-connected": {
-      note: "A new Cloud chat before GitHub is connected: one Connect to GitHub row ends the list; one click opens the install page, the menu stays open.",
+      note: "A new Cloud chat before GitHub is connected: Connect to GitHub sits with the fixed actions under the list, its title alone; one click opens the install page, the menu stays open.",
       props: { ...base, github: notConnected },
       play: openFolder,
     },
@@ -96,7 +96,7 @@ export default componentEntry<Props>({
       play: openFolder,
     },
     ready: {
-      note: "Installed for selected repositories: a GitHub group under the folders, a lock on private ones, then Choose more repositories….",
+      note: "Installed for selected repositories: a GitHub group in the list, a lock on private ones; Choose more repositories… sits with the fixed actions under Add folder….",
       props: { ...base, github: picker({ status: { state: "ready", reposScope: "selected" }, repos: REPOS }) },
       play: openFolder,
     },
@@ -140,7 +140,7 @@ export default componentEntry<Props>({
       play: openFolder,
     },
     error: {
-      note: "Reading the repositories failed: one short line with Retry under the list.",
+      note: "Reading the repositories failed: the GitHub row becomes Retry, the error its second line; a click reads again with the menu open.",
       props: {
         ...base,
         github: picker({ status: { state: "ready", reposScope: "all" }, error: "GitHub didn't answer." }),

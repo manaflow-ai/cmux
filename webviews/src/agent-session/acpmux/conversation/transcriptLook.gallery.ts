@@ -79,6 +79,21 @@ export default agentPaneEntry({
       { [TOKENS]: { "userMessage.style": "plain", timestamps: "always" } },
       "cmux with a plain prompt (a 2 pt leading rule, no fill, left) and times always shown.",
     ),
+    "part-type": variant(
+      {
+        [TOKENS]: {
+          "reply.font": "serif",
+          "reply.fontSize": 16,
+          "userMessage.font": "mono",
+          "userMessage.fontSize": 13,
+        },
+      },
+      "cmux with each part's own type: replies in the system serif at 16, your messages in the code face at 13 (reply.font, reply.fontSize, userMessage.font, userMessage.fontSize).",
+    ),
+    "claude-own-font": variant(
+      { [LOOK]: "claude", "agentPane.display.font.preset": "system", "agentPane.display.font.size": 14 },
+      "Claude with your own Agent Chat font and size set: yours win over the look's serif replies and part sizes.",
+    ),
     "card-tools": variant(
       { [LOOK]: "claude", [TOKENS]: { toolCards: "card", "toolCard.radius": 10 } },
       "Claude with each tool run drawn on a card (toolCards card, 10 pt corners).",

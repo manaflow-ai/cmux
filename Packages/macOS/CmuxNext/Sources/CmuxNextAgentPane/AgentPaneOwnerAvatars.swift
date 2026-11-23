@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 
 /// A GitHub owner's avatar for a project with no icon file of its own (`project.icon`): a repository
@@ -29,10 +30,8 @@ actor AgentPaneOwnerAvatars {
         self.now = now
     }
 
-    static var defaultFolder: URL? {
-        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first?
-            .appendingPathComponent("cmux/project-avatars", isDirectory: true)
-    }
+    /// `~/Library/Caches/cmux/project-avatars`, a DEV build's own (``BuildStatePaths/projectAvatarsCache``).
+    static var defaultFolder: URL? { BuildStatePaths.current.projectAvatarsCache }
 
     /// The avatar of `owner` as a data URL, or nil.
     func avatar(for owner: String) async -> String? {

@@ -4,7 +4,7 @@
 public import CmuxNextDesign
 
 extension NewTabTemplate {
-    /// `tabs.newTabTemplate`: Which New Tab page template shows (the page's dots also set it). NewTabTemplate is hand-written: it keeps the legacy composer case, which loads as Minimal.
+    /// `tabs.newTabTemplate`: Which New Tab page template shows (the page's dots also set it). NewTabTemplate is hand-written: it keeps the retired composer, cards, default, threads and console cases, which load as Minimal. Those four pages are templates a person builds now (Leo 2026-11-18: "The templates should be like the customixastikms api you can build them i don't think they should ship as is"): skills/cmux-customization/templates/newtab-*, picked with tabs.newTabApp.
     public nonisolated static let configPath = ["tabs", "newTabTemplate"]
     public nonisolated static let fallback: NewTabTemplate = .minimal
 }
@@ -85,6 +85,12 @@ extension TabOverflowSetting {
     /// `tabs.overflow`: Shrink (Chrome's) or Scroll (cx-kp9b4); the palette's Tabs: Use Scrolling Tabs and Tabs: Use Shrinking Tabs write it. Either way a crowded strip scrolls; it never asks.
     public nonisolated static let configPath = ["tabs", "overflow"]
     public nonisolated static let fallback: TabOverflow = .shrink
+}
+
+extension TabShellIconThemeSetting {
+    /// `tabs.shellIconTheme`: The icon a shell tab (a terminal running its shell, no agent, no icon of its own) draws in its leading slot (Leo 2026-10-21: "AND WHERE THE F*** ARE THE ICONS FOR THE F***ING MACHINES"). default: the >_ kind glyph. machine: the icon of the machine the shell runs on, this Mac's included, so no tab sticks out: its icon in the home session registry (set-session-icon), else its device's SF Symbol, else a Cloud machine's cloud. Off by default: the leading slot stays the kind glyph until the person picks Machines.
+    public nonisolated static let configPath = ["tabs", "shellIconTheme"]
+    public nonisolated static let fallback: TabShellIconTheme = .default
 }
 
 extension NewTerminalWorkspaceSetting {

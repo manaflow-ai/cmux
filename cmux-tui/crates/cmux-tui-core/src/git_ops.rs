@@ -159,12 +159,19 @@ pub(crate) fn dispatch(
     if operation == "git.fingerprint" {
         return fingerprint::read(&directory, &request.fields);
     }
+    if operation == "git.files.list" {
+        // A folder in no repository still lists, from the disk: git only adds to a file tree.
+        return match Repository::open(&directory) {
+            Ok(repository) => list::list(&repository, &directory, &request.fields),
+            Err(OpenError::NotARepository) => list::list_folder(&directory, &request.fields),
+            Err(error) => Err(open_failed(operation, &directory, error)),
+        };
+    }
     let repository = open_repository(&directory, operation)?;
     match operation {
         "git.diff" => diff::read(&repository, &request.fields),
         "git.branches" => branches(&repository, &request.fields),
-        "git.files.search" => files::search(&repository, &directory, &request.fields),
-        _ => list::list(&repository, &directory, &request.fields),
+        _ => files::search(&repository, &directory, &request.fields),
     }
 }
 

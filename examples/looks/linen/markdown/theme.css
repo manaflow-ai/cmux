@@ -1,0 +1,12 @@
+/* Linen's Markdown viewer: plain text with no frame. Headings with no rule, code in a soft gray
+   block with 12 px corners, quotes on a gray line, links in the text's own color.
+   Only --cmux-md-* custom properties on :root; every color is mixed from the page's own, so
+   this one file reads over the light and the dark theme file alike. */
+:root {
+  --cmux-md-code-background: color-mix(in srgb, var(--page-text) 5%, transparent);
+  --cmux-md-code-radius: 12px;
+  --cmux-md-heading-weight: 600;
+  --cmux-md-heading-rule: none;
+  --cmux-md-quote-border: 3px solid var(--cmux-md-border-color);
+  --cmux-md-link-color: var(--page-text);
+}

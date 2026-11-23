@@ -56,6 +56,13 @@ struct CloudErrorTextTests {
         #expect(CloudStrings.errorText(CloudAppOpFailure(code: "cmux.cloud.other", message: "x")) == PlainErrorText.generic)
     }
 
+    /// A Cloud request the app server refused as sent too often says to wait, not "Something went wrong" (cmux#45774).
+    @Test func aRateLimitedRefusalSaysToWait() {
+        let refusal = CloudAppOpFailure(code: "cmux.cloud.rate_limited", message: "cloud.rate_limited")
+        #expect(CloudStrings.errorText(refusal) != PlainErrorText.generic)
+        #expect(CloudStrings.errorText(refusal).contains("Wait a minute"))
+    }
+
     @Test func aFailedCreationReadsAsTheErrorText() {
         let creation = CloudMachineCreation(windowID: nil)
         creation.fail(CloudAPIError.timedOut("POST /api/vm"))

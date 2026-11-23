@@ -27,7 +27,7 @@ import {
 const LOOK_VARIABLES = [
   "--cv-user-bubble-pad-block",
   "--cv-user-bubble-pad-inline",
-  "--cv-user-bubble-radius",
+  "--cv-look-bubble-radius",
   "--cv-user-bubble-share",
   "--cv-user-bubble-fill",
   "--cv-user-align",
@@ -132,7 +132,7 @@ describe("transcript looks", () => {
     // Grid units of the 4 pt base: 12 / 4, 16 / 4.
     expect(variables["--cv-user-bubble-pad-block"]).toBe("3");
     expect(variables["--cv-user-bubble-pad-inline"]).toBe("3");
-    expect(variables["--cv-user-bubble-radius"]).toBe("4");
+    expect(variables["--cv-look-bubble-radius"]).toBe("4");
     expect(variables["--cv-user-bubble-share"]).toBe("80%");
     expect(variables["--cv-user-bubble-fill"]).toBe("8%");
     expect(variables["--cv-card-radius"]).toBe("calc(6px * var(--cmux-interface-scale, 1))");
@@ -144,7 +144,7 @@ describe("transcript looks", () => {
     expect(transcriptLookVariables(plain)).toMatchObject({
       "--cv-user-bubble-share": "100%",
       "--cv-user-align": "flex-start",
-      "--cv-user-bubble-radius": "0",
+      "--cv-look-bubble-radius": "0",
       "--cv-user-bubble-fill": "0%",
     });
     expect(transcriptLookAttributes(plain)).toEqual({

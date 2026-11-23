@@ -6,7 +6,7 @@ public nonisolated struct RemoteBrowserStrings {
     public nonisolated init() {}
     /// The refusal for an address that is not a loopback host port.
     public static func addressNotRecognized(_ address: String) -> String {
-        String(format: String(localized: "remoteBrowser.refusal.address", defaultValue: "Not a loopback host address: %@", bundle: .module), address)
+        String(format: String(localized: "remoteBrowser.refusal.address", defaultValue: "Not a loopback host address: %@", bundle: .localizedModule), address)
     }
 
     /// The refusal when this build has no remote browser host; `variable`
@@ -14,7 +14,7 @@ public nonisolated struct RemoteBrowserStrings {
     public static func hostNotInBuild(_ variable: String) -> String {
         String(format: String(localized: "remoteBrowser.localHost.missing",
                               defaultValue: "This build has no remote browser host. Set %@ to a cmux-remote-browser-host app.",
-                              bundle: .module), variable)
+                              bundle: .localizedModule), variable)
     }
 
     /// The alert detail for a local host that did not start: a timeout, an
@@ -24,10 +24,10 @@ public nonisolated struct RemoteBrowserStrings {
         case let LocalRemoteBrowserHost.Failure.timedOut(seconds, log):
             String(format: String(localized: "remoteBrowser.localHost.timedOut",
                                   defaultValue: "The host did not get ready within %1$d seconds and was stopped. Its log is at %2$@.",
-                                  bundle: .module), seconds, log.path)
+                                  bundle: .localizedModule), seconds, log.path)
         case let LocalRemoteBrowserHost.Failure.exitedBeforeListening(log):
             String(format: String(localized: "remoteBrowser.localHost.exited",
-                                  defaultValue: "The host stopped before it was ready. Its log is at %@.", bundle: .module), log.path)
+                                  defaultValue: "The host stopped before it was ready. Its log is at %@.", bundle: .localizedModule), log.path)
         default:
             String(describing: error)
         }
@@ -35,12 +35,12 @@ public nonisolated struct RemoteBrowserStrings {
 
     /// The alert title when a local host exits before it listens.
     public static var hostDidNotStart: String {
-        String(localized: "remoteBrowser.localHost.failed", defaultValue: "The remote browser host did not start", bundle: .module)
+        String(localized: "remoteBrowser.localHost.failed", defaultValue: "The remote browser host did not start", bundle: .localizedModule)
     }
 
     /// The title of a tab that shows no page (`RemoteBrowserFailure`).
     public static var failureTitle: String {
-        String(localized: "remoteBrowser.failure.title", defaultValue: "Not Connected", bundle: .module)
+        String(localized: "remoteBrowser.failure.title", defaultValue: "Not Connected", bundle: .localizedModule)
     }
 
     /// What a failed tab shows in its page area; `address` is the host's.
@@ -49,20 +49,20 @@ public nonisolated struct RemoteBrowserStrings {
         case .refused(hadSecret: false):
             String(format: String(localized: "remoteBrowser.failure.refused",
                                   defaultValue: "The remote browser host at %@ refused this tab. It serves only a viewer that has its per-launch secret. Open the tab again with the host's secret file, or use Open Remote Browser Tab (Local Host).",
-                                  bundle: .module), address)
+                                  bundle: .localizedModule), address)
         case .refused(hadSecret: true):
             String(format: String(localized: "remoteBrowser.failure.refusedSecret",
                                   defaultValue: "The remote browser host at %@ refused this tab: the secret is not the host's secret.",
-                                  bundle: .module), address)
+                                  bundle: .localizedModule), address)
         case .unreachable:
             String(format: String(localized: "remoteBrowser.failure.unreachable",
-                                  defaultValue: "No remote browser host answers at %@.", bundle: .module), address)
+                                  defaultValue: "No remote browser host answers at %@.", bundle: .localizedModule), address)
         case .connectionLost:
             String(format: String(localized: "remoteBrowser.failure.connectionLost",
-                                  defaultValue: "The connection to the remote browser host at %@ closed.", bundle: .module), address)
+                                  defaultValue: "The connection to the remote browser host at %@ closed.", bundle: .localizedModule), address)
         case .hostEnded:
             String(format: String(localized: "remoteBrowser.failure.hostEnded",
-                                  defaultValue: "The remote browser host at %@ ended this tab.", bundle: .module), address)
+                                  defaultValue: "The remote browser host at %@ ended this tab.", bundle: .localizedModule), address)
         case let .secretFile(reason, path):
             secretFile(reason, path: path)
         }
@@ -74,22 +74,22 @@ public nonisolated struct RemoteBrowserStrings {
         switch failure {
         case .missing:
             String(format: String(localized: "remoteBrowser.secretFile.missing",
-                                  defaultValue: "The secret file %@ does not exist.", bundle: .module), path)
+                                  defaultValue: "The secret file %@ does not exist.", bundle: .localizedModule), path)
         case .notRegularFile:
             String(format: String(localized: "remoteBrowser.secretFile.notRegular",
-                                  defaultValue: "The secret file %@ is not a regular file.", bundle: .module), path)
+                                  defaultValue: "The secret file %@ is not a regular file.", bundle: .localizedModule), path)
         case .notOwned:
             String(format: String(localized: "remoteBrowser.secretFile.notOwned",
-                                  defaultValue: "The secret file %@ belongs to another user.", bundle: .module), path)
+                                  defaultValue: "The secret file %@ belongs to another user.", bundle: .localizedModule), path)
         case .notPrivate:
             String(format: String(localized: "remoteBrowser.secretFile.notPrivate",
-                                  defaultValue: "Other users can read the secret file %@. Make it private with chmod 600.", bundle: .module), path)
+                                  defaultValue: "Other users can read the secret file %@. Make it private with chmod 600.", bundle: .localizedModule), path)
         case .empty:
             String(format: String(localized: "remoteBrowser.secretFile.empty",
-                                  defaultValue: "The secret file %@ has no secret on its first line.", bundle: .module), path)
+                                  defaultValue: "The secret file %@ has no secret on its first line.", bundle: .localizedModule), path)
         case .unreadable:
             String(format: String(localized: "remoteBrowser.secretFile.unreadable",
-                                  defaultValue: "Cannot read the secret file %@.", bundle: .module), path)
+                                  defaultValue: "Cannot read the secret file %@.", bundle: .localizedModule), path)
         }
     }
 }

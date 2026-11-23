@@ -19,9 +19,7 @@
 #   1. Mach-O helpers under Contents/Resources/{bin,libexec}: hardened runtime and
 #      the helper entitlements; libexec/cmux-server-helper: no entitlements,
 #      identifier cmux-server-helper. Symlinks and scripts are left to the seal.
-#   2. The nested cmux Computer Use app (helper entitlements; its
-#      cmux-screen-sharing with the helper's identifier), then a separate
-#      Screen Sharing helper app, if an older app has one (no entitlements).
+#   2. The Screen Sharing helper app, if any (no entitlements).
 #   3. Each Contents/PlugIns/* (recursive, like codesign --deep).
 #   4. Contents/Frameworks/*: Sparkle's sandbox XPC services removed first,
 #      then each framework recursively. A bundle with the Chromium engine is
@@ -79,24 +77,11 @@ for dir in bin libexec; do
   done
 done
 
-# 2. Computer Use helper app.
-computer_use="$APP/Contents/Library/cmux Computer Use.app"
-# Its screen sharing executable (one permission identity for screen sharing and computer use,
-# bundle-screen-sharing-helper.sh) takes the helper's identifier and the hardened runtime in the
-# same pass: rcodesign re-signs nested code, and unscoped options reach only the main executable.
-nested_args=()
-if [[ -f "$computer_use/Contents/MacOS/cmux-screen-sharing" ]]; then
-  nested_args=(--binary-identifier "Contents/MacOS/cmux-screen-sharing:com.cmuxterm.cua"
-    --code-signature-flags "Contents/MacOS/cmux-screen-sharing:runtime")
-fi
-if [[ -d "$computer_use" ]]; then
-  sign --entitlements-xml-file "$HELPER_ENTITLEMENTS" ${nested_args[@]+"${nested_args[@]}"} "$computer_use"
-fi
-# 2b. The Screen Sharing helper app ("<app> Screen Sharing.app",
+# 2. The Screen Sharing helper app ("<app> Helper.app", executable cmux-screen-sharing,
 # plans/cmux-next/screen-sharing-helper.md): hardened runtime, no entitlements.
 # Its --stamp (bundle-screen-sharing-helper.sh) is not ported, as above.
-for screen_share in "$APP/Contents/Library/"*" Screen Sharing.app"; do
-  if [[ -d "$screen_share" ]]; then sign "$screen_share"; fi
+for screen_share in "$APP/Contents/Library/"*" Helper.app"; do
+  if [[ -e "$screen_share/Contents/MacOS/cmux-screen-sharing" ]]; then sign "$screen_share"; fi
 done
 
 # 3. Plugins.

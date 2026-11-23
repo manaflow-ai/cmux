@@ -70,7 +70,7 @@ impl Hub {
         }
 
         let browser_available = mcp_available(&meta.tools.rows, "mcp:cmux");
-        let display_available = mcp_available(&meta.tools.rows, "mcp:cmux-cua");
+        let display_available = mcp_available(&meta.tools.rows, "mcp:cmux-computer-use");
 
         let mut secrets = BTreeMap::<String, (u64, String)>::new();
         let scan_result = self.store.scan_kinds(

@@ -74,7 +74,42 @@ pub(in crate::cli) struct NewChat {
 
 const NEW_USAGE: &str = "agents chat new [--workspace <ws>|--pane <pane>|--top] [--peer <machine>] \
      [--harness <h>] [--model <m>] [--effort <e>] [--mode <m>] [--policy <p>] [--cwd <dir>] [--name <n>] \
-     [--attach <file>]... [--] [<prompt>]";
+     [--attach <file>]... [--] [<prompt>]; or agents chat new --on <target> [cmux chat flags] \
+     [--] <prompt> (cmux chat --help)";
+
+/// `agents chat new`'s own flags that place a chat in this app's workspaces or pick its
+/// approvals: a chat `--on TARGET` is placed and run by its target (`cmux chat --on`).
+const PLACED_HERE: &[&str] = &["--workspace", "--pane", "--top", "--policy", "--peer"];
+
+/// `cmux … agents chat new --on TARGET …` as `cmux … chat new --on TARGET …`, the start `cmux
+/// chat --on` makes (chat_start.rs): a Cloud chat with its folder or `--no-folder`, harness,
+/// model, effort and mode, as the composer's Cloud start. None when `args` is not `agents chat
+/// new` or names no `--on` (before `--`); an error for a flag only a chat in this app's
+/// workspaces takes.
+pub(in crate::cli) fn on_target_words(args: &[String]) -> Option<Result<Vec<String>, UsageError>> {
+    let verb = args
+        .windows(3)
+        .position(|w| matches!(w, [a, c, n] if a == "agents" && c == "chat" && n == "new"))?;
+    let rest = args.get(verb.saturating_add(3)..)?;
+    let flags = rest.iter().take_while(|word| *word != "--");
+    let named = |word: &String, flag: &str| {
+        word == flag || word.strip_prefix(flag).is_some_and(|tail| tail.starts_with('='))
+    };
+    if !flags.clone().any(|word| named(word, "--on")) {
+        return None;
+    }
+    if let Some(flag) = flags.clone().find(|word| PLACED_HERE.iter().any(|flag| named(word, flag)))
+    {
+        return Some(Err(UsageError::new(format!(
+            "agents chat new: {flag} places a chat in this app's workspaces; a chat --on a target \
+             opens in its own (a Cloud chat in its machine's workspace): drop {flag}, or drop --on"
+        ))));
+    }
+    let mut words = args.get(..verb)?.to_vec();
+    words.extend(["chat".to_owned(), "new".to_owned()]);
+    words.extend(rest.iter().cloned());
+    Some(Ok(words))
+}
 
 /// `chat new ...` (the words after `new`).
 pub(in crate::cli) fn parse_new(words: &[&str]) -> Result<NewChat, UsageError> {
@@ -819,52 +854,5 @@ pub(in crate::cli) fn interrupt(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{parse_new, session_meta, take_attach};
-    use serde_json::json;
-
-    #[test]
-    fn attach_flags_come_before_the_text_and_repeat() {
-        let words = ["--attach", "a.png", "--attach=b.txt", "--", "look"];
-        let (attach, rest) = take_attach(&words, "agents chat send").unwrap();
-        assert_eq!(attach, ["a.png", "b.txt"]);
-        assert_eq!(rest, ["--", "look"]);
-        let (attach, rest) = take_attach(&["look"], "agents chat send").unwrap();
-        assert!(attach.is_empty());
-        assert_eq!(rest, ["look"]);
-        for bad in [&["--attach"][..], &["--attach="], &["--attach", "--"]] {
-            assert!(take_attach(bad, "agents chat send").is_err(), "{bad:?}");
-        }
-    }
-
-    #[test]
-    fn chat_new_takes_files_only_with_a_first_prompt() {
-        let chat = parse_new(&["--attach", "a.png", "--attach=b.txt", "--", "look"]).unwrap();
-        assert_eq!(chat.attach, ["a.png", "b.txt"]);
-        assert_eq!(chat.prompt.as_deref(), Some("look"));
-        assert!(parse_new(&["--attach", "a.png"]).is_err());
-    }
-
-    /// `--peer` starts the chat on that machine through this acpmux: the peer goes in
-    /// `_meta.acpmux.peer` and no session env goes with it (a peer refuses one from another
-    /// daemon); a chat here keeps its workspace env and names no peer.
-    #[test]
-    fn a_peer_chat_names_the_peer_and_carries_no_env() {
-        let key = "0123456789abcdef0123456789abcdef";
-        let here = parse_new(&["--harness", "codex", "--", "go"]).unwrap();
-        let meta = session_meta(&here, key);
-        assert_eq!(meta.get("peer"), None);
-        assert_eq!(
-            meta.get("env"),
-            Some(&json!({"CMUX_WORKSPACE_ID": "01234567-89ab-cdef-0123-456789abcdef"}))
-        );
-        let there = parse_new(&["--peer", "studio", "--harness", "codex", "--", "go"]).unwrap();
-        assert_eq!(there.peer.as_deref(), Some("studio"));
-        let meta = session_meta(&there, key);
-        assert_eq!(meta.get("peer"), Some(&json!("studio")));
-        assert_eq!(meta.get("harness"), Some(&json!("codex")));
-        assert_eq!(meta.get("env"), None);
-        assert!(parse_new(&["--peer"]).is_err());
-        assert!(parse_new(&["--peer="]).is_err());
-    }
-}
+#[path = "chat_control_tests.rs"]
+mod tests;

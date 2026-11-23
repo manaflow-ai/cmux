@@ -1,7 +1,7 @@
 // l10n-allow-file: gallery fixtures (sample prompts, commands and outputs), not shipped UI.
 // The tool rows' type as a transcript look sets it (transcriptLook.ts toolTypeVariables; Leo,
 // 2026-11-18: "you guys need to be tuning font sizes for tool calls and such too"): one opened run of
-// calls, a command's output shown, in each named look and in three token variants on the cmux look.
+// calls, a command's output shown, in each named look and in four token variants on the cmux look.
 // Measured against the references (cmux-design-references index.json): the Claude, Codex and Studio
 // apps draw a tool row's words at the reply's size, regular weight, in the text face, and the
 // command after the verb in that face too; only the output is code, and Codex's is about 0.92 of its
@@ -87,7 +87,11 @@ export default agentPaneEntry({
     claude: lookVariant("claude"),
     codex: lookVariant("codex"),
     studio: lookVariant("studio"),
-    quieter: tokens(
+    larger: tokens(
+      { "toolRow.textSize": 1, "toolRow.weight": 500, "toolOutput.textSize": 1 },
+      "cmux at the tokens' largest: rows at the full text size in medium weight, output at the text size (14 at 14).",
+    ),
+    compact: tokens(
       { "toolRow.textSize": 0.93, "toolOutput.textSize": 0.8 },
       "cmux with the rows a step under the reply (13 at 14) and smaller output.",
     ),

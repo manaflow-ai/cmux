@@ -11,13 +11,13 @@ extension SidebarBridge {
         let compat = machines.compatibility(of: session.daemon), header = sshHeader(session, compatibility: compat), status = header?.status ?? .connecting
         let detail = header?.compatibilityDetail == true ? compat.map(CloudStrings.compatibility) : RemoteStrings.detail(session)
         let tooltip = sshTooltip(destination: session.host.destination, session: session.host.session, detail: detail, updates: machines.updates)
+        _ = session.personConnectPending // tracked here: the pass reruns when its "Connecting to…" row comes or goes
         return SidebarMachine(id: MachineID(session.machineID), name: session.host.label, kind: .ssh, status: status, detail: tooltip)
     }
 
-    /// The header the sidebar draws for machine `machineID` (a Cloud machine, an SSH host or a
-    /// paired server), built by the functions `sections` uses: the one read of a machine's link
-    /// state, for the sidebar and the agent pane's composer strip (``AgentPaneMachineLink``). Nil
-    /// for this Mac and a machine the app does not know.
+    /// The header the sidebar draws for machine `machineID` (a Cloud machine, an SSH host or a paired server), built
+    /// by the functions `sections` uses: the one read of a machine's link state, for the sidebar and the agent pane's
+    /// composer strip (``AgentPaneMachineLink``). Nil for this Mac and a machine the app does not know.
     static func machineHeader(_ machineID: String, in machines: MachineRegistry) -> SidebarMachine? {
         if let cloud = machines.session(machineID) {
             return CloudCreationRows.machine(cloud, compatibility: machines.compatibility(of: cloud.daemon), limits: machines.cloudLimits, updates: machines.updates)

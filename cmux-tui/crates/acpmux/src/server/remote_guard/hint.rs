@@ -31,7 +31,9 @@ pub(crate) const CWD_OUTSIDE_ROOTS: &str = "remote.cwd_outside_roots";
 /// `remote_guard::check_inner`. A refused remote `session/new` (`remote.*`) says how this
 /// daemon served the caller (`data.servedAs`: `peer` or `remote`), for the forwarding
 /// daemon's hint. `policy_proved`: the request is a policy raise the person proved
-/// (`hub/person/policy_grant.rs`).
+/// (`hub/person/policy_grant.rs`). `web_device`: a browser's connection holding its own device on
+/// the mesh hub (`web_device.rs`, `Conn::proof`), from the connection, never from a request.
+#[allow(clippy::too_many_arguments)]
 pub(in crate::server) async fn check(
     hub: &std::sync::Arc<crate::hub::Hub>,
     origin: crate::server::Origin,
@@ -40,9 +42,11 @@ pub(in crate::server) async fn check(
     m: &str,
     params: &mut Value,
     policy_proved: bool,
+    web_device: bool,
 ) -> Result<(), RpcError> {
     let peer = super::control_of(origin, auth, params) == crate::hub::Control::Peer;
-    let mut result = super::check_inner(hub, origin, auth, device, m, params, policy_proved).await;
+    let mut result =
+        super::check_inner(hub, origin, auth, device, m, params, policy_proved, web_device).await;
     if m == crate::rpc::method::SESSION_NEW
         && origin.web_class()
         && let Err(e) = &mut result

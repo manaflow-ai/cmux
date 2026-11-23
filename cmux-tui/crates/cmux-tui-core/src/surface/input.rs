@@ -55,8 +55,12 @@ impl Surface {
         if let Some(result) = Self::send_hosted_input(pty, MessageKind::Input, bytes) {
             return result;
         }
-        // Not hosted: the daemon writes the PTY itself (the holder model's custody master). Marked
-        // after the runtime lock, and only for bytes that reached the PTY.
+        // Not hosted: the daemon writes the PTY itself (the holder model's custody master), through
+        // its paste pacer (`paste_pacing`).
+        if let Some(result) = Self::write_local_paced(pty, bytes) {
+            return result;
+        }
+        // Marked after the runtime lock, and only for bytes that reached the PTY.
         let mut runtime = pty.runtime.lock().unwrap();
         let (result, wrote) = match &mut *runtime {
             PtyRuntime::Local { writer, master, .. } => {
@@ -79,6 +83,53 @@ impl Surface {
             crate::pty_write_marks::daemon_wrote(pty.flow_terminal_id());
         }
         result
+    }
+
+    /// The child's unread input on a local PTY (`pty_input_room::unread_input`).
+    fn local_unread_input(pty: &PtySurface) -> Option<usize> {
+        match &*pty.runtime.lock().unwrap_or_else(std::sync::PoisonError::into_inner) {
+            PtyRuntime::Local { master, .. } => master
+                .as_deref()
+                .and_then(|master| crate::pty_input_room::unread_input(master as &dyn MasterPty)),
+            #[cfg(any(unix, windows))]
+            PtyRuntime::Hosted(_) | PtyRuntime::ExitedHosted => None,
+        }
+    }
+
+    /// Input to a local PTY, cut after each paste end and each piece written once the program read
+    /// the paste before it (`paste_pacing`). The runtime lock is taken for each piece, never while
+    /// the pacer waits. `None` when the runtime is not local (the caller writes as before).
+    fn write_local_paced(pty: &PtySurface, bytes: &[u8]) -> Option<std::io::Result<()>> {
+        if !matches!(
+            &*pty.runtime.lock().unwrap_or_else(std::sync::PoisonError::into_inner),
+            PtyRuntime::Local { .. }
+        ) {
+            return None;
+        }
+        let mut pacer = pty.paste_pacer.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let result = pacer.write(
+            bytes,
+            &mut || Self::local_unread_input(pty),
+            &mut crate::paste_pacing::SystemClock,
+            &mut |piece| {
+                let mut runtime =
+                    pty.runtime.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                let PtyRuntime::Local { writer, master, .. } = &mut *runtime else {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::NotConnected,
+                        "the terminal's PTY moved while its input was written",
+                    ));
+                };
+                let master = master.as_deref().map(|master| master as &dyn MasterPty);
+                let wrote = crate::pty_input_room::write_input(master, writer.as_mut(), piece)?;
+                drop(runtime);
+                if wrote {
+                    crate::pty_write_marks::daemon_wrote(pty.flow_terminal_id());
+                }
+                Ok(())
+            },
+        );
+        Some(result)
     }
 
     /// On the input lane (R-DAEMON-STATE stage S1 step 6): hands interactive input for a hosted terminal to the
@@ -263,6 +314,10 @@ impl Surface {
         if let Some(result) = Self::send_hosted_input(pty, MessageKind::Paste, bytes) {
             return result;
         }
+        // Input before the paste waits for the paste before it, and input after it waits for this one
+        // (`paste_pacing`).
+        let mut pacer = pty.paste_pacer.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        pacer.settle(&mut || Self::local_unread_input(pty), &mut crate::paste_pacing::SystemClock);
         let bracketed = {
             let term = pty.term.lock().unwrap();
             term.mode(2004, false)
@@ -281,20 +336,26 @@ impl Surface {
         if bracketed {
             payload.extend_from_slice(b"\x1b[201~");
         }
-        #[cfg(unix)]
-        if let Some(timeout) = timeout
-            && let Some(fd) = master.as_ref().and_then(|master| master.as_raw_fd())
-        {
-            return crate::pty_write::write_bounded(
-                fd,
-                &payload,
-                timeout,
-                "PTY paste write timed out",
-            )
-            .map_err(|failure| failure.error);
-        }
-        writer.write_all(&payload)?;
-        writer.flush()
+        let result = (|| {
+            #[cfg(unix)]
+            if let Some(timeout) = timeout
+                && let Some(fd) = master.as_ref().and_then(|master| master.as_raw_fd())
+            {
+                return crate::pty_write::write_bounded(
+                    fd,
+                    &payload,
+                    timeout,
+                    "PTY paste write timed out",
+                )
+                .map_err(|failure| failure.error);
+            }
+            writer.write_all(&payload)?;
+            writer.flush()
+        })();
+        drop(runtime);
+        // Even a failed write may have written part of the paste: the input after it waits too.
+        pacer.paste_written(&crate::paste_pacing::SystemClock);
+        result
     }
 
     #[cfg(test)]

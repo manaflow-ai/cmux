@@ -33,7 +33,9 @@ export interface ResolvedTranscriptLook {
 }
 
 export const TRANSCRIPT_TOKENS = data.tokens as readonly TranscriptTokenSpec[];
-export const TRANSCRIPT_LOOKS = data.looks as readonly TranscriptLookSpec[];
+// Through unknown: the JSON's inferred union of looks (each leaving most tokens out) stops overlapping
+// the spec type once enough tokens are optional; validTokenValue checks every value at runtime.
+export const TRANSCRIPT_LOOKS = data.looks as unknown as readonly TranscriptLookSpec[];
 export const DEFAULT_TRANSCRIPT_LOOK = "cmux";
 export const DEFAULT_RESOLVED_TRANSCRIPT_LOOK: ResolvedTranscriptLook = { look: DEFAULT_TRANSCRIPT_LOOK, tokens: {} };
 
@@ -97,6 +99,48 @@ export function transcriptLookDisplayFallbacks(look: ResolvedTranscriptLook): {
   };
 }
 
+/// A face a look gives one part of the transcript (`reply.font`, `userMessage.font`).
+export type TranscriptFace = "system" | "serif" | "mono";
+const isFace = (value: unknown): value is TranscriptFace => value === "system" || value === "serif" || value === "mono";
+
+/// The type a look gives the agent's reply prose and your messages apart from the chat's (Claude
+/// sets replies in a serif and your messages in the sans): each face and size the look or the
+/// person's tokens set; a field left out is the chat's own face or size.
+export interface TranscriptPartType {
+  replyFont?: TranscriptFace;
+  replyFontSize?: number;
+  promptFont?: TranscriptFace;
+  promptFontSize?: number;
+}
+export function transcriptPartType(look: ResolvedTranscriptLook): TranscriptPartType {
+  const face = (name: string) => {
+    const value = choice(look, name);
+    return isFace(value) ? value : undefined;
+  };
+  return {
+    replyFont: face("reply.font"),
+    replyFontSize: num(look, "reply.fontSize"),
+    promptFont: face("userMessage.font"),
+    promptFontSize: num(look, "userMessage.fontSize"),
+  };
+}
+
+/// Which of `transcriptPartType`'s fields the person's own `agentPane.display.transcriptTokens` set
+/// (validly). Those win over the Agent Chat font keys; a look's own value does not (chatDisplay.ts).
+export function transcriptPartTypeFromTokens(raw: unknown): Record<keyof TranscriptPartType, boolean> {
+  const values = isRecord(raw) ? raw : {};
+  const overrides = isRecord(values[TRANSCRIPT_TOKENS_KEY])
+    ? (values[TRANSCRIPT_TOKENS_KEY] as Record<string, unknown>)
+    : {};
+  const set = (name: string) => validTokenValue(name, overrides[name]) !== undefined;
+  return {
+    replyFont: set("reply.font"),
+    replyFontSize: set("reply.fontSize"),
+    promptFont: set("userMessage.font"),
+    promptFontSize: set("userMessage.fontSize"),
+  };
+}
+
 /// The plain prompt (`userMessage.style` plain): no fill, no corner, the whole column, left, a 4 pt
 /// band above and below its 2 pt leading rule and 12 pt beside its text.
 const PLAIN = { padBlock: 4, padInline: 12, share: 1 } as const;
@@ -143,7 +187,7 @@ export function transcriptLookVariables(look: ResolvedTranscriptLook): Record<st
   return {
     "--cv-user-bubble-pad-block": box.padBlock === null ? null : units(box.padBlock),
     "--cv-user-bubble-pad-inline": box.padInline === null ? null : units(box.padInline),
-    "--cv-user-bubble-radius": radius === undefined ? null : units(radius),
+    "--cv-look-bubble-radius": radius === undefined ? null : units(radius),
     "--cv-user-bubble-share": box.share === null ? null : percent(box.share),
     "--cv-user-bubble-fill": fill === undefined ? null : percent(fill),
     "--cv-user-align": align === undefined ? null : align === "left" ? "flex-start" : "flex-end",
