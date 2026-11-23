@@ -160,6 +160,8 @@ final class AppServices {
         let joinLine = JoinConsentFixtureLine()
         /// `debug.object_menu`: the tab or pane menu it opened last; nil after a workspace menu.
         weak var objectMenu: NSMenu?
+        /// `debug.object_menu {menu: customizations}`: the item whose submenu it opened last, which owns that menu's delegate.
+        var customizationsItem: NSMenuItem?
     }
     #endif
     /// The Machines section's hub-joined machines (`cmux machine list`); signed out or switched account or team: emptied, then read.
