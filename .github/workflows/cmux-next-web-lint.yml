@@ -15,6 +15,15 @@ on:
   push:
     branches: [feat-cmux-next]
   workflow_dispatch:
+    inputs:
+      before:
+        description: "heal a red range by hand (a nightly's red): the last commit known green, 40 hex"
+        type: string
+        default: ""
+      sha:
+        description: "heal: the first commit known red, 40 hex"
+        type: string
+        default: ""
 permissions:
   contents: read
 
@@ -37,6 +46,9 @@ jobs:
     # Blacksmith 4 vCPU, never GitHub-hosted (Leo, 2026-10-27: "just put it on blacksmith").
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 10
+    outputs:
+      # The lint itself failed (not the hook tests, not setup): what the heal job acts on.
+      lint_red: ${{ steps.lint.outcome == 'failure' }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -95,9 +107,15 @@ jobs:
       - name: Hook tests
         run: python3 tests/test_web_lint_prepush.py
 
+      # The lint runs whatever the hook tests said: a red Hook tests step (86 failures, "python3 must resolve to
+      # an absolute executable outside the checkout") skipped it on #49052's push on 2026-11-22, so its webview
+      # type error had no verdict until the nightly, hours later.
+
       # Lints what the push brought (event.before..sha). An unknown or unfetchable
       # base (a new branch, a force push, a dispatch) lints every package.
       - name: Web lint on the pushed range
+        id: lint
+        if: ${{ !cancelled() }}
         env:
           PUSH_BASE: ${{ github.event_name == 'push' && github.event.before || '' }}
         run: |
@@ -109,6 +127,132 @@ jobs:
             echo "::notice title=web lint::push base unknown; linting every package"
             python3 scripts/web_lint_prepush.py --all --base "$GITHUB_SHA" --head "$GITHUB_SHA" --timings
           fi
+
+  # Leo, 2026-11-22: "should've been caught and fixed faster. hell, maybe even should've been automatic." A red
+  # lint on a push names its own commits (the lint covers only what the push brought), so the culprit is found
+  # here, while the red still points at it: the lint's fixers on the tip (a fix pull request), else the culprit
+  # reverted on the tip (a revert pull request), each only when it makes the tip lint green
+  # (scripts/cmux_next_lint_heal.py). This job runs the base's code with no write token; heal-open pushes and
+  # opens with the routing App's token, running only that script and git. NEXT_LINT_HEAL=0 turns both off.
+  heal:
+    name: web lint heal
+    needs: web-lint
+    if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' && vars.NEXT_LINT_HEAL != '0' && (github.event_name == 'push' && needs.web-lint.outputs.lint_red == 'true' || github.event_name == 'workflow_dispatch' && inputs.before != '' && inputs.sha != '') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    # A probe is one lint run of a few minutes; a push range is one to a few commits, plus the tip, fix and revert runs.
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    outputs:
+      action: ${{ steps.judge.outputs.action }}
+      culprit: ${{ steps.judge.outputs.culprit }}
+      good: ${{ steps.judge.outputs.good }}
+      tip: ${{ steps.judge.outputs.tip }}
+    steps:
+      - name: Checkout the branch with its history
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: feat-cmux-next
+          fetch-depth: 300
+          filter: blob:none
+          persist-credentials: false
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+
+      - name: Cache Bun package cache
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.bun/install/cache
+          key: bun-web-lint-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock', 'web/bun.lock', 'cmux-tui/frontends/web/bun.lock') }}
+
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24.22.1"
+
+      - name: Find the culprit; fix or revert it on the tip
+        id: judge
+        env:
+          BEFORE: ${{ github.event_name == 'push' && github.event.before || inputs.before }}
+          SHA: ${{ github.event_name == 'push' && github.sha || inputs.sha }}
+        run: |
+          git config user.name "cmux-next lint heal"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          python3 scripts/ci/cmux_next_lint_heal.py judge --before "$BEFORE" --sha "$SHA" --tip HEAD --patch "$RUNNER_TEMP/heal.patch"
+
+      - name: Keep the fix patch
+        if: ${{ steps.judge.outputs.action == 'autofix' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: web-lint-heal-patch
+          path: ${{ runner.temp }}/heal.patch
+          retention-days: 3
+
+  heal-open:
+    name: web lint heal push
+    needs: heal
+    if: ${{ !cancelled() && (needs.heal.outputs.action == 'autofix' || needs.heal.outputs.action == 'revert') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_4 }} # ephemeral-required: holds a contents and pull-requests write App token
+    timeout-minutes: 15
+    # The routing App's key lives in ci-routing-agent, as for cmux-next.yml's release-compile-revert.
+    environment:
+      name: ci-routing-agent
+      deployment: false
+    permissions:
+      contents: read
+    steps:
+      # The tip heal judged, not the branch now: the fix is verified on that tree, and a branch that moved since
+      # refuses the direct push (not a fast-forward), so it opens the pull request instead.
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.heal.outputs.tip }}
+          fetch-depth: 300
+          filter: blob:none
+          persist-credentials: false
+
+      - name: Take the fix patch
+        if: ${{ needs.heal.outputs.action == 'autofix' }}
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: web-lint-heal-patch
+          path: ${{ runner.temp }}
+
+      # A pull request GITHUB_TOKEN opens starts no CI, so it opens with the routing App's token.
+      - name: Mint the pull request token
+        id: app-token
+        if: ${{ vars.GLAEDA_ROUTE_APP_ID != '' }}
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          permission-pull-requests: write
+          permission-workflows: write
+
+      - name: Push the fix, or open its pull request
+        if: ${{ steps.app-token.outputs.token != '' }}
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          PUSH_TOKEN: ${{ steps.app-token.outputs.token }}
+          ACTION: ${{ needs.heal.outputs.action }}
+          CULPRIT: ${{ needs.heal.outputs.culprit }}
+          GOOD: ${{ needs.heal.outputs.good }}
+          # Leo, 2026-11-22 06:01Z: "if the fix is clear i think you guys should be able to unilaterally push
+          # commits directly." A verified-green fix or revert goes straight to the branch; a refusal opens the PR.
+          DIRECT: ${{ vars.NEXT_LINT_HEAL_DIRECT != '0' && '--direct' || '' }}
+        run: |
+          git config user.name "cmux-next lint heal"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          python3 scripts/ci/cmux_next_lint_heal.py open --action "$ACTION" --culprit "$CULPRIT" --good "$GOOD" \
+            --tip HEAD --patch "$RUNNER_TEMP/heal.patch" $DIRECT \
+            --push-url "https://x-access-token:${PUSH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
 
   webviews-typecheck:
     name: webviews typecheck (whole tree)

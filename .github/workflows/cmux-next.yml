@@ -1515,6 +1515,7 @@ jobs:
             python3 tests/test_cmux_next_route_replay.py
             python3 tests/test_ci_cmux_next_compile_revert.py
             python3 tests/test_ci_cmux_next_compile_status.py
+            python3 tests/test_ci_cmux_next_lint_heal.py
             [package-conventions]
             ./scripts/lint-ios-package-conventions.sh
             [checks-structure]
