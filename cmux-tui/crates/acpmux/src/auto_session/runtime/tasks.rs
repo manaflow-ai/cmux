@@ -257,7 +257,9 @@ impl<C: AutoCloud + 'static> Ctx<C> {
         }
     }
 
-    /// One thing of the chat's lane, then word that the lane is free.
+    /// One thing of the chat's lane, then word that the lane is free. What runs git in the
+    /// chat's folder takes the folder's turn (`turns.rs`), so the person settling kept changes
+    /// never does it in a folder an import is changing.
     pub(super) async fn lane(
         self,
         id: String,
@@ -268,11 +270,15 @@ impl<C: AutoCloud + 'static> Ctx<C> {
     ) {
         match op {
             LaneOp::Leftover => {
+                let turn = self.hub.auto_turns.take(&id).await;
                 let result = self.leftover(&id, anchor).await;
+                drop(turn);
                 self.tell(Command::Leftover { id: id.clone(), result });
             }
             LaneOp::Import { reason, epoch } => {
+                let turn = self.hub.auto_turns.take(&id).await;
                 let result = self.import(&id, view, reason, epoch).await;
+                drop(turn);
                 self.tell(Command::Imported { id: id.clone(), epoch, result });
             }
             LaneOp::Drain => {

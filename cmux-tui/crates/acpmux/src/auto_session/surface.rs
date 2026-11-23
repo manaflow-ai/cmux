@@ -2,11 +2,16 @@
 //! call them:
 //!
 //! - `_acpmux/auto_session/set {sessionId, auto, keepInCloud?}` -> `{autoSession}`: the chat's
-//!   row field after the switch. `auto: false` is refused `auto.held_in_cloud` while the Cloud
-//!   holds something no laptop has.
+//!   row field after the switch, answered once the store answered. A refusal is the request's
+//!   error: `auto: false` is refused `auto.held_in_cloud` while the Cloud holds something no
+//!   laptop has. With no answer from the store, `auto: true` answers the row as it is (Auto on,
+//!   not in the Cloud yet) and the daemon goes on asking.
 //! - `_acpmux/auto_session/leftover {sessionId, action}`: `show` -> `{files, patch?}`; `apply`
-//!   and `discard` -> `{autoSession}`.
+//!   and `discard` -> `{autoSession}`. `apply` that meets a conflict is refused
+//!   `auto.leftover_conflict` and changes nothing.
 //! - `_acpmux/auto_session/wake` (no params): the system woke.
+//!
+//! Who may call them is `server/auto_gate.rs`.
 
 use std::sync::Arc;
 
@@ -58,6 +63,9 @@ async fn set(hub: &Arc<Hub>, session: &Arc<Session>, params: &Value) -> Result<V
 
 /// `_acpmux/auto_session/leftover`: the changes this machine kept aside when the Cloud took
 /// the chat. They go into the folder only when the person says `apply`.
+///
+/// `apply` and `discard` take the folder's turn (`turns.rs`) before they read what is kept:
+/// two requests for one chat settle it one after the other, and the second finds it settled.
 async fn leftover(
     hub: &Arc<Hub>,
     session: &Arc<Session>,
@@ -67,6 +75,10 @@ async fn leftover(
     if !matches!(action, "show" | "apply" | "discard") {
         return Err(RpcError::invalid_params("action must be show, apply or discard"));
     }
+    let _turn = match action {
+        "show" => None,
+        _ => Some(hub.auto_turns.take(&session.id).await),
+    };
     let kept = hub.auto_record(session).and_then(|record| record.leftover);
     let Some(kept) = kept else {
         return match action {

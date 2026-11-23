@@ -13,6 +13,7 @@
 //! with its own transport, so one holder loop serves both.
 //!
 //! What a chat keeps of Auto mode in its own record, and its row's `autoSession`, is [`record`].
+//! Whose turn it is to run git in a chat's folder is [`turns`].
 
 pub mod export;
 pub mod import;
@@ -21,6 +22,7 @@ pub mod machine;
 pub mod record;
 pub mod runtime;
 pub(crate) mod surface;
+pub(crate) mod turns;
 
 use std::fmt;
 use std::sync::Arc;
