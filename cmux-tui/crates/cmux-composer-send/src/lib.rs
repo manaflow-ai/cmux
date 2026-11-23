@@ -40,7 +40,7 @@ pub const MAX_KEY_LEN: usize = 128;
 /// How long a Send waits for the terminal (the composer's own window for a held send,
 /// `TerminalModel.heldComposerSendWindow`). Past it the Send is given up: a command must not run
 /// whenever the Mac comes back (termfix-r13 D5).
-pub const DEFAULT_HOLD: Duration = Duration::from_secs(30);
+pub const DEFAULT_HOLD: Duration = Duration::from_secs(90);
 
 /// Sends unanswered at once, in tap order on one channel. One at a time cannot keep up with a
 /// person tapping faster than the link's round trip (a 1 s link delivered fewer Sends than were
