@@ -30,10 +30,12 @@ pub const PREFIX: &str = "hybrid start step: ";
 /// How many times a start tries the move before the chat stays here.
 pub const MOVE_TRIES: u8 = 3;
 
-/// The plans a hybrid start is on for: Pro, and Max above it, as `cloud.plan.get` names them and
-/// as the CLI reads them (`billing.status`, cmux.com's `GET /api/billing/plan` `planId`: `pro`,
-/// `max`).
-pub const PLANS: &[&str] = &["next_pro", "next_max", "pro", "max"];
+/// The plans a hybrid start is on for: every Cloud grant at Pro rank or above, as `cloud.plan.get`
+/// (the team's grant, read from its billing owner) names them. The ranks are the platform's
+/// (`backend/apps/api/src/cloud-vm-plan.ts:192`): `{ go: 1, next_plus: 1, pro: 2, founders: 2,
+/// team: 2, next_pro: 2, max: 3, next_max: 3 }`; the entry plans (`next_intro`, `next_taste`) rank
+/// 0. A teammate on a Team subscription reads as `team`.
+pub const PLANS: &[&str] = &["pro", "founders", "team", "next_pro", "max", "next_max"];
 
 /// The reason of a chat the person kept here.
 pub const STOPPED: &str = "stopped";
