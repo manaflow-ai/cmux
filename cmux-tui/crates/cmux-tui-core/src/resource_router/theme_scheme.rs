@@ -1,5 +1,6 @@
 //! `theme.scheme.convert`, `theme.scheme.export` and `theme.scheme.from_image`
-//! (read, `theme-scheme-v1`): 16-color scheme import and export and a scheme
+//! (read, `theme-scheme-v1`): 16-color scheme import and export (base16,
+//! iTerm2, Windows Terminal, VS Code color themes, Ghostty) and a scheme
 //! from a background image, with the converters of `cmux-theme-tokens`
 //! (extensibility design 12.4, step 13), so the Settings theme studio, a page
 //! and an extension convert the same way `cmux theme` does.

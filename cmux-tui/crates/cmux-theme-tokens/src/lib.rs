@@ -28,8 +28,8 @@
 //! wins over `appearance.accent`. Do not invent other values.
 //!
 //! 16-color schemes (`scheme.rs`): base16 YAML, iTerm2 `.itermcolors`,
-//! Windows Terminal JSON and Ghostty theme files, read into one [`Scheme`]
-//! and written back in any of them. A scheme from a background image
+//! Windows Terminal JSON, VS Code color themes and Ghostty theme files, read
+//! into one [`Scheme`] and written back in any of them. A scheme from a background image
 //! (`image_palette.rs`): median cut over the caller's decoded pixels, held
 //! to the spec's contrast floors.
 //! A whole scheme from two colors, a canvas and an accent (`two_color.rs`).
@@ -71,7 +71,7 @@ pub use image_palette::{
 pub use rgb::Rgb;
 pub use scheme::{
     InstallError, MAX_SCHEME_BYTES, Scheme, SchemeError, SchemeFormat, find_theme_file,
-    install_scheme, is_valid_theme_name,
+    install_scheme, is_valid_theme_name, is_vscode_theme,
 };
 /// The spec's `design-tokens.json`, as compiled in: `theme.formulas` names every chrome
 /// token and how it derives (`cmux customize schema` lists them).

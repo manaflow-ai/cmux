@@ -347,3 +347,100 @@ fn installing_never_shadows_a_shipped_theme() {
     ));
     let _ = std::fs::remove_dir_all(&home);
 }
+
+/// A VS Code color theme as one is shipped: JSONC, with comments, a
+/// trailing comma, an `#rrggbbaa` selection, `tokenColors` and three ANSI
+/// colors left out (VS Code's own defaults fill them).
+const VSCODE_THEME: &str = r##"{
+    // Catppuccin-like, trimmed.
+    "$schema": "vscode://schemas/color-theme",
+    "name": "Mocha Test",
+    "type": "dark",
+    /* the terminal's colors */
+    "colors": {
+        "editor.background": "#1e1e2e",
+        "editor.foreground": "#cdd6f4",
+        "editor.selectionBackground": "#ffffff40",
+        "terminalCursor.foreground": "#f5e0dc",
+        "focusBorder": "#89b4fa",
+        "terminal.ansiBlack": "#45475a",
+        "terminal.ansiRed": "#f38ba8", // red
+        "terminal.ansiGreen": "#a6e3a1",
+        "terminal.ansiYellow": "#f9e2af",
+        "terminal.ansiBlue": "#89b4fa",
+        "terminal.ansiMagenta": "#f5c2e7",
+        "terminal.ansiCyan": "#94e2d5",
+        "terminal.ansiWhite": "#bac2de",
+        "terminal.ansiBrightBlack": "#585b70",
+        "terminal.ansiBrightRed": "#f38ba8",
+        "terminal.ansiBrightGreen": "#a6e3a1",
+        "terminal.ansiBrightYellow": "#f9e2af",
+        "terminal.ansiBrightBlue": "#89b4fa",
+        "terminal.url": "http://not/a // comment",
+    },
+    "tokenColors": [{ "scope": "comment", "settings": { "foreground": "#6c7086" } },],
+}
+"##;
+
+#[test]
+fn vscode_theme_reads_its_colors_map_through_comments_and_trailing_commas() {
+    assert_eq!(SchemeFormat::detect("mocha-color-theme.json", VSCODE_THEME), SchemeFormat::VsCode);
+    assert_eq!(SchemeFormat::detect("theme", VSCODE_THEME), SchemeFormat::VsCode);
+    assert!(is_vscode_theme(VSCODE_THEME));
+    let scheme = Scheme::parse(VSCODE_THEME, "mocha-color-theme.json", None).unwrap();
+    assert_eq!(scheme.name.as_deref(), Some("Mocha Test"));
+    assert_eq!(scheme.background.to_hex(), 0x1e1e2e, "terminal.background falls back to editor's");
+    assert_eq!(scheme.foreground.to_hex(), 0xcdd6f4);
+    assert_eq!(scheme.cursor.map(Rgb::to_hex), Some(0xf5e0dc));
+    assert_eq!(scheme.accent.map(Rgb::to_hex), Some(0x89b4fa), "focusBorder is the accent");
+    assert_eq!(scheme.palette[0].to_hex(), 0x45475a);
+    assert_eq!(scheme.palette[1].to_hex(), 0xf38ba8);
+    assert_eq!(scheme.palette[8].to_hex(), 0x585b70);
+    // Left out: VS Code's dark defaults (brightMagenta, brightCyan, brightWhite).
+    assert_eq!(scheme.palette[13].to_hex(), 0xd670d6);
+    assert_eq!(scheme.palette[14].to_hex(), 0x29b8db);
+    assert_eq!(scheme.palette[15].to_hex(), 0xe5e5e5);
+    // #ffffff40 over #1e1e2e: a quarter of the way to white.
+    let selection = scheme.selection_background.unwrap();
+    let expected = Rgb::hex(0x1e1e2e).mixed(Rgb::WHITE, f64::from(0x40) / 255.0);
+    assert_eq!(selection.to_hex(), expected.to_hex());
+}
+
+#[test]
+fn vscode_theme_round_trips_through_its_own_export() {
+    let scheme = Scheme::parse(VSCODE_THEME, "mocha.json", None).unwrap();
+    let text = scheme.export(SchemeFormat::VsCode);
+    assert!(text.contains("\"terminal.ansiBrightWhite\": \"#e5e5e5\""), "{text}");
+    let back = Scheme::parse(&text, "out.json", None).unwrap();
+    assert_eq!(back.palette, scheme.palette);
+    assert_eq!(back.background, scheme.background);
+    assert_eq!(back.foreground, scheme.foreground);
+    assert_eq!(back.selection_background, scheme.selection_background);
+    assert_eq!(back.accent, scheme.accent);
+}
+
+#[test]
+fn vscode_theme_errors_name_the_line_and_light_themes_get_light_defaults() {
+    let bad = "{\n  \"colors\": {\n    \"editor.background\": \"#fff\",\n    \"terminal.ansiRed\": \"red-ish\"\n  }\n}\n";
+    let error = Scheme::parse(bad, "bad.json", Some(SchemeFormat::VsCode)).unwrap_err();
+    assert_eq!(error.line, 4, "{error}");
+    let none = Scheme::parse("{ \"colors\": {} }", "none.json", Some(SchemeFormat::VsCode));
+    assert!(none.is_err());
+    let light = Scheme::parse(
+        "{ \"type\": \"light\", \"colors\": { \"editor.background\": \"#fafafa\", } }",
+        "light.json",
+        None,
+    )
+    .unwrap();
+    assert_eq!(light.background.to_hex(), 0xfafafa);
+    assert_eq!(light.palette[4].to_hex(), 0x0451a5, "VS Code's light blue");
+    // A Windows Terminal scheme is still one, and may now carry comments too.
+    let wt = Scheme::parse(
+        &Scheme::parse(VSCODE_THEME, "m.json", None).unwrap().export(SchemeFormat::WindowsTerminal),
+        "wt.json",
+        None,
+    )
+    .unwrap();
+    assert_eq!(SchemeFormat::from_name("vscode"), Some(SchemeFormat::VsCode));
+    assert_eq!(wt.palette[1].to_hex(), 0xf38ba8);
+}

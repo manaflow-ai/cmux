@@ -5,7 +5,8 @@
 //! works with cmux quit.
 //!
 //! - `import FILE [--name N] [--from F] [--replace]`: reads a base16 YAML,
-//!   iTerm2 `.itermcolors`, Windows Terminal JSON or Ghostty theme file and
+//!   iTerm2 `.itermcolors`, Windows Terminal JSON, VS Code color theme
+//!   (JSONC; its `colors` map) or Ghostty theme file and
 //!   installs it as the Ghostty theme `N` (default: the scheme's own name,
 //!   else the file's) in the user's themes folder, where Ghostty and every
 //!   cmux theme picker find it. A shipped theme is never shadowed.
@@ -42,8 +43,8 @@ use super::{GlobalArgs, OutputMode};
 const USAGE: &str = "\
 cmux theme: 16-color schemes in and out of cmux.
   cmux theme import FILE [--name N] [--from F] [--replace]
-      install a base16 .yaml, iTerm2 .itermcolors, Windows Terminal .json or Ghostty
-      theme as the Ghostty theme N (default: the scheme's name, else the file's)
+      install a base16 .yaml, iTerm2 .itermcolors, Windows Terminal .json, VS Code color
+      theme .json or Ghostty theme as the Ghostty theme N (default: the scheme's name, else the file's)
   cmux theme export NAME [--format F] [--output FILE]   an installed theme as F (default base16)
   cmux theme convert FILE --to F [--from F] [--output FILE]
   cmux theme from-image PATH (PNG or PPM) [--name N] [--appearance dark|light] [--format F] [--output FILE] [--replace]
@@ -51,7 +52,7 @@ cmux theme: 16-color schemes in and out of cmux.
   cmux theme new --canvas C --accent A [--name N] [--appearance dark|light] [--format F] [--output FILE] [--replace]
       a whole theme from two colors (#rrggbb): every color derives from them, text keeps WCAG AA. --name installs it
   cmux theme formats
-Formats: ghostty, base16, iterm2, windows-terminal.";
+Formats: ghostty, base16, iterm2, windows-terminal, vscode.";
 
 /// Most bytes of an image `from-image` reads (a 4K PNG wallpaper fits).
 const MAX_IMAGE_BYTES: u64 = 64 * 1024 * 1024;
@@ -154,7 +155,8 @@ fn theme_file_request(rest: &[String]) -> Option<Result<super::theme_file::Reque
 fn format_flag(value: Option<&String>, flag: &str) -> Result<SchemeFormat, String> {
     let value = value.ok_or_else(|| format!("{flag} needs a format\n\n{USAGE}"))?;
     SchemeFormat::from_name(value).ok_or_else(|| {
-        format!("unknown format {value:?}: one of ghostty, base16, iterm2, windows-terminal")
+        let names: Vec<&str> = SchemeFormat::ALL.iter().map(|f| f.name()).collect();
+        format!("unknown format {value:?}: one of {}", names.join(", "))
     })
 }
 
