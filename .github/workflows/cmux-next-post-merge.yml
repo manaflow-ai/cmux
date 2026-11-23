@@ -218,8 +218,18 @@ jobs:
       contents: read
       issues: write
 
+  gallery-health:
+    needs: plan
+    if: contains(needs.plan.outputs.suites, ' gallery-health ')
+    uses: ./.github/workflows/gallery-health.yml
+    with:
+      sha: ${{ needs.plan.outputs.sha }}
+      only: ${{ needs.plan.outputs.only }}
+    permissions:
+      contents: read
+
   judge:
-    needs: [plan, drill, cmux-tui-windows-check, acpmux-sim-sweep, swift-acpmux-protocol, rust-workspaces, web, tip-test-compile]
+    needs: [plan, drill, cmux-tui-windows-check, acpmux-sim-sweep, swift-acpmux-protocol, rust-workspaces, web, tip-test-compile, gallery-health]
     # A probe's judge also runs when its plan job died (a lost runner: drill-8 probe run 44980687386): it then
     # sees no verdict and dispatches the same probe again, so the bisect goes on instead of stopping.
     if: ${{ !cancelled() && (needs.plan.result == 'success' || inputs.mode == 'probe') }}
@@ -407,7 +417,7 @@ jobs:
           ORIGIN: ${{ needs.judge.outputs.origin }}
           BRANCH: ${{ github.ref_name }}
           DISPATCH_TOKEN: ${{ github.token }}
-          # Hot swap out first, for classes .github/piece-swap.json lists (only drill ships); 0 turns it off.
+          # Hot swap out first, for classes .github/piece-swap.json lists (drill, web-ui, rust-core); 0 turns it off.
           NEXT_PIECE_SWAP: ${{ vars.NEXT_PIECE_SWAP }}
           PIECES: ${{ needs.judge.outputs.pieces }}
           PIECE: ${{ needs.judge.outputs.piece }}

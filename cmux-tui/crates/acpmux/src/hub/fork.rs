@@ -249,6 +249,16 @@ impl Hub {
         // env, `session_env::workspace_id`), else its parent's.
         let workspace_id = workspace_id.or_else(|| parent_meta.workspace_id.clone());
         crate::agent_displays::mark(&mut fork_env, workspace_id.as_deref());
+        // The person's per-agent switch (cmux#49395), as a start gets it (`spawn.rs`), unless the
+        // parent carries another Mac's answer (`cmux_tools_answer::inherited` keeps that one).
+        if !parent_meta.session_env.contains_key(crate::agent_tools::TOOLS_ANSWER_ENV) {
+            let family = parent_meta.family.as_deref().unwrap_or(&parent_meta.harness);
+            crate::agent_tools::agent_switch_answer(
+                &mut fork_env,
+                crate::user_settings::text().as_deref(),
+                crate::agent_tools::switch_agent(family),
+            );
+        }
         let cwd = cwd.unwrap_or_else(|| parent_meta.cwd.clone());
         // Onto another harness: its agent starts from the chat's transcript (`Made::Fresh`).
         let target = match retarget {
