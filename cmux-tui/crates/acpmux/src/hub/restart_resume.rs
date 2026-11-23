@@ -955,7 +955,7 @@ mod tests {
             let queued = events.iter().rfind(|e| e.kind == "queued").expect("queued").msg.clone();
             let provenance = queued.pointer("/_meta/provenance");
             assert_eq!(silent(provenance), want, "{cut:?}: {queued}");
-            let text = queued["text"].as_str().unwrap();
+            let text = queued.pointer("/text").and_then(|v| v.as_str()).unwrap();
             assert!(text.starts_with(cut.opening()), "{cut:?}: {text}");
             assert_eq!(Cut::MoveAtBoundary.opening(), Cut::Move.opening());
             assert_eq!(Cut::MoveAtBoundary.reason(), Cut::Move.reason());

@@ -74,8 +74,10 @@ fn classify(line: &str) -> Line {
     if kind == Some("user") {
         let text = match content {
             Some(Value::String(s)) => Some(s.as_str()),
-            _ if blocks.len() == 1 => blocks[0].get("text").and_then(Value::as_str),
-            _ => None,
+            _ => match blocks {
+                [only] => only.get("text").and_then(Value::as_str),
+                _ => None,
+            },
         };
         if text == Some(INTERRUPTED) {
             return Line::Interrupted;
