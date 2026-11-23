@@ -29,6 +29,7 @@ pub mod host;
 pub mod lan;
 pub mod link_deflate;
 pub mod link_socket;
+pub mod live_code;
 pub mod local_link;
 pub mod localhost;
 pub mod machine;
