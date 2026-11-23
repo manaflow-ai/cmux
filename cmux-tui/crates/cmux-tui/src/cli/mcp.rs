@@ -28,6 +28,7 @@ use super::caller_scope;
 mod chat_tools;
 mod cloud_connect_tools;
 mod cloud_repo_tools;
+mod cloud_tools;
 mod code_mode;
 mod config;
 mod customize_library_tool;
@@ -129,6 +130,16 @@ pub(super) fn workflow_command(global: GlobalArgs, arguments: Value) -> i32 {
     }
 }
 
+/// `cmux cloud chat …` and `cmux cloud computer …` (cloud_agent.rs): the `cloud_*` tool `name`
+/// with `arguments`, run by the same code as the MCP tool, answered as its tool result.
+#[cfg(unix)]
+pub(super) fn cloud_tool(global: GlobalArgs, name: &str, arguments: &Map<String, Value>) -> Value {
+    let backend = LiveBackend { global };
+    cloud_tools::run(&backend, name, arguments, super::app::action_origin()).unwrap_or_else(|| {
+        tool_error(envelope(v2_tools::invalid(format!("no cloud tool {name}")), "not_run", None))
+    })
+}
+
 /// A failed owner call as the CLI prints it: the owner's error with its
 /// `state` and idempotency key in `details`.
 #[cfg(unix)]
@@ -228,6 +239,12 @@ pub(super) trait Backend {
             "automation.unavailable",
             "this server cannot reach the automation store",
         ))
+    }
+
+    /// The Cloud machine attached to the Chief this server runs for (its `engine.json`
+    /// `computer`, `cloud_tools::CHIEF_ENGINE_ENV`): `cloud_computer`'s default machine.
+    fn chief_computer(&self) -> Option<String> {
+        cloud_tools::chief_computer_from_env()
     }
 
     /// One `cmux customize WORDS…` verb, run by the CLI's own code
@@ -550,7 +567,7 @@ pub(super) enum Caller {
 /// env the harness passes a stdio server (Codex passes only an allowlist and
 /// the server's own); a server a person's own entry starts in a Claude chat
 /// inherits the chat's. The env is no security boundary: the same process
-/// can run the cmux CLI. The answer is a consent gate for the person's
+/// can run the cmux CLI. The setting is the person's switch for their
 /// agents, not a sandbox.
 pub(super) fn refusal(path: &std::path::Path) -> Option<String> {
     let set = |key: &str| std::env::var_os(key).is_some_and(|v| !v.is_empty());
@@ -572,16 +589,16 @@ pub(super) fn refusal(path: &std::path::Path) -> Option<String> {
 }
 
 /// [`refusal`] for `caller`. `"mcp": {"enabled": false}` turns it off for
-/// everyone. An agent chat follows the person's answer to "should agents you
-/// start in cmux get cmux's tools?" (`agents.cmuxMcp` `on`; Aziz,
-/// 2026-11-14), whatever else the file says, so a `cmux` entry an older cmux
-/// wrote into the person's own config is the off server in every chat while
-/// the answer is not on. A chat cmux-next started from another Mac (a peer
-/// link, a Cloud VM, a headless daemon) follows that Mac's answer,
-/// `started_with` (`acpmux::agent_tools::TOOLS_ANSWER_ENV`), over this
-/// machine's file (decided 2026-11-14). A Chief turn, cmux's own
-/// orchestrator, is served unless the file says `false`. Any other client
-/// needs `mcp.enabled` true or the person's yes.
+/// everyone. An agent chat follows the setting "cmux Tools for Agents in
+/// cmux" (`agents.cmuxMcp`, on unless `off`), whatever else the file says,
+/// so a `cmux` entry an older cmux wrote into the person's own config is the
+/// off server in every chat while the setting is off. A chat cmux-next
+/// started from another Mac (a peer link, a Cloud VM, a headless daemon)
+/// follows that Mac's setting, `started_with`
+/// (`acpmux::agent_tools::TOOLS_ANSWER_ENV`), over this machine's file. A
+/// Chief turn, cmux's own orchestrator, is served unless the file says
+/// `false`. Any other client needs `mcp.enabled` true, or unset with
+/// `agents.cmuxMcp` on.
 fn refusal_for(
     path: &std::path::Path,
     caller: Caller,
@@ -1091,6 +1108,9 @@ impl<B: Backend> Server<B> {
             return Ok(result);
         }
         if let Some(result) = cloud_repo_tools::call(&self.backend, name, &arguments) {
+            return Ok(result);
+        }
+        if let Some(result) = cloud_tools::call(&self.backend, name, &arguments) {
             return Ok(result);
         }
         if let Some(tool) = v2_tools::find(name) {

@@ -86,7 +86,7 @@ test("a reader in older turns, or only on the prompt and the reply, holds nothin
   expect(hold(["old", "old-reply"])).toEqual([]);
   expect(hold(["u", "answer"])).toEqual([]);
   // The live line the running turn drew is not a row of the chat: it needs no fold.
-  expect(hold(["working-u", "thinking-live"])).toEqual([]);
+  expect(hold(["worked-u", "thinking-live"])).toEqual([]);
 });
 
 test("a fold the reader already opened is not held again", () => {
