@@ -951,6 +951,20 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   stopped reading this service on 2026-11-13 and reads it again since 2026-11-17 (the picture a frame's `chat` names) and since 2026-11-22
   for any frame's `wallpaper` while Match Mac theme is on, once per id (size and SHA-256
   checked, one kept).
+- `phone-frames` (`phone-frames-v1`, 2026-11-22): how smoothly the phone drew each terminal
+  scroll. The phone times every display frame of one pan of a terminal (the drag and its
+  fling) and, when the pan ends, sends one data frame per pan, then `eof`:
+  `{"v": 1, "kind": "tui" | "scrollback", "program"?, "app"?, "expected_ms", "intervals_ms":
+  [...], "rows"?, "bytes_in"?, "rtt_ms"?}` (`expected_ms` the display's nominal frame,
+  `intervals_ms` each frame interval, at most 1800; the load the pan ran under: `rows` the page
+  held when it began, `bytes_in` terminal output that arrived during it, `rtt_ms` the link's
+  last round trip). hostd (`phone_frames.rs`) summarizes it (frames, p50/p95/max ms, hitches:
+  intervals over 1.5 frames, frames dropped, hitch ms per second, and the load: `rows`,
+  `bytes_in`, `bytes_per_s`, `rtt_ms`) and appends one JSON line to
+  `phone-frames.jsonl` in its state folder (`~/Library/Application
+  Support/cmux-mobile-host/`, rotated at 1 MB with one previous file) and to its log. At most
+  16 pans of 64 KiB per channel; a line that does not parse is dropped. The phone sends
+  nothing to a Mac without the capability. Phones only.
 - `echo`: test service.
 - `version` (link protocol 2, added 2026-10-14): one data frame
   `{"hostd": "<version>", "link": 2}`, then `eof`. A host that refuses it
@@ -1073,6 +1087,13 @@ tag's dev iPhone app in a DEBUG tagged dev build (`dev.cmux.mobile.<tag>`) and
 to keep another build's dev iPhone app from prompting (SECURITY.md "Dev
 auto-approve"). An older phone sends none, an older hostd forwards none, and
 the app then asks as before.
+
+`auth` args may also carry `appBuild` (added 2026-11-22; the phone app's
+CFBundleVersion, 1 to 32 ASCII letters, digits, `.` and `-`). hostd keeps the
+phone's `bundleId` and `appBuild` in memory per device and logs one `phone app`
+line at each `auth` open (device, variant `appstore`/`testflight`/`dev`/`other`/
+`unknown`, bundle, build, link path). It refuses nothing on them; an older phone
+sends none.
 
 ### Mac identity (trust on first use)
 

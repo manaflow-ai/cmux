@@ -230487,6 +230487,268 @@
         }
       }
     },
+    "settings.app.warnBeforeQuitShortcut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warn Before Quitting with ⌘Q"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "التحذير قبل الإنهاء باستخدام ⌘Q"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Upozori prije izlaska pomoću ⌘Q"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Advar før afslutning med ⌘Q"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vor dem Beenden mit ⌘Q warnen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Avisar antes de salir con ⌘Q"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Avertir avant de quitter avec ⌘Q"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Avvisa prima di uscire con ⌘Q"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌘Qで終了する前に警告"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ព្រមានមុនពេលចាកចេញដោយ ⌘Q"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌘Q로 종료하기 전에 경고"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Advar før avslutning med ⌘Q"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ostrzegaj przed zamknięciem za pomocą ⌘Q"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Avisar antes de encerrar com ⌘Q"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Предупреждать перед выходом по ⌘Q"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เตือนก่อนออกด้วย ⌘Q"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌘Q ile çıkmadan önce uyar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Попереджати перед виходом за ⌘Q"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cảnh báo trước khi thoát bằng ⌘Q"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "使用 ⌘Q 退出前发出警告"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "使用 ⌘Q 結束前發出警告"
+          }
+        }
+      }
+    },
+    "settings.app.warnBeforeQuitShortcut.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⌘Q asks before quitting; press it again to quit. The Quit menu item and the Dock quit at once."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يسأل ⌘Q قبل الإنهاء؛ اضغط عليه مرة أخرى للإنهاء. يُنهي عنصر قائمة الإنهاء وDock التطبيق فورًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌘Q pita prije izlaska; pritisnite ga ponovo za izlazak. Stavka menija Izađi i Dock izlaze odmah."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌘Q spørger før afslutning; tryk igen for at afslutte. Menupunktet Afslut og Dock afslutter med det samme."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌘Q fragt vor dem Beenden nach; drücke es erneut, um zu beenden. Der Menübefehl „Beenden“ und das Dock beenden sofort."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌘Q pregunta antes de salir; púlsalo de nuevo para salir. El elemento de menú Salir y el Dock salen de inmediato."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌘Q demande confirmation avant de quitter ; appuyez de nouveau pour quitter. L’élément de menu Quitter et le Dock quittent immédiatement."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌘Q chiede conferma prima di uscire; premilo di nuovo per uscire. La voce di menu Esci e il Dock escono subito."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌘Qは終了前に確認します。もう一度押すと終了します。「終了」メニュー項目とDockからはすぐに終了します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌘Q សួរមុនពេលចាកចេញ ចុចវាម្ដងទៀតដើម្បីចាកចេញ។ ធាតុម៉ឺនុយ ចាកចេញ និង Dock ចាកចេញភ្លាមៗ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌘Q는 종료하기 전에 묻습니다. 한 번 더 누르면 종료합니다. 종료 메뉴 항목과 Dock은 바로 종료합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌘Q spør før avslutning; trykk igjen for å avslutte. Menyvalget Avslutt og Dock avslutter med en gang."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌘Q pyta przed zamknięciem; naciśnij ponownie, aby zakończyć. Polecenie menu Zakończ i Dock zamykają od razu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌘Q pergunta antes de encerrar; pressione de novo para encerrar. O item de menu Encerrar e o Dock encerram na hora."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌘Q спрашивает перед выходом; нажмите его ещё раз, чтобы выйти. Пункт меню «Завершить» и Dock завершают сразу."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌘Q จะถามก่อนออก กดอีกครั้งเพื่อออก รายการเมนูออกและ Dock จะออกทันที"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌘Q çıkmadan önce sorar; çıkmak için tekrar basın. Çık menü öğesi ve Dock hemen çıkar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌘Q запитує перед виходом; натисніть його ще раз, щоб вийти. Пункт меню «Завершити» і Dock завершують одразу."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌘Q hỏi trước khi thoát; nhấn lại để thoát. Mục menu Thoát và Dock thoát ngay."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌘Q 会在退出前询问；再按一次即可退出。“退出”菜单项和程序坞会立即退出。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌘Q 會在結束前詢問；再按一次即可結束。「結束」選單項目和 Dock 會立即結束。"
+          }
+        }
+      }
+    },
     "settings.agentPane.display.finishSound": {
       "comment": "Settings: the agent chat's and Markdown viewer's display rows",
       "extractionState": "manual",
@@ -243910,6 +244172,60 @@
             "value": "工作室"
           }
         }
+      }
+    },
+    "settings.appearance.liquidGlass": {
+      "comment": "Settings > Appearance toggle: whether the composer, menus, popovers and cards draw liquid glass (blur and a lit rim).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Liquid Glass"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "الزجاج السائل"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Tečno staklo"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Flydende glas"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Flüssigglas"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Vidrio líquido"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Verre liquide"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Vetro liquido"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "リキッドガラス"}},
+        "km": {"stringUnit": {"state": "translated", "value": "កញ្ចក់រាវ"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "리퀴드 글래스"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Flytende glass"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Płynne szkło"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Vidro líquido"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Жидкое стекло"}},
+        "th": {"stringUnit": {"state": "translated", "value": "กระจกเหลว"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Sıvı cam"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Рідке скло"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Kính lỏng"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "液态玻璃"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "液態玻璃"}}
+      }
+    },
+    "settings.appearance.liquidGlass.help": {
+      "comment": "Help for the Liquid Glass toggle: what turning it off does.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Off draws the composer, menus, popovers and cards as solid surfaces with a plain border."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "عند الإيقاف، يُرسم محرر الرسائل والقوائم والنوافذ المنبثقة والبطاقات كأسطح مصمتة بحد بسيط."}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Isključeno crta polje za pisanje, menije, skočne prozore i kartice kao pune površine s običnom ivicom."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Fra tegner skrivefeltet, menuer, popovers og kort som massive flader med en enkel kant."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Aus zeichnet das Eingabefeld, Menüs, Popover und Karten als deckende Flächen mit einem schlichten Rahmen."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Desactivado dibuja el editor, los menús, los popovers y las tarjetas como superficies sólidas con un borde simple."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Désactivé, le champ de saisie, les menus, les popovers et les cartes sont des surfaces pleines avec une bordure simple."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Disattivato disegna il compositore, i menu, i popover e le schede come superfici piene con un bordo semplice."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "オフにすると、入力欄、メニュー、ポップオーバー、カードを、シンプルな枠線の不透明な面として描画します。"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ពេលបិទ ប្រអប់សរសេរ ម៉ឺនុយ ផ្ទាំងលេចឡើង និងកាត ត្រូវបានគូរជាផ្ទៃរឹងដែលមានស៊ុមធម្មតា។"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "끄면 입력창, 메뉴, 팝오버, 카드를 단순한 테두리가 있는 불투명한 면으로 그립니다."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Av tegner skrivefeltet, menyer, popovere og kort som heldekkende flater med en enkel kant."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Wyłączone rysuje pole edycji, menu, okna podręczne i karty jako pełne powierzchnie z prostą ramką."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Desativado desenha o editor, os menus, os popovers e os cartões como superfícies sólidas com uma borda simples."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Если выключено, поле ввода, меню, всплывающие окна и карточки рисуются сплошными поверхностями с простой рамкой."}},
+        "th": {"stringUnit": {"state": "translated", "value": "เมื่อปิด ช่องเขียนข้อความ เมนู ป๊อปโอเวอร์ และการ์ดจะแสดงเป็นพื้นผิวทึบพร้อมเส้นขอบธรรมดา"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Kapalıyken yazma alanı, menüler, açılır pencereler ve kartlar düz kenarlıklı opak yüzeyler olarak çizilir."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Якщо вимкнено, поле введення, меню, спливні вікна й картки малюються суцільними поверхнями з простою рамкою."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Khi tắt, ô soạn thảo, menu, cửa sổ bật lên và thẻ được vẽ thành bề mặt đặc với viền đơn giản."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "关闭后，输入框、菜单、弹出窗口和卡片显示为带简单边框的不透明表面。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "關閉後，輸入框、選單、彈出視窗和卡片會顯示為帶簡單邊框的不透明表面。"}}
       }
     }
   },
