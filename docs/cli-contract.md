@@ -99,6 +99,22 @@ max}` over the last 60 round trips and 120 frames. It is read-only: it never
 connects, disconnects or sends input, and carries no credential or screen
 content.
 
+`app chat memory [--empty-tab <tab>] [--empty-bytes <n>]` works with every build
+and reads on request only (no timer, no sampler, no cache between runs). The
+app's `agent.chat.memory` hands over pids only (the app, its local daemons, and
+per open chat the pid of its WebKit web content process or null); the CLI reads
+each distinct pid's memory once (macOS `phys_footprint`, the number Activity
+Monitor calls Memory, through `proc_pid_rusage`; `metric` names it) and returns
+`{metric, app, daemons, empty, chats, processes, summary}`. Chats that share one
+web content process are grouped by pid and the process is counted once in
+`processes` and `summary.web_total_bytes`; each such chat lists the others in
+`shared_with`. `empty` is the baseline page: `--empty-bytes`, else the chat in
+`--empty-tab`, else a New Tab page alone in its process (`source`
+`bytes`/`tab`/`new_tab`; `reason` when there is none and every ratio is null; a
+shared process is never a baseline). Each chat's `ratio` is its process's
+footprint over the baseline; `summary.ratio_median` and `ratio_max` run over
+processes that hold a chat with content, once each, never the baseline's own.
+
 `app chat perf --tab <tab> [--seconds <1-60>]` works with every build: the
 app's `agent.chat.perf` runs the chat page's own capture for that many
 seconds (default 5) and returns `{tab, seconds, duration_ms, measured,
