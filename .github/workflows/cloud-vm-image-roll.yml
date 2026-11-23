@@ -112,7 +112,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           repository: manaflow-ai/cmux-platform
-          ref: main
+          ref: refs/heads/main
           path: cmux-platform
           token: ${{ steps.platform-token.outputs.token }}
           persist-credentials: false
@@ -178,7 +178,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          ref: feat-cmux-next
+          ref: refs/heads/feat-cmux-next
           # Full history without blobs: "never older than the pin" and the fix commits since it need the pin's
           # real ancestry, which a shallow window cuts (auto-roll.ts plan refuses a shallow checkout).
           fetch-depth: 0
@@ -293,7 +293,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          ref: feat-cmux-next
+          ref: refs/heads/feat-cmux-next
       # Full history without blobs: image-roll-push.sh asks auto-roll.ts behind whether the roll's pin is older
       # than the tip's, which a shallow window cannot answer (it refuses one). Only feat-cmux-next's: checkout's
       # fetch-depth 0 took every branch and tag, then fetched the tip's blobs lazily in one request, which GitHub
@@ -365,7 +365,7 @@ jobs:
         if: vars.CMUX_VM_DEPLOY_ENABLED != '1'
         with:
           repository: manaflow-ai/cmux-platform
-          ref: main
+          ref: refs/heads/main
           path: cmux-platform
           token: ${{ steps.platform-token.outputs.token }}
           persist-credentials: false
@@ -386,7 +386,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           repository: manaflow-ai/cmux-platform
-          ref: main
+          ref: refs/heads/main
           path: cmux-platform-pins
           token: ${{ steps.pins-token.outputs.token }}
           persist-credentials: false
@@ -429,7 +429,7 @@ jobs:
   report:
     needs: [plan, bake, promote]
     if: ${{ !cancelled() && needs.plan.outputs.roll == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_DEPLOY_SKIP_FLEET != '1' && 'cmux-gcp-deploy-jit-x64' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_DEPLOY_SKIP_FLEET != '1' && 'cmux-gcp-deploy-jit-x64' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 10
     permissions:
       contents: write
