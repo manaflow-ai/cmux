@@ -1,7 +1,19 @@
-// The iPhone app's side of live code, in the iOS Simulator (scripts/live-code/ios-sim.sh): a
-// simulator app is a macOS process, so it watches a live folder on the Mac's disk, named by
-// CMUX_LIVE_CODE_DIR (`simctl launch` passes SIMCTL_CHILD_CMUX_LIVE_CODE_DIR), and loads the ad hoc
-// patches patch.py drops there. Only the app's DEBUG code starts it.
+// The iPhone app's side of live code.
+//
+// In the iOS Simulator (scripts/live-code/ios-sim.sh): a simulator app is a macOS process, so it
+// watches a live folder on the Mac's disk, named by CMUX_LIVE_CODE_DIR (`simctl launch` passes
+// SIMCTL_CHILD_CMUX_LIVE_CODE_DIR), and loads the ad hoc patches patch.py drops there.
+//
+// On an iPhone (scripts/live-code/ios-device.sh): only cmux Dev (bundle dev.cmux.mobile.dev, the
+// development-signed try app, cmuxterm-hq docs/design/ios-dev-channels.md) watches, and its folder is
+// `Library/LiveCode` in its own data container. The Mac the phone is paired with in Xcode compiles a
+// patch for iphoneos, signs it with the Apple Development identity it signed cmux Dev with, and copies
+// it there (`devicectl device copy to --domain-type appDataContainer`). iOS itself enforces the
+// signature: dyld loads a dylib into a third-party app only when it is signed by the app's own team,
+// so no other code reaches the engine. No other bundle id watches on a device, and a Release,
+// TestFlight or App Store build compiles none of this (DEBUG only).
+//
+// Only the app's DEBUG code starts it.
 //
 // The redraw: SwiftUI calls a view's `body` again only when something it read changed, so a patched
 // `body` would not run until then. After each change the root (`liveCodeRedraw(_:)`) takes a new
@@ -26,16 +38,43 @@ public final class LiveCodeRedraw {
 
     public init() {}
 
-    /// Watches the folder CMUX_LIVE_CODE_DIR names; does nothing without it.
-    public func startFromEnvironment(_ environment: [String: String] = ProcessInfo.processInfo.environment) {
-        guard engine == nil, let path = environment["CMUX_LIVE_CODE_DIR"], !path.isEmpty else { return }
-        let folder = LiveFolder(url: URL(fileURLWithPath: path, isDirectory: true))
+    /// cmux Dev's bundle id: the one app that watches a live folder on a device.
+    public static let deviceBundleID = "dev.cmux.mobile.dev"
+    /// Where cmux Dev's live folder is, relative to its data container (ios-device.sh copies there).
+    public static let deviceFolder = "Library/LiveCode"
+
+    /// In the Simulator, watches the folder CMUX_LIVE_CODE_DIR names; on a device, only cmux Dev
+    /// watches, its container's `Library/LiveCode` (``deviceFolder``). Does nothing otherwise.
+    public func startFromEnvironment(_ environment: [String: String] = ProcessInfo.processInfo.environment,
+                                     bundleID: String? = Bundle.main.bundleIdentifier) {
+        guard engine == nil, let url = Self.folderURL(environment: environment, bundleID: bundleID) else { return }
+        let folder = LiveFolder(url: url)
         let engine = LiveEngine(folder: folder) { [weak self] generation in
             Task { @MainActor in self?.redraw(generation) }
         }
         self.folder = folder
         self.engine = engine
         Task.detached(priority: .utility) { _ = await engine.start() }
+    }
+
+    /// The live folder for this process. On a device: cmux Dev's container folder, and nil for any
+    /// other app (CMUX_LIVE_CODE_DIR is not read there). In the Simulator: CMUX_LIVE_CODE_DIR's.
+    nonisolated static func folderURL(environment: [String: String], bundleID: String?, onDevice: Bool = isDevice) -> URL? {
+        if onDevice {
+            guard bundleID == deviceBundleID else { return nil }
+            return URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+                .appendingPathComponent(deviceFolder, isDirectory: true)
+        }
+        guard let path = environment["CMUX_LIVE_CODE_DIR"], !path.isEmpty else { return nil }
+        return URL(fileURLWithPath: path, isDirectory: true)
+    }
+
+    nonisolated private static var isDevice: Bool {
+        #if targetEnvironment(simulator)
+        false
+        #else
+        true
+        #endif
     }
 
     /// The root takes a new identity, and every window's UIKit views lay out and draw again. Logs
