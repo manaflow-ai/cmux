@@ -49,6 +49,7 @@ print(json.dumps(a))'; cua_win() { j=$(cua list_windows '{"on_screen_only":true}
     }
 
     private static func json(_ value: [String: Any]) -> String {
+        // main-actor-ok: one input step's arguments (a click, drag, scroll or key): a few fields.
         (try? JSONSerialization.data(withJSONObject: value, options: [.sortedKeys])).flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
     }
 

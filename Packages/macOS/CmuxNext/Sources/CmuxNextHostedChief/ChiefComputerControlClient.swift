@@ -123,8 +123,10 @@ public struct ChiefComputerControlClient: Sendable {
     @MainActor
     private func request(_ method: String, _ agent: String, _ route: String, body: [String: Any]?) async throws -> [String: Any] {
         guard let base = HomeChiefComputerRoute.base(of: agent) else { throw Failure(status: 0, code: "not_found", message: nil) }
+        // main-actor-ok: one control request's body (an op or one input), per user action.
         let data = try body.map { try JSONSerialization.data(withJSONObject: $0, options: [.sortedKeys]) }
         let reply = try await send(method, "\(base)/\(route)", data)
+        // main-actor-ok: that request's reply, {ok, value} with a control state: a few fields.
         let root = (try? JSONSerialization.jsonObject(with: reply.body)) as? [String: Any] ?? [:]
         guard (200..<300).contains(reply.status), root["ok"] as? Bool == true else {
             let error = root["error"] as? [String: Any]
@@ -137,6 +139,7 @@ public struct ChiefComputerControlClient: Sendable {
 
     /// The status route's reply body as a snapshot; nil for anything but `{ok: true, value}`.
     public static func statusSnapshot(_ body: Data) -> Snapshot? {
+        // main-actor-ok: the status route's reply, {ok, value: {control, entitled}}: a few fields.
         guard let root = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any], root["ok"] as? Bool == true,
               let value = root["value"] as? [String: Any] else { return nil }
         return snapshot(value)
