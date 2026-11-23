@@ -9,6 +9,8 @@ struct PageMenu: View {
     var origin: CGRect
     var capsule: CGRect
     var topLimit: CGFloat
+    /// A top bar's menu drops down from the capsule to here (nil: it grows up from a bottom bar).
+    var bottomLimit: CGFloat? = nil
     var expanded: Bool
     /// Content fades in over 80-200 ms and unblurs, on its own clock.
     var contentVisible: Bool
@@ -27,9 +29,16 @@ struct PageMenu: View {
 
     var body: some View {
         let m = theme.metrics
-        let bottom = capsule.maxY - 1
-        let height = max(1, min(contentHeight, bottom - topLimit))
-        let full = CGRect(x: capsule.minX, y: bottom - height, width: m.menuWidth, height: height)
+        let full: CGRect
+        if let bottomLimit {
+            let top = capsule.minY + 1
+            full = CGRect(x: capsule.minX, y: top, width: m.menuWidth, height: max(1, min(contentHeight, bottomLimit - top)))
+        } else {
+            let bottom = capsule.maxY - 1
+            let height = max(1, min(contentHeight, bottom - topLimit))
+            full = CGRect(x: capsule.minX, y: bottom - height, width: m.menuWidth, height: height)
+        }
+        let height = full.height
         let r = expanded ? full : origin
         ZStack(alignment: .topLeading) {
             Color.clear
