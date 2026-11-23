@@ -23,6 +23,8 @@
 import type { MotionController, MotionEvidence } from "./motionEvidence";
 import type { BoxMove } from "./shift";
 import type { FollowJudgement } from "./followJudge";
+import type { MotionEvent } from "../layout/motionContract";
+import type { UndeclaredMove } from "../layout/motionJudge";
 
 export type PlayTarget =
   | { role: string; name?: string | RegExp }
@@ -67,6 +69,12 @@ export type PlayContext = {
   /** Resolves `target` now (throws when it is not there). */
   find(target: PlayTarget): Element;
   document: Document;
+  /**
+   * Declares a move the play causes and no act of it shows (a reply streamed through the debug socket,
+   * older history it asked for), from now until the returned function or the play ends; `targets`
+   * scopes it to those elements as an expand (schemas/layout-motion/contract.json).
+   */
+  declare(event: MotionEvent, options?: { targets?: PlayTarget[] }): () => void;
   /** Start/stop a deterministic frame probe during a play step. */
   motion: MotionController;
 };
@@ -134,6 +142,9 @@ export type StepReport = {
   /** The same frames judged for the follow (followJudge.ts): what moved other than the one
    *  translation the transcript rows share. Reported, never judged here. */
   boxFollow?: FollowJudgement;
+  /** Boxes that moved with no declaration their surface allows (layout/motionJudge.ts), and the first moves. */
+  undeclared?: number;
+  undeclaredMoves?: UndeclaredMove[];
   /** Durations in ms of the frames over 16.7 ms. */
   longFrames: number[];
   /** Where the first `LONG_FRAME_PARTS` long frames' time went (`longFramePart`), where the engine says; never judged. */
@@ -151,6 +162,8 @@ export type LoadReport = {
   boxShift: number;
   boxMoves: BoxMove[];
   boxFollow?: FollowJudgement;
+  undeclared?: number;
+  undeclaredMoves?: UndeclaredMove[];
 };
 export type PlayReport = {
   status: "pass" | "warn" | "fail" | "none";
