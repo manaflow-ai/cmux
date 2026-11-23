@@ -30,8 +30,8 @@ final class BrowserDesignModeController {
     /// The comment threads sent from picks, keyed by card id; each change is drawn on its pick's page.
     private lazy var threads: BrowserCommentThreads = {
         let threads = BrowserCommentThreads()
-        threads.onChange = { [weak self, unowned threads] id, thread in
-            guard let pick = threads.picks[id], let page = self?.services?.cache.existingBrowser(pick.tab)?.tab else { return }
+        threads.onChange = { [weak self, weak threads] id, thread in
+            guard let pick = threads?.picks[id], let page = self?.services?.cache.existingBrowser(pick.tab)?.tab else { return }
             Task { [weak page] in await page?.setDesignModeThread(pick.selector, state: thread?.state.rawValue, reply: thread?.reply) }
         }
         return threads
