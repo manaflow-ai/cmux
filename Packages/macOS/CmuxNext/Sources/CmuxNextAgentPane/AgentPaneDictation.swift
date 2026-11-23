@@ -88,18 +88,18 @@ final class AgentPaneDictation {
     init(
         send: @escaping (DictationUpdate) -> Void,
         microphone: DictationMicrophone = .shared,
-        makeSession: @escaping () -> DictationSession = { AgentPaneDictation.defaultSession() }
+        makeSession: (() -> DictationSession)? = nil
     ) {
         self.send = send
         self.microphone = microphone
-        self.makeSession = makeSession
+        self.makeSession = makeSession ?? { AgentPaneDictation.defaultSession(microphone.claims) }
     }
 
     /// The old host: each update is a script the page runs.
     convenience init(
         evaluate: @escaping (String) -> Void,
         microphone: DictationMicrophone = .shared,
-        makeSession: @escaping () -> DictationSession = { AgentPaneDictation.defaultSession() }
+        makeSession: (() -> DictationSession)? = nil
     ) {
         self.init(send: { update in
             if let script = Self.script(update) { evaluate(script) }
@@ -108,13 +108,14 @@ final class AgentPaneDictation {
 
     var phase: DictationPhase { session?.phase ?? .idle }
 
-    /// The on-device engine. Debug builds hear a recorded clip instead when
+    /// The person's engine (`agentPane.dictationEngine`, on-device unless they chose a provider; always
+    /// on-device without the app's shared `claims`). Debug builds hear a recorded clip instead when
     /// `CMUX_NEXT_DICTATION_AUDIO_FILE` names one (machines without a microphone).
-    static func defaultSession() -> DictationSession {
+    static func defaultSession(_ claims: DictationMicrophoneClaims?) -> DictationSession {
         #if DEBUG
         if let recorded = DictationSession.recorded() { return recorded }
         #endif
-        return DictationSession()
+        return claims?.session() ?? DictationSession()
     }
 
     func handle(_ command: AgentPaneDictationCommand) {

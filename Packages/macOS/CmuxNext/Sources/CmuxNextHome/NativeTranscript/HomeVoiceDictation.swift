@@ -34,18 +34,18 @@ final class HomeVoiceDictation: HomeVoiceInput {
     var open: (URL) -> Void = { NSWorkspace.shared.openInBackground($0) }
 
     init(claims: DictationMicrophoneClaims = .shared,
-         makeEngine: @escaping () -> any HomeDictationEngine = { HomeVoiceDictation.systemEngine() }) {
+         makeEngine: (() -> any HomeDictationEngine)? = nil) {
         self.claims = claims
-        self.makeEngine = makeEngine
+        self.makeEngine = makeEngine ?? { HomeVoiceDictation.systemEngine(claims) }
     }
 
-    /// The on-device engine. Debug builds hear a recorded clip instead when
+    /// The person's engine (`agentPane.dictationEngine`, on-device by default). Debug builds hear a recorded clip instead when
     /// `CMUX_NEXT_DICTATION_AUDIO_FILE` names one (machines without a microphone).
-    static func systemEngine() -> any HomeDictationEngine {
+    static func systemEngine(_ claims: DictationMicrophoneClaims) -> any HomeDictationEngine {
         #if DEBUG
         if let recorded = DictationSession.recorded() { return recorded }
         #endif
-        return DictationSession()
+        return claims.session()
     }
 
     var phase: DictationPhase { engine?.phase ?? .idle }

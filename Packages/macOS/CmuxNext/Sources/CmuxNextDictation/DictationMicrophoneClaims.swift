@@ -13,7 +13,23 @@ public final class DictationMicrophoneClaims {
     private weak var holder: AnyObject?
     private var stopHolder: (@MainActor () -> Void)?
 
+    /// The person's own dictation provider (`agentPane.dictationEngine`), asked as each session
+    /// starts: nil (on-device, the default) dictates with ``OnDeviceDictationTranscriber`` as
+    /// before; a transcription records the session and has the provider transcribe it on stop
+    /// (``RecordedDictationTranscriber``). Set once for the surfaces that share this microphone.
+    public var providerTranscription: (@MainActor () -> RecordedDictationTranscriber.Transcribe?)?
+
     public init() {}
+
+    /// A session with the person's engine: their provider's when one is set, else on-device.
+    public func session() -> DictationSession {
+        DictationSession(makeTranscriber: { [weak self] meter in
+            if let transcribe = self?.providerTranscription?() {
+                return RecordedDictationTranscriber(levelMeter: meter, transcribe: transcribe)
+            }
+            return OnDeviceDictationTranscriber(levelMeter: meter)
+        })
+    }
 
     /// `owner` starts listening: whoever else holds the microphone stops first.
     /// - Parameters:
