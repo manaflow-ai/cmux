@@ -96,7 +96,7 @@ where
         if line.len() + take > max + 1 {
             return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "line too long"));
         }
-        line.extend_from_slice(&chunk[..take]);
+        line.extend_from_slice(chunk.get(..take).unwrap_or(chunk));
         reader.consume(take);
         if done {
             line.pop();
@@ -200,9 +200,9 @@ pub async fn request(
     })?;
     let stream = carrier.dial_service(key, CircuitService::MachineCall).await.map_err(|e| {
         let refusal = crate::machine_routes::refusal_of(&e);
-        let reason = refusal["reason"].as_str().unwrap_or("machine.unreachable");
+        let reason = refusal.get("reason").and_then(Value::as_str).unwrap_or("machine.unreachable");
         let code = if reason == "machine.unreachable" { "unreachable" } else { reason };
-        refused(code, refusal["error"].as_str().unwrap_or(&e).to_owned())
+        refused(code, refusal.get("error").and_then(Value::as_str).unwrap_or(&e).to_owned())
     })?;
     ask(stream, method, params, wait).await.map_err(|error| {
         error.unwrap_or_else(|| refused("unreachable", "the machine did not answer the call"))
