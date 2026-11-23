@@ -123,6 +123,15 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
+        "session icon",
+        &[
+            ("Give the session this shell runs in a mango icon", "acpmux session icon @ 🥭"),
+            ("Use an SF Symbol", "acpmux session icon @ sf:leaf.fill"),
+            ("Print a session's icon", "acpmux session icon Mango"),
+            ("Clear it", "acpmux session icon @ none"),
+        ],
+    ),
+    (
         "session detach",
         &[
             (
