@@ -347,6 +347,7 @@ const TICK: std::time::Duration = std::time::Duration::from_secs(1);
 
 /// The process's one watcher of background tasks' locks (module docs).
 fn watcher() -> &'static Watcher {
+    // test-hook-allow: holds no hook; the daemon's one watcher, each watch keyed by its own lock file, so no test replaces another's
     static WATCHER: std::sync::OnceLock<Watcher> = std::sync::OnceLock::new();
     WATCHER.get_or_init(Watcher::default)
 }
