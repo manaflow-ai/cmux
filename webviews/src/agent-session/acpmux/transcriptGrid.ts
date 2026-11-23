@@ -180,6 +180,7 @@ type MarkedRow = {
   turnCopy?: readonly unknown[];
   plan?: unknown;
   turnEnded?: boolean;
+  turnPhase?: string;
 };
 export function rowMark(row: MarkedRow): number {
   if (row.kind === "user" && !row.incoming && !row.received) return MARK_PROMPT;
@@ -189,7 +190,9 @@ export function rowMark(row: MarkedRow): number {
   if ((row.kind === "working" || row.kind === "thinking" || row.kind === "activityLine") && row.below === true)
     return MARK_FOOTER_SLOT;
   // The live line (turns.ts WORKING and THINKING, by value: this module stays import-free).
-  if (row.kind === "working" || row.kind === "thinking") return MARK_INDICATOR;
+  // The turn's header in its running phase is that clock too (turns.ts `turnHeaderId`).
+  if (row.kind === "working" || row.kind === "thinking" || (row.kind === "worked" && row.turnPhase === "running"))
+    return MARK_INDICATOR;
   if (row.kind === "turnSummary")
     // turns.ts isEmptyFooter's inverse, inline so this module stays import-free.
     return row.status !== "failed" &&
