@@ -43,7 +43,7 @@ import { chromium, webkit } from "./browsers";
 import { runComposerLoad } from "./composer-load";
 import { composerTypingRows } from "./composerTypingRows";
 import { perfRow } from "./perfRow";
-import { requireProductionReact, installReactWatch } from "./support/benchPage";
+import { requireProductionReact, installReactWatch, waitForPageHook, watchPageErrors } from "./support/benchPage";
 import type { Page } from "playwright";
 import { parseArms, runArms, servePane } from "./composer-arms";
 import { reportTrace, traceWindow } from "./styleInvalidationTrace";
@@ -82,10 +82,7 @@ const REPLY_WORDS = (flag("--reply-words") ?? "2000,20000").split(",").map(Numbe
 const REPLY_SETTLE_MS = 1500;
 /// With --profile: a CPU profile over the typed keys, and the functions with the most time per key (inclusive and self).
 const PROFILE = argv.includes("--profile");
-if (PROFILE && (ENGINES.includes("webkit") || MODES.some((mode) => mode.startsWith("L"))))
-  throw new Error(
-    "--profile currently supports legacy Chromium idle/stream only; L modes report observer capability explicitly",
-  );
+if (PROFILE && ENGINES.includes("webkit")) throw new Error("--profile reads Chromium's DevTools protocol");
 const DEV = argv.includes("--dev");
 /// With --trace: a Chromium trace with style invalidation tracking over the typed keys and, in stream mode, over a 2 s
 /// stream with no typing; it prints elements restyled per key and per token and what restyled them
@@ -119,6 +116,8 @@ const ARM_METRICS = [
   "to_frame_p95",
   "to_frame_max",
   "to_listener_p95",
+  "to_paint_p95",
+  "to_paint_p99",
   "to_work_p50",
   "to_work_p95",
   "script_ms",
@@ -139,10 +138,15 @@ const METRICS = [
 async function openChat(page: Page, port: number, turns: number) {
   // Before the page's own code (bench/support/benchPage.ts installReactWatch).
   await installReactWatch(page);
-  await page.goto(`http://127.0.0.1:${port}/?mock`);
+  const errors = watchPageErrors(page);
+  const response = await page.goto(`http://127.0.0.1:${port}/?mock`);
+  const status = response?.status();
+  // A 404 body loads as a page, and the wait below would then be 60 s of nothing (composer-load.ts).
+  if (status !== undefined && status >= 400)
+    throw new Error(`openChat: http://127.0.0.1:${port}/?mock answered ${status}; the pane page is not there`);
   // `servePane` builds the pane unless `--dev`; the check reads which React the page loaded
   // (bench/support/benchPage.ts).
-  await page.waitForFunction(() => "cmuxAcpmuxDebug" in window, null, { timeout: 60_000 });
+  await waitForPageHook(page, "cmuxAcpmuxDebug", { timeout: 60_000, errors });
   // After the pane is up: react-dom rides a lazy chunk the page fetches when it mounts, so asking
   // right after `goto` read as "no react-dom on this page" (bench/support/benchPage.ts).
   await requireProductionReact(page, { dev: DEV });
@@ -286,6 +290,19 @@ async function measure(
     const page = await browser.newPage({ viewport: { width: 1100, height: 820 } });
     if (mode.startsWith("L") || engine === "webkit") {
       const canonical = mode === "idle" ? "L0" : mode === "stream" ? "L1" : mode;
+      // One renderer runs the focused page and L2's documents, so its profile is what every key waits behind.
+      const cdp = PROFILE && engine === "chromium" ? await page.context().newCDPSession(page) : undefined;
+      const typing = cdp && {
+        start: async () => {
+          await cdp.send("Profiler.enable");
+          await cdp.send("Profiler.setSamplingInterval", { interval: 200 });
+          await cdp.send("Profiler.start");
+        },
+        stop: async () => {
+          const { profile } = (await cdp.send("Profiler.stop")) as { profile: CpuProfile };
+          printProfile(length, profile);
+        },
+      };
       try {
         return {
           engine,
@@ -297,6 +314,7 @@ async function measure(
             gap: GAP_MS,
             stream: STREAM,
             toolLines: TOOL_LINES,
+            typing: typing || undefined,
           })),
         };
       } finally {
@@ -323,7 +341,12 @@ async function measure(
     if (!COLD) {
       for (const key of "warm") await page.keyboard.press(key);
       await page.waitForTimeout(500);
-      for (let i = 0; i < 4; i += 1) await page.keyboard.press("Backspace");
+      // Three of the four go: one letter stays, so the measured keys type into a prompt that already has
+      // words. The empty-to-typed step is a real change of the UI (Send takes Stop's slot, a suggestion goes)
+      // and renders once by design (composer/promptText.ts PromptFacts `blank`/`empty`); it is not what a key
+      // costs. Clearing the prompt here put that one render on the first measured key, hiding the per-key cost
+      // behind 1/60 of a transition (#45279, carried forward).
+      for (let i = 0; i < 3; i += 1) await page.keyboard.press("Backspace");
     }
     if (DRAFT > 0) {
       const line = "the quick brown fox jumps over the lazy dog and keeps on running past the old fence";
