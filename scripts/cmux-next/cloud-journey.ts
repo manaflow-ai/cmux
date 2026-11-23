@@ -126,7 +126,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { spawn, spawnSync } from "node:child_process";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { appendFileSync, closeSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { constants as osConstants, tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { appStartDetail } from "./cloud-chat-matrix.ts";
@@ -2058,7 +2058,7 @@ function cliExec(cmux: string, api: Api, machine: string): Exec {
     const env = { ...process.env, CMUX_CLOUD_API_URL: api.origin, CMUX_CLOUD_ACCESS_TOKEN: api.bearer };
     const args = ["--json", "machine", "access", "exec", "--target", `machine:${machine}`, "--timeout-ms", String(Math.min(timeoutMs, 300_000)), ...(api.team ? ["--team", api.team] : []), "--", command];
     // Asynchronous, so a carrier dial this process holds (the chaos leg's) keeps being read while a command runs.
-    const done = await new Promise<{ status: number | null; stdout: string; stderr: string }>((resolve, reject) => {
+    const done = await new Promise<{ status: number | null; signal: NodeJS.Signals | null; stdout: string; stderr: string }>((resolve, reject) => {
       const child = spawn(cmux, args, { env, stdio: ["ignore", "pipe", "pipe"] });
       let stdout = "";
       let stderr = "";
@@ -2069,11 +2069,16 @@ function cliExec(cmux: string, api: Api, machine: string): Exec {
         clearTimeout(timer);
         reject(new Error(`${cmux}: ${error.message}`));
       });
-      child.on("close", (status) => {
+      child.on("close", (status, signal) => {
         clearTimeout(timer);
-        resolve({ status, stdout, stderr });
+        resolve({ status, signal, stdout, stderr });
       });
     });
+    // A CLI killed by a signal (SIGILL from a binary built for another CPU, cloud-move-kill run 45151030154) says so,
+    // not a bare "exit 1" with no output.
+    if (done.status === null && done.signal) {
+      return { code: 128 + (osConstants.signals[done.signal] ?? 0), stdout: done.stdout, stderr: `${cmux} killed by ${done.signal}${done.stderr ? `: ${done.stderr}` : ""}` };
+    }
     try {
       const result = JSON.parse(done.stdout);
       if (Number.isInteger(result?.exit_code)) {

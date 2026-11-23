@@ -75,6 +75,9 @@ jobs:
           CARGO_HTTP_TIMEOUT: "120"
           GHOSTTY_ZIG_SOURCE: ghostty-next
           CMUX_GHOSTTY_SRC: ""
+          # The drill jobs run this binary on other runners: libghostty-vt for any x86-64 CPU, not this
+          # runner's (Zig's default is the build host's CPU; run 45151030154's drills died on SIGILL).
+          CMUX_GHOSTTY_VT_ZIG_CPU: baseline
         run: |
           set -euo pipefail
           cargo build -p cmux-tui --bin cmux-tui --locked
