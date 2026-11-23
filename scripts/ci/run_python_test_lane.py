@@ -104,6 +104,12 @@ def run_one(path: str, env: dict[str, str], log_path: Path, timeout: float) -> R
             try:
                 returncode = process.wait(timeout=timeout)
                 note = ""
+                # Whatever the test left running in its group (a fixture's child that never ended) goes with it:
+                # nothing a test started outlives it (cosmic-gray, 2026-11-10: a fake git spun for hours).
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except (ProcessLookupError, PermissionError):
+                    pass
             except subprocess.TimeoutExpired:
                 try:
                     os.killpg(process.pid, signal.SIGKILL)
@@ -153,6 +159,13 @@ def report(result: Result) -> None:
 
 
 def main(argv: list[str]) -> int:
+    if "--list" not in argv:
+        # A fleet host that runs no tests (a person's own Mac) refuses and names the fleet command
+        # (tests/fleet_test_host.py; cosmic-gray, 2026-11-10).
+        sys.path.insert(0, str(ROOT / "tests"))
+        import fleet_test_host
+
+        fleet_test_host.refuse_here()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--lane", action="append", required=True, help="lane to run; repeat to run several together")
     parser.add_argument("--jobs", type=int, default=1, help="tests to run at once (serial entries always run alone)")
