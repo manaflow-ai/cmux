@@ -1,0 +1,6 @@
+{
+  "margin_ratio": 1.0,
+  "margin_ms": 5.0,
+  "idle": {"total_p95_ms": 10.0},
+  "loaded": {"total_p95_ms": 20.0}
+}
