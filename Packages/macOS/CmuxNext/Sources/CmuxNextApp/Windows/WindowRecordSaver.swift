@@ -291,7 +291,7 @@ extension AppServices {
                 workspaceID: controller.state.workspaceID ?? "", tabIDs: tabs)
             // What stage 0 checks before it draws the image (cmux-launch-shell `plan`): the display's
             // frame and scale, the system's appearance (the record's is compared with the launch's), full screen.
-            snapshot.backingScale = window.screen?.backingScaleFactor ?? 0
+            snapshot.backingScale = Double(window.screen?.backingScaleFactor ?? 0)
             snapshot.screenFrame = window.screen?.frame ?? .zero
             snapshot.appearance = WindowLaunchImages.systemIsDark ? 1 : 0
             snapshot.appearanceFollowsSystem = true
