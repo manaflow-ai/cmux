@@ -226,6 +226,8 @@ await requireBrowserLane("agent-chat-stream-no-shift-browser.test.ts", async () 
     fromEnd: number;
     /// The sent prompt's top against the transcript's top after the step.
     prompt: number | null;
+    /// Earlier rows (above the sent prompt) still in view after the step.
+    above: number;
   };
   const reports: Record<string, StepReport[]> = {};
 
@@ -271,6 +273,24 @@ await requireBrowserLane("agent-chat-stream-no-shift-browser.test.ts", async () 
       { text, rowSelector: TRANSCRIPT_ROW },
     );
 
+  /// The rows above the sent prompt that show in the transcript's view (a send keeps the earlier chat in view).
+  const earlierInView = (page: Page, text: string) =>
+    page.evaluate(
+      ({ text, rowSelector }) => {
+        const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+        const view = scroller.getBoundingClientRect();
+        const rows = [...scroller.querySelectorAll<HTMLElement>(rowSelector)];
+        const prompt = rows.find((each) => each.textContent?.includes(text));
+        if (!prompt) return 0;
+        const promptTop = prompt.getBoundingClientRect().top;
+        return rows.filter((each) => {
+          const box = each.getBoundingClientRect();
+          return each !== prompt && box.height > 0 && box.bottom <= promptTop + 0.5 && box.bottom > view.top + 1;
+        }).length;
+      },
+      { text, rowSelector: TRANSCRIPT_ROW },
+    );
+
   for (const [engine] of engines)
     describe(engine, () => {
       for (const arm of ARMS)
@@ -310,6 +330,7 @@ await requireBrowserLane("agent-chat-stream-no-shift-browser.test.ts", async () 
                 composer: Math.round(Math.abs((await composerTop(page)) - composerBefore) * 10) / 10,
                 fromEnd: await fromEnd(page),
                 prompt: await promptTop(page, `Find the retry loops (${turn})`),
+                above: await earlierInView(page, `Find the retry loops (${turn})`),
               };
               report.push(entry);
               const short = (arm.at === "latest" ? entry.stray : entry.moves)
@@ -317,7 +338,7 @@ await requireBrowserLane("agent-chat-stream-no-shift-browser.test.ts", async () 
                 .map((move) => `${move.label.replace(/^.*\[row /, "").replace(/\]$/, "")} ${move.dy}px`)
                 .join("; ");
               console.log(
-                `stream-shift ${engine} ${arm.name} #${index} ${step}: stray ${entry.worst}px moved ${entry.moved}px composer ${entry.composer}px end ${entry.fromEnd}px prompt ${entry.prompt}px ${short}`.slice(
+                `stream-shift ${engine} ${arm.name} #${index} ${step}: stray ${entry.worst}px moved ${entry.moved}px composer ${entry.composer}px end ${entry.fromEnd}px prompt ${entry.prompt}px above ${entry.above} ${short}`.slice(
                   0,
                   380,
                 ),
@@ -333,20 +354,20 @@ await requireBrowserLane("agent-chat-stream-no-shift-browser.test.ts", async () 
             }
             reports[`${engine} ${arm.name}`] = report;
             if (arm.at === "latest") {
-              // Send to top: the sent prompt lands at the top of the view (under the thread's top padding)
-              // and holds that pixel through the whole turn, while the turn fills the room under it and
-              // then grows on below the view.
-              const sent = report[0]!.prompt;
-              expect(sent).not.toBeNull();
-              expect(sent!).toBeLessThanOrEqual(40);
+              // A send stays put (https://github.com/manaflow-ai/cmux/issues/51841): the view stays at the
+              // latest row and the earlier chat stays in view above the new prompt. It never jumps the
+              // prompt to the view's top with the history scrolled out of sight above it.
+              const sent = report[0]!;
+              expect(sent.prompt).not.toBeNull();
+              expect(sent.fromEnd).toBeLessThanOrEqual(1);
+              expect(sent.above).toBeGreaterThanOrEqual(1);
+              // The view keeps following the reply to its end: the earlier chat scrolls up only by the
+              // follow, never by a jump.
               expect(
                 report
-                  .filter((entry) => entry.prompt === null || Math.abs(entry.prompt - sent!) > 1)
-                  .map((entry) => `${entry.step}: prompt at ${entry.prompt}px, sent at ${sent}px`),
+                  .filter((entry) => entry.fromEnd > 1)
+                  .map((entry) => `${entry.step}: ${entry.fromEnd}px from the end`),
               ).toEqual([]);
-              // The prompt holding its pixel holds every row above it (rows stay packed): no follow carries
-              // the view. The rows under the reply move down only by its growth, which the judge below
-              // allows and nothing else.
               // No row strays from the follow, at any step.
               expect(
                 report
