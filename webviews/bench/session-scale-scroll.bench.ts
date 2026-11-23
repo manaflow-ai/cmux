@@ -59,6 +59,11 @@ const PAD = Number(flag("--pad") ?? 17_000);
 /// The share of changes that list a new chat (a sub-agent or a peer's chat started; `session_changed` `created`), as a
 /// fleet's daemon tells: the list's length moves, which a row's in-place change never does.
 const CHURN = Number(flag("--churn") ?? 0);
+/// `fleet`: listed rows shaped like a fleet daemon's (mockFixture.ts `fleetListedSession`), else the plain ones.
+const SHAPE = flag("--shape") ?? "plain";
+/// No wheel input: the frames and the profile are what the pages cost with nobody scrolling, so what is left is the
+/// work of what nobody looks at.
+const IDLE = argv.includes("--idle");
 /// The scrolled chat: a short one, a few screens tall.
 const TURNS = Number(flag("--turns") ?? 30);
 /// The hidden chat's turns (two rows each): a long coordinator chat.
@@ -323,13 +328,18 @@ async function openPage(
   rate: number,
 ) {
   await page.addInitScript(
-    ({ count, newTab }) => {
-      const mock = globalThis as { cmuxAcpmuxMockListSize?: number; __cmuxNewTabContext?: unknown };
+    ({ count, newTab, shape }) => {
+      const mock = globalThis as {
+        cmuxAcpmuxMockListSize?: number;
+        cmuxAcpmuxMockListShape?: string;
+        __cmuxNewTabContext?: unknown;
+      };
       mock.cmuxAcpmuxMockListSize = count;
+      mock.cmuxAcpmuxMockListShape = shape;
       // A New Tab page as the app opens one: the host injects its context before the first render.
       if (newTab) mock.__cmuxNewTabContext = {};
     },
-    { count: size, newTab: kind === "newtab" },
+    { count: size, newTab: kind === "newtab", shape: SHAPE },
   );
   await page.addInitScript(visibility);
   await page.addInitScript(probe);
@@ -484,7 +494,7 @@ try {
         let notch = 0;
         while (performance.now() - wallBefore < SECONDS * 1000) {
           const up = Math.floor(notch / TURN_EVERY) % 2 === 0;
-          await scrolled.mouse.wheel(0, up ? -WHEEL_PX : WHEEL_PX);
+          if (!IDLE) await scrolled.mouse.wheel(0, up ? -WHEEL_PX : WHEEL_PX);
           notch += 1;
           await scrolled.waitForTimeout(WHEEL_MS);
         }
@@ -585,6 +595,8 @@ try {
           changes: changes.reduce((sum, value) => sum + value, 0),
           hidden_chats: HIDDEN_CHATS,
           churn: CHURN,
+          shape: SHAPE,
+          idle: IDLE,
           stream: STREAM,
           shed: SHED,
           busy_ms_per_s: round1((busy * 1000) / wall),
