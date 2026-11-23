@@ -493,7 +493,7 @@ def test_lint_matrix_runs_clippy_with_each_host_cfg() -> None:
         assert len(linux_dependency_steps) == 1
         assert linux_dependency_steps[0]["if"] == "runner.os == 'Linux'"
         if runner_os == "Linux":
-            assert "ubuntu-2404" in entry["runner"]
+            assert entry["runner"].endswith("'cmux-linux' }}")
 
         clippy_steps = [step for step in steps if step.get("name") == "cargo clippy"]
         assert len(clippy_steps) == 1
