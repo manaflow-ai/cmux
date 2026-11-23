@@ -177,13 +177,14 @@ test("a late chunk of the reply after its turn ended goes on in the same row", a
   try {
     for (
       let tries = 0;
-      tries < 200 && !rows.some((row) => row.kind === "assistant" && row.text?.includes("nothing"));
+      tries < 200 && !rows.some((row) => row.kind === "assistant" && row.text?.includes("nothing new"));
       tries += 1
     )
       await new Promise<void>((resolve) => {
         wakes.push(resolve);
       });
     // The mock's own scripted chat comes first; the background turn's rows are this one reply.
+    console.log("DBG", JSON.stringify(rows.map((r) => [r.id, r.kind, r.inBackground, r.text, r.streaming])));
     expect(
       rows.filter((row) => row.kind === "assistant" && row.inBackground === "bg-1").map((row) => row.text),
     ).toEqual([REPLY]);
