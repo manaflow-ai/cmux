@@ -116,6 +116,7 @@ job needs, given an expiry, and stored where it's used.
 cmux keys connect cloudflare --account ACCOUNT_ID
 cmux keys mint cloudflare-r2 --bucket NAME (--rw|--ro) [--ttl 90d] [--create-bucket] [--expire-objects-days N] --store SPEC...
 cmux keys revoke ID
+cmux keys rotate ID [--ttl 90d]
 ```
 
 ### Connect Cloudflare (once per account)
@@ -153,8 +154,13 @@ Store specs (repeat `--store` to put the same key in several places):
 
 If a store fails, the new key is revoked at once and nothing is recorded as live.
 
-`cmux keys revoke ID` deletes a minted token at Cloudflare, so every stored copy stops working. To rotate a
-minted key, mint again with the same `--store` (that overwrites the secrets), then revoke the old id.
+`cmux keys revoke ID` deletes a minted token at Cloudflare, so every stored copy stops working.
+
+`cmux keys rotate ID` mints the same scope again (account, bucket, `--rw` or `--ro`, and the old key's
+lifetime unless `--ttl` is given), stores the new key under every name the old one was stored under, then
+revokes the old key. The new key is stored before the old one is revoked, so the names never hold a dead key.
+The audit links the two (`rotated_to`, `rotated_from`). If the revoke fails, the new key is already in place
+and the reply names the `cmux keys revoke` to run.
 
 ### Mint from a Linux machine
 
