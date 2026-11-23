@@ -17,6 +17,7 @@
 pub mod bindings;
 pub mod catalog;
 pub mod customize_elements;
+pub mod deep_link;
 pub mod ffi;
 pub mod hand_built_menus;
 pub mod json;
