@@ -419,6 +419,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 Some(h) => format!("{h}/{n}"),
                 None => n.clone(),
             });
+            // This create's key (`hub/create_key.rs`): sent again with it after a restart, it
+            // gets the session the first one made, or makes it, never a second one.
+            meta.set(crate::hub::create_key::FIELD, json!(uuid::Uuid::now_v7().to_string()));
             let mut p = json!({"mcpServers": [], "_meta": {"acpmux": meta}});
             if let Some(cwd) = &cwd {
                 p["cwd"] = json!(cwd);
@@ -430,10 +433,14 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             // and runs the whole find-or-create again, so it finds that session and
             // never makes a second one; a handover can happen twice in a row
             // (systemd's daemon taking over one the CLI started), hence two tries.
-            // Without a name to find it by, a retry could make a duplicate: no retry,
-            // except after the daemon's shutdown refused the create before making
-            // anything (`refused_before_create`): a self-update's restart, or one on a
-            // failing disk, then never fails a new session.
+            // Any other create resends its create key (`hub/create_key.rs`) to a daemon that
+            // keeps keys, when the one that closed kept them too: the next daemon answers
+            // with the session the first made, or makes it. A restart while it waits (a
+            // self-update under a benchmark's `new -d`, a lane VM 2026-11-21) then
+            // never fails the create, and never makes two. Only to this daemon's own
+            // sessions: one on a peer may run a daemon that ignores the key. Without a key
+            // a retry could make a duplicate: no retry, except after the daemon's shutdown
+            // refused the create before making anything (`refused_before_create`).
             let mut reconnects = 0;
             let (v, reused, lost_race) = loop {
                 match find_or_create(
@@ -449,11 +456,22 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     Err(error)
                         if reconnects < NEW_RECONNECTS
                             && ((launch.reuse && key.is_some() && daemon_closed_error(&error))
-                                || refused_before_create(&error)) =>
+                                || refused_before_create(&error)
+                                || (daemon_closed_error(&error)
+                                    && keyed_resend(host.as_deref(), &client))) =>
                     {
                         reconnects += 1;
-                        client =
+                        let named = launch.reuse && key.is_some();
+                        let next =
                             before_deadline(deadline, setup_name, reconnect_after_update()).await?;
+                        // A daemon that keeps no keys (a rollback) could make a second one.
+                        if !named
+                            && !refused_before_create(&error)
+                            && !keyed_resend(host.as_deref(), &next)
+                        {
+                            return Err(error);
+                        }
+                        client = next;
                     }
                     // A machine this daemon has no peer for may still be reached by the
                     // configured new relay (`new_relay.rs`).
@@ -1301,6 +1319,12 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
         }
         _ => Err(anyhow!("command routed to the wrong dispatch family")),
     }
+}
+
+/// Whether a create whose connection `client` closed may be sent again with its create key
+/// (`hub/create_key.rs`): a session on this daemon, which lists that it keeps the key.
+fn keyed_resend(host: Option<&str>, client: &Client) -> bool {
+    host.is_none() && client.daemon_lists(crate::hub::create_key::FEATURE)
 }
 
 /// Whether a named `new` asks the creating daemon to keep a taken name with a `-N` suffix
