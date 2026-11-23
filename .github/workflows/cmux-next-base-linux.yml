@@ -16,7 +16,7 @@ name: cmux-next base linux
 # step, 22 of the hour's 62 runner-min), the run routes by the push's own diff; the next run that reads a
 # green tip covers what that left out. Only a branch with no green run yet runs every linux step.
 #
-# A step that fails runs once more by itself before the run is red: in that first hour 4 of 13 runs were
+# A step that fails runs once more by itself before the run is red (a failed setup or tool: the whole job): in that first hour 4 of 13 runs were
 # red and none was a base break (one timing test twice, a slow runner, a runner shut down).
 #
 # A push to a lane/base-linux-drill-* branch runs it there (the drill).
@@ -99,12 +99,15 @@ jobs:
           fi
           # The blocking steps that failed, from the runner's own `::error ...::step NAME exited|ran past` lines.
           again="$(sed -n 's/^::error .*::step \([^ ]*\) \(exited\|ran past\) .*/\1/p' "$RUNNER_TEMP/linux-first.log" | sort -u | paste -sd, -)"
-          if [[ -z "$again" ]]; then
-            echo "::error::The linux job failed and named no step: not run again."
-            exit "$first"
+          only=(--only "$again")
+          # A setup or a tool that failed (`step tool (rust) ran past its 180 s`) kept steps from running at
+          # all, and a failure that names no step is not one step's: the whole routed job runs again.
+          if [[ -z "$again" ]] || grep -qE '^::error .*::step (setup|tool) \(' "$RUNNER_TEMP/linux-first.log"; then
+            again="the whole routed job (a setup or a tool failed, or no step was named)"
+            only=()
           fi
-          echo "::notice::Failed once, running once more by themselves: $again"
-          if ci/run run --job linux ${PATHS_FILE:+--paths-file "$PATHS_FILE"} --only "$again"; then
+          echo "::notice::Failed once, running once more: $again"
+          if ci/run run --job linux ${PATHS_FILE:+--paths-file "$PATHS_FILE"} "${only[@]}"; then
             echo "::warning title=Flaky on the base::Failed once and passed when run again, so the base is not red: $again"
             echo "Failed once and passed when run again (flaky, the base is not red): $again" >> "$GITHUB_STEP_SUMMARY"
             exit 0
