@@ -9,6 +9,7 @@ description = "The daemon's egress gate: every HTTP client cmux makes for itself
 
 [dependencies]
 reqwest.workspace = true
+rustls.workspace = true
 tokio = { workspace = true, features = ["net"] }
 
 [dev-dependencies]

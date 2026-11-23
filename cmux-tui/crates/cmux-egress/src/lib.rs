@@ -171,25 +171,16 @@ fn host_of(text: &str) -> String {
     host.trim_end_matches('.').to_ascii_lowercase()
 }
 
+/// Whether `label` matches `pattern`, where each `*` stands for one or more characters.
 fn label_matches(pattern: &str, label: &str) -> bool {
-    match pattern.split_once('*') {
-        None => pattern == label,
-        Some((head, tail)) => {
-            !label.is_empty()
-                && label.len() >= head.len() + tail.len()
-                && label.starts_with(head)
-                && label_matches_rest(tail, &label[head.len()..])
+    fn glob(pattern: &[u8], label: &[u8]) -> bool {
+        match pattern.split_first() {
+            None => label.is_empty(),
+            Some((b'*', rest)) => (1..=label.len()).any(|at| glob(rest, &label[at..])),
+            Some((c, rest)) => label.first() == Some(c) && glob(rest, &label[1..]),
         }
     }
-}
-
-fn label_matches_rest(pattern: &str, label: &str) -> bool {
-    match pattern.split_once('*') {
-        None => label.ends_with(pattern),
-        Some((head, tail)) => (0..=label.len())
-            .filter(|&at| label.is_char_boundary(at) && label[at..].starts_with(head))
-            .any(|at| label_matches_rest(tail, &label[at + head.len()..])),
-    }
+    glob(pattern.as_bytes(), label.as_bytes())
 }
 
 fn is_local(host: &str) -> bool {
@@ -290,6 +281,8 @@ impl Resolve for Gate {
 /// names the caller (`"cmux_cloud_api::http"`) for the refusal line. A proxy
 /// set on the builder is resolved (and checked) in place of the target.
 pub fn client_builder(site: &'static str) -> reqwest::ClientBuilder {
+    // reqwest is built without a default rustls provider; a client built before one is installed panics.
+    let _ = rustls::crypto::ring::default_provider().install_default();
     reqwest::Client::builder().dns_resolver(Arc::new(Gate::new(site)))
 }
 
@@ -299,8 +292,8 @@ mod tests {
 
     #[test]
     fn listed_hosts_and_patterns_pass() {
-        assert_eq!(verdict("api.cmux.dev"), Verdict::Listed);
-        assert_eq!(verdict("https://API.cmux.dev:443/v1/x?y"), Verdict::Listed);
+        assert_eq!(verdict("cloud-api.cmux.dev"), Verdict::Listed);
+        assert_eq!(verdict("https://Cloud-API.cmux.dev:443/v1/x?y"), Verdict::Listed);
         assert_eq!(verdict("acme.atlassian.net"), Verdict::Listed);
         assert_eq!(verdict("atlassian.net"), Verdict::Unlisted);
         assert_eq!(verdict("a.b.atlassian.net"), Verdict::Unlisted);

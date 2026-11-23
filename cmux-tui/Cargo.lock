@@ -1840,6 +1840,7 @@ name = "cmux-egress"
 version = "1.0.0"
 dependencies = [
  "reqwest",
+ "rustls",
  "tokio",
 ]
 
