@@ -3,7 +3,7 @@
 // language and the theme are in place before the page's own modules load, as the app has them
 // before a page's first script runs.
 import { installGalleryClock } from "../clock";
-import { overPicture, readEnv, widthPx } from "../env";
+import { overPicture, readEnv, SHELL_DEFAULT_BACKGROUND, widthPx } from "../env";
 import { readTunes } from "../../experiments/tunable";
 import { readOptions } from "../options";
 import type { GalleryEntry } from "../format";
@@ -128,10 +128,14 @@ const tokens = themeTokens(theme, accent);
 // The background axis: over a picture the page is see-through, as over the user's in the app.
 // In the app, see-through follows the app's own window (its page background is clear over a backdrop).
 // A variant that only means something over a picture (a pinned line over a wallpaper) names one, or one per scheme;
-// the env's own picture wins when the controls set one.
+// the env's own picture wins when the controls set one other than the shell's default painting (env.ts
+// SHELL_DEFAULT_BACKGROUND), which every shell link names.
 const asked = entry.variants[variantName]!.background;
 const variantBackground = typeof asked === "object" ? asked[scheme] : asked;
-const stageEnv = variantBackground && !overPicture(env) ? { ...env, background: variantBackground } : env;
+const stageEnv =
+  variantBackground && (!overPicture(env) || env.background === SHELL_DEFAULT_BACKGROUND)
+    ? { ...env, background: variantBackground }
+    : env;
 const seeThrough = appHosted ? appHostSeeThrough() : overPicture(stageEnv);
 
 // The app's web view answers these from its window and the system settings itself.
