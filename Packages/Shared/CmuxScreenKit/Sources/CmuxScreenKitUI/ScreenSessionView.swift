@@ -4,8 +4,8 @@ import CmuxSpinner
 import PhotosUI
 import SwiftUI
 
-/// The parts of `ScreenSessionView` an app opts into. `.all` is the cmux
-/// VNC demo app; `.minimal` is the screen with a close button and state cards.
+/// The parts of `ScreenSessionView` an app opts into. `.all` turns on every
+/// feature; `.minimal` is the screen with a close button and state cards.
 public struct ScreenFeatures: OptionSet, Sendable {
     public let rawValue: Int
     public init(rawValue: Int) { self.rawValue = rawValue }

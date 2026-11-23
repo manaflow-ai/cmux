@@ -35,7 +35,6 @@ retires.
 | `CmuxScreenKit` | `Packages/Shared/CmuxScreenKit` | The viewer library (`ScreenSession`: connect, reconnect, input, quality, stats) and iOS UI | Branch [feat-cmux-screen-kit](https://github.com/manaflow-ai/cmux/tree/feat-cmux-screen-kit) |
 | Mac Screen tabs | `CmuxNextMacScreen` | `cmux://mac-screen` home (paired Macs, Pair a Mac, Share This Mac) and `cmux://mac-screen?mac=<id>` tabs; WebRTC video in `ScreenVideoView`; input through the remote view pane's `RemoteInputSurface`; menu-bar indicator with Disconnect Viewer and Stop Sharing; `tab new-mac-screen` CLI | [#20426](https://github.com/manaflow-ai/cmux/pull/20426) (draft, stacked on screen kit) |
 | Device hub | `workers/device-hub`, `CmuxNextDevices`, `docs/device-hub/PROTOCOL.md` | Cloudflare Worker + User DO + Session DO: Stack sign-in, Secure Enclave device keys, signed requests, per-host/viewer permissions (`none/ask/view/full`), sessions, single-use signaling tickets, sealed relay secrets, audit. Replaces pairing links | Branches `feat-cmux-next-device-auth*` (newest commit 2026-10-20, H3 review fixes) |
-| iOS demo apps | `experiments/cmux-vnc-ios` | Swift-host app and Rust-host app on `CmuxScreenKit` | Experiments |
 
 Measured by Aziz (cmux-screen README and #20426): connect to picture 0.7 to 2.1 s; glass to glass
 under consecutive input, keys at 2/20/50 Hz p50 43/53/40 ms, pointer at 60 Hz p50 63 ms (same Mac);
