@@ -1567,7 +1567,8 @@ impl Hub {
             // The caller dismissed it: the audit trail keeps it apart from a withdrawal.
             self.review_index.mark_settled(&session.id, permission_id, Settled::Caller);
         }
-        let mut outcome = match option_id {
+        // Borrowed: the plan checks below read the option again.
+        let mut outcome = match &option_id {
             Some(o) => json!({"outcome": "selected", "optionId": o}),
             None => json!({"outcome": "cancelled"}),
         };
