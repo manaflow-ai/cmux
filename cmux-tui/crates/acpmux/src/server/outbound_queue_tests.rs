@@ -218,7 +218,10 @@ async fn past_the_daemon_wide_bound_a_reader_over_its_fair_share_is_disconnected
 async fn past_the_daemon_wide_bound_a_reader_taking_lines_keeps_its_connection() {
     const FAIR: usize = 8 << 10;
     const OWN: usize = 1 << 20;
-    const STALL: Duration = Duration::from_millis(300);
+    // Wide against the pane's 50 ms rounds: the pane's progress is seen at each round's first
+    // push, so a round late by the stall bound cuts it, and a loaded suite stretched a 100 ms
+    // sleep past a 300 ms bound.
+    const STALL: Duration = Duration::from_secs(1);
     let scope = cmux_scope::Scope::new("outbound-test");
     let pool = own_pool();
     let limits = || Limits { pool, total_bound: 16 << 10, fair_share: FAIR, reader_stall: STALL };
@@ -232,8 +235,8 @@ async fn past_the_daemon_wide_bound_a_reader_taking_lines_keeps_its_connection()
         n += 1;
     }
     assert!(!cli.is_closed(), "a reader within its stall bound is kept");
-    // The pane reads a little every third of the stall bound while its queue keeps growing: far
-    // past its fair share and the total, over several stall bounds, it is served.
+    // The pane reads a little every twentieth of the stall bound while its queue keeps growing:
+    // far past its fair share and the total, it is served.
     let mut sent = 0;
     for _round in 0..10 {
         for _ in 0..10 {
@@ -244,7 +247,7 @@ async fn past_the_daemon_wide_bound_a_reader_taking_lines_keeps_its_connection()
         for _ in 0..2 {
             let _ = reading.try_recv();
         }
-        tokio::time::sleep(STALL / 3).await;
+        tokio::time::sleep(STALL / 20).await;
     }
     assert!(pane.held() > FAIR, "the pane's queue grew past its fair share");
     assert!(!pane.is_closed());
@@ -256,6 +259,111 @@ async fn past_the_daemon_wide_bound_a_reader_taking_lines_keeps_its_connection()
         assert!(more < 10, "the stalled reader over its share is disconnected");
     }
     assert!(cli.is_closed());
+}
+
+fn list_row(n: usize) -> String {
+    row_of(n, 400)
+}
+
+fn row_of(n: usize, pad: usize) -> String {
+    let session = json!({"sessionId": format!("s{}", n % 7), "pad": "r".repeat(pad)});
+    let line = Message::notification(
+        "_acpmux/session_changed",
+        json!({"sessionId": format!("s{}", n % 7), "session": session, "listSeq": n}),
+    )
+    .to_line();
+    assert!(line.starts_with(super::outbound::LIST_NOTICE_PREFIX), "{line}");
+    line
+}
+
+/// cosmic-gray, 2026-11-22 22:05-22:11Z: the app's watchers (`cmux-tui-agent-chat-notices`,
+/// `cmux-next-turn-states`) held 64 MiB of rows of up to 82 KB each and were cut ten times while
+/// Leo's chat pane showed "reconnecting". A reader that reads the list is spared its list notices
+/// instead: every other line comes in order, then one `_acpmux/lagged` that says to read the list
+/// again, and the connection stays.
+#[tokio::test]
+async fn a_lagging_list_reader_is_spared_its_rows_instead_of_disconnected() {
+    // Past the pump's window (`BULK_WINDOW`), which it takes out of the queue at once.
+    const BIG: usize = 2 << 20;
+    let scope = cmux_scope::Scope::new("outbound-test");
+    let (transport, mut rx) = mpsc::channel(1);
+    let (out, _) = start_bounded(&scope, None, transport, BIG);
+    out.describe("local test-watcher".into(), true);
+    let (mut rows, mut updates) = (0, 0);
+    // About six bounds' worth of 8 KB rows, one update for every 24 rows, and the reader reads
+    // nothing.
+    for n in 0..1500 {
+        if n % 25 == 24 {
+            assert!(out.push(note(updates)), "the stream is kept");
+            updates += 1;
+        } else {
+            assert!(out.push(row_of(n, 8 << 10)), "a lagging list reader is not disconnected");
+            rows += 1;
+        }
+        assert!(out.held() <= BIG, "held {} past the bound", out.held());
+    }
+    // Not `OVERRUNS`: other tests' queues overrun beside this one.
+    assert!(!out.is_closed(), "no connection was ended");
+    assert!(out.push(Message::ok(json!("end"), json!({})).to_line()));
+    // The reader reads again: every update in order, the rows it was spared counted by the lag
+    // markers (one queued at a time), which name the list to read again.
+    let (mut n, mut got_rows, mut dropped, mut markers) = (0, 0, 0, 0);
+    loop {
+        let line = next(&mut rx).await.expect("a line");
+        if line["id"] == "end" {
+            break;
+        }
+        match line["method"].as_str() {
+            Some("session/update") => {
+                assert_eq!(line["params"]["n"], n, "in order, none skipped");
+                n += 1;
+            }
+            Some("_acpmux/session_changed") => got_rows += 1,
+            Some("_acpmux/lagged") => {
+                assert_eq!(line["params"]["watch"], true, "{line}");
+                assert_eq!(line["params"]["reason"], "reader.too_slow", "{line}");
+                dropped += line["params"]["dropped"].as_u64().unwrap();
+                markers += 1;
+            }
+            _ => panic!("unexpected {line}"),
+        }
+    }
+    assert_eq!(n, updates, "every update came");
+    assert!(dropped > 0, "rows were left out");
+    assert_eq!(got_rows + dropped, rows as u64, "every row came or was counted as left out");
+    assert!(markers <= 2, "lag markers fold into one while queued: {markers}");
+    assert!(!out.is_closed());
+}
+
+/// A peer daemon's link (or a queue never described) is not spared: it mirrors the list and
+/// reads it again only when it links again, so past its bound it ends as before.
+#[tokio::test]
+async fn a_peer_link_past_its_bound_still_ends() {
+    let scope = cmux_scope::Scope::new("outbound-test");
+    let (transport, _rx) = mpsc::channel(1);
+    let (out, _) = start_bounded(&scope, None, transport, BOUND);
+    out.describe("peer acpmux-peer test".into(), false);
+    let mut n = 0;
+    while out.push(list_row(n)) {
+        n += 1;
+        assert!(n < 1000, "the queue never overran");
+    }
+    assert!(out.is_closed());
+}
+
+/// A queue of lines that may not be left out ends at its bound even when it reads the list.
+#[tokio::test]
+async fn a_list_reader_whose_queue_is_not_rows_still_ends() {
+    let scope = cmux_scope::Scope::new("outbound-test");
+    let (transport, _rx) = mpsc::channel(1);
+    let (out, _) = start_bounded(&scope, None, transport, BOUND);
+    out.describe("local test-attach".into(), true);
+    let mut n = 0;
+    while out.push(note(n)) {
+        n += 1;
+        assert!(n < 1000, "the queue never overran");
+    }
+    assert!(out.is_closed());
 }
 
 /// A watcher's row of chat `chat` at change `n`, a few KB as a list row is.
