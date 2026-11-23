@@ -345,12 +345,6 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `agentPane.display.minimap` | string | `"compact"` | `compact`, `full`, `off` | Chat Minimap. What runs down the chat's edge. |
 | `agentPane.display.transcriptView` | string | `"normal"` | `normal`, `thinking`, `verbose` | Transcript View. How much of each turn a chat shows. A chat's ··· menu sets its own. |
 | `agentPane.display.presentation` | string | `"transcript"` | `transcript`, `messages` | Chat Presentation |
-| `agentPane.display.trajectory.layout` | string | `"default"` | `default`, `rail` | Steps Layout. How an agent's tool calls and thoughts are drawn. |
-| `agentPane.display.trajectory.density` | string | `"default"` | `default`, `compact`, `relaxed` | Steps Density |
-| `agentPane.display.trajectory.grouping` | string | `"default"` | `default`, `separate` | Steps Grouping |
-| `agentPane.display.trajectory.hide` | array | `[]` | `thinking`, `reads`, `searches`, `commands`, `edits`, `tools` | Hidden Steps. Failed steps and permission requests always show. |
-| `agentPane.display.transcriptLook` | string | `"cmux"` | `cmux`, `claude`, `codex`, `studio` | Transcript Look. How messages, cards and spacing look. |
-| `agentPane.display.transcriptTokens` | string | `{}` |  | Transcript Look Tokens. Token values that override the transcript look. |
 | `agentPane.display.promptCoach` | boolean | `true` |  | Prompt Coach. After a chat with many corrections, shows a better first prompt. |
 | `agentPane.display.statusVerbs.mode` | string | `"thinking"` | `thinking`, `rotate`, `custom` | Working Status Verbs. Choose whether the live status line rotates through verbs or stays on Thinking. |
 | `agentPane.display.statusVerbs.custom` | string |  |  | Custom Working Verbs. Comma-separated -ing verbs for the live status line. |
@@ -733,8 +727,6 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `agentPane.showMachineLoadWarnings` | boolean | `true` |  | Show Machine Load Warnings. Shows a warning when a remote machine is at its CPU or memory budget in the Computer menu. |
 | `agentPane.newChatsIn` | string | `"local"` | `local`, `cloud` | Start New Chats In. Cloud copies your project to your Cloud machine. A chat's composer can change it. |
 | `agentPane.sessionWorktrees` | string | `"off"` | `off`, `shared`, `project` | Session Worktrees. Choose where to keep worktrees for local chats and forks. |
-| `agentPane.composerLook` | string | `"auto"` | `auto`, `studio` | Composer Look. Where the mode, model and effort sit: under the box or inside it. |
-| `agentPane.emptyChatComposerPosition` | string | `"bottom"` | `bottom`, `center` | Empty Chat Message Box. Where the message box sits in a chat with no messages yet. |
 | `agentPane.zoom` | real | `1` | 0.5 to 2 | Agent Chat Zoom. The display size for agent chat. Cmd-0 resets it. |
 | `agents.defaultPermissionMode` | string | `"fullAccess"` | `fullAccess`, `standard`, `ask` | Permission Mode for New Chats. What a new chat may do without asking. A mode you pick in a chat applies to that chat only. |
 | `agents.promptCache` | string | `"1h"` | `1h`, `5m` | Prompt Cache. One hour keeps replies after a pause cheap; its cache writes cost a little more. |

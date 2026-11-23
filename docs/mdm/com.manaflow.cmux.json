@@ -12,16 +12,6 @@
       "title" : "Attachment View",
       "type" : "string"
     },
-    "agentPane.composerLook" : {
-      "default" : "auto",
-      "description" : "Where the mode, model and effort sit: under the box or inside it.",
-      "enum" : [
-        "auto",
-        "studio"
-      ],
-      "title" : "Composer Look",
-      "type" : "string"
-    },
     "agentPane.composerRing" : {
       "default" : "context",
       "description" : "What the ring at the end of the composer shows.",
@@ -335,76 +325,6 @@
       "title" : "Shimmer Speed",
       "type" : "number"
     },
-    "agentPane.display.trajectory.density" : {
-      "default" : "default",
-      "description" : "agentPane.display.trajectory.density",
-      "enum" : [
-        "default",
-        "compact",
-        "relaxed"
-      ],
-      "title" : "Steps Density",
-      "type" : "string"
-    },
-    "agentPane.display.trajectory.grouping" : {
-      "default" : "default",
-      "description" : "agentPane.display.trajectory.grouping",
-      "enum" : [
-        "default",
-        "separate"
-      ],
-      "title" : "Steps Grouping",
-      "type" : "string"
-    },
-    "agentPane.display.trajectory.hide" : {
-      "default" : [
-
-      ],
-      "description" : "Failed steps and permission requests always show.",
-      "items" : {
-        "enum" : [
-          "thinking",
-          "reads",
-          "searches",
-          "commands",
-          "edits",
-          "tools"
-        ],
-        "type" : "string"
-      },
-      "title" : "Hidden Steps",
-      "type" : "array"
-    },
-    "agentPane.display.trajectory.layout" : {
-      "default" : "default",
-      "description" : "How an agent's tool calls and thoughts are drawn.",
-      "enum" : [
-        "default",
-        "rail"
-      ],
-      "title" : "Steps Layout",
-      "type" : "string"
-    },
-    "agentPane.display.transcriptLook" : {
-      "default" : "cmux",
-      "description" : "How messages, cards and spacing look.",
-      "enum" : [
-        "cmux",
-        "claude",
-        "codex",
-        "studio"
-      ],
-      "title" : "Transcript Look",
-      "type" : "string"
-    },
-    "agentPane.display.transcriptTokens" : {
-      "default" : {
-
-      },
-      "description" : "Token values that override the transcript look.",
-      "title" : "Transcript Look Tokens",
-      "type" : "string"
-    },
     "agentPane.display.transcriptView" : {
       "default" : "normal",
       "description" : "How much of each turn a chat shows. A chat's ··· menu sets its own.",
@@ -488,16 +408,6 @@
         "never"
       ],
       "title" : "Edited Files Card",
-      "type" : "string"
-    },
-    "agentPane.emptyChatComposerPosition" : {
-      "default" : "bottom",
-      "description" : "Where the message box sits in a chat with no messages yet.",
-      "enum" : [
-        "bottom",
-        "center"
-      ],
-      "title" : "Empty Chat Message Box",
       "type" : "string"
     },
     "agentPane.images.remote" : {
