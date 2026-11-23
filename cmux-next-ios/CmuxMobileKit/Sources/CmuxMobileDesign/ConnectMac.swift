@@ -30,33 +30,52 @@ public struct ConnectMacSteps: View {
         self.openAccount = openAccount
     }
 
-    public var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            if onlineMac == nil, noMacsForAccount {
-                otherAccount
-            } else {
-                step(1, signInText)
-            }
-            // A Mac with connections disabled has not registered with the account either.
-            step(2, Text("In cmux on your Mac, turn on \(Text("Settings → Mobile → Allow iPhone Connections").fontWeight(.semibold))."))
-            status
-                .padding(.top, 6)
-        }
-        .frame(maxWidth: 340, alignment: .leading)
-    }
+    @State private var showsHelp = false
 
-    /// Said plainly when no Mac is signed in to this account anywhere: the
-    /// usual cause is a Mac signed in with another account (another sign-in
-    /// method can make another account for the same person).
-    private var otherAccount: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            step(1, signInText)
-            if let openAccount {
+    /// One line of status. The two steps (what to do on the Mac) sit behind an info circle that opens a small popover
+    /// (Leo, 2026-11-23: "NEVER THIS FUCKING TMI ... THERE ARE HOVERS AND QUESTION MARK CIRCLES AND INFO CIRCLES").
+    public var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                status
+                helpButton
+            }
+            if onlineMac == nil, noMacsForAccount, let openAccount {
                 Button("Account Settings", action: openAccount)
                     .font(theme.type.rowSubtitle.weight(.semibold))
                     .foregroundStyle(theme.colors.label)
                     .accessibilityIdentifier("connect-mac.account")
             }
+        }
+        .frame(maxWidth: 340, alignment: .leading)
+    }
+
+    private var helpButton: some View {
+        Button {
+            showsHelp = true
+        } label: {
+            Image(systemName: "info.circle")
+                .font(theme.type.rowSubtitle)
+                .foregroundStyle(theme.colors.label2)
+                .frame(minWidth: 44, minHeight: 44)
+                .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("How to connect")
+        .accessibilityIdentifier("connect-mac.help")
+        .popover(isPresented: $showsHelp) {
+            VStack(alignment: .leading, spacing: 12) {
+                if onlineMac == nil, noMacsForAccount {
+                    Text("Your account has no Mac. A Mac signed in with another account will not show here.")
+                        .font(theme.type.body)
+                }
+                step(1, signInText)
+                // A Mac with connections disabled has not registered with the account either.
+                step(2, Text("In cmux on your Mac, turn on \(Text("Settings → Mobile → Allow iPhone Connections").fontWeight(.semibold))."))
+            }
+            .padding(16)
+            .frame(maxWidth: 320, alignment: .leading)
+            .presentationCompactAdaptation(.popover)
         }
     }
 
