@@ -315,13 +315,7 @@ public final class MacScreenSession {
                 if let kind = path.kind { try? await signaling.send(.path(relay: Self.isRelayed(kind))) }
             }
             if let reason = line.ended {
-                switch Self.failureCause(ofEnded: reason) {
-                case let .host(why)?: hostFailed(why)
-                case let cause?:
-                    end(reason)
-                    if case .failed = phase { failureCause = cause }
-                case nil: end(reason)
-                }
+                linkEnded(reason)
                 return
             }
         }
@@ -429,6 +423,19 @@ public final class MacScreenSession {
     private func fail(_ message: String) {
         disconnect()
         phase = .failed(message: message, needsSignIn: false)
+    }
+
+    /// `cmux rd connect`'s `ended` line: the session ends, a failure naming who failed
+    /// (``failureCause(ofEnded:)``), so the failed card says why ("link failed: the secure
+    /// handshake timed out" reads "The connection to <name> failed: the secure handshake timed out").
+    func linkEnded(_ reason: String) {
+        switch Self.failureCause(ofEnded: reason) {
+        case let .host(why)?: hostFailed(why)
+        case let cause?:
+            end(reason)
+            if case .failed = phase { failureCause = cause }
+        case nil: end(reason)
+        }
     }
 
     /// The host said it could not serve the session: a failure even after the picture started
