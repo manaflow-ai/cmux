@@ -117,6 +117,13 @@ class PlanTest(unittest.TestCase):
         self.assertEqual(planned["layers"], ["rust"])
         self.assertFalse(planned["needs_build"])
 
+    def test_a_daemon_plan_says_whether_the_head_s_tree_is_published(self):
+        # The worker builds the head's daemon (look --rust-binary-head) only when CI published none (a lane head).
+        head = self.fx.change({"cmux-tui/crates/cmux-tui/src/main.rs": "fn main() {}\n"})
+        self.assertTrue(self.plan(head)["tree_published"])
+        hv.hot().published = lambda key: False
+        self.assertFalse(self.plan(head)["tree_published"])
+
     def test_web_and_daemon(self):
         planned = self.plan(self.fx.change({"webviews/src/app.tsx": "export const title = 'x'\n",
                                             "cmux-tui/crates/cmux-tui/src/main.rs": "fn main() {}\n"}))
@@ -882,13 +889,37 @@ class ApplyRustTest(unittest.TestCase):
         hv.hot().published = self.saved
         self.tmp.cleanup()
 
-    def apply(self, planned: dict, src_tree: Path | None = None, binary: Path | None = None) -> dict:
+    def apply(self, planned: dict, src_tree: Path | None = None, binary: Path | None = None,
+              head_binary: Path | None = None) -> dict:
         def run(argv, **kw):
             self.calls.append([str(a) for a in argv])
             return subprocess.CompletedProcess(argv, 0, stdout='{"phases": {}}\n', stderr="")
         with unittest.mock.patch.object(hv.subprocess, "run", run), \
                 unittest.mock.patch.object(hv.shutil, "which", lambda name: "/usr/bin/" + name):
-            return hv.apply_rust(self.root, planned, src_tree, self.StubSide(self.root), self.root, binary)
+            return hv.apply_rust(self.root, planned, src_tree, self.StubSide(self.root), self.root, binary,
+                                 head_binary)
+
+    def test_an_unpublished_head_takes_the_binary_built_from_the_head(self):
+        # 2026-11-23: CI publishes no cmux-tui tree for a lane head, so a rust look of one failed on the fetch.
+        built = self.root / "head-cmux-tui"
+        applied = self.apply({"head": self.HEAD, "tree_key": "k"}, head_binary=built)
+        (argv,) = self.calls
+        self.assertIn(self.HEAD, argv)
+        self.assertEqual(argv[argv.index("--binary") + 1], str(built))
+        self.assertEqual(applied["how"], "given binary built from the head")
+
+    def test_a_published_head_tree_wins_over_a_head_binary(self):
+        self.published = True
+        applied = self.apply({"head": self.HEAD, "tree_key": "k"}, head_binary=self.root / "head-cmux-tui")
+        (argv,) = self.calls
+        self.assertNotIn("--binary", argv)
+        self.assertEqual(applied["how"], "published tree build")
+
+    def test_a_head_binary_never_goes_in_for_a_daemon_onto_the_app(self):
+        with self.assertRaisesRegex(hv.LookError, "--rust-binary"):
+            self.apply({"head": self.HEAD, "daemon_from": self.ONTO, "tree_key": "k"},
+                       head_binary=self.root / "head-cmux-tui")
+        self.assertEqual(self.calls, [])
 
     def test_an_unbuilt_daemon_onto_the_app_is_never_the_head_s(self):
         planned = {"head": self.HEAD, "daemon_from": self.ONTO, "tree_key": "k"}
