@@ -9,7 +9,10 @@
 #   once the build commit's marker names the build's tree and the installed
 #   client's commit as its publisher.
 #   scripts/ci/nightly-steps/resolve-tree-pending.sh reports tree_pending and the
-#   candidates only for a clean 404.
+#   candidates only for a clean 404, and the newest published tree as fallback=.
+#   scripts/ci/nightly-steps/app-bundle-cmux-tui-client.sh installs the build
+#   commit's tree when one look finds it, else the fallback tree right away
+#   (RFD 0021 row 1), and the marker gate accepts that fallback tree's publisher.
 # No network: a curl shim serves the CDN from files, the GitHub API is file://.
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
@@ -43,6 +46,9 @@ own=$(git -C "$TMP/src" rev-parse HEAD)
 echo app > "$TMP/src/app.swift"
 git_q -C "$TMP/src" add -A; git_q -C "$TMP/src" commit -m app
 app=$(git -C "$TMP/src" rev-parse HEAD)
+echo takeover > "$TMP/src/takeover.swift"
+git_q -C "$TMP/src" add -A; git_q -C "$TMP/src" commit -m takeover
+takeover=$(git -C "$TMP/src" rev-parse HEAD)
 key=$(cd "$TMP/src" && python3 scripts/ci/cmux_tui_tree_key.py --version v2 HEAD)
 [[ "$(cd "$TMP/src" && python3 scripts/ci/cmux_tui_tree_key.py --version v2 "$own")" == "$key" ]] || { echo "fixture: own and app differ" >&2; exit 1; }
 [[ "$(cd "$TMP/src" && python3 scripts/ci/cmux_tui_tree_key.py --version v2 "$base")" != "$key" ]] || { echo "fixture: base has the key" >&2; exit 1; }
@@ -140,13 +146,154 @@ check '[[ $status == 1 && $took -ge 600 ]] && grep -q "after 10 min" "$TMP/err"'
 # the wait goes on to the limit instead of failing fast.
 reset_cdn; set_runs "$no_runs"
 printf '%s\n' "{\"total_count\":1,\"workflow_runs\":[{\"id\":2,\"status\":\"queued\",\"head_sha\":\"$own\"}]}" > "$runs_dir/runs-$own"
+mkdir -p "$TMP/api/repos/o/r/actions/runs/2"
+printf '%s\n' '{"jobs":[{"name":"cmux-tui tree preflight","status":"in_progress","runner_name":"linux-2"}]}' > "$TMP/api/repos/o/r/actions/runs/2/jobs"
 client "$own" "$app"
 check '[[ $status == 1 && $took -ge 600 ]] && grep -q "is building tree" "$TMP/err"' "a candidate's own active run counts as a publisher (took $took s)"
 rm -f "$runs_dir/runs-$own"
 
+# 5c-5f. The wait follows the publisher's jobs, not only "active" (2026-11-18: nightly
+# 44243166776 waited blind on owner 44240874997, whose Linux build had failed, and on a
+# takeover run whose Linux builds sat queued on Blacksmith with no runner).
+# Job times are relative to the fake clock, which earlier cases advanced: ago <seconds>.
+ago() { date -u -d "@$(( $(awk '{ printf "%d", $1 }' "$FAKE_CLOCK_FILE") - $1 ))" +%Y-%m-%dT%H:%M:%SZ; }
+jobs_file() { mkdir -p "$TMP/api/repos/o/r/actions/runs/$1"; printf '%s\n' "$2" > "$TMP/api/repos/o/r/actions/runs/$1/jobs"; }
+# own_run <commit> <run id> [attempt]: an in-progress artifacts run of <commit>.
+own_run() { printf '%s\n' "{\"total_count\":1,\"workflow_runs\":[{\"id\":$2,\"status\":\"in_progress\",\"run_attempt\":${3:-1},\"head_sha\":\"$1\",\"head_branch\":\"feat-cmux-next\",\"created_at\":\"2023-11-14T22:00:00Z\"}]}" > "$runs_dir/runs-$1"; }
+failed_jobs='{"jobs":[{"name":"build / build aarch64-apple-darwin","status":"in_progress","runner_name":"mac-1","created_at":"2023-11-14T22:00:00Z"},{"name":"build-linux / build aarch64-unknown-linux-musl","status":"completed","conclusion":"failure","runner_name":"bs-1","created_at":"2023-11-14T22:00:00Z"}]}'
+reset_cdn; set_runs "$no_runs"; own_run "$own" 3 3; jobs_file 3 "$failed_jobs"
+client "$own" "$app"
+check '[[ $status == 1 && $took -ge 120 && $took -lt 300 ]] && grep -q "making progress" "$TMP/err" && grep -q "failed build-linux" "$TMP/err"' "a publisher whose build failed on its last attempt fails fast, not at the limit (took $took s)"
+
+# Before the last attempt cmux-tui-artifacts-retry re-runs the failed job (tree 453a2f94
+# published on such a retry): the wait goes on.
+reset_cdn; set_runs "$no_runs"; own_run "$own" 7 1; jobs_file 7 "$failed_jobs"
+client "$own" "$app"
+check '[[ $status == 1 && $took -ge 600 ]] && grep -q "is building tree" "$TMP/err"' "a failed build that a retry will re-run keeps the wait (took $took s)"
+
+# A failed primary macOS leg is rebuilt by build-darwin-fallback: not final either.
+reset_cdn; set_runs "$no_runs"; own_run "$own" 8 3
+jobs_file 8 '{"jobs":[{"name":"build / build aarch64-apple-darwin","status":"completed","conclusion":"failure","runner_name":"mac-1","created_at":"2023-11-14T22:00:00Z"}]}'
+client "$own" "$app"
+check '[[ $status == 1 && $took -ge 600 ]] && grep -q "is building tree" "$TMP/err"' "a failed primary macOS leg (the fallback rebuilds it) keeps the wait (took $took s)"
+
+reset_cdn; set_runs "$no_runs"; own_run "$own" 4
+jobs_file 4 '{"jobs":[{"name":"build / build aarch64-apple-darwin","status":"in_progress","runner_name":"mac-1","created_at":"'"$(ago 1000)"'"},{"name":"build / build aarch64-unknown-linux-musl","status":"queued","runner_name":null,"labels":["blacksmith-16vcpu-ubuntu-2404"],"created_at":"'"$(ago 1000)"'"}]}'
+client "$own" "$app"
+check '[[ $status == 1 && $took -ge 120 && $took -lt 300 ]] && grep -Eq "queued 1[6-9] min for blacksmith-16vcpu-ubuntu-2404" "$TMP/err"' "a publisher whose build has no runner past the stall bound fails fast (took $took s)"
+
+reset_cdn; set_runs "$no_runs"; own_run "$own" 5
+jobs_file 5 '{"jobs":[{"name":"build / build aarch64-unknown-linux-musl","status":"queued","runner_name":null,"labels":["blacksmith-16vcpu-ubuntu-2404"],"created_at":"'"$(ago 0)"'"}]}'
+client "$own" "$app"
+check '[[ $status == 1 && $took -ge 600 ]] && grep -q "is building tree" "$TMP/err"' "a build queued under the stall bound keeps the wait (took $took s)"
+
+# A job that does not hold the tree back (a shadow) may queue past the bound.
+reset_cdn; set_runs "$no_runs"; own_run "$own" 9
+jobs_file 9 '{"jobs":[{"name":"build / build aarch64-unknown-linux-musl","status":"in_progress","runner_name":"bs-2","created_at":"'"$(ago 1000)"'"},{"name":"macOS cross-compile shadow (Linux, compare only)","status":"queued","runner_name":null,"labels":["blacksmith-16vcpu-ubuntu-2404"],"created_at":"'"$(ago 1000)"'"}]}'
+client "$own" "$app"
+check '[[ $status == 1 && $took -ge 600 ]] && grep -q "is building tree" "$TMP/err"' "a queued job that holds no tree back keeps the wait (took $took s)"
+
+# Preflight gates every build: the incident had only this job, queued without a runner.
+reset_cdn; set_runs "$no_runs"; own_run "$own" 10
+jobs_file 10 '{"jobs":[{"name":"cmux-tui tree preflight","status":"queued","runner_name":null,"labels":["cmux-gcp-lane-build-x64"],"created_at":"'"$(ago 1000)"'"}]}'
+client "$own" "$app"
+check '[[ $status == 1 && $took -ge 120 && $took -lt 300 ]] && grep -q "stalled cmux-tui tree preflight queued" "$TMP/err" && grep -q "cmux-gcp-lane-build-x64" "$TMP/err" && grep -q "/actions/runs/10" "$TMP/err"' "a preflight with no runner past the stall bound fails fast with its state and run (took $took s)"
+
+preflight_failed='{"jobs":[{"name":"cmux-tui tree preflight","status":"completed","conclusion":"failure","runner_name":"linux-1","created_at":"2023-11-14T22:00:00Z"}]}'
+reset_cdn; set_runs "$no_runs"; own_run "$own" 11 3; jobs_file 11 "$preflight_failed"
+client "$own" "$app"
+check '[[ $status == 1 && $took -ge 120 && $took -lt 300 ]] && grep -q "failed cmux-tui tree preflight" "$TMP/err" && grep -q "/actions/runs/11" "$TMP/err"' "a terminal preflight failure fails fast with its state and run (took $took s)"
+
+# A completed workflow must retain the preflight error, not only an active workflow.
+completed_run() {
+  own_run "$1" "$2" "${3:-3}"
+  python3 - "$runs_dir/runs-$1" <<'JSON'
+import json, sys
+p = sys.argv[1]
+d = json.load(open(p))
+d["workflow_runs"][0].update(status="completed", conclusion="failure")
+with open(p, "w") as f:
+    json.dump(d, f)
+JSON
+}
+reset_cdn; set_runs "$no_runs"; completed_run "$own" 11; jobs_file 11 "$preflight_failed"
+client "$own" "$app"
+check '[[ $status == 1 && $took -ge 120 && $took -lt 300 ]] && grep -q "failed cmux-tui tree preflight" "$TMP/err" && grep -q "/actions/runs/11" "$TMP/err"' "a completed publisher retains its terminal preflight failure (took $took s)"
+
+# Let the automatic retry become active between the two idle observations.
+reset_cdn; set_runs "$no_runs"; completed_run "$own" 12 1; jobs_file 12 "$preflight_failed"
+cp "$runs_dir/runs-$own" "$TMP/completed-run"
+own_run "$own" 12 2; cp "$runs_dir/runs-$own" "$TMP/active-retry"
+cp "$TMP/completed-run" "$runs_dir/runs-$own"
+fake_clock_at 60 "cp '$TMP/active-retry' '$runs_dir/runs-$own'"
+client "$own" "$app"
+check '[[ $status == 1 && $took -ge 600 ]] && grep -q "is building tree" "$TMP/err"' "an active retry clears a completed preflight failure during grace (took $took s)"
+
+for attempt in 1 2; do
+  reset_cdn; set_runs "$no_runs"; own_run "$own" 12 "$attempt"; jobs_file 12 "$preflight_failed"
+  client "$own" "$app"
+  check '[[ $status == 1 && $took -ge 600 ]] && grep -q "is building tree" "$TMP/err"' "a preflight failure with active retry grace keeps the wait on attempt $attempt (took $took s)"
+done
+
+reset_cdn; set_runs "$no_runs"; own_run "$own" 13
+jobs_file 13 '{"jobs":[{"name":"cmux-tui tree preflight","status":"queued","runner_name":null,"labels":["cmux-gcp-lane-build-x64"],"created_at":"'"$(ago 0)"'"}]}'
+client "$own" "$app"
+check '[[ $status == 1 && $took -ge 600 ]] && grep -q "is building tree" "$TMP/err"' "a preflight queued under the stall bound keeps the wait (took $took s)"
+
+# The failed owner is passed over for another same-key run that is building.
+reset_cdn; own_run "$own" 3 3
+set_runs "{\"total_count\":2,\"workflow_runs\":[{\"id\":3,\"status\":\"in_progress\",\"head_sha\":\"$own\",\"head_branch\":\"feat-cmux-next\"},{\"id\":6,\"status\":\"in_progress\",\"head_sha\":\"$app\",\"head_branch\":\"feat-cmux-next\"}]}"
+own_run "$app" 6
+jobs_file 6 '{"jobs":[{"name":"cmux-tui tree preflight","status":"in_progress","runner_name":"linux-6"}]}'
+client "$own"
+check '[[ $status == 1 && $took -ge 600 ]] && grep -q "run of ${app:0:12} is building tree" "$TMP/err"' "a failed owner is passed over for a same-key run that builds (took $took s)"
+rm -f "$runs_dir/runs-$own" "$runs_dir/runs-$app"; rm -rf "$TMP/api/repos/o/r/actions/runs"
+
+# A stalled first alternate must not hide a second publisher that is building.
+echo another-app > "$TMP/src/app.swift"
+git_q -C "$TMP/src" add app.swift; git_q -C "$TMP/src" commit -m app-again
+app_again=$(git -C "$TMP/src" rev-parse HEAD)
+reset_cdn; own_run "$app" 10; own_run "$app_again" 14
+jobs_file 10 '{"jobs":[{"name":"cmux-tui tree preflight","status":"queued","runner_name":null,"created_at":"'"$(ago 1000)"'"}]}'
+jobs_file 14 '{"jobs":[{"name":"cmux-tui tree preflight","status":"in_progress","runner_name":"linux-2"}]}'
+set_runs "{\"workflow_runs\":[{\"id\":10,\"status\":\"in_progress\",\"head_sha\":\"$app\",\"head_branch\":\"feat-cmux-next\"},{\"id\":14,\"status\":\"in_progress\",\"head_sha\":\"$app_again\",\"head_branch\":\"feat-cmux-next\"}]}"
+client "$own"
+check '[[ $status == 1 && $took -ge 600 ]] && grep -q "run of ${app_again:0:12} is building tree" "$TMP/err"' "a stalled alternate is passed over for a progressing same-key publisher (took $took s)"
+rm -f "$runs_dir/runs-$app" "$runs_dir/runs-$app_again"; rm -rf "$TMP/api/repos/o/r/actions/runs"
+set_runs "$no_runs"
+git_q -C "$TMP/src" checkout "$app"
+
+# A stuck same-key publisher found in the full runs list is passed over for a later
+# same-key publisher too; a single active-publisher lookup must not abort while a
+# viable takeover run exists.
+reset_cdn; own_run "$app" 10 3; own_run "$takeover" 11 1
+jobs_file 10 "$failed_jobs"
+jobs_file 11 '{"jobs":[{"name":"build / build aarch64-apple-darwin","status":"in_progress","runner_name":"mac-1","created_at":"2023-11-14T22:00:00Z"}]}'
+set_runs "{\"total_count\":2,\"workflow_runs\":[{\"id\":10,\"status\":\"in_progress\",\"head_sha\":\"$app\",\"head_branch\":\"feat-cmux-next\"},{\"id\":11,\"status\":\"in_progress\",\"head_sha\":\"$takeover\",\"head_branch\":\"feat-cmux-next\"}]}"
+client "$own"
+check '[[ $status == 1 && $took -ge 600 ]] && grep -q "run of ${takeover:0:12} is building tree" "$TMP/err"' "a stuck publisher is passed over for a later same-key run (took $took s)"
+rm -f "$runs_dir/runs-$app" "$runs_dir/runs-$takeover"; rm -rf "$TMP/api/repos/o/r/actions/runs"
+
 # 6. Bad usage.
 status=0; (cd "$TMP/src" && bash scripts/cmux-next/await-tree-client.sh nope "$own" 2>/dev/null) || status=$?
 check '[[ $status == 2 ]]' "a malformed key is a usage error"
+
+# 7. CMUX_TUI_TREE_CLIENT_WAIT_SECONDS=0 looks once and never waits or reads a runs list.
+client_once() { # <candidates...> -> out, status, took
+  local started; started=$(date +%s); status=0
+  out=$(cd "$TMP/src" && env "${env_common[@]}" GITHUB_API_URL="file://$TMP/no-api" CMUX_TUI_TREE_CLIENT_WAIT_SECONDS=0 \
+    bash scripts/cmux-next/await-tree-client.sh "$key" "$@" 2>"$TMP/err") || status=$?
+  took=$(( $(date +%s) - started ))
+}
+reset_cdn; set_runs "$active_run"
+client_once "$own" "$app"
+check '[[ $status == 1 && $took -lt 20 ]] && grep -q "looked once" "$TMP/err"' "one look at an unpublished tree misses at once (took $took s)"
+reset_cdn; publish_manifest "$app"
+client_once "$own" "$app"
+check '[[ $status == 0 && $out == "$app" ]]' "one look takes an uploaded candidate manifest"
+reset_cdn; publish_tree "$own"; publish_manifest "$own"
+client_once "$own" "$app"
+check '[[ $status == 0 && $out == "$own" ]]' "one look takes a published tree's publisher"
 
 # The marker gate.
 marker() { # <commit> <key> <publishedBy>
@@ -172,15 +319,49 @@ check '[[ $status == 0 && $took -ge 60 && $took -lt 120 ]]' "the gate waits for 
 reset_cdn; gate "$own"
 check '[[ $status == 1 && $took -ge 300 ]] && grep -q "not written in time" "$TMP/out"' "no marker fails at the limit"
 
+# A build that bundled the newest published tree (base's) instead of its own.
+base_key=$(cd "$TMP/src" && python3 scripts/ci/cmux_tui_tree_key.py --version v2 "$base")
+# publish_tree_as <key> <publisher>: tree <key> published by <publisher>, with its manifest.
+publish_tree_as() {
+  mkdir -p "$TMP/cdn/tree/$1"
+  printf '%s  cmux-tui-aarch64-apple-darwin\n' "$(sha_of bin)" > "$TMP/cdn/tree/$1/cmux-tui-aarch64-apple-darwin.sha256"
+  printf '{"commit":"%s","key":"%s"}\n' "$2" "$1" > "$TMP/cdn/tree/$1/source.json"
+  publish_manifest "$2"
+}
+gate_fallback() { # <installed> <installed key> -> status, took
+  local started; started=$(date +%s); status=0
+  (cd "$TMP/src" && env "${env_common[@]}" BUILD_SHA="$app" KEY="$key" INSTALLED="$1" INSTALLED_KEY="$2" \
+    CMUX_TREE_MARKER_WAIT_SECONDS=300 bash scripts/ci/nightly-steps/await-tree-marker.sh >"$TMP/out" 2>&1) || status=$?
+  took=$(( $(date +%s) - started ))
+}
+reset_cdn; publish_tree_as "$base_key" "$base"; gate_fallback "$base" "$base_key"
+check '[[ $status == 0 && $took -lt 20 ]] && grep -q "fallback tree" "$TMP/out"' "a fallback tree published by the installed commit passes at once, with no build-commit marker"
+reset_cdn; publish_tree_as "$base_key" "$own"; gate_fallback "$base" "$base_key"
+check '[[ $status == 1 ]] && grep -q "installed the client of" "$TMP/out"' "a fallback tree published by another commit refuses"
+reset_cdn; gate_fallback "$base" "$base_key"
+check '[[ $status == 1 && $took -lt 20 ]] && grep -q "is not published" "$TMP/out"' "an unpublished fallback tree refuses"
+reset_cdn; marker "$app" "$key" "$own"; gate_fallback "$own" "$key"
+check '[[ $status == 0 ]]' "INSTALLED_KEY equal to the build's tree keeps the marker gate"
+
 # The resolver's pending step.
-pending() { # -> status, output file
+pending() { # [VAR=value...] -> status, output file
   : > "$TMP/gh-output"; : > "$TMP/summary"; status=0
-  (cd "$TMP/src" && env "${env_common[@]}" TIP_SHA="$app" GITHUB_OUTPUT="$TMP/gh-output" GITHUB_STEP_SUMMARY="$TMP/summary" \
+  (cd "$TMP/src" && env "${env_common[@]}" "$@" TIP_SHA="$app" GITHUB_OUTPUT="$TMP/gh-output" GITHUB_STEP_SUMMARY="$TMP/summary" \
     bash scripts/ci/nightly-steps/resolve-tree-pending.sh >/dev/null 2>&1) || status=$?
 }
 reset_cdn; pending
 check '[[ $status == 0 ]] && grep -qx "tree_pending=true" "$TMP/gh-output" && grep -qx "candidates=$own $app" "$TMP/gh-output" && grep -qx "key=$key" "$TMP/gh-output"' \
   "an unpublished tip is built with its same-key candidates, oldest first"
+check 'grep -qx "fallback=" "$TMP/gh-output"' "with no published tree in the history there is no fallback"
+reset_cdn; publish_tree_as "$base_key" "$base"; pending
+check '[[ $status == 0 ]] && grep -qx "tree_pending=true" "$TMP/gh-output" && grep -qx "fallback=$base $base_key" "$TMP/gh-output" && grep -q "fallback client" "$TMP/summary"' \
+  "an unpublished tip names the newest published tree as its fallback"
+# The newest published tree past the first look's window (base is 3 commits back; run 45097887921's was 87).
+reset_cdn; publish_tree_as "$base_key" "$base"; pending CMUX_TUI_TREE_SEARCH_COMMITS=2
+check '[[ $status == 0 ]] && grep -qx "fallback=$base $base_key" "$TMP/gh-output"' \
+  "a published tree past the first look's window is still the fallback"
+reset_cdn; publish_tree_as "$base_key" "$base"; pending CMUX_TUI_TREE_SEARCH_COMMITS=2 CMUX_TUI_TREE_FALLBACK_SEARCH_COMMITS=2
+check '[[ $status == 0 ]] && grep -qx "fallback=" "$TMP/gh-output"' "past the wider look's window there is no fallback"
 reset_cdn; publish_tree "$own"; publish_manifest "$own"; pending
 check '[[ $status == 0 ]] && grep -qx "tree_pending=false" "$TMP/gh-output"' "a published tip leaves it to the resolver"
 reset_cdn; mkdir -p "$TMP/cdn/tree/$key"; echo garbage > "$TMP/cdn/tree/$key/cmux-tui-aarch64-apple-darwin.sha256"; pending
@@ -188,14 +369,49 @@ check '[[ $status == 0 ]] && grep -qx "tree_pending=false" "$TMP/gh-output"' "an
 # Nothing will publish the tip's tree (its publisher ended without it, no same-key run is active):
 # the resolver picks the newest published tree instead of a build that fails 45 min in (2026-11-09).
 ended_run="{\"total_count\":1,\"workflow_runs\":[{\"id\":3,\"status\":\"completed\",\"conclusion\":\"failure\",\"head_sha\":\"$own\",\"html_url\":\"u3\"}]}"
-reset_cdn; set_runs "$no_runs"; printf '%s\n' "$ended_run" > "$runs_dir/runs-$own"; pending
+reset_cdn; set_runs "$no_runs"; jobs_file 3 "$preflight_failed"; printf '%s\n' "$ended_run" > "$runs_dir/runs-$own"; pending
 check '[[ $status == 0 ]] && grep -qx "tree_pending=false" "$TMP/gh-output" && grep -q "nothing will publish" "$TMP/summary"' \
   "a tree whose publisher ended unpublished leaves it to the resolver"
-printf '%s\n' "{\"total_count\":1,\"workflow_runs\":[{\"id\":4,\"status\":\"queued\",\"head_sha\":\"$app\"}]}" > "$runs_dir/runs-$app"; pending
+building_jobs='{"jobs":[{"name":"cmux-tui tree preflight","status":"in_progress","runner_name":"linux-active"}]}'
+own_run "$app" 30; jobs_file 30 "$building_jobs"; pending
 check '[[ $status == 0 ]] && grep -qx "tree_pending=true" "$TMP/gh-output"' "a candidate's active run keeps the tip pending"
-rm -f "$runs_dir/runs-$app"; set_runs "$active_run"; pending
+# A distinct same-tree commit is active; the failed candidate remains completed.
+rm -f "$runs_dir/runs-$app"; own_run "$app_again" 31; jobs_file 31 "$building_jobs"
+set_runs "{\"total_count\":1,\"workflow_runs\":[{\"id\":31,\"status\":\"in_progress\",\"head_sha\":\"$app_again\",\"head_branch\":\"feat-cmux-next\"}]}"; pending
 check '[[ $status == 0 ]] && grep -qx "tree_pending=true" "$TMP/gh-output"' "an active same-key run keeps the tip pending"
-rm -f "$runs_dir/runs-$own"; set_runs "$no_runs"
+rm -f "$runs_dir/runs-$own" "$runs_dir/runs-$app_again"; set_runs "$no_runs"
+# The resolver reads the publisher's jobs the way await-tree-client.sh does (2026-11-18: owner
+# 44223233076's build jobs sat queued 2 h with no runner; the nightly retries 44232805509 and
+# 44235456054 each took the tip as pending, and 44235456054 waited the full 45 min on it).
+# An active run that is not making progress publishes nothing in time: the resolver builds the
+# newest published tree instead.
+own_list() { set_runs "{\"total_count\":1,\"workflow_runs\":[{\"id\":$1,\"status\":\"in_progress\",\"head_sha\":\"$own\",\"head_branch\":\"feat-cmux-next\"}]}"; }
+stalled_jobs() { printf '{"jobs":[{"name":"build / build x86_64-unknown-linux-musl","status":"queued","runner_name":null,"labels":["blacksmith-32vcpu-ubuntu-2404"],"created_at":"%s"}]}' "$(ago "$1")"; }
+reset_cdn; own_run "$own" 11; own_list 11; jobs_file 11 "$(stalled_jobs 6000)"; pending
+check '[[ $status == 0 ]] && grep -qx "tree_pending=false" "$TMP/gh-output" && grep -q "making progress" "$TMP/summary" && grep -q "blacksmith-32vcpu-ubuntu-2404" "$TMP/summary"' \
+  "a tree whose only publisher has no runner past the stall bound leaves it to the resolver"
+own_run "$own" 12 3; own_list 12; jobs_file 12 "$failed_jobs"; pending
+check '[[ $status == 0 ]] && grep -qx "tree_pending=false" "$TMP/gh-output" && grep -q "failed build-linux" "$TMP/summary"' \
+  "a tree whose only publisher failed on its last attempt leaves it to the resolver"
+own_run "$own" 13; own_list 13; jobs_file 13 "$(stalled_jobs 0)"; pending
+check '[[ $status == 0 ]] && grep -qx "tree_pending=true" "$TMP/gh-output"' "a publisher queued under the stall bound keeps the tip pending"
+own_run "$own" 14 1; own_list 14; jobs_file 14 "$failed_jobs"; pending
+check '[[ $status == 0 ]] && grep -qx "tree_pending=true" "$TMP/gh-output"' "a failed build a retry will re-run keeps the tip pending"
+# Preflight is a required publisher stage on both resolver and wait surfaces.
+own_run "$own" 16; own_list 16
+jobs_file 16 '{"jobs":[{"name":"cmux-tui tree preflight","status":"queued","runner_name":null,"labels":["cmux-gcp-lane-build-x64"],"created_at":"'"$(ago 1000)"'"}]}'
+pending
+check '[[ $status == 0 ]] && grep -qx "tree_pending=false" "$TMP/gh-output" && grep -q "cmux-tui tree preflight queued" "$TMP/summary"' "a stalled preflight leaves the tip to the resolver with its state"
+completed_run "$own" 17; set_runs "$no_runs"; jobs_file 17 "$preflight_failed"; pending
+check '[[ $status == 0 ]] && grep -qx "tree_pending=false" "$TMP/gh-output" && grep -q "failed cmux-tui tree preflight" "$TMP/summary"' "a completed preflight failure leaves the tip to the resolver with its state"
+own_run "$own" 17 2; pending
+check '[[ $status == 0 ]] && grep -qx "tree_pending=true" "$TMP/gh-output"' "an active preflight retry keeps the tip pending"
+# A stuck owner is passed over for a same-key run that builds: still pending.
+own_run "$own" 11; jobs_file 11 "$(stalled_jobs 6000)"; own_run "$app" 15
+set_runs "{\"total_count\":2,\"workflow_runs\":[{\"id\":11,\"status\":\"in_progress\",\"head_sha\":\"$own\",\"head_branch\":\"feat-cmux-next\"},{\"id\":15,\"status\":\"in_progress\",\"head_sha\":\"$app\",\"head_branch\":\"feat-cmux-next\"}]}"
+jobs_file 15 "$building_jobs"; pending
+check '[[ $status == 0 ]] && grep -qx "tree_pending=true" "$TMP/gh-output"' "a stuck owner passed over for a same-key run that builds keeps the tip pending"
+rm -f "$runs_dir/runs-$own" "$runs_dir/runs-$app"; rm -rf "$TMP/api/repos/o/r/actions/runs"; set_runs "$no_runs"
 
 # Recovery: a run's await-nightly-tree-marker must have passed (or not exist).
 mkdir -p "$TMP/ghbin"
@@ -215,5 +431,67 @@ for mode in ok skipped none failed running unreadable; do
     *) check '[[ $status == 1 && -n $why ]]' "recovery refuses a run whose marker check is $mode ($why)" ;;
   esac
 done
+
+# The bundle step's choice (app-bundle-cmux-tui-client.sh), with the installer and the wait stubbed:
+# STUB_EXACT is what one look (WAIT_SECONDS=0) or the bounded wait finds; STUB_WAIT_EXACT what only the
+# bounded wait finds; STUB_INSTALL_FAIL a commit the installer refuses.
+B="$TMP/bundle"; mkdir -p "$B/scripts/ci/nightly-steps" "$B/scripts/cmux-next" "$B/build-universal/Build/Products/Release/cmux.app"
+cp "$ROOT/scripts/ci/nightly-steps/app-bundle-cmux-tui-client.sh" "$B/scripts/ci/nightly-steps/"
+cat > "$B/scripts/cmux-next/await-tree-client.sh" <<'STUB'
+#!/usr/bin/env bash
+echo "await wait=${CMUX_TUI_TREE_CLIENT_WAIT_SECONDS:-default} $*" >> "$STUB_LOG"
+if [[ "${CMUX_TUI_TREE_CLIENT_WAIT_SECONDS:-}" == 0 ]]; then [[ -n "${STUB_EXACT:-}" ]] && { echo "$STUB_EXACT"; exit 0; }; exit 1; fi
+[[ -n "${STUB_EXACT:-${STUB_WAIT_EXACT:-}}" ]] && { echo "${STUB_EXACT:-$STUB_WAIT_EXACT}"; exit 0; }; exit 1
+STUB
+cat > "$B/scripts/install-cmux-tui-client.sh" <<'STUB'
+#!/usr/bin/env bash
+while (( $# )); do [[ "$1" == --expected-commit ]] && c="$2"; shift; done
+echo "install $c" >> "$STUB_LOG"; [[ "$c" != "${STUB_INSTALL_FAIL:-none}" ]]
+STUB
+printf '#!/usr/bin/env bash\necho "version $*" >> "$STUB_LOG"\n' > "$B/scripts/cmux-next/write-cmux-tui-version.sh"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$B/scripts/strip-release-bundle.sh"
+# STUB_CAPS_FAIL: a commit whose client lacks a capability the app needs (the last install is checked).
+cat > "$B/scripts/cmux-next/check-daemon-capabilities.sh" <<'STUB'
+#!/usr/bin/env bash
+c=$(grep '^install ' "$STUB_LOG" | tail -1); echo "caps ${c#install }" >> "$STUB_LOG"; [[ "${c#install }" != "${STUB_CAPS_FAIL:-none}" ]]
+STUB
+chmod +x "$B/scripts/cmux-next/"*.sh "$B/scripts/"*.sh
+bundle() { # [VAR=value...] -> status; outputs in $TMP/bundle-out, calls in $TMP/bundle-log
+  : > "$TMP/bundle-out"; : > "$TMP/bundle-log"; status=0
+  (cd "$B" && env -u STUB_EXACT RUNNER_TEMP="$TMP/rt" GITHUB_OUTPUT="$TMP/bundle-out" GITHUB_STEP_SUMMARY="$TMP/bundle-summary" \
+    STUB_LOG="$TMP/bundle-log" CMUX_TUI_CLIENT_COMMIT="" CMUX_TUI_CLIENT_KEY="$key" CMUX_TUI_CLIENT_CACHE="$TMP/rt/cache" \
+    TREE_PENDING=true TREE_CANDIDATES="$own $app" TREE_FALLBACK="$base $base_key" "$@" \
+    bash scripts/ci/nightly-steps/app-bundle-cmux-tui-client.sh >"$TMP/bundle-stdout" 2>&1) || status=$?
+}
+bundle STUB_EXACT="$own"
+check '[[ $status == 0 ]] && grep -qx "commit=$own" "$TMP/bundle-out" && grep -qx "key=$key" "$TMP/bundle-out" && grep -qx "tree=exact" "$TMP/bundle-out" && grep -q "^await wait=0 " "$TMP/bundle-log" && ! grep -q "await wait=default" "$TMP/bundle-log"' \
+  "the bundle installs the build commit's tree when one look finds it"
+bundle
+check '[[ $status == 0 ]] && grep -qx "commit=$base" "$TMP/bundle-out" && grep -qx "key=$base_key" "$TMP/bundle-out" && grep -qx "tree=fallback" "$TMP/bundle-out" && grep -qx "version build-universal/Build/Products/Release/cmux.app $base $base_key" "$TMP/bundle-log" && ! grep -q "await wait=default" "$TMP/bundle-log" && grep -q "bundling the newest published tree" "$TMP/bundle-stdout"' \
+  "an unpublished tree bundles the fallback tree at once, and says which"
+bundle TREE_FALLBACK="" STUB_WAIT_EXACT="$app"
+check '[[ $status == 0 ]] && grep -qx "commit=$app" "$TMP/bundle-out" && grep -qx "tree=exact" "$TMP/bundle-out" && grep -q "await wait=default" "$TMP/bundle-log"' \
+  "with no fallback tree the bundle waits for the build commit's tree as before"
+bundle CMUX_TUI_TREE_CLIENT_FALLBACK=off STUB_WAIT_EXACT="$app"
+check '[[ $status == 0 ]] && grep -qx "tree=exact" "$TMP/bundle-out" && ! grep -q "await wait=0 " "$TMP/bundle-log"' "CMUX_TUI_TREE_CLIENT_FALLBACK=off keeps the wait"
+bundle STUB_WAIT_EXACT="$app" STUB_INSTALL_FAIL="$base"
+check '[[ $status == 0 ]] && grep -qx "commit=$app" "$TMP/bundle-out" && grep -qx "key=$key" "$TMP/bundle-out" && grep -qx "tree=exact" "$TMP/bundle-out" && grep -qx "install $base" "$TMP/bundle-log" && grep -qx "install $app" "$TMP/bundle-log"' \
+  "a fallback tree the installer refuses falls back to waiting for the build commit's tree"
+bundle STUB_WAIT_EXACT="$app" STUB_CAPS_FAIL="$base"
+check '[[ $status == 0 ]] && grep -qx "commit=$app" "$TMP/bundle-out" && grep -qx "tree=exact" "$TMP/bundle-out" && grep -qx "caps $base" "$TMP/bundle-log" && grep -qx "install $app" "$TMP/bundle-log" && grep -qx "caps $app" "$TMP/bundle-log"' \
+  "a fallback tree missing a capability the app needs (run 44975559258) falls back to waiting for the build commit's tree"
+bundle TREE_PENDING=false CMUX_TUI_CLIENT_COMMIT="$own"
+check '[[ $status == 0 ]] && grep -qx "commit=$own" "$TMP/bundle-out" && grep -qx "tree=exact" "$TMP/bundle-out" && ! grep -q "^await" "$TMP/bundle-log"' "a resolved tree installs without any wait"
+
+# A fallback stops only the pending client prefetch; other background helpers (webview-checks) live on.
+state="$TMP/rt/nightly-helper-builds"; rm -rf "$state"
+python3 "$ROOT/scripts/ci/background_build.py" start --state "$state" cmux-tui-client -- python3 -c "import time; time.sleep(300)" >/dev/null
+python3 "$ROOT/scripts/ci/background_build.py" start --state "$state" webview-checks -- python3 -c "import time; time.sleep(300)" >/dev/null
+cp "$ROOT/scripts/ci/background_build.py" "$B/scripts/ci/"
+bundle
+other=$(cat "$state/webview-checks.pid")
+check '[[ $status == 0 ]] && grep -qx "tree=fallback" "$TMP/bundle-out" && kill -0 "$other" 2>/dev/null && grep -q "cmux-tui-client" "$TMP/bundle-stdout" && ! grep -q "to webview-checks" "$TMP/bundle-stdout"' \
+  "a fallback stops only the client prefetch, not other helpers"
+python3 "$ROOT/scripts/ci/background_build.py" stop --state "$state" >/dev/null
 
 (( fail == 0 )) && echo "PASS: nightly tree at install" || { echo "FAIL: nightly tree at install"; exit 1; }

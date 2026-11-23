@@ -114,8 +114,11 @@ const UNREACHABLE =
 /// they count only when no sign-in or key is named beside them. Not "broken pipe": an agent that quit.
 const DROPPED =
   /stream disconnected|error sending request|connection (?:aborted|lost)|upstream connect error|premature close|other side closed|gateway timeout/i;
+/// A key the provider no longer accepts, including one it expired (OpenCode Go: "This API key has
+/// expired … Signing in again will not renew this key", `api_key_expired`): a new key fixes it, a
+/// sign-in does not.
 const INVALID_KEY =
-  /invalid[ _-]?(?:x-)?api[ _-]?key|incorrect api key|api key (?:is )?(?:missing|not set|not found|invalid)|no api key|(?:ANTHROPIC|OPENAI)_API_KEY/i;
+  /invalid[ _-]?(?:x-)?api[ _-]?key|incorrect api key|api key (?:is )?(?:missing|not set|not found|invalid)|no api key|(?:ANTHROPIC|OPENAI)_API_KEY|api[ _-]?key (?:has |is )?(?:expired|revoked)|expired api[ _-]?key|api_key_expired/i;
 const SUBSCRIPTION =
   /not logged in|login required|please (?:run )?\/login|(?:claude|codex) (?:auth )?login|oauth token (?:has )?expired|session (?:has )?expired|refresh token|invalid_grant|invalid_rapt|sign(?:ed)? ?in again/i;
 const AUTH = /\b40[13]\b|unauthori[sz]ed|forbidden|authenticat|\boauth\b/i;
@@ -126,9 +129,6 @@ const MISSING_CREDENTIAL =
   /(?:provider )?credentials? (?:is |are )?(?:missing|not configured|not set)|no provider credentials?/i;
 const EXPIRED_CREDENTIAL =
   /(?:credential|token|session).{0,24}(?:expired|revoked)|(?:expired|revoked).{0,24}(?:credential|token|session)/i;
-/// The Cloud machine's provider answered that the stored Claude login is no longer accepted.
-/// This exact family is the only auth failure eligible for silent cached-login recovery.
-const CLOUD_REJECTED_CREDENTIAL = /provider rejected Claude Code[’']s credentials on this Cloud machine/i;
 /// A full disk, here or on the chat's machine: before every other kind, since what it broke (a
 /// write, a socket, the agent) reads as that kind too.
 const DISK_FULL = /ENOSPC|no space left on device|disk (?:is )?full|out of disk space|disk quota exceeded|EDQUOT/i;
@@ -199,10 +199,6 @@ export function isTeamMachineSignIn(kind: FailureKind, route?: FailureRoute): bo
     (kind === "auth" || kind === "subscription-login") &&
     agentKey(route.harness?.split("/").pop() ?? "claude") === "claude"
   );
-}
-
-export function isCloudRejectedCredential(message: string | undefined, route?: FailureRoute): boolean {
-  return route?.hostKind === "cloud" && CLOUD_REJECTED_CREDENTIAL.test(message ?? "");
 }
 
 /// The proxy or endpoint a failure names: a host in the message that is not the provider's, else the

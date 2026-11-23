@@ -32,6 +32,13 @@ public enum CloudAPIError: Error, Sendable, Equatable, Codable, CustomStringConv
     /// past the app keeps only the codes it knows.
     public var code: String { words(trace: "(trace %@)")?.code ?? "bad_response" }
 
+    /// The machine's exec or file route refused because the machine does not run (`vm_not_running`, the Cloud API's
+    /// `MachineGuest` refusal): it is paused, pausing or still starting, and a start or resume lets the call go again.
+    public var isMachineNotRunning: Bool {
+        if case .http(_, let code?, _, _, _) = self { return code == "vm_not_running" }
+        return false
+    }
+
     private struct Words: Decodable { var text: String, code: String }
 
     private func words(trace: String) -> Words? {

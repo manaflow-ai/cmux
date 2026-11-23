@@ -279,6 +279,32 @@ cmux-ci test --setup playwright --artifact /tmp/perf -- bash -c '
   bun app-perf.ts --gallery-dir ../../dist-gallery --out "$FAST_CHECKS_OUT" --cpu 4'
 ```
 
+## The golden screen: every look side by side
+
+`looks.golden` (`src/gallery/golden/golden.gallery.ts`) is one chat that holds every part a look
+changes: a prompt bubble, a reply with headings, a list, inline code, a code block and a link, tool
+rows done, failed and running, the edited-files card, a permission prompt with its diff, and the
+composer with its chips and a draft. In the mock app the window around it adds the sidebar's two
+projects (a selected, a waiting, a working, an unread and a failed chat, ages where the look shows
+them) and a strip of four tabs. Each variant is one look of `src/gallery/golden/looks.json`; the
+stage's `colorScheme` picks the look's light or dark theme file.
+
+A look there is what a setup carries: per scheme a theme file (a repo path, or its keys inline),
+`settings` (`agentPane.*` go to the chat's `display` push, `sidebar.*` to the mock window), a
+composer look, and an `agent-pane/theme.css`; or `setup`, a setup folder (`examples/looks/NAME`). The
+dev server resolves it (`dev-server/goldenLooks.ts`, `virtual:cmux-gallery/looks`); a look whose files
+this checkout lacks is skipped. A variant of any agent-pane entry can carry a `look` the same way.
+
+`bun run golden:looks` captures each look in light and dark in the mock app's window and writes
+`sheet.png` with every look side by side. A look PR posts it from its base and its head:
+
+```sh
+cmux-ci test --setup playwright --artifact /tmp/golden -- bash -c 'cd webviews && bun install --frozen-lockfile &&
+  bun run golden:looks --out "$FAST_CHECKS_OUT/golden"'
+bun run golden:looks --looks cmux,codex --setup ~/src/my-look   # an outside look beside the built-in ones
+bun run golden:looks --native DIR   # adds the native sidebar and tab bar (AAGoldenLookGalleryTests' PNGs) per look
+```
+
 ## Seeing it
 
 - Static: from `webviews`, `bun run gallery:build` writes `dist/gallery`.

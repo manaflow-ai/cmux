@@ -16,7 +16,7 @@ struct AcpmuxAdoptionGateTests {
         let adoption = AsyncStream<Void>.makeStream()
         let gate = AcpmuxAdoptionGate(mayChange: { _ in false }, untilEnded: { for await _ in adoption.stream {} }, limit: .seconds(3600))
         let host = AcpmuxHost(daemons: AcpmuxLocalDaemons(), resolve: { fixture.environment },
-                              enrollComputerUse: { _ in }, adoption: gate)
+                              adoption: gate)
 
         let outcome = await Self.withAdoptionReleased(after: .seconds(20), adoption.continuation) {
             try await host.reconnectHandshake(sessionId: "s")
@@ -33,7 +33,7 @@ struct AcpmuxAdoptionGateTests {
         let adoption = AsyncStream<Void>.makeStream()
         let gate = AcpmuxAdoptionGate(mayChange: { _ in true }, untilEnded: { for await _ in adoption.stream {} }, limit: .milliseconds(300))
         let host = AcpmuxHost(daemons: AcpmuxLocalDaemons(), resolve: { fixture.environment },
-                              enrollComputerUse: { _ in }, adoption: gate)
+                              adoption: gate)
 
         let outcome = await Self.withAdoptionReleased(after: .seconds(20), adoption.continuation) {
             try await host.reconnectHandshake(sessionId: "s")
@@ -50,7 +50,7 @@ struct AcpmuxAdoptionGateTests {
         defer { fixture.remove() }
         let gate = AcpmuxAdoptionGate(mayChange: { _ in true }, untilEnded: {}, limit: .seconds(3600))
         let host = AcpmuxHost(daemons: AcpmuxLocalDaemons(), resolve: { fixture.environment },
-                              enrollComputerUse: { _ in }, adoption: gate)
+                              adoption: gate)
         #expect(try await host.reconnectHandshake(sessionId: "s").connection?.url.port == 9)
     }
 

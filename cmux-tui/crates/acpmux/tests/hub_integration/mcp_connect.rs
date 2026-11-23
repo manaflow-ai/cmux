@@ -290,7 +290,7 @@ async fn mock_mcp(
 /// Asks for `server`, the person approves with scope `chat`; returns the agent's reply and the
 /// card's `mcp_connect_result` record.
 async fn approve_and_connect(server: &str) -> (Value, Value) {
-    let (_hub, got, record) = approve_with_scope(server, "chat", None).await;
+    let (_hub, got, record, _id) = approve_with_scope(server, "chat", None).await;
     (got, record)
 }
 
@@ -299,7 +299,7 @@ async fn approve_with_scope(
     server: &str,
     scope: &str,
     store: Option<&std::path::Path>,
-) -> (Arc<Hub>, Value, Value) {
+) -> (Arc<Hub>, Value, Value, String) {
     let (hub, mut person) = setup(PermissionPolicy::Ask).await;
     hub.config.write().await.mcp_store = Some(store.map_or_else(
         || std::path::PathBuf::from("/nonexistent/mcp"),
@@ -320,7 +320,7 @@ async fn approve_with_scope(
         .unwrap();
     let result = person.wait_for(method::MUX_EVENT, |p| p["kind"] == "mcp_connect_result").await;
     let got = reply(&mut agent, asked).await.unwrap();
-    (hub, got, result["msg"].clone())
+    (hub, got, result["msg"].clone(), id.to_string())
 }
 
 #[tokio::test]
@@ -331,7 +331,7 @@ async fn mcp_connect_a_server_approved_for_all_agents_is_kept_where_every_chief_
     )
     .await;
     let tmp = tempfile::tempdir().unwrap();
-    let (_hub, got, _record) = approve_with_scope(&url, "agents", Some(tmp.path())).await;
+    let (_hub, got, _record, _id) = approve_with_scope(&url, "agents", Some(tmp.path())).await;
     assert_eq!(got["connect"], "signInNeeded", "{got}");
     let name = got["kept"].as_str().expect("kept in the store").to_owned();
     let saved: Value = serde_json::from_slice(
@@ -341,12 +341,38 @@ async fn mcp_connect_a_server_approved_for_all_agents_is_kept_where_every_chief_
     assert_eq!(saved["transport"]["url"], url.as_str(), "{saved}");
     assert_eq!(saved["state"], "needs sign-in");
     assert_eq!(saved["scope"], "agents");
-    // No secret was asked, so none is written; and "this chat" keeps nothing.
+    assert!(saved.get("owner").is_none(), "every agent sees it: {saved}");
+    // No secret was asked, so none is written.
     assert!(!cmux_mcp_connect::shared::secrets_path(tmp.path(), &name).exists());
-    let other = tempfile::tempdir().unwrap();
-    let (_hub, got, _) = approve_with_scope(&url, "chat", Some(other.path())).await;
-    assert!(got.get("kept").is_none(), "{got}");
-    assert!(!other.path().join("servers").exists());
+}
+
+/// The person's scope is kept with the server, with whose it is, so `cmux mcp serve` shows it to
+/// those agents only: "this chat" is this chat's; "this Chief" from a chat no Chief runs is this
+/// chat's too (never every Chief).
+#[tokio::test]
+async fn mcp_connect_a_server_for_this_chat_is_kept_for_this_chat_only() {
+    use cmux_mcp_connect::shared::{Viewer, visible};
+    let (url, _seen) = mock_mcp(
+        json!([]),
+        Some(r#"Bearer resource_metadata="https://auth.example/.well-known/oauth-protected-resource/mcp""#),
+    )
+    .await;
+    for scope in ["chat", "chief"] {
+        let tmp = tempfile::tempdir().unwrap();
+        let (_hub, got, _record, id) = approve_with_scope(&url, scope, Some(tmp.path())).await;
+        let name =
+            got["kept"].as_str().unwrap_or_else(|| panic!("{scope}: kept: {got}")).to_owned();
+        let saved: Value = serde_json::from_slice(
+            &std::fs::read(cmux_mcp_connect::shared::server_path(tmp.path(), &name)).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(saved["scope"], "chat", "{scope}: {saved}");
+        assert_eq!(saved["owner"], id.as_str(), "{scope}: {saved}");
+        let (s, o) = (saved["scope"].as_str(), saved["owner"].as_str());
+        assert!(visible(s, o, &Viewer::Agent { session: id.clone(), chief: None }));
+        assert!(!visible(s, o, &Viewer::Agent { session: "other".into(), chief: None }));
+        assert!(!visible(s, o, &Viewer::Chief("2e448bc2".into())));
+    }
 }
 
 #[tokio::test]

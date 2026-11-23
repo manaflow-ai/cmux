@@ -123,7 +123,13 @@ stored="not applied"
 if ! "$package/inject.sh" --live "$live" "$package/Sources/ViewShell/Badge.swift" | tee "$out/inject-4.log"; then
   stored="inject.sh failed (see inject-4.log)"
 else
-  sleep 3
+  # Until the shell draws generation $next, logs a new refusal or exits, 10 s (none: "not applied").
+  for _ in $(seq 1 100); do
+    grep -q "redrawn generation=$next" "$out/shell.log" && break
+    (( $(grep -c "refused" "$out/shell.log" || true) > refusals )) && break
+    kill -0 "$shell" 2>/dev/null || break
+    sleep 0.1
+  done
   grep -q "redrawn generation=$next" "$out/shell.log" && stored="applied (unsafe: layout changed)"
   (( $(grep -c "refused" "$out/shell.log" || true) > refusals )) && stored="refused"
   kill -0 "$shell" 2>/dev/null || stored="shell exited"

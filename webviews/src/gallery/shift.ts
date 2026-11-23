@@ -43,7 +43,16 @@ import {
 import { openDeclarations } from "../layout/motionContract";
 import { judgeMotion, type JudgeFrame, type MotionVerdict } from "../layout/motionJudge";
 
-export { BOTTOM_FOLD, TRACK_SELECTOR, bottomFoldOf, sampleBoxes } from "../layout/boxSample";
+export {
+  BOTTOM_FOLD,
+  PIN_LIVE,
+  TRACK_SELECTOR,
+  TURN_END_FOLDING,
+  bottomFoldOf,
+  insetCrop,
+  sampleBoxes,
+  shownBox,
+} from "../layout/boxSample";
 export type { Box, BoxFrame, BoxSample, StepTargets } from "../layout/boxSample";
 
 export type BoxMove = { label: string; frame: number; dx: number; dy: number };
@@ -139,6 +148,77 @@ export function scoreBoxFrames(
   return { score: Math.round(score * 1e5) / 1e5, moves };
 }
 
+/** How far the transcript's rows drifted over a run in which nothing new may move them. */
+export type HeldDrift = {
+  /** The largest distance, CSS px, of any row from where it was when first seen (0 when all held). */
+  worst: number;
+  /** The row that drifted furthest, and in which frame. */
+  label?: string;
+  frame?: number;
+  /** Frames in which some row was off its first place by more than `MOVE_SLACK`. */
+  driftFrames: number;
+};
+
+/**
+ * The held-bottom detector (Leo, 2026-11-18, his chat sat at the bottom while clocks ticked and the
+ * transcript bounced 30–70 px every second or so: "did we fix this scroll bounce at the bottom
+ * yet?"). For a run in which nothing new arrives (a wait on a chat whose rows do not change: a
+ * ticking status line, a running command's clock, the same snapshot sent again), every transcript row
+ * must stay exactly where it was first seen, every frame. Unlike the box score and the follow judge,
+ * nothing is exempt as a follow: a shared translation of every row that goes away and comes back over
+ * a few hundred ms is a bounce, though the follow judge's reversal window (`REVERSE_FRAMES`) is too
+ * short to see it. Rows a keyframe animation moves are skipped (an entrance); a row that leaves the
+ * view and comes back is judged against where it first was.
+ */
+export function heldRowDrift(frames: readonly BoxFrame[]): HeldDrift {
+  const first = new Map<number, number>();
+  let worst = 0;
+  let label: string | undefined;
+  let frame: number | undefined;
+  let driftFrames = 0;
+  frames.forEach((current, index) => {
+    let drifted = false;
+    for (const [id, sample] of current) {
+      if (!sample.row || sample.animating) continue;
+      const y = sample.box.y;
+      const at = first.get(id);
+      if (at === undefined) {
+        first.set(id, y);
+        continue;
+      }
+      const off = Math.abs(y - at);
+      if (off <= MOVE_SLACK) continue;
+      drifted = true;
+      if (off > worst) {
+        worst = off;
+        label = sample.label;
+        frame = index;
+      }
+    }
+    if (drifted) driftFrames++;
+  });
+  return { worst: Math.round(worst * 10) / 10, driftFrames, ...(label ? { label, frame } : {}) };
+}
+
+/** Samples the page's boxes after every painted frame until `stop`, which judges them as a held run
+ *  (`heldRowDrift`): for a play step that waits on a chat nothing new reaches. */
+export function startHeldTracker(doc: Document): { stop(): HeldDrift } {
+  const frames: BoxFrame[] = [];
+  const view = doc.defaultView!;
+  const sample = () => {
+    if (frames.length < MAX_FRAMES) frames.push(sampleBoxes(doc, null));
+  };
+  sample();
+  const stopSampling = afterEachPaint(windowPaintClock(view), sample);
+  return {
+    stop() {
+      stopSampling();
+      sample();
+      return heldRowDrift(frames);
+    },
+  };
+}
+
 /** A source of a browser layout-shift entry (`LayoutShift.sources`): the node and its rects. */
 export type LayoutShiftSource = {
   node?: Node | null;
@@ -203,7 +283,15 @@ export interface PaintClock {
   afterThisFrame(then: () => void): void;
   /** Adds a capturing listener for the input events that come before a pending read. */
   onInput?(listener: () => void): () => void;
+  /** Watches the page between a frame's render and the read after it: `changed` when its DOM
+   *  changes, `rendered` once per `arm` (called in a frame callback), after the page's own observers
+   *  placed what that frame paints. */
+  watchChanges?(changed: () => void, rendered: () => void): { arm(): void; stop(): void };
 }
+
+/** Reads dropped in a row because the page changed before them; the next one reads regardless, so a
+ *  page that changes after every paint is still sampled (every so many frames). */
+export const MAX_CHANGED_DROPS = 8;
 
 /** Input that can change the page between a frame and the read after it (paintedFrames.ts). */
 const INPUT_EVENTS = [
@@ -236,6 +324,32 @@ export function windowPaintClock(view: Window): PaintClock {
         for (const kind of INPUT_EVENTS) view.removeEventListener(kind, listener, { capture: true });
       };
     },
+    watchChanges(changed, rendered) {
+      const doc = view.document;
+      const page = view as Window & typeof globalThis;
+      if (typeof page.MutationObserver !== "function" || typeof page.ResizeObserver !== "function")
+        return { arm() {}, stop() {} };
+      const mutations = new page.MutationObserver(changed);
+      mutations.observe(doc, { subtree: true, childList: true, attributes: true, characterData: true });
+      // Observed afresh in each frame callback, the root reports in that frame's observer step, after
+      // the observers the page made before this one (the transcript placing its rows): what they
+      // changed is what the frame paints. A change delivered after it came after the render.
+      const probe = doc.documentElement;
+      const renders = new page.ResizeObserver(() => {
+        mutations.takeRecords();
+        rendered();
+      });
+      return {
+        arm() {
+          renders.unobserve(probe);
+          renders.observe(probe);
+        },
+        stop() {
+          mutations.disconnect();
+          renders.disconnect();
+        },
+      };
+    },
   };
 }
 
@@ -244,7 +358,12 @@ export function windowPaintClock(view: Window): PaintClock {
  * the frame's style, layout, ResizeObserver callbacks and paint, so a read there can see a layout
  * no frame paints (the transcript's lift before its dock observer ran, #46151): the read waits for
  * a task posted from the frame callback instead. An input event before that task runs the read
- * first, on the state the frame painted.
+ * first, on the state the frame painted. Any other task can run before it too (a busy page's queued
+ * message: a streamed reply's render), and the layout it leaves is painted only after the next frame's
+ * observers place the rows under it, so a read after it saw a reply a line taller over a live line
+ * that never painted there, and then that line jumping (agent-chat-stream-no-shift `text`, 22.8 px
+ * on a loaded runner). Such a read is dropped, as one the next frame overtook is (`watchChanges`; at
+ * most MAX_CHANGED_DROPS in a row).
  */
 export function afterEachPaint(clock: PaintClock, read: () => void): () => void {
   let stopped = false;
@@ -252,14 +371,31 @@ export function afterEachPaint(clock: PaintClock, read: () => void): () => void 
   // The frame whose read has not run yet; a read runs at most once, and only while it is pending.
   let pending = 0;
   let frames = 0;
+  // The page changed after the last frame rendered (`watchChanges`), and reads dropped for it in a row.
+  let changed = false;
+  let drops = 0;
+  const watch = clock.watchChanges?.(
+    () => {
+      changed = true;
+    },
+    () => {
+      changed = false;
+    },
+  );
   const runFor = (frameNumber: number) => {
     if (stopped || frameNumber === 0 || pending !== frameNumber) return;
     pending = 0;
+    if (changed && drops < MAX_CHANGED_DROPS) {
+      drops += 1;
+      return;
+    }
+    drops = 0;
     read();
   };
   const offInput = clock.onInput?.(() => runFor(pending)) ?? (() => {});
   const frame = () => {
     if (stopped) return;
+    watch?.arm();
     // A read whose task did not come before the next frame would see this frame's unpainted layout:
     // it is dropped (the next read sees both frames' moves).
     const frameNumber = ++frames;
@@ -273,6 +409,7 @@ export function afterEachPaint(clock: PaintClock, read: () => void): () => void 
     pending = 0;
     clock.cancelAnimationFrame(handle);
     offInput();
+    watch?.stop();
   };
 }
 

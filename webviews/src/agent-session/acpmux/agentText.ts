@@ -3,9 +3,9 @@
 // attributable, so it doesn't just pass off as one of my messages"). The same deterministic
 // signals as acpmux's `agent_text.rs`, which marks the agent's view and the record: a `From NAME:`
 // header, a `Trace-ID:` line, a generated-with or co-author footer, an agent session line, a review
-// receipt, a batched message's `[message N of M] from` line or a `Handoff` heading. The composer
-// reads them to keep such a paste as its own block (composer/pasteMarks.ts), and the bubble to name
-// its sender (PromptText.tsx PasteChip) before acpmux's echo arrives, so nothing changes when it does.
+// receipt, a batched message's `[message N of M] from` line, a `Handoff` heading or acpmux's own
+// `Sent-by:` trailer. The composer reads them to keep such a paste as its own block
+// (composer/pasteMarks.ts), and the bubble to name its sender (PromptText.tsx PasteChip) before acpmux's echo arrives, so nothing changes when it does.
 
 /// The characters read from the start of a text: headers sit there.
 export const HEAD_CHARS = 16 * 1024;
@@ -31,6 +31,10 @@ const SESSION_LINE = /^\s*(?:agent session|author-agent|agent-id):\s*\S/i;
 const RECEIPT = /^\s*(?:review \([^)]{1,80}\)|verdict)\s*:\s*(?:ship|block)\b/i;
 const BATCH_LINE = /^\s*\[message \d+ of \d+\] from (\S.{0,63})$/;
 const HANDOFF = /^\s*#{1,4}\s*handoff\b/i;
+// The trailer acpmux writes on a send between sessions (sent_by.rs): `Sent-by: HOST/SESSION ...`,
+// read exactly as agent_text.rs reads it (at the line's start, its first word the sender).
+const SENT_BY = /^Sent-by: (\S{1,64})(?:\s|$)/;
+const SENT_BY_ANY = /^Sent-by: /;
 
 /// First words of a `From X:` line a person writes, not a sender's name.
 const NOT_NAMES = new Set([
@@ -104,6 +108,11 @@ function scan(line: string, found: AgentText) {
     named(batch);
   }
   if (HANDOFF.test(line)) add("handoff");
+  if (SENT_BY_ANY.test(line)) {
+    add("sent-by");
+    const sender = SENT_BY.exec(line)?.[1];
+    if (sender) named(sender);
+  }
 }
 
 /// Whether `text` reads as another agent's output.

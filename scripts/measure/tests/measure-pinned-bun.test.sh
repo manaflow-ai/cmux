@@ -20,7 +20,7 @@ for script in "$dir"/*.sh; do
     echo "FAIL: $name puts ~/.bun/bin first on PATH (line $home_bun) and builds the app (line $build) without scripts/cmux-next/private-bun.sh"
     fail=1
   elif (( private < home_bun || private > build )); then
-    echo "FAIL: $name runs private-bun.sh at line $private, not between the ~/.bun/bin prepend (line $home_bun) and the build (line $build)"
+    echo "FAIL: $name runs private-bun.sh at line $private, not between the ~/.bun/bin prepend (line $home_bun) and the build (line $build); the check reads file order, so a function that runs private-bun.sh goes above the one that builds (tab-switch.sh: prepare_build above tsw_build_app)"
     fail=1
   else
     # the private bun dir goes on PATH, and the web builders cd into webviews/ first, so it must be absolute:

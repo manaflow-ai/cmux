@@ -53,10 +53,14 @@ public final class DensityPlaygroundModel {
     }
 
     /// Whether a policy manages the density keys: changes still apply live, but none is saved, and the window says so.
-    public var savesBlocked: Bool { isManaged() }
+    /// So is a density the active theme file carries: the file would put it back on the next load.
+    public var savesBlocked: Bool { isManaged() || design.densityFromThemeFile }
 
     /// What the window says under its header about saving: why nothing saves, or nil.
-    public var statusNotice: String? { savesBlocked ? DensityPlaygroundStrings.managedNotice : nil }
+    public var statusNotice: String? {
+        if isManaged() { return DensityPlaygroundStrings.managedNotice }
+        return design.densityFromThemeFile ? DensityPlaygroundStrings.themeFileNotice : nil
+    }
 
     /// Picks up the app's density and list again (the window reopening after a Settings change).
     public func refresh() {

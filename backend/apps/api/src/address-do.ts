@@ -1,6 +1,7 @@
+import { envForObject } from "./build-space.ts"
 import type { Domain, Principal } from "@cmux/ownership"
 import { address, address as addressDomain } from "@cmux/home-core"
-import type { Env } from "./env.ts"
+import type { Env, RawEnv } from "./env.ts"
 import { OwnerDO, type ReadResult } from "./owner-do.ts"
 import { sendInvite } from "./home-send.ts"
 import type { InviteSender } from "./home-routes.ts"
@@ -22,7 +23,8 @@ import { textChiefInbound, textChiefReply, textChiefTyping, type InboundOutcome 
  * fail-closed HOME_INVITES_SEND=on switch and the allow list; text waits for the vCard adapter.
  */
 export class AddressDO extends OwnerDO<address.AddressHead> {
-  constructor(ctx: DurableObjectState, env: Env) {
+  constructor(ctx: DurableObjectState, raw: RawEnv) {
+    const env = envForObject(ctx, raw)
     // No client subscribes: subscribers would see the raw address.
     super(ctx, env, address.addressDomain as Domain<address.AddressHead>, "address")
   }

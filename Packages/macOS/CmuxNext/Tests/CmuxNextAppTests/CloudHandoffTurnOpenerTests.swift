@@ -84,11 +84,10 @@ struct CloudHandoffTurnOpenerTests {
     /// lands: no hand-off is offered (the handshake's `cloudHandoffs`) or made for one of them. The
     /// runner answers the refusal before any store call, so nothing is posted.
     @Test func aMachineListNotLoadedForTheAccountNowOpensNoTurn() {
-        #expect(CloudHandoffTurnOpener.refusal(cloudAllowed: true, labs: true, signedIn: true, loadedCurrent: true) == nil)
-        #expect(CloudHandoffTurnOpener.refusal(cloudAllowed: true, labs: true, signedIn: true, loadedCurrent: false) == "machines_unread")
-        #expect(CloudHandoffTurnOpener.refusal(cloudAllowed: true, labs: true, signedIn: false, loadedCurrent: false) == "not_signed_in")
-        #expect(CloudHandoffTurnOpener.refusal(cloudAllowed: true, labs: false, signedIn: true, loadedCurrent: true) == "labs_off")
-        #expect(CloudHandoffTurnOpener.refusal(cloudAllowed: false, labs: true, signedIn: true, loadedCurrent: true) == "cloud_disabled")
+        #expect(CloudHandoffTurnOpener.refusal(cloudAllowed: true, signedIn: true, loadedCurrent: true) == nil)
+        #expect(CloudHandoffTurnOpener.refusal(cloudAllowed: true, signedIn: true, loadedCurrent: false) == "machines_unread")
+        #expect(CloudHandoffTurnOpener.refusal(cloudAllowed: true, signedIn: false, loadedCurrent: false) == "not_signed_in")
+        #expect(CloudHandoffTurnOpener.refusal(cloudAllowed: false, signedIn: true, loadedCurrent: true) == "cloud_disabled")
     }
 
     @Test func theStoresHandoffIsReadAndItsMachineTokenIsNot() throws {
