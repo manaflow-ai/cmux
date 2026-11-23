@@ -491,7 +491,10 @@ const DENSITIES: MakeItYoursDensity[] = [
 
 /** Make cmux Yours: as it opens on a new Mac (the recommended answers), while the previews read, after
  * Terminal First, and after a person picked Compact and a painting. */
-export function makeItYoursState(kind: MakeItYoursFixture = "fresh"): OnboardingState {
+export function makeItYoursState(
+  kind: MakeItYoursFixture = "fresh",
+  { introWalk = false }: { introWalk?: boolean } = {},
+): OnboardingState {
   const choices: MakeItYoursState = {
     workStyle: kind === "terminal" ? "terminal" : "gui",
     density: kind === "picked" ? "compact" : "cozy",
@@ -503,6 +506,7 @@ export function makeItYoursState(kind: MakeItYoursFixture = "fresh"): Onboarding
     material: kind === "picked" ? "frosted" : null,
     materials: ["none", "frosted", "glass", "glass-clear"],
     loaded: kind !== "loading",
+    ...(introWalk ? { introWalk: true } : {}),
   };
   return {
     step: "makeItYours",

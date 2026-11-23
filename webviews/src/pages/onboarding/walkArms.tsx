@@ -22,6 +22,7 @@ import {
   type WalkBundle,
 } from "./fixtures";
 import { MakeItYoursStep } from "./MakeItYoursStep";
+import { Faces } from "./walkLook";
 import { useOnboarding } from "./parts";
 
 export type WalkScreen = "look" | "trust" | "tune" | "exit";
@@ -53,53 +54,6 @@ const SCREEN_TEXT: Record<WalkScreen, { title: string; sentence: string }> = {
   tune: { title: "Tune it", sentence: "Fit the window to you. Every row is in Settings > Appearance too." },
   exit: { title: "You're set", sentence: "Replay this walk any time from Settings > General or the palette." },
 };
-
-/** A miniature of the whole app (titlebar with tabs, sidebar, a pane with a composer) in one scheme,
- * drawn from the system's canvas colors and the theme accent, so a tile has a true light and dark
- * face on either appearance. */
-function Miniature({ bundle, face }: { bundle: WalkBundle; face: "light" | "dark" }) {
-  const t = bundle.traits;
-  return (
-    <span
-      className="onb-walk-mini"
-      data-face={face}
-      data-glass={t.glass || undefined}
-      data-two-tone={t.twoTone || undefined}
-      data-solid={t.solid || undefined}
-      data-dense={t.dense || undefined}
-      aria-hidden="true"
-    >
-      <span className="onb-walk-mini-bar">
-        <span className="onb-walk-mini-tab" data-active="" />
-        <span className="onb-walk-mini-tab" />
-        <span className="onb-walk-mini-tab" />
-      </span>
-      <span className="onb-walk-mini-body">
-        <span className="onb-walk-mini-side">
-          {Array.from({ length: t.dense ? 7 : 4 }, (_, i) => (
-            <span key={i} className="onb-walk-mini-row" data-active={i === 0 || undefined} />
-          ))}
-        </span>
-        <span className="onb-walk-mini-pane">
-          <span className="onb-walk-mini-line" />
-          <span className="onb-walk-mini-line" data-short="" />
-          {t.dense && <span className="onb-walk-mini-line" />}
-          <span className="onb-walk-mini-composer" />
-        </span>
-      </span>
-    </span>
-  );
-}
-
-/** A bundle's two faces, light beside dark. */
-function Faces({ bundle }: { bundle: WalkBundle }) {
-  return (
-    <span className="onb-walk-faces">
-      <Miniature bundle={bundle} face="light" />
-      <Miniature bundle={bundle} face="dark" />
-    </span>
-  );
-}
 
 function BundleRadio({ bundle, picked, onPick }: { bundle: WalkBundle; picked: boolean; onPick: () => void }) {
   return (
