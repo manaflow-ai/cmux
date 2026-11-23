@@ -121,9 +121,9 @@ fn the_rollback_check_of_a_store_at_16_that_an_owner_has_writes_nothing() {
 /// A session reset renames the session's folder in the state root to a name
 /// of its own (`.reset-<session>-session-<id>.deleting`), then deletes it. A
 /// reset that did not end leaves that folder with its store, and no guard
-/// file has that name. No build opens the folder again, so it is no session
-/// for the check: the check gives the number of the sessions, and it does not
-/// open that folder's store.
+/// file has that name. So the check asks no guard for it: the 16 of its
+/// store counts as 15, the check gives the number of the sessions, and it
+/// does not open that folder's store for a write.
 #[test]
 fn the_rollback_check_does_not_take_the_folder_of_a_session_reset_that_did_not_end() {
     let crashed = crashed("rollback-reset-folder");

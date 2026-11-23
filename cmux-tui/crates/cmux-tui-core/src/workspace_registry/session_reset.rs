@@ -24,8 +24,10 @@ pub(super) fn pending_session_reset_kind(rest: &str) -> Option<PendingSessionRes
 /// True for the name that a reset gives the folder that it deletes, of any
 /// session: `.reset-<session>-<kind>-<id>.deleting`
 /// ([`rename_reset_dir_for_deletion`]). A reset that did not end leaves that
-/// folder in the state root, and no build opens it again: only the next
-/// reset of that session deletes it ([`pending_session_reset_dirs`]). The
+/// folder in the state root, and the next reset of that session deletes it
+/// ([`pending_session_reset_dirs`]). No open of a session opens a folder
+/// with such a name. The reset itself can put the folder back under the
+/// session's name: it does that when its look after the rename fails. The
 /// folder of a session never has such a name: its name starts with no dot.
 pub(crate) fn is_pending_reset_dir_name(file_name: &str) -> bool {
     let Some(rest) =
@@ -84,8 +86,7 @@ pub(super) fn pending_session_reset_dirs(
 
     let root_device = reset_root_device(root)?;
     let storage_component = session_storage_component(session_name);
-    let prefix = format!(".reset-{storage_component}-");
-    let suffix = ".deleting";
+    let prefix = format!("{RESET_DIR_HEAD}{storage_component}-");
     let mut reset_dirs = Vec::new();
     for entry in fs::read_dir(root)
         .with_context(|| format!("read workspace state root {}", root.display()))?
@@ -95,10 +96,10 @@ pub(super) fn pending_session_reset_dirs(
         let Some(file_name) = file_name.to_str() else {
             continue;
         };
-        if !file_name.starts_with(&prefix) || !file_name.ends_with(suffix) {
+        if !file_name.starts_with(&prefix) || !file_name.ends_with(RESET_DIR_TAIL) {
             continue;
         }
-        let rest = &file_name[prefix.len()..file_name.len() - suffix.len()];
+        let rest = &file_name[prefix.len()..file_name.len() - RESET_DIR_TAIL.len()];
         let Some(kind) = pending_session_reset_kind(rest) else {
             continue;
         };
@@ -197,9 +198,10 @@ pub(super) fn rename_reset_dir_for_deletion(
 ) -> anyhow::Result<PathBuf> {
     let storage_component = session_storage_component(session_name);
     for _ in 0..16 {
-        let candidate = platform::normalize_filesystem_path(
-            root.join(format!(".reset-{storage_component}-{kind}-{}.deleting", try_new_uuid_v4()?)),
-        );
+        let candidate = platform::normalize_filesystem_path(root.join(format!(
+            "{RESET_DIR_HEAD}{storage_component}-{kind}-{}{RESET_DIR_TAIL}",
+            try_new_uuid_v4()?
+        )));
         ensure_reset_dir_fingerprint(source, kind, expected_fingerprint)?;
         match fs::rename(source, &candidate) {
             Ok(()) => {

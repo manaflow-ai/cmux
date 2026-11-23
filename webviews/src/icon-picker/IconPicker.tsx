@@ -6,6 +6,7 @@
 // Search covers emoji names, CLDR keywords and shortcodes (English and Japanese) and symbol names
 // and keywords. Keyboard driven from the search field; typing anywhere searches. Hosts: the icon
 // picker page (a native panel around a prewarmed web view) and any React page that embeds it.
+import { keycapLegend } from "../ui/keycapLegend";
 import {
   useRef,
   useState,
@@ -33,6 +34,7 @@ import { pickerKeyAction, typesText } from "./keyboard";
 import { DEFAULT_CELL, PickerStore, type CategoryOption, type PickerCell, type PickerView } from "./store";
 import { SYMBOL_MODES, symbolRendering, type SymbolMode } from "./symbols";
 import { GridViewport, VirtualGrid } from "./VirtualGrid";
+import { intl } from "../ui/intl";
 
 const TONE_SAMPLES = ["✋", "✋🏻", "✋🏼", "✋🏽", "✋🏾", "✋🏿"];
 /** The grid's side padding (styles.css .icon-grid-scroll). */
@@ -358,7 +360,7 @@ export function IconPicker({
                 onClick={() => pick(active)}
               >
                 {t("iconPicker.setIcon")}
-                <kbd className="icon-keycap">↩</kbd>
+                <kbd className="icon-keycap">{keycapLegend("↩")}</kbd>
               </button>
               <span className="icon-bar-divider" aria-hidden />
             </>
@@ -432,7 +434,7 @@ function CategoryMenu({
   const emoji = categories.filter((option) => option.kind === "emoji");
   const symbols = categories.filter((option) => option.kind === "symbols");
   const symbolCategories = categories.filter((option) => option.kind === "symbol");
-  const count = (option: CategoryOption) => option.count.toLocaleString(strings.language);
+  const count = (option: CategoryOption) => intl.NumberFormat(strings.language).format(option.count);
   const item = (option: CategoryOption) => (
     <MenuRadioItem key={option.id} value={option.id} shortcut={count(option)}>
       {option.glyph ? (

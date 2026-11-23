@@ -212,8 +212,16 @@ connection holds the store's write lock past 500 ms, it gives no number and
 ends with an error: it did not read 16 with the guard held, so the app says
 that it cannot tell whether the kept build reads the data, and does not roll
 back. The folder that a session reset left in the state root when it did not
-end (`.reset-<session>-<kind>-<id>.deleting`) is no session for the check:
-no build opens it again, and the next reset of that session deletes it.
+end (`.reset-<session>-<kind>-<id>.deleting`) has no guard file of its name.
+The check reads it as each other folder, and each number in it counts as it
+is, with one exception: a 16 there counts as 15, with no guard question and
+no write. So one such folder does not make each check end with an error
+until the next reset of that session deletes it. The limit: if that reset
+puts the folder back under the session's name at the same instant (its look
+after the rename failed), a check that passed in that instant gave a number
+that is too small for a build that does not know the mark; the next check
+reads the folder under its session name and asks the guard. A folder whose
+name is only near that form gets the guard question as a session does.
 
 So 16 is not a plain schema
 number: the next schema change takes 17 and its rows-due number is 18, and the

@@ -25,18 +25,31 @@ pub fn run(opts: &Opts) -> Res<()> {
 
     let (conn, screen_num) = x11rb::connect(Some(&display))?;
     let screen = conn.setup().roots[screen_num].clone();
-    let (w, h) = (screen.width_in_pixels, screen.height_in_pixels);
+    // `--origin X,Y` puts the window's corner (and the marker) there, filling the rest of the
+    // screen: a marker on one monitor of several (the host's monitor pick).
+    let (x, y) = match opts.get("origin") {
+        Some(v) => parse_origin(v)?,
+        None => (0, 0),
+    };
+    if x >= screen.width_in_pixels || y >= screen.height_in_pixels {
+        return Err(format!(
+            "--origin {x},{y} is off the {}x{} screen",
+            screen.width_in_pixels, screen.height_in_pixels
+        )
+        .into());
+    }
+    let (w, h) = (screen.width_in_pixels - x, screen.height_in_pixels - y);
     let win = conn.generate_id()?;
     let aux = CreateWindowAux::new()
         .override_redirect(1)
         .background_pixel(crate::workload::GRAY)
-        .event_mask(EventMask::KEY_PRESS | EventMask::EXPOSURE);
+        .event_mask(EventMask::KEY_PRESS | EventMask::BUTTON_PRESS | EventMask::EXPOSURE);
     conn.create_window(
         screen.root_depth,
         win,
         screen.root,
-        0,
-        0,
+        x as i16,
+        y as i16,
         w,
         h,
         0,
@@ -63,7 +76,9 @@ pub fn run(opts: &Opts) -> Res<()> {
         let mut redraw = false;
         while let Some(ev) = conn.poll_for_event()? {
             match ev {
-                Event::KeyPress(_) => {
+                // A click counts too: a click bumps only the window it lands on, which proves
+                // where the host put the pointer (a monitor pick maps it through its origin).
+                Event::KeyPress(_) | Event::ButtonPress(_) => {
                     counter = counter.wrapping_add(1);
                     dirty_marker = true;
                 }
@@ -91,5 +106,23 @@ pub fn run(opts: &Opts) -> Res<()> {
         }
         let timeout = next_tick.map(|t| t.saturating_sub(now_ns()));
         wait_readable(&[fd], timeout)?;
+    }
+}
+
+/// `X,Y` in screen pixels.
+fn parse_origin(value: &str) -> Res<(u16, u16)> {
+    let bad = || format!("--origin wants X,Y in pixels, got {value:?}");
+    let (x, y) = value.split_once(',').ok_or_else(bad)?;
+    Ok((x.trim().parse().map_err(|_| bad())?, y.trim().parse().map_err(|_| bad())?))
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn origin_is_two_pixel_numbers() {
+        assert_eq!(super::parse_origin("1920,0").unwrap(), (1920, 0));
+        assert_eq!(super::parse_origin(" 8 , 16 ").unwrap(), (8, 16));
+        assert!(super::parse_origin("1920").is_err());
+        assert!(super::parse_origin("-1,0").is_err());
     }
 }
