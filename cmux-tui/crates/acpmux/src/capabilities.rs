@@ -33,14 +33,18 @@ pub const HOLD_ATTACH: &str = "attach-hold-v1";
 /// `_acpmux/info` with `sessionIds` answers the list's rows by key, and `_acpmux/status` says
 /// `closedListed` (`server/requests/info.rs` `rows`).
 pub const INFO_ROWS: &str = "info-rows-v1";
-/// `daemon service install` from an app's bundle runs the LaunchAgent from that bundle.
-pub const DAEMON_SERVICE_APP: &str = "daemon-service-app-v1";
 
 /// A client that sends `initialize` with `_meta.acpmux.peerRowBatches: true` hears a burst of one
 /// peer's rows (more than 32, a peer's list) as one `_acpmux/peer_rows_changed`, and follows the
 /// list for them (`hub/list_guard.rs` `send_remote_batch`). Every other client hears each row's
 /// `_acpmux/session_changed`, as before.
 pub const PEER_ROW_BATCHES: &str = "peer-row-batches-v1";
+
+/// A client that sends `initialize` with `_meta.acpmux.chunkDeltas: true` hears a text chunk on
+/// its event stream as `_acpmux/chunk`, a delta of the chat's last chunk event, which carries
+/// `chunkRef` (`server/chunk_deltas.rs`). Every other client hears each chunk's `_acpmux/event`,
+/// as before.
+pub const CHUNK_DELTAS: &str = "chunk-deltas-v1";
 
 /// Session summaries carry `hasDraft` and `workingBelow` (absent means false only with this id).
 pub const SESSION_IDLE_FACTS: &str = "session-idle-facts-v1";
@@ -146,6 +150,10 @@ pub const CAPABILITIES: &[Capability] = &[
         id: PEER_ROW_BATCHES,
         wire: &[method::INITIALIZE, method::MUX_WATCH, method::MUX_PEER_ROWS_CHANGED],
     },
+    Capability {
+        id: CHUNK_DELTAS,
+        wire: &[method::INITIALIZE, method::MUX_ATTACH, method::MUX_EVENT, method::MUX_CHUNK],
+    },
     // A client that sends `initialize` with `_meta.acpmux.sessionChangedDelta: true` hears each
     // chat's row change after the first as `_acpmux/session_patch`, only what changed
     // (`server/session_patch.rs`); every other client hears the whole row in `session_changed`.
@@ -154,10 +162,6 @@ pub const CAPABILITIES: &[Capability] = &[
         wire: &[method::INITIALIZE, method::MUX_SESSION_CHANGED, method::MUX_SESSION_PATCH],
     },
     Capability { id: "machine.join.stdin.v1", wire: &[] },
-    // `acpmux daemon service install` run from a cmux app's bundle points the LaunchAgent at that
-    // bundle's acpmux (`cli/daemon_service.rs` `launchd_program`), which `cmux device setup`
-    // checks before it relies on it. CLI-only: no daemon wire method.
-    Capability { id: DAEMON_SERVICE_APP, wire: &[] },
     // `acpmux machine vault pull|status|forget` (crate::vault): the CLI, which
     // asks the daemon to pull or forget when the values live only in its memory.
     Capability {
@@ -368,6 +372,22 @@ pub const CAPABILITIES: &[Capability] = &[
         id: "agent-session-turn-rewind-v1",
         wire: &[method::AGENT_SESSION_TURN_PREPARE, method::AGENT_SESSION_TURN_ABANDON],
     },
+    // The person's saved prompts, with the read-only ones the settings file names (`prompts.rs`).
+    Capability {
+        id: "prompt-library-v1",
+        wire: &[method::MUX_PROMPTS_LIST, method::MUX_PROMPTS_SAVE, method::MUX_PROMPTS_DELETE],
+    },
+    // The composer's stashed drafts, kept here so they outlive the pane's page (`stash.rs`).
+    Capability {
+        id: "draft-stash-v1",
+        wire: &[
+            method::MUX_STASH_LIST,
+            method::MUX_STASH_PUSH,
+            method::MUX_STASH_GET,
+            method::MUX_STASH_DROP,
+            method::MUX_STASH_MOVE,
+        ],
+    },
     // The person's Accept or Dismiss on what a chat learned (`server/memory_inbox.rs`).
     Capability { id: "memory-inbox-v1", wire: &[method::MUX_MEMORY_RESOLVE] },
     // The rewrite a chat that took several corrections offers (`server/prompt_coach.rs`).
@@ -470,7 +490,7 @@ mod tests {
             crate::protocol::registry().iter().map(|decl| decl.name).collect();
         for capability in CAPABILITIES {
             // Machine onboarding is CLI-only and has no daemon wire method.
-            if capability.id == "machine.join.stdin.v1" || capability.id == DAEMON_SERVICE_APP {
+            if capability.id == "machine.join.stdin.v1" {
                 assert!(capability.wire.is_empty());
                 continue;
             }

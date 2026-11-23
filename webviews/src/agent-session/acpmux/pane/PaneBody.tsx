@@ -27,6 +27,7 @@ import { FOCUS_LOCATION_EVENT, type NewTabHost, type NewTabChat } from "../newTa
 import { NewTabScreen, type NewTabScreenActions } from "../newtab/NewTabScreen";
 import { HistoryScreen } from "../newtab/HistoryScreen";
 import { NewTabAppSlot } from "../newtab/NewTabAppSlot";
+import { NewTabClock } from "../newtab/NewTabClock";
 import { historyPages } from "../queue/historyPages";
 import type { AllChatsPage } from "../newtab/allChatsListModel";
 import { newTabScreenActions } from "../newtab/screenActions";
@@ -805,20 +806,26 @@ export function drawPaneBody({
               {/* Setup keeps this page's draft and project, while its hidden input effects stop. */}
               <Activity mode={harnessesOpen ? "hidden" : "visible"}>
                 <NewTabScreen
-                  // `tabs.newTabApp`: the extension draws in a slot over cmux's composer, never in its
-                  // place; whatever it does, the composer, its focus and its input-ready report stay
-                  // the page's own (Leo 2026-11-16, newtab/NewTabAppSlot.tsx).
+                  // Over cmux's composer, never in its place (Leo 2026-11-16): the clock
+                  // (`tabs.newTabClock.*`, newtab/NewTabClock.tsx), then an extension's slot
+                  // (`tabs.newTabApp`, newtab/NewTabAppSlot.tsx). Whatever the extension does, the
+                  // composer, its focus and its input-ready report stay the page's own.
                   // `newTab.app`, not `newTabApp`: the room stays after the slot gives up, so the composer never jumps.
-                  {...(newTab.app
+                  {...(newTab.app || newTab.clock
                     ? {
-                        above: newTabApp ? (
-                          <NewTabAppSlot
-                            key={`${newTabGeneration}:${newTabApp}`}
-                            app={newTabApp}
-                            {...(newTab.cwd ? { cwd: newTab.cwd } : {})}
-                            onUnavailable={() => setNewTabAppGone(newTabAdoptions)}
-                          />
-                        ) : null,
+                        above: (
+                          <>
+                            {newTab.clock && <NewTabClock {...newTab.clock} />}
+                            {newTabApp && (
+                              <NewTabAppSlot
+                                key={`${newTabGeneration}:${newTabApp}`}
+                                app={newTabApp}
+                                {...(newTab.cwd ? { cwd: newTab.cwd } : {})}
+                                onUnavailable={() => setNewTabAppGone(newTabAdoptions)}
+                              />
+                            )}
+                          </>
+                        ),
                       }
                     : {})}
                   onSetup={(resume) => {
