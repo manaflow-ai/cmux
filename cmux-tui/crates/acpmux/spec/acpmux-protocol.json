@@ -2564,6 +2564,7 @@
         "requestId": true,
         "requireFullAccess": true,
         "resend": true,
+        "restricted": true,
         "route": true,
         "senderHarness": true,
         "senderHarnessChecked": true,

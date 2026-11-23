@@ -501,31 +501,41 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
     ("share-host off", &[("Turn sharing this Mac's screen off", "acpmux share-host off")]),
     (
         "share-host screens",
-        &[("List the live shares this machine hosts or views", "acpmux share-host screens")],
+        &[
+            ("List the live shares this machine hosts or views", "acpmux share-host screens"),
+            ("Read them as JSON", "acpmux share-host screens --json"),
+        ],
     ),
     (
         "share-host start",
         &[
-            ("Share this screen to your iPhone", "acpmux share-host start --to iphone"),
-            ("Share it view-only", "acpmux share-host start --to iphone --view-only"),
+            ("Share this machine's screen to your iPhone", "acpmux share-host start --to iphone"),
+            (
+                "Share it view-only to another device, by id prefix",
+                "acpmux share-host start --to 3f2a --view-only",
+            ),
         ],
     ),
-    ("share-host stop", &[("End a share this machine hosts", "acpmux share-host stop 3f2a")]),
+    ("share-host stop", &[("End a share by its session id prefix", "acpmux share-host stop 7c1e")]),
     (
         "share-host move",
         &[
+            ("Hand a live share to another viewer", "acpmux share-host move 7c1e --to macbook"),
             (
-                "Hand a share's viewer side to another device",
-                "acpmux share-host move 3f2a --to ipad",
+                "Show the viewer another host's screen",
+                "acpmux share-host move 7c1e --host mac-mini",
             ),
-            ("Hand its host side to another Mac", "acpmux share-host move 3f2a --host studio"),
         ],
     ),
     (
         "share-host link",
         &[
             ("Print the view-only link to this Mac's screen", "acpmux share-host link"),
-            ("Link one display with full control", "acpmux share-host link --display 5 --control"),
+            (
+                "Link a run's virtual display, labeled with the run's name",
+                "acpmux share-host link --display 5 --name ui-check",
+            ),
+            ("Ask for full control instead of view-only", "acpmux share-host link --control"),
         ],
     ),
     ("router", &[("Start the local CodeRouter", "acpmux router serve")]),
