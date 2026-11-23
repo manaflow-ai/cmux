@@ -208,7 +208,7 @@ impl Base {
             self.made_settings_file = file.is_none();
         }
         if value.is_none()
-            && let Some(row) = Schema::embedded().row(key)
+            && let Some(row) = cmux_config::Schema::embedded().row(key)
         {
             for parent in (1..row.path.len()).filter_map(|depth| row.path.get(..depth)) {
                 let there =

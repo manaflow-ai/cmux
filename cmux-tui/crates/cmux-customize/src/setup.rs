@@ -565,7 +565,7 @@ impl Customize {
         for extension in &manifest.extensions {
             Reference::parse(extension)?;
         }
-        self.check_setup(setup)?;
+        self.check_setup(setup, "cli")?;
 
         let live = tree::read(self.roots(), SETTINGS)?
             .map(|bytes| jsonc::parse(&String::from_utf8_lossy(&bytes)).unwrap_or(Value::Null))
@@ -655,7 +655,7 @@ impl Customize {
         origin: &str,
         now_ms: u64,
     ) -> Result<Installed, Error> {
-        self.check_setup(setup)?;
+        self.check_setup(setup, origin)?;
         self.ensure_baseline(now_ms)?;
         let _lock = self.store().lock()?;
         let before = self.current_generation()?;
@@ -684,7 +684,7 @@ impl Customize {
         origin: &str,
         now_ms: u64,
     ) -> Result<Installed, Error> {
-        self.check_setup(setup)?;
+        self.check_setup(setup, origin)?;
         self.no_preview_open()?;
         self.ensure_baseline(now_ms)?;
         let _lock = self.store().lock()?;
@@ -706,8 +706,10 @@ impl Customize {
         replaced
     }
 
-    pub(crate) fn check_setup(&self, setup: &Setup) -> Result<(), Error> {
-        self.check_profile(&setup.profile)?;
+    /// `origin` is the writer's (`plan_setup` writes nothing, so it checks as
+    /// the person would apply it; an install checks its own origin).
+    pub(crate) fn check_setup(&self, setup: &Setup, origin: &str) -> Result<(), Error> {
+        self.check_profile(&setup.profile, origin)?;
         check_actions(setup.actions())?;
         secrets::check_secrets(setup)
     }
