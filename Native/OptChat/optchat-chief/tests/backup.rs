@@ -233,17 +233,25 @@ fn a_permanent_push_failure_becomes_visible_and_stops_retrying() {
     let s = setup();
     let mut backup = Backup::new(s.config.clone());
     turn(&s.chat, &["hello"], "turn:optchat:0:1");
+    let mut now = std::time::Instant::now();
     for _ in 0..7 {
-        assert!(matches!(backup.run(&s.chat), Outcome::Failed { .. }));
+        assert!(matches!(
+            backup.run_at(&s.chat, now),
+            Outcome::Failed { .. }
+        ));
+        now += std::time::Duration::from_secs(60);
     }
-    let Outcome::Blocked { attempts, .. } = backup.run(&s.chat) else {
+    let Outcome::Blocked { attempts, .. } = backup.run_at(&s.chat, now) else {
         panic!("the retry budget must end in a visible blocked state")
     };
     assert_eq!(attempts, 8);
     assert!(backup.due().is_none());
     assert_eq!(status(&s)["state"], "blocked");
     init_bare(&s.bare);
-    assert!(matches!(backup.run(&s.chat), Outcome::Blocked { .. }));
+    assert!(matches!(
+        backup.run_at(&s.chat, now),
+        Outcome::Blocked { .. }
+    ));
     let remote_head = Command::new("git")
         .args([
             "-C",
