@@ -1326,3 +1326,74 @@ test("an unplaced chip's text or file goes in after a selection, never over it",
   await settleTurns();
   expect(markdownField().value()).toBe("keep this draft and this");
 });
+
+// https://github.com/manaflow-ai/cmux/issues/49644: three screenshots pasted one after another, then
+// ⌘Z took all three out at once ("this is not good behavior"). The field's history joins adjacent
+// edits made within its group delay, and each pasted node lands right after the one before it. Each
+// paste is its own undo step, the words typed before them another, and redo puts them back one by one.
+test("each pasted image is its own undo step, and redo brings them back one by one", async () => {
+  await openComposer([]);
+  const placed = () => markdownField().inlineIds()?.length ?? 0;
+  const words = () => markdownField().plainText().replaceAll("￼", "").trim();
+  await act(async () => markdownField().insertTyped("look"));
+  for (const index of [1, 2, 3]) {
+    await paste({ files: [screenshot(index)] });
+    await until(() => placed() === index, `pasted image ${index}`);
+  }
+  for (const left of [2, 1, 0]) {
+    await act(async () => markdownField().undo());
+    await settleTurns();
+    expect(placed()).toBe(left);
+    expect(words()).toBe("look");
+  }
+  await act(async () => markdownField().undo());
+  expect(words()).toBe("");
+  for (const back of [0, 1, 2, 3]) {
+    await act(async () => markdownField().redo());
+    await settleTurns();
+    expect(words()).toBe("look");
+    expect(placed()).toBe(back);
+  }
+  expect(markdownField().history().redo).toBe(false);
+});
+
+// The same for text: each paste is one step, and the keys typed right after it are another.
+test("each paste of text is its own undo step, apart from the typing around it", async () => {
+  await openComposer([]);
+  await act(async () => markdownField().insertTyped("a "));
+  await act(async () => markdownField().pasteText("one "));
+  await act(async () => markdownField().pasteText("two"));
+  await act(async () => markdownField().insertTyped("!"));
+  expect(markdownField().plainText()).toBe("a one two!");
+  const steps: string[] = [];
+  for (let undo = 0; undo < 4; undo += 1) {
+    await act(async () => markdownField().undo());
+    steps.push(markdownField().plainText());
+  }
+  expect(steps).toEqual(["a one two", "a one ", "a ", ""]);
+  const redone: string[] = [];
+  for (let redo = 0; redo < 4; redo += 1) {
+    await act(async () => markdownField().redo());
+    redone.push(markdownField().plainText());
+  }
+  expect(redone).toEqual(["a ", "a one ", "a one two", "a one two!"]);
+});
+
+// Greptile review of https://github.com/manaflow-ai/cmux/pull/49685: a browser runs microtasks between
+// one native paste listener and the next, so the composer's document listener can place a paste's
+// attachment after a microtask the editor's own listener queued. It is still that paste's step: one
+// undo takes the text and the attachment together.
+test("an attachment a paste places after a microtask is in that paste's one undo step", async () => {
+  await openComposer([]);
+  await act(async () => markdownField().insertTyped("look "));
+  await act(async () => {
+    markdownField().pasteText("here ");
+    await Promise.resolve();
+    await Promise.resolve();
+    markdownField().insertInline(["later-placed"]);
+  });
+  expect(markdownField().inlineIds()).toContain("later-placed");
+  await act(async () => markdownField().undo());
+  expect(markdownField().plainText()).toBe("look ");
+  expect(markdownField().inlineIds() ?? []).not.toContain("later-placed");
+});

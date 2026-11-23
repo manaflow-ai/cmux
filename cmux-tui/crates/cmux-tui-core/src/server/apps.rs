@@ -60,6 +60,11 @@ enum Command {
         #[serde(default)]
         words: Vec<String>,
     },
+    /// `cmux mcp serve`'s `tools/list`: every installed extension op whose
+    /// catalog offers it to agents (apps/mcp_tools.rs), read on each list so
+    /// an install or a saved app shows with no restart.
+    #[serde(rename = "apps-mcp-tools")]
+    McpTools,
     #[serde(rename = "apps-place")]
     Place {
         contribution: String,
@@ -544,6 +549,7 @@ pub(super) fn try_handle(
         Command::ReloadLocal { folders } => Ok(supervisor.reload_local_apps_named(folders)),
         Command::Capabilities { op, brief } => capabilities(op.as_deref(), brief),
         Command::Cli { name, words } => supervisor.cli_resolve(&name, &words),
+        Command::McpTools => Ok(supervisor.mcp_tools()),
         Command::Place { contribution, region } => supervisor.place_sidebar(&contribution, region),
         // Answered on its own thread above.
         Command::Reload { .. } => Err(crate::apps::ApiError::new(
