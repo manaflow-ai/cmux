@@ -32,6 +32,10 @@ Headlines (INFTABS lines, and one PERF_ROW JSON line each for the perf cron):
                        for a wake whose placeholder showed none: no kept frame, or the page was back first
   snapshot_covered     the share of those wakes a kept last frame covered
 INFTABS-KIND lines give each process kind at empty and full (count, RSS, footprint, CPU, wakeups).
+--app-hold prints INFTABS-APPHOLD lines last: what the app process itself holds at full beyond empty, by
+vmmap region (dirty + swapped) and by heap class (count, bytes), each with its cost per item. PartitionAlloc
+is the app's malloc, so its Swift/ObjC blocks sit in "App-Specific Tag 14", which heap cannot list; with
+--env MallocStackLogging=lite they go to the system zone instead and the class rows name them.
 
 Measurement only, never a gate. macOS only, a fleet Mac, never a laptop (DEV or bench build: it reads
 debug.surfaces):
@@ -44,8 +48,10 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import signal
+import subprocess
 import sys
 import time
 
@@ -79,6 +85,59 @@ def counts(sock: str) -> dict:
             "hibernated_pages": len(sleep.get("hibernated") or []), "frozen_pages": len(sleep.get("frozen") or []),
             "chat_pages": len(sleep.get("chat_pages") or []), "snapshots": sleep.get("snapshots"),
             "snapshot_mb": round((sleep.get("snapshot_bytes") or 0) / 1048576, 1), "exemptions": len(sleep.get("exemptions") or {})}
+
+
+SIZE = r"(\d[\d.]*[KMG])"  # vmmap always prints a unit; a bare number is part of a name (Tag 14)
+VMMAP_ROW = re.compile(rf"^(\S.*?)\s+{SIZE}\s+{SIZE}\s+{SIZE}\s+{SIZE}\b")
+HEAP_ROW = re.compile(r"^\s*(\d+)\s+(\d+)\s+[\d.]+\s+(\S.*?)\s*$")
+
+
+def mb(size: str) -> float:
+    return float(size[:-1]) * {"K": 1 / 2**10, "M": 1.0, "G": 2**10}[size[-1]]
+
+
+def app_hold(pid: int) -> dict:
+    """--app-hold: the app process's vmmap regions (dirty + swapped MB) and heap classes (count, bytes), whole, so
+    empty and full diff row by row. The first table that names a row wins (vmmap's region table, heap's all-zones)."""
+    out: dict = {"regions": {}, "classes": {}, "errors": []}
+    for tool, extra in (("vmmap", ["--summary"]), ("heap", ["--sortBySize"])):
+        try:
+            proc = subprocess.run([tool, *extra, str(pid)], capture_output=True, text=True, timeout=300)
+        except (OSError, subprocess.TimeoutExpired) as e:
+            out["errors"].append(f"{tool}: {str(e)[:200]}")
+            continue
+        if proc.returncode:
+            out["errors"].append(f"{tool}: rc={proc.returncode} {proc.stderr[-200:]}")
+        for line in proc.stdout.splitlines():
+            if tool == "vmmap" and (m := VMMAP_ROW.match(line)) and m.group(1) not in out["regions"]:
+                out["regions"][m.group(1).strip()] = round(mb(m.group(4)) + mb(m.group(5)), 2)
+            elif tool == "heap" and (m := HEAP_ROW.match(line)) and m.group(3) not in out["classes"]:
+                out["classes"][m.group(3)] = (int(m.group(1)), int(m.group(2)))
+    return out
+
+
+def print_app_hold(empty: dict, full: dict, items: dict, top: int = 40) -> None:
+    """INFTABS-APPHOLD lines: the rows that grew most from empty to full, with MB and KB per item (tabs,
+    workspaces, chats: each row divides by each, so a per-tab cost reads beside a per-workspace one)."""
+    per = " ".join(f"{k}={v}" for k, v in items.items())
+    print(f"INFTABS-APPHOLD items {per} errors={json.dumps(empty['errors'] + full['errors'])}", flush=True)
+
+    def per_item(delta_mb: float) -> str:
+        return " ".join(f"kb_per_{k}={round(delta_mb * 1024 / v, 2)}" for k, v in items.items() if v)
+
+    regions = sorted(set(empty["regions"]) | set(full["regions"]),
+                     key=lambda r: -(full["regions"].get(r, 0) - empty["regions"].get(r, 0)))
+    for region in regions[:top]:
+        e, f = empty["regions"].get(region, 0.0), full["regions"].get(region, 0.0)
+        print(f"INFTABS-APPHOLD region={json.dumps(region)} dirty_swapped_mb={e}->{f} delta_mb={round(f - e, 2)} "
+              f"{per_item(f - e)}", flush=True)
+    classes = sorted(set(empty["classes"]) | set(full["classes"]),
+                     key=lambda c: -(full["classes"].get(c, (0, 0))[1] - empty["classes"].get(c, (0, 0))[1]))
+    for name in classes[:top]:
+        (ec, eb), (fc, fb) = empty["classes"].get(name, (0, 0)), full["classes"].get(name, (0, 0))
+        delta = (fb - eb) / 2**20
+        print(f"INFTABS-APPHOLD class={json.dumps(name)} count={ec}->{fc} mb={round(eb / 2**20, 2)}->{round(fb / 2**20, 2)} "
+              f"delta_mb={round(delta, 2)} {per_item(delta)}", flush=True)
 
 
 def phase(pid: int, bundle: str, sock: str, label: str, items: int, seconds: float, report: dict) -> dict:
@@ -251,6 +310,8 @@ def run(argv: list[str]) -> int:
     parser.add_argument("--config", default="{}", help="cmux.json settings merged over the run's own")
     parser.add_argument("--env", action="append", default=[], metavar="NAME=VALUE",
                         help="an environment variable for the app (repeatable), e.g. CMUX_NEXT_TUI_TERMINAL_HOST_MODEL=holder")
+    parser.add_argument("--app-hold", action="store_true",
+                        help="diff the app process's vmmap regions and heap classes, empty to full (INFTABS-APPHOLD)")
     parser.add_argument("--out")
     args = parser.parse_args(argv)
     if sys.platform != "darwin":
@@ -281,6 +342,7 @@ def run(argv: list[str]) -> int:
     try:
         time.sleep(args.settle)  # test script: the launched app settles before its empty sample
         phase(pid, bundle, sock, "empty", 0, args.measure, report)
+        hold_empty = app_hold(pid) if args.app_hold else None
         chats = bm.FakeChats(app, bundle, args.fake_agent) if args.chats else None
         started = time.monotonic()
         for index in range(args.workspaces):
@@ -325,6 +387,7 @@ def run(argv: list[str]) -> int:
         attribution.start()
         full = phase(pid, bundle, sock, "full", len(made) + sum(len(e["pages"]) for e in made), args.measure, report)
         found = attribution.finish()
+        hold_full = app_hold(pid) if args.app_hold else None
         pump_after = (app.call("debug.cef", timeout=30) or {}).get("pump") or {}
         pump = {key: round(value - pump_before.get(key, 0), 3) for key, value in pump_after.items()
                 if isinstance(value, (int, float)) and not isinstance(value, bool)}
@@ -359,6 +422,11 @@ def run(argv: list[str]) -> int:
         if summary["switches_hibernated"]:
             perf_row("snapshot_covered_pct", 100 * summary["snapshot_covered"] / summary["switches_hibernated"], "%")
         print("PERF_REPORT " + json.dumps({"rows": ROWS}), flush=True)
+        if hold_empty and hold_full:
+            # Last, so a tail-cut log keeps them (the empty phase's own lines scroll off a long run).
+            report["app_hold"] = {"empty": hold_empty, "full": hold_full}
+            print_app_hold(hold_empty, hold_full, {"tabs": summary["tabs"], "workspaces": summary["workspaces"],
+                                                   "chats": summary["chats"]})
         # A run that built under 90 % of what was asked measured another mix: say so with the exit code.
         built = summary["tabs"] >= 0.9 * args.tabs and summary["workspaces"] >= 0.9 * args.workspaces and summary["chats"] >= 0.9 * args.chats
         status = 0 if built else 3
