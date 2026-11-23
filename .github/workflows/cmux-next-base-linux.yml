@@ -12,9 +12,11 @@ name: cmux-next base linux
 #
 # Each run routes the steps by the paths changed since the last green run, so a red step runs again on
 # every tip until the base is green, and a run after a green one costs only the steps the new commits
-# reach. When the read of the last green run fails (its first hour: HTTP 403 twice, and both runs ran every
-# step, 22 of the hour's 62 runner-min), the run routes by the push's own diff; the next run that reads a
-# green tip covers what that left out. Only a branch with no green run yet runs every linux step.
+# reach. A green run records its tip as an Actions cache key and the next run reads it back, so the route
+# does not depend on the API: in the hour after cmux#51869 the read of the last green run answered HTTP 403
+# on 11 of 17 runs, each routed by its own push's diff, and the pushes collapsed before such a run were
+# routed by no run. With no recorded tip the run asks the API for the last green run, and when that fails
+# too it routes by the push's own diff. Only a branch with no green run yet runs every linux step.
 #
 # A step that fails runs once more by itself before the run is red (a failed setup or tool: the whole job): in that first hour 4 of 13 runs were
 # red and none was a base break (one timing test twice, a slow runner, a runner shut down).
@@ -50,14 +52,32 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 2
+      - name: Read the tip the last green run recorded
+        # The key carries the tip; the file under .git only gives the cache something to hold.
+        id: tip
+        continue-on-error: true
+        timeout-minutes: 3
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: .git/base-linux-tip
+          key: cmux-next-base-linux-tip-${{ github.ref_name }}-${{ github.sha }}
+          restore-keys: cmux-next-base-linux-tip-${{ github.ref_name }}-
       - name: List the paths changed since the last green run
         timeout-minutes: 4
         env:
           GH_TOKEN: ${{ github.token }}
           PUSH_BEFORE: ${{ github.event.before }}
+          TIP_KEY: ${{ steps.tip.outputs.cache-matched-key }}
         run: |
+          recorded="${TIP_KEY##*-}"
+          if [[ "$recorded" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "The last green run recorded its tip: $recorded"
+          else
+            recorded=""
+          fi
           # Prints the last green tip, `none` when the branch has no green run, or nothing when the read failed.
-          since="$(python3 - <<'PY' || true
+          since="$recorded"
+          [[ -n "$since" ]] || since="$(python3 - <<'PY' || true
           import json, os, sys, time, urllib.request
           url = (f"{os.environ['GITHUB_API_URL']}/repos/{os.environ['GITHUB_REPOSITORY']}/actions/workflows/"
                  f"cmux-next-base-linux.yml/runs?branch={os.environ['GITHUB_REF_NAME']}&status=success&per_page=1")
@@ -76,6 +96,9 @@ jobs:
           PY
           )"
           from="last green run"
+          if [[ -n "$recorded" ]]; then
+            from="last green run (the tip it recorded)"
+          fi
           if [[ -z "$since" && "$PUSH_BEFORE" =~ ^[0-9a-f]{40}$ && ! "$PUSH_BEFORE" =~ ^0+$ ]]; then
             since="$PUSH_BEFORE"
             from="tip before this push (the last green run could not be read)"
@@ -114,6 +137,19 @@ jobs:
           fi
           echo "::error::Failed twice on this tip: $again"
           exit 1
+      - name: Mark this tip as the last green one
+        if: success() && steps.tip.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p .git/base-linux-tip
+          git rev-parse HEAD > .git/base-linux-tip/sha
+      - name: Record this tip for the next run
+        if: success() && steps.tip.outputs.cache-hit != 'true'
+        continue-on-error: true
+        timeout-minutes: 3
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: .git/base-linux-tip
+          key: cmux-next-base-linux-tip-${{ github.ref_name }}-${{ github.sha }}
       - name: Name the merges since the last green tip
         if: failure()
         timeout-minutes: 3
