@@ -33,6 +33,9 @@ struct ChatComposer: View {
     /// shown over the composer (the draft stays). Empty: none offered.
     var cmuxCommands: [CmuxSlashCommand] = []
     var runCmuxCommand: (@MainActor (CmuxSlashCommand, String) async -> String?)?
+    /// Where the screen reads how far the attachment strip reaches above the
+    /// field's own height (the transcript's inset leaves it out).
+    var fieldRef: ComposerFieldRef?
     @State private var showPhotos = false
     private let voice = AgentVoiceLauncher.shared
     @State private var showFiles = false
@@ -229,14 +232,35 @@ struct ChatComposer: View {
 
     private var card: some View {
         VStack(alignment: .leading, spacing: 0) {
+            // Strip and text share the cap: the field gives the strip its
+            // height, and the transcript's inset leaves out what reaches above
+            // the field's own height, so no row moves (Leo, 2026-11-23: "simply
+            // have it within the top part of the composer. the inner area grows
+            // at the top. no shift, nothing."). Above the minimum-height frame,
+            // so the strip adds exactly its own height to the card.
+            if !collapsed, !attachments.isEmpty {
+                attachmentStrip
+                    .frame(height: ComposerHeightCap.stripHeight, alignment: .top)
+            }
+            fieldAndControls
+        }
+        // Its own height whatever it is offered: a min-height frame offered
+        // less takes the offer, and the grown draft ran outside the rounded
+        // card (user report 2026-11-12, the same rule as the terminal composer).
+        .fixedSize(horizontal: false, vertical: true)
+        .glassEffect(.regular, in: .rect(cornerRadius: 24, style: .continuous))
+        .padding(.horizontal, collapsed ? 20 : 12)
+    }
+
+    private var fieldAndControls: some View {
+        VStack(alignment: .leading, spacing: 0) {
             if !collapsed {
-                if !attachments.isEmpty {
-                    attachmentStrip
-                }
                 // Return starts a new line, the send button sends; a hardware
                 // keyboard's Return sends, Shift-Return starts a new line.
                 ChatComposerField(text: $text, placeholder: placeholder, isFocused: focus, onSend: sendFromKeyboard,
-                                  onPasteAttachments: pasteAttachments)
+                                  onPasteAttachments: pasteAttachments,
+                                  stripReserve: ComposerHeightCap.stripReserve(hasAttachments: !attachments.isEmpty),
+                                  fieldRef: fieldRef)
                     .padding(.horizontal, 16)
                     .padding(.top, 14)
                     .padding(.bottom, 6)
@@ -279,12 +303,6 @@ struct ChatComposer: View {
             .padding(.top, collapsed ? 2 : 0)
         }
         .frame(minHeight: collapsed ? 48 : 96, alignment: .bottom)
-        // Its own height whatever it is offered: a min-height frame offered
-        // less takes the offer, and the grown draft ran outside the rounded
-        // card (user report 2026-11-12, the same rule as the terminal composer).
-        .fixedSize(horizontal: false, vertical: true)
-        .glassEffect(.regular, in: .rect(cornerRadius: 24, style: .continuous))
-        .padding(.horizontal, collapsed ? 20 : 12)
     }
 
     private var placeholder: String {

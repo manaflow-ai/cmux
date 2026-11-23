@@ -19,8 +19,13 @@ struct ChatComposerField: UIViewRepresentable {
     /// A copied image or file pasted into the field (edit menu Paste or
     /// Command-V): the composer attaches it.
     var onPasteAttachments: (() -> Void)?
+    /// The attachment strip's height above the field inside the card (0:
+    /// none): the field gives it that much of the cap.
+    var stripReserve: CGFloat = 0
+    /// Where the screen reads the field's strip overlap (`ComposerFieldRef`).
+    var fieldRef: ComposerFieldRef?
 
-    static let maxLines = ComposerFieldHeight.defaultMaxLines
+    static var maxLines: Int { ComposerHeightCap.lines }
     static let accessibilityIdentifier = "chat.composer.field"
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.chatFaceHidden) private var faceHidden
@@ -53,6 +58,8 @@ struct ChatComposerField: UIViewRepresentable {
     func updateUIView(_ view: ChatComposerTextView, context: Context) {
         context.coordinator.parent = self
         markReadyIfShown()
+        fieldRef?.view = view
+        view.stripReserve = stripReserve
         view.onPasteAttachments = onPasteAttachments == nil ? nil : { [weak coordinator = context.coordinator] in
             coordinator?.parent.onPasteAttachments?()
         }

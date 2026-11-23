@@ -121,7 +121,22 @@ open class ComposerReturnTextView: UITextView {
     /// as wide as offered, as tall as `fieldHeight` says for the text.
     public func fittingSize(proposedWidth: CGFloat?) -> CGSize {
         let width = proposedWidth ?? (bounds.width > 0 ? bounds.width : 240)
-        return CGSize(width: width, height: fieldHeight.height(contentHeight: contentHeight(width: width)))
+        return CGSize(width: width, height: fieldHeight.height(contentHeight: contentHeight(width: width), reserve: stripReserve))
+    }
+
+    /// The attachment strip's height above this field inside the composer
+    /// (0: none): the field gives that much of its cap to the strip
+    /// (`ComposerFieldHeight.height(contentHeight:reserve:)`).
+    public var stripReserve: CGFloat = 0 {
+        didSet { if oldValue != stripReserve { invalidateIntrinsicContentSize() } }
+    }
+
+    /// How far the strip reaches above the field's height without it; the
+    /// page's content inset leaves it out (`ComposerFieldHeight.stripOverlap`).
+    public var stripOverlap: CGFloat {
+        guard stripReserve > 0 else { return 0 }
+        let width = bounds.width > 0 ? bounds.width : 240
+        return fieldHeight.stripOverlap(contentHeight: contentHeight(width: width), reserve: stripReserve)
     }
 
     /// Whether the text is taller than the field (it scrolls inside).
@@ -263,5 +278,14 @@ open class ComposerReturnTextView: UITextView {
         }
         builder.insertChild(UIMenu(options: .displayInline, children: [newLine]), atStartOfMenu: .standardEdit)
     }
+}
+
+/// The composer's live text view, for the screen that lays out the page
+/// under it: it reads `stripOverlap` in the same layout pass.
+@MainActor public final class ComposerFieldRef {
+    public weak var view: ComposerReturnTextView?
+    public init() {}
+    /// How far the attachment strip reaches above the field's own height (0 with no strip).
+    public var stripOverlap: CGFloat { view?.stripOverlap ?? 0 }
 }
 #endif

@@ -159,8 +159,13 @@ struct TerminalComposer: View {
         VStack(alignment: .leading, spacing: 0) {
             // Inside the field, where the text starts: one attachment sits
             // over the draft's first letter, never in the far corner from send.
+            // Strip and text share the cap: the field gives the strip its
+            // height, and the page's inset leaves out what reaches above the
+            // field's own height, so no terminal row moves (Leo, 2026-11-23:
+            // "the inner area grows at the top. no shift, nothing.").
             if !model.attachments.isEmpty {
                 AttachmentStrip(model: model)
+                    .frame(height: ComposerHeightCap.stripHeight, alignment: .top)
                     .padding(.leading, -AttachmentStrip.edgeInset)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
@@ -208,7 +213,9 @@ struct TerminalComposer: View {
                 },
                 onReturn: { send() },
                 shouldInsert: { model.composerShouldInsert($0) },
-                onPasteAttachments: model.attachmentsAvailable ? { pasteFromClipboard() } : nil
+                onPasteAttachments: model.attachmentsAvailable ? { pasteFromClipboard() } : nil,
+                stripReserve: ComposerHeightCap.stripReserve(hasAttachments: !model.attachments.isEmpty),
+                fieldRef: model.composerField
             )
             primaryButton
                 .padding(.vertical, TerminalDockMetrics.fieldPadding)

@@ -6,8 +6,8 @@ import UIKit
 /// The composer's text field: a UITextView, so the screen controls what a
 /// SwiftUI TextField does not expose: the dark keyboard (iOS 27 no longer
 /// derives it from the field's trait), terminal-safe text traits, and growth
-/// upward from 1 to 14 lines before it scrolls inside (classic cmux iOS; the
-/// height rule is `ComposerFieldHeight`, shared with the agent chat composer).
+/// upward from 1 line to the cap before it scrolls inside (`ComposerHeightCap`;
+/// the height rule is `ComposerFieldHeight`, shared with the agent chat composer).
 ///
 /// Return starts a new line from either keyboard and only the send button
 /// sends (classic cmux iOS, `ComposerReturnStyle.message`); the key row's ⏎
@@ -31,10 +31,16 @@ struct ComposerTextView: UIViewRepresentable {
     /// A copied image or file pasted into the field (edit menu Paste or
     /// Command-V): it becomes an attachment. Nil: the composer takes none.
     var onPasteAttachments: (() -> Void)?
+    /// The attachment strip's height above the field inside the card (0:
+    /// none): the field gives it that much of the cap.
+    var stripReserve: CGFloat = 0
+    /// Where the screen reads the field's strip overlap (`ComposerFieldRef`).
+    var fieldRef: ComposerFieldRef?
 
-    /// Classic cmux iOS's 14 lines (#41900 cut it to six; the iOS owner
-    /// kept the classic design, 2026-11-13).
-    static let maxLines = 14
+    /// Six lines, then the draft scrolls inside, as the chat composer and
+    /// ChatGPT's do (Leo, 2026-11-23: "composer growth in terminal view on ios
+    /// is most certainly too high"; it had classic cmux iOS's 14).
+    static var maxLines: Int { ComposerHeightCap.terminalLines }
     /// Read so a live text size change updates the view (Codex QA F10): the
     /// insets follow the new line height and SwiftUI measures it again.
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -87,6 +93,8 @@ struct ComposerTextView: UIViewRepresentable {
             view.setNeedsLayout()
         }
         if view.text != text { view.text = text }
+        fieldRef?.view = view
+        view.stripReserve = stripReserve
         view.placeholder = placeholder
         view.onPasteAttachments = onPasteAttachments == nil ? nil : { [weak coordinator = context.coordinator] in
             coordinator?.parent.onPasteAttachments?()
