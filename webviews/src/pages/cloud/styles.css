@@ -232,9 +232,9 @@ select {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: 2px 10px;
-  margin: 0 0 8px;
-  padding: 8px 10px;
+  gap: var(--grid-half-step) var(--grid-gap);
+  margin: 0 0 var(--grid-gap);
+  padding: var(--grid-gap) var(--grid-gap);
   border: 1px solid var(--cloud-separator);
   border-left: 3px solid var(--cloud-text-2);
   border-radius: 6px;
