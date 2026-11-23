@@ -36,8 +36,7 @@
 #   - the cloud wire clients: the TypeScript and Rust clients from the committed
 #     cloud catalog (backend/packages/protocol/scripts/export-client.ts and
 #     export-rust-client.ts; with --cloud-clients);
-#   - webviews formatting and the acpmux protocol types: applies PATCH, the `vp fmt`
-#     and `acpmux-protocol-codegen.ts` output of the
+#   - webviews formatting: applies PATCH, the `vp fmt` output of the
 #     workflow's read-only webviews-fmt job (it installs webviews' packages,
 #     which never run next to the push token); a patch reaching outside
 #     webviews/, or into its package.json or lockfile, is not applied
