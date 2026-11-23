@@ -199,6 +199,14 @@ struct DemoDriver {
                 model.demoFillComposer("Run the tests again please", attachments: false)
             case "long":
                 model.demoFillComposer((1...9).map { "Line \($0) of a longer message for the agent" }.joined(separator: "\n"), attachments: false)
+            case let mode? where mode.hasPrefix("chars:"):
+                // ComposerTypingLagUITests: a long draft (N characters of
+                // prose) with two photos attached, focused, caret at its end
+                // (Leo, 2026-11-23: typing lag after two pictures attached
+                // and removed in a long text).
+                let count = Int(mode.dropFirst("chars:".count)) ?? 5_000
+                model.demoFillComposer(TerminalModel.demoProse(count), attachments: true, file: false)
+                model.focusComposer()
             default:
                 model.demoFillComposer("Can you check why the build fails on the\nsecond step? The log is attached, and the\nscreenshots show the error dialog.", attachments: true)
             }

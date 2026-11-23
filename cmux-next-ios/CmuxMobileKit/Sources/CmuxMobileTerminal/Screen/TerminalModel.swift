@@ -761,7 +761,7 @@ public final class TerminalModel {
     #if DEBUG
     /// Demo drivers (`ws-terminal-composer`): a draft, with two photos and a
     /// file attached when asked, for gallery captures of the composer.
-    public func demoFillComposer(_ text: String, attachments withAttachments: Bool) {
+    public func demoFillComposer(_ text: String, attachments withAttachments: Bool, file: Bool = true) {
         composerText = text
         guard withAttachments else { return }
         let colors: [UIColor] = [.systemOrange, .systemTeal]
@@ -774,7 +774,22 @@ public final class TerminalModel {
             }
             addAttachment(ComposerAttachment(kind: .image, name: "Photo \(index + 1).png", thumbnail: image, data: image.pngData()))
         }
+        guard file else { return }
         addAttachment(ComposerAttachment(kind: .file, name: "build.log", data: Data(repeating: 0x61, count: 18_432)))
+    }
+
+    /// `count` characters of prose, sentences and paragraph breaks, for
+    /// typing-cost captures of a long draft (`ComposerTypingLagUITests`).
+    public static func demoProse(_ count: Int) -> String {
+        let sentence = "The build fails on the second step when the cache is cold, so check the log and the screenshots before rerunning it. "
+        var text = ""
+        var index = 0
+        while text.count < count {
+            text += sentence
+            index += 1
+            if index % 4 == 0 { text += "\n\n" }
+        }
+        return String(text.prefix(count))
     }
 
     /// Demo drivers (`ws-terminal-reattach`): the session's link changes as a

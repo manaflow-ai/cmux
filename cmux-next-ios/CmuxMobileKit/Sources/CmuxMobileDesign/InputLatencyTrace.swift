@@ -100,6 +100,25 @@ public final class InputLatencyTrace {
         NextFrame.after { [weak self] in self?.sample(kind, since: start) }
     }
 
+    /// A sample from `start` to the end of this run-loop pass's Core Animation
+    /// commit: the keystroke's work done and its frame handed to the render
+    /// server (`<field>_key_commit`). Unlike `sampleAtNextFrame` it does not
+    /// include the wait for the next vsync (up to a frame at 60 Hz, Low Power
+    /// Mode's rate), so it says what the app itself spent on the key.
+    public func sampleAfterCommit(_ kind: String, since start: CFTimeInterval) {
+        // Core Animation commits at order 2_000_000 before the run loop waits.
+        let observer = CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault, CFRunLoopActivity.beforeWaiting.rawValue,
+                                                          false, 2_000_001) { _, _ in
+            MainActor.assumeIsolated { InputLatencyTrace.shared?.sample(kind, since: start) }
+        }
+        CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
+    }
+
+    /// Runs `action` at the next frame (a count read after the frame's layout).
+    public func atNextFrame(_ action: @escaping @MainActor () -> Void) {
+        NextFrame.after(action)
+    }
+
     // MARK: Run loop
 
     private func installRunLoopObserver() {

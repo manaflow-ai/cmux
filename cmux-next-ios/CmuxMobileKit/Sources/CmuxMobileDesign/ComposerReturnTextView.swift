@@ -104,6 +104,9 @@ open class ComposerReturnTextView: UITextView {
                              padding: textContainer.lineFragmentPadding)
         if let measured, measured.key == key { return measured.height }
         let height = sizeThatFits(CGSize(width: key.width, height: .greatestFiniteMagnitude)).height
+        #if DEBUG
+        Self.measuredUnits += key.text.utf16.count
+        #endif
         measured = (key, height)
         return height
     }
@@ -153,12 +156,23 @@ open class ComposerReturnTextView: UITextView {
     }
 
     #if DEBUG
-    /// A typed key to the frame that draws it (`InputLatencyTrace`: `<field id>_key_frame`).
+    /// UTF-16 units every composer has laid out to measure its height, so a
+    /// test can see what one keystroke costs in text layout
+    /// (`<field id>_key_layout_units`, ComposerTypingLagUITests).
+    public static var measuredUnits = 0
+
+    /// A typed key to the frame that draws it (`InputLatencyTrace`:
+    /// `<field id>_key_frame`), to its frame committed (`_key_commit`), and
+    /// the text it laid out to measure the field (`_key_layout_units`).
     override open func insertText(_ text: String) {
         guard let trace = InputLatencyTrace.shared else { return super.insertText(text) }
+        let id = accessibilityIdentifier ?? "composer"
         let start = CACurrentMediaTime()
+        let units = Self.measuredUnits
         super.insertText(text)
-        trace.sampleAtNextFrame("\(accessibilityIdentifier ?? "composer")_key_frame", since: start)
+        trace.sampleAtNextFrame("\(id)_key_frame", since: start)
+        trace.sampleAfterCommit("\(id)_key_commit", since: start)
+        trace.atNextFrame { trace.sample("\(id)_key_layout_units", ms: Double(Self.measuredUnits - units)) }
     }
     #endif
 
