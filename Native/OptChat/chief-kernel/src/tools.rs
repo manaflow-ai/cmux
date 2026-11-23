@@ -10,11 +10,16 @@ use crate::prompt::{
     MCP_DESCRIPTION, MEMORY_FORGET_DESCRIPTION, MEMORY_PATH_HELP, MEMORY_READ_DESCRIPTION,
     MEMORY_WRITE_DESCRIPTION, NOTHING_DESCRIPTION, PEER_TELL_DESCRIPTION, PEERS_DESCRIPTION,
     REACT_DESCRIPTION, RECALL_DESCRIPTION, REMEMBER_DESCRIPTION, REPLY_DESCRIPTION,
-    SEND_DESCRIPTION, SLEEP_DESCRIPTION, SPAWN_CWD_DESCRIPTION, SPAWN_DESCRIPTION,
-    SPAWN_HARNESS_DESCRIPTION, SPAWN_MODEL_DESCRIPTION, SPAWN_SIDEBAR_DESCRIPTION,
-    STOP_DESCRIPTION, TELL_DESCRIPTION, TRANSCRIPT_DESCRIPTION, VERSION_DESCRIPTION,
-    WATCH_DESCRIPTION, ZOOM_AGENT_DESCRIPTION, ZOOM_DESCRIPTION,
+    SEND_DESCRIPTION, SEND_LATER_DESCRIPTION, SLEEP_DESCRIPTION, SPAWN_CWD_DESCRIPTION,
+    SPAWN_DESCRIPTION, SPAWN_HARNESS_DESCRIPTION, SPAWN_MODEL_DESCRIPTION,
+    SPAWN_SIDEBAR_DESCRIPTION, STOP_DESCRIPTION, TELL_DESCRIPTION, TRANSCRIPT_DESCRIPTION,
+    VERSION_DESCRIPTION, WATCH_DESCRIPTION, ZOOM_AGENT_DESCRIPTION, ZOOM_DESCRIPTION,
 };
+
+/// Shortest and longest Send Later delay of `send` (the owner's horizon is a
+/// little over a year).
+pub const SEND_DELAY_MIN_SECONDS: u64 = 60;
+pub const SEND_DELAY_MAX_SECONDS: u64 = 365 * 86_400;
 
 /// Shortest `sleep` (a turn costs more than a shorter wait saves).
 pub const SLEEP_MIN_SECONDS: u64 = 30;
@@ -228,12 +233,13 @@ pub fn tool_list(subagent: bool, allows: &dyn Fn(&str) -> bool) -> Value {
          "inputSchema": {"type": "object", "properties": {"id": int, "reaction": {"type": "string", "description": crate::prompt::REACT_REACTION_DESCRIPTION}}, "required": ["id", "reaction"], "additionalProperties": false}}));
         list.push(json!({"name": "reply", "description": REPLY_DESCRIPTION,
          "inputSchema": {"type": "object", "properties": {"id": int, "text": text}, "required": ["id", "text"], "additionalProperties": false}}));
-        list.push(json!({"name": "send", "description": SEND_DESCRIPTION,
+        list.push(json!({"name": "send", "description": format!("{SEND_DESCRIPTION}{SEND_LATER_DESCRIPTION}"),
          "inputSchema": {"type": "object", "properties": {
             "text": {"type": "string", "description": "The message, in Markdown."},
             "attachments": {"type": "array", "items": text, "description": "Files to attach: local paths (/abs, ~/rel, file://; images and videos show inline, any other file as a file) or http(s) URLs (a link card)."},
             "reply_to": {"type": "integer", "minimum": 0, "description": "A user message's line id: the message goes into its thread. Without it: the top level."},
-            "long": {"type": "boolean", "description": "true when the person asked for a long answer (a full list, a report): it posts on the first send instead of coming back to be cut."}},
+            "long": {"type": "boolean", "description": "true when the person asked for a long answer (a full list, a report): it posts on the first send instead of coming back to be cut."},
+            "delay_seconds": {"type": "integer", "minimum": SEND_DELAY_MIN_SECONDS, "maximum": SEND_DELAY_MAX_SECONDS, "description": "Send Later: post it this many seconds from now (60 to one year), text and URLs only. The app sends it then, even if you are not running; the user sees it waiting."}},
           "additionalProperties": false}}));
         list.push(json!({"name": "transcript", "description": TRANSCRIPT_DESCRIPTION,
          "inputSchema": {"type": "object", "properties": {
@@ -370,10 +376,20 @@ pub fn specs(engine: &str, grant_json: &str) -> Result<Value, String> {
         .filter(|t| !(cloud && HOST_ONLY.contains(&t["name"].as_str().unwrap_or(""))))
         .map(|t| {
             let name = t["name"].as_str().unwrap_or("");
+            let mut description = t["description"].clone();
+            let mut schema = t["inputSchema"].clone();
+            // Send Later is the local conversation owner's
+            // (`conversation-scheduled-v1`); a cloud engine posts now only.
+            if cloud && name == "send" {
+                description = json!(SEND_DESCRIPTION);
+                if let Some(props) = schema["properties"].as_object_mut() {
+                    props.remove("delay_seconds");
+                }
+            }
             json!({
                 "name": name,
-                "description": t["description"],
-                "json_schema": t["inputSchema"],
+                "description": description,
+                "json_schema": schema,
                 "replay": if ONCE.contains(&name) { "once" } else { "safe" },
             })
         })
