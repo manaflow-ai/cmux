@@ -252,7 +252,9 @@ async fn a_claude_chat_with_its_own_appended_prompt_gets_the_rules_in_its_first_
         let probe: Value = serde_json::from_str(&reply).unwrap();
         let argv: Vec<String> = serde_json::from_value(probe["argv"].clone()).unwrap();
         assert_eq!(argv.iter().filter(|a| *a == "--append-system-prompt").count(), 1, "{argv:?}");
-        assert!(argv.iter().any(|a| a == "mine"), "{argv:?}");
+        // Theirs, first; acpmux's own MCP servers' instructions may follow it
+        // (`agent_tools::append_system_prompt`).
+        assert!(argv.iter().any(|a| a == "mine" || a.starts_with("mine\n\n")), "{argv:?}");
         guidance.push(probe["guidance"].as_u64().unwrap());
     }
     assert!(guidance[0] >= 1, "{guidance:?}");
