@@ -3854,6 +3854,11 @@ function TranscriptView({
     const box = { height: -1, width: -1 };
     /// `resized`: the box changed (not the first measure); `stepped` then hears a new width.
     const measure = (resized: boolean, stepped?: () => void) => {
+      // No layout box at all (a hidden view in a shared document, display:none on an ancestor): the
+      // transcript keeps its last box. Taking the 0x0 as its size dropped every row's window and width,
+      // so the show rebuilt and re-measured them all in its first frame (~140 ms for a 100-turn chat,
+      // bench/chat-pages-memory.bench.ts SHARED=1). A zero-high box that is laid out still counts.
+      if (resized && node.getClientRects().length === 0) return;
       box.height = node.clientHeight;
       box.width = node.offsetWidth;
       // A box not laid out yet (hidden, 0 high) keeps the last height rather than showing no rows.

@@ -498,6 +498,12 @@ try {
   if (SHARED && REOPEN > 0 && pages.length === 1) {
     // Switch back in the shared document: the visible view hides, a hidden one shows, timed to its second frame.
     // `atBottom` says whether the transcript is still at its newest reply (instant means no scroll jump).
+    const profiling = process.env.PROFILE_SWITCH === "1";
+    if (profiling) {
+      await pages[0].cdp.send("Profiler.enable");
+      await pages[0].cdp.send("Profiler.setSamplingInterval", { interval: 200 });
+      await pages[0].cdp.send("Profiler.start");
+    }
     const switches = await pages[0].page.evaluate(
       async ([mode, n]) => {
         const mounts = [...document.querySelectorAll<HTMLElement>("[data-pane-mount]")];
@@ -531,6 +537,24 @@ try {
       },
       [SHARED_HIDE, REOPEN] as const,
     );
+    if (profiling) {
+      const { profile } = (await pages[0].cdp.send("Profiler.stop")) as {
+        profile: {
+          nodes: { id: number; callFrame: { functionName: string; url: string; lineNumber: number } }[];
+          samples: number[];
+          timeDeltas: number[];
+        };
+      };
+      const byNode = new Map(profile.nodes.map((node) => [node.id, node]));
+      const self = new Map<string, number>();
+      profile.samples.forEach((id, index) => {
+        const frame = byNode.get(id)!.callFrame;
+        const key = `${frame.functionName || "(anon)"} ${frame.url.split("/").pop()}:${frame.lineNumber}`;
+        self.set(key, (self.get(key) ?? 0) + (profile.timeDeltas[index] ?? 0) / 1000);
+      });
+      for (const [key, ms] of [...self].sort((a, b) => b[1] - a[1]).slice(0, 25))
+        console.log(`chat-pages-memory: profile self ${ms.toFixed(1)} ms  ${key}`);
+    }
     if (switches.length) {
       const ms = switches.map((entry) => entry.ms);
       const [p50, p95] = [percentile(ms, 0.5), percentile(ms, 0.95)];
