@@ -1919,9 +1919,11 @@ def web_cut_short(log: str | None) -> tuple[list[str], list[str], list[str]] | N
 
 
 def web_base_red_files(base_logs: list) -> set[str]:
-    """The webview test files the base logs name as red: failed (any of their tests, or the file) or timed out."""
+    """The webview test files the base logs name as red: failed (any of their tests, or the file). A file that only
+    timed out on the base is not red there: a cut-short file is never a base red, on the head or on the base (review
+    of #39840, F1)."""
     seen = merged_web(base_logs)
-    return {name.split(" > ", 1)[0] for name in seen.failed} | set(seen.timed_out)
+    return {name.split(" > ", 1)[0] for name in seen.failed}
 
 
 def classify_web_cut_short(head_log: str | None, windows, job: str = "", base: str = "the base") -> Verdict | None:
