@@ -81,8 +81,10 @@ pub mod cpu_class;
 pub mod cwd_pin;
 pub mod daemon;
 pub(crate) mod daemon_parts;
+pub mod daemon_priority;
 pub mod daemon_skew;
 mod dead_temps;
+pub mod death_route;
 mod default_harness;
 pub mod deliver;
 pub mod deps;
@@ -217,6 +219,7 @@ pub mod placement;
 pub mod plan_build_records;
 #[cfg(not(unix))]
 mod platform;
+pub mod pr_poller;
 pub mod pricing;
 pub mod probe_cleanup;
 pub mod probe_prompt;

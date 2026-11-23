@@ -31,7 +31,7 @@ pub use cursor::{
 };
 pub use datagram::{
     DatagramDeparture, DatagramHeader, DatagramKind, HEADER_LEN, MAX_DEPARTURE_RECEIPTS,
-    MAX_FEC_BLOCK, MAX_FRAME_SHARDS, VERSION, flags,
+    MAX_FEC_BLOCK, MAX_FRAME_SHARDS, VERSION, fec_block_of, fec_blocks, flags,
 };
 pub use error::DecodeError;
 pub use feedback::{Arrival, Feedback, MAX_ARRIVALS, MAX_NACK_FRAMES, MAX_NACK_INDEXES, Nack};

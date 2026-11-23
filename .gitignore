@@ -100,6 +100,9 @@ tmux-*.log
 # The App Store packages the app bundles (samples/apps and first-party-apps with a STORE marker):
 # build output of scripts/cmux-next/sync-app-runtime.sh --store, which build-web-bundles.sh runs.
 /Packages/macOS/CmuxNext/Sources/CmuxNextApps/Resources/AppPlatform/store/
+# The settings Swift: the SettingsSchemaPlugin build-tool plugin writes it into its work directory from
+# schemas/settings (gen-settings-sources.py --swift-out, RFD 0048); a copy here would compile twice.
+/Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/*.generated.swift
 # The React pages' strings tables: build output of webviews/scripts/pages/gen-strings.mjs, written
 # by bun install, the webviews test preload and every bundle build from the xcstrings catalogs
 # (#21946). Committed copies collided in every pull request that touched a catalog.

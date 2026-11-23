@@ -144,7 +144,7 @@ if [[ "$SIGN_MODE" == "all" ]]; then
   # Developer ID signed; the script re-pins them in the bundled manifest.
   "$SCRIPT_DIR/sign-cmux-tui-ssh-payloads.sh" "$APP_PATH" "$HELPER_ENTITLEMENTS" "$IDENTITY"
 
-  # 2. The Screen Sharing helper app (Contents/Library, bundle-screen-sharing-helper.sh;
+  # 2. The Screen Sharing helper app ("<app> Helper.app" in Contents/Library, bundle-screen-sharing-helper.sh;
   # plans/cmux-next/screen-sharing-helper.md): stamped for this app's final bundle id and name
   # (nightly and RC rename the app after the build, and stable-next-identity.sh and
   # nightly-next-legacy-identity.sh re-identify it), then signed as its own app with the
@@ -154,8 +154,8 @@ if [[ "$SIGN_MODE" == "all" ]]; then
   # its new signature.
   if [[ "$SIGN_MODE" == "all" ]]; then
     "$SCRIPT_DIR/cmux-next/bundle-screen-sharing-helper.sh" --stamp "$APP_PATH"
-    for screen_helper in "$APP_PATH/Contents/Library/"*" Screen Sharing.app"; do
-      [[ -d "$screen_helper" ]] || continue
+    for screen_helper in "$APP_PATH/Contents/Library/"*" Helper.app"; do
+      [[ -e "$screen_helper/Contents/MacOS/cmux-screen-sharing" ]] || continue
       echo "==> signing the Screen Sharing helper $(basename "$screen_helper")"
       "$SCRIPT_DIR/codesign-retry.sh" "${COMMON[@]}" "$screen_helper"
     done
@@ -242,8 +242,8 @@ for alias in cmux-tui acpmux; do
     exit 1
   fi
 done
-for screen_helper in "$APP_PATH/Contents/Library/"*" Screen Sharing.app"; do
-  [[ -d "$screen_helper" ]] || continue
+for screen_helper in "$APP_PATH/Contents/Library/"*" Helper.app"; do
+  [[ -e "$screen_helper/Contents/MacOS/cmux-screen-sharing" ]] || continue
   /usr/bin/codesign --verify --strict --verbose=2 "$screen_helper"
 done
 # One Screen Recording holder whose bundle id and requirement stay the same between builds, so a
