@@ -1,11 +1,17 @@
 import { authorizeCronRequest } from "../../../../services/cronAuth";
 import { isCloudIntroEnabled } from "../../../../services/billing/cloudIntro";
+import { runCloudIntroRenewals } from "../../../../services/billing/cloudIntroRenewal";
 import { runCloudIntroStatements } from "../../../../services/billing/cloudIntroStatementJob";
 import { captureCoderouterError } from "../../../../services/errors";
 
 export const maxDuration = 60;
 
-/** Sends the cmux Cloud pass statements due on days 21, 27 and 30 (RFD 0052); a no-op with the pass flag off. */
+/**
+ * The cmux Cloud pass's daily steps (RFD 0052), a no-op with the pass flag off:
+ * first the day-30 Plus charge for renew buyers (only with
+ * CMUX_CLOUD_INTRO_RENEW_CHARGE=1), then the statements due on days 21, 27
+ * and 30, so a day-30 statement says how the charge went.
+ */
 export async function GET(request: Request): Promise<Response> {
   if (!authorizeCronRequest(request).ok) {
     return Response.json({ error: "unauthorized" }, { status: 401 });
@@ -16,11 +22,15 @@ export async function GET(request: Request): Promise<Response> {
   }
 
   try {
-    const { defaultCloudIntroStatementDependencies } = await import(
+    const { defaultCloudIntroRenewalDependencies, defaultCloudIntroStatementDependencies } = await import(
       "../../../../services/billing/cloudIntroStatementDefaults"
     );
-    const result = await runCloudIntroStatements(defaultCloudIntroStatementDependencies());
-    return Response.json({ ok: result.failed === 0, ...result }, { status: result.failed === 0 ? 200 : 503 });
+    const now = new Date();
+    const renewals = await runCloudIntroRenewals(defaultCloudIntroRenewalDependencies(now));
+    const result = await runCloudIntroStatements(defaultCloudIntroStatementDependencies(now));
+    // A charge whose outcome is unknown holds that pass's day-30 statement; 503 makes it visible.
+    const ok = result.failed === 0 && renewals.unknown === 0;
+    return Response.json({ ok, ...result, renewals }, { status: ok ? 200 : 503 });
   } catch (error) {
     captureCoderouterError(error, { operation: "cloud_pass_statements_cron", recoverable: true });
     return Response.json(

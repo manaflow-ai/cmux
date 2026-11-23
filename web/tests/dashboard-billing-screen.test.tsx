@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { createTranslator, type AbstractIntlMessages } from "use-intl/core";
 
-import { appleSubscriptions, stripeCustomers, stripeSubscriptions } from "../db/schema";
+import { appleSubscriptions, cloudIntroPasses, stripeCustomers, stripeSubscriptions } from "../db/schema";
 import baseEnMessages from "../messages/en.json";
 import jaMessages from "../messages/ja.json";
 import { withAccountMutationLeaseSupport } from
@@ -25,6 +25,7 @@ let subscriptionRows: Array<Record<string, unknown>> = [];
 let subscriptionResults: Array<Array<Record<string, unknown>>> = [];
 let customerRows: Array<Record<string, unknown>> = [];
 let appleRows: Array<Record<string, unknown>> = [];
+let passRows: Array<Record<string, unknown>> = [];
 
 const proUser = {
   id: "user-pro",
@@ -113,6 +114,7 @@ function resetFixtures() {
   subscriptionResults = [];
   customerRows = [];
   appleRows = [];
+  passRows = [];
   proUser.clientReadOnlyMetadata = {};
   proUser.selectedTeam = null;
   proUser.listTeams.mockClear();
@@ -643,6 +645,84 @@ describe("dashboard billing screen", () => {
     }
   });
 
+  test("shows the latest $1 pass statement, with the day-30 ask, only while the flag is on", async () => {
+    const previous = process.env.CMUX_CLOUD_INTRO;
+    const { buildCloudIntroStatement } = await import("../services/billing/cloudIntroStatements");
+    const day = 24 * 60 * 60 * 1000;
+    const startedAt = new Date(Date.now() - 29.5 * day);
+    const endsAt = new Date(startedAt.getTime() + 30 * day);
+    const passRow = {
+      checkoutSessionId: "cs_pass", stackUserId: proUser.id, status: "granted", renewOnPlus: false,
+      startedAt, endsAt, stripeCustomerId: null, paymentMethodId: null, statements: {},
+    };
+    const statement = buildCloudIntroStatement({
+      pass: { ...passRow, status: "granted", statements: {} },
+      day: 30,
+      usage: { status: "read", chiefAwakeMinutes: null, machineMinutes: 2_100, machinesStarted: 4 },
+      now: new Date(),
+      renewal: "none",
+    });
+    passRows = [{ ...passRow, statements: { "30": { at: new Date().toISOString(), delivery: "emailed", statement } } }];
+    try {
+      delete process.env.CMUX_CLOUD_INTRO;
+      expect(await renderBillingPage()).not.toContain('data-testid="cloud-intro-statement"');
+      process.env.CMUX_CLOUD_INTRO = "1";
+      const html = await renderBillingPage();
+      expect(html).toContain('data-testid="cloud-intro-statement"');
+      expect(html).toContain("Machines: 2,100 of 3,000 machine-minutes used.");
+      expect(html).toContain('data-testid="cloud-intro-statement-plus"');
+      expect(html).toContain('data-testid="cloud-intro-statement-pro"');
+      expect(html).toContain('href="/dashboard/billing?pass=not-now"');
+      expect(html).not.toContain('data-testid="cloud-intro-statement-not-now"');
+      const notNow = await renderBillingPage({ pass: "not-now" });
+      expect(notNow).toContain('data-testid="cloud-intro-statement-not-now"');
+      expect(notNow).toContain("Everything is kept for 14 days");
+    } finally {
+      if (previous === undefined) delete process.env.CMUX_CLOUD_INTRO;
+      else process.env.CMUX_CLOUD_INTRO = previous;
+    }
+  });
+
+  test("a renew buyer's notice offers turning the Plus charge off, and shows it off once it is", async () => {
+    const previous = { intro: process.env.CMUX_CLOUD_INTRO, charge: process.env.CMUX_CLOUD_INTRO_RENEW_CHARGE };
+    const { buildCloudIntroStatement } = await import("../services/billing/cloudIntroStatements");
+    const day = 24 * 60 * 60 * 1000;
+    const startedAt = new Date(Date.now() - 26.5 * day);
+    const endsAt = new Date(startedAt.getTime() + 30 * day);
+    const passRow = {
+      checkoutSessionId: "cs_pass", stackUserId: proUser.id, status: "granted", renewOnPlus: true,
+      startedAt, endsAt, stripeCustomerId: "cus_1", paymentMethodId: "pm_1", statements: {},
+    };
+    const statement = buildCloudIntroStatement({
+      pass: { ...passRow, status: "granted" },
+      day: 27,
+      usage: { status: "read", chiefAwakeMinutes: null, machineMinutes: 600, machinesStarted: 1 },
+      now: new Date(),
+      renewal: "will_charge",
+    });
+    const statements = { "27": { at: new Date().toISOString(), delivery: "emailed", statement } };
+    try {
+      process.env.CMUX_CLOUD_INTRO = "1";
+      process.env.CMUX_CLOUD_INTRO_RENEW_CHARGE = "1";
+      passRows = [{ ...passRow, statements }];
+      const html = await renderBillingPage();
+      expect(html).toContain("your card will be charged");
+      expect(html).toContain('action="/api/billing/cloud-pass/renew"');
+      expect(html).toContain('data-testid="cloud-intro-statement-turn-off"');
+
+      passRows = [{ ...passRow, renewOnPlus: false, paymentMethodId: null, statements }];
+      const off = await renderBillingPage({ pass: "renew-off" });
+      expect(off).toContain("You will not be charged.");
+      expect(off).not.toContain('data-testid="cloud-intro-statement-turn-off"');
+      expect(off).toContain('data-testid="cloud-intro-statement-renew-off"');
+    } finally {
+      for (const [key, value] of [["CMUX_CLOUD_INTRO", previous.intro], ["CMUX_CLOUD_INTRO_RENEW_CHARGE", previous.charge]] as const) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    }
+  });
+
   for (const [billing, message] of [
     ["cancelled", "Your plan will cancel at the end of the current billing period."],
     ["resumed", "Your plan has been resumed and will renew normally."],
@@ -670,6 +750,7 @@ function selectableResult(table: unknown) {
     if (table === stripeSubscriptions) return subscriptionResults.length ? subscriptionResults.shift()! : subscriptionRows;
     if (table === stripeCustomers) return customerRows;
     if (table === appleSubscriptions) return appleRows;
+    if (table === cloudIntroPasses) return passRows;
     return [];
   };
   return {

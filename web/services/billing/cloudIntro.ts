@@ -108,6 +108,17 @@ export function isCloudIntroEnabled(env: Record<string, string | undefined> = pr
   return env.VERCEL_ENV !== "production";
 }
 
+/**
+ * The later Plus charge for pass buyers who ticked "continue on Plus": on day
+ * 30 the saved card starts a monthly Plus subscription. Off unless
+ * CMUX_CLOUD_INTRO_RENEW_CHARGE is exactly "1", everywhere including
+ * development, and only while the pass itself is on. With it off nothing is
+ * charged and renew buyers are told we will ask before charging.
+ */
+export function isCloudIntroRenewChargeEnabled(env: Record<string, string | undefined> = process.env): boolean {
+  return env.CMUX_CLOUD_INTRO_RENEW_CHARGE === "1" && isCloudIntroEnabled(env);
+}
+
 /** Why an account cannot get the pass. */
 export type CloudIntroRefusal =
   | "had_paid_plan"

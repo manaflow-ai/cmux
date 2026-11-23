@@ -153,6 +153,68 @@ export function cloudIntroRenewalChargeAt(startedAt: Date): Date {
   return cloudIntroStatementDueAt(startedAt, CLOUD_INTRO_ASK_DAY);
 }
 
+/** The day-30 Plus charge as recorded on the pass row; null before any attempt. */
+export type CloudIntroRenewalStatus =
+  | "started"
+  | "succeeded"
+  | "failed"
+  | "requires_action"
+  | "unknown"
+  | "skipped_has_plan";
+
+export type CloudIntroRenewalFacts = {
+  readonly renewOnPlus: boolean;
+  readonly paymentMethodId: string | null;
+  readonly renewalStatus?: CloudIntroRenewalStatus | null;
+  readonly endsAt: Date | null;
+};
+
+/**
+ * How a statement shows the buyer's Plus choice, from the row as it is now.
+ * Null while a charge is in flight or its outcome is unknown: the statement
+ * waits rather than say something that may be false.
+ */
+export function cloudIntroRenewalView(
+  pass: CloudIntroRenewalFacts,
+  chargeEnabled: boolean,
+  now: Date,
+): CloudIntroRenewalView | null {
+  switch (pass.renewalStatus ?? null) {
+    case "succeeded":
+      return "charged";
+    case "failed":
+    case "requires_action":
+      return "charge_failed";
+    case "started":
+    case "unknown":
+      return null;
+    case "skipped_has_plan":
+      return "none";
+    default:
+      break;
+  }
+  if (!pass.renewOnPlus) return "none";
+  const charging = chargeEnabled && pass.paymentMethodId !== null && pass.endsAt !== null && now < pass.endsAt;
+  return charging ? "will_charge" : "saved_ask_first";
+}
+
+/** A stored statement shown again with the buyer's Plus choice as it is now (turned off, charged, failed). */
+export function withCurrentRenewal(
+  statement: CloudIntroStatement,
+  renewal: CloudIntroRenewalView | null,
+  startedAt: Date | null,
+): CloudIntroStatement {
+  if (!renewal || renewal === statement.renewal) return statement;
+  return {
+    ...statement,
+    renewal,
+    chargeOn: (renewal === "will_charge" || renewal === "charged") && startedAt
+      ? cloudIntroRenewalChargeAt(startedAt).toISOString()
+      : null,
+    ask: statement.day === CLOUD_INTRO_ASK_DAY && renewal !== "charged",
+  };
+}
+
 export function buildCloudIntroStatement(input: {
   readonly pass: CloudIntroStatementPass;
   readonly day: CloudIntroStatementDay;
@@ -241,10 +303,10 @@ export type CloudIntroStatementChoice = { readonly key: "plus" | "pro" | "not_no
 export type CloudIntroStatementText = {
   readonly subject: string;
   readonly title: string;
-  readonly lines: readonly string[];
+  readonly lines: string[];
   /** Day 30: Plus, Pro, not now. */
   readonly askTitle: string | null;
-  readonly choices: readonly CloudIntroStatementChoice[];
+  readonly choices: CloudIntroStatementChoice[];
   readonly after: string | null;
   /** The link that turns the later Plus charge off, for `will_charge`. */
   readonly turnOff: { readonly label: string; readonly href: string } | null;

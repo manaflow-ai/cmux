@@ -4,10 +4,12 @@ import { cloudDb } from "../../db/client";
 import { stripeSubscriptions } from "../../db/schema";
 import { isVaultEnabled } from "../vault/config";
 import { isWebPlusPlanEnabled as isGoPlanEnabled } from "./goPlanFlag";
-import { isCloudIntroEnabled } from "./cloudIntro";
+import { isCloudIntroEnabled, isCloudIntroRenewChargeEnabled } from "./cloudIntro";
 import {
+  cloudIntroRenewalView,
   cloudIntroStatementNotice,
   latestCloudIntroStatement,
+  withCurrentRenewal,
   type CloudIntroStatementNotice,
 } from "./cloudIntroStatements";
 import { createDrizzleCloudIntroStatementStore } from "./cloudIntroStatementStore";
@@ -173,8 +175,16 @@ async function loadPersonalBilling(user: DashboardBillingUser): Promise<Personal
 async function loadCloudIntroStatementNotice(stackUserId: string): Promise<CloudIntroStatementNotice | null> {
   try {
     const pass = await createDrizzleCloudIntroStatementStore().latestForUser(stackUserId);
-    const statement = pass ? latestCloudIntroStatement(pass, new Date()) : null;
-    return statement ? cloudIntroStatementNotice(statement, en.emails.cloudPassStatement) : null;
+    const now = new Date();
+    const stored = pass ? latestCloudIntroStatement(pass, now) : null;
+    if (!pass || !stored) return null;
+    // The stored statement, with the Plus choice as it is now (turned off, charged, or failed since).
+    const statement = withCurrentRenewal(
+      stored,
+      cloudIntroRenewalView(pass, isCloudIntroRenewChargeEnabled(), now),
+      pass.startedAt,
+    );
+    return cloudIntroStatementNotice(statement, en.emails.cloudPassStatement);
   } catch (error) {
     if (!(error instanceof Error && /DATABASE_URL is required/.test(error.message))) {
       console.warn("[billing] cmux Cloud pass statement notice unavailable", {
