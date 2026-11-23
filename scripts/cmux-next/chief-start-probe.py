@@ -107,7 +107,7 @@ def main():
     app = bench_memory.App(bundle, socket_path)
     try:
         result["socket_ms"] = ms(started)
-        time.sleep(opts.settle)  # test harness: the same rest as bench_memory's idle-launch sample
+        time.sleep(opts.settle)  # sleep-ok: the rest period is what is measured (does the brain start untouched in --settle s), as bench_memory's idle-launch sample
         result["brain_at_rest"] = bool(brain_hosts())
         result["asked_at_rest"] = asked_lines(pid)
         print(f"CHIEF-START rest brain_running {result['brain_at_rest']} asked {json.dumps(result['asked_at_rest'])}", flush=True)
