@@ -91,11 +91,22 @@ export function mountAcpmux(initialChat?: InitialChat): void {
   // shared page host its batches are the `diag.flicker` op, on the old host the pane's own WebKit
   // handler takes them.
   startFlickerLog(window, pageHostClient() ? pageHostFlickerSend() : undefined);
-  createRoot(root).render(
-    <UiProvider container={root} popupHost={popupHost}>
-      <PaneBoundary onRetry={() => window.location.reload()}>
-        <AcpmuxApp initialChat={initialChat} />
-      </PaneBoundary>
-    </UiProvider>,
-  );
+  // `?mounts=N` (dev host only, with `#sessions=`): N panes in this one document, each its own chat, so a bench can
+  // measure what a hidden chat costs as a view in a shared document (bench/chat-pages-memory.bench.ts SHARED=1).
+  const mounts = Math.max(1, Math.min(64, Number(new URLSearchParams(location.search).get("mounts")) || 1));
+  for (let index = 0; index < mounts; index += 1) {
+    let container = root;
+    if (mounts > 1) {
+      container = document.createElement("div");
+      container.dataset.paneMount = String(index);
+      root.append(container);
+    }
+    createRoot(container).render(
+      <UiProvider container={container} popupHost={popupHost}>
+        <PaneBoundary onRetry={() => window.location.reload()}>
+          <AcpmuxApp initialChat={initialChat} />
+        </PaneBoundary>
+      </UiProvider>,
+    );
+  }
 }
