@@ -255,6 +255,10 @@ import Testing
         #expect(JoinedDialAnswer(refusal: "consent_declined") == .consentDeclined)
         #expect(JoinedDialAnswer(refusal: "service.unknown").json == ["state": "unavailable", "reason": "service.unknown"])
         #expect(JoinedDialAnswer(refusal: nil) == .unavailable("machine.unreachable"))
+        // Only a Mac answers the ask; a Linux box that still asks reads as one to update.
+        #expect(JoinedDialAnswer(refusal: "consent_required", platform: "macOS") == .consentRequired)
+        #expect(JoinedDialAnswer(refusal: "consent_required", platform: "linux") == .unavailable(JoinedDialAnswer.outdated))
+        #expect(JoinedDialAnswer(refusal: "consent_declined", platform: "linux") == .consentDeclined)
         let routes: [[String: Any]] = [["daemonId": "k1", "host": "studio-mini"], ["daemonId": "k2", "host": "Air"],
                                        ["daemonId": "k3", "host": "twin"], ["daemonId": "k4", "host": "twin"]]
         let byPeer = JoinedMachine(id: "m", name: "x", state: .online, meshPeerId: "k2")
