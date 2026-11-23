@@ -583,7 +583,7 @@ final class AgentTabStore {
         if let session = AgentPaneSpareAdoption(thisMac: kind == .local, session: sessions[tabKey] ?? record.session,
                                                 newTabPage: newTabPages[tabKey] != nil, seeded: seed != nil,
                                                 wake: wakeStates[tabKey].map { !$0.holdsOnlyPlace } ?? false || relaunchWake.mayHold(tabKey.relaunchKeyCandidates))
-            .adoptedCounting(relaunchWake: relaunchWake.mayHold(tabKey.relaunchKeyCandidates), chiefKeeps: chiefKeepsSession, into: retirer.sources),
+            .adopted(chiefKeeps: chiefKeepsSession),
            let spare = takeConnectedSpare?(), adoptSpare(spare, key: tabKey, session: session, revealTurn: pendingTurns.removeValue(forKey: tabKey)) {
             track(key, in: store, machine: tabKey.machine)
             onPageBuilt?(key)
