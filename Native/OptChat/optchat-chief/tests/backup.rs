@@ -173,7 +173,7 @@ fn an_unreachable_remote_is_retried_with_backoff() {
 }
 
 #[test]
-fn a_remote_with_other_history_is_never_forced() {
+fn a_remote_with_other_history_is_merged_without_force() {
     let s = setup();
     init_bare(&s.bare);
     // Someone else's history in the backup repository.
