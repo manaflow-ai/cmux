@@ -12,6 +12,9 @@
 //!   life of the mount, and every change to the path comes through the mount, which tells the
 //!   kernel), an answer about an upper path for [`UPPER_TTL`] (the upper folder
 //!   is plain files on the machine's disk);
+//! - a listing of a folder only in the manifest (`FOPEN_CACHE_DIR`), dropped by the kernel when a
+//!   change through the mount touches the folder, and each listed name's `stat` with it
+//!   (`FUSE_DO_READDIRPLUS`), so a walk asks this process once per folder and never per file;
 //! - `FUSE_AUTO_INVAL_DATA`: pages go when a fresh `stat` shows another size or mtime.
 //!
 //! No writeback cache: edits must be on the upper folder's disk when the write returns, because
@@ -25,11 +28,11 @@ use std::sync::mpsc::{Sender, channel};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use fuser::consts::{FOPEN_KEEP_CACHE, FUSE_AUTO_INVAL_DATA};
+use fuser::consts::{FOPEN_CACHE_DIR, FOPEN_KEEP_CACHE, FUSE_AUTO_INVAL_DATA, FUSE_DO_READDIRPLUS};
 use fuser::{
     BackgroundSession, FileAttr, FileType, Filesystem, KernelConfig, MountOption, Notifier,
-    ReplyAttr, ReplyCreate, ReplyData, ReplyDirectory, ReplyEmpty, ReplyEntry, ReplyOpen,
-    ReplyStatfs, ReplyWrite, Request, TimeOrNow,
+    ReplyAttr, ReplyCreate, ReplyData, ReplyDirectory, ReplyDirectoryPlus, ReplyEmpty, ReplyEntry,
+    ReplyOpen, ReplyStatfs, ReplyWrite, Request, TimeOrNow,
 };
 
 use crate::overlay::{Attr, Overlay, Set, Type, Version, Who};
@@ -54,6 +57,9 @@ fn racy(version: &Version) -> bool {
 fn ttl(attr: &Attr) -> Duration {
     if attr.upper { UPPER_TTL } else { LOWER_TTL }
 }
+
+/// A listed name: its number, kind, name, and its attributes when the listing had them.
+type Listed = (u64, FileType, String, Option<Attr>);
 
 /// Threads that run reads and writes.
 const WORKERS: usize = 16;
@@ -199,7 +205,7 @@ struct Fs {
     jobs: Sender<Job>,
     /// Folder listings by handle, taken at `opendir` and again at each read from the start, so
     /// paging is stable and cheap.
-    listings: HashMap<u64, Vec<(u64, FileType, String)>>,
+    listings: HashMap<u64, Arc<[Listed]>>,
     /// Each file's [`Version`] at its last open: the pages the kernel holds are of it.
     versions: Arc<Mutex<HashMap<u64, Version>>>,
     notifier: Arc<OnceLock<Notifier>>,
@@ -262,13 +268,26 @@ fn who(req: &Request<'_>) -> Who {
 
 impl Fs {
     /// Folder `ino`'s listing as `readdir` pages it: `.`, `..`, then its names.
-    fn listing(&self, ino: u64) -> Result<Vec<(u64, FileType, String)>, i32> {
-        let entries = self.overlay.readdir(ino)?;
+    fn listing(&self, ino: u64) -> Result<Vec<Listed>, i32> {
+        let entries = self.overlay.readdir_plus(ino)?;
         let mut listing = Vec::with_capacity(entries.len() + 2);
-        listing.push((ino, FileType::Directory, ".".to_owned()));
-        listing.push((ino, FileType::Directory, "..".to_owned()));
-        listing.extend(entries.into_iter().map(|(ino, kind, name)| (ino, file_type(kind), name)));
+        listing.push((ino, FileType::Directory, ".".to_owned(), None));
+        listing.push((ino, FileType::Directory, "..".to_owned(), None));
+        listing.extend(
+            entries.into_iter().map(|(ino, kind, name, attr)| (ino, file_type(kind), name, attr)),
+        );
         Ok(listing)
+    }
+
+    /// The listing a read of handle `fh` at `offset` answers from. A read from the start (the
+    /// first, or one after rewinddir) lists the folder as it is now: POSIX has rewinddir see
+    /// names made or deleted since the folder was opened.
+    fn listing_at(&mut self, ino: u64, fh: u64, offset: i64) -> Result<Arc<[Listed]>, i32> {
+        if offset == 0 && self.listings.contains_key(&fh) {
+            let listing = self.listing(ino)?;
+            self.listings.insert(fh, listing.into());
+        }
+        self.listings.get(&fh).cloned().ok_or(libc::EBADF)
     }
 
     fn run(&self, job: impl FnOnce(&Overlay) + Send + 'static) {
@@ -320,6 +339,15 @@ fn open_flags(
     }
 }
 
+/// `FOPEN_CACHE_DIR | FOPEN_KEEP_CACHE` for a folder only in the manifest, else nothing. The
+/// manifest is fixed for the life of the mount, so such a folder's names change only by a create,
+/// unlink, rename or rmdir through the mount, each of which drops the kernel's cached listing
+/// itself; the next walk (`git status`, `find`, `rg`) is then answered by the kernel, with no
+/// `READDIR`. An upper folder is plain files on the machine's disk and is listed afresh.
+fn dir_flags(overlay: &Overlay, ino: u64) -> u32 {
+    if overlay.lower_only(ino) { FOPEN_CACHE_DIR | FOPEN_KEEP_CACHE } else { 0 }
+}
+
 fn entry(reply: ReplyEntry, made: Result<Attr, i32>) {
     match made {
         Ok(attr) => reply.entry(&ttl(&attr), &file_attr(&attr), 0),
@@ -338,6 +366,11 @@ impl Filesystem for Fs {
     fn init(&mut self, _req: &Request<'_>, config: &mut KernelConfig) -> Result<(), libc::c_int> {
         // A kernel without it still works: an open of a changed file drops its pages anyway.
         let _ = config.add_capabilities(FUSE_AUTO_INVAL_DATA);
+        // Every listing carries its entries' attributes (not `FUSE_READDIRPLUS_AUTO`, which sends
+        // them only for a folder's first chunk or one already looked up in): the manifest answers
+        // them with no fetch, and a walk then never asks per file. A kernel without it lists as
+        // before and looks each name up.
+        let _ = config.add_capabilities(FUSE_DO_READDIRPLUS);
         Ok(())
     }
 
@@ -581,8 +614,8 @@ impl Filesystem for Fs {
         });
         match listed {
             Ok((handle, listing)) => {
-                self.listings.insert(handle, listing);
-                reply.opened(handle, 0);
+                self.listings.insert(handle, listing.into());
+                reply.opened(handle, dir_flags(&self.overlay, ino));
             }
             Err(errno) => reply.error(errno),
         }
@@ -596,27 +629,57 @@ impl Filesystem for Fs {
         offset: i64,
         mut reply: ReplyDirectory,
     ) {
-        // A read from the start (the first, or one after rewinddir) lists the folder as it is now:
-        // POSIX has rewinddir see names made or deleted since the folder was opened.
-        if offset == 0 && self.listings.contains_key(&fh) {
-            match self.listing(ino) {
-                Ok(listing) => {
-                    self.listings.insert(fh, listing);
-                }
-                Err(errno) => {
-                    reply.error(errno);
-                    return;
-                }
+        let listing = match self.listing_at(ino, fh, offset) {
+            Ok(listing) => listing,
+            Err(errno) => {
+                reply.error(errno);
+                return;
             }
-        }
-        let Some(listing) = self.listings.get(&fh) else {
-            reply.error(libc::EBADF);
-            return;
         };
         let start = usize::try_from(offset).unwrap_or(0);
-        for (at, (ino, kind, name)) in listing.iter().enumerate().skip(start) {
+        for (at, (ino, kind, name, _)) in listing.iter().enumerate().skip(start) {
             let next = i64::try_from(at + 1).unwrap_or(i64::MAX);
             if reply.add(*ino, next, *kind, name) {
+                break;
+            }
+        }
+        reply.ok();
+    }
+
+    /// A listing with each entry's attributes (`FUSE_DO_READDIRPLUS`), so the kernel holds every
+    /// name and `stat` of the folder from one call: a walk (`find`, `git status`, `rg`) then
+    /// `stat`s each file with no `LOOKUP` round trip. The attributes are the ones `lookup` would
+    /// answer, kept as long ([`LOWER_TTL`], [`UPPER_TTL`]).
+    fn readdirplus(
+        &mut self,
+        _req: &Request<'_>,
+        ino: u64,
+        fh: u64,
+        offset: i64,
+        mut reply: ReplyDirectoryPlus,
+    ) {
+        let listing = match self.listing_at(ino, fh, offset) {
+            Ok(listing) => listing,
+            Err(errno) => {
+                reply.error(errno);
+                return;
+            }
+        };
+        let start = usize::try_from(offset).unwrap_or(0);
+        for (at, (child, _, name, listed)) in listing.iter().enumerate().skip(start) {
+            let next = i64::try_from(at + 1).unwrap_or(i64::MAX);
+            // `.` and `..` are never linked by the kernel (it takes no lookup for them), so their
+            // attributes are the folder's own. A name the listing had no attributes for (an upper
+            // folder's) is looked up.
+            let attr = match listed {
+                Some(attr) => Ok(*attr),
+                None if at < 2 => self.overlay.getattr(ino),
+                None => self.overlay.lookup(ino, name),
+            };
+            // A name gone since the listing was taken (a race with an unlink): leave it out, as
+            // a fresh listing would.
+            let Ok(attr) = attr else { continue };
+            if reply.add(*child, next, name, &ttl(&attr), &file_attr(&attr), 0) {
                 break;
             }
         }

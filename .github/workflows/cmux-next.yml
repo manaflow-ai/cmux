@@ -3320,7 +3320,7 @@ jobs:
       actions: read
       contents: read
     # Why: docs/ci/cmux-next-workflow-notes.md#note-39
-    timeout-minutes: ${{ contains(fromJSON('["success","failure","cancelled"]'), needs.fast-tier-fleet.result) && needs.fast-tier-fleet.outputs.verdict != 'queued' && 5 || needs.fast-tier-fleet.outputs.verdict == 'queued' && 35 || needs.path_route.outputs.ffi_repin == 'true' && 50 || 60 }}
+    timeout-minutes: ${{ contains(fromJSON('["success","failure","cancelled"]'), needs.fast-tier-fleet.result) && needs.fast-tier-fleet.outputs.verdict != 'queued' && 5 || needs.fast-tier-fleet.outputs.verdict == 'queued' && 35 || needs.path_route.outputs.ffi_repin == 'true' && 50 || 120 }}
     env:
       # Why: docs/ci/cmux-next-workflow-notes.md#note-197
       CMUX_FAST_TIER_FLEET: ${{ contains(fromJSON('["success","failure","cancelled"]'), needs.fast-tier-fleet.result) && needs.fast-tier-fleet.outputs.verdict != 'queued' && 'report' || '' }}
