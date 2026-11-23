@@ -123,17 +123,22 @@ impl Overlay {
                 let paired = right.text.is_empty()
                     && !glyph.text.is_empty()
                     && !matches!(glyph.text.as_bytes(), [b] if (0x20..=0x7e).contains(b));
-                if paired && !matches!(changes[x + 1], Change::Keep) {
-                    changes[x] = Change::Set(glyph.clone());
-                    changes[x + 1] = Change::Set(right.clone());
-                    right_half[x + 1] = true;
+                if paired
+                    && let [this, next, ..] = changes.get_mut(x..).unwrap_or_default()
+                    && !matches!(next, Change::Keep)
+                {
+                    *this = Change::Set(glyph.clone());
+                    *next = Change::Set(right.clone());
+                    if let [_, half, ..] = right_half.get_mut(x..).unwrap_or_default() {
+                        *half = true;
+                    }
                 }
             }
             let mut open: Option<Span> = None;
             for (x, change) in changes.into_iter().enumerate() {
                 let Ok(col) = u16::try_from(x) else { break };
                 if let (Change::Set(cell), Some(Span::Set { cells, .. })) = (&change, &mut open)
-                    && right_half[x]
+                    && right_half.get(x).copied().unwrap_or(false)
                     && cells.first().is_some_and(|first| first.style != cell.style)
                 {
                     let glyph: Vec<Cell> = cells.pop().into_iter().collect();
