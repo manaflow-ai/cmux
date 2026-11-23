@@ -403,6 +403,26 @@ public final class MacScreenPages {
         if starters[key] != nil, tabs[key] == nil { _ = makeView(for: key) }
     }
 
+    /// What runs once tab `key` exists: `created`, and for a tab opened unselected (`focus` false)
+    /// first ``connectInBackground(_:)``, so an autoconnect connects without being shown.
+    public func whenCreated(_ key: String, focus: Bool, then created: (@MainActor () -> Void)?) -> (@MainActor () -> Void)? {
+        if focus { return created }
+        return { [weak self] in
+            self?.connectInBackground(key)
+            created?()
+        }
+    }
+
+    /// Tab `key` opened unselected with a scope waiting (`macScreen.open --autoconnect`
+    /// into a background tab): its screen is made now and asks the hub, so it connects
+    /// without waiting to be shown. Any other tab waits to be shown, as before.
+    public func connectInBackground(_ key: String) {
+        guard let record = records[key], let device = record.deviceID, confirmed[key] == record,
+              pendingScopes[device] != nil || tabs[key] != nil else { return }
+        _ = makeView(for: key)
+        tabs[key]?.pane?.start()
+    }
+
     /// What tab `key` shows, kept as its page tab route: "home",
     /// "device:<device id>", or an old link record's "mac:<id>" (restored, it
     /// shows that pairing links are no longer supported). Never a secret.
