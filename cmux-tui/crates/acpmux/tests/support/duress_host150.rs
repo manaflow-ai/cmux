@@ -345,7 +345,7 @@ fn descendants(root: u32) -> BTreeSet<i32> {
     out
 }
 
-/// The first `peerNotices` object anywhere in a status reply.
+/// The first value named `key` anywhere in a status reply.
 fn find_key<'a>(v: &'a Value, key: &str) -> Option<&'a Value> {
     match v {
         Value::Object(m) => m.get(key).or_else(|| m.values().find_map(|x| find_key(x, key))),
@@ -358,6 +358,23 @@ fn notices(socket: &Path) -> Result<Value, String> {
     let mut r = Rpc::connect(socket)?;
     let v = r.call("_acpmux/status", json!({}), CALL_LIMIT)?;
     find_key(&v, "peerNotices").cloned().ok_or_else(|| "no peerNotices in _acpmux/status".into())
+}
+
+/// `_acpmux/status`'s `gauges.links` (the object holding `linkDials`), when the daemon has it.
+fn link_gauges(socket: &Path) -> Option<Value> {
+    let mut r = Rpc::connect(socket).ok()?;
+    let v = r.call("_acpmux/status", json!({}), CALL_LIMIT).ok()?;
+    holding(&v, "linkDials").cloned()
+}
+
+/// The first object anywhere in `v` that has `key`.
+fn holding<'a>(v: &'a Value, key: &str) -> Option<&'a Value> {
+    match v {
+        Value::Object(m) if m.contains_key(key) => Some(v),
+        Value::Object(m) => m.values().find_map(|x| holding(x, key)),
+        Value::Array(a) => a.iter().find_map(|x| holding(x, key)),
+        _ => None,
+    }
 }
 
 /// Daemon log lines from `offset` on that name `peer` ("peer=NAME" or "peer: NAME").
@@ -545,6 +562,7 @@ pub(super) struct Window {
     cpu: Option<f64>,
     wire: [u64; 6],
     notices: Result<Value, String>,
+    links: Option<Value>,
     log_offset: u64,
     memory_high_events: Option<u64>,
     cgroup: Option<PathBuf>,
@@ -718,6 +736,7 @@ impl Window {
             cpu: cpu_secs(daemon_pid),
             wire: wire.snapshot(),
             notices: notices(socket),
+            links: link_gauges(socket),
             log_offset: std::fs::metadata(log).map_or(0, |m| m.len()),
             memory_high_events: cgroup.as_deref().and_then(|d| memory_event(d, "high")),
             cgroup,
@@ -822,6 +841,24 @@ pub(super) fn close(
         (a, b) => json!({"error": format!("{:?} / {:?}", a.as_ref().err(), b.as_ref().err())}),
     };
     f.insert("peerNotices".into(), notices_json);
+    // The daemon's own link gauges (cmux `gauges.links`), when this build has them.
+    f.insert(
+        "statusLinks".into(),
+        match (&w.links, link_gauges(socket)) {
+            (Some(a), Some(b)) => {
+                let delta: serde_json::Map<String, Value> = b
+                    .as_object()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|(k, v)| {
+                        Some((k.clone(), json!(v.as_i64()? - a.get(k)?.as_i64()?)))
+                    })
+                    .collect();
+                json!({"start": a, "end": b, "delta": delta})
+            }
+            _ => json!("not in this build's _acpmux/status (no gauges.links)"),
+        },
+    );
     // Spawns.
     f.insert(
         "spawns".into(),
