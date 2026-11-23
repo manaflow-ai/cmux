@@ -225,6 +225,57 @@ fn a_heartbeat_lists_the_folder_the_hub_takes() {
     assert_eq!(heartbeat_cwd(&format!("{longest}b")), None);
 }
 
+/// A heartbeat lists a session's title, its source, whether its name was given, its model and
+/// its agent's session id, so the hub can hand another machine the row a local one lists; a
+/// title past the hub's bound is left out, and its source with it.
+#[tokio::test]
+async fn a_heartbeat_carries_the_rows_metadata_and_leaves_out_a_long_title() {
+    let hub = hub();
+    let add = |id: &str, name: &str, title: &str| {
+        let meta = serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA, "id": id, "name": name, "nameGiven": true,
+            "harness": "fake", "cwd": "/work/app", "status": "idle", "createdAt": 1,
+            "updatedAt": 1, "title": title, "titleSource": "generated",
+            "agentSessionId": format!("agent-{id}"), "modelRequest": "opus",
+        }))
+        .expect("meta");
+        hub.store.save(&meta).expect("save");
+        let session = hub.make_session(meta);
+        hub.sessions.lock().unwrap().insert(session.id.clone(), session.clone());
+        hub.update_live_session_index(&session);
+    };
+    add("short", "fix-login", "Fix the login");
+    add("long", "long-title", &"t".repeat(crate::mesh::MAX_META_UNITS + 1));
+
+    let rows = hub.mesh_rows().await;
+    let short = rows.iter().find(|r| r.session_id == "short").expect("listed");
+    assert_eq!(short.title.as_deref(), Some("Fix the login"));
+    assert_eq!(short.title_source.as_deref(), Some("generated"));
+    assert_eq!(short.name_given, Some(true));
+    assert_eq!(short.model.as_deref(), Some("opus"));
+    assert_eq!(short.agent_session_id.as_deref(), Some("agent-short"));
+    assert_eq!(short.cwd.as_deref(), Some("/work/app"));
+    let wire = serde_json::to_value(short).expect("json");
+    assert_eq!(wire["titleSource"], "generated");
+    assert_eq!(wire["agentSessionId"], "agent-short");
+    assert!(wire.get("hostBuild").is_none(), "no live host lists no build: {wire}");
+
+    let long = rows.iter().find(|r| r.session_id == "long").expect("still listed");
+    assert_eq!(long.title, None, "a title the hub would null is left out");
+    assert_eq!(long.title_source, None);
+    assert_eq!(long.name_given, Some(true));
+}
+
+/// A text the hub would store as null is left out of the heartbeat.
+#[test]
+fn heartbeat_meta_leaves_out_what_the_hub_would_null() {
+    use crate::mesh::{MAX_META_UNITS, heartbeat_meta};
+    assert_eq!(heartbeat_meta("opus").as_deref(), Some("opus"));
+    assert_eq!(heartbeat_meta(""), None);
+    assert!(heartbeat_meta(&"é".repeat(MAX_META_UNITS)).is_some());
+    assert_eq!(heartbeat_meta(&"😀".repeat(MAX_META_UNITS / 2 + 1)), None, "UTF-16 units");
+}
+
 /// An ssh peer's machine keeps its hub carrier route: `remote.pipe` (`tools/carrier-pipe`) names
 /// it when its ssh is what is down. Only its chats and the app's workspace targets leave it out,
 /// so it is never listed twice (2026-11-22: every fleet lane VM the controller held as an ssh peer

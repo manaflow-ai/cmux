@@ -86,6 +86,7 @@ import argparse, importlib.util, json, os, re, socket, subprocess, sys, tempfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from tag_teardown import TagTeardown  # noqa: E402
+from state_wait import wait_stable, wait_until  # noqa: E402
 
 # Budgets: the measured values after the perf lanes (perf-speed-of-light.md Status). Tighten here.
 BUDGET = {
@@ -322,9 +323,10 @@ class App:
 
     def settle(self):
         """Lets observation work for the last op run before a counter read: one socket round trip
-        through the main actor, then a bounded pause for trailing async apply work."""
+        through the main actor, then trailing async apply work ends (the budget counters stop moving)."""
         self.topology()
-        time.sleep(0.5)  # test script: trailing async work after the last reply lands in this read
+        wait_stable(lambda: tuple(self.counters(reset=False).get(k) for k in self.QUIET_KEYS),
+                    "the app's work counters after the last op", timeout=5, interval=0.1, raise_on_timeout=False)
 
     QUIET_KEYS = ("workspace_applies", "topology_sends", "pane_snapshots", "list_reloads", "selection_patches")
 
@@ -348,7 +350,7 @@ class App:
     def draws(self):
         """True when the window's display link ticks (a lit, unoccluded window)."""
         self.rpc("debug.frames", {"action": "start"})
-        time.sleep(1.0)  # test script: the frame probe's sampling window
+        time.sleep(1.0)  # sleep-ok: the frame probe's sampling window (frames counted over 1 s)
         stats = self.rpc("debug.frames", {"action": "stop"}) or {}
         return (stats.get("frames") or 0) >= 10, stats
 
@@ -587,7 +589,14 @@ class Gate:
         if not check(bool(wait(lambda: app.panes()[0] >= 2 and self.dividers(), 30)), "a split shows two terminals and a divider", "drag"):
             return
         app.cli("--json", "terminal", "current", "write", "--text", "clear; seq -s. 900\r")
-        time.sleep(1.0)  # test script: the long line prints before the drag
+
+        def printed():
+            done = app.cli("--json", "terminal", "current", "screen", "read")
+            text = (json.loads(done.stdout or "{}") or {}).get("text") or ""
+            return "899.900" in text.replace("\n", "")
+        # The long line printed before the drag: its end is on the screen.
+        if not wait_until(printed, "the long line on the terminal", timeout=15, interval=0.1, raise_on_timeout=False):
+            print("  note: the long line was not seen on the terminal in 15 s; dragging anyway", flush=True)
         x0, y0 = self.dividers()[0]
         n, step = 40, 6.0
         path = [-step] * n + [step] * (2 * n) + [-step] * n
@@ -605,7 +614,8 @@ class Gate:
                     panes = self.terminals()
                     rows.append({"fit": [p[1] for p in panes], "grid": [p[2] for p in panes]})
             app.rpc("debug.mouse", {"action": "up", "x": x, "y": y0})
-            time.sleep(0.8)  # test script: the drag's last layout lands
+            # The drag's last layout lands: the divider stops moving.
+            wait_stable(self.dividers, "the divider after the drag", timeout=10, interval=0.1, raise_on_timeout=False)
             return rows
 
         # Pass A: counters and frame intervals of the drag alone.
@@ -856,9 +866,19 @@ class Gate:
         if os.environ.get("PERF_GATE_SAMPLE") and app.process:
             # Attribution: the main thread's call tree over 200 more Focus Next Pane moves.
             out = os.path.join(app.out, "pane-focus-sample.txt")
-            sampler = subprocess.Popen(["/usr/bin/sample", str(app.process.pid), "8", "1", "-mayDie", "-file", out],
-                                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            time.sleep(0.5)  # test script: sample attaches before the moves start
+            said = out + ".log"
+            with open(said, "w") as log:
+                sampler = subprocess.Popen(["/usr/bin/sample", str(app.process.pid), "8", "1", "-mayDie", "-file", out],
+                                           stdout=log, stderr=subprocess.STDOUT)
+
+            def attached():
+                if sampler.poll() is not None:
+                    return "exited"
+                with open(said) as f:
+                    return "Sampling process" in f.read()
+            # sample attached before the moves start: it prints "Sampling process N for 8 seconds" once it has.
+            if wait_until(attached, "sample attaching", timeout=10, interval=0.05, raise_on_timeout=False) is None:
+                print("  note: sample did not say it attached in 10 s", flush=True)
             for i in range(200):
                 app.action("focusNextPane")
             sampler.wait(30)
@@ -1028,9 +1048,13 @@ class Gate:
             app.cli("workspace", "create", "--name", f"perf tick {i}", "--shell", loop)
         if app.shown_workspace() != shown:
             app.action("goToWorkspace", {"workspace": shown})
-        time.sleep(2.0)  # test script: the tickers start printing before the measured window
+        # The tickers print before the measured window: their row patches reach the sidebar.
+        base = app.counters(reset=False).get("row_patches", 0)
+        if not wait_until(lambda: app.counters(reset=False).get("row_patches", 0) > base, "the tickers' first row patches",
+                          timeout=20, interval=0.1, raise_on_timeout=False):
+            print("  note: no row patch from the tickers in 20 s", flush=True)
         app.quiet_counters()
-        time.sleep(seconds)  # test script: the measured window while the tickers print
+        time.sleep(seconds)  # sleep-ok: the measured window while the tickers print
         measured = app.counters()
         ticks = int(seconds * 4 * tickers)
         report["phases"]["status"] = {"ticks": ticks, "counters": {k: v for k, v in measured.items() if k != "sources"},

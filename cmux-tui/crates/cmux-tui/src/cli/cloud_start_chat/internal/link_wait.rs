@@ -14,6 +14,7 @@ use std::os::unix::net::UnixStream;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
+use cmux_lifeline::vm::{Attached, Ready, Unidentified, Vm};
 use serde_json::{Value, json};
 
 /// The capability a daemon serves `agent-session-attach` under.
@@ -33,56 +34,22 @@ pub(crate) fn observe(
     wait: Duration,
 ) -> Result<Value, Failure> {
     let deadline = Instant::now() + wait;
-    let stream =
-        UnixStream::connect(socket).map_err(|error| Failure::Link(format!("connect: {error}")))?;
-    let mut writer = stream.try_clone().map_err(|error| Failure::Link(error.to_string()))?;
-    let mut lines = BufReader::new(stream);
-    // Pushes that came while an answer was awaited (a page after the attach): handled after the pages, in order.
-    let mut early: Vec<Value> = Vec::new();
-    let mut ask = |id: &str,
-                   request: Value,
-                   lines: &mut BufReader<UnixStream>,
-                   early: &mut Vec<Value>|
-     -> Result<Value, Failure> {
-        let mut line = request.to_string();
-        line.push('\n');
-        writer.write_all(line.as_bytes()).map_err(|error| Failure::Link(error.to_string()))?;
-        loop {
-            let answer =
-                next(lines, deadline)?.ok_or_else(|| Failure::Link("the link closed".into()))?;
-            if answer.get("id").and_then(Value::as_str) != Some(id) {
-                if answer.get("event").is_some() {
-                    early.push(answer);
-                }
-                continue;
-            }
-            if answer.get("ok") == Some(&Value::Bool(false)) {
-                return Err(Failure::Link(format!(
-                    "{id} refused: {}",
-                    answer.get("error").unwrap_or(&Value::Null)
-                )));
-            }
-            return Ok(answer.get("data").cloned().unwrap_or(Value::Null));
-        }
-    };
-    let identity =
-        ask("identify", json!({"id": "identify", "cmd": "identify"}), &mut lines, &mut early)?;
-    let serves = identity
-        .get("capabilities")
-        .and_then(Value::as_array)
-        .is_some_and(|names| names.iter().any(|name| name == ATTACH));
-    if !serves {
-        return Err(Failure::Link(
-            "the machine's daemon does not serve agent-session-attach".into(),
-        ));
-    }
+    let connection = connect(socket, deadline)?;
+    let ready = identify(connection)?;
+    let (attached, page) = attach(ready, surface, after)?;
+    follow(attached, page, surface, after, deadline)
+}
+
+/// Event requests require a completed attachment, including replay pages and
+/// the view hint. The phase orchestrator cannot start them on a merely ready VM.
+fn follow(
+    mut attached: Vm<Attached, Link>,
+    page: Value,
+    surface: u64,
+    after: u64,
+    deadline: Instant,
+) -> Result<Value, Failure> {
     let mut got = Got { records: Vec::new(), last_seq: after, ended: None };
-    let page = ask(
-        "attach",
-        json!({"id": "attach", "cmd": "agent-session-attach", "surface": surface, "after_seq": after, "limit": PAGE}),
-        &mut lines,
-        &mut early,
-    )?;
     got.page(&page);
     // A permission asked before the attach is in the attach's session summary (`session.pending`, as `acpmux
     // run`'s permission read), not pushed again.
@@ -96,21 +63,17 @@ pub(crate) fn observe(
     }
     // A waiter, not a viewer: the chat's unread state stays the person's (`agent-session-view`, acpmux
     // `server/view.rs`). A daemon that refuses it still answers the wait.
-    let _ = ask(
+    let _ = attached.payload_mut().ask(
         "view",
         json!({"id": "view", "cmd": "agent-session-view", "surface": surface, "visible": false}),
-        &mut lines,
-        &mut early,
     );
     // A long log before the attach: the rest in pages, each after the newest seq read.
     let mut more = page.get("hasMore") == Some(&Value::Bool(true));
     while more && got.ended.is_none() {
         let id = format!("events-{}", got.last_seq);
-        let page = ask(
+        let page = attached.payload_mut().ask(
             &id,
             json!({"id": id, "cmd": "agent-session-events", "surface": surface, "after_seq": got.last_seq, "limit": PAGE}),
-            &mut lines,
-            &mut early,
         )?;
         let before = got.last_seq;
         got.page(&page);
@@ -121,13 +84,13 @@ pub(crate) fn observe(
             return Err(Failure::Link("a replay page made no progress".into()));
         }
     }
-    for line in early {
+    for line in std::mem::take(&mut attached.payload_mut().early) {
         if got.ended.is_none() {
             got.push(&line);
         }
     }
     while got.ended.is_none() {
-        let Ok(line) = next(&mut lines, deadline) else { break };
+        let Ok(line) = next(&mut attached.payload_mut().lines, deadline) else { break };
         let Some(line) = line else {
             got.ended = Some("closed");
             break;
@@ -137,6 +100,74 @@ pub(crate) fn observe(
     Ok(
         json!({"records": got.records, "last_seq": got.last_seq, "ended": got.ended.unwrap_or("timeout")}),
     )
+}
+
+/// The transport belongs to the lifecycle capability, including messages pushed
+/// before the attach reply. Dropping a failed or cancelled step closes it.
+struct Link {
+    writer: UnixStream,
+    lines: BufReader<UnixStream>,
+    early: Vec<Value>,
+    deadline: Instant,
+}
+
+impl Link {
+    fn ask(&mut self, id: &str, request: Value) -> Result<Value, Failure> {
+        let mut line = request.to_string();
+        line.push('\n');
+        self.writer.write_all(line.as_bytes()).map_err(|error| Failure::Link(error.to_string()))?;
+        loop {
+            let answer = next(&mut self.lines, self.deadline)?
+                .ok_or_else(|| Failure::Link("the link closed".into()))?;
+            if answer.get("id").and_then(Value::as_str) != Some(id) {
+                if answer.get("event").is_some() {
+                    self.early.push(answer);
+                }
+                continue;
+            }
+            if answer.get("ok") == Some(&Value::Bool(false)) {
+                return Err(Failure::Link(format!(
+                    "{id} refused: {}",
+                    answer.get("error").unwrap_or(&Value::Null)
+                )));
+            }
+            return Ok(answer.get("data").cloned().unwrap_or(Value::Null));
+        }
+    }
+}
+
+fn connect(socket: &Path, deadline: Instant) -> Result<Vm<Unidentified, Link>, Failure> {
+    let stream =
+        UnixStream::connect(socket).map_err(|error| Failure::Link(format!("connect: {error}")))?;
+    let writer = stream.try_clone().map_err(|error| Failure::Link(error.to_string()))?;
+    Ok(Vm::connected(Link { writer, lines: BufReader::new(stream), early: Vec::new(), deadline }))
+}
+
+fn identify(mut connection: Vm<Unidentified, Link>) -> Result<Vm<Ready, Link>, Failure> {
+    let identity =
+        connection.payload_mut().ask("identify", json!({"id": "identify", "cmd": "identify"}))?;
+    let serves = identity
+        .get("capabilities")
+        .and_then(Value::as_array)
+        .is_some_and(|names| names.iter().any(|name| name == ATTACH));
+    if !serves {
+        return Err(Failure::Link(
+            "the machine's daemon does not serve agent-session-attach".into(),
+        ));
+    }
+    Ok(connection.ready())
+}
+
+fn attach(
+    mut ready: Vm<Ready, Link>,
+    surface: u64,
+    after: u64,
+) -> Result<(Vm<Attached, Link>, Value), Failure> {
+    let page = ready.payload_mut().ask(
+        "attach",
+        json!({"id": "attach", "cmd": "agent-session-attach", "surface": surface, "after_seq": after, "limit": PAGE}),
+    )?;
+    Ok((ready.attach(), page))
 }
 
 /// The longest prompt the daemon's `agent-session-prompt` takes (spec: 64 KiB).

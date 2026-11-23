@@ -89,6 +89,9 @@ pub struct Homes {
     /// The edit locks and backups of every file a skills switch writes: the private folder
     /// outside every project the hooks and settings parts use ([`crate::hooks_paths::state_dir`]).
     pub edits: Store,
+    /// cmux's own saved prompts, which the composer's `/` menu lists in every chat whatever its
+    /// agent ([`cmux_commands_dir`]).
+    pub cmux_commands: PathBuf,
 }
 
 impl Homes {
@@ -100,6 +103,7 @@ impl Homes {
             claude: var("CLAUDE_CONFIG_DIR").unwrap_or_else(|| home.join(".claude")),
             codex: var("CODEX_HOME").unwrap_or_else(|| home.join(".codex")),
             edits: Store::new(crate::hooks_paths::state_dir(&home, |name| std::env::var_os(name))),
+            cmux_commands: cmux_commands_dir(&home, |name| std::env::var_os(name)),
             home,
         })
     }
@@ -112,6 +116,7 @@ impl Homes {
             claude: home.join(".claude"),
             codex: home.join(".codex"),
             edits: Store::new(home.join(".local/state/cmux-tui/agent-config")),
+            cmux_commands: cmux_commands_dir(&home, |_| None),
             home,
         }
     }
@@ -130,6 +135,17 @@ impl Homes {
     pub fn agents_skills(&self) -> PathBuf {
         self.home.join(".agents/skills")
     }
+}
+
+/// cmux's saved prompts folder: `$CMUX_COMMANDS_DIR`, else `$XDG_CONFIG_HOME/cmux/commands`, else
+/// `~/.config/cmux/commands`, beside `~/.config/cmux/skills`. One `NAME.md` a prompt: its
+/// frontmatter `description`, then the text the `/NAME` pick writes into the draft.
+pub fn cmux_commands_dir(home: &Path, var: impl Fn(&str) -> Option<std::ffi::OsString>) -> PathBuf {
+    let set = |name: &str| var(name).filter(|value| !value.is_empty()).map(PathBuf::from);
+    if let Some(dir) = set("CMUX_COMMANDS_DIR") {
+        return dir;
+    }
+    set("XDG_CONFIG_HOME").unwrap_or_else(|| home.join(".config")).join("cmux").join("commands")
 }
 
 /// The folders from `cwd` up to its project root, innermost first: the nearest ancestor holding

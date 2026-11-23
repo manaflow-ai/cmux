@@ -1,7 +1,10 @@
 // The card that closes a turn which edited files: a small diff glyph, "Edited 2 files" with the
 // totals, then Undo and View changes; under it one row per file in the chat's font (the dimmed folder,
 // the name, its counts). A card for one file has no rows: its header opens that file's changes
-// beside the chat. The data is turnChanges/model.ts; this file is only its view.
+// beside the chat. A Markdown file (.md, .markdown) also has Open at the end of its row, or
+// beside View changes on a card for one file: it shows the file in cmux's Markdown page beside the
+// chat (writtenArtifacts.tsx `OpenWrittenMarkdown`), once per file however often the turn wrote it.
+// The data is turnChanges/model.ts; this file is only its view.
 //
 // Undo is a host revert (`turn.undo`): the host puts a file back only while it still holds the
 // turn's last bytes, and moves a file the turn created to the Trash. The Undo click asks the host
@@ -30,6 +33,8 @@ import { DiffFile, Undo } from "./icons";
 import { Icon } from "../icons/Icon";
 import { ToolRows } from "./TurnRows";
 import { useTranscriptReadOnly } from "./readOnly";
+import { OpenWrittenMarkdown } from "./writtenArtifacts";
+import { isMarkdownPath } from "./writtenArtifactsModel";
 import "./EditedFilesCard.css";
 import "./transcriptWorkLog.css";
 import { intl } from "../../../ui/intl";
@@ -125,9 +130,14 @@ function Card({
             );
           }),
         ];
-  const entries: { key: string; file?: TurnFile; path?: string; failed?: true }[] = [
+  const entries: { key: string; file?: TurnFile; path?: string; canonical?: string; failed?: true }[] = [
     ...files.map((file) => ({ key: file.path, file })),
-    ...plain.map((entry) => ({ key: `plain-${entry.key}`, path: entry.path, failed: entry.failed })),
+    ...plain.map((entry) => ({
+      key: `plain-${entry.key}`,
+      path: entry.path,
+      canonical: entry.canonical,
+      failed: entry.failed,
+    })),
   ];
   // Undo leaves the paths listed without counts as they are: the page never had their old text.
   const kept = pathsOnly
@@ -142,6 +152,13 @@ function Card({
   // Read only, Undo would write the owner's files.
   const readOnly = useTranscriptReadOnly();
   const undoable = !readOnly && row.ended === true && changes.files.some((file) => file.undo.kind !== "cannot");
+  // A Markdown file the turn left in place opens in cmux's Markdown page (writtenArtifacts.tsx): its
+  // full path, which the reader's own machine opens, so never in a read-only copy.
+  const markdownPath = (file: { path?: string; canonical?: string; deleted?: boolean }) =>
+    !readOnly && file.path && !file.deleted && isMarkdownPath(file.path)
+      ? pathKey({ path: file.path, canonical: file.canonical })
+      : undefined;
+  const singleMarkdown = single ? markdownPath(single) : undefined;
   // Transcript Work Log (taste build 9): "Changed 2 files +22 -10" over the session's branch, and
   // Preview for View changes. The head keeps its two lines and 64px (model.ts `editedCardHeight`).
   const workLog = useExperimentSwitch("transcriptWorkLog");
@@ -229,9 +246,10 @@ function Card({
             {counts.outside && <span className="acpmux-edited-outside">{t("turn.outside.card")}</span>}
           </div>
         </div>
-        {(undoable || reviewable) && (
+        {(undoable || reviewable || singleMarkdown) && (
           <div className="acpmux-edited-actions">
             {undoable && <UndoButton state={undoState} rowId={row.id} files={changes.files} t={t} />}
+            {singleMarkdown && <OpenWrittenMarkdown path={singleMarkdown} />}
             {reviewable && (
               <button
                 type="button"
@@ -291,6 +309,7 @@ function Card({
                 <span className="acpmux-edited-path">{t("edited.unknownFile")}</span>
               )}
               {entry.failed && <span className="acpmux-edited-failed">{t("tools.failed")}</span>}
+              {!entry.failed && markdownPath(entry) && <OpenWrittenMarkdown path={markdownPath(entry)!} />}
             </div>
           );
         }
@@ -307,18 +326,28 @@ function Card({
           </>
         );
         const done = undoState.phase === "done" ? status(file) : undefined;
+        const markdown = markdownPath(file);
+        const line = onOpenDiff ? (
+          <button
+            type="button"
+            className="acpmux-edited-file"
+            onClick={(event) => onOpenDiff(row.id, file.path, event.currentTarget)}
+          >
+            {label}
+          </button>
+        ) : (
+          <div className="acpmux-edited-file">{label}</div>
+        );
         return (
           <div className="acpmux-edited-entry" key={entry.key}>
-            {onOpenDiff ? (
-              <button
-                type="button"
-                className="acpmux-edited-file"
-                onClick={(event) => onOpenDiff(row.id, file.path, event.currentTarget)}
-              >
-                {label}
-              </button>
+            {/* A Markdown file's Open sits at the end of its row, beside the row's own button. */}
+            {markdown ? (
+              <div className="acpmux-edited-line">
+                {line}
+                <OpenWrittenMarkdown path={markdown} />
+              </div>
             ) : (
-              <div className="acpmux-edited-file">{label}</div>
+              line
             )}
             {done && <FileStatus status={done} path={file.path} rowId={row.id} onOpenDiff={onOpenDiff} t={t} />}
           </div>
@@ -372,13 +401,22 @@ function UndoButton({
     );
   }
   const busy = state.phase === "checking" || state.phase === "undoing" || state.phase === "confirm";
+  const label =
+    state.phase === "undoing"
+      ? t("edited.undoing")
+      : state.phase === "failed"
+        ? t("edited.undoFailed")
+        : t("edited.undo");
   return (
-    <button type="button" className="acpmux-edited-undo" disabled={busy} onClick={() => void checkUndo(rowId, files)}>
-      {state.phase === "undoing"
-        ? t("edited.undoing")
-        : state.phase === "failed"
-          ? t("edited.undoFailed")
-          : t("edited.undo")}
+    <button
+      type="button"
+      className="acpmux-edited-undo"
+      title={label}
+      disabled={busy}
+      onClick={() => void checkUndo(rowId, files)}
+    >
+      {/* A narrow card keeps only the glyph (EditedFilesCard.css); the label stays for screen readers. */}
+      <span className="acpmux-edited-undo-label">{label}</span>
       <Undo size={12} />
     </button>
   );
