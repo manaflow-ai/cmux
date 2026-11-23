@@ -21,6 +21,84 @@ struct FeedRowState: Hashable, Sendable {
     var question: AgentQuestionCardState?
     /// A body only the web renderer draws (math): its measured height at this width.
     var webHeight: Double?
+    /// The row is a stack's fold line ("3 earlier updates"), not an event (`FeedStacks`).
+    var fold: FeedFold?
+}
+
+/// A stack's fold line: how many older events of the chat it stands for, and whether they show under it.
+struct FeedFold: Hashable, Sendable {
+    var count: Int
+    var expanded: Bool
+
+    /// "3 earlier updates".
+    var title: String { count == 1 ? "1 earlier update" : "\(count) earlier updates" }
+}
+
+/// The Feed's rows with each chat's run folded. When one chat (one Mac's workspace and tab) posts several
+/// events in a row, with no other chat's event between them, the newest shows as the full row and
+/// the older ones fold into one line under it; a tap on the line shows them in place (the iOS
+/// Notification Center's stack per thread). One busy agent takes one row and a line, so the other
+/// agents stay on screen. A row that needs the person is never folded and never leads a stack, nor
+/// is one with an answer on its way or a refused answer; a row with an open reply is never folded.
+struct FeedStacks: Equatable {
+    /// The rows the list shows, in order: events, and after each stack's newest event its fold line
+    /// (an event that carries only the fold's id and its chat), then its older events when expanded.
+    var rows: [FeedItem] = []
+    /// Each fold line, by its row id.
+    var folds: [String: FeedFold] = [:]
+    /// The newest event of each stack (its row and its fold line read as one).
+    var heads: Set<String> = []
+    /// The events folded away, in order.
+    var hidden: [String] = []
+
+    static let foldPrefix = "feed.fold."
+    static func foldID(head: String) -> String { foldPrefix + head }
+    static func isFold(_ id: String) -> Bool { id.hasPrefix(foldPrefix) }
+    /// The newest event of the stack whose fold line is `id`.
+    static func head(ofFold id: String) -> String? { isFold(id) ? String(id.dropFirst(foldPrefix.count)) : nil }
+
+    /// Whether an event may be part of a stack.
+    static func stacks(_ item: FeedItem) -> Bool {
+        !item.needsYou && item.pending == nil && item.error == nil
+    }
+
+    /// `expanded`: the stacks shown open, by their newest event's id. A stack that gets a newer
+    /// event stays open (its key moves to the new newest event), and keys of stacks that are gone
+    /// are dropped. `open`: rows that never fold (a reply being written under them); one may still lead a stack.
+    init(_ items: [FeedItem], expanded: inout Set<String>, open: Set<String> = []) {
+        var live = Set<String>()
+        var index = 0
+        rows.reserveCapacity(items.count)
+        while index < items.count {
+            let head = items[index]
+            var end = index + 1
+            if Self.stacks(head) {
+                while end < items.count, items[end].workspaceID == head.workspaceID, items[end].tabID == head.tabID, items[end].macID == head.macID,
+                      Self.stacks(items[end]), !open.contains(items[end].id) {
+                    end += 1
+                }
+            }
+            rows.append(head)
+            let older = items[(index + 1)..<end]
+            if !older.isEmpty {
+                // The stack was open under an event that is now one of its older ones: it stays open.
+                if !expanded.contains(head.id), let was = older.first(where: { expanded.contains($0.id) }) {
+                    expanded.remove(was.id)
+                    expanded.insert(head.id)
+                }
+                let isExpanded = expanded.contains(head.id)
+                if isExpanded { live.insert(head.id) }
+                let foldID = Self.foldID(head: head.id)
+                heads.insert(head.id)
+                folds[foldID] = FeedFold(count: older.count, expanded: isExpanded)
+                rows.append(FeedItem(id: foldID, kind: .response, workspaceID: head.workspaceID, tabID: head.tabID, agentName: head.agentName,
+                                     harness: "", workspaceTitle: "", markdown: "", quote: nil, createdAt: .distantPast))
+                if isExpanded { rows.append(contentsOf: older) } else { hidden.append(contentsOf: older.map(\.id)) }
+            }
+            index = end
+        }
+        if expanded.count != live.count { expanded = live }
+    }
 }
 
 /// What a row's layout depends on: the event, the row's state, the column
