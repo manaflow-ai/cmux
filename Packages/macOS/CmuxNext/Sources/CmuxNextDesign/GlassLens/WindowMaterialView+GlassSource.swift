@@ -4,9 +4,9 @@ import AppKit
 /// as drawn, before its blur, where it lies, its blur and the wash over it.
 extension WindowMaterialView {
     /// The art pages may refract now: nil under the solid sheet, without art, under a moving
-    /// or live or living wallpaper, or where the desktop shows through more than a little of the art.
+    /// or living wallpaper, or where the desktop shows through more than a little of the art.
     var glassStill: NSImage? {
-        guard !isHidden, !hidesArt, !artView.isHidden, !showsVideo, !showsLive, !showsShader, Self.refractsArt(opacity: artOpacity) else { return nil }
+        guard !isHidden, !hidesArt, !artView.isHidden, !showsVideo, !showsShader, !showsLive, Self.refractsArt(opacity: artOpacity) else { return nil }
         return artImage
     }
 
@@ -18,7 +18,7 @@ extension WindowMaterialView {
         opacity >= Float(WindowBackdrop.windowGlassArtOpacity) - 0.001
     }
 
-    /// The art layer's frame in window coordinates; its image is aspect-filled into it.
+    /// The art layer's frame in window coordinates; its image is placed in it by ``artFit``.
     var glassArtFrame: CGRect { artView.convert(artView.bounds, to: nil) }
 
     /// Tells the pages lensing this backdrop that its art, blur or tint may have changed.

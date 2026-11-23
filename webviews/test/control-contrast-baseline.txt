@@ -192,8 +192,6 @@ button.mt-name-pill icon 2.17
 button.mt-plus icon 2.66
 button.nt-all-row text 3.22
 button.nt-stage-row text 3.60
-button.nt-starter icon 1.85
-button.nt-starter text 1.85
 button.nt-widget-gallery-done.ui-btn text 3.63
 button.plain-english-row icon 1.21
 button.popover-gallery-outside text 3.63

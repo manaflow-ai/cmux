@@ -50,8 +50,8 @@ public nonisolated enum BackdropSelection: Equatable, Hashable, Sendable {
         case .desktop: return Self.desktopID
         case .pair(let light, let dark): return "appearance:\(light.id)|\(dark.id)"
         case .moment(let path, let frame, let dark): return "system:\(path)|frame:\(frame)|\(dark ? "dark" : "light")"
-        case .live(let id): return Self.livePrefix + id
         case .shader(let shader): return shader.id
+        case .live(let id): return Self.livePrefix + id
         }
     }
 
@@ -66,13 +66,13 @@ public nonisolated enum BackdropSelection: Equatable, Hashable, Sendable {
         case .art(let art): return art.label
         case .system(let path): return Self.systemTitle(path, aerialNames: aerialNames)
         case .file(let path): return URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
-        case .desktop: return String(localized: "backdrop.desktop.title", defaultValue: "Desktop Wallpaper", bundle: .module)
+        case .desktop: return String(localized: "backdrop.desktop.title", defaultValue: "Desktop Wallpaper", bundle: .localizedModule)
         case .pair(let light, let dark):
             return light == dark ? light.title(aerialNames: aerialNames)
                 : "\(light.title(aerialNames: aerialNames)) / \(dark.title(aerialNames: aerialNames))"
         case .moment(let path, _, _): return Self.systemTitle(path, aerialNames: aerialNames)
-        case .live(let id): return LiveWallpaper.named(id)?.name ?? id
         case .shader(let shader): return shader.title
+        case .live(let id): return LiveWallpaper.named(id)?.name ?? id
         }
     }
 
@@ -112,19 +112,19 @@ public nonisolated enum BackdropSelection: Equatable, Hashable, Sendable {
         case .file: return isVideo ? Self.videoCollection : (BackdropUserImages.collection, BackdropUserImages.collectionTitle)
         case .system: return isVideo ? Self.videoCollection : (AppleWallpapers.collection, AppleWallpapers.collectionTitle)
         case .moment: return (AppleWallpapers.collection, AppleWallpapers.collectionTitle)
-        case .live: return Self.liveCollection
         case .shader: return (BackdropShader.collection, BackdropShader.collectionTitle)
+        case .live: return Self.liveCollection
         case .desktop, .pair: return nil
         }
     }
 
     /// The picker group of every live wallpaper, after Moving wallpapers.
     private static var liveCollection: (String, String) {
-        ("live", String(localized: "backdrop.collection.live", defaultValue: "Live wallpapers", bundle: .module))
+        ("live", String(localized: "backdrop.collection.live", defaultValue: "Live wallpapers", bundle: .localizedModule))
     }
 
     private static var videoCollection: (String, String) {
-        (AppleWallpapers.videoCollection, String(localized: "backdrop.collection.video", defaultValue: "Moving wallpapers", bundle: .module))
+        (AppleWallpapers.videoCollection, String(localized: "backdrop.collection.video", defaultValue: "Moving wallpapers", bundle: .localizedModule))
     }
 
     /// The attribution shown below the thumbnail.
@@ -137,21 +137,21 @@ public nonisolated enum BackdropSelection: Equatable, Hashable, Sendable {
         switch self {
         case .art(let art): return art.attribution
         case .system, .moment:
-            return String(localized: "backdrop.system.attribution", defaultValue: "macOS system wallpaper · %@", bundle: .module)
+            return String(localized: "backdrop.system.attribution", defaultValue: "macOS system wallpaper · %@", bundle: .localizedModule)
                 .replacingOccurrences(of: "%@", with: title)
         case .pair(let light, let dark):
             return light == dark ? light.attribution : "\(light.attribution) / \(dark.attribution)"
         case .file(let path):
-            return String(localized: "backdrop.file.attribution", defaultValue: "Your image · %@", bundle: .module)
+            return String(localized: "backdrop.file.attribution", defaultValue: "Your image · %@", bundle: .localizedModule)
                 .replacingOccurrences(of: "%@", with: (path as NSString).lastPathComponent)
         case .desktop:
-            return String(localized: "backdrop.desktop.attribution", defaultValue: "Your current macOS desktop picture", bundle: .module)
+            return String(localized: "backdrop.desktop.attribution", defaultValue: "Your current macOS desktop picture", bundle: .localizedModule)
+        case .shader(let shader): return shader.attribution
         case .live(let id):
             let summary = LiveWallpaper.named(id)?.summary ?? ""
             return summary.isEmpty
-                ? String(localized: "backdrop.live.attribution", defaultValue: "Live wallpaper: moves, and follows the pointer", bundle: .module)
+                ? String(localized: "backdrop.live.attribution", defaultValue: "Live wallpaper: moves, and follows the pointer", bundle: .localizedModule)
                 : summary
-        case .shader(let shader): return shader.attribution
         }
     }
 

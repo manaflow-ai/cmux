@@ -59,6 +59,18 @@ public final class WindowMaterialView: NSView {
     /// view, centered, like a macOS wallpaper. Its frame autoresizes with the window, so nothing
     /// is computed per size and nothing jumps while resizing.
     let artView = NSView()
+    /// Adjust Background…'s live placement while the person drags or zooms; nil shows the setting's
+    /// (`WindowMaterialView+Placement.swift`).
+    var previewPlacement: BackdropPlacement? {
+        didSet { if previewPlacement != oldValue { applyPlacement() } }
+    }
+    /// The Adjust Background… overlay open over this backdrop; it is cancelled when the picture changes.
+    weak var adjusting: BackdropAdjustOverlay?
+    /// The art's own gravity and placement while a placement draws it (nil: none does), put back
+    /// when it ends.
+    var unplacedArtLook: (gravity: CALayerContentsGravity, placement: NSView.LayerContentsPlacement)?
+    /// Follows `appearance.backgroundPlacement` (``DesignSettings/backgroundPlacements``).
+    var placementWatch: Task<Void, Never>?
     /// Whether this backdrop fills its window, edge to edge (a window's backdrop, not a pane's own
     /// picture): its glass then runs ``glassOutset`` past every edge of the view.
     public let fillsWindow: Bool
@@ -80,6 +92,15 @@ public final class WindowMaterialView: NSView {
     private(set) var loadedDark = false
     /// The desktop's ``DesktopWallpaperWatch/generation`` the Desktop Wallpaper art loaded for.
     private var loadedDesktopGeneration = 0
+    /// What the Desktop Wallpaper drew last (its screen's picture, movie or frame), and the
+    /// display it was read for: a window moved to another display reloads.
+    private var loadedDesktop: BackdropSelection?
+    var loadedDesktopScreen: UInt32?
+    /// The backdrop shows the Desktop Wallpaper (``BackdropSelection/desktop``).
+    private(set) var followsDesktop = false
+    /// How the art is placed: the Desktop Wallpaper's screen's Fill, Fit, Stretch or Center;
+    /// every other background fills (``applyArtFit(_:)``).
+    var artFit: BackdropArtFit = .fill
     /// The last `apply`, run again when the appearance flips under art that follows it.
     private var applied: (backdrop: WindowBackdrop, tint: NSColor)?
     /// A video wallpaper over the art (its poster), playing while seen (``BackdropVideoView``).
@@ -89,12 +110,12 @@ public final class WindowMaterialView: NSView {
     private(set) var artImage: NSImage?
     /// A video wallpaper plays over the art (pages get no still of it, `glassSource`).
     private(set) var showsVideo = false
+    /// A living wallpaper draws over the art (pages get no still of it, `glassSource`).
+    private(set) var showsShader = false
     /// A live wallpaper (`live:<id>`) runs in place of the art (``BackdropLiveView``).
     public let liveView: BackdropLiveView
     /// A live wallpaper shows (pages get no still of it, `glassSource`).
     private(set) var showsLive = false
-    /// A living wallpaper draws over the art (pages get no still of it, `glassSource`).
-    private(set) var showsShader = false
     /// The web views lensing this backdrop, told when what they draw changes (`glassSource`).
     let glassFeeds = NSHashTable<GlassBackdropFeed>.weakObjects()
     private let images: BackdropImageStore
@@ -113,6 +134,9 @@ public final class WindowMaterialView: NSView {
     private(set) var hidesArt = false
     /// The blur on the art now (``WindowBackdrop/artBlurRadius``).
     private(set) var artBlurRadius = 0
+    /// The art's blurred copy under Frosted (``artContents(for:)``), and the job making the next one.
+    var blurredArt: ArtBlur.Copy?
+    var artBlurJob: Task<Void, Never>?
 
     /// Creates an opaque backdrop (no material view, no tint).
     ///
@@ -137,8 +161,8 @@ public final class WindowMaterialView: NSView {
         self.activeLook = activeLook
         self.fillsWindow = fillsWindow
         videoView = BackdropVideoView(frame: frameRect, players: videos)
-        liveView = BackdropLiveView(frame: frameRect, programs: images.livePrograms)
         shaderView = BackdropShaderView(frame: frameRect, renderer: images.shaders)
+        liveView = BackdropLiveView(frame: frameRect, programs: images.livePrograms)
         super.init(frame: frameRect)
         artView.wantsLayer = true
         artView.frame = bounds
@@ -153,15 +177,15 @@ public final class WindowMaterialView: NSView {
         videoView.frame = bounds
         videoView.autoresizingMask = [.width, .height]
         addSubview(videoView)
-        liveView.frame = bounds
-        liveView.autoresizingMask = [.width, .height]
-        addSubview(liveView)
         shaderView.frame = bounds
         shaderView.autoresizingMask = [.width, .height]
         addSubview(shaderView)
         // The living wallpaper moves on the video wallpaper's terms, through its observers.
         shaderView.sight = { [weak videoView] in (videoView?.screensAsleep ?? false, videoView?.sessionInactive ?? false) }
         videoView.onSightChange = { [weak shaderView] closing in shaderView?.sightChanged(closing: closing) }
+        liveView.frame = bounds
+        liveView.autoresizingMask = [.width, .height]
+        addSubview(liveView)
         glassTint.overlay.frame = bounds
         glassTint.overlay.autoresizingMask = [.width, .height]
         addSubview(glassTint.overlay)
@@ -183,6 +207,12 @@ public final class WindowMaterialView: NSView {
         addSubview(inactiveTintView, positioned: .below, relativeTo: artView)
         setAccessibilityElement(false)
         images.desktop.register(self)
+        observePlacement()
+    }
+
+    override public func layout() {
+        super.layout()
+        applyPlacement()
     }
 
     @available(*, unavailable)
@@ -301,27 +331,37 @@ public final class WindowMaterialView: NSView {
         let chosen = backdrop.selection ?? backdrop.art.map(BackdropSelection.art)
         let flipped = chosen?.followsAppearance == true && loadedDark != dark
         // Light and Dark draws its side for this view's appearance.
-        let shown = chosen?.resolved(dark: dark)
+        let picked = chosen?.resolved(dark: dark)
+        followsDesktop = picked == .desktop
+        // The Desktop Wallpaper draws what this window's own screen shows (until the first reading,
+        // the desktop as read now): its picture, aerial or frame of the time, placed as macOS does.
+        let desktop = followsDesktop ? wallpaper.shown(on: window?.screen) : nil
+        let shown = desktop?.selection(dark: dark) ?? picked
         // A live wallpaper draws itself: no picture loads under it.
         let live = shown?.liveID
         let pictured = live == nil ? shown : nil
-        // The desktop moved on (a new picture, a Space with its own): the Desktop Wallpaper reloads.
-        let desktopMoved = shown == .desktop && loadedDesktopGeneration != wallpaper.generation
+        applyArtFit(desktop)
+        loadedDesktopScreen = followsDesktop ? window?.screen.flatMap(DesktopWallpaperWatch.displayID) : nil
+        if followsDesktop { wallpaper.desktopIsShown() }
+        // The desktop moved on (a new picture, a Space with its own, another display): it reloads.
+        let desktopMoved = followsDesktop && (loadedDesktopGeneration != wallpaper.generation || loadedDesktop != shown)
         if loadedSelection != backdrop.selection || loadedArt != backdrop.art || loadedTexture != backdrop.texture || flipped || desktopMoved {
             loadedSelection = backdrop.selection
             loadedArt = backdrop.art
             loadedTexture = backdrop.texture
             loadedDark = dark
             loadedDesktopGeneration = wallpaper.generation
-            if shown == .desktop { images.forgetDesktopPicture(olderThan: wallpaper.generation) }
+            cancelAdjustingAnotherPicture()
+            loadedDesktop = followsDesktop ? shown : nil
+            if followsDesktop { images.forgetDesktopPicture(olderThan: wallpaper.generation) }
             artLoad?.cancel()
             artLoad = nil
-            let texture = backdrop.texture
+            let texture = backdrop.texture, desktopEntry = followsDesktop
             // A picture already shown stays until the new one decodes, then crossfades into it. With
             // none shown, decoded art shows at once, else an earlier launch's snapshot shows in this
             // first frame and the full image replaces it; without one the theme's colors until the
             // art, decoded off the main actor, fades in.
-            let ready = pictured.flatMap { images.cached($0, texture: texture, dark: dark) }
+            let ready = pictured.flatMap { images.cached($0, texture: texture, dark: dark, desktop: desktopEntry) }
             let keeps = pictured != nil && artImage != nil && !hidesArt
             if keeps { if let ready { crossfadeArt(to: ready) } } else {
                 showArt(ready ?? (hidesArt ? nil : pictured.flatMap { images.preview($0, texture: texture, dark: dark) }))
@@ -329,7 +369,7 @@ public final class WindowMaterialView: NSView {
             if let pictured, ready == nil {
                 let fades = artImage == nil
                 artLoad = Task { [weak self, images] in
-                    let image = await images.image(pictured, texture: texture, dark: dark)
+                    let image = await images.image(pictured, texture: texture, dark: dark, desktop: desktopEntry)
                     guard !Task.isCancelled, let self else { return }
                     guard let image else { if keeps { self.showArt(nil) }; return }
                     self.crossfadeArt(to: image)
@@ -340,6 +380,9 @@ public final class WindowMaterialView: NSView {
         artView.isHidden = hidesArt || artImage == nil
         showsVideo = !hidesArt && shown?.isVideo == true
         videoView.show(showsVideo ? shown?.resolvedImageURL(dark: dark) : nil)
+        let shader = hidesArt ? nil : shown?.shader
+        showsShader = shader != nil
+        shaderView.show(shader, dark: dark)
         showsLive = !hidesArt && live != nil
         liveView.show(showsLive ? live.flatMap(LiveWallpaper.named) : nil)
         // Every theme apply: new colors are activity, and a held wallpaper redraws once in them.
@@ -347,16 +390,13 @@ public final class WindowMaterialView: NSView {
         // TODO(gcp-codex-lane-11/wallpaper-lighting): hand Wallpaper Lighting one 256-px-wide still per
         // wallpaper or theme change (LiveWallpaperRenderer.still, read with WallpaperLightField.read),
         // then artDidChange(), once WindowMaterialView.setArtLight lands from that lane.
-        let shader = hidesArt ? nil : shown?.shader
-        showsShader = shader != nil
-        shaderView.show(shader, dark: dark)
         // Window Glass: the desktop shows through the art. The model value only, so a fade-in in
         // flight runs on to it.
         artOpacity = Float(backdrop.artOpacity)
         if artView.layer?.opacity != artOpacity { artView.layer?.opacity = artOpacity }
         if videoView.layer?.opacity != artOpacity { videoView.layer?.opacity = artOpacity }
-        if liveView.layer?.opacity != artOpacity { liveView.layer?.opacity = artOpacity }
         if shaderView.layer?.opacity != artOpacity { shaderView.layer?.opacity = artOpacity }
+        if liveView.layer?.opacity != artOpacity { liveView.layer?.opacity = artOpacity }
         if backdrop.material != material {
             material = backdrop.material
             materialView?.removeFromSuperview()
@@ -409,17 +449,21 @@ public final class WindowMaterialView: NSView {
 
     func showArt(_ image: NSImage?) {
         artImage = image
-        artView.layer?.contents = artImage
+        artView.layer?.contents = artContents(for: image)
         artView.isHidden = hidesArt || artImage == nil
+        applyPlacement()
         noteGlassSourceChange()
     }
 
-    /// Blurs the art and the video or live wallpaper over it by `radius` points (``WindowBackdrop/artBlurRadius``);
-    /// 0 clears the blur. Filters are made for each view: they are mutable objects.
+    /// Blurs the art and the video over it by `radius` points (``WindowBackdrop/artBlurRadius``);
+    /// 0 clears the blur. The picture takes a blurred copy (``ArtBlur``): a filter on its
+    /// aspect-filled layer drew it in the bottom-left. Filters are made for each view: they are
+    /// mutable objects.
     private func applyArtBlur(_ radius: Int) {
         guard radius != artBlurRadius else { return }
         artBlurRadius = radius
-        for view in [artView, videoView as NSView, liveView as NSView, shaderView as NSView] {
+        if artImage != nil { artView.layer?.contents = artContents(for: artImage) }
+        for view in [videoView as NSView, shaderView as NSView, liveView as NSView] {
             if radius > 0 { view.layerUsesCoreImageFilters = true }
             // Clamped first: the blur then reads the edge pixels past the edge, not transparency,
             // so the picture keeps no translucent rim.

@@ -88,7 +88,10 @@ final class SettingsBackdropThumbnails: PageDynamicResourceSource {
                        kCGImageSourceThumbnailMaxPixelSize: 240] as CFDictionary
         guard let image = AppleWallpapers.isVideo(url.path) ? BackdropImageStore.poster(url, maxPixelSize: 240)
             : CGImageSourceCreateWithURL(BackdropShaderRenderer.prepared(url) as CFURL, nil).flatMap({ CGImageSourceCreateThumbnailAtIndex($0, 0, options) }) else { return nil }
-        return image.pngData()
+        let data = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(data, UTType.png.identifier as CFString, 1, nil) else { return nil }
+        CGImageDestinationAddImage(destination, image, nil)
+        return CGImageDestinationFinalize(destination) ? data as Data : nil
     }
 
     /// A 240-point-wide PNG (the grid shows tiles about 112 points wide on a 2x display).

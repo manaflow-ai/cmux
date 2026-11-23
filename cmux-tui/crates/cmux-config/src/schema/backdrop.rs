@@ -3,7 +3,8 @@
 //! and each schedule entry), the time-of-day schedule
 //! (`appearance.backgroundSchedule`) and the sun location
 //! (`appearance.backgroundLocation`), and what each mode last showed
-//! (`appearance.backgroundMemory`).
+//! (`appearance.backgroundMemory`), and the backgrounds shown before
+//! (`appearance.backgroundRecents`, newest first).
 
 use serde_json::Value;
 
@@ -13,6 +14,12 @@ use crate::text::trim_whitespaces;
 /// The row whose choices are the fixed backgrounds (the bundled art and
 /// `desktop`, Swift `BackdropSelectionSetting.catalogChoices`).
 const PICTURE_ROW: &str = "appearance.backgroundLight";
+
+/// The row whose choices are the background modes and the bundled art.
+const SELECTION_ROW: &str = "appearance.background";
+
+/// How many earlier backgrounds `appearance.backgroundRecents` keeps.
+pub const RECENTS_CAP: usize = 8;
 
 /// The sun events a schedule key may name (Swift `BackdropTimeOfDay.SunEvent`).
 const SUN_EVENTS: [&str; 5] = ["dawn", "sunrise", "noon", "sunset", "dusk"];
@@ -53,20 +60,43 @@ pub(crate) fn is_live(text: &str) -> bool {
     }
 }
 
+/// The living wallpapers, drawn live by a shader (Swift `BackdropShader`'s
+/// raw values; `shader:` plus one is a background id). The test
+/// `shader_names_match_swift` holds this list to the Swift enum, so a new
+/// shader the app draws is one a theme file, a recipe or an agent may pick.
+pub(crate) const SHADERS: [&str; 11] = [
+    "currents", "ripples", "aurora", "field", "aero", "sakura", "sumi", "koi", "snowfall",
+    "lanterns", "rain",
+];
+
+/// The prefix of a living wallpaper's id (Swift `BackdropShader.idPrefix`).
+pub(crate) const SHADER_PREFIX: &str = "shader:";
+
+/// `shader:NAME` for a shader in [`SHADERS`].
+pub(crate) fn is_shader(text: &str) -> bool {
+    text.strip_prefix(SHADER_PREFIX).is_some_and(|name| SHADERS.contains(&name))
+}
+
+/// Every living wallpaper's id (`shader:aurora`, ...), in the Swift picker's order.
+pub(crate) fn shader_ids() -> Vec<String> {
+    SHADERS.iter().map(|name| format!("{SHADER_PREFIX}{name}")).collect()
+}
+
 /// Swift `BackdropSelectionSetting.picture`: `system:` or `file:` with an
-/// absolute path, a canonical `youtube:` video (crate::youtube), or a listed
-/// fixed background.
+/// absolute path, a canonical `youtube:` video (crate::youtube), a living
+/// wallpaper (`shader:NAME`), or a listed fixed background.
 pub(crate) fn is_picture(text: &str) -> bool {
     is_path_or_video(text) || picture_choices().iter().any(|choice| choice == text)
 }
 
-/// `system:` or `file:` with an absolute path, or a canonical `youtube:` id:
-/// the one-picture ids every background row takes beside its listed choices.
+/// `system:` or `file:` with an absolute path, a canonical `youtube:` id or a
+/// living wallpaper: the one-picture ids every background row takes beside
+/// its listed choices (Swift `BackdropSelection(id:)`).
 pub(crate) fn is_path_or_video(text: &str) -> bool {
     let path = ["system:", "file:"]
         .iter()
         .any(|prefix| text.strip_prefix(prefix).is_some_and(|path| path.starts_with('/')));
-    path || crate::youtube::is_canonical_id(text)
+    path || crate::youtube::is_canonical_id(text) || is_shader(text)
 }
 
 /// The fixed backgrounds the schema lists.
@@ -147,7 +177,9 @@ pub(crate) fn is_when(text: &str) -> bool {
 /// longitude in -180...180, spaces around each allowed.
 pub(crate) fn is_location(text: &str) -> bool {
     let parts: Vec<&str> = text.split(',').map(trim_whitespaces).collect();
-    let [latitude, longitude] = parts.as_slice() else { return false };
+    let [latitude, longitude] = parts.as_slice() else {
+        return false;
+    };
     let number = |part: &str| part.parse::<f64>().ok().filter(|x| x.is_finite());
     number(latitude).is_some_and(|x| x.abs() <= 90.0)
         && number(longitude).is_some_and(|x| x.abs() <= 180.0)
@@ -160,7 +192,9 @@ pub(crate) fn is_location(text: &str) -> bool {
 pub(crate) fn is_memory(value: &Value) -> bool {
     value.as_object().is_some_and(|members| {
         members.iter().all(|(name, value)| {
-            let Some(text) = value.as_str() else { return false };
+            let Some(text) = value.as_str() else {
+                return false;
+            };
             match name.as_str() {
                 "rotate" => text == "daily" || is_folder(text),
                 "folder" => is_folder(text),
@@ -176,9 +210,146 @@ pub(crate) fn is_folder(text: &str) -> bool {
     text.strip_prefix("folder:").is_some_and(|path| path.starts_with('/') && path.len() > 1)
 }
 
+/// A value `appearance.background` takes: a listed choice (`none`,
+/// `daily`, `appearance`, `schedule`, the bundled art, `desktop`), a
+/// `system:` / `file:` picture, a `youtube:` video or a folder.
+pub fn is_selection(text: &str) -> bool {
+    is_path_or_video(text) || is_folder(text) || selection_choices().iter().any(|c| c == text)
+}
+
+/// The listed values of `appearance.background`: its modes and the bundled art.
+pub(crate) fn selection_choices() -> Vec<String> {
+    match Schema::embedded().row(SELECTION_ROW).map(|row| &row.kind) {
+        Some(Kind::Choice(choices)) => choices.iter().map(|choice| choice.value.clone()).collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// `appearance.backgroundRecents`: at most [`RECENTS_CAP`] distinct
+/// background values ([`is_selection`]), newest first.
+pub(crate) fn is_recents(value: &Value) -> bool {
+    let Some(items) = value.as_array() else { return false };
+    let mut seen = std::collections::HashSet::new();
+    items.len() <= RECENTS_CAP
+        && items
+            .iter()
+            .all(|item| item.as_str().is_some_and(|text| is_selection(text) && seen.insert(text)))
+}
+
+/// `recents` after `previous` stopped showing: `previous` first, any older
+/// copy of it gone, at most [`RECENTS_CAP`] entries. A value that is not a
+/// background, or an entry that is not one, is left out, so a list a person
+/// broke by hand heals on the next change.
+pub fn record_recent(recents: &[String], previous: &str) -> Vec<String> {
+    let mut next = Vec::with_capacity(RECENTS_CAP);
+    if is_selection(previous) {
+        next.push(previous.to_string());
+    }
+    for item in recents {
+        if next.len() == RECENTS_CAP {
+            break;
+        }
+        if is_selection(item) && !next.contains(item) {
+            next.push(item.clone());
+        }
+    }
+    next
+}
+
+/// The background Switch to Previous Background shows instead of `current`:
+/// the newest recent that is not `current`. Swapping writes `current` to the
+/// front of the list, so a second swap comes back.
+pub fn previous_background(current: &str, recents: &[String]) -> Option<String> {
+    recents.iter().find(|item| item.as_str() != current && is_selection(item)).cloned()
+}
+
+/// The strings of an `appearance.backgroundRecents` value (anything else: none).
+pub fn recents_of(value: Option<&Value>) -> Vec<String> {
+    value
+        .and_then(Value::as_array)
+        .map(|items| items.iter().filter_map(Value::as_str).map(str::to_string).collect())
+        .unwrap_or_default()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn list(items: &[&str]) -> Vec<String> {
+        items.iter().map(|item| item.to_string()).collect()
+    }
+
+    #[test]
+    fn record_recent_puts_the_previous_first_once() {
+        assert_eq!(record_recent(&[], "daily"), list(&["daily"]));
+        let recents = list(&["folder:/Walls", "desktop", "daily"]);
+        assert_eq!(record_recent(&recents, "daily"), list(&["daily", "folder:/Walls", "desktop"]));
+        assert_eq!(
+            record_recent(&recents, "file:/a.png"),
+            list(&["file:/a.png", "folder:/Walls", "desktop", "daily"])
+        );
+    }
+
+    #[test]
+    fn record_recent_caps_and_refuses_junk() {
+        let many: Vec<String> = (0..12).map(|n| format!("file:/p{n}.png")).collect();
+        let next = record_recent(&many, "folder:/Walls");
+        assert_eq!(next.len(), RECENTS_CAP);
+        assert_eq!(next[0], "folder:/Walls");
+        assert_eq!(next[1], "file:/p0.png");
+        assert_eq!(record_recent(&list(&["daily"]), "not a background"), list(&["daily"]));
+        assert_eq!(
+            record_recent(&list(&["junk", "folder:/", "desktop"]), "none"),
+            list(&["none", "desktop"])
+        );
+        assert!(is_recents(&Value::Array(next.iter().cloned().map(Value::String).collect())));
+    }
+
+    #[test]
+    fn previous_background_swaps_back_and_forth() {
+        // A rotating folder, then one picture: the swap goes to the folder, and back.
+        let mut current = "file:/Users/me/harbor.png".to_string();
+        let mut recents = list(&["folder:/Users/me/Walls"]);
+        for expected in
+            ["folder:/Users/me/Walls", "file:/Users/me/harbor.png", "folder:/Users/me/Walls"]
+        {
+            let previous = previous_background(&current, &recents).expect("a previous one");
+            assert_eq!(previous, expected);
+            recents = record_recent(&recents, &current);
+            current = previous;
+        }
+        assert_eq!(previous_background("daily", &list(&["daily"])), None);
+        assert_eq!(previous_background("daily", &[]), None);
+        assert_eq!(
+            previous_background("daily", &list(&["daily", "junk", "desktop"])),
+            Some("desktop".into())
+        );
+    }
+
+    #[test]
+    fn recents_accepts_backgrounds_only() {
+        use serde_json::json;
+        assert!(is_recents(&json!([])));
+        assert!(is_recents(&json!([
+            "daily",
+            "folder:/Walls",
+            "desktop",
+            "none",
+            "file:/a.png",
+            "schedule"
+        ])));
+        for bad in [
+            json!("daily"),
+            json!(["daily", "daily"]),
+            json!(["folder:/"]),
+            json!(["file:relative.png"]),
+            json!([1]),
+            json!(["__not_a_backdrop__"]),
+            json!(["a", "b", "c", "d", "e", "f", "g", "h", "i"].map(|n| format!("file:/{n}.png"))),
+        ] {
+            assert!(!is_recents(&bad), "{bad}");
+        }
+    }
 
     #[test]
     fn schedule_keys_follow_swift() {
@@ -232,6 +403,39 @@ mod tests {
         assert!(is_location("-33.87, 151.21"));
         for bad in ["", "37.77", "91,0", "0,181", "north,east", "1,2,3"] {
             assert!(!is_location(bad), "{bad}");
+        }
+    }
+
+    /// The Swift enum's cases, read from its source: the app draws exactly
+    /// the living wallpapers the schema lets a theme file or recipe pick.
+    #[test]
+    fn shader_names_match_swift() {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropShader.swift"
+        );
+        let Ok(text) = std::fs::read_to_string(path) else {
+            // A crate-only checkout has no Swift tree; the full repo always does.
+            return;
+        };
+        let body = text.split("enum BackdropShader").nth(1).expect("the enum");
+        let body = &body[..body.find("public static").expect("the enum's first member")];
+        let swift: Vec<&str> = body
+            .lines()
+            .filter_map(|line| line.trim().strip_prefix("case "))
+            .map(|name| name.split([' ', '=']).next().unwrap_or(name).trim())
+            .collect();
+        assert_eq!(swift, SHADERS, "SHADERS must list BackdropShader's cases, in order");
+    }
+
+    #[test]
+    fn every_listed_shader_is_a_background_and_others_are_not() {
+        for id in shader_ids() {
+            assert!(is_picture(&id), "{id}");
+            assert!(is_path_or_video(&id), "{id}");
+        }
+        for bad in ["shader:", "shader:nope", "shader:Aurora", "aurora", "shader:aurora "] {
+            assert!(!is_shader(bad), "{bad}");
         }
     }
 }

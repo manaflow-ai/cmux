@@ -62,22 +62,26 @@ public final class SettingsApplier {
         if design.homeChiefPetEnabled != snapshot.homeChiefPetEnabled { design.homeChiefPetEnabled = snapshot.homeChiefPetEnabled }
         if design.centerFocusedColumn != snapshot.centerFocusedColumn { design.centerFocusedColumn = snapshot.centerFocusedColumn }
         if design.tabOverflow != snapshot.tabOverflow { design.tabOverflow = snapshot.tabOverflow }
+        if design.tabShellIconTheme != snapshot.tabShellIconTheme { design.tabShellIconTheme = snapshot.tabShellIconTheme }
         if design.verticalTabs != snapshot.verticalTabs { design.verticalTabs = snapshot.verticalTabs }
         if design.verticalTabsExpandOnHover != snapshot.verticalTabsExpandOnHover { design.verticalTabsExpandOnHover = snapshot.verticalTabsExpandOnHover }
         if design.hideLoneChatTab != snapshot.hideLoneChatTab { design.hideLoneChatTab = snapshot.hideLoneChatTab }
         if design.stripScrollbar != snapshot.stripScrollbar { design.stripScrollbar = snapshot.stripScrollbar }
         if design.sidebarSections != snapshot.sidebarSections { design.sidebarSections = snapshot.sidebarSections }
+        let agentBadges = AgentBadgesExperiment(switches: snapshot.experimentSwitches)
+        if design.agentBadges != agentBadges { design.agentBadges = agentBadges }
         if design.hoverCardsEnabled != snapshot.hoverCards.enabled { design.hoverCardsEnabled = snapshot.hoverCards.enabled }
         let pageDeveloperTools = AppPageDevToolsSetting().value(in: snapshot.root)
         if design.pageDeveloperTools != pageDeveloperTools { design.pageDeveloperTools = pageDeveloperTools }
         if design.colorTransition != snapshot.colorTransition.transition { design.colorTransition = snapshot.colorTransition.transition }
         if design.inactiveWindowDim != snapshot.inactiveWindowDim { design.inactiveWindowDim = snapshot.inactiveWindowDim }
         if design.wallpaperTint != snapshot.wallpaperTint { design.wallpaperTint = snapshot.wallpaperTint }
+        if design.backgroundPlacements != snapshot.backgroundPlacements { design.backgroundPlacements = snapshot.backgroundPlacements }
+        if design.agentGlowEnabled != snapshot.agentGlow { design.agentGlowEnabled = snapshot.agentGlow }
+        if design.previousGlass != snapshot.previousGlass { design.previousGlass = snapshot.previousGlass }
         if design.liveWallpaperFrameRate != snapshot.liveWallpaperFrameRate {
             design.liveWallpaperFrameRate = snapshot.liveWallpaperFrameRate
         }
-        if design.agentGlowEnabled != snapshot.agentGlow { design.agentGlowEnabled = snapshot.agentGlow }
-        if design.previousGlass != snapshot.previousGlass { design.previousGlass = snapshot.previousGlass }
         let hoverCardDelay = Duration.milliseconds(Int(snapshot.hoverCards.delayMilliseconds.rounded()))
         if design.hoverCardDelay != hoverCardDelay { design.hoverCardDelay = hoverCardDelay }
         let workspaceHoverCard = snapshot.hoverCards.workspaceCardOptions
@@ -113,7 +117,12 @@ public final class SettingsApplier {
         if design.plusButton != snapshot.plusButton { design.plusButton = snapshot.plusButton }
         Self.applyPlacement(snapshot, to: design)
         if design.borders != snapshot.borders { design.borders = snapshot.borders }
+        if design.liquidGlass != snapshot.liquidGlass { design.liquidGlass = snapshot.liquidGlass }
         if design.fontSmoothing != snapshot.fontSmoothing { design.fontSmoothing = snapshot.fontSmoothing }
+        // `experiments.*`: every switch that is on, by name (CmuxConfigSnapshot+Experiments.swift), for
+        // every page's theme and the native menus.
+        let experiments = snapshot.experimentSwitches.filter(\.value)
+        if design.experiments != experiments { design.experiments = experiments }
         if design.focusIndicator != snapshot.focusIndicator { design.focusIndicator = snapshot.focusIndicator }
         if design.inactiveTabStyle != snapshot.inactiveTabStyle { design.inactiveTabStyle = snapshot.inactiveTabStyle }
         for key in MetricKey.allCases {
@@ -125,6 +134,9 @@ public final class SettingsApplier {
         }
 
         design.setPaneChrome(snapshot.paneChrome)
+        // `experiments.menuStyleV2` for the right-click NSMenu (CmuxNextActions reads no DesignSettings).
+        let menuStyleV2 = design.experiment("menuStyleV2")
+        if registry.contextMenuStyleV2 != menuStyleV2 { registry.contextMenuStyleV2 = menuStyleV2 }
 
         var applied: Set<ActionID> = []
         for (rawID, binding) in snapshot.shortcuts.sorted(by: { $0.key < $1.key }) {

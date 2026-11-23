@@ -5,7 +5,8 @@ public nonisolated struct BackdropCatalog: Sendable, Equatable {
     /// The bundled art by collection (Dark Art, Museum Icons, Calm, Doré), then the person's own
     /// images, then the desktop picture, then every macOS wallpaper (``AppleWallpapers``), then the
     /// moving wallpapers (Apple's and downloaded aerials, then the person's own videos), then the
-    /// living wallpapers drawn by code (``BackdropShader``), then the live wallpapers (the first-party set, ``LiveWallpaper``).
+    /// living wallpapers drawn by code (``BackdropShader``), then the live wallpapers (the
+    /// first-party set, ``LiveWallpaper``).
     public let choices: [BackdropSelection]
     /// The macOS wallpapers among ``choices``, by path.
     public let appleWallpapers: [String: AppleWallpaper]

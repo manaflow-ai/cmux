@@ -123,10 +123,29 @@ func envRequestScopePicker(_ model: EnvSecretsPlaygroundModel, reload: @escaping
         narrow.priority = .init(2)
         narrow.isActive = true
         let text = envV([tagRow, envLabel(choice.note, size: TypeScale.caption, color: EnvInk.secondary)], spacing: 1)
-        let radio = envSymbol(picked ? "largecircle.fill.circle" : "circle", color: picked ? .controlAccentColor : EnvInk.tertiary)
-        let row = envH([radio, text, envSpacer()], spacing: 8, align: .top)
-        return EnvClickArea(row) { model.requestScope = choice.scope; reload() }
+        return EnvClickArea(envRadioRow(picked: picked, title: tagRow, text: text)) { model.requestScope = choice.scope; reload() }
     }
     return envV(rows, spacing: 6, fill: true)
+}
+
+/// A radio choice: the circle (filled in the accent colour when `picked`) centred on `title`, the one-line
+/// first row of `text`, then `text` (the title over its note), as SwiftUI centres a radio on its label.
+func envRadioRow(picked: Bool, title: NSView, text: NSView, size: CGFloat = TypeScale.detail) -> NSView {
+    let radio = envSymbol(picked ? "largecircle.fill.circle" : "circle", size: size, color: picked ? .controlAccentColor : EnvInk.tertiary)
+    let row = NSView()
+    row.translatesAutoresizingMaskIntoConstraints = false
+    radio.translatesAutoresizingMaskIntoConstraints = false
+    text.translatesAutoresizingMaskIntoConstraints = false
+    row.addSubview(radio)
+    row.addSubview(text)
+    NSLayoutConstraint.activate([
+        radio.leadingAnchor.constraint(equalTo: row.leadingAnchor),
+        radio.centerYAnchor.constraint(equalTo: title.centerYAnchor),
+        radio.topAnchor.constraint(greaterThanOrEqualTo: row.topAnchor),
+        text.leadingAnchor.constraint(equalTo: radio.trailingAnchor, constant: 8),
+        text.trailingAnchor.constraint(equalTo: row.trailingAnchor),
+        text.topAnchor.constraint(equalTo: row.topAnchor), text.bottomAnchor.constraint(equalTo: row.bottomAnchor),
+    ])
+    return row
 }
 #endif
