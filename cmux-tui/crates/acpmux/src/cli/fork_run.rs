@@ -116,12 +116,14 @@ pub(crate) async fn execute(cmd: ForkRunCmd, env: &Env) -> Result<Value> {
                 "sourceMachine": a.machine, "harnesses": a.harnesses,
             });
             for (name, value) in [("session", a.session), ("prompt", a.prompt)] {
-                if let Some(value) = value {
-                    args[name] = json!(value);
+                if let (Some(value), Some(args)) = (value, args.as_object_mut()) {
+                    args.insert(name.to_owned(), json!(value));
                 }
             }
             let mut answer = call(&a.cloud, args, env).await?;
-            answer["clientKey"] = json!(key);
+            if let Some(answer) = answer.as_object_mut() {
+                answer.insert("clientKey".to_owned(), json!(key));
+            }
             Ok(answer)
         }
         ForkRunCmd::Status(a) => {
@@ -129,12 +131,12 @@ pub(crate) async fn execute(cmd: ForkRunCmd, env: &Env) -> Result<Value> {
             let deadline = tokio::time::Instant::now() + Duration::from_secs(a.wait);
             loop {
                 let answer = call(&a.cloud, args.clone(), env).await?;
-                let settled = matches!(answer["state"].as_str(), Some("ready" | "failed"));
+                let settled = matches!(field(&answer, "state").as_str(), Some("ready" | "failed"));
                 if settled || a.wait == 0 {
                     return Ok(answer);
                 }
                 if tokio::time::Instant::now() + POLL > deadline {
-                    let state = answer["state"].as_str().unwrap_or("unknown").to_owned();
+                    let state = field(&answer, "state").as_str().unwrap_or("unknown").to_owned();
                     return Err(AppError::timeout(format!(
                         "fork run {} is still {state} after {} s",
                         a.run, a.wait
@@ -214,8 +216,11 @@ async fn call(cloud: &CloudArgs, args: Value, env: &Env) -> Result<Value> {
 #[cfg(unix)]
 fn failed(failure: &cmux_cloud_api::Failure) -> AppError {
     let data = failure.json();
-    let detail =
-        data["code"].as_str().filter(|c| !c.is_empty()).unwrap_or(failure.kind()).to_owned();
+    let detail = field(&data, "code")
+        .as_str()
+        .filter(|c| !c.is_empty())
+        .unwrap_or(failure.kind())
+        .to_owned();
     let code = match failure {
         cmux_cloud_api::Failure::TimedOut(_) => Code::Timeout,
         _ => Code::Runtime,
@@ -223,24 +228,31 @@ fn failed(failure: &cmux_cloud_api::Failure) -> AppError {
     AppError::new(code, &detail, failure.to_string()).with_data(data)
 }
 
+/// A field of a JSON object, null when absent: no indexing that can panic.
+fn field<'a>(value: &'a Value, name: &str) -> &'a Value {
+    value.get(name).unwrap_or(&Value::Null)
+}
+
 /// The run as text: one line for the run, one per child.
 pub(crate) fn render(run: &Value) -> String {
     let text = |v: &Value| v.as_str().unwrap_or("-").to_owned();
-    let mut out = format!("fork run {}: {}", text(&run["id"]), text(&run["state"]));
-    if let Some(selected) = run["selectedChild"].as_str() {
+    let mut out = format!("fork run {}: {}", text(field(run, "id")), text(field(run, "state")));
+    if let Some(selected) = field(run, "selectedChild").as_str() {
         out.push_str(&format!(" (kept {selected})"));
     }
-    if let Some(key) = run["clientKey"].as_str() {
+    if let Some(key) = field(run, "clientKey").as_str() {
         out.push_str(&format!("\n  key {key} (pass --key {key} to retry this start)"));
     }
     out.push('\n');
-    for child in run["children"].as_array().into_iter().flatten() {
-        let tail = child["error"].as_str().map_or_else(|| text(&child["machineId"]), str::to_owned);
+    for child in field(run, "children").as_array().into_iter().flatten() {
+        let tail = field(child, "error")
+            .as_str()
+            .map_or_else(|| text(field(child, "machineId")), str::to_owned);
         out.push_str(&format!(
             "  {}  {}  {}  {}\n",
-            text(&child["id"]),
-            text(&child["harness"]),
-            text(&child["state"]),
+            text(field(child, "id")),
+            text(field(child, "harness")),
+            text(field(child, "state")),
             tail
         ));
     }

@@ -44,8 +44,9 @@ pub(crate) async fn run(http: &Http, args: &Map<String, Value>) -> Result<Value,
                 "harnesses": args.get("harnesses").cloned().unwrap_or_else(|| json!([])),
             });
             for name in ["session", "prompt"] {
-                if let Some(value) = optional_text(args, name).filter(|v| !v.is_empty()) {
-                    body[name] = json!(value);
+                let value = optional_text(args, name).filter(|v| !v.is_empty());
+                if let (Some(value), Some(body)) = (value, body.as_object_mut()) {
+                    body.insert(name.to_owned(), json!(value));
                 }
             }
             let segments = ["v1", "workspaces", workspace, "fork-runs"];
