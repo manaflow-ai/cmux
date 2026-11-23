@@ -14,35 +14,19 @@ extension DaemonStore {
     /// a move) are skipped by identity, and a workspace in both changed spans (a move) keeps its count. Invariant: a
     /// workspace whose `unreadStore` is this store is summed in ``unreadTotals`` with its `summedContribution`.
     func adoptUnread(from old: [WorkspaceModel]) {
-        let new = workspaceList
-        guard !old.sharesStorage(with: new) else { return }
-        let head = zip(old, new).prefix { $0 === $1 }.count
-        let tail = zip(old.dropFirst(head).reversed(), new.dropFirst(head).reversed()).prefix { $0 === $1 }.count
-        let left = old.dropFirst(head).dropLast(tail), joined = new.dropFirst(head).dropLast(tail)
-        guard !left.isEmpty || !joined.isEmpty else { return }
-        let stays = Set(joined.lazy.map(ObjectIdentifier.init))
-        var totals = unreadTotals
-        for workspace in left where workspace.unreadStore === self && !stays.contains(ObjectIdentifier(workspace)) {
-            unreadWorkspaceVisits += 1
-            totals.subtract(workspace.summedContribution)
-            workspace.unreadStore = nil
-        }
-        for workspace in joined where workspace.unreadStore !== self {
-            unreadWorkspaceVisits += 1
-            workspace.unreadStore = self
-            let contribution = workspace.unreadContribution
-            workspace.summedContribution = contribution
-            totals.add(contribution)
-        }
-        if totals != unreadTotals { unreadTotals = totals }
+        for workspace in workspaces where workspace.unreadStore !== self { workspace.unreadStore = self }
+        recountUnread()
     }
 
-    /// One workspace's contribution changed from `old` to `new`: O(1), no walk of the list.
-    func unreadContributionChanged(from old: UnreadTotals, to new: UnreadTotals) {
-        unreadWorkspaceVisits += 1
-        var totals = unreadTotals
-        totals.subtract(old)
-        totals.add(new)
+    func unreadContributionChanged(from old: UnreadTotals, to new: UnreadTotals) { recountUnread() }
+
+    /// BEFORE (measurement only): the old full re-sum.
+    func recountUnread() {
+        var totals = UnreadTotals()
+        for workspace in workspaces {
+            unreadWorkspaceVisits += 1
+            totals.add(workspace.unreadContribution)
+        }
         if totals != unreadTotals { unreadTotals = totals }
     }
 

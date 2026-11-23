@@ -58,8 +58,7 @@ extension DaemonStore {
             // The same storage: no lift or restore wrote the list (no pending intent moved a workspace), O(1).
             // The unread counts take in only what the lift changed (`adoptUnread(from:)`, from the list before it).
             if !before.sharesStorage(with: workspaceList), !before.elementsEqual(workspaceList, by: ===) {
-                withMutation(keyPath: \.workspaces) {}
-                adoptUnread(from: before)
+                workspaces = workspaceList
             }
         }
         for workspace in held.workspaces { workspace.publishHeldScreens() }

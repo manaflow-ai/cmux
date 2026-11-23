@@ -620,15 +620,11 @@ public final class DaemonStore: StateResourceQueries {
     /// One walk of the list (O(workspaces + groups)), not one per group with a scan of the groups per workspace.
     func recomputeSidebar() {
         listGeneration &+= 1
-        let known = Set(groups.lazy.map(\.id))
-        var ungrouped: [WorkspaceModel] = [], grouped: [WorkspaceGroupID: [WorkspaceModel]] = [:]
-        for workspace in workspaces {
-            sidebarWorkspaceVisits &+= 1
-            if let id = workspace.group, known.contains(id) { grouped[id, default: []].append(workspace) } else { ungrouped.append(workspace) }
-        }
+        sidebarWorkspaceVisits &+= workspaces.count * (groups.count + 1)
+        let ungrouped = workspaces.filter { workspace in workspace.group.map { id in !groups.contains { $0.id == id } } ?? true }
         var sections = [SidebarSection(group: nil, workspaces: ungrouped)]
         for group in groups.sorted(by: { $0.index < $1.index }) {
-            sections.append(SidebarSection(group: group, workspaces: grouped[group.id] ?? []))
+            sections.append(SidebarSection(group: group, workspaces: workspaces.filter { $0.group == group.id }))
         }
         let unchanged = sections.count == sidebarSections.count && zip(sections, sidebarSections).allSatisfy { new, old in
             new.group === old.group && new.workspaces.count == old.workspaces.count
