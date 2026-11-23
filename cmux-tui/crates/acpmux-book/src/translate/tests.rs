@@ -1720,3 +1720,34 @@ fn a_reorder_of_a_full_queue_is_one_pass() {
     assert_eq!(state.queue().map(|entry| entry.id_hash).collect::<Vec<_>>(), expected);
     assert!(took < std::time::Duration::from_millis(50), "a full reorder took {took:?}");
 }
+
+#[test]
+fn a_claude_image_row_names_its_size_from_its_header() {
+    let image = |data: &str| {
+        let mut state = State::default();
+        let line = format!(
+            r#"{{"type":"assistant","uuid":"a1","timestamp":"2026-11-23T00:00:01Z","message":{{"id":"m1","content":[{{"type":"image","source":{{"type":"base64","media_type":"image/png","data":"{data}"}}}}]}}}}"#
+        );
+        let ops = t(&mut state, Harness::Claude, line.as_bytes()).unwrap();
+        ops.into_iter()
+            .filter_map(|op| match op.change {
+                Change::Row(row) if row.kind == RowKind::Image && !row.open => Some(row),
+                _ => None,
+            })
+            .last()
+            .expect("a settled image row")
+    };
+    // A real 1x1 PNG.
+    let one = image(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+    );
+    assert_eq!(
+        (one.fields.get("w").map(String::as_str), one.fields.get("h").map(String::as_str)),
+        (Some("1"), Some("1"))
+    );
+    assert_eq!(one.head(), r#"{"h":1,"w":1}"#);
+    // A header acpmux does not read names no size, and the row is as before.
+    let unknown = image("AAAA");
+    assert!(unknown.fields.get("w").is_none() && unknown.fields.get("h").is_none());
+    assert_eq!(unknown.head(), "{}");
+}
