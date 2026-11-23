@@ -1,5 +1,6 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-22 (lane/agent-identity-icons): Sidebar-Look: Leo, 2026-11-22: "RENAMES NEED TO BE PROPAGATED TO THE VISIBLE AREAS AND IT SHOULD ALL BE REFLECTED". An agent chat's row takes its given name (acpmux `displayName`) after the person's own rename and before the chat title, and its own icon before the harness mark; the hover card's agent line adds "fka OLD".
 - 2026-11-22 (sidebar-group-looks): Sidebar-Look: Leo, 2026-11-22: "if we're willing to push in directions, we might as well push harder into what we believe", of the Folders look. `sidebar.groupHeader.background` gains three opt-in values, no default change (Folders stays the default): Chips (`chip`: Chromium's tab group, a slim colored chip hugging the name, a colored rail beside the members, no indent), Tree (`tree`: the folder glyph and indent with a thin guide line under the glyph, the group's color held to 3:1) and Cards (`card`: one rounded tinted card around the whole group, the members on the loose rows' x inside it, a folded group its header's card). Each respects light and dark, a group with no color, folding, hover and drops; the tab strip's chips keep the automatic look. Regression: `SidebarGroupLooksTests`. Capture tour: `sidebar-group-looks`.
 - 2026-11-22 (lane/sidebar-text-tokens): Sidebar-Look: Leo, 2026-10-27: "5 different font colors in sidebar (opacity?)". Text on the sidebar's own background takes three inks, `SidebarStyle.TextInk`: `title` (a workspace's, an item's and a folder group's name: `titleInk`, so a folder's name no longer reads in the brighter `textPrimary`), `secondary` (a section header's or a quiet group's name) and `tertiary` (every detail, count and machine word). No label carries an opacity of its own: an archived name drops to `tertiary` instead of its ink at 45%, and a group's member count drops to `tertiary` instead of the name's ink at 70% (`groupHeaderCountInkAlpha` is gone). On a group's colored fill (band, glass, tinted) the count and machine words take the name's readable ink at full strength. Icons, bars and pills still dim by `archivedAlpha`. Regression: `SidebarTextInkCountTests` (counts the distinct resolved text colors of a section, folder group, member, loose and archived row; prints `INKS|`).
 - 2026-11-22 (lane/split-preview-menus, ask-890db939a2): Sidebar-Look: Leo, 2026-11-22: "i dont think the shaped preview of the splits has merged/been written yet. like, e.g. i have this layout. so. the preview should be able to depict that." A workspace's hover card draws its shown screen's splits under the title (`WorkspacePaneShapeView`, 64 pt tall, the text column's width): one rounded tile per pane at its real share of the screen (the daemon's split ratios, and scrolling columns at their widths), the front tab's kind mark (agent, terminal, page) centered where it fits with room, the focused pane outlined in the accent. The shape is read in the row mapping (`SidebarMapping.paneShape`, ratios to hundredths) as `SidebarWorkspace.paneShape`; a one-pane or zoomed workspace has none and its card is unchanged. VoiceOver reads "Panes: N". Regression: `SidebarPaneShapeTests`.
@@ -180,6 +181,16 @@
   and `agentChip` never says done, so rows carry `agentDone` (the Priority view's done: idle, unread, not marked
   read) for the pill alone; the chip and the blue dot are unchanged. Tour `agent-badges` records
   Running, Needs approval and Done. `SidebarRowStatusTests.aFinishedUnseenChatMarksItsRowDoneForThePill`.
+- 2026-11-19 (lane/sidebar-subagents-rows, #46963): Sidebar-Look: Leo, 2026-11-19: "for claude there's the font and
+  the nested sessions and whatever". A chat's subagents list under its workspace row, as the Claude desktop app's
+  Code tab nests a chat's tasks: with the session tree on, an open row draws one line per subagent (status mark and
+  title, at most five, then "N more"), a folded one a single stacked line ("2 running"); with the tree off, the
+  stacked line shows only while one runs. The lines draw inside the row (`SidebarSubagentsView`, from
+  `rowContent`), so every placement gets them; selection and hover fill only the row's head. A press opens the
+  subagent's pane beside its chat. Debug `sidebar.subagents.look` compares rows / stacked / both (default both).
+  Regression: `SidebarSubagentRowsTests`.
+  The stacked line's "N done" leaves out stopped subagents (cancelled, disconnected): a chat whose subagents were all
+  stopped never reads "N done" (review follow-up F2).
 - 2026-11-18 (a590, hover card grid base red): Sidebar-Look: the workspace hover card's tab rows line up with its
   header again, icons on one column and text on one edge, as before #44449. d8917c9 (#44449) scaled every density
   from Default by one factor, so the card's padding (7.5 pt), its icon-to-text gap and the tab rows' fill outset
@@ -2751,6 +2762,12 @@ Vertical-tabs commits `fa51dcbb9d6` and `7a076d729ac` were reviewed as Sidebar-L
   on a tab, so the row keeps the tab bar's balance. Fitting every favicon's ink to the glyphs' side had drawn it about
   1.4x smaller than on its tab.
   Sidebar-Look: "the icon sizes should be the same size as the horizontal tabs... the icon sizes need to be kind of standardized"
+- 2026-11-23 (Updated card, ask-33e37575cb): the "Updated to Nightly" card is one line, "Updated to Nightly" with
+  What's New ↗ at its end, at the composer's one-line height (48) and material (the art share over background
+  pictures), at the layout grid's card corner (`card-radius`, 16: a third of the box) instead of the composer's
+  round-control corner (22), which made it a two-line capsule. The single-change second line is gone: every change is
+  one hover away. Gallery: `card-shape-*` in updateSurfaces.gallery.tsx.
+  Sidebar-Look: "the fuck is a pill with 2 lines supposed to be for anyways? the fuck kind of information are you showing with a single fucking line of content?"
   2026-11-22 (follow-up to #49591): a favicon's raster box grows with its larger optical side, so its bitmap holds the
   pixels its frame draws (SidebarFaviconLegibilityTests: 32 px drawn as 17 pt). The gap test measures a favicon from
   its own square's end: it starts on the glyphs' edge and fills the tab's side, so it ends nearer its title by design.

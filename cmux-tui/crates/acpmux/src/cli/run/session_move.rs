@@ -1133,7 +1133,7 @@ fn prepare_folder(host: &str, folder: &Folder, at: Option<(&str, &str)>) -> Resu
 /// Makes `folder` on this machine (the target of a hub move, `hub/transfer_pull.rs`) as a move
 /// over ssh makes it there, and returns its path.
 pub(crate) fn prepare_folder_here(folder: &Folder) -> Result<String> {
-    prepare_folder("", folder)
+    prepare_folder("", folder, None)
 }
 
 /// Explain a remote folder command failure without dropping the only useful diagnostic. SSH
