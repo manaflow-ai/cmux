@@ -235052,6 +235052,270 @@
         }
       }
     },
+    "settings.choice.groupBackgroundCard": {
+      "comment": "Group background choice: each group one rounded tinted card around its header and members.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cards"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "بطاقات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kartice"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kort"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Karten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tarjetas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cartes"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Schede"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "カード"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កាត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "카드"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kort"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Karty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cartões"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Карточки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การ์ด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kartlar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Картки"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thẻ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "卡片"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "卡片"
+          }
+        }
+      }
+    },
+    "settings.choice.groupBackgroundChip": {
+      "comment": "Group background choice: each group a slim colored chip on its header, a colored rail beside its members, no indent.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chips"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "شارات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Čipovi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chips"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chips"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Etiquetas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pastilles"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Etichette"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "チップ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ឈីប"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "칩"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Brikker"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Znaczniki"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Etiquetas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Метки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ชิป"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Etiketler"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Мітки"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nhãn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "标签"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "標籤"
+          }
+        }
+      }
+    },
     "settings.choice.groupBackgroundFolder": {
       "comment": "Group background choice: no background, each group a plain folder with its members indented under it.",
       "extractionState": "manual",
@@ -236685,6 +236949,138 @@
         "vi": {"stringUnit": {"state": "translated", "value": "Rộng"}},
         "zh-Hans": {"stringUnit": {"state": "translated", "value": "宽"}},
         "zh-Hant": {"stringUnit": {"state": "translated", "value": "寬"}}
+      }
+    },
+    "settings.choice.groupBackgroundTree": {
+      "comment": "Group background choice: each group a plain folder with its members indented under it and a thin guide line.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tree"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "شجرة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stablo"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Træ"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Baum"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Árbol"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arborescence"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Albero"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ツリー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ដើមឈើ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "트리"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tre"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Drzewo"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Árvore"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Дерево"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ต้นไม้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ağaç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Дерево"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cây"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "树状"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "樹狀"
+          }
+        }
       }
     },
     "settings.notifications.delivery.permissionRequest": {
@@ -246389,6 +246785,60 @@
             "value": "已安裝的擴充功能可以在代理聊天中已完成的工具呼叫下方顯示一張卡片。"
           }
         }
+      }
+    },
+    "settings.customize.doctorNotice": {
+      "comment": "Settings > Personalization: toggle title for the toast that names files or layers changing the person's customization",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Customization notices"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "إشعارات التخصيص"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Obavještenja o prilagođavanju"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Meddelelser om tilpasning"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Hinweise zu Anpassungen"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Avisos de personalización"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Avis de personnalisation"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Avvisi di personalizzazione"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "カスタマイズの通知"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ការជូនដំណឹងអំពីការប្ដូរតាមបំណង"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "사용자화 알림"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Varsler om tilpasning"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Powiadomienia o dostosowaniach"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Avisos de personalização"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Уведомления о настройке"}},
+        "th": {"stringUnit": {"state": "translated", "value": "การแจ้งเตือนการปรับแต่ง"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Özelleştirme bildirimleri"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Сповіщення про налаштування"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Thông báo tùy chỉnh"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "自定义通知"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "自訂通知"}}
+      }
+    },
+    "settings.customize.doctorNotice.summary": {
+      "comment": "Settings > Personalization: summary of the Customization notices toggle",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Tell me when a file or layer changes my setup"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "أخبرني عندما يغيّر ملف أو طبقة إعداداتي"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Obavijesti me kada datoteka ili sloj promijeni moje postavke"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Fortæl mig, når en fil eller et lag ændrer min opsætning"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Mich informieren, wenn eine Datei oder Ebene meine Einrichtung ändert"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Avisarme cuando un archivo o una capa cambie mi configuración"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Me prévenir quand un fichier ou une couche modifie ma configuration"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Avvisami quando un file o un livello modifica la mia configurazione"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "ファイルやレイヤーが設定を変えたときに知らせる"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ប្រាប់ខ្ញុំនៅពេលឯកសារ ឬស្រទាប់ផ្លាស់ប្ដូរការរៀបចំរបស់ខ្ញុំ"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "파일이나 레이어가 내 설정을 바꾸면 알림"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Si fra når en fil eller et lag endrer oppsettet mitt"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Powiadamiaj, gdy plik lub warstwa zmienia moją konfigurację"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Avisar quando um arquivo ou camada mudar minha configuração"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Сообщать, когда файл или слой меняет мою настройку"}},
+        "th": {"stringUnit": {"state": "translated", "value": "แจ้งฉันเมื่อไฟล์หรือเลเยอร์เปลี่ยนการตั้งค่าของฉัน"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Bir dosya veya katman düzenimi değiştirdiğinde bana haber ver"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Повідомляти, коли файл або шар змінює моє налаштування"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Báo cho tôi khi một tệp hoặc lớp thay đổi thiết lập của tôi"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "当文件或图层更改我的设置时通知我"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "當檔案或圖層變更我的設定時通知我"}}
       }
     },
     "settings.appearance.liquidGlass": {
