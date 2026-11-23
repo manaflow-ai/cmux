@@ -154,7 +154,7 @@ export function isSidebarSectionIds(value: unknown): boolean {
   if (!Array.isArray(value) || value.length > 256) return false;
   const seen = new Set<string>();
   return value.every((id) => {
-    if (typeof id !== "string" || id === "" || [...id].length > 128 || seen.has(id)) return false;
+    if (typeof id !== "string" || id === "" || Array.from(id).length > 128 || seen.has(id)) return false;
     seen.add(id);
     return true;
   });
