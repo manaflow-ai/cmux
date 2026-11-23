@@ -680,14 +680,16 @@ private final class ChainDialer: MacLinkDialer, @unchecked Sendable {
 
 /// The live resume bench, on the chain suite's rig and fake Mac; its own suite for a longer time limit.
 @MainActor
-@Suite(.serialized, .timeLimit(.minutes(10))) struct ResumeLiveBenchTests {
+@Suite(.serialized, .timeLimit(.minutes(20))) struct ResumeLiveBenchTests {
     /// Leo, 2026-11-22: "me swiping up to go to another app then back to the ios cmux internal
     /// app... there's lag when coming back. lag to interaction." Free-running, in wall time, with
     /// the fake Mac 80 ms away (40 ms each way): per app switch, whether the chat kept its content,
     /// how long the first typed key takes to reach the Mac's daemon (through the terminal's `send`
     /// path, retried every 5 ms while it throws no-link), the round trips that took, and the links
     /// dialed. The away time is injected (`foreground(after:)`), never slept: the link machine
-    /// decides on it alone. Asserts only that the key lands, so it runs on any build.
+    /// decides on it alone. Each row runs twice in the same process: `base` is the pre-fix return
+    /// (`foreground(after: nil)` sends `.resume`, which redials every link, the path every return took
+    /// before), `after` is the return with its away time. Asserts only that the key lands.
     @Test func resumeLiveBench() async throws {
         let chain = ReconnectChainTimingTests()
         let rig = try await chain.rig()
@@ -707,7 +709,7 @@ private final class ChainDialer: MacLinkDialer, @unchecked Sendable {
         }
         var report: [String] = []
         let rows: [(away: Int, duress: Bool)] = [(1, false), (5, false), (30, false), (300, false), (1, true), (30, true)]
-        for row in rows {
+        for mode in ["base", "after"] { for row in rows {
             var keyMillis: [Double] = []
             var roundTrips: [Double] = []
             var kept = 0
@@ -726,7 +728,7 @@ private final class ChainDialer: MacLinkDialer, @unchecked Sendable {
                 mac.resetKey()
                 let dialsBefore = mac.dials
                 live.background()
-                live.foreground(after: .seconds(row.away))
+                live.foreground(after: mode == "base" ? nil : .seconds(row.away))
                 let start = ContinuousClock.now
                 // The screen's model, read on every pass until the key lands: never cleared.
                 var contentKept = pre.allSatisfy { id in chat.turns.contains { $0.id == id } }
@@ -756,10 +758,10 @@ private final class ChainDialer: MacLinkDialer, @unchecked Sendable {
                 try await chain.waitFor("the link to settle after the key") { settled() }
                 reconnects += mac.dials - dialsBefore
             }
-            let line = #"RESUME_LIVE {"away_s":\#(row.away),"n":20,"duress":\#(row.duress),"content_kept":\#(kept),"first_key_p50_ms":\#(ReconnectChainTimingTests.fmt(ReconnectChainTimingTests.percentile(keyMillis, 0.5))),"first_key_p95_ms":\#(ReconnectChainTimingTests.fmt(ReconnectChainTimingTests.percentile(keyMillis, 0.95))),"round_trips_p95":\#(Int(ReconnectChainTimingTests.percentile(roundTrips, 0.95))),"reconnects":\#(reconnects),"rtt_ms":80,"away":"injected, not slept"}"#
+            let line = #"RESUME_LIVE {"mode":"\#(mode)","away_s":\#(row.away),"n":20,"duress":\#(row.duress),"content_kept":\#(kept),"first_key_p50_ms":\#(ReconnectChainTimingTests.fmt(ReconnectChainTimingTests.percentile(keyMillis, 0.5))),"first_key_p95_ms":\#(ReconnectChainTimingTests.fmt(ReconnectChainTimingTests.percentile(keyMillis, 0.95))),"round_trips_p95":\#(Int(ReconnectChainTimingTests.percentile(roundTrips, 0.95))),"reconnects":\#(reconnects),"rtt_ms":80,"away":"injected, not slept"}"#
             print(line)
             report.append(line)
-        }
+        } }
         Attachment.record(report.joined(separator: "\n"), named: "resume-live.txt")
     }
 }
