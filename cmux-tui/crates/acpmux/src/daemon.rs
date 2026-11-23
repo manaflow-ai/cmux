@@ -28,11 +28,14 @@ use lock::{
 mod running;
 pub use running::connect_running;
 mod snapshot_clear;
+pub(crate) mod start_exe;
 pub(crate) use snapshot_clear::clear_peer_snapshots;
 mod router_owner;
 pub(crate) use router_owner::router_owner_path;
 use router_owner::{ensure_router, release_router};
 mod app_orphan;
+#[cfg(unix)]
+pub(crate) use app_orphan::is_app_acpmux;
 // Decided on every platform so its tests run everywhere; used on macOS only.
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub(crate) mod login_placement;
@@ -1760,9 +1763,11 @@ pub(crate) const STARTER_SESSION_MARKS: [&str; 4] =
 /// only after the daemon wrote [`KEY_READY`] on it.
 #[cfg(unix)]
 fn spawn_detached(key: Option<zeroize::Zeroizing<String>>) -> Result<(std::fs::File, u32)> {
-    let this = crate::self_command::SelfCommand::current()?;
+    let choice = start_exe::current(&home())?;
+    let this = &choice.this;
     crate::config::private_state_dir(&home())?;
-    let log = open_daemon_log(&home().join("daemon.log"))?;
+    let mut log = open_daemon_log(&home().join("daemon.log"))?;
+    log_start_choice(&mut log, &choice);
     let log_err = log.try_clone()?;
     // Close-on-exec from the start (`pipe2(O_CLOEXEC)` where the OS has it):
     // a child another thread forks meanwhile never inherits either end, and
@@ -1780,7 +1785,7 @@ fn spawn_detached(key: Option<zeroize::Zeroizing<String>>) -> Result<(std::fs::F
         None => None,
     };
     let key_fd = pair.as_ref().map(|(_, theirs)| std::os::fd::AsRawFd::as_raw_fd(theirs));
-    let mut cmd = daemon_command(&this);
+    let mut cmd = daemon_command(this);
     crate::config::scrub_nested_claude_env(&mut cmd);
     // The daemon serves every session: its starter's turn values are not its own.
     for k in crate::config::inherited_caller_scoped_keys() {
@@ -1846,6 +1851,21 @@ fn spawn_detached(key: Option<zeroize::Zeroizing<String>>) -> Result<(std::fs::F
             .spawn(move || hand_key(ours, &key));
     }
     Ok((reader, child_pid))
+}
+
+/// Name the binary a start runs and why, in the daemon log the new daemon writes to and in this
+/// command's own log, so a daemon that came back from an unexpected build says who chose it.
+#[cfg(unix)]
+pub(crate) fn log_start_choice(log: &mut std::fs::File, choice: &start_exe::Choice) {
+    use std::io::Write as _;
+    let line = format!(
+        "acpmux: starting the daemon from {} (pid {} asked): {}",
+        choice.this.exe.display(),
+        std::process::id(),
+        choice.why
+    );
+    tracing::info!("{line}");
+    let _ = writeln!(log, "{line}");
 }
 
 /// Write the key on the daemon's key socket after the daemon said it is
