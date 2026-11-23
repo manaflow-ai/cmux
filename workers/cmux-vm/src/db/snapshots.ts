@@ -41,7 +41,32 @@ export interface SnapshotPage {
   readonly only: ReadonlyArray<string> | null;
 }
 
+/** A classic import's ownership row (classic -> NEXT migration): its provider id goes back to the importing service only. */
+export interface ClassicImportRow {
+  readonly id: SnapshotId;
+  readonly upstreamId: UpstreamId;
+  readonly labels: Readonly<Record<string, string>>;
+  readonly createdBy: string;
+  readonly createdAt: Date;
+  readonly deleted: boolean;
+}
+
+export interface ClassicImportQuery {
+  /** Only rows carrying every one of these labels (always the import's identity labels and the caller's service labels). */
+  readonly labels: Readonly<Record<string, string>>;
+  /** Also rolled-back (deleted) imports. */
+  readonly includeDeleted: boolean;
+  readonly limit: number;
+}
+
 export interface SnapshotStoreService {
+  /**
+   * Binds one more Idempotency-Key label (`label`=1) to the tenant's live import `id`. False when the row is gone or
+   * already holds the label limit.
+   */
+  readonly bindClassicImportKey: (tenantId: TenantId, id: SnapshotId, label: string) => Effect.Effect<boolean, StoreError>;
+  /** The tenant's classic imports (rows labelled classic.migration_id and classic.imported_by), newest first. */
+  readonly listClassicImports: (tenantId: TenantId, query: ClassicImportQuery) => Effect.Effect<ReadonlyArray<ClassicImportRow>, StoreError>;
   readonly inspect: (tenantId: TenantId, id: SnapshotId) => Effect.Effect<Option.Option<SnapshotRow & { readonly createdBy: string; readonly deleted: boolean }>, StoreError>;
   readonly record: (snapshot: SnapshotRecord) => Effect.Effect<void, StoreError>;
   /** The caller's own live snapshot, or none. */
@@ -85,6 +110,39 @@ export const sqlSnapshotStoreLayer: Layer.Layer<SnapshotStore, never, SqlClient>
   Effect.gen(function* () {
     const sql = yield* SqlClient;
     return {
+      bindClassicImportKey: (tenantId, id, label) =>
+        sql
+          .query(
+            "snapshots.bindClassicImportKey",
+            `UPDATE cmux_vm.resources SET labels = labels || jsonb_build_object($3::text, '1')
+              WHERE cmux_id = $1 AND tenant_id = $2 AND kind = 'snapshot' AND deleted_at IS NULL
+                AND (labels ? $3::text OR (SELECT count(*) FROM jsonb_object_keys(labels)) < 16)
+              RETURNING cmux_id`,
+            [id, tenantId, label],
+          )
+          .pipe(Effect.map((rows) => rows.length === 1)),
+      listClassicImports: (tenantId, query) =>
+        sql
+          .query(
+            "snapshots.listClassicImports",
+            `SELECT cmux_id, upstream_id, labels, created_by, created_at, deleted_at IS NOT NULL AS deleted
+               FROM cmux_vm.resources
+              WHERE tenant_id = $1 AND kind = 'snapshot' AND labels ? 'classic.migration_id' AND labels ? 'classic.imported_by'
+                AND labels @> $2::text::jsonb AND ($3::boolean OR deleted_at IS NULL)
+              ORDER BY created_at DESC, cmux_id DESC
+              LIMIT $4`,
+            [tenantId, JSON.stringify(query.labels), query.includeDeleted, query.limit],
+          )
+          .pipe(
+            Effect.flatMap(Schema.decodeUnknown(Schema.Array(Schema.Struct({
+              cmux_id: SnapshotId, upstream_id: UpstreamId, labels: Row.fields.labels, created_by: Schema.String,
+              created_at: Row.fields.created_at, deleted: Schema.Boolean,
+            })))),
+            Effect.map((rows) => rows.map((row): ClassicImportRow => ({
+              id: row.cmux_id, upstreamId: row.upstream_id, labels: row.labels ?? {}, createdBy: row.created_by, createdAt: row.created_at, deleted: row.deleted,
+            }))),
+            Effect.mapError((cause) => cause instanceof StoreError ? cause : new StoreError({ operation: "snapshots.listClassicImports", cause })),
+          ),
       record: (snapshot) =>
         sql
           .query(

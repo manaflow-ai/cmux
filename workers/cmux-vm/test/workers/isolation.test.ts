@@ -48,6 +48,10 @@ describe("the endpoint table", () => {
       "POST /v1/devices/{deviceId}/signed/overlay-policy",
       "POST /v1/overlay-servers/{deviceId}/signed/policy",
       "POST /v1/overlay-servers/{deviceId}/signed/revoke",
+      // Service keys with import:classic only; test/workers/classic-imports.test.ts covers them (sessions and API keys 403).
+      "POST /v1/imports/classic-vm-snapshots",
+      "GET /v1/imports/classic-vm-snapshots",
+      "DELETE /v1/imports/classic-vm-snapshots/{snapshotId}",
       ...VM_ENDPOINTS.map((endpoint) => `${endpoint.method} ${endpoint.template}`),
       ...TENANT_ENDPOINTS.map((endpoint) => `${endpoint.method} ${endpoint.template}`),
       ...SNAPSHOT_ENDPOINTS.map((endpoint) => `${endpoint.method} ${endpoint.template}`),
