@@ -540,6 +540,17 @@ impl Engine {
         if self.stops.is_stopped(&ctx.session) {
             return self.refuse_stopped(ctx, tool, name);
         }
+        // A window named by its title or app instead of its id: the id, so
+        // the agent needs no list_windows turn first (engine_window_name.rs).
+        let named;
+        let args = match self.window_by_name(args) {
+            Ok(Some(resolved)) => {
+                named = resolved;
+                &named
+            }
+            Ok(None) => args,
+            Err(refused) => return refused,
+        };
         // An acting call is recorded on disk before it acts and again with its
         // result, so a retry (same call_id), even after a worker restart,
         // never acts twice.
@@ -2252,6 +2263,9 @@ mod alerts_glue;
 
 #[path = "engine_record.rs"]
 mod record_glue;
+
+#[path = "engine_window_name.rs"]
+mod window_name;
 
 #[cfg(test)]
 #[path = "engine_tests.rs"]
