@@ -229,6 +229,7 @@ export const RowFrame = React.memo(function RowFrame({
     if (!entering || messageEntering || !ref.current) return undefined;
     // Only the recap card has an entrance to mark: no other entering row reads the DOM for it.
     if (row.kind === NEXT_STEP) markRecapEntrance(ref.current);
+    markRecapEntrance(ref.current);
     return holdEntranceForFirstFrame(ref.current);
   });
   useLayoutEffect(() => holdEntranceOnMount(), []);
