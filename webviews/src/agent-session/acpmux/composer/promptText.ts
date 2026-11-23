@@ -73,6 +73,7 @@ export class PromptText {
   /// The prompt's new text (and caret). A changed text ends every dismissal, as the text compare did;
   /// `undismiss` ends them even when it is the same (an edit that comes back to the same text).
   set(text: string, caret?: number, undismiss = false) {
+    if (process.env.DBG) console.log("SET", JSON.stringify(text), caret, new Error().stack?.split("\n").slice(2,6).join(" | "));
     const changed = text !== this.#text;
     const moved = caret !== undefined && caret !== this.#caret;
     this.#text = text;
