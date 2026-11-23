@@ -150,19 +150,25 @@ fn an_expired_mark_is_not_read_and_the_sweep_clears_only_it() {
         )
         .unwrap();
     transaction.commit().unwrap();
-    let stored = |tab: &str| -> String {
+    let stored = |connection: &Connection, tab: &str| -> String {
         connection
             .query_row("SELECT attention_json FROM tab_state WHERE tab_id = ?1", [tab], |row| {
                 row.get(0)
             })
             .unwrap()
     };
-    let fresh = stored("tab_fresh");
+    let fresh = stored(&connection, "tab_fresh");
     let fresh_id = serde_json::from_str::<Value>(&fresh).unwrap()["request_id"].clone();
-    assert!(attention_record(&stored("tab_old"), now).is_none(), "an expired mark reads as gone");
-    assert!(attention_record(&stored("tab_no_time"), now).is_none(), "no at_ms expires at once");
+    assert!(
+        attention_record(&stored(&connection, "tab_old"), now).is_none(),
+        "an expired mark reads as gone"
+    );
+    assert!(
+        attention_record(&stored(&connection, "tab_no_time"), now).is_none(),
+        "no at_ms expires at once"
+    );
     assert_eq!(attention_record(&fresh, now).unwrap().reason, "Log in");
-    assert!(attention_expired(&stored("tab_old"), now));
+    assert!(attention_expired(&stored(&connection, "tab_old"), now));
     assert!(!attention_expired(&fresh, now));
 
     let expiry = attention_expiry(&connection, now).unwrap();
@@ -176,7 +182,7 @@ fn an_expired_mark_is_not_read_and_the_sweep_clears_only_it() {
     assert!(!tab_has_attention(&connection, "tab_old").unwrap());
     assert!(!tab_has_attention(&connection, "tab_zoom").unwrap());
     assert!(tab_has_attention(&connection, "tab_fresh").unwrap());
-    assert_eq!(stored("tab_fresh"), fresh, "the sweep leaves a fresh mark as it was");
+    assert_eq!(stored(&connection, "tab_fresh"), fresh, "the sweep leaves a fresh mark as it was");
     let rows: Vec<String> = connection
         .prepare("SELECT tab_id FROM tab_state ORDER BY tab_id")
         .unwrap()

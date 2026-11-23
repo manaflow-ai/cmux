@@ -66,7 +66,7 @@ impl Mux {
 /// The worker holds the mux only during a pass and ends once it is gone.
 /// In-crate tests drive [`Mux::expire_attention_marks`] with their own clock.
 pub(crate) fn start(mux: &Arc<Mux>) {
-    let next = mux.expire_attention_marks(&Actor::Daemon, crate::mux::now_ms());
+    let next = mux.expire_attention_marks(&Actor::Daemon, now_ms());
     if cfg!(test) {
         return;
     }
@@ -81,12 +81,12 @@ pub(crate) fn start(mux: &Arc<Mux>) {
 
 fn sweep_until_gone(mux: &Weak<Mux>, mut next: Option<u64>) {
     loop {
-        let now = crate::mux::now_ms();
+        let now = now_ms();
         let wait = next.map_or(MAX_SWEEP_WAIT_MS, |next| next.saturating_sub(now));
         // A mark expires at its deadline exactly; the extra millisecond keeps
         // the pass from waking just before it.
         std::thread::sleep(Duration::from_millis(wait.min(MAX_SWEEP_WAIT_MS) + 1));
         let Some(owner) = mux.upgrade() else { return };
-        next = owner.expire_attention_marks(&Actor::Daemon, crate::mux::now_ms());
+        next = owner.expire_attention_marks(&Actor::Daemon, now_ms());
     }
 }
