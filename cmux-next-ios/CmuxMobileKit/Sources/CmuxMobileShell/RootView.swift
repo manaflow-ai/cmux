@@ -576,7 +576,6 @@ struct ShellView: View {
     /// App Store plans from the root (nil hides Settings → Plan).
     @Environment(BillingModel.self) private var billing: BillingModel?
     @State private var shell: ShellModel
-    @State private var inviteEmail = ""
     private let options: ShellLaunchOptions
     /// RootView's coordinator; it can arrive after the shell is built.
     private let live: LiveCoordinator?
@@ -650,14 +649,16 @@ struct ShellView: View {
             get: { shell.invitingTeam != nil },
             set: { if !$0 { shell.invitingTeam = nil } }
         )) {
-            TextField("Email", text: $inviteEmail)
+            // The address stays until it is sent (ShellModel.inviteEmailDraft); Send waits for one.
+            TextField("Email", text: $shell.inviteEmailDraft)
                 .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
                 .keyboardType(.emailAddress)
-            Button("Cancel", role: .cancel) { inviteEmail = "" }
+            Button("Cancel", role: .cancel) { shell.inviteEmailDraft = "" }
             Button("Send") {
-                if let team = shell.invitingTeam { shell.sendInvite(email: inviteEmail, to: team) }
-                inviteEmail = ""
+                if let team = shell.invitingTeam { shell.sendInvite(email: shell.inviteEmailDraft, to: team) }
             }
+                .disabled(!InviteEmail.isPlausible(shell.inviteEmailDraft))
                 .keyboardShortcut(.defaultAction)
         } message: {
             Text("They'll get an email invitation to join.")

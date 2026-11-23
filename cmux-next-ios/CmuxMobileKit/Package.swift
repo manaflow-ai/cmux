@@ -233,7 +233,7 @@ let package = Package(
         ]),
         .testTarget(name: "CmuxMobileModelTests", dependencies: ["CmuxMobileModel", .product(name: "CMUXAuthCore", package: "CMUXAuthCore")]),
         .testTarget(name: "CmuxMobileAuthTests", dependencies: [
-            "CmuxMobileAuth", .product(name: "CmuxAuthRuntime", package: "CmuxAuthRuntime"),
+            "CmuxMobileAuth", "CmuxMobileModel", .product(name: "CmuxAuthRuntime", package: "CmuxAuthRuntime"),
         ]),
         .testTarget(name: "CmuxMobileNotificationsTests", dependencies: ["CmuxMobileNotifications"]),
         .testTarget(name: "CmuxMobileTransportTests", dependencies: ["CmuxMobileTransport"]),

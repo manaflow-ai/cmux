@@ -100,6 +100,11 @@ final class ShellModel {
     var sendingToChief = false
     /// The team an email invite is being written for (live mode).
     var invitingTeam: Team?
+    /// The email invite alert's address: kept until the invitation is sent, so a refusal or a
+    /// dropped connection never loses what was typed.
+    var inviteEmailDraft = ""
+    /// The pasted invite link (Join with invite link): kept until the join succeeds.
+    var inviteLinkDraft = ""
     var isFetchingInvite = false
     var shareURL: ShareItem?
     /// Connected Devices for the terminal on screen (its title menu).
@@ -796,15 +801,21 @@ final class ShellModel {
     func sendInvite(email: String, to team: Team) {
         let address = email.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let live, !address.isEmpty else { return }
+        guard InviteEmail.isPlausible(address) else {
+            toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: InviteEmail.invalidMessage)
+            theme.haptics.error()
+            return
+        }
         isFetchingInvite = true
         Task {
             defer { isFetchingInvite = false }
             do {
                 try await live.invite(email: address, teamID: team.id)
+                if inviteEmailDraft.trimmingCharacters(in: .whitespacesAndNewlines) == address { inviteEmailDraft = "" }
                 toast = CmuxMobileToast(symbol: "envelope", text: "Invitation sent to \(address)")
                 theme.haptics.success()
             } catch {
-                toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: "Couldn't send the invitation")
+                toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: Self.sendInviteFailureText(error))
                 theme.haptics.error()
             }
         }
@@ -889,9 +900,10 @@ final class ShellModel {
                 let url = try await auth.inviteLink(teamID: team.id)
                 shareURL = ShareItem(url: url)
             } catch CmuxMobileAuthModel.InviteError.serviceUnavailable {
-                toast = CmuxMobileToast(symbol: "link", text: "Invite links need the cmux service")
+                toast = CmuxMobileToast(symbol: "link", text: "Invite links aren't available right now.")
             } catch {
-                toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: "Couldn't create an invite link")
+                let text = TeamInviteFailure(error).message(fallback: "Couldn't create an invite link")
+                toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: text)
                 theme.haptics.error()
             }
         }
@@ -903,15 +915,8 @@ final class ShellModel {
         Task {
             do {
                 let team = try await auth.createTeam(named: trimmed)
-                var teams = store.teams.map { AppStore.AccountTeam(id: $0.id, name: $0.name) }
-                if !teams.contains(where: { $0.id == team.id }) { teams.append(team) }
-                if let live {
-                    live.applyAccountTeams(teams.filter { !$0.id.hasPrefix("personal-") }, selectedID: team.id)
-                } else {
-                    store.applyAccountTeams(teams, selectedID: store.activeTeamID)
-                }
                 theme.haptics.success()
-                switchTeam(to: team.id)
+                adopt(team)
             } catch ServiceTeamCreation.Failure.unavailable {
                 toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: "Your account can't create teams")
                 theme.haptics.error()
@@ -925,17 +930,73 @@ final class ShellModel {
         }
     }
 
+    /// A team this account just gained (created or joined): into the team list now, before
+    /// the account's list publishes it, then shown.
+    private func adopt(_ team: AppStore.AccountTeam) {
+        var teams = store.teams.map { AppStore.AccountTeam(id: $0.id, name: $0.name) }
+        if !teams.contains(where: { $0.id == team.id }) { teams.append(team) }
+        if let live {
+            live.applyAccountTeams(teams.filter { !$0.id.hasPrefix("personal-") }, selectedID: team.id)
+        } else {
+            store.applyAccountTeams(teams, selectedID: store.activeTeamID)
+        }
+        switchTeam(to: team.id)
+    }
+
+    /// Joins from a pasted invite link; the pasted text stays in ``inviteLinkDraft`` unless it worked.
     func joinTeam(inviteLink: String) {
         Task {
             do {
-                try await auth.joinTeam(inviteLink: inviteLink)
-                toast = CmuxMobileToast(symbol: "checkmark", text: "Joined the team")
+                let joined = try await auth.joinTeam(inviteLink: inviteLink)
+                if inviteLinkDraft == inviteLink { inviteLinkDraft = "" }
+                toast = CmuxMobileToast(symbol: "checkmark", text: Self.joinedText(joined))
                 theme.haptics.success()
+                if let joined { adopt(joined) }
             } catch {
-                toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: "That invite link didn't work")
+                toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: Self.joinFailureText(error))
                 theme.haptics.error()
             }
         }
+    }
+
+    static func joinedText(_ team: AppStore.AccountTeam?) -> String {
+        guard let name = team?.name, !name.isEmpty else { return "Joined the team" }
+        return "Joined \(name)"
+    }
+
+    /// What a failed join says: Stack's reason when it named one (TeamInviteFailure).
+    static func joinFailureText(_ error: any Error) -> String {
+        TeamInviteFailure(error).message(fallback: "That invite link didn't work")
+    }
+
+    /// What a failed email invite says. The service answers `rate_limited` (429) past its
+    /// per-account limit and `bad_request` (400) for an address it rejects.
+    static func sendInviteFailureText(_ error: any Error) -> String {
+        if let failure = error as? LiveAPI.Failure {
+            switch failure.code {
+            case "rate_limited": return "Too many invitations. Try again in a minute."
+            case "bad_request": return InviteEmail.invalidMessage
+            default: break
+            }
+        }
+        return TeamInviteFailure(error).message(fallback: "Couldn't send the invitation")
+    }
+}
+
+/// The shape an invite address must have before Send: the service's own check
+/// (`EMAIL` in cmux-next-ios/backend/src/index.ts), plus a dotted domain.
+enum InviteEmail {
+    static let invalidMessage = "Enter an email address like name@example.com."
+
+    static func isPlausible(_ text: String) -> Bool {
+        let address = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let parts = address.split(separator: "@", omittingEmptySubsequences: false)
+        guard parts.count == 2 else { return false }
+        let local = parts[0], domain = parts[1]
+        guard (1...64).contains(local.count), (1...255).contains(domain.count),
+              !address.contains(where: \.isWhitespace) else { return false }
+        let labels = domain.split(separator: ".", omittingEmptySubsequences: false)
+        return labels.count >= 2 && labels.allSatisfy { !$0.isEmpty }
     }
 }
 
