@@ -71,7 +71,7 @@ export function ChatUnavailableState({
   const pausedShown = useAfterDelay(unavailable.reason === "paused", noteDelayMs);
   const resumeSlow = useAfterDelay(resuming, noteDelayMs);
   // A machine whose link dropped is something acpmux brings back by itself: nothing is drawn for it
-  // (Leo, 2026-11-22: "i dont wanna see connecting to cosmic-gray... with the spinner, i want it to
+  // (Leo, 2026-11-22: "i dont wanna see connecting to [machine]... with the spinner, i want it to
   // just work"). Over the chat's kept rows (`line`) never; in place of a chat the pane has no copy of,
   // only once the machine has been unreachable past PEER_LINK_DEADLINE_MS, when it is gone rather
   // than slow, and then as a calm state with Reconnect, no spinner and no "Reconnecting…".

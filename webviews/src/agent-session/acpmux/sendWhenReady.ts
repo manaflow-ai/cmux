@@ -79,7 +79,7 @@ export function heldStartStop(client: {
 /// How long a send may wait for its agent's machine (or this Mac's acpmux) before anything says so.
 /// Until then nothing at all is drawn for the wait, however the link is doing: no spinner, no
 /// "Sending when ready", no "Reconnecting…" (Leo, 2026-11-22: "i dont wanna see connecting to
-/// cosmic-gray... with the spinner, i want it to just work ... if we're slow, STOP FUCKING SHOWING
+/// [machine]... with the spinner, i want it to just work ... if we're slow, STOP FUCKING SHOWING
 /// ME SO MUCH FUCKING BULLSHIT"). Past it the send says once, quietly, on its own message (or under
 /// the prompt of a chat not started yet) that it has not gone yet and goes when the machine is back:
 /// conversation/PromptDelivery.tsx `pendingLabel`. Two minutes is the pane's bound for a machine that

@@ -1,7 +1,7 @@
 // l10n-allow-file: test fixture machine names, not shipped UI.
 //
 // The banner over a Cloud chat's kept copy says nothing of what the app recovers by itself, at any
-// duration (Leo, 2026-11-22: "i dont wanna see connecting to cosmic-gray... with the spinner, i want
+// duration (Leo, 2026-11-22: "i dont wanna see connecting to [machine]... with the spinner, i want
 // it to just work"): a dropped link ("offline") and a machine the app wakes on its own ("starting" with
 // no Resume asked here) draw no banner at all. A paused machine, which has a Resume, and a start the
 // person asked for keep the short RESUME_NOTE_DELAY_MS.

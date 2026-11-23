@@ -5,7 +5,7 @@
 // Its machine is not connected: nothing over the kept rows, and in place of a chat the pane has no
 // copy of, only once the machine has been unreachable two minutes (PEER_LINK_DEADLINE_MS), a calm
 // "Can't reach {machine}." with no spinner, when it was last seen, and Reconnect (Leo, 2026-11-22:
-// "i dont wanna see connecting to cosmic-gray... with the spinner, i want it to just work"). A chat that is only loading (its attach in flight, or its machine still connecting)
+// "i dont wanna see connecting to [machine]... with the spinner, i want it to just work"). A chat that is only loading (its attach in flight, or its machine still connecting)
 // never reads as unavailable,
 // and a chat on another machine whose tab names it by another id than acpmux's opens.
 //

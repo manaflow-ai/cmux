@@ -26,7 +26,7 @@ export function PeerCopyBanner(
 ) {
   const { noteDelayMs = RESUME_NOTE_DELAY_MS, asked = false, ...body } = props;
   // What the app recovers by itself draws nothing at all, at any duration (Leo, 2026-11-22: "i dont
-  // wanna see connecting to cosmic-gray... with the spinner, i want it to just work"; 2026-11-12:
+  // wanna see connecting to [machine]... with the spinner, i want it to just work"; 2026-11-12:
   // "just show the cache"): a link that dropped ("offline"), and a machine the app wakes on its own
   // (opening the chat, a send) that reads "starting". The kept transcript is the chat; a send waits
   // and goes once the machine answers. Only a paused machine (it has a Resume) and a start the person

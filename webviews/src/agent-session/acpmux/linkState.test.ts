@@ -15,7 +15,7 @@ const t = (key: Parameters<typeof translate>[0]) => translate(key, {}, "en");
 
 /// Each acpmux state: the link the row reads (null: the peer copy banner's), and its words: none for a
 /// state acpmux recovers from by itself (Leo, 2026-11-22: "i dont wanna see connecting to
-/// cosmic-gray... with the spinner, i want it to just work"), the step for one a person must take. The
+/// [machine]... with the spinner, i want it to just work"), the step for one a person must take. The
 /// links are the sidebar rule's (`peer_link`'s table test).
 const ROWS: [AcpmuxLink, string | null, string | undefined][] = [
   ["connected", "connected", undefined],

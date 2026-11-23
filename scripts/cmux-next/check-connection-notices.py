@@ -36,7 +36,7 @@ every run, with or without --base. The unit is the granularity: a component with
 any button passes, so the check catches a new state drawn with nothing to do, not a button that does the wrong thing.
 That is the rule `unbounded`.
 
-The rule `transient` is stricter, for agent chat only. Leo, 2026-11-22: "i dont wanna see connecting to cosmic-gray...
+The rule `transient` is stricter, for agent chat only. Leo, 2026-11-22: "i dont wanna see connecting to [machine]...
 with the spinner, i want it to just work. i dont wanna see reconnecting to the Mac in a toast, i want it to just
 connect." In a chat surface (CHAT_SURFACES: the web agent session, the Mac agent pane, the iOS agent chat and
 conversation) a link coming back by itself draws nothing at any duration: a unit there that says one

@@ -93,7 +93,7 @@ test("an offline chat shows nothing until the drop has lasted past the threshold
 });
 
 test("a machine whose link dropped says nothing for two minutes, then that it can't be reached", async () => {
-  // Leo, 2026-11-22: "i dont wanna see connecting to cosmic-gray... with the spinner, i want it to just
+  // Leo, 2026-11-22: "i dont wanna see connecting to [machine]... with the spinner, i want it to just
   // work". A machine acpmux brings back by itself draws nothing; only one gone past
   // PEER_LINK_DEADLINE_MS, in place of a chat the pane has no copy of, is said.
   jest.useFakeTimers();

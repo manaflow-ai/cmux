@@ -10,7 +10,7 @@
 //     chat on this Mac draws nothing;
 //   - every state acpmux recovers from by itself (connecting, reconnecting, offline) is the dot alone,
 //     with no spinner, no words and no Reconnect, at any duration (Leo, 2026-11-22: "i dont wanna see
-//     connecting to cosmic-gray... with the spinner, i want it to just work"); only a step a person
+//     connecting to [machine]... with the spinner, i want it to just work"); only a step a person
 //     must take (a refused sign-in, an update) names the machine and the step;
 //   - the row's element stays one element through every state, so the row's other controls stay put.
 import { afterAll, afterEach, beforeAll, expect, jest, test } from "bun:test";
@@ -208,7 +208,7 @@ test("the model chip no longer reads Unavailable for a machine that is down", as
   ).toBeUndefined();
 });
 
-// Leo, 2026-11-22: "i dont wanna see connecting to cosmic-gray... with the spinner, i want it to just
+// Leo, 2026-11-22: "i dont wanna see connecting to [machine]... with the spinner, i want it to just
 // work". A link acpmux brings back on its own is never said here, however long it is down; a step a
 // person must take is said at once; and one cause is said in one place.
 

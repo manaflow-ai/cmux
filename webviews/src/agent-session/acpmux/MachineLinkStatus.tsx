@@ -20,7 +20,7 @@ export function linkWords(link: PeerLink, t: Translate): string | undefined {
 /// 2026-10-28: "you just get a little green dot ... as if you were working on your own computer,
 /// but now it's remote"). The dot alone, in its connected look, whatever the link is doing while
 /// acpmux brings it back by itself: no spinner, no words, at any duration (Leo, 2026-11-22: "i dont
-/// wanna see connecting to cosmic-gray... with the spinner, i want it to just work"). A send made
+/// wanna see connecting to [machine]... with the spinner, i want it to just work"). A send made
 /// meanwhile waits and goes once the machine answers; only one that has waited past the send
 /// deadline says so, on its own message (conversation/PromptDelivery.tsx `LateDelivery`). A step a
 /// person must take (a refused sign-in, an update) names the machine and the step at once. A chat
