@@ -111,7 +111,10 @@ test("solid danger buttons keep a danger hover and open-popup fill", () => {
   const css = fs.readFileSync(path.join(import.meta.dir, "controls.css"), "utf8");
   expect(css).toContain('.ui-btn[data-danger][data-variant="solid"]:hover:not([data-disabled])');
   expect(css).toContain('.ui-btn[data-danger][data-variant="solid"][data-popup-open]');
-  expect(css).toContain("color-mix(in srgb, var(--ds-color-danger) 88%, var(--ds-color-on-accent))");
+  // #48174 gave the fill its glass hue (--glass-hue-danger), falling back to the page's danger colour.
+  expect(css).toContain(
+    "color-mix(in srgb, var(--glass-hue-danger, var(--ds-color-danger)) 88%, var(--ds-color-on-accent))",
+  );
 });
 
 test("an open popup's ghost or subtle button stays pressed under the pointer", () => {

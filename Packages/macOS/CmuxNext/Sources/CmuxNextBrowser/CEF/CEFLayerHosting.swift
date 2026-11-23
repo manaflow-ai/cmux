@@ -108,6 +108,10 @@ final class CEFLayerHosting {
     /// The GPU's deadline for a page's frame at its new size, in ms (`CMUX_CEF_RESIZE_FENCE_MS`); 0 takes one refresh of
     /// the fastest display, at least 8 ms. The window's commit waits at most this and one refresh more, in the render
     /// server, never on the main thread.
+    /// `CMUX_CEF_LIVE_RESIZE_SYNC_MS` / `CMUX_CEF_DRAG_RESIZE_SYNC_MS`: how long a page waits for its frame at the new
+    /// size in a window's live resize / a divider drag (an A/B on one build; 0, the default, never waits).
+    nonisolated static let liveResizeSyncOverrideMs = Int32(ProcessInfo.processInfo.environment["CMUX_CEF_LIVE_RESIZE_SYNC_MS"] ?? "") ?? 0
+    nonisolated static let dragResizeSyncOverrideMs = Int32(ProcessInfo.processInfo.environment["CMUX_CEF_DRAG_RESIZE_SYNC_MS"] ?? "") ?? 0
     nonisolated static let resizeFenceTimeoutOverrideMs = Int32(ProcessInfo.processInfo.environment["CMUX_CEF_RESIZE_FENCE_MS"] ?? "") ?? 0
 
     weak var view: NSView?
@@ -200,8 +204,8 @@ final class CEFLayerHosting {
          schedule: @escaping Scheduler = { CEFLayerHosting.atEndOfTurn($0) },
          makePage: @escaping (CGRect) -> CEFHostedPageView = { CEFHostedPageView(frame: $0) },
          resizeDeadlineMs: @escaping () -> Int32 = { 0 },
-         liveResizeDeadlineMs: @escaping () -> Int32 = { 0 },
-         dragResizeDeadlineMs: @escaping () -> Int32 = { 0 },
+         liveResizeDeadlineMs: @escaping () -> Int32 = { CEFLayerHosting.liveResizeSyncOverrideMs },
+         dragResizeDeadlineMs: @escaping () -> Int32 = { CEFLayerHosting.dragResizeSyncOverrideMs },
          refreshIntervals: @escaping () -> [Double] = { NSScreen.screens.map(\.minimumRefreshInterval) },
          holdsFocus: (() -> Bool)? = nil,
          afterCommit: @escaping Scheduler = { AfterFrameCommit().run($0) },
@@ -385,12 +389,17 @@ final class CEFLayerHosting {
     /// own frame at the zoomed size, as Chrome shows a window's resize, not its old frame at the old size beside the
     /// page's backdrop for the refreshes Chromium takes to lay out again (Lawrence 2026-11-20, the AWS console: two
     /// white frames and a relayout in each zoom). The main thread waits for nothing; the render server holds the
-    /// window's commit at most the deadline and one refresh. Below fork API 34, or with a page in its own window,
-    /// nothing changes.
+    /// window's commit at most the deadline and one refresh. Below fork API 34, or with a page in its own window, no
+    /// resize joins a fence (``joinsResizeFence``): the page takes the commit's size ahead instead
+    /// (`CEFTabContentView+PaneCommit`).
     func paneCommitWillResize(_ owed: Bool) {
         guard owed || !commitResizeEnds else { return }
         commitResizeOwed = owed
     }
+
+    /// Whether a resize of the view can join the window's resize fence (``pageViewResized()``): the page is hosted, in a
+    /// page window with a live browser, on an engine with the fence (fork API ``resizeFenceForkAPI``).
+    var joinsResizeFence: Bool { page != nil && browser != nil && fork?.resizeFence != nil }
 
     /// The fork's tracker read the host view (`-cmuxClipPath`): it is attached
     /// to the page window now, so a refused request may succeed.

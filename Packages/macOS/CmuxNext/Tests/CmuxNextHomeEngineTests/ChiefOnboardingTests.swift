@@ -65,6 +65,29 @@ import Testing
         #expect(!next.shows)
     }
 
+    /// The first run shows on the only, empty Chief chat and its first message ends it. Meet Chief from the palette
+    /// (``ChiefOnboarding/reopen()``) shows on any Chief chat, also one with messages and beside other Chiefs, and
+    /// ends at the next message sent there.
+    @Test func thePaletteShowsItAgainInAChatWithMessages() {
+        let (defaults, suite) = Self.isolatedDefaults()
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let onboarding = ChiefOnboarding(defaults: defaults, settings: FakeSettings())
+        #expect(onboarding.begin(freshInstall: true))
+        #expect(onboarding.place(chatAt: 0, shownAt: nil, otherChiefs: 0) == .shows)
+        #expect(onboarding.place(chatAt: 0, shownAt: nil, otherChiefs: 1) == .hidden)
+        #expect(onboarding.place(chatAt: 1, shownAt: 0, otherChiefs: 0) == .ends)
+        onboarding.finish()
+        #expect(onboarding.place(chatAt: 7, shownAt: nil, otherChiefs: 2) == .hidden)
+
+        onboarding.reopen()
+        #expect(onboarding.shows && onboarding.step == .meet)
+        #expect(onboarding.place(chatAt: 7, shownAt: nil, otherChiefs: 2) == .shows)
+        #expect(onboarding.place(chatAt: 7, shownAt: 7, otherChiefs: 2) == .shows)
+        #expect(onboarding.place(chatAt: 8, shownAt: 7, otherChiefs: 2) == .ends)
+        onboarding.finish()
+        #expect(onboarding.place(chatAt: 0, shownAt: nil, otherChiefs: 0) == .hidden)
+    }
+
     /// A relaunch before it was finished shows it again from the first step.
     @Test func aPendingOnboardingReturnsOnTheNextLaunch() {
         let (defaults, suite) = Self.isolatedDefaults()

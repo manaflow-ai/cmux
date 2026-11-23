@@ -14,7 +14,7 @@ use std::os::unix::net::UnixStream;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-struct QuietDesktop((UnixStream, UnixStream));
+pub(super) struct QuietDesktop(pub(super) (UnixStream, UnixStream));
 
 impl Desktop for QuietDesktop {
     fn size(&self) -> (u32, u32) {
@@ -36,9 +36,9 @@ impl Desktop for QuietDesktop {
 
 /// Encodes the n-th frame at `sizes[n]` bytes (the last size after that). Records
 /// each encode's `force_idr`.
-struct SizedEncoder {
-    sizes: Vec<usize>,
-    forced: Arc<Mutex<Vec<bool>>>,
+pub(super) struct SizedEncoder {
+    pub(super) sizes: Vec<usize>,
+    pub(super) forced: Arc<Mutex<Vec<bool>>>,
 }
 
 impl FrameSource for SizedEncoder {
@@ -62,11 +62,15 @@ impl FrameSource for SizedEncoder {
 }
 
 #[derive(Default)]
-struct RecordingCarrier {
-    sent: Vec<Vec<u8>>,
+pub(super) struct RecordingCarrier {
+    pub(super) sent: Vec<Vec<u8>>,
 }
 
 impl Carrier for RecordingCarrier {
+    fn drain_departures(&mut self, _out: &mut Vec<crate::carrier::DatagramDeparture>) {}
+    fn departure_overflows(&self) -> u64 {
+        0
+    }
     fn fds(&self) -> Vec<RawFd> {
         Vec::new()
     }
@@ -77,16 +81,24 @@ impl Carrier for RecordingCarrier {
         self.sent.push(datagram.to_vec());
         Ok(())
     }
+    fn send_datagram_frame(
+        &mut self,
+        datagrams: Vec<Vec<u8>>,
+        _droppable: bool,
+    ) -> std::io::Result<()> {
+        self.sent.extend(datagrams);
+        Ok(())
+    }
     fn send_control(&mut self, _control: &Control) -> std::io::Result<()> {
         Ok(())
     }
 }
 
-fn header(d: &[u8]) -> DatagramHeader {
+pub(super) fn header(d: &[u8]) -> DatagramHeader {
     DatagramHeader::decode(d).expect("header").0
 }
 
-fn feedback(arrivals: Vec<Arrival>, acked_frame: u32) -> Vec<u8> {
+pub(super) fn feedback(arrivals: Vec<Arrival>, acked_frame: u32) -> Vec<u8> {
     let mut d = DatagramHeader {
         flags: 0,
         kind: DatagramKind::Feedback,
@@ -144,7 +156,9 @@ fn outage_with_queue(unstarted: usize) -> Outage {
     let forced = Arc::new(Mutex::new(Vec::new()));
     let cfg = SessionCfg {
         display: String::new(),
+        display_pick: None,
         max_fps: 60,
+        encode_profile: Default::default(),
         start_kbps: 2_000,
         max_kbps: 4_000,
         preset: String::new(),
@@ -159,7 +173,11 @@ fn outage_with_queue(unstarted: usize) -> Outage {
         upstream_record_max_bytes: 0,
         frames_in_flight: 3,
         input_frame_now: false,
+        rtt_tail_probe: false,
+        resolution_ladder: false,
+        max_qp: cmux_rd_core::resolution::DEFAULT_MAX_QP,
         max_width: None,
+        show_cursor: true,
         capture: crate::capture_backend::CaptureBackend::default(),
     };
     let mut session = MediaSession::with_desktop(
@@ -268,7 +286,7 @@ fn queued_frames(session: &MediaSession) -> Vec<u32> {
 fn an_outage_end_drops_an_unstarted_frame_larger_than_a_keyframe_and_finishes_the_started_one() {
     let mut t = outage_with_queue(60_000);
     assert_eq!(queued_frames(&t.session), vec![t.started_frame], "only the started frame stays");
-    assert_eq!(t.session.paced_logs.iter().filter(|l| l.frame.1 == t.unstarted_frame).count(), 0);
+    assert_eq!(t.session.paced.0.iter().filter(|f| f.frame == t.unstarted_frame).count(), 0);
 
     // The started frame finishes, then the newest frame goes out as a keyframe.
     while !t.session.pacer.as_ref().is_some_and(Pacer::is_empty) {
