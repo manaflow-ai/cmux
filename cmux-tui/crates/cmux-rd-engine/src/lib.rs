@@ -42,8 +42,8 @@ pub const MAX_RESENDS_PER_FEEDBACK: usize = 64;
 /// Shortest time between two forced keyframes.
 pub const MIN_FORCED_IDR_INTERVAL_US: u64 = 250_000;
 /// Longest a keyframe's time on the wire holds a recovery ask back (beyond
-/// [`MIN_FORCED_IDR_INTERVAL_US`]): the viewer waits at most 1.5 s for a frame.
-pub const KEYFRAME_WAIT_MAX_US: u64 = 1_500_000;
+/// [`MIN_FORCED_IDR_INTERVAL_US`]): as long as the viewer waits for a keyframe.
+pub const KEYFRAME_WAIT_MAX_US: u64 = cmux_rd_core::reassembly::MAX_KEYFRAME_WAIT_US;
 /// How long a stream's newest frame may go unacknowledged before the host
 /// resends it (a tail-loss probe). On a datagram path a frame whose every
 /// datagram was lost leaves the viewer nothing to NACK and the gate nothing
@@ -408,6 +408,18 @@ impl StreamState {
         if (after.width, after.height) != (before.width, before.height) {
             self.force_idr.get_or_insert(IdrReason::Resize);
         }
+    }
+
+    /// Whether the last keyframe may still be arriving: not yet acked (an ack clears it)
+    /// and within its wire time plus [`MIN_FORCED_IDR_INTERVAL_US`]. Past that it is
+    /// cleared, so a lost keyframe is started over.
+    fn keyframe_held(&mut self, now_us: u64) -> bool {
+        if self.keyframe_in_flight.is_some_and(|(_, sent_us, wire_us)| {
+            now_us.saturating_sub(sent_us) >= wire_us + MIN_FORCED_IDR_INTERVAL_US
+        }) {
+            self.keyframe_in_flight = None;
+        }
+        self.keyframe_in_flight.is_some()
     }
 
     fn full(&self) -> Rect {
@@ -794,6 +806,7 @@ impl MediaEngine {
             .and_then(|of| self.streams.get(&of))
             .map(|s| if s.last_frame == 0 { REF_NONE } else { s.last_frame });
         let target_bps = u64::from(self.target_kbps(req.stream)) * 1000;
+        let rtt_us = self.ack_rtt_us();
         let Some(state) = self.streams.get_mut(&req.stream) else { return Ok(Output::default()) };
         let Some(enc) = encoded.filter(|e| !e.access_unit.is_empty()) else {
             // The encoder dropped the frame: its change still has to reach the viewer. A drop
@@ -861,7 +874,11 @@ impl MediaEngine {
         }
         if enc.idr && !tile {
             state.last_keyframe_bytes = packets.datagrams.iter().map(Vec::len).sum();
+            // Its time on the wire, then two repair rounds: at 2 % loss a 600-datagram
+            // keyframe is NACKed, and a resend can be lost again.
+            let repair_us = 2 * rtt_us.unwrap_or(0);
             let wire_us = (frame_bytes.saturating_mul(8_000_000) / target_bps.max(1))
+                .saturating_add(repair_us)
                 .min(KEYFRAME_WAIT_MAX_US);
             state.keyframe_in_flight = Some((req.frame, now_us, wire_us));
         }
@@ -1002,13 +1019,10 @@ impl MediaEngine {
         // can decode arrives, and a 1080p motion keyframe is hundreds of datagrams that
         // take longer than the forced interval to arrive on a slow path. Starting over
         // every 250 ms queued keyframes behind keyframes, and none was shown (hq#19915).
-        if state.keyframe_in_flight.is_some_and(|(frame, sent_us, wire_us)| {
-            fb.acked_frame >= frame
-                || now_us.saturating_sub(sent_us) >= wire_us + MIN_FORCED_IDR_INTERVAL_US
-        }) {
+        if state.keyframe_in_flight.is_some_and(|(frame, _, _)| fb.acked_frame >= frame) {
             state.keyframe_in_flight = None;
         }
-        let idr_allowed = state.keyframe_in_flight.is_none()
+        let idr_allowed = !state.keyframe_held(now_us)
             && state
                 .last_forced_idr_us
                 .is_none_or(|t| now_us.saturating_sub(t) >= MIN_FORCED_IDR_INTERVAL_US);
@@ -1054,13 +1068,25 @@ impl MediaEngine {
                 state.probes = state.probes.saturating_add(1);
                 state.probe_from_us = Some(now_us);
                 if let Some(datagrams) = state.history.get(&state.last_frame) {
-                    for d in datagrams.iter().take(MAX_RESENDS_PER_FEEDBACK) {
+                    // The tail: a large frame's head that went missing is NACKed once
+                    // later datagrams arrive; only a lost tail leaves the viewer nothing
+                    // to NACK on.
+                    let tail = datagrams.len().saturating_sub(MAX_RESENDS_PER_FEEDBACK);
+                    for d in &datagrams[tail..] {
                         if let Ok((header, _)) = DatagramHeader::decode(d) {
                             self.cc.on_retransmitted(header.transport_seq);
                         }
                         out.datagrams.push(d.clone());
                     }
                 }
+                continue;
+            }
+            // A keyframe still on its way (and being repaired by NACK) is what the viewer
+            // waits on: a 1080p motion keyframe on a slow path takes longer than the
+            // probes to arrive, and starting over put keyframes behind keyframes until
+            // none was shown (hq#19915). The wait starts over once it may have arrived.
+            if state.keyframe_held(now_us) {
+                state.probe_from_us = Some(now_us);
                 continue;
             }
             // One encode per tick: a second stream's keyframe waits for the next.

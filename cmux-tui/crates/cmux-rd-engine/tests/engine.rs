@@ -277,6 +277,30 @@ fn a_recovery_ask_while_a_large_keyframe_is_arriving_waits_for_it() {
     assert!(out.encode.expect("the keyframe never arrived").force_idr);
 }
 
+/// The tail probes for a large keyframe still arriving resend its tail, and do not start
+/// over from another keyframe while it may still arrive (hq#19915: at 8 Mbit/s a 1080p
+/// motion keyframe outlasts the probes, and each new one queued behind the last).
+#[test]
+fn tail_probes_wait_for_a_large_keyframe_still_arriving() {
+    use cmux_rd_engine::{MAX_RESENDS_PER_FEEDBACK, MIN_FORCED_IDR_INTERVAL_US, TAIL_PROBE_US};
+    let mut e = engine();
+    let first = e.start(0).expect("first");
+    // 1.5 MB, with datagram headers, is over 1.5 s on the wire at the 8 Mbit/s start: held
+    // past 1.75 s, so the probe at 2 s is the first that may start over.
+    let sent = send(&mut e, &first, true, 1_500_000, 0);
+    let tail = &sent[sent.len() - MAX_RESENDS_PER_FEEDBACK..];
+    let mut now = 0;
+    while now < 1_500_000 + MIN_FORCED_IDR_INTERVAL_US {
+        now += TAIL_PROBE_US;
+        let out = e.tick(true, now);
+        assert!(out.encode.is_none_or(|r| !r.force_idr), "a keyframe behind the arriving one");
+        assert!(out.datagrams.is_empty() || out.datagrams == tail, "a probe resends the tail");
+    }
+    now += TAIL_PROBE_US;
+    let out = e.tick(true, now);
+    assert!(out.encode.expect("the keyframe never arrived").force_idr);
+}
+
 /// A source encodes asynchronously: a recovery request can arrive while an
 /// older P-frame request is still in its encoder. That P-frame must not
 /// answer the recovery; the next request is the keyframe.
