@@ -148,7 +148,7 @@ struct MacScreenFullPaneState {
                         secondary: cancel(id: "macScreen.hub.cancel") { $0.cancelRequest() })
         case let .hubWaiting(scope):
             return Spec(symbol: symbol, headline: String(format: L.t("macScreen.full.connectingTitle", "Connecting to %@"), name),
-                        why: String(format: L.t("macScreen.hub.waitingBody", "You asked for %@. Someone at that Mac needs to allow it."), scope.title),
+                        why: String(format: L.t("macScreen.hub.waitingOwnerBody", "You asked for %@. Its owner needs to allow it."), scope.title),
                         steps: hubSteps, activeStep: 1, secondary: cancel(id: "macScreen.hub.cancel") { $0.cancelRequest() })
         case let .hubDeclined(scope):
             return Spec(symbol: "hand.raised", ink: \.attention, headline: L.t("macScreen.hub.declinedTitle", "Declined"),

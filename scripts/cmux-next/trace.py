@@ -606,6 +606,7 @@ class FileFollower:
 
     def __init__(self, source, stamped):
         self.source, self.stamped, self.proc, self.thread, self.out = source, stamped, None, None, None
+        self.bytes_seen = 0
 
     def start(self, hold=contextlib.nullcontext):
         open(self.source, "a").close()
@@ -613,6 +614,7 @@ class FileFollower:
 
         def read():
             for line in self.proc.stdout:
+                self.bytes_seen += len(line.encode())
                 line = line.strip()
                 if line:
                     self.out.write(json.dumps({"at_us": uptime_us(), "line": line}) + "\n")
@@ -625,7 +627,18 @@ class FileFollower:
             self.thread.start()
 
     def stop(self):
-        time.sleep(0.3)  # the last line written before the stop reaches tail (one kqueue wakeup)
+        # Wait until tail has passed on every byte the source held at the stop (the last line written before it).
+        # Best effort: a truncated or replaced source can leave the count off, then the stop goes on after 5 s.
+        if self.proc and self.thread:
+            try:
+                size = os.path.getsize(self.source)
+            except OSError:
+                size = 0
+            deadline = time.monotonic() + 5
+            while self.bytes_seen < size and self.thread.is_alive() and time.monotonic() < deadline:
+                time.sleep(0.02)
+            if self.bytes_seen < size:
+                note(f"spans: tail passed on {self.bytes_seen} of {size} bytes before the stop")
         if self.proc and self.proc.poll() is None:
             self.proc.terminate()
             self.proc.wait(timeout=10)
@@ -1349,16 +1362,20 @@ class Recording:
         if opts.storm_hz > 0:
             self.storm = Storm(self.app.cli_run, self.workspaces, self.groups, opts.storm_hz, self.driver_events)
         self.typist = Typist(self.rpc, opts.key_interval, opts.chord_every, self.driver_events)
-        time.sleep(1.0)  # the recorders' first second is their own start-up cost; the scenario starts after it
+        # sleep-ok: a fixed one-second lead-in kept out of the scenario: the recorders' first second is their own
+        # start-up cost, and every trace gets the same lead-in so runs compare.
+        time.sleep(1.0)
         self.phase = {"kind": "phase", "name": f"scenario {opts.scenario}", "start_us": uptime_us(), "end_us": None,
                       "args": {}}
         self.driver_events.append(self.phase)
         if self.storm:
             self.storm.start()
         self.typist.start()
-        time.sleep(opts.seconds)  # the measured window itself
+        time.sleep(opts.seconds)  # sleep-ok: the measured window itself
         self.stop_driver()
-        time.sleep(1.0)  # the last action's frames and replies land inside the window
+        # sleep-ok: a fixed one-second tail of recording after the last action, part of the recorded window, so its
+        # frames and replies land inside every trace alike.
+        time.sleep(1.0)
 
     def kill_wrapped(self):
         """The wrap-stop stage passed its bound or failed: SIGKILL the command's group (bounded) and say so."""
@@ -3144,13 +3161,13 @@ def check_stage_bounds():
     stages = Stages(meta, heartbeat_s=0.1, log=lines.append)
     started = time.monotonic()
     with stages.run("window", bound=0.3, on_abort=lambda: cleaned.append("window")):
-        time.sleep(5)
+        time.sleep(5)  # sleep-ok: a simulated hung stage the 0.3 s bound must end
     assert time.monotonic() - started < 2, "the stage did not end at its bound"
     assert meta["timed_out"] == ["window"] and cleaned == ["window"], (meta, cleaned)
     assert any("still running" in line for line in lines) and any("PASSED ITS BOUND" in line for line in lines), lines
     try:
         with stages.run("launch", bound=0.2, fatal=True):
-            time.sleep(5)
+            time.sleep(5)  # sleep-ok: a simulated hung stage the 0.2 s bound must end
         raise AssertionError("a fatal stage past its bound must re-raise")
     except StageTimeout as error:
         assert error.name == "launch", error
@@ -3198,7 +3215,7 @@ def check_hold_defers_the_bound():
     try:
         with stages.run("recorders-start", bound=0.2, fatal=True):
             with stages.hold():
-                time.sleep(0.5)  # the alarm fires in here
+                time.sleep(0.5)  # sleep-ok: a simulated slow spawn the 0.2 s alarm fires inside
                 held.append("child")
             raise AssertionError("the deferred bound must raise when the hold ends")
     except StageTimeout:
@@ -3217,7 +3234,7 @@ class FakeSource:
         if self.behavior == "raise":
             raise RuntimeError("CDP error: tracingComplete never came")
         if self.behavior == "hang":
-            time.sleep(5)
+            time.sleep(5)  # sleep-ok: a simulated hung recorder stop
         return True
 
     def kill(self):
@@ -3304,7 +3321,7 @@ def check_xctrace_held_before_start():
         def start(self, hold=contextlib.nullcontext):
             with hold():
                 self.events.append("spawned")
-            time.sleep(5)  # xctrace waits for an authorization prompt nobody answers
+            time.sleep(5)  # sleep-ok: simulated: xctrace waits for an authorization prompt nobody answers
 
         def interrupt(self):
             self.events.append("interrupt")
@@ -3504,7 +3521,7 @@ def check_bound_inside_a_swallowing_wait():
     stages = Stages(meta, heartbeat_s=60, log=lambda line: None)
     started = time.monotonic()
     with stages.run("stress-build", bound=0.3):
-        stress_lib.wait(lambda: time.sleep(5), 30)
+        stress_lib.wait(lambda: time.sleep(5), 30)  # sleep-ok: a simulated slow predicate the bound must cut
     assert time.monotonic() - started < 2, f"the stage ran {time.monotonic() - started:.1f} s past its 0.3 s bound"
     assert meta["timed_out"] == ["stress-build"], meta
 
