@@ -238,6 +238,7 @@ extension SidebarMapping {
             folder: facts.bucket
         )
         row.focusedTab = focused.map { TabID($0.id) }
+        row.paneShape = Self.paneShape(workspace)
         row.iconFromShownTab = ownIcon == nil && row.icon != nil
         row.activityFromProgram = indicator.primary?.source == .program
         row.presence = presence(tabs)
@@ -260,9 +261,11 @@ extension SidebarMapping {
         row.reported = Self.reported(workspace.status, asset: options.iconAsset)
         row.workspaceDescription = workspace.workspaceDescription
         row.taskStatus = workspace.taskStatus.map(Self.taskStatus)
+        row.createdBy = Self.creator(workspace.createdBy)
         row.checklist = workspace.checklist.map(Self.checklistItem)
         row.detail = detail(tabs: tabs, indicator: indicator.state, agentTab: agentTab, front: front,
                             notification: row.notificationText)
+        row.detail.origin = Self.origin(workspace.createdBy)
         return row
     }
 

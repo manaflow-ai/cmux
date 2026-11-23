@@ -35,7 +35,9 @@ permissions:
 
 concurrency:
   group: cmux-rd-windows-${{ github.ref }}
-  cancel-in-progress: true
+  # A feat-cmux-next push run finishes, so the base has a verdict (a newer push only replaces a queued one);
+  # a newer PR head cancels the old one.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
@@ -90,9 +92,19 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Windows capture selftest exited $LASTEXITCODE" }
           $json | Tee-Object -FilePath "$env:GITHUB_STEP_SUMMARY"
           $result = $json | ConvertFrom-Json
-          if (-not $result.capture_encode_ok) { throw 'Windows host selftest did not encode a frame' }
-          if ([int]$result.frames -lt 60) { throw 'Windows host selftest captured fewer frames than requested' }
+          if (-not $result.encode_ok) { throw 'Windows host selftest did not encode a frame' }
+          if ([int]$result.frames -lt 60) { throw 'Windows host selftest encoded fewer frames than requested' }
           if ([int]$result.encoded_bytes -le 0) { throw 'Windows host selftest emitted no bytes' }
+          # A runner with no interactive desktop (session 0, no input desktop) cannot BitBlt the screen:
+          # the selftest says so and encodes generated frames instead. The desktop capture cells below
+          # (windows-host status, loopback) are skipped with that reason; the encode cell above still ran.
+          if ($result.capture -eq 'skipped') {
+            $reason = "Desktop capture skipped: $($result.capture_skipped_reason). Encode ran on generated frames; windows-host status and loopback not run."
+            Write-Output "::notice title=Windows desktop capture skipped::$reason"
+            Add-Content $env:GITHUB_STEP_SUMMARY "`n$reason"
+            exit 0
+          }
+          if (-not $result.capture_encode_ok) { throw 'Windows host selftest did not capture and encode a frame' }
           # `windows-host status` captures this desktop the way `windows-host run` does.
           $status = & .\target\release\cmux-rd.exe windows-host status
           if ($LASTEXITCODE -ne 0) { throw "windows-host status exited $LASTEXITCODE" }

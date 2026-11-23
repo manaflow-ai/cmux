@@ -109,12 +109,11 @@ extension NewTabPage {
         fillPaletteActions(services)
     }
 
-    /// Asks for the Commands palette's actions for the New Tab pages that show without them (``AgentPaneNewTabActions/fill(again:_:)``); `again` reads them again for every page.
+    /// Asks for the Commands palette's actions for the New Tab pages that show without them (``AgentPaneNewTabActions/fill(again:_:)``); `again` reads them again for every page
+    /// that has a view. The stored page of a tab never takes them: its view asks here again at its make (`listsAtViewMake`).
     static func fillPaletteActions(_ services: AppServices, again: Bool = false) {
         services.newTabActions.fill(again: again) { [weak tabs = services.agentTabs] in
-            tabs?.newTabPages.entries.map { entry in
-                AgentPaneNewTabActions.Page(view: tabs?.views[entry.key], stored: entry.value.page, store: { [weak tabs] in tabs?.newTabPages[entry.key]?.page.omnibar.actions = $0 })
-            } ?? []
+            tabs?.newTabPages.keys.map { AgentPaneNewTabActions.Page(view: tabs?.views[$0]) } ?? []
         }
     }
 

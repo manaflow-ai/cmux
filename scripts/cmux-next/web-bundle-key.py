@@ -184,6 +184,11 @@ def gen_strings_catalogs(root):
             text = f.read()
     except OSError:
         return None
+    return gen_strings_catalogs_in(text)
+
+
+def gen_strings_catalogs_in(text):
+    """gen_strings_catalogs over gen-strings.mjs's TEXT (hot-apply.py reads it from a commit, not a checkout)."""
     consts = dict(GEN_STRINGS_CONST.findall(text))
     found = set()
     for m in GEN_STRINGS_FILE.finditer(text):
