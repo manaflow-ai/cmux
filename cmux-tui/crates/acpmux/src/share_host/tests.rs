@@ -643,7 +643,11 @@ fn a_helper_that_exits_early_ends_only_its_own_share() {
     assert!(records::read(&dir, "s-live").is_some_and(|r| r.alive()));
     stop_live.store(true, Ordering::SeqCst);
     let ended = live.join().unwrap();
-    assert_eq!(ended.reason, "stopped");
+    // Stopped before a viewer connected: the reason says how far it got (the helper had the offer).
+    assert_eq!(
+        ended.reason,
+        "stopped before the viewer connected: the screen host had not answered the viewer's offer"
+    );
     assert_eq!(ended.tell_hub, None);
     assert_eq!(ends.lock().unwrap().len(), 1);
     assert!(!dir.join("s-live.json").exists());
@@ -1131,11 +1135,13 @@ fn the_device_hub_tells_a_mesh_host_s_screen_by_its_name() {
     ]}));
     assert_eq!(
         shared.device_hub_of("lane-1"),
-        Some(json!({"listed": true, "platform": "linux", "screenShared": true}))
+        Some(json!({"listed": true, "id": "d1", "platform": "linux", "online": true,
+            "screenShared": true}))
     );
     assert_eq!(
         shared.device_hub_of("lane-2"),
-        Some(json!({"listed": true, "platform": "linux", "screenShared": false}))
+        Some(json!({"listed": true, "id": "d3", "platform": "linux", "online": true,
+            "screenShared": false}))
     );
     assert_eq!(shared.device_hub_of("lane-3"), Some(json!({"listed": false})));
     // This device's own record is never another machine's.
