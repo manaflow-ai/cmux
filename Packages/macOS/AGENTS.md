@@ -25,6 +25,10 @@ Where a typical change goes:
 - The theme: `Shared/CmuxTheme` (`ThemeTokens`), `CmuxNextDesign` (`Palette`), looks in root `Resources/theme-files/`
   ([recipes](../../docs/cmux-next/theme-recipes.md)). `schemas/theme/chrome-layer-colors.json` needs `Chrome-Look-OK:`.
 
+Decided, do not rebuild the other side: Home, the Chief panel and native chrome are Swift, the agent chat is React,
+logic is Rust ([which layer](../../plans/cmux-next/language-layers.md)). Other decided forks (first run is a card on
+Home, launch reopens where you were) and their reasons: cmuxterm-hq `decisions/junctions.md`.
+
 ## Check a change in five minutes (from a Linux lane VM)
 
 Push first: the fleet builds the pushed SHA. "here" is the lane VM. Running the app needs a Mac.
