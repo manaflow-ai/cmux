@@ -198,8 +198,14 @@ impl Authority {
         let mut consent = self.consent();
         let state = if granted { ConsentState::Granted } else { ConsentState::None };
         match surface {
-            "screen" => consent.screen = state,
-            "control" => consent.control = state,
+            "screen" => {
+                consent.screen = state;
+                consent.screen_local = Some(granted);
+            }
+            "control" => {
+                consent.control = state;
+                consent.control_local = Some(granted);
+            }
             crate::machine_record::SIGNED_IN_MACHINES => {
                 anyhow::ensure!(
                     !granted || user.is_some(),
