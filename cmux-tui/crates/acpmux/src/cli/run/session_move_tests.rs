@@ -641,6 +641,7 @@ async fn after_turn_waits_at_most_its_timeout_and_names_the_chat_and_step() {
         interrupt: false,
         after_turn: true,
         turn_timeout: std::time::Duration::from_secs(1),
+        slow_ok: false,
         leave_dirty: false,
         carry_changes: false,
         cwd: Some("/srv/x".into()),
