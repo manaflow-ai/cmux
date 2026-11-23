@@ -1534,7 +1534,7 @@ async fn e4_one_kill(seed: u64) -> E4Row {
     let deadline = Instant::now() + Duration::from_secs(60);
     loop {
         let events = journal(&b2, &id);
-        let done = all.iter().all(|p| !result_of(&events, p).is_empty())
+        let done = all.iter().all(|p| !result_of(events.as_slice(), *p).is_empty())
             && says_once(&events, "echo: third");
         if done || Instant::now() >= deadline {
             break;
@@ -1549,7 +1549,7 @@ async fn e4_one_kill(seed: u64) -> E4Row {
         (vec![], vec![], vec![], vec![], vec![]);
     for p in all {
         let ran = events.iter().filter(|e| names_prompt(e, "user_message", p)).count();
-        let statuses = result_of(&events, p);
+        let statuses = result_of(events.as_slice(), p);
         results.push(format!("{p}:{}", statuses.join("/")));
         match ran {
             0 => lost.push(p.to_owned()),
