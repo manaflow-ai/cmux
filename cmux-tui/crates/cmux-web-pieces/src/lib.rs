@@ -26,7 +26,7 @@
 //! file names no URL and no native code, on any platform.
 
 use serde::Deserialize;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// The payload schema [`open`] reads.
@@ -40,22 +40,33 @@ pub const MAX_BYTES: usize = 64 * 1024;
 /// `build-web-bundles.sh --out-root`: scripts/cmux-next/web-bundle-key.py `OUTPUTS`, in its
 /// order (the test `pieces_are_the_web_bundle_outputs` reads the script).
 pub const PIECES: &[(&str, &str)] = &[
-    ("agent-pane", "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane"),
-    ("pages", "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages"),
+    (
+        "agent-pane",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane",
+    ),
+    (
+        "pages",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages",
+    ),
     (
         "agent-activity",
         "Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity",
     ),
     ("webviews-app", "Resources/markdown-viewer/webviews-app"),
-    ("inspector", "Native/OptChat/optchat-chief/inspector/index.html"),
+    (
+        "inspector",
+        "Native/OptChat/optchat-chief/inspector/index.html",
+    ),
 ];
 
 /// The keys a switch file may be signed with: `(id, base64 raw ed25519 key)`. The same key as
 /// Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/Resources/web-update-keys.json (the test
 /// `keys_match_the_web_update_keys` keeps them equal). To rotate, add the next key to both,
 /// ship it in a nightly, then switch the CI secret.
-pub const KEYS: &[(&str, &str)] =
-    &[("e5d7bbcacc70703d", "uroy2ajE6JWnMjkx3FNdn88SJN4DCMfLpqZjkwx45WY=")];
+pub const KEYS: &[(&str, &str)] = &[(
+    "e5d7bbcacc70703d",
+    "uroy2ajE6JWnMjkx3FNdn88SJN4DCMfLpqZjkwx45WY=",
+)];
 
 /// The trusted keys of [`KEYS`], decoded.
 pub fn trusted_keys() -> Vec<cmux_signed_envelope::Key> {
@@ -160,14 +171,20 @@ impl std::fmt::Display for Refusal {
             Self::WrongPurpose(purpose) => write!(f, "the payload's purpose is {purpose:?}"),
             Self::WrongChannel(channel) => write!(f, "the payload is for channel {channel:?}"),
             Self::Stale { serial, floor } => {
-                write!(f, "serial {serial} is older than the last one taken ({floor})")
+                write!(
+                    f,
+                    "serial {serial} is older than the last one taken ({floor})"
+                )
             }
         }
     }
 }
 
 fn is_key(text: &str) -> bool {
-    text.len() == 64 && text.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    text.len() == 64
+        && text
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
 /// The switches of the envelope `body` when a `keys` signature covers it, it is `channel`'s
@@ -189,16 +206,24 @@ pub fn open(
         return Err(Refusal::WrongPurpose(payload.purpose));
     }
     if payload.schema != SCHEMA {
-        return Err(Refusal::Malformed(format!("unknown payload schema {}", payload.schema)));
+        return Err(Refusal::Malformed(format!(
+            "unknown payload schema {}",
+            payload.schema
+        )));
     }
     if payload.channel != channel {
         return Err(Refusal::WrongChannel(payload.channel));
     }
     if payload.serial < floor {
-        return Err(Refusal::Stale { serial: payload.serial, floor });
+        return Err(Refusal::Stale {
+            serial: payload.serial,
+            floor,
+        });
     }
     if let Some(bad) = payload.refuse.iter().find(|key| !is_key(key)) {
-        return Err(Refusal::Malformed(format!("refuse names {bad:?}, not an update key")));
+        return Err(Refusal::Malformed(format!(
+            "refuse names {bad:?}, not an update key"
+        )));
     }
     let mut pieces = BTreeMap::new();
     let mut unknown = Vec::new();
@@ -207,9 +232,14 @@ pub fn open(
             // A finer id (`pages/settings`) switches its whole piece in this build; of several
             // switches on one piece the bundle wins over the last good update.
             (Some(piece), Ok(switch)) => {
-                let weaker =
-                    matches!(pieces.get(piece), Some(Switch { serve: Serve::Bundled, .. }))
-                        || (pieces.contains_key(piece) && matches!(switch.serve, Serve::LastGood));
+                let weaker = matches!(
+                    pieces.get(piece),
+                    Some(Switch {
+                        serve: Serve::Bundled,
+                        ..
+                    })
+                ) || (pieces.contains_key(piece)
+                    && matches!(switch.serve, Serve::LastGood));
                 if !weaker {
                     pieces.insert(piece.to_owned(), switch);
                 }
@@ -237,7 +267,8 @@ pub fn open(
 #[must_use]
 pub fn piece_of(name: &str) -> Option<&'static str> {
     PIECES.iter().map(|(piece, _)| *piece).find(|piece| {
-        name.strip_prefix(piece).is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
+        name.strip_prefix(piece)
+            .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
     })
 }
 
@@ -271,7 +302,10 @@ pub struct Plan {
 impl Plan {
     /// The source of `piece`; the bundle for a name that is no piece.
     pub fn source(&self, piece: &str) -> &Source {
-        self.pieces.iter().find(|(name, _)| *name == piece).map_or(&Source::Bundled, |(_, s)| s)
+        self.pieces
+            .iter()
+            .find(|(name, _)| *name == piece)
+            .map_or(&Source::Bundled, |(_, s)| s)
     }
 }
 
@@ -312,7 +346,10 @@ pub fn plan(switches: Option<&Switches>, active: Option<&str>, kept: &[&str]) ->
             (*name, source)
         })
         .collect();
-    Plan { pieces, refused_active }
+    Plan {
+        pieces,
+        refused_active,
+    }
 }
 
 /// One read of a switch file as JSON in and JSON out, for a host on the other side of an
@@ -335,7 +372,10 @@ pub fn evaluate(input: &Value) -> Value {
 
 /// [`evaluate`] against `keys` (the tests' own).
 pub fn evaluate_with(input: &Value, keys: &[cmux_signed_envelope::Key]) -> Value {
-    let channel = input.get("channel").and_then(Value::as_str).unwrap_or_default();
+    let channel = input
+        .get("channel")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
     let floor = input.get("floor").and_then(Value::as_u64).unwrap_or(0);
     let active = input.get("active").and_then(Value::as_str);
     let kept: Vec<&str> = input
@@ -344,7 +384,10 @@ pub fn evaluate_with(input: &Value, keys: &[cmux_signed_envelope::Key]) -> Value
         .map(|keys| keys.iter().filter_map(Value::as_str).collect())
         .unwrap_or_default();
     let now = input.get("now").and_then(Value::as_u64).unwrap_or(0);
-    let last = input.get("last").and_then(switches_from_json).filter(|s| s.channel == channel);
+    let last = input
+        .get("last")
+        .and_then(switches_from_json)
+        .filter(|s| s.channel == channel);
     let (taken, refusal) = match input.get("envelope").and_then(Value::as_str) {
         None => (None, None),
         Some(text) => match open(text.as_bytes(), keys, channel, floor) {
@@ -358,7 +401,9 @@ pub fn evaluate_with(input: &Value, keys: &[cmux_signed_envelope::Key]) -> Value
     let mut pieces = serde_json::Map::new();
     for ((name, output), (_, source)) in PIECES.iter().zip(&plan.pieces) {
         let switch = switches.as_ref().and_then(|s| s.pieces.get(*name));
-        let unknown = switches.as_ref().is_some_and(|s| s.unknown.iter().any(|u| u == name));
+        let unknown = switches
+            .as_ref()
+            .is_some_and(|s| s.unknown.iter().any(|u| u == name));
         let serve = match switch.map(|s| s.serve) {
             Some(Serve::Bundled) => "bundled",
             Some(Serve::LastGood) => "last-good",
@@ -372,9 +417,10 @@ pub fn evaluate_with(input: &Value, keys: &[cmux_signed_envelope::Key]) -> Value
         );
     }
     let serial = switches.as_ref().map_or(floor, |s| s.serial.max(floor));
-    let refusal_json = refusal
-        .as_ref()
-        .map_or(Value::Null, |r| json!({"code": r.code(), "message": r.to_string()}));
+    let refusal_json = refusal.as_ref().map_or(
+        Value::Null,
+        |r| json!({"code": r.code(), "message": r.to_string()}),
+    );
     let switched: Vec<String> = pieces
         .iter()
         .filter(|(_, piece)| piece["serve"] != "live")
@@ -409,7 +455,10 @@ fn switches_json(switches: &Switches) -> Value {
                 Serve::Bundled => "bundled",
                 Serve::LastGood => "last-good",
             };
-            (name.clone(), json!({"serve": serve, "reason": switch.reason}))
+            (
+                name.clone(),
+                json!({"serve": serve, "reason": switch.reason}),
+            )
         })
         .collect();
     json!({"channel": switches.channel, "serial": switches.serial,
@@ -425,22 +474,36 @@ fn switches_from_json(value: &Value) -> Option<Switches> {
         .as_object()?
         .iter()
         .filter_map(|(name, switch)| {
-            Some((name.clone(), serde_json::from_value::<Switch>(switch.clone()).ok()?))
+            Some((
+                name.clone(),
+                serde_json::from_value::<Switch>(switch.clone()).ok()?,
+            ))
         })
         .collect();
     let strings = |field: &str| -> Vec<String> {
         value
             .get(field)
             .and_then(Value::as_array)
-            .map(|list| list.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+            .map(|list| {
+                list.iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_owned)
+                    .collect()
+            })
             .unwrap_or_default()
     };
     Some(Switches {
         channel: value.get("channel")?.as_str()?.to_owned(),
         serial: value.get("serial")?.as_u64()?,
-        published_at: value.get("published_at").and_then(Value::as_u64).unwrap_or(0),
+        published_at: value
+            .get("published_at")
+            .and_then(Value::as_u64)
+            .unwrap_or(0),
         pieces,
-        refuse: strings("refuse").into_iter().filter(|key| is_key(key)).collect(),
+        refuse: strings("refuse")
+            .into_iter()
+            .filter(|key| is_key(key))
+            .collect(),
         unknown: strings("unknown"),
     })
 }
