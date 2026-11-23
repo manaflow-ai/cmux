@@ -1028,8 +1028,10 @@ trait WithStores {
 
 impl WithStores for Value {
     fn with_stores(mut self, stores: Vec<String>, by: String) -> Value {
-        self["stores"] = json!(stores);
-        self["by"] = json!(by);
+        if let Some(fields) = self.as_object_mut() {
+            fields.insert("stores".to_owned(), json!(stores));
+            fields.insert("by".to_owned(), json!(by));
+        }
         self
     }
 }
@@ -1037,7 +1039,7 @@ impl WithStores for Value {
 fn append_audit(paths: &Paths, record: &Value, id: &str) -> Result<(), String> {
     let _lock = AuditLock::take(&paths.audit)?;
     let mut audit = read_audit(&paths.audit)?;
-    audit["keys"].as_array_mut().ok_or("bad audit")?.push(record.clone());
+    audit.get_mut("keys").and_then(Value::as_array_mut).ok_or("bad audit")?.push(record.clone());
     write_audit(&paths.audit, &audit).map_err(|e| {
         format!("the key {id} is minted and stored, but the audit was not written: {e}")
     })
@@ -1068,24 +1070,24 @@ pub(super) fn mint_via(
     sinks: &dyn Sinks,
 ) -> Result<Value, String> {
     let machine = mint.via.clone().ok_or("--via names the minting machine")?;
-    let mut ask = json!({
-        "machine": machine,
-        "kind": "cloudflare-r2",
-        "bucket": mint.bucket,
-        "access": if mint.write { "rw" } else { "ro" },
-        "ttl": format!("{}m", mint.ttl.as_secs() / 60),
-    });
+    let mut ask = serde_json::Map::new();
+    ask.insert("machine".to_owned(), json!(machine));
+    ask.insert("kind".to_owned(), json!("cloudflare-r2"));
+    ask.insert("bucket".to_owned(), json!(mint.bucket));
+    ask.insert("access".to_owned(), json!(if mint.write { "rw" } else { "ro" }));
+    ask.insert("ttl".to_owned(), json!(format!("{}m", mint.ttl.as_secs() / 60)));
     if let Some(account) = &mint.account {
-        ask["account"] = json!(account);
+        ask.insert("account".to_owned(), json!(account));
     }
     if mint.create_bucket {
-        ask["create_bucket"] = json!(true);
+        ask.insert("create_bucket".to_owned(), json!(true));
     }
     if let Some(days) = mint.expire_objects_days {
-        ask["expire_objects_days"] = json!(days);
+        ask.insert("expire_objects_days".to_owned(), json!(days));
     }
-    let mut answer =
-        broker.mint(ask).map_err(|e| format!("{machine} did not mint the key: {e}"))?;
+    let mut answer = broker
+        .mint(Value::Object(ask))
+        .map_err(|e| format!("{machine} did not mint the key: {e}"))?;
     let mut record = answer.get("minted").cloned().ok_or("the answer has no key")?;
     let id =
         record.get("id").and_then(Value::as_str).ok_or("the answer's key has no id")?.to_owned();
@@ -1113,7 +1115,10 @@ pub(super) fn mint_via(
         }
     }
     drop(pair);
-    record["via"] = json!(machine);
+    record
+        .as_object_mut()
+        .ok_or("the answer's key is not an object")?
+        .insert("via".to_owned(), json!(machine));
     let record = record.with_stores(stored, requester());
     append_audit(paths, &record, &id)?;
     Ok(json!({"minted": record}))

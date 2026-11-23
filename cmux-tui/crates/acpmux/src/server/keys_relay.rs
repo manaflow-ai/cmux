@@ -151,22 +151,21 @@ pub(super) fn parse(params: &Value) -> Result<MintAsk, RpcError> {
 impl MintAsk {
     /// The ask as the next hop gets it: the scope only, no machine.
     pub(super) fn onward(&self) -> Value {
-        let mut ask = json!({
-            "kind": "cloudflare-r2",
-            "bucket": self.bucket,
-            "access": if self.write { "rw" } else { "ro" },
-            "ttl": self.ttl,
-        });
+        let mut ask = Map::new();
+        ask.insert("kind".to_owned(), json!("cloudflare-r2"));
+        ask.insert("bucket".to_owned(), json!(self.bucket));
+        ask.insert("access".to_owned(), json!(if self.write { "rw" } else { "ro" }));
+        ask.insert("ttl".to_owned(), json!(self.ttl));
         if let Some(account) = &self.account {
-            ask["account"] = json!(account);
+            ask.insert("account".to_owned(), json!(account));
         }
         if self.create_bucket {
-            ask["create_bucket"] = json!(true);
+            ask.insert("create_bucket".to_owned(), json!(true));
         }
         if let Some(days) = self.expire_objects_days {
-            ask["expire_objects_days"] = json!(days);
+            ask.insert("expire_objects_days".to_owned(), json!(days));
         }
-        ask
+        Value::Object(ask)
     }
 
     /// The minting machine's CLI words: `cmux --json keys mint cloudflare-r2 ...`, built from the
