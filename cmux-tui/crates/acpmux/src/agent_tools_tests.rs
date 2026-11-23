@@ -291,7 +291,7 @@ fn the_acpmux_server_gets_the_agents_gh_sign_in() {
     };
     let tools = super::AgentTools {
         servers: vec![server("cmux"), server(crate::acpmux_mcp_names::SERVER_NAME)],
-        // The person said yes to cmux's tools (agents.cmuxMcp), so `cmux` stays.
+        // cmux's tools are on for agents (agents.cmuxMcp), so `cmux` stays.
         cmux_for_agents: true,
         ..Default::default()
     };
@@ -461,6 +461,40 @@ fn the_github_status_server_reaches_every_harness_kind() {
     let upstreams: serde_json::Value = serde_json::from_str(upstreams).unwrap();
     assert!(upstreams.as_array().unwrap().iter().any(|s| s["name"] == acpmux), "{upstreams}");
     let _ = std::fs::remove_dir_all(&root);
+}
+
+/// The Chief's engine file reaches only the `cmux` server (its `cloud_computer` default machine),
+/// and a daemon's own value never does.
+#[test]
+fn the_chief_engine_file_reaches_only_the_cmux_server() {
+    let server = |name: &str, env: Vec<(String, String)>| super::McpServer {
+        name: name.to_owned(),
+        command: "x".into(),
+        args: vec![],
+        env,
+    };
+    let stale = vec![(super::CHIEF_ENGINE_ENV.to_owned(), "/stale/engine.json".to_owned())];
+    let tools = super::AgentTools {
+        servers: vec![server("cmux", stale.clone()), server("cmux-cua", stale)],
+        cmux_for_agents: true,
+        ..Default::default()
+    };
+    let env = std::collections::BTreeMap::from([(
+        super::CHIEF_ENGINE_ENV.to_owned(),
+        "/chief/optchat/engine.json".to_owned(),
+    )]);
+    let scoped = tools.clone().scoped(&env);
+    let engine = |s: &super::McpServer| {
+        s.env
+            .iter()
+            .filter(|(k, _)| k == super::CHIEF_ENGINE_ENV)
+            .map(|(_, v)| v.clone())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(engine(&scoped.servers[0]), ["/chief/optchat/engine.json"]);
+    assert!(engine(&scoped.servers[1]).is_empty());
+    let unset = tools.scoped(&std::collections::BTreeMap::new());
+    assert!(unset.servers.iter().all(|s| engine(s).is_empty()));
 }
 
 #[test]
@@ -775,7 +809,7 @@ fn acpmux_processes(config: &serde_json::Value, exe: &std::path::Path) -> Vec<St
 }
 
 /// One chat starts at most [`ACPMUX_PROCESSES_PER_CHAT`] acpmux processes, with the `cmux`
-/// server (folded) and without it (the person has not said yes to cmux's tools: each of acpmux's
+/// server (folded) and without it (the person turned cmux's tools off: each of acpmux's
 /// servers its own entry), and the entries keep their names, so the tool names
 /// (`mcp__cmux-forum__...`) and every allowlist naming them stay.
 #[tokio::test]
@@ -790,7 +824,7 @@ async fn a_chat_starts_at_most_its_budget_of_acpmux_processes() {
         secrets: true,
         offers: true,
         subsessions: true,
-        ..memory_inputs(&root, None)
+        ..memory_inputs(&root, Some(r#"{"agents": {"cmuxMcp": "off"}}"#))
     };
     let gateway = crate::mcp_gateway::bind(
         &root.join("home"),
@@ -846,11 +880,11 @@ async fn a_chat_starts_at_most_its_budget_of_acpmux_processes() {
 }
 
 /// Every agent cmux starts gets the one `cmux` server ([`super::cmux_server`]): this CLI's `mcp
-/// serve` with the app's settings file, and only with the person's yes (`agents.cmuxMcp` on).
-/// Unanswered, `off` or a file that does not parse: the session's other servers, standalone. A
-/// Chief turn (a preset naming its cmux tools) keeps it either way.
+/// serve` with the app's settings file, unless the person turned it off (`agents.cmuxMcp` `off`):
+/// then the session's other servers, standalone. No file, no key, `ask`, another value or a file
+/// that does not parse: on. A Chief turn (a preset naming its cmux tools) keeps it either way.
 #[test]
-fn the_cmux_server_goes_only_with_the_persons_yes() {
+fn the_cmux_server_goes_unless_the_person_turned_it_off() {
     let root = tempfile::tempdir().unwrap();
     let cmux = root.path().join("cmux");
     crate::test_exec::write_executable(&cmux, "#!/bin/sh\nexit 0\n");
@@ -868,14 +902,7 @@ fn the_cmux_server_goes_only_with_the_persons_yes() {
             .collect::<Vec<_>>()
     };
     let none = std::collections::BTreeMap::new();
-    for json in [
-        None,
-        Some("{}"),
-        Some(r#"{"agents": {"cmuxMcp": "ask"}}"#),
-        Some(r#"{"agents": {"cmuxMcp": "off"}}"#),
-        Some(r#"{"agents.cmuxMcp": "yes"}"#),
-        Some("{"),
-    ] {
+    for json in [Some(r#"{"agents": {"cmuxMcp": "off"}}"#), Some(r#"{"agents.cmuxMcp": "off"}"#)] {
         let names = names(json, &none);
         assert!(!names.contains(&"cmux".to_owned()), "{json:?}: {names:?}");
         assert!(names.contains(&crate::acpmux_mcp::SERVER_NAME.to_owned()), "{json:?}: {names:?}");
@@ -887,19 +914,31 @@ fn the_cmux_server_goes_only_with_the_persons_yes() {
             super::resolve(&inputs(json)).scoped(&chief).servers.iter().any(|s| s.name == "cmux")
         );
     }
-    for json in [r#"{"agents": {"cmuxMcp": "on"}}"#, "{\n// mine\n\"agents.cmuxMcp\": \"on\",\n}"] {
-        let tools = super::resolve(&inputs(Some(json))).scoped(&none);
+    for json in [
+        None,
+        Some("{}"),
+        Some(r#"{"agents": {"cmuxMcp": "on"}}"#),
+        Some(r#"{"agents": {"cmuxMcp": "ask"}}"#),
+        Some(r#"{"agents.cmuxMcp": "yes"}"#),
+        Some("{\n// mine\n\"agents.cmuxMcp\": \"on\",\n}"),
+        Some("{"),
+    ] {
+        let tools = super::resolve(&inputs(json)).scoped(&none);
         let server =
-            tools.servers.iter().find(|s| s.name == "cmux").unwrap_or_else(|| panic!("{json}"));
+            tools.servers.iter().find(|s| s.name == "cmux").unwrap_or_else(|| panic!("{json:?}"));
         assert_eq!(server.command, cmux);
         assert_eq!(server.args, ["mcp", "serve"]);
         // Folded: one server, `cmux`, the others behind it.
         let folded = tools.for_session("s-1").folded();
         assert_eq!(folded.servers.iter().map(|s| s.name.as_str()).collect::<Vec<_>>(), ["cmux"]);
     }
-    // MCP off in the settings file: no `cmux` server even with the yes.
-    let off = r#"{"agents": {"cmuxMcp": "on"}, "mcp": {"enabled": false}}"#;
-    assert!(!names(Some(off), &none).contains(&"cmux".to_owned()));
+    // MCP off in the settings file: no `cmux` server even with the setting on.
+    for off in [
+        r#"{"agents": {"cmuxMcp": "on"}, "mcp": {"enabled": false}}"#,
+        r#"{"mcp": {"enabled": false}}"#,
+    ] {
+        assert!(!names(Some(off), &none).contains(&"cmux".to_owned()), "{off}");
+    }
 }
 
 #[test]
@@ -1070,7 +1109,7 @@ fn a_chat_started_from_another_mac_gets_cmux_by_that_macs_answer() {
     let (on, off) = (r#"{"agents": {"cmuxMcp": "on"}}"#, r#"{"agents": {"cmuxMcp": "off"}}"#);
     assert!(has_cmux(off, Some("on")));
     assert!(!has_cmux(on, Some("off")));
-    assert!(!has_cmux(on, Some("ask")), "anything but on is no");
+    assert!(!has_cmux(on, Some("ask")), "a forwarded answer other than on is no");
     // Started here: this machine's answer.
     assert!(has_cmux(on, None));
     assert!(!has_cmux(off, None));
@@ -1288,6 +1327,43 @@ fn a_chat_gets_the_saved_mcp_servers_with_its_session() {
         resolve(&memory_inputs(&root, Some(r#"{"agents":{"mcpServers":{"enabled":false}}}"#)));
     assert!(off.servers.iter().all(|s| s.name != name), "{:?}", off.servers);
     let _ = std::fs::remove_dir_all(&root);
+}
+
+/// The per-agent switch (cmux#49395): a Claude Code or Codex chat the person switched off gets the
+/// answer `off` (so `scoped` leaves `cmux` out under a yes); the other agent, another harness and
+/// an answer the chat already carries (another Mac's) are left alone.
+#[test]
+fn an_agent_switched_off_gets_the_answer_off() {
+    use std::collections::BTreeMap;
+    let settings = Some(r#"{"agents": {"cmuxMcp": "on", "cmuxMcpCodex": false}}"#);
+    assert!(super::agent_switched_off(settings, "codex"));
+    assert!(!super::agent_switched_off(settings, "claude"));
+    assert!(!super::agent_switched_off(settings, "gemini"));
+    assert!(!super::agent_switched_off(Some(r#"{"agents.cmuxMcpClaude": "no"}"#), "claude"));
+    assert!(super::agent_switched_off(Some(r#"{"agents.cmuxMcpClaude": false}"#), "claude"));
+    assert!(!super::agent_switched_off(None, "claude"));
+    let answer = |agent: Option<&str>, mut env: BTreeMap<String, String>| {
+        super::agent_switch_answer(&mut env, settings, agent);
+        env.get(super::TOOLS_ANSWER_ENV).cloned()
+    };
+    assert_eq!(answer(Some("codex"), BTreeMap::new()).as_deref(), Some("off"));
+    assert_eq!(answer(Some("claude"), BTreeMap::new()), None);
+    assert_eq!(answer(None, BTreeMap::new()), None);
+    let from_another_mac = BTreeMap::from([(super::TOOLS_ANSWER_ENV.to_owned(), "on".to_owned())]);
+    assert_eq!(answer(Some("codex"), from_another_mac).as_deref(), Some("on"));
+    // The answer `off` leaves cmux's server out of the chat's tools, as a no does.
+    let tools = super::AgentTools {
+        servers: vec![super::McpServer {
+            name: super::CMUX_SERVER.into(),
+            command: "/bin/cmux".into(),
+            args: vec![],
+            env: vec![],
+        }],
+        cmux_for_agents: true,
+        ..Default::default()
+    };
+    let off = BTreeMap::from([(super::TOOLS_ANSWER_ENV.to_owned(), "off".to_owned())]);
+    assert!(tools.scoped(&off).servers.is_empty());
 }
 
 /// acpmux's own servers' instructions go in Claude Code's appended system prompt, the prefix

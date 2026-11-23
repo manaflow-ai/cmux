@@ -289,6 +289,17 @@ impl Hub {
                 // `initialize` holds the spawn lock that check takes (review 1 of #26059), unless a
                 // reattach replaced the link since (review 2).
                 Inbound::LinkBroken { agent } => {
+                    let child =
+                        session.child.lock().await.clone().filter(|c| c.generation == agent);
+                    if let Some(child) = child.filter(|c| c.is_broken()) {
+                        // An entry from its host could not be stored: every request open on it is
+                        // answered now, with the store's refusal (`disk.full` on a full disk) or
+                        // the link's own error, never left to the client's limit. The next request
+                        // reattaches; the host keeps the entry for it.
+                        let full = self.store.durability().and_then(|d| (d.full)());
+                        let why = full.as_deref().unwrap_or(crate::agent::LINK_UNLOGGED);
+                        child.fail_pending_if_unheard_with(why).await;
+                    }
                     if self.full_access_managed_off() {
                         let child = session.child.lock().await.clone();
                         if let Some(child) = child.filter(|c| c.generation == agent) {
@@ -518,7 +529,12 @@ impl Hub {
                 }
                 // A harness title made from the first input stops before a client context
                 // (prompt_context.rs), so a Cmd-I chat titles from the person's words.
-                if let Some(title) = update.get("title").and_then(Value::as_str) {
+                // A chat someone named (`titles::NAMED`: a rename, a starter's name) keeps the
+                // title its name gave: a harness title after it put the old name back in every
+                // list (Leo, 2026-11-22: "I DON'T KNOW WHO'S BEEN RENAMED TO WHAT").
+                let named = m.title_source.as_deref() == Some(super::titles::NAMED);
+                if let Some(title) = update.get("title").and_then(Value::as_str).filter(|_| !named)
+                {
                     let title = cmux_chat_index::without_client_context(title).trim_end();
                     if !title.is_empty() {
                         retitled = m.title.as_deref() != Some(title);
@@ -795,6 +811,8 @@ impl Hub {
         turn_id: Option<String>,
     ) -> Result<Value, RpcError> {
         let mut path = Self::fs_path(session, &params)?;
+        // A conflict from the last flush of a paused machine answers this call (`paused_fs.rs`).
+        self.journal_notices(session)?;
         // The remote floor: never through a symlink, the question names the
         // resolved path, and only that file is written (`write_approved`).
         let web_turn = Self::web_turn(session);
@@ -830,6 +848,10 @@ impl Hub {
                 -32000,
                 format!("write to {shown} rejected by the acpmux permission policy"),
             ));
+        }
+        // A paused machine's write goes to its journal, applied when it resumes (`paused_fs.rs`).
+        if self.journal_write(session, &path, &content).await? {
+            return Ok(Value::Null);
         }
         // Keep the read lease through the write; a new seed cannot begin in
         // between readiness and mutation. A Stop during the wait cancels it.
@@ -913,18 +935,25 @@ impl Hub {
                 format!("read of {} rejected by the acpmux permission policy", path.display()),
             ));
         }
-        let text = self
-            .read_with_external_access(session, &path, epoch, turn_id, || match &target {
-                Some(Some(t)) => {
-                    use std::io::Read;
-                    let mut text = String::new();
-                    super::remote_floor::open_read_target(t)?.read_to_string(&mut text)?;
-                    Ok(text)
-                }
-                Some(None) => Err(std::io::Error::other("the path cannot be resolved")),
-                None => std::fs::read_to_string(&path),
-            })
-            .await?;
+        // A paused machine's read is answered from its journal and replica (`paused_fs.rs`).
+        self.journal_notices(session)?;
+        let journaled = self.journal_read(session, &path).await?;
+        let text = match journaled {
+            Some(text) => text,
+            None => {
+                self.read_with_external_access(session, &path, epoch, turn_id, || match &target {
+                    Some(Some(t)) => {
+                        use std::io::Read;
+                        let mut text = String::new();
+                        super::remote_floor::open_read_target(t)?.read_to_string(&mut text)?;
+                        Ok(text)
+                    }
+                    Some(None) => Err(std::io::Error::other("the path cannot be resolved")),
+                    None => std::fs::read_to_string(&path),
+                })
+                .await?
+            }
+        };
         let line = params.get("line").and_then(Value::as_u64).map(|l| l.max(1) as usize);
         let limit = params.get("limit").and_then(Value::as_u64).map(|l| l as usize);
         let content = match (line, limit) {
@@ -1543,7 +1572,7 @@ impl Hub {
             // The caller dismissed it: the audit trail keeps it apart from a withdrawal.
             self.review_index.mark_settled(&session.id, permission_id, Settled::Caller);
         }
-        let mut outcome = match option_id {
+        let mut outcome = match option_id.as_deref() {
             Some(o) => json!({"outcome": "selected", "optionId": o}),
             None => json!({"outcome": "cancelled"}),
         };
@@ -1555,7 +1584,22 @@ impl Hub {
                 input.set("annotations", notes);
             }
             outcome.set("_meta", json!({"updatedInput": input}));
+        } else if let Some(input) = super::plan_build::edited_input(&pending.request)
+            && option_id.as_deref().is_some_and(|o| {
+                let options = pending.request["options"].as_array().map_or(&[][..], Vec::as_slice);
+                matches!(option_kind(options, o), Some("allow_once" | "allow_always"))
+            })
+        {
+            // A plan the person edited before approving: the agent gets the edit as its input.
+            outcome.set("_meta", json!({"updatedInput": input}));
         }
+        // An approved plan stays in the chat's sight while the agent builds it (`approved_plan`).
+        let approved = option_id.as_deref().and_then(|o| {
+            let options = pending.request["options"].as_array().map_or(&[][..], Vec::as_slice);
+            matches!(option_kind(options, o), Some("allow_once" | "allow_always"))
+                .then(|| super::plan_build::approved_plan(&pending.request, permission_id))
+                .flatten()
+        });
         if let Some(by) = answered_by {
             outcome[ANSWERED_BY_SLOT] = by;
         }
@@ -1571,6 +1615,9 @@ impl Hub {
             )
             .with_data(json!({"reason": "agent_gone", "sessionId": session.id,
                                   "permissionId": permission_id})));
+        }
+        if let Some(plan) = approved {
+            self.approved_plan_set(session, plan);
         }
         Ok(())
     }
