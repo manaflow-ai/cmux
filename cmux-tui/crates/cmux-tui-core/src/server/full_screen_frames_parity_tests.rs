@@ -80,15 +80,45 @@ fn pump(viewers: &Viewers, phones: &mut Phones) -> bool {
     for (viewer, phone) in
         [(&viewers.frames, &mut phones.frames), (&viewers.control, &mut phones.control)]
     {
+        let traced = std::ptr::eq(viewer, &viewers.frames);
         while let Some(message) = viewer.outbound.try_pop() {
             any = true;
             let event: Value = serde_json::from_str(&message).expect("outbound JSON");
+            if traced {
+                trace(&mut phones.trace, &mut phones.trace_decoder, &event);
+            }
             if matches!(event["event"].as_str(), Some("agent-cli-lean" | "output")) {
                 phone.apply(&event);
             }
         }
     }
     any
+}
+
+/// What the frames viewer got, as the bytes its terminal is fed, while `trace` is on.
+fn trace(trace: &mut Option<Vec<String>>, decoder: &mut LeanDecoder, event: &Value) {
+    let line = match event["event"].as_str() {
+        Some("agent-cli-lean") => {
+            let decoded = decoder.decode(&decode(event, "f")).expect("a lean frame");
+            let bytes = cmux_agent_cli_render::vt::frame_bytes(
+                &decoded.frame,
+                decoded.rows,
+                decoded.cursor,
+            )
+            .unwrap_or_default();
+            format!(
+                "lean frame={} base={:?} {:?}",
+                decoded.frame.frame,
+                decoded.frame.base,
+                String::from_utf8_lossy(&bytes)
+            )
+        }
+        Some("output") => format!("output {:?}", String::from_utf8_lossy(&decode(event, "data"))),
+        other => format!("{other:?}"),
+    };
+    if let Some(trace) = trace {
+        trace.push(line.chars().take(4000).collect());
+    }
 }
 
 /// The three viewers of the one shell.
@@ -103,6 +133,8 @@ struct Phones {
     bytes: BytesPhone,
     frames: LinesPhone,
     control: LinesPhone,
+    trace: Option<Vec<String>>,
+    trace_decoder: LeanDecoder,
 }
 
 /// Pumps until both streams have been quiet for `QUIET`.
@@ -303,7 +335,13 @@ fn full_screen_frames_end_on_the_raw_bytes_screen_cell_by_cell() {
         viewer.attach(&mux, &surface, json!({}));
     }
     let lines = || LinesPhone { decoder: LeanDecoder::new(), phone: None };
-    let mut phones = Phones { bytes: BytesPhone { term: None }, frames: lines(), control: lines() };
+    let mut phones = Phones {
+        bytes: BytesPhone { term: None },
+        frames: lines(),
+        control: lines(),
+        trace: None,
+        trace_decoder: LeanDecoder::new(),
+    };
     // `score`: the frames phone against the raw bytes phone. `control`: against the phone of
     // the shell lines alone (no full-screen frames), every row: what the cut must not change.
     let mut score = Score::default();
@@ -378,8 +416,35 @@ fn full_screen_frames_end_on_the_raw_bytes_screen_cell_by_cell() {
     }
 
     // It ends: back to the shell's screen and scrollback, and the shell goes on.
+    settle(&viewers, &mut phones);
+    phones.trace = Some(Vec::new());
     surface.inject_output_for_test(b"\x1b[?1006l\x1b[?1000l\x1b[?1049l$ ");
+    let before = score.mismatched;
     check("exit", &mut phones, &mut score, &mut control);
+    if score.mismatched != before {
+        // What the frames viewer got for the exit, and the rows that differ.
+        for line in phones.trace.take().unwrap_or_default() {
+            println!("FULL-SCREEN-FRAMES-PARITY exit-trace {line}");
+        }
+        let text = |t: &Vt| -> Vec<String> {
+            snapshot(t)
+                .rows
+                .iter()
+                .map(|row| {
+                    row.iter().map(|c| if c.text.is_empty() { "_" } else { &c.text }).collect()
+                })
+                .collect()
+        };
+        let want = text(phones.bytes.term.as_ref().unwrap());
+        let got = text(&phones.frames.phone.as_ref().unwrap().term);
+        for (i, (a, b)) in want.iter().rev().zip(got.iter().rev()).enumerate() {
+            if a != b {
+                println!("FULL-SCREEN-FRAMES-PARITY exit-row -{} bytes {a:?}", i + 1);
+                println!("FULL-SCREEN-FRAMES-PARITY exit-row -{} frames {b:?}", i + 1);
+            }
+        }
+    }
+    phones.trace = None;
     let mut after = b"echo \xe6\xbc\xa2\xf0\x9f\x9a\x80 done\r\n".to_vec();
     for i in 0..30 {
         after.extend_from_slice(format!("{}\r\n", file_line(FILE_LINES + i)).as_bytes());
