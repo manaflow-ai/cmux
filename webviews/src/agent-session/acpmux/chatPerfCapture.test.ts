@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { AcpmuxPerf } from "./perf";
 import {
   ChatPerfCapture,
   type CaptureEnv,
@@ -218,6 +219,32 @@ describe("chat perf capture: a record's own paint", () => {
     expect(report.records.tool_call.to_paint.max_ms).toBe(520);
     expect(report.records.agent_message_chunk.to_paint.max_ms).toBe(260);
     expect(report.records.unpainted).toBe(0);
+  });
+});
+
+describe("chat perf capture: typing", () => {
+  test("keys typed in the window are reported, the recorder is on only for the window, keys before it are left out", async () => {
+    const page = fakeEnv();
+    const perf = new AcpmuxPerf();
+    page.env.perf = perf;
+    const key = (paint: number) => ({ key: "a", frame: paint - 1, paint, chars: 5_000, next_frame_ms: 16.7 });
+    perf.typing.push(key(99));
+    perf.typingPushed += 1;
+    const running = new ChatPerfCapture().capture({ seconds: 1 }, page.env);
+    expect(perf.enabled).toBe(true);
+    perf.typing.push(key(10), key(30));
+    perf.typingPushed += 2;
+    page.advance(16);
+    page.frame();
+    page.paint();
+    page.finish();
+    const report = (await running) as Record<string, any>;
+    expect(perf.enabled).toBe(false);
+    expect(report.typing.keys).toBe(2);
+    expect(report.typing.to_paint.max_ms).toBe(30);
+    expect(report.typing.dropped_frames).toBe(1);
+    expect(report.typing.max_chars).toBe(5_000);
+    expect(report.typing.samples).toBeUndefined();
   });
 });
 

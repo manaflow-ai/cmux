@@ -134,7 +134,8 @@ parser.add_argument("--words", action="store_true", help="type words with spaces
 parser.add_argument("--fresh-draft", action="store_true",
                     help="empty the Home draft (Cmd-A, Delete) before each measure, so every round types the same draft")
 parser.add_argument("--prefill", type=int, default=0,
-                    help="with --fresh-draft: the Home draft holds this many characters of words before the measured keys")
+                    help="with --fresh-draft: the Home draft holds this many characters of words before the measured keys; "
+                         "for agentpane the chat's prompt does (debug.agent_pane reset_typing draft), every round")
 parser.add_argument("--stress", action="store_true",
                     help="build the STRESS session first (perf-lead brief: 60 workspaces, the typed workspace a 4x3 grid with "
                          "6 tabs per pane, 10 workspaces with Chromium pages, 10 printing terminals); every phase runs in it. "
@@ -524,14 +525,18 @@ def agent_expected_text(count):
     return "".join(letters[index % len(letters)] for index in range(count))
 
 
-def agent_typing_verdict(stats, expected, dispatch):
-    """Validate page telemetry and join its paint epoch to the native dispatch clock."""
+def agent_typing_verdict(stats, expected, dispatch, prefix_chars=0):
+    """Validate page telemetry and join its paint epoch to the native dispatch clock.
+
+    `prefix_chars`: the prompt held that many characters before the keys (--prefill), so the text ends with them."""
     stats = stats if isinstance(stats, dict) else {}
     samples = stats.get("samples") if isinstance(stats.get("samples"), list) else []
     keys = [sample.get("key") for sample in samples if isinstance(sample, dict)]
     ordered = (len(keys) == len(samples) == len(expected) and all(isinstance(key, str) for key in keys)
                and "".join(keys) == expected)
-    exact = stats.get("composer_text") == expected
+    text = stats.get("composer_text")
+    exact = (text == expected if not prefix_chars else
+             isinstance(text, str) and text.endswith(expected) and len(text) == prefix_chars + len(expected))
     finite = bool(samples) and len(samples) == len(expected)
     for sample in samples:
         if not isinstance(sample, dict):
@@ -694,7 +699,11 @@ def measure_agentpane(phase, pid, pane, streams=()):
     cleared = wait(lambda: (lambda report: report if report.get("composer_text") == "" and
                              report.get("keys", 0) >= before_keys + 2 else None)(
         rpc("debug.agent_pane", {"action": "typing_stats", "pane": pane}, timeout=5) or {}), 5, step=0.2)
-    reset = rpc("debug.agent_pane", {"action": "reset_typing", "pane": pane}, timeout=10)
+    reset_params = {"action": "reset_typing", "pane": pane}
+    if opts.prefill > 0:
+        reset_params["draft"] = opts.prefill
+    reset = rpc("debug.agent_pane", reset_params, timeout=30)
+    prefix_chars = (reset or {}).get("chars", 0) if opts.prefill > 0 else 0
     rpc("debug.hangs", {"clear": True})
     rpc("debug.timings", {"clear": True})
     rpc("debug.frames", {"action": "start"})
@@ -737,9 +746,12 @@ def measure_agentpane(phase, pid, pane, streams=()):
             main_profile = {"error": "sample output unavailable", "file": os.path.basename(sampler[1])}
     cpu_end = (time.monotonic(), cpu_seconds(pid), cpu_seconds(WINDOW_SERVER))
     frames_after = draw_on_input_frames()
-    verdict = agent_typing_verdict(typing, expected, dispatch)
+    verdict = agent_typing_verdict(typing, expected, dispatch, prefix_chars)
     frame_report = frame_metrics(frames)
     entry.update({"keys": len(expected), "measured": verdict["observed_keys"], "expected_text": expected,
+                  "prefill_chars": prefix_chars,
+                  # The page's own count (perf.ts keyDroppedFrames): vsyncs a key waited past, and frames its own ran over.
+                  "dropped_frames": typing.get("dropped_frames"), "frame_interval_ms": typing.get("frame_interval_ms"),
                   "clear": {"select": clear_select, "delete": clear_delete, "delete_key": "delete",
                             "verified": bool(cleared), "reset": reset},
                   "typing": typing, "dispatch": dispatch, "key_rpc_ms": pct(trips), **verdict,

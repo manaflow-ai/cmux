@@ -169,7 +169,37 @@ export type TypingSample = {
   paint_epoch_ms?: number;
   /** Shared rAF timestamp identifies keys delivered in the same display-frame callback batch. */
   frame_timestamp_ms?: number;
+  /** The prompt's length in characters once the key painted (a key into a 5,000-character draft is its own row). */
+  chars?: number;
+  /** The key's frame to the frame after it (one more rAF, then none): a long one is a frame the key's work dropped. */
+  next_frame_ms?: number;
 } & Partial<KeyPresentation>;
+
+/// The display's frame interval as the keys' own frames show it: the fastest tenth of `next_frame_ms`
+/// (a frame is never shorter than the refresh; under load most are longer), never longer than a 60 Hz frame: under
+/// CPU load even the fastest tenth stretch, and counting against a stretched interval would hide the frames it dropped.
+export function typingFrameInterval(samples: readonly TypingSample[]): number {
+  const intervals = samples.flatMap((sample) =>
+    sample.next_frame_ms !== undefined && sample.next_frame_ms > 1 ? [sample.next_frame_ms] : [],
+  );
+  if (!intervals.length) return 1000 / 60;
+  return Math.min(
+    1000 / 60,
+    percentile(
+      intervals.sort((a, b) => a - b),
+      0.1,
+    ),
+  );
+}
+
+/// Frames one key dropped against `nominal`: each vsync that passed between the keydown and the frame that
+/// began drawing it (`frame`), and each the key's own frame ran over (`next_frame_ms`).
+export function keyDroppedFrames(sample: TypingSample, nominal: number): number {
+  if (!(nominal > 0)) return 0;
+  const waited = Math.max(0, Math.floor(sample.frame / nominal));
+  const ranOver = sample.next_frame_ms === undefined ? 0 : Math.max(0, Math.round(sample.next_frame_ms / nominal) - 1);
+  return waited + ranOver;
+}
 /// `promptSent`: the first prompt the page sent since its handshake (direct.ts, as `session/prompt` goes out).
 export type AgentMark =
   | "handshakeStart"
@@ -211,6 +241,8 @@ export function typingSummary(samples: TypingSample[]) {
       ),
     ),
   });
+  const nominal = typingFrameInterval(samples);
+  const dropped = samples.map((sample) => keyDroppedFrames(sample, nominal));
   return {
     keys: samples.length,
     to_frame: stages(samples.map((sample) => sample.frame)),
@@ -222,6 +254,10 @@ export function typingSummary(samples: TypingSample[]) {
     submitted_keys: samples.filter((sample) => sample.submitted !== undefined).length,
     to_listener: stages(samples.flatMap((sample) => (sample.listener === undefined ? [] : [sample.listener]))),
     to_work: stages(samples.flatMap((sample) => (sample.work === undefined ? [] : [sample.work]))),
+    frame_interval_ms: round2(nominal),
+    dropped_frames: dropped.reduce((total, frames) => total + frames, 0),
+    keys_with_drops: dropped.filter((frames) => frames > 0).length,
+    max_chars: samples.reduce((most, sample) => Math.max(most, sample.chars ?? 0), 0),
     samples: samples.map((sample) => ({ ...sample })),
   };
 }
@@ -244,6 +280,8 @@ export class AcpmuxPerf {
   mounted: MountedSpan[] = [];
   private commitWaiters: ((now: number) => void)[] = [];
   readonly typing: TypingSample[] = [];
+  /** Typing samples pushed since the page loaded (`typing` keeps the newest 4,096): the perf watch reads past its last count. */
+  typingPushed = 0;
   private agentMarks: Partial<Record<AgentMark, number>> = {};
   /// A new chat's start state as its frames show it (the New Tab chip's folder, the hero's project
   /// and its Do not work in a project check): the first one drawn, and when it last changed.
@@ -254,6 +292,12 @@ export class AcpmuxPerf {
   private keyTarget: Pick<Document, "addEventListener" | "removeEventListener"> | undefined;
   /// Told each agent mark as it is kept (the perf watch's new-chat span, perfReporter.ts); unset while it is off.
   markListener: ((stage: AgentMark, at: number) => void) | undefined;
+
+  /** The typing samples pushed after the first `count` (`typingPushed`) that `typing` still holds, oldest first. */
+  typingAfter(count: number): TypingSample[] {
+    const fresh = Math.min(this.typing.length, Math.max(0, this.typingPushed - count));
+    return fresh ? this.typing.slice(this.typing.length - fresh) : [];
+  }
 
   /** Turns measurement on; installs the composer key listener once (the chat's and New Tab's). */
   enable(
@@ -299,9 +343,18 @@ export class AcpmuxPerf {
           const painted = performance.now();
           sample.paint = painted - start;
           sample.paint_epoch_ms = performance.timeOrigin + painted;
+          // Read after the paint mark, so the read is not in the key's time.
+          const field = element.closest?.('[contenteditable="true"], textarea, input') ?? element;
+          const value = (field as { value?: unknown }).value;
+          sample.chars = typeof value === "string" ? value.length : (field.textContent?.length ?? 0);
           this.typing.push(sample);
+          this.typingPushed += 1;
           if (this.typing.length > 4096) this.typing.shift();
           channel.port1.close();
+          // One more frame, then none: whether the key's own frame ran long.
+          requestAnimationFrame((next) => {
+            sample.next_frame_ms = next - timestamp;
+          });
         };
         channel.port2.postMessage(0);
       });

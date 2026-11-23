@@ -5,6 +5,7 @@ import { describe, expect, test } from "bun:test";
 import { AcpmuxPerf } from "./perf";
 import {
   bytesByMethod,
+  keyPaintSpan,
   newChatSpan,
   pageLoadSpan,
   PerfReporter,
@@ -358,6 +359,63 @@ describe("spans", () => {
     h.reporter.visibilityChanged(false);
     expect(h.frames.length).toBe(0);
     expect(h.reporter.buildReport()).toBeUndefined();
+  });
+});
+
+describe("key to paint", () => {
+  const key = (paint: number, extra: Record<string, number> = {}) => ({
+    key: "a",
+    listener: 1,
+    work: 2,
+    frame: paint - 1,
+    paint,
+    chars: 5_000,
+    next_frame_ms: 16.7,
+    paint_epoch_ms: 1_000,
+    ...extra,
+  });
+
+  test("the slowest key is the total and its stages the parts; every key's paint is in the detail", () => {
+    const span = keyPaintSpan([key(10), key(40), key(12, { chars: 4 })], 16.7)!;
+    expect(span.name).toBe("key to paint");
+    expect(span.budget).toBe("composer.key_paint");
+    expect(span.ms).toBe(40);
+    expect(span.parts.map((part) => part.name)).toEqual(["listener", "edit", "frame", "paint"]);
+    expect(span.parts.at(-1)).toEqual({ name: "paint", startMs: 39, ms: 1 });
+    expect(span.detail).toMatchObject({ keys: 3, p50Ms: 12, p99Ms: 40, chars: 5_000, paintMs: [10, 40, 12] });
+    // The 40 ms key's frame began 39 ms after its keydown: two vsyncs passed at 16.7 ms.
+    expect(span.detail!.droppedFrames).toBe(2);
+    expect(keyPaintSpan([])).toBeUndefined();
+  });
+
+  test("the reporter sends each key once, waiting a report for a key's frame-after mark", async () => {
+    const h = harness();
+    h.reporter.attach(h.send);
+    await flush();
+    h.perf.typing.push(key(10), key(11, { next_frame_ms: undefined as unknown as number }));
+    h.perf.typingPushed += 2;
+    h.timers[0]!();
+    await flush();
+    const first = h.sent.at(-1)!.spans as { name: string; detail: { keys: number } }[];
+    expect(first.find((span) => span.name === "key to paint")?.detail.keys).toBe(1);
+    h.perf.typing[1]!.next_frame_ms = 16.7;
+    h.advance(1_000);
+    h.timers[0]!();
+    await flush();
+    const second = h.sent.at(-1)!.spans as { name: string; detail: { keys: number; paintMs: number[] } }[];
+    expect(second.find((span) => span.name === "key to paint")?.detail).toMatchObject({ keys: 1, paintMs: [11] });
+  });
+
+  test("keys typed before the watch turned on are not reported", async () => {
+    const h = harness();
+    h.perf.typing.push(key(10));
+    h.perf.typingPushed += 1;
+    h.reporter.attach(h.send);
+    await flush();
+    h.perf.render("Row");
+    h.timers[0]!();
+    await flush();
+    expect((h.sent.at(-1)!.spans as unknown[]).length).toBe(0);
   });
 });
 

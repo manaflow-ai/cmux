@@ -138,6 +138,13 @@ pub const BUDGETS: &[Budget] = &[
         source: "flickerLog.ts long-frame; < 10 ms p95 action budget (perf-lead.md)",
     },
     Budget {
+        key: "composer.key_paint",
+        limit: 33.0,
+        unit: "ms",
+        what: "a key in the composer to its painted frame (the slowest key of a second)",
+        source: "perf.ts composer key listener; two 60 Hz frames (cmuxterm-hq findings 2026-11-23 composer input latency)",
+    },
+    Budget {
         key: "layout_shift",
         limit: 0.05,
         unit: "score",
