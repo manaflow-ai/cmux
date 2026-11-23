@@ -398,6 +398,9 @@ public final class TerminalSurfaceView: NSView {
         let resized = newSize != frame.size
         super.setFrameSize(newSize)
         if resized { session?.frameChanges.bump() } // its kept frame has another size now (TerminalLaunchFrameKeeper)
+        #if DEBUG || CMUX_BENCH_HOOKS
+        if resized, isShown, MotionDebug.isTracing { noteSizeAskForTrace(frameOwnership.landing ? "land" : "frame", newSize) }
+        #endif
         // Taking the size Ghostty already shows (``landRequestedFrame()``) asks for no new size.
         if resized, isShown, !frameOwnership.landing { updateSurfaceSize() }
         // A landing runs under the Core Animation lock: its cursor box follows after it (``frameDidLand()``).
