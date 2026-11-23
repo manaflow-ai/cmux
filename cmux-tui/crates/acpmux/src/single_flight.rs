@@ -17,9 +17,14 @@ struct Flight<V, E> {
 /// The first caller evaluates the operation. Callers arriving before it completes await the same
 /// shared future and receive cloned values or the same cloned error. Once the future completes,
 /// its entry is removed before the caller returns, so a later call starts a fresh operation.
-#[derive(Default)]
 pub(crate) struct SingleFlight<K, V, E> {
     flights: Mutex<HashMap<K, Arc<Flight<V, E>>>>,
+}
+
+impl<K, V, E> Default for SingleFlight<K, V, E> {
+    fn default() -> Self {
+        Self { flights: Mutex::new(HashMap::new()) }
+    }
 }
 
 impl<K, V, E> SingleFlight<K, V, E>
@@ -98,10 +103,10 @@ mod tests {
         }
         assert_eq!(operations.load(Ordering::SeqCst), 1);
 
-        let operations = operations.clone();
+        let operation_count = operations.clone();
         let result = flights
             .run("same-read", move || async move {
-                operations.fetch_add(1, Ordering::SeqCst);
+                operation_count.fetch_add(1, Ordering::SeqCst);
                 Ok(json!({"answer": 8}))
             })
             .await
