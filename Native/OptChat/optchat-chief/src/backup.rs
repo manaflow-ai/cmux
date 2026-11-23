@@ -134,6 +134,11 @@ pub enum Outcome {
         error: String,
         retry: Duration,
     },
+    /// A turn arrived before the next scheduled retry.
+    Waiting {
+        error: String,
+        retry: Duration,
+    },
     /// The backup could not be reconciled within its retry window.
     Blocked {
         error: String,
@@ -148,6 +153,8 @@ pub struct Backup {
     retries: u32,
     retry_until: Option<Instant>,
     due: Option<Instant>,
+    last_error: Option<String>,
+    blocked: Option<(String, u32)>,
 }
 
 /// One secret shape: a prefix, the characters that follow it and how many.
@@ -522,6 +529,8 @@ impl Backup {
             retries: 0,
             retry_until: None,
             due: None,
+            last_error: None,
+            blocked: None,
         }
     }
 
@@ -587,14 +596,36 @@ impl Backup {
 
     /// One attempt: scan what is new since the last push, then push it.
     pub fn run(&mut self, dir: &Path) -> Outcome {
+        if let Some((error, attempts)) = &self.blocked {
+            return Outcome::Blocked {
+                error: error.clone(),
+                attempts: *attempts,
+            };
+        }
+        if let Some(at) = self.due {
+            let now = Instant::now();
+            if now < at {
+                return Outcome::Waiting {
+                    error: self
+                        .last_error
+                        .clone()
+                        .unwrap_or_else(|| "backup retry is pending".to_owned()),
+                    retry: at.saturating_duration_since(now),
+                };
+            }
+        }
         let outcome = self.attempt(dir);
         match &outcome {
-            Outcome::Failed { .. } | Outcome::Blocked { .. } => {}
+            Outcome::Failed { .. } | Outcome::Waiting { .. } | Outcome::Blocked { .. } => {}
             _ => {
                 self.retries = 0;
                 self.retry_until = None;
                 self.due = None;
+                self.last_error = None;
             }
+        }
+        if let Outcome::Blocked { error, attempts } = &outcome {
+            self.blocked = Some((error.clone(), *attempts));
         }
         self.report(&outcome);
         outcome
@@ -699,13 +730,18 @@ impl Backup {
         let until = *self.retry_until.get_or_insert(now + RETRY_WINDOW);
         if self.retries >= MAX_RETRIES || now >= until {
             self.due = None;
-            return Outcome::Blocked {
+            let outcome = Outcome::Blocked {
                 error,
                 attempts: self.retries,
             };
+            if let Outcome::Blocked { error, .. } = &outcome {
+                self.last_error = Some(error.clone());
+            }
+            return outcome;
         }
         let retry = retry_delay(self.retries);
         self.due = Some(Instant::now() + retry);
+        self.last_error = Some(error.clone());
         Outcome::Failed { error, retry }
     }
 
@@ -733,6 +769,7 @@ impl Backup {
                     json!({"error": error, "retry_s": retry.as_secs()}),
                 )),
             ),
+            Outcome::Waiting { .. } => return,
             Outcome::Blocked { error, attempts } => {
                 let text = format!(
                     "backup push stopped after {attempts} attempts: {error}; inspect the backup repository and retry"
