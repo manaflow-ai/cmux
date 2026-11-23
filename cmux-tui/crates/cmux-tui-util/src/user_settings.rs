@@ -92,6 +92,7 @@ impl NewWorkspacePlacement {
     /// not know and a file that does not parse give the default, as in the
     /// app (which reports the bad value as a diagnostic).
     pub fn from_config_text(text: &str) -> Self {
+        let text = text.trim_start_matches('\u{feff}');
         let Ok(document) = serde_json::from_str::<Value>(&strip_jsonc(text)) else {
             return Self::default();
         };
@@ -251,7 +252,7 @@ pub fn ultra() -> UltraConnection {
     }
 }
 
-/// Settings-file `agents.cmuxMcp` ("cmux Tools for Agents in cmux"): whether
+/// Settings-file `agents.cmuxMcp` ("Give Agents cmux’s Tools"): whether
 /// agents cmux starts get its `cmux` MCP server (which carries cmux Computer
 /// Use): a Claude Code or Codex typed into a cmux terminal (the `claude` and
 /// `codex` shims, each launch) and the app's agent chats (acpmux, which reads
@@ -313,6 +314,48 @@ impl AgentsCmuxMcp {
     /// call so a change applies to the next agent launch with no reload.
     pub fn current() -> Self {
         Self::from_config_file(&config_path())
+    }
+
+    /// The per-agent switch under the answer (cmux#49395): `agents.cmuxMcpClaude`
+    /// for `claude`, `agents.cmuxMcpCodex` for `codex` (a `cmux setup mcp`
+    /// client id); `None` for any other agent, which follows the answer alone.
+    /// acpmux reads the same keys (`acpmux::agent_tools::agent_switch_key`).
+    pub fn agent_key(agent: &str) -> Option<&'static str> {
+        match agent {
+            "claude" => Some("agents.cmuxMcpClaude"),
+            "codex" => Some("agents.cmuxMcpCodex"),
+            _ => None,
+        }
+    }
+
+    /// The answer for one agent: `Off` when the answer is off or the person
+    /// switched that agent off (`false` at [`Self::agent_key`]); no value,
+    /// `true` or anything else keeps the answer.
+    pub fn from_config_text_for(text: &str, agent: &str) -> Self {
+        let choice = Self::from_config_text(text);
+        if choice != Self::On {
+            return choice;
+        }
+        let Some(key) = Self::agent_key(agent) else { return choice };
+        let text = text.trim_start_matches('\u{feff}');
+        let Ok(document) = serde_json::from_str::<Value>(&strip_jsonc(text)) else {
+            return choice;
+        };
+        let pointer = format!("/{}", key.replace('.', "/"));
+        let value = document.get(key).or_else(|| document.pointer(&pointer));
+        if value.and_then(Value::as_bool) == Some(false) { Self::Off } else { choice }
+    }
+
+    /// [`Self::from_config_text_for`] over the settings file at `path`.
+    pub fn from_config_file_for(path: &Path, agent: &str) -> Self {
+        std::fs::read_to_string(path)
+            .map(|text| Self::from_config_text_for(&text, agent))
+            .unwrap_or_default()
+    }
+
+    /// [`Self::current`] for one agent (the `claude` and `codex` shims).
+    pub fn current_for(agent: &str) -> Self {
+        Self::from_config_file_for(&config_path(), agent)
     }
 
     /// Whether the shims pass the cmux server to an agent launched in a cmux
@@ -467,6 +510,28 @@ mod tests {
             Choice::from_config_file(std::path::Path::new("/nonexistent/cmux-next.json")),
             Choice::On
         );
+    }
+
+    #[test]
+    fn an_agent_switched_off_gets_no_cmux_tools_under_a_yes() {
+        use super::AgentsCmuxMcp as Choice;
+        let on = r#"{"agents": {"cmuxMcp": "on"}}"#;
+        assert_eq!(Choice::from_config_text_for(on, "claude"), Choice::On, "no switch: on");
+        let codex_off = r#"{"agents": {"cmuxMcp": "on", "cmuxMcpCodex": false}}"#;
+        assert_eq!(Choice::from_config_text_for(codex_off, "codex"), Choice::Off);
+        assert_eq!(Choice::from_config_text_for(codex_off, "claude"), Choice::On);
+        let flat = r#"{"agents.cmuxMcp": "on", "agents.cmuxMcpClaude": false}"#;
+        assert_eq!(Choice::from_config_text_for(flat, "claude"), Choice::Off, "flat key");
+        let kept = r#"{"agents": {"cmuxMcp": "on", "cmuxMcpClaude": true}}"#;
+        assert_eq!(Choice::from_config_text_for(kept, "claude"), Choice::On);
+        let not_bool = r#"{"agents": {"cmuxMcp": "on", "cmuxMcpClaude": "no"}}"#;
+        assert_eq!(Choice::from_config_text_for(not_bool, "claude"), Choice::On, "only false");
+        let unset = r#"{"agents": {"cmuxMcpClaude": false}}"#;
+        assert_eq!(Choice::from_config_text_for(unset, "claude"), Choice::Off, "on by default");
+        assert_eq!(Choice::from_config_text_for(unset, "codex"), Choice::On, "on by default");
+        let no = r#"{"agents": {"cmuxMcp": "off", "cmuxMcpClaude": true}}"#;
+        assert_eq!(Choice::from_config_text_for(no, "claude"), Choice::Off);
+        assert_eq!(Choice::from_config_text_for(codex_off, "gemini"), Choice::On, "no switch");
     }
 
     #[test]

@@ -1850,6 +1850,9 @@ async fn serve_connection_from(
     let device_ended = web_device::credential_ended(&hub, &conn);
     tokio::pin!(device_ended);
     queue_gauge::register(&conn);
+    // A peer daemon's link mirrors the list and reads it again only when it links again: its
+    // list notices are never left out (`outbound.rs`). Named again at its `initialize`.
+    conn.out.describe(format!("{} {}", origin_usage_key(origin), conn.id), origin != Origin::Peer);
     tracing::debug!(conn = %conn.id, "client connected");
 
     let mut fan = fanout::start(hub.clone(), conn.clone(), flushes);

@@ -343,7 +343,7 @@ const variants: Record<string, SettingsPageVariant> = {
   }),
   "agent-tools": variant("agents", {
     focus: "agents.cmuxMcp",
-    note: "cmux Tools for Agents in cmux (on by default), each coding agent on this Mac, and the manual lines for agents started elsewhere.",
+    note: "Give Agents cmux’s Tools (on by default) with its Claude Code and Codex switches, each coding agent on this Mac, and the manual lines for agents started elsewhere.",
   }),
 };
 for (const category of categories) {

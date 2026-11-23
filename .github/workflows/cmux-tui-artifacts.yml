@@ -1432,6 +1432,7 @@ jobs:
     permissions:
       actions: read # this run's artifacts and its legs' conclusions
       contents: read # a branch push's current head (BRANCH_BUILD_SUPERSEDED)
+      statuses: write # the non-required cmux-tui/linux-cross status
     outputs:
       target_set: ${{ steps.plan.outputs.target_set }}
       recovered: ${{ steps.plan.outputs.recovered }}
@@ -1502,9 +1503,38 @@ jobs:
           [[ -z "$set" ]] && recovered=true || recovered=false
           echo "recovered=$recovered" >> "$GITHUB_OUTPUT"
           if [[ -n "$set" ]]; then
+            echo "cross_failed=true" >> "$GITHUB_OUTPUT"
             echo "::warning title=macOS fallback build::the Linux cross build of the macOS targets ended $BUILD_RESULT (aarch64 $arm, x86_64 $intel); building target_set=$set on a Mac in this run. After a failed link, regenerate the stubs: scripts/ci/macos_stubs.py"
           fi
           echo "target_set=$set" >> "$GITHUB_OUTPUT"
+
+      # Leo: "instead of ffixing it if it's broken and warning earlier with a fast guard".
+      # A Mac rebuilds the macOS targets after a failed Linux cross build, so the
+      # artifacts still ship and the run stays green while each tree pays for a
+      # second build. Post a red status that blocks nothing (no ruleset requires
+      # cmux-tui/linux-cross) and names the failed step, so the cross build is fixed.
+      - name: Mark the failed Linux cross build with a non-required red status
+        if: steps.plan.outputs.cross_failed == 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          # The failed macOS leg of build, and its first failed step.
+          rows="$(gh api --paginate "repos/$REPOSITORY/actions/runs/$RUN_ID/attempts/$RUN_ATTEMPT/jobs?per_page=100" \
+            --jq '.jobs[] | select(.conclusion == "failure" and (.name | test("apple-darwin"))) | [.html_url, ([.steps[] | select(.conclusion == "failure") | .name][0] // "unknown step")] | @tsv')"
+          first="${rows%%$'\n'*}"
+          url="$RUN_URL"; step="unknown step"
+          if [[ -n "$first" ]]; then url="${first%%$'\t'*}"; step="${first#*$'\t'}"; fi
+          description="linux-cross: failed at $step, covered by macOS fallback"
+          gh api --method POST "repos/$REPOSITORY/statuses/$HEAD_SHA" -f state=failure \
+            -f context=cmux-tui/linux-cross -f target_url="$url" -f description="${description:0:140}" >/dev/null
+          echo "posted cmux-tui/linux-cross=failure on $HEAD_SHA: $description ($url)"
 
   build-darwin-fallback:
     if: ${{ !cancelled() && needs.darwin-fallback-plan.outputs.target_set != '' }}
