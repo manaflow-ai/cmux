@@ -574,7 +574,6 @@ export function turnActionsFrom(deps: TurnActionsDeps): TurnActions {
       }),
     cloudSignIn: chatSignIns.cloudSignIn,
     apiKeySignIn: chatSignIns.apiKeySignIn,
-    refusedSignIn: chatSignIns.refusedSignIn,
     review: hunkReview,
     route: {
       harness: snapshot.summary?.harness,
