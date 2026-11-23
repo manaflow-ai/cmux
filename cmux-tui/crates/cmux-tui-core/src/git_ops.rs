@@ -12,7 +12,8 @@
 //! (`worktree`), and `git.worktree.apply`, which brings its work back to the
 //! main checkout (`worktree_apply`), and `git.worktree.remove`, its cleanup
 //! (`worktree_remove`). `git.worktree.setup` reads a repository's worktree
-//! recipe and a worktree's setup run (`worktree_setup`). `diff.comments.*`
+//! recipe and a worktree's setup run (`worktree_setup`). `project.actions.list`
+//! reads a project's `.cmux/actions.json` with the global actions (`project_actions`). `diff.comments.*`
 //! keeps the diff page's review comments per worktree root until they are
 //! sent (`diff_comments`). The pure git pieces (bounded runs, the repository
 //! handle, parsers, diff scopes and branch refs) live in the `cmux-git`
@@ -33,6 +34,7 @@ mod fingerprint;
 mod journal;
 mod list;
 mod mutation;
+mod project_actions;
 mod push;
 mod target;
 mod user_run;
@@ -123,6 +125,7 @@ pub(crate) fn handles(operation: ResourceOperation) -> bool {
             | ResourceOperation::GitWorktreeRemove
             | ResourceOperation::GitWorktreeSetup
             | ResourceOperation::GitWorktreeSetupRun
+            | ResourceOperation::ProjectActionsList
     ) || checkpoint::handles(operation)
         || diff_comments::handles(operation)
 }
@@ -148,6 +151,7 @@ pub(crate) fn dispatch(
         ResourceOperation::GitWorktreeSetupRun => {
             return worktree_setup::dispatch_run(mux, &request);
         }
+        ResourceOperation::ProjectActionsList => return project_actions::dispatch(mux, &request),
         _ => {}
     }
     let operation = match request.envelope.operation {
