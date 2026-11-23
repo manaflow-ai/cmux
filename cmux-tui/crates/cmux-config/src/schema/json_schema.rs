@@ -291,6 +291,18 @@ fn kind_schema(row: &Row) -> Value {
                 None => json!({ "type": "string" }),
             };
         }
+        Validation::Domain(DomainKind::SidebarSectionIds) => {
+            return json!({
+                "type": "array",
+                "maxItems": super::accepts::MAX_SECTION_IDS,
+                "uniqueItems": true,
+                "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": super::accepts::MAX_SECTION_ID_CHARS,
+                },
+            });
+        }
         _ => {}
     }
     match &row.kind {
@@ -344,6 +356,8 @@ fn kind_schema(row: &Row) -> Value {
         Kind::StringMap => {
             json!({ "type": "object", "additionalProperties": { "type": "string" } })
         }
+        // The row's own shape, as the owner checks it (`shape::matches`).
+        Kind::Json(shape) => shape.clone(),
         Kind::SoundRules => {
             let events: Map<String, Value> = super::accepts::SOUND_RULE_EVENTS
                 .iter()
