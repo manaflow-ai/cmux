@@ -1231,6 +1231,7 @@ export function NewTabScreen(props: Props) {
         id: entry.sessionId,
         title: entry.displayTitle ?? entry.name ?? entry.sessionId,
         ...(entry.harness ? { harness: entry.harness } : {}),
+        ...(entry.icon ? { icon: entry.icon } : {}),
         state: entry.indicator === "failed" ? ("failed" as const) : (sessionMark(entry, false) ?? ("idle" as const)),
         label: nt("leads.reports", { count: String(reports.length) }),
       }))
@@ -2305,6 +2306,7 @@ export function NewTabScreen(props: Props) {
             id: card.sessionId,
             title: card.title,
             ...(card.harness ? { harness: card.harness } : {}),
+            ...(card.icon ? { icon: card.icon } : {}),
             state: card.state,
             label:
               card.state === "failed"
