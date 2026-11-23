@@ -27,6 +27,7 @@ cmux-layout-reducer-ffi = { path = "../cmux-layout-reducer-ffi" }
 cmux-palette-ranker = { path = "../cmux-palette-ranker" }
 # The action catalog (descriptors, titles in every app language, default bindings), read at launch.
 cmux-action-catalog = { path = "../cmux-action-catalog" }
+cmux-config = { path = "../cmux-config" }
 # The agent pane relay policy (src/ffi.rs: one check per page frame).
 cmux-agent-pane-policy = { path = "../cmux-agent-pane-policy" }
 # Predictive local echo for a terminal on another machine (cmux-terminal-prediction src/ffi.rs).
