@@ -14,12 +14,16 @@ export default componentEntry<OnboardingGalleryProps>({
     "pages/onboarding/AgentsStep.tsx",
     "pages/onboarding/ImportStep.tsx",
     "pages/onboarding/ComputerUseStep.tsx",
-    "pages/onboarding/AgentToolsStep.tsx",
     "pages/onboarding/MakeItYoursStep.tsx",
     "pages/onboarding/galleryFixture.tsx",
     "pages/onboarding/walkArms.tsx",
     "pages/onboarding/walk.ts",
     "pages/onboarding/walkLook.tsx",
+    "pages/onboarding/signInReadiness.ts",
+    "pages/shared/signIn/ProviderReadiness.tsx",
+    "pages/shared/signIn/useAccountSignIn.ts",
+    "pages/shared/signIn/mockSignIn.ts",
+    "pages/shared/signIn/galleryFixtures.ts#READINESS",
   ],
   load: async () => (await import("./galleryFixture")).OnboardingGallery,
   styles: async () => {
@@ -142,6 +146,27 @@ export default componentEntry<OnboardingGalleryProps>({
       note: "Compact rows on the glass, the sign-in state as a pill and Sign In as a quiet button.",
       props: { step: "agents", agents: "mixed", look: "compact" },
     },
+    // Provider readiness (logins done right) in the one agents list: Claude Code and Codex take their
+    // provider's state and one action in place, GitHub is one more row. Each variant is what a host
+    // sends (`signInReadiness`, `signInAccounts`) and what its sign-in answers through the mock's
+    // `cmux.onboarding.accounts.run`: not installed, installing, sign-in required, signing in with
+    // the code, ready, failed.
+    "agents-readiness-fresh": {
+      note: "First run: GitHub and Claude Code need a sign-in (Sign In), Codex is not installed (Install).",
+      props: { step: "agents", agents: "mixed", readiness: "fresh" },
+    },
+    "agents-readiness-signing-in": {
+      note: "Codex signing in (started through the op, its finish held): the code is in its own row; the page is open beside the window.",
+      props: { step: "agents", agents: "mixed", readiness: "signingIn" },
+    },
+    "agents-readiness-mixed": {
+      note: "GitHub ready, Codex installing (no button: it only waits), Claude Code's sign-in refused (cancelled on the provider's page) with Try Again.",
+      props: { step: "agents", agents: "mixed", readiness: "mixed" },
+    },
+    "agents-readiness-ready": {
+      note: "All three ready: each offers Add Account for another personal account.",
+      props: { step: "agents", agents: "mixed", readiness: "ready" },
+    },
     "agents-checking": { props: { step: "agents", agents: "checking" } },
     "agents-signing-in": { props: { step: "agents", agents: "signingIn" } },
     "agents-sign-in-failed": { props: { step: "agents", agents: "failed" } },
@@ -178,19 +203,5 @@ export default componentEntry<OnboardingGalleryProps>({
     "computer-use-helper-failed": { props: { step: "computerUse", computerUse: "helperFailed" } },
     "computer-use-off": { props: { step: "computerUse", computerUse: "off" } },
     "computer-use-unavailable": { props: { step: "computerUse", computerUse: "unavailable" } },
-    // cmux Tools: do agents the person starts in cmux get cmux's MCP server (Computer Use included)?
-    "agent-tools-checking": { props: { step: "agentTools", agentTools: "checking" } },
-    "agent-tools-none": {
-      note: "No coding agent found: Turn On still records the answer for agents installed later.",
-      props: { step: "agentTools", agentTools: "none" },
-    },
-    "agent-tools-found": {
-      note: "Claude Code and Codex found: the question, Not Now and Turn On.",
-      props: { step: "agentTools", agentTools: "found" },
-    },
-    "agent-tools-adding": { props: { step: "agentTools", agentTools: "adding" } },
-    "agent-tools-added": { props: { step: "agentTools", agentTools: "added" } },
-    "agent-tools-declined": { props: { step: "agentTools", agentTools: "declined" } },
-    "agent-tools-failed": { props: { step: "agentTools", agentTools: "failed" } },
   },
 });

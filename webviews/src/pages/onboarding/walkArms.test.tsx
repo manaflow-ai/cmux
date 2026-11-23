@@ -99,7 +99,8 @@ describe("intro walk gallery arms", () => {
         makeItYoursLook="cards"
       />,
     );
-    expect(gallery).toBe(page);
+    // The gallery wraps the page in a display:contents div (its sign-in fixtures click inside it); nothing else differs.
+    expect(gallery).toBe(`<div style="display:contents">${page}</div>`);
     expect(gallery).not.toContain("onb-walk");
   });
 });

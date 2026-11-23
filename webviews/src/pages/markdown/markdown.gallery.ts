@@ -65,6 +65,55 @@ tags: [release, notes]
 - **Fixed** a crash when a tab closed during a drag.
 `;
 
+// A plan with front matter and a heading outline (frontmatter.ts, OutlineRail.tsx): the metadata
+// table at the top, the dash rail at the left (test/markdown-outline.test.ts).
+const PLAN = `---
+title: Search rollout plan
+status: in review
+owners: [ada, grace]
+tags:
+  - search
+  - rollout
+review:
+  due: 2026-12-01
+  reviewer: linus
+---
+
+# Search rollout plan
+
+${"The new search index ships behind a flag, one region at a time. ".repeat(3)}
+
+## Goals
+
+- Answers under 100 ms at p95.
+- No missed documents after a reindex.
+
+## Rollout
+
+${"Each region turns on for staff first, then for everyone a day later. ".repeat(4)}
+
+### Staff week
+
+Staff use it for a week and file what they find.
+
+### Everyone
+
+The flag turns on region by region.
+
+## Risks
+
+${"A cold index answers slowly for its first minutes. ".repeat(4)}
+
+### Rollback
+
+Turning the flag off goes back to the old index at once.
+
+## Open questions
+
+${Array.from({ length: 12 }, (_, index) => `Question ${index + 1}: what the team still has to decide.`).join("\n\n")}
+`;
+const PLAN_PATH = "/Users/you/src/atlas-web/docs/SEARCH-ROLLOUT.md";
+
 // A table and a code line far wider than the column (MARKDOWN-TABLE-SCROLL): each scrolls sideways
 // in its own box while the page scrolls only up and down (test/markdown-wide-table-scroll.test.ts).
 const WIDE_TABLE = `# Release matrix
@@ -260,6 +309,7 @@ export default markdownPageEntry({
     "pages/markdown/ReadingSettings.tsx",
     "pages/markdown/WidthField.tsx",
     "pages/markdown/runButtons.ts",
+    "pages/markdown/OutlineRail.tsx",
     "viewer-empty/MarkdownEmptyState.tsx",
   ],
   variants: {
@@ -381,6 +431,43 @@ export default markdownPageEntry({
       note: "YAML front matter over the body.",
       path: "/Users/you/src/atlas-web/RELEASE.md",
       text: FRONTMATTER,
+    },
+    "frontmatter-outline": {
+      note: "Front matter as a key and value table, and the outline rail at the left: a dash per heading, the current section darker.",
+      path: PLAN_PATH,
+      text: PLAN,
+    },
+    "outline-open": {
+      note: "Pointing at (or clicking) the outline rail opens the table of contents: the headings by name, a click scrolls there.",
+      path: PLAN_PATH,
+      text: PLAN,
+      play: async (ctx) => {
+        await ctx.click({ selector: ".md-outline-rail" });
+      },
+    },
+    "outline-source": {
+      note: "Source mode: the front matter as written, no rail; Rich text and Source switch in the toolbar.",
+      path: PLAN_PATH,
+      text: PLAN,
+      settings: { defaultMode: "source" },
+    },
+    "outline-narrow": {
+      note: "A narrow pane: the rail sits in the page margin and the open contents fit the pane.",
+      path: PLAN_PATH,
+      text: PLAN,
+      play: async (ctx) => {
+        await ctx.resize(380);
+        await ctx.click({ selector: ".md-outline-rail" });
+      },
+    },
+    "outline-dark": {
+      note: "The dark theme: the metadata table and the open contents.",
+      path: PLAN_PATH,
+      text: PLAN,
+      settings: { theme: "dark" },
+      play: async (ctx) => {
+        await ctx.click({ selector: ".md-outline-rail" });
+      },
     },
     "wide-table": {
       note: "A table and a code line wider than the column: each scrolls sideways on its own.",

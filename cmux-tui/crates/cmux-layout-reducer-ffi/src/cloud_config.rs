@@ -56,6 +56,73 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
             let request: Request = read(request)?;
             json!({ "url": config::sign_in_url(&request.auth_web_origin, &request.callback_scheme, request.state.as_deref()) })
         }
+        // Sign-in with no callback (`cli_sign_in`): each request the app sends, and what each answer means.
+        b"cloud_auth_cli_sign_in_start" => {
+            let project: cmux_cloud_config::cli_sign_in::Project = read(request)?;
+            json!({
+                "call": cmux_cloud_config::cli_sign_in::start_request(&project),
+                "pollIntervalMs": cmux_cloud_config::cli_sign_in::POLL_INTERVAL_MS,
+            })
+        }
+        b"cloud_auth_cli_sign_in_read_start" => {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct Request {
+                status: u16,
+                body: String,
+                auth_web_origin: String,
+            }
+            let request: Request = read(request)?;
+            json!(cmux_cloud_config::cli_sign_in::read_start(
+                request.status,
+                &request.body,
+                &request.auth_web_origin
+            ))
+        }
+        b"cloud_auth_cli_sign_in_poll" => {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct Request {
+                project: cmux_cloud_config::cli_sign_in::Project,
+                polling_code: String,
+            }
+            let request: Request = read(request)?;
+            json!({ "call": cmux_cloud_config::cli_sign_in::poll_request(&request.project, &request.polling_code) })
+        }
+        b"cloud_auth_cli_sign_in_read_poll" => {
+            #[derive(Deserialize)]
+            struct Request {
+                status: u16,
+                body: String,
+            }
+            let request: Request = read(request)?;
+            json!(cmux_cloud_config::cli_sign_in::read_poll(request.status, &request.body))
+        }
+        b"cloud_auth_cli_sign_in_token" => {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct Request {
+                project: cmux_cloud_config::cli_sign_in::Project,
+                refresh_token: String,
+            }
+            let request: Request = read(request)?;
+            json!({ "call": cmux_cloud_config::cli_sign_in::token_request(&request.project, &request.refresh_token) })
+        }
+        b"cloud_auth_cli_sign_in_read_token" => {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct Request {
+                status: u16,
+                body: String,
+                refresh_token: String,
+            }
+            let request: Request = read(request)?;
+            json!(cmux_cloud_config::cli_sign_in::read_token(
+                request.status,
+                &request.body,
+                &request.refresh_token
+            ))
+        }
         // The install token's owner: use the held token, renew it beside, wait on the mint, or name the stall.
         b"cloud_auth_install_token_lease" => {
             let facts: cmux_cloud_config::signin::LeaseFacts = read(request)?;
