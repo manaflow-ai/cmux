@@ -145,7 +145,7 @@ impl Hub {
     /// a new subagent group, a permission card), the row after it is named by its first chunk read.
     pub(super) fn before_agent_update(
         &self,
-        session: &Session,
+        session: &Arc<Session>,
         params: Option<&Value>,
     ) -> Option<String> {
         let update = params.and_then(|p| p.get("update"))?;
@@ -264,6 +264,7 @@ impl Hub {
         }
         // The model request failed and Codex tries again (`turn_retry.rs`).
         if let Some(retry) = retrying {
+            self.end_capacity_retries(session, &retry);
             self.turn_retrying(session, retry);
         }
         if let Some((old, new, notice)) = superseded {
