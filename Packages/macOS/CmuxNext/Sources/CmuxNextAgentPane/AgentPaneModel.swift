@@ -636,6 +636,8 @@ public final class AgentPaneModel {
                 pageReportedPaint = true
             }
             markPainted()
+            // acpmux's settled view is on screen: a remote chat's `agent.chat.live_paint`.
+            if settled { machineLink?.events.livePainted(session: sessionId) }
             return AgentPaneReply.success()
         case .openTab(let request): return request.open(in: self)
         case .runAttach(let request): return await request.attach(in: self)
