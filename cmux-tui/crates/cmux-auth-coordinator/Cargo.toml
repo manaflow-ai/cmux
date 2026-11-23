@@ -7,5 +7,8 @@ license.workspace = true
 publish.workspace = true
 description = "The sign-in and session state machine of the app's AuthCoordinator as a pure reducer: published session state, session generations, restore and sign-in decisions, team scope. No I/O, no Keychain, no UI."
 
+[dependencies]
+serde_json = { workspace = true }
+
 [lints]
 workspace = true
