@@ -489,6 +489,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-fault"
+version = "0.1.0"
+dependencies = [
+ "cmux-scope",
+ "libc",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "cmux-follow-cam"
 version = "0.1.0"
 dependencies = [
@@ -510,11 +521,13 @@ dependencies = [
  "base64",
  "bytes",
  "cmux-build-space",
+ "cmux-fault",
  "cmux-message-preview",
  "cmux-mobile-link",
  "cmux-rd-core",
  "cmux-rd-engine",
  "cmux-rd-proto",
+ "cmux-tab-snapshots",
  "cmux-transport",
  "flate2",
  "futures-util",
@@ -574,6 +587,7 @@ dependencies = [
 name = "cmux-mobile-link-ffi"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "cmux-follow-cam",
  "cmux-mobile-host",
  "cmux-mobile-link",
@@ -581,9 +595,11 @@ dependencies = [
  "cmux-rd-engine",
  "cmux-rd-ffi",
  "cmux-rd-proto",
+ "cmux-share-approval",
  "cmux-terminal-prediction",
  "cmux-terminal-projection",
  "cmux-window-rules",
+ "ring",
  "serde_json",
  "sha2",
  "tempfile",
@@ -643,6 +659,33 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "cmux-scope"
+version = "0.1.0"
+dependencies = [
+ "tokio",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
+name = "cmux-share-approval"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "cmux-tab-snapshots"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "serde",
+ "serde_json",
+ "sha2",
 ]
 
 [[package]]
