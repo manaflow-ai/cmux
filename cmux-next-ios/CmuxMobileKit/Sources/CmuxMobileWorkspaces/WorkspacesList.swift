@@ -293,7 +293,14 @@ public struct WorkspacesList: View {
     /// refresh, "2 need you", or with several Macs how many are online.
     private var subtitle: String {
         if let mac = scopedMac {
-            return "\(displayName(mac)) · " + RelativeStamp(now: MinuteClock.shared.now).presence(isOnline: mac.isOnline, lastSeenAt: mac.lastSeenAt)
+            let now = MinuteClock.shared.now
+            let reach = store.macReachability(mac)
+            // A dial under way adds no words: the Mac's presence stays (Leo, 2026-11-23: "stop showing
+            // that bullshit fucking connecting messages. they are way too long and unactionable").
+            let line = reach == .connecting
+                ? RelativeStamp(now: now).presence(isOnline: mac.isOnline, lastSeenAt: mac.lastSeenAt)
+                : reach.statusText(now: now)
+            return "\(displayName(mac)) · " + line
         }
         let state = launchState
         // One loading indicator at a time: over the placeholder rows the page already says it loads.
@@ -471,6 +478,8 @@ public struct WorkspacesList: View {
         var unfolded: Set<String>
         var searching: Bool
         var scopeMacID: String?
+        /// The filtered Mac when its view shows what is wrong and Retry (``MacRecoveryHeader``).
+        var recoveryMacID: String?
         var typeSize: DynamicTypeSize
         var canReconnect: Bool
         var sameNames: MacNameDisambiguation
@@ -494,6 +503,7 @@ public struct WorkspacesList: View {
         let input = ListModelInput(inboxBuild: inboxMemo.builds, names: macNames(), rights: rights,
                                    pending: store.pendingWorkspaceIDs, tracks: store.tracksMacData, compact: compactList,
                                    grouping: grouping, unfolded: unfolded, searching: !query.isEmpty, scopeMacID: scope.macID,
+                                   recoveryMacID: scopedMac.flatMap { showsRecovery($0) ? $0.id : nil },
                                    typeSize: typeSize, canReconnect: reconnect != nil, sameNames: sameNames,
                                    groupsRevision: creator.groupsRevision, macGroups: macGroups)
         return listMemo.value(input) { buildListModel(inbox, input) }
@@ -519,6 +529,7 @@ public struct WorkspacesList: View {
                 return (WorkspacesListModel.rowID(ws.id), .row(rowModel(ws, inbox, names, rights: mac, pending: pending, tracks: tracks)))
             }
         }
+        if let id = input.recoveryMacID, !input.searching { add("recovery", [("recovery.\(id)", .recovery(id))]) }
         if inbox.allAsleep && !input.searching { add("asleep", [("asleep", .asleep)]) }
         if !inbox.needsYou.isEmpty { add("needs", [("title.needs", .title("Needs You"))] + rows(inbox.needsYou)) }
         if !inbox.pinned.isEmpty { add("pinned", [("title.pinned", .title("Pinned"))] + rows(inbox.pinned)) }
@@ -591,6 +602,8 @@ public struct WorkspacesList: View {
             AnyView(SectionTitle(title: title))
         case .asleep:
             AnyView(asleepHeader)
+        case let .recovery(macID):
+            AnyView(OnMinute { now in recoveryPanel(macID, now: now) })
         case let .group(header):
             AnyView(groupHeader(header))
         case let .folder(header):
@@ -824,7 +837,7 @@ public struct WorkspacesList: View {
         let detail = switch fold.reason {
         case .offline: RelativeStamp(now: now).presence(isOnline: false, lastSeenAt: fold.mac.lastSeenAt)
         case .notConnected: "Not connected"
-        case .failed: "Can't connect"
+        case .failed: store.macReachability(fold.mac).statusText(now: now)
         }
         return Button {
             switch fold.reason {
@@ -950,6 +963,40 @@ public struct WorkspacesList: View {
     /// "can't take new workspaces" while the phone is still linking it.
     @ViewBuilder private func scopedEmptyState(_ mac: MacDevice) -> some View {
         let canCreate = target != nil
+        if showsRecovery(mac) {
+            OnMinute { now in recoveryPanel(mac.id, now: now) }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .accessibilityIdentifier("workspaces.empty.recovery")
+        } else {
+            scopedEmptyStateCases(mac, canCreate: canCreate)
+        }
+    }
+
+    /// Whether the Mac's view says what is wrong and offers Retry: a Mac the phone can't use
+    /// (``MacReachability/offersRetry``), signed out, or one whose Retry is under way or ended
+    /// without connecting. Live mode only: mock data has nothing to retry.
+    func showsRecovery(_ mac: MacDevice) -> Bool {
+        guard store.tracksMacData else { return false }
+        let reach = store.macReachability(mac)
+        if reach.offersRetry || reach == .authRequired { return true }
+        guard reach != .connected, let attempt = store.macRecovery[mac.id] else { return false }
+        return attempt.result != .connected
+    }
+
+    /// The Mac's state, its last-seen time, the Retry and its steps (cmux#52200).
+    private func recoveryPanel(_ macID: String, now: Date) -> some View {
+        let found = mac(macID)
+        return MacRecoveryPanel(
+            macName: found.map(displayName) ?? "Your Mac",
+            reach: found.map { store.macReachability($0) } ?? .offline(lastSeenAt: nil),
+            attempt: store.macRecovery[macID],
+            now: now,
+            retry: reconnect.map { reconnect in { theme.haptics.impactLight(); reconnect(macID) } },
+            signIn: openAccount
+        )
+    }
+
+    @ViewBuilder private func scopedEmptyStateCases(_ mac: MacDevice, canCreate: Bool) -> some View {
         switch MacEmptyState.resolve(isOnline: mac.isOnline, list: listState(mac.id), connection: store.macConnection[mac.id],
                                      tracksLive: store.tracksMacData, reach: linking?.reach(mac.id) ?? .none, canCreate: canCreate) {
         case .offline:
@@ -1417,35 +1464,48 @@ struct BulkClose: Identifiable {
 
 /// The Mac's workspace color swatch (its `GroupColor.swatch` hue, chroma and brightness).
 enum WorkspaceSwatch {
-    static func color(_ color: WorkspaceColor) -> Color {
-        let (hue, chroma) = color.hueAndChroma
-        return Color(UIColor { traits in
-            let dark = traits.userInterfaceStyle == .dark
-            return UIColor(hue: hue / 360, saturation: (dark ? 0.40 : 0.42) * chroma, brightness: dark ? 0.68 : 0.64, alpha: 1)
-        })
+    /// The Mac's vibrant group color (`GroupColor`), light or dark. It replaced a low-saturation
+    /// formula that the Mac dropped on 2026-11-06 for going brown and olive.
+    static func color(_ color: WorkspaceColor) -> Color { Color(uiColor: uiColor(color)) }
+
+    static func uiColor(_ color: WorkspaceColor) -> UIColor {
+        UIColor { traits in rgb(color.vibrant(dark: traits.userInterfaceStyle == .dark)) }
+    }
+
+    static func rgb(_ value: UInt32) -> UIColor {
+        UIColor(red: CGFloat(value >> 16 & 0xFF) / 255, green: CGFloat(value >> 8 & 0xFF) / 255, blue: CGFloat(value & 0xFF) / 255, alpha: 1)
+    }
+
+    /// A stored `#RRGGBB` (or `#RRGGBBAA`) color's `0xRRGGBB`.
+    static func hex(_ stored: String?) -> UInt32? {
+        guard let stored, stored.hasPrefix("#"), stored.count >= 7 else { return nil }
+        return UInt32(stored.dropFirst().prefix(6), radix: 16)
     }
 
     /// A stored color: a palette name, or `#RRGGBB`.
     static func color(stored: String?) -> Color? {
         if let palette = WorkspaceColor(stored: stored) { return color(palette) }
-        guard let stored, stored.hasPrefix("#"), stored.count >= 7, let value = UInt32(stored.dropFirst().prefix(6), radix: 16) else { return nil }
-        return Color(red: Double((value >> 16) & 0xFF) / 255, green: Double((value >> 8) & 0xFF) / 255, blue: Double(value & 0xFF) / 255)
+        return hex(stored).map { Color(uiColor: rgb($0)) }
     }
 
     /// A menu icon: a filled circle in the color (menus draw images, not shapes).
     /// Drawn once per color: a menu lists nine of them.
     @MainActor static func image(_ color: WorkspaceColor) -> Image { Image(uiImage: uiImage(color)) }
 
-    /// The same circle for a UIKit menu, drawn once per color.
+    /// The same circle for a UIKit menu, drawn once per color, light and dark.
     @MainActor static func uiImage(_ color: WorkspaceColor) -> UIImage {
         if let image = images[color] { return image }
-        let (hue, chroma) = color.hueAndChroma
-        let fill = UIColor(hue: hue / 360, saturation: 0.42 * chroma, brightness: 0.64, alpha: 1)
         let size = CGSize(width: 16, height: 16)
-        let image = UIGraphicsImageRenderer(size: size).image { _ in
-            fill.setFill()
-            UIBezierPath(ovalIn: CGRect(origin: .zero, size: size)).fill()
-        }.withRenderingMode(.alwaysOriginal)
+        func circle(dark: Bool) -> UIImage {
+            UIGraphicsImageRenderer(size: size).image { _ in
+                rgb(color.vibrant(dark: dark)).setFill()
+                UIBezierPath(ovalIn: CGRect(origin: .zero, size: size)).fill()
+            }.withRenderingMode(.alwaysOriginal)
+        }
+        let asset = UIImageAsset()
+        asset.register(circle(dark: false), with: UITraitCollection(userInterfaceStyle: .light))
+        asset.register(circle(dark: true), with: UITraitCollection(userInterfaceStyle: .dark))
+        let image = asset.image(with: UITraitCollection(userInterfaceStyle: .light))
         images[color] = image
         return image
     }

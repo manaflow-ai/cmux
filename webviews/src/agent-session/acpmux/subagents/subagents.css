@@ -483,25 +483,6 @@ button.cv-subagent > :last-child {
   font-variant-numeric: tabular-nums;
   letter-spacing: var(--text-detail--letter-spacing);
 }
-/* A subagent's own pane: under its composer, a line names the chat that passes the message on
-   (SubagentComposer.tsx). It is a row of its own in the composer's flow, never drawn over the box:
-   placed over the box's bottom, it stood on the prompt's line and over its placeholder (#45911). */
-.cv-subagent-composer-via {
-  flex: none;
-  margin: 0;
-  padding: 4px 16px 0;
-  overflow: hidden;
-  font-family: var(--cv-font);
-  font-size: var(--text-detail);
-  line-height: 20px;
-  color: var(--cv-text-muted);
-  letter-spacing: var(--text-detail--letter-spacing);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  text-align: center;
-  user-select: none;
-}
-
 /* ---------- The tray of running work above the composer (SubagentTray.tsx) ---------- */
 /* The user bubble's tinted glass (conversation.css .cv-user__bubble): the theme's text at a low
    strength over the backdrop, never a solid fill, with the composer's hairline rim. Its rows are
@@ -524,7 +505,8 @@ button.cv-subagent > :last-child {
   box-sizing: border-box;
   padding: 0;
   overflow: hidden;
-  border-radius: var(--acpmux-composer-radius, 11px);
+  /* The composer's corner, so the hat and the composer under it are one outline (ask-2351b8cf41). */
+  border-radius: var(--acpmux-composer-radius, var(--grid-composer-radius));
   background: var(--ds-surface-inset);
   box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge, transparent);
   color: var(--agent-text);
@@ -561,13 +543,24 @@ button.cv-subagent > :last-child {
   background: transparent;
   box-shadow: none;
 }
+/* One line per step in the hat: the step's first line ends in an ellipsis (its tooltip holds the
+   rest), its detail shows under it muted on one line, and the mark sits on the first line's centre
+   whether a detail follows or not (Leo, 2026-11-22: ">1 line is ok IFF it's rendered and styled
+   properly"). */
 .acpmux-running-tray__plan .cv-plan__item {
-  align-items: center;
+  align-items: flex-start;
   min-height: var(--ui-row-height, 28px);
-  padding-block: 0;
+  padding-block: calc((var(--ui-row-height, var(--grid-row)) - var(--grid-icon-box)) / 2);
 }
 .acpmux-running-tray__plan .cv-plan__mark {
-  margin-top: 0;
+  margin-top: var(--grid-half-step);
+}
+.acpmux-running-tray__plan .cv-plan__title,
+.acpmux-running-tray__plan .cv-plan__detail {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 /* Past five lines (eight in the `tall` look, trayPanel.experiment.ts) the list scrolls in place;
@@ -639,6 +632,20 @@ button.cv-subagent > :last-child {
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
+  /* What does not fit drops whole: each kind with its separator wraps onto a second line the
+     header's height hides, so the header never ends on half a word ("53 subagents running · 5 wa";
+     Leo, 2026-11-22: "this should not be cutting off so harshly like this"). */
+  flex-wrap: wrap;
+  align-content: flex-start;
+  height: var(--acpmux-tray-head-height, var(--ui-row-height, 28px));
+}
+.acpmux-running-tray__kinds > * {
+  height: var(--acpmux-tray-head-height, var(--ui-row-height, 28px));
+}
+.acpmux-running-tray__kind-unit {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
 }
 .acpmux-running-tray__kind {
   flex: none;
@@ -654,6 +661,26 @@ button.cv-subagent > :last-child {
 }
 .acpmux-running-tray__kind-text {
   font-variant-numeric: tabular-nums;
+}
+/* The `tally` arm (trayFoldHead.experiment.ts; Leo, 2026-11-23: "just listing the # of each type of
+   ongoing thing would be better"): each kind its mark and its number, a gap apart, no words, no
+   separators. A kind the row has no room for drops whole onto the hidden line (the rule above), and
+   the hover still names it. The same layout at every width. */
+.acpmux-running-tray__kinds[data-tally] {
+  column-gap: var(--ds-space-3, 12px);
+  row-gap: 0;
+}
+.acpmux-running-tray__kinds[data-tally] > .acpmux-running-tray__kind-unit:has(> [data-kind="plan"]) {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+.acpmux-running-tray__kinds[data-tally] [data-kind="plan"] {
+  min-width: 0;
+}
+.acpmux-running-tray__kinds[data-tally] [data-kind="plan"] > .acpmux-running-tray__kind-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 /* The separator between kinds (trayKindLine.experiment.ts), quiet, as the counts' was. */
 .acpmux-running-tray__kind-sep {
@@ -2049,6 +2076,13 @@ button.cv-subagent > :last-child {
 .acpmux-running-tray[data-tuck-look="pill"] > .acpmux-running-tray__tuck:active::before {
   background: var(--ds-color-pressed);
 }
+/* Liquid Glass off (appearance.liquidGlass): the pill stays solid when hovered and pressed, as the hat does. */
+:root[data-glass="off"] .acpmux-running-tray[data-tuck-look="pill"] > .acpmux-running-tray__tuck:hover::before {
+  background: var(--ds-surface-hover-layer), var(--glass-surface, Canvas);
+}
+:root[data-glass="off"] .acpmux-running-tray[data-tuck-look="pill"] > .acpmux-running-tray__tuck:active::before {
+  background: var(--ds-surface-pressed-layer), var(--glass-surface, Canvas);
+}
 /* `band`: the whole box lights along the edge. */
 .acpmux-running-tray[data-tuck-look="band"] > .acpmux-running-tray__tuck::before {
   width: 100%;
@@ -2132,6 +2166,10 @@ button.cv-subagent > :last-child {
   background: color-mix(in srgb, var(--glass-surface, Canvas) 30%, transparent);
   box-shadow: var(--glass-rim-shadow, inset 0 0 0 var(--cmux-hairline) var(--glass-edge)),
     0 var(--ds-space-1) var(--ds-space-2) color-mix(in srgb, var(--glass-surface, CanvasText) 12%, transparent);
+}
+/* Liquid Glass off (appearance.liquidGlass): the hover keeps the solid surface, with a light wash. */
+:root[data-glass="off"] .acpmux-tray-pull__tab:is(:hover, :has([data-popup-open])) > .acpmux-tray-pull__hat {
+  background: var(--ds-surface-hover-layer), var(--glass-surface, Canvas);
 }
 .acpmux-tray-pull__tab:focus-visible > .acpmux-tray-pull__hat {
   outline: 2px solid var(--agent-accent);
@@ -2326,7 +2364,7 @@ button.cv-subagent > :last-child {
   font-variant-numeric: tabular-nums;
 }
 @media not (prefers-reduced-transparency: reduce) {
-  :root:not([data-reduce-transparency])
+  :root:not([data-reduce-transparency], [data-glass="off"])
     .acpmux-tray-pull
     + .acpmux-composer:not(:has(> .acpmux-composer-queue, > .acpmux-composer-strip, > .acpmux-composer-strip-placeholder, > .acpmux-composer-remote-note))
     > .acpmux-composer-box::before {
@@ -2577,6 +2615,15 @@ button.cv-subagent > :last-child {
   cursor: ns-resize;
   touch-action: none;
 }
+/* While the rim drags, the hat follows the cursor alone: no transition eases a height, a fold or a
+   row behind it (Leo, 2026-11-22: "the dragging isn't properly relative accurate to the cursor"),
+   the resize cursor holds wherever the pointer goes, and no text selects under it. */
+.acpmux-running-tray[data-dragging],
+.acpmux-running-tray[data-dragging] * {
+  transition: none !important;
+  cursor: ns-resize !important;
+  user-select: none;
+}
 /* The height the person dragged to caps the list, never pads it (it is the list's `max-height`, as
    the default five lines are), with or without the latest-step second lines. Last in the file, so
    it wins over the default caps above of the same weight. It keeps their 2px allowance for the
@@ -2627,12 +2674,55 @@ button.cv-subagent > :last-child {
   pointer-events: auto;
 }
 
+/* ---------- The hat's step slot (HatStepSlot.tsx, hatStep.experiment.ts; Leo, 2026-11-22) ---------- */
+/* Every word the slot can say sits in one grid cell, the shown one visible, so the slot is as wide as
+   the widest word in the pane's language and no change of word moves what follows it. A new word
+   cross-fades in place on the micro step: no roll, no slide, no width change. */
+.acpmux-hat-step {
+  display: inline-grid;
+  flex: none;
+  vertical-align: baseline;
+  white-space: nowrap;
+}
+.acpmux-hat-step > .acpmux-hat-step__word {
+  grid-area: 1 / 1;
+  visibility: hidden;
+  opacity: 0;
+  transition:
+    opacity var(--cmux-motion-micro, 120ms) var(--agent-ease-out, ease-out),
+    visibility 0s linear var(--cmux-motion-micro, 120ms);
+}
+.acpmux-hat-step > .acpmux-hat-step__word[data-on] {
+  visibility: visible;
+  opacity: 1;
+  transition: opacity var(--cmux-motion-micro, 120ms) var(--agent-ease-out, ease-out);
+}
+/* The sampled arm: the exact call in a fixed width, cut, fading in when it changes. */
+.acpmux-hat-step--sampled {
+  inline-size: 22ch;
+  overflow: hidden;
+}
+.acpmux-hat-step--sampled > .acpmux-hat-step__word {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  animation: acpmux-hat-step-in var(--cmux-motion-micro, 120ms) var(--agent-ease-out, ease-out);
+}
+@keyframes acpmux-hat-step-in {
+  from {
+    opacity: 0;
+  }
+}
+.acpmux-running-tray__head > .acpmux-hat-step.acpmux-running-tray__latest {
+  flex: none;
+}
+
 /* The folded header's subagent icons (HatFaces.tsx, hatFaces.experiment.ts; Leo, 2026-11-22: "show a
    lot of icons (of subagents) and be able to thumb through them when my cursor is hovering over them
    to be able to parse who's who"). Each icon is absolutely placed one step after the last, so its
    own strip is its hover target; a later icon draws over an earlier one where they overlap. The row
    is as wide as its layout (faceLayout), so the counts after it keep their place while the pointer
-   moves; a count change slides them by the new width. */
+   moves. Its width changes at once, at most once per 1.6 s (HatFaces' held count); the counts after
+   it glide to their new place on transform (SubagentTray `useGlide`), so the page never shifts. */
 .acpmux-hat-faces {
   flex: none;
   display: inline-flex;
@@ -2647,7 +2737,6 @@ button.cv-subagent > :last-child {
   flex: none;
   width: var(--hat-face-width);
   height: var(--hat-face-size);
-  transition: width var(--agent-motion-move, 180ms) var(--agent-ease-out, ease-out);
 }
 .acpmux-hat-face {
   position: absolute;
@@ -2655,16 +2744,31 @@ button.cv-subagent > :last-child {
   left: calc(var(--hat-face-index) * var(--hat-face-step));
   display: inline-flex;
   line-height: 0;
-  cursor: pointer;
   border-radius: 999px;
-  /* A thin ring of the hat's own glass between overlapping icons, so each reads as its own. */
-  box-shadow: 0 0 0 1.5px var(--acpmux-hat-face-ring, color-mix(in srgb, var(--agent-bg, Canvas) 85%, transparent));
+  /* No painted ring: the page colour was a dark outline on the hat's lighter glass (Leo, 2026-11-23:
+     "claude icon has a black outline!?"). Where the next icon overlaps, this one is cut a ring out
+     under it instead (the mask, as SenderIcon.tsx cuts under its badge), so it shows the glass
+     behind on any theme. The mask reaches --hat-face-pad past the icon so its badge still hangs out. */
   transition:
     left var(--agent-motion-move, 180ms) var(--agent-ease-out, ease-out),
     transform var(--cmux-motion-quick) var(--agent-ease-out, ease-out);
 }
 .acpmux-hat-face svg {
   display: block;
+}
+.acpmux-hat-face:not(:last-child) {
+  --hat-face-pad: 8px;
+  --hat-face-gap: var(--hat-face-step);
+  /* The next icon's centre, in the mask's own box (the pad out from the icon's). */
+  --hat-face-cut: radial-gradient(
+    circle at calc(var(--hat-face-pad) + var(--hat-face-gap) + var(--hat-face-size) / 2)
+      calc(var(--hat-face-pad) + var(--hat-face-size) / 2),
+    transparent calc(var(--hat-face-size) / 2 + 1.5px),
+    #000 calc(var(--hat-face-size) / 2 + 2px)
+  );
+  mask: var(--hat-face-cut) calc(-1 * var(--hat-face-pad)) calc(-1 * var(--hat-face-pad)) /
+    calc(100% + 2 * var(--hat-face-pad)) calc(100% + 2 * var(--hat-face-pad)) no-repeat;
+  mask-clip: no-clip;
 }
 /* What ended reads quieter than what runs; the tooltip says which state. 80% keeps an icon's 3:1: a tone
    or muted ink fit at 4.5:1 reads 3.1-3.3:1 at 80%, and read 2.2-2.7:1 at 55% (control-contrast-2: Light's
@@ -2690,12 +2794,12 @@ button.cv-subagent > :last-child {
    header (the row keeps its resting width, so nothing beside it moves). */
 .acpmux-hat-faces[data-hat-faces="fan"]:hover .acpmux-hat-face {
   left: calc(var(--hat-face-index) * var(--hat-face-open-step));
+  --hat-face-gap: var(--hat-face-open-step);
 }
 .acpmux-hat-faces[data-hat-faces="fan"] .acpmux-hat-faces__row {
   z-index: var(--layer-raised);
 }
 @media (prefers-reduced-motion: reduce) {
-  .acpmux-hat-faces__row,
   .acpmux-hat-face {
     transition: none;
   }
@@ -2706,5 +2810,10 @@ button.cv-subagent > :last-child {
   inset: calc(-1 * var(--ds-space-1)) auto calc(-1 * var(--ds-space-1)) calc(-1 * var(--ds-space-1));
   width: calc(var(--hat-face-open-width) + 2 * var(--ds-space-1));
   border-radius: 999px;
-  background: var(--acpmux-hat-face-ring, color-mix(in srgb, var(--agent-bg, Canvas) 92%, transparent));
+  /* The fan's backing is the ink ladder's inset level over a blur of what is under it, not the page
+     colour (a dark slab on the hat's lighter glass, the same fault as the icons' old ring): the header's
+     words under a spread icon blur out, and it follows any theme. */
+  background: var(--ds-surface-inset);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
 }

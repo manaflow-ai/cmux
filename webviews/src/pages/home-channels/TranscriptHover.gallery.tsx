@@ -4,7 +4,7 @@ import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
 import { intl } from "../../ui/intl";
 import { createStrings } from "../shared/i18n";
-import { TranscriptRowView } from "../home-messages/transcript/TranscriptRows";
+import { TranscriptRowView } from "./transcript/TranscriptRows";
 import { MessageRow } from "./MessageRow";
 import { RunSteps } from "./RunSteps";
 import type { HomeMessage, HomeRun, HomeRunStep } from "./types";
@@ -107,7 +107,7 @@ export default componentEntry<{ surface: Surface }>({
   covers: [
     "pages/home-channels/MessageRow.tsx",
     "pages/home-channels/RunSteps.tsx",
-    "pages/home-messages/transcript/TranscriptRows.tsx",
+    "pages/home-channels/transcript/TranscriptRows.tsx",
     "agent-session/acpmux/chips/LinkChips.tsx",
   ],
   styles: () =>
@@ -115,7 +115,7 @@ export default componentEntry<{ surface: Surface }>({
       import("../../agent-session/acpmux/conversation/conversation.css"),
       import("./styles.css"),
       import("./ledger.css"),
-      import("../home-messages/transcript/transcript.css"),
+      import("./transcript/transcript.css"),
     ]),
   load: async () => TranscriptHover,
   variants: {
