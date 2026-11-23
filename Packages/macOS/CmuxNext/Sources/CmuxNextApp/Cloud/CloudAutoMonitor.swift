@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextBridge
 import CmuxNextCloud
+import CmuxNextWakeups
 import CoreGraphics
 import Dispatch
 import Foundation
@@ -18,7 +19,8 @@ final class CloudAutoMonitor {
     private var observers: [any NSObjectProtocol] = []
     private var pressure: DispatchSourceMemoryPressure?
     private var power: CFRunLoopSource?
-    private var timer: Timer?
+    /// The next re-read while an Auto chat exists; none is scheduled when no chat is on Auto.
+    private let tick = DemandTimer(owner: "CloudAutoMonitor.tick")
     /// When each session's last turn ended (for the rule's idle time).
     private var turnEnded: [String: UInt64] = [:]
 
@@ -27,23 +29,25 @@ final class CloudAutoMonitor {
 
     init(services: AppServices) { self.services = services }
 
-    /// Starts watching: every change of a signal asks Rust about each Auto chat, and so does a 30 second timer.
+    /// Starts watching: every change of a signal asks Rust about each Auto chat, and while one is on Auto a 30 second
+    /// deadline asks again (idle time and long turns change with no event).
     func start() {
         guard !started else { return }
         started = true
         let center = NSWorkspace.shared.notificationCenter
-        // The notification is delivered before the system sleeps, on the main thread: the moves start inside it, not after a hop.
         observers.append(center.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.sleeping = true; self?.evaluate() }
+            Task { @MainActor in self?.sleeping = true; self?.evaluate() }
         })
         observers.append(center.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.sleeping = false; self?.evaluate() }
+            Task { @MainActor in self?.sleeping = false; self?.evaluate() }
         })
         let source = DispatchSource.makeMemoryPressureSource(eventMask: [.normal, .warning, .critical], queue: .main)
         source.setEventHandler { [weak self, weak source] in
-            MainActor.assumeIsolated {
-                guard let self, let event = source?.data else { return }
-                self.memory = event.contains(.critical) ? "critical" : event.contains(.warning) ? "warn" : "normal"
+            guard let event = source?.data else { return }
+            let level = event.contains(.critical) ? "critical" : event.contains(.warning) ? "warn" : "normal"
+            Task { @MainActor in
+                guard let self else { return }
+                self.memory = level
                 self.evaluate()
             }
         }
@@ -53,16 +57,13 @@ final class CloudAutoMonitor {
         if let loop = IOPSNotificationCreateRunLoopSource({ context in
             guard let context else { return }
             let monitor = Unmanaged<CloudAutoMonitor>.fromOpaque(context).takeUnretainedValue()
-            MainActor.assumeIsolated { monitor.evaluate() }
+            Task { @MainActor in monitor.evaluate() }
         }, context)?.takeRetainedValue() {
             CFRunLoopAddSource(CFRunLoopGetMain(), loop, .defaultMode)
             power = loop
         }
-        timer = Timer.scheduledTimer(withTimeInterval: Self.interval, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.evaluate() }
-        }
         AgentTurnStateStore.shared.turnEndedObservers.append { [weak self] session, _ in
-            MainActor.assumeIsolated { guard let self else { return }; self.turnEnded[session] = self.services.cloud.place.nowMs }
+            Task { @MainActor in guard let self else { return }; self.turnEnded[session] = self.services.cloud.place.nowMs }
         }
     }
 
@@ -70,7 +71,8 @@ final class CloudAutoMonitor {
     func evaluate() {
         let place = services.cloud.place
         let autos = CloudPlaceRun(services: services).chats().filter { place.mode(of: $0.session) == "auto" }
-        guard !autos.isEmpty else { return }
+        guard !autos.isEmpty else { tick.cancel(); return }
+        tick.schedule(after: .seconds(Self.interval)) { @MainActor [weak self] in self?.evaluate() }
         let signals = self.signals()
         let nowMs = place.nowMs
         for chat in autos {
@@ -132,7 +134,7 @@ final class CloudAutoMonitor {
         let free = try? FileManager.default.homeDirectoryForCurrentUser.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
             .volumeAvailableCapacityForImportantUsage
         // kCGAnyInputEventType: every kind of input.
-        let idle = CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: CGEventType(rawValue: ~0)!)
+        let idle = CGEventType(rawValue: ~0).map { CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: $0) } ?? .nan
         return Signals(sleeping: sleeping, onBattery: onBattery, batteryPercent: percent, memory: memory, diskFreeBytes: free.map { UInt64(max(0, $0)) },
                        idleMs: idle.isFinite && idle >= 0 ? UInt64(idle * 1000) : nil)
     }

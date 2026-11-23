@@ -75,7 +75,8 @@ struct CloudPlaceRun {
         switch mode {
         case "cloud" where !chat.onCloud: move(chat, toCloud: true, trigger: .person)
         case "local" where chat.onCloud: move(chat, toCloud: false, trigger: .person)
-        default: break // auto only records the mode: the monitor decides (``CloudAutoMonitor``)
+        case "auto": services.cloud.autoMonitor?.evaluate() // the monitor decides (``CloudAutoMonitor``), starting now
+        default: break
         }
     }
 
