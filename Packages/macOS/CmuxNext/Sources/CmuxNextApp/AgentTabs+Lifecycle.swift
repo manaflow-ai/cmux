@@ -259,12 +259,12 @@ extension AgentTabStore {
             NotificationCenter.default.post(name: Notification.Name.browserChildWindowPagesNeedUpdate, object: window)
         }
         guard spare.adoptSession(session, tab: key.key, revealTurn: revealTurn, place: wakeStates[key]?.place, moved: moved) else {
-            AgentPaneSpareOutcome.refused.trace(note: spare.model.spareRefusal)
+            AgentPaneSpareOutcome.refused.trace(note: spare.model.spareRefusal, why: spare.model.spareRefusalReason, into: retirer.sources)
             if let revealTurn { pendingTurns[key] = revealTurn }
             if recycle?(spare) != true { retirer.retire(spare) }
             return false
         }
-        AgentPaneSpareOutcome.adopted.trace()
+        AgentPaneSpareOutcome.adopted.trace(into: retirer.sources)
         standaloneViews.remove(spare)
         (views[key], spare.model.allowsTabConversion, wakeStates[key]) = (spare, true, nil)
         wire(spare.model, key: key.key, machine: key.machine)
@@ -393,12 +393,8 @@ extension AgentTabStore {
         remoteCreations[scoped] = nil
         remoteStarts.removeValue(forKey: scoped)?.cancel()
         adoptions = adoptions.filter { $0.value != scoped.relaunchKeyCandidates[0] }
-        for entry in aliases.entries where (entry.key.machine == scoped.machine || entry.key.machine.isEmpty) && (entry.value == key || entry.key.key == key) {
-            aliases.removeValue(forKey: entry.key)
-        }
-        for entry in remoteAliases.entries where (entry.key.machine == scoped.machine || entry.key.machine.isEmpty) && (entry.value == key || entry.key.key == key) {
-            remoteAliases.removeValue(forKey: entry.key)
-        }
+        aliases.removeAliases(of: key, machine: scoped.machine)
+        remoteAliases.removeAliases(of: key, machine: scoped.machine)
         linkedSessions.remove(tabKey(key, machine: machine))
         pendingTurns[scoped] = nil
         wakeStates[scoped] = nil

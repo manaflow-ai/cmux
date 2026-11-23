@@ -49,6 +49,6 @@ public nonisolated enum ChiefPetMascot: String, CaseIterable, Sendable {
 
     /// The character picker's label beside Show Chief Pet (the Chief Settings popover).
     public static var pickerTitle: String {
-        String(localized: "chiefPet.mascot.pickerTitle", defaultValue: "Pet Character", table: "ChiefPet", bundle: .module)
+        String(localized: "chiefPet.mascot.pickerTitle", defaultValue: "Pet Character", table: "ChiefPet", bundle: .localizedModule)
     }
 }

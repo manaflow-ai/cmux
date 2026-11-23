@@ -76,6 +76,11 @@ SEED_LOCK = ".seed.lock"
 # How long a seed waits for another job's seed on the host before going on without the lock (still safe:
 # every write is an atomic rename). Above a cold download of every artifact on a mini (about 2 GB).
 SEED_LOCK_WAIT_SECONDS = 900
+# A slow GitHub response must end and be retried instead of holding a worker for the full transfer timeout.
+# Keep these aligned with the nightly network helpers: a healthy release asset can be large, but a transfer
+# below 1 KB/s for two minutes is a stalled upstream, not useful progress.
+GIT_HTTP_LOW_SPEED_LIMIT = "1000"
+GIT_HTTP_LOW_SPEED_TIME = "120"
 
 
 def warn(message: str) -> None:
@@ -239,7 +244,9 @@ def dump_package(path: Path, swift: str = "swift", env: dict[str, str] | None = 
 def pin_manifests(location: str, revision: str, into: Path) -> None:
     """Write the pin's root Package*.swift files at `revision` into `into` (one-commit, blob-less fetch)."""
     git = ["git", "-C", str(into)]
-    env = dict(os.environ, GIT_TERMINAL_PROMPT="0")
+    env = dict(os.environ, GIT_TERMINAL_PROMPT="0",
+               GIT_HTTP_LOW_SPEED_LIMIT=os.environ.get("GIT_HTTP_LOW_SPEED_LIMIT", GIT_HTTP_LOW_SPEED_LIMIT),
+               GIT_HTTP_LOW_SPEED_TIME=os.environ.get("GIT_HTTP_LOW_SPEED_TIME", GIT_HTTP_LOW_SPEED_TIME))
     subprocess.run(git + ["init", "-q"], check=True, env=env, timeout=60)
     subprocess.run(git + ["fetch", "-q", "--depth=1", "--filter=blob:none", "--no-tags", location, revision],
                    check=True, env=env, timeout=600, capture_output=True)
@@ -317,7 +324,9 @@ def sha256(path: Path) -> str:
 
 def curl_download(url: str, destination: Path) -> None:
     subprocess.run(["curl", "--fail", "--location", "--silent", "--show-error", "--retry", "4",
-                    "--retry-all-errors", "--connect-timeout", "30", "--output", str(destination), url],
+                    "--retry-all-errors", "--connect-timeout", "30", "--max-time", "1800",
+                    "--speed-limit", GIT_HTTP_LOW_SPEED_LIMIT, "--speed-time", GIT_HTTP_LOW_SPEED_TIME,
+                    "--output", str(destination), url],
                    check=True, timeout=1800)
 
 

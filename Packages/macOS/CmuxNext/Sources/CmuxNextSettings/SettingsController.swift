@@ -70,6 +70,8 @@ public final class SettingsController {
     @ObservationIgnored fileprivate var lastGoodThemeFile: ThemeFileInput?
 
     @ObservationIgnored let applier: SettingsApplier
+    /// The active theme file's own font files, registered while it applies.
+    @ObservationIgnored let themeFonts = ThemeFonts()
     @ObservationIgnored private var diagnosticToasts: SettingsDiagnosticToasts?
     @ObservationIgnored private var watcher: ConfigFileWatcher?
     /// Watches the active theme file and the themes folder (`ThemeFileSetting`).
@@ -445,7 +447,7 @@ public final class SettingsController {
             let parsed = try JSONC.parse(source)
             if case .object = parsed { root = parsed } else { problem = "root is not an object" }
         } catch {
-            problem = String(describing: error)
+            problem = JSONC.problem(error, in: source)
         }
         // Managed layers always merge, over the last good file when this one
         // is unreadable, so MDM forced values apply even while the user's
@@ -478,6 +480,8 @@ public final class SettingsController {
             // A file change ends a preview: the loaded values apply.
             previewingKey = nil
             previewSnapshot = nil
+            // The look's own font files first, so the families it names resolve as it applies.
+            themeFonts.use(loaded.themes.overlay?.fontFiles ?? [])
             diagnostics = applier.apply(loaded.snapshot)
             // For the next launch: AppKit keeps this launch's text weight (ProcessFontSmoothing).
             // The chrome text cmux draws itself (the sidebar, tabs) takes the new weight now, as
