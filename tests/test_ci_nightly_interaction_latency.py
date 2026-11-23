@@ -135,6 +135,23 @@ class Tests(unittest.TestCase):
         self.assertTrue(all(r["stale"] for r in state["interactions"].values()))
         self.assertIn("STALE", nil.summary(state))
 
+    def test_unread_state_publishes_nothing(self):
+        calls = []
+
+        def flaky(repo, out_dir, token):
+            calls.append(1)
+            if len(calls) < 3:
+                raise OSError("HTTP Error 403: Forbidden")
+            return True
+
+        self.assertTrue(nil.fetch_state_retrying("r", "d", "t", sleep=lambda s: None, fetch=flaky))
+
+        def broken(repo, out_dir, token):
+            raise OSError("HTTP Error 403: Forbidden")
+
+        self.assertIsNone(nil.fetch_state_retrying("r", "d", "t", sleep=lambda s: None, fetch=broken))
+        self.assertFalse(nil.fetch_state_retrying("r", "d", "t", sleep=lambda s: None, fetch=lambda *a: False))
+
     def test_trusted_artifact(self):
         good = {"workflow_run": {"head_branch": "nightly-next", "head_repository_id": 7}}
         self.assertTrue(nil.trusted(good, 7))
