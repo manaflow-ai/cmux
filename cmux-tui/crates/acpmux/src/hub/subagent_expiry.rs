@@ -18,16 +18,19 @@ impl Hub {
             let records: Vec<Value> = ended
                 .into_iter()
                 .map(|end| {
-                    let mut update = json!({"sessionUpdate": "subagent_state_update",
-                        "subagentSessionId": end.id, "state": end.state, "reason": end.reason,
-                        "recovered": true});
+                    let mut update = serde_json::Map::new();
+                    update.insert("sessionUpdate".into(), json!("subagent_state_update"));
+                    update.insert("subagentSessionId".into(), json!(end.id));
+                    update.insert("state".into(), json!(end.state));
+                    update.insert("reason".into(), json!(end.reason));
+                    update.insert("recovered".into(), json!(true));
                     // When it really ended and started (`subagents::expiry`), never the moment
                     // this record is written: a client draws the end where it happened.
                     if let Some(at) = end.ended_at {
-                        update["endedAt"] = json!(at);
+                        update.insert("endedAt".into(), json!(at));
                     }
                     if let Some(at) = end.started_at {
-                        update["startedAt"] = json!(at);
+                        update.insert("startedAt".into(), json!(at));
                     }
                     let mut params = json!({"sessionId": session.id, "update": update});
                     tree.annotate_live(&mut params, true);
