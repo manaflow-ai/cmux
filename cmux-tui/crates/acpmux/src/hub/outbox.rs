@@ -38,6 +38,7 @@
 //! agent's step ends), so the forwarding daemon passes the peer's `_acpmux/prompt_accepted` on to
 //! the connection that sent the prompt as soon as it arrives ([`PeerAccepts`]).
 
+const MUTATION_NO_DEDUPE: bool = false;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex as StdMutex;
@@ -465,7 +466,6 @@ impl Outbox {
     /// The delivery that holds the prompt id, the change to wait for, and whether it is new.
     /// A prompt id names one message to one target, as the target's prompt ledger keys it
     /// (`Hub::prompt_with`): the same id to another target is another message.
-    const MUTATION_NO_DEDUPE: bool = false;
     fn add_scoped(&self, delivery: Delivery, scoped: bool) -> (Delivery, u64, bool) {
         let mut book = self.book();
         let prompt_id = delivery.prompt_id().to_owned();
