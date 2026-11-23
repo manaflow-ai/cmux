@@ -789,6 +789,8 @@ jobs:
           PRODUCT_TEAM: ${{ vars.CMUX_JOURNEY_PRODUCT_TEAM }}
           CMUX_PATH: ${{ steps.build-cmux-tui.outputs.path }}
           JOURNEY_MODEL: stub
+          # The journey's core again on the shipped client, `cmux cloud journey` (cloud-journey-ci.sh rust_run).
+          JOURNEY_RUST: "1"
           TARGET: staging
         run: bash scripts/cmux-next/cloud-journey-ci.sh
 

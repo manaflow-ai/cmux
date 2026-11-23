@@ -42,6 +42,7 @@ pub mod bg_run;
 pub(crate) mod bounded_child;
 pub mod build_info;
 pub mod byo_endpoint;
+pub mod caller_stats;
 pub mod capabilities;
 pub mod catalog;
 pub mod chat_fork;
@@ -68,6 +69,8 @@ pub mod cmux_tui_service;
 pub mod codex_app_server;
 #[cfg(unix)]
 mod codex_auth_file;
+/// The opt-in bundled Codex app-server (Labs, off by default).
+pub mod codex_bundle;
 mod codex_cloud_auth;
 pub mod codex_cmux_entry;
 pub mod codex_desktop;
@@ -124,6 +127,7 @@ pub mod github_mcp {
 pub mod github_status;
 pub mod goal;
 pub mod hand;
+pub mod happy_dial;
 pub mod harness_admin;
 pub mod harness_config;
 pub mod harness_fixture;
@@ -280,6 +284,7 @@ pub mod sent_by;
 pub mod server;
 pub mod session_env;
 mod session_handle;
+pub mod session_icon;
 pub mod session_identity;
 pub mod session_liveness;
 pub mod session_name;
@@ -313,6 +318,7 @@ mod single_shot_list_tests;
 #[cfg(test)]
 mod source_scan_smoke;
 pub mod sr2_cost_labels;
+pub mod ssh_config_hosts;
 pub(crate) mod ssh_forward;
 pub(crate) mod ssh_forward_owners;
 pub mod stats;
@@ -375,3 +381,6 @@ pub mod ws_auth;
 pub mod xhost_audit;
 
 pub mod model_catalog;
+/// The per-host model-name hot patch (`$ACPMUX_HOME/model-aliases.json`), read by
+/// `model_catalog::canonical_model`.
+pub mod model_hot_patch;
