@@ -647,11 +647,25 @@ impl Hub {
                 if brokers.contains(&name) {
                     s.set("githubBroker", Value::Bool(true));
                 }
+                // What the device hub says of its screen, as for a mesh host below: a Linux
+                // desktop's row offers a share only when a screen host there is listed, and the
+                // row carries the hub id a viewer opens.
+                if let Some(hub) = crate::share_host::device_hub_of(&name) {
+                    s.set("deviceHub", hub);
+                }
                 s
             })
             .collect();
         // The machines only the mesh hub reaches (`mesh_book.rs`): never an ssh peer's name.
-        v.extend(self.mesh_book_hosts());
+        // Each with what the device hub says of its screen (`deviceHub`), the only record of
+        // its kind there: such a machine has no ssh health.
+        v.extend(self.mesh_book_hosts().into_iter().map(|mut row| {
+            let host = row.get("name").and_then(Value::as_str).unwrap_or_default().to_owned();
+            if let Some(hub) = crate::share_host::device_hub_of(&host) {
+                row.set("deviceHub", hub);
+            }
+            row
+        }));
         v.sort_by_key(|p| p.get("name").and_then(Value::as_str).unwrap_or("").to_owned());
         v
     }
