@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR a77431a466293c6ad75e0c168cec2387f12a578f35d72d0cee3c77d259940d4b. */
+/* cmux-tui mux protocol 12, IR f00096ab7805c8c4ddd4b39b3be9c284544c7ec44cea27475f5e470fe1818333. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -568,6 +568,7 @@ export type HomeInboxRow = {
   "chief"?: string;
   "chief_state"?: HomeChiefState;
   "id": string;
+  "index"?: bigint;
   "kind": HomeInboxKind;
   "last_author"?: string;
   "marked_unread": boolean;
