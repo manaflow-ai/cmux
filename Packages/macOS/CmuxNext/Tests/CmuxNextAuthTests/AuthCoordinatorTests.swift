@@ -2,6 +2,7 @@ import CMUXAuthCore
 import Foundation
 import Testing
 @testable import CmuxAuthRuntime
+import CmuxNextCloud
 
 @MainActor
 @Suite struct AuthCoordinatorTests {
@@ -25,7 +26,8 @@ import Testing
             clock: clock,
             isOnline: isOnline,
             onSessionWillTransition: onSessionWillTransition,
-            onSignedIn: onSignedIn
+            onSignedIn: onSignedIn,
+            reducer: AuthReducerFFI.factory
         )
         return (coordinator, store)
     }

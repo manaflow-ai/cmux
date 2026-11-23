@@ -2,6 +2,7 @@ import CMUXAuthCore
 import Foundation
 import Testing
 @testable import CmuxAuthRuntime
+import CmuxNextCloud
 
 /// A token store fake whose first `failingReads` reads fail with a storage
 /// error (nil plus a bumped ``tokenReadFailureCount()``, as a keychain read
@@ -88,7 +89,8 @@ actor FailingReadsTokenStoreAuthClient: AuthClient {
             teamSelection: CMUXAuthTeamSelectionStore(keyValueStore: store, key: "selected_team"),
             anchor: FakeAnchor(),
             config: .test,
-            launch: .plain()
+            launch: .plain(),
+            reducer: AuthReducerFFI.factory
         )
         return (coordinator, store)
     }

@@ -2,6 +2,7 @@ import CMUXAuthCore
 import Foundation
 import Testing
 @testable import CmuxAuthRuntime
+import CmuxNextCloud
 
 actor LockedStorageAuthClient: AuthClient {
     private var access: String?
@@ -146,7 +147,8 @@ actor TokenStorageAvailabilityProbe {
             anchor: FakeAnchor(),
             config: .test,
             launch: .plain(),
-            isTokenStorageAvailable: { await availability.isAvailable() }
+            isTokenStorageAvailable: { await availability.isAvailable() },
+            reducer: AuthReducerFFI.factory
         )
         return (coordinator, store)
     }

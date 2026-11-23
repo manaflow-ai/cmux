@@ -2,6 +2,7 @@ import CMUXAuthCore
 import Foundation
 import Testing
 @testable import CmuxAuthRuntime
+import CmuxNextCloud
 
 /// Round-10 dogfood regression: "sign out doesn't work when there's no wifi".
 ///
@@ -27,7 +28,8 @@ import Testing
             anchor: FakeAnchor(),
             config: .test,
             launch: .plain(),
-            clock: clock
+            clock: clock,
+            reducer: AuthReducerFFI.factory
         )
         try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
         #expect(coordinator.isAuthenticated)
@@ -95,7 +97,8 @@ import Testing
             anchor: FakeAnchor(),
             config: .test,
             launch: .plain(),
-            clock: clock
+            clock: clock,
+            reducer: AuthReducerFFI.factory
         )
         try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
         #expect(coordinator.isAuthenticated)

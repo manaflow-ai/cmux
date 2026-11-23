@@ -2,6 +2,7 @@ import CMUXAuthCore
 import Foundation
 import Testing
 @testable import CmuxAuthRuntime
+import CmuxNextCloud
 
 @MainActor
 @Suite("Auth coordinator team actions")
@@ -22,7 +23,8 @@ struct AuthCoordinatorTeamActionsTests {
             config: .test,
             launch: launch,
             timeouts: AuthTimeouts(interactiveFlow: .seconds(1), network: timeout),
-            clock: clock
+            clock: clock,
+            reducer: AuthReducerFFI.factory
         )
     }
 

@@ -2,6 +2,7 @@ import CMUXAuthCore
 import Foundation
 import Testing
 @testable import CmuxAuthRuntime
+import CmuxNextCloud
 
 /// Regression coverage for ``AuthCoordinator/authenticatedSessionSnapshot()``
 /// reading the access and refresh tokens as ONE coherent pair.
@@ -30,7 +31,8 @@ import Testing
             config: .test,
             launch: .plain(),
             clock: ContinuousClock(),
-            isOnline: { true }
+            isOnline: { true },
+            reducer: AuthReducerFFI.factory
         )
     }
 

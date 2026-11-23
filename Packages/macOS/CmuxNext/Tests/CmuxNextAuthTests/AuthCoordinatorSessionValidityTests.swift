@@ -3,6 +3,7 @@ import Foundation
 import StackAuth
 import Testing
 @testable import CmuxAuthRuntime
+import CmuxNextCloud
 
 /// Behavior tests for the live-session-validity seam that drives the mobile
 /// login-vs-main gate.
@@ -28,7 +29,8 @@ import Testing
             ),
             anchor: FakeAnchor(),
             config: .test,
-            launch: .plain()
+            launch: .plain(),
+            reducer: AuthReducerFFI.factory
         )
         try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
         let baseline = await client.observedCurrentUserStartCount()
@@ -68,7 +70,8 @@ import Testing
             anchor: FakeAnchor(),
             config: .test,
             launch: launch,
-            isOnline: isOnline
+            isOnline: isOnline,
+            reducer: AuthReducerFFI.factory
         )
         return (coordinator, store)
     }

@@ -2,6 +2,7 @@ import CMUXAuthCore
 import Foundation
 import Testing
 @testable import CmuxAuthRuntime
+import CmuxNextCloud
 
 /// A signed-in session whose team list never loaded has no team scope, and
 /// every scope-gated service (the iOS pairing host, Cloud) stays down. macOS
@@ -41,7 +42,8 @@ import Testing
             config: .test,
             launch: .plain(),
             timeouts: Self.longPhaseTimeouts,
-            clock: clock
+            clock: clock,
+            reducer: AuthReducerFFI.factory
         )
     }
 

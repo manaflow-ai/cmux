@@ -2,6 +2,7 @@ import CMUXAuthCore
 import Foundation
 import Testing
 @testable import CmuxAuthRuntime
+import CmuxNextCloud
 
 @MainActor
 @Suite struct AuthCoordinatorPostSignInTimeoutTests {
@@ -27,7 +28,7 @@ import Testing
         clock.advance(by: Self.testTimeouts.network)
 
         try await signIn.value
-        #expect(coordinator.activePostSignInHooks.count == 1)
+        #expect(coordinator.phaseWork.count == 1)
 
         let signOut = Task { await coordinator.signOut(teardownTimeout: Self.testTimeouts.network) }
         await clock.waitUntilSleepers()
@@ -35,11 +36,11 @@ import Testing
         clock.advance(by: Self.testTimeouts.network)
         await signOut.value
 
-        #expect(coordinator.activePostSignInHooks.count == 1)
+        #expect(coordinator.phaseWork.count == 1)
         #expect(coordinator.isAuthenticated == false)
         await hookBlocker.release()
         await waitUntilPostSignInHookCleanupFinished(coordinator)
-        #expect(coordinator.activePostSignInHooks.isEmpty)
+        #expect(coordinator.phaseWork.isEmpty)
     }
 
     private func makeCoordinator(
@@ -58,13 +59,14 @@ import Testing
             launch: .plain(),
             timeouts: Self.testTimeouts,
             clock: clock,
-            onSignedIn: onSignedIn
+            onSignedIn: onSignedIn,
+            reducer: AuthReducerFFI.factory
         )
     }
 
     private func waitUntilPostSignInHookCleanupFinished(_ coordinator: AuthCoordinator) async {
         for _ in 0..<100 {
-            if coordinator.activePostSignInHooks.isEmpty {
+            if coordinator.phaseWork.isEmpty {
                 return
             }
             await Task.yield()

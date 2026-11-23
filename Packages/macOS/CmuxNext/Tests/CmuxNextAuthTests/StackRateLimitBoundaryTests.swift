@@ -4,6 +4,7 @@ import Observation
 import os
 import Testing
 @testable import CmuxAuthRuntime
+import CmuxNextCloud
 
 /// Behavior at the sign-in service boundary: the production Stack client,
 /// the real file token store, and a real HTTP server on 127.0.0.1.
@@ -233,7 +234,8 @@ private struct RealStackSignInHarness {
             anchor: FakeAnchor(),
             config: .test,
             launch: .plain(),
-            rateLimitTelemetry: telemetry.source
+            rateLimitTelemetry: telemetry.source,
+            reducer: AuthReducerFFI.factory
         )
         let factory = FakeBrowserAuthSessionFactory()
         flow = HostBrowserSignInFlow(
