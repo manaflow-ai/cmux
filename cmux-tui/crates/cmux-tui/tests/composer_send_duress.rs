@@ -44,7 +44,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use base64::Engine;
-use cmux_composer_send::{Answer, DEFAULT_HOLD, Form, Outbox, Outcome};
+use cmux_composer_send::{Answer, Form, Outbox, Outcome};
 use cmux_fault::Trace;
 use cmux_fault::shaper::{ProfileFile, Shaper};
 use serde_json::{Value, json};
@@ -58,7 +58,7 @@ const ROWS: u64 = 38;
 /// `DaemonTerminalSession.inputRequestDeadline` and the input lane's `within(.seconds(10))`
 /// (DaemonTerminalSession.swift:234, :1656, :1670): one attempt's answer bound, both policies.
 const ATTEMPT_TIMEOUT: Duration = Duration::from_secs(10);
-/// `DaemonTerminalSession.inputHoldLimit` (DaemonTerminalSession.swift:212).
+/// `DaemonTerminalSession.inputHoldLimit` (DaemonTerminalSession.swift:233): both policies' hold.
 const INPUT_HOLD: Duration = Duration::from_secs(10);
 /// `ComposerSubmit.enterDelay` (ComposerSubmit.swift:21): the mirror path's Return after the text.
 const ENTER_DELAY: Duration = Duration::from_millis(60);
@@ -633,7 +633,9 @@ impl OutboxPhone {
     fn new(surface: u64, nonce: &str) -> Self {
         OutboxPhone {
             io: Io { surface, ..Io::default() },
-            outbox: Outbox::new(nonce, DEFAULT_HOLD),
+            // The app's hold: the session builds its outbox with `inputHoldLimit`, and its input
+            // queue drops a detached composer Send at the same limit (`expireInput`).
+            outbox: Outbox::new(nonce, INPUT_HOLD),
             form: None,
             attached: false,
             flight: HashMap::new(),
