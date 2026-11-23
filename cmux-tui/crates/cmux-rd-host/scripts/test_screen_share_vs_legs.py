@@ -191,6 +191,46 @@ class Shape(unittest.TestCase):
             o.main()
         self.assertTrue(o.host.calls[-1].endswith("mac-holds.sh clear"))
 
+    def test_a_start_that_fails_still_clears_the_shaper(self):
+        o = orchestrator()
+        o.log = lambda rec: None
+        real = o.shape_run
+
+        def run(verb):
+            if verb.startswith("start"):
+                real(verb)
+                raise RuntimeError("mac-holds start died after the pipe")
+            return real(verb)
+        o.shape_run = run
+        o.measure = lambda: self.fail("measured on a failed start")
+        with self.assertRaises(RuntimeError):
+            o.main()
+        self.assertTrue(o.host.calls[-1].endswith("mac-holds.sh clear"))
+
+    def test_one_failed_leg_keeps_the_others_and_the_table(self):
+        ran, printed = [], []
+
+        class Orch:
+            def __init__(self, a):
+                self.a = a
+
+            def main(self):
+                ran.append(self.a.link)
+                if self.a.link == "wifi-away":
+                    raise RuntimeError("warm-up failed")
+                return {"leg": self.a.link}
+        old = vs.Orchestrator, vs.format_legs
+        vs.Orchestrator = Orch
+        vs.format_legs = lambda budgets: printed.append(budgets) or ["table"]
+        try:
+            with self.assertRaises(SystemExit) as e:
+                vs.cmd_run(argparse.Namespace(legs="wifi-away,wired"))
+        finally:
+            vs.Orchestrator, vs.format_legs = old
+        self.assertEqual(ran, ["wifi-away", "wired"])
+        self.assertEqual(printed, [[{"leg": "wired"}]])
+        self.assertIn("wifi-away", str(e.exception))
+
     def test_an_unshaped_leg_never_touches_the_shaper(self):
         o = orchestrator(shape=None)
         o.measure = lambda: None

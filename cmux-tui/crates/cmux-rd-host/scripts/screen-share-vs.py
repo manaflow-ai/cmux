@@ -2720,8 +2720,10 @@ class Orchestrator:
             print(f"warning: --host-ip {self.a.host_ip} is a tailnet address. {TAILNET_UDP}",
                   file=sys.stderr, flush=True)
         self.setup()
-        self.shape_start()
         try:
+            # Inside the try: a start that fails after it applied part of the shaping is cleared
+            # now, not by the watchdog after --shape-max-s (self.shaped is set before the start).
+            self.shape_start()
             return self.measure()
         finally:
             self.shape_clear()
@@ -2904,13 +2906,19 @@ def cmd_run(args):
     if not legs:
         Orchestrator(args).main()
         return
-    budgets = []
+    budgets, failed = [], []
     for name, profile in legs:
         leg = argparse.Namespace(**vars(args))
         leg.link, leg.shape = name, profile
-        budgets.append(Orchestrator(leg).main())
+        try:
+            budgets.append(Orchestrator(leg).main())
+        except (Exception, SystemExit) as e:  # noqa: BLE001 - one failed leg must not lose the others
+            failed.append(name)
+            print(f"leg {name} failed: {e!r}"[:600], file=sys.stderr, flush=True)
     print()
-    print("\n".join(format_legs(budgets)))
+    print("\n".join(format_legs([b for b in budgets if b])))
+    if failed:
+        raise SystemExit(f"legs failed: {', '.join(failed)} (the table holds the rest)")
 
 
 def app_env(text):
