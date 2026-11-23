@@ -6,8 +6,12 @@ fn run(method: &str, params: Value) -> Value {
     decode(&json!({"id": "1", "method": method, "params": params}), "/Users/me").into_json()
 }
 
+fn field<'a>(out: &'a Value, key: &str) -> &'a Value {
+    out.get(key).unwrap_or(&Value::Null)
+}
+
 fn case(out: &Value) -> &str {
-    out["case"].as_str().unwrap_or("")
+    field(out, "case").as_str().unwrap_or("")
 }
 
 fn rejects(method: &str, params: Value) {
@@ -82,7 +86,7 @@ fn lists_and_numbers_keep_their_bounds() {
     rejects("transport.send", json!({"connection": 1, "frames": vec!["a"; 4097]}));
     accepts("transport.send", json!({"connection": 1, "frames": vec!["a"; 4096]}), "transportSend");
     let out = accepts("pane.framePacing", json!({"intervals": vec![1.0; 700]}), "framePacing");
-    assert_eq!(out["_0"].as_array().map(Vec::len), Some(640));
+    assert_eq!(field(&out, "_0").as_array().map(Vec::len), Some(640));
     rejects("pane.framePacing", json!({"intervals": []}));
     rejects("harness.update", json!({"ids": []}));
     rejects("harness.update", json!({"ids": ["a", "a"]}));
@@ -104,15 +108,15 @@ fn open_tab_cuts_and_gates() {
         json!({"kind": "terminal", "text": "a".repeat(9000), "cwd": "/x"}),
         "openTab",
     );
-    assert_eq!(out["text"].as_str().map(str::len), Some(8192));
-    assert_eq!(out["cwd"], json!("/x"));
+    assert_eq!(field(&out, "text").as_str().map(str::len), Some(8192));
+    assert_eq!(*field(&out, "cwd"), json!("/x"));
     let out = accepts(
         "tab.open",
         json!({"kind": "browser", "cwd": "/x", "newProfile": true, "profileName": "  Work  "}),
         "openTab",
     );
-    assert_eq!(out["cwd"], Value::Null);
-    assert_eq!(out["profile"], json!({"new": "Work"}));
+    assert_eq!(*field(&out, "cwd"), Value::Null);
+    assert_eq!(*field(&out, "profile"), json!({"new": "Work"}));
     rejects("tab.open", json!({"kind": "agent"}));
     rejects("tab.jump", json!({"target": "elsewhere", "id": "x"}));
     rejects("file.open", json!({"path": "", "where": "tab"}));
@@ -143,7 +147,7 @@ fn run_action_checks_each_optional_field() {
 #[test]
 fn header_folder_expands_home() {
     let out = accepts("chat.newHere", json!({"cwd": "~/code"}), "newChatHere");
-    assert_eq!(out["_0"], json!("/Users/me/code"));
+    assert_eq!(*field(&out, "_0"), json!("/Users/me/code"));
     rejects("chat.newHere", json!({"cwd": "relative"}));
 }
 
@@ -152,7 +156,7 @@ fn replies_keep_their_keys_and_caps() {
     rejects("link.inspect", json!({"other": 1}));
     rejects("link.inspect", json!({"paths": vec!["/a"; 65]}));
     let out = accepts("link.inspect", json!({"paths": ["/a", "/a"]}), "reply");
-    assert_eq!(out["paths"], json!(["/a"]));
+    assert_eq!(*field(&out, "paths"), json!(["/a"]));
     rejects("link.inspect", json!({"urls": ["a".repeat(2049)]}));
     rejects("link.openPath", json!({"path": "/a", "line": 0}));
     rejects("link.openPath", json!({"path": "/a", "line": 10_000_001}));
@@ -175,7 +179,7 @@ fn replies_keep_their_keys_and_caps() {
         json!({"src": "data:image/png;base64,AA", "name": "é".repeat(400)}),
         "reply",
     );
-    assert_eq!(out["name"].as_str().map(str::len), Some(512));
+    assert_eq!(field(&out, "name").as_str().map(str::len), Some(512));
     rejects("image.reveal", json!({"src": "data:x", "name": "n", "path": ""}));
     rejects("pr.inspect", json!({"url": "https://github.com/a/b/commit/1"}));
     rejects("pr.inspect", json!({"url": "https://github.com/-a/b/pull/1"}));
@@ -183,7 +187,7 @@ fn replies_keep_their_keys_and_caps() {
     rejects("pr.inspect", json!({"url": "https://github.com/a/b/pull/1?x=1"}));
     rejects("pr.inspect", json!({"url": "https://github.com/a/b/issues/1/files"}));
     let out = accepts("pr.inspect", json!({"url": "https://github.com/a/b/pull/1/files"}), "reply");
-    assert_eq!(out["_0"], json!("https://github.com/a/b/pull/1"));
+    assert_eq!(*field(&out, "_0"), json!("https://github.com/a/b/pull/1"));
     rejects("environment.remove", json!({"id": "nope"}));
     accepts(
         "environment.remove",
