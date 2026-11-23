@@ -147,6 +147,27 @@ def follow_log(path: Path, lines: list, stop: threading.Event) -> None:
         stop.wait(0.2)
 
 
+OK_WORD = re.compile(r'(?i)"(?:text|content|delta|message|value)"\s*:\s*"[^"]{0,200}\bok\b')
+
+
+def first_token(session: str, started: float, out: dict, stop: threading.Event) -> None:
+    """The local chat's first agent text: polls `agents chat read` every 250 ms from the start's exit until the
+    reply's "ok" is in it (ok_ms), noting when the transcript first grew past its first read (grew_ms)."""
+    first = None
+    while not stop.is_set() and "ok_ms" not in out:
+        got = run(["agents", "chat", "read", session, "--limit", "50", "--json"], timeout=20)
+        at = round((time.monotonic() - started) * 1000)
+        text = got["out"] if got["code"] == 0 else ""
+        if text and first is None:
+            first = len(text)
+        elif text and "grew_ms" not in out and len(text) > first:
+            out["grew_ms"] = at
+        if OK_WORD.search(text):
+            out["ok_ms"] = at
+            out["at_ok"] = text[-1500:]
+        stop.wait(0.25)
+
+
 def hybrid_run(index: int) -> dict:
     env = {**ENV, "CMUX_HYBRID_START": "1"}
     started = time.monotonic()
@@ -183,21 +204,29 @@ def hybrid_run(index: int) -> dict:
     if session and "session" not in r:
         r["session"] = session.group(1)
     r["log_path"] = log.group(1) if log else None
+    if r["log_path"] and "session" not in r:
+        r["session"] = Path(r["log_path"]).stem
     print(f"[run {index}] exit {code} first output {r['first_output_ms']} ms, command {exited} ms, "
           f"session {r.get('session')}, log {r['log_path']}", flush=True)
     if not r["log_path"] or not r.get("session"):
         r["failure"] = "the start named no driver log or session (hybrid start did not take this start)"
         return r
-    r["transcript_start"] = transcript(r["session"])
     lines: list = []
     stop = threading.Event()
     follower = threading.Thread(target=follow_log, args=(Path(r["log_path"]), lines, stop), daemon=True)
     follower.start()
+    token: dict = {}
+    watcher = threading.Thread(target=first_token, args=(r["session"], started, token, stop), daemon=True)
+    watcher.start()
+    r["transcript_start"] = transcript(r["session"])
     deadline = started + args.run_deadline
     while time.monotonic() < deadline and not any('"done"' in l for _, l in lines):
         time.sleep(0.5)
     stop.set()
     follower.join(2)
+    watcher.join(5)
+    r["first_token"] = token
+    r["first_token_s"] = round(token["ok_ms"] / 1000, 2) if token.get("ok_ms") is not None else None
     r["driver_log"] = [(round((t - started) * 1000), l) for t, l in lines]
     r["driver_done"] = any('"done"' in l for _, l in lines)
     for t, l in lines:
@@ -216,6 +245,8 @@ def hybrid_run(index: int) -> dict:
     live = next((shows[k] for k in shows if "live" in k.lower()), None)
     ready = next((shows[k] for k in shows if "ready" in k.lower()), None)
     r["machine_ready_ms"] = ready if ready is not None else moving
+    r["machine_ready_from"] = "ready line" if ready is not None else ("move start (no ready line)" if moving is not None else None)
+    r["machine_ready_s"] = round(r["machine_ready_ms"] / 1000, 2) if r["machine_ready_ms"] is not None else None
     r["move_ms"] = (live - moving) if live is not None and moving is not None else None
     r["live_ms"] = live
     # The turn's end, wherever the chat runs now.
@@ -260,16 +291,78 @@ if TOKEN:
     # The local chat's Claude (the app's acpmux starts it) signs in with the agent test account's setup-token.
     launch += ["--env", f"{claude_login_cache.TOKEN_ENV}={TOKEN}"]
 launch += [str(Path(args.app).resolve()), "--args", "--cloud-backend", "staging"]
-app = subprocess.Popen(launch, env=ENV, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+launch_log = OUT / "open.log"
+launched_at = time.strftime("%Y-%m-%d %H:%M:%S")
+app = subprocess.Popen(launch, env=ENV, stdout=launch_log.open("w"), stderr=subprocess.STDOUT)
+APP_PATH = str(Path(args.app).resolve())
+evidence["launch"] = {"argv": [a if "=" not in a or not a.startswith("CLAUDE") else "CLAUDE_CODE_OAUTH_TOKEN=[redacted]"
+                               for a in launch], "socket": SOCKET}
+FAILED: list = []
+
+
+def sh(cmd: list, timeout: int = 60) -> str:
+    try:
+        done = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        return redact((done.stdout + done.stderr)[-20000:])
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return f"{cmd[0]}: {error}"
+
+
+def app_pids() -> list:
+    return [int(x) for x in sh(["/usr/bin/pgrep", "-f", APP_PATH + "/Contents/MacOS/"]).split() if x.isdigit()]
+
+
+def diagnose(why: str) -> None:
+    """What the launch left behind, so a failure names its cause: open's exit, the app's processes, the sockets
+    they hold, /tmp's cmux sockets and the app's unified log since the launch."""
+    pids = app_pids()
+    (OUT / "launch-diagnostics.txt").write_text("\n".join([
+        f"why: {why}", f"open exit: {app.poll()}", f"open output: {launch_log.read_text()[-4000:] if launch_log.exists() else ''}",
+        f"app pids: {pids}", "ps:", sh(["/bin/ps", "-axo", "pid,ppid,etime,command"]),
+        "app sockets:", *[sh(["/usr/sbin/lsof", "-a", "-p", str(pid), "-U"]) for pid in pids],
+        "tmp sockets:", sh(["/bin/ls", "-la", "/tmp"]),
+        "unified log:", sh(["/usr/bin/log", "show", "--style", "compact", "--info", "--start", launched_at,
+                             "--predicate", 'process CONTAINS[c] "cmux" OR subsystem CONTAINS[c] "cmux"'], timeout=120),
+    ]))
+    for crash in sorted(Path.home().glob("Library/Logs/DiagnosticReports/*cmux*"))[-3:]:
+        (OUT / f"crash-{crash.name}").write_text(crash.read_text(errors="replace")[-40000:])
+
+
+def find_socket() -> str | None:
+    """The socket the launched app listens on when it is not the one asked for: from lsof on its pids."""
+    for pid in app_pids():
+        for path in re.findall(r"(/\S+\.sock)\b", sh(["/usr/sbin/lsof", "-a", "-p", str(pid), "-U"])):
+            probe = subprocess.run([APP_CLI, "app", "identify", "--json"], env={**ENV, "CMUX_SOCKET_PATH": path,
+                                   "CMUX_NEXT_SOCKET_PATH": path}, capture_output=True, text=True, timeout=30)
+            if probe.returncode == 0 and parsed(probe.stdout).get("pid"):
+                return path
+    return None
+
+
 before: set = set()
 try:
     deadline = time.monotonic() + 240
+    switched = False
     while time.monotonic() < deadline:
         got = run(["app", "identify", "--json"], cli=APP_CLI, timeout=30)
         if got["code"] == 0 and parsed(got["out"]).get("pid"):
             break
-        time.sleep(3)
+        if not switched and time.monotonic() > deadline - 180:
+            other = find_socket()
+            if other:
+                switched = True
+                evidence["socket_used"] = other
+                print(f"the app is not on {SOCKET}; it answers on {other}: using that", flush=True)
+                ENV["CMUX_SOCKET_PATH"] = ENV["CMUX_NEXT_SOCKET_PATH"] = other
+                continue
+        if app.poll() is not None and not app_pids():
+            break
+        time.sleep(1)
     step("app identify", got)
+    if got["code"] != 0:
+        diagnose("app identify never answered")
+        FAILED.append("app identify: " + (got["err"] or got["out"])[-300:])
+        raise SystemExit(1)
     deadline = time.monotonic() + 300
     while time.monotonic() < deadline:
         got = run(["app", "call", "auth.status", "--json"], cli=APP_CLI, timeout=30)
@@ -278,18 +371,28 @@ try:
             break
         time.sleep(3)
     step("auth.status (staging, signed in)", {**got, "out": json.dumps({k: status.get(k) for k in ("signed_in", "backend", "cloud_environment")})})
+    if not (status.get("signed_in") is True and str(status.get("backend", "")).rstrip("/") == API_ORIGIN):
+        diagnose("auth.status is not signed in to staging")
+        FAILED.append(f"auth.status: {json.dumps({k: status.get(k) for k in ('signed_in', 'backend', 'cloud_environment')})}")
+        raise SystemExit(1)
     if TOKEN and claude_login_cache.valid(TOKEN):
         for entry in claude_login_cache.names(status):
             code, err = claude_login_cache.store(APP_CLI, ENV, entry, TOKEN)
             step("cache claude login", {"words": ["cloud", "secret", "set", "<entry>"], "code": code, "ms": 0, "out": "", "err": redact(err)})
     step("cli version (PR build)", run(["--version"]))
-    step("hybrid-status", run(["cloud", "hybrid-status", "--json"]))
+    hs = step("hybrid-status", run(["cloud", "hybrid-status", "--json"]))
+    hv = parsed(hs["out"])
+    hv = (hv.get("result") or hv) if isinstance(hv, dict) else {}
+    evidence["plan"] = hv.get("plan")
+    evidence["hybrid_status"] = hv
     before = set(machines())
     evidence["machines_before"] = sorted(before)
     for i in range(1, args.runs + 1):
         r = hybrid_run(i)
         evidence["runs"].append(r)
         save()
+    if not any(r.get("log_path") for r in evidence["runs"]):
+        FAILED.append("no run took the hybrid path: " + json.dumps(evidence["runs"][0].get("output") if evidence["runs"] else None)[-500:])
     moved = next((r for r in evidence["runs"] if r.get("live_ms") is not None and r.get("session")), None)
     if moved:
         before_follow = transcript(moved["session"])
@@ -309,23 +412,29 @@ try:
     evidence["control_machine"] = value.get("machine_id") if isinstance(value, dict) else None
     evidence["control"] = control
     step("control start (CMUX_HYBRID_START=0)", control)
+except SystemExit:
+    pass
 finally:
     kill_all(before)
+    if FAILED:
+        diagnose("; ".join(FAILED)) if not (OUT / "launch-diagnostics.txt").exists() else None
     run(["app", "quit"], cli=APP_CLI, timeout=30)
     try:
         app.wait(timeout=30)
     except subprocess.TimeoutExpired:
         app.terminate()
 
-rows = ["| run | first output ms | command ms | machine ready ms | move ms | on machine | turn end ms | prompts before/after | interrupted | repeated tools | done-1 | finished |",
-        "|---|---|---|---|---|---|---|---|---|---|---|---|"]
+rows = ["| run | first output ms | command ms | first token s (local) | machine ready s | ready from | move ms | on machine | turn end ms | prompts before/after | interrupted | repeated tools | done-1 | finished |",
+        "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
 for r in evidence["runs"]:
     a, b = r.get("transcript_start") or {}, r.get("transcript_end") or {}
-    rows.append(f"| {r['index']} | {r.get('first_output_ms')} | {r.get('command_ms')} | {r.get('machine_ready_ms')} | "
+    rows.append(f"| {r['index']} | {r.get('first_output_ms')} | {r.get('command_ms')} | {r.get('first_token_s')} | "
+                f"{r.get('machine_ready_s')} | {r.get('machine_ready_from')} | "
                 f"{r.get('move_ms')} | {'yes' if r.get('live_ms') is not None else 'no'} | {r.get('turn_end_ms')} | "
                 f"{a.get('prompts')}/{b.get('prompts')} | {b.get('interrupted_markers')} | {b.get('repeated_tool_calls')} | "
                 f"{b.get('done_1')} | {b.get('finished')} |")
-summary = "\n".join(["## Hybrid start first run", "", *rows, "",
+summary = "\n".join(["## Hybrid start first run", "", f"plan: {evidence.get('plan')}", "", *rows, "",
+                     *(f"FAILED: {f}" for f in FAILED),
                      f"control (HYBRID=0): exit {evidence.get('control', {}).get('code')} in {evidence.get('control', {}).get('total_ms')} ms",
                      f"follow-up: {json.dumps({k: evidence['follow_up'].get(k) for k in ('code', 'ms', 'skipped')})}",
                      f"killed: {json.dumps(evidence['machines_killed'])}", f"left: {evidence['machines_left']}"])
@@ -336,3 +445,6 @@ for r in evidence["runs"]:
     for t, l in r.get("driver_log") or []:
         print(f"{t:>8} ms  {l}")
 save()
+evidence["failed"] = FAILED
+save()
+sys.exit(1 if FAILED else 0)
