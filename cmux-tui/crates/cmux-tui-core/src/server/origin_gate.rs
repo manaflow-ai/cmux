@@ -547,12 +547,16 @@ fn is_bundled_mobile_host_path(path: &Path) -> bool {
     let Ok(path) = std::fs::canonicalize(path) else { return false };
     match sibling {
         Some(Sibling::File(sibling)) => &path == sibling,
-        #[cfg(unix)]
         Some(Sibling::Linked(bin)) => {
-            crate::tool_packs::verified(bin, MOBILE_HOST_NAME).is_some_and(|host| host == path)
+            #[cfg(unix)]
+            let host = crate::tool_packs::verified(bin, MOBILE_HOST_NAME);
+            #[cfg(not(unix))]
+            let host: Option<PathBuf> = {
+                let _ = bin;
+                None
+            };
+            host.is_some_and(|host| host == path)
         }
-        #[cfg(not(unix))]
-        Some(Sibling::Linked(_)) => false,
         None => false,
     }
 }
