@@ -506,10 +506,16 @@ class PullRequestSkip(unittest.TestCase):
         self.assertIs(pr_test_lanes.evaluate("${{ !cancelled() && " + SKIP_IF + " }}", context), True)
         self.assertIs(pr_test_lanes.evaluate("${{ github.event_name != 'pull_request' }}", context), False)
         # A pull request into main runs every skipped job: no push of main would (SKIP_BASE).
-        self.assertIn("github.event.pull_request.base.ref != '" + jobs.SKIP_BASE + "'", jobs.PR_SKIP_IF)
-        clause = "${{ github.event.pull_request.base.ref != 'feat-cmux-next' }}"
-        self.assertIs(pr_test_lanes.evaluate(clause, pr_test_lanes.event_context("main")), True)
-        self.assertIs(pr_test_lanes.evaluate(clause, context), False)
+        self.assertIn("!startsWith(github.event.pull_request.base.ref, '" + jobs.SKIP_BASE + "')", jobs.PR_SKIP_IF)
+        # A pull request into a branch stacked on feat-cmux-next (feat-cmux-next-ios-infinite-scroll) skips the same
+        # jobs: that branch reaches feat-cmux-next through a PR that skips them too, and the feat-cmux-next push runs
+        # them (Aziz's App Review gate walked 26-30 min on every push into it, 2026-11-22).
+        stacked = pr_test_lanes.event_context("feat-cmux-next-ios-infinite-scroll")
+        self.assertIs(pr_test_lanes.evaluate("${{ !cancelled() && " + SKIP_IF + " }}", stacked), True)
+        tier = "${{ !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') }}"
+        self.assertIs(pr_test_lanes.evaluate(tier, stacked), False)
+        self.assertIs(pr_test_lanes.evaluate(tier, context), False)
+        self.assertIs(pr_test_lanes.evaluate(tier, pr_test_lanes.event_context("main")), True)
 
     def follows(self, gate_line: str, followed: str = ".github/workflows/s.yml heavy") -> list[str]:
         import tempfile
