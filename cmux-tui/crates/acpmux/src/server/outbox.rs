@@ -1462,6 +1462,45 @@ mod no_session_next_tests {
         assert_eq!(next(&down), Next::Unsent);
         assert_eq!(next(&RpcError::internal("connection reset")), Next::Retry);
     }
+
+    /// A session whose folder is gone (and was not brought back) fails the delivery at once;
+    /// only a recreate that ran out of time is tried again.
+    #[test]
+    fn a_missing_folder_is_final_unless_its_recreate_ran_out_of_time() {
+        use crate::hub::worktree_care::folder_missing;
+        let folder = std::path::Path::new("/tmp/probe-gone");
+        let gone = folder_missing("probe", folder, "no longer exists", false);
+        assert_eq!(next(&gone), Next::Fail);
+        assert!(gone.message.starts_with("session.folder_missing"), "{}", gone.message);
+        assert!(gone.message.contains("/tmp/probe-gone"), "{}", gone.message);
+        let slow = folder_missing("probe", folder, "git did not finish in time", true);
+        assert_eq!(next(&slow), Next::Retry);
+    }
+
+    /// What one message to a session whose folder is gone costs over two hours on the outbox's
+    /// clock: every attempt the schedule allows while the refusal said retryable, one now.
+    #[test]
+    fn a_missing_folder_costs_one_attempt_in_two_hours() {
+        use crate::hub::worktree_care::folder_missing;
+        let attempts_in = |retryable: bool, until_ms: u64| {
+            let d = super::retry_delay_tests::delivery(0, false);
+            let refusal =
+                folder_missing("probe", std::path::Path::new("/tmp/x"), "gone", retryable);
+            let (mut delays, mut tail, mut now, mut attempts) = (RETRY_DELAYS_SECS.iter(), 0, 0, 0);
+            while now <= until_ms && !expired(&d, now) {
+                attempts += 1;
+                if next(&refusal) != Next::Retry {
+                    break;
+                }
+                let Some(secs) = retry_delay(&mut delays, &mut tail, &d, now) else { break };
+                now += retry_sleep(&d, secs, now).as_millis() as u64;
+            }
+            attempts
+        };
+        let two_hours = 2 * 60 * 60 * 1000;
+        assert_eq!(attempts_in(true, two_hours), 11, "the old retryable refusal's cost");
+        assert_eq!(attempts_in(false, two_hours), 1);
+    }
 }
 
 #[cfg(test)]

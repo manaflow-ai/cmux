@@ -33,6 +33,26 @@ use super::*;
 
 pub(in crate::hub) mod revive;
 
+/// The refusal of a prompt for session `name` whose folder `cwd` is gone: `session.folder_missing`,
+/// naming the folder in its message and data. `retryable` only while bringing it back may still
+/// work (a recreate that ran out of time); a folder that is simply gone, or whose revive failed,
+/// is final, so a sender's outbox fails the message at once and says why (`server/outbox.rs`
+/// `next`).
+pub(crate) fn folder_missing(
+    name: &str,
+    cwd: &std::path::Path,
+    what: &str,
+    retryable: bool,
+) -> RpcError {
+    use super::outbox::FOLDER_MISSING;
+    RpcError::internal(format!("{FOLDER_MISSING}: the folder of {name} ({}) {what}", cwd.display()))
+        .with_data(json!({
+            "reason": FOLDER_MISSING,
+            "folder": cwd,
+            "retryable": retryable,
+        }))
+}
+
 use std::path::PathBuf;
 use std::sync::LazyLock;
 use std::sync::atomic::AtomicU64;
@@ -375,11 +395,12 @@ impl Hub {
     }
 
     /// Before a prompt for a session with no running agent is taken: its folder, restored when
-    /// cleanup reclaimed it, or a refusal naming the folder when it is still gone (a worktree
-    /// removed by hand). The refusal is retryable, so an outbox delivery (`server/outbox.rs`)
-    /// keeps the message and sends it again once the folder is back; a harness started in a
-    /// missing folder failed the turn after it was taken, as `spawn harness process: No such
-    /// file or directory`.
+    /// cleanup reclaimed it or recreated when it was a recorded worktree (`revive_folder`), or a
+    /// refusal naming the folder when it is still gone (a worktree removed by hand, a probe
+    /// folder under /tmp). Both ways back were tried by then, so the refusal is final: an outbox
+    /// delivery (`server/outbox.rs`) fails at once with it instead of trying a folder that is
+    /// not coming back for a day. A harness started in a missing folder failed the turn after it
+    /// was taken, as `spawn harness process: No such file or directory`.
     async fn folder_ready(&self, session: &Arc<Session>) -> Result<(), RpcError> {
         self.care_restore_for(session).await;
         self.revive_folder(session, &CARE.restoring).await?;
@@ -390,17 +411,13 @@ impl Hub {
             Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Ok(()),
             _ => {}
         }
-        Err(RpcError::internal(format!(
-            "session.folder_missing: the folder of {} ({}) no longer exists; it was moved or \
-             removed (or a file took its place), so its agent cannot start until it is back",
-            meta.name,
-            meta.cwd.display()
+        Err(folder_missing(
+            &meta.name,
+            &meta.cwd,
+            "no longer exists; it was moved or removed (or a file took its place), so its agent \
+             cannot start until it is back",
+            false,
         ))
-        .with_data(json!({
-            "reason": "session.folder_missing",
-            "folder": meta.cwd,
-            "retryable": true,
-        })))
     }
 
     async fn care_restore_for(&self, session: &Arc<Session>) {

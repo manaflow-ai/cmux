@@ -1,5 +1,6 @@
 //! Recreate a recorded linked worktree before restarting its session's agent.
-//! Failed recovery leaves cwd unchanged; the ordinary folder check keeps the prompt retryable.
+//! Failed recovery leaves cwd unchanged and refuses the prompt as `session.folder_missing`,
+//! final unless the recreate only ran out of time (a loaded machine's git may finish next time).
 use crate::git_state::{GitState, WorktreeOrigin, linked_worktree};
 use crate::hub::{Hub, Session};
 use crate::rpc::RpcError;
@@ -50,7 +51,7 @@ impl Hub {
             if let Some(origin) = meta.worktree.as_ref()
                 && !self.recorded_worktree_is_here(&cwd, origin).await
             {
-                return Err(folder_missing(&meta));
+                return Err(not_the_worktree(&meta));
             }
             let read = tokio::task::spawn_blocking(move || origin_of(&cwd, &GitState::read(&cwd)));
             if let Ok(Ok(Some(found))) = tokio::time::timeout(Duration::from_secs(2), read).await {
@@ -67,7 +68,7 @@ impl Hub {
             if self.recorded_worktree_is_here(&cwd, &origin).await {
                 return Ok(());
             }
-            return Err(folder_missing(&meta));
+            return Err(not_the_worktree(&meta));
         }
         let job = origin.clone();
         let result = tokio::task::spawn_blocking(move || recreate(&job)).await;
@@ -76,7 +77,7 @@ impl Hub {
                 self.append(session, "mux", "worktree_recreated", json!({
                     "cwd": cwd, "root": origin.root, "branch": origin.branch, "from": from, "at": at
                 }));
-                return Ok(());
+                Ok(())
             }
             result => {
                 self.append(
@@ -87,9 +88,13 @@ impl Hub {
                         "cwd": cwd, "error": format!("{result:?}")
                     }),
                 );
+                let why = match &result {
+                    Ok(Err(why)) => why.clone(),
+                    _ => "the recreate did not finish".to_owned(),
+                };
+                Err(recreate_failed(&meta, &why))
             }
         }
-        Err(folder_missing(&meta))
     }
 
     async fn recorded_worktree_is_here(&self, cwd: &Path, origin: &WorktreeOrigin) -> bool {
@@ -112,17 +117,28 @@ impl Hub {
     }
 }
 
-fn folder_missing(meta: &crate::store::SessionMeta) -> RpcError {
-    RpcError::internal(format!(
-        "session.folder_missing: the folder of {} ({}) could not be recreated; retry after the worktree is back",
-        meta.name,
-        meta.cwd.display()
-    ))
-    .with_data(json!({
-        "reason": "session.folder_missing",
-        "folder": meta.cwd,
-        "retryable": true,
-    }))
+/// The folder holds something other than the worktree recorded there: final, a resend finds
+/// the same folder.
+fn not_the_worktree(meta: &crate::store::SessionMeta) -> RpcError {
+    super::folder_missing(
+        &meta.name,
+        &meta.cwd,
+        "is not the worktree it recorded any more, so it is not recreated there",
+        false,
+    )
+}
+
+/// The recorded worktree could not be recreated (`why`). Only a git that ran out of time
+/// (`subsession_worktree.rs` `output_by`: "did not finish in time", "did not close in time")
+/// may do better on a later try; a missing repository, a branch and commit that are gone or a
+/// refused `worktree add` answer the same every time, so those are final.
+fn recreate_failed(meta: &crate::store::SessionMeta, why: &str) -> RpcError {
+    super::folder_missing(
+        &meta.name,
+        &meta.cwd,
+        &format!("is gone and could not be recreated: {why}"),
+        why.contains("in time"),
+    )
 }
 
 fn recreate(w: &WorktreeOrigin) -> Result<(&'static str, String), String> {
