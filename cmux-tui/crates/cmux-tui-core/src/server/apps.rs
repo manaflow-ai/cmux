@@ -106,6 +106,7 @@ enum Command {
     },
     /// Safe mode (apps/safe_mode.rs): `op` is `safe_mode.get`,
     /// `safe_mode.set {on}` (leaving needs origin user),
+    /// `safe_mode.bisect {step}` (start, good and bad never from an agent),
     /// `safe_mode.launch_began` or `safe_mode.launch_settled {reason?}` (the
     /// launch ops from the verified app connection only).
     #[serde(rename = "apps-safe-mode")]
@@ -149,6 +150,17 @@ enum Command {
     /// to its usual open.
     #[serde(rename = "apps-open-link")]
     OpenLink { url: String },
+    /// A picked message action (`cmux.chat.action/1`, apps/chat_actions.rs):
+    /// the row's catalog op runs with `{action, message}` on the `apps-run` path.
+    #[serde(rename = "apps-chat-action")]
+    ChatAction {
+        app: String,
+        action: String,
+        message: crate::apps::ChatMessage,
+        /// The click's token (origin user only).
+        #[serde(default)]
+        gesture: Option<String>,
+    },
     /// Open terminal connector links and their local sockets (for this
     /// daemon's clients; apps never get a socket path).
     #[serde(rename = "apps-terminal-links")]
@@ -484,6 +496,22 @@ pub(super) fn try_handle(
             )),
         ));
     }
+    // A bisect step runs extensions in safe mode: never an agent's call
+    // (apps/safe_mode_bisect.rs).
+    if let Command::SafeMode { op, args } = &request.command
+        && op.ends_with("safe_mode.bisect")
+        && crate::apps::bisect_step_runs_extensions(args)
+        && origin_claim.agent
+    {
+        return Some(reply(
+            writer,
+            request.id,
+            Err(crate::apps::ApiError::new(
+                "apps.safe_mode.origin",
+                "an agent cannot run extensions in safe mode: run the bisect yourself",
+            )),
+        ));
+    }
     // An agent-bound connection never reports a link change, also when it
     // is the verified app's (as `apps-provider-register`).
     if matches!(request.command, Command::LinkChanged | Command::TeamEvent { .. })
@@ -580,13 +608,14 @@ pub(super) fn try_handle(
                 hidden_access,
                 sandboxed,
                 grant: grant.map(|g| (g.scope, g.granted)),
+                settings: None,
                 grant_optional: false,
             },
         ),
         Command::Store { op, args } => supervisor.store_call(client, &op, args, origin),
         Command::SafeMode { op, args } => supervisor.safe_mode_call(&op, args, origin),
         Command::Mount { app, interface, mount_id, context } => {
-            supervisor.mount(client, &mount_id, &app, &interface, context)
+            supervisor.mount_as(client, &mount_id, &app, &interface, context, origin)
         }
         Command::Unmount { mount_id } => supervisor.unmount(client, &mount_id),
         Command::Dispatch { mount_id, node, event, payload } => {
@@ -620,6 +649,26 @@ pub(super) fn try_handle(
                 &app,
                 &page,
                 &message,
+                Box::new(move |result| {
+                    reply(&writer, id, result);
+                }),
+            );
+            return Some(true);
+        }
+        Command::ChatAction { app, action, message, gesture } => {
+            let writer = writer.clone();
+            supervisor.chat_action(
+                crate::apps::ChatActionRequest {
+                    app,
+                    action,
+                    message,
+                    origin,
+                    gesture,
+                    caller: Some(crate::apps::Caller {
+                        client,
+                        request: id.clone().unwrap_or(Value::Null),
+                    }),
+                },
                 Box::new(move |result| {
                     reply(&writer, id, result);
                 }),
