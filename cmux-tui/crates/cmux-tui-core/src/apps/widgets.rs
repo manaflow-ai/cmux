@@ -1,7 +1,10 @@
 //! Widgets (`cmux.widget/1`): glanceable tiles an installed extension draws, placed by the person
 //! on the New Tab page's grid and in the sidebar, as iPhone and Mac desktop widgets are. cmux
 //! ships no widgets of its own (Leo, 2026-11-14: "we want them to be super supported but not
-//! necessarily ship built versions outselevs (yet)"), and an extension never places itself.
+//! necessarily ship built versions outselevs (yet)"), and an extension never places itself:
+//! the person does, with Add Widget or with the App Store's Install click, which places the
+//! widget's default tile once (`place_installed_widget`; Leo, 2026-11-16: "if i click install
+//! it means it works").
 //!
 //! What lives here, and so in Rust (language-boundaries.toml):
 //!
@@ -690,10 +693,53 @@ impl Supervisor {
         }
         let place =
             Place::parse(&p.place).ok_or_else(|| bad_request("place is newtab or sidebar"))?;
+        self.edit_layout(place, p.edit, Some(p.idempotency_key))
+    }
+
+    /// The person's Install of an app that draws a widget places its tile, at the widget's
+    /// default size, at the end of the New Tab page (the sidebar when the widget goes only
+    /// there), unless a tile of it is already placed. The person placed it with the Install
+    /// click; the app never places itself. Leo, 2026-11-16: "i click install they dont do
+    /// anything / if i click install it means it works". `None` when the app has no widget or
+    /// one is already placed; a layout that cannot be written leaves the install as it is.
+    pub(super) fn place_installed_widget(&self, app: &str) -> Option<Value> {
+        let place = {
+            let mut inner = self.inner.lock().recover_poison();
+            let spec = Self::widget_spec_locked(&inner, app)?;
+            let layout = self.widget_layout_locked(&mut inner);
+            if Place::ALL.into_iter().any(|place| layout.place(place).iter().any(|i| i.app == app))
+            {
+                return None;
+            }
+            [Place::Newtab, Place::Sidebar]
+                .into_iter()
+                .find(|place| spec.places.contains(place) && spec.default_in(*place).is_some())?
+        };
+        let edit = Edit::Add { app: app.to_string(), size: None, before: None };
+        match self.edit_layout(place, edit, None) {
+            Ok(_) => Some(json!({ "place": place.as_str() })),
+            Err(error) => {
+                eprintln!(
+                    "cmux-tui: install of {app} could not place its widget: {}",
+                    error.message
+                );
+                None
+            }
+        }
+    }
+
+    /// Applies one layout edit under the supervisor lock, saves it, then broadcasts it. With a
+    /// key, a repeat of the same key answers the first result without a second edit.
+    fn edit_layout(
+        &self,
+        place: Place,
+        edit: Edit,
+        idempotency_key: Option<String>,
+    ) -> Result<Value, ApiError> {
         let (result, revision) = {
             let mut inner = self.inner.lock().recover_poison();
-            if let Some((_, value)) =
-                inner.widgets.keys.iter().find(|(key, _)| *key == p.idempotency_key)
+            if let Some(key) = &idempotency_key
+                && let Some((_, value)) = inner.widgets.keys.iter().find(|(k, _)| k == key)
             {
                 return Ok(value.clone());
             }
@@ -711,7 +757,7 @@ impl Supervisor {
                     "the saved widget layout could not be read; nothing was changed",
                 ));
             }
-            apply(&mut next, place, p.edit, |app| specs.get(app).cloned())
+            apply(&mut next, place, edit, |app| specs.get(app).cloned())
                 .map_err(|message| ApiError::new("apps.widgets.edit", message))?;
             // Under the supervisor lock: two pages' edits land one after the other.
             if let Some(dir) = &self.config.state_dir {
@@ -720,10 +766,12 @@ impl Supervisor {
             }
             let result = json!({ "layout": layout_json(&next, &shown, None) });
             *self.widget_layout_locked(&mut inner) = next.clone();
-            if inner.widgets.keys.len() >= MAX_KEYS {
-                inner.widgets.keys.pop_front();
+            if let Some(key) = idempotency_key {
+                if inner.widgets.keys.len() >= MAX_KEYS {
+                    inner.widgets.keys.pop_front();
+                }
+                inner.widgets.keys.push_back((key, result.clone()));
             }
-            inner.widgets.keys.push_back((p.idempotency_key, result.clone()));
             (result, next.revision)
         };
         self.emit(vec![Out::Broadcast(json!({
@@ -761,10 +809,17 @@ impl Supervisor {
             self.timers.cancel(timer);
         }
         if !visible {
+            // The signals this mount watches sleep while nobody sees it (`signals_cache.rs`).
+            self.signals_mount_visible_locked(&inner, &key, false);
             return Ok(json!({}));
         }
         mount.budget.settle(now, SETTLE);
-        if std::mem::take(&mut widget.retry_due) {
+        let retry_due = std::mem::take(&mut widget.retry_due);
+        let missed = widget.every.is_some_and(|every| {
+            now_ms.saturating_sub(widget.last_tick_ms) >= every.saturating_mul(1000)
+        });
+        self.signals_mount_visible_locked(&inner, &key, true);
+        if retry_due {
             // The remount it missed while hidden runs now; its fresh mount starts a fresh clock.
             let outs = self.widget_remount_locked(&mut inner, &key);
             self.schedule_tick_locked(&mut inner, &key);
@@ -772,9 +827,6 @@ impl Supervisor {
             self.emit(outs);
             return Ok(json!({}));
         }
-        let missed = widget.every.is_some_and(|every| {
-            now_ms.saturating_sub(widget.last_tick_ms) >= every.saturating_mul(1000)
-        });
         if missed {
             self.send_tick_locked(&mut inner, &key, now_ms);
         }

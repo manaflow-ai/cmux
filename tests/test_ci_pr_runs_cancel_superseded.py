@@ -79,9 +79,6 @@ ALLOWED = {
     # `superseded`); a cancel would read as a red run. The batch job is never
     # cancelled. See OWN_SUPERSESSION in test_ci_required_checks_are_bounded.py.
     "cmux-next-batch.yml": "debounce runs supersede themselves; the batch is never cancelled",
-    # The apply jobs migrate the staging and production databases; a cancel
-    # could stop one between applying a migration and recording it.
-    "backend-migrations.yml": "applies database migrations; never cancelled mid-apply",
     # Deploys preview, staging and production backends; deploy workflows
     # serialise instead of cancelling. A pull request run also applies its
     # migrations to the shared development database (migrations-development)
@@ -528,6 +525,28 @@ METADATA_EDITS = {
 STATUS_FUNCTION = re.compile(r"\b(always|cancelled|failure)\(\)")
 
 
+class _AnyOutput(dict):
+    """Every output name reads as one value."""
+
+    def __init__(self, value: str):
+        super().__init__()
+        self.value = value
+
+    def __missing__(self, key: str) -> str:
+        return self.value
+
+    def get(self, key: str, default: Any = None) -> str:
+        return self.value
+
+    def __contains__(self, key: object) -> bool:
+        return True
+
+
+def needs_guesses(needs: list[str]) -> list[dict[str, Any]]:
+    return [{parent: {"result": result, "outputs": _AnyOutput(output)} for parent in needs}
+            for result in ("success", "failure", "cancelled", "skipped") for output in ("true", "false", "")]
+
+
 def started_jobs(workflow: dict, context: dict[str, Any]) -> list[str]:
     """Jobs that take a runner for this event: an `if` that holds, and needs that ran (or a status function)."""
     jobs = {job_id: job for job_id, job in (workflow.get("jobs") or {}).items() if isinstance(job, dict)}
@@ -541,8 +560,10 @@ def started_jobs(workflow: dict, context: dict[str, Any]) -> list[str]:
         needs = [needs] if isinstance(needs, str) else list(needs)
         text = str(job.get("if", ""))
         try:
-            # needs.* outputs are unknown here; a job gated on them counts as starting.
-            holds = "needs." in text or condition(job.get("if"), context)
+            # needs.* results and outputs are unknown here: a job gated on them counts as starting when any
+            # plausible value (each result, each output true, false or empty) makes its `if` hold.
+            holds = any(condition(job.get("if"), {**context, "needs": guess}) for guess in needs_guesses(needs)) \
+                if "needs." in text else condition(job.get("if"), context)
         except (ExpressionError, KeyError, IndexError, TypeError, ValueError):
             holds = True
         if holds and needs and not STATUS_FUNCTION.search(text) and job_id not in seen:

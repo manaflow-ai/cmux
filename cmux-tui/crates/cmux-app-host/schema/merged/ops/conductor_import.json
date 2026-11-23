@@ -1,0 +1,15 @@
+{
+  "family": "conductor_import",
+  "ops": {
+    "conductor_import.plan": {
+      "source": "local",
+      "class": "read",
+      "digest": "0160ac663bd788da"
+    },
+    "conductor_import.record": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "c7cdc96a2baa8a26"
+    }
+  }
+}
