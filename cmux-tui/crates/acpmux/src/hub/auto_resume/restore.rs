@@ -244,6 +244,9 @@ impl Hub {
             let Some(_error) = text("error") else { return };
             let from = text("from").map(str::to_owned);
             let full_access_device = text("fullAccessDevice").map(str::to_owned);
+            // Recorded since the rate-limit gate (`retry_turn.rs` `retry_rate_gate`); an older
+            // record says nothing, and counts as no person's.
+            let person = saved.get("person").and_then(Value::as_bool).unwrap_or(false);
             let wake = Arc::new(Notify::new());
             pending.replace(Mark::Waiting {
                 turn: turn_id.clone(),
@@ -258,6 +261,7 @@ impl Hub {
                 trust_gate,
                 full_access_device,
                 from,
+                person,
             };
             tokio::spawn(async move {
                 let _ = hub.retry_turn_restored(&session, by).await;

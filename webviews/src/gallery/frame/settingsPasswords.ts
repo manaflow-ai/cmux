@@ -105,6 +105,7 @@ export async function mountSettingsPage(state: SettingsPageVariant, context: Sta
   if (state.keys) mock.provider.keys = structuredClone(state.keys);
   if (state.keys) mock.provider.keys = structuredClone(state.keys);
   if (state.designSystem) mock.provider.designSystem = structuredClone(state.designSystem);
+  if (state.hub) mock.provider.hub = structuredClone(state.hub);
   if (state.tailnet !== undefined) mock.provider.tailnet = structuredClone(state.tailnet);
   if (state.models !== undefined) mock.provider.models = structuredClone(state.models);
   if (state.agents) mock.provider.agents.state = { ...mock.provider.agents.state, ...structuredClone(state.agents) };

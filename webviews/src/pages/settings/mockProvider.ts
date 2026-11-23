@@ -7,6 +7,7 @@
 // `createMockClient` connects a page client to it over the protocol's in-memory transport
 // pair, so the page's calls cross the real envelope (call/ok/err/sub/ev).
 import { runMockAgentKeys } from "./mockAgentKeys";
+import { mockHubState, runMockHub } from "./mockHub";
 import { mockModels, runMockModels } from "./mockModels";
 import { mockAllotments, runMockAllotment } from "./mockAllotments";
 import { createMockPair } from "../../protocol/adapters/mock";
@@ -84,6 +85,8 @@ import {
   type DoctorRun,
   type LibraryAnswer,
   type AgentSkillRow,
+  type HubRun,
+  type HubState,
 } from "./ops";
 import { rowsByKey, schema } from "./schema";
 import { withEdits, type ThemeEditMap } from "../../theme/themeEdits";
@@ -937,6 +940,13 @@ export class MockSettingsProvider {
         this.agentHooks = { ...state, listing: { ...listing, hooks } };
         return this.agentHooks;
       },
+      "cmux.settings.hub.state": () => this.hub,
+      "cmux.settings.hub.run": (params) => {
+        const run = params as HubRun;
+        if (run.action !== "refresh") this.hubRuns.push(run);
+        this.hub = runMockHub(this.hub, run);
+        return {};
+      },
       "cmux.settings.mcp.state": () => this.mcpServers,
       "cmux.settings.mcp.run": (params) => {
         const run = params as McpServersRun;
@@ -1050,6 +1060,8 @@ export class MockSettingsProvider {
       "cmux.settings.agentTools.state",
       "cmux.settings.agentTools.run",
       "cmux.settings.mcp.state",
+      "cmux.settings.hub.state",
+      "cmux.settings.hub.run",
       "cmux.settings.agentSkills.state",
       "cmux.settings.agentSkills.run",
       "cmux.settings.mcp.run",
@@ -1772,6 +1784,11 @@ export class MockSettingsProvider {
   /** When set, Remove keeps the entry and the host says why (`note`), as for an entry with
    * settings cmux could not put back. */
   agentToolsKeeps: string | null = null;
+
+  /** Settings > Integrations as the app serves it (`SettingsIntegrationsHub.state`). */
+  hub: HubState = mockHubState();
+  /** Every Integrations gesture but refresh, in order (the key a Link sent included). */
+  hubRuns: HubRun[] = [];
 
   /** The person's saved MCP servers as the app serves them (`SettingsMcpServers.state`). */
   mcpServers: McpServersState = {
