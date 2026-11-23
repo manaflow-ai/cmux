@@ -33,7 +33,7 @@ import Testing
     }
 
     /// The harness with the install seams counted. `downloadsAsk`: found updates wait for a click
-    /// (`updates.downloadAutomatically` off, the nightly default); `cancellable`: this app's driver
+    /// (`updates.downloadAutomatically` off; on is the default); `cancellable`: this app's driver
     /// holds the staged installer; `pulled`: pulled.json's builds.
     static func make(newer: Bool, held: Bool = false, downloadsAsk: Bool = false, cancellable: Bool = true,
                      pulled: [String] = []) -> (Base.Harness, Installs) {
@@ -117,7 +117,7 @@ import Testing
 
     /// Leo 2026-10-29: build 4091813159501 was staged at 18:16Z, 4092299464301 was on the feed at
     /// 18:19Z, and Restart to Update installed the stale one. The nightly asks before it downloads
-    /// (`updates.downloadAutomatically` off by default), and the click's read of the feed only ran
+    /// (`updates.downloadAutomatically` off by default then), and the click's read of the feed only ran
     /// when found updates downloaded by themselves. Now the click is the yes to the newest build's
     /// download too: the staged build gives way, the card says "Getting the Newest Build…", the
     /// newest build downloads with no second click, and it installs once staged.

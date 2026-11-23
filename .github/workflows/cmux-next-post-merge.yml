@@ -237,8 +237,18 @@ jobs:
           ORIGIN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: gh workflow run fixit-handoff.yml --repo "$GITHUB_REPOSITORY" --ref feat-cmux-next -f sha="$SHA" -f check="$CHECK" -f origin="$ORIGIN"
 
+  gallery-health:
+    needs: plan
+    if: contains(needs.plan.outputs.suites, ' gallery-health ')
+    uses: ./.github/workflows/gallery-health.yml
+    with:
+      sha: ${{ needs.plan.outputs.sha }}
+      only: ${{ needs.plan.outputs.only }}
+    permissions:
+      contents: read
+
   judge:
-    needs: [plan, drill, cmux-tui-windows-check, acpmux-sim-sweep, swift-acpmux-protocol, rust-workspaces, web, tip-test-compile]
+    needs: [plan, drill, cmux-tui-windows-check, acpmux-sim-sweep, swift-acpmux-protocol, rust-workspaces, web, tip-test-compile, gallery-health]
     # A probe's judge also runs when its plan job died (a lost runner: drill-8 probe run 44980687386): it then
     # sees no verdict and dispatches the same probe again, so the bisect goes on instead of stopping.
     if: ${{ !cancelled() && (needs.plan.result == 'success' || inputs.mode == 'probe') }}
