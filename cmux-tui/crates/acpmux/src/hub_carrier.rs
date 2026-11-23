@@ -417,6 +417,9 @@ pub struct HubCarrier {
     kept: mux::KeptCircuits,
     /// Held while the carrier lives: a kept circuit's keepalive closes it once this is gone.
     alive: Arc<()>,
+    /// Whether this machine serves kept circuits; off only to stand in for an acpmux that
+    /// predates them ([`Self::serve_kept_circuits`]).
+    serves_kept: std::sync::atomic::AtomicBool,
 }
 
 impl std::fmt::Debug for HubCarrier {
@@ -446,6 +449,7 @@ impl HubCarrier {
             serve_reason: RwLock::new(None),
             kept: mux::KeptCircuits::default(),
             alive: Arc::new(()),
+            serves_kept: std::sync::atomic::AtomicBool::new(true),
         })
     }
 
@@ -473,6 +477,7 @@ impl HubCarrier {
             serve_reason: RwLock::new(None),
             kept: mux::KeptCircuits::default(),
             alive: Arc::new(()),
+            serves_kept: std::sync::atomic::AtomicBool::new(true),
         })
     }
 
@@ -696,6 +701,13 @@ impl HubCarrier {
                 Ok(None)
             }
         }
+    }
+
+    /// `false` answers a kept circuit's hello as an acpmux that predates kept circuits does
+    /// (`service.unknown`), so a test can check that a dialer falls back to plain circuits.
+    #[doc(hidden)]
+    pub fn serve_kept_circuits(&self, on: bool) {
+        self.serves_kept.store(on, Ordering::SeqCst);
     }
 
     /// Whether a kept circuit to `daemon` is open now, and how many streams ride it.
@@ -1164,7 +1176,7 @@ impl RelayIncoming for Incoming {
                 return;
             }
         };
-        if mux::is_mux_hello(&first) {
+        if mux::is_mux_hello(&first) && self.carrier.serves_kept.load(Ordering::SeqCst) {
             // A kept circuit: each stream names its own service and is admitted on its own.
             drop(listener);
             if link.send(service_answer(&Ok(()))).await.is_err() {
