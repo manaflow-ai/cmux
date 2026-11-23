@@ -499,6 +499,17 @@ try {
     // Switch back in the shared document: the visible view hides, a hidden one shows, timed to its second frame.
     // `atBottom` says whether the transcript is still at its newest reply (instant means no scroll jump).
     const profiling = process.env.PROFILE_SWITCH === "1";
+    const tracing = process.env.TRACE_SWITCH === "1";
+    const traceEvents: { name: string; ph: string; dur?: number; cat: string }[] = [];
+    if (tracing) {
+      pages[0].cdp.on("Tracing.dataCollected", (data: { value: typeof traceEvents }) =>
+        traceEvents.push(...data.value),
+      );
+      await pages[0].cdp.send("Tracing.start", {
+        categories: "devtools.timeline,disabled-by-default-devtools.timeline,cc,viz,blink",
+        transferMode: "ReportEvents",
+      });
+    }
     if (profiling) {
       await pages[0].cdp.send("Profiler.enable");
       await pages[0].cdp.send("Profiler.setSamplingInterval", { interval: 200 });
@@ -537,6 +548,16 @@ try {
       },
       [SHARED_HIDE, REOPEN] as const,
     );
+    if (tracing) {
+      const done = new Promise((resolve) => pages[0].cdp.once("Tracing.tracingComplete", resolve));
+      await pages[0].cdp.send("Tracing.end");
+      await done;
+      const sum = new Map<string, number>();
+      for (const event of traceEvents)
+        if (event.ph === "X" && event.dur) sum.set(event.name, (sum.get(event.name) ?? 0) + event.dur / 1000);
+      for (const [name, ms] of [...sum].sort((a, b) => b[1] - a[1]).slice(0, 25))
+        console.log(`chat-pages-memory: trace ${ms.toFixed(1)} ms  ${name}`);
+    }
     if (profiling) {
       const { profile } = (await pages[0].cdp.send("Profiler.stop")) as {
         profile: {
