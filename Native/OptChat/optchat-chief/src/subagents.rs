@@ -524,11 +524,18 @@ fn direct_refusal(direct: &[String], why: impl Fn(&str) -> String) -> String {
     format!("not started: {list}. Do it yourself now{tools}; no helper and no workspace.")
 }
 
+fn starting_status(plan: &SpawnPlan) -> String {
+    format!(
+        "Starting {}. The host will report each subagent start or failure.",
+        plan.ids.join(", ")
+    )
+}
+
 pub struct Spawner {
     chat: Arc<OptChat>,
     agents: Arc<dyn AgentPort>,
     settings: SubagentSettings,
-    tx: Mutex<Sender<Input>>,
+    tx: Arc<Mutex<Sender<Input>>>,
     trace: Trace,
     workspaces: Option<Arc<dyn Workspaces>>,
     /// Why there are no workspaces, said in each answer when `workspaces`
@@ -539,7 +546,7 @@ pub struct Spawner {
     pinned: bool,
     /// Queued subagents' launches, by id, kept until a slot frees (in memory:
     /// a restarted host reports them as not started).
-    waiting: Mutex<BTreeMap<String, Waiting>>,
+    waiting: Arc<Mutex<BTreeMap<String, Waiting>>>,
     log: crate::brain::Log,
     /// This Chief's grant (chief_profile.rs): the harnesses the person lets
     /// its subagents use (its record's `harnesses`; empty: every harness),
@@ -547,7 +554,7 @@ pub struct Spawner {
     grant: Option<std::sync::Arc<crate::chief_profile::ChiefTools>>,
     /// Queued ids of a spawn the grant refused, with the refusal: the queue
     /// starter fails them with it when the brain dequeues them.
-    refused: Mutex<BTreeMap<String, String>>,
+    refused: Arc<Mutex<BTreeMap<String, String>>>,
     /// Cloud placement: new subagents start on this acpmux peer.
     cloud: Option<CloudPlacement>,
     /// The subagent system text for a peer set at run time
@@ -579,6 +586,36 @@ pub struct Spawner {
     goal: bool,
 }
 
+impl Clone for Spawner {
+    fn clone(&self) -> Self {
+        Self {
+            chat: self.chat.clone(),
+            agents: self.agents.clone(),
+            settings: self.settings.clone(),
+            tx: self.tx.clone(),
+            trace: self.trace.clone(),
+            workspaces: self.workspaces.clone(),
+            no_workspace_reason: self.no_workspace_reason.clone(),
+            pinned: self.pinned,
+            waiting: self.waiting.clone(),
+            log: self.log.clone(),
+            grant: self.grant.clone(),
+            refused: self.refused.clone(),
+            cloud: self.cloud.clone(),
+            cloud_text: self.cloud_text.clone(),
+            cloud_vms: self.cloud_vms.clone(),
+            agent_keys: self.agent_keys.clone(),
+            person: self.person.clone(),
+            memory_files: self.memory_files.clone(),
+            cloud_workspaces: self.cloud_workspaces.clone(),
+            engine_file: self.engine_file.clone(),
+            families: self.families.clone(),
+            user_settings: self.user_settings.clone(),
+            goal: self.goal,
+        }
+    }
+}
+
 impl Spawner {
     pub fn new(
         chat: Arc<OptChat>,
@@ -591,15 +628,15 @@ impl Spawner {
             chat,
             agents,
             settings,
-            tx: Mutex::new(tx),
+            tx: Arc::new(Mutex::new(tx)),
             trace: Trace::off(),
             workspaces: None,
             no_workspace_reason: "this Chief host has nowhere to make cmux workspaces".to_owned(),
             pinned: false,
-            waiting: Mutex::new(BTreeMap::new()),
+            waiting: Arc::new(Mutex::new(BTreeMap::new())),
             log,
             grant: None,
-            refused: Mutex::new(BTreeMap::new()),
+            refused: Arc::new(Mutex::new(BTreeMap::new())),
             cloud: None,
             cloud_text: None,
             cloud_vms: None,
@@ -1921,17 +1958,9 @@ impl Orchestrator for Spawner {
             ));
         }
         let began = Instant::now();
-        // Section 9: the view at spawn time, as the compaction view: the
-        // same tree merged coarser, 16-32 KB instead of the turn's 64-128 KB
-        // (acp-chief-issues.md #12: a subagent's first turn read ~108k
-        // tokens, ~40k of them the whole view; it zooms for detail). In a
-        // turn, at once (parity timing 2026-10-09: the settle waited about
-        // 7 s for the compactor to summarize the turn's spawn call); outside
-        // a turn, after settle (settle_view).
-        if self.turn_view().is_none() {
-            self.settle_view()?;
-        }
-        let view = self.chat.render_compact_view().text;
+        // Register ids before doing view settling or any session work. The
+        // worker below reports each eventual start or failure through the
+        // existing SubagentStarted/SubagentFailed events.
         let (reply, answer) = channel();
         self.to_brain(Input::SpawnRegister {
             tasks: tasks.clone(),
@@ -1948,6 +1977,59 @@ impl Orchestrator for Spawner {
         let plan = answer
             .recv()
             .map_err(|_| "the Chief host is stopping".to_owned())??;
+        let status = starting_status(&plan);
+        let worker = self.clone();
+        let plan_for_failure = plan.clone();
+        let thread = std::thread::Builder::new()
+            .name(format!("chief-spawn-{}", plan.spawn))
+            .spawn(move || {
+                let result = worker.finish_spawn(
+                    tasks,
+                    cwd,
+                    effort,
+                    harness,
+                    model,
+                    routed_note,
+                    default_harness,
+                    plan,
+                    began,
+                );
+                match result {
+                    Ok(note) => (worker.log)(&format!("spawn completed: {note}")),
+                    Err(error) => {
+                        (worker.log)(&format!("spawn worker failed: {error}"));
+                        worker.fail_starting(&plan_for_failure, error);
+                    }
+                }
+            });
+        if let Err(error) = thread {
+            let error = format!("could not start the spawn worker: {error}");
+            (self.log)(&error);
+            self.fail_starting(&plan_for_failure, error);
+        }
+        Ok(status)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn finish_spawn(
+        &self,
+        tasks: Vec<String>,
+        cwd: Option<String>,
+        effort: Option<String>,
+        harness: Option<String>,
+        model: Option<String>,
+        routed_note: Option<String>,
+        default_harness: String,
+        plan: SpawnPlan,
+        began: Instant,
+    ) -> Result<String, String> {
+        // View settling and session creation stay off the tool request thread.
+        // The plan is already registered, so the Chief can see each id while
+        // this worker prepares and starts it.
+        if self.turn_view().is_none() {
+            self.settle_view()?;
+        }
+        let view = self.chat.render_compact_view().text;
         let cloud = plan.peer.as_deref().map(|p| self.placement(p));
         let mut run = self.engine_settings(plan.engine.as_ref());
         // `spawn(model)`: over the engine's (a cloud peer keeps its own).
@@ -2322,6 +2404,15 @@ impl Orchestrator for Spawner {
             routed_note.map(|n| format!("{n}\n")).unwrap_or_default(),
             lines.join("\n")
         ))
+    }
+
+    fn fail_starting(&self, plan: &SpawnPlan, error: String) {
+        for id in &plan.ids {
+            let _ = self.to_brain(Input::SubagentFailed {
+                id: id.clone(),
+                error: error.clone(),
+            });
+        }
     }
 
     fn agent_chat(&self, id: &str, at: u64) -> Result<String, String> {
@@ -2737,5 +2828,26 @@ mod tests {
             (Kind::Tool, r#"Bash {"command":"ls"}"#.to_owned()),
         ];
         assert_eq!(recover_launch("a9", log.into_iter()), None);
+    }
+
+    #[test]
+    fn spawn_status_is_returned_before_start_events() {
+        let plan = SpawnPlan {
+            spawn: "s1".into(),
+            ids: vec!["a1".into(), "a2".into()],
+            queued: vec!["a2".into()],
+            limit: None,
+            engine: None,
+            peer: None,
+            peers: vec![None, None],
+            sizes: vec![None, None],
+            placements: Vec::new(),
+        };
+        let started = starting_status(&plan);
+        assert_eq!(
+            started,
+            "Starting a1, a2. The host will report each subagent start or failure."
+        );
+        assert!(!started.contains("Started"));
     }
 }
