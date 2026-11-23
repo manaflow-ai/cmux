@@ -602,8 +602,7 @@ final class GroupHeaderRowView: SidebarRowView {
             self.activityEnding = false
             self.activity.configure(.idle)
         }
-        let glyphBox = pinned && SidebarStyle.pinnedRowLeadsWithOwnIcon
-            ? SidebarStyle.rowGlyphOpticalSide : SidebarStyle.iconColumnBox
+        let glyphBox = SidebarStyle.iconColumnBox
         let glyphSide = min(glyphBox, barHeight)
         glyph.isHidden = !hasIcon || leadsWithMachineMark
         // A pinned group's pin leads the bar, its ink centered on the rows' icon column, and its icon and name take the
@@ -612,7 +611,9 @@ final class GroupHeaderRowView: SidebarRowView {
         let pinSide = SidebarStyle.pinGlyphSide // Home's glyph square, as a pinned workspace row's pin (#38061)
         // A pinned group with its own icon (or a machine mark) draws it in the pin's place, so its name starts at Home's
         // label x as a pinned workspace row's title does (`SidebarPinnedRowLeading`, #38061).
-        let showsPin = pinned && (!(hasIcon || leadsWithMachineMark) || !SidebarStyle.pinnedRowLeadsWithOwnIcon)
+        // Leo 2026-11-23 (ask c-b5d3e0efb6): "it puts a symbol at the left. immediately questionable." A pinned group's
+        // header leads as an unpinned one's does; pinning only moves it to the top, and its hover Unpin unpins it.
+        let showsPin = false
         pin.isHidden = !showsPin
         // `configure` sets the image; a density or type scale change since then moves `pinGlyphSide`.
         if showsPin, pin.image?.size.width != pinSide { pin.image = NSImage.icon(.statePinned, size: pinSide, style: .solid) }

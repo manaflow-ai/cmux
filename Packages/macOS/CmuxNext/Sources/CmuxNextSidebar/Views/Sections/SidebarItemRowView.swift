@@ -50,8 +50,10 @@ class SidebarItemRowView: NSView {
     var isEditing = false { didSet { if isEditing != oldValue { editingChanged() } } }
     var onRemove: (() -> Void)?
     var removeButton: SidebarIconButton?
-    /// A workspace tile's hover control (`SidebarItemRowView+HoverActions`): its menu. A pinned item draws no
-    /// hover close (Lawrence msg 19392); Close Workspace is in that menu.
+    /// A workspace tile's hover controls (`SidebarItemRowView+HoverActions`), a workspace row's: its close ✕
+    /// (`onClose`, Close Workspace) and its menu (`onMore`, the workspace's own menu).
+    var onClose: (() -> Void)?
+    var hoverClose: SidebarIconButton?
     var onMore: (() -> Void)?
     var hoverMore: OverflowButton?
     /// A pinned workspace tile's hover Unpin, left of its more button (David Beyer 2026-11-20: pinning by drag is
@@ -115,7 +117,7 @@ class SidebarItemRowView: NSView {
             guard isHovered != oldValue else { return }
             if !isHovered { isPressed = false }
             pointerChanged()
-            // A workspace tile's more button shows on hover (a pinned item has no hover close).
+            // A workspace tile's close and more button show on hover.
             if info.workspace != nil { needsLayout = true }
         }
     }
