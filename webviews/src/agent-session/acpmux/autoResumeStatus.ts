@@ -16,7 +16,11 @@ export function autoResumeAttempt(msg: unknown): number | undefined {
     : undefined;
 }
 
-export function autoResumeStatus(retry: unknown, attempt: number | undefined): AutoResumeStatus | undefined {
-  const waiting = readRetry(retry);
+export function autoResumeStatus(
+  retry: unknown,
+  attempt: number | undefined,
+  error?: unknown,
+): AutoResumeStatus | undefined {
+  const waiting = readRetry(retry, error);
   return waiting ? { retry: waiting, ...(attempt ? { attempt } : {}) } : attempt ? { attempt } : undefined;
 }

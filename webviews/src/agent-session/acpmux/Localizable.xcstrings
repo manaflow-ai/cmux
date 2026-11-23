@@ -97432,6 +97432,402 @@
         }
       }
     },
+    "turn.failure.poolPaused": {
+      "comment": "A failed turn or resume for which the provider explicitly reported an exhausted account pool.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paused because the {pool} account pool is out of capacity. Send a message to continue, or wait for the fleet to resume this chat."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "توقفت المحادثة مؤقتًا لنفاد سعة حسابات {pool}. أرسل رسالة للمتابعة أو انتظر حتى يستأنف الأسطول المحادثة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Razgovor je pauziran jer su računi za {pool} iscrpljeni. Pošaljite poruku za nastavak ili pričekajte da flota nastavi razgovor."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chatten er sat på pause, fordi kontopuljen for {pool} er opbrugt. Send en besked for at fortsætte, eller vent på, at flåden genoptager chatten."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Chat pausiert, weil der Kontopool für {pool} ausgelastet ist. Sende eine Nachricht oder warte, bis die Flotte den Chat fortsetzt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat en pausa por falta de capacidad en el grupo de cuentas de {pool}. Envía un mensaje para continuar o espera a que la flota reanude el chat."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le chat est en pause car les comptes {pool} sont saturés. Envoyez un message pour continuer ou attendez que la flotte reprenne le chat."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat in pausa perché il gruppo di account {pool} è al limite della capacità. Invia un messaggio per continuare o attendi che la flotta riprenda la chat."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{pool} のアカウントプールに空きがないため一時停止しました。メッセージを送信して続けるか、フリートがこのチャットを再開するまでお待ちください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បានផ្អាក ព្រោះក្រុមគណនី {pool} អស់សមត្ថភាព។ ផ្ញើសារដើម្បីបន្ត ឬរង់ចាំក្រុមម៉ាស៊ីនបន្តការជជែកនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{pool} 계정 풀의 용량이 소진되어 일시 중지되었습니다. 메시지를 보내 계속하거나 플릿이 이 채팅을 재개할 때까지 기다리세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chatten er satt på pause fordi kontogruppen for {pool} er tom for kapasitet. Send en melding for å fortsette, eller vent til flåten gjenopptar chatten."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Czat wstrzymany z powodu wyczerpania puli kont {pool}. Wyślij wiadomość, aby kontynuować, lub poczekaj, aż flota wznowi czat."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O chat está pausado porque o grupo de contas de {pool} está sem capacidade. Envie uma mensagem para continuar ou aguarde a frota retomar o chat."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чат приостановлен, поскольку ресурс пула аккаунтов {pool} исчерпан. Отправьте сообщение, чтобы продолжить, или дождитесь, пока флот возобновит чат."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แชตหยุดชั่วคราวเนื่องจากกลุ่มบัญชี {pool} ไม่มีความจุเหลือ ส่งข้อความเพื่อดำเนินการต่อ หรือรอให้กลุ่มเครื่องกลับมาดำเนินแชตต่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{pool} hesap havuzunun kapasitesi tükendiği için sohbet duraklatıldı. Devam etmek için bir mesaj gönderin veya filonun sohbeti sürdürmesini bekleyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чат призупинено, бо ресурси пулу облікових записів {pool} вичерпано. Надішліть повідомлення, щоб продовжити, або зачекайте, поки флот відновить чат."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuộc trò chuyện tạm dừng vì nhóm tài khoản {pool} đã hết dung lượng. Gửi tin nhắn để tiếp tục hoặc chờ cụm máy tiếp tục cuộc trò chuyện."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{pool} 账号池容量已用尽，聊天已暂停。发送消息即可继续，也可以等待机群恢复此聊天。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{pool} 帳號池容量已用盡，聊天已暫停。傳送訊息即可繼續，也可以等待機群恢復此聊天。"
+          }
+        }
+      }
+    },
+    "retry.waiting.pool": {
+      "comment": "A scheduled retry after the named account pool ran out of capacity.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{pool} account pool is out of capacity. Retry {attempt}/{of}"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نفدت سعة حسابات {pool}. إعادة المحاولة {attempt}/{of}"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Računi za {pool} su iscrpljeni. Ponovni pokušaj {attempt}/{of}"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kontopuljen for {pool} er opbrugt. Forsøg {attempt}/{of}"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Kontopool für {pool} ist ausgelastet. Versuch {attempt}/{of}"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El grupo de cuentas de {pool} está sin capacidad. Reintento {attempt}/{of}"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les comptes {pool} sont saturés. Tentative {attempt}/{of}"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il gruppo di account {pool} è al limite della capacità. Tentativo {attempt}/{of}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{pool} のアカウントプールに空きがありません。再試行 {attempt}/{of}"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ក្រុមគណនី {pool} អស់សមត្ថភាព។ ព្យាយាមម្តងទៀត {attempt}/{of}"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{pool} 계정 풀의 용량이 소진되었습니다. 재시도 {attempt}/{of}"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kontogruppen for {pool} er tom for kapasitet. Forsøk {attempt}/{of}"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pula kont {pool} jest wyczerpana. Próba {attempt}/{of}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O grupo de contas de {pool} está sem capacidade. Tentativa {attempt}/{of}"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ресурс пула аккаунтов {pool} исчерпан. Попытка {attempt}/{of}"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กลุ่มบัญชี {pool} ไม่มีความจุเหลือ ลองใหม่ {attempt}/{of}"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{pool} hesap havuzunun kapasitesi tükendi. Deneme {attempt}/{of}"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ресурси пулу облікових записів {pool} вичерпано. Спроба {attempt}/{of}"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nhóm tài khoản {pool} đã hết dung lượng. Lần thử lại {attempt}/{of}"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{pool} 账号池容量已用尽。重试 {attempt}/{of}"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{pool} 帳號池容量已用盡。重試 {attempt}/{of}"
+          }
+        }
+      }
+    },
+    "retry.waiting.at": {
+      "comment": "The retry label followed by the local time the daemon scheduled.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{label} at {time}"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{label} الساعة {time}"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{label} u {time}"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{label} kl. {time}"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{label} um {time}"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{label} a las {time}"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{label} à {time}"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{label} alle {time}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{label}（{time}）"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{label} នៅម៉ោង {time}"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{label} ({time})"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{label} kl. {time}"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{label} o {time}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{label} às {time}"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{label} в {time}"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{label} เวลา {time}"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{label} ({time})"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{label} о {time}"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{label} lúc {time}"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{label}（{time}）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{label}（{time}）"
+          }
+        }
+      }
+    },
     "retry.waiting.capacity": {
       "comment": "Agent pane: a subagent's or sub-session's state while acpmux waits to retry a turn that failed because no model capacity was available (subagents/retryState.ts); {attempt} is this try, {of} how many acpmux makes",
       "extractionState": "manual",
@@ -158665,128 +159061,128 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "منع cmux فتح هذه المحادثة. هذا خطأ في cmux وليس شيئًا فعلته."
+            "state": "translated",
+            "value": "منع cmux فتح هذه المحادثة."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux je blokirao otvaranje ovog chata. To je greška u cmuxu, a ne nešto što ste vi uradili."
+            "state": "translated",
+            "value": "cmux je blokirao otvaranje ovog chata."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux blokerede åbningen af denne chat. Det er en fejl i cmux, ikke noget du har gjort."
+            "state": "translated",
+            "value": "cmux blokerede åbningen af denne chat."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux hat das Öffnen dieses Chats blockiert. Das ist ein Fehler in cmux, nicht etwas, das du getan hast."
+            "state": "translated",
+            "value": "cmux hat das Öffnen dieses Chats blockiert."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux blocked opening this chat. That’s a bug in cmux, not something you did."
+            "value": "cmux blocked opening this chat."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux bloqueó la apertura de este chat. Es un error de cmux, no algo que hayas hecho."
+            "state": "translated",
+            "value": "cmux bloqueó la apertura de este chat."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux a bloqué l’ouverture de ce chat. C’est un bug de cmux, pas une erreur de votre part."
+            "state": "translated",
+            "value": "cmux a bloqué l’ouverture de ce chat."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux ha bloccato l’apertura di questa chat. È un bug di cmux, non qualcosa che hai fatto tu."
+            "state": "translated",
+            "value": "cmux ha bloccato l’apertura di questa chat."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux がこのチャットを開くのをブロックしました。これは cmux の不具合で、あなたの操作によるものではありません。"
+            "state": "translated",
+            "value": "cmux がこのチャットを開くのをブロックしました。"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux បានរារាំងការបើកការជជែកនេះ។ នេះជាកំហុសរបស់ cmux មិនមែនអ្វីដែលអ្នកបានធ្វើទេ។"
+            "state": "translated",
+            "value": "cmux បានរារាំងការបើកការជជែកនេះ។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux가 이 채팅을 여는 것을 막았습니다. 사용자의 잘못이 아니라 cmux의 버그입니다."
+            "state": "translated",
+            "value": "cmux가 이 채팅을 여는 것을 막았습니다."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux blokkerte åpningen av denne chatten. Det er en feil i cmux, ikke noe du har gjort."
+            "state": "translated",
+            "value": "cmux blokkerte åpningen av denne chatten."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux zablokował otwarcie tego czatu. To błąd w cmux, a nie coś, co zrobiłeś."
+            "state": "translated",
+            "value": "cmux zablokował otwarcie tego czatu."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "O cmux bloqueou a abertura deste chat. É um bug do cmux, não algo que você fez."
+            "state": "translated",
+            "value": "O cmux bloqueou a abertura deste chat."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux заблокировал открытие этого чата. Это ошибка cmux, а не ваши действия."
+            "state": "translated",
+            "value": "cmux заблокировал открытие этого чата."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux บล็อกการเปิดแชตนี้ นี่เป็นบั๊กของ cmux ไม่ใช่สิ่งที่คุณทำ"
+            "state": "translated",
+            "value": "cmux บล็อกการเปิดแชตนี้"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux bu sohbetin açılmasını engelledi. Bu sizin yaptığınız bir şey değil, cmux’taki bir hata."
+            "state": "translated",
+            "value": "cmux bu sohbetin açılmasını engelledi."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux заблокував відкриття цього чату. Це помилка cmux, а не ваші дії."
+            "state": "translated",
+            "value": "cmux заблокував відкриття цього чату."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux đã chặn việc mở cuộc trò chuyện này. Đây là lỗi của cmux, không phải do bạn."
+            "state": "translated",
+            "value": "cmux đã chặn việc mở cuộc trò chuyện này."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux 阻止了打开此聊天。这是 cmux 的错误，不是你的操作导致的。"
+            "state": "translated",
+            "value": "cmux 阻止了打开此聊天。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux 阻止了開啟此聊天。這是 cmux 的錯誤，不是你的操作造成的。"
+            "state": "translated",
+            "value": "cmux 阻止了開啟此聊天。"
           }
         }
       }
@@ -158797,128 +159193,128 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "منع cmux بدء هذه المحادثة. هذا خطأ في cmux وليس شيئًا فعلته."
+            "state": "translated",
+            "value": "منع cmux بدء هذه المحادثة."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux je blokirao pokretanje ovog chata. To je greška u cmuxu, a ne nešto što ste vi uradili."
+            "state": "translated",
+            "value": "cmux je blokirao pokretanje ovog chata."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux blokerede start af denne chat. Det er en fejl i cmux, ikke noget du har gjort."
+            "state": "translated",
+            "value": "cmux blokerede start af denne chat."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux hat den Start dieses Chats blockiert. Das ist ein Fehler in cmux, nicht etwas, das du getan hast."
+            "state": "translated",
+            "value": "cmux hat den Start dieses Chats blockiert."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux blocked starting this chat. That’s a bug in cmux, not something you did."
+            "value": "cmux blocked starting this chat."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux bloqueó el inicio de este chat. Es un error de cmux, no algo que hayas hecho."
+            "state": "translated",
+            "value": "cmux bloqueó el inicio de este chat."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux a bloqué le démarrage de ce chat. C’est un bug de cmux, pas une erreur de votre part."
+            "state": "translated",
+            "value": "cmux a bloqué le démarrage de ce chat."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux ha bloccato l’avvio di questa chat. È un bug di cmux, non qualcosa che hai fatto tu."
+            "state": "translated",
+            "value": "cmux ha bloccato l’avvio di questa chat."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux がこのチャットの開始をブロックしました。これは cmux の不具合で、あなたの操作によるものではありません。"
+            "state": "translated",
+            "value": "cmux がこのチャットの開始をブロックしました。"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux បានរារាំងការចាប់ផ្តើមការជជែកនេះ។ នេះជាកំហុសរបស់ cmux មិនមែនអ្វីដែលអ្នកបានធ្វើទេ។"
+            "state": "translated",
+            "value": "cmux បានរារាំងការចាប់ផ្តើមការជជែកនេះ។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux가 이 채팅을 시작하는 것을 막았습니다. 사용자의 잘못이 아니라 cmux의 버그입니다."
+            "state": "translated",
+            "value": "cmux가 이 채팅을 시작하는 것을 막았습니다."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux blokkerte oppstarten av denne chatten. Det er en feil i cmux, ikke noe du har gjort."
+            "state": "translated",
+            "value": "cmux blokkerte oppstarten av denne chatten."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux zablokował rozpoczęcie tego czatu. To błąd w cmux, a nie coś, co zrobiłeś."
+            "state": "translated",
+            "value": "cmux zablokował rozpoczęcie tego czatu."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "O cmux bloqueou o início deste chat. É um bug do cmux, não algo que você fez."
+            "state": "translated",
+            "value": "O cmux bloqueou o início deste chat."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux заблокировал запуск этого чата. Это ошибка cmux, а не ваши действия."
+            "state": "translated",
+            "value": "cmux заблокировал запуск этого чата."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux บล็อกการเริ่มแชตนี้ นี่เป็นบั๊กของ cmux ไม่ใช่สิ่งที่คุณทำ"
+            "state": "translated",
+            "value": "cmux บล็อกการเริ่มแชตนี้"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux bu sohbetin başlatılmasını engelledi. Bu sizin yaptığınız bir şey değil, cmux’taki bir hata."
+            "state": "translated",
+            "value": "cmux bu sohbetin başlatılmasını engelledi."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux заблокував запуск цього чату. Це помилка cmux, а не ваші дії."
+            "state": "translated",
+            "value": "cmux заблокував запуск цього чату."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux đã chặn việc bắt đầu cuộc trò chuyện này. Đây là lỗi của cmux, không phải do bạn."
+            "state": "translated",
+            "value": "cmux đã chặn việc bắt đầu cuộc trò chuyện này."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux 阻止了启动此聊天。这是 cmux 的错误，不是你的操作导致的。"
+            "state": "translated",
+            "value": "cmux 阻止了启动此聊天。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux 阻止了啟動此聊天。這是 cmux 的錯誤，不是你的操作造成的。"
+            "state": "translated",
+            "value": "cmux 阻止了啟動此聊天。"
           }
         }
       }
@@ -158929,128 +159325,128 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "منع cmux إرسال هذه الرسالة. هذا خطأ في cmux وليس شيئًا فعلته."
+            "state": "translated",
+            "value": "منع cmux إرسال هذه الرسالة."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux je blokirao slanje ove poruke. To je greška u cmuxu, a ne nešto što ste vi uradili."
+            "state": "translated",
+            "value": "cmux je blokirao slanje ove poruke."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux blokerede afsendelsen af denne besked. Det er en fejl i cmux, ikke noget du har gjort."
+            "state": "translated",
+            "value": "cmux blokerede afsendelsen af denne besked."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux hat das Senden dieser Nachricht blockiert. Das ist ein Fehler in cmux, nicht etwas, das du getan hast."
+            "state": "translated",
+            "value": "cmux hat das Senden dieser Nachricht blockiert."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux blocked sending this message. That’s a bug in cmux, not something you did."
+            "value": "cmux blocked sending this message."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux bloqueó el envío de este mensaje. Es un error de cmux, no algo que hayas hecho."
+            "state": "translated",
+            "value": "cmux bloqueó el envío de este mensaje."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux a bloqué l’envoi de ce message. C’est un bug de cmux, pas une erreur de votre part."
+            "state": "translated",
+            "value": "cmux a bloqué l’envoi de ce message."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux ha bloccato l’invio di questo messaggio. È un bug di cmux, non qualcosa che hai fatto tu."
+            "state": "translated",
+            "value": "cmux ha bloccato l’invio di questo messaggio."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux がこのメッセージの送信をブロックしました。これは cmux の不具合で、あなたの操作によるものではありません。"
+            "state": "translated",
+            "value": "cmux がこのメッセージの送信をブロックしました。"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux បានរារាំងការផ្ញើសារនេះ។ នេះជាកំហុសរបស់ cmux មិនមែនអ្វីដែលអ្នកបានធ្វើទេ។"
+            "state": "translated",
+            "value": "cmux បានរារាំងការផ្ញើសារនេះ។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux가 이 메시지를 보내는 것을 막았습니다. 사용자의 잘못이 아니라 cmux의 버그입니다."
+            "state": "translated",
+            "value": "cmux가 이 메시지를 보내는 것을 막았습니다."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux blokkerte sendingen av denne meldingen. Det er en feil i cmux, ikke noe du har gjort."
+            "state": "translated",
+            "value": "cmux blokkerte sendingen av denne meldingen."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux zablokował wysłanie tej wiadomości. To błąd w cmux, a nie coś, co zrobiłeś."
+            "state": "translated",
+            "value": "cmux zablokował wysłanie tej wiadomości."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "O cmux bloqueou o envio desta mensagem. É um bug do cmux, não algo que você fez."
+            "state": "translated",
+            "value": "O cmux bloqueou o envio desta mensagem."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux заблокировал отправку этого сообщения. Это ошибка cmux, а не ваши действия."
+            "state": "translated",
+            "value": "cmux заблокировал отправку этого сообщения."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux บล็อกการส่งข้อความนี้ นี่เป็นบั๊กของ cmux ไม่ใช่สิ่งที่คุณทำ"
+            "state": "translated",
+            "value": "cmux บล็อกการส่งข้อความนี้"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux bu mesajın gönderilmesini engelledi. Bu sizin yaptığınız bir şey değil, cmux’taki bir hata."
+            "state": "translated",
+            "value": "cmux bu mesajın gönderilmesini engelledi."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux заблокував надсилання цього повідомлення. Це помилка cmux, а не ваші дії."
+            "state": "translated",
+            "value": "cmux заблокував надсилання цього повідомлення."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux đã chặn việc gửi tin nhắn này. Đây là lỗi của cmux, không phải do bạn."
+            "state": "translated",
+            "value": "cmux đã chặn việc gửi tin nhắn này."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux 阻止了发送此消息。这是 cmux 的错误，不是你的操作导致的。"
+            "state": "translated",
+            "value": "cmux 阻止了发送此消息。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux 阻止了傳送此訊息。這是 cmux 的錯誤，不是你的操作造成的。"
+            "state": "translated",
+            "value": "cmux 阻止了傳送此訊息。"
           }
         }
       }
@@ -159061,128 +159457,128 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "منع cmux تغيير هذا الإعداد. هذا خطأ في cmux وليس شيئًا فعلته."
+            "state": "translated",
+            "value": "منع cmux تغيير هذا الإعداد."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux je blokirao promjenu ove postavke. To je greška u cmuxu, a ne nešto što ste vi uradili."
+            "state": "translated",
+            "value": "cmux je blokirao promjenu ove postavke."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux blokerede ændringen af denne indstilling. Det er en fejl i cmux, ikke noget du har gjort."
+            "state": "translated",
+            "value": "cmux blokerede ændringen af denne indstilling."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux hat das Ändern dieser Einstellung blockiert. Das ist ein Fehler in cmux, nicht etwas, das du getan hast."
+            "state": "translated",
+            "value": "cmux hat das Ändern dieser Einstellung blockiert."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux blocked changing this setting. That’s a bug in cmux, not something you did."
+            "value": "cmux blocked changing this setting."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux bloqueó el cambio de este ajuste. Es un error de cmux, no algo que hayas hecho."
+            "state": "translated",
+            "value": "cmux bloqueó el cambio de este ajuste."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux a bloqué la modification de ce réglage. C’est un bug de cmux, pas une erreur de votre part."
+            "state": "translated",
+            "value": "cmux a bloqué la modification de ce réglage."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux ha bloccato la modifica di questa impostazione. È un bug di cmux, non qualcosa che hai fatto tu."
+            "state": "translated",
+            "value": "cmux ha bloccato la modifica di questa impostazione."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux がこの設定の変更をブロックしました。これは cmux の不具合で、あなたの操作によるものではありません。"
+            "state": "translated",
+            "value": "cmux がこの設定の変更をブロックしました。"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux បានរារាំងការផ្លាស់ប្តូរការកំណត់នេះ។ នេះជាកំហុសរបស់ cmux មិនមែនអ្វីដែលអ្នកបានធ្វើទេ។"
+            "state": "translated",
+            "value": "cmux បានរារាំងការផ្លាស់ប្តូរការកំណត់នេះ។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux가 이 설정을 변경하는 것을 막았습니다. 사용자의 잘못이 아니라 cmux의 버그입니다."
+            "state": "translated",
+            "value": "cmux가 이 설정을 변경하는 것을 막았습니다."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux blokkerte endringen av denne innstillingen. Det er en feil i cmux, ikke noe du har gjort."
+            "state": "translated",
+            "value": "cmux blokkerte endringen av denne innstillingen."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux zablokował zmianę tego ustawienia. To błąd w cmux, a nie coś, co zrobiłeś."
+            "state": "translated",
+            "value": "cmux zablokował zmianę tego ustawienia."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "O cmux bloqueou a alteração desta configuração. É um bug do cmux, não algo que você fez."
+            "state": "translated",
+            "value": "O cmux bloqueou a alteração desta configuração."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux заблокировал изменение этого параметра. Это ошибка cmux, а не ваши действия."
+            "state": "translated",
+            "value": "cmux заблокировал изменение этого параметра."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux บล็อกการเปลี่ยนการตั้งค่านี้ นี่เป็นบั๊กของ cmux ไม่ใช่สิ่งที่คุณทำ"
+            "state": "translated",
+            "value": "cmux บล็อกการเปลี่ยนการตั้งค่านี้"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux bu ayarın değiştirilmesini engelledi. Bu sizin yaptığınız bir şey değil, cmux’taki bir hata."
+            "state": "translated",
+            "value": "cmux bu ayarın değiştirilmesini engelledi."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux заблокував зміну цього параметра. Це помилка cmux, а не ваші дії."
+            "state": "translated",
+            "value": "cmux заблокував зміну цього параметра."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux đã chặn việc thay đổi cài đặt này. Đây là lỗi của cmux, không phải do bạn."
+            "state": "translated",
+            "value": "cmux đã chặn việc thay đổi cài đặt này."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux 阻止了更改此设置。这是 cmux 的错误，不是你的操作导致的。"
+            "state": "translated",
+            "value": "cmux 阻止了更改此设置。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux 阻止了變更此設定。這是 cmux 的錯誤，不是你的操作造成的。"
+            "state": "translated",
+            "value": "cmux 阻止了變更此設定。"
           }
         }
       }

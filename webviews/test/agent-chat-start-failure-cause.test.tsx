@@ -137,9 +137,7 @@ test("a start frame the host refuses names the start, with the refused param und
   try {
     const card = await failedCard(harnessSwitch);
     // Never the generic line: the host named no method, and this was a start.
-    expect(card.sentence).toBe(
-      "Couldn't start Claude Code: cmux blocked starting this chat. That’s a bug in cmux, not something you did.",
-    );
+    expect(card.sentence).toBe("Couldn't start Claude Code: cmux blocked starting this chat.");
     expect(card.sentence).not.toContain("Something went wrong");
     expect(card.details).toContain('unknown _meta.acpmux key "launchProfile"');
     expect(card.details).toContain("code transport.intent_invalid");
@@ -164,9 +162,7 @@ test("a refused open of the started chat logs the chat's session id", async () =
   try {
     const card = await failedCard(harnessSwitch);
     const intent = harnessSwitch.view().intent!;
-    expect(card.sentence).toBe(
-      "Couldn't start Claude Code: cmux blocked opening this chat. That’s a bug in cmux, not something you did.",
-    );
+    expect(card.sentence).toBe("Couldn't start Claude Code: cmux blocked opening this chat.");
     expect(card.details).toContain('unknown param "settled"');
     expect(intent.sessionId).toBeTruthy();
     const line = logged.find((entry) => entry.startsWith("agent pane: couldn't start claude"));

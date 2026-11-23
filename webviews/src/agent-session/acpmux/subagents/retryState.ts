@@ -10,14 +10,15 @@
 // remove the "ask parent to retry" if we haven't already").
 //
 // The daemon's field names live in ``readRetry`` and ``RETRY_METHOD`` alone.
-import type { StringKey, Translate } from "../i18n";
+import { exhaustedPool } from "../failureCopy";
+import { currentLanguage, type StringKey, type Translate } from "../i18n";
 import type { RetrySummary } from "../protocol/generated/types";
 import type { Subagent } from "./subagentFold";
 
 /// A retry acpmux has scheduled: which attempt of how many, why, and when it runs (epoch ms). The
 /// session row's is acpmux's `RetrySummary`; a subagent's carries the same four fields.
 export type RetryState = Pick<RetrySummary, "attempt" | "of"> &
-  Partial<Pick<RetrySummary, "nextAt">> & { reason?: string };
+  Partial<Pick<RetrySummary, "nextAt">> & { reason?: string; pool?: string };
 
 /// acpmux's on-demand retry: `{sessionId, subagentId?}` answers `{promptId, turnId?, kind}`.
 export const RETRY_METHOD = "_acpmux/retry";
@@ -27,14 +28,16 @@ const positive = (value: unknown) =>
 
 /// acpmux's `retry` field: the state while a retry waits, null once none does, undefined when the
 /// record does not say (a progress report that leaves it as it was).
-export function readRetry(raw: unknown): RetryState | null | undefined {
+export function readRetry(raw: unknown, error?: unknown): RetryState | null | undefined {
   if (raw === null) return null;
   if (!raw || typeof raw !== "object") return undefined;
   const value = raw as Record<string, unknown>;
   const attempt = positive(value.attempt);
   const of = positive(value.of);
   if (attempt === undefined || of === undefined) return undefined;
+  const pool = value.reason === "capacity" ? exhaustedPool(error) : undefined;
   return {
+    ...(pool && { pool }),
     attempt,
     of: Math.max(attempt, of),
     ...(typeof value.reason === "string" && value.reason && { reason: value.reason }),
@@ -51,7 +54,7 @@ export function applyRetry(
 ): void {
   if (typeof change.retryable === "boolean") agent.retryable = change.retryable;
   if (typeof change.error === "string" && change.error.trim()) agent.error = change.error.replace(/\s+/g, " ").trim();
-  const retry = readRetry(change.retry);
+  const retry = readRetry(change.retry, agent.error);
   if (retry === undefined) return;
   // A wait that clears may have fired or been used up: only acpmux's `subagent_retry` record says
   // which (``applyRetryStep``).
@@ -145,7 +148,8 @@ export const retrying = (agent: Parameters<typeof subagentRetry>[0], child?: Ses
 /// The fields a subagent's retry is read from, as one cache-key part (runningTray.ts, App.tsx): a
 /// change to any of them redraws its rows.
 export function retryKey(agent: Pick<Subagent, "retry" | "retriedOut" | "retryable" | "error">): string {
-  const part = (r?: RetryState) => (r ? `${r.attempt}/${r.of}/${r.reason ?? ""}` : "");
+  const part = (r?: RetryState) =>
+    r ? `${r.attempt}/${r.of}/${r.reason ?? ""}/${r.pool ?? ""}/${r.nextAt ?? ""}` : "";
   return [part(agent.retry), part(agent.retriedOut), agent.retryable ?? "", agent.error ?? ""].join("\u0001");
 }
 
@@ -158,7 +162,15 @@ const REASON: Record<string, StringKey> = {
 /// "Retrying (2/4) after a capacity error".
 export function retryLabel(t: Translate, retry: RetryState): string {
   const values = { attempt: retry.attempt, of: retry.of };
-  return t((retry.reason && REASON[retry.reason]) || "retry.waiting", values);
+  const label =
+    retry.reason === "capacity" && retry.pool
+      ? t("retry.waiting.pool", { ...values, pool: retry.pool })
+      : t((retry.reason && REASON[retry.reason]) || "retry.waiting", values);
+  if (retry.reason !== "capacity" || !retry.nextAt) return label;
+  const at = new Date(retry.nextAt);
+  if (!Number.isFinite(at.getTime())) return label;
+  const time = at.toLocaleTimeString(currentLanguage(), { hour: "numeric", minute: "2-digit" });
+  return t("retry.waiting.at", { label, time });
 }
 
 /// Whether a prompt record is acpmux's continuation of a failed turn or subagent, never the
