@@ -98,9 +98,10 @@ struct InstantPerfTests {
     /// The small and the god first windows must differ in the list behind them alone (its
     /// `total`, its pins, its dates), never in what their 20 rows say: `home_list_first_screen`
     /// and its under-load twin time the two side by side, and the time to read a window follows
-    /// its previews' bytes. Seeded apart, the god window drew 12.7 KB of previews against the
-    /// small one's 9.1 KB, and the bench read that as god 1.33x to 1.47x of small (iOS simulator,
-    /// kit run 45000194533: 8.477 vs 5.755 ms) with no cost of the 5,000 rows in it.
+    /// its previews' bytes. When each list drew its previews from its own seed, the god window
+    /// carried 17.3 KB against the small one's 13.4 KB and the bench read that as god 1.33x to
+    /// 1.47x of small (iOS simulator, kit run 45000194533) with no cost of the 5,000 rows in it.
+    /// `HomeInboxFixture.rows` now draws a preview from its row's index; this keeps it so.
     @Test("the small and the god first windows say the same words")
     func firstWindowsSayTheSame() {
         func previews(_ size: InstantPerfSize) -> [String] {
