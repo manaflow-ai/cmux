@@ -61,7 +61,7 @@ pub(super) fn tools() -> Vec<Value> {
                     "machine": machine,
                     "command": {"type": "string", "description": "A shell command line, run by /bin/sh -c."},
                     "argv": {"type": "array", "items": {"type": "string"}, "minItems": 1, "description": "Instead of command: the program and its arguments, run with no shell."},
-                    "cwd": {"type": "string", "description": "Its folder, absolute (default: that machine's work folder)."},
+                    "cwd": {"type": "string", "description": "Its folder, absolute: a folder inside that machine's home folder or a temp folder. The home folder itself is refused, and with no cwd the command runs in that machine's work folder, which is the home folder on a machine that has none set."},
                     "timeout_ms": {"type": "integer", "minimum": 1}
                 },
                 "required": ["machine"]

@@ -65,7 +65,10 @@ Three decisions, each on the machine that owns it:
 
 A call that touches credentials, startup files or a folder holding them is the far machine
 owner's to answer there. Nothing can ask them from another machine yet, so it is refused
-(`policy.needs_owner`) and never run.
+(`policy.needs_owner`) and never run. For a command this is a filter on what its command line
+names, not a sandbox: a command that builds such a path at run time is not caught. A command with
+no `cwd` runs in that machine's work folder; where none is set that is the home folder, which
+holds credentials, so the command is refused the same way. Give a `cwd` inside the home folder.
 
 Only an agent on the home machine's own socket may send a call
 (`src/server/machine_files_relay.rs`, `src/server/computer_use_relay.rs`): a peer, a paired

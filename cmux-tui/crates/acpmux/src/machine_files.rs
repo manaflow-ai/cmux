@@ -18,7 +18,9 @@
 //!   inputs a Cloud sets for a hand (`_level`, `_verdict`) are set here and refused in a request.
 //! - A call that touches credentials, startup files or a folder holding them is the owner's to
 //!   answer on this machine. Nothing here can ask them yet, so it is refused with that reason
-//!   ([`NEEDS_OWNER`]) and never run.
+//!   ([`NEEDS_OWNER`]) and never run. For a command this is a filter on what its command line
+//!   names, not a sandbox: a command that builds such a path at run time is not caught, and the
+//!   control grant already lets its holder run commands here.
 //!
 //! The asking side's own permission prompt (the agent's harness asking the person in their chat
 //! before the tool runs) is separate and comes first.
