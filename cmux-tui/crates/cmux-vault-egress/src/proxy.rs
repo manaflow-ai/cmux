@@ -276,13 +276,14 @@ async fn open(
     Ok(stream)
 }
 
-/// The order addresses are dialed in: the resolver's first family first,
-/// then the families alternate, each in the resolver's order (RFC 8305), so
-/// the second attempt tries the other family when the host has both.
+/// The order addresses are dialed in: IPv6 first, then the families
+/// alternate, each in the resolver's order (RFC 8305), so the second attempt
+/// tries the other family when the host has both. The family that leads is
+/// not the resolver's: this daemon is linked statically and its lookup may
+/// order a dual-stack host differently from the system's, so a client behind
+/// the proxy would take another family than the same client going direct.
 fn dial_order(addrs: Vec<SocketAddr>) -> Vec<SocketAddr> {
-    let first_v6 = addrs.first().is_some_and(SocketAddr::is_ipv6);
-    let (lead, other): (Vec<_>, Vec<_>) =
-        addrs.into_iter().partition(|addr| addr.is_ipv6() == first_v6);
+    let (lead, other): (Vec<_>, Vec<_>) = addrs.into_iter().partition(SocketAddr::is_ipv6);
     let mut out = Vec::with_capacity(lead.len() + other.len());
     let (mut lead, mut other) = (lead.into_iter(), other.into_iter());
     loop {
@@ -617,7 +618,7 @@ mod tests {
     }
 
     #[test]
-    fn dial_order_alternates_families_from_the_resolvers_first() {
+    fn dial_order_leads_with_ipv6_and_alternates_families() {
         let order = |list: &[&str]| dial_order(addrs(list));
         assert_eq!(
             order(&["[2606::1]:443", "[2606::2]:443", "1.1.1.1:443", "1.0.0.1:443", "9.9.9.9:443"]),
@@ -625,7 +626,7 @@ mod tests {
         );
         assert_eq!(
             order(&["1.1.1.1:443", "[2606::1]:443", "1.0.0.1:443"]),
-            addrs(&["1.1.1.1:443", "[2606::1]:443", "1.0.0.1:443"])
+            addrs(&["[2606::1]:443", "1.1.1.1:443", "1.0.0.1:443"])
         );
         assert_eq!(order(&["1.1.1.1:443"]), addrs(&["1.1.1.1:443"]));
         assert!(order(&[]).is_empty());
