@@ -24,4 +24,16 @@ int32_t cmux_action_catalog_json(
     const uint8_t **json,
     size_t *json_len);
 
+/* One JSON request, `{"op": ...}`, answered as JSON (src/ffi.rs `call`): the menu bar
+ * menu's rows (`menu_bar_items` with `state`, `locale`, `bound`; `menu_bar_action_ids`),
+ * the profile menu (`profile_menu` with `locale`), and `when` clauses (`when_parse` with
+ * `text`, `when_text` with `clause`). The reply is the caller's to free with
+ * cmux_action_catalog_reply_free. */
+int32_t cmux_action_catalog_call(
+    const uint8_t *request,
+    size_t request_len,
+    uint8_t **reply,
+    size_t *reply_len);
+void cmux_action_catalog_reply_free(uint8_t *reply, size_t reply_len);
+
 #endif
