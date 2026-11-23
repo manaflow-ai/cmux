@@ -218,6 +218,14 @@
         ["__not_a_choice__"],
         [1]
       ]
+    },
+    "json": {
+      "accept": [],
+      "refuse": [
+        "[[\"name\"]]",
+        1,
+        true
+      ]
     }
   },
   "domains": {
@@ -259,6 +267,26 @@
         [{"program": "x"}],
         [{"program": [], "label": "x"}],
         [{"program": "x", "label": "x", "icon": 1}],
+        [1]
+      ]
+    },
+    "domain:hosts": {
+      "accept": [
+        [],
+        [{"label": "studio", "endpoints": ["studio.local", "ssh://leo@100.64.0.7:2222"], "icon": "desktopcomputer"}],
+        [{"label": "a", "endpoint": "leo@a"}, {"label": "b", "endpoint": "b", "id": "b1"}]
+      ],
+      "refuse": [
+        "studio",
+        [{"endpoints": ["a"]}],
+        [{"label": " ", "endpoints": ["a"]}],
+        [{"label": "a", "endpoints": []}],
+        [{"label": "a", "endpoint": "a", "endpoints": ["a"]}],
+        [{"label": "a", "endpoints": ["http://a"]}],
+        [{"label": "a", "endpoints": ["-oProxyCommand=x"]}],
+        [{"label": "a", "endpoints": ["a b"]}],
+        [{"label": "a", "endpoints": ["a"], "icon": 1}],
+        [{"label": "a", "endpoint": "a"}, {"label": "A", "endpoint": "b"}],
         [1]
       ]
     },
@@ -462,6 +490,43 @@
         "search.example",
         "not a url %s",
         1
+      ]
+    },
+    "domain:sidebar_row_lines": {
+      "accept": [
+        [],
+        [["icon", "name", "branch"], ["agentStatus"]],
+        [["name", "directory"], ["process"], ["ports", "lastActivity"]]
+      ],
+      "refuse": [
+        "name",
+        1,
+        {},
+        null
+      ]
+    },
+    "domain:sidebar_row_lines_by_kind": {
+      "accept": [
+        {},
+        {"agent": [["icon", "name", "working"], ["agentStatus"]], "terminal": [["icon", "name"], ["process", "directory"]]}
+      ],
+      "refuse": [
+        [],
+        "agent",
+        1,
+        null
+      ]
+    },
+    "domain:sidebar_row_lines_by_agent": {
+      "accept": [
+        {},
+        {"claude": [["icon", "name", "working"], ["lastActivity"]], "codex": [["name", "branch"]]}
+      ],
+      "refuse": [
+        [],
+        "claude",
+        1,
+        null
       ]
     },
     "domain:backdrop_picture": {

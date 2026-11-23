@@ -697,3 +697,5 @@ pub(crate) fn run(args: &[String]) -> i32 {
 mod argv_contract_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod ticket_cache_tests;
