@@ -18,6 +18,9 @@ export const CATEGORY_CARDS = [
   "accounts",
   "agentHarnesses",
   "agentIntegrations",
+  "agentCustomization",
+  "agentTools",
+  "agentSkills",
   "chiefs",
   "advancedInfo",
   "advancedActions",
@@ -26,6 +29,7 @@ export const CATEGORY_CARDS = [
   "devices",
   "chiefPet",
   "density",
+  "textSize",
   "importSuggestions",
   "channels",
   "appUpdate",
@@ -36,14 +40,16 @@ export const CATEGORY_CARDS = [
   "cloudEnvironments",
   "cloudModels",
   "worktreeSetup",
+  "extensions",
   "contextMenus",
-  "personalization",
   "sharedLinks",
   "customizeLibrary",
+  "customizeChecklist",
   "tailnet",
   "models",
   "keys",
   "mcpServers",
+  "integrationsHub",
 ] as const;
 
 /** A non-schema part a category draws (host lists, the theme studio, file actions). */
@@ -92,8 +98,9 @@ const built = build();
 
 export const categories: readonly Category[] = built.categories;
 
-/** A titled run of categories in the sidebar; the lead run (General, Updates) is untitled. */
-export type SidebarSection = { id: string; title: LocalizedText | null; categories: string[] };
+/** A titled run of categories in the sidebar; the lead run (General, Updates) is untitled. A
+ * `collapsed` run (More, the last) is drawn closed until opened or until one of its categories shows. */
+export type SidebarSection = { id: string; title: LocalizedText | null; collapsed?: boolean; categories: string[] };
 
 /** The sidebar's sections, as the Swift layout exports them. */
 export const sidebarSections: readonly SidebarSection[] = schema.page.sidebar_sections;
@@ -158,4 +165,23 @@ export function categoryById(id: string): Category {
 /** The rows of a category, in display order. */
 export function categoryRows(id: string): SchemaRow[] {
   return categoryById(id).groups.flatMap((group) => group.rows);
+}
+
+/** The category `section` opens, checked against where `key`'s row actually lives.
+ *
+ * A gallery variant or a test that names a section only to show one row has two ways to name the
+ * wrong page and no way to notice: a legacy alias opens its category (`personalization` is
+ * Appearance's, so it never looks wrong), and a row that moved to another category leaves the old
+ * page rendering fine, just without that row. Either way the capture shows the wrong page and the
+ * variant's `play` waits for a row that is never drawn. Refused here, with both pages named. */
+export function sectionShowing(section: string, key: string): string {
+  const home = homes.get(key)?.category;
+  if (home === undefined) throw new Error(`settings: no row ${JSON.stringify(key)} to show`);
+  const opens = categoryOf(section);
+  if (home !== opens)
+    throw new Error(
+      `settings: section ${JSON.stringify(section)} opens ${JSON.stringify(opens)}, but ` +
+        `${JSON.stringify(key)} is on ${JSON.stringify(home)}`,
+    );
+  return opens;
 }

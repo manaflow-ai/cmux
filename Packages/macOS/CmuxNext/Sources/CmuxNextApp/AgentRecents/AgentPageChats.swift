@@ -131,7 +131,7 @@ final class AgentPageChats {
         view.model.onCloudSignIn = cloudSignIn
         view.model.onCloudSignedIn = cloudSignedIn
         view.model.onCloudSetUp = cloudSetUp
-        view.model.gitHub = gitHub
+        view.useGitHub(gitHub)
         if let run = cloudRepick {
             view.model.onCloudRepickChat = { @MainActor [weak view] (repick: AgentPaneCloudRepick) async -> [String: Any] in
                 await run(view, repick)
@@ -160,7 +160,7 @@ final class AgentPageChats {
             guard let services else { return AgentPaneReply.failure(code: "cloud_disabled", message: "cloud_disabled") }
             if !request.release, services.cloud.mayCallCloud { CloudStartChat.warmSpare(services); Task { await services.cloud.capability.prefetch(services.cloud.installIdentity) } } // never awaited (task-owner: fire and forget): Send's gesture ticket waits only on the reserve; the pre-approval while they type
             return await request.run(allowed: !services.registry.disabledFeatures.contains(.cloud) && services.cloud.mayCallCloud, binary: services.cloud.move.cli,
-                                     configuration: services.cloud.configuration, auth: services.cloud.auth, install: { try await services.cloud.installIdentity.installToken() }) { [weak services] in services?.cloud.spareReadiness.prime($0, team: services?.cloud.auth.teamID) } // no login copy onto the reserve's machine (its agents reach models through its edge); keyed and linked before Send
+                                     configuration: services.cloud.configuration, auth: services.cloud.auth, install: { try await services.cloud.installIdentity.installToken() }) { [weak services] in services?.cloud.spareReadiness.prime($0, dials: true) } // no login copy onto the reserve's machine (its agents reach models through its edge); keyed, linked and dialed before Send
         }
         tabs.pageChats.cloudEnvironment = { [weak services] request in
             guard let services else { return AgentPaneReply.failure(code: "cloud_disabled", message: "cloud_disabled") }
