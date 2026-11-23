@@ -41,7 +41,8 @@ class CmuxNextBaseWebVerdict(unittest.TestCase):
         batch = (ROOT / ".github/workflows/cmux-next-post-merge.yml").read_text()
         self.assertIn("  web:\n    needs: plan\n    if: contains(needs.plan.outputs.suites, ' web ')\n", batch)
         self.assertIn("    uses: ./.github/workflows/ci-web.yml\n", batch)
-        self.assertNotIn("pull_request", self.text)
+        # No pull_request trigger; the runs-on fork check (#48644) still names github.event_name == 'pull_request'.
+        self.assertNotRegex(self.text, r"\n  pull_request(_target)?:")
         self.assertNotIn("paths:", self.text)
 
     def test_it_calls_ci_web_as_the_web_job_with_every_web_lane(self):
@@ -237,7 +238,8 @@ class WebValidationTests(unittest.TestCase):
         self.assertIn("scripts/ci/run-webviews-tests.sh", block)
         self.assertNotIn("vars.LINUX_RUNNER", runs_on)
         self.assertNotIn("linux_16", runs_on)
-        self.assertTrue(runs_on.endswith("|| fromJSON(vars.RUNNER_POOLS).linux_4 }}"), runs_on)
+        # Own-branch Linux jobs take the one cmux-linux label since #48644; linux_4 was the pool before it.
+        self.assertTrue(runs_on.endswith(("|| fromJSON(vars.RUNNER_POOLS).linux_4 }}", "|| 'cmux-linux' }}")), runs_on)
         sized_for = int(re.search(r'^          CMUX_WEB_TEST_SIZED_FOR_VCPU: "(\d+)"$', block, re.MULTILINE).group(1))
         sizes = re.findall(r"'blacksmith-(\d+)vcpu-ubuntu-2404'|RUNNER_POOLS\)\.linux_(\d+)", runs_on)
         for vcpu in (int(a or b) for a, b in sizes):
@@ -266,7 +268,7 @@ class WebValidationTests(unittest.TestCase):
         scope = workflow[workflow.index("  web-subarea-scope:"):workflow.index("  web-typecheck:")]
         self.assertEqual(int(re.search(r'^          REACT_APPS_SHARDS: "(\d+)"$', scope, re.MULTILINE).group(1)), 8)
         self.assertIn("react_shards: ${{ steps.react-shards.outputs.matrix }}", scope)
-        self.assertIn("fromJSON(vars.RUNNER_POOLS).linux_4 }}", block)
+        self.assertRegex(block, r"(fromJSON\(vars\.RUNNER_POOLS\)\.linux_4|'cmux-linux') }}")
         base_start = workflow.index("  react-apps-base-check:")
         base_match = re.search(r"\n  [A-Za-z0-9_-]+:", workflow[base_start + 3 :])
         base = workflow[base_start:] if base_match is None else workflow[base_start : base_start + 3 + base_match.start()]
