@@ -6,7 +6,6 @@ import type {
   PromptContentPart,
   QueuedPrompt,
   QueuedPromptImage,
-  PromptDelivery,
   PromptDeliveryHop,
 } from "../model";
 import {
