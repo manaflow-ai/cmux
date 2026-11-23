@@ -62,13 +62,20 @@ fn scripted_app_host() {
                     error: "SyntaxError: expecting ';' at main.js:2:12".into(),
                 });
             }
-            ToHost::Init { main, .. } => {
+            ToHost::Init { main, settings, .. } => {
                 scene_text = main
                     .split("SCENE_TEXT ")
                     .nth(1)
                     .and_then(|rest| rest.split_whitespace().next())
                     .map(String::from);
                 send(FromHost::Ready { runtime: "scripted".into() });
+                // An app with settings reports the values it loaded with.
+                if settings.as_object().is_some_and(|s| !s.is_empty()) {
+                    send(FromHost::Log {
+                        level: "info".into(),
+                        message: format!("init-settings {settings}"),
+                    });
+                }
                 // Top-level code that subscribes, as `cmux.events.on(...)` does.
                 if let Some(stream) = main
                     .split("SUBSCRIBE_AT_INIT ")
@@ -213,6 +220,11 @@ fn scripted_app_host() {
             ToHost::Settings { values } => {
                 if let Some(barrier) = values["test_event_barrier"].as_str() {
                     send(FromHost::Log { level: "info".into(), message: barrier.into() });
+                } else {
+                    send(FromHost::Log {
+                        level: "info".into(),
+                        message: format!("settings {values}"),
+                    });
                 }
             }
             ToHost::Unmount { .. } => {}
@@ -1322,6 +1334,8 @@ mod chat_widgets;
 mod community;
 #[path = "supervisor_composer_tests.rs"]
 mod composer;
+#[path = "supervisor_settings_tests.rs"]
+mod extension_settings;
 #[path = "supervisor_github_tests.rs"]
 mod github_gateway;
 #[path = "supervisor_inventory_demand_tests.rs"]
