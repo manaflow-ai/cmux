@@ -467,6 +467,7 @@ const fn access(operation: Op) -> Access {
         | Op::CloudPreviewsRevokeLink
         | Op::CloudMachineChatAccess
         | Op::CloudMachineShareChat
+        | Op::CloudMachineChiefStart
         => Access::Denied(Denied::NotAllowed),
     }
 }

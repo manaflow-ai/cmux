@@ -105,6 +105,11 @@ pub(in crate::cli) enum Resolve {
     /// `system.identify` reports). `current` stays the focused object when
     /// no caller is known or the request routes to another session.
     Caller,
+    /// A terminal tab with no place, created from a person's terminal
+    /// ([`terminal_caller_place`]): `workspace`, `screen` and `pane` become
+    /// the caller's own. Without a caller on this route the request names no
+    /// place, the daemon's default (which can create a workspace).
+    CallerPlace,
     /// `field` names a state record (room or group) by id or exact name; a
     /// unique name becomes that record's id.
     StateName { field: &'static str, list: ResourceOperation },
@@ -201,21 +206,50 @@ pub(in crate::cli) const CALLER_SCOPES: [&str; 5] =
     ["workspace", "screen", "pane", "tab", "terminal"];
 
 /// `plan` with a [`Resolve::Caller`] lookup when a structural selector is
-/// `caller` or `current`, which the CLI resolves against the caller before it
-/// sends the request.
+/// `caller`, `current` or `focused`, which the CLI resolves against the
+/// caller (or the person's focus) before it sends the request, and a
+/// [`Resolve::CallerPlace`] when a person's terminal creates a tab with no
+/// place ([`terminal_caller_place`]).
 pub(super) fn with_caller_lookup(
     mut plan: super::CommandPlan,
     selectors: &std::collections::BTreeMap<&'static str, String>,
 ) -> super::CommandPlan {
     let named = CALLER_SCOPES.iter().any(|scope| {
-        selectors.get(scope).is_some_and(|value| value == "caller" || value == "current")
+        selectors
+            .get(scope)
+            .is_some_and(|value| matches!(value.as_str(), "caller" | "current" | "focused"))
     });
-    if let super::CommandPlan::Protocol(plan) = &mut plan
-        && named
-    {
-        plan.resolve.push(Resolve::Caller);
+    if let super::CommandPlan::Protocol(plan) = &mut plan {
+        let env = |key: &str| std::env::var(key).ok();
+        if terminal_caller_place(plan, env) {
+            plan.resolve.push(Resolve::CallerPlace);
+        }
+        if named {
+            plan.resolve.push(Resolve::Caller);
+        }
     }
     plan
+}
+
+/// Whether a terminal tab is created from a person's cmux terminal with no
+/// `--workspace`, `--screen` or `--pane`. It then opens in that terminal's
+/// own pane ([`Resolve::CallerPlace`]), not the daemon's active one, which
+/// can be a workspace the person is not in
+/// (https://github.com/manaflow-ai/cmux/issues/25590). A caller that cannot
+/// be found, or a request to another session or machine, keeps the daemon's
+/// default. An agent's goes beside its chat instead (beside.rs).
+fn terminal_caller_place(plan: &RequestPlan, env: impl Fn(&str) -> Option<String>) -> bool {
+    let set = |key: &str| env(key).is_some_and(|value| !value.is_empty());
+    // The same agent and Chief turn tests as resolve.rs `caller_path`.
+    let person_terminal = set("CMUX_TUI_TERMINAL_ID")
+        && !set("CMUX_AGENT_SESSION")
+        && env("CMUX_CALLER_HOME_CHAT").as_deref() != Some("1");
+    let creates_terminal =
+        matches!(plan.operation, WireOperation::Typed(ResourceOperation::TabCreateTerminal));
+    let unplaced = plan.params.as_object().is_some_and(|params| {
+        !["workspace", "screen", "pane"].iter().any(|key| params.contains_key(*key))
+    });
+    person_terminal && creates_terminal && unplaced
 }
 
 #[cfg(test)]
