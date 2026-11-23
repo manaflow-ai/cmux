@@ -188,6 +188,8 @@
   `rowContent`), so every placement gets them; selection and hover fill only the row's head. A press opens the
   subagent's pane beside its chat. Debug `sidebar.subagents.look` compares rows / stacked / both (default both).
   Regression: `SidebarSubagentRowsTests`.
+  The stacked line's "N done" leaves out stopped subagents (cancelled, disconnected): a chat whose subagents were all
+  stopped never reads "N done" (review follow-up F2).
 - 2026-11-18 (a590, hover card grid base red): Sidebar-Look: the workspace hover card's tab rows line up with its
   header again, icons on one column and text on one edge, as before #44449. d8917c9 (#44449) scaled every density
   from Default by one factor, so the card's padding (7.5 pt), its icon-to-text gap and the tab rows' fill outset
