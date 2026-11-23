@@ -1858,12 +1858,12 @@ def is_sparse(repo: Path) -> bool:
 
 
 def sparse_refusal(plan: Plan, mode: str) -> str:
-    """What a push from a sparse checkout is told when its checks need the whole commit (tree_of())."""
+    """What a lint of a sparse checkout's own working tree (--fix, or no --head) is told: the checks read the whole
+    repository, which the working tree does not hold. A pushed commit never gets this: tree_of() writes it whole."""
     areas = sorted({package.directory for package in plan.script_packages} | set(plan.eslint_files))
-    return (f"{mode}: refused; nothing was linted. This worktree is a sparse checkout, and the "
+    return (f"{mode}: nothing was linted. This worktree is a sparse checkout, and the "
             f"{', '.join(area + '/' for area in areas)} checks read the whole repository, which it does not hold. "
-            "Run `git sparse-checkout disable` here and push again, or push with "
-            "`scripts/cmux-next/push-from-host.sh <branch>`, which runs this hook on a full clone.")
+            "Lint a commit instead (`scripts/web-lint.sh --head HEAD`), which is written whole from git's objects.")
 
 
 @contextlib.contextmanager
@@ -1885,9 +1885,16 @@ def tree_of(repo: Path, sha: str | None, directories: list[str], only: list[str]
             shutil.rmtree(holder, ignore_errors=True)
         return
     try:
-        # No hooks: a checkout hook must not run for a lint tree.
+        # No hooks: a checkout hook must not run for a lint tree. Not sparse: `git worktree add` from a sparse
+        # worktree copies its sparse-checkout rules into the new one (git 2.36+, extensions.worktreeConfig), and
+        # its checkout leaves out what the cone does (2,651 of cmux's files from a `wt new` worktree, 2026-11-23);
+        # core.sparseCheckout=false on the command line reaches that checkout and wins over the copied config.
         with phase(f"lint tree at {sha[:12]}"):
-            git(repo, "-c", "core.hooksPath=/dev/null", "worktree", "add", "--quiet", "--detach", str(tree), sha)
+            git(repo, "-c", "core.hooksPath=/dev/null", "-c", "core.sparseCheckout=false",
+                "worktree", "add", "--quiet", "--detach", str(tree), sha)
+        if is_sparse(tree):
+            raise SystemExit(f"web-lint: the lint tree of {sha[:12]} leaves files of the commit out (a sparse "
+                             "checkout); nothing was linted. The `web lint` CI job checks this commit.")
         for directory in directories:
             if (tree / directory).is_dir() and shares_deps(repo, sha, directory):
                 if os.path.lexists(tree / directory / "node_modules"):
@@ -2179,11 +2186,19 @@ def main(argv: list[str] | None = None) -> int:
         if is_sparse(repo):
             # 2026-11-11: a sparse checkout passed is_checked_out() before is_sparse() was part of it, and the checks
             # ran in it: FileNotFoundError without webviews/, "no Packages/macOS/CmuxNext/Sources" without the sources.
-            if head is None or only is None:
+            # A commit (every push) is linted in a tree written from git's objects, never from this checkout, so
+            # what the cone leaves out is no reason to lint nothing. 2026-11-23: a sparse worktree's pushes printed
+            # "refused; nothing was linted" 17 times in 7 hours and none of their web/ changes was checked. Only
+            # the working tree itself (--fix, or no --head) is the checkout, and that one cannot be linted whole.
+            if head is None:
                 print(sparse_refusal(plan, mode), file=sys.stderr)
                 return 1
-            print(f"{mode}: this worktree is a sparse checkout: the checks run on a lint tree of the {len(only)} "
-                  f"files of {head[:12]} they read.", file=sys.stderr)
+            if only is None:
+                print(f"{mode}: this worktree is a sparse checkout: the checks run on a full lint tree of "
+                      f"{head[:12]} written from git's objects.", file=sys.stderr)
+            else:
+                print(f"{mode}: this worktree is a sparse checkout: the checks run on a lint tree of the {len(only)} "
+                      f"files of {head[:12]} they read.", file=sys.stderr)
         if args.pre_push and head is not None and only is None and not is_checked_out(repo, head):
             missing = missing_objects(repo, head)
             if missing:
