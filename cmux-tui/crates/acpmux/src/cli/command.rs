@@ -592,6 +592,11 @@ pub enum Command {
         /// were given it and open dashboard connections stop working.
         #[arg(long)]
         rotate_token: bool,
+        /// Serve the agent pane over this machine's tailnet name with HTTPS
+        /// (`tailscale serve`), so a browser on another device of yours can open and
+        /// sign in to it. Prints that https link; implies `--app`.
+        #[arg(long)]
+        tailnet: bool,
     },
     /// Machines that run sessions: add, ls, status, pick, setup, update, enroll, doctor, ticket and more.
     /// The old spellings `host`, `hosts` and `peer` still work.
@@ -604,7 +609,8 @@ pub enum Command {
     /// Forum rules: announce one, list the current ones, ack one.
     #[command(subcommand)]
     Forum(crate::cli::forum::ForumCmd),
-    /// Bridge Claude Desktop and Codex Desktop to each other and to cmux sessions: connect, send, inbox.
+    /// Bridge Claude Desktop, Codex Desktop and ChatGPT Desktop to each other and to cmux sessions:
+    /// connect, send, inbox.
     #[command(subcommand)]
     Bridge(crate::cli::bridge::BridgeCmd),
     /// Wake a session with one message when others are done or blocked: add, ls, rm.
