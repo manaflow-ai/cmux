@@ -155,7 +155,12 @@ test("what comes between the wake turns stays in sight: a compaction, a command'
     incoming: { kind: "message", message: { name: "fork-7", text: "not mine", raw: "not mine" } },
     steer: "landed",
   });
-  rows.splice(rows.findIndex((entry) => entry.id === backgroundTurnRowId("build")), 0, compaction, card);
+  rows.splice(
+    rows.findIndex((entry) => entry.id === backgroundTurnRowId("build")),
+    0,
+    compaction,
+    card,
+  );
   rows.splice(rows.findIndex((entry) => entry.id === backgroundTurnRowId("build")) + 1, 0, message);
   const ids = drawnIds(turnView(rows, new Set(), { now: 60_000, agentFamily: "claude" }));
   for (const id of ["compaction", "card", "message"]) expect(ids).toContain(id);
