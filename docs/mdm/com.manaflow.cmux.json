@@ -4875,6 +4875,17 @@
       "title" : "Timeout",
       "type" : "number"
     },
+    "notifications.toast.style" : {
+      "default" : "standard",
+      "description" : "How toasts and prompts draw: glass, an opaque surface, or flat with a thin edge and no shadow.",
+      "enum" : [
+        "standard",
+        "solid",
+        "flat"
+      ],
+      "title" : "Toast Style",
+      "type" : "string"
+    },
     "palette.aliases" : {
       "default" : {
 
@@ -5536,6 +5547,28 @@
       ],
       "title" : "Section Look",
       "type" : "string"
+    },
+    "sidebar.sections.hidden" : {
+      "default" : [
+
+      ],
+      "description" : "Sidebar sections to hide, by id. The section of the selected workspace always shows.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Hidden Sections",
+      "type" : "array"
+    },
+    "sidebar.sections.order" : {
+      "default" : [
+
+      ],
+      "description" : "Sidebar sections to show first in their part of the sidebar, in this order, by id.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Section Order",
+      "type" : "array"
     },
     "sidebar.sessionTree" : {
       "default" : false,
@@ -6320,7 +6353,7 @@
       "type" : "boolean"
     },
     "tabs.newTabApp" : {
-      "description" : "An extension id that draws New Tab, such as \"local/showcase-newtab\". Unset: cmux's own.",
+      "description" : "An extension that draws over the New Tab composer, by its id, such as \"local/showcase-newtab\". The composer always stays. Not used by the native New Tab page.",
       "title" : "New Tab App",
       "type" : "string"
     },
