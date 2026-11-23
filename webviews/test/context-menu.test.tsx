@@ -426,9 +426,11 @@ test("a disabled row is dimmed and a long label has no tooltip", async () => {
   });
   await act(async () => openContextMenu(container.querySelector<HTMLElement>("[data-target]")!));
   const rows = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')];
-  // The selector ui.css dims must match the disabled row.
+  // The selector ui.css dims must match the disabled row (a look's --menu-disabled-opacity may wrap the default).
   const css = readFileSync(join(import.meta.dir, "../src/ui/ui.css"), "utf8");
-  const dimmed = /([^{}]+)\{\s*opacity:\s*var\(--ds-disabled-opacity[^;]*;\s*\}/.exec(css)![1]!.trim();
+  const dimmed = /([^{}]+)\{\s*opacity:\s*var\((?:--menu-disabled-opacity,\s*var\()?--ds-disabled-opacity[^;]*;\s*\}/
+    .exec(css)![1]!
+    .trim();
   expect(rows[1]!.matches(dimmed)).toBe(true);
   // A long label shows its own text, cut off, with no tooltip (test/tooltip-rules.ts).
   expect(rows[0]!.querySelector<HTMLElement>(".ui-menu-label")?.textContent).toBe(long);

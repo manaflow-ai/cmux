@@ -21,7 +21,7 @@ public struct UpdateDropBack {
     /// what the user reads); otherwise the bundles swap, the build left behind is no longer
     /// offered, and the app relaunches into the kept build with every session kept.
     @discardableResult
-    public func run(to build: String? = nil, checkOnly: Bool = false, stateDirectories: [URL?]) async throws -> KeptVersion {
+    public func run(to build: String? = nil, checkOnly: Bool = false, stateDirectories: [URL?], picksBuild: Bool = true) async throws -> KeptVersion {
         if checkOnly {
             let inputs = await updater.rollbackInputs(to: build, checkOnly: true, stateDirectories: stateDirectories)
             return try updater.rollbackDecision(to: build, inputs: inputs).get()
@@ -30,12 +30,12 @@ public struct UpdateDropBack {
         guard !updater.switchRunning else { throw RollbackRefusal.busy }
         updater.switchRunning = true
         defer { updater.switchRunning = false }
-        return try await runClaimed(to: build, stateDirectories: stateDirectories)
+        return try await runClaimed(to: build, stateDirectories: stateDirectories, picksBuild: picksBuild)
     }
 
     /// ``run(to:checkOnly:stateDirectories:)`` once the caller holds ``UpdaterService/switchRunning``
     /// (``UpdaterService/switchToBuild(_:)`` holds it from before its download).
-    func runClaimed(to build: String?, stateDirectories: [URL?]) async throws -> KeptVersion {
+    func runClaimed(to build: String?, stateDirectories: [URL?], picksBuild: Bool = true) async throws -> KeptVersion {
         // The person's click: the Channels card shows each step on the button they pressed.
         let started = ContinuousClock.now
         updater.buildSwitchProgress = BuildSwitchProgress(build: build ?? "", stage: .stores)
@@ -46,7 +46,7 @@ public struct UpdateDropBack {
             updater.buildSwitchProgress = BuildSwitchProgress(build: target.build, stage: .restart)
             // A helper that never starts leaves the bundles swapped and this build running: the card stops
             // saying Restarting and its buttons come back (the next launch starts the picked build).
-            return try await updater.rollback(to: build, inputs: inputs, relaunch: { [updater] app in
+            return try await updater.rollback(to: build, inputs: inputs, picksBuild: picksBuild, relaunch: { [updater] app in
                 Self.relaunchAfterExit(app) {
                     updater.log.append("rollback: the relaunch helper did not start; quit cmux to finish the switch")
                     updater.buildSwitchProgress = nil
@@ -59,10 +59,15 @@ public struct UpdateDropBack {
     }
 
     /// ``run(to:checkOnly:stateDirectories:)`` for an action: nil when it ran, else what the
-    /// user reads (a refusal's message, or the swap's error).
-    public func failure(to build: String?, stateDirectories: [URL?], claimed: Bool = false) async -> String? {
+    /// user reads (a refusal's message, or the swap's error). `picksBuild` false (the install
+    /// check's automatic rollback) leaves no pick, so the next newer build installs as set.
+    public func failure(to build: String?, stateDirectories: [URL?], claimed: Bool = false, picksBuild: Bool = true) async -> String? {
         do {
-            if claimed { try await runClaimed(to: build, stateDirectories: stateDirectories) } else { try await run(to: build, stateDirectories: stateDirectories) }
+            if claimed {
+                try await runClaimed(to: build, stateDirectories: stateDirectories, picksBuild: picksBuild)
+            } else {
+                try await run(to: build, stateDirectories: stateDirectories, picksBuild: picksBuild)
+            }
             return nil
         } catch let refusal as RollbackRefusal {
             return refusal.message
