@@ -1,6 +1,7 @@
 import AppKit
 
-/// `Image(src)`: a file inside the app bundle (never the network), scaled to fit the width it gets
+/// `Image(src)`: a file inside the app bundle (never the network) or a small PNG or JPEG data URL
+/// (``AppBundleImageCache``), scaled to fit the width it gets
 /// (its `frame` usually sets it), as high as its aspect ratio makes it. A path outside the bundle,
 /// or a file that does not decode, draws nothing.
 final class AppSceneImageNSView: AppSceneNodeNSView {
