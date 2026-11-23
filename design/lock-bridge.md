@@ -56,7 +56,7 @@ keep a locked Mac up past the cap. `acpmux status` then shows `lockedForS` at th
 
 When no session runs or waits, the worker releases the hold and sleeps until the next status change:
 no timer runs. Neither a turn that never ends nor turn after turn can keep the Mac up past 2 hours of
-one locked stretch, and a question nobody answers cannot keep it up past 10 minutes. Quitting or crashing acpmux drops the assertion (IOKit
+one locked stretch (awake time: the clock does not run while the Mac sleeps, and the stretch's start survives sleep), and a question nobody answers cannot keep it up past 10 minutes. Quitting or crashing acpmux drops the assertion (IOKit
 releases a dead process's assertions).
 
 ### 2. Credentials stay where they are
@@ -126,5 +126,6 @@ true. The display still sleeps on its own schedule while locked.
 ## Not from a phone
 
 The toggle changes how this Mac sleeps, which is the person's call at the Mac: it is `.userOnly` in
-the agent policy (an agent cannot set it), and a paired phone does not set it either. A phone sees the
+the agent policy (no agent settings tool, MCP `settings_set` or socket writer, can set it; like every
+`.userOnly` key, an agent with shell access to the person's files could still edit `cmux-next.json`, and an MDM profile forcing it off wins over that file), and a paired phone does not set it either. A phone sees the
 effect: a locked Mac's sessions keep answering, and a permission card says the Mac is locked.
