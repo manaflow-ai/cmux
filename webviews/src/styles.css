@@ -532,20 +532,10 @@ body {
   white-space: nowrap;
   font-weight: 500;
 }
+/* The shared `Spinner` (its sheet turns it, and Reduce Motion holds it still, cx-sya4n). */
 .base-picker-spinner {
-  width: 12px;
-  height: 12px;
   flex: 0 0 auto;
-  border-radius: 50%;
-  border: 1.6px solid color-mix(in lab, var(--cmux-diff-fg) 26%, transparent);
-  border-top-color: var(--cmux-diff-fg);
-  animation: cmux-spin var(--cmux-spinner-period, 2000ms) linear infinite;
-}
-/* Reduce Motion stops it (cx-sya4n); the diff viewer has no Static setting of its own. */
-@media (prefers-reduced-motion: reduce) {
-  .base-picker-spinner {
-    animation: none;
-  }
+  color: var(--cmux-diff-fg);
 }
 .base-picker-popover {
   /* Portaled to `document.body` and viewport-anchored so it escapes BOTH
@@ -569,9 +559,9 @@ body {
      geometry without drawing a second border over the glass surface. */
   border: 1px solid transparent;
   border-radius: var(--ds-radius-lg);
-  background: var(--glass-tint, var(--cmux-diff-bg));
-  -webkit-backdrop-filter: var(--surface-blur, none);
-  backdrop-filter: var(--surface-blur, none);
+  /* No tint or blur of its own: .ui-popup.ui-glass is the one menu glass (ui/glass/glass.css GLASS
+     LEVELS). Its own --surface-blur here was the chrome blur, a second, thinner glass than every
+     other menu's (Leo 2026-11-22: "doubled up glass/wack looking glass all over the place"). */
   z-index: 120;
   overflow: hidden;
 }
@@ -1299,25 +1289,13 @@ body[data-status-only="true"] #status-text {
   clip: rect(0 0 0 0);
   white-space: nowrap;
 }
-#status[data-pending="true"]::before,
-body[data-loading="true"] #status::before {
-  content: "";
-  width: 14px;
-  height: 14px;
+/* The status line's spinner while the diff loads: the shared `Spinner` (diff-viewer/Loading.tsx). */
+#status .status-spinner {
   flex: 0 0 auto;
-  border: 2px solid color-mix(in lab, var(--cmux-diff-fg) 20%, transparent);
-  border-top-color: color-mix(in lab, var(--cmux-diff-fg) 70%, var(--cmux-diff-bg));
-  border-radius: 50%;
-  animation: cmux-spin var(--cmux-spinner-period, 2000ms) linear infinite;
+  color: color-mix(in lab, var(--cmux-diff-fg) 70%, var(--cmux-diff-bg));
 }
 #status[data-error="true"] {
   color: var(--cmux-diff-deletion-fg);
-}
-@media (prefers-reduced-motion: reduce) {
-  #status[data-pending="true"]::before,
-  body[data-loading="true"] #status::before {
-    animation: none;
-  }
 }
 
 /* Diff review comments */
@@ -1897,9 +1875,11 @@ svg[data-icon-fill] {
     .file-review-revert
   ) {
   opacity: 0;
-  transition: opacity 150ms ease-out;
+  transition: opacity var(--cmux-motion-micro) var(--cmux-ease-out);
 }
 .file-header:is(:hover, :focus-within)
+  :is(.file-review-viewed, .file-header-menu-button, .file-review-stage, .file-review-revert),
+.file-header:is(:has([data-popup-open]), :focus-within)
   :is(.file-review-viewed, .file-header-menu-button, .file-review-stage, .file-review-revert) {
   opacity: 1;
 }
@@ -2063,9 +2043,7 @@ svg[data-icon-fill] {
      geometry without drawing a second border over the glass surface. */
   border: 1px solid transparent;
   border-radius: var(--ui-popup-radius, var(--ds-radius-lg));
-  background: var(--glass-tint, color-mix(in lab, var(--cmux-diff-bg) 92%, var(--cmux-diff-fg)));
-  -webkit-backdrop-filter: var(--surface-blur, none);
-  backdrop-filter: var(--surface-blur, none);
+  /* The tint and blur are .ui-popup.ui-glass's, the menu level every page's menus share. */
   color: var(--cmux-diff-fg);
 }
 .toolbar-menu-section {
@@ -2317,7 +2295,6 @@ svg[data-icon-fill] {
 /* The base picker popover uses the toolbar menu surface. */
 .base-picker-popover {
   border-radius: var(--ui-popup-radius, var(--ds-radius-lg));
-  background: var(--glass-tint, color-mix(in lab, var(--cmux-diff-bg) 92%, var(--cmux-diff-fg)));
 }
 .base-picker-search {
   padding: 9px 12px;

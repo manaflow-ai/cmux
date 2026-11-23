@@ -3,17 +3,22 @@
 //! takes it. Any client moves it between the two (the app, a Move to Cloud service, `acpmux
 //! transfer`), so neither daemon needs to reach the other:
 //!
-//! 1. source `_acpmux/transfer_begin {sessionId, interrupt?, to?: {socket, ssh?, host?},
-//!    gatesQueueApproval?}`: the chat stops
-//!    taking prompts and starting queued ones (a running turn refuses the move, or stops with
-//!    `interrupt`), and its bundle (`transfer.rs` export) is made. A turn `interrupt` stops goes
+//! 1. source `_acpmux/transfer_begin {sessionId, interrupt?, atToolBoundary?, afterTurn?, to?:
+//!    {socket, ssh?, host?}, gatesQueueApproval?}`: the chat stops
+//!    taking prompts and starting queued ones (a running turn refuses the move, stops with
+//!    `interrupt`, or with `atToolBoundary` stops once no tool call of it runs and until then
+//!    answers `transfer.tool_in_flight`: [`TurnCut`]; with `afterTurn` the begin first waits,
+//!    unfrozen, for the turn to end on its own), and its bundle (`transfer.rs` export) is
+//!    made. A turn the move stops goes
 //!    on: its continuation is queued first (`restart_resume.rs`, reason `moved`), so it runs where
 //!    the chat lands, or here when the move is aborted. Answers `{schema, transferId,
 //!    sessionId, files: [{path, size}], session, continues?}` (`continues`: that continuation's
 //!    prompt id): the manifest the target takes. `to` names the
 //!    target's local socket, which the source asks if the client goes away (`transfer_watch.rs`);
 //!    with `ssh`, that socket is on that ssh host, reached through a forward (`ssh_forward.rs`);
-//!    `host` is the peer's name, recorded in `movedTo` when the watch ends the move.
+//!    `host` is the peer's name, recorded in `movedTo` when the watch ends the move. With
+//!    `hub` (no `socket`), the target is a machine only the team hub reaches, by its hub
+//!    `daemonId`: it pulls the pages itself (`transfer_pull.rs`), and only it may.
 //! 2. source `_acpmux/transfer_read {transferId, path, offset, limit?}` pages a file: `{data`
 //!    (base64)`, next, eof}`.
 //! 3. target `_acpmux/transfer_receive {manifest}`, `transfer_write`, `transfer_finish`.
@@ -99,6 +104,42 @@ pub(super) fn sweep_transfers(moving: &[String]) {
             let _ = crate::home_fs::remove_dir_all(entry.path());
         }
     }
+}
+
+/// How `transfer_begin` treats a running turn.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::hub) enum TurnCut {
+    /// Refuses the move (`transfer.busy`): no `interrupt`, no `atToolBoundary`.
+    Refuse,
+    /// Cuts it now (`interrupt`), a tool call in flight or not.
+    Now,
+    /// Cuts it only while no tool call of it runs (`atToolBoundary`): between a tool's result and
+    /// the model's next step, or while it waits on the person's permission, when nothing it
+    /// started is under way. Else `transfer.tool_in_flight`, and the client asks again. Every tool
+    /// result so far is in the agent's transcript, which the bundle carries, and the turn's
+    /// continuation (`restart_resume.rs` `Cut::Move`) goes on from it on the target. Leo,
+    /// 2026-11-21: "you're supposed to be able to move shit while it's running. that's teh whole
+    /// point."
+    AtToolBoundary,
+}
+
+/// The `transfer.` code of a begin that waits for a tool call to end ([`TurnCut::AtToolBoundary`]).
+pub(crate) const TOOL_IN_FLIGHT: &str = "tool_in_flight";
+
+/// Whether a tool call `doing` holds in flight runs: one that only waits on the person's answer to
+/// a permission request in `pending` (`Session::pending_permissions`) has not started.
+pub(in crate::hub) fn tool_runs(
+    doing: &super::activity::TurnActivity,
+    pending: &[(String, Value)],
+) -> bool {
+    if doing.open_past_cap > 0 {
+        return true;
+    }
+    let asked: std::collections::BTreeSet<&str> = pending
+        .iter()
+        .filter_map(|(_, r)| r.pointer("/toolCall/toolCallId").and_then(Value::as_str))
+        .collect();
+    doing.open_tools.iter().any(|id| !asked.contains(id.as_str()))
 }
 
 fn transfer_error(what: &str, message: impl std::fmt::Display) -> RpcError {
@@ -215,11 +256,23 @@ pub(super) fn names_a_move(mark: &str) -> bool {
 #[cfg(test)]
 #[path = "restore_freeze_tests.rs"]
 mod restore_freeze_tests;
+#[path = "transfer_precopy.rs"]
+pub(super) mod transfer_precopy;
 
 /// The longest a move that waits for the running turn (`afterTurn`) waits for it to end. The
 /// turn lock is fair, so a prompt queued before the move runs first; the queue's later prompts
 /// move with the chat.
 const AFTER_TURN_WAIT: std::time::Duration = std::time::Duration::from_secs(15 * 60);
+
+/// How long a `transfer_begin` with `afterTurn` waits for the running turn: its
+/// `afterTurnTimeoutMs` (the mover's `--timeout`), at most [`AFTER_TURN_WAIT`]; that when absent.
+pub(super) fn after_turn_wait(params: &Value) -> std::time::Duration {
+    params
+        .get("afterTurnTimeoutMs")
+        .and_then(Value::as_u64)
+        .map(std::time::Duration::from_millis)
+        .map_or(AFTER_TURN_WAIT, |d| d.min(AFTER_TURN_WAIT))
+}
 
 /// What a chat that moved away answers a start: where it went.
 pub(super) fn moved_error(to: &Value) -> RpcError {
@@ -256,14 +309,56 @@ impl Hub {
                 }
                 let host = to.and_then(|to| to.get("host")).and_then(Value::as_str);
                 let host = host.filter(|h| crate::cli::hosts::checked_host(h).is_ok());
+                // A machine only the team hub reaches: its hub `daemonId`, which alone may pull
+                // the move's pages (`transfer_pull.rs`).
+                let hub = to.and_then(|to| to.get("hub")).and_then(Value::as_str);
+                if let Some(hub) = hub {
+                    let plain = (8..=128).contains(&hub.len())
+                        && hub.bytes().all(|b| b.is_ascii_alphanumeric() || b"+/=_-".contains(&b));
+                    if !plain || socket.is_some() || ssh.is_some() {
+                        return Err(RpcError::invalid_params(
+                            "transfer: `to.hub` needs a plain hub daemon id, and no socket or ssh",
+                        ));
+                    }
+                }
                 // The client hands the bundle only to a receiver whose own `initialize` listed
                 // queue approval when it carries approved prompts that still wait.
                 let gates = params.get("gatesQueueApproval").and_then(Value::as_bool) == Some(true);
+                // A pre-copied move (`transfer_precopy.rs`): the bundle holds only what follows.
+                let precopy = match (params.get("prepareId"), params.get("afterSeq")) {
+                    (None, None) => None,
+                    (Some(Value::String(id)), Some(after)) if after.is_u64() => {
+                        Some((id.as_str(), after.as_u64().unwrap_or(0)))
+                    }
+                    _ => {
+                        return Err(RpcError::invalid_params(
+                            "transfer: `prepareId` and `afterSeq` go together",
+                        ));
+                    }
+                };
                 // Wait for a running turn to end on its own, then move (`AFTER_TURN_WAIT`).
                 let after_turn =
                     !interrupt && params.get("afterTurn").and_then(Value::as_bool) == Some(true);
-                self.transfer_begin(&session, interrupt, after_turn, socket, ssh, host, gates).await
+                // A running turn is cut only between its tool calls (`transfer_begin`).
+                let at_boundary =
+                    params.get("atToolBoundary").and_then(Value::as_bool) == Some(true);
+                let cut = match (interrupt, at_boundary) {
+                    (true, _) => TurnCut::Now,
+                    (false, true) => TurnCut::AtToolBoundary,
+                    (false, false) => TurnCut::Refuse,
+                };
+                // `afterTurnTimeoutMs`: the mover's `--timeout`, never past `AFTER_TURN_WAIT`.
+                let turn_wait = after_turn.then(|| after_turn_wait(params));
+                let cut = (cut, turn_wait);
+                self.transfer_begin(&session, cut, socket, ssh, host, hub, gates, precopy).await
             }
+            "hub" => self.transfer_hub(params).await,
+            "prepare" => {
+                self.transfer_prepare(&self.resolve(text("sessionId"))?, params.get("base"))
+            }
+            "base" => self.transfer_base(params),
+            "stage" => self.transfer_stage(params),
+            "stage_finish" => self.transfer_stage_finish(params),
             "read" => {
                 let offset = params.get("offset").and_then(Value::as_u64).unwrap_or(0);
                 let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(1 << 20);
@@ -313,20 +408,23 @@ impl Hub {
         }
     }
 
-    /// Freezes the chat for its move and makes its bundle. With `after_turn`, a running turn is
-    /// neither refused nor stopped: the move first waits (up to [`AFTER_TURN_WAIT`]) for the
+    /// Freezes the chat for its move and makes its bundle. With `after_turn` (how long to wait), a
+    /// running turn is neither refused nor stopped: the move first waits (that long) for the
     /// turn lock, unfrozen, so the turn ends on its own and every prompt sent meanwhile queues
-    /// as usual; holding the lock, it freezes the chat and the queue moves with the bundle.
+    /// as usual; holding the lock, it freezes the chat and the queue moves with the bundle. With
+    /// `precopy` (a prepare and its last seq), the bundle holds the log past that seq alone, once
+    /// the prefix is checked (`transfer_precopy.rs`).
     #[allow(clippy::too_many_arguments)]
     async fn transfer_begin(
         self: &Arc<Self>,
         session: &Arc<Session>,
-        interrupt: bool,
-        after_turn: bool,
+        (cut, after_turn): (TurnCut, Option<std::time::Duration>),
         to: Option<&str>,
         to_ssh: Option<&str>,
         to_host: Option<&str>,
+        to_hub: Option<&str>,
         gates_receiver: bool,
+        precopy: Option<(&str, u64)>,
     ) -> Result<Value, RpcError> {
         if !session.ownership_epoch_is_valid() {
             return Err(transfer_error(
@@ -341,13 +439,13 @@ impl Hub {
         }
         // Taken before the freeze, so nothing is refused while the turn finishes: its
         // permission answers, steering and new prompts go in as usual.
-        let early = if after_turn {
-            match tokio::time::timeout(AFTER_TURN_WAIT, session.turn_lock.lock()).await {
+        let early = if let Some(wait) = after_turn {
+            match tokio::time::timeout(wait, session.turn_lock.lock()).await {
                 Ok(guard) => Some(guard),
                 Err(_) => {
                     let why = format!(
                         "the running turn did not end within {}s; try again, or pass --interrupt",
-                        AFTER_TURN_WAIT.as_secs()
+                        wait.as_secs()
                     );
                     return Err(transfer_error("busy", why));
                 }
@@ -391,8 +489,11 @@ impl Hub {
         };
         // No turn may run while the bundle is made: one that runs stops only if asked.
         if let Some(running) = session.turn().map(|t| t.turn_id) {
-            if !interrupt {
-                return Err(unfreeze(transfer_error("busy", "a turn is running"), None));
+            match cut {
+                TurnCut::Refuse => {
+                    return Err(unfreeze(transfer_error("busy", "a turn is running"), None));
+                }
+                TurnCut::AtToolBoundary | TurnCut::Now => {}
             }
             // A Stop while Claude compacts withdraws the person's queued prompts (`cancel.rs`):
             // the move waits for the compaction instead of losing them.
@@ -401,6 +502,22 @@ impl Hub {
                 || child.is_some_and(|c| c.translator.as_ref().is_some_and(|t| t.is_compacting()));
             if compacting {
                 let e = transfer_error("busy", "the chat is compacting; move it once that ends");
+                return Err(unfreeze(e, None));
+            }
+            // `TurnCut::AtToolBoundary`: the turn's tool calls are read fresh here, after the
+            // last await before the Stop is sent, so the window is the agent's own step from
+            // here to the Stop. A call it starts in that window is cut with the turn, as
+            // `interrupt` cuts it, and the continuation names it (`restart_resume.rs`); only a
+            // harness that stops at a boundary on its own could close it.
+            if cut == TurnCut::AtToolBoundary
+                && session
+                    .turn()
+                    .is_some_and(|t| tool_runs(&t.doing, &session.pending_permissions()))
+            {
+                let e = transfer_error(
+                    TOOL_IN_FLIGHT,
+                    "a tool call of the running turn is in flight; the move cuts the turn once it ends",
+                );
                 return Err(unfreeze(e, None));
             }
             carried = self.log_continuation(session, &running, super::auto_resume::Cut::Move);
@@ -428,7 +545,8 @@ impl Hub {
         let guard = match early {
             Some(guard) => guard,
             None => {
-                let wait = std::time::Duration::from_secs(if interrupt { 20 } else { 2 });
+                let wait =
+                    std::time::Duration::from_secs(if cut == TurnCut::Refuse { 2 } else { 20 });
                 let Ok(guard) = tokio::time::timeout(wait, session.turn_lock.lock()).await else {
                     let e = transfer_error("busy", "the running turn did not stop");
                     return Err(unfreeze(e, carried));
@@ -441,6 +559,15 @@ impl Hub {
             drop(guard);
             return Err(unfreeze(transfer_error("busy", "a recovered turn is running"), carried));
         }
+        // Nothing appends now: the prepared prefix is the log's head, or the move is refused.
+        let prefix = match precopy.map(|(id, after)| self.check_prefix(session, id, after)) {
+            Some(Err(error)) => {
+                drop(guard);
+                return Err(unfreeze(error, carried));
+            }
+            Some(Ok(prefix)) => Some(prefix),
+            None => None,
+        };
         // Export before the ownership scan so a concurrent log-scan callback cannot remove a
         // held prompt before `held_prompts` captures the move's exact queue snapshot.
         if let Err(error) = crate::home_fs::create_dirs(&dir) {
@@ -451,10 +578,11 @@ impl Hub {
             ));
         }
         let made = self
-            .export(session, &dir)
+            .export_after(session, &dir, prefix.as_ref().map(|p| p.after_seq))
             .map_err(|e| RpcError::internal(format!("transfer: bundle: {e}")))
             .and_then(|bundle| {
-                let approved_waiting = self.held_prompts(&bundle)?;
+                let prefix_seq = prefix.as_ref().map(|p| (session.id.as_str(), p.after_seq));
+                let approved_waiting = self.held_prompts_with(prefix_seq, &bundle)?;
                 if !approved_waiting.is_empty() && !gates_receiver {
                     return Err(approved_prompts_error(
                         json!(approved_waiting),
@@ -518,8 +646,18 @@ impl Hub {
         if let Some(host) = to_host {
             let _ = crate::home_fs::write(dir.join("to-host"), host);
         }
+        // Written before the begin answers: no page is served before it names the target.
+        if let Some(daemon) = to_hub
+            && let Err(error) =
+                crate::home_fs::write(dir.join(super::transfer_pull::TO_HUB), daemon)
+        {
+            tracing::warn!(session = %session.id, transfer_id = %transfer_id, "recording a hub move's target: {error}");
+        }
         if let Some(id) = carried {
             let _ = crate::home_fs::write(dir.join("continues"), id);
+        }
+        if let Some(prefix) = &prefix {
+            let _ = crate::home_fs::write(dir.join("prepared"), &prefix.prepare_id);
         }
         let _ = crate::home_fs::write(dir.join("epoch"), epoch.to_string());
         super::transfer_watch::note_activity(&dir, None);
@@ -543,6 +681,11 @@ impl Hub {
         });
         if let Some(id) = carried {
             answer.set("continues", json!(id));
+        }
+        if let Some(p) = prefix {
+            let named =
+                json!({"prepareId": p.prepare_id, "afterSeq": p.after_seq, "token": p.token});
+            answer.set("prefix", named);
         }
         // The receiver refuses the bundle unless it understands them (`transfer_in.rs`), and the
         // client hands it only to one that listed queue approval.
@@ -669,6 +812,8 @@ impl Hub {
             json!({"transferId": transfer_id, "to": to, "epoch": session.ownership_epoch()}),
         );
         self.kill(session, false).await?;
+        self.note_shipped(session, transfer_id);
+        transfer_precopy::forget_prepared(&dir);
         let _ = crate::home_fs::remove_dir_all(transfers_dir().join(transfer_id));
         Ok(json!({"sessionId": session.id, "transferId": transfer_id, "committed": true}))
     }
@@ -796,6 +941,20 @@ mod fencing_tests {
     use super::*;
 
     #[test]
+    fn a_tool_call_runs_unless_it_only_waits_on_a_permission() {
+        let mut doing = super::super::activity::TurnActivity::default();
+        assert!(!tool_runs(&doing, &[]), "no tool call: a move may stop the turn");
+        doing.open_tools.insert("t-1".into());
+        assert!(tool_runs(&doing, &[]), "a call in flight runs");
+        let asked = json!({"toolCall": {"toolCallId": "t-1"}});
+        assert!(!tool_runs(&doing, &[("r".into(), asked.clone())]), "it waits on the person");
+        doing.open_tools.insert("t-2".into());
+        assert!(tool_runs(&doing, &[("r".into(), asked)]), "another call runs beside it");
+        let past = super::super::activity::TurnActivity { open_past_cap: 1, ..Default::default() };
+        assert!(tool_runs(&past, &[]), "a call past the id cap runs");
+    }
+
+    #[test]
     fn a_delayed_owner_is_rejected_for_every_transfer_write_path() {
         // The four protocol operations all use the same fencing predicate. Keep this table
         // explicit so a new endpoint cannot silently accept an old host's epoch.
@@ -834,5 +993,23 @@ mod fencing_tests {
         assert_eq!(parse_epoch(Some(&json!(7))).unwrap(), Some(7));
         assert!(parse_epoch(Some(&json!("7"))).is_err());
         assert!(parse_epoch(Some(&json!(null))).is_err());
+    }
+}
+
+#[cfg(test)]
+mod after_turn_wait_tests {
+    use super::{AFTER_TURN_WAIT, after_turn_wait};
+    use serde_json::json;
+    use std::time::Duration;
+
+    /// Item C: the mover's `--timeout` bounds the daemon's wait for the turn, never past 15 min.
+    #[test]
+    fn the_movers_timeout_bounds_the_wait_for_the_turn() {
+        assert_eq!(after_turn_wait(&json!({})), AFTER_TURN_WAIT);
+        assert_eq!(
+            after_turn_wait(&json!({"afterTurnTimeoutMs": 30_000})),
+            Duration::from_secs(30)
+        );
+        assert_eq!(after_turn_wait(&json!({"afterTurnTimeoutMs": u64::MAX})), AFTER_TURN_WAIT);
     }
 }
