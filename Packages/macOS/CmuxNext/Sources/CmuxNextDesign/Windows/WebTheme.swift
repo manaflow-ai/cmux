@@ -40,8 +40,13 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     /// (`ui.animations.web` or the master switch `ui.animations.enabled` off).
     public let motion: String
     /// `lens`, `plain` or `spectrum` (``GlassLensMode/current``, already `plain` under Reduce
-    /// Transparency and Low Power Mode): `data-glass` on `<html>`, which `.ui-glass` reads.
+    /// Transparency and Low Power Mode), or ``glassOff`` while `appearance.liquidGlass` is off:
+    /// `data-glass` on `<html>`, which `.ui-glass` reads.
     public let glass: String
+
+    /// `glass` while `appearance.liquidGlass` is off: every web glass surface draws solid, with a
+    /// hairline rim and no blur (webviews ui/glass/glass.css, `GLASS_OFF` in glassState.ts).
+    public static let glassOff = "off"
     /// `current`, or ``glassLevelsPrevious`` while `appearance.previousGlass` is on:
     /// `data-glass-levels` on `<html>`, which webviews ui/glass/glass.css reads to draw the glass
     /// numbers from before the one glass system (design/glass-system.md). `current` removes it.
@@ -222,7 +227,7 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         statusIndicators = !Motion.indicators.animatesLoops || DesignSettings.shared.statusIndicator.animation == .static ? "static" : "animated"
         workingLook = StatusWorkingLook.tunable.value.rawValue
         motion = Self.motionValue(Motion.web.policy)
-        self.glass = (glass ?? .current).rawValue
+        self.glass = DesignSettings.shared.liquidGlass ? (glass ?? .current).rawValue : Self.glassOff
         glassLevels = DesignSettings.shared.previousGlass ? Self.glassLevelsPrevious : "current"
         decorations = ThemeDecorations.current.payload
         fontSmoothing = Self.pageSmoothing(DesignSettings.shared.fontSmoothing, native: .chrome)
@@ -508,14 +513,14 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     }
 
     /// The inputs of the page theme that no theme change pushes: `appearance.borders`, `appearance.fontSmoothing`,
-    /// `appearance.previousGlass`, the divider
+    /// `appearance.liquidGlass`, `appearance.previousGlass`, the divider
     /// strength (`--cmux-chrome-divider`), the menu look (`appearance.menu.*`), the title area's tone and contrast and the chrome shade they
     /// make (`--cmux-sidebar-surface`, `--cmux-chrome-tone`, `--cmux-folder-fill`). The app repaints
     /// every page when one changes (`AppServices.observeBorders`).
     @MainActor
     public static var pushInputs: [String] {
         let design = DesignSettings.shared
-        return [Borders.current.mode.rawValue, design.fontSmoothing.rawValue, "\(design.previousGlass)", "\(design.menuLook)", "\(ChromeTunables.dividerStrength.value)", design.titleAreaTone.rawValue,
+        return [Borders.current.mode.rawValue, design.fontSmoothing.rawValue, "\(design.liquidGlass)", "\(design.previousGlass)", "\(design.menuLook)", "\(ChromeTunables.dividerStrength.value)", design.titleAreaTone.rawValue,
                 "\(design.titleAreaContrast)", "\(Metrics.mainPaneChromeShade(isDark: false))", "\(Metrics.mainPaneChromeShade(isDark: true))"]
     }
 

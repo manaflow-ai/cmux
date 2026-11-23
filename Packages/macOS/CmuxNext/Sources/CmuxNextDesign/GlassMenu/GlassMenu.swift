@@ -28,7 +28,8 @@ public final class GlassMenu {
     /// The theme file's fill and rim over the glass (``MenuLook``); nil while the look sets neither.
     var lookView: GlassMenuLookView?
     private weak var parentMenu: GlassMenu?
-    private var child: GlassMenu?
+    /// The submenu open beside this menu, else nil.
+    private(set) var child: GlassMenu?
     private var scope: ThemeScope?
     /// The control the menu opened from: a click on it is the control's (it closes the menu
     /// itself, a toggle), not a click outside that closes and then reopens it.
