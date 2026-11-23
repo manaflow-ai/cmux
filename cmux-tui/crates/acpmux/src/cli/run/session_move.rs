@@ -20,7 +20,8 @@
 //!    over, and so is one whose free disk, less what the move writes, is under its registry
 //!    floor (`placement::disk_floor`), unless every host that answers is: then the one with
 //!    the most free takes it with a warning. Each host passed over is printed with why. Chats
-//!    in one checkout go to one host.
+//!    in one checkout go to one host. A named machine no ssh peer names but the team hub lists
+//!    as one of the person's moves through the hub instead (`session_move_hub.rs`).
 //! 3. The chat is frozen here (`transfer_begin`), so nothing changes its folder or history
 //!    while the rest is made; any step below that fails gives it back (`transfer_abort`). When
 //!    both daemons list pre-copy, its history is staged on the target first, with no freeze, and
@@ -41,6 +42,7 @@
 //!    moved chat never runs here again (`hub/lifecycle.rs`), so there is one writer. `resolve`
 //!    and agent links follow it (`hub/locate.rs`).
 
+use super::move_end::{MoveEnd, Reach};
 use super::*;
 use crate::cli::session_move_carry::{self as carry, Carry};
 use crate::cli::session_move_plan::{self as plan, Checkout, Folder};
@@ -53,6 +55,9 @@ use cmux_json::JsonSet as _;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command as StdCommand;
+
+#[path = "session_move_hub.rs"]
+mod hub;
 
 #[path = "session_move_preflight.rs"]
 mod preflight;
@@ -227,7 +232,12 @@ pub(crate) struct MoveArgs {
 #[derive(Clone, Debug)]
 pub(crate) enum Source {
     Here,
-    Peer { name: String, ssh: String },
+    /// `socket`: its daemon's socket there, as a move reaches it again (`move_end.rs`).
+    Peer {
+        name: String,
+        ssh: String,
+        socket: String,
+    },
 }
 
 impl Source {
@@ -235,6 +245,18 @@ impl Source {
         match self {
             Source::Here => None,
             Source::Peer { ssh, .. } => Some(ssh),
+        }
+    }
+
+    /// How a move reaches the chats' daemon again when its connection drops.
+    fn reach(&self) -> Option<Reach> {
+        match self {
+            Source::Here => std::path::absolute(crate::config::socket_path())
+                .ok()
+                .map(|path| Reach::Socket { path }),
+            Source::Peer { ssh, socket, .. } => {
+                Some(Reach::Ssh { host: ssh.clone(), socket: socket.clone() })
+            }
         }
     }
 }
@@ -287,6 +309,8 @@ pub(super) async fn run(args: MoveArgs, json_out: bool) -> Result<()> {
         return snapshot::run(args, json_out).await;
     }
     let local = connect(true).await?;
+    // A move from this machine whose client went away is ended first (`move_end.rs`).
+    super::move_end::reclaim_dead_moves(&super::move_end::journal_dir()).await;
     let peers = local.request("_acpmux/peers", json!({})).await?;
     let here = crate::pairing::machine_name();
     // `--from`: the chats' daemon is the peer's, reached through a forward of its local socket.
@@ -313,13 +337,21 @@ pub(super) async fn run(args: MoveArgs, json_out: bool) -> Result<()> {
             .await??;
             let forward = Forward::open(&ssh, &about.socket).await?;
             let client = Client::connect(&forward.local).await?;
-            let source = Source::Peer { name: from.clone(), ssh };
+            let source = Source::Peer { name: from.clone(), ssh, socket: about.socket.clone() };
             (client, source, PathBuf::from(&about.home), Some(forward))
         }
     };
     let ids = if args.all_idle { idle_chats(&src).await? } else { args.sessions.clone() };
     if ids.is_empty() {
         bail!("no chat to move: name one or more, or pass --all-idle");
+    }
+    // A machine no ssh peer names, that the team hub lists as one of the person's: the move goes
+    // through the hub, the target pulling it (`session_move_hub.rs`).
+    if matches!(source, Source::Here)
+        && args.host != "auto"
+        && peer_ssh(&peers, &args.host).is_none()
+    {
+        return hub::run(&src, &ids, &args, &home, json_out).await;
     }
     let here_target = match &source {
         Source::Peer { .. } if names_here(&args.host, &here) => {
@@ -639,12 +671,36 @@ async fn move_steps(
         }
     };
     let there = record.get("cwd").and_then(Value::as_str).map(str::to_owned);
-    let moved = waiting(
+    let dst_reach = if target.ssh.is_empty() {
+        Reach::Socket { path: PathBuf::from(&remote.socket) }
+    } else {
+        Reach::Ssh { host: target.ssh.clone(), socket: remote.socket.clone() }
+    };
+    let mut src_end = MoveEnd::new("source", src, source.reach());
+    let mut dst_end = MoveEnd::new("target", &dst, Some(dst_reach));
+    let finished = waiting(
         &name,
         "copying the chat to the target",
-        super::transfer::finish_move(src, &dst, &dst_init, &id, &begun, there, None, record),
+        super::transfer::finish_move(
+            &mut src_end,
+            &mut dst_end,
+            &dst_init,
+            &id,
+            &begun,
+            there,
+            None,
+            record,
+        ),
     )
-    .await?;
+    .await;
+    src_end.close().await;
+    let moved = match finished {
+        Ok(moved) => moved,
+        Err(e) => {
+            dst_end.close().await;
+            return Err(e);
+        }
+    };
     targets.placed(&target.name);
     o.moved = true;
     o.there = moved.get("sessionId").and_then(Value::as_str).map(str::to_owned);
@@ -667,12 +723,14 @@ async fn move_steps(
         && let Some(there) = o.there.clone()
     {
         // Moved whatever this says: a failed resume leaves the chat there with its queue held.
+        let dst = dst_end.client();
         let resumed = match dst.request(method::MUX_INFO, json!({"sessionId": there})).await {
-            Ok(info) => super::extra::resume_held(&dst, &there, &info).await,
+            Ok(info) => super::extra::resume_held(dst, &there, &info).await,
             Err(e) => Err(e),
         };
         o.resumed = resumed.map_err(|e| format!("{e:#}"));
     }
+    dst_end.close().await;
     if let Some(forward) = forward {
         forward.close().await;
     }
@@ -1118,6 +1176,12 @@ fn prepare_folder(host: &str, folder: &Folder, at: Option<(&str, &str)>) -> Resu
     Ok(path)
 }
 
+/// Makes `folder` on this machine (the target of a hub move, `hub/transfer_pull.rs`) as a move
+/// over ssh makes it there, and returns its path.
+pub(crate) fn prepare_folder_here(folder: &Folder) -> Result<String> {
+    prepare_folder("", folder, None)
+}
+
 /// Explain a remote folder command failure without dropping the only useful diagnostic. SSH
 /// wrappers occasionally leave stderr empty while the script writes its reason to stdout, and a
 /// quiet non-zero exit must still be distinguishable from a successful empty answer.
@@ -1248,7 +1312,7 @@ impl Targets {
 
     /// The source cannot also be a destination, including saved aliases for its SSH endpoint.
     fn exclude_source(&mut self, source: &Source, registry: Option<&Value>) -> Result<()> {
-        let Source::Peer { name, ssh } = source else { return Ok(()) };
+        let Source::Peer { name, ssh, .. } = source else { return Ok(()) };
         let identity = crate::placement::move_targets::identity;
         let source_id = identity(registry, name);
         let is_source = |peer: &str, endpoint: &str| {
