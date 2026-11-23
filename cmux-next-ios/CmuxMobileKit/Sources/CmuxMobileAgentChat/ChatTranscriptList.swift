@@ -1082,6 +1082,10 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
             collectionView.contentOffset.y += top - anchor.top
         }
         loaded = true
+        // Launch to the chat's latest output on screen (LaunchMarks `chat_latest_output_frame`): the
+        // first frame that presents transcript rows while the list follows its end, so the newest
+        // line is the one shown. Once per process; the open-live sim mode reads it.
+        if !ids.isEmpty, surface.following { LaunchMarks.shared.markNextFrame("chat_latest_output_frame") }
         if !heldMissing.isEmpty { prepare(heldMissing, urgent: true) }
         if !missing.isEmpty { prepare(missing, urgent: false) }
         queueWarmUp(weighed)
