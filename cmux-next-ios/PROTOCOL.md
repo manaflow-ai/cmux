@@ -965,6 +965,17 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   Support/cmux-mobile-host/`, rotated at 1 MB with one previous file) and to its log. At most
   16 pans of 64 KiB per channel; a line that does not parse is dropped. The phone sends
   nothing to a Mac without the capability. Phones only.
+- `try-pr` (`try-pr-v1`, 2026-11-23): cmux Dev's Try a pull request picker (Settings >
+  Developer, DEBUG builds). hostd (`try_pr.rs`) runs `cmux-next-ios/scripts/try.sh` from a
+  checkout on the Mac, found at `$CMUX_MOBILE_TRY_SH` or `~/.config/cmux/try.sh`, through the
+  person's login shell; with neither the capability is not listed. Arguments: `{"op":"list"}`
+  answers one frame, `try.sh list`'s JSON (`{"schema":"cmux.ios-try.list.v1","prs":[{"number",
+  "title", "author", "head", "updated_at", "draft", "build": "ahead"|"building"|"failed"|"cached"|"none"}],
+  "error"?}`); `{"op":"install","pr":"N"}` runs `try.sh N` (or joins the run for N; `busy` while
+  another PR installs), sends `{"line"}` frames as it prints and `{"done":true,"pr","exit"}`.
+  Installing replaces cmux Dev on the phones attached to the Mac, so the channel usually ends
+  with the app; the install runs on, and `{"op":"status"}` answers `{"run":{"pr","started_ms",
+  "lines","exit"?}|null}`, the last one. Phones only.
 - `echo`: test service.
 - `version` (link protocol 2, added 2026-10-14): one data frame
   `{"hostd": "<version>", "link": 2}`, then `eof`. A host that refuses it
@@ -1060,6 +1071,7 @@ cmux-tui daemon's names hostd itself declares or checks. Printed from
 | `browser-video-track-v1` | hostd `version` | With `browser-stream-v1`: `browser {"video":"track"}` carries the page's video on the media lane (WebRTC, and WireGuard since 2026-10-14). |
 | `surface-stream-v1` | hostd `version` | (2026-10-22) The host streams the Mac's phone tabs' simulators (`surface`); listed only when the Mac app streams simulators. |
 | `cloud-desktop-v1` | hostd `version` | (2026-11-02) `surface` also streams an owned Cloud machine's desktop, view only, on the key `c~<machine_id>~<team_id>`. |
+| `try-pr-v1` | hostd `version` | (2026-11-23) The host serves `try-pr`: cmux Dev's Try a pull request picker lists the open iPhone PRs and installs one on the phones attached to this Mac (`try.sh`); listed only when the Mac has `try.sh`. |
 | `cloud-mobile-chat-v1` | cmux-tui daemon | On a `cloud-acpmux` carrier hostd requires the Cloud daemon's `identify` to list it before declaring it (phone prompt restrictions). |
 | `conversation-tabs-v1` | cmux-tui daemon | Declared in `set-client-info`: conversation tabs read as `conversation` with their record, not `browser`. |
 | `page-tabs-v1` | cmux-tui daemon | Declared in `set-client-info`: page tabs read as `conversation` with their `page` (a phone tab is a simulator tab). |

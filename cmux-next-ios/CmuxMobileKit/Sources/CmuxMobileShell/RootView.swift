@@ -922,6 +922,7 @@ struct ShellTabs: View {
                     scrollRequest: shell.settingsScrollTarget,
                     directory: shell.deviceDirectory,
                     sizing: shell.sizingService,
+                    tryPullRequests: shell.tryPullRequestService,
                     callChief: { shell.callChief() },
                     screenSharing: shell.screenSharing,
                     cloudPages: shell.live == nil || ChiefCloudConfig.current(buildSpace: .nightly) == nil ? nil : SettingsCloudPages(

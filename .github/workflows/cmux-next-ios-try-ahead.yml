@@ -59,7 +59,6 @@ jobs:
           "$client" run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --ref "$HEAD_SHA" \
             --artifact artifacts/ios-sim/evidence.zip --no-supersede --key "cnx-ios-try-try-${HEAD_SHA:0:12}" \
             --arg shots --arg try=dev --background --timeout 3600 2>&1 | tee "$log" || status=$?
-          status="${PIPESTATUS[0]:-$status}"
           step="$(grep -o -E 'step [0-9a-f]{24}' "$log" | head -1 | cut -d' ' -f2)"
           {
             echo "### cmux Dev for PR #$PR at ${HEAD_SHA:0:12}"
