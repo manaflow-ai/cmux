@@ -36,6 +36,10 @@ pub mod codes {
     pub const MACHINE_PAUSED: &str = "cmux.cloud.machine_paused";
     /// `cloud.migration.unavailable`.
     pub const MIGRATION_UNAVAILABLE: &str = "cmux.cloud.migration_unavailable";
+    /// `cloud.surge.capacity`: the provider has no room for the burst now.
+    pub const SURGE_CAPACITY: &str = "cmux.cloud.surge_capacity";
+    /// `cloud.surge.unavailable`: the team's provider takes no burst.
+    pub const SURGE_UNAVAILABLE: &str = "cmux.cloud.surge_unavailable";
     /// `cloud.machine.not_classic`.
     pub const NOT_CLASSIC: &str = "cmux.cloud.not_classic";
     /// `cloud.upgrade.failed`: the classic machine still works.
@@ -124,6 +128,8 @@ const WIRE_CODES: &[(&str, &str)] = &[
     ("cloud.machine.not_bound", codes::NOT_BOUND),
     ("cloud.machine.paused", codes::MACHINE_PAUSED),
     ("cloud.migration.unavailable", codes::MIGRATION_UNAVAILABLE),
+    ("cloud.surge.capacity", codes::SURGE_CAPACITY),
+    ("cloud.surge.unavailable", codes::SURGE_UNAVAILABLE),
     ("cloud.machine.not_classic", codes::NOT_CLASSIC),
     ("cloud.upgrade.failed", codes::UPGRADE_FAILED),
     ("cloud.rate_limited", codes::RATE_LIMITED),

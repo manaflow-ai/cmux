@@ -87,6 +87,8 @@ impl<'a, C: ControlPlane> Ctx<'a, C> {
 
     /// The host checks these non-secret fences against the exact credential
     /// used for each POST; the app server never receives that credential.
+    // CallFailure carries the whole CloudError (its details); it is built once per failed call.
+    #[allow(clippy::result_large_err)]
     pub(crate) fn fenced_wire(
         &mut self,
         op: &str,
@@ -105,6 +107,7 @@ impl<'a, C: ControlPlane> Ctx<'a, C> {
         })
     }
 
+    #[allow(clippy::result_large_err)]
     fn send(&mut self, call: WireCall) -> Result<WireResult, CallFailure> {
         let op = call.op.as_str();
         match self.control_plane.call(&call) {

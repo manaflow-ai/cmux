@@ -1638,8 +1638,15 @@ mod tests {
         let swift_commands: HashSet<&str> = swift[start..end].split('"').skip(1).step_by(2).collect();
         // `notification-reply` is answered by hostd itself, never by the daemon, so
         // the Mac's own phone lane (an allowlist of daemon commands) leaves it out.
-        let rust_commands: HashSet<&str> =
-            ALLOWED_COMMANDS.iter().copied().filter(|command| *command != "notification-reply").collect();
+        // `bind-conversation-tab-session` (#47551) binds a chat tab this host made for
+        // the phone; the Mac's own lane has no agent tab host (it refuses
+        // `new-conversation-tab`), so it leaves the bind out too.
+        let mac_lane_leaves_out = ["notification-reply", "bind-conversation-tab-session"];
+        let rust_commands: HashSet<&str> = ALLOWED_COMMANDS
+            .iter()
+            .copied()
+            .filter(|command| !mac_lane_leaves_out.contains(command))
+            .collect();
         assert_eq!(swift_commands, rust_commands);
         let start = swift
             .find("allowedResourceOperations: [String: Set<String>] = [")
