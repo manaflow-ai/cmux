@@ -78,6 +78,7 @@ on:
       - "config/vite-plus/**"
       - "webviews/scripts/lint/effect-cleanup.mjs"
       - "webviews/scripts/lint/perf-footguns.mjs"
+      - "webviews/scripts/lint/aria-props.mjs"
       - "scripts/gallery-matrix/broken-allowlist.json"
       - "scripts/gallery-matrix/bun.lock"
       - "scripts/gallery-matrix/geometry-collector.ts"
@@ -270,6 +271,7 @@ jobs:
       ids: ${{ steps.entries.outputs.ids }}
       cases: ${{ steps.size.outputs.cases }}
       shards: ${{ steps.size.outputs.shards }}
+      split: ${{ steps.size.outputs.split }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -307,6 +309,7 @@ jobs:
             /Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Tunables/MetricTunables.swift
             /web/data/model-catalog/
             /release-notes/next/highlights/
+            /first-party-apps/*/preview/scenes.json
           persist-credentials: false
 
       - name: Setup Bun
@@ -378,6 +381,17 @@ jobs:
           # Held in step with "Hold each shard within its time budget" (tests/test_ci_gallery_health_merge_ref.py).
           MAX_CASES_PER_SHARD: "800"
           MAX_SHARDS: "32"
+          # A push's full render runs a slice of the full split, not all of it (2026-11-23, Leo 2026-11-21 ~03:55Z:
+          # "id rather we simply cut shit now and revisit later"). Most pushes that render everything touch no
+          # entry: a string catalog, a theme or a CI sweep that edits every workflow (9 of 15 runs, 23:23Z-00:55Z
+          # 11-22, each 17 shards; full renders were about 75% of the workflow's runner time). Each such push
+          # renders PUSH_FULL_SHARDS shards of the 17, and the next one the next slice (by run number), so a
+          # stretch of pushes still covers every case. The off switch: the repository variable
+          # GALLERY_HEALTH_PUSH_FULL_SHARDS set to `all` renders every shard again; a number sets the slice. A
+          # dispatch (the full render of a ref) and a push that touched entries are unchanged.
+          EVENT: ${{ github.event_name }}
+          PUSH_FULL_SHARDS: ${{ vars.GALLERY_HEALTH_PUSH_FULL_SHARDS || '2' }}
+          RUN_NUMBER: ${{ github.run_number }}
         run: |
           set -euo pipefail
           cd webviews
@@ -392,8 +406,19 @@ jobs:
           shards=$(( (cases + MAX_CASES_PER_SHARD - 1) / MAX_CASES_PER_SHARD ))
           [ "$shards" -le "$MAX_SHARDS" ] || shards=$MAX_SHARDS
           echo "cases=$cases" >> "$GITHUB_OUTPUT"
-          echo "shards=$(jq -cn --argjson n "$shards" '[range($n)]')" >> "$GITHUB_OUTPUT"
+          echo "split=$shards" >> "$GITHUB_OUTPUT"
           echo "$cases cases to render: $shards shard(s) of at most $MAX_CASES_PER_SHARD (at most $MAX_SHARDS shards)"
+          slice=${PUSH_FULL_SHARDS:-all}
+          if [ "${EVENT:-}" = push ] && [ "$ALL" = true ] && [[ "$slice" =~ ^[0-9]+$ ]] && [ "$slice" -gt 0 ] \
+              && [ "$slice" -lt "$shards" ]; then
+            # Consecutive runs take consecutive slices, wrapping, so ceil(shards / slice) full-render pushes cover all.
+            start=$(( (${RUN_NUMBER:-0} * slice) % shards ))
+            echo "shards=$(jq -cn --argjson n "$shards" --argjson k "$slice" --argjson s "$start" \
+              '[range($k) | (. + $s) % $n]')" >> "$GITHUB_OUTPUT"
+            echo "a push's full render: $slice of the $shards shards, from shard $start (GALLERY_HEALTH_PUSH_FULL_SHARDS=all renders every shard)"
+          else
+            echo "shards=$(jq -cn --argjson n "$shards" '[range($n)]')" >> "$GITHUB_OUTPUT"
+          fi
 
   health:
     needs: plan
@@ -524,11 +549,12 @@ jobs:
       - name: Hold each shard within its time budget
         # It goes on so the render still gives its verdict; "Fail past the case budget" fails the job.
         id: cap
-        if: ${{ !cancelled() && matrix.shard == 0 && steps.install.outcome == 'success' }}
+        if: ${{ !cancelled() && strategy.job-index == 0 && steps.install.outcome == 'success' }}
         continue-on-error: true
         env:
           CASES: ${{ needs.plan.outputs.cases }}
-          SHARDS: ${{ strategy.job-total }}
+          # The full split, which a push's full render starts only a slice of (the plan job).
+          SHARDS: ${{ needs.plan.outputs.split || strategy.job-total }}
           MAX_CASES_PER_SHARD: "800"
         run: |
           set -euo pipefail
@@ -562,17 +588,24 @@ jobs:
           ALL: ${{ needs.plan.outputs.all }}
           IDS: ${{ needs.plan.outputs.ids }}
           SHARD: ${{ matrix.shard }}
-          SHARDS: ${{ strategy.job-total }}
+          SHARDS: ${{ needs.plan.outputs.split || strategy.job-total }}
           CMUX_GALLERY_IN_VM: "1"
         run: |
           set -euo pipefail
           cd webviews
           if [ "$ALL" = true ]; then
             bun scripts/gallery/manifest.ts --frame component --out "$RUNNER_TEMP/manifest.json"
+            subset=""
           else
             bun scripts/gallery/manifest.ts --frame component --entries "$IDS" --out "$RUNNER_TEMP/manifest.json"
+            # Build only the entries this render reads (galleryEntrySubset in webviews/dev-server/galleryHost.ts),
+            # as the base replay below does: each of 16 shards built all ~3,200 gallery modules (~55-85 s) to
+            # render a handful of touched entries. The ids come from the manifest, not $IDS: --entries matches
+            # by prefix, so the manifest can hold entries $IDS does not name exactly. A mock-app entry, or an
+            # empty list, builds everything.
+            subset="$(jq -r '[.[].params.entry // empty] | unique | join(",")' "$RUNNER_TEMP/manifest.json")"
           fi
-          CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/gallery" bun run gallery:build
+          CMUX_GALLERY_ENTRIES="$subset" CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/gallery" bun run gallery:build
           cd "$GITHUB_WORKSPACE/scripts/gallery-matrix"
           # Three workers per four vCPUs past 8: two threads share each core there, and 12 workers on 16
           # vCPU rendered as fast as 16 with a lower p90 (3.0 s against 4.3) and less ready-CPU drift.
