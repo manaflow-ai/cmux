@@ -54,6 +54,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `app.warnBeforeClosingAgentSession` | boolean | `true` |  | Warn Before Closing a Working Agent |
 | `app.quitBehavior` | string | `"keep"` | `keep`, `end-keep-layout`, `end-everything` | When Quitting. Terminals run in cmux-tui and keep running after cmux quits unless you end them. |
 | `app.confirmQuit` | boolean | `true` |  | Ask Before Quitting Ends Agents or Terminals. Ask before Cmd-Q ends agents or terminals. |
+| `app.warnBeforeQuitShortcut` | boolean | `true` |  | Warn Before Quitting with ⌘Q. ⌘Q asks before quitting; press it again to quit. The Quit menu item and the Dock quit at once. |
 | `layout.defaultColumnWidth` | real | `0.6666666666666666` | 0.1 to 1 | Fixed Column Width. A share of the window width, for Fixed Width new columns. |
 | `layout.centerFocusedColumn` | string | `"never"` | `never`, `always`, `on-overflow` | Center Focused Column |
 | `layout.stripScrollbar` | string | `"system"` | `system`, `auto`, `always`, `off` | Column Scroll Bar. A thin bar under the columns that shows and moves the visible range. |
@@ -198,6 +199,8 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `appearance.backgroundDynamic` | string | `"appearance"` | `appearance`, `time` | Dynamic Wallpaper. Follow light and dark, or change with the sun through the day. |
 | `appearance.backgroundLocation` | string |  |  | Sun Location. Latitude,longitude for sunrise and sunset, such as 37.77,-122.42. Unset: your time zone. |
 | `appearance.backgroundMemory` | dictionary |  |  | Background Mode Memory. The folder and picture each background mode last showed, so switching back restores them. |
+| `appearance.backgroundPlacement` | dictionary |  |  | Background Placement. Picture ID to fill, fit, center or stretch, with optional X Y anchor and zoom. |
+| `appearance.backgroundRecents` | array |  |  | Recent Backgrounds. The backgrounds shown before, newest first, so one click goes back. |
 | `appearance.displayBackgrounds` | dictionary |  |  | Per-display Backgrounds. Display ID to daily, folder:<path>, desktop, a background or none. |
 | `appearance.displayBackgroundRotations` | dictionary |  |  | Per-display Background Rotation. Display ID to 15m, hourly or daily. Others use the global rotation. |
 | `appearance.paneBackgrounds` | string | `"shared"` | `shared`, `perPane` | Pane Backgrounds. One background behind the window, or a copy in each pane. |
@@ -464,6 +467,8 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `sidebar.cmd9` | string | `"last"` | `last`, `ninth` | Command-9. Goes to the last item, as in browsers, or to the ninth. |
 | `sidebar.stepping` | string | `"allItems"` | `allItems`, `workspacesOnly` | Next and Previous Item. What Command-Control-] and Command-Control-[ step through. |
 | `sidebar.steppingWraps` | boolean | `true` |  | Wrap Around. Past the last item, the next item is the first again. |
+| `sidebar.sections.hidden` | array | `[]` |  | Hidden Sections. Sidebar sections to hide, by id. The section of the selected workspace always shows. |
+| `sidebar.sections.order` | array | `[]` |  | Section Order. Sidebar sections to show first in their part of the sidebar, in this order, by id. |
 | `sidebar.hoverCards.enabled` | boolean | `true` |  | Show Hover Cards. A card with details opens when the pointer rests on a workspace or a tab. |
 | `sidebar.hoverCards.delay` | real | `1300` | 0 to 5000 | Hover Card Delay. How long the pointer rests before a card opens. |
 | `sidebar.hoverCards.layout` | string | `"compact"` | `timeline`, `compact`, `log`, `classic`, `minimal` | Workspace Card Layout. What a workspace's hover card shows. |
@@ -512,6 +517,9 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `sidebar.workspaceRow.log` | boolean | `false` |  | Log. The newest line agents and scripts log: cmux workspace log append <text>. |
 | `sidebar.workspaceRow.notification` | boolean | `false` |  | Latest Notification. The text of the workspace's newest unread notification. |
 | `sidebar.workspaceRow.secondLineOrder` | array | `["notification","directory","branch","process","agentStatus","ports","lastActivity"]` | `notification`, `directory`, `branch`, `process`, `agentStatus`, `ports`, `lastActivity` | Second Line Order. The order of the shown items under the workspace name. |
+| `sidebar.workspaceRow.lines` | array |  |  | Row Layout. The lines each workspace row shows, as lists of items, such as [["icon", "name", "branch"], ["agentStatus"]]. Up to 3 lines of 6 items; the name always leads the first line. Nested; see `cmux settings schema` for its shape. |
+| `sidebar.workspaceRow.linesByKind` | dictionary |  |  | Row Layout by Kind. A row layout for each kind of workspace: terminal, agent, browser or mixed. It wins over Row Layout. Nested; see `cmux settings schema` for its shape. |
+| `sidebar.workspaceRow.linesByAgent` | dictionary |  |  | Row Layout by Agent. A row layout for each agent, by agent id such as claude or codex. It wins over the other row layouts. Nested; see `cmux settings schema` for its shape. |
 | `sidebar.workspaceRow.terminal.icon` | boolean |  |  | Icon |
 | `sidebar.workspaceRow.terminal.directory` | boolean |  |  | Folder |
 | `sidebar.workspaceRow.terminal.branch` | boolean |  |  | Git Branch |
@@ -663,6 +671,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `notifications.dockBadge` | boolean | `true` |  | Unread Count on Dock Icon |
 | `notifications.dockBounce` | string | `"once"` | `off`, `once`, `untilActive` | Bounce Dock Icon. When a notification alerts while cmux isn't the active app. |
 | `notifications.showPreviews` | string | `"whenUnlocked"` | `always`, `whenUnlocked`, `never` | Show Message in Banners. Whether a banner shows what the agent said, or only where and what state. |
+| `notifications.toast.style` | string | `"standard"` | `standard`, `solid`, `flat` | Toast Style. How toasts and prompts draw: glass, an opaque surface, or flat with a thin edge and no shadow. |
 | `feed.mirrorNotifications.agents` | boolean | `true` |  | Copy Agent Notifications to the Feed. Agent and cmux notify notifications go to your feed and can reach your iPhone. |
 | `feed.mirrorNotifications.terminal` | string | `"off"` | `off`, `title`, `full` | Copy Terminal Notifications to the Feed. Terminal notifications can contain secrets. Off sends nothing. |
 | `feed.agentPermissionPrompts` | boolean | `false` |  | Send Agent Permission Requests to the Feed. Each request's tool and command summary goes to your own cmux feed, so your iPhone can answer it. |
@@ -746,6 +755,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `app.internalDeveloperMode` | boolean | `false` |  | Internal Developer Mode. Shows "Debug: …" commands in the Command Palette. |
 | `macScreen.systemShortcuts` | boolean | `false` |  | Send System Shortcuts to the Remote Mac. Shortcuts like ⌘Tab and ⌘Space go to the other Mac. Needs Accessibility. |
 | `macScreen.shareWithoutAsking` | boolean | `false` |  | Share This Mac Without Asking. Your own cmux CLI, agents and devices turn sharing on with no sheet. Each device's access still applies. |
+| `macScreen.onlyPersonStartsViewing` | boolean | `false` |  | Only Your Click Starts Viewing a Screen. On, a Screen Sharing tab an agent or the cmux CLI opens waits until you choose View Only or Full Control. Off, it starts viewing your own devices at once and says who started it. A device someone else owns always asks first. |
 | `macScreen.debug.relayOnly` | boolean | `false` |  | Relay Only. Mac Screen tabs connect only through the relay, to test it. |
 | `remote.endSharingOnQuit` | boolean | `false` |  | End Sharing When cmux Quits. Off: this Mac stays available to your devices while cmux is quit. |
 | `remote.ultra` | string | `"auto"` | `off`, `auto`, `always` | Ultra Connection Mode. Sends repair data so lossy networks stay fast. Always uses 2 to 3 times the data. |
