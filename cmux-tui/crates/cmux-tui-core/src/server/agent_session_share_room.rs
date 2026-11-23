@@ -30,7 +30,7 @@ use tokio_tungstenite::tungstenite::client::IntoClientRequest as _;
 use tokio_tungstenite::tungstenite::http::HeaderValue;
 use zeroize::Zeroizing;
 
-use super::{GuestState, LinkShare, LinkShares, Redeem, ShareState, find, op_of};
+use super::{AccessAsk, GuestState, LinkShare, LinkShares, Redeem, ShareState, find, op_of};
 use crate::mux::Mux;
 use crate::server::RenderService;
 
