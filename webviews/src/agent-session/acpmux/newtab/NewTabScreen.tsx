@@ -880,7 +880,9 @@ export function NewTabScreen(props: Props) {
   /// False only when a Sandboxed send started nothing, so the caller's one-shot guards stay open.
   const askChat = (agent: string, prompt: string, cwd?: string, model?: string): boolean | void => {
     // Held for Computer Use before anything starts (an Ask row's click too): the prompt stays.
-    if (prompt && holdsSend(prompt)) return false;
+    // cmux's own commands first (`/import @computer-use` opens its picker), and an address is no prompt.
+    if (command.intercept(prompt, agent, attachments.length, true)) return false;
+    if (prompt && !isAddress(prompt, home) && holdsSend(prompt)) return false;
     // A Codex skill typed or picked as `/name` goes as `/$name` (slashCommands.ts withSkillDollars),
     // read against the list of the harness that asks: an Ask row for another harness has none.
     const listed = snapshot.summary?.sessionId ? snapshot.summary.harness : harness;
@@ -1060,8 +1062,9 @@ export function NewTabScreen(props: Props) {
   // plugins"): computer use, browser use (toolMentions.ts) and extension commands, every row that
   // writes its own text. In the same menu as `/`, never in the address rows below the field.
   const fieldMention = promptMention?.text === text ? promptMention : undefined;
+  // An address (a path, a URL) is never a prompt: no plugin picker over `My @computer-use notes.md`.
   const atWord: { query: string; start?: number } | undefined =
-    shell || commandAt || profilePick
+    shell || commandAt || profilePick || isAddress(withoutInlineTokens(text).trim(), home)
       ? undefined
       : fieldMention
         ? fieldMention.query === undefined
@@ -1586,7 +1589,7 @@ export function NewTabScreen(props: Props) {
         address: isAddress(prompt, home),
         attachments: attachments.length,
       });
-      return chosen.takes && chosen.row !== undefined && chosen.row.type !== "ask";
+      return (chosen.takes && chosen.row !== undefined && chosen.row.type !== "ask") || isAddress(prompt, home);
     })();
     // A pairing link (its room secret) is never searched, asked or opened: the host refuses it
     // with the address bar's word, and the page keeps the text.
