@@ -23,8 +23,14 @@ const ROW = ".acpmux-row";
 
 type Box = { top: number; bottom: number; width: number; height: number };
 
+/// Whether `box` is wholly past one of `view`'s edges. A box of no size is exempt (a line that has
+/// mounted with no box yet), and so is a view of no height: a scroller that has not been laid out
+/// has no view to judge against, and reading it as a sliver at the top would end motion the reader is
+/// about to see.
 const misses = (box: Box, view: Box) =>
-  !(box.width === 0 && box.height === 0) && (box.bottom <= view.top + EDGE_PX || box.top >= view.bottom - EDGE_PX);
+  !(box.width === 0 && box.height === 0) &&
+  view.height !== 0 &&
+  (box.bottom <= view.top + EDGE_PX || box.top >= view.bottom - EDGE_PX);
 
 /// Whether `element`'s box misses `scroller`'s.
 export function outOfView(element: Element, scroller: Element): boolean {

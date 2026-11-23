@@ -360,3 +360,17 @@ test("the view's own scroll with no input before it keeps the fold: the pinned b
     sheet.dom.window.close();
   }
 });
+
+test("a view with no height yet has not been laid out: the fold is captured, not swallowed", () => {
+  // A pane whose transcript mounts before its first layout reads as a sliver at the top, which would
+  // leave every row "out of view" and swallow a fold the reader is about to see.
+  const sheet = page({ top: 0, height: 0 });
+  try {
+    sheet.running(0);
+    const capture = captureTurnEnd(sheet.thread, sheet.scroller, ENDED, "chat");
+    expect(capture?.silent).toBeUndefined();
+    expect(capture!.rows.some((entry) => entry.id === "work" && entry.copy !== undefined)).toBe(true);
+  } finally {
+    sheet.dom.window.close();
+  }
+});

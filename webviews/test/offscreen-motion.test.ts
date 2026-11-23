@@ -348,3 +348,18 @@ test("a box misses the view when it is wholly past an edge, and its edges count 
     sheet.close();
   }
 });
+
+test("a scroller with no height yet has not been laid out: nothing in it is ended early", async () => {
+  // Before its first layout the view is a sliver at the top, and every row would read as past its
+  // bottom edge: the motions the reader is about to see would all be drawn at their end.
+  const sheet = page({ top: 0, height: 0 });
+  const stop = endOffscreenMotion(sheet.scroller);
+  try {
+    const row = sheet.plays(sheet.add(sheet.scroller, "acpmux-row", { top: 400, height: 60 }), sheet.fade());
+    await sheet.flush();
+    expect(row.finished).toBe(0);
+  } finally {
+    stop();
+    sheet.close();
+  }
+});
