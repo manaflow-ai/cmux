@@ -141,6 +141,8 @@ framework! {
 framework! {
     pub mod cg = "/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics" {
         static kCGColorSpaceSRGB: CFStringRef;
+        static kCGWindowBounds: CFStringRef;
+        static kCGWindowIsOnscreen: CFStringRef;
         fn CGMainDisplayID() -> u32;
         fn CGDisplayBounds(display: u32) -> CGRect;
         fn CGDisplayCopyDisplayMode(display: u32) -> CGDisplayModeRef;
@@ -150,9 +152,7 @@ framework! {
         fn CGDisplayModeRelease(mode: CGDisplayModeRef);
         fn CGRectMakeWithDictionaryRepresentation(dictionary: CFDictionaryRef, rect: *mut CGRect) -> u8;
         // One shared window (window.rs): its frame and whether it is on screen, read again
-        // while it is shared, and the display it is on.
-        static kCGWindowBounds: CFStringRef;
-        static kCGWindowIsOnscreen: CFStringRef;
+        // while it is shared, and the display it is on (CGWindowListCopyWindowInfo below).
         fn CGWindowListCopyWindowInfo(option: u32, relative_to: u32) -> CFArrayRef;
         fn CGGetDisplaysWithPoint(point: CGPoint, max: u32, displays: *mut u32, count: *mut u32) -> i32;
         fn CGEventSourceCreate(state: i32) -> CGEventSourceRef;
