@@ -1,0 +1,24 @@
+/* Leo's idea (2026-11-23): at a narrow pane the top-right row folds from horizontal into a vertical column
+   hanging from the "...", with a sweet animation. Transform and opacity only; each tool travels from its slot in the
+   row to its slot in the column with a stagger. The header's row never changes height and no tool leaves it while
+   folded closed. */
+.hf-stage{display:grid;gap:10px;padding:8px 8px 8px;color:var(--agent-text);font:13px var(--font-ui)}
+.hf-note{font-size:11px;color:var(--agent-muted);line-height:1.4}
+.hf-controls{display:flex;align-items:center;gap:12px;font-size:11px;color:var(--agent-muted)}
+.hf-controls input[type=range]{width:200px}
+.hf-pane{position:relative}
+.hf-header{--hf-pitch:26px;position:relative;box-sizing:border-box;height:28px;display:block;outline:1px solid var(--agent-border);background:var(--agent-page-bg)}
+.hf-title{position:absolute;inset-block:0;inset-inline-start:8px;inset-inline-end:var(--hf-reserve);display:flex;align-items:center;min-width:0}
+.hf-title .acpmux-thread-title{max-width:100%}
+.hf-tools{position:absolute;inset-block-start:2px;inset-inline-end:8px;width:24px;height:24px}
+.hf-tool{position:absolute;inset-block-start:0;inset-inline-end:0;transform:translate(var(--x,0),var(--y,0)) scale(var(--s,1));opacity:var(--o,1)}
+.hf-tool[data-hidden]{pointer-events:none}
+.hf-more .acpmux-header-glyph{transform:rotate(var(--turn,0deg))}
+/* The column's plate: hangs from the "..." under the header, never in the row. */
+.hf-card{position:absolute;inset-inline-end:-4px;inset-block-start:calc(100% + 4px);width:32px;height:calc(var(--hf-count,4) * var(--hf-pitch) + 8px);box-sizing:border-box;border-radius:10px;background:var(--surface-popup,var(--agent-page-bg));box-shadow:0 6px 24px rgba(0,0,0,.28),0 0 0 .5px var(--agent-border);transform-origin:top center;transform:scaleY(var(--card-s,.2));opacity:var(--card-o,0);pointer-events:none}
+@media (prefers-reduced-motion:no-preference){
+.hf-tool{transition:transform var(--agent-motion-in,160ms) cubic-bezier(.2,.9,.25,1) calc(var(--i,0) * 28ms),opacity var(--agent-motion-in,160ms) ease-out calc(var(--i,0) * 28ms)}
+.hf-tool[data-closing]{transition-delay:calc((var(--n,4) - var(--i,0)) * 18ms)}
+.hf-more .acpmux-header-glyph{transition:transform var(--agent-motion-in,160ms) cubic-bezier(.2,.9,.25,1)}
+.hf-card{transition:transform var(--agent-motion-in,160ms) cubic-bezier(.2,.9,.25,1),opacity var(--agent-motion-out,120ms) ease-out}
+}

@@ -10,34 +10,45 @@ import { ChatSummaryLine } from "./ChatSummaryLine";
 
 const html = (node: React.ReactElement) => renderToStaticMarkup(node);
 
-test("a summary with a next action reads as the summary, an arrow and the action", () => {
+test("a summary with a next action draws the measure and a button that names the whole text", () => {
   const out = html(<ChatSummaryLine summary={{ text: "Parser fixed, CI running.", next: "Merge the PR" }} />);
-  expect(out).toContain('class="acpmux-chat-summary"');
+  // The off-screen measure: the whole line at its natural width, text, arrow and next action.
+  expect(out).toContain('class="acpmux-chat-summary acpmux-chat-summary--measure" aria-hidden="true"');
   expect(out).toContain('<span class="acpmux-chat-summary__text">Parser fixed, CI running.</span>');
   expect(out).toContain('<span class="acpmux-chat-summary__arrow" aria-hidden="true">→</span>');
   expect(out).toContain('<span class="acpmux-chat-summary__next">Merge the PR</span>');
   const full = `Parser fixed, CI running.\n${translate("header.summaryNext", { next: "Merge the PR" })}`;
+  expect(full).toContain("Next:");
   expect(full).toContain("Merge the PR");
   expect(full).not.toContain("header.summaryNext");
-  expect(out).toContain(`title="${full}"`);
+  expect(out).toContain(`aria-label="${full}"`);
+  // Server-side the fit is not measured yet: the chip shows until the layout effect reads the room.
+  expect(out).toContain('data-chat-summary="chip"');
 });
 
 test("a summary with no next action draws no arrow", () => {
   const out = html(<ChatSummaryLine summary={{ text: "Menu planned." }} />);
   expect(out).toContain("Menu planned.");
   expect(out).not.toContain("acpmux-chat-summary__arrow");
-  expect(out).toContain('title="Menu planned."');
+  expect(out).toContain('aria-label="Menu planned."');
 });
 
 test("no summary, or a blank one, draws nothing", () => {
   expect(html(<ChatSummaryLine summary={undefined} />)).toBe("");
   expect(html(<ChatSummaryLine summary={null} />)).toBe("");
   expect(html(<ChatSummaryLine summary={{ text: "   ", next: "Go" }} />)).toBe("");
+  expect(html(<ChatSummaryLine summary={{ text: "   " }} chip />)).toBe("");
 });
 
-test("the tab-row header's copy is the inline variant", () => {
-  const out = html(<ChatSummaryLine summary={{ text: "Done." }} inline />);
-  expect(out).toContain('class="acpmux-chat-summary acpmux-chat-summary--inline"');
+test("the tab-row header's copy is only the chip: a tool button, no measure", () => {
+  const out = html(<ChatSummaryLine summary={{ text: "Done.", next: "Ship" }} chip />);
+  expect(out).toContain("acpmux-chat-summary-slot--tool");
+  expect(out).toContain('data-chat-summary="chip"');
+  expect(out).toContain('class="acpmux-header-tool acpmux-chat-summary-chip"');
+  expect(out).toContain("<button");
+  expect(out).not.toContain("acpmux-chat-summary--measure");
+  expect(out).not.toContain("acpmux-chat-summary__text");
+  expect(out).toContain("Next:");
 });
 
 test("the pane's summary keeps acpmux's rollingSummary, trimmed, and drops a blank one", () => {
