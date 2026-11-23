@@ -3,8 +3,9 @@
    - links #a4a4a4 underlined, inline code on #2a2a2a
    - your prompt: a right-aligned #252525 pill, no edge
    - the composer: one line, #303030 with a 1 pt #404040 edge, 12 pt corners, placeholder #a6a6a6
-   Paint only (colors, edges, corners): no size, padding or line height changes here, so nothing in
-   the transcript or the composer moves when this applies, reloads or comes off. */
+   - the transcript tucked in: its rows start where the composer's + sits, not on the composer's edge
+   Paint, plus that one tuck: no size, padding or line height changes here, so nothing in the composer
+   moves when this applies, reloads or comes off. */
 :root {
   --cv-text: #efefef;
   --cv-text-muted: #9c9c9c;
@@ -27,4 +28,25 @@
 :root .acpmux-composer-box {
   --acpmux-composer-radius: 12px;
   --acpmux-card-ring: inset 0 0 0 1px var(--acpmux-composer-edge);
+}
+/* The transcript tucked in to the composer's inner content, as Claude Code draws it (Leo, 2026-11-22:
+   "is it annoying that our thinking is so far left compared to the composer? should we tuck it in a
+   bit more like claude code? ... we'd better at least do this for our claude code customization
+   repo"). Thinking, tool and message rows start on the + glyph's column: a row's 16 icon box centers
+   on the composer's leading glyph center (--grid-composer-lead-center), its prose on that box's left
+   edge. Under 298 px of column the composer card reaches 8 px past it, and the rows follow its +. The
+   column's right edge stays. */
+:root .acpmux-row {
+  --claude-code-lead: calc(var(--grid-composer-lead-center) - var(--grid-transcript-icon-box) / 2);
+  --claude-code-narrow: clamp(
+    0px,
+    calc((297.5px - (100% - var(--cv-inset) - var(--cv-inset-end, var(--cv-inset)))) * 1000),
+    8px
+  );
+  left: calc(var(--cv-inset) + var(--claude-code-lead) - var(--claude-code-narrow));
+}
+/* While a drag flows the rows in the thread's padding (the column), the tuck is their margin. */
+:root .acpmux-thread--flow > .acpmux-row {
+  left: auto;
+  margin-left: calc(var(--claude-code-lead) - clamp(0px, calc((297.5px - 100%) * 1000), 8px));
 }

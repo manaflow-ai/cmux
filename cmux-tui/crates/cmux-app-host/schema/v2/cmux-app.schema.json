@@ -187,6 +187,9 @@
         "$ref": "#/$defs/interfaceName"
       },
       "properties": {
+        "cmux.composer.chip/1": {
+          "$ref": "#/$defs/dataImplementation"
+        },
         "cmux.composer.toolbar/1": {
           "$ref": "#/$defs/dataImplementation"
         },
@@ -194,6 +197,9 @@
           "$ref": "#/$defs/dataImplementation"
         },
         "cmux.composer.mention/1": {
+          "$ref": "#/$defs/dataImplementation"
+        },
+        "cmux.signal.source/1": {
           "$ref": "#/$defs/dataImplementation"
         }
       },

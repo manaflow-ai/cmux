@@ -136,6 +136,31 @@
             "undo",
             "spinner"
           ]
+        },
+        {
+          "key": "experiments.chatWidgets",
+          "note": "Agent chat draws an installed extension's chat widget (cmux.chat.widget/1, the daemon's apps.chat_widgets.route) as a card under a finished tool call (webviews ToolWidget.tsx, useExperimentSwitch(\"chatWidgets\")). Off by default; off makes no route call and draws no card, so the chat is unchanged.",
+          "title": {
+            "key": "settings.experiments.chatWidgets",
+            "text": "Extension Chat Widgets"
+          },
+          "help": {
+            "key": "settings.experiments.chatWidgets.help",
+            "text": "Installed extensions can show a card under a finished tool call in agent chat."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiments",
+            "experimental",
+            "prototype",
+            "extension",
+            "extensions",
+            "chat",
+            "widget",
+            "tool",
+            "card"
+          ]
         }
       ]
     }
