@@ -89,7 +89,7 @@ import { listingWanted, omnibarFolders, omnibarFolder } from "./launchRows";
 import { type CompleteFolder, useFolderListing } from "./omnibarReads";
 import { useRecentlyClosed } from "./recentlyClosed";
 import { initialRecentProject } from "./recentProject";
-import { rememberedStartedProject } from "./startedProject";
+import { startedProjectChoices } from "./startedProject";
 import {
   canonicalAddress,
   defaultSelection,
@@ -528,20 +528,23 @@ export function NewTabScreen(props: Props) {
   // Before the host's project list lands, a chat folder counts; once it lands, one it does not
   // list (removed, deleted) gives way to the newest it lists.
   const known = props.knownProjects?.length ? props.knownProjects : undefined;
+  // The one dropped gives way to the next this page knows that the list still has (a kept folder of
+  // this run, cmux#51272), never to a blank chip while the chats are still to come.
   if (
     latched !== undefined &&
     (props.knownProjects === null || (known && !known.some((path) => path.replace(/(.)\/+$/, "$1") === latched)))
   )
-    setLatched(undefined);
+    setLatched(initialRecentProject(snapshot.sessions, home, props.knownProjects));
   else if (latched === undefined && candidate !== undefined && (props.knownProjects === undefined || known))
     setLatched(candidate);
   // The project of the chat the person last picked and started wins over the newest chat's folder
   // (Leo 2026-10-21): chats agents start move that one. Not on another machine's page (no `home`),
-  // and only a folder the host's project list still has. Read once, as the page mounts.
-  const [startedProject] = useState(() => rememberedStartedProject() ?? props.startedProject);
+  // and only a folder the host's project list still has: this run's copy, else the app's (cmux#51272).
+  // Read once, as the page mounts.
+  const [startedChoices] = useState(() => startedProjectChoices(props.startedProject));
   const started =
-    mayStartRecent && home && startedProject
-      ? firstProject([startedProject.replace(/(.)\/+$/, "$1")], home, props.knownProjects)
+    mayStartRecent && home && startedChoices.length > 0
+      ? firstProject(startedChoices, home, props.knownProjects)
       : undefined;
   const found = mayStartRecent ? (started ?? latched ?? candidate) : undefined;
   const startsRecent = mayStartRecent && (!temporary || found !== undefined);

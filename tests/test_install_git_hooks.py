@@ -91,8 +91,6 @@ class InstallGitHooksTests(unittest.TestCase):
             *self.copy_input_files(),
         ):
             source, target = SOURCE / relative, root / relative
-            if target.exists():
-                continue  # named twice (a list above and the copy inputs)
             if not source.exists():
                 continue  # a tree from before the file; the installer then fails on it if it needs it
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -113,12 +111,16 @@ class InstallGitHooksTests(unittest.TestCase):
 
     @staticmethod
     def copy_input_files():
-        """Every single-file entry of scripts/git-hooks/checks-copy-inputs, so a file the copy adds (as
-        scripts/ci/generated_files_guard.py did) never leaves the fixture behind; folders are copied above."""
+        """Every single-file entry of scripts/git-hooks/checks-copy-inputs, so a new entry never leaves the fixture behind.
+
+        The base added scripts/ci/generated_files_guard.py and scripts/ci/ci_process_tree.py to that list (prepush gate:
+        refuse a push that commits a generated file) and the stamp test failed reading them from the fixture until it
+        named them; reading the list keeps the two in step, like installed_sources() does for the installer.
+        """
         lines = (SOURCE / "scripts/git-hooks/checks-copy-inputs").read_text(encoding="utf-8").splitlines()
-        entries = [line.strip().split(" -> ")[0].strip() for line in lines
-                   if line.strip() and not line.strip().startswith("#")]
-        return sorted({entry for entry in entries if not entry.endswith("/")})
+        sources = (line.strip().split(" -> ")[0].strip() for line in lines
+                   if line.strip() and not line.strip().startswith("#"))
+        return sorted({source for source in sources if not source.endswith("/")})
 
     def git(self, *args, check=True):
         return subprocess.run(["git", "-C", str(self.repo), *args], env=self.env,
