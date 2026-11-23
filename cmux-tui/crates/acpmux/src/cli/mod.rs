@@ -104,6 +104,7 @@ pub mod shutdown;
 pub(crate) use crate::slow_notice;
 #[cfg(test)]
 mod skill_coverage_tests;
+pub mod ssh_join;
 pub mod stdio;
 pub(crate) mod steer_reply;
 pub mod task;
