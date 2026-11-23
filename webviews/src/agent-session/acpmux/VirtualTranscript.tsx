@@ -5662,7 +5662,9 @@ function TranscriptView({
     // composer behind Jump to latest until the next wheel at the end armed it again (Leo, 2026-11-18:
     // "did we fix this scroll bounce at the bottom yet?"; agent-pane-bottom-rebound-follow.test.ts).
     // The layout pass reads the same fall as a clamp (`clamped`). A reader's own step up leaves the end.
-    const sprangBack = !upPending && next >= node.scrollHeight - node.clientHeight - 0.5;
+    // A scroller with no layout (scrollHeight 0) ends at the rows' own height, as the jump's end reads it.
+    const scrollEnd = (node.scrollHeight > 0 ? node.scrollHeight : layout.totalHeight) - node.clientHeight;
+    const sprangBack = !upPending && next >= scrollEnd - 0.5;
     // A recent upward input is authoritative even when it moved only a pixel or two. The
     // deadband absorbs layout rounding, but must not turn a real trackpad step into bottom follow.
     const movedUp = !sprangBack && next < was.top - 0.5;
