@@ -313,6 +313,10 @@ export function defineTranscriptMotion(options: TranscriptMotionOptions) {
       const effect = animation.effect as KeyframeEffect;
       const target = effect.target;
       if (!target) continue;
+      // The running line's text shimmer (conversation.css `cmux-cadenced-shimmer-*`, runningLineMotion.ts)
+      // slides a masked stripe inside a clipped, absolutely placed layer: no box in the transcript moves
+      // and nothing reflows, and its own gate (checkRunningLineLoops) holds its length and count.
+      if (animation instanceof CSSAnimation && animation.animationName.startsWith("cmux-cadenced-shimmer-")) continue;
       const keyframes = effect.getKeyframes();
       const properties = [
         ...new Set(

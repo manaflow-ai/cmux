@@ -91,7 +91,9 @@ const arrivalEase = (progress: number) => Math.sin((progress * Math.PI) / 2);
 /// shortest step (a move during a step keeps that step's end, so its floor is the time left).
 export function arrivalStepMs(px: number, scale = 1, floor = MOTION_MS.quick * scale): number {
   const frames = ((Math.PI / 2) * Math.abs(px)) / (ARRIVAL_FRAME_LINES * currentChatMetrics().lineHeight);
-  return Math.max(floor, (frames * 1000) / 120);
+  // No house move outlasts the large step (scale.generated.ts): a very long move's frames run a little
+  // past ARRIVAL_FRAME_LINES rather than its step past 240 ms (the transcript motion detector's `off-curve`).
+  return Math.min(MOTION_MS.large, Math.max(floor, (frames * 1000) / 120));
 }
 /// A send's rise (Leo, 2026-11-11: "the animation is just way too f***ing slow ... when the rest of
 /// the transcript moves up and your message comes in ... It's not fast enough and it's not f***ing
