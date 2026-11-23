@@ -1,6 +1,9 @@
 public import AppKit
 
-extension DensityTokens {
+// Nonisolated, as DensityTokens is: pure reads of its tokens and of TunableStore (Sendable). Under the package's
+// MainActor default these were main-actor isolated, and Xcode 27.2 refuses the nonisolated OmnibarMetrics init's
+// `rowHeight ?? tokens.toolbarButtonSize` (an autoclosure) for it.
+nonisolated extension DensityTokens {
     /// A browser toolbar button's side: the sidebar's one-line row at this level, 24 pt at Standard and
     /// 32 at Comfortable, as tall as a tab pill (``Metrics/chromeRowHeight`` adds `sidebar.density`'s
     /// and `sidebar.textSize`'s extra height). The browser's `OmnibarMetrics` and the pane's trailing
