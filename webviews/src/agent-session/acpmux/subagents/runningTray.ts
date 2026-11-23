@@ -453,17 +453,43 @@ export function withSubagentLines(
   const reported = new Map<string, Subagent>();
   const cards = new Map<number, AcpmuxRow[]>();
   const made = new Set<string>();
+  // The rows drawn other than as they are: the groups' starts and workflow cards, and the reports
+  // of a reported subagent (its line); and where the done lines go.
+  const changed = new Map<number, (row: AcpmuxRow) => readonly AcpmuxRow[]>();
+  // One start line a turn: every group a turn started (one per batch between the agent's words)
+  // joins the line of its first, which keeps its place; the others draw none (Leo, 2026-11-22: fifteen
+  // "started working" lines filled the screen). A background turn's groups keep a line of their own.
+  // Each group's fields are read once here (test/delta-cost-incremental.test.ts counts them per update).
+  const turnOpeners = openerReads.read(rows).from;
+  const lineOf = new Map<number, Subagent[]>();
+  const firstOf = new Map<string, number>();
   for (const index of groups) {
     const row = rows[index]!;
     // An agent a shell call started keeps its card where it started (AgentRunCard.tsx).
     if (isRunGroup(row)) continue;
-    const workflows = workflowCards ? (row.subagents ?? []).filter(isWorkflow) : [];
+    const subagents = row.subagents ?? [];
+    const inBackground = row.inBackground;
+    const turnKey = `${openerBefore(turnOpeners, index)}\u0000${inBackground ?? ""}`;
+    const first = firstOf.get(turnKey);
+    if (first === undefined) {
+      firstOf.set(turnKey, index);
+      lineOf.set(index, [...subagents]);
+    } else lineOf.get(first)!.push(...subagents);
+    // Read when the rows are drawn, after every group of its turn has joined its line.
+    changed.set(index, () => {
+      const agents = lineOf.get(index);
+      return [
+        ...(agents ? startedLine(rows[index]!, agents, cache, made, workflowCards) : NO_ROWS),
+        ...(cards.get(index) ?? NO_ROWS),
+      ];
+    });
+    const workflows = workflowCards ? subagents.filter(isWorkflow) : [];
     if (workflows.length > 0)
       cards.set(
         index,
         workflows.map((node) => workflowCard(row, node, cache, made)),
       );
-    for (const agent of row.subagents ?? []) {
+    for (const agent of subagents) {
       // One waiting on background work of its own has not finished: its line waits for its report.
       if (agent.state === "running" || awaitsOwnWork(agent) || (workflowCards && isWorkflow(agent))) continue;
       const endedAt = agent.endedAt ?? agent.startedAt;
@@ -475,37 +501,10 @@ export function withSubagentLines(
         at = report;
         reported.set(origin, { ...agent, endedAt });
       }
-      const line = doneLine(agent, endedAt, cache, made, row.inBackground);
+      const line = doneLine(agent, endedAt, cache, made, inBackground);
       before.set(at, [...(before.get(at) ?? []), line]);
     }
   }
-  // The rows drawn other than as they are: the groups' starts and workflow cards, and the reports
-  // of a reported subagent (its line); and where the done lines go.
-  const changed = new Map<number, (row: AcpmuxRow) => readonly AcpmuxRow[]>();
-  // One start line a turn: every group a turn started (one per batch between the agent's words)
-  // joins the line of its first, which keeps its place; the others draw none (Leo, 2026-11-22: fifteen
-  // "started working" lines filled the screen). A background turn's groups keep a line of their own.
-  const turnOpeners = openerReads.read(rows).from;
-  const lineOf = new Map<number, Subagent[]>();
-  const firstOf = new Map<string, number>();
-  for (const index of groups) {
-    const row = rows[index]!;
-    if (isRunGroup(row)) continue;
-    const key = `${openerBefore(turnOpeners, index)}\u0000${row.inBackground ?? ""}`;
-    const first = firstOf.get(key);
-    if (first === undefined) {
-      firstOf.set(key, index);
-      lineOf.set(index, [...(row.subagents ?? [])]);
-    } else lineOf.get(first)!.push(...(row.subagents ?? []));
-  }
-  for (const index of groups)
-    if (!isRunGroup(rows[index]!)) {
-      const agents = lineOf.get(index);
-      changed.set(index, () => [
-        ...(agents ? startedLine(rows[index]!, agents, cache, made, workflowCards) : NO_ROWS),
-        ...(cards.get(index) ?? NO_ROWS),
-      ]);
-    }
   reportPass.items.forEach((origin, at) => {
     const agent = reported.get(origin);
     if (agent) {

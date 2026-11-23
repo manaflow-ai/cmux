@@ -58,6 +58,7 @@ export function SubagentStartedLine({ row }: { row: AcpmuxRow }) {
       taggedNames.push(
         // tooltip-allow: the count stands for subagents the line does not name; its card names them
         <Tooltip key="more" label={restNames.join("\n")} side="top">
+          {/* oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- the count's card of names is keyboard-focusable without an action */}
           <span className="cv-subagent-started__more" tabIndex={0} data-testid="subagent-started-more">
             {part.value}
           </span>
