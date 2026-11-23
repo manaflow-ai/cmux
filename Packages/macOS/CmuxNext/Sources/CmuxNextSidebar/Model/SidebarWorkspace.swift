@@ -85,6 +85,10 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     /// An agent turn runs in one of the workspace's tabs (daemon agent
     /// state): the row's working indicator.
     public var agentWorking: Bool
+    /// An agent chat here finished a turn nobody has seen yet (its lane is idle and unread, and the Priority view has
+    /// not marked it read: `AgentPriorityRanking`'s done). The `experiments.agentBadges` Done pill; `agentChip` never
+    /// says done (the row's blue dot does).
+    public var agentDone = false
     /// The Priority view's chip for the workspace's most urgent agent chat on this Mac
     /// (`sidebar.rowStatus`): needs you, done, failed or lost. Nil when every chat works or is idle.
     public var agentChip: SidebarPriorityEntry.State?

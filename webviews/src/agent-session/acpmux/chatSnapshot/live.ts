@@ -11,6 +11,7 @@ import {
   type SnapshotLive,
 } from "./shared";
 import { watchLaunchSettle } from "../launchSettle";
+import { LIVE_THINKING } from "../conversation/turns";
 
 type Shown = { at: number; swappedAt?: number };
 
@@ -64,6 +65,14 @@ export function chatSnapshotShowsDraft(): boolean {
     composer.querySelector(".acpmux-attachment, .acpmux-attachments, .acpmux-md-inline-chip") !== null;
   copyDraft = { host, shows };
   return shows;
+}
+
+/// Whether the copy on screen shows a turn still running: its live line (turns.ts LIVE_THINKING),
+/// which a kept tail cannot draw, since it keeps rows and not the turn's state.
+export function copyShowsRunningTurn(): boolean {
+  if (!showsChatSnapshot()) return false;
+  const root = document.querySelector(SNAPSHOT_HOST_TAG)?.shadowRoot;
+  return !!root?.querySelector(`[data-row-id="${LIVE_THINKING}"]`);
 }
 
 /// When the snapshot drew and when the live page took over, in `performance.now()` time (layoutWatch.ts).
