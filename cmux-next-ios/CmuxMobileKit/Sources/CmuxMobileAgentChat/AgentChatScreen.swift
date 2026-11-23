@@ -484,7 +484,10 @@ public struct AgentChatScreen: View {
         switch store.summary.status {
         case .running: .cmuxMobileWarning
         case .waiting: .cmuxMobileWarning
-        case .disconnected, .closed: Color(uiColor: .tertiaryLabel)
+        // A dropped link dims the dot only once the outage outlasted the quiet bound
+        // (``AgentChatStore/quietStatus``); a reconnect inside it shows nothing.
+        case .disconnected: store.quietStatus.isShown ? Color(uiColor: .tertiaryLabel) : .cmuxMobileSuccess
+        case .closed: Color(uiColor: .tertiaryLabel)
         default: .cmuxMobileSuccess
         }
     }
@@ -1275,9 +1278,7 @@ extension SentAttachments {
         let size = fill(image.size, side: side)
         let crop = crop(size, side: side)
         let scaled = image.preparingThumbnail(of: size)
-        // Always drawn into a plain 8-bit bitmap, cropped or not: a prepared thumbnail returned
-        // as it is keeps its decoder's storage (a photo's is not a plain bitmap on a device),
-        // and a card's still picture must be able to draw it.
+        guard crop.width < size.width - 0.5 || crop.height < size.height - 0.5 else { return scaled ?? image }
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
         format.opaque = false
@@ -1318,6 +1319,18 @@ struct RetryModelChoice {
 
     /// The Mac's title (`turn.retryWith`).
     static let title = "Retry with another model"
+    static let systemImage = "arrow.triangle.2.circlepath"
+
+    /// The menu in a row: the live `Menu`, or in a still (`chatStill`) its label as a plain
+    /// button, which takes the same button and label styles (a `Menu` draws as `ImageRenderer`'s
+    /// yellow placeholder).
+    @ViewBuilder func control(still: Bool) -> some View {
+        if still {
+            Button {} label: { Label(Self.title, systemImage: Self.systemImage) }
+        } else {
+            menu
+        }
+    }
 
     var menu: some View {
         Menu {
@@ -1333,7 +1346,7 @@ struct RetryModelChoice {
                 }
             }
         } label: {
-            Label(Self.title, systemImage: "arrow.triangle.2.circlepath")
+            Label(Self.title, systemImage: Self.systemImage)
         }
         .accessibilityIdentifier("chat.retryWithModel")
     }
@@ -1351,7 +1364,7 @@ struct AnswerActionRow: View {
     var polish: ChatPolishMenuButtons?
     let retry: () -> Void
     @State private var copied = false
-    @Environment(\.drawsStillPicture) private var still
+    @Environment(\.chatStill) private var still
 
     var body: some View {
         HStack(spacing: 0) {
@@ -1366,9 +1379,8 @@ struct AnswerActionRow: View {
             .sensoryFeedback(.impact(weight: .light, intensity: 0.7), trigger: copied) { _, new in
                 new && CmuxMobileTheme.standard.haptics.isEnabled
             }
-            // A still picture (a tab card) draws Share and More as their glyphs: their system
-            // controls are UIKit-backed, which a picture draws as the cannot-draw mark.
             if still {
+                // Share and More are UIKit controls, a placeholder in a still: their glyphs alone.
                 IconActionLabel("square.and.arrow.up")
             } else {
                 ShareLink(item: turn.answerMarkdown) {
@@ -1382,17 +1394,7 @@ struct AnswerActionRow: View {
             if still {
                 IconActionLabel("ellipsis")
             } else {
-                Menu {
-                    Section(AgentTurn.menuTimestamp(turn.endedAt ?? turn.promptAt)) {
-                        Button("Copy as Markdown", systemImage: "text.document") { UIPasteboard.general.string = turn.answerMarkdown }
-                        Button("Retry", systemImage: "arrow.clockwise", action: retry)
-                        retryWith?.menu
-                        polish
-                    }
-                } label: {
-                    IconActionLabel("ellipsis")
-                }
-                .accessibilityLabel("More")
+                moreMenu
             }
             Spacer()
             if let duration = ToolWording().shown(turn.duration) {
@@ -1407,6 +1409,20 @@ struct AnswerActionRow: View {
         .padding(.vertical, insetsTargets ? -6 : 0)
         .padding(.top, insetsTargets ? 2 : 0)
         .padding(.leading, -14)
+    }
+
+    private var moreMenu: some View {
+        Menu {
+            Section(AgentTurn.menuTimestamp(turn.endedAt ?? turn.promptAt)) {
+                Button("Copy as Markdown", systemImage: "text.document") { UIPasteboard.general.string = turn.answerMarkdown }
+                Button("Retry", systemImage: "arrow.clockwise", action: retry)
+                retryWith?.menu
+                polish
+            }
+        } label: {
+            IconActionLabel("ellipsis")
+        }
+        .accessibilityLabel("More")
     }
 }
 

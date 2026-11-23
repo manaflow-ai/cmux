@@ -32,8 +32,12 @@ export function classifyCoderouterFault(outcome: CoderouterOutcome): CoderouterF
   if (status < 400) return "none";
   if (outcome.outcome === "client_cancelled") return "caller";
   // A team with no account configured at all gets a terminal 4xx so clients
-  // stop retrying; it is still the tenant's state to fix.
-  if (outcome.outcome === "no_usable_account" && outcome.failureStage === "provider_config") return "tenant";
+  // stop retrying; it is still the tenant's state to fix. So does a team
+  // that used up the included usage of the fallback account (usage_cap).
+  if (
+    outcome.outcome === "no_usable_account" &&
+    (outcome.failureStage === "provider_config" || outcome.failureStage === "usage_cap")
+  ) return "tenant";
   if (outcome.outcome === "unauthorized" || (status < 500 && status !== 429)) return "caller";
   switch (outcome.outcome) {
     case "route_crash":

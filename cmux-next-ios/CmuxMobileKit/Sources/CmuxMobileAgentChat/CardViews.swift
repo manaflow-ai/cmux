@@ -210,8 +210,8 @@ public struct QuestionCard: View {
     @State private var state: AgentQuestionCardState
     @State private var forward = true
     @FocusState private var otherFocused: Bool
-    @Environment(\.drawsStillPicture) private var still
     @State private var submitted = 0
+    @Environment(\.chatStill) private var still
     #if DEBUG
     private let director = DemoDirector.shared
     #endif
@@ -357,9 +357,10 @@ public struct QuestionCard: View {
         let editing = state.editingOther || !(state.otherDrafts[item.id] ?? "").isEmpty
         return Group {
             if editing, still {
-                // A still picture draws a text field as the system's cannot-draw mark: the draft as text.
-                Text(state.otherDrafts[item.id].flatMap { $0.isEmpty ? nil : $0 } ?? "Other…")
-                    .foregroundStyle((state.otherDrafts[item.id] ?? "").isEmpty ? .secondary : .primary)
+                // A text field is a UIKit control, a placeholder in a still: the draft as text.
+                let draft = state.otherDrafts[item.id] ?? ""
+                Text(draft.isEmpty ? "Other…" : draft)
+                    .foregroundStyle(draft.isEmpty ? .secondary : .primary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 12)
@@ -494,7 +495,7 @@ struct FailureCard: View {
     /// (the Mac's error card, `errorRecovery.ts`). Both are acpmux's turn retry.
     var leadsWithContinue = false
     let retry: () -> Void
-    @Environment(\.drawsStillPicture) private var still
+    @Environment(\.chatStill) private var still
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -504,13 +505,8 @@ struct FailureCard: View {
             if let detail {
                 DisclosureGroup("Details") {
                     // Range-selectable (CMUX-33): `.textSelection` grabbed the whole detail.
-                    if still {
-                        Text(detail).font(.caption.monospaced()).foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    } else {
-                        SelectableTextView(detail, textStyle: .caption1, monospaced: true, scrolls: false, textColor: .secondaryLabel)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
+                    SelectableTextView(detail, textStyle: .caption1, monospaced: true, scrolls: false, textColor: .secondaryLabel)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .font(.footnote)
                 .tint(.secondary)
@@ -520,13 +516,8 @@ struct FailureCard: View {
                     .buttonStyle(CmuxMobileCapsuleButtonStyle(.primary, size: .large))
                     .disabled(!canRetry)
                     .accessibilityIdentifier("agentChat.failure.lead")
-                if let retryWith, still {
-                    // A menu is UIKit-backed: a still picture shows its label as a button.
-                    Button {} label: { Label(RetryModelChoice.title, systemImage: "arrow.triangle.2.circlepath") }
-                        .labelStyle(.iconOnly)
-                        .buttonStyle(CmuxMobileCapsuleButtonStyle(.secondary, size: .large))
-                } else if let retryWith {
-                    retryWith.menu
+                if let retryWith {
+                    retryWith.control(still: still)
                         .labelStyle(.iconOnly)
                         .buttonStyle(CmuxMobileCapsuleButtonStyle(.secondary, size: .large))
                         .accessibilityLabel(RetryModelChoice.title)

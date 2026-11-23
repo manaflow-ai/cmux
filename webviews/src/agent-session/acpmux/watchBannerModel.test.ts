@@ -1,7 +1,7 @@
 // A watched Claude or Codex desktop session acpmux delivers into takes a reply where it runs; every other
 // watched chat is taken over by a reply, as before.
 import { describe, expect, test } from "bun:test";
-import { bridgeGone, bridgedWatch } from "./watchBannerModel";
+import { bridgeGone, bridgedWatch, terminalWatch } from "./watchBannerModel";
 
 describe("bridgedWatch", () => {
   test("a watched Claude chat the desktop bridge listed", () => {
@@ -19,6 +19,20 @@ describe("bridgedWatch", () => {
     expect(bridgedWatch({ watching: "codex", tags: { bridge: "claude" } })).toBe(false);
     expect(bridgedWatch({ watching: null, tags: { bridge: "claude" } })).toBe(false);
     expect(bridgedWatch(undefined)).toBe(false);
+  });
+});
+
+describe("terminalWatch", () => {
+  test("a chat handed to a cmux terminal is a live view of it, not View Only", () => {
+    expect(terminalWatch({ watching: "claude", tags: { bridge: "claude", via: "terminal" } })).toBe(true);
+    expect(terminalWatch({ watching: "codex", tags: { bridge: "codex", via: "terminal" } })).toBe(true);
+  });
+
+  test("a desktop bridge chat, a stale tag or no watch is not", () => {
+    expect(terminalWatch({ watching: "claude", tags: { bridge: "claude", origin: "cli" } })).toBe(false);
+    expect(terminalWatch({ watching: "claude", tags: { via: "terminal" } })).toBe(false);
+    expect(terminalWatch({ watching: null, tags: { bridge: "claude", via: "terminal" } })).toBe(false);
+    expect(terminalWatch(undefined)).toBe(false);
   });
 });
 
