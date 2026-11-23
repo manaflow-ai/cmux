@@ -1,7 +1,8 @@
 //! `acpmux acpmux-mcp`: the `acpmux` MCP stdio server every local agent session gets
 //! (`agent_tools.rs`), the same on every harness: message another session (a lane, a
-//! coordinator, a chat on a peer) and read the sessions, instead of piping text into `acpmux
-//! send` in a shell, which a chat draws as a command block. Behind the `cmux` server its tools
+//! coordinator, a chat on a peer) and read the sessions, instead of piping text into a shell,
+//! which a chat draws as a command block. The public CLI front door is `cmux agent`; the acpmux
+//! engine and its aliases remain available. Behind the `cmux` server its tools
 //! are `acpmux_send`, `acpmux_ls`, `acpmux_last`, `acpmux_info`, `acpmux_search` (a
 //! session's messages holding some words, `session_search.rs`) and the team mailbox tools
 //! (`team_send`, `team_inbox`, `team_ack`). It also runs the chat's
@@ -18,8 +19,9 @@
 //! the session's caller token from this server's env (`hub/person.rs` (a)), on this daemon's
 //! socket only. So it can do nothing that CLI cannot, and the daemon records a message it sends
 //! as that session's (`session_message`, `prompt_provenance.rs`), never as the person's words.
-//! `pr_state` alone is not a daemon request: it runs the agent's own `gh` (one `gh pr view`),
-//! with this server's environment, which the agent gave it.
+//! `pr_state` and `pr_wait` read through the daemon's one GitHub poller for the machine
+//! (`pr_poller.rs`); `pr_state` falls back to the agent's own `gh` (one `gh pr view`), with this
+//! server's environment, which the agent gave it, when the daemon cannot answer.
 //! A remote-origin session gets no tools at all (`agent_tools::left_out`). An app outside
 //! acpmux (Claude desktop, Claude Code, Codex) linked with `acpmux desktop link` runs it in guest
 //! mode (`acpmux_mcp_guest.rs`): the tools that need no session, plus `machines` and `new`.
@@ -43,17 +45,15 @@ const STATUS_WAIT: Duration = Duration::from_secs(5);
 /// What every chat with this server is told about background work: the Codex steer (its
 /// unified exec background terminals end when the agent hibernates, and only the whole feature
 /// can be turned off), and Claude Code's, behind the PreToolUse hook (`bg_hook.rs`).
-const BG_STEER: &str = "Long-running commands (a dev server, a watcher, a long build or test \
-run): start them with bg_start, not as a background shell or terminal of your own. This chat's \
-agent hibernates after 2 idle minutes and its own background shells end with it; a bg_start task \
-keeps running, and bg_list and bg_output read it later by its id.";
+const BG_STEER: &str = "Start long-running commands (dev servers, watchers, long builds or tests) \
+with bg_start, not a background shell of your own, which ends when this chat's agent hibernates \
+after 2 idle minutes; bg_output reads it later.";
 /// How every chat with the background tools is asked to pace its work: the reads and searches a
 /// task already needs go out as one batch, and a bg_start task runs while the agent goes on.
 /// Some chats did read early and concurrently and others went one call at a time on the same
 /// model (Leo, 2026-11-04); the harness prompts allow both, so cmux says which it wants.
-const PARALLEL_STEER: &str = "Work in parallel: at the start of a task, read the files and run \
-the searches you already know you need as one batch of independent tool calls, not one after \
-another, and while a bg_start task runs, go on with the parts that do not need its result.";
+const PARALLEL_STEER: &str = "Run the reads and searches you already know you need as one batch \
+of independent tool calls, and keep working while a bg_start task runs.";
 /// Most replies `last` returns.
 const MAX_LAST: u64 = 20;
 /// How many sessions `ls` lists unless asked for another `limit`, and the most it lists: a fleet
@@ -68,7 +68,9 @@ const LS_FIELDS: &[&str] =
 #[path = "acpmux_mcp_artifacts.rs"]
 pub(crate) mod artifacts;
 #[path = "acpmux_mcp_bg.rs"]
-mod bg;
+pub(crate) mod bg;
+#[path = "acpmux_mcp_bg_list.rs"]
+mod bg_list;
 #[path = "acpmux_mcp_bridge.rs"]
 pub(crate) mod bridge;
 #[path = "acpmux_mcp_goal.rs"]
@@ -76,7 +78,13 @@ mod goal;
 #[path = "acpmux_mcp_guest.rs"]
 mod guest;
 #[path = "acpmux_mcp_pr.rs"]
+<<<<<<< ours
 pub(crate) mod pr;
+=======
+mod pr;
+/// `pr_state`'s parse of a pull request, which the daemon's poller reads too (`pr_poller.rs`).
+pub(crate) use pr::pr_state;
+>>>>>>> theirs
 #[path = "acpmux_mcp_send.rs"]
 mod send;
 #[path = "acpmux_mcp_send_status.rs"]
@@ -90,11 +98,12 @@ mod wrap_up;
 /// The most facts a wrap-up offers, and the longest one (`memory_inbox.rs`).
 pub(crate) use wrap_up::{MAX_FACT as WRAP_UP_MAX_FACT, MAX_LEARNED as WRAP_UP_MAX_LEARNED};
 
-fn tools() -> Value {
+pub(crate) fn tools() -> Value {
     let mut all = base_tools();
     if let Some(list) = all.as_array_mut() {
         list.extend(bg::tools());
         list.push(pr::tool());
+        list.push(pr::wait_tool());
         list.push(wrap_up::tool());
         list.push(who_else::tool());
         list.extend(goal::tools());
@@ -213,7 +222,7 @@ fn base_tools() -> Value {
         },
         {
             "name": "search",
-            "description": "Find a session's messages (prompts, replies, tool titles) holding every word of a query, newest first, from acpmux's index of its log: use it instead of grepping a transcript. Your own session unless name says another; role assistant finds what you yourself wrote earlier.",
+            "description": "Find a session's messages (prompts, replies, tool titles) holding every word of a query, newest first, from the acpmux engine's index of its log: use it instead of grepping a transcript. For every authorized session on this host and its peers, use the `cmux agent search` front door. This MCP tool searches your own session unless name says another; role assistant finds what you yourself wrote earlier.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -273,6 +282,13 @@ fn instructions(tools: &Value) -> Option<String> {
     (!parts.is_empty()).then(|| parts.join(" "))
 }
 
+/// The instructions [`served`] gives with the env [`crate::tool_env`] reads: its tool allowlist
+/// decides them (the artifact tools add none), so they are known without the server.
+pub(crate) fn env_instructions() -> Option<String> {
+    let allow = crate::tool_env::var(crate::agent_tools::MCP_TOOLS_ENV);
+    instructions(&allowed(tools_with_artifacts(false), allow.as_deref()))
+}
+
 /// Runs the server on stdin and stdout.
 pub async fn run() -> Result<()> {
     // Read once: a sign-in or `artifacts.enabled` change reaches the next chat's server.
@@ -298,7 +314,7 @@ fn served_with(
     daemon: &Arc<crate::tools_mcp::Daemon>,
     artifacts: Option<Arc<artifacts::Artifacts>>,
 ) -> Result<crate::tools_mcp::Served> {
-    let allow = std::env::var(crate::agent_tools::MCP_TOOLS_ENV).ok();
+    let allow = crate::tool_env::var(crate::agent_tools::MCP_TOOLS_ENV);
     let tools = allowed(tools_with_artifacts(artifacts.is_some()), allow.as_deref());
     // Under an allowlist, a call outside it is refused like an unknown tool.
     let names: Option<Arc<Vec<String>>> = allow
@@ -361,6 +377,9 @@ fn served_with(
                 }
                 if name == pr::NAME {
                     return pr::call(&daemon, &session, &args).await;
+                }
+                if name == pr::WAIT_NAME {
+                    return pr::wait(&daemon, &session, &args).await;
                 }
                 if name == wrap_up::NAME {
                     return wrap_up::call(&args);
@@ -649,8 +668,9 @@ pub(crate) async fn ls_via(
     match listed {
         Ok(mut all) => {
             // The other machines' sessions a host with no peer to them lists through its send
-            // relay (`cli/send_relay.rs` lsArgv), as `acpmux ls` does.
-            let far = crate::cli::send_relay::relay_rows(true).await;
+            // relay (`cli/send_relay.rs` lsArgv), as `acpmux ls` does: by the far budget, else
+            // the last good listing's rows, marked stale (`cli/ls_far.rs`).
+            let far = crate::cli::ls_far::relay_rows().await;
             if !far.is_empty()
                 && let Some(rows) = all.get_mut("sessions").and_then(Value::as_array_mut)
             {

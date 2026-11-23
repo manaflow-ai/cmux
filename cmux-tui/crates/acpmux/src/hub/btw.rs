@@ -379,6 +379,7 @@ impl Hub {
                     harness: Some(target_harness.clone().unwrap_or_else(|| meta.harness.clone())),
                     preset: if target_harness.is_some() { None } else { meta.preset.clone() },
                     name: Some(name.clone()),
+                    suffix_taken_name: false,
                     cwd: Some(meta.cwd.clone()),
                     policy: Some(side_policy(self.btw_chat_policy(session).await, inline)),
                     model: model.clone(),
@@ -386,7 +387,8 @@ impl Hub {
                     adopt: None,
                     remote: meta.remote_origin,
                     vm_boundary: meta.vm_boundary,
-                    env: Default::default(),
+                    // The answer of the Mac that started its chat (`cmux_tools_answer.rs`).
+                    env: super::cmux_tools_answer::inherited(Default::default(), &meta.session_env),
                     // The side chat works in its chat's workspace (agent_displays.rs).
                     workspace_id: meta.workspace_id.clone(),
                     // Never the start mode (it may be full access): read-only is set below.
@@ -402,6 +404,9 @@ impl Hub {
                     additional_directories: meta.additional_directories.clone(),
                     // A side chat answers and stops: never its chat's stop condition.
                     stop_condition: None,
+                    // A restricted chat's side chat runs restricted too (`restricted.rs`):
+                    // the same folder's config stays off.
+                    restricted: meta.restricted,
                     // The person's side chat, as its chat is.
                     person: session.person.load(Ordering::SeqCst),
                     wait_start: false,

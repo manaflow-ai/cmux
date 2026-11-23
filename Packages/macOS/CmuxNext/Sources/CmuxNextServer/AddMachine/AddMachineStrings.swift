@@ -4,7 +4,7 @@ import Foundation
 /// The Add Machine card reads the same table from the server-cards page (webviews gen-strings).
 nonisolated enum AddMachineStrings {
     private static func s(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, table: "AddMachine", bundle: .module)
+        String(localized: key, defaultValue: value, table: "AddMachine", bundle: .localizedModule)
     }
 
     static var peerConnectFailed: String { s("addMachine.peerConnectFailed", "The app could not connect to it over ssh.") }

@@ -202,14 +202,19 @@ struct CloudGitHubReposTests {
         #expect(completion.error == nil)
         // Another build's scheme, another path, no signed state: not a completion.
         #expect(CloudGitHubCompletion(url: url, scheme: "cmux") == nil)
-        #expect(CloudGitHubCompletion(url: try #require(URL(string: "cmux-dev-x://integration/other?state=\(state)")), scheme: "cmux-dev-x") == nil)
-        #expect(CloudGitHubCompletion(url: try #require(URL(string: "cmux-dev-x://integration/complete?code=abc")), scheme: "cmux-dev-x") == nil)
+        let otherPath = try #require(URL(string: "cmux-dev-x://integration/other?state=\(state)"))
+        let noState = try #require(URL(string: "cmux-dev-x://integration/complete?code=abc"))
+        #expect(CloudGitHubCompletion(url: otherPath, scheme: "cmux-dev-x") == nil)
+        #expect(CloudGitHubCompletion(url: noState, scheme: "cmux-dev-x") == nil)
         // A cancel on GitHub carries its error; an installation id that is not a number is not sent.
-        let cancelled = try #require(CloudGitHubCompletion(url: try #require(URL(string: "\(link)?state=\(state)&error=access_denied&installation_id=1;x")), scheme: "cmux-dev-x"))
+        let cancelURL = try #require(URL(string: "\(link)?state=\(state)&error=access_denied&installation_id=1;x"))
+        let cancelled = try #require(CloudGitHubCompletion(url: cancelURL, scheme: "cmux-dev-x"))
         #expect(cancelled.error == "access_denied")
         #expect(cancelled.params == ["state": state])
         // A state whose team claim is not a team id routes nowhere.
-        #expect(try #require(CloudGitHubCompletion(url: try #require(URL(string: "\(link)?state=a.b.c")), scheme: "cmux-dev-x")).team == nil)
+        let opaqueURL = try #require(URL(string: "\(link)?state=a.b.c"))
+        let opaque = try #require(CloudGitHubCompletion(url: opaqueURL, scheme: "cmux-dev-x"))
+        #expect(opaque.team == nil)
     }
 
     @Test func aCompletionIsConnectedOnlyWhenTheAPISaysOk() {
@@ -218,6 +223,32 @@ struct CloudGitHubReposTests {
         #expect(CloudOwnerAPIClient.completion(status: 403, body: Self.body("{}")) == .refused)
         #expect(CloudOwnerAPIClient.completion(status: 503, body: Data()) == .noAnswer)
         #expect(CloudOwnerAPIClient.completion(status: 429, body: Data()) == .noAnswer)
+    }
+
+    @Test func aRefusedCompletionKeepsTheAPIsReasonUnlessItIsTheExpiredState() {
+        #expect(CloudOwnerAPIClient.refusalReason(body: Self.body(#"{"error":{"code":"integration.state_invalid","message":"state expired"}}"#)) == nil)
+        #expect(CloudOwnerAPIClient.refusalReason(body: Self.body(#"{"error":{"code":"integration.forbidden","message":" Only an owner of acme can connect GitHub. "}}"#))
+                == "Only an owner of acme can connect GitHub.")
+        #expect(CloudOwnerAPIClient.refusalReason(body: Self.body(#"{"error":{"code":"integration.forbidden"}}"#)) == nil)
+        #expect(CloudOwnerAPIClient.refusalReason(body: Self.body("not json")) == nil)
+    }
+
+    @MainActor @Test func theLastAnswerStaysOnTheChangesUntilTheNextOneOrANewConnect() {
+        let changes = CloudGitHubChanges()
+        changes.record(.refused, reason: nil)
+        #expect(changes.refusal == CloudGitHubChanges.Refusal(reason: nil))
+        #expect(changes.count == 1)
+        changes.record(.refused, reason: "Only an owner can connect.")
+        #expect(changes.refusal?.reason == "Only an owner can connect.")
+        changes.forgetRefusal()
+        #expect(changes.refusal == nil)
+        changes.record(.refused, reason: nil)
+        changes.record(.connected, reason: nil)
+        #expect(changes.refusal == nil, "a connection clears the last refusal")
+        changes.record(.refused, reason: nil)
+        changes.record(.noAnswer, reason: nil)
+        #expect(changes.refusal == nil, "a lost answer proves nothing, and the person is told nothing wrong")
+        #expect(changes.count == 6)
     }
 
     static let statePayload = "eyJ0ZWFtIjoidGVhbV8wMTIzNDU2Nzg5YWJjZGVmMDEyMyIsInJldCI6ImNtdXgtZGV2LXg6Ly9pbnRlZ3JhdGlvbi9jb21wbGV0ZSJ9"

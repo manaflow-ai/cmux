@@ -597,7 +597,7 @@ async fn a_machine_credential_is_refreshed_to_ten_minutes_left() {
 /// A `chatgpt-plan` route this acpmux home holds no sign-in for (the route folder is shared by every
 /// cmux on the Mac; another build, or the retired token-sharing client, wrote it): the row reads
 /// signed out, and its Sign In signs in on that same route instead of failing `not_found` (cmux#45774).
-#[test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn signing_in_again_on_a_route_with_no_sign_in_here_takes_that_route() {
     let s = setup().await;
     let dir = s.places.routes.as_deref();

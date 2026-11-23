@@ -10,8 +10,11 @@ import { JSDOM } from "jsdom";
 import { CloudStartView } from "./CloudStartView";
 import { currentCloudPlan, readCloudPlanFresh, refreshCloudMachines, setCloudPlanForTest } from "./cloudMachines";
 import {
+  CLOUD_PLAN_IDS,
+  CLOUD_PLANS,
   cloudPlanFromReply,
   cloudPlanHoldsSend,
+  cloudPlanMachineWords,
   cloudPlansNamed,
   cloudSizeLocked,
   type CloudPlanView,
@@ -146,6 +149,7 @@ test("a send held for want of a plan and the platform's refusal both show the pr
   for (const start of [held, refused!]) {
     const html = renderToStaticMarkup(<CloudStartView start={start} onRunHere={() => undefined} />);
     expect(html).toContain('data-plans="true"');
+    expect(html).toContain('data-plan="next_plus"');
     expect(html).toContain('data-plan="next_pro"');
     expect(html).toContain('data-plan="next_max"');
     expect(html).not.toContain('data-plan="pro"');
@@ -175,6 +179,27 @@ test("the pricing card offers the plans a refusal names: cmux NEXT's own by defa
     details: { plans: ["next_pro", "next_max"] },
   });
   expect(next?.plans).toEqual(["next_pro", "next_max"]);
+  // A server from before cmux NEXT Plus names two plans: the card shows those two, cmux NEXT Pro leading.
+  const two = renderToStaticMarkup(<CloudStartView start={next!} onRunHere={() => undefined} />);
+  expect(two).not.toContain("next_plus");
+  expect(two).toMatch(/data-action="subscribe" data-plan="next_pro"[^>]*data-role="default"/);
+  // The platform's offer with cmux NEXT Plus, in its order.
+  expect(cloudPlansNamed({ plans: ["next_plus", "next_pro", "next_max"] })).toEqual([
+    "next_plus",
+    "next_pro",
+    "next_max",
+  ]);
+  expect(CLOUD_PLAN_IDS).toEqual(["next_plus", "next_pro", "next_max"]);
+  expect(CLOUD_PLANS.next_plus).toEqual({ name: "cmux NEXT Plus", price: "$20", cpu: 4, memory: 16 });
+  expect(cloudPlanMachineWords("next_plus")).toBe("4 vCPU and 16 GB memory");
+  expect(cloudPlanMachineWords("next_pro")).toBe("8 vCPU and 32 GB memory");
+  expect(cloudPlanMachineWords("pro")).toBe("8 vCPU and 16 GB memory");
+  // A size refusal on cmux NEXT Plus names cmux NEXT Pro.
+  expect(cloudSizeLocked({ needed: "lg", allowed: "md", upgrade_plan: "next_pro" })).toEqual({
+    needed: "lg",
+    allowed: "md",
+    upgradePlan: "next_pro",
+  });
   // Unknown or no plans: the card's own offer.
   expect(cloudPlansNamed({ plans: ["ultra", 1] })).toBeUndefined();
   expect(cloudPlansNamed({ plans: ["next_max", "next_max", "ultra"] })).toEqual(["next_max"]);

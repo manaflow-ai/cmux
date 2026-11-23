@@ -1,6 +1,6 @@
 ---
 name: cmux-quota
-description: "Wait without wasting quota or the machine: wait for CI or a pull request with one shared waiter instead of a polling loop, handle a GitHub rate limit by its reset, give every wait a deadline, and clean up only what you made (your own processes, regenerable caches, your own worktrees). Use when you would wait for CI or checks, poll GitHub, retry after a rate limit, run a long wait, free disk space, or stop processes."
+description: "Wait without wasting quota or the machine: wait for CI, a pull request or a workflow run with one shared waiter instead of a polling loop, handle a GitHub rate limit by its reset, give every wait a deadline, and clean up only what you made (your own processes, regenerable caches, your own worktrees). Use when you would wait for CI or checks, poll GitHub, retry after a rate limit, run a long wait, free disk space, or stop processes."
 ---
 
 # Waiting and cleaning up without waste
@@ -26,7 +26,12 @@ acpmux pr-wait 1234 --repo OWNER/REPO --sha "$(git rev-parse HEAD)" --timeout 36
 - Exit 0 green (or merged), 1 a failing check (or closed), 3 timed out, 4 the head moved
   off `--sha` (someone pushed: wait on the new head). `--until merged` waits for a merge.
 - `--sha` is the commit you pushed, so an old head's green never counts as yours.
+- One workflow run (not a pull request): `acpmux ci wait run RUN_ID --timeout 1800`. Its
+  reads are conditional and cached for every waiter on the machine, so a read where nothing
+  changed is a `304 Not Modified`, which GitHub does not count. Exit 0 green, 1 red, 3 timed out.
 - Waiting on another agent's turn: `acpmux wait SESSION --timeout N`.
+- Without acpmux (a plain shell), do the same by hand: one read, then `gh run watch RUN
+  --interval 60` at most once, in the background, under `timeout`.
 
 Never write these; each spends a call every few seconds for as long as it runs:
 
@@ -100,3 +105,24 @@ Never delete:
 
 A worktree you made goes when its work is merged or pushed and nothing runs in it:
 `git worktree remove PATH` (never `--force` over changes you have not looked at).
+
+Let acpmux judge the rest. It keeps any worktree a session or a process still uses, archives
+work that lives only in a worktree into git before removing it, and can put any back:
+
+```bash
+acpmux worktree clean --dry-run    # what a cleanup would do, and why
+acpmux worktree clean              # archive and remove idle worktrees, trim build output
+acpmux worktree restore BRANCH     # put one back
+```
+
+Reuse instead of copying: one build-output folder per repository (Cargo's `CARGO_TARGET_DIR`,
+a shared package cache), a sparse or shallow checkout when you need a few folders, `git
+worktree add` instead of a fresh clone.
+
+## CPU and long commands
+
+- Build and test only what changed (`cargo test -p CRATE NAME`, one test file), not the whole
+  workspace, and not twice for the same tree.
+- Scope searches to your checkout or one folder: never `find ~` or `rg /`.
+- A watcher, dev server or poller you start in the background gets a stop condition and is
+  stopped when you are done.

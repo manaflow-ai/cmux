@@ -3,7 +3,12 @@
   "entries": [
     {
       "path": "Contents/MacOS/cmux",
-      "what": "the app: Swift packages (CmuxNextIcons carries Chromium's vector icons, design/icons/chromium), GhosttyNextKit (static, Zig; its Termio inlines std.math.cbrt, ported from musl), Sparkle client. No Rust: CCmuxAppFFI is Contents/Frameworks/libcmux_app_ffi.dylib, so no rust-std here; Rust that lands in this binary again fails the rustc scan until this entry asks for rust-std",
+      "what": "the first-party stub executable (App/main.swift) that calls into Contents/Frameworks/CmuxNextApp.framework, where the app's code is (Packages/macOS/CmuxNext/Package.swift, CMUX-629). A live code build links that code into this binary instead; it is not shipped",
+      "notices": ["first-party"]
+    },
+    {
+      "path": "Contents/Frameworks/CmuxNextApp.framework/*",
+      "what": "the app's code: Swift packages (CmuxNextIcons carries Chromium's vector icons, design/icons/chromium), GhosttyNextKit (static, Zig; its Termio inlines std.math.cbrt, ported from musl), Sparkle client. No Rust: CCmuxAppFFI is Contents/Frameworks/libcmux_app_ffi.dylib, so no rust-std here; Rust that lands in this binary again fails the rustc scan until this entry asks for rust-std",
       "notices": ["first-party", "section:manual-swift-package-dependencies", "section:manual-ghostty", "section:manual-sparkle", "zig-std", "section:manual-rust-and-zig-standard-libraries", "section:manual-musl-in-the-zig-standard-library", "section:manual-freetype", "section:manual-chromium-vector-icons-browser-chrome-icons"]
     },
     {
@@ -24,12 +29,12 @@
     {
       "path": "Contents/Frameworks/WebRTC.framework/*",
       "what": "libwebrtc M154 (stasel/WebRTC 154.0.0, Packages/Shared/CmuxVNCWebRTC) for Mac Screen streams (CmuxScreenKit); its BoringSSL, Opus, libvpx, libsrtp, Abseil, dav1d, libaom, libyuv, protobuf-lite and PFFFT notices are in Chromium 154's CREDITS.html",
-      "notices": ["section:manual-webrtc-mac-screen-streams", "file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/CREDITS.html"]
+      "notices": ["section:manual-webrtc-mac-screen-streams", "file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/CREDITS.html.gz"]
     },
     {
       "path": "Contents/Frameworks/Chromium Embedded Framework.framework/*",
       "what": "CEF and Chromium, including libcef_sandbox, SwiftShader and the Vulkan loader",
-      "notices": ["file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/CREDITS.html", "file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/LICENSE.txt"]
+      "notices": ["file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/CREDITS.html.gz", "file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/LICENSE.txt"]
     },
     {
       "path": "Contents/Frameworks/libcmux_app_ffi.dylib",
@@ -39,52 +44,42 @@
     {
       "path": "Contents/Frameworks/libcmux_cef_shim.dylib",
       "what": "first-party CEF shim (links CEF)",
-      "notices": ["first-party", "file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/CREDITS.html", "file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/LICENSE.txt"]
+      "notices": ["first-party", "file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/CREDITS.html.gz", "file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/LICENSE.txt"]
     },
     {
       "path": "Contents/Frameworks/cmux Helper*.app/Contents/MacOS/*",
       "what": "first-party CEF helper processes (link CEF)",
-      "notices": ["first-party", "file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/CREDITS.html", "file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/LICENSE.txt"]
+      "notices": ["first-party", "file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/CREDITS.html.gz", "file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/LICENSE.txt"]
     },
     {
       "path": "Contents/Helpers/cmux-remote-browser-host.app/Contents/MacOS/cmux-remote-browser-host",
       "what": "the remote browser host for the iPhone's browser tabs (cmux-tui/crates/cmux-remote-browser-host, its own Cargo workspace; the pinned prebuilt binary of remote-browser-host.pin.json, embed-remote-browser-host.sh): Rust, a first-party C++ shim and CEF's libcef_dll wrapper; it loads the app's CEF through the symlink Contents/Frameworks/Chromium Embedded Framework.framework",
-      "notices": ["first-party", "section:rust-cmux-remote-browser-host", "rust-std", "section:manual-rust-and-zig-standard-libraries", "file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/CREDITS.html", "file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/LICENSE.txt"]
+      "notices": ["first-party", "section:rust-cmux-remote-browser-host", "rust-std", "section:manual-rust-and-zig-standard-libraries", "file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/CREDITS.html.gz", "file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/LICENSE.txt"]
     },
     {
       "path": "Contents/Helpers/cmux-remote-browser-host.app/Contents/Frameworks/cmux-remote-browser-host Helper*.app/Contents/MacOS/*",
       "what": "the remote browser host's CEF helper processes (remote-browser-host-layout.sh): cmux-rb-host-helper from build-cef-shim.sh (first-party Objective-C++ and CEF's libcef_dll wrapper, no Rust; cmux#42201), or, when embed-remote-browser-host.sh could not build it, copies of the host binary, which then need the host's notices too (copy_of)",
       "copy_of": "Contents/Helpers/cmux-remote-browser-host.app/Contents/MacOS/cmux-remote-browser-host",
-      "notices": ["first-party", "file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/CREDITS.html", "file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/LICENSE.txt"]
+      "notices": ["first-party", "file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/CREDITS.html.gz", "file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/LICENSE.txt"]
     },
     {
       "path": "Contents/Library/cmux Remote (dev).app/Contents/MacOS/cmux-remote",
-      "what": "cmux Remote, the pinned team-signed host, Computer Use and Screen Sharing worker that Release builds embed (Packages/macOS/CmuxRemote and the Swift packages it uses; scripts/cmux-next/build-cmux-remote-dev.sh, cmux-remote-dev.pin.json). WebRTC and the Cua Driver SDK are the two dylibs beside it, not linked in",
+      "what": "cmux Remote, the pinned team-signed host, Computer Use and Screen Sharing worker that Release builds embed (Packages/macOS/CmuxRemote and the Swift packages it uses; scripts/cmux-next/build-cmux-remote-dev.sh, cmux-remote-dev.pin.json). WebRTC and the cmux Computer Use engine are the two dylibs beside it, not linked in",
       "notices": ["first-party", "section:manual-swift-package-dependencies", "file:Contents/Library/cmux Remote (dev).app/Contents/Resources/Licenses/README.txt"]
     },
     {
       "path": "Contents/Library/cmux Remote (dev).app/Contents/Frameworks/libWebRTC.dylib",
       "what": "the same libwebrtc M154 as Contents/Frameworks/WebRTC.framework (stasel/WebRTC 154.0.0), shipped in cmux Remote as a plain dylib (build-cmux-remote-dev.sh); its BoringSSL, Opus, libvpx, libsrtp, Abseil, dav1d, libaom, libyuv, protobuf-lite and PFFFT notices are in Chromium 154's CREDITS.html",
-      "notices": ["section:manual-webrtc-mac-screen-streams", "file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/CREDITS.html"]
+      "notices": ["section:manual-webrtc-mac-screen-streams", "file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/CREDITS.html.gz"]
     },
     {
-      "path": "Contents/Library/cmux Remote (dev).app/Contents/Frameworks/libcua_driver_sdk.dylib",
-      "what": "the pinned upstream Cua Driver SDK (trycua/cua cua-driver-rs-v0.38.0, MIT, Rust; cua-driver-sdk.pin.json); its license and third-party notices are in cmux Remote's Contents/Resources/Licenses (build-cmux-remote-dev.sh)",
-      "notices": ["section:manual-cmux-cua-engine", "file:Contents/Library/cmux Remote (dev).app/Contents/Resources/Licenses/README.txt", "rust-std", "section:manual-rust-and-zig-standard-libraries"]
+      "path": "Contents/Library/cmux Remote (dev).app/Contents/Frameworks/libcmux_computer_use.dylib",
+      "what": "the cmux Computer Use engine (cmux-tui/crates/cmux-computer-use-ffi over cmux-computer-use, both MIT, Rust, linked with the first-party cmux-process, GPL-3.0-or-later; build-cmux-remote-dev.sh); its crates are in the cmux-tui workspace that bin/cmux links (cmux-tui depends on cmux-computer-use), and its license is in cmux Remote's Contents/Resources/Licenses",
+      "notices": ["first-party", "section:rust-cmux-cli", "file:Contents/Library/cmux Remote (dev).app/Contents/Resources/Licenses/README.txt", "rust-std", "section:manual-rust-and-zig-standard-libraries"]
     },
     {
-      "path": "Contents/Library/cmux Computer Use.app/Contents/MacOS/cmux-cua",
-      "what": "the Computer Use helper that onboarding grants Accessibility and Screen Recording to (manaflow-ai/cmux-cua at the scripts/build-cmux-cua.sh pin)",
-      "notices": ["section:manual-cmux-cua-engine", "section:rust-cmux-cua", "rust-std", "section:manual-rust-and-zig-standard-libraries"]
-    },
-    {
-      "path": "Contents/Library/cmux Computer Use.app/Contents/MacOS/cmux-screen-sharing",
-      "what": "the screen sharing executable inside the Computer Use helper, so screen sharing and computer use ask for permissions as one app (plans/cmux-next/screen-sharing-helper.md, bundle-screen-sharing-helper.sh --into-computer-use): cmux-tui/crates/cmux-rd-host's cmux-rd with only the link feature, the same crates bin/cmux links in for `cmux rd serve`",
-      "notices": ["first-party", "section:rust-cmux-cli", "rust-std", "section:manual-rust-and-zig-standard-libraries"]
-    },
-    {
-      "path": "Contents/Library/* Screen Sharing.app/Contents/MacOS/cmux-screen-sharing",
-      "what": "the separate Screen Sharing helper a DEV build keeps (plans/cmux-next/screen-sharing-helper.md): cmux-tui/crates/cmux-rd-host's cmux-rd with only the link feature, the same crates bin/cmux links in for `cmux rd serve` (cmux-tui/crates/cmux-tui depends on cmux-rd-host with default-features = false, features = [\"link\"]); the name is per channel (\"cmux DEV x Screen Sharing.app\")",
+      "path": "Contents/Library/* Helper.app/Contents/MacOS/cmux-screen-sharing",
+      "what": "the Screen Sharing helper (plans/cmux-next/screen-sharing-helper.md): cmux-tui/crates/cmux-rd-host's cmux-rd with only the link feature, the same crates bin/cmux links in for `cmux rd serve` (cmux-tui/crates/cmux-tui depends on cmux-rd-host with default-features = false, features = [\"link\"]); the name is per channel (\"cmux NIGHTLY Helper.app\")",
       "notices": ["first-party", "section:rust-cmux-cli", "rust-std", "section:manual-rust-and-zig-standard-libraries"]
     },
     {

@@ -36,10 +36,11 @@ Object.assign(scope, replacements);
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { ComposerContext } = await import("../src/agent-session/acpmux/ComposerContext");
-const { createGitHubPicker, useGitHubPicker, githubFolderRepo } =
+const { createGitHubPicker, useGitHubPicker, githubFolderRepo, githubStatusFromReply } =
   await import("../src/agent-session/acpmux/githubRepos");
 const { cloudStartFolder, newTabProjectPick } = await import("../src/agent-session/acpmux/cloudRun");
 const { installPageKey } = await import("../src/agent-session/acpmux/pageKey");
+const { widestLines } = await import("../src/agent-session/acpmux/FolderPopover");
 const { useState } = await import("react");
 
 afterAll(async () => {
@@ -117,15 +118,24 @@ async function renderTray(props: Record<string, unknown>, store: ReturnType<type
 }
 
 const doc = () => dom.window.document;
+/// A listbox holds options and plain text only: no button, and no live region, inside it.
+const expectOnlyOptionsInListbox = () => {
+  for (const listbox of doc().querySelectorAll("[role=listbox]")) {
+    expect(listbox.querySelectorAll("button, [role=button], [role=alert], [role=status]").length).toBe(0);
+  }
+};
 const openFolderMenu = async () => {
   await act(async () => doc().querySelector<HTMLButtonElement>(".acpmux-location-button")!.click());
   await settle();
+  expect(doc().querySelector(".acpmux-folder-popover [role=listbox]")).not.toBeNull();
+  expectOnlyOptionsInListbox();
 };
 const option = (name: string) =>
   [...doc().querySelectorAll<HTMLElement>("[role=option]")].find((item) => item.textContent?.includes(name));
 const press = async (element: HTMLElement) => {
   await act(async () => element.click());
   await settle();
+  expectOnlyOptionsInListbox();
 };
 const face = () => doc().querySelector(".acpmux-location-button")?.textContent ?? "";
 const CONNECT = "Connect to GitHub";
@@ -146,9 +156,10 @@ test("not connected: one click on Connect to GitHub opens GitHub in place, waits
     expect(row).toBeDefined();
     expect(row!.querySelector("[data-github-unavailable]")).toBeNull();
     expect(detail(row)).toBeUndefined();
-    // It is the last row of the list, under the folders.
-    const rows = [...doc().querySelectorAll("[role=option]")].map((item) => item.textContent);
-    expect(rows.indexOf(row!.textContent)).toBeGreaterThan(rows.findIndex((text) => text?.includes("notes")));
+    // It is one of the fixed actions under the folders, outside their scrolling list, so a long list never hides it.
+    expect(row!.closest(".ui-combobox-pinned")).not.toBeNull();
+    expect(row!.closest(".ui-combobox-scroll")).toBeNull();
+    expect(option("notes")!.closest(".ui-combobox-scroll")).not.toBeNull();
     await press(row!);
     // One click connects: no second step in the menu.
     expect(gh.calls.at(-1)).toEqual(["github.connect", {}]);
@@ -173,6 +184,172 @@ test("not connected: one click on Connect to GitHub opens GitHub in place, waits
     expect(option(CONNECT)).toBeUndefined();
     expect(gh.watching()).toBe(0);
     expect(picked).toEqual([]);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+for (const status of [
+  { state: "not_connected", repos_scope: null },
+  { state: "unavailable", repos_scope: null, reason: "signed_out" },
+]) {
+  test(`${status.reason ?? status.state}: Connect to GitHub is a fixed action under Add folder…, never a row of the scrolling list`, async () => {
+    const gh = host({ "github.status": status, "github.connect": { opened: true } });
+    const { root, picked } = await renderTray({ onBrowseProject: () => undefined }, gh.store);
+    try {
+      await openFolderMenu();
+      const pinned = doc().querySelector(".ui-combobox-pinned")!;
+      const actions = [...pinned.querySelectorAll("[role=option]")].map((item) => item.textContent ?? "");
+      expect(actions[0]).toContain("Add folder…");
+      expect(actions[1]).toContain(CONNECT);
+      const scrolling = doc().querySelector(".ui-combobox-scroll")!;
+      expect(scrolling.textContent).toContain("notes");
+      expect(scrolling.textContent).not.toContain(CONNECT);
+      // Its glyph is in the actions' icon column, as Add folder…'s is.
+      expect(option(CONNECT)!.querySelector(".acpmux-location-action > .acpmux-location-action-icon")).not.toBeNull();
+      await press(option(CONNECT)!);
+      expect(gh.calls.at(-1)).toEqual(["github.connect", {}]);
+      expect(picked).toEqual([]);
+      // Still open, the row still pinned.
+      expect(option(CONNECT)!.closest(".ui-combobox-pinned")).not.toBeNull();
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
+}
+
+test("a new Cloud chat with no folder draws no line under the folder menu's actions", async () => {
+  const gh = host({ "github.status": { state: "not_connected", repos_scope: null } });
+  const { root } = await renderTray({ summary: { sessionId: "", cwd: "" }, onNoProject: () => {} }, gh.store);
+  try {
+    await openFolderMenu();
+    const menu = doc().querySelector(".acpmux-folder-popover")!;
+    expect(menu).not.toBeNull();
+    expect(menu.querySelector(".acpmux-location-note")).toBeNull();
+    expect(menu.textContent).not.toContain("fresh home");
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("the filesystem root is never listed as a folder, and no folder is ever named No folder", async () => {
+  // A chat started in `/` (a shell at the root) put a folder row that read No folder among the folders.
+  const { projectLabel } = await import("../src/agent-session/acpmux/sessionList");
+  expect(projectLabel("/")).toBe("/");
+  expect(projectLabel("")).toBe("No folder");
+  expect(projectLabel(undefined)).toBe("No folder");
+  const gh = host({ "github.status": { state: "not_connected", repos_scope: null } });
+  const { root } = await renderTray(
+    {
+      projectChoices: [
+        { cwd: FOLDER, label: "app" },
+        { cwd: "/", label: projectLabel("/") },
+        { cwd: "/Users/me/notes", label: "notes" },
+      ],
+      onNoProject: () => {},
+    },
+    gh.store,
+  );
+  try {
+    await openFolderMenu();
+    const listed = [...doc().querySelectorAll(".ui-combobox-scroll [role=option]")].map((item) => item.textContent);
+    expect(listed).toEqual(["app", "notes"]);
+    // No folder is the action under the list, and only that.
+    const named = [...doc().querySelectorAll("[role=option]")].filter((item) => item.textContent === "No folder");
+    expect(named.length).toBe(1);
+    expect(named[0]!.closest(".ui-combobox-pinned")).not.toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("the folder menu lists its fullest rows' words for its width, and never as a second visible name", async () => {
+  const gh = host({ "github.status": { state: "not_connected", repos_scope: null } });
+  const { root } = await renderTray({}, gh.store);
+  try {
+    await openFolderMenu();
+    const menu = doc().querySelector(".acpmux-folder-popover")!;
+    const fit = menu.querySelector(".acpmux-folder-fit")!;
+    expect(fit.getAttribute("aria-hidden")).toBe("true");
+    // The two listed folders, by the names their rows show; the words are drawn by CSS from the attribute.
+    expect(new Set([...fit.children].map((line) => line.getAttribute("data-text")))).toEqual(new Set(["app", "notes"]));
+    expect(fit.textContent).toBe("");
+    // The actions are in the page's flow and size the menu themselves: no line for them.
+    expect(fit.querySelector('[data-text="Connect to GitHub"]')).toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("only the few longest lines are measured, the room beside the words counted", () => {
+  const row = (text: string) => ({ text, kind: "row" as const });
+  const many = Array.from({ length: 4000 }, (_, index) => row("f" + index));
+  const picked = widestLines([...many, row("a much longer folder name"), row("f1")]);
+  expect(picked).toHaveLength(6);
+  expect(picked[0]).toEqual(row("a much longer folder name"));
+  // The same row is listed once.
+  expect(widestLines([row("api"), row("api"), row("web")])).toEqual([row("api"), row("web")]);
+  // A worktree count beside shorter words can reach further than longer words alone.
+  expect(widestLines([row("cmuxterm"), { text: "cmux 24", kind: "count" }], 1)).toEqual([
+    { text: "cmux 24", kind: "count" },
+  ]);
+});
+
+/// Nothing with text follows the pinned actions in the folder menu, and `line` comes before them.
+function expectAboveActions(line: Element | null) {
+  const menu = doc().querySelector(".acpmux-folder-popover")!;
+  const pinned = menu.querySelector(".ui-combobox-pinned")!;
+  expect(line).not.toBeNull();
+  expect(pinned).not.toBeNull();
+  expect(line!.compareDocumentPosition(pinned) & dom.window.Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  const after = [...menu.querySelectorAll("*")].filter(
+    (element) =>
+      !pinned.contains(element) &&
+      pinned.compareDocumentPosition(element) & dom.window.Node.DOCUMENT_POSITION_FOLLOWING &&
+      element.textContent?.trim(),
+  );
+  expect(after.map((element) => element.textContent)).toEqual([]);
+}
+
+test("a Cloud chat with no folders and GitHub not connected: the empty line sits over the actions, nothing under them", async () => {
+  const gh = host({ "github.status": { state: "not_connected", repos_scope: null } });
+  const { root } = await renderTray(
+    {
+      summary: { sessionId: "", cwd: "" },
+      projectChoices: [],
+      onBrowseProject: () => undefined,
+      onNoProject: () => {},
+    },
+    gh.store,
+  );
+  try {
+    await openFolderMenu();
+    const empty = doc().querySelector(".acpmux-folder-popover .acpmux-location-empty");
+    expect(empty?.textContent).toBe("No recent folders");
+    // Inside the listbox, plain text under a role-less wrapper.
+    expect(empty!.parentElement!.getAttribute("role")).toBe("presentation");
+    expect(option(CONNECT)!.closest(".ui-combobox-pinned")).not.toBeNull();
+    expectAboveActions(empty);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("words that match no folder: the empty line sits over the actions", async () => {
+  const gh = host({ "github.status": { state: "not_connected", repos_scope: null } });
+  const { root } = await renderTray({ onBrowseProject: () => undefined }, gh.store);
+  try {
+    await openFolderMenu();
+    const field = doc().querySelector<HTMLInputElement>(".acpmux-location-search")!;
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!;
+      setter.call(field, "zzzz");
+      field.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+    });
+    await settle();
+    const empty = doc().querySelector(".acpmux-folder-popover .acpmux-location-empty");
+    expect(empty?.textContent).toBe("No matching folders");
+    expectAboveActions(empty);
   } finally {
     await act(async () => root.unmount());
   }
@@ -243,6 +420,31 @@ test("the app finishing the install GitHub handed back (cmux-github-changed) lis
   }
 });
 
+test("the GitHub row is pinned right under Add folder…, under the scrolling folders: Connect, then Choose more repositories… once connected", async () => {
+  const gh = host({
+    "github.status": { state: "not_connected", repos_scope: null },
+    "github.connect": { opened: true },
+  });
+  const { root } = await renderTray({ onBrowseProject: () => undefined }, gh.store);
+  try {
+    await openFolderMenu();
+    const pinned = [...doc().querySelectorAll(".ui-combobox-pinned [role=option]")].map((item) => item.textContent);
+    expect(pinned).toEqual(["Add folder…", CONNECT]);
+    gh.answers["github.status"] = { state: "ready", repos_scope: "all" };
+    gh.answers["github.repos.list"] = { repos: REPOS, truncated: false };
+    await gh.back();
+    await act(async () => void dom.window.dispatchEvent(new dom.window.Event("cmux-github-changed")));
+    await settle();
+    expect([...doc().querySelectorAll(".ui-combobox-pinned [role=option]")].map((item) => item.textContent)).toEqual([
+      "Add folder…",
+      "Choose more repositories…",
+    ]);
+    expect(option("acme/api")!.closest(".ui-combobox-scroll")).not.toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
 test("a click on Connect to GitHub while it waits opens GitHub again", async () => {
   const gh = host({
     "github.status": { state: "not_connected", repos_scope: null },
@@ -277,6 +479,15 @@ test("ready: the repositories are listed, and a pick is the folder github:owner/
     expect(api.querySelector("[data-section]")?.getAttribute("data-section")).toBe("GitHub");
     expect(api.querySelector(".acpmux-location-lock")?.textContent).toBe("Private");
     expect(option("acme/web")!.querySelector(".acpmux-location-lock")).toBeNull();
+    // The folders after the repositories have their own heading, apart from the GitHub group.
+    const headings = [...doc().querySelectorAll(".ui-combobox-scroll [data-section]")].map((row) =>
+      row.getAttribute("data-section"),
+    );
+    expect(headings).toEqual(["GitHub", "This Mac"]);
+    const firstFolder = [...doc().querySelectorAll(".ui-combobox-scroll [role=option]")].find(
+      (item) => !item.querySelector("[data-github]"),
+    );
+    expect(firstFolder?.querySelector("[data-section]")?.getAttribute("data-section")).toBe("This Mac");
     // Connected: the way to the installation's page on GitHub shows whatever the scope.
     expect(option("Choose more repositories…")).toBeDefined();
     await press(api);
@@ -284,6 +495,40 @@ test("ready: the repositories are listed, and a pick is the folder github:owner/
     // The chip names the repository, not a path.
     expect(face()).toContain("acme/api");
     expect(face()).not.toContain("github:");
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("repositories arriving with the menu open remount the folder row that gains the This Mac heading, and only it", async () => {
+  let listed: (value: unknown) => void = () => undefined;
+  const gh = host({
+    "github.status": { state: "ready", repos_scope: "all" },
+    "github.repos.list": () => new Promise((resolve) => (listed = resolve)),
+  });
+  const { root } = await renderTray({}, gh.store);
+  const folderRow = (cwd: string) =>
+    doc().querySelector(`.ui-combobox-scroll .acpmux-location-row[title="${cwd}"]`)?.closest("[role=option]");
+  try {
+    await openFolderMenu();
+    expect(option("acme/api")).toBeUndefined();
+    const cwds = [FOLDER, "/Users/me/notes"];
+    const before = new Map(cwds.map((cwd) => [cwd, folderRow(cwd)]));
+    for (const row of before.values()) expect(row?.querySelector("[data-section]")).toBeNull();
+    await act(async () => listed({ repos: REPOS, truncated: false }));
+    await settle();
+    expectOnlyOptionsInListbox();
+    expect(option("acme/api")).toBeDefined();
+    const headed = cwds.filter((cwd) => folderRow(cwd)?.querySelector("[data-section]"));
+    expect(headed).toHaveLength(1);
+    expect(folderRow(headed[0]!)!.querySelector("[data-section]")!.getAttribute("data-section")).toBe("This Mac");
+    for (const cwd of cwds) {
+      if (cwd === headed[0]) {
+        // A new element for the new heading: measured again, never the old size.
+        expect(folderRow(cwd)).not.toBe(before.get(cwd));
+        expect(before.get(cwd)!.isConnected).toBe(false);
+      } else expect(folderRow(cwd)).toBe(before.get(cwd));
+    }
   } finally {
     await act(async () => root.unmount());
   }
@@ -299,7 +544,8 @@ test("ready with no repository granted: GitHub still shows, with the way to choo
   try {
     await openFolderMenu();
     const more = option("Choose more repositories…")!;
-    expect(more.querySelector("[data-section]")?.getAttribute("data-section")).toBe("GitHub");
+    // Pinned with the actions under the list, so it is in view however long the folder list is.
+    expect(more.closest(".ui-combobox-pinned")).not.toBeNull();
     await press(more);
     expect(gh.calls.at(-1)).toEqual(["github.connect", {}]);
   } finally {
@@ -332,27 +578,41 @@ test("repos.list refused as not connected falls back to the Connect to GitHub ro
   try {
     await openFolderMenu();
     expect(option(CONNECT)).toBeDefined();
-    expect(doc().querySelector(".acpmux-github-error")).toBeNull();
+    expect(option("Retry")).toBeUndefined();
   } finally {
     await act(async () => root.unmount());
   }
 });
 
-test("another repos.list failure shows one line with Retry, which reads again", async () => {
+test("another repos.list failure makes the pinned GitHub row Retry, which reads again with the menu open", async () => {
   const gh = host({
     "github.status": { state: "ready", repos_scope: "all" },
     "github.repos.list": { error: new Error("GitHub did not answer") },
   });
-  const { root } = await renderTray({}, gh.store);
+  const { root, picked } = await renderTray({ onBrowseProject: () => undefined }, gh.store);
   try {
     await openFolderMenu();
-    const line = doc().querySelector(".acpmux-github-error");
-    expect(line?.textContent).toContain("GitHub did not answer");
+    // The GitHub row under Add folder…, the only GitHub row there: Retry over the error.
+    const pinned = doc().querySelector(".ui-combobox-pinned")!;
+    const actions = [...pinned.querySelectorAll<HTMLElement>("[role=option]")];
+    expect(actions[0]!.textContent).toContain("Add folder…");
+    const retry = actions[1]!;
+    expect(retry.querySelector(".acpmux-menu-label")?.textContent).toBe("Retry");
+    expect(detail(retry)).toBe("GitHub did not answer");
+    expect(retry.querySelector(".acpmux-location-action-icon svg")).not.toBeNull();
+    expect(actions.filter((row) => row.querySelector("[data-github]"))).toHaveLength(1);
+    expect(option("Choose more repositories…")).toBeUndefined();
+    expect(option(CONNECT)).toBeUndefined();
+    expect(doc().querySelector(".acpmux-folder-popover [role=alert]")).toBeNull();
     gh.answers["github.repos.list"] = { repos: REPOS, truncated: false };
-    await press(button("Retry")!);
+    await press(retry);
     expect(gh.calls.at(-1)).toEqual(["github.repos.list", { query: null }]);
-    expect(doc().querySelector(".acpmux-github-error")).toBeNull();
+    expect(picked).toEqual([]);
+    // Still open: the repositories listed, the GitHub row Choose more repositories… again.
+    expect(doc().querySelector(".acpmux-location-search")).not.toBeNull();
+    expect(option("Retry")).toBeUndefined();
     expect(option("acme/web")).toBeDefined();
+    expect(option("Choose more repositories…")!.closest(".ui-combobox-pinned")).not.toBeNull();
   } finally {
     await act(async () => root.unmount());
   }
@@ -586,4 +846,27 @@ test("a GitHub folder goes to the Cloud start as its cwd and asks this Mac for n
   }, true);
   onProjectPicked?.("github:acme/api");
   expect(asked).toEqual([]);
+});
+
+test("a not_connected status carries the host's message, and only that state does (why Connect is needed again)", () => {
+  expect(
+    githubStatusFromReply({
+      state: "not_connected",
+      repos_scope: null,
+      problem: "needs_reauth",
+      message: " GitHub access was suspended. ",
+    }),
+  ).toEqual({
+    state: "not_connected",
+    reposScope: null,
+    message: "GitHub access was suspended.",
+  });
+  expect(githubStatusFromReply({ state: "not_connected", repos_scope: null, problem: null, message: null })).toEqual({
+    state: "not_connected",
+    reposScope: null,
+  });
+  expect(githubStatusFromReply({ state: "ready", repos_scope: "all", message: "ignored" })).toEqual({
+    state: "ready",
+    reposScope: "all",
+  });
 });

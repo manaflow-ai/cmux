@@ -8,10 +8,18 @@
 //! closed), `failed` (a failing check, or a BLOCK at the head) or `running` (checks pending).
 //!
 //! Like every condensed tool it takes an optional `description`, a few words the transcript
-//! titles the row with. The data is one `gh pr view` run by this server, which the chat's agent
-//! started with its environment, in the chat's folder, so without `repo` gh reads the folder's
-//! origin. One call, never a loop: on hosts whose `gh` is a caching broker chain it is answered
-//! from that cache. The parsing is pure ([`pr_state`]) and tested on fixture JSON.
+//! titles the row with. The data comes from the daemon's one GitHub poller for the machine
+//! (`_acpmux/github/pr_state`, `pr_poller.rs`): every chat on the machine reads one pull request
+//! through one entry, with conditional requests and one budget, so N chats looking cost one
+//! GitHub read, not N. Without `repo` the repository is the chat folder's `origin`. When the
+//! daemon cannot answer (an older daemon, no `gh` login of its own, a repository only the
+//! agent's token reads), it is one `gh pr view` run by this server, which the chat's agent
+//! started with its environment, in the chat's folder, as before. The parsing is pure
+//! ([`pr_state`]) and tested on fixture JSON.
+//!
+//! `pr_wait` waits in the daemon until the pull request is settled (nothing pending, or merged
+//! or closed) or changed, or `timeoutSecs` (default 45, under Codex's 60 s tool timeout) passes:
+//! every chat waiting on one pull request shares the poller's reads (`_acpmux/github/pr_wait`).
 
 use super::{arg, error_result, ok};
 use crate::client::Client;
@@ -22,6 +30,13 @@ use std::sync::Arc;
 use std::time::Duration;
 
 pub(super) const NAME: &str = "pr_state";
+pub(super) const WAIT_NAME: &str = "pr_wait";
+/// How long `pr_wait` waits unless asked: under the shortest harness tool timeout (Codex: 60 s).
+const WAIT_DEFAULT_S: u64 = 45;
+/// The longest `pr_wait` a call may ask for (the daemon's own bound is an hour).
+const WAIT_MAX_S: u64 = 1800;
+/// How long reading the chat folder's origin may take.
+const GIT_TIMEOUT: Duration = Duration::from_secs(5);
 /// The fields the one `gh pr view` asks for.
 const FIELDS: &str = "number,url,state,headRefOid,baseRefName,mergeable,mergedAt,mergeCommit,\
 labels,body,comments,statusCheckRollup";
@@ -40,6 +55,24 @@ pub(super) fn tool() -> Value {
                 "pr": {"type": "string", "description": "The pull request: its number, #number, or its URL."},
                 "repo": {"type": "string", "description": "OWNER/REPO (default: the chat folder's origin, or the URL's)."},
                 "description": {"type": "string", "description": "A few words on why you look, shown as this call's title."}
+            },
+            "required": ["pr"]
+        }
+    })
+}
+
+pub(super) fn wait_tool() -> Value {
+    json!({
+        "name": WAIT_NAME,
+        "description": "Wait for a pull request to settle (no check pending, or merged or closed), or with until \"change\" for its state line to change, then answer as pr_state does. The wait runs in the cmux daemon, whose one GitHub poller every chat on this machine shares, so waiting costs no GitHub calls of yours; use it instead of polling gh. It returns at timeoutSecs (default 45; call it again to keep waiting) with structuredContent.timedOut true.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "pr": {"type": "string", "description": "The pull request: its number, #number, or its URL."},
+                "repo": {"type": "string", "description": "OWNER/REPO (default: the chat folder's origin, or the URL's)."},
+                "timeoutSecs": {"type": "integer", "minimum": 1, "maximum": WAIT_MAX_S, "description": "How long to wait at most (default 45)."},
+                "until": {"type": "string", "enum": ["settled", "change"], "description": "settled (default) or change."},
+                "description": {"type": "string", "description": "A few words on why you wait, shown as this call's title."}
             },
             "required": ["pr"]
         }
@@ -110,21 +143,146 @@ pub(super) async fn call(daemon: &Arc<Client>, session: &str, args: &Value) -> V
         Err(e) => return error_result(e),
     };
     let cwd = chat_cwd(daemon, session).await;
+    let via_daemon = match daemon_read(daemon, &target, cwd.clone(), None).await {
+        Ok((pr, poller)) => return answer(&pr, Some(poller), args),
+        Err(e) => e,
+    };
     let out = match run_gh(&gh_args(&target), cwd).await {
         Ok(out) => out,
-        Err(e) => return error_result(e),
+        Err(e) => return error_result(format!("{e} (the daemon's poller: {via_daemon})")),
     };
     let pr: Value = match serde_json::from_slice(&out) {
         Ok(v) => v,
         Err(e) => return error_result(format!("gh pr view gave no JSON: {e}")),
     };
-    let (text, mut structured) = pr_state(&pr);
-    if let Some(d) = arg(args, "description")
-        && let Some(obj) = structured.as_object_mut()
-    {
-        obj.insert("description".to_owned(), json!(d));
+    answer(&pr, None, args)
+}
+
+/// One `pr_wait` call: the wait in the daemon. With no daemon poller, one read of this chat's
+/// own `gh`, said so, never a loop here.
+pub(super) async fn wait(daemon: &Arc<Client>, session: &str, args: &Value) -> Value {
+    let target = match target(args) {
+        Ok(t) => t,
+        Err(e) => return error_result(e),
+    };
+    let until = match arg(args, "until") {
+        None => "settled",
+        Some(u @ ("settled" | "change")) => u,
+        Some(other) => {
+            return error_result(format!("until must be settled or change, not {other:?}"));
+        }
+    };
+    let secs = args
+        .get("timeoutSecs")
+        .and_then(Value::as_u64)
+        .unwrap_or(WAIT_DEFAULT_S)
+        .clamp(1, WAIT_MAX_S);
+    let cwd = chat_cwd(daemon, session).await;
+    match daemon_read(daemon, &target, cwd, Some((secs, until))).await {
+        Ok((pr, poller)) => answer(&pr, Some(poller), args),
+        Err(e) => error_result(format!(
+            "pr_wait waits in the cmux daemon, which could not: {e}. Read it once with pr_state, or wait with run_wait"
+        )),
+    }
+}
+
+/// The text and `structuredContent` of an answer, with how the daemon had it.
+fn answer(pr: &Value, poller: Option<Value>, args: &Value) -> Value {
+    let (mut text, mut structured) = pr_state(pr);
+    if let Some(obj) = structured.as_object_mut() {
+        if let Some(d) = arg(args, "description") {
+            obj.insert("description".to_owned(), json!(d));
+        }
+        if let Some(poller) = poller {
+            text.push_str(&format!("\n{}", poller_line(&poller)));
+            if let Some(t) = poller.get("timedOut") {
+                obj.insert("timedOut".to_owned(), t.clone());
+            }
+            obj.insert("poller".to_owned(), poller);
+        }
     }
     ok(text, structured)
+}
+
+/// `via the machine's GitHub poller: fetched now` (or `cache 12s old`, with a stale note).
+pub(super) fn poller_line(p: &Value) -> String {
+    let source = text_or_empty(p, "source");
+    let age = field(p, "ageSecs").as_u64().unwrap_or(0);
+    let mut line = match source {
+        "fetched" => "via this machine's GitHub poller: read now".to_owned(),
+        _ => format!("via this machine's GitHub poller: {source}, {age}s old"),
+    };
+    if let Some(waited) = field(p, "waitedSecs").as_u64() {
+        let how =
+            if field(p, "timedOut").as_bool() == Some(true) { "timed out after" } else { "waited" };
+        line.push_str(&format!("; {how} {waited}s"));
+    }
+    if let Some(note) = text(p, "note") {
+        line.push_str(&format!(" ({note})"));
+    }
+    line
+}
+
+/// The pull request through the daemon's poller: a read, or a wait of (`secs`, `until`).
+async fn daemon_read(
+    daemon: &Arc<Client>,
+    t: &Target,
+    cwd: Option<PathBuf>,
+    wait: Option<(u64, &str)>,
+) -> Result<(Value, Value), String> {
+    let repo = match &t.repo {
+        Some(r) => r.clone(),
+        None => {
+            origin_repo_of(cwd).await.ok_or("the chat folder has no GitHub origin; pass repo")?
+        }
+    };
+    let mut params = json!({"repo": repo, "pr": t.selector});
+    let m = match wait {
+        None => method::MUX_GITHUB_PR_STATE,
+        Some((secs, until)) => {
+            if let Some(p) = params.as_object_mut() {
+                p.insert("timeoutSecs".to_owned(), json!(secs));
+                p.insert("until".to_owned(), json!(until));
+            }
+            method::MUX_GITHUB_PR_WAIT
+        }
+    };
+    let reply = daemon.request(m, params).await.map_err(|e| format!("{e:#}"))?;
+    match (reply.get("pr"), reply.get("poller")) {
+        (Some(pr), Some(poller)) if pr.is_object() => Ok((pr.clone(), poller.clone())),
+        _ => Err("the daemon's answer had no pull request".to_owned()),
+    }
+}
+
+/// The chat folder's `origin` as OWNER/REPO, when it is on github.com.
+async fn origin_repo_of(cwd: Option<PathBuf>) -> Option<String> {
+    let mut cmd = tokio::process::Command::new("git");
+    cmd.args(["config", "--get", "remote.origin.url"])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .kill_on_drop(true);
+    if let Some(cwd) = cwd {
+        cmd.current_dir(cwd);
+    }
+    let out = tokio::time::timeout(GIT_TIMEOUT, cmd.output()).await.ok()?.ok()?;
+    origin_repo(String::from_utf8_lossy(&out.stdout).trim())
+}
+
+/// `https://github.com/O/R(.git)`, `git@github.com:O/R(.git)` or `ssh://git@github.com/O/R` as
+/// `O/R`.
+pub(super) fn origin_repo(url: &str) -> Option<String> {
+    let rest = url.strip_prefix("git@github.com:").or_else(|| {
+        url.split_once("://").map(|(_, r)| r).and_then(|r| {
+            let r = r.rsplit_once('@').map_or(r, |(_, h)| h);
+            r.strip_prefix("github.com/").or_else(|| r.strip_prefix("github.com:"))
+        })
+    })?;
+    let rest = rest.trim_end_matches('/');
+    let rest = rest.strip_suffix(".git").unwrap_or(rest);
+    let mut parts = rest.split('/');
+    let repo = format!("{}/{}", parts.next()?, parts.next()?);
+    (parts.next().is_none() && valid_repo(&repo)).then_some(repo)
 }
 
 /// The chat's folder, where gh finds the default repo; this server's own when the daemon

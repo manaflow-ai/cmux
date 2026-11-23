@@ -2,6 +2,8 @@
 //! (`--repo`, the manifest's `repository`, or the folder's `origin`), the
 //! "Get it on cmux" badge its README carries, and `cmux ext publish`, which
 //! checks a folder is ready to be listed on cmux.com and prints the steps.
+//! Its `design` check is registry review's: the recorded scenes
+//! (`preview/scenes.json`) must have no design warning.
 //! Nothing here writes to the network: listing is a push, a topic, or a
 //! submission the author makes.
 
@@ -247,6 +249,9 @@ pub(super) struct Report {
     pub checks: Vec<Check>,
     /// The README changed by `--write-badge`.
     pub wrote_badge: bool,
+    /// Registry review's design check of the recorded scenes (`design::listing`); `None` when
+    /// the manifest does not read.
+    pub design: Option<super::design::Listing>,
     pub next: Vec<String>,
 }
 
@@ -271,6 +276,7 @@ impl Report {
                 "ok": check.ok,
                 "message": check.message,
             })).collect::<Vec<_>>(),
+            "design": self.design.as_ref().map(super::design::Listing::to_json),
             "next": self.next,
         })
     }
@@ -489,8 +495,20 @@ pub(super) fn check(options: &PublishOptions) -> Result<Report, String> {
         );
     }
 
+    // Design (RFD 0009 slice 6): the recorded scenes, as registry review checks them; any
+    // warning refuses the listing. `ext dev` only warns.
+    let design = (!manifest.is_null()).then(|| super::design::listing(dir, &manifest));
+    if let Some(design) = &design {
+        let mut message = design.summary();
+        for line in design.details() {
+            message.push_str("\n       ");
+            message.push_str(&line.replace('\n', "\n       "));
+        }
+        add("design", design.ok(), message);
+    }
+
     let next = next_steps(dir, repo.as_ref(), &manifest);
-    Ok(Report { dir: dir.clone(), repo, id, checks, wrote_badge, next })
+    Ok(Report { dir: dir.clone(), repo, id, checks, wrote_badge, design, next })
 }
 
 /// The steps after the checks: push, a release with the packed assets, the

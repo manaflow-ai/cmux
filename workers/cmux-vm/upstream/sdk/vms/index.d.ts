@@ -1,6 +1,7 @@
 import type { FirewallRuleData, ListFirewallRulesResult } from "../firewall.js";
 import type { TlsRuleData } from "../tls.js";
 import type { FreestyleClient } from "../client.js";
+import { VmDisplays } from "./displays.js";
 import { VmFilesystem } from "./fs.js";
 import { VmLinuxUserPty, VmPty } from "./pty.js";
 import { VmSnapshotsNamespace, type SnapshotCreated, type CreateSnapshotOptions } from "./snapshots.js";
@@ -9,6 +10,7 @@ export * from "./types.js";
 export * from "./fs.js";
 export * from "./pty.js";
 export * from "./snapshots.js";
+export * from "./displays.js";
 /**
  * A handle to one VM, keyed by its id or slug. Every method hits the API
  * fresh (nothing is cached); `data()` re-fetches and returns the current
@@ -18,6 +20,8 @@ export declare class Vm {
     readonly id: string;
     readonly fs: VmFilesystem;
     readonly pty: VmPty;
+    /** @internal Experimental Personal-plan VMs only. */
+    readonly displays: VmDisplays;
     private readonly client;
     private readonly basePath;
     constructor(client: FreestyleClient, id: string);
@@ -35,8 +39,22 @@ export declare class Vm {
     update(options: UpdateVmOptions): Promise<VmData>;
     /** Boot a stopped VM, or resume a paused one. */
     start(): Promise<VmData>;
+    /** @internal */
+    currentMemoryStart(): Promise<{
+        attemptId: string | null;
+    }>;
+    /** @internal */
+    discardMemoryStart(attemptId: string): Promise<{
+        state: "discardRequested" | "restoreCommitted" | "alreadyResumed";
+    }>;
     /** Freeze a running VM, keeping its memory so a later start resumes it exactly. */
     pause(): Promise<VmData>;
+    /** @internal Experimental; not part of the published API contract. */
+    stop(): Promise<VmData>;
+    /** @internal Experimental; not part of the published API contract. */
+    boot(): Promise<VmData>;
+    /** @internal Experimental; not part of the published API contract. */
+    revert(): Promise<VmData>;
     /**
      * Change vCPU, memory, or disk. Every axis is grow-only. vCPU and memory
      * apply live to a running VM, on resume for a paused one, and at the next

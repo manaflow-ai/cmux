@@ -3,7 +3,7 @@ import { useEffect, useRef } from "react"
 import { useLoad } from "../../lib/hooks"
 import { integrationAppHandoff, integrationCompletionRequest, integrationConfigureLink, integrationReturnLink } from "../../lib/integration-callback"
 import { callbackSearch } from "../../lib/search"
-import { mutate } from "../../lib/server"
+import { completeIntegration } from "../../lib/server"
 import { setSignedIn, useSignedIn } from "../../lib/session"
 import { INTEGRATION_RETURN_TEAM_KEY, integrationReturnPath, integrationReturnTeamKey } from "./-return"
 
@@ -29,10 +29,14 @@ function Callback() {
   const redirectScheduled = useRef(false)
   // A connect the app started is the app's to finish (beforeLoad sent the browser there); never finish it here too.
   const handoff = integrationAppHandoff(search)
-  const result = useLoad<{ ok: boolean; message: string; returnTo?: string; configure?: string }>(signedIn && search.state && !search.error && !handoff ? `complete:${search.state}` : null, async () => {
+  const result = useLoad<{ ok: boolean; message: string; returnTo?: string; configure?: string; development?: boolean }>(signedIn && search.state && !search.error && !handoff ? `complete:${search.state}` : null, async () => {
     // The key is derived from the state, so a reload of this page replays instead of exchanging the code twice.
-    const r = await mutate({ data: { op: "integration.complete", ...integrationCompletionRequest(search.state!, search) } })
+    const r = await completeIntegration({ data: integrationCompletionRequest(search.state!, search) })
     if (r.status === 401) setSignedIn(false)
+    // A development connection (finished on the development API): this console's integrations list does not show it.
+    if (r.body.ok && r.environment === "development" && !integrationConfigureLink(r.body.value) && !integrationReturnLink(r.body.value)) {
+      return { ok: true, message: "Connected to the development Cloud. You can close this page.", development: true }
+    }
     // A connect started from a chat returns to it: the link comes from the API's verified state, never this page's query.
     const returnTo = r.body.ok ? integrationReturnLink(r.body.value) : undefined
     // The link left the repository out: GitHub's settings page for the installation adds it.
@@ -42,7 +46,7 @@ function Callback() {
     return { ok: false, message: `${r.body.error?.code ?? r.status}: ${r.body.error?.message ?? "failed"}` }
   })
   useEffect(() => {
-    if (!result.data?.ok || redirectScheduled.current) return
+    if (!result.data?.ok || result.data.development || redirectScheduled.current) return
     redirectScheduled.current = true
     // Completing an OAuth flow should not strand the user on an intermediate
     // page. Keep the team scope selected before the provider redirect.

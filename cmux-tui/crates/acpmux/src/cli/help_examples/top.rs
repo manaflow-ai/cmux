@@ -19,6 +19,20 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
+        "archive",
+        &[
+            ("Take two finished chats off the lists", "acpmux archive docs-cleanup api-review"),
+            ("The same, with each outcome as JSON", "acpmux --json archive docs-cleanup"),
+        ],
+    ),
+    (
+        "unarchive",
+        &[
+            ("Bring a chat back to the lists", "acpmux unarchive api-review"),
+            ("The same, with each outcome as JSON", "acpmux --json unarchive api-review"),
+        ],
+    ),
+    (
         "machine-auth",
         &[
             (
@@ -188,6 +202,28 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         )],
     ),
     (
+        "search",
+        &[(
+            "Find a prompt or reply on this machine or its peers",
+            "acpmux search resize lag -n 10",
+        )],
+    ),
+    (
+        "bg",
+        &[
+            ("List this agent session's background tasks", "acpmux bg list"),
+            ("Start a background test command", "acpmux bg start \"cargo test -p acpmux\""),
+        ],
+    ),
+    (
+        "bg start",
+        &[("Start a background test command", "acpmux bg start \"cargo test -p acpmux\"")],
+    ),
+    ("bg list", &[("List this agent session's background tasks", "acpmux bg list")]),
+    ("notices", &[("Read a session's inbox notices", "acpmux notices review-27310")]),
+    ("open", &[("Open a session in a new cmux workspace", "acpmux open review-27310")]),
+    ("open-tab", &[("Open a session as a cmux tab", "acpmux open-tab review-27310")]),
+    (
         "skill",
         &[
             ("Print the guide for driving acpmux from a script or agent", "acpmux skill"),
@@ -331,6 +367,7 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         "uniichat-agent",
         &[
             ("Serve ACP backed by uniichat.com", "acpmux uniichat-agent"),
+            ("Sign in to uniichat.com (no `unii` program needed)", "acpmux uniichat-agent login"),
             (
                 "Serve ACP backed by your own `unii serve`",
                 "acpmux uniichat-agent --url http://127.0.0.1:8787",
@@ -341,7 +378,15 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         "web",
         &[
             ("Open the dashboard in the browser", "acpmux web"),
+            ("Open the NEXT agent pane in the browser", "acpmux web --app"),
             ("Only print the dashboard URL", "acpmux web --no-open"),
+        ],
+    ),
+    (
+        "board",
+        &[
+            ("Show this device's branch board (Labs > Show Preview Features)", "acpmux board"),
+            ("The same board as JSON", "acpmux --json board"),
         ],
     ),
 ];

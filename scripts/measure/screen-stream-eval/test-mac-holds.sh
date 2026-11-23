@@ -29,4 +29,7 @@ reset; bash "$SCRIPT" _hold_loop 0 "$T/sched.jsonl" "$T/out.jsonl" 0.05 4; rc=$?
 check "the hold loop steps 24, 14 then back to 4" \
   '[ $rc -eq 0 ] && [ "$(cut -d" " -f5 "$T/dnctl.log" | tr "\n" " ")" = "24 14 4 " ]'
 
+out=$(bash "$SCRIPT" _plr_of wifi-loss-1); check "wifi-loss-1 drops 1% at random" '[ "$out" = 0.01 ]'
+out=$(bash "$SCRIPT" _plr_of wifi-loss); check "wifi-loss still drops 2%" '[ "$out" = 0.02 ]'
+out=$(bash "$SCRIPT" schedule wifi-loss-1 60); rc=$?; check "wifi-loss-1 is a known profile with no holds" '[ $rc -eq 0 ] && [ -z "$out" ]'
 [ "$fails" -eq 0 ] && echo "mac-holds: all passed" || { echo "mac-holds: $fails failed"; exit 1; }

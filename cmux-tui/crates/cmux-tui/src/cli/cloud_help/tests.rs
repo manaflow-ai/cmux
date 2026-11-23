@@ -94,6 +94,8 @@ const TARGETLESS: &[&str] = &[
     "sign-out",
     "diagnostics",
     "open-mobile-pairing",
+    "computer-control",
+    "chief-computer",
 ];
 
 #[test]
@@ -188,18 +190,21 @@ fn quick_start_commands_parse() {
                     && !line.contains('<')
                     && !line.contains(" | ")
             })
-            // These (secrets, client sessions, team keys) run in this CLI, not through the app's catalog; `cloud env` lines parse in
-            // `cloud_environment.rs` (`the_help_env_lines_parse`).
+            // These (secrets, client sessions, team keys, model connections) run in this CLI, not through the app's catalog;
+            // `cloud env` lines parse in `cloud_environment.rs` (`the_help_env_lines_parse`), `cloud connect` and
+            // `cloud connections` lines in `cloud_connect.rs` (`the_help_connect_lines_parse`).
             .filter(|line| {
                 !line.contains("secret")
                     && !line.contains("client-session")
                     && !line.contains("team-keys")
+                    && !line.starts_with("cmux vm connect")
             })
             .filter(|line| !line.starts_with("cmux vm env "))
             .collect::<Vec<_>>();
-        // Two `cmux chat --on vm:` lines, the `cmux chat send` follow-up and eight machine lines,
-        // most of them short verbs, and `vm new`. No line is a `vm start-chat` or `vm chat`.
-        assert_eq!(commands.len(), 11, "{commands:?}");
+        // Two `cmux chat --on vm:` lines, the `cmux chat send` follow-up, eight machine lines
+        // (most of them short verbs, and `vm new`) and two desktop lines. No line is a
+        // `vm start-chat` or `vm chat`.
+        assert_eq!(commands.len(), 13, "{commands:?}");
         assert!(commands[0].starts_with("cmux chat --on vm:"), "the chat leads: {commands:?}");
         assert!(!text.contains("vm start-chat") && !text.contains("vm chat"), "{text}");
         for command in commands {
@@ -259,6 +264,18 @@ fn quick_start_commands_parse() {
                 );
                 continue;
             }
+            if matches!(words[1].as_str(), "chat" | "computer") {
+                assert!(
+                    matches!(
+                        crate::cli::cloud_agent::parse(&words[1], &words[2..], || Err(
+                            String::new()
+                        )),
+                        Ok(crate::cli::cloud_agent::Command::Tool { .. })
+                    ),
+                    "quick start command does not parse: {command}"
+                );
+                continue;
+            }
             assert!(find(&words[1]).is_some(), "{command}");
             assert!(
                 matches!(crate::cli::app::parse(&words), Ok(Some(_))),
@@ -301,7 +318,9 @@ fn start_chat_help_is_its_usage_and_its_examples_parse() {
         .map(str::trim)
         .filter(|line| line.starts_with("cmux cloud start-chat "))
         .collect::<Vec<_>>();
-    assert_eq!(examples.len(), 3, "{examples:?}");
+    // The fourth: the composer's picks (cmux#46701: --effort and --no-folder parse too).
+    assert_eq!(examples.len(), 4, "{examples:?}");
+    assert!(examples.iter().any(|line| line.contains("--effort") && line.contains("--no-folder")));
     for example in examples {
         let words =
             shell_words(example).into_iter().skip(3).filter(|w| w != "--json").collect::<Vec<_>>();
@@ -311,6 +330,26 @@ fn start_chat_help_is_its_usage_and_its_examples_parse() {
                 Ok(crate::cli::cloud_start_chat::Parsed::Run(_))
             ),
             "{example}"
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn chat_and_computer_help_lines_parse() {
+    for (noun, usage) in [("chat", CHAT_USAGE), ("computer", COMPUTER_USAGE)] {
+        assert_eq!(verb_help(noun, false).as_deref(), Some(usage));
+    }
+    for command in
+        START_CHAT_USAGE.lines().map(str::trim).filter(|l| l.starts_with("cmux cloud chat "))
+    {
+        let words = shell_words(command).into_iter().skip(1).collect::<Vec<_>>();
+        assert!(
+            matches!(
+                crate::cli::cloud_agent::parse("chat", &words[2..], || Err(String::new())),
+                Ok(crate::cli::cloud_agent::Command::Tool { .. })
+            ),
+            "{command}"
         );
     }
 }
@@ -359,7 +398,9 @@ fn every_usage_flag_is_a_catalog_argument_and_back() {
                 let flag = word.strip_prefix("--")?;
                 // `--yes` reaches the app as its `--confirm` (vm.rs `yes_as_confirm`).
                 let flag = if flag == "yes" { "confirm" } else { flag };
-                (!["target", "focus", "arg"].contains(&flag)).then(|| camel(flag))
+                // `--focus` and `--no-focus` set the request's `focus` (app.rs `run_action`), not an
+                // argument the app takes.
+                (!["target", "focus", "no-focus", "arg"].contains(&flag)).then(|| camel(flag))
             })
             .collect::<BTreeSet<_>>();
         assert_eq!(flags, args, "{}: usage {:?}", verb.name, verb.usage);
