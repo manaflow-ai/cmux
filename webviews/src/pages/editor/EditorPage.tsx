@@ -83,11 +83,11 @@ export function EditorPage({ store, status, find, strings, editorRef, emptyState
 
   if (down)
     return (
-      <div className="ed-page ed-page-message" role="status" aria-busy={!stillTrying}>
+      <output className="ed-page ed-page-message" aria-busy={!stillTrying}>
         {stillTrying ? (
           <p>{state.phase === "disconnected" ? t(L.disconnected) : (state.failure ?? t(L.stillOpening))}</p>
         ) : null}
-      </div>
+      </output>
     );
 
   const settings = resolveEditorSettings(state.look.settings);

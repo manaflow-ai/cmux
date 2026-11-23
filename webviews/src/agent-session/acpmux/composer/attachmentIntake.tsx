@@ -502,15 +502,14 @@ function AttachmentChipPreview({
           img
         )}
         {stillSavingOriginal && (
-          <span
+          <output
             className="acpmux-attachment-original-still"
-            role="status"
             aria-label={t(ATTACHMENT_LABELS.stillUploadingOriginal, { name })}
             /* tooltip-allow: the mark is a glyph; the tooltip says what is still uploading and why */
             title={`${t(ATTACHMENT_LABELS.stillUploadingOriginal, { name })}\n${originalFailed}`}
           >
             <Spinner loading size={12} />
-          </span>
+          </output>
         )}
         {remove}
       </div>,

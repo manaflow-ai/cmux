@@ -519,7 +519,8 @@ test("an image in the text whose original keeps failing shows a quiet still-tryi
     const mark = inlineChip(IMAGE.id)!.querySelector<HTMLElement>(".acpmux-attachment-original-still")!;
     expect(mark.tagName).not.toBe("BUTTON");
     expect(mark.getAttribute("title")).toContain("The disk is full.");
-    expect(mark.getAttribute("role")).toBe("status");
+    // An <output> is a live status region by itself.
+    expect(mark.tagName).toBe("OUTPUT");
     expect(mark.getAttribute("aria-label")).toBeTruthy();
   } finally {
     setLastingGrace(LASTING_MS);

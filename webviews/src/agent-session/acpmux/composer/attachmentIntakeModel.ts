@@ -948,7 +948,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     }
     if (left.length)
       setOriginalFailures((now) => Object.fromEntries(Object.entries(now).filter(([id]) => !left.includes(id))));
-  }, [attachments]);
+  }, [attachments, originalRetries]);
   /// A failed chip asked again (uploadRetry.ts): its file is read again (and uploaded again when it
   /// was) as the same chip, where it was: a retry read as a new paste went in at the caret, or
   /// nowhere (review of #26545). A staged image's: its original is uploaded again.

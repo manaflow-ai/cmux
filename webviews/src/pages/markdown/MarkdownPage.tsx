@@ -92,11 +92,11 @@ export function MarkdownPage({
 
   if (down)
     return (
-      <div className="md-page md-page-message" role="status" aria-busy={!stillTrying}>
+      <output className="md-page md-page-message" aria-busy={!stillTrying}>
         {stillTrying ? (
           <p>{state.phase === "disconnected" ? t(L.disconnected) : (state.failure ?? t(L.stillOpening))}</p>
         ) : null}
-      </div>
+      </output>
     );
 
   // A followed link names its file at once and says it is loading (zero-latency rule a); a file
