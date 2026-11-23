@@ -290,13 +290,15 @@ public final class DesignSettings {
     /// `appearance.statusIndicator.*`: loading and status indicators on
     /// sidebar rows, tabs, sections and pane headers.
     public var statusIndicator = StatusIndicatorSettings()
+    /// The weights chrome on screen asked for, so a preview and Escape put them back exactly.
+    let appFontWeights = AppFontWeights()
     /// `appearance.font`: the family the whole app draws in, nil for the macOS system font. New chrome
     /// reads it through `Typography`; chrome already on screen moves to it (`AppFontRetarget`); pages
     /// get it as `--font-ui` (`WebTheme.uiFont`), so a change repaints every page.
     public var appFontFamily: String? {
         didSet {
             guard appFontFamily != oldValue else { return }
-            if self === DesignSettings.shared { AppFontRetarget.apply(from: oldValue, to: appFontFamily) }
+            if self === DesignSettings.shared { AppFontRetarget.apply(from: oldValue, to: appFontFamily, weights: appFontWeights) }
             ThemeScope.app.store.repaintAll()
         }
     }

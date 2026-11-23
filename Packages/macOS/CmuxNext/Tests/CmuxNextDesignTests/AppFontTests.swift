@@ -101,9 +101,10 @@ struct AppFontRetargetTests {
         let semiboldBefore = semibold.font
         let mediumBefore = medium.font
 
-        AppFontRetarget.apply(to: root, from: nil, to: "Georgia")
-        AppFontRetarget.apply(to: root, from: "Georgia", to: "Futura")
-        AppFontRetarget.apply(to: root, from: "Futura", to: nil)
+        let weights = AppFontWeights()
+        AppFontRetarget.apply(to: root, from: nil, to: "Georgia", weights: weights)
+        AppFontRetarget.apply(to: root, from: "Georgia", to: "Futura", weights: weights)
+        AppFontRetarget.apply(to: root, from: "Futura", to: nil, weights: weights)
         #expect(semibold.font == semiboldBefore)
         #expect(medium.font == mediumBefore)
     }
