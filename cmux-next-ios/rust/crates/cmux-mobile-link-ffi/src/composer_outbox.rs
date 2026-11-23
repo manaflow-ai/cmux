@@ -118,7 +118,8 @@ impl ComposerOutbox {
         inner.outbox.push(text, submit, at)
     }
 
-    /// The next request to send, when none is in flight and a keyed daemon is attached.
+    /// The next request to send, in tap order behind those in flight (up to
+    /// `cmux_composer_send::MAX_IN_FLIGHT`), when a keyed daemon is attached.
     pub fn next_request(&self) -> Option<ComposerSendRequest> {
         let mut inner = self.inner();
         let form = inner.form?;
