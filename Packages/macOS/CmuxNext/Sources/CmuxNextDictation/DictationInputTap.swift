@@ -1,24 +1,26 @@
 import AVFoundation
+import CmuxNextCompat
 import Foundation
-import os
 
 /// The default input device through an `AVAudioEngine` input tap, reopened when the device or
 /// its format changes (device unplugged, default input switched) instead of crashing on a
 /// stale-format tap. The one capture for the engines that open the microphone themselves
 /// (``SFSpeechDictationTranscriber``, ``MicrophoneDictationCapture``).
 ///
-/// Its calls are synchronous, so an actor's teardown needs no suspension. The lock guards the
+/// Its calls are synchronous, so an actor's teardown needs no suspension. The mutex guards the
 /// engine between its owner and the change observer; its sections are short and never wait.
-final class DictationInputTap: @unchecked Sendable {
+final class DictationInputTap: Sendable {
     typealias Sink = @Sendable (AVAudioPCMBuffer) -> Void
     typealias Report = @Sendable (DictationFailure) async -> Void
 
-    private let lock = OSAllocatedUnfairLock()
-    // Guarded by `lock`.
-    private var engine: AVAudioEngine?
-    private var sink: Sink?
-    private var report: Report?
-    private var changes: Task<Void, Never>?
+    private struct State {
+        var engine: AVAudioEngine?
+        var sink: Sink?
+        var report: Report?
+        var changes: Task<Void, Never>?
+    }
+
+    private let state = Mutex<State>(State())
 
     /// Opens the input: every buffer goes to `onBuffer`, on the audio thread. `onFailure`
     /// reports an input that went away and could not be reopened; the tap is closed by then.
@@ -26,29 +28,58 @@ final class DictationInputTap: @unchecked Sendable {
     /// - Throws: ``DictationFailure/audioCaptureFailed(_:)`` when there is no input to open, or
     ///   the engine's own error when it does not start.
     func start(onBuffer: @escaping Sink, onFailure: @escaping Report) throws {
-        lock.lock()
-        defer { lock.unlock() }
-        sink = onBuffer
-        report = onFailure
-        do {
-            try open()
-        } catch {
-            close()
-            throw error
+        try state.withLock { state in
+            Self.close(&state)
+            state.sink = onBuffer
+            state.report = onFailure
+            do {
+                try Self.open(&state)
+            } catch {
+                Self.close(&state)
+                throw error
+            }
+            // task-owner: stored in the state's `changes`; close cancels it
+            state.changes = Task { [weak self] in
+                let notifications = NotificationCenter.default.notifications(
+                    named: .AVAudioEngineConfigurationChange
+                )
+                for await _ in notifications {
+                    guard let self else { return }
+                    guard let lost = self.reopen() else { continue }
+                    await lost.report(lost.failure)
+                    return
+                }
+            }
         }
-        observeConfigurationChanges()
     }
 
     /// Closes the input and releases the microphone. Safe at any time, more than once.
     func stop() {
-        lock.lock()
-        defer { lock.unlock() }
-        close()
+        state.withLock { state in Self.close(&state) }
     }
 
-    /// Call with `lock` held.
-    private func open() throws {
-        guard let sink else { return }
+    /// Reopens the input after a change. Nil when it reopened, or was closed already; else the
+    /// failure and who hears it, with the tap closed.
+    private func reopen() -> (report: Report, failure: DictationFailure)? {
+        state.withLock { state in
+            guard let engine = state.engine else { return nil }
+            engine.inputNode.removeTap(onBus: 0)
+            engine.stop()
+            state.engine = nil
+            do {
+                try Self.open(&state)
+                return nil
+            } catch {
+                let report = state.report
+                Self.close(&state)
+                guard let report else { return nil }
+                return (report, error as? DictationFailure ?? .audioCaptureFailed(error.localizedDescription))
+            }
+        }
+    }
+
+    private static func open(_ state: inout State) throws {
+        guard let sink = state.sink else { return }
         let engine = AVAudioEngine()
         let inputNode = engine.inputNode
         let format = inputNode.outputFormat(forBus: 0)
@@ -65,54 +96,17 @@ final class DictationInputTap: @unchecked Sendable {
             inputNode.removeTap(onBus: 0)
             throw error
         }
-        self.engine = engine
+        state.engine = engine
     }
 
-    /// Call with `lock` held.
-    private func close() {
-        changes?.cancel()
-        changes = nil
-        sink = nil
-        report = nil
-        guard let engine else { return }
+    private static func close(_ state: inout State) {
+        state.changes?.cancel()
+        state.changes = nil
+        state.sink = nil
+        state.report = nil
+        guard let engine = state.engine else { return }
         engine.inputNode.removeTap(onBus: 0)
         engine.stop()
-        self.engine = nil
-    }
-
-    /// Call with `lock` held.
-    private func observeConfigurationChanges() {
-        // task-owner: stored in `changes`; close() cancels it
-        changes = Task { [weak self] in
-            let notifications = NotificationCenter.default.notifications(
-                named: .AVAudioEngineConfigurationChange
-            )
-            for await _ in notifications {
-                guard let self else { return }
-                guard let lost = self.reopen() else { continue }
-                await lost.report(lost.failure)
-                return
-            }
-        }
-    }
-
-    /// Reopens the input after a change. Nil when it reopened, or was closed already; else the
-    /// failure and who hears it, with the tap closed.
-    private func reopen() -> (report: Report, failure: DictationFailure)? {
-        lock.lock()
-        defer { lock.unlock() }
-        guard let engine else { return nil }
-        engine.inputNode.removeTap(onBus: 0)
-        engine.stop()
-        self.engine = nil
-        do {
-            try open()
-            return nil
-        } catch {
-            let report = report
-            close()
-            guard let report else { return nil }
-            return (report, error as? DictationFailure ?? .audioCaptureFailed(error.localizedDescription))
-        }
+        state.engine = nil
     }
 }
