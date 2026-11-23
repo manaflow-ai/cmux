@@ -2,7 +2,7 @@
 // screen recording drew as its tile and again as a "179.9 MB" file chip: "WHAT THE FUCK IS THIS
 // SITUATION MAN WITH THESE ATTACHMENTS!?". The rows here are his prompt as acpmux recorded it
 // (session 01a18a35, seq 5359294), trimmed to its attachments.
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, jest, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
@@ -96,9 +96,17 @@ const recorded = [
     size: VIDEO_SIZE,
     uri: videoUri("01a202c0-543b-7499-b2b5-ecd1d33b5c68"),
   },
-  { kind: "text", text: `Frames from the video ${VIDEO} (2:08, 4096×2154), in order, at: 0:00.0.` },
+  {
+    kind: "text",
+    text: `Frames from the video ${VIDEO} (2:08, 4096×2154), in order, at: 0:00.0.`,
+  },
   { kind: "text", text: `${VIDEO} frame at 0:00.0` },
-  { kind: "image", id: "frame-0", mimeType: "image/jpeg", name: `${VIDEO} frame at 0:00.0` },
+  {
+    kind: "image",
+    id: "frame-0",
+    mimeType: "image/jpeg",
+    name: `${VIDEO} frame at 0:00.0`,
+  },
   { kind: "text", text: "FUCKING" },
   {
     kind: "file",
@@ -119,7 +127,13 @@ function replayedRow(): AcpmuxRow {
     kind: "user",
     at: Date.now() - 10_000,
     text: "ok i guess we still haven't fixed this",
-    images: [{ id: "frame-0", mimeType: "image/jpeg", name: `${VIDEO} frame at 0:00.0` }],
+    images: [
+      {
+        id: "frame-0",
+        mimeType: "image/jpeg",
+        name: `${VIDEO} frame at 0:00.0`,
+      },
+    ],
     inlineParts: recordedPromptParts({ inlineParts: recorded }),
   };
 }
@@ -151,15 +165,31 @@ test("(a) a link chip's unknown size is never sent as 0 bytes", () => {
     expect(built.display.find((one) => one.kind === "file")?.size).toBeUndefined();
   }
   // A known size, even 0 of a typed file, is kept.
-  const empty: ComposerAttachment = { ...dropped, id: "empty", mimeType: "text/plain" };
+  const empty: ComposerAttachment = {
+    ...dropped,
+    id: "empty",
+    mimeType: "text/plain",
+  };
   const typed = inlinePrompt(`${inlineToken("empty")} look`, [empty])!;
   expect(typed.display[0]?.size).toBe(0);
 });
 
 test("(a) a recorded 0 with no type reads back as no size", () => {
-  const part = normalizePromptContentPart({ kind: "file", name: "image.png", size: 0, uri: IMAGE_URI });
+  const part = normalizePromptContentPart({
+    kind: "file",
+    name: "image.png",
+    size: 0,
+    uri: IMAGE_URI,
+  });
   expect(part?.kind === "file" && part.size).toBeUndefined();
-  expect(normalizePromptContentPart({ kind: "file", name: "a.txt", mimeType: "text/plain", size: 0 })).toMatchObject({
+  expect(
+    normalizePromptContentPart({
+      kind: "file",
+      name: "a.txt",
+      mimeType: "text/plain",
+      size: 0,
+    }),
+  ).toMatchObject({
     size: 0,
   });
 });
@@ -216,7 +246,10 @@ test("(b) one video is one tile in the pane's own row before acpmux's echo", asy
 
 test("(b) one video attached once is one tile", async () => {
   const once = recorded.filter((_, index) => index !== 7);
-  const row = { ...replayedRow(), inlineParts: recordedPromptParts({ inlineParts: once }) };
+  const row = {
+    ...replayedRow(),
+    inlineParts: recordedPromptParts({ inlineParts: once }),
+  };
   const container = await render(row);
   expect(videoTiles(container)).toBe(1);
   expect(chipText(container).some((text) => text.includes(".mov"))).toBe(false);
@@ -231,30 +264,35 @@ test("(c) a played video that never gets data fails once instead of spinning", a
   Object.defineProperty(video, "paused", { get: () => paused });
   Object.defineProperty(video, "readyState", { get: () => ready });
   let stalls = 0;
-  const stop = watchPlaybackStall(video, () => (stalls += 1), 20);
-  // Paused (never asked to play): no clock.
-  await new Promise((resolve) => setTimeout(resolve, 40));
-  expect(stalls).toBe(0);
-  // Asked to play, no data ever: it fails once.
-  paused = false;
-  video.dispatchEvent(new dom!.window.Event("play"));
-  await new Promise((resolve) => setTimeout(resolve, 40));
-  video.dispatchEvent(new dom!.window.Event("waiting"));
-  await new Promise((resolve) => setTimeout(resolve, 40));
-  expect(stalls).toBe(1);
-  stop();
-  // A player that gets its data in time never fails.
-  const fine = dom!.window.document.createElement("video");
-  Object.defineProperty(fine, "paused", { get: () => false });
-  Object.defineProperty(fine, "readyState", { get: () => ready });
-  let fineStalls = 0;
-  const stopFine = watchPlaybackStall(fine, () => (fineStalls += 1), 30);
-  fine.dispatchEvent(new dom!.window.Event("play"));
-  ready = 4;
-  fine.dispatchEvent(new dom!.window.Event("canplay"));
-  await new Promise((resolve) => setTimeout(resolve, 60));
-  expect(fineStalls).toBe(0);
-  stopFine();
+  jest.useFakeTimers();
+  try {
+    const stop = watchPlaybackStall(video, () => (stalls += 1), 20);
+    // Paused (never asked to play): no clock.
+    jest.advanceTimersByTime(40);
+    expect(stalls).toBe(0);
+    // Asked to play, no data ever: it fails once.
+    paused = false;
+    video.dispatchEvent(new dom!.window.Event("play"));
+    jest.advanceTimersByTime(40);
+    video.dispatchEvent(new dom!.window.Event("waiting"));
+    jest.advanceTimersByTime(40);
+    expect(stalls).toBe(1);
+    stop();
+    // A player that gets its data in time never fails.
+    const fine = dom!.window.document.createElement("video");
+    Object.defineProperty(fine, "paused", { get: () => false });
+    Object.defineProperty(fine, "readyState", { get: () => ready });
+    let fineStalls = 0;
+    const stopFine = watchPlaybackStall(fine, () => (fineStalls += 1), 30);
+    fine.dispatchEvent(new dom!.window.Event("play"));
+    ready = 4;
+    fine.dispatchEvent(new dom!.window.Event("canplay"));
+    jest.advanceTimersByTime(60);
+    expect(fineStalls).toBe(0);
+    stopFine();
+  } finally {
+    jest.useRealTimers();
+  }
 });
 
 test("(c) a sent image whose read never answers says it failed, not a blank slot forever", async () => {
@@ -268,7 +306,10 @@ test("(c) a sent image whose read never answers says it failed, not a blank slot
     realTimeout(fn, ms === IMAGE_READ_MS ? 0 : ms)) as typeof setTimeout;
   let status = "";
   function Probe() {
-    status = useStableImage({ id: "never-answers", read: () => new Promise<never>(() => {}) }).status;
+    status = useStableImage({
+      id: "never-answers",
+      read: () => new Promise<never>(() => {}),
+    }).status;
     return null;
   }
   try {
