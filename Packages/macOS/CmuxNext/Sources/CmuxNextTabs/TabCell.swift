@@ -629,7 +629,9 @@ final class TabCell {
                 // the rest width above keeps the suffix inside that visible
                 // area before the close button or badge.
                 fadeWidth: m.titleFadeWidth,
-                restWidth: restWidth
+                restWidth: restWidth,
+                // The fade never ends on a fragment of a word's first glyph ("New Tab" read "New" and a tick).
+                wordStarts: titleLayer.wordStarts
             )
             // A density's `tabTitleDrop` (Chrome's 1 pt: it centers the title over the shape and the toolbar's 1 pt
             // overlap, so its baseline sits 19 pt under a 28 pt shape's top, Helium's 18).
