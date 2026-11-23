@@ -748,6 +748,33 @@ impl<H: Http> CloudClient<H> {
         super::github_status::reply_for(&answer)
     }
 
+    /// The person's additions list (`POST /v1/install-counts/additions` on the environment's
+    /// platform as this machine's `vm` install, `additions.rs`). As [`Self::post_as_install`],
+    /// only a 401 or an `auth.*` 403 drops the cached bearer and retries once: a 403
+    /// `install_counts.not_shared` is the answer.
+    pub fn install_additions(&mut self, body: &Value, now_wall_ms: u64) -> Answer {
+        let url =
+            format!("{}{}", self.bound.env.platform_origin(), super::additions::ADDITIONS_PATH);
+        let send = |client: &mut Self| -> Option<(u16, Value)> {
+            let token = client.token(now_wall_ms).ok()?;
+            client.http.post(&url, body, Some(&token)).ok()
+        };
+        let Some((mut status, mut answer)) = send(self) else { return Answer::Transport };
+        let stale = status == 401
+            || (status == 403
+                && answer
+                    .field("error")
+                    .field("code")
+                    .as_str()
+                    .is_some_and(|c| c.starts_with("auth.")));
+        if stale {
+            self.cached = None;
+            let Some(again) = send(self) else { return Answer::Transport };
+            (status, answer) = again;
+        }
+        Answer::Http { status, body: answer }
+    }
+
     /// A GitHub token for this machine (`POST /v1/integrations/github/token`
     /// as its `vm` install, the machine's team).
     pub fn github_token(&mut self, ask: &super::github::TokenAsk, now_wall_ms: u64) -> Answer {

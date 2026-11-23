@@ -71,9 +71,12 @@ class SupersededGateTest(unittest.TestCase):
     def test_the_gate_runs_the_preflight_check_on_the_control_pool_without_secrets(self) -> None:
         all_jobs = jobs()
         gate, preflight = all_jobs["push-gate"], all_jobs["tree-preflight"]
-        # The one-minute control pool, never GitHub-hosted (its queue waited hours on 2026-11-18).
+        # The one Linux label (scripts/ci/one_linux_label.py), never GitHub-hosted for an own-branch push (its
+        # queue waited hours on 2026-11-18).
         self.assertEqual(gate["runs-on"],
-                         "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_2 }}")
+                         "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == "
+                         "'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && "
+                         "(vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}")
         self.assertNotIn("environment", gate, "the gate must hold no secret")
         self.assertEqual(gate.get("continue-on-error"), "true", "a failed gate must not fail the run")
         mine, theirs = step(gate, "stale"), step(preflight, "stale")

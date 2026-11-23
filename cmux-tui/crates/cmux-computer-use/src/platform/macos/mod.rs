@@ -9,9 +9,11 @@
 
 mod actions;
 mod activation;
+mod alerts;
 mod ax;
 mod capture;
 mod cgwindows;
+mod displays;
 mod input;
 mod key_focus;
 mod keymap;
@@ -903,5 +905,17 @@ impl Desktop for MacDesktop {
             }
         }
         self.request_direct(which)
+    }
+
+    fn system_alerts(&self) -> DResult<Vec<crate::alerts::RawAlert>> {
+        Ok(alerts::list())
+    }
+
+    fn press_alert_button(&self, alert: &crate::alerts::RawAlert, title: &str) -> DResult<()> {
+        alerts::press(alert, title)
+    }
+
+    fn displays(&self) -> DResult<Vec<crate::displays::Display>> {
+        displays::list()
     }
 }

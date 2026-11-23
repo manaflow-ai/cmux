@@ -470,6 +470,11 @@ pub(super) async fn enroll_at(
     if let Err(e) = port.resume().await {
         tracing::debug!("sign-in enroll: no join to finish: {e:#}");
     }
+    // A proposal another account's sign-in left unfinished is set aside, so this join's mint and
+    // redeem make a proposal of their own, under this account.
+    if recovery::retire_other_account_pending_at(home, current, account).is_err() {
+        return EnrollOutcome::Unavailable;
+    }
     let Ok(mut record) = load_at(home) else { return EnrollOutcome::Unavailable };
     // The last person's sign-in join, recorded under their account, and another person signs in
     // (an account switch whose sign-out's leave acpmux never got): that person's leave is

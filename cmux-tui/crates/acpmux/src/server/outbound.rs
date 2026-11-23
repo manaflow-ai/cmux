@@ -252,6 +252,7 @@ struct Shared {
     /// True once the queue overran or its pump ended.
     closed: watch::Sender<bool>,
     bound: usize,
+    raised: Arc<Raised>,
     /// [`TOTAL_BYTE_BOUND`] and [`FAIR_SHARE`], or a test's.
     total_bound: usize,
     fair_share: usize,
@@ -265,10 +266,15 @@ impl Shared {
     }
 
     /// Queues `line` in `lane` with the lock held; false (and nothing queued) once it overran.
-    fn push_locked(&self, state: &mut State, line: Line, lane: Lane) -> bool {
+    fn push_locked(&self, state: &mut State, mut line: Line, lane: Lane) -> bool {
         if state.overrun.is_some() || state.ended {
             return false;
         }
+        // Read after the raise for this line (its caller raised first, `Conn::raise_gate`).
+        line.needs = Needs {
+            durable: self.raised.durable.load(Ordering::SeqCst),
+            written: self.raised.written.load(Ordering::SeqCst),
+        };
         let size = line.text.len();
         // A reader with nothing left to take is not behind.
         if state.held == 0 {
@@ -348,14 +354,35 @@ impl Queue<'_> {
     }
 
     pub(super) fn push_in(&mut self, line: String, lane: Lane) -> bool {
-        self.shared.push_locked(&mut self.state, Line { text: line, ticket: None }, lane)
+        self.shared.push_locked(&mut self.state, Line { text: line, ..Line::default() }, lane)
     }
 }
 
 /// A control ticket stays held through the pump and the transport channel.
+#[derive(Default)]
 pub(super) struct Line {
     pub(super) text: String,
     pub(super) ticket: Option<super::controls::Ticket>,
+    /// What the journal must have reached before it goes out: set when it is queued.
+    pub(super) needs: Needs,
+}
+
+/// The journal's LSNs a line may show (`durable_gate.rs`): the connection's [`Raised`] when it
+/// was queued, so it waits for the changes acknowledged before it, never for later ones.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) struct Needs {
+    /// The acknowledged changes: their records durable.
+    pub(super) durable: u64,
+    /// The kept changes: their records written.
+    pub(super) written: u64,
+}
+
+/// The highest LSNs a connection's lines raised so far (`durable_gate::Gate::raise`); every
+/// line queued after a raise carries it ([`Needs`]). Zero without the journal.
+#[derive(Default)]
+pub(super) struct Raised {
+    pub(super) durable: AtomicU64,
+    pub(super) written: AtomicU64,
 }
 
 impl Outbound {
@@ -517,6 +544,11 @@ impl Pump {
         true
     }
 
+    /// What this queue's lines were raised to (the durable gate raises it).
+    pub(super) fn raised(&self) -> Arc<Raised> {
+        Arc::clone(&self.shared.raised)
+    }
+
     /// The transport is gone, or the queue overran: the pump stops.
     pub(super) async fn stopped(&self) {
         let mut closed = self.shared.closed.subscribe();
@@ -607,6 +639,7 @@ pub(super) fn start_limited(
         wake: Notify::new(),
         closed,
         bound,
+        raised: Arc::default(),
         total_bound,
         fair_share,
         reader_stall,

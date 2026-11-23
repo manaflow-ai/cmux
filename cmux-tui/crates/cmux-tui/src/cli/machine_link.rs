@@ -67,18 +67,18 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     Some(doctor(&global, name))
 }
 
-fn link_socket(daemon: &Path) -> PathBuf {
+pub(super) fn link_socket(daemon: &Path) -> PathBuf {
     let stem = daemon.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
     daemon.with_file_name(format!("{stem}.link.sock"))
 }
 
 /// One request line, then one answer line (or `pending` lines first).
-struct Conversation {
+pub(super) struct Conversation {
     reader: BufReader<UnixStream>,
 }
 
 impl Conversation {
-    fn start(socket: &Path, request: &Value) -> Result<Self, (String, String)> {
+    pub(super) fn start(socket: &Path, request: &Value) -> Result<Self, (String, String)> {
         let mut stream = UnixStream::connect(socket).map_err(|error| {
             (
                 "machine.link_unavailable".to_owned(),
@@ -98,7 +98,7 @@ impl Conversation {
         Ok(Self { reader: BufReader::new(stream) })
     }
 
-    fn next(&mut self) -> Result<Value, (String, String)> {
+    pub(super) fn next(&mut self) -> Result<Value, (String, String)> {
         let mut line = String::new();
         match self.reader.read_line(&mut line) {
             Ok(0) => Err(("machine.closed".to_owned(), "the link closed".to_owned())),
@@ -109,7 +109,7 @@ impl Conversation {
     }
 }
 
-fn refused(answer: &Value) -> Option<(String, String)> {
+pub(super) fn refused(answer: &Value) -> Option<(String, String)> {
     let code = answer.get("error").and_then(Value::as_str)?;
     let message = answer.get("message").and_then(Value::as_str).unwrap_or_default();
     let text = match code {
@@ -124,7 +124,7 @@ fn refused(answer: &Value) -> Option<(String, String)> {
 }
 
 /// The one Mac `name` picks from the hostd list, or why not.
-fn pick<'a>(machines: &'a [Value], name: &str) -> Result<&'a Value, String> {
+pub(super) fn pick<'a>(machines: &'a [Value], name: &str) -> Result<&'a Value, String> {
     let text =
         |m: &Value, key: &str| m.get(key).and_then(Value::as_str).unwrap_or_default().to_owned();
     // Not this Mac: neither this build nor another build of the same computer.

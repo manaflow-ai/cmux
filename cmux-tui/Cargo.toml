@@ -85,6 +85,7 @@ members = [
     "crates/cmux-hub-host",
     "crates/cmux-signed-bundle",
     "crates/cmux-signed-envelope",
+    "crates/cmux-web-pieces",
     "crates/cmux-scope",
     "crates/cmux-file-lock",
     "crates/cmux-files-host",
@@ -119,6 +120,7 @@ members = [
     "crates/cmux-customize",
     "crates/cmux-customize-recipes",
     "crates/cmux-theme-tokens",
+    "crates/cmux-theme-pack",
     "crates/cmux-image-linear",
     "crates/cmux-app-manifest",
     "crates/cmux-extension-sdk",
@@ -141,6 +143,7 @@ members = [
     "crates/cmux-cookie-sync",
     "crates/cmux-browser-import",
     "crates/cmux-terminal-prediction",
+    "crates/cmux-terminal-projection",
     "crates/cmux-link",
     "crates/cmux-pane-protocol",
     "crates/cmux-app-host",
@@ -220,6 +223,7 @@ default-members = [
     "crates/cmux-hub-host",
     "crates/cmux-signed-bundle",
     "crates/cmux-signed-envelope",
+    "crates/cmux-web-pieces",
     "crates/cmux-scope",
     "crates/cmux-file-lock",
     "crates/cmux-deadline",
@@ -251,6 +255,7 @@ default-members = [
     "crates/cmux-customize",
     "crates/cmux-customize-recipes",
     "crates/cmux-theme-tokens",
+    "crates/cmux-theme-pack",
     "crates/cmux-image-linear",
     "crates/cmux-app-manifest",
     "crates/cmux-extension-sdk",
@@ -271,6 +276,7 @@ default-members = [
     "crates/cmux-cookie-sync",
     "crates/cmux-browser-import",
     "crates/cmux-terminal-prediction",
+    "crates/cmux-terminal-projection",
     "crates/cmux-link",
     "crates/cmux-pane-protocol",
     "crates/cmux-app-host",
@@ -344,6 +350,7 @@ cmux-git = { path = "crates/cmux-git" }
 cmux-supervise-core = { path = "crates/cmux-supervise-core" }
 cmux-file-lock = { path = "crates/cmux-file-lock" }
 cmux-signed-envelope = { path = "crates/cmux-signed-envelope" }
+cmux-web-pieces = { path = "crates/cmux-web-pieces" }
 cmux-projection = { path = "crates/cmux-projection" }
 cmux-deadline = { path = "crates/cmux-deadline" }
 cmux-worktree-care = { path = "crates/cmux-worktree-care" }
@@ -376,6 +383,7 @@ acpmux-hot = { path = "crates/acpmux-hot" }
 cmux-chat-index = { path = "crates/cmux-chat-index" }
 cmux-palette-ranker = { path = "crates/cmux-palette-ranker" }
 cmux-theme-tokens = { path = "crates/cmux-theme-tokens" }
+cmux-theme-pack = { path = "crates/cmux-theme-pack" }
 cmux-image-linear = { path = "crates/cmux-image-linear" }
 cmux-action-catalog = { path = "crates/cmux-action-catalog" }
 cmux-host-budget = { path = "crates/cmux-host-budget" }
