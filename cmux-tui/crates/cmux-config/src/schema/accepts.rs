@@ -39,6 +39,14 @@ pub enum Accepted {
         name: &'static str,
         values: Option<Vec<String>>,
     },
+    /// A `json` row: a value matching the row's JSON Schema, and what was
+    /// wrong with this one (`{at, why, token?}` per problem, the shape's first
+    /// mismatch or the sidebar row reducer's problems).
+    Json {
+        /// Boxed: a Refusal stays small enough to return by value.
+        schema: Box<Value>,
+        problems: Vec<Value>,
+    },
 }
 
 impl Accepted {
@@ -54,13 +62,60 @@ impl Accepted {
             }
             Accepted::Shape(shape) => json!({"shape": shape}),
             Accepted::Domain { name, values } => json!({"domain": name, "values": values}),
+            Accepted::Json { schema, problems } => {
+                json!({"shape": "JSON matching the schema", "schema": schema, "problems": problems})
+            }
         }
+    }
+
+    /// The first problem in words (`sidebar.workspaceRow.lines[3]: tooManyLines`), for the
+    /// refusal's message.
+    pub fn first_problem(&self) -> Option<String> {
+        let Accepted::Json { problems, .. } = self else { return None };
+        let problem = problems.first()?;
+        let at = problem.get("at").and_then(Value::as_str).unwrap_or_default();
+        let why = problem.get("why").and_then(Value::as_str).unwrap_or_default();
+        Some(match problem.get("token").and_then(Value::as_str) {
+            Some(token) => format!("{at}: {why} ({token})"),
+            None if at.is_empty() => why.to_owned(),
+            None => format!("{at}: {why}"),
+        })
+    }
+}
+
+/// The problems of `value` for a `json` row: the shape's first mismatch, then
+/// the row's domain's own (the sidebar row reducer's). Empty: accepted.
+fn json_problems(row: &Row, shape: &Value, value: &Value) -> Vec<Value> {
+    if let Err(why) = super::shape::matches(shape, value) {
+        let (at, why) = match why.split_once(": ") {
+            Some((path, why)) => (format!("{}{path}", row.key), why.to_owned()),
+            None => (row.key.clone(), why),
+        };
+        return vec![json!({"at": at, "why": why})];
+    }
+    match row.validation {
+        super::Validation::Domain(domain) if super::sidebar_rows::is_sidebar_rows(domain) => {
+            super::sidebar_row_problems(domain, value)
+        }
+        _ => Vec::new(),
     }
 }
 
 /// `Ok` when the app would apply `value` for `row` without a diagnostic.
 /// Numbers outside the range are refused although the parser clamps them.
 pub fn accepts(row: &Row, value: &Value, domains: &Domains) -> Result<(), Refusal> {
+    if let Kind::Json(shape) = &row.kind {
+        let problems = json_problems(row, shape, value);
+        if problems.is_empty() {
+            return Ok(());
+        }
+        return Err(Refusal::InvalidValue {
+            key: row.key.clone(),
+            kind: row.kind.name(),
+            accepted: Accepted::Json { schema: Box::new(shape.clone()), problems },
+            value: value.clone(),
+        });
+    }
     if row_accepts(row, value, domains) {
         return Ok(());
     }
@@ -106,6 +161,10 @@ pub fn accepts(row: &Row, value: &Value, domains: &Domains) -> Result<(), Refusa
         Accepted::Shape(
             "an object of transcript look tokens, each in its range (docs/cmux-next/transcript-customization.md)",
         )
+    } else if row.validation == super::Validation::Domain(DomainKind::Hosts) {
+        Accepted::Shape(
+            "an array of hosts, each with a unique label and endpoints (ssh addresses tried in order)",
+        )
     } else if row.validation == super::Validation::Domain(DomainKind::AppId) {
         Accepted::Shape("an app id, publisher/name in lowercase letters, digits and -")
     } else {
@@ -121,16 +180,26 @@ pub fn accepts(row: &Row, value: &Value, domains: &Domains) -> Result<(), Refusa
 
 /// The stored value when valid, else the default (what the app applies).
 /// An unset row that replaced a retired key reads that key through the
-/// retired-keys table (`super::retired`), as the app does.
+/// retired-keys table (`super::retired`), as the app does, and an old choice
+/// value reads as its replacement (`super::aliases`).
 pub fn effective_value(row: &Row, root: &Value, domains: &Domains) -> Option<Value> {
     let stored = crate::value::value_at(root, &row.path).or_else(|| {
         let replaced = super::replaced_by_row(&row.path)?;
         replaced.read(crate::value::value_at(root, &replaced.old)?)
     });
+    let stored = stored.map(|stored| aliased(row, stored));
     match stored {
-        Some(stored) if row_accepts(row, stored, domains) => Some(stored.clone()),
+        Some(stored) if row_accepts(row, &stored, domains) => Some(stored),
         _ => row.default.clone(),
     }
+}
+
+/// `value` as the row reads it: an old choice value as its replacement.
+pub fn aliased(row: &Row, value: &Value) -> Value {
+    value
+        .as_str()
+        .and_then(|old| super::choice_alias(&row.key, old))
+        .map_or_else(|| value.clone(), |new| Value::String(new.to_owned()))
 }
 
 fn is_backdrop_selection(row: &Row) -> bool {
@@ -159,6 +228,9 @@ fn accepts_legacy_workspace_color_indicator(row: &Row, value: &Value) -> bool {
 }
 
 fn row_accepts(row: &Row, value: &Value, domains: &Domains) -> bool {
+    if let Kind::Json(shape) = &row.kind {
+        return json_problems(row, shape, value).is_empty();
+    }
     if accepts_legacy_workspace_color_indicator(row, value) {
         return true;
     }
@@ -203,6 +275,9 @@ fn row_accepts(row: &Row, value: &Value, domains: &Domains) -> bool {
         }
         super::Validation::Domain(DomainKind::TranscriptTokens) => {
             return crate::transcript_look::accepts_tokens(value);
+        }
+        super::Validation::Domain(DomainKind::Hosts) => {
+            return crate::hosts::accepts(value);
         }
         _ => {}
     }
@@ -279,6 +354,7 @@ fn is_accepted(kind: &Kind, value: &Value, domains: &Domains) -> bool {
         Kind::SoundRules => {
             value.as_object().is_some_and(|members| members.values().all(is_sound_rule))
         }
+        Kind::Json(shape) => super::shape::matches(shape, value).is_ok(),
     }
 }
 
@@ -443,6 +519,9 @@ fn accepted(kind: &Kind, domains: &Domains) -> Accepted {
         Kind::SoundRules => Accepted::Shape(
             "an object of sound names or {\"sound\": name, \"volume\": 0...1, \"events\": {event: name}}",
         ),
+        Kind::Json(shape) => {
+            Accepted::Json { schema: Box::new(shape.clone()), problems: Vec::new() }
+        }
     }
 }
 
@@ -463,7 +542,11 @@ fn domain_name(kind: DomainKind) -> &'static str {
         DomainKind::CustomDensities => "custom_densities",
         DomainKind::CommandLabels => "command_labels",
         DomainKind::AppId => "app_id",
+        DomainKind::SidebarRowLines => "sidebar_row_lines",
+        DomainKind::SidebarRowLinesByKind => "sidebar_row_lines_by_kind",
+        DomainKind::SidebarRowLinesByAgent => "sidebar_row_lines_by_agent",
         DomainKind::TranscriptTokens => "transcript_tokens",
+        DomainKind::Hosts => "hosts",
     }
 }
 

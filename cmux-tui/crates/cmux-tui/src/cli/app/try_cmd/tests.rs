@@ -12,8 +12,8 @@ use super::helper::{self, Signing};
 use super::live::{self, Daemon, Phases, Store};
 use super::resolve::{self, Spec, Unresolved};
 use super::{
-    ChannelApply, Command, Live, Plan, Scope, apply_channel, choose, finish, parse, plan_human,
-    plan_json, try_live, undo_live,
+    ChannelApply, Command, Live, Plan, Scope, apply_channel, choose, finish, nearest, parse,
+    plan_human, plan_json, try_live, undo_live,
 };
 
 const COMMIT: &str = "0123456789abcdef0123456789abcdef01234567";
@@ -713,7 +713,9 @@ fn app_try_plan_picks_live_full_and_none() {
         {"build": "400", "commit": "aaaaaaaaaa", "installed": true, "switchable": false},
     ]});
     let plan = choose(COMMIT, Some("fedcba9"), &found(good_targets()), Some(Ok(&listing)), base);
-    let Plan::Full { build, from } = plan else { panic!("expected full, got {plan:?}") };
+    let Plan::Full { build, from, nearest: false } = plan else {
+        panic!("expected full, got {plan:?}")
+    };
     assert_eq!((build["build"].as_str(), from.as_str()), (Some("500"), "400"));
 
     // Full too when there is no live file at all.
@@ -963,6 +965,156 @@ fn app_try_undo_refuses_into_another_build_with_the_same_rust_bytes() {
     assert!(error.contains("at fedcba9 now, not 89abcde"), "{error}");
     assert_eq!(read(&fixture.app, "cmux").as_deref(), Some(NEW_CMUX));
     assert_eq!(read(&fixture.app, "cmux-holder"), None);
+}
+
+// ------------------------------------------------------------------ the nearest full build
+
+/// Commits of a linear feat-cmux-next, oldest first, and a side branch merged into it.
+const C0: &str = "c000000000000000000000000000000000000000";
+const C1: &str = "c100000000000000000000000000000000000000";
+const C2: &str = "c200000000000000000000000000000000000000";
+const C3: &str = "c300000000000000000000000000000000000000";
+const SIDE: &str = "5dde000000000000000000000000000000000000";
+
+fn listed(sha: &str, parents: &[&str]) -> Value {
+    json!({"sha": sha, "parents": parents.iter().map(|p| json!({"sha": p})).collect::<Vec<_>>()})
+}
+
+/// GitHub's compare of C0...C3: C1, a side branch commit from before C0, C2 merging it, C3.
+fn compare_body(status: &str, ahead_by: u64) -> Vec<u8> {
+    serde_json::to_vec(&json!({
+        "status": status, "ahead_by": ahead_by, "behind_by": 0,
+        // Listed out of topological order on purpose.
+        "commits": [listed(C2, &[C1, SIDE]), listed(SIDE, &["0dd0000000000000000000000000000000000000"]),
+                    listed(C1, &[C0]), listed(C3, &[C2])],
+    }))
+    .unwrap()
+}
+
+#[test]
+fn app_try_descent_names_every_commit_that_contains_the_target() {
+    let descent = resolve::descent_in(C0, 200, &compare_body("ahead", 4)).unwrap();
+    assert!(descent.head_contains() && descent.complete);
+    for sha in [C0, C1, C2, C3] {
+        assert!(descent.has(sha), "{sha}");
+        // A feed names a build's commit short.
+        assert!(descent.has(&sha[..10].to_ascii_uppercase()), "{sha}");
+    }
+    // The merged side branch's own commit was never built on top of the target.
+    assert!(!descent.has(SIDE));
+    // Too short to name one commit, or not hex.
+    assert!(!descent.has("c1000") && !descent.has("zzzzzzzzzz"));
+    // GitHub lists at most 250 commits: the rest are unknown, the head still contains it.
+    let truncated = resolve::descent_in(C0, 200, &compare_body("ahead", 900)).unwrap();
+    assert!(!truncated.complete && truncated.head_contains());
+    let apart = resolve::descent_in(C0, 200, &compare_body("diverged", 4)).unwrap();
+    assert!(!apart.head_contains());
+    assert_eq!(
+        resolve::descent_path(C0, "c3000000"),
+        format!("/repos/manaflow-ai/cmux/compare/{C0}...c3000000")
+    );
+    let limited = br#"{"message": "API rate limit exceeded for 1.2.3.4."}"#;
+    assert_eq!(resolve::descent_in(C0, 403, limited), Err(Unresolved::RateLimited));
+    assert_eq!(resolve::descent_in(C0, 404, b"{}"), Err(Unresolved::NotFound));
+    assert!(matches!(resolve::descent_in(C0, 200, b"{}"), Err(Unresolved::Other(_))));
+}
+
+fn build(number: &str, commit: &str, installed: bool, health: &str) -> Value {
+    json!({"build": number, "commit": &commit[..10], "installed": installed,
+           "switchable": !installed && health != "pulled", "health": health})
+}
+
+fn feed(installed: &str, builds: Vec<Value>) -> Value {
+    json!({"installed": installed, "switches": true, "builds": builds})
+}
+
+#[test]
+fn app_try_takes_the_nearest_build_that_contains_the_commit() {
+    let descent = resolve::descent_in(C0, 200, &compare_body("ahead", 4)).unwrap();
+    let old = "0dd0000000000000000000000000000000000000";
+    let listing = feed(
+        "400",
+        vec![
+            build("700", C3, false, "pending"),
+            build("600", C2, false, "promoted"),
+            build("500", C1, false, "promoted"),
+            build("400", old, true, "promoted"),
+        ],
+    );
+    // The oldest build after the commit that holds it, not the newest.
+    let plan = nearest(C0, &listing, Ok(&descent), vec![]);
+    let Plan::Full { build: picked, from, nearest: true } = &plan else {
+        panic!("expected the nearest full build, got {plan:?}")
+    };
+    assert_eq!((picked["build"].as_str(), from.as_str()), (Some("500"), "400"));
+    let text = super::plan_human(&plan, C0, Path::new("/A.app"), None);
+    assert!(text.contains("500") && text.contains(&C1[..10]) && text.contains(&C0[..12]), "{text}");
+    assert_eq!(super::plan_json(&plan, C0, Path::new("/A.app"), None)["nearest"], true);
+
+    // A pulled build is passed over for the next one.
+    let mut pulled = listing.clone();
+    pulled["builds"][2] = build("500", C1, false, "pulled");
+    let Plan::Full { build: picked, .. } = nearest(C0, &pulled, Ok(&descent), vec![]) else {
+        panic!("expected full")
+    };
+    assert_eq!(picked["build"], "600");
+
+    // Never a build older than the app's own: that would take away what it runs now.
+    let newer_app = feed(
+        "600",
+        vec![
+            build("700", C3, false, "pending"),
+            build("600", "0dd1".repeat(10).as_str(), true, "promoted"),
+            build("500", C1, false, "promoted"),
+        ],
+    );
+    let Plan::Full { build: picked, .. } = nearest(C0, &newer_app, Ok(&descent), vec![]) else {
+        panic!("expected full")
+    };
+    assert_eq!(picked["build"], "700");
+
+    // The app's own build already contains the commit: nothing to install, and exit 0.
+    let have =
+        feed("600", vec![build("700", C3, false, "pending"), build("600", C2, true, "promoted")]);
+    let plan = nearest(C0, &have, Ok(&descent), vec![]);
+    let Plan::Have { build: own } = &plan else { panic!("expected have, got {plan:?}") };
+    assert_eq!(own["build"], "600");
+    assert_eq!(plan.path(), "current");
+
+    // Further back than GitHub lists: the newest build, which the compare says contains it.
+    let truncated = resolve::descent_in(C0, 200, &compare_body("ahead", 900)).unwrap();
+    let far = feed(
+        "400",
+        vec![build("900", &"f".repeat(40), false, "pending"), build("400", old, true, "promoted")],
+    );
+    let Plan::Full { build: picked, .. } = nearest(C0, &far, Ok(&truncated), vec![]) else {
+        panic!("expected full")
+    };
+    assert_eq!(picked["build"], "900");
+}
+
+#[test]
+fn app_try_nearest_says_why_when_no_build_contains_the_commit() {
+    let old = "0dd0000000000000000000000000000000000000";
+    let listing = feed(
+        "400",
+        vec![build("500", old, false, "promoted"), build("400", old, true, "promoted")],
+    );
+    // A commit newer than every build (or a PR head that never landed as itself).
+    let apart = resolve::descent_in(C0, 200, &compare_body("behind", 0)).unwrap();
+    let earlier = vec!["the nightly feed has no build".to_owned()];
+    let Plan::None { why } = nearest(C0, &listing, Ok(&apart), earlier) else {
+        panic!("expected none")
+    };
+    assert_eq!(why.len(), 2, "{why:?}");
+    assert!(why[1].contains("500") && why[1].contains(&C0[..12]), "{why:?}");
+    // GitHub could not answer: the reason says so and nothing is installed.
+    let Plan::None { why } = nearest(C0, &listing, Err("rate limited"), vec![]) else {
+        panic!("expected none")
+    };
+    assert!(why[0].contains("rate limited"), "{why:?}");
+    // The newest build compared with is the highest number, whatever order the feed lists.
+    assert_eq!(super::newest_built(&listing), Some(&old[..10]));
 }
 
 // ------------------------------------------------------------------ the Screen Sharing helper
