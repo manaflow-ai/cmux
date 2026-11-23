@@ -110,6 +110,9 @@ impl Hub {
             && session.agent_requests.load(Ordering::SeqCst) == 0
             // Nor one whose cut turn's automatic continuation waits or starts (`auto_resume.rs`).
             && !self.continuation_pending(session)
+            // Nor one whose agent holds a timer not yet fired (a /loop's wakeup or cron): the
+            // harness's exit would end the loop (`agent_timer.rs`).
+            && self.pending_timer(session, crate::store::now_ms()).is_none()
             // A Claude chat with turns but none stored would wake as a fresh conversation with
             // its transcript restored into the prompt (`claude_resume_refusal`): kept awake when
             // its agent did work there; one that only got agent errors loses nothing (cmux#48917).
@@ -596,18 +599,25 @@ impl Hub {
     /// records, so call it off the async workers.
     #[cfg(test)]
     pub(crate) fn sessions_at_work(&self) -> usize {
-        self.sessions().iter().filter(|s| self.at_work(s).is_some()).count()
+        let now = crate::store::now_ms();
+        self.sessions().iter().filter(|s| self.at_work(s, now).is_some()).count()
     }
 
     /// Each of this daemon's own sessions at work ([`Self::sessions_at_work`]) with what holds
     /// it, for the Cloud activity report's phases (`daemon/cloud_activity.rs`). Reads the same
     /// records, so call it off the async workers as well.
     pub(crate) fn sessions_at_work_detail(&self) -> Vec<SessionAtWork> {
-        self.sessions().iter().filter_map(|s| self.at_work(s)).collect()
+        self.sessions_at_work_detail_at(crate::store::now_ms())
     }
 
-    /// What holds `session` at work, or None when nothing does.
-    fn at_work(&self, session: &Session) -> Option<SessionAtWork> {
+    /// [`Self::sessions_at_work_detail`] as of `now_ms` (Unix ms), the time an agent's pending
+    /// timer is read against (`agent_timer.rs`).
+    pub(crate) fn sessions_at_work_detail_at(&self, now_ms: u64) -> Vec<SessionAtWork> {
+        self.sessions().iter().filter_map(|s| self.at_work(s, now_ms)).collect()
+    }
+
+    /// What holds `session` at work at `now_ms`, or None when nothing does.
+    fn at_work(&self, session: &Session, now_ms: u64) -> Option<SessionAtWork> {
         let turn = self.turn_at_work(session);
         let subagents =
             session.subagents.lock().unwrap_or_else(|e| e.into_inner()).background_running();
@@ -616,7 +626,9 @@ impl Hub {
         // A move off this machine not yet committed or aborted: the chat stays frozen here until
         // its watch settles it, so a pause now would strand it mid-move.
         let moving = session.moving().is_some() && session.meta().moved_to.is_none();
-        if !(turn || subagents > 0 || below || processes > 0 || moving) {
+        // A timer its agent set that has not fired: the machine must be up when it is due.
+        let timer = self.pending_timer(session, now_ms);
+        if !(turn || subagents > 0 || below || processes > 0 || moving || timer.is_some()) {
             return None;
         }
         Some(SessionAtWork {
@@ -627,6 +639,7 @@ impl Hub {
             processes,
             below: subagents > 0 || below,
             shown: self.shown(session),
+            timer,
         })
     }
 }
@@ -646,6 +659,8 @@ pub(crate) struct SessionAtWork {
     pub below: bool,
     /// An attached client shows the chat.
     pub shown: bool,
+    /// A timer its agent set has not fired yet (`agent_timer.rs`).
+    pub timer: Option<super::agent_timer::PendingTimer>,
 }
 
 /// Whether a listen address (`127.0.0.1:47811`, `[::1]:0`, `localhost:8080`) is loopback only;
