@@ -260,7 +260,7 @@ def row_opener(ctx: Ctx) -> dict:
 
 
 def row_composer(ctx: Ctx) -> dict:
-    """Composer slash commands (#43032): a `cmux.composer.command/1` command is in `apps.composer.list` (the
+    """Composer slash commands (#43032) and `@` mentions (#49239): a `cmux.composer.command/1` command is in `apps.composer.list` (the
     `/` menu's source) and a `cmux.composer.mention/1` item answers `apps.composer.mentions`."""
     name = f"rows{ctx.token[-6:]}"
     install = install_customize(ctx, {"name": "Rows composer", "description": "A slash command and a mention.",
@@ -494,14 +494,82 @@ def row_widget(ctx: Ctx) -> dict:
 row_widget.needs_app = True
 
 
+def row_background_events(ctx: Ctx) -> dict:
+    """Background workers (#43018, #49223): an `onEvent:workspace.changed` app with no view open subscribes at
+    init and counts the workspace events three new workspaces make (`apps-logs`), with no view of it open."""
+    word = f"{ctx.token}-bg"
+    install = install_customize(ctx, {
+        "name": "Rows background", "description": "Counts workspace events with no view.",
+        "runtime": {"main": "main.js"}, "activation": ["onEvent:workspace.changed"],
+        "scopes": {"workspace:read": "Count workspace changes."}},
+        {"main.js": ("let n = 0\n"
+                     f"cmux.events.on('workspace.changed', () => {{ n += 1; console.log({json.dumps(word)} + ' event ' + n) }})\n"
+                     f"console.log({json.dumps(word)} + ' subscribed')\n"
+                     "globalThis.__cmuxAppExports = {}\n")})
+    subscribed = logs_with(ctx, f"{word} subscribed")
+    made = [ctx.rpc("action.run", {"action": "workspace.newAtBottom"}, timeout=30) for _ in range(3)]
+    counted = wait_for(lambda: (lines := logs_with(ctx, f"{word} event", wait=0)) and
+                       any(line.endswith(" event 3") or re.search(r" event ([3-9]|\d\d+)$", line) for line in lines)
+                       and lines, wait=20) or logs_with(ctx, f"{word} event", wait=0)
+    open_views = views(ctx)
+    return {"checks": {"installed": install["installed"], "subscribed_with_no_view": bool(subscribed),
+                       "counted_three_events": bool(counted) and any(re.search(r" event ([3-9]|\d\d+)$", line)
+                                                                     for line in counted),
+                       "no_view_open": not open_views},
+            "install": install, "subscribed": subscribed, "event_lines": counted, "new_workspaces": made,
+            "views": open_views}
+
+
+row_background_events.needs_app = True
+
+
+def row_status(ctx: Ctx) -> dict:
+    """Status items (#47317): a `cmux.status/1` app is listed by `apps.status.list` in the titlebar, the Mac
+    mounts it (its render export runs, `apps-logs`), and a saved manifest that moves it to the menu bar and
+    retitles it is the next answer, with no relaunch."""
+    word = f"{ctx.token} status"
+
+    def sample(title: str, placement: str) -> dict:
+        return install_customize(ctx, {
+            "name": "Rows status", "description": "A status item.", "runtime": {"main": "main.js"},
+            "implements": {"cmux.status/1": {"export": "renderStatus", "title": title, "symbol": "bolt",
+                                             "options": {"placement": placement}}}},
+            {"main.js": ("function renderStatus() {\n"
+                         f"  console.log({json.dumps(word)} + ' rendered')\n"
+                         f"  return HStack([Text({json.dumps(title)})])\n}}\n"
+                         "globalThis.__cmuxAppExports = { renderStatus }\n")})
+
+    def listed(title: str, place: str):
+        def probe():
+            reply = store_op(ctx, "apps.status.list")
+            items = [i for i in (reply.get("data") or {}).get("items") or [] if i.get("app") == CUSTOMIZE_APP]
+            return items if any(i.get("title") == title and i.get("place") == place for i in items) else None
+        return wait_for(probe, wait=15)
+
+    first = sample(f"Rows {ctx.token[-4:]}", "titlebar")
+    in_titlebar = listed(f"Rows {ctx.token[-4:]}", "titlebar")
+    rendered = logs_with(ctx, f"{word} rendered") if ctx.control else []
+    status_views = views(ctx, "cmux.status/1") if ctx.control else []
+    second = sample(f"Moved {ctx.token[-4:]}", "menuBar")
+    in_menu = listed(f"Moved {ctx.token[-4:]}", "menuBar")
+    checks = {"installed": first["installed"] and second["installed"], "listed_in_titlebar": bool(in_titlebar),
+              "save_moved_and_retitled": bool(in_menu)}
+    if ctx.control:
+        checks["mounted_by_mac"] = bool(rendered) or bool(status_views)
+    return {"checks": checks, "install": [first, second], "titlebar": in_titlebar, "menu_bar": in_menu,
+            "log_lines": rendered, "views": status_views}
+
+
 # Row name: (its function, the PRs that closed it in code). One entry per row; order is run order: each
 # customize row replaces the last one's sample, activation first (it checks no view is open), the rows that
 # open a tab last; ext_new uses folders of its own; widget relaunches the copy, so it runs last.
 ROWS = {
     "activation": (row_activation, "#43018"),
     "opener": (row_opener, "#43007"),
-    "composer": (row_composer, "#43032"),
+    "composer": (row_composer, "#43032 #49239"),
     "chat_widget": (row_chat_widget, "#43030"),
+    "background_events": (row_background_events, "#43018 #49223"),
+    "status": (row_status, "#47317"),
     "ext_new": (row_ext_new, "#43371 #44828 #44877"),
     "newtab": (row_newtab, "#42998"),
     "web_pane": (row_web_pane, "#41546 #43033"),

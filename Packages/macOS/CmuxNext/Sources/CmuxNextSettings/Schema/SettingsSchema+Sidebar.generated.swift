@@ -101,6 +101,9 @@ extension SidebarSectionsSetting {
     /// `sidebar.settleFinished`: Seen, finished agent chats fold behind a Settled (N) row at the end of their list (SidebarLayout+DoneFold); the rule is Rust's (cmux-layout-reducer settle). Off by default; the Studio look turns it on.
     public nonisolated static let settleFinishedPath = ["sidebar", "settleFinished"]
     public nonisolated static let settleFinishedDefault = false
+    /// `sidebar.showAutomaticSessions`: Sessions no person started and no chat's subagent (the daemon recorded created_by kind script at the create: a script, an automation, a launcher) fold behind an Automatic (N) row at the end of their list (SidebarLayout+DoneFold); the rule is Rust's (cmux-layout-reducer automatic). Off by default: they fold; on draws them in place.
+    public nonisolated static let showAutomaticSessionsPath = ["sidebar", "showAutomaticSessions"]
+    public nonisolated static let showAutomaticSessionsDefault = false
     /// `sidebar.showColors`.
     public nonisolated static let showColorsPath = ["sidebar", "showColors"]
     public nonisolated static let showColorsDefault = true

@@ -29,6 +29,7 @@ extension SettingsSchema {
         "browser.customSearchEngine.suggest": "domain:search_template", "tabs.newTabApp": "domain:app_id",
         "actions": "domain:config_actions", "sidebar.sections.hidden": "domain:sidebar_section_ids",
         "sidebar.sections.order": "domain:sidebar_section_ids",
+        "agentPane.display.transcriptTokens": "domain:transcript_tokens",
     ]
     static let validationByKind: [String: String] = [
         "theme": "domain:theme", "font_family": "domain:font_family", "sound": "domain:sound",

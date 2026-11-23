@@ -94,6 +94,10 @@ pub fn accepts(row: &Row, value: &Value, domains: &Domains) -> Result<(), Refusa
         Accepted::Shape(
             "an array of preset names and rule objects, each with a label and a program or match",
         )
+    } else if row.validation == super::Validation::Domain(DomainKind::TranscriptTokens) {
+        Accepted::Shape(
+            "an object of transcript look tokens, each in its range (docs/cmux-next/transcript-customization.md)",
+        )
     } else if row.validation == super::Validation::Domain(DomainKind::AppId) {
         Accepted::Shape("an app id, publisher/name in lowercase letters, digits and -")
     } else if row.validation == super::Validation::Domain(DomainKind::ConfigActions) {
@@ -194,6 +198,9 @@ fn row_accepts(row: &Row, value: &Value, domains: &Domains) -> bool {
         }
         super::Validation::Domain(DomainKind::SidebarSectionIds) => {
             return is_sidebar_section_ids(value);
+        }
+        super::Validation::Domain(DomainKind::TranscriptTokens) => {
+            return crate::transcript_look::accepts_tokens(value);
         }
         _ => {}
     }
@@ -498,6 +505,7 @@ fn domain_name(kind: DomainKind) -> &'static str {
         DomainKind::AppId => "app_id",
         DomainKind::ConfigActions => "config_actions",
         DomainKind::SidebarSectionIds => "sidebar_section_ids",
+        DomainKind::TranscriptTokens => "transcript_tokens",
     }
 }
 

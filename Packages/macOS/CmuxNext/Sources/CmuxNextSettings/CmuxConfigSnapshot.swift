@@ -97,6 +97,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var machineJoin = CmuxConfigSnapshot.machineJoinDefault
     /// `labs.liveCode`: a live code build applies Swift patches from ~/Library/Caches/cmux-next/live-code (read at launch); off when unset.
     public var liveCode = CmuxConfigSnapshot.liveCodeDefault
+    /// `labs.pauseAgentMachines`: new nonpersistent Cloud agent machines use the existing 15-minute idle pause; off when unset.
+    public var pauseAgentMachines = CmuxConfigSnapshot.pauseAgentMachinesDefault
     /// `customize.fromTheApp`: the Customize Inspector (hold Option) and right-click Customize…; off when unset.
     public var customizeFromTheApp = CmuxConfigSnapshot.customizeFromTheAppDefault
     /// `labs.agentCustomization`: Settings shows and edits Claude Code's and Codex's own MCP servers, skills and commands (`cmux agent-config`); off when unset.
@@ -224,6 +226,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var statusBehavior = StatusBehaviorSettings()
     /// `appearance.borders`; "default" when unset or invalid.
     public var borders: BorderMode = BordersSetting.fallback
+    /// `appearance.liquidGlass`; off when unset or invalid, so web pages draw no glass.
+    public var liquidGlass: Bool = LiquidGlassSetting.fallback
     /// `appearance.fontSmoothing`; `antialiased` when unset or invalid. Applied once per launch
     /// (``ProcessFontSmoothing/apply(_:to:)``), so a change shows after a restart.
     public var fontSmoothing: FontSmoothing = FontSmoothingSetting.fallback
@@ -258,6 +262,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var nativeNewTabPage: Bool = NativeNewTabPageSetting.fallback
     /// `tabs.overflow`; shrink when unset or invalid.
     public var tabOverflow: TabOverflow = TabOverflowSetting.fallback
+    /// `tabs.shellIconTheme`; default (the `>_` glyph) when unset or invalid.
+    public var tabShellIconTheme: TabShellIconTheme = TabShellIconThemeSetting.fallback
     /// `tabs.verticalTabs`; off when unset or invalid.
     public var verticalTabs: Bool = VerticalTabsSetting.fallback
     /// `tabs.verticalTabsExpandOnHover`; on when unset or invalid.
@@ -392,6 +398,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.take(Self.parseLabsText(root, path: voiceRoomURLPath, fallback: voiceRoomURLDefault), \.voiceRoomURL)
         snapshot.take(Self.parseLabsToggle(root, path: machineJoinPath, fallback: machineJoinDefault), \.machineJoin)
         snapshot.take(Self.parseLabsToggle(root, path: liveCodePath, fallback: liveCodeDefault), \.liveCode)
+        snapshot.take(Self.parseLabsToggle(root, path: pauseAgentMachinesPath, fallback: pauseAgentMachinesDefault), \.pauseAgentMachines)
         snapshot.take(Self.parseLabsToggle(root, path: customizeFromTheAppPath, fallback: customizeFromTheAppDefault), \.customizeFromTheApp)
         snapshot.take(Self.parseLabsToggle(root, path: agentCustomizationPath, fallback: agentCustomizationDefault), \.agentCustomization)
         snapshot.take(BrowserHibernationSetting.parse(root), \.browserHibernation)
@@ -442,6 +449,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.take(AgentGlowSetting.parse(root), \.agentGlow)
         snapshot.take(PreviousGlassSetting.parse(root), \.previousGlass)
         snapshot.take(FontSmoothingSetting.parse(root), \.fontSmoothing)
+        snapshot.take(LiquidGlassSetting.parse(root), \.liquidGlass)
         snapshot.experimentalAppearance = ExperimentalAppearanceSetting().parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.appearanceTuning = AppearanceTuningSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.statusIndicator = StatusIndicatorConfigParser.parse(root, diagnostics: &snapshot.diagnostics)
@@ -488,6 +496,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         if let newTerminalOpensWorkspaceDiagnostic { snapshot.diagnostics.append(newTerminalOpensWorkspaceDiagnostic) }
         snapshot.take(NativeNewTabPageSetting.parse(root), \.nativeNewTabPage)
         snapshot.take(TabOverflowSetting.parse(root), \.tabOverflow)
+        snapshot.take(TabShellIconThemeSetting.parse(root), \.tabShellIconTheme)
         snapshot.take(VerticalTabsSetting.parse(root), \.verticalTabs)
         snapshot.take(VerticalTabsSetting.parseExpandOnHover(root), \.verticalTabsExpandOnHover)
         snapshot.take(LoneChatTabSetting.parse(root), \.hideLoneChatTab)
