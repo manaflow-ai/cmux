@@ -50,6 +50,10 @@ final class DiffCodeListController: NSObject, UICollectionViewDelegate {
     /// A scroll waiting for a model whose rows show its line (an unfold being prepared).
     private var pendingScroll: DiffScrollTarget?
     private var scrolledSerial: Int?
+    /// A hold on code selects the word in place. Line actions that used to live in the
+    /// collection view's lifted context menu are added to the selection edit menu below.
+    private var textSelection: InPlaceTextSelection?
+    private var selectionGate: DiffSelectionGate?
 
     private func makeCollectionView() -> UICollectionView {
         let view = UICollectionView(frame: .zero, collectionViewLayout: layout)
@@ -77,7 +81,38 @@ final class DiffCodeListController: NSObject, UICollectionViewDelegate {
             default: collectionView.dequeueConfiguredReusableCell(using: band, for: indexPath, item: id)
             }
         }
+        let selection = InPlaceTextSelection(host: view) { [weak self] in
+            (self?.collectionView.visibleCells.flatMap { ($0 as? DiffCell)?.selectableLabels ?? [] }) ?? []
+        }
+        selection.extraMenu = { [weak self] label in
+            self?.copyActions(for: label) ?? []
+        }
+        textSelection = selection
+        let gate = DiffSelectionGate(controller: self, selection: selection)
+        selection.press.delegate = gate
+        selectionGate = gate
         return view
+    }
+
+    fileprivate func isControlPoint(_ point: CGPoint) -> Bool {
+        collectionView.visibleCells.contains { cell in
+            guard let cell = cell as? DiffCell else { return false }
+            return cell.isControlPoint(cell.convert(point, from: collectionView))
+        }
+    }
+
+    private func copyActions(for label: UILabel) -> [UIMenuElement] {
+        guard let line = collectionView.visibleCells.compactMap({ ($0 as? DiffCell)?.selectableLine(for: label) }).first else {
+            return []
+        }
+        return [
+            UIAction(title: "Copy Line", image: UIImage(systemName: "doc.on.doc")) { _ in
+                UIPasteboard.general.string = line.text
+            },
+            UIAction(title: "Copy with Line Number", image: UIImage(systemName: "number")) { _ in
+                UIPasteboard.general.string = "\(line.newNumber ?? line.oldNumber ?? 0): \(line.text)"
+            },
+        ]
     }
 
     private func row(_ id: String) -> DiffRows.Row? {
@@ -89,6 +124,7 @@ final class DiffCodeListController: NSObject, UICollectionViewDelegate {
     /// only lays out again, anything else reloads.
     func apply(_ model: DiffRenderModel) {
         guard model !== self.model else { return }
+        textSelection?.end()
         let previous = self.model
         self.model = model
         layout.model = model
@@ -123,6 +159,7 @@ final class DiffCodeListController: NSObject, UICollectionViewDelegate {
 
     private func reconfigureVisible() {
         guard let dataSource else { return }
+        textSelection?.end()
         for indexPath in collectionView.indexPathsForVisibleItems {
             if let cell = collectionView.cellForItem(at: indexPath) as? DiffCell, let id = dataSource.itemIdentifier(for: indexPath) {
                 configure(cell, id: id)
@@ -196,6 +233,16 @@ final class DiffCodeListController: NSObject, UICollectionViewDelegate {
         (cell as? DiffCell)?.pin(pinnedX)
     }
 
+    func collectionView(_ collectionView: UICollectionView, didEndDisplaying cell: UICollectionViewCell,
+                        forItemAt indexPath: IndexPath) {
+        // The stand-in lives in the cell's content view. Never leave it attached to a recycled
+        // cell, where it could appear over a different line after reuse.
+        guard textSelection?.isSelecting == true,
+              let labels = (cell as? DiffCell)?.selectableLabels,
+              labels.contains(where: { $0.alpha <= 0.01 }) else { return }
+        textSelection?.end()
+    }
+
     // MARK: Taps and menus
 
     private func row(at indexPath: IndexPath) -> DiffRows.Row? {
@@ -217,12 +264,15 @@ final class DiffCodeListController: NSObject, UICollectionViewDelegate {
         if case .collapsed(let range)? = row(at: indexPath) { onExpand?(range) }
     }
 
+    /// The gutter is a line control, so its old copy menu remains available there. A hold on
+    /// the code itself returns nil and is handled by `InPlaceTextSelection` instead.
     func collectionView(_ collectionView: UICollectionView, contextMenuConfigurationForItemsAt indexPaths: [IndexPath],
                         point: CGPoint) -> UIContextMenuConfiguration? {
-        guard indexPaths.count == 1, let indexPath = indexPaths.first, let model,
-              case .line(let index)? = row(at: indexPath) else { return nil }
+        guard indexPaths.count == 1, let indexPath = indexPaths.first,
+              let cell = collectionView.cellForItem(at: indexPath) as? DiffCell,
+              cell.isControlPoint(cell.convert(point, from: collectionView)),
+              let model, case .line(let index)? = row(at: indexPath) else { return nil }
         let line = model.rows.lines[index]
-        // Built on demand, for the pressed line only.
         return UIContextMenuConfiguration(actionProvider: { _ in
             UIMenu(children: [
                 UIAction(title: "Copy Line", image: UIImage(systemName: "doc.on.doc")) { _ in UIPasteboard.general.string = line.text },
@@ -231,6 +281,27 @@ final class DiffCodeListController: NSObject, UICollectionViewDelegate {
                 },
             ])
         })
+    }
+
+}
+
+/// The code label can sit underneath a pinned gutter after horizontal scrolling. Keep the
+/// selection recognizer out of that control area while forwarding its normal begin decision.
+@MainActor
+private final class DiffSelectionGate: NSObject, UIGestureRecognizerDelegate {
+    weak var controller: DiffCodeListController?
+    weak var selection: InPlaceTextSelection?
+
+    init(controller: DiffCodeListController, selection: InPlaceTextSelection) {
+        self.controller = controller
+        self.selection = selection
+    }
+
+    func gestureRecognizerShouldBegin(_ recognizer: UIGestureRecognizer) -> Bool {
+        guard let controller, let selection else { return false }
+        let point = recognizer.location(in: controller.collectionView)
+        guard !controller.isControlPoint(point) else { return false }
+        return selection.gestureRecognizerShouldBegin(recognizer)
     }
 }
 
@@ -318,6 +389,9 @@ final class DiffCodeLayout: UICollectionViewLayout {
 @MainActor
 protocol DiffCell: UICollectionViewCell {
     func pin(_ x: CGFloat)
+    var selectableLabels: [UILabel] { get }
+    func selectableLine(for label: UILabel) -> DiffLine?
+    func isControlPoint(_ point: CGPoint) -> Bool
 }
 
 private extension DiffLine {
@@ -370,6 +444,15 @@ final class DiffLineCell: UICollectionViewCell, DiffCell {
     private var wraps = false
     private var indent: CGFloat = 0
     private var fonts: DiffFonts?
+    private var representedLine: DiffLine?
+
+    var selectableLabels: [UILabel] { [codeLabel] }
+
+    func selectableLine(for label: UILabel) -> DiffLine? {
+        label === codeLabel ? representedLine : nil
+    }
+
+    func isControlPoint(_ point: CGPoint) -> Bool { gutter.frame.contains(point) }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -396,6 +479,7 @@ final class DiffLineCell: UICollectionViewCell, DiffCell {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
     func configure(line: DiffLine, text: NSAttributedString, indent: CGFloat, model: DiffRenderModel) {
+        representedLine = line
         wraps = model.style.wrap
         self.indent = indent
         fonts = model.fonts
@@ -467,6 +551,12 @@ final class DiffBandCell: UICollectionViewCell, DiffCell {
     private var pinned = false
     private var viewport: CGFloat = 0
     private var pinnedX: CGFloat = 0
+
+    var selectableLabels: [UILabel] { [] }
+
+    func selectableLine(for label: UILabel) -> DiffLine? { nil }
+
+    func isControlPoint(_ point: CGPoint) -> Bool { false }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -577,6 +667,12 @@ final class DiffSplitCell: UICollectionViewCell, DiffCell {
     private let divider = UIView()
     /// Search in File's current match: an accent bar at the row's leading edge.
     private let matchBar = UIView()
+
+    var selectableLabels: [UILabel] { [left.code, right.code] }
+
+    func selectableLine(for label: UILabel) -> DiffLine? { nil }
+
+    func isControlPoint(_ point: CGPoint) -> Bool { false }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
