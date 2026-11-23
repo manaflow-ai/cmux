@@ -114,9 +114,9 @@ struct TerminalChatOfflineRelaunchTests {
     }
 
     static func waitUntil(_ timeout: Duration = .seconds(5), _ done: () -> Bool) async -> Bool {
-        let deadline = ContinuousClock.now + timeout
+        var deadline = AwakeDeadline(timeout)
         while !done() {
-            guard ContinuousClock.now < deadline else { return false }
+            guard deadline.hasTimeLeft() else { return false }
             try? await Task.sleep(for: .microseconds(200)) // test: polls the condition until a deadline
         }
         return true

@@ -137,6 +137,45 @@ import Testing
         #expect(ends.calls.isEmpty)
     }
 
+    /// ask-a85f219369 (Leo: "i cant connect from [one Mac] to [another]"): an approved session whose
+    /// ticket push never came (pushes have no backlog) asks the hub for the ticket and streams,
+    /// instead of saying Connecting forever.
+    @Test func anApprovedSessionWithNoTicketPushAsksTheHubForIt() async throws {
+        let (service, _) = makeService()
+        let viewer = try #require(service.connect(to: mac(), scope: .full))
+        viewer.ticketWait = .milliseconds(10)
+        let reattach = Reattachments()
+        viewer.reattachSession = { _, id in
+            await reattach.record(id)
+            return self.ticket(id, scope: .full)
+        }
+        viewer.requestAnswered(.success(HubSession(id: "s9", state: .approved, scope: .full)), scope: .full)
+        #expect(viewer.phase == .approved(sessionID: "s9", scope: .full))
+        let id = await reattach.wait()
+        #expect(id == "s9")
+        for _ in 0..<500 where viewer.phase != .streaming(sessionID: "s9", scope: .full) { await Task.yield() }
+        #expect(viewer.phase == .streaming(sessionID: "s9", scope: .full))
+        #expect(viewer.screen != nil)
+    }
+
+    /// The hub has no ticket either (the Mac went offline): the screen says why and ends the session.
+    @Test func anApprovedSessionTheHubCannotAdmitSaysWhy() async throws {
+        let (service, ends) = makeService()
+        let viewer = try #require(service.connect(to: mac(), scope: .view))
+        viewer.ticketWait = .milliseconds(10)
+        viewer.reattachSession = { _, _ in
+            throw DeviceHubError.server(status: 409, code: .hostOffline, message: "the host is not connected")
+        }
+        viewer.requestAnswered(.success(HubSession(id: "s10", state: .approved, scope: .view)), scope: .view)
+        for _ in 0..<2000 where viewer.phase == .approved(sessionID: "s10", scope: .view) {
+            try await Task.sleep(for: .milliseconds(1))
+        }
+        #expect(viewer.phase == .refused(.hostOffline,
+                                         requested: .view))
+        for _ in 0..<500 where ends.calls.isEmpty { await Task.yield() }
+        #expect(ends.calls == [Ends.Call(session: "s10", reason: "failed")])
+    }
+
     /// conn-quiet (Leo, 2026-11-14: "shut the f*** up"): a dropped stream reattaches over its
     /// last frame with no card, no failed flash and no layout jump until the notice bound.
     @Test func aDroppedStreamSaysNothingUnderTheNoticeBoundAndKeepsItsLayout() throws {
@@ -299,7 +338,19 @@ import Testing
         #expect(viewer.phase == .refused(.hostOffline, requested: .full))
         viewer.request(.full)
         viewer.requestAnswered(.failure(.transport("offline")), scope: .full)
-        #expect(viewer.phase == .refused(.other, requested: .full))
+        #expect(viewer.phase == .refused(.other(reason: "offline"), requested: .full))
+        // A code this build has no card for keeps the hub's words.
+        viewer.request(.full)
+        viewer.requestAnswered(.failure(.server(status: 429, code: .rateLimited, message: "too many requests; wait a minute")), scope: .full)
+        #expect(viewer.phase == .refused(.other(reason: "too many requests; wait a minute"), requested: .full))
+    }
+
+    @Test func anUnknownRefusalKeepsTheHubsReason() {
+        #expect(ScreenSharingRefusal(.server(status: 403, code: .other("new_code"), message: " ")) == .other(reason: "new_code"))
+        #expect(ScreenSharingRefusal(.http(status: 502)) == .other(reason: "HTTP 502"))
+        #expect(ScreenSharingRefusal(.transport("")) == .other(reason: nil))
+        #expect(ScreenSharingRefusal(.server(status: 409, code: .hostOffline, message: "the host is not connected")) == .hostOffline)
+        #expect(ScreenSharingRefusal.other(reason: "x").isOther && !ScreenSharingRefusal.notShared.isOther)
     }
 
     @Test func theListPutsSharedOnlineMacsFirstAndLeavesOutPhones() {
@@ -332,13 +383,14 @@ import Testing
 
     // MARK: Fixtures
 
-    func makeService() -> (ScreenSharingService, Ends) {
+    func makeService(accountID: String? = nil) -> (ScreenSharingService, Ends) {
         let identity = DeviceIdentity(deviceID: UUID(), keys: TestKeys())
         let client = DeviceHubClient(baseURL: URL(string: "https://hub.invalid")!, identity: identity,
                                      tokens: DeviceHubAccountToken { "token" })
         let hub = DeviceHub(client: client, secrets: MemoryRelaySecretStore(), deviceName: "iPhone", platform: .ios)
         let configuration = ScreenSharingService.Configuration(baseURL: URL(string: "https://hub.invalid")!, bundleIdentifier: "test",
-                                                               deviceName: "iPhone", tokens: DeviceHubAccountToken { "token" })
+                                                               deviceName: "iPhone", tokens: DeviceHubAccountToken { "token" },
+                                                               accountID: accountID)
         let service = ScreenSharingService(hub: hub, configuration: configuration,
                                            preferences: ScreenSharingPreferences(store: UserDefaults(suiteName: UUID().uuidString)!))
         let ends = Ends()

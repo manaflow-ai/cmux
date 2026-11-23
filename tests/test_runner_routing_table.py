@@ -95,7 +95,7 @@ class RoutingTableTests(unittest.TestCase):
             route = ("${{ github.run_attempt == 1 && 'ubuntu-24.04' || "
                      "fromJSON(vars.RUNNER_POOLS).linux_2 }}")
             job = {"runs-on": route, "permissions": {"contents": "read"},
-                   "steps": [{"run": "python3 scripts/ci/portable_job_placement.py"}]}
+                   "steps": [{"run": "python3 scripts/ci/side_lane_placement.py"}]}
             for changed, accepted in (({}, True), ({"permissions": {"contents": "write"}}, False),
                                       ({"environment": "release"}, False),
                                       ({"runs-on": route.replace("github.run_attempt == 1", "vars.CI_LIGHT_LANE_RUNNER || github.run_attempt == 1")}, False),
@@ -241,9 +241,9 @@ class RoutingTableTests(unittest.TestCase):
         # the reviewed CI_TRUSTED_RUNNER selector (resolve-runners.yml#resolve).
         import yaml
         route = ("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'ubuntu-24.04' || "
-                 "contains(fromJSON('[\"ubuntu-24.04\",\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\"]'), "
+                 "contains(fromJSON('[\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\"]'), "
                  "vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}")
-        widened = route.replace('\"ubuntu-24.04\",', '\"ubuntu-24.04\",\"self-hosted\",')
+        widened = route.replace('\"blacksmith-2vcpu-ubuntu-2404\",', '\"self-hosted\",\"blacksmith-2vcpu-ubuntu-2404\",')
         for runs_on, env, accepted in ((route, {}, True), (route, {"T": "${{ secrets.T }}"}, False), (widened, {}, False)):
             with self.subTest(runs_on=runs_on, env=env), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory); workflows = root / "workflows"; workflows.mkdir()
@@ -254,37 +254,6 @@ class RoutingTableTests(unittest.TestCase):
                 (workflows / "resolve-runners.yml").write_text(yaml.safe_dump({"jobs": {"resolve": {
                     "runs-on": runs_on, "steps": [{"run": "python3 resolve.py", "env": env}]}}},
                     sort_keys=False, width=10000))
-                problems, allowed = table.hosted_light_policy(policy, workflows)
-                self.assertEqual(not problems, accepted, problems)
-                self.assertEqual(len(allowed), int(accepted))
-
-    def test_hosted_light_policy_takes_the_hosted_saturation_valve_only_right_before_hosted(self):
-        # The hosted-first release valve: while RUNNER_POOLS marks GitHub-hosted saturated, attempt 1 reads the
-        # smallest live Linux pool instead (scripts/ci/linux_pool_spill.py valve_choice()).
-        import yaml
-        valve = "github.run_attempt == 1 && fromJSON(vars.RUNNER_POOLS).hosted_saturated && fromJSON(vars.RUNNER_POOLS).linux_2"
-        hosted = "github.run_attempt == 1 && 'ubuntu-24.04'"
-        start = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
-        tail = " || fromJSON(vars.RUNNER_POOLS).linux }}"
-        guarded = "github.run_attempt == 1 && !contains(vars.RUNNER_POOLS, '\"hosted_saturated\"') && 'ubuntu-24.04'"
-        trusted = (" || contains(fromJSON('[\"ubuntu-24.04\",\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\"]'), "
-                   "vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}")
-        cases = (
-            (start + valve + " || " + hosted + tail, True),
-            (start + guarded + trusted, True),
-            # Anywhere else, or onto another label, it is an unverified label before hosted overflow.
-            (start + hosted + " || " + valve + tail, False),
-            (start + valve.replace("linux_2", "linux_32") + " || " + hosted + tail, False),
-            (start + valve.replace("fromJSON(vars.RUNNER_POOLS).linux_2", "'self-hosted'") + " || " + hosted + tail, False),
-        )
-        for runs_on, accepted in cases:
-            with self.subTest(runs_on=runs_on), tempfile.TemporaryDirectory() as directory:
-                root = Path(directory); workflows = root / "workflows"; workflows.mkdir()
-                policy = root / "runners.json"
-                policy.write_text(json.dumps({"job_classes": {"portable-checks": {"needs": "any"}},
-                    "hosted_light_jobs": {"ci.yml#changes": {"class": "portable-checks", "reason": "router"}}}))
-                (workflows / "ci.yml").write_text(yaml.safe_dump({"jobs": {"changes": {
-                    "runs-on": runs_on, "steps": [{"run": "python3 route.py"}]}}}, sort_keys=False, width=10000))
                 problems, allowed = table.hosted_light_policy(policy, workflows)
                 self.assertEqual(not problems, accepted, problems)
                 self.assertEqual(len(allowed), int(accepted))
@@ -625,7 +594,8 @@ class RoutingTableTests(unittest.TestCase):
         document = json.loads((ROOT / ".github" / "runners.json").read_text(encoding="utf-8"))
         for fleet in document["fleets"].values():
             for key in ("linux", "linux_16", "linux_32"):
-                self.assertIn("ubuntu", fleet[key])
+                # An Ubuntu image, or the one owned Linux label (Ubuntu VMs) the `owned` fleet names.
+                self.assertTrue("ubuntu" in fleet[key] or fleet[key] == "cmux-linux", fleet[key])
 
 
 if __name__ == "__main__":

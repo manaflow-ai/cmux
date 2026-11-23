@@ -25,7 +25,8 @@
 //   added, removed or re-rendered, its box holds and its opacity stays 1.
 //
 // The page is the pane's dev entry talking to a stand-in acpmux (support/papercutChat.ts). WebKit is
-// the engine the app draws the pane in; Chromium runs too. Run it yourself, never as a CI gate:
+// the engine the app draws the pane in; Chromium runs too. Run it yourself; it is not a CI gate (written under
+// the 2026-10-23 no-new-CI rule, since lifted):
 // CMUX_BROWSER_TESTS=1 bun test test/chat-scroll-nightly.test.ts (or `cmux-ci test -- ...` off host).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
