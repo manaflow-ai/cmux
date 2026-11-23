@@ -1,5 +1,6 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Menu, MenuButton, MenuItem, MenuPopup } from "../../ui/Menu";
+import { playResize } from "./conversation/fold";
 import { ChevronDown } from "./conversation/icons";
 import { Markdown } from "./conversation/Markdown";
 import { toolIcon } from "./conversation/toolRowModel";
@@ -13,6 +14,9 @@ import "./permissions/externalAccess.css";
 import { takePermissionFocus } from "./permissions/focusRequest";
 import { compareHarnesses, harnessName, type PlanBuildElsewhere } from "./permissions/planBuild";
 import { ProposedEdits } from "./permissions/ProposedEdits";
+import { HoldRing, holdButtonProps, holdTitle, useHoldToApprove, type HoldControl } from "./permissions/HoldButton";
+import { holdApplies, holdSettings } from "./permissions/holdToApprove";
+import type { HoldScope } from "./permissions/holdToApprove.experiment";
 import {
   alwaysAllowScope,
   commandPreview,
@@ -95,21 +99,31 @@ export function PermissionActionButton({
   label,
   shortcut,
   cardKey,
+  hold,
+  holdDescription,
   ...props
 }: React.ButtonHTMLAttributes<HTMLButtonElement> & {
   label: string;
   shortcut?: string;
   cardKey?: CardKey;
+  /// Hold to approve (permissions/HoldButton.tsx): the button answers after a held press, with a
+  /// ring at its leading edge; its click answers nothing. Absent, the button is today's.
+  hold?: HoldControl;
+  /// The hold's "Hold to allow", its tooltip and accessible description.
+  holdDescription?: string;
 }) {
   const { className, ...buttonProps } = props;
   return (
     <button
       {...buttonProps}
+      {...(hold ? holdButtonProps(hold, holdDescription ?? "") : {})}
+      title={hold ? holdTitle(buttonProps.title, holdDescription ?? "") : buttonProps.title}
       className={className}
       type="button"
       aria-label={label}
       aria-keyshortcuts={[cardKey?.aria, shortcut].filter(Boolean).join(" ") || undefined}
     >
+      {hold && <HoldRing hold={hold} />}
       <span className="acpmux-permission-action-label">{label}</span>
       {cardKey ? (
         <span className="acpmux-permission-keys">
@@ -136,6 +150,9 @@ const DENY_KEY: CardKey = { letter: "n", keys: ["Esc"], aria: "n Escape" };
 const ALLOW_KEY: CardKey = { letter: "y", keys: ["⌘", "↩"], aria: "y Meta+Enter" };
 const ALWAYS_KEY: CardKey = { letter: "a", keys: [], aria: "a" };
 
+/// Where Approve plan builds: here (the ask's own allow) or one of the plan's other builds.
+export type PlanTarget = "here" | PlanBuildElsewhere;
+
 /// Approve plan joined to its build menu, one split button: the primary half approves here with its
 /// ⌘↩ as before; the chevron half opens a menu of where else the plan can be built: Build here (the same
 /// answer), Build in a new worktree (a sub-session on its own branch, so this chat stays free), and
@@ -145,10 +162,17 @@ export function PlanBuildSplit({
   cardKey,
   onHere,
   onBuild,
+  holdFocus,
+  onPick,
   children,
 }: {
   harness?: string;
   cardKey?: CardKey;
+  /// Under hold to approve, no item answers itself: each picks where the held Approve plan builds
+  /// (`onPick`) and the menu closes onto Approve plan, where a held Return or press approves
+  /// (HoldButton.tsx).
+  holdFocus?: React.RefObject<HTMLButtonElement | null>;
+  onPick?(target: PlanTarget): void;
   onHere(): void;
   onBuild(target: PlanBuildElsewhere): void;
   /// The Approve plan button.
@@ -172,14 +196,19 @@ export function PlanBuildSplit({
           label={t("permission.plan.buildMenu")}
           align="end"
           className="acpmux-quick-menu acpmux-plan-build-menu"
+          finalFocus={holdFocus}
         >
-          <MenuItem data-value="here" shortcut={cardKey ? cardKey.keys.join("") : undefined} onSelect={onHere}>
+          <MenuItem
+            data-value="here"
+            shortcut={cardKey ? cardKey.keys.join("") : undefined}
+            onSelect={holdFocus ? () => onPick?.("here") : onHere}
+          >
             {t("permission.plan.buildHere")}
           </MenuItem>
-          <MenuItem data-value="worktree" onSelect={() => onBuild("worktree")}>
+          <MenuItem data-value="worktree" onSelect={() => (holdFocus ? onPick?.("worktree") : onBuild("worktree"))}>
             {t("permission.plan.buildWorktree")}
           </MenuItem>
-          <MenuItem data-value="compare" onSelect={() => onBuild("compare")}>
+          <MenuItem data-value="compare" onSelect={() => (holdFocus ? onPick?.("compare") : onBuild("compare"))}>
             <span className="acpmux-plan-build-item">
               <span>{t("permission.plan.buildCompare")}</span>
               <span className="acpmux-plan-build-detail">
@@ -226,6 +255,7 @@ export function PermissionCard({
   fullAccessMode,
   onDraft,
   onBuildPlan,
+  hold: holdOverride,
 }: {
   permission: AcpmuxPermission;
   /// Sends the answer. A promise that rejects means acpmux refused it (already answered elsewhere,
@@ -254,6 +284,9 @@ export function PermissionCard({
   /// to compare. With it, Approve plan is a split button whose menu offers them; acpmux answers the
   /// ask itself, and a promise that rejects is a refusal the card shows, as for `onAnswer`.
   onBuildPlan?(target: PlanBuildElsewhere): Promise<unknown>;
+  /// Hold to approve's scope and hold time, in place of the experiments' (holdToApprove.experiment.ts);
+  /// `reduced` draws the stepped ring. The pane passes none; the gallery and tests do.
+  hold?: { scope: HoldScope; durationMs: number; reduced?: boolean };
 }) {
   const t = useT();
   const command = permissionCommand(permission);
@@ -299,6 +332,17 @@ export function PermissionCard({
   const [expanded, setExpanded] = useState<string>();
   const showFull = expanded === permission.permissionId;
   const fullId = React.useId();
+  // The command's box grows to the full command (and back) on the fold's clock (fold.ts `playResize`)
+  // from the height it was drawn at before the toggle, so the stack's top and the transcript's rows
+  // over it travel together instead of the card growing in one frame.
+  const commandRef = useRef<HTMLDivElement>(null);
+  const commandFrom = useRef<number | undefined>(undefined);
+  useLayoutEffect(() => {
+    const node = commandRef.current;
+    const from = commandFrom.current;
+    commandFrom.current = undefined;
+    if (node && from !== undefined) playResize(node, from);
+  }, [showFull]);
   // A one-line command longer than the two lines the preview holds is cut off: measured, so "Show
   // full command" is offered whenever the preview does not show all of it.
   const previewRef = useRef<HTMLElement>(null);
@@ -418,6 +462,38 @@ export function PermissionCard({
     );
   };
   const answerByKey = answer;
+  // Hold to approve (permissions/HoldButton.tsx, off unless its experiment is on): an allow of an
+  // ask the scope covers answers after a held press or key, never a click. Deny and the other
+  // answers never hold. The settings are read once per card, as the experiments' other readers do.
+  const [experimentHold] = useState(holdSettings);
+  const holdConfig = holdOverride ?? experimentHold;
+  const holds = permission.pending && holdApplies(holdConfig.scope, [{ kind: permission.kind, command }]);
+  const holdDescription = t("permission.holdToAllow");
+  // Under hold, a plan's build menu answers nothing: it picks where the held Approve plan builds,
+  // for this ask only (a new ask starts at here).
+  const [picked, setPicked] = useState<{ permissionId: string; target: PlanTarget }>();
+  const planTarget: PlanTarget =
+    plan && onBuildPlan && picked?.permissionId === permission.permissionId ? picked.target : "here";
+  // Each hold is bound to the ask, the answer and the plan target it was pressed on: a press on one
+  // ask never approves the ask that replaces it, nor builds where it was not pressed to (HoldButton.tsx
+  // `identity`).
+  const holdOnce = useHoldToApprove({
+    enabled: holds && !!allowOnce && !writing,
+    identity: `${permission.permissionId}\u0000${allowOnce?.id ?? ""}\u0000${planTarget}`,
+    durationMs: holdConfig.durationMs,
+    reducedOverride: holdOverride?.reduced,
+    onComplete: () => {
+      if (planTarget !== "here") build(planTarget);
+      else if (allowOnce) answer(allowOnce);
+    },
+  });
+  const holdAlways = useHoldToApprove({
+    enabled: holds && !!allowAlways && !alwaysAtSource && !writing,
+    identity: `${permission.permissionId}\u0000${allowAlways?.id ?? ""}`,
+    durationMs: holdConfig.durationMs,
+    reducedOverride: holdOverride?.reduced,
+    onComplete: () => allowAlways && answer(allowAlways),
+  });
   /// Builds the plan elsewhere: one answer for the ask, like a button's, which acpmux gives itself.
   const build = (target: PlanBuildElsewhere) => {
     if (!onBuildPlan) return;
@@ -451,9 +527,10 @@ export function PermissionCard({
     else answer(denyOption);
   };
   /// The keys' and the shortcuts' actions, read at the time of the key.
-  const act = useRef<(action: PermissionKeyAction) => boolean>(() => false);
+  /// `event` is the key that asked, absent for an app shortcut's page event.
+  const act = useRef<(action: PermissionKeyAction, event?: KeyboardEvent) => boolean>(() => false);
   useLayoutEffect(() => {
-    act.current = (action) => {
+    act.current = (action, event) => {
       if (action === "closeFeedback") {
         if (!writing || writing.sending) return false;
         closeFeedback();
@@ -467,6 +544,14 @@ export function PermissionCard({
       }
       const option = action === "allow_once" ? allowOnce : alwaysAtSource ? undefined : allowAlways;
       if (!option) return false;
+      const hold = action === "allow_once" ? holdOnce : holdAlways;
+      if (hold) {
+        // A held key fills the ring until it goes up; an app shortcut cannot be held, so it puts the
+        // keyboard on the button, where Return or Space held answers.
+        if (event) hold.holdKey(event);
+        else focusRoute(hold.ref.current, "person", "an app allow shortcut under hold to approve");
+        return true;
+      }
       answerByKey(option);
       return true;
     };
@@ -482,7 +567,7 @@ export function PermissionCard({
     if (!active) return;
     const onKey = (event: KeyboardEvent) => {
       const action = permissionKeyAction(event, group.current, fieldOpen);
-      if (!action || !act.current(action)) return;
+      if (!action || !act.current(action, event)) return;
       event.preventDefault();
       event.stopPropagation();
     };
@@ -547,7 +632,7 @@ export function PermissionCard({
   };
 
   const commandBlock = command && (
-    <div className="acpmux-permission-command" data-expanded={showFull || undefined}>
+    <div ref={commandRef} className="acpmux-permission-command" data-expanded={showFull || undefined}>
       {showFull ? (
         <pre id={fullId} className="acpmux-permission-command-full">
           <code>{command}</code>
@@ -563,7 +648,10 @@ export function PermissionCard({
           className="acpmux-permission-command-toggle"
           aria-expanded={showFull}
           aria-controls={showFull ? fullId : undefined}
-          onClick={() => setExpanded(showFull ? undefined : permission.permissionId)}
+          onClick={() => {
+            commandFrom.current = commandRef.current?.getBoundingClientRect().height;
+            setExpanded(showFull ? undefined : permission.permissionId);
+          }}
         >
           {showFull ? t("permission.hideFullCommand") : t("permission.showFullCommand")}
         </button>
@@ -571,7 +659,7 @@ export function PermissionCard({
     </div>
   );
   const scopeBlock = !writing && scopeLine && (
-    <p className="acpmux-permission-scope" data-scope-kind={permission.scope?.kind} title={scopeLine}>
+    <p className="acpmux-permission-scope" data-scope-kind={permission.scope?.kind}>
       {scopeText && <span id={targetId}>{scopeText}</span>}
       {scopeText && alwaysScope && " · "}
       {alwaysScope && <span id={ruleId}>{alwaysScope}</span>}
@@ -691,24 +779,39 @@ export function PermissionCard({
                   }
                   disabled={alwaysAtSource}
                   onClick={() => answer(allowAlways)}
+                  hold={holdAlways}
+                  holdDescription={holdDescription}
                 />
               )}
               {allowOnce &&
                 (() => {
                   const approve = (
                     <PermissionActionButton
-                      label={plan ? t("permission.plan.approve") : t("permission.allowOnce")}
+                      label={
+                        planTarget === "worktree"
+                          ? t("permission.plan.buildWorktree")
+                          : planTarget === "compare"
+                            ? t("permission.plan.buildCompare")
+                            : plan
+                              ? t("permission.plan.approve")
+                              : t("permission.allowOnce")
+                      }
+                      data-plan-target={holdOnce && plan ? planTarget : undefined}
                       aria-describedby={scopeText ? targetId : undefined}
                       shortcut={shortcuts ? allowOnceShortcut : undefined}
                       cardKey={shortcuts ? ALLOW_KEY : undefined}
                       className="acpmux-permission-primary"
                       onClick={() => answer(allowOnce)}
+                      hold={holdOnce}
+                      holdDescription={holdDescription}
                     />
                   );
                   return plan && onBuildPlan ? (
                     <PlanBuildSplit
                       harness={harness}
                       cardKey={shortcuts ? ALLOW_KEY : undefined}
+                      holdFocus={holdOnce?.ref}
+                      onPick={(target) => setPicked({ permissionId: permission.permissionId, target })}
                       onHere={() => answer(allowOnce)}
                       onBuild={build}
                     >

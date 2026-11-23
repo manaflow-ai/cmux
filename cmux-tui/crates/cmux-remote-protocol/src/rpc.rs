@@ -5,6 +5,20 @@ use serde::{Deserialize, Serialize};
 
 pub const MUX_INPUT_V1_FEATURE: &str = "mux-input-v1";
 
+/// Optional `mux-control` open metadata key: the line codecs a client can read,
+/// comma separated. A client that lists [`MUX_LINE_CODEC_ZLIB`] reads a
+/// daemon-to-client line of [`MUX_LINE_ZLIB_MIN_BYTES`] or more as one zlib
+/// stream (packets tagged `CMXZ` instead of `CMXL`) once the daemon's `opened`
+/// answer lists [`MUX_LINE_ZLIB_V1_FEATURE`]. A daemon that never heard of the
+/// key ignores it and a client that never sends it gets plain lines, so mixed
+/// builds keep working.
+pub const MUX_CONTROL_LINE_CODECS: &str = "line_codecs";
+pub const MUX_LINE_CODEC_ZLIB: &str = "zlib";
+/// The `opened` feature of a daemon that compresses large lines for this stream.
+pub const MUX_LINE_ZLIB_V1_FEATURE: &str = "mux-line-zlib-v1";
+/// Lines shorter than this stay plain: compressing them saves little.
+pub const MUX_LINE_ZLIB_MIN_BYTES: usize = 16 << 10;
+
 /// Optional `terminal-bytes-v1` open metadata key. With the value
 /// [`TERMINAL_BYTES_VIEWER_SIZE_PRIORITY_PREFERRED`], the stream's renderer
 /// negotiates terminal-host viewer-size priority when the host supports it.

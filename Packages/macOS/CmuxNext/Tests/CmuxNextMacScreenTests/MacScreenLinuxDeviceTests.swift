@@ -6,6 +6,7 @@ import Testing
 @Suite struct MacScreenLinuxDeviceTests {
     @Test func eachPlatformHasItsOwnLabel() {
         #expect(MacScreenDevicesSettings.platformLabel(.linux) == "Linux")
+        #expect(MacScreenDevicesSettings.platformLabel(.windows) == "Windows")
         #expect(MacScreenDevicesSettings.platformLabel(.ios) == "iPhone")
         #expect(MacScreenDevicesSettings.platformLabel(.macos) == "Mac")
         #expect(MacScreenDevicesSettings.platformLabel(nil) == "Mac")
