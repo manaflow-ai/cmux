@@ -98,6 +98,11 @@ pub struct RegisterRequest {
     /// or with a code still waiting for its echo, gets none (the answer says which); otherwise
     /// the code goes as `acpmux register NAME` sends it, with why it came.
     pub auto: bool,
+    /// `acpmux register --renew`, run by a Claude Code hook in every session (SessionStart,
+    /// Stop): the new token for a chat already registered, after its Claude Code restarted with
+    /// `--resume` that conversation, with no code. Anything else gets nothing: no code is ever
+    /// delivered for it, so a hook never wakes a session (`renewed_name`).
+    pub renew: bool,
 }
 
 impl RegisterRequest {
@@ -117,12 +122,17 @@ impl RegisterRequest {
         if auto && code.is_some() {
             return Err(RpcError::invalid_params("auto is the first step only, never with a code"));
         }
+        let renew = params.get("renew").and_then(Value::as_bool) == Some(true);
+        if renew && code.is_some() {
+            return Err(RpcError::invalid_params("renew takes no code"));
+        }
         Ok(Self {
             name: name.to_owned(),
             socket: text("socket").map(PathBuf::from),
             token,
             code,
             auto,
+            renew,
         })
     }
 }
@@ -167,7 +177,7 @@ impl Hub {
         let (Some(socket), Some(token)) = (req.socket.clone(), req.token.clone()) else {
             return self.register_proven(peer_pid, req).await;
         };
-        if !req.auto {
+        if !req.auto && !req.renew {
             return self.register_proven(peer_pid, req).await;
         }
         let reserved = match self.auto_answer(&crate::config::home(), &socket, &token) {
@@ -175,8 +185,14 @@ impl Hub {
             auto::Step::Go(reserved) => reserved,
         };
         let out = self.register_proven(peer_pid, req).await;
-        if let Err(e) = &out {
-            reserved.failed(&e.message);
+        match &out {
+            Err(e) => reserved.failed(&e.message),
+            // Nothing to renew: kept like a failure, so a hook that asks on every turn is
+            // answered from memory, never proven again, until it may have changed.
+            Ok(v) if v.get("renewed").and_then(Value::as_bool) == Some(false) => {
+                reserved.failed(NOT_RENEWABLE);
+            }
+            Ok(_) => {}
         }
         out
     }
@@ -216,7 +232,21 @@ impl Hub {
         let inbox = req.socket.clone().unwrap_or_default();
         let token = req.token.clone().unwrap_or_default();
         let (started, launched_for) = prove_claude(claimed, &claude_home, &inbox).await?;
-        let Some(code) = req.code.as_deref() else {
+        // A chat registered before its Claude Code restarted takes the new process's token with
+        // no code when the kernel's record of that process's launch names its conversation
+        // (`--resume ID`): the code already went once, and the takeover rule below holds it to
+        // the same proof. A hook asks this on every session's start.
+        let renewed = if req.code.is_none() && (req.auto || req.renew) {
+            self.renewed_name(claimed, launched_for.as_deref()).await
+        } else {
+            None
+        };
+        if req.renew && renewed.is_none() {
+            return Ok(json!({"renewed": false, "reason": NOT_RENEWABLE}));
+        }
+        if let Some(code) = req.code.as_deref() {
+            take_code(claimed.pid, code, started, &inbox, &token, &req.name)?;
+        } else if renewed.is_none() {
             let (name, why) = if req.auto {
                 match self.auto_plan(claimed, &req.name).await {
                     auto::Plan::Reachable(name) => {
@@ -235,8 +265,7 @@ impl Hub {
                 (req.name.clone(), Why::Asked)
             };
             return send_code(claimed, &claude_home, &token, &name, started, why).await;
-        };
-        take_code(claimed.pid, code, started, &inbox, &token, &req.name)?;
+        }
         let (family, agent_session_id, cwd, tags, pid) = match &found {
             Found::Claude(p) => (
                 "claude",
@@ -246,7 +275,8 @@ impl Hub {
                 Some(p.pid),
             ),
         };
-        let name = req.name.clone();
+        // A renewal keeps the chat's own name: it is the address senders use.
+        let name = renewed.clone().unwrap_or_else(|| req.name.clone());
         // One registration at a time: the name check below and the rename after it are one step,
         // so two sessions registering the same name at once never both get it.
         static REGISTERING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
@@ -361,7 +391,7 @@ impl Hub {
             "registered",
             json!({"name": name, "family": family, "pid": pid, "token": token_kept}),
         );
-        Ok(json!({
+        let mut out = json!({
             "sessionId": session.id,
             "name": name,
             "family": family,
@@ -369,8 +399,38 @@ impl Hub {
             "pid": pid,
             "bridged": watched,
             "token": if token_kept { "registered" } else { "none" },
-        }))
+        });
+        if let (Some(_), Some(obj)) = (&renewed, out.as_object_mut()) {
+            obj.insert("renewed".into(), json!(true));
+        }
+        Ok(out)
     }
+
+    /// The name of the registered chat that shows `claimed`'s conversation, when `claimed` was
+    /// launched for that conversation (`launched_for`, from the kernel's record of its launch):
+    /// such a chat takes the new process's token with no code ([`renewable`]).
+    async fn renewed_name(
+        &self,
+        claimed: &crate::claude_peers::Peer,
+        launched_for: Option<&str>,
+    ) -> Option<String> {
+        let stores = super::adoption::store_families(&*self.config.read().await);
+        let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
+        let shown = super::adoption::adopted_in(&sessions, &stores, "claude", &claimed.session_id)?;
+        let name = shown.read_meta(|m| m.name.clone());
+        renewable(is_registered(&shown), launched_for, &claimed.session_id).then_some(name)
+    }
+}
+
+/// Why `--renew` did nothing: the session is not a registered chat restarted for its own
+/// conversation. Its first registration is `acpmux register NAME`, or its first `acpmux send`.
+pub const NOT_RENEWABLE: &str = "register.not_renewable";
+
+/// Whether a chat (`registered` or not) renews to a process launched for `launched_for`, the
+/// conversation `session_id` names: only a registered chat, and only for a launch that named its
+/// own conversation. A launch that names none (a fresh `claude`, `--continue`) proves nothing.
+fn renewable(registered: bool, launched_for: Option<&str>, session_id: &str) -> bool {
+    registered && launched_for == Some(session_id)
 }
 
 /// Why a code goes to a session: `acpmux register NAME` asked, or `acpmux send` from the chat's
@@ -633,6 +693,27 @@ mod tests {
         let manual = json!({"name": "desktop-zoe", "socket": "/s", "token": "t"});
         assert!(!RegisterRequest::from_params(&manual).unwrap().auto);
         let both = json!({"name": "desktop-zoe", "token": "t", "auto": true, "code": "c0de"});
+        assert!(RegisterRequest::from_params(&both).is_err());
+    }
+
+    /// Repro (Leo, 2026-11-20, of a terminal coordinator restarted with `--resume`: "isn't one I
+    /// can message through acpmux"): the restarted process handed acpmux no token, so sends
+    /// waited on `bridge.registration_stale` until a person ran `acpmux register` in it.
+    #[test]
+    fn only_a_registered_chat_resumed_for_its_own_conversation_renews() {
+        assert!(renewable(true, Some("6e0bad7d"), "6e0bad7d"));
+        assert!(!renewable(false, Some("6e0bad7d"), "6e0bad7d"), "never registered");
+        assert!(!renewable(true, None, "6e0bad7d"), "a launch that names no conversation");
+        assert!(!renewable(true, Some("other"), "6e0bad7d"), "another conversation");
+    }
+
+    #[test]
+    fn renew_takes_no_code() {
+        let renew =
+            json!({"name": "claude-code-6e0bad7d", "socket": "/s", "token": "t", "renew": true});
+        assert!(RegisterRequest::from_params(&renew).unwrap().renew);
+        let both =
+            json!({"name": "claude-code-6e0bad7d", "token": "t", "renew": true, "code": "c"});
         assert!(RegisterRequest::from_params(&both).is_err());
     }
 
