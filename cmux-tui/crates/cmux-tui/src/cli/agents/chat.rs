@@ -863,7 +863,7 @@ impl Transcript {
 }
 
 #[cfg(unix)]
-pub(super) mod acp {
+pub(in crate::cli) mod acp {
     //! The acpmux linked into this binary: the one at `socket` (the app's own, `agent.acpmux`),
     //! else the one at the home `cmux acp` uses (`ACPMUX_SOCKET` first). A chat verb never starts
     //! the acpmux daemon.
