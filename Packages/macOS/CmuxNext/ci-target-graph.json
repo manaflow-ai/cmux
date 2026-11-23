@@ -1532,8 +1532,6 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextHostedChief",
       "targets": [
-        "CmuxNextActions",
-        "CmuxNextCloud",
         "CmuxNextCompat",
         "CmuxNextDaemon",
         "CmuxNextHomeEngine",
