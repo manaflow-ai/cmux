@@ -229,8 +229,10 @@ def file_groups(disks):
 
 def smaps_kinds(pid):
     """One process's PSS in kB by mapping kind (its binary, heap, stacks, other files, anonymous), Linux only:
-    where a role's per-process memory sits."""
+    where a role's per-process memory sits. Anonymous memory is split three ways: a thread's stack (the mapping
+    above a guard page), a malloc arena (glibc maps each at a 64 MB boundary) and the rest."""
     kinds, name = {}, None
+    prev_end, prev_guard = None, False
     try:
         exe = os.path.realpath(f"/proc/{pid}/exe")
         with open(f"/proc/{pid}/smaps") as f:
@@ -238,14 +240,18 @@ def smaps_kinds(pid):
                 head = line.split()
                 if head and "-" in head[0] and not head[0].endswith(":"):
                     path = head[5] if len(head) > 5 else ""
+                    start, end = (int(x, 16) for x in head[0].split("-"))
+                    anon = ("thread-stack" if prev_guard and prev_end == start else
+                            "arena" if start % (64 << 20) == 0 else "anon")
                     name = ("binary" if path == exe else "heap" if path == "[heap]" else
-                            "stack" if path.startswith("[stack") else "anon" if not path else
+                            "stack" if path.startswith("[stack") else anon if not path else
                             "vdso" if path.startswith("[") else "file:" + os.path.basename(path))
+                    prev_end, prev_guard = end, not path and head[1].startswith("---")
                 elif head and head[0] == "Pss:" and name:
                     kinds[name] = kinds.get(name, 0) + int(head[1])
     except (OSError, ValueError, IndexError):
         return {}
-    return dict(sorted(kinds.items(), key=lambda kv: -kv[1])[:6])
+    return dict(sorted(kinds.items(), key=lambda kv: -kv[1])[:8])
 
 
 def idle_window(top, seconds, disks):
@@ -257,8 +263,7 @@ def idle_window(top, seconds, disks):
     for pid, s in after.items():
         r = roles.setdefault(s["role"], {"count": 0, "threads": 0, "rss": 0, "pss": 0, "fds": 0, "cpu_s": 0.0,
                                          "wakeups": 0, "cmds": {}})
-        if IS_LINUX and "smaps_kb" not in r:
-            r["smaps_kb"] = smaps_kinds(pid)  # one process of the role, where its memory sits
+        r.setdefault("by_pss", []).append((s.get("pss") or s["rss"], pid))
         r["cmds"][s["cmd"]] = r["cmds"].get(s["cmd"], 0) + 1
         named = r.setdefault("thread_names", {})
         for name, _ in (s.get("tid_wakeups") or {}).values():
@@ -282,6 +287,11 @@ def idle_window(top, seconds, disks):
                 if woke:
                     names[name] = names.get(name, 0) + woke
     for r in roles.values():
+        # The role's median process by PSS, where its memory sits: the first one found is the one-off (a
+        # bootstrap host among a thousand per-tab hosts).
+        by_pss = sorted(r.pop("by_pss"))
+        if IS_LINUX:
+            r["smaps_kb"] = smaps_kinds(by_pss[len(by_pss) // 2][1])
         r["cpu_pct"] = round(100 * r.pop("cpu_s") / seconds, 3)
         r["wakeups_per_s"] = round(r.pop("wakeups") / seconds, 2)
         r["thread_wakeups"] = dict(sorted(r.get("thread_wakeups", {}).items(), key=lambda kv: -kv[1])[:8])
