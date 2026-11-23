@@ -22,6 +22,7 @@ const mode = reactCompilerMode();
 const jsonParseSettingsPagePlugin = createJsonParsePlugin({ settingsPageOnly: true });
 const compiled = new Set();
 const bailouts = [];
+const SHIPPED_DEFINES = { "process.env.NODE_ENV": '"production"', "globalThis.__cmuxShippedPages": "true" };
 const result = await build({
   entryPoints: Object.fromEntries(pages.map((page) => [`${page}/app`, path.join(srcRoot, "pages", page, "main.tsx")])),
   outdir,
@@ -30,7 +31,9 @@ const result = await build({
   format: "esm",
   platform: "browser",
   target: "es2022",
-  define: { "process.env.NODE_ENV": '"production"' },
+  // globalThis.__cmuxShippedPages (shared/localeScripts.ts): the branches that load a split page's
+  // whole string table (dev server, gallery, tests) drop out, so the app ships no second copy of it.
+  define: SHIPPED_DEFINES,
   minify: true,
   legalComments: "none",
   loader: { ".png": "dataurl", ".woff2": "dataurl" },
@@ -73,7 +76,7 @@ for (const page of pages) {
     format: "esm",
     platform: "browser",
     target: "es2022",
-    define: { "process.env.NODE_ENV": '"production"' },
+    define: SHIPPED_DEFINES,
     minify: true,
     legalComments: "none",
     loader: { ".png": "dataurl", ".woff2": "dataurl" },

@@ -10,7 +10,8 @@ struct OpenedResourceBundles {
     /// The active language pack's bundles, by the folder name of the module bundle each one stands
     /// in for (`CmuxNext_CmuxNextSettings.bundle`). Empty until a pack is active.
     var languagePack: [String: Bundle] = [:]
-    /// The active pack's web page string tables (`<bundle>/Contents/Resources/.../locales/<lang>.js`),
+    /// The active pack's web page string tables (`<bundle>/Contents/Resources/.../locales/<lang>.js`
+    /// and `.../pane-locales/<lang>.js`),
     /// by that path, to the file in the pack. Empty until a pack is active.
     var languagePackWebFiles: [String: URL] = [:]
     /// Told each time a pack becomes active (``AppLanguage`` redraws the text that read the old one).
@@ -97,8 +98,7 @@ extension Bundle {
             // The pages' and the agent pane's per-language string tables (one folder walk per bundle).
             let walk = FileManager.checked.enumerator(at: url, includingPropertiesForKeys: nil)
             while let file = walk?.nextObject() as? URL {
-                guard file.pathExtension == "js", file.deletingLastPathComponent().lastPathComponent == "locales",
-                      let path = webLocalePath(file) else { continue }
+                guard file.pathExtension == "js", isWebLocaleFolder(file), let path = webLocalePath(file) else { continue }
                 webFiles[path] = file
             }
         }
@@ -128,8 +128,15 @@ extension Bundle {
     /// A page's loader asks for its language's file; the scheme handlers serve this one in its place.
     /// No disk access: the pack's files are listed once, when it is made active.
     public nonisolated static func languagePackFile(for file: URL) -> URL? {
-        guard file.deletingLastPathComponent().lastPathComponent == "locales", let path = webLocalePath(file) else { return nil }
+        guard isWebLocaleFolder(file), let path = webLocalePath(file) else { return nil }
         return openedResourceBundles.withLock { $0.languagePackWebFiles[path] }
+    }
+
+    /// Whether `file` is in a per-language web string folder: `locales` (a page's or the agent
+    /// pane's own table), or `pane-locales` (Home's subset of the agent pane's table).
+    private nonisolated static func isWebLocaleFolder(_ file: URL) -> Bool {
+        let folder = file.deletingLastPathComponent().lastPathComponent
+        return folder == "locales" || folder == "pane-locales"
     }
 
     /// `file`'s path from its resource bundle's folder on (`CmuxNext_X.bundle/Contents/...`), or nil

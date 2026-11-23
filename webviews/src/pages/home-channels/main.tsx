@@ -14,6 +14,7 @@ import { createRoot } from "react-dom/client";
 import { createPageClient, type PageClient } from "../shared/pageClient";
 import { PAGE_COMMAND, type PageCommand } from "../shared/pageStreams";
 import type { StringTable, Strings } from "../shared/i18n";
+import { reloadLocaleScripts } from "../shared/localeScripts";
 import { renderLocalized } from "../shared/localizedRoot";
 import type { DaemonSocket } from "../shared/daemonSocket";
 import { UiProvider, languageDirection } from "../../ui/UiProvider";
@@ -39,11 +40,14 @@ declare global {
 
 // The page's strings. As shipped (build-pages-web.sh SPLIT_STRINGS), the head's locales/<locale>.js
 // scripts have already put English and the app's language in `__cmuxStrings`, so the 21-locale table
-// (about 440 KB) is not in the startup JS. The dev server has no locale scripts and loads the whole
-// table; so does a shipped page whose locale script failed, as a chunk of its own.
+// (about 440 KB) is neither in the startup JS nor in the app at all: a shipped page whose locale
+// script failed loads the same scripts again (reloadLocaleScripts). The dev server, the gallery and
+// tests have no locale scripts and load the whole table.
 const table: StringTable = globalThis.__cmuxStrings?.en
   ? globalThis.__cmuxStrings
-  : ((await import("./generated/strings.json")).default as StringTable);
+  : globalThis.__cmuxShippedPages
+    ? await reloadLocaleScripts("locales").then(() => (globalThis.__cmuxStrings ??= {}))
+    : ((await import("./generated/strings.json")).default as StringTable);
 
 export function mountHomeChannelsPage(
   root: HTMLElement,
