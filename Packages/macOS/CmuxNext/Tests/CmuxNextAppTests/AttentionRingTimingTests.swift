@@ -16,10 +16,12 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct AttentionRingTimingTests {
-    /// Workspace `a`: one quiet terminal. Workspace `b`: one pane, its tab holding an unread notification.
-    private static func tree() -> DaemonTree {
+    /// Workspace `a`: one quiet terminal (with `hiddenUnread`, a second tab behind it, unread: its blue dot shows on the
+    /// strip, no ring). Workspace `b`: one pane, its tab holding an unread notification.
+    private static func tree(hiddenUnread: Bool = false) -> DaemonTree {
         let marker = TabNotification(notification: NotificationID(rawValue: 11), unread: true, level: .info, source: "terminal")
-        let quiet = PaneSnapshot(id: PaneID(rawValue: 1), tabs: [TabSnapshot(surface: SurfaceID(rawValue: 1), title: "~")])
+        let hidden = TabSnapshot(surface: SurfaceID(rawValue: 3), title: "~", notification: TabNotification(notification: NotificationID(rawValue: 12), unread: true, level: .info, source: "terminal"))
+        let quiet = PaneSnapshot(id: PaneID(rawValue: 1), tabs: [TabSnapshot(surface: SurfaceID(rawValue: 1), title: "~")] + (hiddenUnread ? [hidden] : []))
         let ringing = PaneSnapshot(id: PaneID(rawValue: 2), tabs: [TabSnapshot(surface: SurfaceID(rawValue: 2), title: "~", notification: marker)])
         let a = ScreenSnapshot(id: ScreenID(rawValue: 1), layout: .leaf(quiet.id), panes: [quiet])
         let b = ScreenSnapshot(id: ScreenID(rawValue: 2), layout: .leaf(ringing.id), panes: [ringing])
@@ -51,7 +53,7 @@ struct AttentionRingTimingTests {
     }
 
     /// One window listing `a` and `b`, showing `a` with its window key. `active`: whether cmux is active.
-    private static func open(active: Bool) async throws -> Fixture {
+    private static func open(active: Bool, hiddenUnread: Bool = false) async throws -> Fixture {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]), keyWindowSource: { nil }, appActiveSource: { active },
                                    heldKeyReplay: { event, _, _ in NSApp?.sendEvent(event) })
@@ -61,7 +63,7 @@ struct AttentionRingTimingTests {
         let identity = try JSONDecoder().decode(DaemonIdentity.self, from: Data(#"{"app":"cmux-tui","protocol":1,"session":"s-local","generation":"g1"}"#.utf8))
         store.noteHandshake(identity)
         store.connectionState = .connected(identity)
-        store.apply(snapshot: Self.tree())
+        store.apply(snapshot: Self.tree(hiddenUnread: hiddenUnread))
         let a = try #require(store.workspaces.first { $0.name == "a" })
         let b = try #require(store.workspaces.first { $0.name == "b" })
         let ringing = try #require(b.screens.first?.panes.first)
@@ -151,5 +153,34 @@ struct AttentionRingTimingTests {
         #expect(model.attention[pane] == nil, "clicking the focused pane's tab left its ring for a later pass")
         #expect(model.attentionReadByEntry.contains(pane), "the tab click took the ring without the dismiss blink")
         try await PinnedPageTests.until({ fixture.ringing.tabs.first?.showsUnread == false }, report: { "the tab click left the blue dot" })
+    }
+
+    /// Case 4: a tab behind the shown one is unread (its blue dot shows on the strip; its pane draws no ring, the shown
+    /// tab is read). Clicking it shows it in the focused pane: the pane flashes the ring once and it blinks out, as going
+    /// into a ringing pane does. Before, the tab was read on sight the moment it showed, so no ring was ever drawn to blink.
+    @Test func clickingAnUnreadTabBehindTheShownOneFlashesItsPanesRingOnce() async throws {
+        let fixture = try await Self.open(active: true, hiddenUnread: true)
+        defer { fixture.close() }
+        let content = try #require(fixture.controller.content)
+        let paneModel = try #require(fixture.a.screens.first?.panes.first)
+        let unread = try #require(paneModel.tabs.first { $0.hasUnread }, "a has no unread tab behind the shown one")
+        let pane = LayoutPaneID(paneModel.id)
+        let model = content.layoutModel
+        let strip = try #require(content.panes[pane], "a's pane has no controller")
+        content.contentView.layoutSubtreeIfNeeded()
+        let view = strip.view.stripView
+        try #require(view.window === fixture.window && !view.isHiddenOrHasHiddenAncestor && view.bounds.width > 0, "the pane shows no tab strip")
+        let point = view.convert(NSPoint(x: view.bounds.midX, y: view.bounds.midY), to: nil)
+        #expect(model.attention[pane] == nil, "the pane rang for a tab it does not show")
+
+        // As AppKit dispatches the press on the tab: the strip selects the tab, then the press is noted.
+        strip.stripModel.selectedID = StripTabID(unread.id)
+        let notifications = fixture.services.notifications
+        notifications.noteMouseDown(in: fixture.window, at: point, synthetic: true)
+        try await PinnedPageTests.until({ model.attention[pane] != nil }, report: { "the clicked unread tab was read on sight: its pane never drew the ring to flash" })
+        notifications.noteMouseUp(in: fixture.window, at: point)
+        #expect(model.attention[pane] == nil, "the click's mouse-up left the ring")
+        #expect(model.attentionReadByEntry.contains(pane), "the ring went without the flash")
+        try await PinnedPageTests.until({ !unread.showsUnread }, report: { "the click left the tab's blue dot" })
     }
 }
