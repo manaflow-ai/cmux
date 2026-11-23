@@ -16,6 +16,12 @@ struct TabSwitchMorphTests {
         #expect(TabSwitchMorph.eases(from: dark, to: light))
     }
 
+    @Test func aSmallJumpIsLeftAlone() {
+        let grey = CGColor(red: 0.9, green: 0.9, blue: 0.9, alpha: 1)
+        #expect(!TabSwitchMorph.eases(from: light, to: grey))
+        #expect(TabSwitchMorph.lightness(of: light).map { abs($0 - 100) < 0.5 } == true)
+    }
+
     @Test func noChangeOrAnUnknownGroundEasesNothing() {
         #expect(!TabSwitchMorph.eases(from: light, to: light))
         #expect(!TabSwitchMorph.eases(from: light, to: nil))

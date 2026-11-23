@@ -15,13 +15,26 @@ public enum TabSwitchMorph {
 
     public static var isOn: Bool { tunable.value }
 
-    /// Whether a ground change is worth easing: both known and different.
-    public static func eases(from: CGColor?, to: CGColor?) -> Bool {
-        guard let from, let to else { return false }
-        return from != to
+    /// CIE L* (0 black, 100 white) of `color` in sRGB; nil when it has no RGB reading.
+    public static func lightness(of color: CGColor) -> Double? {
+        guard let space = CGColorSpace(name: CGColorSpace.sRGB), let rgb = color.converted(to: space, intent: .defaultIntent, options: nil),
+              let c = rgb.components, c.count >= 3 else { return nil }
+        func linear(_ v: CGFloat) -> Double { let v = Double(v); return v <= 0.04045 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4) }
+        let y = 0.2126 * linear(c[0]) + 0.7152 * linear(c[1]) + 0.0722 * linear(c[2])
+        return y > 0.008856 ? 116 * cbrt(y) - 16 : 903.3 * y
     }
 
-    /// Eases `host`'s ground from `from` to `to` (`Motion.panes`, crossfade timing); nothing when fades do not animate in
+    /// Smallest lightness jump (|dL*| over 100) worth easing: the measured `veil+chrome` design (cmuxterm-hq
+    /// docs/findings/browser-page-morph-2026-11-22.md) leaves smaller jumps untouched.
+    public static let minimumJump = 0.2
+
+    /// Whether a ground change is worth easing: both known and a big lightness jump (light to dark or back).
+    public static func eases(from: CGColor?, to: CGColor?) -> Bool {
+        guard let from, let to, let a = lightness(of: from), let b = lightness(of: to) else { return false }
+        return abs(a - b) / 100 > minimumJump
+    }
+
+    /// Eases `host`'s ground from `from` to `to` (`Motion.panes`, crossfade timing). This is the chrome half of `veil+chrome`: a view layer cannot veil a Chromium page, whose window draws above it; nothing when fades do not animate in
     /// `window` or the ground did not change.
     public static func run(on host: NSView, from: CGColor?, to: CGColor?, in window: NSWindow?) {
         guard eases(from: from, to: to), let from, let to, let layer = host.layer, Motion.panes.animatesFades else { return }
