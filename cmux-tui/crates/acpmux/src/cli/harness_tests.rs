@@ -138,3 +138,89 @@ fn hermes_example_profile_loads_as_an_acp_harness() {
     assert_eq!(profile.argv.last().map(String::as_str), Some("acp"));
     assert_eq!(meta.display_name.as_deref(), Some("Hermes Agent"));
 }
+
+fn add_into(dir: &Path, req: AddRequest) -> (Added, HarnessProfile) {
+    let sources = ProfileSources { user_dir: Some(dir.to_owned()), ..ProfileSources::none() };
+    let added = add(&req, &sources).unwrap();
+    let text = std::fs::read_to_string(&added.path).unwrap();
+    let (_, profile, _, _) =
+        profiles::parse_profile_toml(&text, &added.path, Some(&added.id), ProfileSource::UserFile)
+            .unwrap();
+    (added, profile)
+}
+
+#[test]
+fn add_writes_args_env_and_claude_home_into_the_example() {
+    let dir = temp("add-launch-claude");
+    let launch = LaunchEdits {
+        args: vec!["--verbose".into()],
+        env: parse_env_args(&["DISABLE_TELEMETRY=1".into()]).unwrap(),
+        home: Some("~/.claude-work".into()),
+    };
+    let req = AddRequest {
+        id: None,
+        command: Some("/opt/claude-beta/claude".into()),
+        protocol: "acp".into(),
+        example: Some("claude".into()),
+        force: false,
+        launch,
+    };
+    let (added, profile) = add_into(&dir, req);
+    assert_eq!(added.id, "claude", "the example's id: it replaces the built-in claude");
+    assert_eq!(profile.kind, HarnessKind::ClaudeStdio);
+    assert_eq!(profile.argv, ["/opt/claude-beta/claude", "--verbose"]);
+    assert_eq!(profile.env.get("CLAUDE_CONFIG_DIR").map(String::as_str), Some("~/.claude-work"));
+    assert_eq!(profile.env.get("DISABLE_TELEMETRY").map(String::as_str), Some("1"));
+    let text = std::fs::read_to_string(&added.path).unwrap();
+    assert!(text.contains("[sessions]"), "the example's other tables stay");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn add_writes_launch_into_a_scaffold_and_codex_home() {
+    let dir = temp("add-launch-codex");
+    let req = AddRequest {
+        id: Some("codex-work".into()),
+        command: Some("codex-acp".into()),
+        protocol: "acp".into(),
+        example: None,
+        force: false,
+        launch: LaunchEdits {
+            args: vec!["-c".into(), "x=1".into()],
+            env: vec![],
+            home: Some("/w/.codex".into()),
+        },
+    };
+    let (_, profile) = add_into(&dir, req);
+    assert_eq!(profile.argv, ["codex-acp", "-c", "x=1"]);
+    assert_eq!(profile.env.get("CODEX_HOME").map(String::as_str), Some("/w/.codex"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn add_without_launch_flags_writes_the_example_unchanged() {
+    let dir = temp("add-launch-none");
+    let req = AddRequest {
+        id: None,
+        command: None,
+        protocol: "acp".into(),
+        example: Some("codex".into()),
+        force: false,
+        launch: LaunchEdits::default(),
+    };
+    let (added, _) = add_into(&dir, req);
+    let text = std::fs::read_to_string(&added.path).unwrap();
+    assert_eq!(text, with_id(example("codex").unwrap(), "codex"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn env_flags_refuse_secrets_and_bad_names_and_home_needs_a_known_agent() {
+    assert!(parse_env_args(&["ANTHROPIC_API_KEY=sk-1".into()]).is_err());
+    assert!(parse_env_args(&["bad name=1".into()]).is_err());
+    assert!(parse_env_args(&["NOEQUALS".into()]).is_err());
+    assert_eq!(parse_env_args(&["A=b=c".into()]).unwrap(), [("A".to_owned(), "b=c".to_owned())]);
+    let launch = LaunchEdits { home: Some("/h".into()), ..Default::default() };
+    let err = with_launch(&scaffold("goose", "goose", "acp"), None, &launch).unwrap_err();
+    assert!(err.to_string().contains("--env ITS_HOME_VAR"), "{err}");
+}
