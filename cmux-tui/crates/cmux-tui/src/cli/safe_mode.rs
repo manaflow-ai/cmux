@@ -34,7 +34,7 @@ pub(super) enum Request {
 
 /// What the daemon said, or that none answered.
 #[derive(Debug)]
-enum Answer {
+pub(super) enum Answer {
     Ok(Value),
     Refused { code: String, message: String },
     NoDaemon(String),
@@ -117,7 +117,7 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
 }
 
 /// One request on a fresh connection to the session daemon.
-fn ask(global: &GlobalArgs, frame: Value) -> Answer {
+pub(super) fn ask(global: &GlobalArgs, frame: Value) -> Answer {
     let socket = match super::wire::resolve_socket_with_origin(global) {
         Ok((socket, _)) => socket,
         Err(error) => return Answer::NoDaemon(error.to_string()),
