@@ -148,7 +148,7 @@ final class AppControl {
                 guard let services, let (tab, _) = services.locateTab(id) else { return .missing }
                 guard tab.agentSession != nil else { return .notAgentChat }
                 return services.madeAgentTabs.flatMap { $0.views[$0.tabKey(of: tab)] }.map { .page($0) } ?? .notLoaded
-            }.controlMethod(sources: { [weak services] in services?.madeAgentTabs?.retirer.sources }, pages: { [weak services] in services?.madeAgentTabs.map { .init(views: $0.views.count, newTab: $0.views.marked.count, frozen: services?.cache.hibernation?.agentPages?.pages.frozen.count ?? 0, released: services?.cache.hibernation?.agentPages?.pages.releasedCount ?? 0) } }),
+            }.controlMethod(sources: { [weak services] in services?.madeAgentTabs?.retirer.sources }, pages: { [weak services] in services?.madeAgentTabs.map { .init(views: $0.views.count, newTab: $0.views.marked.count, frozen: services?.cache.hibernation?.agentPages?.pages.frozen.count ?? 0, released: services?.cache.hibernation?.agentPages?.pages.releasedCount ?? 0) } }), ClickTraceControl.method(), // and `cmux app clicks`: where the last presses went (every build)
         ])
         // Frames, hangs, layout counters and switch times in Release too, off by default (PerfProbes):
         // `perf.probes.enable {"on": true}` opens them for `cmux perf profile --frames`.
@@ -383,6 +383,7 @@ final class AppControl {
             // An injected key is input: it runs ahead of queued requests and batches yield to it (MainWorkClass.input).
             .mainActor("debug.key") { [weak services, player = keySequencePlayer] call in
                 guard let services else { return .value(.null) }
+                if let refusal = DebugDialog.syntheticInputRefusal(onlyCancels: CmuxDialogKeys.onlyCancels(key: call.params["key"]?.stringValue, modifiers: call.params["modifiers"]?.arrayValue?.count ?? 0, sequence: call.params["sequence"] != nil, read: call.params["last"]?.boolValue == true || call.params["dry_run"]?.boolValue == true)) { return .value(refusal) }
                 if call.params["sequence"] != nil { return .value(DebugKey.sendSequence(call.params, services: services, player: player)) }
                 return DebugKey.reply(call.params, services: services)
             }.injectingInput(),
@@ -685,6 +686,7 @@ final class AppControl {
             // named view made first responder; `debug.focus_ring`: the sidebar's ring (cx-tupd).
             .mainActor("debug.view_key") { [weak services] call in
                 guard let services else { return .value(.null) }
+                if let refusal = DebugDialog.syntheticInputRefusal(onlyCancels: false) { return .value(refusal) }
                 return .value(DebugViewKey.send(call.params, services: services))
             }.injectingInput(),
             .mainActor("debug.focus_ring") { [weak services] call in

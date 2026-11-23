@@ -12,7 +12,11 @@
 # Used by point-machine-channel-early, point-machine-channel and sign-linux-release in
 # .github/workflows/cmux-tui-artifacts.yml.
 #
-# usage: scripts/ci/cmux-machine-channel-point.sh PAYLOAD DIR [--same-tree]
+# usage: scripts/ci/cmux-machine-channel-point.sh PAYLOAD DIR [--same-tree | --commit-only]
+#
+# --commit-only (a payload with a per-commit file): write that file and leave the channel alone. A PR
+# head's Mac live update file (`cmux app try PR`) is published this way; only feat-cmux-next moves
+# the nightly-live channel.
 #
 # --same-tree (the Cloud machine channel only): keep the channel when the commit it names has the
 # same source tree key (scripts/ci/cmux_tui_tree_key.py --version v2, both keys computed here by
@@ -25,8 +29,13 @@
 # credentials (AWS_*) from the environment. A compare-and-swap on the bytes compared (as
 # cmux-tui-point-channel.sh): a run that finds the channel moved under it reads and compares again.
 set -euo pipefail
-payload=$1 dir=$2 same_tree=${3:-}
-[[ -z "$same_tree" || "$same_tree" == --same-tree ]] || { echo "::error::unknown option $same_tree"; exit 1; }
+payload=$1 dir=$2 same_tree="" commit_only=""
+case "${3:-}" in
+  "") ;;
+  --same-tree) same_tree=--same-tree ;;
+  --commit-only) commit_only=1 ;;
+  *) echo "::error::unknown option $3"; exit 1 ;;
+esac
 ptr=scripts/cmux-next/web-ota-pointer.py
 keys=Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/Resources/web-update-keys.json
 read -r purpose channel commit < <(python3 -c '
@@ -43,6 +52,10 @@ case "$purpose" in
 esac
 if [[ -n "$same_tree" && "$purpose" != cmux-cloud-machine-update ]]; then
   echo "::error::--same-tree is for the Cloud machine channel, not $purpose"
+  exit 1
+fi
+if [[ -n "$commit_only" && -z "${once:-}" ]]; then
+  echo "::error::--commit-only needs a per-commit file; $purpose has none"
   exit 1
 fi
 tree_key_of() { # COMMIT: its v2 tree key, fetching the commit when this checkout lacks it; empty when unknown
@@ -114,6 +127,7 @@ if [[ -n "${once:-}" ]]; then
   python3 "$ptr" verify --pointer "$dir/release-check.json" --keys "$keys" --purpose "$purpose" --channel "$channel" \
     --allow-expired >/dev/null
   echo "$once_label -> $release" | tee -a "${GITHUB_STEP_SUMMARY:-/dev/null}"
+  [[ -z "$commit_only" ]] || exit 0
 fi
 
 for attempt in 1 2 3 4 5; do
