@@ -124,6 +124,7 @@ pub mod github_mcp {
 pub mod github_status;
 pub mod goal;
 pub mod hand;
+pub mod happy_dial;
 pub mod harness_admin;
 pub mod harness_config;
 pub mod harness_fixture;
