@@ -78,9 +78,8 @@ extension LiveCoordinator {
             guard let session, session.workspaces.connectionSerial == connection, let client = session.workspaces.daemon else {
                 throw LinkError(code: "no-link", message: "Not connected to the Mac")
             }
-            // Decoded here, so the dictionary sent is this closure's own (Swift 6 `sending`).
-            let fields = (try? JSONSerialization.jsonObject(with: params)) as? [String: Any] ?? [:]
-            return try await client.request(command, params: fields, deadline: deadline)
+            // Only bytes cross to the client's actor; it decodes them there (Swift 6 `sending`).
+            return try await client.request(command, json: params, deadline: deadline)
         }
         session.terminalFeed.type = { [weak session] surface, bytes, connection in
             guard let session else { throw LinkError(code: "no-link", message: "Not connected to the Mac") }
