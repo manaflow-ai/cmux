@@ -442,3 +442,41 @@ fn a_listing_hands_the_kernel_each_entrys_stat_as_a_lookup_would() {
     assert_eq!(names, ["d", "new.rs"]);
     mounted.unmount();
 }
+
+#[test]
+fn a_cached_manifest_folder_listing_shows_every_change_made_through_the_mount() {
+    let state = tempfile::tempdir().unwrap();
+    let at = tempfile::tempdir().unwrap();
+    let files: &[(&str, &[u8])] = &[("d/a.rs", b"a"), ("d/b.rs", b"b"), ("d/sub/c.rs", b"c")];
+    let Some((_overlay, mounted)) =
+        mounted(files, 1_700_000_000_000_000_000, state.path(), at.path())
+    else {
+        return;
+    };
+    let folder = at.path().join("d");
+    let names = || {
+        let mut names: Vec<String> = std::fs::read_dir(&folder)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+            .collect();
+        names.sort();
+        names
+    };
+    // Listed twice: the second comes from the kernel's cache of this manifest-only folder.
+    assert_eq!(names(), ["a.rs", "b.rs", "sub"]);
+    assert_eq!(names(), ["a.rs", "b.rs", "sub"]);
+    std::fs::write(folder.join("new.rs"), "n").unwrap();
+    assert_eq!(names(), ["a.rs", "b.rs", "new.rs", "sub"]);
+    std::fs::rename(folder.join("a.rs"), folder.join("z.rs")).unwrap();
+    assert_eq!(names(), ["b.rs", "new.rs", "sub", "z.rs"]);
+    std::fs::remove_file(folder.join("b.rs")).unwrap();
+    assert_eq!(names(), ["new.rs", "sub", "z.rs"]);
+    std::fs::remove_file(folder.join("sub/c.rs")).unwrap();
+    std::fs::remove_dir(folder.join("sub")).unwrap();
+    assert_eq!(names(), ["new.rs", "z.rs"]);
+    // A rename into another manifest-only folder shows in both listings.
+    std::fs::create_dir(folder.join("e")).unwrap();
+    std::fs::rename(folder.join("z.rs"), folder.join("e/z.rs")).unwrap();
+    assert_eq!(names(), ["e", "new.rs"]);
+    mounted.unmount();
+}
