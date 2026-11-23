@@ -901,6 +901,12 @@
       "title" : "Warn Before Closing a Running Program",
       "type" : "boolean"
     },
+    "app.warnBeforeQuitShortcut" : {
+      "default" : true,
+      "description" : "⌘Q asks before quitting; press it again to quit. The Quit menu item and the Dock quit at once.",
+      "title" : "Warn Before Quitting with ⌘Q",
+      "type" : "boolean"
+    },
     "appearance.accent" : {
       "default" : "neutral",
       "description" : "The color of selection, focus and the Send button.",
@@ -1665,6 +1671,22 @@
       "title" : "Opacity",
       "type" : "number"
     },
+    "appearance.backgroundPlacement" : {
+      "description" : "Picture ID to fill, fit, center or stretch, with optional X Y anchor and zoom.",
+      "properties" : {
+
+      },
+      "title" : "Background Placement",
+      "type" : "object"
+    },
+    "appearance.backgroundRecents" : {
+      "description" : "The backgrounds shown before, newest first, so one click goes back.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Recent Backgrounds",
+      "type" : "array"
+    },
     "appearance.backgroundRotation" : {
       "default" : "daily",
       "description" : "How often a shuffled background changes. Also accepts a number from 1 to 1440 in a raw profile.",
@@ -1947,6 +1969,12 @@
       "minimum" : 0.9,
       "title" : "Interface Size",
       "type" : "number"
+    },
+    "appearance.liquidGlass" : {
+      "default" : false,
+      "description" : "Off draws the composer, menus, popovers and cards as solid surfaces with a plain border.",
+      "title" : "Liquid Glass",
+      "type" : "boolean"
     },
     "appearance.machineColors" : {
       "default" : {
@@ -3109,7 +3137,7 @@
       "type" : "boolean"
     },
     "computerUse.settle" : {
-      "default" : "adaptive",
+      "default" : "openai",
       "description" : "What an agent waits for after each click or key press before it looks again: the screen to stop changing, a fixed 2 seconds, or nothing.",
       "enum" : [
         "adaptive",
@@ -3134,6 +3162,12 @@
       "default" : false,
       "description" : "Adds Customize Menu… to the end of every right-click menu.",
       "title" : "Show Customize Menu…",
+      "type" : "boolean"
+    },
+    "customize.doctorNotice" : {
+      "default" : true,
+      "description" : "customize.doctorNotice",
+      "title" : "Customization notices",
       "type" : "boolean"
     },
     "customize.fromTheApp" : {
@@ -4266,6 +4300,12 @@
       "default" : false,
       "description" : "Mac Screen tabs connect only through the relay, to test it.",
       "title" : "Relay Only",
+      "type" : "boolean"
+    },
+    "macScreen.onlyPersonStartsViewing" : {
+      "default" : false,
+      "description" : "On, a Screen Sharing tab an agent or the cmux CLI opens waits until you choose View Only or Full Control. Off, it starts viewing your own devices at once and says who started it. A device someone else owns always asks first.",
+      "title" : "Only Your Click Starts Viewing a Screen",
       "type" : "boolean"
     },
     "macScreen.shareWithoutAsking" : {
@@ -5843,6 +5883,116 @@
       "description" : "sidebar.workspaceRow.lastActivity",
       "title" : "Last Activity",
       "type" : "boolean"
+    },
+    "sidebar.workspaceRow.lines" : {
+      "description" : "The lines each workspace row shows, as lists of items, such as [[\"icon\", \"name\", \"branch\"], [\"agentStatus\"]]. Up to 3 lines of 6 items; the name always leads the first line. Nested; see `cmux settings schema` for its shape.",
+      "items" : {
+        "items" : {
+          "enum" : [
+            "icon",
+            "name",
+            "working",
+            "progress",
+            "notification",
+            "directory",
+            "branch",
+            "process",
+            "agentStatus",
+            "tabCount",
+            "ports",
+            "lastActivity",
+            "pullRequest",
+            "log"
+          ]
+        },
+        "maxItems" : 10,
+        "minItems" : 1,
+        "type" : "array",
+        "uniqueItems" : true
+      },
+      "maxItems" : 3,
+      "title" : "Row Layout",
+      "type" : "array"
+    },
+    "sidebar.workspaceRow.linesByAgent" : {
+      "additionalProperties" : {
+        "items" : {
+          "items" : {
+            "enum" : [
+              "icon",
+              "name",
+              "working",
+              "progress",
+              "notification",
+              "directory",
+              "branch",
+              "process",
+              "agentStatus",
+              "tabCount",
+              "ports",
+              "lastActivity",
+              "pullRequest",
+              "log"
+            ]
+          },
+          "maxItems" : 10,
+          "minItems" : 1,
+          "type" : "array",
+          "uniqueItems" : true
+        },
+        "maxItems" : 3,
+        "type" : "array"
+      },
+      "description" : "A row layout for each agent, by agent id such as claude or codex. It wins over the other row layouts. Nested; see `cmux settings schema` for its shape.",
+      "maxProperties" : 32,
+      "propertyNames" : {
+        "maxLength" : 64,
+        "minLength" : 1,
+        "type" : "string"
+      },
+      "title" : "Row Layout by Agent",
+      "type" : "object"
+    },
+    "sidebar.workspaceRow.linesByKind" : {
+      "additionalProperties" : {
+        "items" : {
+          "items" : {
+            "enum" : [
+              "icon",
+              "name",
+              "working",
+              "progress",
+              "notification",
+              "directory",
+              "branch",
+              "process",
+              "agentStatus",
+              "tabCount",
+              "ports",
+              "lastActivity",
+              "pullRequest",
+              "log"
+            ]
+          },
+          "maxItems" : 10,
+          "minItems" : 1,
+          "type" : "array",
+          "uniqueItems" : true
+        },
+        "maxItems" : 3,
+        "type" : "array"
+      },
+      "description" : "A row layout for each kind of workspace: terminal, agent, browser or mixed. It wins over Row Layout. Nested; see `cmux settings schema` for its shape.",
+      "propertyNames" : {
+        "enum" : [
+          "terminal",
+          "agent",
+          "browser",
+          "mixed"
+        ]
+      },
+      "title" : "Row Layout by Kind",
+      "type" : "object"
     },
     "sidebar.workspaceRow.log" : {
       "default" : false,
