@@ -12,7 +12,11 @@
 # Used by point-machine-channel-early, point-machine-channel and sign-linux-release in
 # .github/workflows/cmux-tui-artifacts.yml.
 #
-# usage: scripts/ci/cmux-machine-channel-point.sh PAYLOAD DIR [--same-tree]
+# usage: scripts/ci/cmux-machine-channel-point.sh PAYLOAD DIR [--same-tree | --commit-only]
+#
+# --commit-only (a payload with a per-commit file): write that file and leave the channel alone. A PR
+# head's Mac live update file (`cmux app try PR`) is published this way; only feat-cmux-next moves
+# the nightly-live channel.
 #
 # --same-tree (the Cloud machine channel only): keep the channel when the commit it names has the
 # same source tree key (scripts/ci/cmux_tui_tree_key.py --version v2, both keys computed here by
@@ -22,11 +26,20 @@
 # cannot be computed (the commit is not fetchable) keeps the old rule: the channel moves.
 #
 # DIR is a private scratch directory (mode 700). Reads SIGNING_KEY, R2_ENDPOINT and the R2
-# credentials (AWS_*) from the environment. A compare-and-swap on the bytes compared (as
+# credentials (AWS_*) from the environment. A Linux release file is also signed with
+# LINUX_RELEASE_SIGNING_KEY (the secret CMUX_LINUX_RELEASE_SIGNING_KEY, the dedicated release key of
+# cmuxterm-hq docs/design/linux-signed-packages.md section 3) once web-update-keys.json lists it: both
+# signatures through the rotation, so old and new installers verify it. Unset, the file carries the
+# web update key's signature alone and a warning says so. A compare-and-swap on the bytes compared (as
 # cmux-tui-point-channel.sh): a run that finds the channel moved under it reads and compares again.
 set -euo pipefail
-payload=$1 dir=$2 same_tree=${3:-}
-[[ -z "$same_tree" || "$same_tree" == --same-tree ]] || { echo "::error::unknown option $same_tree"; exit 1; }
+payload=$1 dir=$2 same_tree="" commit_only=""
+case "${3:-}" in
+  "") ;;
+  --same-tree) same_tree=--same-tree ;;
+  --commit-only) commit_only=1 ;;
+  *) echo "::error::unknown option $3"; exit 1 ;;
+esac
 ptr=scripts/cmux-next/web-ota-pointer.py
 keys=Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/Resources/web-update-keys.json
 read -r purpose channel commit < <(python3 -c '
@@ -43,6 +56,10 @@ case "$purpose" in
 esac
 if [[ -n "$same_tree" && "$purpose" != cmux-cloud-machine-update ]]; then
   echo "::error::--same-tree is for the Cloud machine channel, not $purpose"
+  exit 1
+fi
+if [[ -n "$commit_only" && -z "${once:-}" ]]; then
+  echo "::error::--commit-only needs a per-commit file; $purpose has none"
   exit 1
 fi
 tree_key_of() { # COMMIT: its v2 tree key, fetching the commit when this checkout lacks it; empty when unknown
@@ -67,10 +84,19 @@ if [[ -z "${SIGNING_KEY:-}" ]]; then
   exit 1
 fi
 signed="$dir/signed.json"
-trap 'rm -f "$dir/key.pem"' EXIT
+trap 'rm -f "$dir/key.pem" "$dir/release-key.pem"' EXIT
 (umask 077; printf '%s\n' "$SIGNING_KEY" > "$dir/key.pem")
-python3 "$ptr" sign --payload "$payload" --key "$dir/key.pem" --keys "$keys" --out "$signed"
-rm -f "$dir/key.pem"
+extra=()
+if [[ "$purpose" == cmux-linux-release ]]; then
+  if [[ -n "${LINUX_RELEASE_SIGNING_KEY:-}" ]]; then
+    (umask 077; printf '%s\n' "$LINUX_RELEASE_SIGNING_KEY" > "$dir/release-key.pem")
+    extra=(--extra-key "$dir/release-key.pem")
+  else
+    echo "::warning::CMUX_LINUX_RELEASE_SIGNING_KEY is not set; the $label is signed with the web update key alone"
+  fi
+fi
+python3 "$ptr" sign --payload "$payload" --key "$dir/key.pem" ${extra[@]+"${extra[@]}"} --keys "$keys" --out "$signed"
+rm -f "$dir/key.pem" "$dir/release-key.pem"
 upload() { # KEY CACHE-CONTROL MODE...
   local key=$1 cache=$2
   shift 2
@@ -114,6 +140,7 @@ if [[ -n "${once:-}" ]]; then
   python3 "$ptr" verify --pointer "$dir/release-check.json" --keys "$keys" --purpose "$purpose" --channel "$channel" \
     --allow-expired >/dev/null
   echo "$once_label -> $release" | tee -a "${GITHUB_STEP_SUMMARY:-/dev/null}"
+  [[ -z "$commit_only" ]] || exit 0
 fi
 
 for attempt in 1 2 3 4 5; do

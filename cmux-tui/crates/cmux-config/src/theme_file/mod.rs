@@ -31,6 +31,7 @@ use serde_json::Value;
 
 use crate::domains::Domains;
 use crate::keypath::{dotted, key_path};
+use crate::migrations::Notice;
 use crate::refusal::Refusal;
 use crate::render::compact;
 use crate::schema::{Accepted, DomainKind, Row, Schema, Validation, accepts};
@@ -48,8 +49,8 @@ pub const SETTING_KEY: &str = "appearance.themeFile";
 pub const SCHEMA_FILE_NAME: &str = ".schema.json";
 
 /// Keys a theme file reads that are not settings.
-pub const RESERVED_KEYS: [&str; 7] =
-    ["name", "description", "$schema", "colors", "ghostty", "density", "slots"];
+pub const RESERVED_KEYS: [&str; 8] =
+    ["name", "description", "$schema", "colors", "ghostty", "density", "slots", "fonts"];
 /// Look keys that are no part of a look: the theme file itself, the star
 /// list and its rotation, per-machine and per-display maps, the sun location
 /// (where this Mac is), what each background mode last showed and the
@@ -317,6 +318,10 @@ pub struct ThemeFile {
     /// The variant each theme slot draws (`slots`), checked against
     /// schemas/theme/slots.json: unknown slots and variants are left out.
     pub slots: BTreeMap<String, String>,
+    /// Keys the file names by an older name, rewritten through the
+    /// retired-keys table ([`crate::migrations`]): the look applies a renamed
+    /// key under its new name and leaves out a removed one.
+    pub notices: Vec<Notice>,
 }
 
 impl ThemeFile {
@@ -342,6 +347,7 @@ impl ThemeFile {
             corrected: Vec::new(),
             is_unparsable: false,
             slots: BTreeMap::new(),
+            notices: Vec::new(),
         };
         let is_loaded = reader.read(source, base);
         let mut values = reader.values;
@@ -354,6 +360,7 @@ impl ThemeFile {
             diagnostics: reader.diagnostics,
             corrected: reader.corrected,
             slots: reader.slots,
+            notices: reader.notices,
         }
     }
 
@@ -434,6 +441,7 @@ struct Reader<'a> {
     corrected: Vec<String>,
     is_unparsable: bool,
     slots: BTreeMap<String, String>,
+    notices: Vec<Notice>,
 }
 
 impl<'a> Reader<'a> {
@@ -461,6 +469,9 @@ impl<'a> Reader<'a> {
                 return false;
             }
         };
+        // A key an older cmux named differently reads under its new name.
+        let (parsed, notices) = crate::migrations::migrate(&parsed);
+        self.notices = notices;
         let Value::Object(members) = parsed else {
             self.unreadable("root is not an object", Some(1));
             return false;
