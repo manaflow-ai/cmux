@@ -38,8 +38,6 @@ public final class AppHealthFeeds {
     public let pageFeed: any PageHealthFeed
     /// The follow of the local daemon connection (`AppHealthConnectionFeed`), for the app's life.
     private var connectionFeed: Task<Void, Never>?
-    /// Where each part is (the chat a page shows), for the card's words.
-    private let places: AppHealthPlaces
 
     /// - Parameters:
     ///   - stateDirectory: The session daemon's state directory, whose registry size is read once.
