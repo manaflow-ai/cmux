@@ -395,6 +395,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         services.configActions.start(settings: settings)
+        services.projectActions.start()
         services.personInput.start(); services.cache.cef.personInput = { [ledger = services.personInput] in ledger.isPerson($0) }
         services.joinConsent.follow(settings: settings)
         if !environment.noActivate { services.signInEnroll.follow() } // an agent-launched build enrolls no machine
@@ -568,6 +569,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services?.serverReach.stop()
         control.stop()
         services?.configActions.stop()
+        services?.projectActions.stop()
         services?.globalHotKeys.stop()
         settings?.stop()
         services?.iphone.stop()
