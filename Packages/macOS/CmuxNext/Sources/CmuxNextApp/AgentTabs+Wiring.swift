@@ -133,6 +133,7 @@ extension AgentTabStore {
             guard let services, let record, let session = record.session else { return nil }
             return services.cloud.place.placeJSON(session: session, onCloud: record.host.hasPrefix(MachineRegistry.registryHostPrefix), cloudName: record.hostName)
         }
+        tabs.evacuateState = { [weak services] in services?.cloud.placeDriver?.evacuateJSON() }
         // Move to…: every Cloud machine of the account but the one the chat runs on, and this Mac for a
         // chat a move took from here (``CloudMoveTargets``). Each goes through the Cloud move actions:
         // this Mac's chat Move to Cloud on the machine named, a machine's chat Move to Another Machine

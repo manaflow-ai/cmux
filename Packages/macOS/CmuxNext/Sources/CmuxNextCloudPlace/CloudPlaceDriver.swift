@@ -4,11 +4,17 @@ import Foundation
 
 /// One chat as the place controls see it, read by the app (``CloudPlaceHost``).
 public struct CloudPlaceChat: Sendable {
-    public var id: String, session: String, onCloud: Bool, turnRunning: Bool, turnStartedAtMs: Double?, moving: Bool
-    public init(id: String, session: String, onCloud: Bool, turnRunning: Bool, turnStartedAtMs: Double?, moving: Bool) {
-        self.id = id; self.session = session; self.onCloud = onCloud; self.turnRunning = turnRunning
+    public var id: String, session: String, title: String, onCloud: Bool, turnRunning: Bool, turnStartedAtMs: Double?, moving: Bool
+    public init(id: String, session: String, title: String = "", onCloud: Bool, turnRunning: Bool, turnStartedAtMs: Double?, moving: Bool) {
+        self.id = id; self.session = session; self.title = title; self.onCloud = onCloud; self.turnRunning = turnRunning
         self.turnStartedAtMs = turnStartedAtMs; self.moving = moving
     }
+}
+
+/// What the page knows of a chat's cargo, sent with `chatPlace.set` or `chatMove.retry`: it overrides the app's own read for that move.
+public struct CloudPlaceClaims: Sendable, Equatable {
+    public var queued: Int?, hasDraft: Bool?
+    public init(queued: Int? = nil, hasDraft: Bool? = nil) { self.queued = queued; self.hasDraft = hasDraft }
 }
 
 /// Where a move to Cloud lands.
@@ -26,7 +32,10 @@ public protocol CloudPlaceHost: AnyObject {
     /// Every chat the app shows that may move: local ones, and Cloud ones a move from this Mac put there.
     func placeChats() -> [CloudPlaceChat]
     /// Runs the chat's move (to Cloud on `machine`, or back) as the app's move actions do, and returns when it ends.
-    func placeRun(_ chat: CloudPlaceChat, toCloud: Bool, machine: CloudPlaceMachine?, trigger: CloudPlaceFlows.Trigger) async
+    /// `claims` (when the move is a person's from the page) override the cargo the app reads.
+    func placeRun(_ chat: CloudPlaceChat, toCloud: Bool, machine: CloudPlaceMachine?, trigger: CloudPlaceFlows.Trigger, claims: CloudPlaceClaims) async
+    /// The sessions of the chats a move from this Mac put on Cloud machines and not brought back (the ledger).
+    func placeCloudSessions() -> [String]
     /// The machine this session was moved to before, and the machines with the sessions each holds.
     func placeOwnFacts(_ session: String) -> (before: String?, machines: [CloudPlaceOwnMachine])
     /// Calls `handler` with the session of every turn that ends.
@@ -54,12 +63,12 @@ public final class CloudPlaceDriver {
     // MARK: Actions
 
     /// `chatPlace.set`: records the mode, and moves the chat where it puts it now (Cloud: its own VM; Local: back).
-    public func setMode(_ mode: String, tab: String) {
+    public func setMode(_ mode: String, tab: String, claims: CloudPlaceClaims = .init()) {
         guard ["local", "cloud", "auto"].contains(mode), let chat = chat(tab) else { return }
         place.setMode(mode, of: chat.session)
         switch mode {
-        case "cloud" where !chat.onCloud: move(chat, toCloud: true, trigger: .person)
-        case "local" where chat.onCloud: move(chat, toCloud: false, trigger: .person)
+        case "cloud" where !chat.onCloud: move(chat, toCloud: true, trigger: .person, claims: claims)
+        case "local" where chat.onCloud: move(chat, toCloud: false, trigger: .person, claims: claims)
         case "auto": evaluate()
         default: break
         }
@@ -72,28 +81,51 @@ public final class CloudPlaceDriver {
     }
 
     /// `chatMove.retry`: the chat's move again, as the person's.
-    public func retry(tab: String) {
+    public func retry(tab: String, claims: CloudPlaceClaims = .init()) {
         guard let chat = chat(tab) else { return }
-        run(chat, toCloud: !chat.onCloud, machine: nil, trigger: .person)
+        run(chat, toCloud: !chat.onCloud, machine: nil, trigger: .person, claims: claims)
     }
 
     /// `cloudEvacuate`: every local chat (or the named ones) to its own VM, as many at once as Rust's plan says.
-    public func evacuate(sessions named: [String]?) {
+    public func evacuate(sessions named: [String]?) { bulk(toCloud: true, sessions: named) }
+
+    /// `cloudBringBackAll`: the chats Evacuate or Auto put on Cloud (or the named ones) back to this Mac, planned and run like Evacuate.
+    public func bringBackAll(sessions named: [String]?) {
+        bulk(toCloud: false, sessions: named ?? place.canBringBack(among: host?.placeCloudSessions() ?? []))
+    }
+
+    /// `cloudEvacuate.cancel`: no queued chat starts, and each running move is cancelled as its Cancel (the reducer says whether it stops).
+    public func cancelEvacuation() {
+        for session in place.stopEvacuation() { place.cancel(session) }
+    }
+
+    /// `evacuate` for pane.tabState (``CloudPlaceFlows/evacuateJSON(canBringBack:)``).
+    public func evacuateJSON() -> Data? {
+        place.evacuateJSON(canBringBack: place.canBringBack(among: host?.placeCloudSessions() ?? []).count)
+    }
+
+    private func bulk(toCloud: Bool, sessions named: [String]?) {
         struct Item: Encodable { var session: String, at: String, started: Bool, turnRunning: Bool, moving: Bool }
-        struct Request: Encodable { var chats: [Item], selected: [String]? }
+        struct Request: Encodable { var chats: [Item], selected: [String]?, direction: String }
         struct Plan: Decodable { var moves: [String], parallel: Int }
         let all = host?.placeChats() ?? []
         let request = Request(chats: all.map { Item(session: $0.session, at: $0.onCloud ? "cloud" : "local", started: true, turnRunning: $0.turnRunning, moving: $0.moving) },
-                              selected: named)
+                              selected: named, direction: toCloud ? "toCloud" : "toLocal")
         guard let plan = CloudMoveCore().call("place_evacuate", request, as: Plan.self) else { return }
         let queue = plan.moves.compactMap { session in all.first { $0.session == session } }
+        guard !queue.isEmpty else { return }
+        place.beginEvacuation(direction: request.direction, chats: queue.map { ($0.session, $0.title) })
         // task-owner: one-shot; ends when the last move ends.
         Task {
             var next = queue.makeIterator()
             await withTaskGroup(of: Void.self) { group in
                 func launch() -> Bool {
-                    guard let chat = next.next() else { return false }
-                    group.addTask { @MainActor in await self.moved(chat, toCloud: true, trigger: .evacuate) }
+                    guard !self.place.evacuationStopped, let chat = next.next() else { return false }
+                    self.place.evacuationPhase(chat.session, .running)
+                    group.addTask { @MainActor in
+                        await self.moved(chat, toCloud: toCloud, trigger: .evacuate)
+                        self.place.evacuationPhase(chat.session, .ended)
+                    }
                     return true
                 }
                 for _ in 0..<max(1, plan.parallel) { if !launch() { break } }
@@ -104,19 +136,19 @@ public final class CloudPlaceDriver {
 
     // MARK: Running a move
 
-    private func move(_ chat: CloudPlaceChat, toCloud: Bool, trigger: CloudPlaceFlows.Trigger) {
+    private func move(_ chat: CloudPlaceChat, toCloud: Bool, trigger: CloudPlaceFlows.Trigger, claims: CloudPlaceClaims = .init()) {
         // task-owner: one move; the app's registry tracks its work.
-        Task { await moved(chat, toCloud: toCloud, trigger: trigger) }
+        Task { await moved(chat, toCloud: toCloud, trigger: trigger, claims: claims) }
     }
 
-    private func run(_ chat: CloudPlaceChat, toCloud: Bool, machine: CloudPlaceMachine?, trigger: CloudPlaceFlows.Trigger) {
+    private func run(_ chat: CloudPlaceChat, toCloud: Bool, machine: CloudPlaceMachine?, trigger: CloudPlaceFlows.Trigger, claims: CloudPlaceClaims) {
         // task-owner: one move; the app's registry tracks its work.
-        Task { await host?.placeRun(chat, toCloud: toCloud, machine: machine, trigger: trigger) }
+        Task { await host?.placeRun(chat, toCloud: toCloud, machine: machine, trigger: trigger, claims: claims) }
     }
 
     /// To Cloud, the chat's own VM (Rust's rule): the one it used before when still there and holding no other chat, else a new one.
-    private func moved(_ chat: CloudPlaceChat, toCloud: Bool, trigger: CloudPlaceFlows.Trigger) async {
-        await host?.placeRun(chat, toCloud: toCloud, machine: toCloud ? ownMachine(for: chat.session) : nil, trigger: trigger)
+    private func moved(_ chat: CloudPlaceChat, toCloud: Bool, trigger: CloudPlaceFlows.Trigger, claims: CloudPlaceClaims = .init()) async {
+        await host?.placeRun(chat, toCloud: toCloud, machine: toCloud ? ownMachine(for: chat.session) : nil, trigger: trigger, claims: claims)
     }
 
     func ownMachine(for session: String) -> CloudPlaceMachine? {

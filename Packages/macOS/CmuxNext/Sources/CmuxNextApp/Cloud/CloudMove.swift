@@ -199,7 +199,7 @@ struct CloudMove {
         let workspace = services.machines.local.store.workspace(containing: pane.handle)
         // The flow the chat's header draws (``CloudPlaceFlows``): each step below reports itself.
         let place = services.cloud.place
-        var cargo = CloudPlaceFlows.Cargo.read(tab: tab, session: session, services: services)
+        var cargo = CloudPlaceFlows.Cargo.read(tab: tab, session: session, services: services, invocation: invocation)
         cargo.dirtyFiles = await CloudPlaceFlows.dirtyFiles(in: tab.cwd)
         place.begin(session: session, toCloud: true, trigger: invocation["trigger"]?.stringValue, from: CloudPlaceFlows.thisMac, to: "", cargo: cargo)
         guard let chat = try await chatFolder(tab: tab, workspace: workspace, session: session, invocation: invocation),
@@ -352,8 +352,19 @@ struct CloudMove {
         if invocation["newMachine"]?.boolValue != true, let live = others.first(where: { $0.daemon.connection != nil }) ?? others.first { // newMachine: the chat's own VM (``CloudPlaceDriver``)
             return try await Self.connected(live, invocation)
         }
-        let created = try await services.cloud.createMachine(name: nil, startedByPerson: invocation.origin == .user, askedBy: invocation.callerAgentSession,
+        let created: CloudMachineSession
+        do {
+            created = try await services.cloud.createMachine(name: nil, startedByPerson: invocation.origin == .user, askedBy: invocation.callerAgentSession,
                                                              request: CloudChatPick.request(sizedFor: await pick()))
+        } catch let error where !(error is CancellationError || error is CloudMachineCap.RunHere || error is Failure) {
+            // This chat's own VM did not start: say so with its cause when known, never as a shared pool with none free.
+            var upgrade = false
+            if case CloudMachineCreateFlow.Failure.upgradeRequired = error { upgrade = true }
+            if case CloudMachineCreateFlow.Failure.declined = error { throw error }
+            let cause = CloudPlaceVMFailure.cause(of: error, signedOut: (error as? ActionFailure)?.message == CloudStrings.signInFirst, planRequired: upgrade)
+            services.cloud.logger.error("cloud move: its VM did not start: \(CloudStrings.errorText(error), privacy: .public)")
+            throw Failure(message: CloudMoveStrings.vmCouldNotStart(cause: cause))
+        }
         return try await Self.connected(created, invocation)
     }
 

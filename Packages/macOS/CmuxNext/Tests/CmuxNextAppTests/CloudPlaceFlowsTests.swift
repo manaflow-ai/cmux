@@ -71,4 +71,27 @@ import Testing
         #expect(CloudPlaceFlows.dirtyCount(porcelainZ: out) == 3)
         #expect(CloudPlaceFlows.dirtyCount(porcelainZ: Data()) == 0)
     }
+
+    @Test func evacuationShowsEachChatsStateAndCancelDropsTheQueue() throws {
+        let place = flows(Recorder())
+        place.beginEvacuation(direction: "toCloud", chats: [("a", "A"), ("b", "B"), ("c", "C")])
+        place.evacuationPhase("a", .running)
+        place.evacuationPhase("b", .running)
+        place.evacuationPhase("b", .ended) // no flow was kept: read as failed, never as landed
+        #expect(place.stopEvacuation() == ["a"])
+        #expect(place.evacuationStopped)
+        let object = try #require(place.evacuateJSON(canBringBack: 2).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] })
+        let states = (object["chats"] as? [[String: Any]])?.map { $0["state"] as? String }
+        #expect(states == ["moving", "failed", "cancelled"])
+        #expect(object["direction"] as? String == "toCloud" && object["canBringBack"] as? Int == 2 && object["elapsedMs"] != nil)
+        place.evacuationPhase("a", .ended)
+        #expect(place.evacuation?.endedMs != nil)
+    }
+
+    @Test func idleEvacuateCarriesOnlyTheBringBackCount() throws {
+        let place = flows(Recorder())
+        #expect(place.evacuateJSON(canBringBack: 0) == nil)
+        let object = try #require(place.evacuateJSON(canBringBack: 3).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] })
+        #expect(Set(object.keys) == ["canBringBack"])
+    }
 }

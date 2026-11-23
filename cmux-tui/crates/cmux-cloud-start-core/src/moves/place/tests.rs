@@ -289,3 +289,44 @@ fn own_machine_is_never_shared() {
     let empty = vec![machine("m4", &[], false)];
     assert_eq!(own_machine("s1", Some("m4"), &empty), OwnMachine::Reuse { machine: "m4".into() });
 }
+
+#[test]
+fn evacuate_toward_local_moves_cloud_chats_whether_or_not_started() {
+    let chat = |session: &str, at: At, started: bool| EvacuateChat {
+        session: session.into(),
+        at,
+        started,
+        turn_running: false,
+        moving: false,
+    };
+    let chats = vec![
+        chat("a", At::Cloud, false),
+        chat("b", At::Local, true),
+        chat("c", At::Cloud, true),
+        EvacuateChat { moving: true, ..chat("d", At::Cloud, true) },
+    ];
+    let plan = evacuate_toward(&chats, None, Direction::ToLocal);
+    assert_eq!(plan.moves, vec!["a".to_string(), "c".to_string()]);
+    let skipped: Vec<_> = plan.skipped.iter().map(|s| (s.session.as_str(), s.reason)).collect();
+    assert_eq!(skipped, vec![("b", "alreadyLocal"), ("d", "moving")]);
+    // The same list toward Cloud keeps the old plan.
+    assert_eq!(evacuate(&chats, None).moves, vec!["b".to_string()]);
+}
+
+#[test]
+fn a_vm_that_could_not_start_names_its_cause() {
+    let cause = |error: VmError| vm_failure_cause(&error);
+    assert_eq!(cause(VmError { signed_out: true, ..VmError::default() }), Some("signIn"));
+    assert_eq!(cause(VmError { plan_required: true, ..VmError::default() }), Some("planLimit"));
+    assert_eq!(cause(VmError { status: Some(402), ..VmError::default() }), Some("planLimit"));
+    assert_eq!(cause(VmError { status: Some(429), ..VmError::default() }), Some("capacity"));
+    assert_eq!(
+        cause(VmError { code: Some("no_capacity".into()), ..VmError::default() }),
+        Some("capacity")
+    );
+    assert_eq!(
+        cause(VmError { code: Some("offline".into()), ..VmError::default() }),
+        Some("offline")
+    );
+    assert_eq!(cause(VmError { status: Some(500), ..VmError::default() }), None);
+}

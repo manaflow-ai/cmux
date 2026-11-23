@@ -84,8 +84,12 @@ public final class CloudPlaceFlows {
     @ObservationIgnored private var cancelled: Set<String> = []
     /// Sessions Auto moved to Cloud (so Auto may bring them back; a person's Cloud stays), kept across launches.
     @ObservationIgnored public private(set) var autoMoved: Set<String> = []
+    /// Sessions Evacuate moved to Cloud and not back yet (Bring Back All's list with ``autoMoved``), kept across launches.
+    @ObservationIgnored public private(set) var evacuated: Set<String> = []
+    /// The running (or last) Evacuate or Bring Back All; each change of it re-sends the header.
+    public internal(set) var evacuation: Evacuation?
     /// Each running move's trigger and direction, to record who moved it once it landed.
-    @ObservationIgnored private var started: [String: (auto: Bool, toCloud: Bool)] = [:]
+    @ObservationIgnored private var started: [String: (auto: Bool, evacuate: Bool, toCloud: Bool)] = [:]
     @ObservationIgnored private let core: Core
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let modesKey: String
@@ -97,6 +101,7 @@ public final class CloudPlaceFlows {
         self.core = core ?? { operation, request in CloudStartCore().callData(operation, request) }
         self.clock = clock ?? { UInt64(ProcessInfo.processInfo.systemUptime * 1000) }
         if let kept = defaults.stringArray(forKey: key + ".autoMoved") { autoMoved = Set(kept) }
+        if let kept = defaults.stringArray(forKey: key + ".evacuated") { evacuated = Set(kept) }
         if let data = defaults.data(forKey: key), let kept = try? JSONDecoder().decode([String: String].self, from: data) { modes = kept }
     }
 
@@ -129,7 +134,7 @@ public final class CloudPlaceFlows {
         guard let session else { return .go }
         flows[session] = nil
         cancelled.remove(session)
-        if case .auto = trigger { started[session] = (true, toCloud) } else { started[session] = (false, toCloud) }
+        started[session] = (auto: { if case .auto = trigger { true } else { false } }(), evacuate: trigger == .evacuate, toCloud: toCloud)
         return report(session, ["event": "begin", "session": session, "direction": toCloud ? "toCloud" : "toLocal", "trigger": trigger.json,
                                 "from": from, "to": to, "cargo": cargo.json, "atMs": nowMs])
     }
@@ -150,6 +155,8 @@ public final class CloudPlaceFlows {
             // Auto may bring back only what Auto moved; a person's move either way ends that.
             if kind.auto && kind.toCloud { autoMoved.insert(session) } else { autoMoved.remove(session) }
             defaults.set(Array(autoMoved), forKey: modesKey + ".autoMoved")
+            if kind.toCloud && kind.evacuate { evacuated.insert(session) } else { evacuated.remove(session) }
+            defaults.set(Array(evacuated), forKey: modesKey + ".evacuated")
         }
         return report(session, ["event": "live", "atMs": nowMs])
     }

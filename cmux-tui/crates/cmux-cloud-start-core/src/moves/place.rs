@@ -620,7 +620,7 @@ pub struct EvacuateChat {
 #[serde(rename_all = "camelCase")]
 pub struct Skipped {
     pub session: String,
-    /// `alreadyCloud`, `notStarted`, `moving`.
+    /// `alreadyCloud`, `alreadyLocal`, `notStarted`, `moving`.
     pub reason: &'static str,
 }
 
@@ -638,8 +638,18 @@ pub struct EvacuatePlan {
 /// How many moves Evacuate runs at once.
 pub const EVACUATE_PARALLEL: usize = 4;
 
-/// Evacuate's plan for `chats` (only `selected` when given).
+/// Evacuate's plan for `chats` (only `selected` when given), to Cloud.
 pub fn evacuate(chats: &[EvacuateChat], selected: Option<&[String]>) -> EvacuatePlan {
+    evacuate_toward(chats, selected, Direction::ToCloud)
+}
+
+/// The plan for moving `chats` the way `direction` goes: to Cloud (Evacuate) or back to this Mac (Bring Back All).
+/// Back, a chat already here is skipped as `alreadyLocal`, and a chat needs no first message to come back.
+pub fn evacuate_toward(
+    chats: &[EvacuateChat],
+    selected: Option<&[String]>,
+    direction: Direction,
+) -> EvacuatePlan {
     let mut running = Vec::new();
     let mut rest = Vec::new();
     let mut skipped = Vec::new();
@@ -649,9 +659,11 @@ pub fn evacuate(chats: &[EvacuateChat], selected: Option<&[String]>) -> Evacuate
         }
         let reason = if chat.moving {
             Some("moving")
-        } else if chat.at == At::Cloud {
+        } else if direction == Direction::ToCloud && chat.at == At::Cloud {
             Some("alreadyCloud")
-        } else if !chat.started {
+        } else if direction == Direction::ToLocal && chat.at != At::Cloud {
+            Some("alreadyLocal")
+        } else if direction == Direction::ToCloud && !chat.started {
             Some("notStarted")
         } else {
             None
@@ -665,6 +677,46 @@ pub fn evacuate(chats: &[EvacuateChat], selected: Option<&[String]>) -> Evacuate
     running.extend(rest);
     let parallel = EVACUATE_PARALLEL.min(running.len().max(1));
     EvacuatePlan { moves: running, skipped, parallel }
+}
+
+/// What the app read of an error from picking or making a chat's own VM (the Cloud API's answer or the account's state).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct VmError {
+    /// The account is signed out.
+    pub signed_out: bool,
+    /// The plan does not allow another VM (a machine cap or a paid-plan refusal).
+    pub plan_required: bool,
+    /// The Cloud API's HTTP status, when it answered.
+    pub status: Option<u16>,
+    /// The Cloud API's error code, when it gave one.
+    pub code: Option<String>,
+}
+
+/// Why this chat's own VM could not start, in the words' keys the app localizes: `signIn`, `planLimit`,
+/// `capacity`, `offline`, or none when the cause is not known. The reason always reads "Its Cloud VM could
+/// not start" first: each chat has its own VM, so it never names a shared pool.
+pub fn vm_failure_cause(error: &VmError) -> Option<&'static str> {
+    let code = error.code.as_deref().unwrap_or("");
+    if error.signed_out || error.status == Some(401) {
+        Some("signIn")
+    } else if error.plan_required
+        || error.status == Some(402)
+        || code.contains("limit")
+        || code.contains("quota")
+        || code.contains("plan")
+    {
+        Some("planLimit")
+    } else if matches!(error.status, Some(429 | 503 | 507))
+        || code.contains("capacity")
+        || code.contains("unavailable")
+    {
+        Some("capacity")
+    } else if error.status.is_none() && code == "offline" {
+        Some("offline")
+    } else {
+        None
+    }
 }
 
 /// A Cloud machine as the own-VM pick reads it.
