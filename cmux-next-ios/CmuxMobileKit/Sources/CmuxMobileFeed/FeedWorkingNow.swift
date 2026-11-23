@@ -182,6 +182,8 @@ private struct WorkingAgentCapsule: View {
                     Text(since, style: .timer)
                         .font(.caption.weight(.medium))
                         .monospacedDigit()
+                        // A timer text takes every point offered; its own width leaves the rest to the task.
+                        .fixedSize()
                 }
             }
             .foregroundStyle(.secondary)
