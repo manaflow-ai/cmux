@@ -317,6 +317,9 @@ struct Live {
     deadline: Instant,
     send: mpsc::Sender<Msg>,
     events: mpsc::Receiver<Msg>,
+    /// The turn watcher and the machine's start: this driver owns them, and they end with its
+    /// process (the drive's own deadline bounds it).
+    threads: Vec<std::thread::JoinHandle<()>>,
 }
 
 fn reason_of(error: &Value) -> String {
@@ -419,7 +422,17 @@ impl Live {
         let socket = chat::app_acpmux(global);
         let watcher = send.clone();
         let watched = session.to_owned();
-        std::thread::spawn(move || watch_turns(watched, socket, watcher));
+        let spawned = std::thread::Builder::new()
+            .name("hybrid-start-turns".into())
+            .spawn(move || watch_turns(watched, socket, watcher));
+        let threads = match spawned {
+            Ok(thread) => vec![thread],
+            // No turn events: the chat is taken as closed, so nothing moves it.
+            Err(_) => {
+                let _ = send.send(Msg::Event(Event::Stop));
+                Vec::new()
+            }
+        };
         Self {
             global: global.clone(),
             session: session.to_owned(),
@@ -429,6 +442,7 @@ impl Live {
             deadline: began + DRIVE_DEADLINE,
             send,
             events,
+            threads,
         }
     }
 }
@@ -440,11 +454,19 @@ impl Drive for Live {
 
     fn create_machine(&mut self) {
         let (global, target, send) = (self.global.clone(), self.target.clone(), self.send.clone());
-        std::thread::spawn(move || {
-            let mut runner = cloud_start_chat::SelfRunner::new(&global);
-            let made = ready_machine(&mut runner, &target).map_err(|error| reason_of(&error));
-            let _ = send.send(Msg::Machine(made));
-        });
+        let failed = send.clone();
+        let spawned =
+            std::thread::Builder::new().name("hybrid-start-machine".into()).spawn(move || {
+                let mut runner = cloud_start_chat::SelfRunner::new(&global);
+                let made = ready_machine(&mut runner, &target).map_err(|error| reason_of(&error));
+                let _ = send.send(Msg::Machine(made));
+            });
+        match spawned {
+            Ok(thread) => self.threads.push(thread),
+            Err(error) => {
+                let _ = failed.send(Msg::Machine(Err(format!("the machine start: {error}"))));
+            }
+        }
     }
 
     fn next(&mut self) -> Option<Event> {
@@ -518,8 +540,11 @@ fn run_drive(global: &GlobalArgs, rest: &[String]) -> i32 {
         eprintln!("usage: cmux cloud {DRIVE_VERB} --session ID --machine new|ID");
         return 2;
     };
-    let state = drive(&mut Live::new(global, &session, &target));
-    println!("{}", json!({"done": state}));
+    let mut live = Live::new(global, &session, &target);
+    let state = drive(&mut live);
+    // A thread still waiting (a turn watch's slice) ends with this process.
+    let left = live.threads.iter().filter(|thread| !thread.is_finished()).count();
+    println!("{}", json!({"done": state, "threads_left": left}));
     0
 }
 
