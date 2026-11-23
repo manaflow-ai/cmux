@@ -78,10 +78,8 @@ pub(super) fn dispatch(
                 let resolved =
                     worktree_recipe::resolve(mux, Some(&attempt.main_root), &attempt.main_root);
                 let consent = resolved.consent();
-                let script = resolved
-                    .recipe
-                    .teardown
-                    .filter(|_| !reviews(&target.repository, &attempt));
+                let script =
+                    resolved.recipe.teardown.filter(|_| !reviews(&target.repository, &attempt));
                 attempt.teardown = script.is_some();
                 journal.start(&fingerprint, &attempt)?;
                 teardown = run_teardown(&attempt, &target, script.as_deref(), consent.as_deref());
