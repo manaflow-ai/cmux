@@ -5786,7 +5786,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // tray, and the chat's own is simply there, not eased in. It eased in, and back on a running chat
   // the last row sat 17 px low with the tray half drawn for a frame, settling by 260 ms.
   const trayView = useRef(subagentView);
-  if (trayChat.current !== shownSessionId || trayView.current !== subagentView) trayAbsentIn.current = undefined;
+  if (trayChat.current !== shownSessionId) trayAbsentIn.current = undefined;
   trayChat.current = shownSessionId;
   trayView.current = subagentView;
   const trayEnters = shownSessionId !== undefined && trayAbsentIn.current === shownSessionId;
