@@ -174,6 +174,9 @@ public final class CmuxToastOverlayHost: CmuxToastHosting, CmuxToastReanchoring 
         // A successor of the newest toast shows in its slot at once, so a repeated toast never
         // blinks out and fades back in.
         let inPlace = previousNewest.map { old in swapped.contains { $0.serial == old.serial } } ?? false
+        // A working toast's result shows in its slot at once too, wherever that slot is: one card turns
+        // into its result (``CmuxToastTone/working``).
+        let resolvedIDs = Set(swapped.filter { $0.view.toast.tone == .working }.map(\.view.toast.id))
         var pending = presented.makeIterator()
         stack.entries = []
         var fresh: [Entry] = []
@@ -190,7 +193,8 @@ public final class CmuxToastOverlayHost: CmuxToastHosting, CmuxToastReanchoring 
         for (entry, anchor) in zip(stack.entries, placed) {
             if fresh.contains(where: { $0.serial == entry.serial }) {
                 entry.handle.update(anchor: anchor)
-                if !(inPlace && entry.serial == toasts.last?.serial), !restyled.contains(entry.serial) {
+                if !(inPlace && entry.serial == toasts.last?.serial), !restyled.contains(entry.serial),
+                   !resolvedIDs.contains(entry.view.toast.id) {
                     CmuxToastMotion.appear(entry.view, rise: entry.view.tuning.rise)
                 }
             } else {

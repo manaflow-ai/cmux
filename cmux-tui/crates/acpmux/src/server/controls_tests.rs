@@ -125,7 +125,7 @@ async fn controls_budget_covers_transport_until_reader_consumes_it() {
     let budget = Arc::new(Budget::default());
     let text = "x".repeat(BOUND - RESERVE);
     let ticket = budget.take(text.len(), false).unwrap();
-    out.push_control(Line { text, ticket: Some(ticket) });
+    out.push_control(Line { text, ticket: Some(ticket), ..Line::default() });
     assert!(budget.take(1, false).is_none());
     let line = tokio::time::timeout(Duration::from_secs(5), reader.recv()).await.unwrap().unwrap();
     assert_eq!(line.len(), BOUND - RESERVE);

@@ -24,7 +24,9 @@ const workspaces: BrowserWorkspaces = {
       id: "w-1",
       name: "payments",
       title: "Payments service checkout rewrite",
-      chats: [{ tabId: "t-1", local: false, title: "Review the checkout flow", host: "cmux-lawrence-3", harness: "codex" }],
+      chats: [
+        { tabId: "t-1", local: false, title: "Review the checkout flow", host: "cmux-lawrence-3", harness: "codex" },
+      ],
     },
   ],
 };
@@ -36,9 +38,7 @@ afterEach(async () => {
 });
 
 async function sidebar(): Promise<HTMLElement> {
-  const page = await renderInDom(
-    <BrowserSidebar sessions={[session]} workspaces={workspaces} onSelect={() => {}} />,
-  );
+  const page = await renderInDom(<BrowserSidebar sessions={[session]} workspaces={workspaces} onSelect={() => {}} />);
   close = page.close;
   return page.container;
 }

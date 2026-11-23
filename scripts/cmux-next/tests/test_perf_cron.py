@@ -24,7 +24,7 @@ def row(p95, unit="ms", floor=1.0, budget=None):
     return {"p50": p95, "p95": p95, "unit": unit, "floor": floor, "budget": budget}
 
 
-LINUX_PARTS = ["diff-viewer", "web-ui", "web-ui-scale", "web-ui-growth", "web-ui-god", "infinite-items", "web-ui-million", "web-ui-flat", "web-ui-flat-grown", "web-ui-typing", "chat-disk", "terminal-scroll", "daemon-restart", "coord-sim"]
+LINUX_PARTS = ["diff-viewer", "web-ui", "web-ui-scale", "web-ui-growth", "web-ui-god", "infinite-items", "web-ui-million", "web-ui-flat", "web-ui-scroll-up", "web-ui-flat-grown", "web-ui-typing", "web-ui-scroll", "chat-disk", "terminal-scroll", "daemon-restart", "coord-sim", "chat-search"]
 FLEET = [n for n in ALL if n not in ("build", *LINUX_PARTS)]
 
 
@@ -126,6 +126,22 @@ class DecideTests(unittest.TestCase):
         d = cron.decide(state, late, None, None, lambda sha: FLEET, busy)
         self.assertEqual(d["action"], "none")
 
+    def test_a_bench_host_silent_past_host_gone_hours_is_still_asked_while_github_is_busy(self):
+        # 2026-11-18 to 11-21: cmux20-bench refused every claim (not isolated), so it ran no part for 3.5 days. Once
+        # repaired, host_gone read it as gone by silence, the "only on the bench host" rule skipped it, and every tick
+        # a nightly waited for a Mac held the Mac parts back. Only the controller's word retires the bench host here.
+        busy = "nightly.yml waits for a Mac runner"
+        state = cron.empty_state(T0)
+        cron.mark_host(state, cron.BENCH_WORKER, last_part_at=cron.iso(T0))
+        late = at(cron.HOST_GONE_HOURS + 1)
+        self.assertTrue(cron.host_gone(state, cron.BENCH_WORKER, late))
+        d = cron.decide(state, late, "a" * 40, None, lambda sha: FLEET, busy)
+        self.assertEqual((d["action"], d.get("part"), d.get("worker")), ("part", "build", cron.BENCH_WORKER))
+        # The controller saying it has no such worker still retires it.
+        cron.mark_host(state, cron.BENCH_WORKER, gone_at=cron.iso(late))
+        d = cron.decide(state, late, None, None, lambda sha: FLEET, busy)
+        self.assertEqual(d["action"], "none")
+
     def test_the_measurement_in_flight_goes_on_before_a_newer_tip(self):
         state = cron.empty_state(T0)
         cron.decide(state, T0, "a" * 40, None, lambda sha: ["motion", "sidebar"], None)
@@ -198,6 +214,13 @@ class DecideTests(unittest.TestCase):
         t = at(cron.PART_STALE_HOURS + 2)
         self.assertEqual(cron.part_order(state, ["build", "motion", "stress", "fresh"], t),
                          ["build", "fresh", "motion", "stress"])
+
+    def test_a_part_with_no_row_anywhere_goes_before_one_with_old_rows(self):
+        state = cron.empty_state(T0)
+        state["part_stored"] = {}
+        state["last"] = {"rows": {"sidebar.400.scroll.frame@cmux20-bench": {"p95": 1}}}
+        self.assertEqual(cron.part_for_row("sidebar.400.scroll.frame"), "sidebar")
+        self.assertEqual(cron.part_order(state, ["build", "sidebar", "fresh"], at(1)), ["build", "fresh", "sidebar"])
 
     def test_bisect_runs_only_the_parts_of_the_regressed_rows(self):
         state = cron.empty_state(T0)
@@ -827,6 +850,46 @@ class WebUiTests(unittest.TestCase):
                          "no empty sample: no ratio either")
         self.assertTrue(cron.report_is_incomplete(part, {"rows": [], "incomplete": ["no empty-app sample"]}))
 
+    def test_the_cef_resize_part_owns_its_rows_and_judges_late_frames(self):
+        """Live resize beside a Chromium page (cef-layer-hosting-DESIGN.md "Live resize"): every frame on time (0
+        missed) and the frame's commit under half a display frame, from pane-perf-terminal.py --browser's summary."""
+        self.assertIn("cef-resize", FLEET, "a Mac part on the measure host")
+        self.assertIn("--config=bench", cron.PART_BY_NAME["cef-resize"]["args"])
+        self.assertEqual(cron.part_for_row("cef_resize.drag.4x2.missed@cmux20-bench"), "cef-resize")
+        self.assertEqual(cron.part_for_row("cef_resize.window-zoom.1x2.commit_p95_ms@cmux20-bench"), "cef-resize")
+        spec2 = importlib.util.spec_from_file_location("cef_resize_cron", os.path.join(HERE, "..", "cef-resize-cron.py"))
+        cr = importlib.util.module_from_spec(spec2)
+        spec2.loader.exec_module(cr)
+        # The shape step 5574ba49fb74 gave on 2026-11-19: a window that was not key names its layouts "-inactive".
+        summary = {"summary": [
+            {"layout": "4x2-inactive", "action": "drag", "missed": 2, "commit_p95_ms": 3.1, "commit_max_ms": 7.0,
+             "refresh_ms": 8.33},
+            {"layout": "1x2", "action": "window-zoom", "missed": 0, "commit_p95_ms": 5.0, "refresh_ms": 16.67},
+            {"layout": "1x2", "action": "window-unzoom", "missed": None, "commit_p95_ms": None, "refresh_ms": 8.33}]}
+        bench_rows = cr.rows_from(summary)
+        self.assertEqual(cr.missing_from(bench_rows), ["window-unzoom 1x2: no rows", "window-zoom 4x2: no rows",
+                                                       "window-unzoom 4x2: no rows"],
+                         "each layout and action the bench gives with no number; 1x2 has no divider to drag")
+        self.assertIn("--browser", cr.bench_cmd(argparse.Namespace(app="A", tag="T", rounds=3), "/o"),
+                      "a Chromium page in the measured layout")
+        part = cron.PART_BY_NAME["cef-resize"]
+        rows = cron.rows_of_part(part, {"rows": bench_rows}, budgets_mod, {})
+        self.assertEqual(sorted(rows), ["cef_resize.drag.4x2.commit_p95_ms", "cef_resize.drag.4x2.missed",
+                                        "cef_resize.window-zoom.1x2.commit_p95_ms", "cef_resize.window-zoom.1x2.missed"],
+                         "a layout the bench left no number for gets no row; an inactive window keeps the row name")
+        self.assertTrue(next(r for r in bench_rows if r["name"] == "cef_resize.drag.4x2.missed")["window_inactive"])
+        self.assertEqual(rows["cef_resize.drag.4x2.missed"]["unit"], "frames")
+        self.assertEqual(cron.target_of("cef_resize.drag.4x2.missed@cmux20-bench", rows["cef_resize.drag.4x2.missed"], 8.33), 0)
+        self.assertTrue(cron.over_target("cef_resize.drag.4x2.missed", rows["cef_resize.drag.4x2.missed"], 8.33))
+        self.assertEqual(cron.target_of("cef_resize.drag.4x2.commit_p95_ms", rows["cef_resize.drag.4x2.commit_p95_ms"], 8.33),
+                         4.17, "half a 120 Hz frame, not the 10 ms action latency")
+        z = rows["cef_resize.window-zoom.1x2.commit_p95_ms"]
+        self.assertEqual(z["budget"], 8.34, "half the frame it ran at")
+        self.assertFalse(cron.over_target("cef_resize.window-zoom.1x2.commit_p95_ms", z, 16.67))
+        self.assertTrue(cron.frame_sensitive("cef_resize.drag.4x2.missed", rows["cef_resize.drag.4x2.missed"]))
+        self.assertFalse(cron.REPORT_ONLY_ROW_RE.match("cef_resize.drag.4x2.missed"), "judged, not report-only")
+        self.assertEqual(len(cr.missing_from(cr.rows_from({}))), 5, "no report: every layout and action is missing")
+        self.assertTrue(cron.report_is_incomplete(part, {"rows": [], "incomplete": cr.missing_from([])}))
     def test_the_idle_budget_part_judges_chromiums_idle_wakeups_per_kind(self):
         """Chromium's GPU, renderer and utility processes at idle get judged rows (idle-budget.py's light session,
         idle-budget.json: each <= 1 wakeup/s, plans/cmux-next/idle-wakeups.md section 7); every kind's wakeups/s is
@@ -1106,6 +1169,17 @@ class WebUiTests(unittest.TestCase):
         suite = open(os.path.join(cron.ROOT, "webviews/bench/web-ui-suite.ts"), encoding="utf-8").read()
         self.assertRegex(suite, r'name: "composer-typing",\s*file: "composer-typing\.bench\.ts"')
 
+    def test_the_chat_fast_scroll_rows_have_their_own_part(self):
+        self.assertTrue(cron.is_linux_part("web-ui-scroll"))
+        self.assertEqual(cron.part_for_row("webui.chat_fast_scroll.fling_interval.n200@linux"), "web-ui-scroll")
+        argv, cwd, _ = cron.linux_bench_runs("/r", "web-ui-scroll")["suite"]
+        self.assertEqual(cron.part_for_row("webui.sidebar_chats_fling.n1000.late.fling1500.work@linux"), "web-ui-scroll")
+        self.assertEqual(argv, ["bun", "bench/web-ui-suite.ts", "--only", "chat-fast-scroll,sidebar-chats-fling"])
+        self.assertEqual(cwd, "/r/webviews")
+        suite = open(os.path.join(cron.ROOT, "webviews/bench/web-ui-suite.ts"), encoding="utf-8").read()
+        self.assertRegex(suite, r'name: "chat-fast-scroll",\s*file: "chat-fast-scroll\.bench\.ts"')
+        self.assertRegex(suite, r'name: "sidebar-chats-fling",\s*file: "sidebar-chats-fling\.bench\.ts"')
+
     def test_the_chat_disk_rows_have_their_own_linux_part(self):
         self.assertTrue(cron.is_linux_part("chat-disk"))
         self.assertEqual(cron.part_for_row("webui.chat_disk.growth_ratio@linux"), "chat-disk")
@@ -1186,12 +1260,38 @@ class WebUiTests(unittest.TestCase):
         self.assertFalse(cron.coord_sim_ready(True, 'pub fn run(_a: &[String]) -> Result<(), String> { Err("not built yet".into()) }'))
         self.assertTrue(cron.coord_sim_ready(True, "pub fn run(args: &[String]) -> Result<(), String> { drive(args) }"))
 
+    def test_the_chat_search_rows_have_their_own_linux_part_and_only_the_keystroke_is_judged(self):
+        self.assertTrue(cron.is_linux_part("chat-search"))
+        self.assertEqual(cron.part_for_row("webui.chat_search.keystroke@linux"), "chat-search")
+        runs = cron.linux_bench_runs("/r", "chat-search")
+        self.assertEqual(list(runs), ["build", "suite"])  # the release build runs first, under its own cap
+        self.assertEqual(runs["build"][0], ["bash", "/r/scripts/measure/chat-search-linux.sh", "build-only"])
+        self.assertEqual(runs["suite"][0], ["bash", "/r/scripts/measure/chat-search-linux.sh"])
+        rows = cron.rows_of_part(cron.PART_BY_NAME["chat-search"], {"rows": [
+            {"name": "chat_search.keystroke", "p50": 23.7, "p95": 75.1, "unit": "ms", "target": 150}]},
+            budgets_mod, {"rows": {}})
+        self.assertEqual(rows["webui.chat_search.keystroke"]["p95"], 75.1)
+        self.assertFalse(cron.REPORT_ONLY_ROW_RE.match("webui.chat_search.keystroke"))
+        self.assertTrue(cron.REPORT_ONLY_ROW_RE.match("webui.chat_search.fill"))
+        self.assertTrue(cron.REPORT_ONLY_ROW_RE.match("webui.chat_search.scan_keystroke"))
+
     def test_the_million_event_chat_rows_have_their_own_part(self):
         self.assertTrue(cron.is_linux_part("web-ui-million"))
         self.assertEqual(cron.part_for_row("webui.million_event_chat.long.older_page@linux"), "web-ui-million")
         self.assertEqual(cron.part_for_row("webui.million_event_chat.short.heap_mb@linux"), "web-ui-million")
         argv, cwd, _ = cron.linux_bench_runs("/r", "web-ui-million")["suite"]
         self.assertEqual(argv, ["bun", "bench/web-ui-suite.ts", "--only", "million-event-chat,million-event-chat-short"])
+        self.assertEqual(cwd, "/r/webviews")
+
+    def test_the_scroll_up_scale_rows_have_their_own_part(self):
+        self.assertTrue(cron.is_linux_part("web-ui-scroll-up"))
+        self.assertEqual(cron.part_for_row("webui.transcript_scroll_up_scale.chromium.wheel.100k.older_page_drawn@linux"),
+                         "web-ui-scroll-up")
+        self.assertEqual(cron.part_for_row("webui.transcript_scroll_up_scale.chromium.wheel.older_page_drawn_scale@linux"),
+                         "web-ui-scroll-up")
+        self.assertEqual(cron.part_for_row("webui.transcript_scroll_up.chromium.interval@linux"), "web-ui")
+        argv, cwd, _ = cron.linux_bench_runs("/r", "web-ui-scroll-up")["suite"]
+        self.assertEqual(argv, ["bun", "bench/web-ui-suite.ts", "--only", "transcript-scroll-up-scale"])
         self.assertEqual(cwd, "/r/webviews")
 
     def test_the_god_part_runs_both_fixtures_and_owns_the_god_rows(self):
@@ -1435,6 +1535,33 @@ class WebUiTests(unittest.TestCase):
         result, report, _ = self.run_part({"rows": [], "failed": [{"bench": "chat-open", "why": "exit 1"}]})
         self.assertEqual(result["state"], "failed", "no row at all is no measurement")
 
+
+    def test_terminal_scroll_prepares_ghostty_and_zig_from_the_tip(self):
+        """A measured commit whose script predates #50961 has an empty ghostty-next and no Zig: the tip prepares both."""
+        with tempfile.TemporaryDirectory() as root:
+            os.makedirs(os.path.join(root, "scripts"))
+            open(os.path.join(root, "scripts", "install-zig-ci.sh"), "w").close()
+            calls = []
+
+            def run(argv, cwd, env, timeout):
+                calls.append(argv)
+                if argv[0] == "bash":
+                    with open(env["GITHUB_ENV"], "a") as f:
+                        f.write("CMUX_ZIG=/opt/zig/zig\n")
+                return "", "", 0
+            env, tail = cron.prepare_ghostty(root, {"PATH": ""}, run=run)
+            self.assertEqual(calls[0][:4], ["git", "submodule", "update", "--init"])
+            self.assertEqual(calls[1], ["bash", os.path.join(root, "scripts", "install-zig-ci.sh")])
+            self.assertEqual(env["CMUX_ZIG"], "/opt/zig/zig")
+            self.assertEqual(tail, ["ghostty-next checkout: exit 0", "zig install: exit 0"])
+            os.makedirs(os.path.join(root, "ghostty-next"))
+            open(os.path.join(root, "ghostty-next", "build.zig"), "w").close()
+            calls.clear()
+            env, tail = cron.prepare_ghostty(root, {"PATH": "", "CMUX_ZIG": "/z"}, run=run)
+            self.assertEqual((calls, tail), ([], []), "a checked-out engine and a Zig need nothing")
+            env, tail = cron.prepare_ghostty(root, {"PATH": ""}, run=lambda *a: ("", "no network", 1))
+            self.assertEqual(tail, ["zig install: exit 1", "no network"])
+            self.assertNotIn("CMUX_ZIG", env, "a failed install is recorded and the part still runs")
 
 class IncompleteTests(OneRunRule):
     def finish(self, state, sha, parts, rows, hours):
@@ -2669,7 +2796,8 @@ class RateLimitTests(unittest.TestCase):
         source = open(os.path.join(HERE, "..", "perf-cron.py")).read()
         known = set(re.findall(r'add_parser\("([a-z-]+)"', source))
         workflow = open(os.path.join(root, ".github", "workflows", "cmux-next-perf-budgets.yml")).read()
-        called = re.findall(r"python3 -I scripts/cmux-next/perf-cron\.py (\S+)", workflow)
+        # Interpreter flags may sit between (the plan runs `python3 -I -u -X faulthandler`).
+        called = re.findall(r"python3 -I(?: -[A-Za-z](?: \w+)?)* scripts/cmux-next/perf-cron\.py (\S+)", workflow)
         self.assertIn("plan", called)
         self.assertEqual([c for c in called if c not in known], [])
 
@@ -3578,6 +3706,21 @@ class HostGoneSignalTests(unittest.TestCase):
         self.assertTrue(cron.host_gone(state, "cmux21", at(1)))
         self.assertIsNone(cron.tip_pin_host({**state, "regressions": [{"name": "cmd_d.e2e@cmux21"}]}, at(1)))
 
+    def test_a_tip_pins_only_to_a_host_the_controller_calls_idle(self):
+        """cmuxterm-hq#19352: every Mac row was @cmux20-bench, so every tip pinned to it while it was leased."""
+        state = cron.empty_state(T0)
+        state["pending"] = {"x.e2e@cmux20-bench": {"at": cron.iso(T0)}}
+        self.assertEqual(cron.tip_pin_host(state, at(1)), "cmux20-bench", "feed not read: pinned as before")
+        self.assertIsNone(cron.tip_pin_host(state, at(1), {"cmux21"}), "busy: any idle measure host")
+        self.assertIsNone(cron.tip_pin_host(state, at(1), set()), "no host idle: not pinned either")
+        self.assertEqual(cron.tip_pin_host(state, at(1), {"cmux20-bench"}), "cmux20-bench")
+        self.assertEqual(cron.idle_hosts_from({"hosts": {"cmux20-bench": {"idle": False, "why": "leased"},
+                                                         "cmux21": {"idle": True, "why": ""}, "bad": "x"}}), {"cmux21"})
+        self.assertIsNone(cron.idle_hosts_from({"error": "not found"}))
+        self.assertIsNone(cron.idle_hosts_from([]))
+        with mock.patch.object(cron, "http_json", side_effect=urllib.error.URLError("404")):
+            self.assertIsNone(cron.controller_idle_hosts(), "no route yet: nothing changes")
+
     def test_a_host_that_runs_a_part_after_gone_is_back(self):
         state = cron.empty_state(T0)
         cron.mark_host(state, "cmux21", gone_at=cron.iso(at(1)))
@@ -4089,6 +4232,125 @@ class StalePartFirstTests(unittest.TestCase):
         self.assertEqual(d["part"], "build")
 
 
+class BoundedPathCheckTests(unittest.TestCase):
+    """A plan's path checks end: a git that never answers (a lazy fetch in the partial clone) counts as absent after
+    PATH_CHECK_TIMEOUT_S instead of holding the plan to its job cap (run 44731310755, 74 minutes with no output)."""
+
+    def test_a_check_past_its_bound_is_absent_and_logged(self):
+        seen = {}
+
+        def hung(argv, **kw):
+            seen.update(kw)
+            raise cron.subprocess.TimeoutExpired(argv, kw.get("timeout"))
+
+        out = io.StringIO()
+        with mock.patch.object(cron.subprocess, "run", hung), contextlib.redirect_stdout(out):
+            self.assertFalse(cron.has_path("a" * 40, "webviews/bench/chat-100k-flat.bench.ts"))
+        self.assertEqual(seen["timeout"], cron.PATH_CHECK_TIMEOUT_S)
+        self.assertEqual(seen["env"]["GIT_TERMINAL_PROMPT"], "0")
+        self.assertIn("counted as absent", out.getvalue())
+
+    def test_git_answers_decide(self):
+        for code, want in ((0, True), (128, False)):
+            done = cron.subprocess.CompletedProcess([], code)
+            with mock.patch.object(cron.subprocess, "run", lambda argv, **kw: done):
+                self.assertIs(cron.has_path("a" * 40, "x"), want)
+
+    def test_every_part_check_goes_through_the_bound(self):
+        calls = []
+
+        def run(argv, **kw):
+            calls.append(kw.get("timeout"))
+            return cron.subprocess.CompletedProcess(argv, 0, stdout="--suite=launch \"--activation\" --suite=x")
+
+        with mock.patch.object(cron.subprocess, "run", run):
+            cron.supported_parts_at("a" * 40)
+        self.assertTrue(calls)
+        self.assertNotIn(None, calls)
+
+
+class UnreadPartFirstTests(unittest.TestCase):
+    """A Mac part that never produced a reading measures first, at the newest commit that has it, instead of after the
+    tip in flight's rotation (2026-11-22: chat-size, merged after tip 9a55953f, never ran while that tip took days)."""
+    OLD, NEW = "a" * 40, "b" * 40
+
+    def supported(self, sha):
+        return ALL if sha == self.NEW else [n for n in ALL if n != "chat-size"]
+
+    def mid_tip(self, stored=None):
+        state = cron.empty_state(T0)
+        cron.decide(state, T0, self.OLD, None, self.supported, None)
+        cur = state["current"]
+        for name in [n for n in cur["parts_todo"] if n not in ("wake", "power", "coord-sim")]:
+            cron.record_part(cur, name, {"state": "done", "worker": cron.BENCH_WORKER}, "u", T0)
+        state["part_stored"] = {n: {"sha": self.OLD, "at": cron.iso(T0), "rows": 1}
+                                for n in ALL if n != "build" and n not in (["chat-size"] if stored is None else stored)}
+        return state
+
+    def test_a_tip_that_predates_an_unread_part_gives_its_mac_parts_up(self):
+        state = self.mid_tip()
+        self.assertEqual(cron.unread_parts(state), ["chat-size"])
+        cron.decide(state, at(1), None, None, self.supported, None, newest=self.NEW)
+        self.assertEqual(sorted(state["current"]["parts_todo"][:2]), ["power", "wake"],
+                         "a measurement under SUPERSEDE_AFTER_HOURS old keeps its Mac parts")
+        state["current"]["yield_hours"] = cron.SUPERSEDE_AFTER_HOURS  # the day went to nightlies, as on 2026-11-22
+        state["current"].pop("host_asked_since", None)  # and its host still takes parts
+        d = cron.decide(state, at(cron.SUPERSEDE_AFTER_HOURS + 1), None, None, self.supported, None, newest=self.NEW)
+        cur = state["current"]
+        self.assertEqual((d["part"], d["linux_part"]), ("", "coord-sim"), "the Linux parts still run")
+        self.assertEqual({cur["parts"][n]["state"] for n in ("wake", "power")}, {"superseded"})
+        cron.record_part(cur, "coord-sim", {"state": "done", "worker": cron.LEGACY_LINUX_CLASS}, "u", at(26))
+        d = cron.decide(state, at(26.5), None, None, self.supported, None, newest=self.NEW)
+        self.assertEqual(d["action"], "finish")
+        state["current"] = None
+        cron.decide(state, at(27), self.NEW, None, self.supported, None)
+        order = cron.part_order(state, state["current"]["parts_todo"], at(27))
+        self.assertEqual(order[:2], ["build", "chat-size"], "the unread part goes right after the build")
+
+    def test_a_superseded_tip_stops_waiting_for_an_unanswered_linux_part(self):
+        # 2026-11-23: tip 12aa19c2 gave its Mac parts up, then its web-ui-growth request went unanswered 23 h, and the
+        # newer tip with chat-size waited for ABANDON_WALL_HOURS.
+        state = self.mid_tip()
+        state["current"]["yield_hours"] = cron.SUPERSEDE_AFTER_HOURS
+        state["current"].pop("host_asked_since", None)
+        t = cron.SUPERSEDE_AFTER_HOURS + 1
+        d = cron.decide(state, at(t), None, None, self.supported, None, newest=self.NEW)
+        self.assertEqual(d["linux_part"], "coord-sim", "the Linux part may still run")
+        d = cron.decide(state, at(t + cron.SUPERSEDED_LINUX_HOURS / 2), None, None, self.supported, None, newest=self.NEW)
+        self.assertNotEqual(d["action"], "finish", "inside its bound it keeps the Linux part")
+        d = cron.decide(state, at(t + cron.SUPERSEDED_LINUX_HOURS + 0.1), None, None, self.supported, None, newest=self.NEW)
+        self.assertEqual(d["action"], "finish")
+        self.assertEqual(state["current"]["parts"]["coord-sim"]["state"], "superseded")
+
+    def test_a_superseded_record_from_before_the_bound_ends_at_once(self):
+        state = self.mid_tip()
+        cur = state["current"]
+        for name in [n for n in cur["parts_todo"] if not cron.is_linux_part(n)]:
+            cur["parts"][name] = {"state": "superseded", "reason": "x"}
+            cur["parts_todo"].remove(name)
+        cur["superseded"] = {"by": self.NEW, "why": "chat-size never produced a reading"}
+        d = cron.decide(state, at(30), None, None, self.supported, None, newest=self.NEW)
+        self.assertEqual(d["action"], "finish")
+
+    def test_an_unread_part_goes_ahead_of_a_stale_one(self):
+        state = self.mid_tip()
+        state["part_stored"]["wake"]["at"] = cron.iso(at(-40))
+        todo = ["build", "wake", "power", "chat-size"]
+        self.assertEqual(cron.part_order(state, todo, at(1)), ["build", "chat-size", "wake", "power"])
+
+    def test_once_read_or_not_yet_in_any_tree_the_rotation_is_unchanged(self):
+        state = self.mid_tip(stored=[])  # chat-size has a reading
+        cron.decide(state, at(1), None, None, self.supported, None, newest=self.NEW)
+        self.assertEqual(sorted(state["current"]["parts_todo"][:2]), ["power", "wake"])
+        state = self.mid_tip()
+        state["part_rows"] = {"chat_size.ratio.max@" + cron.BENCH_WORKER: {"p95": 1.0}}
+        self.assertEqual(cron.unread_parts(state), [], "a stored row counts as a reading")
+        state = self.mid_tip()
+        cron.decide(state, at(1), None, None, self.supported, None, newest=None)
+        self.assertEqual(sorted(state["current"]["parts_todo"][:2]), ["power", "wake"], "no newer commit has it: no change")
+        cron.decide(state, at(1), None, None, self.supported, None, newest=self.OLD)
+        self.assertEqual(sorted(state["current"]["parts_todo"][:2]), ["power", "wake"], "the newest commit lacks it too")
+
 class LinuxControllerRouteTests(unittest.TestCase):
     """The Linux parts go to the build controller first (Leo, 2026-11-19, on Blacksmith: "stop ... relying on it"):
     the plan asks with a `perf cron request <sha> <part>` job, and a part whose requests go unanswered falls back to
@@ -4290,6 +4552,129 @@ class LinuxControllerRouteTests(unittest.TestCase):
         self.assertIn("linux_request: ${{ steps.plan.outputs.linux_request }}", text)
         self.assertIn("CMUX_NEXT_PERF_CRON_LINUX_CONTROLLER", text)
         self.assertIn("--linux-controller", text)
+
+
+class BatchTests(unittest.TestCase):
+    """The controller route asks for a measurement's Mac parts back to back (BATCH_PREFIX) and stores their results
+    from one result run. Leo, 2026-11-22, on the bench window: "does it need to take it for 2h tho? cant it be
+    faster?" One part per round trip took a tip 3 to 14 h; back to back its Mac parts take about 1.5 h."""
+    SHA = "c" * 40
+
+    class Answer(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def plan_tick(self, d, now, parts):
+        out = os.path.join(d, "plan.out")
+        with mock.patch.object(cron, "now_utc", lambda: now), mock.patch.object(cron, "git", lambda *a, check=True: self.SHA), \
+                mock.patch.object(cron, "measure_version", lambda sha: 2), \
+                mock.patch.object(cron, "commit_on_branch", lambda repo, t, known=(): cron.is_sha), \
+                mock.patch.object(cron, "tree_published", lambda sha: True), \
+                mock.patch.object(cron, "github_busy", lambda *a: None), \
+                mock.patch.object(cron, "frame_pacing_runs", lambda repo: []), \
+                mock.patch.object(cron, "is_ancestor", lambda a, b: False), \
+                mock.patch.object(cron, "supported_parts_at", lambda sha: parts), \
+                mock.patch.object(cron, "controller_idle_hosts", lambda *a, **k: None):
+            cron.cmd_plan(argparse.Namespace(repo="o/r", dir=d, tip="HEAD", yield_mode="queued", no_mac=False, output=out,
+                                             controller=True))
+        with open(out) as f:
+            plan = dict(line.split("=", 1) for line in f.read().splitlines())
+        os.remove(out)
+        with open(os.path.join(d, "state.json")) as f:
+            return plan, json.load(f)
+
+    def result(self, part, state="done", step=None):
+        return {"run": 5, "attempt": 1, "sha": self.SHA, "part": part, "step_id": step or f"s-{part}", "state": state,
+                "worker": BENCH, "artifact_url": "https://store.example/" + part}
+
+    def test_the_request_lists_the_mac_parts_still_to_do_the_requested_one_first(self):
+        with tempfile.TemporaryDirectory() as d:
+            state = cron.empty_state(T0)
+            state["persisted"] = True
+            with open(os.path.join(d, "state.json"), "w") as f:
+                json.dump(state, f)
+            plan, saved = self.plan_tick(d, T0, ["motion", "switch"])
+            self.assertEqual((plan["action"], plan["part"]), ("part", "build"))
+            self.assertEqual(plan["mac_parts"], "build motion switch")
+            self.assertEqual(saved["current"]["batch"]["parts"], ["build", "motion", "switch"])
+            self.assertEqual(sorted(saved["current"]["configs"]), ["build", "motion", "switch"],
+                             "every listed part's rows carry this file's configuration")
+            plan, again = self.plan_tick(d, at(0.5), ["motion", "switch"])
+            self.assertEqual(again["current"]["batch"], saved["current"]["batch"], "a later tick keeps the batch asked for")
+        with tempfile.TemporaryDirectory() as d:
+            with open(os.path.join(d, "state.json"), "w") as f:
+                json.dump({**cron.empty_state(T0), "persisted": True}, f)
+            plan, saved = self.plan_tick(d, T0, [])
+            self.assertEqual(plan["mac_parts"], "", "no other Mac part: one part, no line")
+
+    def test_the_host_may_stay_silent_for_the_batchs_deadline(self):
+        state = cron.empty_state(T0)
+        state["current"] = cur = cron.new_measurement(self.SHA, "tip", ["build", "motion", "switch"], T0)
+        cur["host"] = BENCH
+        cur["host_asked_since"] = cron.iso(T0)
+        self.assertEqual(cron.host_wait_hours(cur), cron.HOST_WAIT_HOURS)
+        cur["batch"] = {"parts": ["build", "motion", "switch"], "asked_at": cron.iso(T0)}
+        run = sum(cron.PART_BY_NAME[p].get("run_seconds", cron.PART_RUN_SECONDS) for p in cur["batch"]["parts"]) / 3600
+        wait = cron.HOST_WAIT_HOURS + cron.BATCH_SLACK_HOURS + run
+        self.assertAlmostEqual(cron.host_wait_hours(cur), wait)
+        self.assertIsNone(cron.give_up_host(state, at(cron.HOST_WAIT_HOURS + 0.5)), "the batch runs: no result yet")
+        self.assertIn("took no part", cron.give_up_host(state, at(wait + 0.1)))
+        self.assertNotIn("batch", cur, "the next request lists again")
+
+    def test_a_batchs_results_are_stored_from_one_result_run(self):
+        state = cron.empty_state(T0)
+        state["persisted"] = True
+        state["current"] = cur = cron.new_measurement(self.SHA, "tip", ["build", "motion", "switch"], T0)
+        cur["batch"] = {"parts": ["build", "motion", "switch"], "asked_at": cron.iso(T0)}
+        cur["host_asked_since"] = cron.iso(T0)
+        results = [self.result("build"), self.result("motion"), self.result("motion", step="dup"),
+                   {**self.result("stress"), "sha": "d" * 40}, self.result("switch", "yielded")]
+        raw = json.dumps({"results": results})
+        self.assertEqual([v["part"] for v in cron.controller_results(raw)], ["build", "motion", "motion", "stress", "switch"])
+        with tempfile.TemporaryDirectory() as d:
+            with open(os.path.join(d, "state.json"), "w") as f:
+                json.dump(state, f)
+            out = os.path.join(d, "plan.out")
+            with contextlib.redirect_stdout(io.StringIO()):
+                cron.result_plan(argparse.Namespace(dir=d, output=out, perf_result=raw), state, at(1.5))
+            with open(out) as f:
+                plan = dict(line.split("=", 1) for line in f.read().splitlines())
+            self.assertEqual((plan["action"], plan["part"], plan["result_parts"]), ("result", "build", "build motion switch"))
+            parts = os.path.join(d, "result")
+            with mock.patch.object(cron.urllib.request, "urlopen", lambda req, timeout=0: self.Answer(b'{"summary": []}')), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                cron.cmd_fetch_result(argparse.Namespace(result=raw, out=parts, each=True))
+            self.assertEqual(sorted(os.listdir(parts)), ["build", "motion", "stress", "switch"])
+            with open(os.path.join(parts, "switch", "result.json")) as f:
+                self.assertEqual(json.load(f)["state"], "yielded")
+            specs = [f"{p}={os.path.join(parts, p)}" for p in plan["result_parts"].split()]
+            with mock.patch.object(cron, "store_part_rows", lambda *a: None), contextlib.redirect_stdout(io.StringIO()), \
+                    contextlib.redirect_stderr(io.StringIO()):
+                cron.report(argparse.Namespace(repo="", dir=d, result=specs, run_url="u", finish=False, issues=False,
+                                               output=os.path.join(d, "report.out")), t=at(1.5))
+            with open(os.path.join(d, "state.json")) as f:
+                cur = json.load(f)["current"]
+            self.assertEqual(cur["parts_todo"], ["switch"], "the pre-empted part stays to do")
+            self.assertEqual((cur["parts"]["build"]["state"], cur["parts"]["motion"]["state"]), ("done", "done"))
+            self.assertNotIn("batch", cur)
+            self.assertNotIn("host_asked_since", cur)
+
+    def test_one_result_is_still_one_part(self):
+        raw = json.dumps(self.result("motion"))
+        self.assertEqual([v["part"] for v in cron.controller_results(raw)], ["motion"])
+        self.assertEqual(cron.controller_results(json.dumps({"results": "x"})), [])
+        self.assertEqual(cron.controller_results("{"), [])
+
+    def test_the_workflow_prints_the_line_and_stores_every_result(self):
+        with open(os.path.join(HERE, "..", "..", "..", ".github", "workflows", "cmux-next-perf-budgets.yml")) as f:
+            text = f.read()
+        self.assertIn('echo "perf-cron-batch: $MAC_PARTS"', text)
+        self.assertEqual(cron.BATCH_PREFIX, "perf-cron-batch: ")
+        self.assertIn("fetch-result --each", text)
+        self.assertIn('for part in $RESULT_PARTS; do results+=(--result "$part=$RUNNER_TEMP/perf-cron-result/$part"); done', text)
 
 
 if __name__ == "__main__":
