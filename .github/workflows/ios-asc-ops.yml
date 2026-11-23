@@ -1,7 +1,7 @@
 name: iOS App Store Connect ops
 
-# App Store Connect steps agents run without a person: age rating, app info, review notes, submission state and
-# read-backs. Leo, 2026-11-22 14:21Z, on the App Store Connect sign-in: "ehh the rest of the team can do this".
+# App Store Connect steps agents run without a person: age rating, app info, review notes, submission state,
+# subscription products and prices (the App Store price book, RFD 0037a) and read-backs. Leo, 2026-11-22 14:21Z, on the App Store Connect sign-in: "ehh the rest of the team can do this".
 #
 # The ASC API key lives only in the `release` environment, which deploys from main, rc/** and v*. So this
 # workflow runs from main (dispatch with --ref main) and nowhere else; it reads the key into a 0600 file for one
@@ -11,6 +11,12 @@ name: iOS App Store Connect ops
 #   gh workflow run ios-asc-ops.yml -R manaflow-ai/cmux --ref main -f op=app-info
 #   gh workflow run ios-asc-ops.yml -R manaflow-ai/cmux --ref main -f op=age-rating-patch \
 #     -f attributes='{"unrestrictedWebAccess": true}'
+#   gh workflow run ios-asc-ops.yml -R manaflow-ai/cmux --ref main -f op=version-localization-patch \
+#     -f version=1.2.0 -f locale=en-US -f attributes='{"whatsNew": "..."}'
+#   gh workflow run ios-asc-ops.yml -R manaflow-ai/cmux --ref main -f op=price-book-sync -f app=6783338052
+#
+# price-book-sync takes no parameters but the app: the products, levels, texts and US prices are fixed in
+# scripts/ci/ios_asc_ops.py PRICE_BOOK, checked by tests/test_ios_asc_ops.py against web/services/billing/apple/config.ts.
 #
 # The result is the job's log and step summary (review-detail passwords redacted).
 # cmuxterm-hq docs/handbook/asc-key-for-agents.md says where the key lives and how agents reach it.
@@ -29,10 +35,14 @@ on:
           - review-detail
           - submissions
           - get
+          - subscriptions
           - age-rating-patch
           - review-detail-sync
+          - version-localization-patch
+          - price-book-sync
+          - review-screenshot-sync
       app:
-        description: App Store Connect app id (6791408425 cmux INTERNAL, 6783338052 cmux)
+        description: App Store Connect app id (6791408425 cmux INTERNAL, 6783338052 cmux, 6757092429 cmux CLASSIC beta)
         required: false
         default: "6791408425"
       version:
@@ -45,6 +55,10 @@ on:
         default: ""
       path:
         description: API path for op=get (GET only), e.g. /v1/apps/6791408425/appInfos
+        required: false
+        default: ""
+      locale:
+        description: Locale for op=version-localization-patch (default en-US)
         required: false
         default: ""
 
@@ -60,14 +74,17 @@ jobs:
     name: ASC ${{ inputs.op }}
     if: github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/main'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 10
+    # A price-book sync writes up to ~175 territory prices per product.
+    timeout-minutes: 45
     environment: release
     steps:
       - name: Checkout the script
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          sparse-checkout: scripts/ci
+          sparse-checkout: |
+            scripts/ci
+            ios/AppStoreReview/subscriptions
 
       - name: Run the operation
         env:
@@ -79,6 +96,7 @@ jobs:
           VERSION: ${{ inputs.version }}
           ATTRIBUTES: ${{ inputs.attributes }}
           API_PATH: ${{ inputs.path }}
+          LOCALE: ${{ inputs.locale }}
         run: |
           set -euo pipefail
           key_dir="$RUNNER_TEMP/asc"; mkdir -p "$key_dir"; chmod 700 "$key_dir"
@@ -86,4 +104,4 @@ jobs:
           printf '%s' "$ASC_API_KEY_P8_BASE64" | base64 --decode > "$key_dir/AuthKey.p8"
           chmod 600 "$key_dir/AuthKey.p8"
           ASC_PRIVATE_KEY_PATH="$key_dir/AuthKey.p8" python3 -I scripts/ci/ios_asc_ops.py "$OP" --app "$APP" \
-            --version "$VERSION" --attributes "$ATTRIBUTES" --path "$API_PATH"
+            --version "$VERSION" --attributes "$ATTRIBUTES" --path "$API_PATH" --locale "$LOCALE"
