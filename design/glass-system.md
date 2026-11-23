@@ -59,7 +59,9 @@ does. Native glass (the window, sidebar, native menus, the native tooltip) is no
    it (it was 1.9:1). A solid destructive button keeps the hue (`--glass-hue-danger`).
 6. **See-through pages.** Where the page can blur itself under a surface (`seeThroughBlur.ts`,
    `data-glass-over`), it does, and the surface lays no underlay. Where it cannot, the underlay is
-   40%, so a menu (80% over 40%) covers 88% of the text under it, not 93%.
+   40% in light and 57% in dark, so a menu (80% over 40%, or dark's clearer 72% over 57%) covers 88%
+   of the text under it in both, not 93%; at 40% the dark menu covered 83% and the chat read through
+   the Model menu (hq#13923).
 7. **Perf budget.** At most two backdrop-filtered surfaces on screen at once, together under about
    a quarter of the window. Never animate a blur radius (animate opacity and transform). No
    `backdrop-filter` on anything that scrolls with content. No `will-change` on a glass parent (it
@@ -82,7 +84,7 @@ PR (cmux#46104's head); after is what ships with it.
 | chip | tooltips, the find pill, chips | host contrast-fitted, floor 60% | unchanged | `blur(24px) saturate(1.6)` | unchanged |
 | scrim | behind sheets and dialogs | native `Scrim` (`--cmux-scrim`) | unchanged | none | none |
 | composer material | the one hero surface | the popover tint | the popover tint | `blur(24px) saturate(1.8)` | `blur(24px) saturate(1.6)` |
-| see-through underlay | floating glass in a see-through page that cannot blur itself | 70% (93% cover under a menu) | 40% (88%) | | |
+| see-through underlay | floating glass in a see-through page that cannot blur itself | 70% (93% cover under a menu) | 40% / 57% (88% in both) | | |
 | edge | every plain glass | hairline ring | hairline ring plus lit top hairline (60% / 24%) | | |
 
 The chrome's dark tint is 62%, not 55%: at 55% the chrome bar's title fell to 3.8:1 over a white page
