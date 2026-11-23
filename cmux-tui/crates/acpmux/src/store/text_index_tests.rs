@@ -67,7 +67,7 @@ fn entries(store: &dyn Store) -> Vec<Entry> {
 }
 
 fn entry(seq: u64, role: Role, text: &str) -> Entry {
-    Entry { seq, at: seq, role, text: text.into() }
+    Entry { seq, at: seq, role, steer: false, text: text.into() }
 }
 
 /// The first search writes the copy; the second reads it, not the segment: a segment whose bytes
@@ -142,7 +142,7 @@ fn a_copy_of_a_replaced_segment_is_made_again() {
     store.append("c", &prompt(1, "old words")).unwrap();
     store.flush().unwrap();
     assert_eq!(entries(&store), vec![entry(1, Role::User, "old words")]);
-    let (_, path) = store.segments("c").unwrap().pop().unwrap();
+    let (_, path) = store.segments("c").unwrap().last().unwrap().clone();
     let mut line = serde_json::to_vec(&prompt(1, "new words, longer than the old")).unwrap();
     line.push(b'\n');
     let next = path.with_extension("tmp");

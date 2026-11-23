@@ -197,22 +197,25 @@ class KeyTabsTests(unittest.TestCase):
         size = report["key_tabs"]["sizes"][0]
         self.assertEqual((size["tabs"], size["fault"], report["rows"][0]["invalid"]), (6, None, []))
 
-    def test_the_tool_first_shows_a_workspace_of_the_made_session_then_asks_for_the_active_app_then_makes_the_tabs(self):
+    def test_the_tool_first_shows_a_workspace_of_the_made_session_then_asks_for_the_window_in_front_then_makes_the_tabs(self):
         app = KeyTabsApp(self.folder)
         report, said = self.run_mode(app, key_tabs=[6], close_cases="idle")
         # The first workspace that the session's maker made, by the app's own action, as a script.
         self.assertEqual(app.went, [{"action": "goToWorkspace", "args": {"workspace": "ws-3"}, "focus": True, "origin": "script"}])
         self.assertEqual((app.order[:3], app.order.count("workspace"), app.order.count("window")), (["workspace", "window", "action"], 1, 1))
-        self.assertEqual(app.window_calls, [{"window": "window-1", "activate": True}])
+        self.assertEqual(app.window_calls, [{"window": "window-1"}])
         self.assertEqual(report["key_workspace"], {"is": "a workspace of the made session", "id": "ws-3", "name": "workspace 3",
                                                    "shown_by_the_app": True, "by": "action.run goToWorkspace, then snapshot.get's focus",
                                                    "terminals_before_shown": None})
         self.assertEqual(report["head"][:4], ["the app was active: yes", "the key's workspace: a workspace of the made session (workspace 3)",
-                                              "the ask for the active app: 1 reads of the app's answer, 0 s from the ask to the answer",
+                                              "the ask for the window in front (no activation): 1 reads of the app's answer, 0 s from "
+                                              "the ask to the answer, the key window form: shell",
                                               "the key's workspace's terminals before the app showed it: NOT KNOWN (the app's list has no such fact)"])
         # Then the rows that the recorder lost in each case, and the app's settings lines (this app gives no such answer).
         self.assertTrue(report["head"][4].startswith("rows lost to the recorder (INVALID by `no-row` or `refresh`"), report["head"][4])
-        self.assertEqual(report["head"][5:], ["each other setting: NOT READ", "the app's motion speed: NOT READ",
+        # With an asked rate, the limit of its check is the next sentence.
+        self.assertTrue(report["head"][5].startswith("the asked display rate ("), report["head"][5])
+        self.assertEqual(report["head"][6:], ["each other setting: NOT READ", "the app's motion speed: NOT READ",
                                               "the first window shows, by the app: NOT READ", "the first window's theme, by the app: NOT READ"])
         self.assertIn("NEW-SURFACE-SCREEN-HEAD " + "; ".join(report["head"]), said.splitlines())
         self.assertEqual([(row["app_active"], row["shell_window_is_key"], row["invalid"]) for row in report["rows"]], [(True, True, [])] * 2)
@@ -262,8 +265,8 @@ class KeyTabsTests(unittest.TestCase):
         self.assertEqual((list(report["cases"]), [row["label"] for row in report["rows"]]), (["cmd-t/idle", "cmd-w/idle"], ["cmd-t-idle-0", "cmd-w-idle-0"]))
         self.assertNotIn("key_tabs", report)
         self.assertEqual([name for row in report["rows"] for name in row if name in ("key_tabs", "workspace_tabs_before", "workspace_kinds_before")], [])
-        # The ask for the active app is each take's: the tabs' argument does not change it.
-        self.assertEqual(app.window_calls, [{"window": "window-1", "activate": True}])
+        # The ask for the window in front is each take's: the tabs' argument does not change it.
+        self.assertEqual(app.window_calls, [{"window": "window-1"}])
         self.assertEqual(report.get("key_workspace"), {"is": "the workspace that the app showed at its launch (the tool asked for no other)"})
 
     def test_the_argument_is_counts_that_rise(self):

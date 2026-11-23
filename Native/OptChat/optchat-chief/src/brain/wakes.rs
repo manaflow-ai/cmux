@@ -68,6 +68,11 @@ impl Brain {
         if self.landed_refused {
             return Ok(());
         }
+        // The loop guard refuses every send now: telling is impossible until
+        // the person writes, and that turn carries it (budget_hold.rs).
+        if self.budget_held() {
+            return Ok(());
+        }
         let untold: Vec<String> = self
             .turn_landed
             .iter()
@@ -258,6 +263,8 @@ impl Brain {
                 ),
             };
             (self.log)(&format!("a wake is due: {note}"));
+            // Its planned time, for the wake run's `scheduled_at` (memory.rs).
+            self.wake_planned.insert(text.clone(), wake.at_ms as i64);
             self.queue(text, Source::Note);
         }
     }

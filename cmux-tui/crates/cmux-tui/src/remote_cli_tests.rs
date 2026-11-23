@@ -710,6 +710,91 @@ fn local_unix_route_is_promoted_and_remote_unix_route_is_demoted() {
     assert_eq!(routes, [candidate(local), candidate(websocket), candidate(missing)]);
 }
 
+/// `exec`'s own connect arguments, as `cmux remote exec ROUTE --state-dir DIR -- true` gives them.
+#[cfg(unix)]
+fn exec_connect_flags(route: &str, state_dir: &Path) -> ConnectFlags {
+    let args = [route, "--state-dir", state_dir.to_str().unwrap(), "--", "true"].map(String::from);
+    parse_connect_flags(&exec_cp::parse_exec_args(&args).unwrap().connect).unwrap()
+}
+
+#[cfg(unix)]
+#[test]
+fn a_link_socket_is_told_apart_from_a_daemon_unix_route() {
+    let directory = tempfile::tempdir().unwrap();
+    let link = directory.path().join("link.sock");
+    let daemon = directory.path().join("daemon.sock");
+    let _link = std::os::unix::net::UnixListener::bind(&link).unwrap();
+    let _link_admin =
+        std::os::unix::net::UnixListener::bind(cmux_remote::admin::link_admin_socket(&link))
+            .unwrap();
+    let _daemon = std::os::unix::net::UnixListener::bind(&daemon).unwrap();
+    // A plain file named like the admin socket is not a link's socket.
+    fs::write(cmux_remote::admin::link_admin_socket(&daemon), b"").unwrap();
+
+    assert_eq!(client_link_socket_route(&format!("unix://{}", link.display())), Some(link));
+    assert_eq!(client_link_socket_route(&format!("unix://{}", daemon.display())), None);
+    assert_eq!(client_link_socket_route("ws://127.0.0.1:47002"), None);
+    assert_eq!(client_link_socket_route("not a route"), None);
+}
+
+/// cmux-remote stress report finding 6: `exec unix://<connect --local-socket>` printed
+/// "still connecting" until its startup budget ran out. It now ends before any dial.
+#[cfg(unix)]
+#[test]
+fn exec_to_a_link_socket_fails_at_once_with_what_to_pass() {
+    let directory = tempfile::tempdir().unwrap();
+    let state = directory.path().join("state");
+    let link = directory.path().join("link.sock");
+    let _link = std::os::unix::net::UnixListener::bind(&link).unwrap();
+    let _link_admin =
+        std::os::unix::net::UnixListener::bind(cmux_remote::admin::link_admin_socket(&link))
+            .unwrap();
+    let started = Instant::now();
+
+    let error = start_connected(exec_connect_flags(&format!("unix://{}", link.display()), &state))
+        .err()
+        .expect("a link socket is not a route")
+        .to_string();
+
+    assert!(started.elapsed() < Duration::from_secs(2), "took {:?}", started.elapsed());
+    assert_eq!(error, catalog().remote_client.route_is_link_socket(&link.display().to_string()));
+    assert!(!state.exists(), "refused before the state directory was touched");
+}
+
+/// cmux-remote stress report finding 7: `connect --local-socket` refused a group-writable
+/// `--state-dir` and `exec` used it. Every command now refuses it with the same words.
+#[cfg(unix)]
+#[test]
+fn exec_refuses_the_group_writable_state_dir_connect_refuses() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let directory = tempfile::tempdir().unwrap();
+    let state = directory.path().join("state");
+    fs::create_dir(&state).unwrap();
+    fs::set_permissions(&state, fs::Permissions::from_mode(0o770)).unwrap();
+    let expected = format!(
+        "secure directory {} must not be writable by group or other users",
+        state.display()
+    );
+    // What `connect --local-socket STATE/link.sock` says about the same directory (its socket
+    // directory check).
+    let connect_error =
+        ensure_secure_directory(&state, DirectoryAccess::OwnerControlled).unwrap_err().to_string();
+    assert_eq!(connect_error, expected);
+
+    for route in ["ws://127.0.0.1:9", "unix:///nonexistent/cmux-daemon.sock"] {
+        let error = start_connected(exec_connect_flags(route, &state))
+            .err()
+            .expect("a group-writable state directory is refused")
+            .to_string();
+        assert_eq!(error, expected, "{route}");
+    }
+    assert!(!state.join("client").exists(), "no identity was written there");
+
+    fs::set_permissions(&state, fs::Permissions::from_mode(0o700)).unwrap();
+    refuse_unusable_local_paths(&exec_connect_flags("ws://127.0.0.1:9", &state)).unwrap();
+}
+
 #[test]
 fn sidecar_mux_monitor_detects_the_connected_server_closing() {
     let directory = tempfile::tempdir().unwrap();
@@ -942,6 +1027,7 @@ fn enrollment_startup_covers_invitation_and_approval_windows() {
         route_hints: vec![],
         relay_access: vec![],
         approval_required: true,
+        via_machine: None,
     };
 
     assert!(
@@ -2975,4 +3061,158 @@ fn tty_eof_releases_an_unterminated_line_first() {
     assert!(!exec_cp::pty_line_open(Some(b'\n')));
     assert!(!exec_cp::pty_line_open(Some(0x04)));
     assert!(exec_cp::pty_line_open(Some(b'o')));
+}
+
+fn summary_invitation(route_hints: Vec<String>) -> EnrollmentInvitation {
+    EnrollmentInvitation {
+        version: 1,
+        id: "inv123".into(),
+        secret: String::new(),
+        daemon_public_key: String::new(),
+        daemon_fingerprint: String::new(),
+        daemon_name: "host".into(),
+        // 11:52:03 UTC on some day.
+        expires_at_unix: 1_700_000_000 - 1_700_000_000 % 86_400 + 11 * 3600 + 52 * 60 + 3,
+        route_hints,
+        relay_access: Vec::new(),
+        approval_required: true,
+        via_machine: None,
+    }
+}
+
+#[test]
+fn enroll_create_says_when_it_expires_who_it_binds_and_what_the_device_runs() {
+    let invitation = summary_invitation(vec!["ws://10.0.0.2:7000/v1/link".into()]);
+    let now = invitation.expires_at_unix - 300;
+    let device = BoundDevice { public_key: [7; 32], name: Some("laptop".into()) };
+    let lines = invitation_summary(&invitation, 300, Some(&device), now);
+    assert_eq!(
+        lines,
+        vec![
+            "expires in 5 min, at 11:52:03 UTC".to_string(),
+            format!(
+                "bound to device laptop ({}); it enrolls with no approval step",
+                device.fingerprint()
+            ),
+            "on the device, save the line above to an owner-only file (chmod 600) and run:".into(),
+            "  cmux remote connect ws://10.0.0.2:7000/v1/link --invite-file PATH".into(),
+        ]
+    );
+
+    // A longer --ttl than the daemon allows says it was capped; an unbound
+    // invitation names the approve command; no route hint leaves ROUTE.
+    let invitation = summary_invitation(Vec::new());
+    let lines = invitation_summary(&invitation, 3600, None, invitation.expires_at_unix - 300);
+    assert_eq!(lines[1], "asked for 60 min; the daemon caps an invitation at 5 min");
+    assert_eq!(
+        lines[2],
+        "not bound to a device: when it connects, approve it with `cmux remote enroll approve inv123`"
+    );
+    assert_eq!(lines[4], "  cmux remote connect ROUTE --invite-file PATH");
+}
+
+#[test]
+fn enroll_revoke_names_the_device_it_revoked() {
+    let record = serde_json::json!({ "id": "fp1", "name": "laptop", "fingerprint": "fp1" });
+    assert_eq!(
+        revoked_device_summary("fp1", &record),
+        "revoked device laptop (fp1); it can no longer connect"
+    );
+    // An older daemon replies `{}`: name the id that was passed.
+    assert_eq!(
+        revoked_device_summary("fp1", &serde_json::json!({})),
+        "revoked device fp1; it can no longer connect"
+    );
+}
+
+#[test]
+fn a_route_without_a_scheme_says_how_to_write_one() {
+    let error = format!("{:#}", parse_route("127.0.0.1:47911", "route").unwrap_err());
+    assert!(error.starts_with("invalid route (write it with a scheme"), "{error}");
+    assert!(error.contains("ws://HOST:PORT/"), "{error}");
+    assert!(error.contains("cmux remote known-daemons"), "{error}");
+    assert!(parse_route("ws://127.0.0.1:47911/v1/link", "route").is_ok());
+}
+
+const HUB_KEY: &str = "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA=";
+
+fn loopback_invitation_uri(via_machine: Option<&str>) -> String {
+    use base64::Engine;
+    let daemon = cmux_remote::crypto::StaticIdentity::generate().unwrap().public_key();
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+    EnrollmentInvitation {
+        version: 1,
+        id: "invite".into(),
+        secret: base64::engine::general_purpose::URL_SAFE_NO_PAD.encode([9u8; 32]),
+        daemon_public_key: base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(daemon),
+        daemon_fingerprint: cmux_remote::crypto::public_key_fingerprint(&daemon),
+        daemon_name: "agent-remote".into(),
+        expires_at_unix: now + 600,
+        route_hints: vec!["ws://127.0.0.1:7781/".into()],
+        relay_access: vec![],
+        approval_required: true,
+        via_machine: via_machine.map(Into::into),
+    }
+    .to_uri()
+    .unwrap()
+}
+
+fn invitation_answer(uri: String) -> AdminResponse {
+    AdminResponse { ok: true, result: Some(serde_json::json!({ "uri": uri })), error: None }
+}
+
+fn answered_uri(response: &AdminResponse) -> String {
+    response.result.as_ref().and_then(|r| r.get("uri")).and_then(Value::as_str).unwrap().to_owned()
+}
+
+/// `enroll create` on a machine joined to a hub hands out an invitation that carries its node
+/// key, so redeeming it elsewhere needs no `--via-machine` (found live: its only route hint was
+/// the minting machine's loopback daemon).
+#[test]
+fn a_created_invitation_carries_the_machines_hub_route() {
+    let mut response = invitation_answer(loopback_invitation_uri(None));
+    carry_hub_route(&mut response, Some(HUB_KEY)).unwrap();
+    let invitation = EnrollmentInvitation::from_uri(&answered_uri(&response)).unwrap();
+    assert_eq!(invitation.via_machine.as_deref(), Some(HUB_KEY));
+    assert_eq!(invitation.route_hints, ["ws://127.0.0.1:7781/"]);
+
+    // An unjoined machine, or a daemon that named one already, leaves the invitation as it is.
+    let plain = loopback_invitation_uri(None);
+    let mut response = invitation_answer(plain.clone());
+    carry_hub_route(&mut response, None).unwrap();
+    assert_eq!(answered_uri(&response), plain);
+    let other = "ICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICA=";
+    let named = loopback_invitation_uri(Some(other));
+    let mut response = invitation_answer(named.clone());
+    carry_hub_route(&mut response, Some(HUB_KEY)).unwrap();
+    assert_eq!(answered_uri(&response), named);
+    // A refused create has no URI to change.
+    let mut refused = AdminResponse { ok: false, result: None, error: Some("no".into()) };
+    carry_hub_route(&mut refused, Some(HUB_KEY)).unwrap();
+}
+
+/// Redeeming picks the invitation's (or the known daemon's) hub route when none is given, except
+/// on the very machine it names, whose loopback daemon answers directly.
+#[test]
+fn redeeming_takes_the_carried_hub_route_unless_it_is_this_machine() {
+    assert_eq!(implied_hub_route(Some(HUB_KEY.into()), None).as_deref(), Some(HUB_KEY));
+    assert_eq!(implied_hub_route(Some(HUB_KEY.into()), Some("other")).as_deref(), Some(HUB_KEY));
+    assert_eq!(implied_hub_route(Some(HUB_KEY.into()), Some(HUB_KEY)), None);
+    assert_eq!(implied_hub_route(None, Some(HUB_KEY)), None);
+    // An old invitation (no `via_machine`) carries none, as before.
+    let old = EnrollmentInvitation::from_uri(&loopback_invitation_uri(None)).unwrap();
+    assert_eq!(implied_hub_route(old.via_machine, None), None);
+}
+
+#[test]
+fn enroll_create_takes_a_via_machine_node_key() {
+    let args = |rest: &[&str]| {
+        std::iter::once("create").chain(rest.iter().copied()).map(String::from).collect::<Vec<_>>()
+    };
+    let parsed = parse_enroll_admin_args(&args(&["--via-machine", HUB_KEY])).unwrap();
+    assert_eq!(parsed.via_machine.as_deref(), Some(HUB_KEY));
+    assert!(parse_enroll_admin_args(&args(&["--via-machine", "cmux16"])).is_err());
+    assert!(parse_enroll_admin_args(&args(&["--via-machine"])).is_err());
+    let pending = ["pending", "--via-machine", HUB_KEY].map(String::from);
+    assert!(parse_enroll_admin_args(&pending).is_err());
 }

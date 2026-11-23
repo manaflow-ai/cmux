@@ -5,7 +5,7 @@
 //! - `claude`: Claude Code's official native installer (`https://claude.ai/install.sh`, the one
 //!   `machine-join.sh` runs on a joined machine), which puts `claude` in `~/.local/bin`.
 //! - `codex`: cmux's managed Codex runtime (`managed_codex`: the pinned official release, its
-//!   SHA-256 checked), on macOS.
+//!   SHA-256 checked), on macOS and Linux.
 //!
 //! Each step is one JSON line on stdout with `--json` (`{"step", "state", "detail"}`), so a caller
 //! can draw progress; the last line is the result (`{"id", "installed", "path", "version"}`), or the
@@ -88,7 +88,7 @@ fn claude_path() -> Option<PathBuf> {
     })
 }
 
-fn which_on_path(program: &str) -> Option<PathBuf> {
+pub(crate) fn which_on_path(program: &str) -> Option<PathBuf> {
     std::env::var_os("PATH")
         .into_iter()
         .flat_map(|paths| std::env::split_paths(&paths).collect::<Vec<_>>())

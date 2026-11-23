@@ -91,7 +91,7 @@ public struct WindowDockActions {
         let host = host
         registry.bindEffect("home.openChiefDock") { invocation in
             guard let frame = host.dockFrame(invocation) else { return .refused(RefusalStrings.noWindowOpen) }
-            return Self.openChiefDock(in: frame, host, registry)
+            return Self.openChiefDock(in: frame, host, registry, origin: invocation.origin)
         }
         // Undock Chief (cmux#37372): a docked Chief panel floats again over the stage, shown.
         registry.bindEffect("home.undockChief") { invocation in
@@ -107,7 +107,7 @@ public struct WindowDockActions {
             let wasBehind = host.chiefBringAppForward()
             guard let frame = host.dockFrame(invocation) else { return .refused(RefusalStrings.noWindowOpen) }
             if wasBehind, frame.frameChiefPanelShown { frame.frameFocusChiefPanel(); return .done }
-            return Self.openChiefDock(in: frame, host, registry)
+            return Self.openChiefDock(in: frame, host, registry, origin: invocation.origin)
         }
         registry.bindEffect("window.movePaneToDock") { invocation in
             guard let source = host.dockPaneWorkspace(invocation) else { return .refused(RefusalStrings.noPaneForDock) }
@@ -140,24 +140,29 @@ public struct WindowDockActions {
     }
 
     /// Show/Hide Chief (Cmd-I) in `frame`: the Chief panel hides when it shows, else it opens (floating, or docked
-    /// when the person docked it) and its message box takes the keys. In Home, where the Chief already is, Home's
-    /// message box takes the keys. With no Home yet, Home is made and shown in tracked background work. Classic Home
+    /// when the person docked it) and its message box takes the keys. It always shows the Chief (David Beyer, Nov 20:
+    /// "Show Chief" did not show it unless he went to Home): on the Chief's page (Home) the Chief's own conversation
+    /// opens (`home.openChief`), not the last chat; with no Home yet, Home is made in tracked background work and the
+    /// Chief opens over the workspace the window shows (its page only in a window that shows nothing). Classic Home
     /// has no Home workspace: Go to Home runs instead.
-    private static func openChiefDock(in frame: any WindowDockFrame, _ host: any WindowDockHost, _ registry: ActionRegistry) -> ActionEffect {
+    private static func openChiefDock(in frame: any WindowDockFrame, _ host: any WindowDockHost, _ registry: ActionRegistry,
+                                      origin: ActionOrigin) -> ActionEffect {
         guard !host.chiefHomeIsClassic else {
             return host.chiefShowHome() ? .done : .refused(RefusalStrings.chiefDockUnavailable, quiet: true)
         }
         if frame.toggleChiefPanel() { return .done }
         if let home = frame.frameHome ?? host.chiefHome(in: frame.frameWindowID) {
             if frame.frameShownWorkspaceID != home { frame.frameShow(home, thisWindow: true) }
+            _ = registry.perform("home.openChief", invocation: ActionInvocation(origin: origin))
             host.chiefFocusComposer()
             return .done
         }
-        // task-owner: one Home for this window (one daemon round trip), then it shows; nothing to show before it.
+        // task-owner: one Home for this window (one daemon round trip), then the Chief shows; nothing to show before it.
         registry.track(Task { [weak frame] in
             guard let frame, let made = await host.chiefMakeHome(in: frame.frameWindowID) else {
                 return ActionWorkFailure(RefusalStrings.chiefDockUnavailable)
             }
+            if frame.toggleChiefPanel() { return nil }
             frame.frameShow(made, thisWindow: true)
             host.chiefFocusComposer()
             return nil

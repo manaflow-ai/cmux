@@ -40,6 +40,7 @@ import subprocess
 import time
 
 import tab_switch_settle as settle
+from state_wait import wait_until
 
 MATRIX_SCENARIOS = ("switch-workspace-cold", "switch-workspace-warm", "new-workspace", "new-chat", "split",
                     "resize-split", "tab-move", "unsplit", "window-resize", "pane-to-window", "chat-10k-open",
@@ -86,7 +87,7 @@ def open_scale_workspaces(h, ids, workspaces, log):
         reply = h.c.action("agent.openSessionWorkspace", focus=False, session=session)
         failed += bool(reply.get("error"))
     h.c.action("goToWorkspace", workspace=h.workspace_id)
-    time.sleep(3)  # test script: the measured workspace shows again
+    h.wait_workspace(h.workspace_id, "the measured workspace shown again", timeout=30)
     made = [w for w in h.workspace_ids() if w not in before]
     h.scale_workspaces = list(made)
     log(f"scale: {len(made)} more workspaces ({len(h.workspace_ids())} in all, {failed} opens refused) in "
@@ -142,7 +143,7 @@ def step(h, name, load, r, trigger, record=None, n=None):
     perf = chat_perf_start(h, seconds)
     h.flip3(label)
     reply = trigger() or {}
-    time.sleep(seconds)
+    time.sleep(seconds)  # sleep-ok: the recording window after the trigger (--record)
     h.rec.flip(f"{label}:end")
     error = reply.get("error") if isinstance(reply, dict) else None
     item = {"label": label, "kind": "settled", "strip": "sidebar", "error": f"{name}: {error}" if error else None}
@@ -202,11 +203,13 @@ def matrix_round(h, load, r, scenarios, agents):
                     h.matrix_notes.setdefault((name, load), say_note)
         try:
             h.c.action("goToWorkspace", workspace=h.workspace_id)
+            h.wait_workspace(h.workspace_id, "the measured workspace shown after a section")
             if "chat" in h.ids:
                 h.select("chat")
+                h.wait_selected("chat")
         except Exception:  # noqa: BLE001 - the next section reports its own fault
             pass
-        time.sleep(h.args.settle)
+        time.sleep(h.args.settle)  # sleep-ok: --settle, the recorded span before the next step's leave flip (its last AMBIENT_S are the ambient baseline)
 
     section(("switch-workspace-cold", "switch-workspace-warm"), lambda: workspace_switches(h, load, r, scenarios))
     section(("new-chat",), lambda: new_chat(h, load, r, pane0))
@@ -223,7 +226,7 @@ def window_resize(h, load, r):
     out = []
     for n in (1, 2):
         out.append(step(h, "window-resize", load, r, lambda: h.c.action("zoomWindow"), n=n))
-        time.sleep(h.args.settle)
+        time.sleep(h.args.settle)  # sleep-ok: --settle, the recorded span before the next step's leave flip (its last AMBIENT_S are the ambient baseline)
     return out
 
 
@@ -262,12 +265,12 @@ def workspace_switches(h, load, r, scenarios):
     item = step(h, "switch-workspace-cold", load, r, lambda: h.c.action("goToWorkspace", workspace=cold))
     if "switch-workspace-cold" in scenarios:
         out.append(item)
-    time.sleep(0.3)
+    h.wait_workspace(cold, "the cold workspace shown")
     for n, target in enumerate((ws0, cold, ws0), 1):
         item = step(h, "switch-workspace-warm", load, r, lambda t=target: h.c.action("goToWorkspace", workspace=t), n=n)
         if "switch-workspace-warm" in scenarios:
             out.append(item)
-        time.sleep(0.3)
+        h.wait_workspace(target, "the warm switch's workspace shown")
     return out
 
 
@@ -280,25 +283,33 @@ def split_steps(h, load, r, scenarios, pane0):
     right = wait_new_pane(h, before)
     if not right:
         return out
-    time.sleep(h.args.settle)
+    time.sleep(h.args.settle)  # sleep-ok: --settle, the recorded span before the next step's leave flip (its last AMBIENT_S are the ambient baseline)
     if "resize-split" in scenarios:
         out.append(step(h, "resize-split", load, r, lambda: h.c.action("resizePaneRight", target=f"pane:{pane0}")))
-        time.sleep(h.args.settle)
+        time.sleep(h.args.settle)  # sleep-ok: --settle, the recorded span before the next step's leave flip (its last AMBIENT_S are the ambient baseline)
     chat = h.ids.get("chat")
     if chat and "tab-move" in scenarios:
         out.append(step(h, "tab-move", load, r, lambda: h.c.action("moveSurfaceToPaneRight", target=f"tab:{chat}"), n=1))
-        time.sleep(h.args.settle)
+        wait_until(lambda: not in_pane(h, chat), "the chat tab moved to the right pane", timeout=15, raise_on_timeout=False)
+        time.sleep(h.args.settle)  # sleep-ok: --settle, the recorded span before the next step's leave flip (its last AMBIENT_S are the ambient baseline)
         out.append(step(h, "tab-move", load, r, lambda: h.c.action("moveSurfaceToPaneLeft", target=f"tab:{chat}"), n=2))
-        time.sleep(h.args.settle)
-        if not any(t.get("id") == chat for t in h.pane_tabs()[0]):
+        wait_until(lambda: in_pane(h, chat), "the chat tab back in the measured pane", timeout=15, raise_on_timeout=False)
+        time.sleep(h.args.settle)  # sleep-ok: --settle, the recorded span before the next step's leave flip (its last AMBIENT_S are the ambient baseline)
+        if not in_pane(h, chat):
             # Not back in the measured pane: the next steps would close it with the right pane.
             h.c.action("moveSurfaceToPaneLeft", target=f"tab:{chat}")
-            time.sleep(1)
+            wait_until(lambda: in_pane(h, chat), "the chat tab moved back to the measured pane", timeout=15,
+                       raise_on_timeout=False)
     item = step(h, "unsplit", load, r, lambda: h.c.action("closePane", target=f"pane:{right}"))
     if "unsplit" in scenarios:
         out.append(item)
-    time.sleep(h.args.settle)
+    wait_until(lambda: right not in h.all_panes(), "the right pane closed", timeout=15, raise_on_timeout=False)
     return out
+
+
+def in_pane(h, tab):
+    """Whether `tab` is one of the measured pane's tabs."""
+    return any(t.get("id") == tab for t in h.pane_tabs()[0])
 
 
 def wait_new_pane(h, before, limit=10.0):
@@ -317,15 +328,18 @@ def pane_to_window(h, load, r, pane0):
     scratch = wait_new_pane(h, before)
     if not scratch:
         return []
-    time.sleep(h.args.settle)
+    time.sleep(h.args.settle)  # sleep-ok: --settle, the recorded span before the next step's leave flip (its last AMBIENT_S are the ambient baseline)
     workspaces = set(h.workspace_ids())
     out = [step(h, "pane-to-window", load, r, lambda: h.c.action("pane.moveToNewWindow", target=f"pane:{scratch}"))]
     # The moved pane is a new window's new workspace: that workspace goes (its window with it).
-    for made in [w for w in h.workspace_ids() if w not in workspaces]:
+    moved = [w for w in h.workspace_ids() if w not in workspaces]
+    for made in moved:
         h.c.action("closeWorkspace", confirm=True, target=f"workspace:{made}")
     if scratch in h.all_panes():
         h.c.action("closePane", target=f"pane:{scratch}")
-    time.sleep(1)  # test script: the scratch window closes
+    # The scratch window closed: its pane and workspace gone from the snapshot.
+    wait_until(lambda: scratch not in h.all_panes() and not set(moved) & set(h.workspace_ids()),
+               "the scratch window closed", timeout=15, raise_on_timeout=False)
     return out
 
 
@@ -343,11 +357,12 @@ def chat_10k(h, load, r, scenarios, agents, pane0):
     made = h.new_tabs(before, 1, limit=5.0)
     if made and "chat-10k-return" in scenarios:
         h.select("terminal")
-        time.sleep(h.args.settle)
+        h.wait_selected("terminal")
+        time.sleep(h.args.settle)  # sleep-ok: --settle, the recorded span before the next step's leave flip (its last AMBIENT_S are the ambient baseline)
         out.append(step(h, "chat-10k-return", load, r, lambda: h.c.action("tab.focus", target=f"tab:{made[0]}")))
     for tab in made:
         h.c.action("closeTab", focus=False, target=f"tab:{tab}")
-    time.sleep(h.args.settle)
+    h.wait_tabs_gone(made, "the 10k-row chat's tab closed")
     return out
 
 
