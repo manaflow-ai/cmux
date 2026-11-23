@@ -11,14 +11,11 @@
     "run.attach": "postNative (run-board/runAttach.ts): the native bridge."
   },
   "refused_today": {
-    "_acpmux/inbox_threads": "direct.ts inboxThreads (the chat.inbox.threads action, App.tsx) sends {sessionId}; not in AcpmuxPaneMethods.requests, so the app relay refuses it.",
-    "_acpmux/info": "direct.ts liveTreeStatus (the Labs Changes row, App.tsx) sends {sessionId, waitLogs, includeLiveTree}; not in AcpmuxPaneMethods.requests, so the app relay refuses it.",
-    "catalog.get": "direct.ts modelCatalog (the models.catalog action, App.tsx) sends {}; not in AcpmuxPaneMethods.requests, so the app relay refuses it.",
-    "catalog.refresh": "direct.ts modelCatalog(refresh) sends {}; not in AcpmuxPaneMethods.requests, so the app relay refuses it."
+    "_acpmux/inbox_threads": "direct.ts inboxThreads (the chat.inbox.threads action, App.tsx) sends {sessionId}; not in AcpmuxPaneMethods.requests, so the app relay refuses it."
   },
   "methods": {
     "initialize": {"params": ["protocolVersion", "clientInfo", "clientCapabilities", "_meta"], "acpmux": ["peerRowBatches"], "frames": "initialize-params.json"},
-    "session/new": {"params": ["cwd", "mcpServers", "additionalDirectories", "_meta"], "acpmux": ["harness", "adopt", "peer", "noProject", "model"], "frames": "session-new-params.json"},
+    "session/new": {"params": ["cwd", "mcpServers", "additionalDirectories", "_meta"], "acpmux": ["harness", "adopt", "peer", "noProject", "model", "restricted"], "frames": "session-new-params.json"},
     "chat.fix_from_link": {"params": ["url", "cwd", "harness", "model", "_meta"]},
     "chat.fix_from_link.prepare": {"params": ["url", "cwd", "harness", "model"]},
     "session/prompt": {"params": ["sessionId", "prompt", "_meta"], "acpmux": ["promptId", "steer", "interrupt", "context", "surface", "inlineParts", "promptSuggestion"]},
@@ -39,7 +36,7 @@
     "_acpmux/warm": {"params": ["sessionIds", "limit"]},
     "_acpmux/kill": {"params": ["sessionId", "purge", "cancelFork", "cancelToken", "ifIdle"]},
     "_acpmux/watch_take_over": {"params": ["sessionId", "ifLive"]},
-    "_acpmux/process/list": {"params": ["sessionId", "limit", "cursor", "recent"]},
+    "_acpmux/process/list": {"params": ["sessionId", "cursor", "limit", "recent", "endedWithin", "calls"]},
     "_acpmux/process/tail": {"params": ["processId", "maxBytes"]},
     "_acpmux/process/kill": {"params": ["sessionId", "processId"]},
     "_acpmux/process/background": {"params": ["sessionId", "toolCallId"]},
@@ -126,6 +123,12 @@
     "acp.trust.set": {"params": ["cwd", "level", "sessionId", "peer"]},
     "_acpmux/harness_enable": {"params": ["folder", "id"]},
     "session/set_mode": {"params": ["sessionId", "modeId", "_meta"]},
-    "session/set_config_option": {"params": ["sessionId", "configId", "value", "_meta"]}
+    "session/set_config_option": {"params": ["sessionId", "configId", "value", "_meta"]},
+    "catalog.get": {"params": []},
+    "catalog.refresh": {"params": []},
+    "_acpmux/info": {"params": ["sessionId", "waitLogs", "includeLiveTree"]},
+    "_acpmux/account/sign_in": {"params": ["family", "sessionId"]},
+    "_acpmux/account/sign_in.finish": {"params": ["loginId", "sessionId"]},
+    "_acpmux/account/sign_in.cancel": {"params": ["loginId", "sessionId"]}
   }
 }

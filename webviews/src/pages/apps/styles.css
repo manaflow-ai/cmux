@@ -1148,7 +1148,7 @@ code {
 }
 
 /* "cmux · Developer Tools · Free": a middle dot between the meta line's parts. */
-.apps-listing-meta > * + *::before {
+.apps-listing-meta > :not(:first-child)::before {
   content: "·";
   margin-inline-end: 8px;
   color: var(--page-text-3);
@@ -1389,4 +1389,112 @@ code {
 /* On a listing's page the Enabled switch lines up with the permission switches above it. */
 .apps-listing .apps-setting {
   max-width: none;
+}
+
+/* The Customize cmux… card above the Cloud banner (CustomizeFeature.tsx). */
+.apps-customize-feature {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 12px;
+  padding: 12px 16px;
+  border: 1px solid var(--page-separator);
+  border-radius: 12px;
+}
+
+.apps-customize-feature-head {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+/* Open: every verified look and switch group, then the link to Settings > Customize. */
+.apps-customize-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--page-separator);
+}
+
+.apps-customize-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--grid-half-step);
+}
+
+.apps-customize-heading {
+  font-size: var(--text-caption);
+  font-weight: 600;
+  color: var(--page-text-3);
+}
+
+.apps-customize-link {
+  align-self: flex-start;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--page-text-2);
+  font: inherit;
+  font-size: var(--text-detail);
+}
+
+.apps-customize-link:hover {
+  text-decoration: underline;
+}
+
+.apps-customize-feature-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--grid-half-step);
+}
+
+.apps-customize-feature-title {
+  font-size: var(--text-title);
+  font-weight: 600;
+  letter-spacing: var(--text-title--letter-spacing);
+}
+
+.apps-customize-feature-body {
+  font-size: var(--text-detail);
+  line-height: 1.4;
+  color: var(--page-text-2);
+  text-wrap: pretty;
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+
+.apps-customize-looks {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.apps-customize-look {
+  padding: var(--grid-half-step) 8px;
+  border: 1px solid var(--page-separator);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--page-text-2);
+  font: inherit;
+  font-size: var(--text-caption);
+}
+
+.apps-customize-look:hover {
+  background: var(--page-hover);
+  color: var(--page-text);
+}
+
+.apps-customize-more {
+  font-size: var(--text-caption);
+  color: var(--page-text-3);
+}
+
+@media (max-width: 520px) {
+  .apps-customize-feature-head {
+    flex-wrap: wrap;
+  }
 }

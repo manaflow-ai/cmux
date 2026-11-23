@@ -4,9 +4,11 @@
 // in `BookmarksStore`; this file only renders it and turns plain keys, clicks and drops into store
 // intents. Cmd/Ctrl chords never reach page handlers.
 import {
+  memo,
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
@@ -16,7 +18,8 @@ import {
 } from "react";
 import { Breadcrumbs } from "../../ui/Breadcrumbs";
 import { SplitEdge } from "../../ui/SplitEdge";
-import { useLasting } from "../../ui/lasting";
+import { ConnectionChip } from "../../ui/ConnectionChip";
+import { useConnectionQuiet } from "../../ui/lasting";
 import { Tree, type TreeLine } from "../../ui/Tree";
 import { VirtualList } from "../../ui/VirtualList";
 import { PageMenu, type PageMenuItem } from "../shared/PageMenu";
@@ -82,13 +85,16 @@ export function BookmarksPage({
     bar: snap.titles.bar || t("root.bar"),
     other: snap.titles.other || t("root.other"),
   };
-  // A lost host shows nothing until it lasts past the grace (a launch, a daemon restart: the store
-  // re-reads once the link is back); then the disconnected line.
+  // A lost host keeps the rows it had and says so only once it lasts (a launch, a daemon restart: the
+  // store re-reads once the link is back), as a corner mark that takes no room.
   const down = snap.connection === "disconnected";
-  const downLasting = useLasting(down);
+  const downLasting = useConnectionQuiet(down);
   const searching = snap.results !== null;
   const rows = snap.rows;
-  const focusIndex = snap.focus === undefined ? -1 : rows.findIndex((row) => row.id === snap.focus);
+  // Built once per list, so a focus or selection change looks a row up instead of scanning the rows.
+  const indexOf = useMemo(() => new Map(rows.map((row, index) => [row.id, index])), [rows]);
+  const selected = useMemo(() => new Set(snap.selection), [snap.selection]);
+  const focusIndex = snap.focus === undefined ? -1 : (indexOf.get(snap.focus) ?? -1);
 
   const openMenu = (event: MouseEvent, items: PageMenuItem[]) => {
     event.preventDefault();
@@ -222,10 +228,10 @@ export function BookmarksPage({
     event.dataTransfer.setData(DRAG_TYPE, JSON.stringify(ids));
     if (node.url) event.dataTransfer.setData("text/uri-list", node.url);
   };
-  const dragEnd = () => {
+  const dragEnd = useCallback(() => {
     dragged.current = [];
     setDropMark(null);
-  };
+  }, []);
   const overRow = (node: Bookmark, event: DragEvent) => {
     const place = dropOnRow(snap.tree, dragged.current, node);
     if (!place) return;
@@ -240,6 +246,32 @@ export function BookmarksPage({
     dragEnd();
     void store.dropOnRow(ids, node);
   };
+
+  // The rows' handlers: one object for the page's life, each taking the row's node, so a row (a memo
+  // boundary) keeps its props when the page re-renders. They read this render's snapshot and drop
+  // mark through `latest`, set after each commit (events come after it).
+  const latest = useRef({ dropMark, rowMenu, dragStart, overRow, dropRow });
+  useLayoutEffect(() => {
+    latest.current = { dropMark, rowMenu, dragStart, overRow, dropRow };
+  });
+  const rowEvents = useMemo<RowEvents>(
+    () => ({
+      click: (node, event) => {
+        event.currentTarget.focus();
+        store.select(node.id, event.shiftKey ? "range" : event.metaKey ? "toggle" : "single");
+      },
+      open: (node) => store.activate(node),
+      menu: (node, event) => latest.current.rowMenu(node, event),
+      dragStart: (node, event) => latest.current.dragStart(node, event),
+      dragEnd,
+      dragOver: (node, event) => latest.current.overRow(node, event),
+      dragLeave: (node) => {
+        if (latest.current.dropMark?.id === node.id) setDropMark(null);
+      },
+      drop: (node, event) => latest.current.dropRow(node, event),
+    }),
+    [store, dragEnd],
+  );
   const overFolder = (folder: string, event: DragEvent) => {
     if (!dropInto(snap.tree, dragged.current, folder)) return;
     event.preventDefault();
@@ -323,12 +355,9 @@ export function BookmarksPage({
           {snap.notice.message}
         </p>
       ) : null}
-      {down && !downLasting ? null : down ? (
-        <output className="bm-empty">
-          <span className="bm-empty-title">{t("page.disconnected")}</span>
-        </output>
-      ) : empty ? (
-        snap.loading ? null : (
+      {downLasting ? <ConnectionChip text={t("page.disconnected")} /> : null}
+      {empty ? (
+        snap.loading || down ? null : (
           <div className="bm-empty">
             <span className="bm-empty-title">{t(searching ? "page.emptySearchTitle" : "page.emptyTitle")}</span>
             {searching ? null : <span className="bm-empty-hint">{t("page.emptyHint")}</span>}
@@ -354,7 +383,7 @@ export function BookmarksPage({
                 style={style}
                 index={index}
                 layout={layout}
-                selected={snap.selection.includes(node.id)}
+                selected={selected.has(node.id)}
                 focused={node.id === snap.focus}
                 drop={dropMark?.id === node.id ? dropMark.kind : undefined}
                 detail={
@@ -366,19 +395,7 @@ export function BookmarksPage({
                 }
                 icon={snap.icons[iconKey(node)]}
                 onShown={askIcon}
-                onClick={(event) => {
-                  event.currentTarget.focus();
-                  store.select(node.id, event.shiftKey ? "range" : event.metaKey ? "toggle" : "single");
-                }}
-                onOpen={() => store.activate(node)}
-                onMenu={(event) => rowMenu(node, event)}
-                onDragStart={(event) => dragStart(node, event)}
-                onDragEnd={dragEnd}
-                onDragOver={(event) => overRow(node, event)}
-                onDragLeave={() => {
-                  if (dropMark?.id === node.id) setDropMark(null);
-                }}
-                onDrop={(event) => dropRow(node, event)}
+                on={rowEvents}
               />
             );
           }}
@@ -398,7 +415,7 @@ export function BookmarksPage({
           aria-label={t("page.search")}
           aria-controls="bm-list"
           value={snap.text}
-          disabled={down && downLasting}
+          disabled={downLasting}
           ref={focusOnMount}
           onChange={(event) => store.setText(event.target.value)}
           onKeyDown={searchKeys}
@@ -473,17 +490,34 @@ interface RowProps {
   icon?: RowIcon | null;
   /** The row is drawn without an icon asked for yet (undefined, not null: null is "the host has none"). */
   onShown: (node: Bookmark) => void;
-  onClick: (event: MouseEvent<HTMLDivElement>) => void;
-  onOpen: () => void;
-  onMenu: (event: MouseEvent) => void;
-  onDragStart: (event: DragEvent) => void;
-  onDragEnd: () => void;
-  onDragOver: (event: DragEvent) => void;
-  onDragLeave: () => void;
-  onDrop: (event: DragEvent) => void;
+  on: RowEvents;
 }
 
-function BookmarkRow({ node, style, index, layout, selected, focused, drop, detail, icon, onShown, ...on }: RowProps) {
+/** A row's handlers, shared by every row: each takes the row's node. */
+interface RowEvents {
+  click: (node: Bookmark, event: MouseEvent<HTMLDivElement>) => void;
+  open: (node: Bookmark) => void;
+  menu: (node: Bookmark, event: MouseEvent) => void;
+  dragStart: (node: Bookmark, event: DragEvent) => void;
+  dragEnd: () => void;
+  dragOver: (node: Bookmark, event: DragEvent) => void;
+  dragLeave: (node: Bookmark) => void;
+  drop: (node: Bookmark, event: DragEvent) => void;
+}
+
+const BookmarkRow = memo(function BookmarkRow({
+  node,
+  style,
+  index,
+  layout,
+  selected,
+  focused,
+  drop,
+  detail,
+  icon,
+  onShown,
+  on,
+}: RowProps) {
   const title = node.title || (node.url ? displayURL(node.url) : "");
   const unasked = icon === undefined;
   useEffect(() => {
@@ -506,14 +540,14 @@ function BookmarkRow({ node, style, index, layout, selected, focused, drop, deta
           className={`bm-row${selected ? " selected" : ""}${drop ? ` drop-${drop}` : ""}`}
           style={style}
           draggable
-          onClick={on.onClick}
-          onDoubleClick={on.onOpen}
-          onContextMenu={on.onMenu}
-          onDragStart={on.onDragStart}
-          onDragEnd={on.onDragEnd}
-          onDragOver={on.onDragOver}
-          onDragLeave={on.onDragLeave}
-          onDrop={on.onDrop}
+          onClick={(event) => on.click(node, event)}
+          onDoubleClick={() => on.open(node)}
+          onContextMenu={(event) => on.menu(node, event)}
+          onDragStart={(event) => on.dragStart(node, event)}
+          onDragEnd={on.dragEnd}
+          onDragOver={(event) => on.dragOver(node, event)}
+          onDragLeave={() => on.dragLeave(node)}
+          onDrop={(event) => on.drop(node, event)}
         >
           {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- the one cell of a virtualized grid row. */}
           <span className="bm-row-cell" role="gridcell">
@@ -525,7 +559,7 @@ function BookmarkRow({ node, style, index, layout, selected, focused, drop, deta
       )}
     </WithFacts>
   );
-}
+});
 
 interface TreeProps {
   snap: BookmarksSnapshot;
