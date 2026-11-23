@@ -181,9 +181,11 @@ await requireBrowserLane("composer-wrap-clean-frames.test.ts", async () => {
       // It rides the field's top, or, while the chat composer grows upward with its bottom held
       // (composer/fieldGrowth.ts: the caret's line never drops under the box, Leo 2026-11-22: "the
       // caret gets shot down past the composer as it goes"), the field's bottom, where the rising
-      // top edge uncovers the first line as an instant growth would have drawn it.
+      // top edge uncovers the first line as an instant growth would have drawn it. On the bottom,
+      // within a pixel: the hold is a scroll, and at 1x a scroll offset is whole pixels while the
+      // moving height is not.
       expect(
-        Math.abs(read.textTop - rested.textTop) <= 0.5 || Math.abs(read.textFromBottom - rested.textFromBottom) <= 0.5,
+        Math.abs(read.textTop - rested.textTop) <= 0.5 || Math.abs(read.textFromBottom - rested.textFromBottom) <= 1,
         where,
       ).toBe(true);
       // The suggestions hang at the same gap under the box in every frame (none lags a frame).
