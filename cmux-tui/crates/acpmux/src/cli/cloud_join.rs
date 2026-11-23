@@ -147,7 +147,7 @@ pub fn parse_token_text(text: &str) -> Result<String> {
 
 fn origin(value: Option<String>) -> Result<String> {
     let value = value
-        .or_else(|| std::env::var("CMUX_PLATFORM_ORIGIN").ok())
+        .or_else(cmux_cloud_client::backend::platform_origin_env)
         .unwrap_or_else(|| DEFAULT_HUB.to_owned());
     let parsed =
         reqwest::Url::parse(value.trim()).map_err(|_| anyhow!("hub origin is malformed"))?;
@@ -480,6 +480,18 @@ pub(crate) fn identity() -> Result<Option<MachineIdentity>> {
 /// A stored hub origin, checked as `host join` checks it.
 pub(crate) fn hub_origin(value: &str) -> Result<String> {
     origin(Some(value.to_owned()))
+}
+
+/// The person a cmux access token acts for (its `sub` claim, unverified: the hub checks the
+/// token itself), as a safe id, for `host enroll-self --user-id` (`cmux device add` joins the Mac
+/// that ran it as that person). None for a token that is no JWT or names no one.
+pub fn access_token_user(token: &str) -> Option<String> {
+    sent_credential::user(token).and_then(|user| safe_id(&user))
+}
+
+/// `value`, else `CMUX_PLATFORM_ORIGIN`, else production, checked as `host join` checks it.
+pub(crate) fn hub_origin_or_default(value: Option<String>) -> Result<String> {
+    origin(value)
 }
 
 /// The relay client reads the joined bearer in-process from the owner-only store.
