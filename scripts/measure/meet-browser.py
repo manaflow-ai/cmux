@@ -151,9 +151,9 @@ const steps = {
         const transport = sent.get(outbound?.transportId);
         const pair = sent.get(transport?.selectedCandidatePairId) ||
           sendStats.find(r => r.type === 'candidate-pair' && r.nominated && r.state === 'succeeded');
-        const rtt = remote?.roundTripTime ?? pair?.currentRoundTripTime;
+        const rtcpRtt = remote?.roundTripTimeMeasurements === 0 ? null : remote?.roundTripTime;
         samples.push({s: (t() - t0) / 1000, fps: fps(inbound, 'framesDecoded'), encFps: fps(outbound, 'framesEncoded'),
-          rtt, rttSource: remote?.roundTripTime != null ? 'rtcp' : rtt != null ? 'ice' : null,
+          rtcpRtt, iceRtt: pair?.currentRoundTripTime,
           w: inbound?.frameWidth || video.videoWidth, h: inbound?.frameHeight || video.videoHeight,
           ew: outbound?.frameWidth, limit: outbound?.qualityLimitationReason, encoder: outbound?.encoderImplementation,
           decoder: inbound?.decoderImplementation, dropped: inbound?.framesDropped, ice: sender.iceConnectionState});
@@ -164,9 +164,11 @@ const steps = {
         const values = late.map(x => x[key]).filter(Number.isFinite).sort((a, b) => a - b);
         return values.length ? values[Math.floor(values.length / 2)] : null;
       }
-      const last = samples[samples.length - 1], decoded = median('fps'), rtt = median('rtt');
+      const last = samples[samples.length - 1], decoded = median('fps');
+      const rtcpRtt = median('rtcpRtt'), rtt = rtcpRtt ?? median('iceRtt');
       put('loop', {ok: decoded !== null && decoded >= 20 && rtt !== null, state: 'done', secs,
         source: 'canvas', gotTrack: !!video.srcObject, ice: last.ice, fpsMedian: decoded, encFpsMedian: median('encFps'),
+        rttSource: rtcpRtt !== null ? 'RTCP' : rtt !== null ? 'ICE' : null,
         rttMsMedian: rtt === null ? null : Math.round(rtt * 10000) / 10,
         size: last.w && last.h ? last.w + 'x' + last.h : null, sentWidth: last.ew,
         limit: last.limit, encoder: last.encoder, decoder: last.decoder, dropped: last.dropped, samples});
@@ -803,7 +805,7 @@ def cell(run: dict, key: str) -> str:
             return "not run"
         if v.get("fpsMedian") is None or v.get("rttMsMedian") is None:
             return f"fail: {v.get('message') or v.get('ice') or v.get('state')} (no complete FPS/RTT sample)"
-        return (f"{'pass' if v.get('ok') else 'fail'} {v.get('fpsMedian'):.1f} fps, rtt {v.get('rttMsMedian')} ms, "
+        return (f"{'pass' if v.get('ok') else 'fail'} {v.get('fpsMedian'):.1f} fps, rtt {v.get('rttMsMedian')} ms ({v.get('rttSource')}), "
                 f"{v.get('size')}, CPU {v['cpuCall']['pct']}% (idle {v['cpuIdle']['pct']}%)")
     if key == "hidden":
         if not v:
@@ -848,6 +850,7 @@ def main():
     parser = argparse.ArgumentParser()
     for flag in ("--side", "--name", "--work", "--out", "--dmg", "--version"):
         parser.add_argument(flag, required=True)
+    parser.add_argument("--build-job", default="")
     parser.add_argument("--call", type=int, default=60)
     parser.add_argument("--only", default="")
     OPTS = parser.parse_args()
@@ -895,14 +898,24 @@ def main():
 
     host = subprocess.run(["hostname", "-s"], capture_output=True, text=True).stdout.strip()
     macos = subprocess.run(["sw_vers", "-productVersion"], capture_output=True, text=True).stdout.strip()
-    header = (f"Meet-in-browser measurement: cmux NEXT NIGHTLY {OPTS.version} (macOS {macos}), "
+    source = f"build {OPTS.build_job}" if OPTS.build_job else "NIGHTLY"
+    header = (f"Meet-in-browser measurement: cmux NEXT {source} {OPTS.version} (macOS {macos}), "
               f"local test page on 127.0.0.1, loopback call {OPTS.call} s. CPU is the browser's processes from ps "
               "(100% = one core; cmux: every process of the copy, WebKit adds the system WebContent/GPU/Networking).")
-    report = {"host": host, "macos": macos, "dmg": OPTS.dmg, "version": OPTS.version, "call": OPTS.call, "runs": runs}
+    report = {"host": host, "macos": macos, "dmg": OPTS.dmg or None, "buildJob": OPTS.build_job or None, "version": OPTS.version, "call": OPTS.call, "runs": runs}
     (out_dir / "results.json").write_text(json.dumps(report, indent=2))
     (out_dir / "table.md").write_text(table(runs, header))
     print("MEET_BROWSER " + json.dumps(report)[:20000], flush=True)
-    return 0 if runs and not any(r.get("error") for r in runs.values()) else 1
+    # Permission denials are results. A comparison needs measured frames and RTT on both sides.
+    chrome = [r for name, r in runs.items() if name.startswith("chrome-")]
+    cmux_rows = [r for name, r in runs.items() if name.startswith("cmux-")]
+
+    def measured(run):
+        loop = run.get("loop") or {}
+        return (loop.get("fpsMedian") or 0) > 0 and loop.get("rttMsMedian") is not None
+
+    complete = all(map(measured, chrome)) and (not cmux_rows or any(map(measured, cmux_rows)))
+    return 0 if runs and complete and not any(r.get("error") for r in runs.values()) else 1
 
 
 OPTS = None
