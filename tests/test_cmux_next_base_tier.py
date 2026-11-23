@@ -1011,7 +1011,7 @@ class NothingAfterTheBound(unittest.TestCase):
         real = socket.getaddrinfo
 
         def lookup(*args, **kwargs):
-            time.sleep(seconds)
+            time.sleep(seconds)  # sleep-ok: a simulated slow name lookup, what the bound is tested against
             return real(*args, **kwargs)
 
         socket.getaddrinfo = lookup
@@ -1024,7 +1024,7 @@ class NothingAfterTheBound(unittest.TestCase):
         def start(thread):
             real(thread)
             if thread.name == "github-request":
-                time.sleep(seconds)
+                time.sleep(seconds)  # sleep-ok: a simulated loaded caller, held after it starts the request
 
         threading.Thread.start = start
         self.addCleanup(setattr, threading.Thread, "start", real)
