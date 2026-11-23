@@ -2178,6 +2178,19 @@ write credentials, for NEXT's own bucket cmux-ci-cache-next (as note-171); a pul
 (tests/test_ci_pull_request_caches_are_read_only.py). Each restore is bounded at 4 minutes and each save at 6,
 both continue-on-error, so a slow store costs the build at most that and never fails or outlasts the job's 20.
 
+## note-210c
+
+Above `build: Key the cargo build in R2`, `Strip the workspace's own output before the R2 save` and the `environment:` line of `build` in `.github/workflows/cmux-tui-build-package.yml`.
+
+note-210b's R2 route for the three shipped build legs that run on pool hosts (aarch64-apple-darwin built on Linux, and both musl
+targets). Their Swatinem/rust-cache entries lived in the full 10 GB GitHub store and were evicted within hours, so a leg spent
+about 20 minutes in cargo. Off Blacksmith (which keeps rust-cache and the sticky disks) the leg now restores `cmux-tui/target` and the
+cargo registry from R2 (scripts/ci/r2-cache.sh, public reads, no credentials), keyed by the leg, the lto mode, the lockfiles,
+rustc and cargo versions, the cross toolchain and a hash of the workspace path. A feat-cmux-next build that missed the exact key
+strips the workspace crates' own output (scripts/ci/cargo_target_strip.py, now also under `target/groups/N`) after staging and the
+uploads, and saves. The build job holds the `next-cache-writer` environment on feat-cmux-next only; every other ref only reads.
+The darwin cross-toolchain install moved above these steps so the key can name it. Evidence: docs/findings/2026-11-23-rust-cache-pool-keys.md (cmuxterm-hq#20570).
+
 ## note-211
 
 Above `fast-tier-cargo: Fetch the ghostty-next Zig packages (cached, deadlined, retried)` in `.github/workflows/cmux-next.yml`.
