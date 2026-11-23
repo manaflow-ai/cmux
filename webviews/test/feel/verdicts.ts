@@ -29,17 +29,24 @@ export type FollowOptions = {
   /** The tracked box whose edge the hand drags. */
   box: string;
   edge: Edge;
-  /** How far the hand moves before the control may start to follow (its drag slop). Within it the
-   *  edge may rest; past it, it must be where 1:1 puts it, with no catch-up jump. */
+  /** The most the hand may move before the control starts to follow (its drag slop). Within it the
+   *  edge may rest or already follow; past it, it must be where 1:1 puts it, with no catch-up jump. */
   slop?: number;
   /** The edge's travel limits (page px), where it may stop while the hand goes on. Unknown: the
    *  edge's own extremes in the trace. */
   bounds?: [number, number];
+  /** Snap-along rests the control may settle on (page px, in the edge's own axis), and how close to one
+   *  the hand must be for it to settle there. A frame counts as on the hand when it is 1:1 from the
+   *  grab point or resting on the rest that 1:1 is within `within` of, so a control that snaps along its
+   *  lines and one that follows exactly both pass; anything else is off the hand. */
+  detents?: { at: number[]; within: number };
 };
 
 export type FollowReport = {
   /** Frames with the button held. */
   frames: number;
+  /** Whether the edge's last position after release is on one of `detents` (within 1 px). */
+  releaseLanded: boolean;
   /** The edge's offset from the pointer at the grab. */
   grabOffset: number;
   /** The largest distance (px) between the edge and where 1:1 from the grab point puts it, allowing
@@ -73,6 +80,7 @@ export function follow(trace: FeelTrace, options: FollowOptions, jumpPx = 4): Fo
     lagFrames: 0,
     jumps: [],
     releaseMove: 0,
+    releaseLanded: false,
     coverage: 0,
   };
   if (!down) return empty;
@@ -85,10 +93,17 @@ export function follow(trace: FeelTrace, options: FollowOptions, jumpPx = 4): Fo
   );
   const seen = held.map((frame) => at(frame)!);
   const bounds = options.bounds ?? [Math.min(e0, ...seen), Math.max(e0, ...seen)];
-  const wanted = (pointer: number) => {
-    const moved = pointer - p0;
-    return clamp(Math.abs(moved) < slop ? e0 : e0 + moved, bounds);
+  const wanted = (pointer: number) => clamp(e0 + pointer - p0, bounds);
+  /** Within the slop the edge may still rest where it was grabbed. */
+  const resting = (ask: number) => Math.abs(ask - e0) < slop;
+  /** Where a snap-along control rests for an ask: the detent within reach of it, else the ask. */
+  const rested = (ask: number) => {
+    const near = options.detents?.at.find((at) => Math.abs(at - ask) <= options.detents!.within);
+    return near ?? ask;
   };
+  /** How far `edge` is from an ask, as 1:1 or as a snap-along rest, whichever is nearer. */
+  const off = (edgeAt: number, ask: number) =>
+    Math.min(Math.abs(edgeAt - ask), Math.abs(edgeAt - rested(ask)), resting(ask) ? Math.abs(edgeAt - e0) : Infinity);
   const errors: number[] = [];
   const jumps: FollowReport["jumps"] = [];
   let lagFrames = 0;
@@ -100,12 +115,18 @@ export function follow(trace: FeelTrace, options: FollowOptions, jumpPx = 4): Fo
     const now = wanted(pointer);
     const lagged = wanted(previousPointer);
     const edgeNow = seen[i]!;
-    const error = Math.min(Math.abs(edgeNow - now), Math.abs(edgeNow - lagged));
-    if (Math.abs(edgeNow - now) > 2 && Math.abs(edgeNow - lagged) <= 2) lagFrames++;
+    const error = Math.min(off(edgeNow, now), off(edgeNow, lagged));
+    if (off(edgeNow, now) > 2 && off(edgeNow, lagged) <= 2) lagFrames++;
     errors.push(error);
     // A jump: the edge moved further in one frame than the hand asked of it, by more than jumpPx
     // (a frame of lag forgiven: the edge may land this frame on last frame's ask).
-    const by = Math.min(Math.abs(edgeNow - previousEdge - (now - previousWanted)), Math.abs(edgeNow - lagged));
+    const by = Math.min(
+      Math.abs(edgeNow - previousEdge - (now - previousWanted)),
+      Math.abs(edgeNow - previousEdge - (rested(now) - rested(previousWanted))),
+      off(edgeNow, lagged),
+      // Leaving the slop, a control that rested catches up to the hand: that is the slop, not a jump.
+      resting(previousWanted) ? off(edgeNow, now) : Infinity,
+    );
     if (by > jumpPx) jumps.push({ t: frame.t, by: round(by) });
     previousPointer = pointer;
     previousEdge = edgeNow;
@@ -114,6 +135,8 @@ export function follow(trace: FeelTrace, options: FollowOptions, jumpPx = 4): Fo
   const after = up ? trace.frames.filter((frame) => frame.t > up.t && at(frame) !== undefined) : [];
   const released = held.length > 0 ? seen[seen.length - 1]! : e0;
   const releaseMove = after.reduce((most, frame) => Math.max(most, Math.abs(at(frame)! - released)), 0);
+  const last = after.length > 0 ? at(after[after.length - 1]!)! : released;
+  const releaseLanded = (options.detents?.at ?? []).some((at) => Math.abs(at - last) <= 1);
   const pointers = held.map((frame) => pointerOn(frame.pointer!, edge));
   const handTravel = travel([p0, ...pointers]);
   return {
@@ -124,6 +147,7 @@ export function follow(trace: FeelTrace, options: FollowOptions, jumpPx = 4): Fo
     lagFrames,
     jumps,
     releaseMove: round(releaseMove),
+    releaseLanded,
     coverage: handTravel === 0 ? 1 : round(travel([e0, ...seen]) / handTravel),
   };
 }
