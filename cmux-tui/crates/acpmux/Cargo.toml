@@ -60,6 +60,9 @@ dhat-heap = ["dep:dhat"]
 
 [target.'cfg(unix)'.dependencies]
 signal-hook-registry = "1.4"
+# `acpmux fork-run` (`src/cli/fork_run.rs`): cmux Cloud's fork runs, called with the caller's own
+# Cloud credential.
+cmux-cloud-api.workspace = true
 # The share host (`src/share_host/`): this Mac's device hub device, its hub link and serving one
 # share through the Screen Sharing helper, the same code `cmux-rd linux-host` runs.
 cmux-hub-host.workspace = true
@@ -76,6 +79,8 @@ cmux-embed.workspace = true
 # The list's read and follow for the CLI and MCP list callers (`cli/list_read.rs`).
 acpmux-client = { path = "../acpmux-client", features = ["tokio"] }
 acpmux-core = { path = "../acpmux-core" }
+# cmux.share-approval.v1, shared with the iPhone that asks with it (share_approval.rs).
+cmux-share-approval.workspace = true
 acpmux-build-id = { path = "../acpmux-build-id", optional = true }
 acpmux-hot = { workspace = true, optional = true, features = ["wasm"] }
 arc-swap.workspace = true
@@ -91,6 +96,8 @@ cmux-config.workspace = true
 # NEXT Cloud's generated client: the join's hub calls (redeem, credentials/self).
 cmux-build-space.workspace = true
 cmux-cloud-client.workspace = true
+# The `cmux.wire/1` op trait the earned-access record read implements (`hub/earned_events.rs`).
+cmux-cloud-wire.workspace = true
 # Each deployment's device hub origin, for the share host's machine sign-in (`share_host/`).
 cmux-cloud-environment.workspace = true
 # A browser's own email-code sign-in on the web listener (`server/web_device.rs`).
@@ -133,6 +140,7 @@ cmux-device-kind.workspace = true
 cmux-unix-socket.workspace = true
 cmux-panic-log.workspace = true
 cmux-usage-patterns.workspace = true
+cmux-usage-share.workspace = true
 # What package installs a shell call runs (`hub/tool_installs.rs`).
 cmux-command-class.workspace = true
 clap = { version = "4.5", features = ["derive"] }
@@ -172,6 +180,7 @@ libc = "0.2"
 notify.workspace = true
 # Session tokens and secrets (the OS generator on every platform).
 getrandom.workspace = true
+glob.workspace = true
 base64 = "0.22"
 bytes.workspace = true
 tempfile = "3"

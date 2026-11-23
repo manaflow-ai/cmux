@@ -127,7 +127,13 @@ async function startChat(
 /// A fresh New Tab page (no folder of its own) over `sessions`: its chip and the folder Enter asks in.
 async function newTab(
   sessions: ReturnType<typeof session>[],
-  fields: { knownProjects?: string[] | null; startedProject?: string; home?: string | undefined } = {},
+  fields: {
+    knownProjects?: string[] | null;
+    startedProject?: string;
+    home?: string | undefined;
+    cwd?: string;
+    startCwd?: string;
+  } = {},
 ) {
   const { createRoot } = await import("react-dom/client");
   const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
@@ -312,6 +318,65 @@ test("a project list that answered empty accepts no chat or started folder", asy
   expect(classic.folder).toBe(HOME);
 });
 
+// cmux#49610 (screenshot: the New Tab composer read "tmp"): harness and script chats run in the
+// system's temp folders, and the newest of them, or the tab beside one, set the next composer's
+// folder. A temporary folder is never a project: every New Tab starts on the folder used last.
+const SCRATCH = [
+  session({ sessionId: "scratch-1", cwd: "/private/tmp", updatedAt: minutesAgo(1) }),
+  session({ sessionId: "scratch-2", cwd: "/tmp/claude-501/run", updatedAt: minutesAgo(1) }),
+  session({ sessionId: "scratch-3", cwd: "/private/var/folders/xy/T/job", updatedAt: minutesAgo(1) }),
+];
+
+test("a chat in a temporary folder never becomes the next New Tab's folder", async () => {
+  const { isTemporaryFolder, mostRecentProject } = await import("../src/agent-session/acpmux/sessionList");
+  for (const scratch of SCRATCH) expect(isTemporaryFolder(scratch.cwd)).toBe(true);
+  expect(isTemporaryFolder("/Users/you/src/tmp")).toBe(false);
+  expect(isTemporaryFolder("/tmpfiles")).toBe(false);
+  // The newest chats are scratch chats: the newest project chat's folder is the fallback.
+  expect(mostRecentProject([theirs, ...SCRATCH], HOME)).toBe(PICKED);
+
+  // With nothing started from a composer, the page starts on the newest project chat, not "tmp".
+  const fallback = await newTab([theirs, ...SCRATCH]);
+  expect(fallback.chip).not.toContain("tmp");
+  expect(fallback.folder).toBe(PICKED);
+
+  // A send from a composer in /tmp leaves the folder used last as the default.
+  await startChat(PICKED);
+  const sent = await startChat("/private/tmp");
+  expect(sent.some(([method, params]) => method === "newTab.remember" && "started" in (params as object))).toBe(false);
+  expect((await newTab([theirs, ...SCRATCH])).folder).toBe(PICKED);
+  // Nor does a stale temp folder the app kept from before this fix.
+  stored.clear();
+  expect((await newTab([theirs, ...SCRATCH], { startedProject: "/private/tmp" })).folder).toBe(PICKED);
+});
+
+test("a New Tab opened beside a tab in a temporary folder starts on the folder used last", async () => {
+  await startChat(PICKED);
+  for (const cwd of ["/private/tmp", "/tmp/claude-501/run"]) {
+    const page = await newTab([theirs, ...SCRATCH], { cwd });
+    expect(page.chip).not.toContain("tmp");
+    expect(page.chip).toContain("atlas");
+    expect(page.folder).toBe(PICKED);
+  }
+  // The app's start folder for a page beside a /tmp tab is that /tmp folder: it does not win either.
+  const hosted = await newTab([theirs, ...SCRATCH], { cwd: "/private/tmp", startCwd: "/private/tmp" });
+  expect(hosted.chip).toContain("atlas");
+  expect(hosted.folder).toBe(PICKED);
+  // A project start folder from the app still wins over the folder used last.
+  expect((await newTab([theirs, ...SCRATCH], { startCwd: "/Users/you/src/billing" })).chip).not.toContain("atlas");
+  // With no folder used last known, a /tmp folder stays the page's folder (a project can live there).
+  stored.clear();
+  const alone = await newTab([], { cwd: "/tmp/real/work/uploader", startCwd: "/tmp/real/work/uploader" });
+  expect(alone.chip).toContain("uploader");
+  await startChat(PICKED);
+  // A real project folder the tab has is still the page's own.
+  expect((await newTab([theirs, ...SCRATCH], { cwd: "/Users/you/src/billing" })).folder).toBe("/Users/you/src/billing");
+  // The classic page too.
+  const classic = await classicTab({ home: HOME, cwd: "/private/tmp" });
+  expect(classic.chip).toContain("atlas");
+  expect(classic.folder).toBe(PICKED);
+});
+
 test("classic New Tab: a second Add folder… while the host's panel is open asks nothing, and its pick lands", async () => {
   const { NewTabPage } = await import("../src/agent-session/acpmux/NewTabPage");
   let resolveBrowse!: (cwd: string | undefined) => void;
@@ -357,4 +422,89 @@ test("classic New Tab: a second Add folder… while the host's panel is open ask
   expect(calls).toBe(1);
   await act(async () => resolveBrowse("/work/late"));
   expect(host.querySelector(".acpmux-project-button")?.textContent).toContain("late");
+});
+
+// cmux#51272 (screenshots: after Cmd-N the folder chip was a blank gap, then read "cmuxterm-hq"): a
+// fresh page has no chat list until its daemon answers (`chatsPending`), and while nothing names the
+// project it holds the chip's place with no name. The project used last is known before that list:
+// this run's copy (localStorage) and the app's (`startedProject`), and the folders a page of this run
+// kept. One of them the host no longer lists (a removed worktree) must not hide the others, on the
+// first frame or when the project list lands after it.
+const GONE = "/Users/you/Projects/checkouts/cmux/lane-9";
+const RECENT_KEY = "cmux.acpmux.newTab.recentFolders.v1";
+const STARTED_KEY = "cmux.acpmux.newTab.startedProject.v1";
+
+/// A Cmd-N page before its daemon listed the chats: what its folder chip shows on its first frame,
+/// then after the host's project list (`later`) arrives.
+async function firstFrame(
+  fields: { knownProjects?: string[] | null; startedProject?: string },
+  later?: { knownProjects?: string[] | null },
+) {
+  const { createRoot } = await import("react-dom/client");
+  const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
+  const { resetRecentProjectForTests } = await import("../src/agent-session/acpmux/newtab/recentProject");
+  resetRecentProjectForTests();
+  act(() => root?.unmount());
+  root = createRoot(host);
+  const page = (props: typeof fields) => (
+    <NewTabScreen
+      snapshot={noChat([])}
+      omnibar={EMPTY_OMNIBAR}
+      lastAgent="claude"
+      home={HOME}
+      cwd={HOME}
+      chatsPending
+      {...props}
+      onAsk={noop}
+      onOpen={noop}
+      onSearch={noop}
+      onShell={noop}
+      onJump={noop}
+      onOpenSession={noop}
+      onShowAll={noop}
+    />
+  );
+  const read = () => ({
+    pending: host.querySelector("[data-project-pending]") !== null,
+    label: host.querySelector(".nt-location .acpmux-location-label")?.textContent ?? "",
+  });
+  await act(async () => root!.render(page(fields)));
+  const first = read();
+  if (!later) return { first };
+  await act(async () => root!.render(page({ ...fields, ...later })));
+  return { first, after: read() };
+}
+
+test("cmd-N: the app's started project names the folder on the first frame, never a blank chip", async () => {
+  const { first } = await firstFrame({ startedProject: PICKED });
+  expect(first.pending).toBe(false);
+  expect(first.label).toContain("atlas");
+});
+
+test("cmd-N: this run's started project the host no longer lists gives way to the app's, not to a blank chip", async () => {
+  stored.set(STARTED_KEY, GONE);
+  const { first, after } = await firstFrame({ startedProject: PICKED }, { knownProjects: [PICKED, AGENT_FOLDER] });
+  expect(first.pending).toBe(false);
+  expect(after!.pending).toBe(false);
+  expect(after!.label).toContain("atlas");
+  // The host listed only the run's own (fresh) folder: it still names that one, as before.
+  stored.set(STARTED_KEY, AGENT_FOLDER);
+  expect(
+    (await firstFrame({ startedProject: PICKED }, { knownProjects: [PICKED, AGENT_FOLDER] })).after!.label,
+  ).toContain("gui-push");
+});
+
+test("cmd-N: a kept recent folder the host no longer lists gives way to the next kept one, not to a blank chip", async () => {
+  stored.set(RECENT_KEY, JSON.stringify([GONE, PICKED]));
+  const { first, after } = await firstFrame({}, { knownProjects: [PICKED] });
+  expect(first.pending).toBe(false);
+  expect(after!.pending).toBe(false);
+  expect(after!.label).toContain("atlas");
+});
+
+test("cmd-N: with nothing known the chip still holds its place (no layout shift) rather than guess", async () => {
+  const { first } = await firstFrame({});
+  expect(first.pending).toBe(true);
+  // The label keeps its text (hidden by CSS), so the chip has its width from the first frame.
+  expect(first.label.length).toBeGreaterThan(0);
 });
