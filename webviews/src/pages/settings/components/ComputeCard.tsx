@@ -188,7 +188,14 @@ function MemberTable({ model }: { model: ComputeModel }) {
   const cell = "py-1 pr-4 text-left align-top";
   return (
     <div className="row">
-      <table className="w-full border-collapse" data-compute-table="">
+      {/* Fixed columns at the row's own width: the table can never be wider than the card, and a long note wraps. */}
+      <table className="border-collapse" style={{ width: "100%", tableLayout: "fixed" }} data-compute-table="">
+        <colgroup>
+          <col style={{ width: "34%" }} />
+          <col style={{ width: "17%" }} />
+          <col style={{ width: "19%" }} />
+          <col style={{ width: "30%" }} />
+        </colgroup>
         <thead>
           <tr className="row-help">
             <th className={cell} scope="col">
