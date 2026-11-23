@@ -1,6 +1,8 @@
 import { composerHealthHarness } from "./composerPickerEntries";
 import { useFold } from "./conversation/fold";
 import { setSessionRefResolver } from "./conversation/sessionRefs";
+import { useHeightsSettledFor } from "./conversation/unsettledHeights";
+import { PANE_PAINTED_MARK } from "./firstLoadWatch";
 import { useStopThroughReconnect } from "./stopThroughReconnect";
 import React, {
   useCallback,
@@ -6418,8 +6420,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // report follows, once per chat opened.
   const settledSession =
     clientSnapshot.settled !== undefined && clientSnapshot.chatRead === true ? clientSnapshot.sessionId : undefined;
+  // The first report waits for the rows' parts that draw a moment late (math, diagrams, images the
+  // host reads) to settle, at most OPEN_SETTLE_MAX_MS: the host shows the page at its final layout,
+  // not one that moves under the reader as they land (https://github.com/manaflow-ai/cmux/issues/48498).
+  const heightsSettled = useHeightsSettledFor(showsWhatItIs);
   useEffect(() => {
-    if (!showsWhatItIs) return;
+    if (!showsWhatItIs || (!paintReported.current && !heightsSettled())) return;
     const settledNow = settledSession !== undefined && settledReported.current !== settledSession;
     if (paintReported.current && !settledNow) return;
     const first = !paintReported.current;
@@ -6434,6 +6440,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     requestAnimationFrame(() =>
       setTimeout(() => {
         if (settledNow) document.documentElement.dataset.acpmuxSettledDrawn = "true";
+        // When the host is told the page shows the chat, beside the report itself: the flicker log's
+        // first-load record counts what moved after it apart, what the reader saw (firstLoadWatch.ts
+        // `seen`); what moved before it was still under the host's cover.
+        if (first) performance.mark?.(PANE_PAINTED_MARK);
         // The perf watch's page-load span ends here (perfReporter.ts): once per page.
         if (first) acpmuxPerf.markLaunch("painted");
         void callNative("pane.painted", { drewKeptTail, ...(settledNow ? { settled: true } : {}) }).catch(
@@ -6444,7 +6454,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         void loadEditDiffHunks();
       }, 0),
     );
-  }, [showsWhatItIs, drewKeptTail, settledSession, newTab]);
+  }, [showsWhatItIs, heightsSettled, drewKeptTail, settledSession, newTab]);
   // While the chat shows, the page keeps its drawn copy for the next launch (chatSnapshot/live.ts):
   // the visible window, written when it goes quiet and when the page hides. Only the shared page host
   // keeps copies (`chat.snapshot.put`); the legacy WebKit host has no such op and would count each
