@@ -200,7 +200,7 @@ test("the native check fails a glass view or tint scale outside the levels and p
 test("a level surface outside .ui-glass turns solid under Reduce Transparency: the New Tab box", () => {
   const css = source("agent-session/acpmux/styles.css");
   expect(css).toMatch(
-    /:root\[data-reduce-transparency\] \.acpmux-newtab-box\{background:var\(--acpmux-composer-solid\b/,
+    /:root:is\(\[data-reduce-transparency\], \[data-glass="off"\]\) \.acpmux-newtab-box\{background:var\(--acpmux-composer-solid\b/,
   );
   expect(css).toMatch(
     /@media \(prefers-reduced-transparency:reduce\)\{\.acpmux-newtab-box\{background:var\(--acpmux-composer-solid\b/,
