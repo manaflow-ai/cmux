@@ -1,0 +1,154 @@
+/* The device sign-in card (DeviceSignInCard.tsx): inline in an account row, a sheet, or one strip.
+ * Numbers come from the design scale (--ds-*); colors fall back from Settings' names to the pages'. */
+.signin {
+  --signin-muted: var(--muted-text, var(--page-text-2, GrayText));
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2, 8px);
+  min-width: 0;
+  font-size: var(--text-detail);
+}
+
+.signin-head {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2, 8px);
+  min-width: 0;
+}
+
+.signin-mark {
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
+.signin-title {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.signin-code {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  letter-spacing: 0.08em;
+  font-weight: 600;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.signin-code[data-size="large"] {
+  font-size: calc(var(--text-heading) * 1.2);
+  line-height: 32px;
+  padding: var(--ds-space-2, 8px) var(--ds-space-3, 12px);
+  border-radius: var(--ds-radius-lg, 8px);
+  background: var(--accent-soft, color-mix(in srgb, currentColor 8%, transparent));
+  align-self: flex-start;
+}
+
+.signin-code[data-size="small"] {
+  font-size: var(--text-detail);
+}
+
+.signin-line {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-1, 4px);
+  color: var(--signin-muted);
+  min-width: 0;
+}
+
+.signin[data-state="signedIn"] .signin-line {
+  color: inherit;
+}
+
+.signin-steps {
+  margin: 0;
+  padding-inline-start: var(--ds-space-5);
+  color: var(--signin-muted);
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-1, 4px);
+}
+
+.signin-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ds-space-2, 8px);
+}
+
+.signin-paste {
+  display: flex;
+  min-width: 0;
+}
+
+.signin-paste-field {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono, ui-monospace, monospace);
+}
+
+/* Inline: inside the row, under its title, indented like the row's body. */
+.signin[data-look="inline"] {
+  padding: var(--ds-space-2, 8px) 0 var(--ds-space-1, 4px);
+}
+
+/* Sheet: a dialog over the page. */
+.signin-sheet {
+  width: min(380px, calc(100vw - 48px));
+  /* Concentric with its buttons, one sheet padding in. */
+  --concentric-padding: var(--ds-space-5);
+  padding: var(--concentric-padding);
+  border-radius: calc(var(--ds-radius-control) + var(--concentric-padding));
+}
+
+.signin[data-look="sheet"] {
+  gap: var(--ds-space-3, 12px);
+  font-size: var(--text-body);
+}
+
+.signin[data-look="sheet"] .signin-head {
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.signin[data-look="sheet"] .signin-title {
+  font-size: var(--text-title);
+}
+
+.signin[data-look="sheet"] .signin-code[data-size="large"] {
+  align-self: stretch;
+  text-align: center;
+  font-size: calc(var(--text-heading) * 1.4);
+  line-height: 40px;
+}
+
+.signin[data-look="sheet"] .signin-actions {
+  justify-content: flex-end;
+}
+
+/* Strip: one line over the account list. */
+.signin[data-look="strip"] {
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: var(--ds-space-2, 8px) var(--ds-space-3, 12px);
+  border-radius: calc(var(--ds-radius-control) + var(--ds-space-2, 8px));
+  background: var(--accent-soft, color-mix(in srgb, currentColor 6%, transparent));
+}
+
+.signin[data-look="strip"] .signin-actions {
+  margin-inline-start: auto;
+}
+
+.signin-strip-title {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.signin-dot {
+  color: var(--signin-muted);
+}
+
+.signin[data-look="strip"] .signin-paste {
+  flex: 1;
+}

@@ -611,6 +611,76 @@ fn is_bundle_id(id: &str) -> bool {
     (1..=155).contains(&id.len()) && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'-')
 }
 
+/// An app build number as a phone states it (`appBuild`, its CFBundleVersion): 1 to 32 ASCII
+/// letters, digits, `.` and `-`.
+fn is_app_build(build: &str) -> bool {
+    (1..=32).contains(&build.len())
+        && build.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'-')
+}
+
+/// Which phone app a bundle id is (project.yml): the App Store's, TestFlight's (cmux INTERNAL),
+/// a cmux Dev try build's (`dev.cmux.mobile<tag>`), another, or `unknown` when none was sent.
+pub fn app_variant(bundle_id: Option<&str>) -> &'static str {
+    match bundle_id {
+        None => "unknown",
+        Some("com.cmux.app") => "appstore",
+        Some("dev.cmux.app.internal") => "testflight",
+        Some(id) if id == "dev.cmux.mobile" || id.starts_with("dev.cmux.mobile.") => "dev",
+        Some(_) => "other",
+    }
+}
+
+/// The phone app a device last stated in its `auth` args (a claim, kept in memory so the Mac
+/// can tell which build connected).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PhoneApp {
+    pub bundle_id: Option<String>,
+    pub build: Option<String>,
+    pub variant: &'static str,
+}
+
+impl PhoneApp {
+    /// From `auth` args: a malformed or absent field is None (older phones send no `appBuild`).
+    pub fn from_args(args: &Value) -> Self {
+        let text = |key: &str| args.get(key).and_then(Value::as_str);
+        let bundle_id = text("bundleId").filter(|id| is_bundle_id(id)).map(str::to_owned);
+        let build = text("appBuild").filter(|b| is_app_build(b)).map(str::to_owned);
+        let variant = app_variant(bundle_id.as_deref());
+        Self { bundle_id, build, variant }
+    }
+}
+
+fn phone_apps() -> &'static Mutex<HashMap<String, PhoneApp>> {
+    static APPS: std::sync::OnceLock<Mutex<HashMap<String, PhoneApp>>> = std::sync::OnceLock::new();
+    APPS.get_or_init(Default::default)
+}
+
+/// Records the phone app `phone` states in `auth` args, logs it once with the link's path, and
+/// returns it. A machine's `auth` is not recorded.
+pub fn note_phone_app(phone: &str, args: &Value, path: Option<&str>) -> Option<PhoneApp> {
+    if crate::peer::PeerKind::parse(args.get("kind").and_then(Value::as_str).unwrap_or_default())
+        .is_some_and(|kind| kind.is_machine())
+    {
+        return None;
+    }
+    let app = PhoneApp::from_args(args);
+    tracing::info!(
+        device = phone,
+        variant = app.variant,
+        bundle = app.bundle_id.as_deref().unwrap_or("-"),
+        build = app.build.as_deref().unwrap_or("-"),
+        path = path.unwrap_or("-"),
+        "phone app"
+    );
+    phone_apps().lock().expect("phone apps").insert(phone.to_owned(), app.clone());
+    Some(app)
+}
+
+/// The phone app `phone` last stated, if it opened `auth` since hostd started.
+pub fn phone_app(phone: &str) -> Option<PhoneApp> {
+    phone_apps().lock().expect("phone apps").get(phone).cloned()
+}
+
 fn new_nonce() -> Result<String, Refused> {
     use ring::rand::SecureRandom;
     let mut bytes = [0u8; 32];
@@ -904,6 +974,49 @@ async fn send(sender: &ChannelSender, value: Value) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_phone_app_is_named_by_its_bundle_id_and_build() {
+        assert_eq!(app_variant(Some("com.cmux.app")), "appstore");
+        assert_eq!(app_variant(Some("dev.cmux.app.internal")), "testflight");
+        assert_eq!(app_variant(Some("dev.cmux.mobile")), "dev");
+        assert_eq!(app_variant(Some("dev.cmux.mobile.my-tag")), "dev");
+        assert_eq!(app_variant(Some("dev.cmux.mobilex")), "other");
+        assert_eq!(app_variant(None), "unknown");
+        let app = PhoneApp::from_args(
+            &json!({"kind": "phone", "bundleId": "dev.cmux.app.internal", "appBuild": "1234"}),
+        );
+        assert_eq!(
+            app,
+            PhoneApp {
+                bundle_id: Some("dev.cmux.app.internal".into()),
+                build: Some("1234".into()),
+                variant: "testflight"
+            }
+        );
+        // An older phone sends no build; a malformed field is dropped, never refused.
+        let old = PhoneApp::from_args(&json!({"kind": "phone", "bundleId": "com.cmux.app"}));
+        assert_eq!(old.build, None);
+        assert_eq!(old.variant, "appstore");
+        let odd = PhoneApp::from_args(&json!({"bundleId": "a b", "appBuild": "1 2"}));
+        assert_eq!(odd, PhoneApp { bundle_id: None, build: None, variant: "unknown" });
+        assert!(!is_app_build(&"1".repeat(33)));
+    }
+
+    #[test]
+    fn the_phone_app_is_recorded_per_device_and_a_machine_is_not() {
+        let phone = "phone-app-record-test";
+        let args = json!({"kind": "phone", "bundleId": "dev.cmux.mobile.tag", "appBuild": "77"});
+        let noted = note_phone_app(phone, &args, Some("direct")).unwrap();
+        assert_eq!(phone_app(phone), Some(noted));
+        assert_eq!(phone_app(phone).unwrap().variant, "dev");
+        // A later auth from the same device replaces it.
+        note_phone_app(phone, &json!({"kind": "phone", "bundleId": "com.cmux.app", "appBuild": "80"}), None);
+        assert_eq!(phone_app(phone).unwrap().build.as_deref(), Some("80"));
+        let machine = "machine-app-record-test";
+        assert_eq!(note_phone_app(machine, &json!({"kind": "mac", "bundleId": "com.cmux.app"}), None), None);
+        assert_eq!(phone_app(machine), None);
+    }
 
     #[test]
     fn a_bundle_id_is_forwarded_only_in_its_plain_shape() {

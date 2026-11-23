@@ -124,6 +124,16 @@ final class MacScreenScopeSegments: NSView, MacScreenInked {
 
     override var isFlipped: Bool { true }
 
+    /// The segments' words (View, Control) beside their glyphs; off, each segment is its glyph, its word the tooltip.
+    var showsTitles = true {
+        didSet {
+            guard showsTitles != oldValue else { return }
+            for segment in segments { segment.showsTitle = showsTitles }
+            invalidateIntrinsicContentSize()
+            needsLayout = true
+        }
+    }
+
     func select(_ scope: SessionScope) {
         selected = scope
         for segment in segments { segment.isSelected = segment.scope == scope }
@@ -160,6 +170,14 @@ final class MacScreenScopeSegment: NSButton, MacScreenInked {
         didSet {
             guard isSelected != oldValue else { return }
             setAccessibilityValue(NSNumber(value: isSelected))
+            refresh()
+        }
+    }
+    /// The word beside the glyph; off, the word is the tooltip.
+    var showsTitle = true {
+        didSet {
+            guard showsTitle != oldValue else { return }
+            themedToolTip = showsTitle ? nil : text
             refresh()
         }
     }
@@ -206,6 +224,7 @@ final class MacScreenScopeSegment: NSButton, MacScreenInked {
     override var intrinsicContentSize: NSSize {
         let title = attributedTitle.size()
         let glyph = image?.size.width ?? 0
+        guard showsTitle else { return NSSize(width: ceil(glyph + Metrics.space4 * 2), height: ceil(max(title.height, 16))) }
         return NSSize(width: ceil(title.width + glyph + Metrics.space2 + Metrics.space4 * 2), height: ceil(max(title.height, 16)))
     }
 
@@ -238,7 +257,81 @@ final class MacScreenScopeSegment: NSButton, MacScreenInked {
         let font = MacScreenType.body
         symbolConfiguration = NSImage.SymbolConfiguration(pointSize: font.pointSize - 1, weight: .regular)
         contentTintColor = ink
-        attributedTitle = NSAttributedString(string: text, attributes: [.foregroundColor: ink, .font: font])
+        attributedTitle = NSAttributedString(string: showsTitle ? text : "", attributes: [.foregroundColor: ink, .font: font])
+        imagePosition = showsTitle ? .imageLeading : .imageOnly
         invalidateIntrinsicContentSize()
+    }
+}
+
+/// The stats panel (``MacScreenQualityReadout/hud``): a glass panel in the picture's bottom-left corner, one number per
+/// line (rate, frames of target, round trip, loss, encode, codec, size), labels in the tertiary ink.
+@MainActor
+final class MacScreenStatsPanel: MacScreenThemedView {
+    private let surface = MacScreenLookA.glass(cornerRadius: Metrics.space4) // radius-allow: a floating panel, the picture mark's family
+    private let text = NSTextField(labelWithString: "")
+    private var rows: [(label: String, value: String)] = []
+    private var strained = false
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        addSubview(surface)
+        text.translatesAutoresizingMaskIntoConstraints = true
+        text.maximumNumberOfLines = 0
+        text.usesSingleLineMode = false
+        text.cell?.wraps = false
+        addSubview(text)
+        setAccessibilityElement(true)
+        setAccessibilityRole(.group)
+        setAccessibilityLabel(L.t("macScreen.readout.panel", "Stream stats"))
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    override var isFlipped: Bool { true }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    /// Shows these rows; `strained` marks the rate in the attention ink.
+    func show(_ rows: [(label: String, value: String)], strained: Bool) {
+        let same = rows.count == self.rows.count && zip(rows, self.rows).allSatisfy { $0.label == $1.label && $0.value == $1.value }
+        guard !same || strained != self.strained else { return }
+        self.rows = rows
+        self.strained = strained
+        paint()
+        needsLayout = true
+    }
+
+    override func colorsChanged() {
+        super.colorsChanged()
+        paint()
+    }
+
+    private func paint() {
+        let font = MacScreenType.stats
+        let labelWidth = rows.map { ceil(($0.label as NSString).size(withAttributes: [.font: font]).width) }.max() ?? 0
+        let style = NSMutableParagraphStyle()
+        style.tabStops = [NSTextTab(textAlignment: .left, location: labelWidth + Metrics.space4)]
+        style.lineSpacing = Metrics.space1
+        let out = NSMutableAttributedString()
+        let rateLabel = MacScreenQualityReadout.rateLabel
+        for (index, row) in rows.enumerated() {
+            if index > 0 { out.append(NSAttributedString(string: "\n")) }
+            out.append(NSAttributedString(string: row.label + "\t", attributes: [.font: font, .foregroundColor: colors.tertiary, .paragraphStyle: style]))
+            let ink = strained && row.label == rateLabel ? colors.attention : colors.primary
+            out.append(NSAttributedString(string: row.value, attributes: [.font: font, .foregroundColor: ink, .paragraphStyle: style]))
+        }
+        text.attributedStringValue = out
+        setAccessibilityValue(rows.map { "\($0.label) \($0.value)" }.joined(separator: ", "))
+    }
+
+    override var fittingSize: NSSize {
+        let size = text.attributedStringValue.boundingRect(with: NSSize(width: 1000, height: 1000), options: [.usesLineFragmentOrigin]).size
+        return NSSize(width: ceil(size.width) + Metrics.space4 * 2 + 4, height: ceil(size.height) + Metrics.space3 * 2)
+    }
+
+    override func layout() {
+        super.layout()
+        surface.frame = bounds
+        text.frame = bounds.insetBy(dx: Metrics.space4, dy: Metrics.space3)
     }
 }
