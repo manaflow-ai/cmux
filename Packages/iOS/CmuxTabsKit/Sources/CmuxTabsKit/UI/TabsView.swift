@@ -150,7 +150,50 @@ struct TabsScreen<Source: TabsDataSource>: View {
                            noBack: activeTab?.features.contains(.history) != true)
     }
 
+    // body is split in two (stage, then these modifiers) with the settle
+    // handler as a method: as one expression it timed out the Swift type
+    // checker on a 6-vCPU CI Mac (TabsView.swift:297, pair-e2e run 45192480881).
     var body: some View {
+        stage
+        .onAppear { zoomDriver.onSettle = { phase in settled(at: phase) } }
+        #if DEBUG
+        // Screenshot harness: use the same action and menu as a toolbar tap.
+        // The single delay is bounded and cancelled when this screen disappears.
+        .task {
+            guard ProcessInfo.processInfo.arguments.contains("-tabs-kit-demo-page-menu") else { return }
+            do { try await Task.sleep(for: .milliseconds(1_500)) } catch { return }
+            guard !Task.isCancelled, activeTab?.features.contains(.pageMenu) == true else { return }
+            openMenu()
+        }
+        #endif
+        .onChange(of: isShowingOverview?.wrappedValue, initial: true) { _, wanted in
+            guard let wanted, wanted != zoomState.headingToOverview else { return }
+            if wanted { openOverview() } else { closeOverview(selecting: activeID) }
+        }
+        .onChange(of: zoomState.phase) { _, phase in
+            if phase == .page || phase == .overview { newTabZoomID = nil }
+            if phase != .overview { activeChangedOnGrid = false }
+        }
+        .onAppear { cardSwipes.isListed = { id in source.tabs.contains { $0.id == id } } }
+        .onChange(of: zoomState.headingToOverview) { _, heading in
+            if let binding = isShowingOverview, binding.wrappedValue != heading { binding.wrappedValue = heading }
+        }
+        .onChange(of: tabs.isEmpty, initial: true) { _, empty in
+            // Closing the last tab opens a fresh one, as Safari does.
+            guard empty, let option = source.newTabOptions.first else { return }
+            if !overviewVisible {
+                Task { _ = await source.createTab(option) }
+            } else if zoomState.phase == .overview {
+                // Safari never leaves an empty grid: a fresh tab grows in
+                // at once (0.95 -> 1 in about 200 ms).
+                newTab(option, zoom: .lastTabClosed)
+            }
+        }
+    }
+
+    /// The screen's layers and the modifiers that track size, grid shape and
+    /// the active tab.
+    @ViewBuilder private var stage: some View {
         let layout = toolbarLayout
         ZStack(alignment: .topLeading) {
             overview
@@ -285,52 +328,19 @@ struct TabsScreen<Source: TabsDataSource>: View {
             if let old, old == staticCardID { source.resumeLiveContent(old) }
             staticCardID = source.showStaticCard(for: new) ? new : nil
         }
-        .onAppear {
-            zoomDriver.onSettle = { phase in
-                if phase == .page {
-                    zoomTabId = nil
-                    queuedOpen = nil
-                    chrome.expand(tap: true, theme)
-                }
-                if phase == .overview, let id = queuedOpen {
-                    queuedOpen = nil
-                    if source.tabs.contains(where: { $0.id == id }) { closeOverview(selecting: id) }
-                }
-            }
+    }
+
+    private func settled(at phase: TabZoomState.Phase) {
+        if phase == .page {
+            zoomTabId = nil
+            queuedOpen = nil
+            chrome.expand(tap: true, theme)
         }
-        #if DEBUG
-        // Screenshot harness: use the same action and menu as a toolbar tap.
-        // The single delay is bounded and cancelled when this screen disappears.
-        .task {
-            guard ProcessInfo.processInfo.arguments.contains("-tabs-kit-demo-page-menu") else { return }
-            do { try await Task.sleep(for: .milliseconds(1_500)) } catch { return }
-            guard !Task.isCancelled, activeTab?.features.contains(.pageMenu) == true else { return }
-            openMenu()
+        if phase == .overview, let id = queuedOpen {
+            queuedOpen = nil
+            if source.tabs.contains(where: { $0.id == id }) { closeOverview(selecting: id) }
         }
-        #endif
-        .onChange(of: isShowingOverview?.wrappedValue, initial: true) { _, wanted in
-            guard let wanted, wanted != zoomState.headingToOverview else { return }
-            if wanted { openOverview() } else { closeOverview(selecting: activeID) }
-        }
-        .onChange(of: zoomState.phase) { _, phase in
-            if phase == .page || phase == .overview { newTabZoomID = nil }
-            if phase != .overview { activeChangedOnGrid = false }
-        }
-        .onAppear { cardSwipes.isListed = { id in source.tabs.contains { $0.id == id } } }
-        .onChange(of: zoomState.headingToOverview) { _, heading in
-            if let binding = isShowingOverview, binding.wrappedValue != heading { binding.wrappedValue = heading }
-        }
-        .onChange(of: tabs.isEmpty, initial: true) { _, empty in
-            // Closing the last tab opens a fresh one, as Safari does.
-            guard empty, let option = source.newTabOptions.first else { return }
-            if !overviewVisible {
-                Task { _ = await source.createTab(option) }
-            } else if zoomState.phase == .overview {
-                // Safari never leaves an empty grid: a fresh tab grows in
-                // at once (0.95 -> 1 in about 200 ms).
-                newTab(option, zoom: .lastTabClosed)
-            }
-        }
+    }
     }
 
     /// The tab grid, kept mounted (hidden) so opening it does not pay for
