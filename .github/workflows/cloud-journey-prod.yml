@@ -138,7 +138,7 @@ jobs:
           fi
 
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-        if: env.SELECTED == 'true'
+        if: env.SELECTED == 'true' && steps.gate.outputs.skip != 'true'
         with:
           persist-credentials: false
           ref: ${{ inputs.journey_ref || 'feat-cmux-next' }}
