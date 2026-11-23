@@ -383,7 +383,7 @@
 {"file":"agent-session/acpmux/run-board/variants/compare/styles.css","kind":"font-weight","property":"font-weight","values":{"450":1,"520":3,"530":1,"550":7,"570":2,"650":2}}
 {"file":"agent-session/acpmux/run-board/variants/compare/styles.css","kind":"height","property":"height","values":{"7px":1,"2px":1,"1px":1,"4px":1}}
 {"file":"agent-session/acpmux/run-board/variants/compare/styles.css","kind":"height","property":"min-height","values":{"30px":1,"128px":1,"34px":1,"300px":1,"220px":1,"268px":1}}
-{"file":"agent-session/acpmux/run-board/variants/compare/styles.css","kind":"radius","property":"border-radius","values":{"10px":3,"9px":1,"7px":3,"3px":1,"2px":1,"5px":1}}
+{"file":"agent-session/acpmux/run-board/variants/compare/styles.css","kind":"radius","property":"border-radius","values":{"10px":3,"9px":1,"7px":3,"2px":1,"3px":1,"5px":1}}
 {"file":"agent-session/acpmux/run-board/variants/compare/styles.css","kind":"spacing","property":"gap","values":{"28px":1,"30px":1,"13px":4,"9px":4,"3px":3,"5px 8px":1,"7px":6,"10px":2,"6px":2,"18px":2,"14px":2,"20px":1}}
 {"file":"agent-session/acpmux/run-board/variants/compare/styles.css","kind":"spacing","property":"margin","values":{"11px 0 7px":1,"30px auto 28px":1,"7px 0 0":2,"-8px auto 18px":1,"0 14px":1,"5px 0 3px":1,"9px 14px 0":1,"6px 0 0":1,"9px 0 0":1,"5px 0 0":1,"20px 0 0":1,"17px auto 0":1}}
 {"file":"agent-session/acpmux/run-board/variants/compare/styles.css","kind":"spacing","property":"margin-bottom","values":{"15px":1,"7px":1,"17px":1}}
@@ -609,11 +609,10 @@
 {"file":"icon-picker/styles.css","kind":"font-weight","property":"font-weight","values":{"500":1}}
 {"file":"icon-picker/styles.css","kind":"height","property":"height","values":{"30px":3,"18px":4,"40px":1,"17px":1,"var(--icon-header, 34px)":1,"var(--icon-cell, 72px)":1,"calc(var(--icon-cell, 72px) - var(--icon-gap))":1,"calc(var(--icon-cell, 72px) * 0.4)":1}}
 {"file":"icon-picker/styles.css","kind":"height","property":"min-height","values":{"120px":1}}
-{"file":"icon-picker/styles.css","kind":"radius","property":"border-radius","values":{"7px":1,"calc(var(--icon-cell, 72px) * 0.17)":1,"5px":1}}
+{"file":"icon-picker/styles.css","kind":"radius","property":"border-radius","values":{"7px":1,"calc(var(--icon-cell, 72px) * 0.17)":1}}
 {"file":"icon-picker/styles.css","kind":"spacing","property":"gap","values":{"6px":3,"10px":3,"2px":1}}
 {"file":"icon-picker/styles.css","kind":"spacing","property":"margin","values":{"0 2px":1}}
-{"file":"icon-picker/styles.css","kind":"spacing","property":"margin-inline-start","values":{"-2px":1}}
-{"file":"icon-picker/styles.css","kind":"spacing","property":"padding","values":{"0 10px 0 8px":1,"0 6px":1,"0 2px 9px":1,"0 14px":1,"0 5px":2,"4px 16px calc(var(--icon-bar-height) + 20px)":1}}
+{"file":"icon-picker/styles.css","kind":"spacing","property":"padding","values":{"0 10px 0 8px":1,"0 6px":1,"0 2px 9px":1,"0 14px":1,"0 5px":1,"4px 16px calc(var(--icon-bar-height) + 20px)":1}}
 {"file":"markdown-task-checkbox.css","kind":"height","property":"height","values":{"14px":1,"10px":1}}
 {"file":"motion/syncMotion.gallery.css","kind":"color","property":"background","values":{"#000":1}}
 {"file":"motion/syncMotion.gallery.css","kind":"color","property":"border","values":{"8px solid #111":1}}
@@ -763,7 +762,7 @@
 {"file":"pages/keybindings/styles.css","kind":"spacing","property":"gap","values":{"10px":1,"3px":1,"2px":2}}
 {"file":"pages/keybindings/styles.css","kind":"spacing","property":"margin","values":{"10px 18px 0":1,"0 2px":1}}
 {"file":"pages/keybindings/styles.css","kind":"spacing","property":"margin-left","values":{"6px":2}}
-{"file":"pages/keybindings/styles.css","kind":"spacing","property":"padding","values":{"18px var(--page-edge) 10px":1,"6px 10px":2,"3px 10px":1,"4px 10px 18px":1,"1px 6px":1,"1px 4px":1,"2px 4px":2,"2px 8px":1}}
+{"file":"pages/keybindings/styles.css","kind":"spacing","property":"padding","values":{"18px var(--page-edge) 10px":1,"6px 10px":2,"3px 10px":1,"4px 10px 18px":1,"1px 4px":1,"2px 4px":2,"2px 8px":1}}
 {"file":"pages/keybindings/styles.css","kind":"token-copy","property":"gap","values":{"2px":2}}
 {"file":"pages/keybindings/styles.css","kind":"token-copy","property":"margin","values":{"2px":1}}
 {"file":"pages/keybindings/styles.css","kind":"token-copy","property":"padding","values":{"2px":3}}
@@ -855,14 +854,14 @@
 {"file":"styles.css","kind":"font-weight","property":"font-weight","values":{"500":10,"700":1}}
 {"file":"styles.css","kind":"height","property":"height","values":{"1px":3,"17px":1,"14px":1,"22px":2,"19px":1}}
 {"file":"styles.css","kind":"height","property":"min-height","values":{"31px":1,"30px":3,"52px":1}}
-{"file":"styles.css","kind":"radius","property":"border-radius","values":{"7px":2,"5px":2,"3px":1}}
+{"file":"styles.css","kind":"radius","property":"border-radius","values":{"5px":2,"7px":2,"3px":1}}
 {"file":"styles.css","kind":"spacing","property":"bottom","values":{"14px":1}}
 {"file":"styles.css","kind":"spacing","property":"gap","values":{"7px":2,"5px":6,"10px":2,"2px":3,"14px":1,"6px":4}}
 {"file":"styles.css","kind":"spacing","property":"left","values":{"-9999px":1}}
 {"file":"styles.css","kind":"spacing","property":"margin","values":{"7px 6px":1,"var(--find-pill-inset, 10px) var(--find-pill-inset, 10px) 0 0":1,"4px 2px":1}}
 {"file":"styles.css","kind":"spacing","property":"margin-left","values":{"6px":3,"-2px":1}}
 {"file":"styles.css","kind":"spacing","property":"margin-right","values":{"3px":1}}
-{"file":"styles.css","kind":"spacing","property":"padding","values":{"3px 4px 3px 8px":1,"0 24px 0 9px":1,"0 7px 0 9px":1,"12px 9px":1,"5px 8px 7px":1,"0 7px":1,"2px":1,"0 4px 0 10px":1,"3px 7px":1,"0 10px":1,"0 6px 6px":1,"2px 7px 6px":1,"5px 7px":1,"0 5px":1,"10px 12px":1,"1px 6px":3,"12px 10px":1,"1px 8px":1,"3px 8px":1,"9px 12px":1,"0 12px 0 17px":1}}
+{"file":"styles.css","kind":"spacing","property":"padding","values":{"3px 4px 3px 8px":1,"0 24px 0 9px":1,"0 7px 0 9px":1,"12px 9px":1,"5px 8px 7px":1,"0 7px":1,"0 4px 0 10px":1,"3px 7px":1,"0 10px":1,"0 6px 6px":1,"2px 7px 6px":1,"5px 7px":1,"0 5px":1,"10px 12px":1,"1px 6px":3,"12px 10px":1,"1px 8px":1,"3px 8px":1,"2px":1,"9px 12px":1,"0 12px 0 17px":1}}
 {"file":"styles.css","kind":"spacing","property":"padding-right","values":{"9px":1}}
 {"file":"styles.css","kind":"spacing","property":"top","values":{"10px":1,"-6px":1}}
 {"file":"styles.css","kind":"token-copy","property":"gap","values":{"10px":1,"2px":3}}
