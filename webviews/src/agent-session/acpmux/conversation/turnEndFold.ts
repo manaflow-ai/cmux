@@ -260,6 +260,9 @@ export type TurnEndFold = {
   stop?: () => void;
   /// Ends the fold's `turn-end` declaration (motionContract.ts), so the judge stops excusing it.
   release?: () => void;
+  /// Runs once when the fold is settled (its timer, a later fold, an unmount): the transcript reads
+  /// and places its mounted rows again then (VirtualTranscript.tsx `settleMotion`).
+  ended?: () => void;
 };
 
 const mounted = (thread: HTMLElement) => thread.querySelectorAll<HTMLElement>(":scope > .acpmux-row[data-row-id]");
@@ -612,6 +615,9 @@ export function settleTurnEnd(thread: HTMLElement | null, fold: TurnEndFold | un
   fold.release?.();
   fold.release = undefined;
   thread?.removeAttribute(TURN_END_ATTR);
+  const ended = fold.ended;
+  fold.ended = undefined;
+  ended?.();
 }
 
 /// The reader's own scroll ends a fold in flight at once (cmuxterm-hq
