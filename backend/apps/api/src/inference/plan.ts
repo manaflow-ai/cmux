@@ -147,9 +147,8 @@ export const inferencePlanOf = async (sql: SqlStorage, state: TeamState | null, 
   const granted = testGrants && !(answer.ok && answer.paid) ? testPlanGrant(sql) : null
   // The grant stands in for cmuxPlan only; the record's cmux NEXT plan (next_plan, with its term) and Chief add-on (chief_addon) are kept as read.
   if (granted === null) return answer
-  const kept = (v: string | null | undefined) => (answer.ok ? (v ?? null) : null)
   const read = answer.ok ? answer : undefined
-  return { ok: true, paid: true, user_limit_usd: memberLimit(state, user).limit_usd, plan: granted, next_plan: kept(read?.next_plan), chief_addon: kept(read?.chief_addon), next_plan_started_at: kept(read?.next_plan_started_at), next_plan_ends_at: kept(read?.next_plan_ends_at) }
+  return { ok: true, paid: true, user_limit_usd: memberLimit(state, user).limit_usd, plan: granted, next_plan: read?.next_plan ?? null, chief_addon: read?.chief_addon ?? null, next_plan_started_at: read?.next_plan_started_at ?? null, next_plan_ends_at: read?.next_plan_ends_at ?? null }
 }
 
 const sourcePlanOf = async (sql: SqlStorage, state: TeamState | null, entity: string, stack: StackServer | undefined, stackUser: string | undefined, user: string, now: number): Promise<PlanAnswer> => {
