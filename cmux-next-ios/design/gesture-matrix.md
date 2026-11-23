@@ -51,15 +51,15 @@ Test: the `GestureConflictUITests` method that guards it, or the unit suite.
 | 19 | Tabs | card x reorder drag vs scroll | scroll before lift | OK | `TabReorderUITests` |
 | 20 | Tabs | bottom bar x swipe up | overview zoom, page untouched | OK | TabsKit BarSwipe tests |
 | 21 | Agent chat | transcript x vertical / interactive dismissal | scrolls, keyboard follows | OK | `TranscriptTapDismissUITests` |
-| 22 | Agent chat | row x long press | actions menu | OK | |
+| 22 | Agent chat | text x long press | in-place text selection, never lifts the bubble or selects a whole chunk | OWNED: lane `ios-long-press-select` (ask-18247cdaa6) | its cells in `GestureConflictUITests` |
 | 23 | Agent chat | find field x drag | field edits | OK | |
 | 24 | Chief | bubble x reply swipe vs scroll | reply only on rightward bubble drags | OK | |
-| 25 | Chief | bubble x long press | action overlay | OK | |
+| 25 | Chief | bubble text x long press | in-place text selection, never lifts the bubble | OWNED: lane `ios-long-press-select` (ask-18247cdaa6) | its cells in `GestureConflictUITests` |
 | 26 | Chief | long draft x swipe down | draft scrolls until top | OK | |
 | 27 | Chief | back swipe x reply or caret | edge strip only | OK | |
 | 28 | Chief settings | text field x content pop | caret moves, no back | OPEN (unverified: UIKit's own delegate) | cluster C |
 | 29 | Terminal | TUI x vertical pan vs selection | each owns its touch | OK | `TerminalTUILocalPanUITests` |
-| 30 | Terminal | selection x long press, handles | selection | OK | |
+| 30 | Terminal | text x long press, handles | in-place selection at the finger, not a whole chunk | OWNED: lane `ios-long-press-select` (ask-18247cdaa6) | its cells in `GestureConflictUITests` |
 | 31 | Terminal | key bar x horizontal scroll, joystick | key bar, no back | OK | |
 | 32 | Terminal | output x interactive dismissal | keyboard follows | OK | `TerminalKeyboardNoResizeUITests` |
 | 33 | Artifacts | image x pinch, pan, dismiss drag | zoom first, dismiss when fitted | OK | |
