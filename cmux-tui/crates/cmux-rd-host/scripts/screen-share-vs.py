@@ -853,6 +853,10 @@ def read_marker_rgb(rgb, width, origin, cell):
 # --- the clock probe --------------------------------------------------------------------
 
 
+# The longest one clock probe runs on the viewer; its control call gets this plus a margin.
+CLOCK_PROBE_SECONDS = 20.0
+
+
 def cmd_clock_serve(args):
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     s.bind((args.bind, args.port))
@@ -875,7 +879,12 @@ def cmd_clock_probe(args):
     best = None
     rtts = []
     misses = 0
+    # A deadline, not only a count: on a lossy link each miss costs the 0.5 s socket timeout, so
+    # 200 probes could outlast the control call's own timeout and end the run with no offset.
+    deadline = time.time() + args.max_seconds
     for i in range(args.count):
+        if time.time() >= deadline:
+            break
         t0 = mono_ns()
         s.sendto(struct.pack("!Q", i), (host, int(port)))
         try:
@@ -1490,8 +1499,10 @@ class Remote:
         return ["reach", self.name, cmd]
 
     def run(self, cmd, timeout=120, stdin=None):
-        p = subprocess.run(self.argv(cmd), input=stdin, capture_output=True, text=True,
-                           timeout=timeout)
+        # With no input, stdin is /dev/null: an inherited stdin lets `reach`/`ssh` read (and
+        # swallow) the orchestrator's own stdin, or wait on it, and the call stalls to its timeout.
+        kw = {"input": stdin} if stdin is not None else {"stdin": subprocess.DEVNULL}
+        p = subprocess.run(self.argv(cmd), capture_output=True, text=True, timeout=timeout, **kw)
         if p.returncode != 0:
             raise RuntimeError(f"{self.name}: {cmd[:80]}: exit {p.returncode}: {p.stderr.strip()[-400:]}")
         return p.stdout
@@ -1882,7 +1893,8 @@ class Orchestrator:
                 raise RuntimeError(f"clock-serve on {self.a.host} did not start: {line!r}")
             try:
                 out = self.viewer.run(f"{self.py} {self.me} clock-probe --addr {self.a.host_ip}:{port} "
-                                      f"--count {self.a.clock_count}", timeout=120)
+                                      f"--count {self.a.clock_count} --max-seconds {CLOCK_PROBE_SECONDS}",
+                                      timeout=CLOCK_PROBE_SECONDS + 60)
             except RuntimeError as e:
                 if tailnet(self.a.host_ip):
                     raise RuntimeError(f"{e}\n{TAILNET_UDP}") from None
@@ -2653,7 +2665,9 @@ def build_parser():
     r.add_argument("--encode-profile", choices=("standard", "ultra"),
                    help="the cmux stack's profile, asked in the setup line as the app's viewer "
                         "asks it (default: none sent, so the host runs standard)")
-    r.add_argument("--clock-count", type=int, default=200)
+    r.add_argument("--clock-count", type=int, default=60,
+                   help="clock probes per try; the probe also stops after "
+                   f"{CLOCK_PROBE_SECONDS:g} s (the minimum-RTT sample needs few replies)")
     r.add_argument("--timeout", type=float, default=120)
     r.add_argument("--vnc-user", default=os.environ.get("VNC_USERNAME"))
     r.add_argument("--vnc-password-file", help="path on the viewing Mac (0600)")
@@ -2735,6 +2749,8 @@ def build_parser():
     p = sub.add_parser("clock-probe")
     p.add_argument("--addr", required=True)
     p.add_argument("--count", type=int, default=200)
+    p.add_argument("--max-seconds", type=float, default=CLOCK_PROBE_SECONDS,
+                   help="stop probing after this long, replies or not (a lossy link)")
     p.add_argument("--gap-ms", type=float, default=5)
     p.set_defaults(fn=cmd_clock_probe)
     b = sub.add_parser("rfb-bench")
