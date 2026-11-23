@@ -12,6 +12,8 @@
 
 pub mod away;
 pub mod git;
+#[cfg(unix)]
+pub mod git_swap;
 pub mod layer;
 pub mod link;
 pub mod manifest;
