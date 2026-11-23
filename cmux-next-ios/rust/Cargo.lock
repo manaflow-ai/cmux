@@ -524,6 +524,7 @@ dependencies = [
  "cmux-rd-core",
  "cmux-rd-engine",
  "cmux-rd-proto",
+ "cmux-transport",
  "flate2",
  "futures-util",
  "hkdf",

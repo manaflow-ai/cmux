@@ -19,6 +19,8 @@ cmux-build-space.workspace = true
 cmux-message-preview.workspace = true
 cmux-mobile-link.workspace = true
 cmux-rd-core.workspace = true
+# This Mac's interface table, for which interfaces a session uses (src/netwatch.rs).
+cmux-transport.workspace = true
 # The shared rd media engine: the in-hostd host of a simulator surface (src/surface.rs).
 cmux-rd-engine.workspace = true
 cmux-rd-proto.workspace = true
