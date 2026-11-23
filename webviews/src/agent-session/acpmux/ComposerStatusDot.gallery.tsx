@@ -67,9 +67,14 @@ const facts: FooterFact[] = [
 
 const ACTIONS = new Set(["reconnect", "resumeQueue"] as const);
 
+// The composer stands at the pane's foot as in the dock, full width, so the card has the room above
+// it that it opens into (side "top"), and the composer, an inline-size container, is never squeezed
+// to its padding in the shell's row (which put the dot off the scene's left edge).
+const SHELL = { padding: 16, flexDirection: "column", justifyContent: "flex-end" } as const;
+
 function Row({ before = false, ...props }: Props) {
   return (
-    <div className="acpmux-shell" data-composer-status-fixture style={{ padding: 16, paddingTop: before ? 32 : 16 }}>
+    <div className="acpmux-shell" data-composer-status-fixture style={SHELL}>
       {before ? <ConnectionChip kind="reconnecting" words="Reconnecting…" /> : null}
       <form className="acpmux-composer">
         <div className="acpmux-composer-bar acpmux-composer-foot" data-footer-look="plain">
