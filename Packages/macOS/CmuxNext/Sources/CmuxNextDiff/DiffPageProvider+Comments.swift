@@ -167,7 +167,7 @@ extension DiffAgentGit: DiffCommentsStoring {
         return try await mutate("diff.comments.send", .object(params), key: key)
     }
 
-    private func mutate(_ operation: String, _ params: JSONValue, key: String) async throws(AgentPaneGitFailure) -> JSONValue {
+    func mutate(_ operation: String, _ params: JSONValue, key: String) async throws(AgentPaneGitFailure) -> JSONValue {
         try Self.mutationValue(try await link.mutate(operation, params: Data(params.compactText.utf8), idempotencyKey: key))
     }
 

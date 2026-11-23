@@ -33,6 +33,10 @@ public final class AgentPaneGitLink {
     /// to such a host (``read(_:params:requiring:)``).
     public nonisolated static let fingerprintCapability = DaemonCapability.gitFingerprint.rawValue
 
+    /// Whether the session host keeps sent comments as threads and reads back their replies
+    /// (`comment-threads-v1`), as its last handshake said.
+    public var keepsCommentThreads: Bool { daemon.identity?.supports(DaemonCapability.commentThreads.rawValue) == true }
+
     /// Whether the session host answers `diff.comments.send`, as its last handshake said.
     public var sendsDiffComments: Bool { daemon.identity?.supports(DaemonCapability.diffCommentsSend.rawValue) == true }
 
