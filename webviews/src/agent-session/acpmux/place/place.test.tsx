@@ -9,12 +9,16 @@ import { UiProvider } from "../../../ui/UiProvider";
 import { settleReact } from "../../../../test/support/domTeardown";
 import { translate } from "../i18n";
 import { resetHeaderStateForTests, setHeaderState, headerState } from "../header/headerState";
+import { EvacuateControl } from "./EvacuateControl";
 import { MoveProgress } from "./MoveProgress";
 import { PlaceControl } from "./PlaceControl";
-import { MOVES, PLACES, at } from "./fixtures";
+import { EVACUATES, MOVES, PLACES, at, evacuateAt } from "./fixtures";
 import {
   elapsedNow,
+  evacuateCounts,
+  evacuateElapsed,
   evacuateOf,
+  failedSessions,
   landedOnFailure,
   moveActions,
   orderedCarries,
@@ -299,6 +303,7 @@ test("the calls are the app's actions, bound to the session", async () => {
   const list = evacuateActions();
   list.evacuate();
   list.evacuate(["a", "b"]);
+  list.cancelEvacuate();
   list.setMode("c", "auto");
   expect(calls).toEqual([
     { id: "chatPlace.set", mode: "cloud", session: "s-1" },
@@ -306,6 +311,141 @@ test("the calls are the app's actions, bound to the session", async () => {
     { id: "chatMove.retry", session: "s-1" },
     { id: "cloudEvacuate" },
     { id: "cloudEvacuate", sessions: ["a", "b"] },
+    { id: "cloudEvacuate.cancel" },
     { id: "chatPlace.set", mode: "auto", session: "c" },
   ]);
+});
+
+test("a failed or cancelled move lists no carries; a running one does", async () => {
+  for (const move of [MOVES.failed, { ...MOVES.failed, state: "cancelled" as const }]) {
+    const container = await draw(<MoveProgress move={move} now={at(move)} onCancel={noop} onRetry={noop} />);
+    expect(text(container)).toContain("Still running on This Mac");
+    expect(text(container)).not.toContain("Running turn continues");
+    expect(container.querySelector(".acpmux-move-carries")).toBeNull();
+    await act(async () => root!.unmount());
+    root = undefined;
+  }
+  const steps = await draw(
+    <MoveProgress move={MOVES.failed} look="steps" now={at(MOVES.failed)} onCancel={noop} onRetry={noop} />,
+  );
+  expect(steps.querySelector(".acpmux-move-carries")).toBeNull();
+});
+
+test("the menu's Auto rule wraps and the rows' Cloud row says what it does", async () => {
+  const rows = await draw(<PlaceControl place={PLACES.local} look="rows" onMode={noop} />);
+  const cloud = rows.querySelector('[data-testid="place-cloud"]')!;
+  expect(cloud.textContent).toBe("CloudIts own Cloud VM");
+  await act(async () => root!.unmount());
+  root = undefined;
+  const named = await draw(<PlaceControl place={PLACES.cloud} look="rows" onMode={noop} />);
+  expect(named.querySelector('[data-testid="place-cloud"]')!.textContent).toBe("Cloudswift-otter");
+});
+
+test("evacuate is read leniently: per-chat entries, the clock, and counts from the chats", () => {
+  const state = evacuateOf({
+    running: 9,
+    done: 9,
+    failed: 9,
+    total: 9,
+    startedMs: 5,
+    elapsedMs: 7,
+    chats: [
+      { session: "a", title: "A", state: "moving", step: "sync" },
+      { session: "b", title: "B", state: "queued" },
+      { session: "c", title: "C", state: "failed", reason: "No VM" },
+      { session: "d", title: "D", state: "live", step: "nope" },
+      { session: "e", state: "weird" },
+      null,
+    ],
+  });
+  expect(state?.chats?.map((chat) => chat.state)).toEqual(["moving", "queued", "failed", "live"]);
+  expect(state?.chats?.[3]?.step).toBeUndefined();
+  expect(state?.chats?.[2]?.reason).toBe("No VM");
+  expect(state && evacuateCounts(state)).toEqual({ running: 2, done: 1, failed: 1, total: 4 });
+  expect(state && failedSessions(state)).toEqual(["c"]);
+  expect(evacuateOf({ running: 1, done: 0, failed: 0, total: 2, chats: "x" })?.chats).toBeUndefined();
+  expect(evacuateElapsed(EVACUATES.running, EVACUATES.running.startedMs + 20_000)).toBe(20_000);
+  expect(evacuateElapsed(EVACUATES.finished, EVACUATES.finished.startedMs + 99_000)).toBe(31_400);
+});
+
+test("idle, Evacuate is a visible button that moves every chat", async () => {
+  const calls: unknown[] = [];
+  const container = await draw(
+    <EvacuateControl onEvacuate={(sessions) => calls.push(sessions)} onCancel={() => calls.push("cancel")} />,
+  );
+  const button = container.querySelector<HTMLElement>('[data-testid="evacuate-button"]')!;
+  expect(button.textContent).toBe("Evacuate to Cloud");
+  await act(async () => button.click());
+  expect(calls).toEqual([undefined]);
+  expect(container.querySelector(".acpmux-evac")).toBeNull();
+});
+
+test("a running Evacuate draws every chat with its step or state, the clock, and Cancel", async () => {
+  const calls: string[] = [];
+  const container = await draw(
+    <EvacuateControl
+      state={EVACUATES.running}
+      now={evacuateAt(EVACUATES.running)}
+      onEvacuate={() => calls.push("evacuate")}
+      onCancel={() => calls.push("cancel")}
+    />,
+  );
+  const words = text(container);
+  expect(words).toContain("Moving 3 of 5 to Cloud");
+  expect(words).toContain("13 s");
+  const rows = [...container.querySelectorAll<HTMLElement>(".acpmux-evac-rows li")];
+  expect(rows).toHaveLength(5);
+  expect(rows.map((row) => row.getAttribute("data-state"))).toEqual(["live", "moving", "moving", "queued", "failed"]);
+  expect(rows[1]!.textContent).toContain("5/8");
+  expect(rows[2]!.textContent).toContain("3/8");
+  expect(rows[3]!.textContent).toContain("Waiting");
+  expect(rows[4]!.textContent).toContain("No Cloud VM was free.");
+  expect(container.querySelector('[data-testid="evacuate-button"]')).toBeNull();
+  expect(container.querySelector('[data-testid="evacuate-retry"]')).toBeNull();
+  await act(async () => container.querySelector<HTMLElement>('[data-testid="evacuate-cancel"]')!.click());
+  expect(calls).toEqual(["cancel"]);
+});
+
+test("a finished Evacuate with a failure offers Retry for just the failed chats", async () => {
+  const calls: unknown[] = [];
+  const container = await draw(
+    <EvacuateControl
+      state={EVACUATES.finished}
+      onEvacuate={(sessions) => calls.push(sessions)}
+      onCancel={() => calls.push("cancel")}
+    />,
+  );
+  expect(text(container)).toContain("Moved 4 of 5 to Cloud, 1 failed");
+  expect(container.querySelector('[data-testid="evacuate-cancel"]')).toBeNull();
+  await act(async () => container.querySelector<HTMLElement>('[data-testid="evacuate-retry"]')!.click());
+  expect(calls).toEqual([["e-5"]]);
+});
+
+test("every Evacuate look draws; the bar has one segment per chat and the chip is one pill", async () => {
+  for (const look of ["bar", "panel", "chip"] as const) {
+    const container = await draw(
+      <EvacuateControl
+        state={EVACUATES.running}
+        look={look}
+        now={evacuateAt(EVACUATES.running)}
+        onEvacuate={noop}
+        onCancel={noop}
+      />,
+    );
+    expect(text(container)).toContain("Moving 3 of 5 to Cloud");
+    expect(container.querySelectorAll(".acpmux-move-bar > span").length).toBe(look === "bar" ? 5 : 0);
+    expect(container.querySelectorAll(".acpmux-evac-rows li").length).toBe(look === "panel" ? 5 : 0);
+    expect(container.querySelector(".acpmux-evac-chip") !== null).toBe(look === "chip");
+    await act(async () => root!.unmount());
+    root = undefined;
+  }
+});
+
+test("Evacuate with counts only still draws the summary and a bar", async () => {
+  const state = { running: 2, done: 1, failed: 0, total: 4 };
+  const container = await draw(<EvacuateControl state={state} look="bar" onEvacuate={noop} onCancel={noop} />);
+  expect(text(container)).toContain("Moving 2 of 4 to Cloud");
+  expect(
+    [...container.querySelectorAll(".acpmux-move-bar > span")].map((segment) => segment.getAttribute("data-state")),
+  ).toEqual(["live", "moving", "moving", "queued"]);
 });

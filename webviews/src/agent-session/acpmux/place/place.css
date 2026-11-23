@@ -284,3 +284,141 @@
 .acpmux-move-btn:hover {
   background: var(--place-fill-hover);
 }
+
+/* The menu's Auto rule wraps like the rows' (the popup is narrow; one long line was cut). */
+.acpmux-place-row-text > .acpmux-place-rule {
+  max-width: 26em;
+  white-space: normal;
+}
+
+/* EvacuateControl.tsx: the visible button, and the progress of several chats. */
+.acpmux-evac-btn {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: var(--ds-space-1);
+  min-height: 24px;
+  padding: 0 var(--ds-space-2, 8px);
+  border: 0;
+  border-radius: var(--ds-radius-control, 8px);
+  background: var(--ds-surface-card);
+  color: var(--agent-text);
+  font: inherit;
+  font-size: var(--text-detail);
+  white-space: nowrap;
+  cursor: default;
+}
+.acpmux-evac-btn:hover {
+  background: color-mix(in srgb, var(--agent-text) 13%, transparent);
+}
+.acpmux-evac-btn:focus-visible,
+.acpmux-evac button:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--agent-text) 40%, transparent);
+  outline-offset: 1px;
+}
+.acpmux-evac {
+  --place-fill: var(--ds-surface-card);
+  --place-fill-strong: color-mix(in srgb, var(--agent-text) 9%, transparent);
+  --place-fill-hover: color-mix(in srgb, var(--agent-text) 13%, transparent);
+  --place-accent: var(--agent-text);
+  --place-warn: color-mix(in srgb, var(--agent-text) 70%, orange);
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2, 8px);
+  width: 100%;
+  padding: var(--ds-space-2, 8px) var(--ds-space-3, 12px);
+  border-radius: var(--ds-radius-xl);
+  background: var(--place-fill);
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+  line-height: 16px;
+  color: var(--agent-muted);
+}
+.acpmux-evac-chip {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  flex: none;
+  gap: var(--ds-space-2, 8px);
+  width: auto;
+  padding: 0 var(--ds-space-2, 8px);
+  min-height: 24px;
+  border-radius: var(--ds-radius-control, 8px);
+}
+.acpmux-evac-chip .acpmux-move-btn {
+  min-height: 20px;
+}
+.acpmux-evac-line {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2, 8px);
+  min-width: 0;
+}
+.acpmux-evac-title,
+.acpmux-evac-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--agent-text);
+}
+.acpmux-evac-title {
+  flex: 1;
+  font-weight: 600;
+}
+.acpmux-evac .acpmux-move-bar {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: var(--grid-half-step);
+  height: var(--ds-space-1);
+}
+.acpmux-evac .acpmux-move-bar > span {
+  border-radius: var(--ds-radius-sm);
+  background: var(--place-fill-strong);
+}
+.acpmux-evac .acpmux-move-bar > span[data-state="live"] {
+  background: var(--place-accent);
+}
+.acpmux-evac .acpmux-move-bar > span[data-state="moving"] {
+  background: color-mix(in srgb, var(--place-accent) 55%, transparent);
+}
+.acpmux-evac .acpmux-move-bar > span[data-state="failed"],
+.acpmux-evac .acpmux-move-bar > span[data-state="cancelled"] {
+  background: var(--place-warn);
+}
+.acpmux-evac-rows {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  gap: var(--ds-space-1);
+  list-style: none;
+}
+.acpmux-evac-rows li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: var(--ds-space-2, 8px);
+}
+.acpmux-evac-rows li[data-state="queued"] .acpmux-move-dot {
+  background: var(--place-fill-strong);
+}
+.acpmux-evac-chat {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--agent-text);
+}
+.acpmux-evac-status {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.acpmux-evac-rows li[data-state="failed"] .acpmux-evac-status {
+  color: var(--place-warn);
+}
+.acpmux-evac-reason {
+  grid-column: 2 / -1;
+  color: var(--agent-muted);
+}

@@ -1135,6 +1135,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     [paneToasts],
   );
   const chatListPlace = useMemo(() => evacuateActions(notices.transient), [notices]);
+  const chatListEvacuate = useHeaderState().evacuate;
   /// The pane's connected clients, one after another: a prompt a connection lost waits on the next
   /// one for the host's journal to send it again there (lostPrompt.ts).
   const [connectedClients] = useState(() => clientWaiter<AcpmuxDirectClient>());
@@ -9697,6 +9698,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     setDock,
     paneToasts,
     chatListPlace,
+    chatListEvacuate,
     toastTop,
     asks,
     dotGridArm,

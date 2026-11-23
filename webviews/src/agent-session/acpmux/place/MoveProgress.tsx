@@ -44,7 +44,7 @@ export function carryText(carry: MoveCarry, move: MoveView, t: Translate): strin
 }
 
 /// The page's own clock for a running move, one tick per 100 ms; stopped once it ends.
-function useNow(running: boolean, fixed: number | undefined): number {
+export function useNow(running: boolean, fixed: number | undefined): number {
   const [now, setNow] = useState(() => fixed ?? Date.now());
   useEffect(() => {
     if (!running || fixed !== undefined) return;
@@ -55,7 +55,10 @@ function useNow(running: boolean, fixed: number | undefined): number {
   return fixed ?? now;
 }
 
+/// What moves with the chat. A move that failed or was cancelled carries nothing: the chat stays
+/// where it was, so the list would contradict "Still running on ...".
 function Carries({ move, t }: { move: MoveView; t: Translate }) {
+  if (move.state === "failed" || move.state === "cancelled") return null;
   const list = orderedCarries(move);
   if (list.length === 0) return null;
   return (

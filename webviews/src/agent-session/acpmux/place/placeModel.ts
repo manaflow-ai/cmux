@@ -51,12 +51,27 @@ export interface PlaceState {
   readonly move?: MoveView;
 }
 
-/// The session list's Evacuate counts (optional).
+export type EvacuateChatState = "queued" | "moving" | "live" | "failed" | "cancelled";
+
+/// One chat of a running Evacuate: it moves to its own Cloud VM, up to a few at once.
+export interface EvacuateChat {
+  readonly session: string;
+  readonly title: string;
+  readonly state: EvacuateChatState;
+  readonly step?: MoveStep;
+  readonly reason?: string;
+}
+
+/// The session list's Evacuate: the counts, and (when the app sends them) one entry per chat and the
+/// clock. `chats` is optional: counts alone still draw the summary and the bar.
 export interface EvacuateState {
   readonly running: number;
   readonly done: number;
   readonly failed: number;
   readonly total: number;
+  readonly chats?: readonly EvacuateChat[];
+  readonly startedMs?: number;
+  readonly elapsedMs?: number;
 }
 
 const MODES: readonly PlaceMode[] = ["local", "cloud", "auto"];
@@ -141,10 +156,82 @@ export function placeOf(value: unknown): PlaceState | undefined {
   };
 }
 
+const CHAT_STATES: readonly EvacuateChatState[] = ["queued", "moving", "live", "failed", "cancelled"];
+
+function evacuateChatsOf(value: unknown): EvacuateChat[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  return value.flatMap((entry: unknown): EvacuateChat[] => {
+    const raw = (entry ?? {}) as Record<string, unknown>;
+    if (!(CHAT_STATES as readonly unknown[]).includes(raw.state)) return [];
+    const step = (MOVE_STEPS as readonly unknown[]).includes(raw.step) ? (raw.step as MoveStep) : undefined;
+    return [
+      {
+        session: text(raw.session),
+        title: text(raw.title),
+        state: raw.state as EvacuateChatState,
+        ...(step ? { step } : {}),
+        ...(typeof raw.reason === "string" && raw.reason ? { reason: raw.reason } : {}),
+      },
+    ];
+  });
+}
+
 export function evacuateOf(value: unknown): EvacuateState | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
   const raw = value as Record<string, unknown>;
-  return { running: num(raw.running, 0), done: num(raw.done, 0), failed: num(raw.failed, 0), total: num(raw.total, 0) };
+  const chats = evacuateChatsOf(raw.chats);
+  return {
+    running: num(raw.running, 0),
+    done: num(raw.done, 0),
+    failed: num(raw.failed, 0),
+    total: num(raw.total, 0),
+    ...(chats ? { chats } : {}),
+    ...(typeof raw.startedMs === "number" && Number.isFinite(raw.startedMs) ? { startedMs: raw.startedMs } : {}),
+    ...(typeof raw.elapsedMs === "number" && Number.isFinite(raw.elapsedMs) ? { elapsedMs: raw.elapsedMs } : {}),
+  };
+}
+
+/// The Evacuate's counts: from `chats` when the app sent them (waiting and moving are both still to
+/// do), else the app's own numbers.
+export function evacuateCounts(state: EvacuateState): { running: number; done: number; failed: number; total: number } {
+  const { chats } = state;
+  if (!chats) return { running: state.running, done: state.done, failed: state.failed, total: state.total };
+  const count = (...names: EvacuateChatState[]) => chats.filter((chat) => names.includes(chat.state)).length;
+  return { running: count("queued", "moving"), done: count("live"), failed: count("failed"), total: chats.length };
+}
+
+/// Nothing to draw but the idle button: no Evacuate has run, or it left no chats.
+export function evacuateIdle(state: EvacuateState | undefined): boolean {
+  return !state || evacuateCounts(state).total === 0;
+}
+
+export function evacuateRunning(state: EvacuateState | undefined): boolean {
+  return !!state && evacuateCounts(state).running > 0;
+}
+
+/// The chats that failed, for Retry.
+export function failedSessions(state: EvacuateState): string[] {
+  return (state.chats ?? []).filter((chat) => chat.state === "failed" && chat.session).map((chat) => chat.session);
+}
+
+/// One mark per chat for the segmented bar; counts alone give done, then moving, then failed, then waiting.
+export function evacuateSegments(state: EvacuateState): EvacuateChatState[] {
+  if (state.chats) return state.chats.map((chat) => chat.state);
+  const { running, done, failed, total } = evacuateCounts(state);
+  const waiting = Math.max(0, total - done - failed - running);
+  return [
+    ...Array<EvacuateChatState>(done).fill("live"),
+    ...Array<EvacuateChatState>(failed).fill("failed"),
+    ...Array<EvacuateChatState>(running).fill("moving"),
+    ...Array<EvacuateChatState>(waiting).fill("queued"),
+  ];
+}
+
+/// The Evacuate's clock now: ticks from `startedMs` while chats move, the app's `elapsedMs` after.
+export function evacuateElapsed(state: EvacuateState, nowMs: number): number {
+  const base = state.elapsedMs ?? 0;
+  if (!evacuateRunning(state) || state.startedMs === undefined) return base;
+  return Math.max(base, nowMs - state.startedMs, 0);
 }
 
 /// The step's label key: the machine step reads differently going to this Mac.

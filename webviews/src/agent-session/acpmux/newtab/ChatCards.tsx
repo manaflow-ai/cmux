@@ -2,6 +2,8 @@ import React, { useRef, useState, type CSSProperties } from "react";
 import { ContextMenu } from "../../../ui/ContextMenu";
 import { pressToOpen } from "../../../ui/pressToOpen";
 import { useT } from "../i18n";
+import { EvacuateControl } from "../place/EvacuateControl";
+import type { EvacuateState } from "../place/placeModel";
 import { AgentMark } from "../NewTabPage";
 import { homeCardGlowArm, homeCardTint, type HomeCardGlowArm } from "./homeCardGlow.experiment";
 import { useListMotion } from "./listMotion";
@@ -23,6 +25,8 @@ export function ChatCards({
   onColdArchive,
   onPlace,
   onEvacuate,
+  evacuate,
+  onCancelEvacuate,
   glow,
 }: {
   cards: ChatCard[];
@@ -46,6 +50,9 @@ export function ChatCards({
   /// The card menu's Evacuate This Chat to Cloud (`sessions`), and the list's Evacuate All Chats to Cloud
   /// (none): the chats move off this Mac. Omitted where the page cannot ask the app.
   onEvacuate?(sessions?: readonly string[]): void;
+  /// The running Evacuate (`pane.tabState.evacuate`) and its Cancel: drawn under the header while chats move.
+  evacuate?: EvacuateState;
+  onCancelEvacuate?(): void;
   /// The home-card-glow experiment's arm (homeCardGlow.experiment.ts); unset reads the chosen arm.
   glow?: HomeCardGlowArm;
 }) {
@@ -102,6 +109,16 @@ export function ChatCards({
     <section className="nt-chats" aria-label={nt("sections")}>
       <header className="nt-chats-head">
         <span className="nt-chats-tab is-selected">{title ?? nt("chats")}</span>
+        {onEvacuate && (
+          <span className="nt-chats-evac">
+            <EvacuateControl
+              part="head"
+              {...(evacuate ? { state: evacuate } : {})}
+              onEvacuate={onEvacuate}
+              onCancel={() => onCancelEvacuate?.()}
+            />
+          </span>
+        )}
         {onShowAll && (
           <button type="button" className="nt-chats-all" onClick={() => onShowAll()}>
             {nt("allChats")}
@@ -117,6 +134,11 @@ export function ChatCards({
           </button>
         )}
       </header>
+      {onEvacuate && evacuate && (
+        <div className="nt-chats-evac-body">
+          <EvacuateControl part="body" state={evacuate} onEvacuate={onEvacuate} onCancel={() => onCancelEvacuate?.()} />
+        </div>
+      )}
       {cards.length === 0 && pending ? (
         <div className="nt-cards nt-cards-loading" data-variant={variant} aria-busy="true" aria-label={nt("chats")}>
           {Array.from({ length: 3 }, (_, index) => (

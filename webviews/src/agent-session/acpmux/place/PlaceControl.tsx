@@ -121,7 +121,11 @@ export function PlaceControl({
             <span className="acpmux-place-row-text">
               <span>{modeLabel(mode, t)}</span>
               <span className="acpmux-place-rule">
-                {mode === "local" ? t("place.thisMac") : mode === "cloud" ? cloudLabel(place, t) : rule}
+                {mode === "local"
+                  ? t("place.thisMac")
+                  : mode === "cloud"
+                    ? (place.cloudName ?? t("place.ownVm"))
+                    : rule}
               </span>
             </span>
             {place.mode === mode && <span className="acpmux-place-here" aria-hidden="true" />}
