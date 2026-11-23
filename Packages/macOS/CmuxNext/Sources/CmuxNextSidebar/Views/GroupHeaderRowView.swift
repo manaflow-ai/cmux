@@ -475,7 +475,7 @@ final class GroupHeaderRowView: SidebarRowView {
         name.textColor = ink
         glyph.symbolInk = ink
         pin.contentTintColor = ink
-        count.textColor = quiet.withAlphaComponent(SidebarStyle.groupHeaderCountInkAlpha)
+        count.textColor = SidebarStyle.TextInk.tertiary.color // the count off the chip, in the sidebar's tertiary ink
         chevron.contentTintColor = quiet
         moreButton.tintOverride = quiet
         addButton.tintOverride = quiet
