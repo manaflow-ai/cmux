@@ -1,3 +1,5 @@
+// ConnectionBannerState is iOS-only (CmuxMobileDesign/ConnectionBanner.swift); the macOS `swift test` skips this file.
+#if os(iOS)
 import CmuxMobileDesign
 import Foundation
 import Testing
@@ -108,3 +110,4 @@ import Testing
         #expect(notice.shown == .macOffline("Mac"), "the cancelled hold never replaces it")
     }
 }
+#endif
