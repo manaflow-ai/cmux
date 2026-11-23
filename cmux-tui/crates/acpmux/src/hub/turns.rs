@@ -540,11 +540,20 @@ impl Hub {
             super::digest::agent_sender(opts.provenance.as_ref(), opts.agent.as_deref()).is_some()
                 && !opts.send_now;
         let race_guard = opts.race_guard.clone();
+        // The name the target was given (`session_handle.rs`), in its acceptance, so the
+        // sender's "Sent to" line names it as people do.
+        let given =
+            session.read_meta(|m| m.handle.clone()).filter(|h| crate::session_handle::valid(h));
         let mut accept = |mut v: Value| {
             if let Some(race_guard) = race_guard.as_ref()
                 && let Err(error) = race_guard()
             {
                 v = json!({"raceCancelled": true, "error": error.message});
+            }
+            if let (Some(given), Some(obj)) = (given.as_ref(), v.as_object_mut())
+                && obj.contains_key("sessionId")
+            {
+                obj.entry("displayName").or_insert_with(|| json!(given));
             }
             if let Some(f) = on_accepted.take() {
                 if supersede.is_some() {
@@ -1797,6 +1806,9 @@ impl Hub {
         // acpmux ended a turn whose model API refused the agent's sign-in (`turn_retry.rs`).
         let refused = result.as_ref().ok().and_then(Self::sign_in_refused_error);
         if let Some(e) = refused {
+            result = Err(e);
+        }
+        if let Some(e) = result.as_ref().ok().and_then(Self::capacity_retry_error) {
             result = Err(e);
         }
         // Apply queued stderr before classifying a dead process (a limit never resumes).
