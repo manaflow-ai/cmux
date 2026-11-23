@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 2b2332cfe5d87e89992be232d1db426775b19efdb669bb2993661bfcee868d2e. */
+/* cmux-tui mux protocol 12, IR abb55ae126234c400927b6460a08f07372a7cbfe6ea243850cef730fd2d5091e. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -1848,6 +1848,7 @@ export type TerminalResumeCommandResult = {
 
 export type Tree = {
   "generation"?: string;
+  "next"?: bigint;
   "pane_revision"?: bigint;
   "registry_id"?: string;
   "terminal_revision"?: bigint;
