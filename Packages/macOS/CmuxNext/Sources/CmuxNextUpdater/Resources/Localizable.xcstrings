@@ -34453,6 +34453,530 @@
           }
         }
       }
+    },
+    "updater.status.nothingStaged": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يعمل cmux %@. لا يوجد تحديث جاهز."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Radi cmux %@. Nijedno ažuriranje nije pripremljeno."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %@ kører. Ingen opdatering er klar."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %@ läuft. Kein Update ist bereitgestellt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux %@ is running. No update is staged."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %@ está en ejecución. No hay ninguna actualización preparada."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %@ est en cours d’exécution. Aucune mise à jour n’est prête."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %@ è in esecuzione. Nessun aggiornamento è pronto."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %@ を実行中です。準備済みのアップデートはありません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %@ កំពុងដំណើរការ។ មិនមានបច្ចុប្បន្នភាពដែលបានរៀបចំទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %@ 실행 중입니다. 준비된 업데이트가 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %@ kjører. Ingen oppdatering er klar."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Działa cmux %@. Żadna aktualizacja nie jest przygotowana."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %@ está em execução. Nenhuma atualização está preparada."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запущен cmux %@. Обновление не подготовлено."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %@ กำลังทำงาน ไม่มีอัปเดตที่เตรียมไว้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %@ çalışıyor. Hazırlanmış güncelleme yok."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запущено cmux %@. Оновлення не підготовлено."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %@ đang chạy. Không có bản cập nhật nào được chuẩn bị."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在运行 cmux %@。没有已准备好的更新。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在執行 cmux %@。沒有已準備好的更新。"
+          }
+        }
+      }
+    },
+    "updater.status.ready": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يعمل cmux %1$@. التحديث %2$@ جاهز ويُثبَّت عند إعادة التشغيل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Radi cmux %1$@. %2$@ je pripremljeno i instalira se pri ponovnom pokretanju."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %1$@ kører. %2$@ er klar og installeres ved genstart."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %1$@ läuft. %2$@ ist bereitgestellt und wird beim Neustart installiert."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux %1$@ is running. %2$@ is staged and installs on relaunch."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %1$@ está en ejecución. %2$@ está preparada y se instala al reiniciar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %1$@ est en cours d’exécution. %2$@ est prête et s’installe au redémarrage."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %1$@ è in esecuzione. %2$@ è pronto e si installa al riavvio."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %1$@ を実行中です。%2$@ が準備済みで、再起動時にインストールされます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %1$@ កំពុងដំណើរការ។ %2$@ បានរៀបចំរួច ហើយនឹងដំឡើងពេលបើកឡើងវិញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %1$@ 실행 중입니다. %2$@이(가) 준비되어 다시 시작할 때 설치됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %1$@ kjører. %2$@ er klar og installeres ved omstart."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Działa cmux %1$@. %2$@ jest przygotowana i zainstaluje się po ponownym uruchomieniu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %1$@ está em execução. %2$@ está preparada e é instalada ao reiniciar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запущен cmux %1$@. %2$@ подготовлено и установится при перезапуске."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %1$@ กำลังทำงาน %2$@ เตรียมไว้แล้วและจะติดตั้งเมื่อเปิดใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %1$@ çalışıyor. %2$@ hazır ve yeniden başlatınca yüklenir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запущено cmux %1$@. %2$@ підготовлено й встановиться під час перезапуску."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %1$@ đang chạy. %2$@ đã được chuẩn bị và sẽ cài khi khởi động lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在运行 cmux %1$@。%2$@ 已准备好，重新启动时安装。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在執行 cmux %1$@。%2$@ 已準備好，重新啟動時安裝。"
+          }
+        }
+      }
+    },
+    "updater.status.held": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يعمل cmux %1$@. التحديث %2$@ جاهز؛ إعادة التشغيل تنتظر: %3$@."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Radi cmux %1$@. %2$@ je pripremljeno; ponovno pokretanje čeka: %3$@."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %1$@ kører. %2$@ er klar; genstarten venter: %3$@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %1$@ läuft. %2$@ ist bereitgestellt; der Neustart wartet: %3$@."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux %1$@ is running. %2$@ is staged; the relaunch waits: %3$@."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %1$@ está en ejecución. %2$@ está preparada; el reinicio espera: %3$@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %1$@ est en cours d’exécution. %2$@ est prête ; le redémarrage attend : %3$@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %1$@ è in esecuzione. %2$@ è pronto; il riavvio attende: %3$@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %1$@ を実行中です。%2$@ は準備済みですが、再起動は待機中です：%3$@。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %1$@ កំពុងដំណើរការ។ %2$@ បានរៀបចំរួច; ការបើកឡើងវិញកំពុងរង់ចាំ៖ %3$@។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %1$@ 실행 중입니다. %2$@이(가) 준비되었지만 다시 시작은 대기 중입니다: %3$@."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %1$@ kjører. %2$@ er klar; omstarten venter: %3$@."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Działa cmux %1$@. %2$@ jest przygotowana; ponowne uruchomienie czeka: %3$@."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %1$@ está em execução. %2$@ está preparada; a reinicialização aguarda: %3$@."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запущен cmux %1$@. %2$@ подготовлено; перезапуск ждёт: %3$@."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %1$@ กำลังทำงาน %2$@ เตรียมไว้แล้ว การเปิดใหม่กำลังรอ: %3$@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %1$@ çalışıyor. %2$@ hazır; yeniden başlatma bekliyor: %3$@."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запущено cmux %1$@. %2$@ підготовлено; перезапуск чекає: %3$@."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %1$@ đang chạy. %2$@ đã được chuẩn bị; việc khởi động lại đang chờ: %3$@."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在运行 cmux %1$@。%2$@ 已准备好；重新启动正在等待：%3$@。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在執行 cmux %1$@。%2$@ 已準備好；重新啟動正在等待：%3$@。"
+          }
+        }
+      }
+    },
+    "updater.status.installing": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يعمل cmux %@. يجري تثبيت التحديث."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Radi cmux %@. Ažuriranje se instalira."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %@ kører. Opdateringen installeres."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %@ läuft. Das Update wird installiert."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux %@ is running. The update is installing."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %@ está en ejecución. La actualización se está instalando."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %@ est en cours d’exécution. La mise à jour s’installe."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %@ è in esecuzione. L’aggiornamento è in installazione."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %@ を実行中です。アップデートをインストールしています。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %@ កំពុងដំណើរការ។ បច្ចុប្បន្នភាពកំពុងដំឡើង។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %@ 실행 중입니다. 업데이트를 설치하는 중입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %@ kjører. Oppdateringen installeres."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Działa cmux %@. Aktualizacja się instaluje."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %@ está em execução. A atualização está sendo instalada."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запущен cmux %@. Обновление устанавливается."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %@ กำลังทำงาน กำลังติดตั้งอัปเดต"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %@ çalışıyor. Güncelleme yükleniyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запущено cmux %@. Оновлення встановлюється."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %@ đang chạy. Bản cập nhật đang được cài."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在运行 cmux %@。正在安装更新。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在執行 cmux %@。正在安裝更新。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
