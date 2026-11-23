@@ -45,7 +45,7 @@ use std::ffi::{CStr, c_char};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 /// Bumped on any change to a type, a function or an op in the header.
-pub const ABI_VERSION: u32 = 3;
+pub const ABI_VERSION: u32 = 4;
 pub const OK: i32 = 0;
 /// `filter_reply`: the method has no reply shape; the host relays the reply as it is.
 pub const NO_SHAPE: i32 = 1;
@@ -643,5 +643,35 @@ pub unsafe extern "C" fn cmux_agent_pane_policy_call(
             Ok(value) => unsafe { give(out, &value) },
             Err(code) => code,
         }
+    })
+}
+
+/// Decodes the page's request `body` (JSON) into the host's request JSON
+/// (`app_request::decode`); `home` is the user's home folder. `ERR_INVALID` when
+/// either is not UTF-8 or `body` is not JSON.
+///
+/// # Safety
+///
+/// Each pointer with its length is readable (or null); `out` is writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_agent_pane_request_decode(
+    body: *const u8,
+    body_len: usize,
+    home: *const u8,
+    home_len: usize,
+    out: *mut CmuxAgentPaneBytes,
+) -> i32 {
+    guarded(|| {
+        if out.is_null() {
+            return ERR_NULL;
+        }
+        // SAFETY: forwarded from the caller.
+        let Some(body) = (unsafe { input(body, body_len) }) else { return ERR_INVALID };
+        // SAFETY: forwarded from the caller.
+        let Some(home) = (unsafe { text(home, home_len) }) else { return ERR_INVALID };
+        let Ok(body) = serde_json::from_slice::<Value>(body) else { return ERR_INVALID };
+        let decoded = crate::app_request::decode(&body, home).into_json();
+        // SAFETY: `out` is writable and non-null.
+        unsafe { give(out, &decoded) }
     })
 }
