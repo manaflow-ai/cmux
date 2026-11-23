@@ -27,6 +27,24 @@
 // samples, and sends the notice once more: which of time, the notice and the renderer having no page shown gives
 // back the garbage closed chats leave. On 2026-11-23 (RELEASE=1, 30 chats of 100 turns) only the hide did:
 // 341 -> 252 MB, blink_gc 85 -> 16 MB; the notice with a page shown gave back nothing.
+// PURGE_METHOD=<name> tries one way at a time with the page shown (JS_FLAGS: V8 flags, EXTRA_ARGS: switches). Same
+// day, same settings, one Linux VM (noisy: base reply p50 383-538 ms). Renderer MB / blink_gc / malloc at the last
+// sample, newest reply p50 / p95 ms, runs:
+//   none (18 s)                       322-392 / 81-120 / 91-138    383-538 / 740-1432   9
+//   wait15 (33 s)                     344-362 / 101-118 / 92-96    425-461 / 791-832    3
+//   frozen 15 s                       283-360 / 74-116 / 90-96     338-450 / 785-920    4
+//   focus emulation, minimized 15 s   290, 287 / 79, 77 / 95, 94   -                   1 each
+//   collectGarbage x2, gc major x2    384, 373 / 111, 101 / 134    423, 350            1 each
+//   gc last-resort                    345 / 104 / 134              346 / 760           1
+//   --optimize-for-size               219-265 / 22-23 / 72-75      632-1012 / 1148-2154 3
+//   --memory-saver-mode               246 / 24 / 74                786 / 1253          1
+//   --optimize-for-size, max semi 16  248 / 24 / 75                861 / 1206          1
+//   --max-semi-space-size=1/2/4/8     322/336/331/348 / 55/86/64/78 497/771/487/506    1 each
+//   max semi 1 + frozen / focus       300 / 59 / 88, 308 / 69 / 90 502, 584           1 each
+// The malloc drop is time (wait15 matches frozen); no call with a page shown gave blink_gc back; forcibly
+// PurgeJavaScriptMemory closed the browser; a heap snapshot grew malloc by 95 MB. The flags keep Oilpan from growing
+// while the chats are built (V8 memory-saver behavior; the explicit 16 MB semi-space keeps the cost), and cost
+// 40-100 % on the newest reply, so none ships.
 // MEMDUMP_ALL=1 prints every memory-infra node to depth 3 with MEMDUMP=1.
 // The empty row (count 0) is the renderer holding one about:blank page of the same site, what the app's renderer
 // holds with no chat open: the per-chat target is a chat page costing about nothing beside it.
@@ -200,7 +218,13 @@ try {
   // One renderer per site, as the app gives cmux-page (the fork's scheme-scoped switch; for one site the same).
   const server = await chromium.launchServer({
     headless: true,
-    args: ["--process-per-site", "--js-flags=--expose-gc"],
+    // EXTRA_ARGS: more Chromium switches, space-separated (the PURGE_METHOD runs try renderer features with them).
+    // JS_FLAGS: more V8 flags, space-separated, beside --expose-gc.
+    args: [
+      "--process-per-site",
+      `--js-flags=--expose-gc ${process.env.JS_FLAGS ?? ""}`.trim(),
+      ...(process.env.EXTRA_ARGS ?? "").split(" ").filter(Boolean),
+    ],
   });
   releases.push(() => server.close());
   const root = server.process().pid!;
@@ -421,6 +445,102 @@ try {
       target: 0,
       floor: 1,
     });
+  }
+  if (process.env.PURGE_METHOD) {
+    // PURGE_METHOD=<name>: one way to give back what closed chats left, from the same state each run, with the
+    // newest page shown throughout (unless the method hides it): renderer PSS and memory-infra before, 3 s after
+    // and 18 s after, and whether the shown page still works (its script answers, its reply text is there).
+    const kept = pages.filter(({ page }) => !page.isClosed());
+    const { page, cdp } = kept[0]!;
+    const brief = async (label: string) => {
+      const now = await sample(kept);
+      const dump = await memoryDump();
+      const mb = (name: string) => (dump.get(name) ?? 0).toFixed(1);
+      const alive = await page
+        .evaluate(() => `${document.visibilityState}:${document.body?.innerText.length ?? 0}:${1 + 1}`)
+        .catch((error: Error) => `dead(${error.message.slice(0, 60)})`);
+      console.log(
+        `PURGE-METHOD method=${process.env.PURGE_METHOD} step=${label} renderer_mb=${now.mb.toFixed(1)} js_used_mb=${now.heap.toFixed(1)} ` +
+          `blink_gc=${mb("blink_gc")} malloc=${mb("malloc")} v8=${mb("v8")} partition_alloc=${mb("partition_alloc")} cc=${mb("cc")} page=${alive}`,
+      );
+    };
+    const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+    const minimize = async (minimized: boolean) => {
+      const { targetInfo } = await cdp.send("Target.getTargetInfo");
+      const { windowId } = await browserCdp.send("Browser.getWindowForTarget", { targetId: targetInfo.targetId });
+      await browserCdp.send("Browser.setWindowBounds", {
+        windowId,
+        bounds: { windowState: minimized ? "minimized" : "normal" },
+      });
+    };
+    await brief("before");
+    const method = process.env.PURGE_METHOD;
+    const blip = /^blip-(\d+)$/.exec(method);
+    const hideGc = /^hidegc-(\d+)$/.exec(method);
+    const frozenGc = /^frozengc-(\d+)$/.exec(method);
+    if (method === "none") {
+      // the control: nothing but time
+    } else if (method === "wait15") await wait(15000); // the control for the 15 s methods
+    else if (method === "forcibly") await cdp.send("Memory.forciblyPurgeJavaScriptMemory");
+    else if (method === "gc-forcibly") {
+      await cdp.send("HeapProfiler.collectGarbage");
+      await cdp.send("Memory.forciblyPurgeJavaScriptMemory");
+    } else if (method === "leak-prep") await cdp.send("Memory.prepareForLeakDetection" as never);
+    else if (method === "snapshot") await takeSnapshot(cdp);
+    else if (method === "last-resort")
+      await page.evaluate(() =>
+        (globalThis as { gc?: (options: object) => void }).gc?.({
+          type: "major",
+          execution: "sync",
+          flavor: "last-resort",
+        }),
+      );
+    else if (method === "frozen") {
+      await cdp.send("Page.setWebLifecycleState", { state: "frozen" });
+      await wait(15000);
+      await cdp.send("Page.setWebLifecycleState", { state: "active" });
+    } else if (method === "focus") {
+      await cdp.send("Emulation.setFocusEmulationEnabled", { enabled: true });
+      await wait(15000);
+      await cdp.send("Emulation.setFocusEmulationEnabled", { enabled: false });
+    } else if (method === "hidden") {
+      await minimize(true);
+      await wait(15000);
+      await minimize(false);
+    } else if (frozenGc) {
+      // Frozen for N ms (the page stays shown), one full collection while frozen, then thawed.
+      await cdp.send("Page.setWebLifecycleState", { state: "frozen" });
+      await wait(Number(frozenGc[1]));
+      await cdp.send("HeapProfiler.collectGarbage");
+      await cdp.send("Page.setWebLifecycleState", { state: "active" });
+    } else if (hideGc) {
+      // Hidden for N ms, one full collection while hidden, shown again.
+      await minimize(true);
+      await wait(Number(hideGc[1]));
+      await cdp.send("HeapProfiler.collectGarbage");
+      await minimize(false);
+    } else if (method === "gc2") {
+      // Two full collections 1.5 s apart: Oilpan may free empty pages only on a later sweep.
+      await cdp.send("HeapProfiler.collectGarbage");
+      await wait(1500);
+      await cdp.send("HeapProfiler.collectGarbage");
+    } else if (method === "major2") {
+      const major = () =>
+        page.evaluate(() =>
+          (globalThis as { gc?: (options: object) => void }).gc?.({ type: "major", execution: "sync" }),
+        );
+      await major();
+      await wait(1500);
+      await major();
+    } else if (blip) {
+      await minimize(true);
+      await wait(Number(blip[1]));
+      await minimize(false);
+    } else throw new Error(`PURGE_METHOD ${method}: unknown`);
+    await wait(3000);
+    await brief("after3s");
+    await wait(15000);
+    await brief("after18s");
   }
   if (process.env.PURGE === "1") {
     // What Chromium's own memory-pressure response gives back with every page kept (bench_memory.py --purge-hidden).
