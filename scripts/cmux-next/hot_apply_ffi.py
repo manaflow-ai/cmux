@@ -446,7 +446,11 @@ def launch(app: Path, old_pid: int | None, front: bool = False) -> dict:
     finally:
         close_opener(opener)
     answered = time.monotonic() - t0
-    time.sleep(STAY_SECONDS)
+    # The check is that the app stays up STAY_SECONDS, so that whole window is spent; it is watched throughout so a
+    # crash fails at once instead of at its end.
+    stay_until = time.monotonic() + STAY_SECONDS
+    while time.monotonic() < stay_until and app_pid(app) == pid:
+        time.sleep(min(0.5, max(0.0, stay_until - time.monotonic())))
     if app_pid(app) != pid:
         raise RuntimeError(f"the app (pid {pid}) did not stay up {STAY_SECONDS:g} s")
     return {"pid": pid, "answered_seconds": round(answered, 3), "stayed_seconds": STAY_SECONDS, "opened_via": opener["via"]}
