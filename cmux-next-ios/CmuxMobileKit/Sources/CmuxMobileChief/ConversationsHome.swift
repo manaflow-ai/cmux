@@ -442,22 +442,13 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         .scrollContentBackground(.hidden)
         .background(CmuxMobileBackdrop().ignoresSafeArea())
         // Kept rows show while the Mac's list loads: say they are being updated, over the
-        // list (no row moves when it goes).
+        // list (no row moves when it goes), as the one-word connection chip (Leo, 2026-11-21:
+        // "a symbol or short thing, not a sentence. stop layout shifting").
         .overlay(alignment: .bottom) {
             if listNote(searching: searching) == .updating {
-                HStack(spacing: 6) {
-                    CmuxSpinner().controlSize(.small)
-                    Text("Updating…")
-                        .font(.footnote)
-                        .foregroundStyle(theme.colors.label2.color)
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .background(.regularMaterial, in: .capsule)
-                .padding(.bottom, 8)
-                .allowsHitTesting(false)
-                .accessibilityElement(children: .combine)
-                .accessibilityIdentifier("home.note.updating")
+                ConnectionChip(.init(.updating, sentence: String(localized: "Updating…")))
+                    .padding(.bottom, 8)
+                    .accessibilityIdentifier("home.note.updating")
             }
         }
         // Arriving at Home while its list is not live dials the Mac again (Workspaces dials a

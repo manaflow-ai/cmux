@@ -57,6 +57,9 @@ public final class WebUpdates {
     /// Reads the channel's drill switch file instead (`updates.web.pieces.check` with `drill`), until
     /// cmux quits: a switch is rehearsed on this Mac before every app takes it.
     @ObservationIgnored var piecesDrill = false
+    /// The kept updates' folders that verified in this run, so a pieces read does not hash them
+    /// again after every check (``resolve(_:_:_:verified:)``).
+    @ObservationIgnored var verifiedTrees = VerifiedTrees()
     @ObservationIgnored private var observers: [Task<Void, Never>] = []
     @ObservationIgnored private var started = false
 
@@ -119,6 +122,10 @@ public final class WebUpdates {
             return Array(Set(WebBundleServedViews.shared.pinnedTrees + overlay.switchedTrees + [overlay.activeTree].compactMap { $0 }))
         }
         updater.onChecked = { [weak self] in self?.readPieces(offline: false) }
+        updater.refuses = { [weak self, weak updater] pointer in
+            guard let self, let updater else { return false }
+            return await piecesRefuse(pointer, updater)
+        }
         // Checks come every minute only while cmux is in the front (the activation observers follow it).
         updater.foreground = NSApp?.isActive ?? false
         self.updater = updater

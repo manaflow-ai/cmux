@@ -222,6 +222,12 @@
             "web / web-typecheck"
           ],
           "prefixes": []
+        },
+        "webviews-typecheck": {
+          "exact": [
+            "web / webviews-typecheck"
+          ],
+          "prefixes": []
         }
       },
       "workflow": "ci-web.yml"
