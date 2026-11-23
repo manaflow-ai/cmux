@@ -105,17 +105,33 @@ import CmuxNextTestSupport
     }
 
     /// A left click at `screen`, delivered as the window server does: to the frontmost window
-    /// there that takes mouse events.
+    /// there that takes mouse events. The release is queued before the press is sent: the x is an
+    /// NSButton, whose press tracks the mouse until it reads the release from the queue.
     func click(at screen: NSPoint, windows: [NSWindow]) throws -> NSWindow {
         let target = try #require(windows.first { $0.isVisible && !$0.ignoresMouseEvents && $0.frame.contains(screen) },
                                   "no window takes a click at \(screen)")
         let location = target.convertPoint(fromScreen: screen)
-        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
-            let event = try #require(NSEvent.mouseEvent(with: type, location: location, modifierFlags: [],
-                                                        timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: target.windowNumber,
-                                                        context: nil, eventNumber: 0, clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0))
-            target.sendEvent(event)
+        func event(_ type: NSEvent.EventType) throws -> NSEvent {
+            try #require(NSEvent.mouseEvent(with: type, location: location, modifierFlags: [],
+                                            timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: target.windowNumber,
+                                            context: nil, eventNumber: 0, clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0))
         }
+        let down = try event(.leftMouseDown), up = try event(.leftMouseUp)
+        // In a nested pass of its own mode (as HomeOpenFocusesComposerTests' click): the button's tracking posts
+        // and dequeues events, and must never run other suites' main-actor work or stop the test run's loop.
+        let mode = CFRunLoopMode("com.cmuxterm.next.tests.update-card-hide-click" as CFString)
+        CFRunLoopPerformBlock(CFRunLoopGetMain(), mode.rawValue) {
+            MainActor.assumeIsolated {
+                NSApp.postEvent(up, atStart: false)
+                target.sendEvent(down)
+                // A view that did not track the press (no NSButton under the point) leaves the release queued: deliver it.
+                if let queued = NSApp.nextEvent(matching: .leftMouseUp, until: Date(), inMode: .default, dequeue: true) {
+                    target.sendEvent(queued)
+                }
+            }
+            CFRunLoopWakeUp(CFRunLoopGetMain())
+        }
+        _ = CFRunLoopRunInMode(mode, 5, true)
         return target
     }
 
