@@ -67,7 +67,8 @@ for content in typing page; do
         dump=()
         [[ "$vname" == shipped ]] && dump=(--dump "$work/yuv")
         CMUX_OH264_ABLATE="$ablate" nice -n 10 taskset -c "0-$last" "$bin" --rect "$r" --mode "$mode" \
-          --content "$content" --frames "$frames" --threads "$cores" "${dump[@]}" --json "$work/row.jsonl" > /dev/null
+          --content "$content" --frames "$frames" --threads "$cores" "${dump[@]}" --json "$work/row.jsonl" > /dev/null ||
+          echo "{\"content\":\"$content\",\"rect\":\"$r\",\"mode\":\"$mode\",\"na\":\"encoder failed to open or run\"}" >> "$work/row.jsonl"
         python3 -I -c '
 import json, sys
 name = sys.argv[1]
@@ -108,15 +109,16 @@ for content in ["typing", "page"]:
     for r in ["64x32", "640x32", "640x480", "1920x1080"]:
         for v in ["shipped", "fme off"]:
             g = {x["mode"]: x for x in rows if x["content"] == content and x["rect"] == r and x["variant"] == v}
-            if len(g) < 3:
+            g = {m: x for m, x in g.items() if "na" not in x}
+            if not g:
                 continue
-            f = lambda m, k: f'{g[m][k]:.2f}' if m in g else "-"
+            f = lambda m, k: f'{g[m][k]:.2f}' if m in g else "n/a"
             fl = x264.get(f"{content}-{r}-full"); cr = x264.get(f"{content}-{r}-crop")
             fx = "-" if v != "shipped" or fl is None else f"{fl:.2f} / {cr:.2f}" if cr else f"{fl:.2f}"
-            ps = lambda m: f'{g[m]["psnr_full_db"]:.1f} ({g[m]["psnr_rect_db"]:.1f})'
+            ps = lambda m: f'{g[m]["psnr_full_db"]:.1f} ({g[m]["psnr_rect_db"]:.1f})' if m in g else "n/a"
             lines.append(f"| {r} | {v} | " + " | ".join(f(m, "encode_ms_p50") for m in ["full", "crop", "skip"]) + f" | {fx} | "
                          + " | ".join(ps(m) for m in ["full", "crop", "skip"]) + " | "
-                         + " | ".join(f"{g[m]['kbps']:.0f}" for m in ["full", "crop", "skip"]) + " |")
+                         + " | ".join(f"{g[m]['kbps']:.0f}" if m in g else "n/a" for m in ["full", "crop", "skip"]) + " |")
     lines.append("")
 open(f"{out}/table.md", "w").write("\n".join(lines))
 print("\n".join(lines))
