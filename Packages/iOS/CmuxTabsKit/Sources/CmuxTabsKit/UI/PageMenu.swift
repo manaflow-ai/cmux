@@ -27,17 +27,22 @@ struct PageMenu: View {
         return rows * m.menuRow + CGFloat(max(0, groups.count - 1)) * m.menuGroupGap + 20
     }
 
-    var body: some View {
-        let m = theme.metrics
-        let full: CGRect
+    /// The open menu's frame: it drops down from a top bar's capsule (to `bottomLimit`) or
+    /// grows up from a bottom bar's (to `topLimit`).
+    private var fullFrame: CGRect {
+        let width = theme.metrics.menuWidth
         if let bottomLimit {
             let top = capsule.minY + 1
-            full = CGRect(x: capsule.minX, y: top, width: m.menuWidth, height: max(1, min(contentHeight, bottomLimit - top)))
-        } else {
-            let bottom = capsule.maxY - 1
-            let height = max(1, min(contentHeight, bottom - topLimit))
-            full = CGRect(x: capsule.minX, y: bottom - height, width: m.menuWidth, height: height)
+            return CGRect(x: capsule.minX, y: top, width: width, height: max(1, min(contentHeight, bottomLimit - top)))
         }
+        let bottom = capsule.maxY - 1
+        let height = max(1, min(contentHeight, bottom - topLimit))
+        return CGRect(x: capsule.minX, y: bottom - height, width: width, height: height)
+    }
+
+    var body: some View {
+        let m = theme.metrics
+        let full = fullFrame
         let height = full.height
         let r = expanded ? full : origin
         ZStack(alignment: .topLeading) {
