@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextFocus
 import CmuxNextFocusUI
@@ -92,12 +93,12 @@ final class CreationInputCoordinator {
 
     /// Opens the window's buffer for one creation that moves focus under the user intent
     /// `generation`; nil without a window, or when the creation may not move focus (a CLI,
-    /// script or agent run without `focus`), which leaves the keys where they are. `newTerminal`, `standInSends`: `CreationInputBuffer.open`'s.
-    func begin(in window: NSWindow?, generation: UInt64?, earlyTab: String? = nil, tab: String? = nil, machine: String? = nil, newTerminal: Bool = false, standInSends: Bool = true) -> CreationInputBuffer.Ticket? {
+    /// script or agent run without `focus`), which leaves the keys where they are. `newTerminal`, `standInSends`, `typesIntoTab`: `CreationInputBuffer.open`'s.
+    func begin(in window: NSWindow?, generation: UInt64?, earlyTab: String? = nil, tab: String? = nil, machine: String? = nil, newTerminal: Bool = false, standInSends: Bool = true, typesIntoTab: Bool = true) -> CreationInputBuffer.Ticket? {
         guard let window, let generation, ActionRunScope.viewChangeAllowed() else { return nil }
         defer { router?.newTabInputCoordinator.creationTookKeys(in: window) } // the newer intent: a New Tab hold's keys come here, in order
         defer { if let focus = router?.focus(for: window).0?.focus, focus.state.awaitsOtherTab, let pane = focus.state.pane { focus.send(.contentPresented(pane: pane)) } } // the page the person left gives this hold the keys now (P0 INVERSE-KEY)
-        return buffer(in: window).open(generation: generation, earlyTab: earlyTab, tab: tab, machine: machine ?? router?.focus(for: window).0?.content?.daemon.machineID, newTerminal: newTerminal, standInSends: standInSends)
+        return buffer(in: window).open(generation: generation, earlyTab: earlyTab, tab: tab, machine: machine ?? router?.focus(for: window).0?.content?.daemon.machineID, newTerminal: newTerminal, standInSends: standInSends, typesIntoTab: typesIntoTab)
     }
 
     /// ``CreationInputBuffer/keepsKeysFromLeftPage(awaitsOtherTab:generation:focusedTab:)`` for `window`'s hold.
@@ -111,8 +112,7 @@ final class CreationInputCoordinator {
         return begin(in: window, generation: generation)
     }
 
-    /// Whether a creation or its asynchronous placement is still outstanding in this window.
-    func hasPendingCreation(in window: NSWindow?) -> Bool { window.flatMap { buffers[$0.windowNumber] }?.hasPendingCreation == true }
+    func hasPendingCreation(in window: NSWindow?) -> Bool { window.flatMap { buffers[$0.windowNumber] }?.hasPendingCreation == true } // a creation or its asynchronous placement is still outstanding in this window
 
     /// The person closed provisional tab `tab` in `window` before the daemon made it: the keys held
     /// for it are dropped and the rest go on (``CreationInputBuffer/cancel(tab:)``), with the keys a New Tab page's opening holds for it. So are the keys its
@@ -132,10 +132,7 @@ final class CreationInputCoordinator {
     }
 
     /// A selection shows a terminal whose surface comes later: keys wait for it, at most `holdLimit`.
-    func holdUntilShown(in window: NSWindow?) {
-        guard let window, ActionRunScope.viewChangeAllowed() else { return }
-        _ = buffer(in: window)
-    }
+    func holdUntilShown(in window: NSWindow?) { if let window, ActionRunScope.viewChangeAllowed() { _ = buffer(in: window) } }
 
     private func buffer(in window: NSWindow) -> CreationInputBuffer {
         let number = window.windowNumber
@@ -252,8 +249,8 @@ final class CreationInputCoordinator {
         if closes, buffer.isClosing(tab: controller?.focus.state.terminalTab) { return false }
         // Focus left the content (a sidebar or bar field) or the hold lets this key go: the held
         // keys go on first, then this one (into a hold a replayed key opened, if it keeps it). A surface hold keeps a chord no app shortcut takes (Ctrl-C).
-        // A page hold keeps every key but a close (Cmd-L needs the page), until its bound.
-        guard kind == .content, let focused = controller, (!closes && buffer.awaitsPage && ContinuousClock.now - buffer.began < holdLimit && AwaitedContent.pageHoldKeeps(isChord: KeyRouter.isChord(event.modifierFlags), holdIsEmpty: buffer.isEmpty, command: router.resolve(event, context: router.keyContext(for: focused.focus.currentState(), facts: router.facts(in: shell, controller: focused)))?.command.rawValue, pageCreated: router.focusedBrowserTab(in: focused)?.pageCreated ?? false)) || (!closes && KeyRouter.isChord(event.modifierFlags) && buffer.awaitedTab.map { shortcut(event, tab: $0, in: shell) == nil } == true) || buffer.holds(event, limit: holdLimit, expiring: true, closes: closes) else {
+        // A page hold keeps every key but a close (Cmd-L needs the page), until its bound. An omnibar that edits is a bar field (a new browser tab's, on its stand-in).
+        guard kind == .content, let focused = controller, !Self.omnibarHasKeys(focused, shell), (!closes && buffer.awaitsPage && ContinuousClock.now - buffer.began < holdLimit && AwaitedContent.pageHoldKeeps(isChord: KeyRouter.isChord(event.modifierFlags), holdIsEmpty: buffer.isEmpty, command: router.resolve(event, context: router.keyContext(for: focused.focus.currentState(), facts: router.facts(in: shell, controller: focused)))?.command.rawValue, pageCreated: router.focusedBrowserTab(in: focused)?.pageCreated ?? false)) || (!closes && KeyRouter.isChord(event.modifierFlags) && buffer.awaitedTab.map { shortcut(event, tab: $0, in: shell) == nil } == true) || buffer.holds(event, limit: holdLimit, expiring: true, closes: closes) else {
             if buffer.waitedPastReplyBound() { buffer.onBound?(buffer, .reply) } else { flush(in: shell, force: true, end: .focusLeft) }
             guard let next = buffers[shell.windowNumber] else { return kind == .content && keepsFromWindow(event, in: shell) }
             guard next.holds(event, limit: holdLimit, expiring: false, closes: closes) else { return false }
@@ -318,6 +315,8 @@ final class CreationInputCoordinator {
         return router.resolve(event, context: context).map { ($0, context) }
     }
 
+    /// The focus is on a shown browser tab's omnibar and it edits as `window`'s first responder: a key typed now lands in it.
+    private static func omnibarHasKeys(_ controller: WindowController, _ window: NSWindow) -> Bool { guard case .addressBar(let pane, let tab) = controller.focus.state.resolved, let shown = controller.content?.paneController(key: pane), shown.currentTabKey == tab, case .browser(let entry)? = shown.currentContent, let bar = entry.chrome?.addressBar else { return false }; return bar.window === window && bar.editsAsFirstResponder }
     /// The focused terminal's tab when its shown view has the keyboard (never another view: a composer, a text field).
     private static func keyboardTerminal(_ controller: WindowController, _ window: NSWindow) -> String? {
         guard case .terminal(let pane, let tab) = controller.focus.state.resolved, let shown = controller.content?.paneController(key: pane),
@@ -362,10 +361,7 @@ final class CreationInputCoordinator {
 
     private func scheduleFlush(in window: NSWindow) {
         // task-owner: one flush check in a fresh main-actor turn, without the creating action's task-locals
-        Task.detached { @MainActor [weak self, weak window] in
-            guard let self, let window else { return }
-            flush(in: window)
-        }
+        Task.detached { @MainActor [weak self, weak window] in if let window { self?.flush(in: window) } }
     }
 
     /// `force`: the hold ends now (its limit, focus left the content), whatever it waited for.
@@ -373,7 +369,8 @@ final class CreationInputCoordinator {
     private func flush(in window: NSWindow, force: Bool = false, end forcedEnd: CreationHoldEnd = .limitReached) {
         guard let buffer = buffers[window.windowNumber], asking[window.windowNumber] == nil else { return } // a close's question is up: the keys wait for its answer, never typed into it (a Return would press Close)
         guard force || buffer.isResolved else {
-            // Before every reply, only a creation whose early view has the keyboard takes its own keys (a focus settle).
+            // Before every reply, only a creation whose early view has the keyboard takes its own keys (a focus settle); an omnibar that edits takes them all, as a bar field.
+            if let controller = router?.focus(for: window).0, Self.omnibarHasKeys(controller, window) { return flush(in: window, force: true, end: .focusLeft) }
             if let lane = router?.focus(for: window).0.flatMap({ Self.keyboardTerminal($0, window).flatMap(buffer.earlyLane(tab:)) }) { _ = runAgain(buffer.take(lane: lane), from: buffer, in: window) }
             return
         }

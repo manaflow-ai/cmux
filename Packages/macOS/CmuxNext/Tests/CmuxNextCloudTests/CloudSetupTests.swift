@@ -50,6 +50,35 @@ struct CloudSetupTests {
         #expect(await rule.decide(harness: "claude", model: nil) == .setup(family: "claude", model: nil))
     }
 
+    /// cmux#45773: once a start found the team's shared key unrouted (no machine gets the Cloud service's edge), the key
+    /// is no longer chosen, so Set up Cloud waits for a connection of the person's own instead of starting on it again.
+    @Test func anUnroutedOrganizationKeyIsNotChosenAgain() async {
+        let connections = Connections(.init(personal: [], organization: ["claude"]))
+        let rule = setup(connections)
+        #expect(await rule.choose(harness: "claude", model: nil, account: nil) == .organization(family: "claude"))
+        rule.organizationUnrouted("claude")
+        #expect(await rule.choose(harness: "claude", model: nil, account: nil) == .setup(family: "claude", model: nil))
+        let wait = Task { await rule.waitUntilServed(family: "claude") }
+        while connections.reads < 3 { await Task.yield() } // the wait read the team's key alone and parked
+        await Task.yield()
+        connections.snapshot = .init(personal: [.init(id: "claude-token:1", families: ["claude"])], organization: ["claude"])
+        rule.connectionsChanged()
+        #expect(await wait.value)
+        #expect(await rule.choose(harness: "claude", model: nil, account: nil) == .connection(id: "claude-token:1", family: "claude"))
+    }
+
+    /// cmux#45773: a start whose machine gave its agent no model shows Set up Cloud only when it ran on the team's key and
+    /// the next choice is that card; with this Mac's connections unread, or a connection of its own, it answers nil.
+    @Test func anUnroutedStartShowsSetUpCloudOnlyForTheTeamsKey() async {
+        let rule = setup(Connections(.init(personal: [], organization: ["claude"])))
+        let card = await rule.unrouted(harness: "claude", model: "opus", account: nil)
+        #expect(card?.family == "claude" && card?.model == "opus")
+        #expect(rule.unroutedOrganization == ["claude"])
+        #expect(await setup(Connections(.init(personal: nil, organization: ["claude"]))).unrouted(harness: "claude", model: nil, account: nil) == nil)
+        #expect(await setup(Connections(.init(personal: [], organization: nil))).unrouted(harness: "claude", model: nil, account: nil) == nil)
+        #expect(await rule.unrouted(harness: "gemini", model: nil, account: nil) == nil)
+    }
+
     /// Revision 2's choice: the picker's account when it serves Cloud, else the first enabled
     /// Cloud-serving connection of the family in order, before the organization's key. A Mac CLI login
     /// (`serves_cloud: false`) is never chosen.
@@ -70,6 +99,45 @@ struct CloudSetupTests {
         #expect(await setup(Connections(.init(personal: [login], organization: []))).choose(harness: "claude", model: "m", account: "claude-login")
             == .setup(family: "claude", model: "m"))
         #expect(CloudSetup.isConnectionID("chatgpt-plan:1") && !CloudSetup.isConnectionID("a b") && !CloudSetup.isConnectionID(""))
+    }
+
+    /// hq#15762: a team in inference gateway mode with its gateway online serves a person with no connection of their own
+    /// (production 2026-11-20 19:54Z: "No Cloud connection serves claude" with the gateway up). It is read only when
+    /// nothing else serves, and a connection or the team's key still wins.
+    @Test func anOnlineTeamGatewayServesWhenNothingElseDoes() async {
+        let connections = Connections(.init(personal: [], organization: []))
+        var gatewayReads = 0
+        var served: Set<String>? = ["claude", "codex"]
+        let rule = setup(connections)
+        rule.gateway = { gatewayReads += 1; return served }
+        #expect(await rule.choose(harness: "claude", model: nil, account: nil) == .gateway(family: "claude"))
+        #expect(await rule.decide(harness: "codex", model: nil) == .start)
+        #expect(CloudSetup.Choice.gateway(family: "claude").connectionID == nil)
+        #expect(await rule.waitUntilServed(family: "claude"))
+        // A start on it that reached no model route: the card, and Set up Cloud no longer passes on the gateway alone.
+        let unrouted = setup(Connections(.init(personal: [], organization: [])))
+        unrouted.gateway = { ["claude"] }
+        let card = await unrouted.unrouted(harness: "claude", model: "m", account: nil)
+        #expect(card?.family == "claude" && card?.model == "m")
+        #expect(unrouted.unroutedGateway == ["claude"])
+        #expect(await unrouted.decide(harness: "claude", model: nil) == .setup(family: "claude", model: nil))
+        // Off, offline (empty) or unread (nil): the card again.
+        for value in [Set<String>(), nil] {
+            served = value
+            #expect(await rule.decide(harness: "claude", model: "m") == .setup(family: "claude", model: "m"))
+        }
+        // Something else serves: the gateway is not read.
+        served = ["claude"]
+        gatewayReads = 0
+        connections.snapshot = .init(personal: [.init(id: "claude-token:1", families: ["claude"])], organization: ["codex"])
+        #expect(await rule.choose(harness: "claude", model: nil, account: nil) == .connection(id: "claude-token:1", family: "claude"))
+        #expect(await rule.choose(harness: "codex", model: nil, account: nil) == .organization(family: "codex"))
+        #expect(gatewayReads == 0)
+        // An agent Cloud does not serve, or connections unread, never read it either.
+        connections.snapshot = .init(personal: nil, organization: nil)
+        #expect(await rule.choose(harness: "claude", model: nil, account: nil) == .fallback)
+        #expect(await rule.choose(harness: "opencode", model: nil, account: nil) == .fallback)
+        #expect(gatewayReads == 0)
     }
 
     /// An acpmux that predates `_acpmux/connections` (no daemon either) keeps every start as it was.

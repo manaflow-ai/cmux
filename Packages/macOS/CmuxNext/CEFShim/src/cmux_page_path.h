@@ -297,8 +297,10 @@ inline std::vector<std::pair<std::string, std::string>> PageResponseHeaders(cons
 // whole SiteInfo, which includes the document's cross-origin isolation (WebExposedIsolationInfo): a
 // document answered with `Cross-Origin-Opener-Policy: same-origin` and
 // `Cross-Origin-Embedder-Policy: credentialless` is cross-origin isolated, so it goes to the site's
-// isolated renderer, one more renderer whatever number of documents land there, while documents
-// without them keep sharing. Same origin, so localStorage and BroadcastChannel stay shared.
+// isolated renderers, apart from the ones documents without them share. The per-renderer page cap
+// (`cmux-process-per-site-main-frame-cap`, CEFSwitches.pagesPerRenderer) counts the isolated ones on
+// their own, so they cost what any 8 chats cost: one renderer per 8 isolated documents still open.
+// Same origin, so localStorage and BroadcastChannel stay shared.
 //
 // Never `Origin-Agent-Cluster: ?1` here: Chromium honors that opt-in only for HTTP(S) origins, yet
 // still registers it for a cmux-page document, and ChildProcessSecurityPolicy CHECKs ("Trying to

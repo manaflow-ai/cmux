@@ -107,6 +107,9 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `drive.usercontent.google.com` | connects | the Google integration, only when an agent uses it in your signed-in browser |
 | `fonts.googleapis.com` | connects | fonts an agent's rendered page may load |
 | `generativelanguage.googleapis.com` | connects | the Google AI API, when you give an agent a Google AI API key |
+| `compute.googleapis.com` | connects | only `cmux vm pool` (the CI runner pool tool, run by cmux's own CI with its own Google Cloud credential): lists, resumes and suspends the pool's instances by name; never run by the app |
+| `monitoring.googleapis.com` | connects | only `cmux vm pool` (the CI runner pool tool, run by cmux's own CI with its own Google Cloud credential): reads the pool instances' CPU use; never run by the app |
+| `api.freestyle.sh` | connects | only `cmux vm pool` (the CI runner pool tool, run by cmux's own CI with its own Freestyle key): lists, starts and pauses the pool's VMs; never run by the app |
 | `lh3.googleusercontent.com` | connects | images in agent replies |
 | `fonts.gstatic.com` | connects | fonts an agent's rendered page may load |
 | `www.linkedin.com` | connects | the LinkedIn integration, only when an agent uses it in your signed-in browser |
@@ -136,6 +139,7 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `vm.cmux.dev` | connects | cmux Cloud machine API (production) |
 | `vm-staging.cmux.dev` | connects | cmux Cloud machine API on staging, only when chosen |
 | `herdr.dev` | connects | the agent-detection catalog, read by the daemon |
+| `models.dev` | connects | the public model list the daemon's live model catalog reads (new models in the model picker) |
 | `cmux-api-development.debussy.workers.dev` | connects | cmux API in development builds |
 | `cmux-api-staging.debussy.workers.dev` | connects | cmux API on staging, only when chosen |
 | `cmux-api-preview-*.debussy.workers.dev` | connects | cmux API of one pull request's preview, only when chosen |
@@ -181,6 +185,7 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `docs.anthropic.com` | opens | setup docs for an agent, opened from onboarding |
 | `apple.com` | opens | a site the address bar suggests before it is in your history |
 | `developer.apple.com` | opens | a site the address bar suggests before it is in your history |
+| `apps.apple.com` | opens | Apple's App Store subscription management page, opened from the iPhone app's Delete Account warning when StoreKit can't show its own sheet |
 | `www.baidu.com` | opens | a search engine, when you search with it |
 | `bbc.com` | opens | a site the address bar suggests before it is in your history |
 | `bing.com` | opens | a site the address bar suggests before it is in your history |
@@ -295,6 +300,8 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `trycloudflare.com` | identifier | a shared hosting domain, so sites under it are told apart |
 | `vs-ssh.visualstudio.com` | identifier | a git host name, so it is not shown as one of your computers |
 | `m.youtube.com` | identifier | YouTube host names, to find captions in a page you have open |
+| `youtu.be` | identifier | a YouTube host name, so a pasted video address can be a background (read as its video id); never fetched |
+| `youtube-nocookie.com` | identifier | a YouTube host name, so a pasted video address can be a background (read as its video id); never fetched |
 | `fly.dev` | identifier | a shared hosting domain, so sites under it are told apart |
 | `pages.dev` | identifier | a shared hosting domain, so sites under it are told apart |
 | `workers.dev` | identifier | a shared hosting domain, so sites under it are told apart |
@@ -342,7 +349,7 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `task.ai` | not-a-host | a symbol or icon name |
 | `argument.app` | not-a-host | a localized string key |
 | `toast.detail.io` | not-a-host | a localized string key |
-| `cmux.app` | not-a-host | a file name |
+| `projection.io` | not-a-host | an error code of projected folders |
 | `cmux-ios-com.cmux.app` | not-a-host | a URL scheme or bundle id |
 | `debug.crash.app` | not-a-host | a method, area or resource kind name |
 | `arrow.down.app` | not-a-host | a symbol or icon name |

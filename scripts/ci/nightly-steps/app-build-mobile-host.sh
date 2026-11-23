@@ -17,7 +17,7 @@ python3 scripts/ci/background_build.py start --state "$RUNNER_TEMP/nightly-helpe
 echo "CMUX_NEXT_MOBILE_HOST_PENDING_BIN=$hostd_bin" >> "$GITHUB_ENV"
 # The Screen Sharing helper (plans/cmux-next/screen-sharing-helper.md) builds beside it the same
 # way: bundled after xcodebuild (app-bundle-chief-and-mobile-host.sh) into
-# Contents/Library/<app> Screen Sharing.app, which sign-cmux-bundle.sh stamps for the final
+# Contents/Library/<app> Helper.app, which sign-cmux-bundle.sh stamps for the final
 # bundle id and signs with the app's Developer ID before notarization.
 screen_helper_bin="$RUNNER_TEMP/cmux-next-screen-sharing-helper/cmux-screen-sharing"
 python3 scripts/ci/background_build.py start --state "$RUNNER_TEMP/nightly-helper-builds" screen-sharing-helper -- \

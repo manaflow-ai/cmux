@@ -35,6 +35,7 @@ import Foundation
 //   accessible `label` when it has them, in document order (PageDebugQuery);
 // - `wait` (`selector`, `timeout_ms`, max 90000): one rendered selector match, observed without polling;
 // - `type` (`text`, `selector`?): inserts text as typed input in the matching (else the focused) element;
+// - `select`, `blur`: a field's caret, selection and focus for captures (PageWebView.debugEdit);
 // - `call` (`op`, `params`): one call message through the page's router, exactly as the page's
 //   bridge sends it (the host sets the calling page's id). With `page: "cmux.cloud"` and no live
 //   Cloud page, a hidden one is made first (so a probe needs no open Cloud tab);
@@ -130,6 +131,7 @@ enum DebugPages {
         case "type":
             guard let text = params["text"]?.stringValue else { return ["error": "text is required"] }
             return ["inserted": .bool(await page.debugInsertText(text, selector: params["selector"]?.stringValue))]
+        case "select", "blur": return await page.debugEdit(params)
         case "call":
             guard let op = params["op"]?.stringValue else { return ["error": "op is required"] }
             return await page.router.handle(["t": "call", "id": 1, "op": .string(op), "params": params["params"] ?? .object([:])])

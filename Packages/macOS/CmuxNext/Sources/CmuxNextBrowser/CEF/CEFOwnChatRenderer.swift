@@ -12,8 +12,9 @@ import Foundation
 /// that browser's chat document with `Cross-Origin-Opener-Policy: same-origin` and
 /// `Cross-Origin-Embedder-Policy: credentialless` (`OwnRendererHeaders`, cmux_page_path.h). Chromium keys a
 /// site's one renderer by the whole site info, which includes cross-origin isolation, so that document runs
-/// in the site's isolated renderer: one more renderer, never more, however many documents were ever answered
-/// so. The rest keep sharing. (Not `Origin-Agent-Cluster`: on a cmux-page origin it hits a Chromium CHECK.)
+/// in the site's isolated renderers, apart from the ones the rest share. The per-renderer page cap
+/// (`CEFSwitches.pagesPerRenderer`) applies to the isolated documents as to any, so they add one renderer per
+/// 8 isolated chats still open, never one per chat. (Not `Origin-Agent-Cluster`: on a cmux-page origin it hits a Chromium CHECK.)
 ///
 /// A document cannot move between renderers, so the choice takes effect on the chat's next load: a new
 /// chat, a restore, a reload or a hibernated chat waking up. Focus moving to a chat already loaded does not
