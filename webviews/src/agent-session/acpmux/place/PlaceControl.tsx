@@ -2,6 +2,7 @@ import { Menu, MenuButton, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../.
 import { ChevronIcon } from "../ComposerPickers";
 import { EnvironmentIcon } from "../EnvironmentPicker";
 import { useT, type Translate } from "../i18n";
+import { AutoReserveControl } from "./AutoReserveControl";
 import type { PlaceMode, PlaceState } from "./placeModel";
 import "./place.css";
 
@@ -61,12 +62,19 @@ export function PlaceControl({
   place,
   look = "segmented",
   onMode,
+  onReserve,
 }: {
   place: PlaceState;
   look?: PlaceControlLook;
   onMode(mode: PlaceMode): void;
+  /// Auto on reserve's setting (RFD 0072); drawn under Auto when the app sends `place.reserve`.
+  onReserve?(next: { on: boolean; keep: number }): void;
 }) {
   const t = useT();
+  const reserve =
+    place.mode === "auto" && place.reserve && onReserve ? (
+      <AutoReserveControl reserve={place.reserve} look={look === "rows" ? "card" : "stops"} onChange={onReserve} />
+    ) : null;
   const moving = place.move?.state === "moving";
   const rule = t("placeAuto.rule");
   const here = t("place.runsAt", { place: placeName(place, t) });
@@ -105,39 +113,43 @@ export function PlaceControl({
               </MenuRadioItem>
             ))}
           </MenuRadioGroup>
+          {reserve}
         </MenuPopup>
       </Menu>
     );
   }
   if (look === "rows") {
     return (
-      <div className="acpmux-place acpmux-place-rows" role="radiogroup" aria-label={t("place.label")} title={here}>
-        {MODES.map((mode) => (
-          <button
-            key={mode}
-            type="button"
-            role="radio"
-            aria-checked={place.mode === mode}
-            className="acpmux-place-rowbtn"
-            data-testid={`place-${mode}`}
-            data-on={place.mode === mode ? "true" : undefined}
-            onClick={() => onMode(mode)}
-          >
-            <ModeIcon mode={mode} place={place} />
-            <span className="acpmux-place-row-text">
-              <span>{modeLabel(mode, t)}</span>
-              <span className="acpmux-place-rule">
-                {mode === "local"
-                  ? t("place.thisMac")
-                  : mode === "cloud"
-                    ? (place.cloudName ?? t("place.ownVm"))
-                    : rule}
+      <>
+        <div className="acpmux-place acpmux-place-rows" role="radiogroup" aria-label={t("place.label")} title={here}>
+          {MODES.map((mode) => (
+            <button
+              key={mode}
+              type="button"
+              role="radio"
+              aria-checked={place.mode === mode}
+              className="acpmux-place-rowbtn"
+              data-testid={`place-${mode}`}
+              data-on={place.mode === mode ? "true" : undefined}
+              onClick={() => onMode(mode)}
+            >
+              <ModeIcon mode={mode} place={place} />
+              <span className="acpmux-place-row-text">
+                <span>{modeLabel(mode, t)}</span>
+                <span className="acpmux-place-rule">
+                  {mode === "local"
+                    ? t("place.thisMac")
+                    : mode === "cloud"
+                      ? (place.cloudName ?? t("place.ownVm"))
+                      : rule}
+                </span>
               </span>
-            </span>
-            {place.mode === mode && <span className="acpmux-place-here" aria-hidden="true" />}
-          </button>
-        ))}
-      </div>
+              {place.mode === mode && <span className="acpmux-place-here" aria-hidden="true" />}
+            </button>
+          ))}
+        </div>
+        {reserve}
+      </>
     );
   }
   return (
@@ -165,6 +177,7 @@ export function PlaceControl({
           {rule}
         </span>
       )}
+      {reserve}
     </div>
   );
 }

@@ -437,3 +437,57 @@
   inset-block: 0 auto;
   height: var(--ui-row-height);
 }
+
+/* Auto on reserve (AutoReserveControl.tsx). */
+.acpmux-reserve {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-1, 4px);
+  padding: var(--ds-space-2, 8px);
+  min-width: 0;
+}
+.acpmux-reserve-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-2, 8px);
+}
+.acpmux-reserve-keep {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2, 8px);
+  min-width: 0;
+}
+.acpmux-reserve:not([data-on]) .acpmux-reserve-keep {
+  opacity: 0.5;
+}
+.acpmux-reserve-keep-label {
+  flex: none;
+  color: var(--agent-muted);
+}
+.acpmux-reserve-slider {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 8em;
+  max-width: 16em;
+}
+.acpmux-reserve-slider input[type="range"] {
+  width: 100%;
+  accent-color: var(--ds-accent, currentColor);
+}
+.acpmux-reserve-ticks {
+  display: flex;
+  justify-content: space-between;
+  color: var(--agent-muted);
+  font-size: 0.85em;
+}
+.acpmux-reserve-ticks > [data-on] {
+  color: inherit;
+  font-weight: 600;
+}
+.acpmux-reserve-shadow {
+  color: var(--agent-muted);
+}
+.acpmux-reserve-stops .acpmux-place-segbtn:disabled {
+  cursor: default;
+}

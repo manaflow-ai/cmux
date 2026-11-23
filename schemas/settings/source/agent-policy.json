@@ -994,6 +994,14 @@
     },
     {
       "agent": "userOnly",
+      "why": "Auto on reserve weighs the person's own share of this computer against Cloud machines they pay for: theirs to set (RFD 0072).",
+      "keys": [
+        "cloud.auto",
+        "cloud.autoReserve"
+      ]
+    },
+    {
+      "agent": "userOnly",
       "why": "The key chord the dictation mic posts to another app: only the person picks what cmux types into other apps.",
       "keys": [
         "agentPane.dictationShortcut"
