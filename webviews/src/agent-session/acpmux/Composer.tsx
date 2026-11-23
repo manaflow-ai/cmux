@@ -122,6 +122,7 @@ import {
   useDraftActionsVersion,
   writePersistedDraft,
 } from "./composerDraft";
+import { RESTORED_CHAT_EVENT, replacedRestoredDraft, restoredDraft } from "./chatSnapshot/restoredDraft";
 import type { MarkdownFieldHandle, MarkdownFieldProps } from "./MarkdownField";
 import { useT } from "./i18n";
 import { sendsHeldForHost } from "./sendWhenReady";
@@ -655,7 +656,10 @@ function ComposerFrame({
   const importInput = useRef<HTMLInputElement>(null);
   // Seed from the handshake before the editor mounts. The relaunch draft and the local cache can
   // arrive in the same render; preferring the host value keeps it visible through initialization.
-  const [text, setText] = useState(() => draft ?? readPersistedDraft(sessionId) ?? "");
+  // After a relaunch, the prompt the chat's drawn copy showed (chatSnapshot/restoredDraft.ts): it
+  // stands in for acpmux's draft until that read answers, so the composer is the copy's size from
+  // its first frame instead of one line until the connection is up.
+  const [text, setText] = useState(() => draft ?? readPersistedDraft(sessionId) ?? restoredDraft(sessionId) ?? "");
   const textRef = useRef(text);
   const [doneWhen, setDoneWhen] = useState("");
   const outcomeFieldId = useId();
@@ -953,7 +957,20 @@ function ComposerFrame({
     const history = draftHistory(session);
     const edited = editedBeforeHydration.current || history.edited;
     editedBeforeHydration.current = false;
-    const next = hydratedDraft({ current: currentText, restored: saved, ...history, edited });
+    // The prompt held is the relaunch copy's (chatSnapshot/restoredDraft.ts), acpmux's draft as last
+    // seen, never text typed for this read to merge: untouched, acpmux's draft replaces it (the same
+    // text, so nothing moves); typed on while acpmux still holds that draft, what was typed stays.
+    // Merged as typed text, an untouched copy's prompt would come back doubled.
+    const stoodIn = restoredDraft(session);
+    replacedRestoredDraft(session);
+    const onCopy = stoodIn !== undefined && (edited ? (saved ?? "") === stoodIn : currentText === stoodIn);
+    const next = hydratedDraft({
+      current: currentText,
+      restored: saved,
+      ...history,
+      read: history.read || onCopy,
+      edited,
+    });
     if (next.shown) {
       // Its own write (below) or none: the text effect does not write it again.
       restoringSession.current = next.text !== textRef.current;
@@ -1225,7 +1242,7 @@ function ComposerFrame({
       ? draftWasRead(sessionId)
         ? typedBefore
         : mergedDraft(typedBefore, restored || draft)
-      : restored || carried || draft || "";
+      : restored || carried || draft || restoredDraft(sessionId) || "";
     // Not yet acpmux's: the durable read merges it with acpmux's draft and writes the result.
     if (typedBefore.trim()) {
       editedBeforeHydration.current = true;
@@ -1307,6 +1324,24 @@ function ComposerFrame({
       current = false;
     };
   }, [sessionId, draftActionsVersion, onDraftSettled]);
+  // The relaunch copy's script loads `async`, so it can land after this composer mounted: its prompt
+  // still goes in before acpmux's read answers, while nothing was typed and the prompt is empty.
+  useEffect(() => {
+    if (!sessionId) return;
+    const take = () => {
+      if (hydratedSession.current === sessionId || editedBeforeHydration.current) return;
+      const shown = restoredDraft(sessionId);
+      if (!shown || (field.current?.value() ?? textRef.current).trim()) return;
+      notTyped();
+      if (field.current && field.current.value() !== shown) field.current.reset(shown);
+      textRef.current = shown;
+      setText(shown);
+      setCaret(shown.length);
+      pendingCaret.current = shown.length;
+    };
+    window.addEventListener(RESTORED_CHAT_EVENT, take);
+    return () => window.removeEventListener(RESTORED_CHAT_EVENT, take);
+  }, [sessionId]);
   useEffect(() => {
     if (restoringSession.current) {
       restoringSession.current = false;
