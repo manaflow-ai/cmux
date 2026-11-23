@@ -126,3 +126,34 @@ test("the minimap reads the same current-session relationship as the transcript"
   expect(render("parent")).toContain("Sub-session · syntax-check");
   expect(render("another-session")).toContain("syntax-check · Other session");
 });
+
+// Leo, 2026-11-23: "the send/recieve messages are still only the older names".
+test("a received line names its sender by the given name, listed or carried by the message", () => {
+  const listed = sessionEntry({
+    sessionId: "coord-old",
+    name: "studio-mac/claude-sr2-coord-old",
+    peer: "studio-mac",
+    displayName: "Mango",
+  });
+  const identity = resolveSenderIdentity({ name: "studio-mac/claude-sr2-coord-old", sessionId: "coord-old" }, listed);
+  expect(identity.name).toBe("Mango");
+  expect(identity.host).toBe("studio-mac");
+  // Not listed here (an older peer's row): the name its message carried.
+  expect(resolveSenderIdentity({ name: "claude-sr2-coord-old", displayName: "Mango" }).name).toBe("Mango");
+  // No given name: the session's name, as before.
+  expect(resolveSenderIdentity({ name: "lane-a" }).name).toBe("lane-a");
+
+  const message = incomingPrompt("PR is green", {
+    client: "acpmux-peer#fixture",
+    _meta: {
+      provenance: {
+        kind: "agent_message",
+        from: "fromAgent",
+        fromName: "studio-mac/claude-sr2-coord-old",
+        fromDisplayName: "Mango",
+      },
+    },
+  });
+  expect(message?.kind === "message" && message.message.displayName).toBe("Mango");
+  expect(message?.kind === "message" && message.message.name).toBe("studio-mac/claude-sr2-coord-old");
+});

@@ -627,11 +627,16 @@ export function useSenderIdentity(sender: SenderReference, viewerSessionId?: str
   return useMemo(
     () =>
       resolveSenderIdentity(
-        { name: sender.name, sessionId: sender.sessionId, relation: sender.relation },
+        {
+          name: sender.name,
+          sessionId: sender.sessionId,
+          relation: sender.relation,
+          ...(sender.displayName && { displayName: sender.displayName }),
+        },
         entry,
         viewerSessionId,
       ),
-    [sender.name, sender.sessionId, sender.relation, entry, viewerSessionId],
+    [sender.name, sender.sessionId, sender.relation, sender.displayName, entry, viewerSessionId],
   );
 }
 

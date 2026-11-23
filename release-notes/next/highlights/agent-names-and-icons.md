@@ -1,4 +1,6 @@
 title: Agents show the name and icon they were given
 category: improved
+docs: https://cmux.com/docs/next/agents
+gallery: agent-pane.remote-sender/given-name
 
-Give a chat a name with `acpmux rename @ Mango --handle` and an icon with `acpmux icon @ 🥭` (an emoji, an SF Symbol, an SVG or a site's favicon). Chat lists and notices show that name, and old names keep working as aliases.
+Give a chat a name with `acpmux rename @ Mango --handle` and an icon with `acpmux icon @ 🥭` (an emoji, an SF Symbol, an SVG or a site's favicon). Chat lists, notices and messages show that name, and old names keep working as aliases.

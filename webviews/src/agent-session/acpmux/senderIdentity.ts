@@ -1,7 +1,13 @@
 import type { AcpmuxSessionEntry } from "./sessionList";
 import type { IncomingRelation } from "./conversation/incomingMessage";
 
-export type SenderReference = { name: string; sessionId?: string; relation?: IncomingRelation };
+export type SenderReference = {
+  name: string;
+  sessionId?: string;
+  relation?: IncomingRelation;
+  /** The sender's given name as its message carried it (acpmux `fromDisplayName`). */
+  displayName?: string;
+};
 export type SenderIdentity = SenderReference & { harness?: string; host?: string; known: boolean };
 
 /** Strip only the peer prefix the session metadata identifies. A slash alone proves no host. */
@@ -21,7 +27,11 @@ export function resolveSenderIdentity(
   const relation =
     sender.relation ??
     (sender.sessionId === entry?.sessionId && viewerSessionId && parent === viewerSessionId ? "subsession" : undefined);
+  // A given name reads first (Leo, 2026-11-23: "the send/recieve messages are still only the
+  // older names"): the listed chat's own, else the one its message carried.
   const name =
+    entry?.displayName?.trim() ||
+    sender.displayName?.trim() ||
     senderSessionName(entry?.shortName ?? "", entry?.peer) ||
     senderSessionName(entry?.name ?? "", entry?.peer) ||
     senderSessionName(sender.name, entry?.peer);

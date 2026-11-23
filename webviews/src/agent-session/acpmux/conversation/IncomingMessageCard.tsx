@@ -171,11 +171,15 @@ function NoticeTitle({ notice }: { notice: AgentNotice }) {
 /// The name a received line gives its sender: the recorded session's own, from the session metadata
 /// (senderIdentity.ts), as its preview and session card name it, whatever name the message fell back
 /// to (a raw `acp:<id>` when its provenance carried no `fromName`). A Chief, an app's persona and a
-/// person name themselves.
+/// person name themselves. A sender with a given name (`acpmux rename @ Mango --handle`) reads by it.
 function useSenderSessionName(message: IncomingMessage, person: boolean): string {
   const session = !person && !message.chief && !message.app ? message.sessionId : undefined;
-  const identity = useSenderIdentity({ name: session ? message.name : "", ...(session && { sessionId: session }) });
-  return session ? identity.name : message.name;
+  const identity = useSenderIdentity({
+    name: session ? message.name : "",
+    ...(session && { sessionId: session }),
+    ...(session && message.displayName && { displayName: message.displayName }),
+  });
+  return session ? identity.name : (message.displayName ?? message.name);
 }
 
 /// The sender's mark and name at a received line's start (and a waiting group's sender head,
