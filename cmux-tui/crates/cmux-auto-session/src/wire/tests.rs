@@ -265,3 +265,26 @@ fn a_gap_and_an_incomplete_snapshot_say_what_the_store_has() {
     );
     assert_eq!(incomplete.missing, ["aa", "bb"]);
 }
+
+#[test]
+fn a_refusal_about_a_chat_carries_the_chat() {
+    let text = format!(
+        r#"{{ "error": {{ "code": "auto.stale_epoch", "message": "epoch 1 is over" }},
+              "session": {} }}"#,
+        session_text("vm:m1", "cloud")
+    );
+    let refused: ErrorEnvelope = round_trip(&text);
+    let session = refused.session.expect("the chat");
+    assert_eq!((session.holder, session.epoch), (Holder::vm("m1"), 1));
+    assert_eq!(session.team.as_deref(), Some("…"));
+}
+
+#[test]
+fn a_chat_with_no_team_reads() {
+    let session: SessionView = serde_json::from_value(json!({
+        "id": "s1", "team": null, "auto": true, "holder": "device:mac", "epoch": 1,
+        "state": "local", "version": 1
+    }))
+    .expect("a null team reads");
+    assert_eq!(session.team, None);
+}

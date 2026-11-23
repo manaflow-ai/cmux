@@ -37,8 +37,10 @@ pub trait AutoCloud: Send + Sync {
     ) -> impl Future<Output = CloudResult<MachineSetting>> + Send;
 
     /// `PUT /:id` (owner): switch Auto on or off for a chat. The first call makes it, held by
-    /// `device:<device>` at epoch 1. `auto: false` closes it: `auto.held_in_cloud` while a
-    /// machine holds it.
+    /// `device:<device>` at epoch 1; a later one updates what it names and opens a closed chat
+    /// again, empty, at the next epoch. `auto: false` closes it and drops its Cloud copy:
+    /// `auto.held_in_cloud` while a machine holds it, for a parked chat a machine ran last, and
+    /// for a parked chat with an unread message.
     fn put(
         &self,
         id: &str,
@@ -46,24 +48,25 @@ pub trait AutoCloud: Send + Sync {
     ) -> impl Future<Output = CloudResult<SessionView>> + Send;
 
     /// `POST /` (owner): a chat started with no laptop. The Auto machine holds it, with a
-    /// `create` assignment; `auto.no_machine` without one.
+    /// `create` assignment; `auto.no_machine` without one. The chat's id comes from the first
+    /// message's id, so the same request again answers the same chat.
     fn create(
         &self,
         request: &CreateRequest,
     ) -> impl Future<Output = CloudResult<SessionView>> + Send;
 
-    /// `GET /?limit=&cursor=` (owner): one page of the owner's chats.
+    /// `GET /?limit=&cursor=` (owner): one page of the owner's open chats, newest first.
     fn list(
         &self,
         limit: Option<u32>,
         cursor: Option<&str>,
     ) -> impl Future<Output = CloudResult<SessionList>> + Send;
 
-    /// `GET /:id` (owner, machine).
+    /// `GET /:id` (owner, machine). A machine reads only a chat it holds; any other is 404.
     fn get(&self, id: &str) -> impl Future<Output = CloudResult<SessionView>> + Send;
 
-    /// `GET /:id/wait` (owner): the chat once its version passes `after`, or as it is at the
-    /// deadline. The store holds it at most [`crate::consts::WAIT_MAX_MS`].
+    /// `GET /:id/wait` (owner): the chat once its version passes `after` or it is closed, or
+    /// as it is at the deadline. The store holds it at most [`crate::consts::WAIT_MAX_MS`].
     fn wait(
         &self,
         id: &str,
@@ -71,15 +74,17 @@ pub trait AutoCloud: Send + Sync {
         timeout_ms: u64,
     ) -> impl Future<Output = CloudResult<SessionView>> + Send;
 
-    /// `POST /:id/lease` (owner, machine): renew as the holder or as a laptop standing by.
+    /// `POST /:id/lease` (owner, machine): renew as the holder or as a laptop standing by. The
+    /// answer is a [`Role`](crate::wire::Role), never `auto.stale_epoch`.
     fn lease(
         &self,
         id: &str,
         request: &LeaseRequest,
     ) -> impl Future<Output = CloudResult<LeaseAnswer>> + Send;
 
-    /// `POST /:id/release` (holder): give the chat up. It goes to the standby laptop, or is
-    /// parked.
+    /// `POST /:id/release` (holder): give the chat up. A machine's chat goes to the standby
+    /// laptop. Otherwise it is parked, unless a message is unread: then it goes to the Auto
+    /// machine, or stays with the Auto machine that released it, with a `deliver` to pick up.
     fn release(
         &self,
         id: &str,
@@ -116,7 +121,8 @@ pub trait AutoCloud: Send + Sync {
     fn chunk(&self, id: &str, sha256: &str) -> impl Future<Output = CloudResult<Vec<u8>>> + Send;
 
     /// `POST /:id/snapshot` (holder): answers the snapshot's number;
-    /// `auto.snapshot_incomplete` names the chunks the store lacks.
+    /// `auto.snapshot_incomplete` names the chunks the store lacks. It covers the chat only
+    /// through the events the store has, so the events go first.
     fn post_snapshot(
         &self,
         id: &str,
@@ -134,7 +140,8 @@ pub trait AutoCloud: Send + Sync {
         message: &InboxPost,
     ) -> impl Future<Output = CloudResult<InboxPosted>> + Send;
 
-    /// `GET /:id/inbox?after=` (holder): the messages after number `after`.
+    /// `GET /:id/inbox?after=` (owner, machine): the messages after number `after` that the
+    /// holder has not acked, at most 64.
     fn inbox(
         &self,
         id: &str,
@@ -162,7 +169,8 @@ pub trait AutoCloud: Send + Sync {
         timeout_ms: u64,
     ) -> impl Future<Output = CloudResult<Vec<Assignment>>> + Send;
 
-    /// `POST /:id/assignment/ack` (machine): the import is done.
+    /// `POST /:id/assignment/ack` (machine): the machine picked up what it was given. While an
+    /// inbox message is unread it keeps a `deliver`, so the inbox is acked first.
     fn ack_assignment(
         &self,
         id: &str,

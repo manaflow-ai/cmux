@@ -2,7 +2,7 @@
 
 use std::fmt;
 
-use crate::wire::{ErrorCode, ErrorEnvelope};
+use crate::wire::{ErrorCode, ErrorEnvelope, SessionView};
 
 /// A failed call. It keeps the `auto.*` code, tells an answer from no answer, and says whether
 /// the same call can be sent again.
@@ -17,6 +17,8 @@ pub enum AutoCloudError {
         /// body was no error envelope.
         raw_code: String,
         message: String,
+        /// The chat as it is now, on a refusal about a chat the caller may see.
+        session: Option<Box<SessionView>>,
         /// `auto.seq_gap`: the last seq the store has.
         last_seq: Option<u64>,
         /// `auto.snapshot_incomplete`: the chunks the store does not have.
@@ -36,9 +38,19 @@ impl AutoCloudError {
             code: Some(code),
             raw_code: code.as_str().to_owned(),
             message: message.into(),
+            session: None,
             last_seq: None,
             missing: Vec::new(),
         }
+    }
+
+    /// The same error, carrying the chat as it is now.
+    #[must_use]
+    pub fn with_session(mut self, view: SessionView) -> AutoCloudError {
+        if let AutoCloudError::Http { session, .. } = &mut self {
+            *session = Some(Box::new(view));
+        }
+        self
     }
 
     /// An error answer with a code that is not `auto.*`.
@@ -48,6 +60,7 @@ impl AutoCloudError {
             code: ErrorCode::parse(code),
             raw_code: code.to_owned(),
             message: message.into(),
+            session: None,
             last_seq: None,
             missing: Vec::new(),
         }
@@ -69,6 +82,7 @@ impl AutoCloudError {
                 code: envelope.code(),
                 raw_code: envelope.error.code,
                 message: envelope.error.message,
+                session: envelope.session.map(Box::new),
                 last_seq: envelope.last_seq,
                 missing: envelope.missing,
             },
@@ -77,9 +91,18 @@ impl AutoCloudError {
                 code: None,
                 raw_code: String::new(),
                 message: format!("HTTP {status}"),
+                session: None,
                 last_seq: None,
                 missing: Vec::new(),
             },
+        }
+    }
+
+    /// The chat as the store has it now, when the refusal carried it.
+    pub fn session(&self) -> Option<&SessionView> {
+        match self {
+            AutoCloudError::Http { session, .. } => session.as_deref(),
+            AutoCloudError::Transport { .. } | AutoCloudError::Decoding { .. } => None,
         }
     }
 
@@ -136,8 +159,11 @@ impl AutoCloudError {
     /// arrived or it could not be read.
     pub fn envelope(&self) -> Option<(u16, ErrorEnvelope)> {
         match self {
-            AutoCloudError::Http { status, raw_code, message, last_seq, missing, .. } => {
+            AutoCloudError::Http {
+                status, raw_code, message, session, last_seq, missing, ..
+            } => {
                 let mut envelope = ErrorEnvelope::new(raw_code, message.clone());
+                envelope.session = session.as_deref().cloned();
                 envelope.last_seq = *last_seq;
                 envelope.missing = missing.clone();
                 Some((*status, envelope))

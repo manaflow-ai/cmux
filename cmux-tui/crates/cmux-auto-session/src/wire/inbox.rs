@@ -11,15 +11,16 @@ pub struct InboxPost {
     pub text: String,
 }
 
-/// Where a sent message is.
+/// What the sender of a message is told. The same id again is answered what the first was.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Delivery {
-    /// The holder acked it.
+    /// A holder that is running reads it: a laptop, or a machine that acked its assignment and
+    /// has a live lease.
     Delivered,
     /// A machine is being started for it. The sender shows "Resuming".
     Resuming,
-    /// It waits for the holder's next drain.
+    /// Nobody can run the chat until the owner has an Auto machine or a laptop comes back.
     Queued,
 }
 

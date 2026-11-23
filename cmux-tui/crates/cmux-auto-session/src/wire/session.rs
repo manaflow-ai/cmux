@@ -77,8 +77,10 @@ pub struct SessionView {
     pub title: String,
     #[serde(default)]
     pub harness: String,
+    /// The team the chat runs in: its creator's, then its machine's. The store answers `null`
+    /// for a chat whose creator has none.
     #[serde(default)]
-    pub team: String,
+    pub team: Option<String>,
     #[serde(default)]
     pub owner: String,
     /// False once Auto was switched off for the chat (the chat is closed in the store).
@@ -96,7 +98,8 @@ pub struct SessionView {
     /// task at work.
     #[serde(default)]
     pub needs_run: bool,
-    /// The laptops that are online and not the holder.
+    /// The laptops that are online and not the holder: each renewed as standby within the last
+    /// lease.
     #[serde(default)]
     pub standby: Vec<Holder>,
     /// The last event seq the store has.
@@ -119,7 +122,8 @@ pub struct SessionView {
     pub created_at: u64,
     #[serde(default)]
     pub updated_at: u64,
-    /// When the holder's lease runs out without another renewal.
+    /// When the holder's lease runs out without another renewal. 0 for a parked chat and for a
+    /// machine that has not acked its assignment yet.
     #[serde(default)]
     pub lease_expires_at: u64,
 }
@@ -130,8 +134,10 @@ impl SessionView {
         self.inbox > self.inbox_acked
     }
 
-    /// A handback is due at the holder's next turn end: a machine holds the chat, a laptop
-    /// stands by and the chat is not kept in the Cloud.
+    /// A handback is due: a machine holds the chat, a laptop stands by and the chat is not kept
+    /// in the Cloud. The store gives the chat home at the machine's next renewal that says
+    /// nothing is left to run, once the inbox and the assignment are acked and the newest
+    /// snapshot covers the last event.
     pub fn handback_due(&self) -> bool {
         self.holder.is_vm() && !self.keep_in_cloud && !self.standby.is_empty()
     }

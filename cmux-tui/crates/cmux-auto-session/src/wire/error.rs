@@ -4,19 +4,23 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
+use super::SessionView;
+
 /// Every `auto.*` code the store answers.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ErrorCode {
-    /// The write names a holder and epoch that are not current.
+    /// The write names an epoch that is over. A renewal is never answered this: its answer is
+    /// a role.
     #[serde(rename = "auto.stale_epoch")]
     StaleEpoch,
-    /// The caller is not the chat's holder.
+    /// The caller cannot write as the holder it names, or that holder is not the chat's.
     #[serde(rename = "auto.not_holder")]
     NotHolder,
     /// The owner has no Auto machine.
     #[serde(rename = "auto.no_machine")]
     NoMachine,
-    /// Auto cannot be switched off while a machine holds the chat.
+    /// Auto cannot be switched off while the Cloud has something no laptop has: a machine
+    /// holds the chat, a machine ran a parked chat last, or a parked chat has an unread message.
     #[serde(rename = "auto.held_in_cloud")]
     HeldInCloud,
     /// An append skipped a seq. The envelope carries the store's `lastSeq`.
@@ -31,7 +35,8 @@ pub enum ErrorCode {
     /// A chunk's bytes do not hash to its name.
     #[serde(rename = "auto.chunk_mismatch")]
     ChunkMismatch,
-    /// The chat's snapshot is past the size cap.
+    /// Past a size limit: a chunk, a request body, a manifest, the chat's snapshot or events,
+    /// or the messages waiting in its inbox.
     #[serde(rename = "auto.too_large")]
     TooLarge,
     /// Auto was switched off for the chat.
@@ -79,14 +84,15 @@ impl ErrorCode {
             ErrorCode::NoSnapshot => 404,
             ErrorCode::ChunkMismatch => 400,
             ErrorCode::TooLarge => 413,
-            ErrorCode::Closed => 410,
-            // `GET /machine` answers 404 for it; `POST /v1/auto-sessions` answers 409.
+            // `GET /machine` answers 404 for `auto.no_machine`; `POST /v1/auto-sessions`
+            // answers 409.
             ErrorCode::NoMachine
             | ErrorCode::StaleEpoch
             | ErrorCode::NotHolder
             | ErrorCode::HeldInCloud
             | ErrorCode::SeqGap
-            | ErrorCode::SnapshotIncomplete => 409,
+            | ErrorCode::SnapshotIncomplete
+            | ErrorCode::Closed => 409,
         }
     }
 }
@@ -106,12 +112,15 @@ pub struct ErrorBody {
     pub message: String,
 }
 
-/// An error answer. Beside `error`, in the hand-off routes' shape: `auto.seq_gap` carries the
-/// store's `lastSeq` and `auto.snapshot_incomplete` the `missing` chunks.
+/// An error answer: `{error: {code, message}, session?, lastSeq?, missing?}`. A refusal about
+/// a chat the caller may see carries the chat as it is now (`session`); `auto.seq_gap` carries
+/// the store's `lastSeq` and `auto.snapshot_incomplete` the `missing` chunks.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ErrorEnvelope {
     pub error: ErrorBody,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session: Option<SessionView>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_seq: Option<u64>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -122,6 +131,7 @@ impl ErrorEnvelope {
     pub fn new(code: &str, message: impl Into<String>) -> ErrorEnvelope {
         ErrorEnvelope {
             error: ErrorBody { code: code.to_owned(), message: message.into() },
+            session: None,
             last_seq: None,
             missing: Vec::new(),
         }

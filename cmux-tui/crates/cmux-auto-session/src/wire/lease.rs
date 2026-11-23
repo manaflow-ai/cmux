@@ -4,15 +4,19 @@ use serde::{Deserialize, Serialize};
 
 use super::{Holder, SessionView};
 
-/// What the store made of a renewal.
+/// What the store made of a renewal. A renewal is answered a role, never `auto.stale_epoch`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Role {
-    /// The caller holds the chat, at the epoch in the answer's `session`.
+    /// The chat is the caller's, at the epoch in the answer's `session`. To a renewal that is
+    /// not a standby's: go on as you are. To a standby's renewal: the chat was given to this
+    /// laptop, which imports the Cloud copy first.
     Holder,
-    /// Another holder runs it; the caller is listed as a laptop to hand it back to.
+    /// Another holder runs it; the caller is remembered as a laptop to hand it back to, for a
+    /// lease's length from this renewal.
     Standby,
-    /// The caller held it and no longer does.
+    /// What the caller runs is not the chat any more: stop it, then renew as standby. A machine
+    /// whose chat went home to a laptop is answered this too.
     Lost,
 }
 
@@ -33,12 +37,15 @@ impl Role {
 #[serde(rename_all = "camelCase")]
 pub struct LeaseRequest {
     pub holder: Holder,
-    /// The epoch the caller last knew.
+    /// The epoch the caller last knew. The laptop whose lease ran straight into `parked` takes
+    /// its chat back as it is by renewing with the epoch it held.
     pub epoch: u64,
-    /// A turn runs, a prompt is queued or a background task is at work. When the lease runs
-    /// out, this decides between a takeover and parking.
+    /// A turn runs, a prompt is queued or a background task is at work. When a laptop's lease
+    /// runs out, this (or an unacked inbox message) decides between a takeover and parking. A
+    /// machine that says `false` with everything acked and copied gives the chat home.
     pub needs_run: bool,
-    /// A laptop that is online and not the holder renews with `true`.
+    /// A laptop that is online and not the holder renews with `true`. A standby's renewal also
+    /// takes a parked chat, unless the chat is kept in the Cloud.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub standby: Option<bool>,
 }
