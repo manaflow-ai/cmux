@@ -98,11 +98,11 @@ real_env="$(command -v env)"
 real_grep="$(command -v grep)"
 cat >"$fakes/record.sh" <<EOF
 # Sourced by every shim and fake: record argv and the environment check.
-{
-  printf '%s' "\${0##*/}"
-  for a in "\$@"; do printf ' %s' "\$a"; done
-  printf '\n'
-} >>"\$JT_LOG/argv"
+# One write per line: a pipeline's tools (curl | head) record at the same
+# time, and a line written in pieces interleaves with the other's.
+jt_line="\${0##*/}"
+for a in "\$@"; do jt_line="\$jt_line \$a"; done
+printf '%s\n' "\$jt_line" >>"\$JT_LOG/argv"
 if [ -n "\${CMUX_JOIN+x}" ] || "$real_env" | "$real_grep" -q cmj_; then
   printf '%s\n' "\${0##*/}" >>"\$JT_LOG/env-leak"
 fi
