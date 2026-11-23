@@ -6,6 +6,25 @@ one feature of one app sit at `looks/APP/FEATURE/`. Small starters, one per part
 in [`../gallery`](../gallery). [`../gallery/gallery.json`](../gallery/gallery.json) indexes
 the whole looks and the starters; add an entry for a new one.
 
+## Looks written only on public surfaces
+
+These five are written the way anyone outside the cmux team could write a look: a theme file, a few
+settings, a stylesheet of public chat tokens (`cmux.agentPane.style/1`) and a sidebar view
+([docs/cmux-next/look-addons.md](../../docs/cmux-next/look-addons.md)).
+
+| Look | What it is |
+| --- | --- |
+| [`gel`](gel) | Soft sea-glass tonal surfaces, glass where layers float, the flush corner with goo fillets |
+| [`grove`](grove) | A forest look: unbleached paper by day, night forest by dark, moss ink, frosted-air glass over a painted grove |
+| [`aurora`](aurora) | Clear glass chrome over your desktop, a solid chat, a teal-to-violet accent used sparingly; light and dark |
+| [`studio`](studio) | A dense workbench in dark, light and ember: quiet chrome, compact rows, a filled prompt with soft corners |
+| [`paper`](paper) | A warm, roomy reading look: serif replies on paper, soft rounded prompts |
+
+[`looks.json`](looks.json) lists them and the built-in preset each recreates, if any. Besides the
+gallery test, CI installs each one (`cmux-customize` `tests/example_looks.rs`), holds its stylesheet
+to the public token list (`bun run check:look-addons`), and draws it in the real chat to check that
+nothing moves (`webviews/test/browser/look-addons.test.ts`).
+
 ## The folder
 
 ```
