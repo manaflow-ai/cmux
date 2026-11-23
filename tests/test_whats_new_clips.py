@@ -581,6 +581,15 @@ class NightlyTourTests(unittest.TestCase):
         argv = loaded["harness_fixture"]["harnesses"]["fake"]["argv"]
         self.assertEqual(argv, ["/usr/bin/python3", str(SCRIPT.parents[3] / "agent.py")])
 
+    def test_a_menu_clip_records_the_apps_menus(self):
+        # customizations-menu: the native menu is its own window, so its clip asks tour.py for the app's menus.
+        self.assertEqual(clips.spec_problems({**SPEC, "menus": True}), [])
+        self.assertTrue(clips.spec_problems({**SPEC, "menus": "yes"}))
+        self.assertTrue(clips.spec_problems({**IPHONE_SPEC, "menus": True}))
+        self.assertIs(clips.tour_from_spec({**SPEC, "menus": True}, "T")["menus"], True)
+        self.assertNotIn("menus", clips.tour_from_spec(SPEC, "T"))
+        self.assertIs(clips.load_spec("customizations-menu").get("menus"), True)
+
     def test_write_tours_makes_the_route_jobs_plan_into_tours_and_drops_a_row_with_no_spec(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
