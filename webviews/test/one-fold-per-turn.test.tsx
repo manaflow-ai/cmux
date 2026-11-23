@@ -164,6 +164,7 @@ test("a plain turn's opened run line starts closed, as before", async () => {
 // plain work does. Every one of those rows is one 22px tool line (design/chat-transcript.md "One-line row pitch"), so the drawn
 // height is the count of `.cv-tool` lines and sent-message rows (`.cv-sent-msg`, one each) times 22.
 const LINE = 22;
+const FOLD_GAP = 4;
 const read = (id: string): AcpmuxActivity => ({
   kind: "tool",
   text: "Read",
@@ -211,7 +212,10 @@ for (const [name, run, lines] of [
       (node) => !node.parentElement?.closest(".cv-sent-msg"),
     ).length;
     expect(drawn).toBe(lines);
-    expect([...layoutConversation([run], 720).heights][0]).toBe(drawn * LINE);
+    // Each open body stands its line's gap over its steps, inside the fold (conversation.css
+    // `.cv-tools > * + .cv-fold::before`, 4 px), and the estimate holds it too since #46119.
+    const bodies = [...host.querySelectorAll(".cv-tools > * + .cv-fold")].length;
+    expect([...layoutConversation([run], 720).heights][0]).toBe(drawn * LINE + bodies * FOLD_GAP);
   });
 
 // The `header` arm's line names the work it holds, and the memoized row redraws when that changes

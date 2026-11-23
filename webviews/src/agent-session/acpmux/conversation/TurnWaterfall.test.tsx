@@ -83,7 +83,8 @@ test("an opened waterfall's bars open their calls, and a long one draws its firs
       <TurnWaterfall row={row} work={work} />
     </TurnActionsContext.Provider>,
   );
-  expect(linked.match(/<button type="button" class="cv-waterfall__span/g)?.length).toBe(WATERFALL_FIRST);
+  // Each bar describes itself through WithFacts (FactsHoverCard.tsx), whose aria-describedby comes first.
+  expect(linked.match(/<button [^>]*class="cv-waterfall__span/g)?.length).toBe(WATERFALL_FIRST);
   expect(linked).toContain('data-tool-id="c0"');
   expect(linked).not.toContain(`data-tool-id="c${WATERFALL_FIRST}"`);
   expect(linked).toContain("Show 5 more");
@@ -284,7 +285,8 @@ test("the turn's time outside every call is a last Model row, so the rows add up
   const markup = renderToStaticMarkup(
     <TurnWaterfall row={{ at: 14_100, durationMs: 14_100 }} work={[call("a", 0, 2_700)]} />,
   );
-  const model = markup.match(/<div class="cv-waterfall__span is-model"[^>]*>(.*?)<\/div><\/li>/)?.[1] ?? "";
+  // The row and the hidden description WithFacts draws beside it (FactsHoverCard.tsx), which says what it is.
+  const model = markup.match(/<div [^>]*class="cv-waterfall__span is-model"[^>]*>(.*?)<\/li>/)?.[1] ?? "";
   expect(model).toContain("Model, no tool running");
   expect(model).toContain(">11.4s<");
   // It comes after the call's row and is not a link to any call.
