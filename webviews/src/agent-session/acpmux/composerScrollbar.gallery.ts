@@ -77,8 +77,14 @@ export default agentPaneEntry({
   widths: { narrow: 400, normal: 760, wide: 1100 },
   covers: ["agent-session/acpmux/composerScrollLane.ts"],
   variants: {
-    lane: variant("lane", "Shipped: in a lane between the draft and the mic and Send, to the box's bottom inset (Claude desktop)."),
-    edge: variant("edge", "Down the box's right edge, stopping above Send (shipped before: it stopped on the buttons' tops)."),
+    lane: variant(
+      "lane",
+      "Shipped: in a lane between the draft and the mic and Send, to the box's bottom inset (Claude desktop).",
+    ),
+    edge: variant(
+      "edge",
+      "Down the box's right edge, stopping above Send (shipped before: it stopped on the buttons' tops).",
+    ),
     "edge-full": variant("edge-full", "Down the box's right edge for its full height, beside the mic and Send."),
     outside: variant("outside", "Just outside the box's right edge, in the column's gutter (Codex desktop)."),
   },
