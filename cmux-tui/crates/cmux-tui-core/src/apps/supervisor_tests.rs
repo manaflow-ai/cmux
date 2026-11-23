@@ -190,6 +190,13 @@ fn scripted_app_host() {
                         message: format!("open {}", args["url"]),
                     });
                 }
+                if args.get("action").is_some() {
+                    // A message action (`cmux.chat.action/1`): what it was asked to run on.
+                    send(FromHost::Log {
+                        level: "info".into(),
+                        message: format!("chat-action {args}"),
+                    });
+                }
                 if let Some(gesture) = &gesture {
                     send(FromHost::Log {
                         level: "info".into(),
@@ -1328,6 +1335,8 @@ fn apps_list_shows_scope_classes_and_elevated_grants_need_the_user() {
     assert_eq!(granted["grants"], json!(["terminal:backend", "workspace:read"]));
 }
 
+#[path = "supervisor_chat_action_tests.rs"]
+mod chat_actions;
 #[path = "supervisor_chat_widget_tests.rs"]
 mod chat_widgets;
 #[path = "supervisor_community_tests.rs"]
