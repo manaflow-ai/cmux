@@ -154,3 +154,35 @@ test("a person's row is one button for their role, with Remove its own button be
   await settle();
   expect(calls).toEqual(["role @sam talk"]);
 });
+
+// An invite nobody opened yet says so under the name; one in the chat now says that instead.
+test("a pending invitee's row says they haven't opened it yet", async () => {
+  const container = installDom();
+  const view: ShareView = {
+    ...shared,
+    people: [
+      { account: "@new", role: "view", joined: false, opened: false },
+      { account: "@here", role: "talk", joined: true, opened: true },
+      { account: "@left", role: "view", joined: false, opened: true },
+    ],
+  };
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <ShareDialogBody
+        chat="Add retries"
+        view={view}
+        onInvite={() => {}}
+        onRole={() => {}}
+        onRemove={() => {}}
+        onGeneral={() => {}}
+        onCopy={() => {}}
+        onDone={() => {}}
+      />,
+    );
+  });
+  const hints = [...container.querySelectorAll(".share-dialog__people li")].map(
+    (row) => row.querySelector(".share-dialog__hint")?.textContent ?? null,
+  );
+  expect(hints).toEqual([null, translate("share.notJoined"), translate("share.inChatNow"), null]);
+});

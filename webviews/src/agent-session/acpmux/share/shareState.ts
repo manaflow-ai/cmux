@@ -171,6 +171,19 @@ export function normalAccount(text: string): string {
   return text.trim().toLowerCase();
 }
 
+/** What Invite does with `account`: someone already with access keeps one row, so the same role
+ * again only says so (`already`) and another role changes theirs (`role`; the daemon refuses a
+ * second invite with another role, `share.invited`); anyone else is invited. */
+export function inviteStep(
+  view: ShareView,
+  account: string,
+  role: ShareRole,
+): { kind: "invite" } | { kind: "already" | "role"; account: string } {
+  const known = view.people.find((person) => person.account === normalAccount(account));
+  if (!known) return { kind: "invite" };
+  return { kind: known.role === role ? "already" : "role", account: known.account };
+}
+
 /** Whether `text` reads as an account the daemon takes: an email address or a cmux `@handle`. */
 export function isAccount(text: string): boolean {
   const value = text.trim();

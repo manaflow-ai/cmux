@@ -15,7 +15,7 @@ import { useT, translate } from "../i18n";
 import { copyTextResult } from "../conversation/clipboard";
 import { ShareDialogBody } from "./ShareDialog";
 import {
-  normalAccount,
+  inviteStep,
   shareClient,
   shareView,
   type GeneralAccess,
@@ -123,9 +123,9 @@ export function ShareDialogHost({
   // Inviting someone who already has access sets their role (the daemon refuses a second invite
   // with another role, `share.invited`), and the same role again just says they have access.
   const invite = (account: string, role: ShareRole) => {
-    const known = view.people.find((person) => person.account === normalAccount(account));
-    if (known?.role === role) return setStatus(translate("share.error.alreadyIn", { account: known.account }));
-    void step(() => (known ? client.setRole(known.account, role) : client.invite(account, role)));
+    const next = inviteStep(view, account, role);
+    if (next.kind === "already") return setStatus(translate("share.error.alreadyIn", { account: next.account }));
+    void step(() => (next.kind === "role" ? client.setRole(next.account, role) : client.invite(account, role)));
   };
   const general = (access: GeneralAccess) =>
     void step(async () => {
