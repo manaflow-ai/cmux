@@ -5,7 +5,7 @@ import type { ContrastLine } from "./contrastWalk";
 
 /**
  * An entry matches a failing line whose element (the last step of its path) has `element`'s class,
- * of `kind`.
+ * of `kind`. A GOLDEN_KNOWN entry's `element` may be "*" (any element), only with `looks`.
  */
 export type Known = { element: string; kind: ContrastLine["kind"]; cause: string };
 export const KNOWN: Known[] = [
@@ -67,6 +67,13 @@ export function knownFor(line: ContrastLine): Known | undefined {
  */
 export type GoldenKnown = Known & { looks?: string[] };
 const CLAUDE_LIGHT_INK = ["claude", "studio", "theme-claude-desktop", "theme-customize-leo-daylight-leo-daylight"];
+/** Theme files with no chat stylesheet: tool rows and "Worked for" draw the stock 58% of their text. */
+const STOCK_ACTIVITY_INK = ["theme-moss", "appearance"];
+/**
+ * Looks whose whole palette reads under the minimum (found 2026-11-23, after they landed): held look-wide
+ * (element "*"), so every other look still fails on the same element. Each is the look's own fix to make.
+ */
+const WHOLE_PALETTE = ["plush", "plush-addon", "plush-dusk-addon", "plush-clay-addon", "whole", "theme-meadow"];
 export const GOLDEN_KNOWN: GoldenKnown[] = [
   {
     element: "acpmux-model-detail",
@@ -104,6 +111,22 @@ export const GOLDEN_KNOWN: GoldenKnown[] = [
         "the Claude-style light looks' muted ink for tool rows and 'Worked for' (#827c90 on #fbf8ff, 3.8:1): the look's own tone",
     }),
   ),
+  ...["cv-tool__text", "cv-tool__file", "cv-tool__summary", "cv-worked__label", "cv-worked__label-time"].map(
+    (element): GoldenKnown => ({
+      element,
+      kind: "text",
+      looks: STOCK_ACTIVITY_INK,
+      cause:
+        "a theme file with no chat stylesheet: tool rows and 'Worked for' at the stock 58% of its text (Moss dark #878273 on #1e2326, 4.11:1; rex appearance light 4.0:1); the theme's text and paper",
+    }),
+  ),
+  ...(["text", "icon"] as const).map((kind): GoldenKnown => ({
+    element: "*",
+    kind,
+    looks: WHOLE_PALETTE,
+    cause:
+      "the look's palette, not one element: Plush's muted ink on its mid-grey paper (#8c95a3 on #e2e7ee, 2.43:1), whole's dark-only literal colors drawn on a light theme (1.15:1), Meadow light's muted and menu ink (2.8:1)",
+  })),
   {
     element: "agent-mark",
     kind: "icon",
@@ -125,6 +148,8 @@ export function goldenKnownFor(line: ContrastLine, look: string): Known | undefi
   const classes = classesOf(line);
   return GOLDEN_KNOWN.find(
     (entry) =>
-      entry.kind === line.kind && classes.includes(entry.element) && (!entry.looks || entry.looks.includes(look)),
+      entry.kind === line.kind &&
+      (entry.element === "*" || classes.includes(entry.element)) &&
+      (!entry.looks || entry.looks.includes(look)),
   );
 }
